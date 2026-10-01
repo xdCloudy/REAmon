@@ -14,6 +14,8 @@ REAmon is an incremental fork of RedAmon. This table records the current boundar
 | PostgreSQL / Prisma | Existing durable application state | Workspace, target, artifact, task, evidence state | REPURPOSED | New schema is additive and keeps legacy records intact. |
 | Authentication / access control | Existing auth and project access checks | Workspace access control | UNCHANGED | New APIs reuse the existing effective-user and project-access guards. |
 | Docker orchestration | Existing self-hosted stack | Self-hosted REAmon stack | GENERALISING | Artifact persistence is added as a named volume; service boundaries remain reusable. |
+| Target import and artifact storage | No generic target import boundary | Transactional target profiler and artifact store | REPURPOSED | Arbitrary uploads are size-limited, hashed, profiled, persisted with evidence/activity, and rolled back with their bytes if the database transaction fails. |
+| Artifact retrieval | No workspace-scoped artifact delivery | Authenticated project-scoped download route | GENERALISING | Download paths are confined to the configured artifact root and return no-store responses; analysis providers should consume metadata rather than assume storage paths. |
 | Domain/IP scope forms | Pentest-specific scope concepts | Target and artifact import | DEPRECATED | Existing screens are retained while workspace flows replace them. |
 | Vulnerability-centric project flow | Pentest workflow | Findings, hypotheses, tasks, and evidence | DEPRECATED | Generic models are present; old flows still require migration. |
 | CVE / exploit workflow | Offensive-security-specific paths | Validation and research tasks | DEPRECATED | Do not remove until callers are isolated and an authorised research replacement exists. |
@@ -35,3 +37,6 @@ REAmon is an incremental fork of RedAmon. This table records the current boundar
 - Unknown input is persisted as a valid target profile rather than rejected.
 - The first profiler and providers are local, typed contracts. They do not require external analysis tools, making the UI and storage path testable in a minimal self-hosted deployment.
 - Artifact bytes are stored under a dedicated configurable volume. The service must never commit uploaded target data.
+- `REAMON_MAX_ARTIFACT_BYTES` is enforced before storage and is configurable per deployment; the default is deliberately conservative for the bootstrap.
+- Target import writes the file before the relational transaction, then removes those bytes if persistence fails. Artifact downloads require project access and cannot escape the configured storage root.
+- The current production image is validated through a compile/build smoke test and authenticated-route boundary checks; full legacy application migration remains tracked above rather than being hidden by the new workspace slice.

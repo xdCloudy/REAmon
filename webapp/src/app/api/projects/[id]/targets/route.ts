@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, unlink, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { NextResponse } from 'next/server'
 import { Prisma } from '@prisma/client'
@@ -20,7 +20,7 @@ function maxArtifactBytes(): number {
 }
 
 function artifactRoot(): string {
-  return process.env.REAMON_ARTIFACTS_PATH || path.join(process.cwd(), 'data', 'reamon-artifacts')
+  return path.resolve(process.env.REAMON_ARTIFACTS_PATH || path.join(process.cwd(), 'data', 'reamon-artifacts'))
 }
 
 export async function POST(request: Request, { params }: RouteParams) {
@@ -34,10 +34,11 @@ export async function POST(request: Request, { params }: RouteParams) {
     const form = await request.formData()
     const fileValue = form.get('file')
     if (!(fileValue instanceof File)) {
-      return NextResponse.json({ error: 'A file is required' }, { status: 400 })
+      return NextResponse.json({ error: 'A file is required' }, { status: 400, headers: { 'Cache-Control': 'no-store' } })
     }
-    if (fileValue.size > maxArtifactBytes()) {
-      return NextResponse.json({ error: `File exceeds the ${Math.round(maxArtifactBytes() / 1024 / 1024)} MiB limit` }, { status: 413 })
+    const byteLimit = maxArtifactBytes()
+    if (fileValue.size > byteLimit) {
+      return NextResponse.json({ error: `File exceeds the ${Math.round(byteLimit / 1024 / 1024)} MiB limit` }, { status: 413, headers: { 'Cache-Control': 'no-store' } })
     }
 
     const bytes = new Uint8Array(await fileValue.arrayBuffer())
@@ -49,71 +50,82 @@ export async function POST(request: Request, { params }: RouteParams) {
     const targetName = String(form.get('targetName') || originalName).trim() || originalName
     const artifactId = randomUUID()
     const targetId = String(form.get('targetId') || '').trim()
+    const root = artifactRoot()
     const relativePath = path.join(projectId, artifactId)
-    const absolutePath = path.join(artifactRoot(), relativePath)
+    const absolutePath = path.resolve(root, relativePath)
+    const relativeToRoot = path.relative(root, absolutePath)
+    if (!relativeToRoot || relativeToRoot.startsWith('..') || path.isAbsolute(relativeToRoot)) {
+      return NextResponse.json({ error: 'Artifact storage path is invalid' }, { status: 500, headers: { 'Cache-Control': 'no-store' } })
+    }
 
     if (targetId) {
       const target = await prisma.target.findFirst({ where: { id: targetId, projectId }, select: { id: true } })
-      if (!target) return NextResponse.json({ error: 'Target not found' }, { status: 404 })
+      if (!target) return NextResponse.json({ error: 'Target not found' }, { status: 404, headers: { 'Cache-Control': 'no-store' } })
     }
 
-    const target = targetId
-      ? await prisma.target.update({
-          where: { id: targetId },
-          data: { status: 'IDENTIFIED', profile: profileJson },
-        })
-      : await prisma.target.create({
-          data: {
-            projectId,
-            name: targetName,
-            targetType: profile.targetType,
-            locator: `file:${originalName}`,
-            status: 'IDENTIFIED',
-            profile: profileJson,
-          },
-        })
-
+    let databaseCommitted = false
     try {
       await mkdir(path.dirname(absolutePath), { recursive: true })
       await writeFile(absolutePath, bytes)
-      const artifact = await prisma.artifact.create({
-        data: {
-          id: artifactId,
-          projectId,
-          targetId: target.id,
-          name: originalName,
-          originalName,
-          storagePath: relativePath,
-          sha256,
-          sizeBytes: bytes.byteLength,
-          mimeType: profile.mimeType,
-          extension: profile.extension,
-          status: 'IDENTIFIED',
-          profile: profileJson,
-          capabilities: capabilities.flatMap((match) => match.capabilities),
-        },
-      })
+      const { target, artifact } = await prisma.$transaction(async (tx) => {
+        const target = targetId
+          ? await tx.target.update({
+              where: { id: targetId },
+              data: { status: 'IDENTIFIED', profile: profileJson },
+            })
+          : await tx.target.create({
+              data: {
+                projectId,
+                name: targetName,
+                targetType: profile.targetType,
+                locator: `file:${originalName}`,
+                status: 'IDENTIFIED',
+                profile: profileJson,
+              },
+            })
 
-      await prisma.evidence.create({
-        data: {
-          projectId,
-          targetId: target.id,
-          artifactId: artifact.id,
-          kind: 'profile',
-          summary: `Profiler identified ${profile.format} (${profile.mimeType})`,
-          source: 'reamon-artifact-profiler',
-          data: profileJson,
-        },
+        const artifact = await tx.artifact.create({
+          data: {
+            id: artifactId,
+            projectId,
+            targetId: target.id,
+            name: originalName,
+            originalName,
+            storagePath: relativePath,
+            sha256,
+            sizeBytes: bytes.byteLength,
+            mimeType: profile.mimeType,
+            extension: profile.extension,
+            status: 'IDENTIFIED',
+            profile: profileJson,
+            capabilities: capabilities.flatMap((match) => match.capabilities),
+          },
+        })
+
+        await tx.evidence.create({
+          data: {
+            projectId,
+            targetId: target.id,
+            artifactId: artifact.id,
+            kind: 'profile',
+            summary: `Profiler identified ${profile.format} (${profile.mimeType})`,
+            source: 'reamon-artifact-profiler',
+            data: profileJson,
+          },
+        })
+        await tx.workspaceActivity.create({
+          data: {
+            projectId,
+            actor: 'Profiler',
+            eventType: 'artifact.profiled',
+            message: `Profiled ${originalName} as ${profile.format}`,
+            data: { artifactId: artifact.id, targetId: target.id, format: profile.format },
+          },
+        })
+
+        return { target, artifact }
       })
-      await prisma.workspaceActivity.create({
-        data: {
-          projectId,
-          actor: 'Profiler',
-          eventType: 'artifact.profiled',
-          message: `Profiled ${originalName} as ${profile.format}`,
-          data: { artifactId: artifact.id, targetId: target.id, format: profile.format },
-        },
-      })
+      databaseCommitted = true
 
       return NextResponse.json({
         target: {
@@ -135,14 +147,13 @@ export async function POST(request: Request, { params }: RouteParams) {
           profile,
           capabilities,
         },
-      }, { status: 201 })
+      }, { status: 201, headers: { 'Cache-Control': 'no-store' } })
     } catch (error) {
-      await prisma.artifact.deleteMany({ where: { id: artifactId, projectId } }).catch(() => {})
-      if (!targetId) await prisma.target.deleteMany({ where: { id: target.id, projectId } }).catch(() => {})
+      if (!databaseCommitted) await unlink(absolutePath).catch(() => {})
       throw error
     }
   } catch (error) {
     console.error('Failed to import REAmon target:', error)
-    return NextResponse.json({ error: 'Failed to import target' }, { status: 500 })
+    return NextResponse.json({ error: 'Failed to import target' }, { status: 500, headers: { 'Cache-Control': 'no-store' } })
   }
 }

@@ -3,7 +3,7 @@
 import { use, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, CheckCircle2, CircleDashed, FileArchive, FileCode2, FileQuestion, Gauge, Upload, Waypoints } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, CircleDashed, Download, FileArchive, FileCode2, FileQuestion, Gauge, Upload, Waypoints } from 'lucide-react'
 import type { CapabilityMatch, ProgressMetric, TargetProfile } from '@/lib/reamon'
 import styles from './page.module.css'
 
@@ -223,7 +223,13 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
               {data.artifacts.filter((artifact) => artifact.targetId === target.id).map((artifact) => (
                 <div className={styles.artifactRow} key={artifact.id}>
                   <ProfileIcon format={artifact.profile.format} />
-                  <div className={styles.artifactIdentity}><strong>{artifact.originalName}</strong><span>{profileLabel(artifact.profile)} · {formatBytes(artifact.sizeBytes)} · sha256 {artifact.sha256.slice(0, 12)}…</span></div>
+                  <div className={styles.artifactIdentity}>
+                    <div className={styles.artifactNameRow}>
+                      <strong>{artifact.originalName}</strong>
+                      <a className={styles.artifactDownload} href={`/api/projects/${data.workspace.id}/artifacts/${artifact.id}`} download aria-label={`Download ${artifact.originalName}`} title="Download artifact"><Download size={14} /></a>
+                    </div>
+                    <span>{profileLabel(artifact.profile)} · {formatBytes(artifact.sizeBytes)} · sha256 {artifact.sha256.slice(0, 12)}…</span>
+                  </div>
                   <CapabilityList capabilities={artifact.capabilities} />
                 </div>
               ))}

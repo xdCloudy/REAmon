@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # ============================================
-# RedAmon Web Application - Production Dockerfile
+# REAmon Web Application - Production Dockerfile
 # Multi-stage build for optimized production image
 # ============================================
 
@@ -29,6 +29,9 @@ RUN --mount=type=secret,id=proxy_ca \
 
 # Stage 2: Builder
 FROM node:22-slim AS builder
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        openssl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 
 COPY --from=deps /app/node_modules ./node_modules

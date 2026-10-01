@@ -16,9 +16,9 @@ export async function GET(_request: Request, { params }: RouteParams) {
 
     const snapshot = await getWorkspaceSnapshot(id)
     if (!snapshot) return NextResponse.json({ error: 'Workspace not found' }, { status: 404 })
-    return NextResponse.json(snapshot)
+    return NextResponse.json(snapshot, { headers: { 'Cache-Control': 'private, no-store' } })
   } catch (error) {
     console.error('Failed to fetch REAmon workspace:', error)
-    return NextResponse.json({ error: 'Failed to fetch workspace' }, { status: 500 })
+    return NextResponse.json({ error: 'Failed to fetch workspace' }, { status: 500, headers: { 'Cache-Control': 'no-store' } })
   }
 }

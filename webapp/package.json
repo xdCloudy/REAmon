@@ -1,13 +1,14 @@
 {
-  "name": "redamon-webapp",
+  "name": "reamon-webapp",
   "version": "1.0.0",
-  "description": "RedAmon - AI Red Team application",
+  "description": "REAmon - AI-assisted reverse-engineering workspace",
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "eslint src/lib/reamon 'src/app/projects/[id]' 'src/app/api/projects/[id]/targets' 'src/app/api/projects/[id]/workspace' 'src/app/api/projects/[id]/artifacts'",
+    "lint:all": "eslint .",
     "type-check": "tsc --noEmit",
     "test": "vitest run --no-file-parallelism",
     "test:coverage": "vitest run --no-file-parallelism --coverage",

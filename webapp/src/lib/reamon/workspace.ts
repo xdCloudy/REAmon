@@ -14,7 +14,22 @@ export async function getWorkspaceSnapshot(projectId: string) {
   })
   if (!project) return null
 
-  const [targets, artifacts, tasks, findings, hypotheses, evidence, activities] = await Promise.all([
+  const [
+    targets,
+    artifacts,
+    tasks,
+    findings,
+    hypotheses,
+    evidence,
+    activities,
+    taskStatuses,
+    findingStatuses,
+    hypothesisStatuses,
+    taskCount,
+    findingCount,
+    hypothesisCount,
+    evidenceCount,
+  ] = await Promise.all([
     prisma.target.findMany({ where: { projectId }, orderBy: { createdAt: 'asc' } }),
     prisma.artifact.findMany({ where: { projectId }, orderBy: { createdAt: 'desc' } }),
     prisma.task.findMany({ where: { projectId }, orderBy: { createdAt: 'desc' }, take: 25 }),
@@ -22,6 +37,13 @@ export async function getWorkspaceSnapshot(projectId: string) {
     prisma.hypothesis.findMany({ where: { projectId }, orderBy: { createdAt: 'desc' }, take: 25 }),
     prisma.evidence.findMany({ where: { projectId }, orderBy: { createdAt: 'desc' }, take: 25 }),
     prisma.workspaceActivity.findMany({ where: { projectId }, orderBy: { createdAt: 'desc' }, take: 20 }),
+    prisma.task.findMany({ where: { projectId }, select: { status: true } }),
+    prisma.finding.findMany({ where: { projectId }, select: { status: true } }),
+    prisma.hypothesis.findMany({ where: { projectId }, select: { status: true } }),
+    prisma.task.count({ where: { projectId } }),
+    prisma.finding.count({ where: { projectId } }),
+    prisma.hypothesis.count({ where: { projectId } }),
+    prisma.evidence.count({ where: { projectId } }),
   ])
 
   const serializedArtifacts = artifacts.map((artifact) => {
@@ -46,9 +68,9 @@ export async function getWorkspaceSnapshot(projectId: string) {
   const progress = buildProgressModel({
     targetStatuses: targets.map((target) => target.status as never),
     artifactStatuses: artifacts.map((artifact) => artifact.status as never),
-    taskStatuses: tasks.map((task) => task.status as never),
-    findingStatuses: findings.map((finding) => finding.status as never),
-    hypothesisStatuses: hypotheses.map((hypothesis) => hypothesis.status as never),
+    taskStatuses: taskStatuses.map((task) => task.status as never),
+    findingStatuses: findingStatuses.map((finding) => finding.status as never),
+    hypothesisStatuses: hypothesisStatuses.map((hypothesis) => hypothesis.status as never),
   })
 
   return {
@@ -75,10 +97,10 @@ export async function getWorkspaceSnapshot(projectId: string) {
     counts: {
       targets: targets.length,
       artifacts: artifacts.length,
-      tasks: await prisma.task.count({ where: { projectId } }),
-      findings: await prisma.finding.count({ where: { projectId } }),
-      hypotheses: await prisma.hypothesis.count({ where: { projectId } }),
-      evidence: await prisma.evidence.count({ where: { projectId } }),
+      tasks: taskCount,
+      findings: findingCount,
+      hypotheses: hypothesisCount,
+      evidence: evidenceCount,
     },
   }
 }

@@ -1,5 +1,5 @@
 # =============================================================================
-# RedAmon - Unified Docker Compose
+# REAmon - Unified Docker Compose
 # =============================================================================
 # Start:  docker compose up -d
 # Stop:   docker compose down
@@ -1159,6 +1159,7 @@ services:
       SUPPLY_CHAIN_OUTPUT_PATH: /data/supply-chain-output
       # REAmon target uploads and derived artifact profiles.
       REAMON_ARTIFACTS_PATH: /data/reamon-artifacts
+      REAMON_MAX_ARTIFACT_BYTES: ${REAMON_MAX_ARTIFACT_BYTES:-67108864}
       REPORT_OUTPUT_PATH: /data/reports
       WORDLIST_UPLOAD_PATH: /data/recon-wordlists
       NUCLEI_TEMPLATES_PATH: /data/nuclei-templates
