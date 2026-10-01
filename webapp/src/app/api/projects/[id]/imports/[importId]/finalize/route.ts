@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client'
 import prisma from '@/lib/prisma'
 import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
 import { buildWorkspaceProfile } from '@/lib/reamon/inventory'
+import { compareWorkspaceImports, type ImportComparisonEntry } from '@/lib/reamon/imports'
 
 interface RouteParams { params: Promise<{ id: string; importId: string }> }
 
@@ -25,9 +26,15 @@ export async function POST(_request: Request, { params }: RouteParams) {
 
     const workspaceImport = await prisma.workspaceImport.findFirst({
       where: { id: importId, projectId },
-      include: {
+      select: {
+        id: true,
+        projectId: true,
+        rootName: true,
+        status: true,
+        manifest: true,
+        metadata: true,
         rootTarget: { select: { id: true } },
-        artifacts: { select: { id: true, relativePath: true, sizeBytes: true, profile: true } },
+        artifacts: { select: { id: true, relativePath: true, sizeBytes: true, sha256: true, profile: true } },
       },
     })
     if (!workspaceImport) return NextResponse.json({ error: 'Import not found' }, { status: 404, headers: { 'Cache-Control': 'no-store' } })
@@ -54,6 +61,35 @@ export async function POST(_request: Request, { params }: RouteParams) {
       profile: artifact.profile as never,
     })))
     const uploadedBytes = workspaceImport.artifacts.reduce((sum, artifact) => sum + artifact.sizeBytes, 0)
+    const previousImport = await prisma.workspaceImport.findFirst({
+      where: {
+        projectId,
+        rootName: workspaceImport.rootName,
+        status: 'COMPLETED',
+        NOT: { id: importId },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        artifacts: { select: { relativePath: true, sizeBytes: true, sha256: true } },
+      },
+    })
+    const comparison = compareWorkspaceImports(
+      previousImport?.artifacts.map((artifact): ImportComparisonEntry => ({
+        relativePath: artifact.relativePath,
+        size: artifact.sizeBytes,
+        sha256: artifact.sha256,
+      })) || [],
+      workspaceImport.artifacts.map((artifact): ImportComparisonEntry => ({
+        relativePath: artifact.relativePath,
+        size: artifact.sizeBytes,
+        sha256: artifact.sha256,
+      })),
+      { mode: 'HASH', previousImportId: previousImport?.id },
+    )
+    const metadata = workspaceImport.metadata && typeof workspaceImport.metadata === 'object' && !Array.isArray(workspaceImport.metadata)
+      ? workspaceImport.metadata as Record<string, unknown>
+      : {}
     const completed = await prisma.$transaction(async (tx) => {
       const updatedImport = await tx.workspaceImport.update({
         where: { id: importId },
@@ -64,6 +100,7 @@ export async function POST(_request: Request, { params }: RouteParams) {
           uploadedBytes: BigInt(uploadedBytes),
           errorSummary: '',
           completedAt: new Date(),
+          metadata: { ...metadata, comparison } as unknown as Prisma.InputJsonValue,
         },
       })
       await tx.target.update({
@@ -90,6 +127,7 @@ export async function POST(_request: Request, { params }: RouteParams) {
       completedFiles: completed.completedFiles,
       uploadedBytes,
       missingPaths: [],
+      comparison,
     }, { headers: { 'Cache-Control': 'no-store' } })
   } catch (error) {
     console.error('Failed to finalize REAmon workspace import:', error)

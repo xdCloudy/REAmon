@@ -13,6 +13,9 @@
 .preview span { color: var(--text-secondary); font-size: var(--text-xs); }
 .previewStats { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-2); }
 .previewStats span { color: var(--text-tertiary); }
+.comparison { display: flex; flex-direction: column; gap: var(--space-1); border-left: 2px solid var(--accent-secondary); padding-left: var(--space-3); min-width: 220px; }
+.comparison span { color: var(--text-secondary); }
+.importActions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .progress { display: flex; flex-direction: column; gap: var(--space-2); }
 .progressHeader, .progressMeta { display: flex; justify-content: space-between; gap: var(--space-3); font-size: var(--text-sm); }
 .progressHeader strong { font-variant-numeric: tabular-nums; }

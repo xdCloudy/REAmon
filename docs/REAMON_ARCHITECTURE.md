@@ -71,8 +71,11 @@ derived from user-controlled paths.
 The browser workflow is deliberately a snapshot. `webkitdirectory` is the portable
 baseline, with no dependency on Chromium's File System Access API. The browser sends
 logical paths only, not the user's absolute filesystem path. A later refresh can submit
-another manifest and compare `relativePath + hash` without changing the workspace
-model.
+another manifest and compare its path/size/mtime during preflight. After upload,
+finalization compares authoritative `relativePath + SHA-256` identity with the latest
+completed snapshot of the same root and stores the deterministic delta in import
+metadata. In-flight snapshots can be cancelled; partial artifacts remain visible and
+the import can be resumed or replaced by a later snapshot.
 
 ## Targets and artifacts
 
@@ -166,10 +169,11 @@ The first working path is:
 ```text
 Create REVERSE_ENGINEERING workspace
   → choose browser folder or individual files
-  → preview a manifest without uploading bytes
+  → preview a manifest and refresh delta without uploading bytes
   → POST import session + bounded multipart artifact batches
   → hash + profile each artifact
   → persist DIRECTORY root, Artifact paths, logical candidate targets, Evidence, Activity
+  → finalize with hash-based refresh comparison (or cancel and resume)
   → aggregate workspace inventory and resolve capabilities
   → render searchable tree, artifact details, progress, work, hypotheses, activity
 ```

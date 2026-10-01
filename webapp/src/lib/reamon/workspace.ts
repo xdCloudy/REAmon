@@ -2,6 +2,7 @@ import prisma from '@/lib/prisma'
 import { resolveCapabilities, resolveWorkspaceCapabilities } from './capabilities'
 import { buildProgressModel } from './progress'
 import type { TargetProfile, WorkspaceImportSnapshot } from './types'
+import type { WorkspaceImportComparison } from './imports'
 
 function asProfile(value: unknown): TargetProfile {
   return value as TargetProfile
@@ -131,6 +132,9 @@ export async function getWorkspaceSnapshot(projectId: string) {
           .filter((relativePath) => relativePath && !uploaded.has(relativePath))
           .slice(0, 200),
         profile: workspaceImport.rootTarget?.profile as WorkspaceImportSnapshot['profile'],
+        comparison: workspaceImport.metadata && typeof workspaceImport.metadata === 'object' && !Array.isArray(workspaceImport.metadata)
+          ? (workspaceImport.metadata as { comparison?: WorkspaceImportComparison }).comparison || null
+          : null,
       }
     }),
     progress,

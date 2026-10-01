@@ -6,9 +6,11 @@ import {
   formatBytes,
   runWorkspaceImport,
   selectionFromFiles,
+  WorkspaceImportCancelledError,
   type ImportProgress,
   type WorkspaceSelection,
 } from '@/lib/reamon/browser-import'
+import type { WorkspaceImportComparison } from '@/lib/reamon/imports'
 import styles from './WorkspaceImportPanel.module.css'
 
 interface WorkspaceImportPanelProps {
@@ -22,7 +24,7 @@ function extensionOf(path: string): string {
   return dot > 0 ? name.slice(dot).toLowerCase() : ''
 }
 
-function Preview({ selection }: { selection: WorkspaceSelection }) {
+function Preview({ selection, comparison }: { selection: WorkspaceSelection; comparison: WorkspaceImportComparison | null }) {
   const executableExtensions = new Set(['.exe', '.dll', '.so', '.dylib', '.sys', '.elf', '.bin', '.apk', '.jar'])
   const sourceExtensions = new Set(['.c', '.cc', '.cpp', '.h', '.hpp', '.cs', '.java', '.kt', '.go', '.rs', '.py', '.js', '.ts'])
   const configExtensions = new Set(['.json', '.yaml', '.yml', '.toml', '.ini', '.xml', '.config', '.conf'])
@@ -42,6 +44,12 @@ function Preview({ selection }: { selection: WorkspaceSelection }) {
         <span>{counts.source} source files</span>
         <span>{counts.config} configuration files</span>
       </div>
+      {comparison && <div className={styles.comparison}>
+        {comparison.previousImportId ? <>
+          <strong>Refresh preview</strong>
+          <span>+{comparison.addedCount} added · {comparison.changedCount} changed · {comparison.removedCount} removed · {comparison.unchangedCount} unchanged</span>
+        </> : <><strong>First snapshot</strong><span>{comparison.addedCount.toLocaleString()} files will be added</span></>}
+      </div>}
     </div>
   )
 }
@@ -58,8 +66,12 @@ export function WorkspaceImportPanel({ projectId, onImported }: WorkspaceImportP
   const [progress, setProgress] = useState<ImportProgress | null>(null)
   const [importId, setImportId] = useState<string | undefined>()
   const [completedPaths, setCompletedPaths] = useState<Set<string>>(new Set())
+  const [comparison, setComparison] = useState<WorkspaceImportComparison | null>(null)
+  const [comparing, setComparing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const abortRef = useRef<AbortController | null>(null)
+  const comparisonRequestRef = useRef(0)
 
   useEffect(() => {
     // `webkitdirectory` is still the broadly supported browser fallback for
@@ -68,14 +80,41 @@ export function WorkspaceImportPanel({ projectId, onImported }: WorkspaceImportP
     directoryInput.current?.setAttribute('webkitdirectory', '')
   }, [])
 
+  const compareSelection = async (nextSelection: WorkspaceSelection) => {
+    const requestId = comparisonRequestRef.current + 1
+    comparisonRequestRef.current = requestId
+    setComparing(true)
+    try {
+      const response = await fetch(`/api/projects/${projectId}/imports/compare`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          rootName: nextSelection.rootName,
+          files: nextSelection.files.map(({ relativePath, size, lastModified }) => ({ relativePath, size, lastModified })),
+        }),
+      })
+      if (!response.ok) return
+      const data = await response.json() as { comparison?: WorkspaceImportComparison }
+      if (requestId === comparisonRequestRef.current) setComparison(data.comparison || null)
+    } catch {
+      // Comparison is a preview enhancement. A transient failure must not
+      // prevent the operator from importing the authoritative snapshot.
+    } finally {
+      if (requestId === comparisonRequestRef.current) setComparing(false)
+    }
+  }
+
   const choose = (input: FileList | null) => {
     if (!input?.length) return
     try {
-      setSelection(selectionFromFiles(input))
+      const nextSelection = selectionFromFiles(input)
+      setSelection(nextSelection)
       setProgress(null)
       setImportId(undefined)
       setCompletedPaths(new Set())
+      setComparison(null)
       setError(null)
+      void compareSelection(nextSelection)
     } catch (selectionError) {
       setError(selectionError instanceof Error ? selectionError.message : 'Unable to read the selected files')
     }
@@ -83,6 +122,8 @@ export function WorkspaceImportPanel({ projectId, onImported }: WorkspaceImportP
 
   const start = async () => {
     if (!selection) return
+    const controller = new AbortController()
+    abortRef.current = controller
     setBusy(true)
     setError(null)
     try {
@@ -90,12 +131,13 @@ export function WorkspaceImportPanel({ projectId, onImported }: WorkspaceImportP
         projectId,
         selection,
         importId,
-        completedPaths,
+        completedPaths: new Set(completedPaths),
         concurrency: 3,
+        signal: controller.signal,
         onProgress: (next) => {
           setProgress(next)
           if (next.phase === 'UPLOADING' && next.currentPath) {
-            setCompletedPaths((current) => new Set(current))
+            setCompletedPaths((current) => new Set(current).add(next.currentPath))
           }
         },
       })
@@ -106,17 +148,32 @@ export function WorkspaceImportPanel({ projectId, onImported }: WorkspaceImportP
         onImported()
       }
     } catch (importError) {
-      setError(importError instanceof Error ? importError.message : 'Workspace import failed')
+      if (importError instanceof WorkspaceImportCancelledError) {
+        const cancelledImportId = importError.importId || importId
+        if (cancelledImportId) {
+          await fetch(`/api/projects/${projectId}/imports/${cancelledImportId}/cancel`, { method: 'POST' }).catch(() => {})
+          setImportId(cancelledImportId)
+        }
+        setProgress((current) => current ? { ...current, phase: 'CANCELLED' } : null)
+        setError('Import cancelled. Resume it to continue uploading the remaining paths.')
+      } else {
+        setError(importError instanceof Error ? importError.message : 'Workspace import failed')
+      }
     } finally {
+      abortRef.current = null
       setBusy(false)
     }
   }
+
+  const cancel = () => abortRef.current?.abort()
 
   const reset = () => {
     setSelection(null)
     setProgress(null)
     setImportId(undefined)
     setCompletedPaths(new Set())
+    setComparison(null)
+    comparisonRequestRef.current += 1
     setError(null)
     if (directoryInput.current) directoryInput.current.value = ''
     if (fileInput.current) fileInput.current.value = ''
@@ -143,10 +200,11 @@ export function WorkspaceImportPanel({ projectId, onImported }: WorkspaceImportP
         </label>
         {selection && <button type="button" className="secondaryButton" onClick={reset} disabled={busy}>Clear</button>}
       </div>
-      {selection && <Preview selection={selection} />}
+      {selection && <Preview selection={selection} comparison={comparison} />}
+      {selection && comparing && <p className={styles.limits}>Comparing with the latest completed snapshot…</p>}
       {selection && progress && (
         <div className={styles.progress} aria-live="polite">
-          <div className={styles.progressHeader}><span>{progress.phase === 'COMPLETED' ? 'Import complete' : progress.phase === 'FAILED' ? 'Import paused' : progress.phase === 'FINALIZING' ? 'Finalizing workspace' : 'Uploading workspace'}</span><strong>{progressPercent(progress)}%</strong></div>
+          <div className={styles.progressHeader}><span>{progress.phase === 'COMPLETED' ? 'Import complete' : progress.phase === 'FAILED' ? 'Import paused' : progress.phase === 'CANCELLED' ? 'Import cancelled' : progress.phase === 'FINALIZING' ? 'Finalizing workspace' : 'Uploading workspace'}</span><strong>{progressPercent(progress)}%</strong></div>
           <div className={styles.track}><div className={styles.fill} style={{ width: `${progressPercent(progress)}%` }} /></div>
           <div className={styles.progressMeta}><span>{progress.completedFiles.toLocaleString()} / {progress.totalFiles.toLocaleString()} files</span><span>{formatBytes(progress.uploadedBytes)} / {formatBytes(progress.totalBytes)}</span></div>
           {progress.currentPath && <code>{progress.currentPath}</code>}
@@ -154,9 +212,12 @@ export function WorkspaceImportPanel({ projectId, onImported }: WorkspaceImportP
         </div>
       )}
       {selection && (
-        <button type="button" className="primaryButton" onClick={start} disabled={busy}>
+        <div className={styles.importActions}>
+          <button type="button" className="primaryButton" onClick={start} disabled={busy}>
           {busy ? <><RefreshCw size={16} className={styles.spin} /> Importing…</> : importId ? 'Retry failed files' : 'Import workspace'}
-        </button>
+          </button>
+          {busy && <button type="button" className="secondaryButton" onClick={cancel}>Cancel import</button>}
+        </div>
       )}
       {error && <p className={styles.error} role="alert">{error}</p>}
       <p className={styles.limits}>Everything selected is included by default. Upload limits are configurable by the server; the browser never exposes your absolute local path.</p>

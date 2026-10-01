@@ -6,8 +6,8 @@ REAmon is an incremental fork of RedAmon. This table records the current boundar
 | --- | --- | --- | --- | --- |
 | Project / engagement root | Existing `Project` model and routes | Workspace-compatible project root | GENERALISING | Existing ownership, settings, and URLs are preserved. New REAmon records reference the project. |
 | Project kind / creation | Project creation required target-domain and recon settings | `REVERSE_ENGINEERING` workspace kind alongside `LEGACY_SECURITY` | GENERALISING | New REAmon creation skips domain guardrails and graph Domain nodes; legacy creation remains compatible. |
-| Folder workspace source | Single-file multipart target route | `WorkspaceImport` manifest, directory root target, bounded artifact uploads | REPURPOSED | Browser directory selection is a snapshot; import sessions expose partial failure and retry state. |
-| Artifact path identity | Flat original filename | `relativePath` + `parentPath` under an import root | GENERALISING | Paths are normalised and kept distinct even when SHA-256 content matches. Opaque storage paths remain internal. |
+| Folder workspace source | Single-file multipart target route | `WorkspaceImport` manifest, directory root target, bounded artifact uploads, cancel/resume lifecycle | REPURPOSED | Browser directory selection is a snapshot; preflight manifest deltas and post-upload SHA-256 deltas are persisted without exposing local absolute paths. |
+| Artifact path identity | Flat original filename | `relativePath` + `parentPath` under an import root | GENERALISING | Paths are normalised and kept distinct even when SHA-256 content matches. Opaque storage paths remain internal; refresh comparison reports changed paths rather than collapsing them. |
 | Reconnaissance pipeline | Existing recon services and orchestrators | Analysis pipeline and capability-driven plan | GENERALISING | Keep event and execution infrastructure; move target assumptions behind providers. |
 | Attack-surface graph | Neo4j graph and graph UI | Universal knowledge graph | REPURPOSED | Graph relationships will represent code, data, runtime, and evidence entities, not only network scope. |
 | Scanner results / findings | Pentest-oriented result paths | Generic observations, findings, and evidence | GENERALISING | New relational models establish generic persistence; legacy result paths remain during migration. |
@@ -47,7 +47,8 @@ REAmon is an incremental fork of RedAmon. This table records the current boundar
 ## Directory-workspace milestone
 
 The current vertical slice is complete for browser snapshots: select a folder, create a
-REAmon workspace, preview the manifest, upload in bounded concurrent requests, preserve
-relative paths, aggregate the profile, resolve compatible capabilities, and view the
-workspace file tree. Refresh/delta imports, derived-artifact provenance, server-mounted
-sources, and true resumable background uploads remain follow-up work.
+REAmon workspace, preview the manifest and latest refresh delta, upload in bounded
+concurrent requests, cancel or retry an import, preserve relative paths, aggregate the
+profile, resolve compatible capabilities, and view the workspace file tree. Derived-
+artifact provenance, server-mounted sources, true background uploads, and replacing
+older duplicate artifact rows during refresh remain follow-up work.

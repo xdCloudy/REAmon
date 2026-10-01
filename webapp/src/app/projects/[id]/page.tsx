@@ -97,6 +97,7 @@ function ImportStatus({ latestImport }: { latestImport: WorkspaceImportSnapshot 
     <div className={styles.importStatus} aria-live="polite">
       <div className={styles.panelHeader}><h2>Latest import</h2><span className={styles.type}>{latestImport.status}</span></div>
       <div className={styles.importStatusGrid}><span>Root</span><strong>{latestImport.rootName}</strong><span>Inventory</span><strong>{latestImport.totalFiles.toLocaleString()} files · {formatBytes(latestImport.totalBytes)}</strong><span>Uploaded</span><strong>{latestImport.completedFiles.toLocaleString()} / {latestImport.totalFiles.toLocaleString()} files · {percent}%</strong><span>Profile</span><strong>{latestImport.profile?.interestingArtifacts ?? 0} interesting artifacts</strong></div>
+      {latestImport.comparison && <p className={styles.muted}>{latestImport.comparison.mode === 'HASH' ? 'Authoritative refresh' : 'Manifest refresh'}: +{latestImport.comparison.addedCount} added · {latestImport.comparison.changedCount} changed · {latestImport.comparison.removedCount} removed · {latestImport.comparison.unchangedCount} unchanged.</p>}
       {latestImport.missingPaths.length > 0 && <p className={styles.uploadError}>{latestImport.missingPaths.length} file paths still need upload. Retry the import to resume.</p>}
       {latestImport.errorSummary && <p className={styles.uploadError}>{latestImport.errorSummary}</p>}
     </div>

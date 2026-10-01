@@ -16,13 +16,23 @@ export interface WorkspaceSelection {
 }
 
 export interface ImportProgress {
-  phase: 'INVENTORY' | 'UPLOADING' | 'FINALIZING' | 'COMPLETED' | 'FAILED'
+  phase: 'INVENTORY' | 'UPLOADING' | 'FINALIZING' | 'COMPLETED' | 'FAILED' | 'CANCELLED'
   completedFiles: number
   totalFiles: number
   uploadedBytes: number
   totalBytes: number
   currentPath: string
   failedPaths: string[]
+}
+
+export class WorkspaceImportCancelledError extends Error {
+  readonly importId: string | undefined
+
+  constructor(importId?: string) {
+    super('Workspace import cancelled')
+    this.name = 'WorkspaceImportCancelledError'
+    this.importId = importId
+  }
 }
 
 function pathParts(file: BrowserWorkspaceFile): string[] {
@@ -74,9 +84,10 @@ export async function runWorkspaceImport(options: {
   importId?: string
   completedPaths?: Set<string>
   concurrency?: number
+  signal?: AbortSignal
   onProgress?: (progress: ImportProgress) => void
 }): Promise<{ importId: string; failedPaths: string[] }> {
-  const { projectId, selection, onProgress } = options
+  const { projectId, selection, onProgress, signal } = options
   let importId = options.importId
   const completedPaths = options.completedPaths || new Set<string>()
   const failedPaths: string[] = []
@@ -85,8 +96,15 @@ export async function runWorkspaceImport(options: {
   let completedFiles = selection.files.filter((entry) => completedPaths.has(entry.relativePath)).length
   let uploadedBytes = selection.files.filter((entry) => completedPaths.has(entry.relativePath)).reduce((sum, entry) => sum + entry.size, 0)
   const emit = (phase: ImportProgress['phase'], currentPath = '') => onProgress?.({ phase, completedFiles, totalFiles, uploadedBytes, totalBytes, currentPath, failedPaths: [...failedPaths] })
+  const throwIfCancelled = () => {
+    if (signal?.aborted) {
+      emit('CANCELLED')
+      throw new WorkspaceImportCancelledError(importId)
+    }
+  }
 
   if (!importId) {
+    throwIfCancelled()
     emit('INVENTORY')
     const response = await fetch(`/api/projects/${projectId}/imports`, {
       method: 'POST',
@@ -108,10 +126,11 @@ export async function runWorkspaceImport(options: {
   const uploadOne = async (entry: WorkspaceSelectionFile) => {
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
+        throwIfCancelled()
         const body = new FormData()
         body.set('file', entry.file)
         body.set('relativePath', entry.relativePath)
-        const response = await fetch(`/api/projects/${projectId}/imports/${importId}/artifacts`, { method: 'POST', body })
+        const response = await fetch(`/api/projects/${projectId}/imports/${importId}/artifacts`, { method: 'POST', body, signal })
         const data = await response.json()
         if (!response.ok) throw new Error(data.error || `Upload failed for ${entry.relativePath}`)
         completedPaths.add(entry.relativePath)
@@ -120,6 +139,7 @@ export async function runWorkspaceImport(options: {
         emit('UPLOADING', entry.relativePath)
         return
       } catch (error) {
+        if (signal?.aborted || error instanceof WorkspaceImportCancelledError) throw new WorkspaceImportCancelledError(importId)
         if (attempt === 1) {
           failedPaths.push(entry.relativePath)
           emit('FAILED', entry.relativePath)
@@ -132,6 +152,7 @@ export async function runWorkspaceImport(options: {
 
   const worker = async () => {
     while (cursor < selection.files.length) {
+      throwIfCancelled()
       const entry = selection.files[cursor]
       cursor += 1
       if (completedPaths.has(entry.relativePath)) continue
@@ -140,9 +161,10 @@ export async function runWorkspaceImport(options: {
   }
   await Promise.all(Array.from({ length: Math.min(concurrency, totalFiles || 1) }, () => worker()))
 
+  throwIfCancelled()
   emit(failedPaths.length ? 'FAILED' : 'FINALIZING')
   if (!failedPaths.length) {
-    const response = await fetch(`/api/projects/${projectId}/imports/${importId}/finalize`, { method: 'POST' })
+    const response = await fetch(`/api/projects/${projectId}/imports/${importId}/finalize`, { method: 'POST', signal })
     const data = await response.json()
     if (!response.ok) throw new Error(data.error || 'Unable to finalize workspace import')
     emit('COMPLETED')

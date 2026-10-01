@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest'
-import { runWorkspaceImport, selectionFromFiles, type BrowserWorkspaceFile } from './browser-import'
+import { runWorkspaceImport, selectionFromFiles, WorkspaceImportCancelledError, type BrowserWorkspaceFile } from './browser-import'
 
 function browserFile(relativePath: string, contents = 'bytes'): BrowserWorkspaceFile {
   const name = relativePath.split('/').pop() || relativePath
@@ -57,5 +57,29 @@ describe('browser workspace imports', () => {
       '/api/projects/project-1/imports/import-1/finalize',
     ])
     expect(phases.at(-1)).toBe('COMPLETED')
+  })
+
+  test('stops queued uploads when the operator aborts the snapshot', async () => {
+    const selection = selectionFromFiles([
+      browserFile('Example/one.bin', '1'),
+      browserFile('Example/two.bin', '2'),
+    ])
+    const controller = new AbortController()
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id: 'import-1' }), { status: 201 }))
+      .mockImplementationOnce(async () => {
+        controller.abort()
+        throw new DOMException('aborted', 'AbortError')
+      })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(runWorkspaceImport({
+      projectId: 'project-1',
+      selection,
+      concurrency: 1,
+      signal: controller.signal,
+    })).rejects.toBeInstanceOf(WorkspaceImportCancelledError)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(String(fetchMock.mock.calls[1][0])).toContain('/imports/import-1/artifacts')
   })
 })

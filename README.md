@@ -52,6 +52,10 @@ The first REAmon milestone is implemented and running on the `reamon/bootstrap` 
 - Create a reverse-engineering workspace without inventing a domain or network scope.
 - Import a complete browser-selected folder in bounded batches, preserving its relative
   directory tree as workspace context. Single-file import remains available.
+- Compare a selected folder with the latest completed snapshot before upload, then store
+  an authoritative SHA-256 refresh delta after finalization.
+- Cancel an in-flight import safely, keep its partial state visible, and resume the
+  remaining paths or select a replacement snapshot later.
 - Persist a directory root target, logical artifact paths, and candidate analysis targets
   in PostgreSQL.
 - Compute SHA-256 identity and a basic magic/extension/header profile.
@@ -151,8 +155,8 @@ existing installations; that compatibility is tracked in the migration document.
 
 Browser folder selection is a snapshot: the server never receives the absolute local
 filesystem path and cannot watch the directory after the browser selection ends. The
-import includes everything selected by default; future visible ignore rules and refresh
-comparisons can build on the stored manifest.
+import includes everything selected by default; refresh comparisons use manifest facts
+before upload and authoritative hashes after upload.
 
 Artifacts are stored in the named `reamon_artifacts` volume. The default per-file
 limit is 512 MiB and the default import limit is 50,000 files / 8 GiB. Set
@@ -239,7 +243,7 @@ docs/REAMON_*.md           Current architecture and migration decisions
 ## Roadmap
 
 1. Persist a provider registry and execute native, MCP, and generic process tools.
-2. Add task scheduling, cancellation, approvals, and live event streaming for
+2. Add task scheduling, approvals, and live event streaming for
    target-agnostic analysis workflows.
 3. Ingest universal code/data/runtime entities and relationships into Neo4j.
 4. Migrate the inherited project, agent, report, and settings surfaces away from

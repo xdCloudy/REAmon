@@ -6,6 +6,8 @@
  * behavior belongs in ToolPlugin implementations.
  */
 
+import type { WorkspaceImportComparison } from './imports'
+
 export const TARGET_TYPES = [
   'FILE',
   'DIRECTORY',
@@ -192,4 +194,5 @@ export interface WorkspaceImportSnapshot {
   rootTargetId: string | null
   missingPaths: string[]
   profile: WorkspaceProfile | null
+  comparison: WorkspaceImportComparison | null
 }
