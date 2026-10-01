@@ -5660,6 +5660,21 @@ fields:
     meaning: >-
       The project's display name. Ordinary metadata, shown in every list and
       header.
+  projectKind:
+    tool: project
+    runtime_key: null
+    unit: none
+    phase: standalone
+    traffic: none
+    roe_capped: false
+    mcp: never
+    validator: identifier
+    deny_reason: internal
+    group: identity
+    meaning: >-
+      The product flow that owns this project. REVERSE_ENGINEERING is a
+      target-agnostic investigation workspace; LEGACY_SECURITY preserves the
+      original RedAmon network-engagement behavior for existing rows.
   netlasEnabled:
     tool: netlas
     runtime_key: "NETLAS_ENABLED"

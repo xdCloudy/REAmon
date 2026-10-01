@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { resolveCapabilities } from './capabilities'
+import { resolveCapabilities, resolveWorkspaceCapabilities } from './capabilities'
 import type { TargetProfile, ToolPlugin } from './types'
 
 const profile = (overrides: Partial<TargetProfile> = {}): TargetProfile => ({
@@ -39,5 +39,17 @@ describe('REAmon capability resolution', () => {
     expect(matches).toHaveLength(1)
     expect(matches[0].capabilities).toEqual(['disassemble'])
     expect(resolveCapabilities(profile({ format: 'unknown', targetType: 'UNKNOWN' }), [plugin])).toEqual([])
+  })
+
+  it('summarizes providers even before compatible artifacts exist', () => {
+    const plugin: ToolPlugin = {
+      manifest: {
+        id: 'workspace-tool', name: 'Workspace tool', category: 'static_analysis', integration: 'native',
+        acceptsTargetTypes: ['FILE'], acceptsFormats: ['elf'], capabilities: ['disassemble'], produces: ['Instruction'], requirements: [],
+      },
+      async analyze(input) { return { status: 'completed', toolId: 'workspace-tool', capabilities: ['disassemble'], produced: ['Instruction'], data: { input } } },
+    }
+    expect(resolveWorkspaceCapabilities([], [plugin])).toEqual([{ pluginId: 'workspace-tool', pluginName: 'Workspace tool', integration: 'native', capabilities: ['disassemble'], compatibleArtifactIds: [] }])
+    expect(resolveWorkspaceCapabilities([{ id: 'artifact-1', profile: profile() }], [plugin])[0].compatibleArtifactIds).toEqual(['artifact-1'])
   })
 })

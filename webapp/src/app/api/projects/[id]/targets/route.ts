@@ -7,12 +7,13 @@ import prisma from '@/lib/prisma'
 import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
 import { profileArtifact } from '@/lib/reamon/profiler'
 import { resolveCapabilities } from '@/lib/reamon/capabilities'
+import { normalizeRelativePath, parentPathOf } from '@/lib/reamon/paths'
 
 interface RouteParams {
   params: Promise<{ id: string }>
 }
 
-const defaultMaxBytes = 64 * 1024 * 1024
+const defaultMaxBytes = 512 * 1024 * 1024
 
 function maxArtifactBytes(): number {
   const configured = Number.parseInt(process.env.REAMON_MAX_ARTIFACT_BYTES || '', 10)
@@ -43,6 +44,9 @@ export async function POST(request: Request, { params }: RouteParams) {
 
     const bytes = new Uint8Array(await fileValue.arrayBuffer())
     const originalName = fileValue.name.trim() || 'unnamed-artifact'
+    const logicalPath = (() => {
+      try { return normalizeRelativePath(originalName) } catch { return 'unnamed-artifact' }
+    })()
     const profile = profileArtifact(bytes, originalName, fileValue.type)
     const profileJson = profile as unknown as Prisma.InputJsonValue
     const capabilities = resolveCapabilities(profile)
@@ -51,8 +55,8 @@ export async function POST(request: Request, { params }: RouteParams) {
     const artifactId = randomUUID()
     const targetId = String(form.get('targetId') || '').trim()
     const root = artifactRoot()
-    const relativePath = path.join(projectId, artifactId)
-    const absolutePath = path.resolve(root, relativePath)
+    const storageRelativePath = path.join(projectId, artifactId)
+    const absolutePath = path.resolve(root, storageRelativePath)
     const relativeToRoot = path.relative(root, absolutePath)
     if (!relativeToRoot || relativeToRoot.startsWith('..') || path.isAbsolute(relativeToRoot)) {
       return NextResponse.json({ error: 'Artifact storage path is invalid' }, { status: 500, headers: { 'Cache-Control': 'no-store' } })
@@ -91,7 +95,9 @@ export async function POST(request: Request, { params }: RouteParams) {
             targetId: target.id,
             name: originalName,
             originalName,
-            storagePath: relativePath,
+            relativePath: logicalPath,
+            parentPath: parentPathOf(logicalPath),
+            storagePath: storageRelativePath,
             sha256,
             sizeBytes: bytes.byteLength,
             mimeType: profile.mimeType,
@@ -139,6 +145,8 @@ export async function POST(request: Request, { params }: RouteParams) {
           id: artifact.id,
           name: artifact.name,
           originalName: artifact.originalName,
+          relativePath: artifact.relativePath,
+          parentPath: artifact.parentPath,
           sizeBytes: artifact.sizeBytes,
           sha256: artifact.sha256,
           mimeType: artifact.mimeType,

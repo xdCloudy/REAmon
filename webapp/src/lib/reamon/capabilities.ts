@@ -6,6 +6,7 @@ import type {
   ToolPlugin,
   ToolPluginManifest,
   ToolResult,
+  WorkspaceCapabilitySummary,
 } from './types'
 
 export const CAPABILITIES: Capability[] = [
@@ -84,4 +85,24 @@ export function resolveCapabilities(
       produces: plugin.manifest.produces,
       requirements: plugin.manifest.requirements,
     }))
+}
+
+export function resolveWorkspaceCapabilities(
+  artifacts: Array<{ id: string; profile: TargetProfile }>,
+  plugins: ToolPlugin[] = BUILTIN_TOOL_PLUGINS,
+): WorkspaceCapabilitySummary[] {
+  const summaries = new Map<string, WorkspaceCapabilitySummary>(plugins.map((plugin) => [plugin.manifest.id, {
+    pluginId: plugin.manifest.id,
+    pluginName: plugin.manifest.name,
+    integration: plugin.manifest.integration,
+    capabilities: plugin.manifest.capabilities,
+    compatibleArtifactIds: [],
+  }]))
+  for (const artifact of artifacts) {
+    for (const match of resolveCapabilities(artifact.profile, plugins)) {
+      const existing = summaries.get(match.pluginId)
+      if (existing && !existing.compatibleArtifactIds.includes(artifact.id)) existing.compatibleArtifactIds.push(artifact.id)
+    }
+  }
+  return [...summaries.values()]
 }

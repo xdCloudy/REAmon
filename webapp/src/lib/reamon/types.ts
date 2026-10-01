@@ -54,6 +54,20 @@ export interface TargetProfile {
   metadata: Record<string, string | number | boolean | null>
 }
 
+export interface WorkspaceProfile extends TargetProfile {
+  targetType: 'DIRECTORY'
+  format: 'directory'
+  fileCount: number
+  directoryCount: number
+  totalBytes: number
+  detectedPlatforms: string[]
+  detectedRuntimes: string[]
+  sourceFileCount: number
+  configurationFileCount: number
+  interestingArtifacts: number
+  potentialEntrypoints: string[]
+}
+
 export interface Capability {
   id: string
   label: string
@@ -111,6 +125,14 @@ export interface CapabilityMatch {
   requirements: ToolRequirement[]
 }
 
+export interface WorkspaceCapabilitySummary {
+  pluginId: string
+  pluginName: string
+  integration: ToolIntegration
+  capabilities: string[]
+  compatibleArtifactIds: string[]
+}
+
 export interface ProgressMetric {
   id: string
   label: string
@@ -129,6 +151,7 @@ export interface WorkspaceTarget {
   name: string
   targetType: TargetType
   locator: string | null
+  parentTargetId: string | null
   status: TargetStatus
   profile: TargetProfile
   createdAt: string
@@ -140,6 +163,9 @@ export interface WorkspaceArtifact {
   name: string
   originalName: string
   targetId: string | null
+  importId: string | null
+  relativePath: string
+  parentPath: string
   sizeBytes: number
   sha256: string
   mimeType: string
@@ -149,4 +175,21 @@ export interface WorkspaceArtifact {
   capabilities: CapabilityMatch[]
   createdAt: string
   updatedAt: string
+}
+
+export interface WorkspaceImportSnapshot {
+  id: string
+  sourceType: string
+  rootName: string
+  status: string
+  totalFiles: number
+  completedFiles: number
+  failedFiles: number
+  totalBytes: number
+  uploadedBytes: number
+  errorSummary: string
+  completedAt: string | null
+  rootTargetId: string | null
+  missingPaths: string[]
+  profile: WorkspaceProfile | null
 }

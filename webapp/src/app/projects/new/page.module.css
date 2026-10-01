@@ -15,3 +15,33 @@
   text-align: center;
   color: var(--text-secondary);
 }
+
+.workspaceForm { width: min(860px, 100%); margin: 0 auto; padding: var(--space-6); display: flex; flex-direction: column; gap: var(--space-5); }
+.formIntro { padding: var(--space-2) 0; }
+.kicker { color: var(--accent-secondary); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); text-transform: uppercase; font-weight: var(--font-semibold); margin: 0 0 var(--space-2); }
+.formIntro h1 { margin: 0; font-size: clamp(1.6rem, 3vw, 2.2rem); letter-spacing: -0.03em; }
+.formIntro p:last-child { color: var(--text-secondary); line-height: 1.55; max-width: 680px; margin: var(--space-2) 0 0; }
+.formPanel { border: 1px solid var(--border-default); border-radius: var(--radius-lg); background: var(--bg-secondary); padding: var(--space-5); display: flex; flex-direction: column; gap: var(--space-4); }
+.formPanel h2 { margin: 0; font-size: var(--text-base); }
+.field { display: flex; flex-direction: column; gap: var(--space-2); color: var(--text-secondary); font-size: var(--text-sm); }
+.field small { color: var(--text-tertiary); }
+.sourceHeading { display: flex; justify-content: space-between; gap: var(--space-4); }
+.sourceHeading > svg { color: var(--accent-secondary); flex: 0 0 auto; }
+.sourceHeading p { color: var(--text-secondary); margin: var(--space-2) 0 0; font-size: var(--text-sm); line-height: 1.45; }
+.sourceActions, .formFooter { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+.sourceActions label { display: inline-flex; align-items: center; gap: var(--space-2); cursor: pointer; }
+.hiddenInput { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.selectionPreview { display: flex; flex-direction: column; gap: var(--space-1); border: 1px solid var(--accent-secondary-subtle); background: var(--bg-primary); border-radius: var(--radius-default); padding: var(--space-3); }
+.selectionPreview span, .selectionPreview small { color: var(--text-secondary); font-size: var(--text-sm); }
+.selectionPreview small { color: var(--text-tertiary); font-size: var(--text-xs); }
+.formError { color: var(--status-error-text); font-size: var(--text-sm); margin: 0; }
+.formFooter { justify-content: flex-end; }
+.importProgress { display: flex; flex-direction: column; gap: var(--space-2); color: var(--text-secondary); font-size: var(--text-sm); }
+.importProgress > div:first-child { display: flex; justify-content: space-between; gap: var(--space-2); }
+.importProgress strong { color: var(--text-primary); }
+.progressTrack { height: 8px; border-radius: var(--radius-full); background: var(--bg-tertiary); overflow: hidden; }
+.progressTrack div { height: 100%; border-radius: inherit; background: var(--accent-secondary); transition: width 180ms ease; }
+.importProgress small { color: var(--text-tertiary); }
+.spin { animation: spin 900ms linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (max-width: 640px) { .workspaceForm { padding: var(--space-4); } .sourceActions label, .formFooter button { width: 100%; justify-content: center; } .formFooter { flex-direction: column-reverse; align-items: stretch; } }

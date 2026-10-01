@@ -25,10 +25,18 @@ export async function GET() {
         userId: true,
         name: true,
         description: true,
+        projectKind: true,
         targetDomain: true,
         captureProxyEnabled: true,
         createdAt: true,
         updatedAt: true,
+        _count: { select: { targets: true, artifacts: true } },
+        targets: {
+          where: { targetType: 'DIRECTORY' },
+          orderBy: { createdAt: 'asc' },
+          take: 1,
+          select: { profile: true },
+        },
         user: {
           select: {
             id: true,
@@ -81,16 +89,23 @@ export async function POST(request: NextRequest) {
       body = await request.json()
     }
 
-    const { userId: _bodyUserId, name, targetDomain, ipMode, domainBatchMode,
+    const { userId: _bodyUserId, name, targetDomain, ipMode, domainBatchMode, projectKind,
       id: clientId, ...optionalParams } = body as {
       userId: string
       name: string
       targetDomain?: string
       ipMode?: boolean
       domainBatchMode?: boolean
+      projectKind?: string
       id?: string
       [key: string]: unknown
     }
+
+    const resolvedProjectKind = projectKind === undefined ? 'LEGACY_SECURITY' : projectKind
+    if (resolvedProjectKind !== 'REVERSE_ENGINEERING' && resolvedProjectKind !== 'LEGACY_SECURITY') {
+      return NextResponse.json({ error: 'Invalid project kind' }, { status: 400 })
+    }
+    const isReverseEngineering = resolvedProjectKind === 'REVERSE_ENGINEERING'
 
     // Domain batch: the groups are ALWAYS re-derived here from the raw host list.
     // A client-supplied domainBatchGroups is discarded, so the list the operator
@@ -103,7 +118,7 @@ export async function POST(request: NextRequest) {
       : typeof rawBatchHosts === 'string'
         ? rawBatchHosts.split(',')
         : []
-    const batch = domainBatchMode ? validateDomainBatch(batchHosts) : null
+    const batch = !isReverseEngineering && domainBatchMode ? validateDomainBatch(batchHosts) : null
     if (batch && !batch.ok) {
       return NextResponse.json({ error: batch.errors.join(' ') }, { status: 400 })
     }
@@ -134,13 +149,13 @@ export async function POST(request: NextRequest) {
 
     // targetDomain is required only when the target is a single domain: IP mode
     // carries targetIps, Domain batch carries its host list (validated above).
-    if (!ipMode && !domainBatchMode && !targetDomain) {
+    if (!isReverseEngineering && !ipMode && !domainBatchMode && !targetDomain) {
       return NextResponse.json(
         { error: 'targetDomain is required when not in IP mode' },
         { status: 400 }
       )
     }
-    if (ipMode && domainBatchMode) {
+    if (!isReverseEngineering && ipMode && domainBatchMode) {
       return NextResponse.json(
         { error: 'A project cannot be in both IP mode and Domain batch mode.' },
         { status: 400 }
@@ -158,7 +173,7 @@ export async function POST(request: NextRequest) {
 
     // Hard guardrail: deterministic, non-disableable - always blocks government/public domains.
     // Checks EVERY domain the project would scan, so a batch cannot smuggle one in.
-    const guardedDomains = domainBatchMode ? batchRoots : (!ipMode && targetDomain ? [targetDomain] : [])
+    const guardedDomains = isReverseEngineering ? [] : (domainBatchMode ? batchRoots : (!ipMode && targetDomain ? [targetDomain] : []))
     if (guardedDomains.length > 0) {
       const { isHardBlockedDomain } = await import('@/lib/hard-guardrail')
       for (const domain of guardedDomains) {
@@ -173,7 +188,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Soft guardrail (LLM-based): check if domain/IPs are allowed before creating
-    if (optionalParams.targetGuardrailEnabled !== false) {
+    if (!isReverseEngineering && optionalParams.targetGuardrailEnabled !== false) {
       try {
         const guardrailResponse = await fetch(`${AGENT_API_URL}/guardrail/check-target`, {
           method: 'POST',
@@ -313,16 +328,17 @@ export async function POST(request: NextRequest) {
         ...(clientId ? { id: clientId } : {}),
         userId,
         name: name.trim(),
+        projectKind: resolvedProjectKind,
         // A wildcard here means what an empty prefix list already means, so it is
         // normalized rather than refused. Unstripped it would reach `subfinder -d`,
         // the crt.sh URL, a puredns filename and a Cypher MERGE, and the in-scope
         // test `endswith('.' + domain)` would then match nothing - a green scan
         // that finds zero hosts.
-        targetDomain: (ipMode || domainBatchMode) ? '' : splitWildcard((targetDomain || '').trim()).rest,
-        ipMode: ipMode || false,
+        targetDomain: isReverseEngineering || ipMode || domainBatchMode ? '' : splitWildcard((targetDomain || '').trim()).rest,
+        ipMode: isReverseEngineering ? false : ipMode || false,
         ...sanitizedParams,
         // After sanitizedParams so a client-supplied domainBatchGroups cannot win.
-        domainBatchMode: domainBatchMode || false,
+        domainBatchMode: isReverseEngineering ? false : domainBatchMode || false,
         ...(batch ? { domainBatchHosts: batch.groups.flatMap(g => g.hosts),
                       domainBatchGroups: batch.groups as unknown as Prisma.InputJsonValue } : {}),
       }
@@ -332,7 +348,7 @@ export async function POST(request: NextRequest) {
     // Batch mode has one per group; the MERGE key carries user_id + project_id so a
     // shared domain name can never merge one project's node into another's.
     const seedDomains = domainBatchMode ? batchRoots : (!ipMode && project.targetDomain ? [project.targetDomain] : [])
-    if (seedDomains.length > 0) {
+    if (!isReverseEngineering && seedDomains.length > 0) {
       try {
         const session = getGraphSession()
         try {

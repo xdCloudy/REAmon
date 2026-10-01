@@ -45,11 +45,47 @@ Workspace
 
 The first database slice adds `Target`, `Artifact`, `Task`, `Finding`, `Hypothesis`, `Evidence`, and `WorkspaceActivity`. Environments, notes, reports, and provider installations are intentionally left for later migrations rather than being modelled prematurely.
 
+### Workspace sources and folder imports
+
+A workspace is an investigation, not a single uploaded file. A source/root can be a
+browser folder snapshot today and a server-mounted directory, Git repository, archive,
+device, runtime, remote source, or custom provider later:
+
+```text
+Project / Workspace
+  └── Workspace source / root (DIRECTORY target)
+        ├── directories and relative paths
+        ├── original artifacts
+        ├── derived artifacts (future)
+        └── logical analysis targets
+```
+
+`WorkspaceImport` is a resumable import session. Its manifest records inventory facts
+(`relativePath`, size, and client modification time), while the server calculates the
+authoritative hash from uploaded bytes. Uploads are bounded per request and can be
+retried against the same import ID. A failed import remains visible instead of silently
+becoming a partial workspace. `relativePath` is normalised at one boundary and is
+always relative to the imported root; backend storage remains opaque and is never
+derived from user-controlled paths.
+
+The browser workflow is deliberately a snapshot. `webkitdirectory` is the portable
+baseline, with no dependency on Chromium's File System Access API. The browser sends
+logical paths only, not the user's absolute filesystem path. A later refresh can submit
+another manifest and compare `relativePath + hash` without changing the workspace
+model.
+
 ## Targets and artifacts
 
 `Target` describes the thing under investigation and can be a `FILE`, `DIRECTORY`, `REPOSITORY`, `PROCESS`, `DEVICE`, `SERVICE`, `REMOTE_HOST`, `CAPTURE`, `FILESYSTEM`, `DEBUG_SESSION`, `CUSTOM`, or `UNKNOWN`. A target can have multiple related artifacts.
 
-`Artifact` is a durable observation or uploaded representation associated with a target. It stores the original name, content hash, size, storage path, MIME type, lifecycle status, profiler output, and resolved capabilities. The first import path accepts an arbitrary file up to the configured size limit, stores it in the configured artifact volume, creates a target when needed, and records profile evidence plus a timeline event.
+`Artifact` is a durable observation or uploaded representation associated with a target.
+It stores original/display names, `relativePath`, `parentPath`, content hash, size,
+opaque storage path, MIME type, import provenance, lifecycle status, profiler output,
+and resolved capabilities. Path identity is deliberately independent of content
+identity: two files with equal SHA-256 values at different workspace paths remain two
+artifacts. A directory root is one target; only interesting executable/library
+artifacts become child logical targets, so a workspace is not inflated with a target
+for every icon or configuration file.
 
 The storage path is deliberately opaque to analysis providers. Providers receive target/artifact metadata and a controlled execution context rather than depending on a particular upload directory.
 
@@ -87,6 +123,12 @@ The resolver currently registers two built-in providers: the profiler provider a
 
 The command adapter boundary should validate arguments, constrain execution, capture stdout/stderr, and convert declared output formats into `ToolResult`; it is not implemented in this bootstrap.
 
+Capability resolution is available at both artifact and workspace level. Artifact
+matches identify which providers can operate on a particular profile. Workspace
+summaries identify each installed provider and the compatible artifact IDs without
+automatically scheduling heavyweight analysis across every match. Inventory and
+profiling happen first; task planning remains an explicit next stage.
+
 ## Universal knowledge model
 
 The relational models provide durable project state and provenance. The graph model is intended for connected entities and relationships such as:
@@ -122,16 +164,20 @@ This supports target-specific dashboards without asking an LLM to estimate compl
 The first working path is:
 
 ```text
-Create existing Project
-  → open /projects/:id
-  → choose arbitrary file
-  → POST multipart target import
-  → hash + profile + resolve capabilities
-  → persist Target, Artifact, Evidence, Activity
-  → render targets, artifacts, profile, capabilities, progress, work, hypotheses, activity
+Create REVERSE_ENGINEERING workspace
+  → choose browser folder or individual files
+  → preview a manifest without uploading bytes
+  → POST import session + bounded multipart artifact batches
+  → hash + profile each artifact
+  → persist DIRECTORY root, Artifact paths, logical candidate targets, Evidence, Activity
+  → aggregate workspace inventory and resolve capabilities
+  → render searchable tree, artifact details, progress, work, hypotheses, activity
 ```
 
-The dashboard is intentionally honest: empty tasks, findings, hypotheses, and activity sections show empty states until real records exist. No synthetic statistics are inserted.
+The dashboard is intentionally honest: empty tasks, findings, hypotheses, and activity
+sections show empty states until real records exist. No synthetic statistics are
+inserted. Existing legacy security projects still load through their original flow
+while the REAmon project creation path avoids domain guardrails and Neo4j domain nodes.
 
 ## Migration from RedAmon
 

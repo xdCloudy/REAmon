@@ -182,7 +182,11 @@ export default function ProjectsPage() {
               key={project.id}
               id={project.id}
               name={project.name}
+              projectKind={project.projectKind}
               targetDomain={project.targetDomain}
+              artifactCount={project._count?.artifacts}
+              targetCount={project._count?.targets}
+              workspaceProfile={project.targets?.[0]?.profile as { platform?: string | null; architecture?: string | null; runtimes?: string[] } | null}
               description={project.description}
               createdAt={project.createdAt}
               onSelect={() => handleSelectProject(project)}
@@ -194,7 +198,7 @@ export default function ProjectsPage() {
         <div className={styles.empty}>
           <FolderOpen size={48} />
           <h2>No Projects Yet</h2>
-          <p>Create your first project to get started with reconnaissance.</p>
+          <p>Create a reverse-engineering workspace and bring the whole application context with you.</p>
           {userId ? (
             <Link href="/projects/new" className="primaryButton">
               <Plus size={14} />

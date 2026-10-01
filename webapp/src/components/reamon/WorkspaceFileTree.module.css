@@ -1,0 +1,40 @@
+.layout { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(260px, .7fr); gap: var(--space-4); }
+.explorer, .details { border: 1px solid var(--border-default); border-radius: var(--radius-default); background: var(--bg-primary); min-width: 0; }
+.toolbar { padding: var(--space-3); border-bottom: 1px solid var(--border-subtle); display: flex; gap: var(--space-2); align-items: center; }
+.search { display: flex; align-items: center; gap: var(--space-2); border: 1px solid var(--border-default); border-radius: var(--radius-sm); padding: .4rem .55rem; flex: 1; min-width: 0; color: var(--text-tertiary); }
+.search input { border: 0; outline: 0; min-width: 0; width: 100%; background: transparent; color: var(--text-primary); font-size: var(--text-sm); }
+.count { color: var(--text-tertiary); font-size: var(--text-xs); white-space: nowrap; }
+.tree { padding: var(--space-2) 0 var(--space-3); overflow: auto; max-height: 600px; }
+.root { display: flex; align-items: center; gap: var(--space-2); padding: .35rem .5rem; border-bottom: 1px solid var(--border-subtle); margin-bottom: .15rem; color: var(--text-primary); }
+.row { display: flex; align-items: center; gap: .45rem; min-height: 32px; padding-right: .5rem; color: var(--text-secondary); }
+.row:hover, .selected { background: var(--bg-secondary); }
+.expand, .expandPlaceholder { width: 16px; height: 20px; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 16px; color: var(--text-tertiary); }
+.expand { border: 0; background: transparent; cursor: pointer; padding: 0; }
+.folder { color: var(--accent-secondary); flex: 0 0 auto; }
+.file { color: var(--text-tertiary); flex: 0 0 auto; }
+.name, .nameButton { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-sm); }
+.nameButton { border: 0; background: transparent; color: var(--text-primary); cursor: pointer; padding: 0; text-align: left; }
+.nameButton:hover { color: var(--accent-secondary); }
+.profile { color: var(--text-tertiary); font-family: var(--font-mono); font-size: .67rem; margin-left: auto; white-space: nowrap; }
+.size, .status { color: var(--text-tertiary); font-size: .68rem; white-space: nowrap; }
+.status { text-transform: uppercase; letter-spacing: .03em; }
+.good { color: var(--status-success-text); }
+.capabilityDots { display: inline-flex; gap: 2px; min-width: 18px; }
+.capabilityDots i { display: block; width: 5px; height: 5px; background: var(--accent-secondary); border-radius: 50%; }
+.download { display: none; }
+.details { padding: var(--space-4); display: flex; flex-direction: column; gap: var(--space-3); align-self: start; }
+.detailHeading { display: flex; gap: var(--space-2); align-items: flex-start; color: var(--text-primary); }
+.detailHeading strong { overflow-wrap: anywhere; font-size: var(--text-sm); }
+.details dl { display: flex; flex-direction: column; gap: var(--space-2); margin: 0; }
+.details dl div { display: flex; justify-content: space-between; gap: var(--space-3); border-bottom: 1px solid var(--border-subtle); padding-bottom: var(--space-2); }
+.details dt, .detailLabel { color: var(--text-tertiary); font-size: var(--text-xs); }
+.details dd { margin: 0; color: var(--text-secondary); font-size: var(--text-xs); text-align: right; }
+.hash { max-width: 160px; overflow-wrap: anywhere; font-family: var(--font-mono); }
+.detailLabel { margin: 0; }
+.tags { display: flex; flex-wrap: wrap; gap: var(--space-1); }
+.tags span { padding: .25rem .4rem; border-radius: var(--radius-sm); background: var(--accent-secondary-subtle); color: var(--status-info-text); font-size: .68rem; text-transform: capitalize; }
+.empty, .emptyDetail { color: var(--text-tertiary); font-size: var(--text-sm); }
+.empty { padding: var(--space-5); }
+.emptyDetail { min-height: 150px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-2); text-align: center; margin: 0; }
+@media (max-width: 900px) { .layout { grid-template-columns: 1fr; } .details { order: -1; } }
+@media (max-width: 640px) { .profile { display: none; } .size { margin-left: auto; } .status { display: none; } }

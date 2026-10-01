@@ -1,13 +1,21 @@
 'use client'
 
-import { Globe, Calendar, Settings, Trash2 } from 'lucide-react'
+import { Calendar, FolderTree, Globe, Settings, Trash2 } from 'lucide-react'
 import Link from 'next/link'
 import styles from './ProjectCard.module.css'
 
 interface ProjectCardProps {
   id: string
   name: string
+  projectKind?: string
   targetDomain: string
+  artifactCount?: number
+  targetCount?: number
+  workspaceProfile?: {
+    platform?: string | null
+    architecture?: string | null
+    runtimes?: string[]
+  } | null
   description?: string | null
   createdAt: string
   isSelected?: boolean
@@ -18,7 +26,11 @@ interface ProjectCardProps {
 export function ProjectCard({
   id,
   name,
+  projectKind,
   targetDomain,
+  artifactCount = 0,
+  targetCount = 0,
+  workspaceProfile,
   description,
   createdAt,
   isSelected,
@@ -66,10 +78,17 @@ export function ProjectCard({
       </div>
       <div className="cardBody">
         <div className={styles.meta}>
-          <div className={styles.metaItem}>
-            <Globe size={12} />
-            <span>{targetDomain || 'No target set'}</span>
-          </div>
+          {projectKind === 'REVERSE_ENGINEERING' ? (
+            <>
+              <div className={styles.metaItem}><FolderTree size={12} /><span>Workspace · {artifactCount} artifacts · {targetCount} targets</span></div>
+              <div className={styles.metaItem}><Globe size={12} /><span>{[workspaceProfile?.platform, workspaceProfile?.architecture, ...(workspaceProfile?.runtimes || [])].filter(Boolean).join(' · ') || 'Profile pending'}</span></div>
+            </>
+          ) : (
+            <div className={styles.metaItem}>
+              <Globe size={12} />
+              <span>{targetDomain || 'No target set'}</span>
+            </div>
+          )}
           <div className={styles.metaItem}>
             <Calendar size={12} />
             <span>{formattedDate}</span>

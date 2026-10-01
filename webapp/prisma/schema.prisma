@@ -419,6 +419,9 @@ model Project {
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   name        String
   description String?
+  /// New REAmon workspaces use REVERSE_ENGINEERING. Existing rows retain the
+  /// legacy default so RedAmon recon behavior remains compatible.
+  projectKind String   @default("LEGACY_SECURITY") @map("project_kind")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
   // R1: nullable actor columns (populated going forward only; MUST stay nullable).
@@ -442,6 +445,7 @@ model Project {
   hypotheses                  Hypothesis[]
   evidence                    Evidence[]
   activities                  WorkspaceActivity[]
+  imports                     WorkspaceImport[]
 
   // ========== TARGET CONFIGURATION ==========
   targetDomain                String   @default("") @map("target_domain")
@@ -2403,6 +2407,9 @@ model Target {
   name        String
   targetType  String   @default("UNKNOWN") @map("target_type")
   locator     String?
+  parentTargetId String? @map("parent_target_id")
+  parentTarget Target? @relation("TargetHierarchy", fields: [parentTargetId], references: [id], onDelete: SetNull)
+  childTargets Target[] @relation("TargetHierarchy")
   status      String   @default("DISCOVERED")
   profile     Json     @default("{}")
   createdAt   DateTime @default(now()) @map("created_at")
@@ -2412,9 +2419,11 @@ model Target {
   findings    Finding[]
   hypotheses  Hypothesis[]
   evidence    Evidence[]
+  rootImports WorkspaceImport[] @relation("WorkspaceImportRootTarget")
 
   @@index([projectId, status])
   @@index([projectId, targetType])
+  @@index([parentTargetId])
   @@map("reamon_targets")
 }
 
@@ -2424,8 +2433,13 @@ model Artifact {
   project        Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   targetId       String?  @map("target_id")
   target         Target?  @relation(fields: [targetId], references: [id], onDelete: SetNull)
+  importId       String?  @map("import_id")
+  workspaceImport WorkspaceImport? @relation(fields: [importId], references: [id], onDelete: SetNull)
   name           String
   originalName   String   @map("original_name")
+  /// Logical path relative to the imported workspace root; never a disk path.
+  relativePath   String   @default("") @map("relative_path")
+  parentPath     String   @default("") @map("parent_path")
   storagePath    String   @map("storage_path")
   sha256         String
   sizeBytes      Int      @map("size_bytes")
@@ -2444,7 +2458,37 @@ model Artifact {
   @@index([projectId, status])
   @@index([projectId, sha256])
   @@index([targetId])
+  @@index([projectId, relativePath])
+  @@index([importId, relativePath])
   @@map("reamon_artifacts")
+}
+
+model WorkspaceImport {
+  id             String   @id @default(cuid())
+  projectId      String   @map("project_id")
+  project        Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  rootTargetId   String?  @unique @map("root_target_id")
+  rootTarget     Target?  @relation("WorkspaceImportRootTarget", fields: [rootTargetId], references: [id], onDelete: SetNull)
+  sourceType     String   @default("BROWSER_DIRECTORY") @map("source_type")
+  rootName       String   @map("root_name")
+  status         String   @default("PENDING")
+  totalFiles     Int      @default(0) @map("total_files")
+  completedFiles Int      @default(0) @map("completed_files")
+  failedFiles    Int      @default(0) @map("failed_files")
+  totalBytes     BigInt   @default(0) @map("total_bytes")
+  uploadedBytes  BigInt   @default(0) @map("uploaded_bytes")
+  /// Canonical inventory entries: relativePath, size, and lastModified only.
+  manifest       Json     @default("[]")
+  metadata       Json     @default("{}")
+  errorSummary   String   @default("") @map("error_summary") @db.Text
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+  completedAt    DateTime? @map("completed_at")
+  artifacts      Artifact[]
+
+  @@index([projectId, status])
+  @@index([projectId, createdAt])
+  @@map("reamon_workspace_imports")
 }
 
 model Task {

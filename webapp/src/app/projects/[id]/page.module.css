@@ -55,7 +55,27 @@
 .fill { height: 100%; border-radius: inherit; background: var(--accent-secondary); transition: width 240ms ease; }
 .providerRow { border-top: 1px solid var(--border-subtle); padding: var(--space-3) 0; font-size: var(--text-sm); }
 .providerRow:first-of-type { border-top: 0; }
+.providerRow > span:first-child { display: flex; flex-direction: column; gap: .2rem; }
+.providerRow small { color: var(--text-tertiary); font-size: .68rem; text-transform: capitalize; }
 .providerCount, .type { color: var(--text-tertiary); font-size: var(--text-xs); }
+
+.profileGrid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 1px; border: 1px solid var(--border-default); background: var(--border-default); border-radius: var(--radius-default); overflow: hidden; }
+.profileGrid > div { background: var(--bg-tertiary); padding: var(--space-3); display: flex; flex-direction: column; gap: .25rem; min-width: 0; }
+.profileGrid strong { color: var(--text-primary); font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.profileGrid span { color: var(--text-tertiary); font-size: .68rem; }
+.profileWide { grid-column: span 3; }
+.importStatus { border: 1px solid var(--border-default); border-radius: var(--radius-lg); padding: var(--space-4); background: var(--bg-secondary); }
+.importStatusGrid { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: var(--space-2) var(--space-4); font-size: var(--text-sm); }
+.importStatusGrid span { color: var(--text-tertiary); }
+.importStatusGrid strong { color: var(--text-secondary); overflow-wrap: anywhere; }
+.logicalTargets { display: flex; flex-direction: column; gap: var(--space-2); }
+.logicalTarget { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); border: 1px solid var(--border-subtle); border-radius: var(--radius-default); padding: var(--space-3); background: var(--bg-tertiary); color: var(--text-primary); text-align: left; cursor: pointer; }
+.logicalTarget:hover, .logicalTargetSelected { border-color: var(--accent-secondary); background: var(--accent-secondary-subtle); }
+.logicalTarget > span:first-child { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.logicalTarget > span:first-child svg { color: var(--accent-primary); flex: 0 0 auto; }
+.logicalTarget > span:first-child strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.logicalTarget small { color: var(--text-tertiary); font-size: .68rem; margin-left: var(--space-2); }
+.targetNotice { border-top: 1px solid var(--border-subtle); margin-top: var(--space-3); padding-top: var(--space-3); color: var(--text-secondary); font-size: var(--text-sm); }
 
 .targetBlock + .targetBlock { border-top: 1px solid var(--border-default); margin-top: var(--space-4); padding-top: var(--space-4); }
 .targetTitle { display: flex; align-items: center; gap: var(--space-2); }

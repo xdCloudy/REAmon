@@ -46,12 +46,14 @@ and plugins rather than in the workspace core.
 
 ## Current bootstrap
 
-The first REAmon milestone is implemented and running on the uploaded `reamon/bootstrap`
-branch:
+The first REAmon milestone is implemented and running on the `reamon/bootstrap` branch:
 
 - Create or reuse an existing RedAmon project as a REAmon workspace.
-- Import an arbitrary file through the workspace UI.
-- Persist the target and artifact in PostgreSQL.
+- Create a reverse-engineering workspace without inventing a domain or network scope.
+- Import a complete browser-selected folder in bounded batches, preserving its relative
+  directory tree as workspace context. Single-file import remains available.
+- Persist a directory root target, logical artifact paths, and candidate analysis targets
+  in PostgreSQL.
 - Compute SHA-256 identity and a basic magic/extension/header profile.
 - Keep unknown inputs valid instead of rejecting them.
 - Resolve compatible built-in capabilities from typed plugin manifests.
@@ -138,17 +140,25 @@ existing installations; that compatibility is tracked in the migration document.
 
 ### First REAmon workflow
 
-1. Sign in and create a project/workspace.
-2. Open the workspace dashboard at `/projects/<project-id>`.
-3. Choose any local artifact and optionally give the target a name.
-4. Select **Import and profile**.
-5. Review the detected format, platform/runtime hints, compatible capabilities,
-   deterministic lifecycle progress, and profiler activity.
+1. Sign in and choose **New Project**.
+2. Enter a workspace name or choose a project folder; the folder name is used as the
+   default workspace name.
+3. Review the preflight inventory, then choose **Create and import workspace**.
+4. REAmon creates one `DIRECTORY` root target, uploads files through bounded requests,
+   hashes and profiles each artifact, and retains paths such as `bin/x64/app.dll`.
+5. Review the workspace inventory, file tree, detected logical targets, capabilities,
+   deterministic progress, and activity timeline.
+
+Browser folder selection is a snapshot: the server never receives the absolute local
+filesystem path and cannot watch the directory after the browser selection ends. The
+import includes everything selected by default; future visible ignore rules and refresh
+comparisons can build on the stored manifest.
 
 Artifacts are stored in the named `reamon_artifacts` volume. The default per-file
-limit is 64 MiB; set `REAMON_MAX_ARTIFACT_BYTES` in `.env` before starting the
-webapp to change it. Keep the artifact volume backed up with the PostgreSQL and
-Neo4j data volumes.
+limit is 512 MiB and the default import limit is 50,000 files / 8 GiB. Set
+`REAMON_MAX_ARTIFACT_BYTES`, `REAMON_MAX_IMPORT_FILES`, or `REAMON_MAX_IMPORT_BYTES`
+in `.env` before starting the webapp to change them. Keep the artifact volume backed up
+with the PostgreSQL and Neo4j data volumes.
 
 ## Production deployment
 

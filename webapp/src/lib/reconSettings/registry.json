@@ -9094,6 +9094,25 @@
    "type": "boolean",
    "unit": "none"
   },
+  "projectKind": {
+   "default": "LEGACY_SECURITY",
+   "deny_reason": "internal",
+   "form_section": "TargetSection",
+   "group": "identity",
+   "has_default": true,
+   "mcp": "never",
+   "meaning": "The product flow that owns this project. REVERSE_ENGINEERING is a target-agnostic investigation workspace; LEGACY_SECURITY preserves the original RedAmon network-engagement behavior for existing rows.",
+   "optional": false,
+   "phase": "standalone",
+   "prisma_type": "String",
+   "roe_capped": false,
+   "runtime_key": null,
+   "tool": "project",
+   "traffic": "none",
+   "type": "string",
+   "unit": "none",
+   "validator": "identifier"
+  },
   "purednsDockerImage": {
    "default": "frost19k/puredns:latest",
    "form_section": "SubdomainDiscoverySection",

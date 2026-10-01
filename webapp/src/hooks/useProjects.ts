@@ -9,7 +9,10 @@ export interface ProjectListItem {
   userId: string
   name: string
   description: string | null
+  projectKind: string
   targetDomain: string
+  _count?: { targets: number; artifacts: number }
+  targets?: Array<{ profile: unknown }>
   subdomainList?: string[]
   createdAt: string
   updatedAt: string
@@ -52,7 +55,8 @@ async function fetchProject(projectId: string): Promise<FullProject> {
 async function createProject(data: {
   userId: string
   name: string
-  targetDomain: string
+  targetDomain?: string
+  projectKind?: string
   roeFile?: File | null
   [key: string]: unknown
 }): Promise<FullProject> {

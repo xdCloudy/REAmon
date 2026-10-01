@@ -1,7 +1,7 @@
 import prisma from '@/lib/prisma'
-import { resolveCapabilities } from './capabilities'
+import { resolveCapabilities, resolveWorkspaceCapabilities } from './capabilities'
 import { buildProgressModel } from './progress'
-import type { TargetProfile } from './types'
+import type { TargetProfile, WorkspaceImportSnapshot } from './types'
 
 function asProfile(value: unknown): TargetProfile {
   return value as TargetProfile
@@ -29,6 +29,7 @@ export async function getWorkspaceSnapshot(projectId: string) {
     findingCount,
     hypothesisCount,
     evidenceCount,
+    imports,
   ] = await Promise.all([
     prisma.target.findMany({ where: { projectId }, orderBy: { createdAt: 'asc' } }),
     prisma.artifact.findMany({ where: { projectId }, orderBy: { createdAt: 'desc' } }),
@@ -44,6 +45,15 @@ export async function getWorkspaceSnapshot(projectId: string) {
     prisma.finding.count({ where: { projectId } }),
     prisma.hypothesis.count({ where: { projectId } }),
     prisma.evidence.count({ where: { projectId } }),
+    prisma.workspaceImport.findMany({
+      where: { projectId },
+      orderBy: { createdAt: 'desc' },
+      take: 10,
+      include: {
+        rootTarget: { select: { profile: true } },
+        artifacts: { select: { relativePath: true } },
+      },
+    }),
   ])
 
   const serializedArtifacts = artifacts.map((artifact) => {
@@ -53,6 +63,9 @@ export async function getWorkspaceSnapshot(projectId: string) {
       name: artifact.name,
       originalName: artifact.originalName,
       targetId: artifact.targetId,
+      importId: artifact.importId,
+      relativePath: artifact.relativePath || artifact.originalName,
+      parentPath: artifact.parentPath,
       sizeBytes: artifact.sizeBytes,
       sha256: artifact.sha256,
       mimeType: artifact.mimeType,
@@ -83,6 +96,7 @@ export async function getWorkspaceSnapshot(projectId: string) {
       ...target,
       targetType: target.targetType,
       status: target.status,
+      parentTargetId: target.parentTargetId,
       profile: asProfile(target.profile),
       createdAt: target.createdAt.toISOString(),
       updatedAt: target.updatedAt.toISOString(),
@@ -93,6 +107,32 @@ export async function getWorkspaceSnapshot(projectId: string) {
     hypotheses,
     evidence,
     activities,
+    capabilities: resolveWorkspaceCapabilities(serializedArtifacts.map((artifact) => ({ id: artifact.id, profile: artifact.profile }))),
+    imports: imports.map((workspaceImport): WorkspaceImportSnapshot => {
+      const manifest = Array.isArray(workspaceImport.manifest)
+        ? workspaceImport.manifest as Array<{ relativePath?: unknown }>
+        : []
+      const uploaded = new Set(workspaceImport.artifacts.map((artifact) => artifact.relativePath))
+      return {
+        id: workspaceImport.id,
+        sourceType: workspaceImport.sourceType,
+        rootName: workspaceImport.rootName,
+        status: workspaceImport.status,
+        totalFiles: workspaceImport.totalFiles,
+        completedFiles: workspaceImport.completedFiles,
+        failedFiles: workspaceImport.failedFiles,
+        totalBytes: Number(workspaceImport.totalBytes),
+        uploadedBytes: Number(workspaceImport.uploadedBytes),
+        errorSummary: workspaceImport.errorSummary,
+        completedAt: workspaceImport.completedAt?.toISOString() || null,
+        rootTargetId: workspaceImport.rootTargetId,
+        missingPaths: manifest
+          .map((entry) => typeof entry.relativePath === 'string' ? entry.relativePath : '')
+          .filter((relativePath) => relativePath && !uploaded.has(relativePath))
+          .slice(0, 200),
+        profile: workspaceImport.rootTarget?.profile as WorkspaceImportSnapshot['profile'],
+      }
+    }),
     progress,
     counts: {
       targets: targets.length,
