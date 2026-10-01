@@ -63,7 +63,7 @@ export default function NewProjectPage() {
       const project = await createProject(data)
       if (project) {
         toast.success('Project created')
-        router.push(`/graph?project=${project.id}`)
+        router.push(`/projects/${project.id}`)
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to create project'

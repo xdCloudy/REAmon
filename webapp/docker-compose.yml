@@ -1,4 +1,4 @@
-# RedAmon Webapp Docker Compose (standalone)
+# REAmon Webapp Docker Compose (standalone)
 # For full stack, use the root docker-compose.yml instead.
 
 services:
@@ -22,11 +22,18 @@ services:
       AGENT_API_URL: http://host.docker.internal:8090
       AGENT_WS_URL: ws://host.docker.internal:8090/ws/agent
       WEBAPP_URL: http://localhost:3000
+      REAMON_ARTIFACTS_PATH: /data/reamon-artifacts
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    volumes:
+      - reamon_artifacts:/data/reamon-artifacts
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
+
+volumes:
+  reamon_artifacts:
+    name: reamon_artifacts

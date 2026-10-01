@@ -14,13 +14,13 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   {
-    label: 'Projects',
+    label: 'Workspaces',
     href: '/projects',
     icon: <FolderOpen size={16} />,
     enabled: true,
   },
   {
-    label: 'Graph Map',
+    label: 'Knowledge Graph',
     href: '/graph',
     icon: <Network size={16} />,
     enabled: true,

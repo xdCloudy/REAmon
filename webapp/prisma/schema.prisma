@@ -433,6 +433,16 @@ model Project {
   authProfile                 ProjectAuthProfile?
   recordingSessions           RecordingSession[]
 
+  // REAmon foundation: Project remains the migration-safe workspace root while
+  // investigation entities grow independently of the legacy recon settings.
+  targets                     Target[]
+  artifacts                   Artifact[]
+  tasks                       Task[]
+  findings                    Finding[]
+  hypotheses                  Hypothesis[]
+  evidence                    Evidence[]
+  activities                  WorkspaceActivity[]
+
   // ========== TARGET CONFIGURATION ==========
   targetDomain                String   @default("") @map("target_domain")
   subdomainList               String[] @default([]) @map("subdomain_list")
@@ -2379,4 +2389,151 @@ model UserTradecraftResource {
   @@unique([userId, slug])
   @@index([userId])
   @@map("user_tradecraft_resources")
+}
+
+// ========== REAMON INVESTIGATION FOUNDATION ==========
+// These models are intentionally small. Platform-specific metadata lives in
+// JSON profiles, while stable ownership, lifecycle, and cross-entity links stay
+// relational so the workspace dashboard remains deterministic and queryable.
+
+model Target {
+  id          String   @id @default(cuid())
+  projectId   String   @map("project_id")
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name        String
+  targetType  String   @default("UNKNOWN") @map("target_type")
+  locator     String?
+  status      String   @default("DISCOVERED")
+  profile     Json     @default("{}")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  artifacts   Artifact[]
+  tasks       Task[]
+  findings    Finding[]
+  hypotheses  Hypothesis[]
+  evidence    Evidence[]
+
+  @@index([projectId, status])
+  @@index([projectId, targetType])
+  @@map("reamon_targets")
+}
+
+model Artifact {
+  id             String   @id @default(cuid())
+  projectId      String   @map("project_id")
+  project        Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  targetId       String?  @map("target_id")
+  target         Target?  @relation(fields: [targetId], references: [id], onDelete: SetNull)
+  name           String
+  originalName   String   @map("original_name")
+  storagePath    String   @map("storage_path")
+  sha256         String
+  sizeBytes      Int      @map("size_bytes")
+  mimeType       String   @default("application/octet-stream") @map("mime_type")
+  extension      String   @default("")
+  status         String   @default("DISCOVERED")
+  profile        Json     @default("{}")
+  capabilities   String[] @default([])
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+  tasks          Task[]
+  findings       Finding[]
+  hypotheses     Hypothesis[]
+  evidence       Evidence[]
+
+  @@index([projectId, status])
+  @@index([projectId, sha256])
+  @@index([targetId])
+  @@map("reamon_artifacts")
+}
+
+model Task {
+  id          String   @id @default(cuid())
+  projectId   String   @map("project_id")
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  targetId    String?  @map("target_id")
+  target      Target?  @relation(fields: [targetId], references: [id], onDelete: SetNull)
+  artifactId  String?  @map("artifact_id")
+  artifact    Artifact? @relation(fields: [artifactId], references: [id], onDelete: SetNull)
+  title       String
+  category    String   @default("analysis")
+  status      String   @default("QUEUED")
+  progress    Int      @default(0)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@index([projectId, status])
+  @@index([projectId, category])
+  @@map("reamon_tasks")
+}
+
+model Finding {
+  id          String   @id @default(cuid())
+  projectId   String   @map("project_id")
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  targetId    String?  @map("target_id")
+  target      Target?  @relation(fields: [targetId], references: [id], onDelete: SetNull)
+  artifactId  String?  @map("artifact_id")
+  artifact    Artifact? @relation(fields: [artifactId], references: [id], onDelete: SetNull)
+  title       String
+  description String   @default("") @db.Text
+  severity    String   @default("info")
+  status      String   @default("OPEN")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@index([projectId, status])
+  @@index([projectId, severity])
+  @@map("reamon_findings")
+}
+
+model Hypothesis {
+  id          String   @id @default(cuid())
+  projectId   String   @map("project_id")
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  targetId    String?  @map("target_id")
+  target      Target?  @relation(fields: [targetId], references: [id], onDelete: SetNull)
+  artifactId  String?  @map("artifact_id")
+  artifact    Artifact? @relation(fields: [artifactId], references: [id], onDelete: SetNull)
+  statement   String   @db.Text
+  status      String   @default("OPEN")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@index([projectId, status])
+  @@map("reamon_hypotheses")
+}
+
+model Evidence {
+  id          String   @id @default(cuid())
+  projectId   String   @map("project_id")
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  targetId    String?  @map("target_id")
+  target      Target?  @relation(fields: [targetId], references: [id], onDelete: SetNull)
+  artifactId  String?  @map("artifact_id")
+  artifact    Artifact? @relation(fields: [artifactId], references: [id], onDelete: SetNull)
+  kind        String   @default("observation")
+  summary     String   @db.Text
+  source      String   @default("system")
+  data        Json     @default("{}")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([projectId, createdAt])
+  @@index([targetId])
+  @@index([artifactId])
+  @@map("reamon_evidence")
+}
+
+model WorkspaceActivity {
+  id          String   @id @default(cuid())
+  projectId   String   @map("project_id")
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  actor       String   @default("system")
+  eventType   String   @map("event_type")
+  message     String   @db.Text
+  data        Json     @default("{}")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([projectId, createdAt])
+  @@map("reamon_workspace_activities")
 }

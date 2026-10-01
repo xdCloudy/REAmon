@@ -1157,6 +1157,8 @@ services:
       GITHUB_HUNT_OUTPUT_PATH: /data/github-hunt-output
       TRUFFLEHOG_OUTPUT_PATH: /data/trufflehog-output
       SUPPLY_CHAIN_OUTPUT_PATH: /data/supply-chain-output
+      # REAmon target uploads and derived artifact profiles.
+      REAMON_ARTIFACTS_PATH: /data/reamon-artifacts
       REPORT_OUTPUT_PATH: /data/reports
       WORDLIST_UPLOAD_PATH: /data/recon-wordlists
       NUCLEI_TEMPLATES_PATH: /data/nuclei-templates
@@ -1182,6 +1184,7 @@ services:
       - js_recon_uploads:/data/js-recon-uploads
       # Supply-chain SBOM/lockfile uploads: webapp writes, the scan reads (ro).
       - supply_chain_uploads:/data/supply-chain-uploads
+      - reamon_artifacts:/data/reamon-artifacts
       - js_recon_custom:/data/js-recon-custom
       - ./VERSION:/app/VERSION:ro
       # HTTP traffic capture (Phase 1): read offloaded bodies for the /traffic
@@ -1441,3 +1444,7 @@ volumes:
   # the webapp (writes) and the spawned scan container (reads, read-only).
   supply_chain_uploads:
     name: redamon_supply_chain_uploads
+  # REAmon target/artifact bytes. The webapp is the only writer; analysis
+  # providers receive derived metadata first and can be granted access later.
+  reamon_artifacts:
+    name: reamon_artifacts

@@ -73,7 +73,7 @@ import { GlobalHeader } from './GlobalHeader'
 /* ------------------------------------------------------------------ */
 
 function getLogoLink() {
-  const imgs = screen.getAllByAltText('RedAmon')
+  const imgs = screen.getAllByAltText('REAmon')
   expect(imgs).toHaveLength(1)
   const anchor = imgs[0].closest('a')
   if (!anchor) throw new Error('Logo image is not wrapped in an anchor')
@@ -107,16 +107,16 @@ describe('GlobalHeader – logo link', () => {
 
   test('logo contains the brand image with correct src and alt', () => {
     render(<GlobalHeader />)
-    const img = screen.getByAltText('RedAmon')
+  const img = screen.getByAltText('REAmon')
     expect(img.getAttribute('src')).toBe('/logo.png')
     expect(img.getAttribute('width')).toBe('28')
     expect(img.getAttribute('height')).toBe('28')
   })
 
-  test('logo contains the "Red" accent and "Amon" text', () => {
+  test('logo contains the "RE" accent and "Amon" text', () => {
     render(<GlobalHeader />)
     const logoLink = getLogoLink()
-    expect(logoLink.textContent).toContain('Red')
+    expect(logoLink.textContent).toContain('RE')
     expect(logoLink.textContent).toContain('Amon')
   })
 
@@ -154,21 +154,21 @@ describe('GlobalHeader – logo href is /graph on every route', () => {
 describe('GlobalHeader – structure', () => {
   test('exactly one logo image exists in the header', () => {
     render(<GlobalHeader />)
-    const imgs = screen.getAllByAltText('RedAmon')
+  const imgs = screen.getAllByAltText('REAmon')
     expect(imgs).toHaveLength(1)
   })
 
-  test('logo link is distinct from the Red Zone nav link', () => {
+  test('logo link is distinct from the Knowledge Graph nav link', () => {
     render(<GlobalHeader />)
     const logoLink = getLogoLink()
-    const redZoneLink = screen.getByRole('link', { name: /red zone/i })
-    expect(logoLink).not.toBe(redZoneLink)
-    expect(redZoneLink.getAttribute('href')).toBe('/graph')
+    const knowledgeGraphLink = screen.getByRole('link', { name: /knowledge graph/i })
+    expect(logoLink).not.toBe(knowledgeGraphLink)
+    expect(knowledgeGraphLink.getAttribute('href')).toBe('/graph')
   })
 
   test('header contains all core nav links', () => {
     render(<GlobalHeader />)
-    const expectedLabels = ['Red Zone', 'CypherFix', 'Insights', 'Reports']
+    const expectedLabels = ['Knowledge Graph', 'CypherFix', 'Insights', 'TrafficMind', 'Reports']
     for (const label of expectedLabels) {
       const link = screen.getByRole('link', { name: new RegExp(label, 'i') })
       expect(link).toBeDefined()

@@ -39,17 +39,17 @@ const CHECKBOXES = [
   {
     id: 'data-privacy',
     label:
-      'I understand that reconnaissance data, credentials, and vulnerability details are transmitted to external LLM providers (OpenAI, Anthropic, etc.) and third-party services with no privacy guarantee.',
+      'I understand that target data, credentials, findings, and other investigation details may be transmitted to external LLM providers (OpenAI, Anthropic, etc.) and third-party services with no privacy guarantee.',
   },
   {
     id: 'data-persistence',
     label:
-      'I understand all data is stored indefinitely in Neo4j/PostgreSQL with no automatic deletion. I am responsible for cleanup after engagements.',
+      'I understand all data is stored indefinitely in Neo4j/PostgreSQL with no automatic deletion. I am responsible for cleanup after investigations.',
   },
   {
     id: 'ai-agent',
     label:
-      'I understand the AI agent operates autonomously and may take unexpected actions including scope drift, service degradation, or unintended exploitation. Approval gates are best-effort safeguards.',
+      'I understand AI agents may take unexpected actions including scope drift, service degradation, or unintended target interaction. Approval gates are best-effort safeguards.',
   },
   {
     id: 'third-party',
@@ -118,30 +118,29 @@ export function DisclaimerGate({ children }: DisclaimerGateProps) {
         <div className={styles.card}>
           <Image src="/logo.png" alt="" aria-hidden width={520} height={520} className={styles.eyeBg} />
           <div className={styles.welcomeHeader}>
-            <Image src="/logo.png" alt="RedAmon" width={36} height={36} style={{ objectFit: 'contain' }} />
+            <Image src="/logo.png" alt="REAmon" width={36} height={36} style={{ objectFit: 'contain' }} />
             <h1 className={styles.welcomeTitle}>
-              Welcome to <span className={styles.logoAccent}>Red</span>Amon
+              Welcome to <span className={styles.logoAccent}>RE</span>Amon
             </h1>
           </div>
 
           <div className={styles.body}>
             <p className={styles.welcomeThank}>
-              Thank you for downloading and installing <strong>RedAmon</strong>!
+              Thank you for installing <strong>REAmon</strong>!
             </p>
 
             <p className={styles.welcomeDesc}>
-              <strong>RedAmon</strong> is an open-source, AI-powered
-              penetration testing platform that combines autonomous
-              reconnaissance, graph-based attack surface mapping, and an
-              intelligent agent to help security professionals work faster and
-              smarter, from initial footprinting to full engagement reporting.
+              <strong>REAmon</strong> is an open-source, AI-assisted
+              reverse-engineering workspace and orchestration platform. It
+              profiles arbitrary targets, connects evidence in a knowledge graph,
+              and coordinates analysis capabilities under human control.
             </p>
 
             <div className={styles.missionBox}>
               <p className={styles.missionText}>
-                Our commitment is to keep RedAmon always up-to-date and make it
-                the <strong>#1 open-source pentesting platform</strong> in the
-                world. To get there, we need the community&apos;s help.
+                REAmon originated as a fork of RedAmon and keeps its MIT license
+                and attribution. The project is evolving toward a general
+                reverse-engineering workspace.
               </p>
               <p className={styles.missionText}>
                 We&apos;re not asking for money, just a ⭐ GitHub star to help us grow, gain visibility, and attract contributors. If you&apos;d like to go further, feel free to open a pull request or reach out to our maintainers directly.<br />Every contribution matters.
@@ -159,7 +158,7 @@ export function DisclaimerGate({ children }: DisclaimerGateProps) {
             >
               <Github size={20} />
               <Star size={18} className={styles.starIcon} />
-              <span>Star RedAmon on GitHub</span>
+              <span>View upstream RedAmon source</span>
               <ExternalLink size={13} className={styles.starExternal} />
             </a>
           </div>
@@ -214,7 +213,7 @@ export function DisclaimerGate({ children }: DisclaimerGateProps) {
                     </div>
                     <div>
                       <p className={styles.guideStepTitle}>Create a Project</p>
-                      <p className={styles.guideStepDesc}>Set up a project to group all recon data, settings, and agent sessions for a single engagement.</p>
+                      <p className={styles.guideStepDesc}>Set up a workspace to group targets, artifacts, settings, and agent sessions for an investigation.</p>
                     </div>
                   </div>
 
@@ -231,8 +230,8 @@ export function DisclaimerGate({ children }: DisclaimerGateProps) {
                       <Play size={18} className={styles.guideStepIcon} />
                     </div>
                     <div>
-                      <p className={styles.guideStepTitle}>Launch the Recon Pipeline</p>
-                      <p className={styles.guideStepDesc}>From the <strong>Red Zone</strong> press <strong>Start Recon</strong>. Wait for the pipeline to fully complete before starting the AI agent.</p>
+                      <p className={styles.guideStepTitle}>Launch an Analysis</p>
+                      <p className={styles.guideStepDesc}>From the workspace, start an analysis workflow for the available targets and capabilities before starting an AI agent.</p>
                     </div>
                   </div>
                   <div className={styles.guideStep}>
@@ -242,7 +241,7 @@ export function DisclaimerGate({ children }: DisclaimerGateProps) {
                     </div>
                     <div>
                       <p className={styles.guideStepTitle}>Start the AI Agent</p>
-                      <p className={styles.guideStepDesc}>Once recon is done, switch to <strong>Agent AI</strong> to interrogate findings, plan attack paths, and generate reports.</p>
+                      <p className={styles.guideStepDesc}>Once analysis is underway, switch to <strong>Agent AI</strong> to interrogate evidence, evaluate hypotheses, and generate reports.</p>
                     </div>
                   </div>
                 </div>
@@ -282,8 +281,8 @@ export function DisclaimerGate({ children }: DisclaimerGateProps) {
 
         <div className={styles.body}>
           <p className={styles.intro}>
-            <strong>RedAmon</strong> is an AI-powered penetration testing
-            platform intended exclusively for{' '}
+            <strong>REAmon</strong> is an AI-assisted reverse-engineering
+            platform intended for{' '}
             <strong>authorized security testing</strong>,{' '}
             <strong>educational purposes</strong>, and{' '}
             <strong>research</strong>. Before using this tool, you must read and

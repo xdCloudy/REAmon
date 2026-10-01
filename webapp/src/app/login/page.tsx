@@ -34,7 +34,7 @@ export default function LoginPage() {
       }
 
       // Force full page reload to pick up the new cookie in middleware
-      window.location.href = '/graph'
+      window.location.href = '/projects'
     } catch {
       setError('Unable to connect to the server')
       setLoading(false)
@@ -55,9 +55,9 @@ export default function LoginPage() {
       <div className={styles.card}>
         <div className={styles.header}>
           <div className={styles.logoRow}>
-            <Image src="/logo.png" alt="RedAmon" width={63} height={40} priority />
+            <Image src="/logo.png" alt="REAmon" width={63} height={40} priority />
             <span className={styles.logoText}>
-              <span className={styles.logoAccent}>Red</span>Amon
+              <span className={styles.logoAccent}>RE</span>Amon
             </span>
           </div>
           <p className={styles.subtitle}>Sign in to your account</p>
@@ -73,7 +73,7 @@ export default function LoginPage() {
                 id="email"
                 type="email"
                 className={styles.input}
-                placeholder="admin@redamon.local"
+                placeholder="you@example.local"
                 value={email}
                 onChange={e => setEmail(e.target.value)}
                 required

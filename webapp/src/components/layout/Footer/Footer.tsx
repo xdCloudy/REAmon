@@ -17,7 +17,7 @@ export function Footer() {
       <div className={styles.content}>
         <div className={styles.left}>
           <span className={styles.copyright}>
-            © {currentYear} RedAmon. All rights reserved.
+            © {currentYear} REAmon. Originated as a RedAmon fork; all original license terms remain in effect.
           </span>
           <a
             href={DISCLAIMER_GITHUB_URL}

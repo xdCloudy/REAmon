@@ -129,7 +129,7 @@ export function UpdateNotification() {
           <Download size={20} className={styles.downloadIcon} />
           <div>
             <p className={styles.versionText}>
-              RedAmon <strong>v{latestVersion}</strong> is available.
+              REAmon <strong>v{latestVersion}</strong> is available.
               You are running <strong>v{currentVersion}</strong>.
             </p>
           </div>

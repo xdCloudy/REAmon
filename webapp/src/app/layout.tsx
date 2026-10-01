@@ -24,8 +24,8 @@ import { resolveWsHint } from '@/hooks/agentWsUrl'
 export const dynamic = 'force-dynamic'
 
 export const metadata: Metadata = {
-  title: 'RedAmon',
-  description: 'Security reconnaissance and vulnerability assessment dashboard',
+  title: 'REAmon',
+  description: 'AI-assisted reverse-engineering workspace and orchestration platform',
   icons: {
     icon: '/favicon.ico',
     apple: '/favicon.png',

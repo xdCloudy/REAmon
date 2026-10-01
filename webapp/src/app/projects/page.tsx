@@ -49,7 +49,7 @@ export default function ProjectsPage() {
       createdAt: '',
       updatedAt: ''
     })
-    router.push(`/graph?project=${project.id}`)
+    router.push(`/projects/${project.id}`)
   }
 
   const handleDeleteProject = async (projectId: string) => {

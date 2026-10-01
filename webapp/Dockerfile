@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # ============================================
 # RedAmon Web Application - Production Dockerfile
 # Multi-stage build for optimized production image
@@ -15,7 +16,12 @@ COPY prisma ./prisma
 # Same retry/timeout tuning as the runner stage (npm config is per-stage: it
 # writes /root/.npmrc, which does not carry across FROM). This is the heaviest
 # download in the build, so it is the layer most likely to hit ECONNRESET.
-RUN npm config set fetch-retries 5 && \
+# The managed build environment routes npm through a session proxy. The CA
+# mount is optional for ordinary local builds, but keeps TLS verification intact
+# when the proxy presents its session certificate.
+RUN --mount=type=secret,id=proxy_ca \
+    if [ -f /run/secrets/proxy_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/proxy_ca; fi; \
+    npm config set fetch-retries 5 && \
     npm config set fetch-retry-mintimeout 20000 && \
     npm config set fetch-retry-maxtimeout 180000 && \
     npm config set fetch-timeout 900000 && \
@@ -74,6 +80,9 @@ RUN mkdir -p /data/js-recon-custom && chown nextjs:nodejs /data/js-recon-custom
 #   EACCES: permission denied, mkdir '/data/supply-chain-uploads/<project>'
 # surfaced to the operator only as "Failed to upload file".
 RUN mkdir -p /data/supply-chain-uploads && chown nextjs:nodejs /data/supply-chain-uploads
+# REAmon target/artifact imports. Keep bytes in a named volume rather than in
+# the immutable application layer so investigations survive image upgrades.
+RUN mkdir -p /data/reamon-artifacts && chown nextjs:nodejs /data/reamon-artifacts
 
 # Leverage output traces to reduce image size
 # https://nextjs.org/docs/advanced-features/output-file-tracing
@@ -90,7 +99,9 @@ COPY --from=builder /app/node_modules/prisma/package.json /tmp/prisma-pkg.json
 # (~100MB), and on a slow or flaky link the default single-shot fetch dies with
 #   npm error code ECONNRESET / npm error network aborted
 # killing the whole build. Retry with backoff instead of failing on one reset.
-RUN PRISMA_VER=$(node -p "require('/tmp/prisma-pkg.json').version") && \
+RUN --mount=type=secret,id=proxy_ca \
+    if [ -f /run/secrets/proxy_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/proxy_ca; fi; \
+    PRISMA_VER=$(node -p "require('/tmp/prisma-pkg.json').version") && \
     npm config set fetch-retries 5 && \
     npm config set fetch-retry-mintimeout 20000 && \
     npm config set fetch-retry-maxtimeout 180000 && \

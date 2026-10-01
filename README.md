@@ -1,12 +1,12 @@
 <p align="center">
-  <img src="docs/assets/logo.png" alt="RedAmon Logo" width="120"/>
+  <img src="docs/assets/logo.png" alt="REAmon mark" width="120"/>
   <br/>
-  <img src="docs/assets/title.svg" alt="RedAmon" width="340"/>
+  <h1>REAmon</h1>
   <br/>
-  <b><i><big><big>Unmask the hidden before the world does</big></big></i></b>
+  <b><i><big><big>Analyse anything. Connect the evidence. Understand the system.</big></big></i></b>
 </p>
 <p align="center" style="font-size: 120%;">
-  An autonomous AI framework that chains reconnaissance, exploitation, and post-exploitation into a single pipeline, then goes further by triaging every finding, implementing code fixes, and opening pull requests on your repository. From first packet to merged patch, with human oversight at every critical step.
+  REAmon is an AI-assisted reverse-engineering workspace and orchestration platform. It accepts arbitrary targets, profiles what it can, resolves compatible analysis capabilities, coordinates tools and agents, stores connected evidence, and presents the investigation through a live project workspace.
 </p>
 
 <br/>
@@ -16,7 +16,7 @@
 </p>
 
 <p align="center">
-  <a href="https://www.redamon.org/"><img height="34" src="https://img.shields.io/badge/🌐_Website-redamon.org-A01025?style=for-the-badge&labelColor=000000" alt="RedAmon Website"/></a>
+  <a href="docs/REAMON_ARCHITECTURE.md"><img height="34" src="https://img.shields.io/badge/Architecture-Read_the_design-4169A1?style=for-the-badge&labelColor=000000" alt="REAmon Architecture"/></a>
   <a href="https://discord.gg/5Zyff6PrUF"><img height="34" src="https://img.shields.io/badge/Discord-Join_Community-5865F2?style=for-the-badge&logo=discord&logoColor=white&labelColor=000000" alt="Discord Community"/></a>
   <a href="https://t.me/redamon_ai"><img height="34" src="https://img.shields.io/badge/Telegram-Join_Channel-26A5E4?style=for-the-badge&logo=telegram&logoColor=white&labelColor=000000" alt="Telegram Channel"/></a>
   <a href="https://youtu.be/XJyQHa4RTbI"><img height="34" src="https://img.shields.io/badge/YouTube-Platform_Tour-FF0000?style=for-the-badge&logo=youtube&logoColor=white&labelColor=000000" alt="RedAmon Platform Tour"/></a>
@@ -25,7 +25,7 @@
 <p align="center">
   <a href="https://github.com/samugit83/redamon/stargazers"><img height="24" src="https://img.shields.io/github/stars/samugit83/redamon?style=flat&color=2E8B57&label=Stars" alt="GitHub Stars"/></a>
   <img height="24" src="https://img.shields.io/badge/v6.23.0-release-2E8B57?style=flat" alt="Version 6.23.0"/>
-  <img height="24" src="https://img.shields.io/badge/WARNING-SECURITY%20TOOL-B22222?style=flat" alt="Security Tool Warning"/>
+  <img height="24" src="https://img.shields.io/badge/RESEARCH%20PLATFORM-AUTHORIZED%20USE-B22222?style=flat" alt="Authorized research platform"/>
   <img height="24" src="https://img.shields.io/badge/LICENSE-MIT-4169A1?style=flat" alt="MIT License"/>
   <img height="24" src="https://img.shields.io/badge/AI-AUTONOMOUS%20AGENT-6A5ACD?style=flat&logo=openai&logoColor=white" alt="AI Powered"/>
   <a href="https://github.com/samugit83/redamon/wiki/AI-Gauntlet"><img height="24" src="https://img.shields.io/badge/%F0%9F%86%95%20AI%20GAUNTLET-OFFENSIVE%20AI%20TESTING-FF6B35?style=flat" alt="AI Gauntlet — Offensive AI Testing"/></a>
@@ -41,7 +41,11 @@
   <a href="https://github.com/samugit83/redamon/wiki"><img height="24" src="https://img.shields.io/badge/📖_WIKI-FULL%20DOCUMENTATION-1A73E8?style=flat" alt="Wiki Documentation"/></a>
 </p>
 
-> **LEGAL DISCLAIMER**: This tool is intended for **authorized security testing**, **educational purposes**, and **research only**. Never use this system to scan, probe, or attack any system you do not own or have explicit written permission to test. Unauthorized access is **illegal** and punishable by law. By using this tool, you accept **full responsibility** for your actions. **[Read Full Disclaimer](DISCLAIMER.md)**
+> **LEGAL DISCLAIMER**: REAmon is intended for **authorized reverse engineering**, **educational purposes**, and **research only**. Use it only with targets and software you own or are explicitly authorized to analyze. By using this system, you accept **full responsibility** for your actions. **[Read Full Disclaimer](DISCLAIMER.md)**
+
+> **Provenance**: REAmon originated as a fork of [RedAmon](https://github.com/samugit83/redamon). Original attribution, copyright notices, and the MIT licence are retained. The migration is tracked in [REAMON_MIGRATION.md](docs/REAMON_MIGRATION.md).
+
+The initial bootstrap preserves RedAmon’s self-hosted web, database, agent, MCP, and event-streaming infrastructure while moving the product boundary toward a target-agnostic reverse-engineering workspace. The implementation status and current limits are documented in [REAMON_ARCHITECTURE.md](docs/REAMON_ARCHITECTURE.md).
 
 > 🏆 **Flagship result:** RedAmon solves **101 / 104 (97.1%)** of the XBOW web-security benchmark **fully black-box**. Every solve ships a complete, unedited raw agent session **and** a reproducible, step-by-step walkthrough: open any row and read exactly how the flag fell, tool call by tool call. Auditable, line by line. See the **[XBOW Validation Benchmark scorecard](https://github.com/samugit83/redamon/wiki/XBOW-Validation-Benchmark)**.
 

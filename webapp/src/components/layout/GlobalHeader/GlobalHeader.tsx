@@ -20,9 +20,9 @@ export function GlobalHeader() {
   const { projectId } = useProject()
 
   const coreNav: Array<{ label: string; href: string; icon: ReactNode; isNew?: boolean }> = [
-    { label: 'Red Zone', href: '/graph', icon: <Crosshair size={14} /> },
+    { label: 'Knowledge Graph', href: '/graph', icon: <Crosshair size={14} /> },
     ...(projectId
-      ? [{ label: 'Recon Pipeline', href: `/projects/${projectId}/settings`, icon: <GitBranch size={14} /> }]
+      ? [{ label: 'Analysis Setup', href: `/projects/${projectId}/settings`, icon: <GitBranch size={14} /> }]
       : []),
     { label: 'CypherFix', href: '/cypherfix', icon: <Shield size={14} /> },
     { label: 'Insights', href: '/insights', icon: <TrendingUp size={14} /> },
@@ -36,9 +36,9 @@ export function GlobalHeader() {
   return (
     <header className={styles.header}>
       <Link href="/graph" className={styles.logo}>
-        <Image src="/logo.png" alt="RedAmon" width={28} height={28} className={styles.logoImg} />
+        <Image src="/logo.png" alt="REAmon" width={28} height={28} className={styles.logoImg} />
         <span className={styles.logoText}>
-          <span className={styles.logoAccent}>Red</span>Amon
+          <span className={styles.logoAccent}>RE</span>Amon
         </span>
       </Link>
 
