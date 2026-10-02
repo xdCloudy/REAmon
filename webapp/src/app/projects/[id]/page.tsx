@@ -37,6 +37,7 @@ interface WorkspaceSnapshot {
   activities: Array<{ id: string; actor: string; eventType: string; message: string; createdAt: string }>
   capabilities: WorkspaceCapabilitySummary[]
   imports: WorkspaceImportSnapshot[]
+  artifactPage: { limit: number; total: number; hasMore: boolean }
   progress: { overallPercent: number; metrics: ProgressMetric[] }
   counts: { targets: number; artifacts: number; tasks: number; findings: number; hypotheses: number; evidence: number }
 }
@@ -150,7 +151,7 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
 
       <section className={styles.panel} aria-labelledby="files-heading">
         <div className={styles.panelHeader}><h2 id="files-heading">Project files</h2><span className={styles.muted}>Relative paths are preserved as workspace context</span></div>
-        <WorkspaceFileTree projectId={projectId} rootName={latestImport?.rootName || data.workspace.name} artifacts={data.artifacts} />
+        <WorkspaceFileTree projectId={projectId} rootName={latestImport?.rootName || data.workspace.name} artifacts={data.artifacts} totalArtifacts={data.artifactPage.total} hasMoreArtifacts={data.artifactPage.hasMore} />
       </section>
 
       <section className={styles.panel} aria-labelledby="targets-heading">

@@ -11,6 +11,7 @@ export interface WorkspaceFileQuery {
   format?: string
   kind?: WorkspaceFileKind
   limit?: number
+  offset?: number
 }
 
 export interface WorkspaceFileRecord {
@@ -31,6 +32,7 @@ export interface WorkspaceFileQueryResult {
   artifacts: WorkspaceFileRecord[]
   total: number
   limit: number
+  offset: number
   hasMore: boolean
 }
 
@@ -87,6 +89,7 @@ export async function getActiveWorkspaceImportSelection(projectId: string): Prom
 export async function listWorkspaceFiles(projectId: string, query: WorkspaceFileQuery = {}): Promise<WorkspaceFileQueryResult> {
   const selection = await getActiveWorkspaceImportSelection(projectId)
   const limit = Math.max(1, Math.min(query.limit || 100, 500))
+  const offset = Math.max(0, Math.min(Math.floor(query.offset || 0), 100000))
   const search = query.search?.trim().slice(0, 200)
   const format = query.format?.trim().toLowerCase().slice(0, 64)
   const conditions: Prisma.ArtifactWhereInput[] = []
@@ -109,6 +112,7 @@ export async function listWorkspaceFiles(projectId: string, query: WorkspaceFile
     prisma.artifact.findMany({
       where,
       orderBy: [{ relativePath: 'asc' }, { id: 'asc' }],
+      skip: offset,
       take: limit + 1,
       select: {
         id: true,
@@ -127,7 +131,7 @@ export async function listWorkspaceFiles(projectId: string, query: WorkspaceFile
     prisma.artifact.count({ where }),
   ])
   const hasMore = rows.length > limit
-  return { artifacts: rows.slice(0, limit), total, limit, hasMore }
+  return { artifacts: rows.slice(0, limit), total, limit, offset, hasMore }
 }
 
 export async function getWorkspaceArtifact(projectId: string, artifactId: string): Promise<WorkspaceArtifactDetails | null> {

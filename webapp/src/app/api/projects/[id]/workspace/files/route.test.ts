@@ -52,4 +52,24 @@ describe('GET /api/projects/[id]/workspace/files', () => {
     }
     expect(mocks.listWorkspaceFiles).not.toHaveBeenCalled()
   })
+
+  test('forwards a non-negative offset for incremental inventory loading', async () => {
+    const response = await GET(new Request('http://localhost/api/projects/project-1/workspace/files?limit=500&offset=1000'), params)
+
+    expect(response.status).toBe(200)
+    expect(mocks.listWorkspaceFiles).toHaveBeenCalledWith('project-1', {
+      search: undefined,
+      format: undefined,
+      kind: undefined,
+      limit: 500,
+      offset: 1000,
+    })
+  })
+
+  test('rejects negative offsets', async () => {
+    const response = await GET(new Request('http://localhost/api/projects/project-1/workspace/files?offset=-1'), params)
+
+    expect(response.status).toBe(400)
+    expect(mocks.listWorkspaceFiles).not.toHaveBeenCalled()
+  })
 })

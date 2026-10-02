@@ -6,6 +6,8 @@ import { activeWorkspaceTargetIds } from './imports'
 import type { TargetProfile, WorkspaceImportSnapshot } from './types'
 import type { WorkspaceImportComparison } from './imports'
 
+export const WORKSPACE_ARTIFACT_PREVIEW_LIMIT = 500
+
 function asProfile(value: unknown): TargetProfile {
   return value as TargetProfile
 }
@@ -31,6 +33,8 @@ export async function getWorkspaceSnapshot(projectId: string) {
   const [
     allTargets,
     artifacts,
+    artifactMetadata,
+    artifactCount,
     tasks,
     findings,
     hypotheses,
@@ -45,7 +49,13 @@ export async function getWorkspaceSnapshot(projectId: string) {
     evidenceCount,
   ] = await Promise.all([
     prisma.target.findMany({ where: { projectId }, orderBy: { createdAt: 'asc' } }),
-    prisma.artifact.findMany({ where: selection.artifactWhere, orderBy: { createdAt: 'desc' } }),
+    prisma.artifact.findMany({
+      where: selection.artifactWhere,
+      orderBy: [{ relativePath: 'asc' }, { id: 'asc' }],
+      take: WORKSPACE_ARTIFACT_PREVIEW_LIMIT,
+    }),
+    prisma.artifact.findMany({ where: selection.artifactWhere, select: { id: true, targetId: true, status: true, profile: true } }),
+    prisma.artifact.count({ where: selection.artifactWhere }),
     prisma.task.findMany({ where: { projectId }, orderBy: { createdAt: 'desc' }, take: 25 }),
     prisma.finding.findMany({ where: { projectId }, orderBy: { createdAt: 'desc' }, take: 25 }),
     prisma.hypothesis.findMany({ where: { projectId }, orderBy: { createdAt: 'desc' }, take: 25 }),
@@ -60,7 +70,7 @@ export async function getWorkspaceSnapshot(projectId: string) {
     prisma.evidence.count({ where: { projectId } }),
   ])
 
-  const activeArtifactTargetIds = new Set(artifacts
+  const activeArtifactTargetIds = new Set(artifactMetadata
     .map((artifact) => artifact.targetId)
     .filter((targetId): targetId is string => Boolean(targetId)))
   const visibleTargetIds = activeWorkspaceTargetIds(
@@ -95,7 +105,7 @@ export async function getWorkspaceSnapshot(projectId: string) {
 
   const progress = buildProgressModel({
     targetStatuses: targets.map((target) => target.status as never),
-    artifactStatuses: artifacts.map((artifact) => artifact.status as never),
+    artifactStatuses: artifactMetadata.map((artifact) => artifact.status as never),
     taskStatuses: taskStatuses.map((task) => task.status as never),
     findingStatuses: findingStatuses.map((finding) => finding.status as never),
     hypothesisStatuses: hypothesisStatuses.map((hypothesis) => hypothesis.status as never),
@@ -122,7 +132,7 @@ export async function getWorkspaceSnapshot(projectId: string) {
     hypotheses,
     evidence,
     activities,
-    capabilities: resolveWorkspaceCapabilities(serializedArtifacts.map((artifact) => ({ id: artifact.id, profile: artifact.profile }))),
+    capabilities: resolveWorkspaceCapabilities(artifactMetadata.map((artifact) => ({ id: artifact.id, profile: asProfile(artifact.profile) }))),
     imports: imports.map((workspaceImport): WorkspaceImportSnapshot => {
       const manifest = Array.isArray(workspaceImport.manifest)
         ? workspaceImport.manifest as Array<{ relativePath?: unknown }>
@@ -152,9 +162,14 @@ export async function getWorkspaceSnapshot(projectId: string) {
       }
     }),
     progress,
+    artifactPage: {
+      limit: WORKSPACE_ARTIFACT_PREVIEW_LIMIT,
+      total: artifactCount,
+      hasMore: artifactCount > serializedArtifacts.length,
+    },
     counts: {
       targets: targets.length,
-      artifacts: artifacts.length,
+      artifacts: artifactCount,
       tasks: taskCount,
       findings: findingCount,
       hypotheses: hypothesisCount,

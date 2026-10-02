@@ -23,12 +23,18 @@ export async function GET(request: Request, { params }: RouteParams) {
     if (limit != null && (!Number.isSafeInteger(limit) || limit < 1)) {
       return NextResponse.json({ error: 'limit must be a positive integer' }, { status: 400, headers: { 'Cache-Control': 'no-store' } })
     }
+    const rawOffset = url.searchParams.get('offset')
+    const offset = rawOffset == null ? undefined : Number(rawOffset)
+    if (offset != null && (!Number.isSafeInteger(offset) || offset < 0)) {
+      return NextResponse.json({ error: 'offset must be a non-negative integer' }, { status: 400, headers: { 'Cache-Control': 'no-store' } })
+    }
 
     const result = await listWorkspaceFiles(projectId, {
       search: url.searchParams.get('search') || undefined,
       format: url.searchParams.get('format') || undefined,
       kind,
       limit,
+      offset,
     })
     return NextResponse.json(result, { headers: { 'Cache-Control': 'private, no-store' } })
   } catch (error) {

@@ -136,14 +136,73 @@ function TreeRows({
   )
 }
 
-export function WorkspaceFileTree({ projectId, rootName, artifacts }: { projectId: string; rootName: string; artifacts: WorkspaceArtifact[] }) {
+export function WorkspaceFileTree({ projectId, rootName, artifacts, totalArtifacts, hasMoreArtifacts }: {
+  projectId: string
+  rootName: string
+  artifacts: WorkspaceArtifact[]
+  totalArtifacts: number
+  hasMoreArtifacts: boolean
+}) {
   const [query, setQuery] = useState('')
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set(['']))
   const [selected, setSelected] = useState<WorkspaceArtifact | null>(null)
   const [details, setDetails] = useState<WorkspaceArtifactDetails | null>(null)
   const [detailsLoading, setDetailsLoading] = useState(false)
   const [detailsError, setDetailsError] = useState(false)
-  const tree = useMemo(() => filterTree(buildTree(artifacts), query.trim().toLowerCase()), [artifacts, query])
+  const [additionalArtifacts, setAdditionalArtifacts] = useState<WorkspaceArtifact[]>([])
+  const [moreAvailable, setMoreAvailable] = useState(hasMoreArtifacts)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [loadMoreError, setLoadMoreError] = useState(false)
+  const [searchResults, setSearchResults] = useState<WorkspaceArtifact[] | null>(null)
+  const [searchTotal, setSearchTotal] = useState(0)
+  const [searchMoreAvailable, setSearchMoreAvailable] = useState(false)
+  const [searchLoading, setSearchLoading] = useState(false)
+  const [searchError, setSearchError] = useState(false)
+  const searchTerm = query.trim()
+  const loadedArtifacts = useMemo(() => {
+    const source = searchTerm ? searchResults || [] : [...artifacts, ...additionalArtifacts]
+    const unique = new Map(source.map((artifact) => [artifact.id, artifact]))
+    return [...unique.values()]
+  }, [additionalArtifacts, artifacts, searchResults, searchTerm])
+  const tree = useMemo(() => filterTree(buildTree(loadedArtifacts), searchTerm.toLowerCase()), [loadedArtifacts, searchTerm])
+
+  useEffect(() => {
+    setAdditionalArtifacts([])
+    setMoreAvailable(hasMoreArtifacts)
+    setLoadMoreError(false)
+  }, [artifacts, hasMoreArtifacts])
+
+  useEffect(() => {
+    if (!searchTerm) {
+      setSearchResults(null)
+      setSearchTotal(0)
+      setSearchMoreAvailable(false)
+      setSearchLoading(false)
+      setSearchError(false)
+      return
+    }
+    const controller = new AbortController()
+    setSearchResults(null)
+    setSearchLoading(true)
+    setSearchError(false)
+    const loadSearch = async () => {
+      try {
+        const params = new URLSearchParams({ search: searchTerm, limit: '500' })
+        const response = await fetch(`/api/projects/${projectId}/workspace/files?${params.toString()}`, { signal: controller.signal })
+        if (!response.ok) throw new Error('Unable to search workspace files')
+        const result = await response.json() as { artifacts: WorkspaceArtifact[]; total: number; hasMore: boolean }
+        setSearchResults(result.artifacts)
+        setSearchTotal(result.total)
+        setSearchMoreAvailable(result.hasMore)
+      } catch {
+        if (!controller.signal.aborted) setSearchError(true)
+      } finally {
+        if (!controller.signal.aborted) setSearchLoading(false)
+      }
+    }
+    void loadSearch()
+    return () => controller.abort()
+  }, [projectId, searchTerm])
   const selectedId = selected?.id
 
   useEffect(() => {
@@ -182,14 +241,45 @@ export function WorkspaceFileTree({ projectId, rootName, artifacts }: { projectI
     })
   }
 
+  const loadMore = async () => {
+    if (loadingMore) return
+    setLoadingMore(true)
+    setLoadMoreError(false)
+    try {
+      const params = new URLSearchParams({ limit: '500', offset: String(loadedArtifacts.length) })
+      if (searchTerm) params.set('search', searchTerm)
+      const response = await fetch(`/api/projects/${projectId}/workspace/files?${params.toString()}`)
+      if (!response.ok) throw new Error('Unable to load more workspace files')
+      const result = await response.json() as { artifacts: WorkspaceArtifact[]; total: number; hasMore: boolean }
+      if (searchTerm) {
+        setSearchResults((current) => [...(current || []), ...result.artifacts])
+        setSearchTotal(result.total)
+        setSearchMoreAvailable(result.hasMore)
+      } else {
+        setAdditionalArtifacts((current) => [...current, ...result.artifacts])
+        setMoreAvailable(result.hasMore)
+      }
+    } catch {
+      setLoadMoreError(true)
+    } finally {
+      setLoadingMore(false)
+    }
+  }
+
+  const total = searchTerm ? searchTotal : totalArtifacts
+  const canLoadMore = searchTerm ? searchMoreAvailable : moreAvailable
+
   return (
     <div className={styles.layout}>
       <div className={styles.explorer}>
         <div className={styles.toolbar}>
           <div className={styles.search}><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search workspace files" aria-label="Search workspace files" /></div>
-          <span className={styles.count}>{artifacts.length.toLocaleString()} files</span>
+          <span className={styles.count}>{loadedArtifacts.length.toLocaleString()} of {total.toLocaleString()} files</span>
         </div>
-        {tree && tree.children.size ? <div className={styles.tree} role="tree" aria-label={`${rootName} files`}><div className={styles.root}><Folder size={16} className={styles.folder} /><strong>{rootName}</strong></div><TreeRows node={tree} depth={0} expanded={expanded} toggle={toggle} select={setSelected} selectedId={selected?.id || null} /></div> : <p className={styles.empty}>No files match this workspace search.</p>}
+        {searchLoading && <p className={styles.empty}>Searching workspace inventory…</p>}
+        {searchError && <p className={styles.empty}>Workspace search is temporarily unavailable.</p>}
+        {!searchLoading && !searchError && tree && tree.children.size ? <div className={styles.tree} role="tree" aria-label={`${rootName} files`}><div className={styles.root}><Folder size={16} className={styles.folder} /><strong>{rootName}</strong></div><TreeRows node={tree} depth={0} expanded={expanded} toggle={toggle} select={setSelected} selectedId={selected?.id || null} /></div> : !searchLoading && !searchError && <p className={styles.empty}>No files match this workspace search.</p>}
+        {canLoadMore && <div className={styles.loadMore}><button type="button" className="secondaryButton" onClick={() => void loadMore()} disabled={loadingMore}>{loadingMore ? 'Loading files…' : 'Load more files'}</button>{loadMoreError && <span>Unable to load the next page.</span>}</div>}
       </div>
       <aside className={styles.details} aria-label="Artifact details">
         {selected ? <>

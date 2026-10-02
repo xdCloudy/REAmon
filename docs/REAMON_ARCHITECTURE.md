@@ -96,12 +96,18 @@ The storage path is deliberately opaque to analysis providers. Providers receive
 
 `webapp/src/lib/reamon/inventory-query.ts` is the DB-backed inventory boundary for
 the dashboard, agents, and future MCP tools. `listWorkspaceFiles` supports bounded
-search and format/category filters, while `getWorkspaceArtifact` returns one active
+search, format/category filters, and offset pagination, while `getWorkspaceArtifact` returns one active
 artifact with its profile, resolved capabilities, logical target/import context, and
 bounded related work and evidence. Both queries apply the active import snapshot
 selection, so refresh history is retained for audit without duplicating paths in the
 current workspace view. These APIs return logical IDs and relative paths only; an
 agent never needs to know the host storage path.
+
+The workspace snapshot sends a 500-artifact preview and deterministic total counts;
+the tree searches and loads more pages through the inventory endpoint. Progress and
+workspace capability reducers still operate over the full active metadata set on the
+server, so bounding the UI payload does not turn the displayed progress into an
+estimate.
 
 ## Target profiler
 
