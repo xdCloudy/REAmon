@@ -92,6 +92,17 @@ for every icon or configuration file.
 
 The storage path is deliberately opaque to analysis providers. Providers receive target/artifact metadata and a controlled execution context rather than depending on a particular upload directory.
 
+### Workspace inventory boundary
+
+`webapp/src/lib/reamon/inventory-query.ts` is the DB-backed inventory boundary for
+the dashboard, agents, and future MCP tools. `listWorkspaceFiles` supports bounded
+search and format/category filters, while `getWorkspaceArtifact` returns one active
+artifact with its profile, resolved capabilities, logical target/import context, and
+bounded related work and evidence. Both queries apply the active import snapshot
+selection, so refresh history is retained for audit without duplicating paths in the
+current workspace view. These APIs return logical IDs and relative paths only; an
+agent never needs to know the host storage path.
+
 ## Target profiler
 
 The initial profiler is intentionally conservative. It combines filename extension, MIME hints, magic bytes, basic header inspection, and byte entropy. It currently recognises representative ELF, PE, Mach-O, ZIP/APK/JAR, PDF, SQLite, PCAP, and source-code inputs. Everything else produces a valid `UNKNOWN` profile.
@@ -175,6 +186,7 @@ Create REVERSE_ENGINEERING workspace
   → persist DIRECTORY root, Artifact paths, logical candidate targets, Evidence, Activity
   → finalize with hash-based refresh comparison (or cancel and resume)
   → aggregate workspace inventory and resolve capabilities
+  → expose bounded inventory and artifact-detail APIs to the UI/agent boundary
   → render searchable tree, artifact details, progress, work, hypotheses, activity
 ```
 

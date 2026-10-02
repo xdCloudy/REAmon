@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   importFindMany: vi.fn(),
   artifactFindMany: vi.fn(),
   artifactCount: vi.fn(),
+  artifactFindFirst: vi.fn(),
 }))
 
 vi.mock('@/lib/prisma', () => ({
@@ -13,6 +14,7 @@ vi.mock('@/lib/prisma', () => ({
     artifact: {
       findMany: mocks.artifactFindMany,
       count: mocks.artifactCount,
+      findFirst: mocks.artifactFindFirst,
     },
   },
 }))
@@ -73,5 +75,35 @@ describe('workspace inventory queries', () => {
     expect(result.artifacts.map((artifact) => artifact.relativePath)).toEqual(['x64/foo.dll'])
     expect(result.total).toBe(3)
     expect(result.hasMore).toBe(true)
+  })
+
+  test('loads logical artifact details without exposing storage paths', async () => {
+    mocks.artifactFindFirst.mockResolvedValue({
+      id: 'artifact-1', name: 'crypto.dll', originalName: 'crypto.dll', relativePath: 'bin/crypto.dll', parentPath: 'bin',
+      targetId: 'target-1', importId: 'old-complete', sizeBytes: 10, sha256: 'hash-1', extension: 'dll', mimeType: 'application/octet-stream', status: 'IDENTIFIED',
+      profile: { targetType: 'FILE', format: 'pe', mimeType: 'application/octet-stream', extension: 'dll', architecture: 'x86-64', platform: 'windows', runtimes: [], embeddedArtifacts: [], entropy: null, metadata: {} },
+      createdAt: new Date('2026-10-02T12:00:00Z'), updatedAt: new Date('2026-10-02T12:01:00Z'),
+      target: { id: 'target-1', name: 'crypto.dll', targetType: 'FILE', parentTargetId: 'old-root', status: 'IDENTIFIED', profile: {} },
+      workspaceImport: { id: 'old-complete', rootName: 'ExampleApp', sourceType: 'BROWSER_DIRECTORY', status: 'COMPLETED' },
+      tasks: [{ id: 'task-1', title: 'Inspect exports', category: 'static_analysis', status: 'QUEUED', progress: 0, createdAt: new Date('2026-10-02T12:00:00Z'), updatedAt: new Date('2026-10-02T12:00:00Z') }],
+      findings: [],
+      hypotheses: [],
+      evidence: [],
+    })
+
+    const { getWorkspaceArtifact } = await import('./inventory-query')
+    const result = await getWorkspaceArtifact('project-1', 'artifact-1')
+
+    expect(result).toMatchObject({
+      id: 'artifact-1',
+      relativePath: 'bin/crypto.dll',
+      target: { id: 'target-1' },
+      workspaceImport: { id: 'old-complete' },
+      tasks: [{ id: 'task-1', createdAt: '2026-10-02T12:00:00.000Z' }],
+    })
+    expect(result).not.toHaveProperty('storagePath')
+    expect(mocks.artifactFindFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: 'artifact-1', OR: expect.any(Array) }),
+    }))
   })
 })

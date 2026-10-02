@@ -1,6 +1,8 @@
 import { Prisma } from '@prisma/client'
 import prisma from '@/lib/prisma'
+import { resolveCapabilities } from './capabilities'
 import { activeWorkspaceImportIds, type WorkspaceImportState } from './imports'
+import type { CapabilityMatch, TargetProfile } from './types'
 
 export type WorkspaceFileKind = 'executables' | 'source'
 
@@ -30,6 +32,30 @@ export interface WorkspaceFileQueryResult {
   total: number
   limit: number
   hasMore: boolean
+}
+
+export interface WorkspaceArtifactDetails extends WorkspaceFileRecord {
+  originalName: string
+  mimeType: string
+  capabilities: CapabilityMatch[]
+  target: {
+    id: string
+    name: string
+    targetType: string
+    parentTargetId: string | null
+    status: string
+    profile: unknown
+  } | null
+  workspaceImport: {
+    id: string
+    rootName: string
+    sourceType: string
+    status: string
+  } | null
+  tasks: Array<{ id: string; title: string; category: string; status: string; progress: number; createdAt: string; updatedAt: string }>
+  findings: Array<{ id: string; title: string; severity: string; status: string; createdAt: string; updatedAt: string }>
+  hypotheses: Array<{ id: string; statement: string; status: string; createdAt: string; updatedAt: string }>
+  evidence: Array<{ id: string; kind: string; summary: string; source: string; createdAt: string }>
 }
 
 export interface ActiveWorkspaceImportSelection {
@@ -102,4 +128,79 @@ export async function listWorkspaceFiles(projectId: string, query: WorkspaceFile
   ])
   const hasMore = rows.length > limit
   return { artifacts: rows.slice(0, limit), total, limit, hasMore }
+}
+
+export async function getWorkspaceArtifact(projectId: string, artifactId: string): Promise<WorkspaceArtifactDetails | null> {
+  const selection = await getActiveWorkspaceImportSelection(projectId)
+  const artifact = await prisma.artifact.findFirst({
+    where: { ...selection.artifactWhere, id: artifactId },
+    select: {
+      id: true,
+      name: true,
+      originalName: true,
+      relativePath: true,
+      parentPath: true,
+      targetId: true,
+      importId: true,
+      sizeBytes: true,
+      sha256: true,
+      extension: true,
+      mimeType: true,
+      status: true,
+      profile: true,
+      createdAt: true,
+      updatedAt: true,
+      target: {
+        select: { id: true, name: true, targetType: true, parentTargetId: true, status: true, profile: true },
+      },
+      workspaceImport: {
+        select: { id: true, rootName: true, sourceType: true, status: true },
+      },
+      tasks: {
+        orderBy: { createdAt: 'desc' },
+        take: 25,
+        select: { id: true, title: true, category: true, status: true, progress: true, createdAt: true, updatedAt: true },
+      },
+      findings: {
+        orderBy: { createdAt: 'desc' },
+        take: 25,
+        select: { id: true, title: true, severity: true, status: true, createdAt: true, updatedAt: true },
+      },
+      hypotheses: {
+        orderBy: { createdAt: 'desc' },
+        take: 25,
+        select: { id: true, statement: true, status: true, createdAt: true, updatedAt: true },
+      },
+      evidence: {
+        orderBy: { createdAt: 'desc' },
+        take: 25,
+        select: { id: true, kind: true, summary: true, source: true, createdAt: true },
+      },
+    },
+  })
+  if (!artifact) return null
+
+  const profile = artifact.profile as unknown as TargetProfile
+  return {
+    id: artifact.id,
+    name: artifact.name,
+    originalName: artifact.originalName,
+    relativePath: artifact.relativePath || artifact.originalName,
+    parentPath: artifact.parentPath,
+    targetId: artifact.targetId,
+    importId: artifact.importId,
+    sizeBytes: artifact.sizeBytes,
+    sha256: artifact.sha256,
+    extension: artifact.extension,
+    mimeType: artifact.mimeType,
+    status: artifact.status,
+    profile,
+    capabilities: resolveCapabilities(profile),
+    target: artifact.target,
+    workspaceImport: artifact.workspaceImport,
+    tasks: artifact.tasks.map((task) => ({ ...task, createdAt: task.createdAt.toISOString(), updatedAt: task.updatedAt.toISOString() })),
+    findings: artifact.findings.map((finding) => ({ ...finding, createdAt: finding.createdAt.toISOString(), updatedAt: finding.updatedAt.toISOString() })),
+    hypotheses: artifact.hypotheses.map((hypothesis) => ({ ...hypothesis, createdAt: hypothesis.createdAt.toISOString(), updatedAt: hypothesis.updatedAt.toISOString() })),
+    evidence: artifact.evidence.map((item) => ({ ...item, createdAt: item.createdAt.toISOString() })),
+  }
 }
