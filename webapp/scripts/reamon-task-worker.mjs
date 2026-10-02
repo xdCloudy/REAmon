@@ -8,6 +8,10 @@ const MAX_BATCH_SIZE = 10
 const MAX_STALE_AFTER_MINUTES = 24 * 60
 const MAX_WORKER_ID_LENGTH = 128
 const MAX_PROJECTION_PAGES = 100
+const DEFAULT_BACKFILL_INTERVAL_SECONDS = 300
+const MAX_BACKFILL_INTERVAL_SECONDS = 24 * 60 * 60
+const DEFAULT_BACKFILL_BATCH_SIZE = 5
+const MAX_BACKFILL_BATCH_SIZE = 10
 
 export class WorkerConfigurationError extends Error {}
 
@@ -46,6 +50,8 @@ export function readWorkerConfig(env = process.env) {
     pollSeconds: boundedNumber(env.REAMON_WORKER_POLL_SECONDS, DEFAULT_POLL_SECONDS, 5, MAX_POLL_SECONDS),
     batchSize: boundedNumber(env.REAMON_WORKER_BATCH_SIZE, DEFAULT_BATCH_SIZE, 1, MAX_BATCH_SIZE),
     staleAfterMinutes: boundedNumber(env.REAMON_WORKER_STALE_AFTER_MINUTES, DEFAULT_STALE_AFTER_MINUTES, 5, MAX_STALE_AFTER_MINUTES),
+    backfillIntervalSeconds: boundedNumber(env.REAMON_WORKER_BACKFILL_INTERVAL_SECONDS, DEFAULT_BACKFILL_INTERVAL_SECONDS, 0, MAX_BACKFILL_INTERVAL_SECONDS),
+    backfillBatchSize: boundedNumber(env.REAMON_WORKER_BACKFILL_BATCH_SIZE, DEFAULT_BACKFILL_BATCH_SIZE, 1, MAX_BACKFILL_BATCH_SIZE),
     workerId: boundedWorkerId(env.REAMON_WORKER_ID || env.HOSTNAME),
   }
 }
@@ -99,6 +105,24 @@ export async function projectOnce(config, projectId, fetchImpl = fetch, logger =
   return result
 }
 
+export async function listBackfillProjects(config, fetchImpl = fetch, logger = console, offset = 0) {
+  const response = await fetchImpl(`${config.webappUrl}/api/internal/reamon/graph/backfill`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-internal-key': config.internalKey },
+    body: JSON.stringify({ limit: config.backfillBatchSize || DEFAULT_BACKFILL_BATCH_SIZE, offset }),
+    signal: AbortSignal.timeout(20_000),
+  })
+
+  if (response.status === 401 || response.status === 403) {
+    throw new WorkerConfigurationError(`Graph backfill authentication rejected with HTTP ${response.status}`)
+  }
+  if (!response.ok) {
+    logger.warn(`[reamon-worker] graph backfill returned HTTP ${response.status}`)
+    return null
+  }
+  return response.json()
+}
+
 async function projectAllPages(config, projectId, fetchImpl, logger) {
   let offset = 0
   let projectionRunId = null
@@ -119,14 +143,32 @@ async function projectAllPages(config, projectId, fetchImpl, logger) {
 const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds))
 
 export async function runWorker(config, { fetchImpl = fetch, sleepImpl = sleep, logger = console, shouldStop = () => false } = {}) {
+  let backfillOffset = 0
+  let nextBackfillAt = 0
   while (!shouldStop()) {
     try {
       const result = await dispatchOnce(config, fetchImpl, logger)
-      const projectIds = [...new Set((result?.results || [])
+      const completedProjectIds = new Set((result?.results || [])
         .filter((entry) => entry?.outcome === 'COMPLETED' && typeof entry.task?.projectId === 'string')
-        .map((entry) => entry.task.projectId))]
-      for (const projectId of projectIds) {
+        .map((entry) => entry.task.projectId))
+      for (const projectId of completedProjectIds) {
         await projectAllPages(config, projectId, fetchImpl, logger)
+      }
+
+      if (Number(config.backfillIntervalSeconds) > 0 && Date.now() >= nextBackfillAt) {
+        const backfill = await listBackfillProjects(config, fetchImpl, logger, backfillOffset)
+        const backfillProjectIds = [...new Set((backfill?.projects || [])
+          .filter((projectId) => typeof projectId === 'string' && !completedProjectIds.has(projectId)))]
+        for (const projectId of backfillProjectIds) {
+          await projectAllPages(config, projectId, fetchImpl, logger)
+        }
+        const nextOffset = Number(backfill?.nextOffset)
+        if (backfill?.truncated && Number.isSafeInteger(nextOffset) && nextOffset > backfillOffset) {
+          backfillOffset = nextOffset
+        } else if (backfill) {
+          backfillOffset = 0
+        }
+        nextBackfillAt = Date.now() + Number(config.backfillIntervalSeconds) * 1000
       }
     } catch (error) {
       if (error instanceof WorkerConfigurationError) throw error

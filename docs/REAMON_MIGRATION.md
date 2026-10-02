@@ -66,8 +66,9 @@ workspace task panel now refreshes active work automatically and labels the curr
 worker plus heartbeat freshness. The internal projection route can replay the
 normalized observation store into Neo4j,
 and the worker invokes it for projects with completed tasks, continuing through
-bounded projection pages; historical backfill scheduling remains follow-up work.
-Each paginated replay now carries one durable
+bounded projection pages. The private worker now periodically sweeps projects with
+normalized observations through a bounded, round-robin historical backfill page.
+Each paginated replay carries one durable
 projection-run record and correlation id across its pages. Projection runs now
 write durable workspace activity for started, completed, and failed graph writes so
 operators can see recovery context without reading worker logs.
@@ -75,5 +76,5 @@ Worker dispatches now persist last-seen and bounded outcome telemetry, and the
 workspace marks silent workers as stale. Failed dispatches optionally emit a bounded
 webhook alert configured through `REAMON_WORKER_ALERT_WEBHOOK_URL` (with an optional
 bearer token); delivery is best-effort and does not fail task dispatch. Multi-worker
-stress, backup/restore drills, and additional alerting for a worker that disappears
+stress, backup/restore drills, graph drift reconciliation, and additional alerting for a worker that disappears
 without another request remain release follow-up work.

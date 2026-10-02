@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from 'vitest'
-import { dispatchOnce, projectOnce, readWorkerConfig, runWorker, WorkerConfigurationError } from './reamon-task-worker.mjs'
+import { dispatchOnce, listBackfillProjects, projectOnce, readWorkerConfig, runWorker, WorkerConfigurationError } from './reamon-task-worker.mjs'
 
 describe('REAmon task worker', () => {
   test('requires a real internal key and clamps worker settings', () => {
@@ -11,8 +11,10 @@ describe('REAmon task worker', () => {
       REAMON_WORKER_POLL_SECONDS: '999',
       REAMON_WORKER_BATCH_SIZE: '99',
       REAMON_WORKER_STALE_AFTER_MINUTES: '1',
+      REAMON_WORKER_BACKFILL_INTERVAL_SECONDS: '999999',
+      REAMON_WORKER_BACKFILL_BATCH_SIZE: '99',
       REAMON_WORKER_ID: 'worker-a',
-    })).toMatchObject({ webappUrl: 'http://webapp:3000', pollSeconds: 300, batchSize: 10, staleAfterMinutes: 5, workerId: 'worker-a' })
+    })).toMatchObject({ webappUrl: 'http://webapp:3000', pollSeconds: 300, batchSize: 10, staleAfterMinutes: 5, backfillIntervalSeconds: 86400, backfillBatchSize: 10, workerId: 'worker-a' })
   })
 
   test('dispatches with internal auth and bounded recovery settings', async () => {
@@ -46,6 +48,18 @@ describe('REAmon task worker', () => {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-internal-key': 'secret' },
       body: JSON.stringify({ projectId: 'project-1' }),
+    }))
+  })
+
+  test('lists historical backfill projects with internal auth and bounded pagination', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ projects: ['project-1'], truncated: false, nextOffset: null }) })
+    const result = await listBackfillProjects({ webappUrl: 'http://webapp:3000', internalKey: 'secret', backfillBatchSize: 5 }, fetchImpl, { warn: vi.fn() }, 10)
+
+    expect(result).toMatchObject({ projects: ['project-1'] })
+    expect(fetchImpl).toHaveBeenCalledWith('http://webapp:3000/api/internal/reamon/graph/backfill', expect.objectContaining({
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-internal-key': 'secret' },
+      body: JSON.stringify({ limit: 5, offset: 10 }),
     }))
   })
 
@@ -85,5 +99,22 @@ describe('REAmon task worker', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(3)
     expect(fetchImpl.mock.calls[1][0]).toBe('http://webapp:3000/api/internal/reamon/graph/project')
     expect(JSON.parse(fetchImpl.mock.calls[2][1].body)).toEqual({ projectId: 'project-1', offset: 1, projectionRunId: 'run-1' })
+  })
+
+  test('round-robins a bounded historical backfill page', async () => {
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ recovered: 0, selected: 0, results: [] }) })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ projects: ['project-old'], truncated: false, nextOffset: null }) })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ offset: 0, truncated: false, nodes: 1, relationships: 0 }) })
+    let stopped = false
+    await runWorker(
+      { webappUrl: 'http://webapp:3000', internalKey: 'secret', workerId: 'worker-a', batchSize: 1, pollSeconds: 1, staleAfterMinutes: 30, backfillIntervalSeconds: 300, backfillBatchSize: 2 },
+      { fetchImpl, sleepImpl: async () => { stopped = true }, shouldStop: () => stopped, logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } },
+    )
+
+    expect(fetchImpl).toHaveBeenCalledTimes(3)
+    expect(fetchImpl.mock.calls[1][0]).toBe('http://webapp:3000/api/internal/reamon/graph/backfill')
+    expect(JSON.parse(fetchImpl.mock.calls[1][1].body)).toEqual({ limit: 2, offset: 0 })
+    expect(JSON.parse(fetchImpl.mock.calls[2][1].body)).toEqual({ projectId: 'project-old' })
   })
 })
