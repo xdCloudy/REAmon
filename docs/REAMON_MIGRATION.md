@@ -19,7 +19,7 @@ REAmon is an incremental fork of RedAmon. This table records the current boundar
 | Docker orchestration | Existing self-hosted stack | Self-hosted REAmon stack | GENERALISING | Artifact persistence is added as a named volume; service boundaries remain reusable. |
 | Target import and artifact storage | No generic target import boundary | Transactional single-file compatibility route plus folder-first import sessions | REPURPOSED | Folder imports inventory first, upload in bounded requests, hash/profile each artifact, and finalize an aggregate directory profile. |
 | Artifact retrieval | No workspace-scoped artifact delivery | Authenticated project-scoped download route | GENERALISING | Download paths are confined to the configured artifact root and return no-store responses; analysis providers should consume metadata rather than assume storage paths. |
-| Workspace inventory | Flat/implicit artifact access | Active-snapshot file listing, artifact details, deterministic workspace summary, and proposal-only analysis planning | GENERALISING | Bounded search/filter/pagination, related task/finding/evidence context, profile aggregates, progress, provider counts, and capability-based PROPOSED steps are available to the UI and authenticated MCP tools without exposing storage paths or executing heavyweight providers. |
+| Workspace inventory | Flat/implicit artifact access | Active-snapshot file listing, artifact details, deterministic workspace summary, proposal planning, and explicit task scheduling | GENERALISING | Bounded search/filter/pagination, related task/finding/evidence context, profile aggregates, progress, provider counts, capability-based PROPOSED steps, and idempotent QUEUED tasks are available to the UI and authenticated project routes without exposing storage paths or executing heavyweight providers. |
 | Domain/IP scope forms | Pentest-specific scope concepts | Target and artifact import | DEPRECATED | Existing screens are retained while workspace flows replace them. |
 | Vulnerability-centric project flow | Pentest workflow | Findings, hypotheses, tasks, and evidence | DEPRECATED | Generic models are present; old flows still require migration. |
 | CVE / exploit workflow | Offensive-security-specific paths | Validation and research tasks | DEPRECATED | Do not remove until callers are isolated and an authorised research replacement exists. |
@@ -50,6 +50,8 @@ REAmon is an incremental fork of RedAmon. This table records the current boundar
 The current vertical slice is complete for browser snapshots: select a folder, create a
 REAmon workspace, preview the manifest and latest refresh delta, upload in bounded
 concurrent requests, cancel or retry an import, preserve relative paths, aggregate the
-profile, resolve compatible capabilities, and view the workspace file tree. Derived-
-artifact provenance, server-mounted sources, true background uploads, and replacing
-older duplicate artifact rows during refresh remain follow-up work.
+profile, resolve compatible capabilities, queue a reviewed analysis proposal, and run
+the small reference providers with durable task/evidence/activity state.
+Derived-artifact provenance, server-mounted sources, true background uploads, real
+process/MCP execution, graph ingestion, and replacing older duplicate artifact rows
+during refresh remain follow-up work.

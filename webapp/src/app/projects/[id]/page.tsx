@@ -7,6 +7,7 @@ import { ArrowLeft, CheckCircle2, CircleDashed, Gauge, Waypoints } from 'lucide-
 import { WorkspaceFileTree } from '@/components/reamon/WorkspaceFileTree'
 import { WorkspaceImportPanel } from '@/components/reamon/WorkspaceImportPanel'
 import { WorkspaceAnalysisPlanPanel, type WorkspaceAnalysisPlan } from '@/components/reamon/WorkspaceAnalysisPlan'
+import { WorkspaceTaskList } from '@/components/reamon/WorkspaceTaskList'
 import type { CapabilityMatch, ProgressMetric, TargetProfile, WorkspaceCapabilitySummary, WorkspaceImportSnapshot, WorkspaceProfile } from '@/lib/reamon'
 import styles from './page.module.css'
 
@@ -160,7 +161,9 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
         <section className={styles.panel} aria-labelledby="providers-heading"><div className={styles.panelHeader}><h2 id="providers-heading">Available capabilities</h2><span className={styles.muted}>{data.capabilities.length} provider{data.capabilities.length === 1 ? '' : 's'}</span></div>{data.capabilities.length ? data.capabilities.map((provider) => <div className={styles.providerRow} key={provider.pluginId}><span><strong>{provider.pluginName}</strong><small>{provider.capabilities.slice(0, 4).join(' · ')}</small><small>Accepts {provider.acceptsFormats.slice(0, 3).join(', ')} · produces {provider.produces.slice(0, 3).join(', ') || 'provider results'}</small></span><span className={styles.providerCount}>{provider.compatibleArtifactIds.length} compatible artifacts</span></div>) : <p className={styles.muted}>Capabilities will appear as providers are registered.</p>}</section>
       </div>
 
-      <WorkspaceAnalysisPlanPanel plan={analysisPlan.data} isLoading={analysisPlan.isLoading} isError={analysisPlan.isError} />
+      <WorkspaceAnalysisPlanPanel projectId={projectId} plan={analysisPlan.data} isLoading={analysisPlan.isLoading} isError={analysisPlan.isError} onScheduled={() => {
+        void queryClient.invalidateQueries({ queryKey: ['reamon-workspace', projectId] })
+      }} />
 
       <section className={styles.panel} aria-labelledby="files-heading">
         <div className={styles.panelHeader}><h2 id="files-heading">Project files</h2><span className={styles.muted}>Relative paths are preserved as workspace context</span></div>
@@ -174,7 +177,9 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
       </section>
 
       <div className={styles.bottomGrid}>
-        <section className={styles.panel} aria-labelledby="work-heading"><div className={styles.panelHeader}><h2 id="work-heading">Tasks and findings</h2></div>{!data.tasks.length && !data.findings.length ? <p className={styles.muted}>No analysis work has been scheduled.</p> : <>{data.tasks.map((task) => <div className={styles.listRow} key={task.id}><span>{task.title}</span><span className={styles.type}>{task.status} · {task.progress}%</span></div>)}{data.findings.map((finding) => <div className={styles.listRow} key={finding.id}><span>{finding.title}</span><span className={styles.type}>{finding.severity} · {finding.status}</span></div>)}</>}</section>
+        <section className={styles.panel} aria-labelledby="work-heading"><div className={styles.panelHeader}><h2 id="work-heading">Tasks and findings</h2></div>{!data.tasks.length && !data.findings.length ? <p className={styles.muted}>No analysis work has been scheduled.</p> : <>{data.tasks.length > 0 && <WorkspaceTaskList projectId={projectId} tasks={data.tasks} onExecuted={() => {
+          void queryClient.invalidateQueries({ queryKey: ['reamon-workspace', projectId] })
+        }} />}{data.findings.map((finding) => <div className={styles.listRow} key={finding.id}><span>{finding.title}</span><span className={styles.type}>{finding.severity} · {finding.status}</span></div>)}</>}</section>
         <section className={styles.panel} aria-labelledby="hypotheses-heading"><div className={styles.panelHeader}><h2 id="hypotheses-heading">Hypotheses</h2></div>{data.hypotheses.length ? data.hypotheses.map((hypothesis) => <div className={styles.listRow} key={hypothesis.id}><span>{hypothesis.statement}</span><span className={styles.type}>{hypothesis.status}</span></div>) : <p className={styles.muted}>No hypotheses recorded.</p>}</section>
         <section className={styles.panel} aria-labelledby="activity-heading"><div className={styles.panelHeader}><h2 id="activity-heading">Recent activity</h2></div>{data.activities.length ? data.activities.map((activity) => <div className={styles.activityRow} key={activity.id}><span className={styles.activityDot} /><div><strong>{activity.actor}</strong><p>{activity.message}</p><time>{new Date(activity.createdAt).toLocaleString()}</time></div></div>) : <p className={styles.muted}>Activity will appear as the workspace changes.</p>}</section>
       </div>

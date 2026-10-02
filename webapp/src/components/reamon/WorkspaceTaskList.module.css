@@ -1,0 +1,14 @@
+.container { display: grid; gap: var(--space-2); }
+.row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: var(--space-3); align-items: center; border-bottom: 1px solid var(--border-subtle); padding: var(--space-2) 0; }
+.title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.status { color: var(--text-secondary); font-size: var(--text-sm); white-space: nowrap; }
+.runButton { border: 1px solid var(--border-default); border-radius: var(--radius-sm); background: var(--bg-primary); color: var(--text-primary); cursor: pointer; font-size: var(--text-xs); padding: .3rem .55rem; }
+.runButton:hover:not(:disabled) { border-color: var(--accent-secondary); color: var(--accent-secondary); }
+.runButton:disabled { cursor: wait; opacity: .6; }
+.feedback { color: var(--status-info-text); font-size: var(--text-sm); margin: 0; }
+
+@media (max-width: 760px) {
+  .row { grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-1) var(--space-3); }
+  .status { grid-column: 1; }
+  .runButton { grid-column: 2; grid-row: 1 / span 2; }
+}

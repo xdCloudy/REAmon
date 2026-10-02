@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import { ClipboardList } from 'lucide-react'
 import type { CapabilityMatch, TargetProfile } from '@/lib/reamon'
 import styles from './WorkspaceAnalysisPlan.module.css'
@@ -22,22 +23,48 @@ export interface WorkspaceAnalysisPlan {
   hasMoreSteps: boolean
 }
 
-export function WorkspaceAnalysisPlanPanel({ plan, isLoading, isError }: {
+export function WorkspaceAnalysisPlanPanel({ projectId, plan, isLoading, isError, onScheduled }: {
+  projectId: string
   plan: WorkspaceAnalysisPlan | undefined
   isLoading: boolean
   isError: boolean
+  onScheduled?: () => void
 }) {
+  const [pendingId, setPendingId] = useState<string | null>(null)
+  const [feedback, setFeedback] = useState<string | null>(null)
+
+  async function schedule(step: WorkspaceAnalysisPlan['steps'][number]) {
+    setPendingId(step.id)
+    setFeedback(null)
+    try {
+      const response = await fetch(`/api/projects/${projectId}/workspace/analysis-plan/schedule`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ artifactId: step.artifactId, providerId: step.provider.pluginId, capability: step.capability }),
+      })
+      const payload = await response.json().catch(() => ({})) as { error?: string; reused?: boolean; task?: { status?: string } }
+      if (!response.ok) throw new Error(payload.error || 'Unable to queue analysis task')
+      setFeedback(payload.reused ? 'This analysis proposal is already queued.' : `${step.capability} queued for ${step.relativePath}.`)
+      onScheduled?.()
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : 'Unable to queue analysis task')
+    } finally {
+      setPendingId(null)
+    }
+  }
+
   return (
     <section className={styles.panel} aria-labelledby="analysis-plan-heading">
       <div className={styles.header}>
         <div>
           <h2 id="analysis-plan-heading"><ClipboardList size={17} /> Analysis proposals</h2>
-          <p>Deterministic provider matches from the active inventory. Proposals do not execute tools.</p>
+          <p>Deterministic provider matches from the active inventory. Queue a reviewed proposal to create work for the executor.</p>
         </div>
-        {plan && <span className={styles.badge}>PROPOSAL ONLY</span>}
+        {plan && <span className={styles.badge}>QUEUEABLE</span>}
       </div>
       {isLoading && <p className={styles.muted}>Preparing compatible analysis proposals…</p>}
       {isError && <p className={styles.error}>Analysis proposals are temporarily unavailable.</p>}
+      {feedback && <p className={styles.feedback} role="status">{feedback}</p>}
       {!isLoading && !isError && plan && !plan.proposedSteps && <p className={styles.muted}>No compatible provider capabilities were found in the current inventory page.</p>}
       {!isLoading && !isError && plan && plan.proposedSteps > 0 && <>
         <p className={styles.summary}>
@@ -51,6 +78,9 @@ export function WorkspaceAnalysisPlanPanel({ plan, isLoading, isError }: {
               <span className={styles.provider}>{step.provider.pluginName}</span>
               <span className={styles.capability}>{step.capability}</span>
               <span className={styles.status}>{step.status}</span>
+              <button type="button" className={styles.queueButton} disabled={pendingId !== null} onClick={() => void schedule(step)}>
+                {pendingId === step.id ? 'Queueing…' : 'Queue'}
+              </button>
             </div>
           ))}
         </div>
@@ -59,4 +89,3 @@ export function WorkspaceAnalysisPlanPanel({ plan, isLoading, isError }: {
     </section>
   )
 }
-

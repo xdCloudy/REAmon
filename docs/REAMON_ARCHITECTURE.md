@@ -127,11 +127,14 @@ counts, top profile dimensions, sampled logical targets, compatible provider cou
 the stored lifecycle progress model. Its response is bounded and contains no per-file
 payload, so agents can decide which inventory pages or capabilities to inspect next.
 
-`workspace_plan_analysis` is the next read-only boundary. It expands a bounded inventory
-page into deterministic `PROPOSED` steps for each compatible provider capability, optionally
-filtered to one capability. It is intentionally not a scheduler or executor: a proposal
-does not run a tool, create evidence, or change project state. Agents must review the
-artifact details and provider requirements before a future task/execution boundary is used.
+`workspace_plan_analysis` expands a bounded inventory page into deterministic `PROPOSED`
+steps for each compatible provider capability, optionally filtered to one capability.
+`workspace_schedule_analysis` is the explicit hand-off after review: it validates the
+active artifact and provider match, persists the provider manifest, and creates one
+idempotent `QUEUED` task plus a durable activity event. Scheduling does not run a tool,
+create evidence, or expose an artifact storage path; a separate executor owns that
+boundary. Agents must review the artifact details and provider requirements before
+scheduling work.
 Both artifact pagination and the proposal step count are bounded, and the response signals
 when the proposal is partial.
 
@@ -224,6 +227,7 @@ Create REVERSE_ENGINEERING workspace
   → finalize with hash-based refresh comparison (or cancel and resume)
   → aggregate workspace inventory and resolve capabilities
   → expose bounded inventory and artifact-detail APIs to the UI/agent boundary
+  → queue reviewed provider proposals as idempotent analysis tasks
   → render searchable tree, artifact details, progress, work, hypotheses, activity
 ```
 
@@ -245,4 +249,7 @@ The migration is tracked in [REAMON_MIGRATION.md](REAMON_MIGRATION.md). The broa
 
 The architecture leaves room for Ghidra, JADX, Rizin, Binwalk, Apktool, Frida, GDB, LLDB, x64dbg, WinDbg, QEMU, ADB, custom MCP servers, and arbitrary command-line tools. Each integration should declare what it accepts, what it requires, what capabilities it provides, and what generic entities or evidence it produces.
 
-The next high-value work is a persisted provider registry and task executor, followed by graph ingestion for provider results and real event projection into the dashboard.
+The persisted provider registry, explicit task-queue boundary, and reference executor
+are now in place. The next high-value work is moving execution into a recoverable
+background worker, adding real native/MCP/process providers, then ingesting provider
+results into the graph and projecting durable events into the dashboard.

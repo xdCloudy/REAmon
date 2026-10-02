@@ -61,13 +61,42 @@ The first REAmon milestone is implemented and running on the `reamon/bootstrap` 
 - Compute SHA-256 identity and a basic magic/extension/header profile.
 - Keep unknown inputs valid instead of rejecting them.
 - Resolve compatible built-in capabilities from typed plugin manifests.
+- Queue a reviewed capability proposal as an idempotent analysis task without
+  executing providers in the request path.
 - Show targets, artifacts, detected metadata, capabilities, progress, findings,
   hypotheses, evidence, and activity in a real data-backed dashboard.
 - Preserve the existing PostgreSQL, Neo4j, agent, MCP, authentication, and event
   infrastructure while migration proceeds incrementally.
 
-The current profiler is deliberately conservative. It is a foundation for a future
-provider registry, not a claim of complete binary identification.
+The current profiler is deliberately conservative. The provider registry and task
+executor are now real boundaries, but the built-in providers remain small reference
+implementations rather than complete binary-identification tooling.
+
+## Production readiness
+
+<progress value="56" max="100">56%</progress> <strong>56%</strong>
+
+This is a weighted engineering snapshot, reviewed 2026-10-02 after adding explicit
+task execution. It measures the
+distance to a dependable self-hosted production release, not the number of UI
+screens or lines of code. The bar moves only when a workstream has working code,
+tests, and an operational path.
+
+| Workstream | Weight | Complete | What remains before production |
+| --- | ---: | ---: | --- |
+| Workspace foundation and access control | 20% | 100% | Keep regression coverage green during migration. |
+| Import, profiling, storage, and inventory | 15% | 90% | Derived-artifact provenance, server-mounted sources, and refresh cleanup. |
+| Provider registry, scheduling, and reference execution | 15% | 70% | Background worker ownership, real process/MCP providers, retries, and cancellation. |
+| Provider results and knowledge graph ingestion | 20% | 15% | Persist typed observations, entities, relationships, and graph-rebuild provenance. |
+| Approvals, live activity, and operator controls | 10% | 20% | Durable event projection, approvals, and recovery UX. |
+| Legacy RedAmon migration | 10% | 40% | Move remaining project, agent, report, and settings surfaces without breaking existing data. |
+| Production hardening and release QA | 10% | 25% | Full container gate, backup/restore drills, upgrade checks, observability, and deployment runbooks. |
+
+The main path to “shipped” is therefore: harden queued execution with worker/event
+recovery → add real providers → ingest and
+visualise results → finish migration and
+production QA. See [`docs/REAMON_ARCHITECTURE.md`](docs/REAMON_ARCHITECTURE.md)
+for the boundary decisions behind this sequence.
 
 ## Architecture
 
@@ -242,10 +271,10 @@ docs/REAMON_*.md           Current architecture and migration decisions
 
 ## Roadmap
 
-1. Persist a provider registry and execute native, MCP, and generic process tools.
-2. Add task scheduling, approvals, and live event streaming for
-   target-agnostic analysis workflows.
-3. Ingest universal code/data/runtime entities and relationships into Neo4j.
+1. Harden queued execution with background workers, retries, cancellation, and
+   native/MCP/process providers.
+2. Ingest universal code/data/runtime entities and relationships into Neo4j.
+3. Add approvals and live event streaming for target-agnostic analysis workflows.
 4. Migrate the inherited project, agent, report, and settings surfaces away from
    engagement/recon terminology without breaking existing data.
 5. Add capability-specific dashboards and reports while retaining one workspace

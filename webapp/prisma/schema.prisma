@@ -2491,6 +2491,27 @@ model WorkspaceImport {
   @@map("reamon_workspace_imports")
 }
 
+model ReamonProvider {
+  id                 String   @id @default(cuid())
+  pluginId           String   @unique @map("plugin_id")
+  name               String
+  category           String
+  integration        String
+  acceptsTargetTypes String[] @default([]) @map("accepts_target_types")
+  acceptsFormats     String[] @default([]) @map("accepts_formats")
+  capabilities       String[] @default([])
+  produces           String[] @default([])
+  requirements       Json     @default("[]")
+  enabled            Boolean  @default(true)
+  version            String   @default("1")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+  tasks              Task[]
+
+  @@index([enabled])
+  @@map("reamon_providers")
+}
+
 model Task {
   id          String   @id @default(cuid())
   projectId   String   @map("project_id")
@@ -2499,15 +2520,25 @@ model Task {
   target      Target?  @relation(fields: [targetId], references: [id], onDelete: SetNull)
   artifactId  String?  @map("artifact_id")
   artifact    Artifact? @relation(fields: [artifactId], references: [id], onDelete: SetNull)
+  providerId  String?  @map("provider_id")
+  provider    ReamonProvider? @relation(fields: [providerId], references: [id], onDelete: SetNull)
+  capability  String?
   title       String
   category    String   @default("analysis")
   status      String   @default("QUEUED")
   progress    Int      @default(0)
+  options     Json     @default("{}")
+  result      Json?
+  error       String   @default("") @db.Text
+  idempotencyKey String? @unique @map("idempotency_key")
+  startedAt   DateTime? @map("started_at")
+  completedAt DateTime? @map("completed_at")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
   @@index([projectId, status])
   @@index([projectId, category])
+  @@index([projectId, providerId, capability])
   @@map("reamon_tasks")
 }
 
