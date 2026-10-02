@@ -67,3 +67,6 @@ worker plus heartbeat freshness. The internal projection route can replay the
 normalized observation store into Neo4j,
 and the worker invokes it for projects with completed tasks; cross-provider identity
 resolution and historical backfill scheduling are still follow-up work.
+Worker dispatches now persist last-seen and bounded outcome telemetry, and the
+workspace marks silent workers as stale; alert routing and multi-worker stress remain
+release follow-up work.

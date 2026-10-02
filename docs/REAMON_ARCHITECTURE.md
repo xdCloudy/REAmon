@@ -271,7 +271,9 @@ replays each project with completed work through the graph projection route. The
 workspace refreshes while work is running and shows the current lease owner and
 heartbeat freshness, so operators can distinguish active work from a stalled lease.
 The source process adapter now terminates its child on operator cancellation or a
-bounded timeout. Remaining worker hardening is multi-worker stress/alerting and
+bounded timeout. Dispatches also persist worker last-seen, outcome counts, duration,
+and the last provider error; the workspace labels workers stale after a bounded
+silence window. Remaining worker hardening is multi-worker stress/alerting and
 additional MCP/process adapters. The next high-value work is resolving cross-provider
 identities, adding graph-rebuild provenance, and projecting durable events into the
 dashboard.

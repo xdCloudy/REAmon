@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { isInternalRequest } from '@/lib/session'
 import { recoverStaleAnalysisTasks } from '@/lib/reamon/task-control'
 import { dispatchQueuedAnalysisTasks } from '@/lib/reamon/task-dispatcher'
+import { recordWorkerDispatch } from '@/lib/reamon/worker-health'
 
 export const runtime = 'nodejs'
 
@@ -59,7 +60,21 @@ export async function POST(request: NextRequest) {
     const recovered = body.recoverStale !== false
       ? await recoverStaleAnalysisTasks(projectId, staleAfterMinutes, workerId)
       : { recovered: 0, staleAfterMinutes: staleAfterMinutes ?? 30 }
+    const startedAt = Date.now()
     const dispatched = await dispatchQueuedAnalysisTasks({ projectId, limit, workerId })
+    try {
+      await recordWorkerDispatch({
+        workerId,
+        recovered: recovered.recovered,
+        selected: dispatched.selected,
+        completed: dispatched.results.filter((result) => result.outcome === 'COMPLETED').length,
+        failed: dispatched.results.filter((result) => result.outcome === 'FAILED').length,
+        durationMs: Math.max(0, Date.now() - startedAt),
+        error: dispatched.results.find((result) => result.outcome === 'FAILED')?.task.error || undefined,
+      })
+    } catch (error) {
+      console.error('Failed to record REAmon worker health:', error)
+    }
 
     return NextResponse.json({
       recovered: recovered.recovered,

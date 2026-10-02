@@ -2515,6 +2515,25 @@ model ReamonProvider {
   @@map("reamon_providers")
 }
 
+model ReamonWorker {
+  id                    String   @id @default(cuid())
+  workerId              String   @unique @map("worker_id")
+  status                String   @default("IDLE")
+  lastSeenAt            DateTime @map("last_seen_at")
+  lastDispatchAt        DateTime? @map("last_dispatch_at")
+  lastDispatchDurationMs Int?    @map("last_dispatch_duration_ms")
+  lastRecovered         Int      @default(0) @map("last_recovered")
+  lastSelected          Int      @default(0) @map("last_selected")
+  lastCompleted         Int      @default(0) @map("last_completed")
+  lastFailed            Int      @default(0) @map("last_failed")
+  lastError             String   @default("") @map("last_error") @db.Text
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  @@index([status, lastSeenAt])
+  @@map("reamon_workers")
+}
+
 model Task {
   id          String   @id @default(cuid())
   projectId   String   @map("project_id")

@@ -67,6 +67,8 @@ The first REAmon milestone is implemented and running on the `reamon/bootstrap` 
   hypotheses, evidence, and activity in a real data-backed dashboard.
 - Run a bounded `strings` process provider against stored source artifacts, capture
   stable string observations, and terminate the process on cancellation or timeout.
+- Persist worker dispatch health and show stale-worker status alongside live task
+  ownership and heartbeat freshness.
 - Preserve the existing PostgreSQL, Neo4j, agent, MCP, authentication, and event
   infrastructure while migration proceeds incrementally.
 
@@ -81,8 +83,8 @@ MCP, and runtime integrations remain optional follow-on providers.
 This is a weighted engineering snapshot, reviewed 2026-10-02 after adding explicit
 task execution, lease-protected recovery, cancellation controls, worker ownership,
 cooperative provider cancellation, a bounded process provider with timeout and
-SIGTERM cancellation, durable task heartbeats, bounded typed observation ingestion,
-replayable graph projection, and live task/operator refresh. It measures the
+SIGTERM cancellation, durable task and worker heartbeats, bounded typed observation
+ingestion, replayable graph projection, and live task/operator refresh. It measures the
 distance to a dependable self-hosted production release, not the number of UI
 screens or lines of code. The bar moves only when a workstream has working code,
 tests, and an operational path.
@@ -95,7 +97,7 @@ tests, and an operational path.
 | Provider results and knowledge graph ingestion | 20% | 45% | Cross-provider identity/relationship resolution, historical backfill scheduling, and graph-rebuild provenance. |
 | Approvals, live activity, and operator controls | 10% | 30% | Durable event projection, approvals, and richer recovery UX. |
 | Legacy RedAmon migration | 10% | 40% | Move remaining project, agent, report, and settings surfaces without breaking existing data. |
-| Production hardening and release QA | 10% | 55% | Worker operations/observability, backup/restore drills, upgrade checks, and deployment runbooks. |
+| Production hardening and release QA | 10% | 60% | Multi-worker alerting, backup/restore drills, upgrade checks, and deployment runbooks. |
 
 The main path to “shipped” is therefore: add additional MCP/process providers and
 multi-worker alerting → resolve cross-provider identities and graph-rebuild

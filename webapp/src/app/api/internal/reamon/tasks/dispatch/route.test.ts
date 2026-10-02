@@ -4,12 +4,14 @@ import { beforeEach, describe, expect, test, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   recoverStaleAnalysisTasks: vi.fn(),
   dispatchQueuedAnalysisTasks: vi.fn(),
+  recordWorkerDispatch: vi.fn(),
   internal: vi.fn(),
 }))
 
 vi.mock('@/lib/session', () => ({ isInternalRequest: mocks.internal }))
 vi.mock('@/lib/reamon/task-control', () => ({ recoverStaleAnalysisTasks: mocks.recoverStaleAnalysisTasks }))
 vi.mock('@/lib/reamon/task-dispatcher', () => ({ dispatchQueuedAnalysisTasks: mocks.dispatchQueuedAnalysisTasks }))
+vi.mock('@/lib/reamon/worker-health', () => ({ recordWorkerDispatch: mocks.recordWorkerDispatch }))
 
 import { POST } from './route'
 
@@ -20,6 +22,7 @@ beforeEach(() => {
   mocks.internal.mockReturnValue(true)
   mocks.recoverStaleAnalysisTasks.mockResolvedValue({ recovered: 1, staleAfterMinutes: 30 })
   mocks.dispatchQueuedAnalysisTasks.mockResolvedValue({ requested: 2, selected: 1, workerId: 'worker-a', results: [taskResult] })
+  mocks.recordWorkerDispatch.mockResolvedValue({})
 })
 
 describe('POST /api/internal/reamon/tasks/dispatch', () => {
@@ -43,6 +46,7 @@ describe('POST /api/internal/reamon/tasks/dispatch', () => {
     expect(await response.json()).toMatchObject({ recovered: 1, requested: 2, selected: 1, workerId: 'worker-a', results: [taskResult] })
     expect(mocks.recoverStaleAnalysisTasks).toHaveBeenCalledWith('project-1', 45, 'worker-a')
     expect(mocks.dispatchQueuedAnalysisTasks).toHaveBeenCalledWith({ projectId: 'project-1', limit: 2, workerId: 'worker-a' })
+    expect(mocks.recordWorkerDispatch).toHaveBeenCalledWith(expect.objectContaining({ workerId: 'worker-a', recovered: 1, selected: 1, completed: 1, failed: 0 }))
   })
 
   test('rejects malformed worker input', async () => {

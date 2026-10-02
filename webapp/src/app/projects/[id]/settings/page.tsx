@@ -15,7 +15,6 @@ export default function ProjectSettingsPage() {
   const { data: project, isLoading, error } = useProjectById(projectId)
   const updateProjectMutation = useUpdateProject()
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const saveProject = async (data: any) => {
     const updated = await updateProjectMutation.mutateAsync({
       projectId,
@@ -38,14 +37,12 @@ export default function ProjectSettingsPage() {
   // A failed save must reach the form, which alerts it and keeps the edits
   // marked unsaved. Swallowing it here made the form read "No unsaved changes"
   // after a refusal (a 409 from a stale form included) that saved nothing.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const handleSubmit = async (data: any) => {
     const updated = await saveProject(data)
     router.push(`/graph?project=${projectId}`)
     return updated
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const handleSaveAndStay = async (data: any) => {
     return saveProject(data)
   }

@@ -3,6 +3,7 @@ import { resolveCapabilities, resolveWorkspaceCapabilities } from './capabilitie
 import { buildProgressModel } from './progress'
 import { getActiveWorkspaceImportSelection } from './inventory-query'
 import { activeWorkspaceTargetIds } from './imports'
+import { listWorkerHealth } from './worker-health'
 import type { TargetProfile, WorkspaceImportSnapshot, WorkspaceObservation } from './types'
 import type { WorkspaceImportComparison } from './imports'
 
@@ -27,7 +28,8 @@ export async function getWorkspaceSnapshot(projectId: string) {
     },
   })
   const selectionPromise = getActiveWorkspaceImportSelection(projectId)
-  const [project, imports, selection] = await Promise.all([projectPromise, importsPromise, selectionPromise])
+  const workersPromise = listWorkerHealth()
+  const [project, imports, selection, workers] = await Promise.all([projectPromise, importsPromise, selectionPromise, workersPromise])
   if (!project) return null
 
   const [
@@ -179,6 +181,7 @@ export async function getWorkspaceSnapshot(projectId: string) {
       updatedAt: observation.updatedAt.toISOString(),
     })),
     activities,
+    workers,
     capabilities: resolveWorkspaceCapabilities(artifactMetadata.map((artifact) => ({ id: artifact.id, profile: asProfile(artifact.profile) }))),
     imports: imports.map((workspaceImport): WorkspaceImportSnapshot => {
       const manifest = Array.isArray(workspaceImport.manifest)

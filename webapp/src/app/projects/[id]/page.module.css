@@ -98,6 +98,7 @@
 .listRow span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .observationMain { display: flex; flex-direction: column; gap: .2rem; }
 .observationMain strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.observationMain strong { display: inline-flex; align-items: center; gap: var(--space-1); }
 .observationMain small { color: var(--text-tertiary); font-size: .68rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .activityRow { display: grid; grid-template-columns: 12px minmax(0, 1fr); gap: var(--space-2); padding: var(--space-2) 0; }
 .activityDot { width: 7px; height: 7px; border-radius: 50%; margin-top: 0.38rem; background: var(--accent-primary); box-shadow: 0 0 0 3px var(--accent-primary-subtle); }

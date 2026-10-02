@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1
 # ============================================
 # REAmon Web Application - Production Dockerfile
 # Multi-stage build for optimized production image
@@ -97,20 +96,19 @@ COPY --from=builder --chown=nextjs:nodejs /app/scripts ./scripts
 
 # Prisma schema + CLI for automatic migration on startup
 COPY --from=builder /app/prisma ./prisma
-COPY --from=builder /app/node_modules/prisma/package.json /tmp/prisma-pkg.json
-# npm retry/timeout tuning: this layer pulls the Prisma query-engine binaries
-# (~100MB), and on a slow or flaky link the default single-shot fetch dies with
-#   npm error code ECONNRESET / npm error network aborted
-# killing the whole build. Retry with backoff instead of failing on one reset.
-RUN --mount=type=secret,id=proxy_ca \
-    if [ -f /run/secrets/proxy_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/proxy_ca; fi; \
-    PRISMA_VER=$(node -p "require('/tmp/prisma-pkg.json').version") && \
-    npm config set fetch-retries 5 && \
-    npm config set fetch-retry-mintimeout 20000 && \
-    npm config set fetch-retry-maxtimeout 180000 && \
-    npm config set fetch-timeout 900000 && \
-    npm install --no-save "prisma@${PRISMA_VER}" bcryptjs && \
-    npm cache clean --force && rm /tmp/prisma-pkg.json
+# The standalone trace contains the application runtime, but it intentionally
+# omits the Prisma CLI and engine packages used by entrypoint.sh. Copy those
+# exact, already-resolved packages from the builder instead of resolving them a
+# second time over the network in the runner stage. This keeps image builds
+# deterministic and prevents a release from hanging on a duplicate engine
+# download.
+COPY --from=builder /app/node_modules/prisma ./node_modules/prisma
+COPY --from=builder /app/node_modules/@prisma/config ./node_modules/@prisma/config
+COPY --from=builder /app/node_modules/@prisma/debug ./node_modules/@prisma/debug
+COPY --from=builder /app/node_modules/@prisma/engines ./node_modules/@prisma/engines
+COPY --from=builder /app/node_modules/@prisma/fetch-engine ./node_modules/@prisma/fetch-engine
+COPY --from=builder /app/node_modules/@prisma/get-platform ./node_modules/@prisma/get-platform
+COPY --from=builder /app/node_modules/bcryptjs ./node_modules/bcryptjs
 
 # Entrypoint: migrate, sync schema to PostgreSQL, then start server.
 #
