@@ -74,7 +74,7 @@ describe('REAmon task worker', () => {
           { outcome: 'FAILED', task: { projectId: 'project-2' } },
         ] }),
       })
-      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ offset: 0, nextOffset: 1, truncated: true, nodes: 1, relationships: 0 }) })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ offset: 0, nextOffset: 1, projectionRunId: 'run-1', truncated: true, nodes: 1, relationships: 0 }) })
       .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ offset: 1, nextOffset: null, truncated: false, nodes: 0, relationships: 0 }) })
     let stopped = false
     await runWorker(
@@ -84,6 +84,6 @@ describe('REAmon task worker', () => {
 
     expect(fetchImpl).toHaveBeenCalledTimes(3)
     expect(fetchImpl.mock.calls[1][0]).toBe('http://webapp:3000/api/internal/reamon/graph/project')
-    expect(JSON.parse(fetchImpl.mock.calls[2][1].body)).toEqual({ projectId: 'project-1', offset: 1 })
+    expect(JSON.parse(fetchImpl.mock.calls[2][1].body)).toEqual({ projectId: 'project-1', offset: 1, projectionRunId: 'run-1' })
   })
 })

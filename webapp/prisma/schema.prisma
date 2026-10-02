@@ -445,6 +445,7 @@ model Project {
   hypotheses                  Hypothesis[]
   evidence                    Evidence[]
   observations                ReamonObservation[]
+  projectionRuns              ReamonProjectionRun[]
   activities                  WorkspaceActivity[]
   imports                     WorkspaceImport[]
 
@@ -2532,6 +2533,28 @@ model ReamonWorker {
 
   @@index([status, lastSeenAt])
   @@map("reamon_workers")
+}
+
+model ReamonProjectionRun {
+  id              String    @id @default(cuid())
+  projectionRunId String    @unique @map("projection_run_id")
+  projectId       String    @map("project_id")
+  project         Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  status          String    @default("RUNNING")
+  offset          Int       @default(0)
+  selected        Int       @default(0)
+  nodes           Int       @default(0)
+  relationships   Int       @default(0)
+  truncated       Boolean   @default(false)
+  error           String    @default("") @db.Text
+  startedAt       DateTime  @default(now()) @map("started_at")
+  completedAt     DateTime? @map("completed_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@index([projectId, startedAt])
+  @@index([status, startedAt])
+  @@map("reamon_projection_runs")
 }
 
 model Task {

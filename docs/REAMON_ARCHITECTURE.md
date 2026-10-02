@@ -273,6 +273,9 @@ observations and shown in the workspace. An internal-key-protected worker trigge
 selects bounded queued batches and delegates them to that executor; the production
 Compose stack now runs a private, restartable Node poller against that route and
 replays each project with completed work through the graph projection route. The
+projection route persists a run record and carries the same provenance id across
+all bounded pages, so a large rebuild is one auditable operation rather than a set
+of unrelated requests. The
 workspace refreshes while work is running and shows the current lease owner and
 heartbeat freshness, so operators can distinguish active work from a stalled lease.
 The source process adapter now terminates its child on operator cancellation or a
@@ -282,7 +285,8 @@ silence window and surfaces stale/degraded worker alerts. Failed dispatches can 
 send an optional environment-configured webhook with bounded, non-secret JSON; URL
 validation, a five-second timeout, and best-effort handling keep alert delivery from
 blocking work. Remaining worker hardening is multi-worker stress testing and
-additional MCP/process adapters. Projection runs now append durable started, completed, and failed
+additional MCP/process adapters. Projection runs now persist started/completed/failed
+state as well as append durable started, completed, and failed
 workspace activity with a correlation id, selected counts, and bounded error detail
 so an operator can distinguish an empty projection from a failed graph write. Large
 replays continue through bounded monotonic pages instead of silently stopping at the
@@ -292,5 +296,5 @@ explicit `identity`, `identityKey`, `canonicalKey`, or `qualifiedName` hint (and
 normalized string values); observations without a hint remain source-scoped. Neo4j
 projection merges nodes and relationships by that canonical key while retaining the
 provider's stable key and source as provenance. The next high-value work is expanding
-historical backfill scheduling, adding graph-rebuild provenance, and projecting
+historical backfill scheduling and projecting
 durable events into the dashboard.

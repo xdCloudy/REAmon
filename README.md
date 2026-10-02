@@ -81,14 +81,14 @@ MCP, and runtime integrations remain optional follow-on providers.
 
 ## Production readiness
 
-<progress value="76" max="100">76%</progress> <strong>76%</strong>
+<progress value="77" max="100">77%</progress> <strong>77%</strong>
 
 This is a weighted engineering snapshot, reviewed 2026-10-02 after adding explicit
 task execution, lease-protected recovery, cancellation controls, worker ownership,
 cooperative provider cancellation, a bounded process provider with timeout and
 SIGTERM cancellation, durable task and worker heartbeats, stale/degraded worker
 operator alerts with optional outbound webhook delivery, bounded typed observation ingestion with canonical identity hints,
-replayable, paginated graph projection with durable run activity, and live
+replayable, paginated graph projection with durable run records and activity, and live
 task/operator refresh. It measures the
 distance to a dependable self-hosted production release, not the number of UI
 screens or lines of code. The bar moves only when a workstream has working code,
@@ -99,14 +99,13 @@ tests, and an operational path.
 | Workspace foundation and access control | 20% | 100% | Keep regression coverage green during migration. |
 | Import, profiling, storage, and inventory | 15% | 90% | Derived-artifact provenance, server-mounted sources, and refresh cleanup. |
 | Provider registry, scheduling, and provider execution | 15% | 99% | Additional MCP/process adapters and multi-worker stress. |
-| Provider results and knowledge graph ingestion | 20% | 60% | Historical backfill scheduling and graph-rebuild provenance. |
+| Provider results and knowledge graph ingestion | 20% | 65% | Historical backfill scheduling and richer graph rebuild history. |
 | Approvals, live activity, and operator controls | 10% | 30% | Durable event projection, approvals, and richer recovery UX. |
 | Legacy RedAmon migration | 10% | 40% | Move remaining project, agent, report, and settings surfaces without breaking existing data. |
 | Production hardening and release QA | 10% | 85% | Backup/restore drills, multi-worker stress, and final deployment evidence. |
 
 The main path to “shipped” is therefore: add additional MCP/process providers and
-multi-worker stress coverage → add historical backfill and graph-rebuild provenance
-→ finish migration and
+multi-worker stress coverage → add historical backfill scheduling → finish migration and
 production QA. See [`docs/REAMON_ARCHITECTURE.md`](docs/REAMON_ARCHITECTURE.md)
 for the boundary decisions behind this sequence.
 

@@ -59,15 +59,16 @@ persist retry-safe typed observations that appear in the workspace. Active provi
 leases now record an owner and refresh a guarded heartbeat, while stale recovery remains
 safe for older rows without one. Providers receive a cooperative cancellation signal
 when operators cancel running work. Derived-artifact provenance, server-mounted sources,
-multi-worker stress testing, external alert delivery, true background uploads,
-additional MCP/process adapters, graph-rebuild provenance,
+multi-worker stress testing, true background uploads,
+additional MCP/process adapters,
 and replacing older duplicate artifact rows during refresh remain follow-up work. The
 workspace task panel now refreshes active work automatically and labels the current
 worker plus heartbeat freshness. The internal projection route can replay the
 normalized observation store into Neo4j,
 and the worker invokes it for projects with completed tasks, continuing through
-bounded projection pages; historical backfill scheduling and graph-rebuild provenance
-are still follow-up work. Projection runs now
+bounded projection pages; historical backfill scheduling remains follow-up work.
+Each paginated replay now carries one durable
+projection-run record and correlation id across its pages. Projection runs now
 write durable workspace activity for started, completed, and failed graph writes so
 operators can see recovery context without reading worker logs.
 Worker dispatches now persist last-seen and bounded outcome telemetry, and the

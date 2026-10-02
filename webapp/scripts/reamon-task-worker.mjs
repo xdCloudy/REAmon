@@ -78,8 +78,8 @@ export async function dispatchOnce(config, fetchImpl = fetch, logger = console) 
   return result
 }
 
-export async function projectOnce(config, projectId, fetchImpl = fetch, logger = console, offset = 0) {
-  const body = { projectId, ...(offset > 0 ? { offset } : {}) }
+export async function projectOnce(config, projectId, fetchImpl = fetch, logger = console, offset = 0, projectionRunId = null) {
+  const body = { projectId, ...(offset > 0 ? { offset } : {}), ...(projectionRunId ? { projectionRunId } : {}) }
   const response = await fetchImpl(`${config.webappUrl}/api/internal/reamon/graph/project`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-internal-key': config.internalKey },
@@ -101,9 +101,11 @@ export async function projectOnce(config, projectId, fetchImpl = fetch, logger =
 
 async function projectAllPages(config, projectId, fetchImpl, logger) {
   let offset = 0
+  let projectionRunId = null
   for (let page = 0; page < MAX_PROJECTION_PAGES; page += 1) {
-    const result = await projectOnce(config, projectId, fetchImpl, logger, offset)
+    const result = await projectOnce(config, projectId, fetchImpl, logger, offset, projectionRunId)
     if (!result?.truncated) return
+    if (typeof result.projectionRunId === 'string' && result.projectionRunId) projectionRunId = result.projectionRunId
     const nextOffset = Number(result.nextOffset)
     if (!Number.isSafeInteger(nextOffset) || nextOffset <= offset) {
       logger.warn(`[reamon-worker] graph projection returned an invalid continuation for project ${projectId}`)
