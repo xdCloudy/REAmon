@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   taskSettleUpdateMany: vi.fn(),
   taskFindUnique: vi.fn(),
   evidenceCreate: vi.fn(),
+  observationUpsert: vi.fn(),
   activityCreate: vi.fn(),
   transaction: vi.fn(),
   getBuiltinProvider: vi.fn(),
@@ -52,16 +53,21 @@ beforeEach(() => {
   mocks.taskSettleUpdateMany.mockResolvedValue({ count: 1 })
   mocks.taskFindUnique.mockResolvedValue(task({ status: 'COMPLETED', progress: 100, result: { strings: ['hello'] }, completedAt: new Date('2026-10-02T12:01:00Z') }))
   mocks.evidenceCreate.mockResolvedValue({ id: 'evidence-1' })
+  mocks.observationUpsert.mockResolvedValue({ id: 'observation-1' })
   mocks.activityCreate.mockResolvedValue({ id: 'activity-1' })
   mocks.transaction.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) => callback({
     task: { updateMany: mocks.taskSettleUpdateMany, findUnique: mocks.taskFindUnique },
     evidence: { create: mocks.evidenceCreate },
+    reamonObservation: { upsert: mocks.observationUpsert },
     workspaceActivity: { create: mocks.activityCreate },
   }))
   mocks.getBuiltinProvider.mockReturnValue(provider)
   mocks.resolveCapabilities.mockReturnValue([{ capabilities: ['extract_strings'] }])
   mocks.analyze.mockResolvedValue({
-    status: 'completed', toolId: provider.manifest.id, capabilities: ['extract_strings'], produced: ['String'], data: { strings: ['hello'] },
+    status: 'completed', toolId: provider.manifest.id, capabilities: ['extract_strings'], produced: ['String'], data: {
+      strings: ['hello'],
+      observations: [{ kind: 'entity', type: 'function', key: 'fn:main', label: 'main', attributes: { address: 4096 } }],
+    },
   })
 })
 
@@ -80,8 +86,13 @@ describe('executeAnalysisTask', () => {
     expect(mocks.evidenceCreate).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ kind: 'analysis', source: provider.manifest.id, artifactId: 'artifact-1' }),
     }))
+    expect(mocks.observationUpsert).toHaveBeenCalledWith(expect.objectContaining({
+      where: { projectId_source_stableKey: { projectId: 'project-1', source: provider.manifest.id, stableKey: 'fn:main' } },
+    }))
     expect(mocks.activityCreate).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ eventType: 'analysis.task.completed', data: expect.objectContaining({ taskId: 'task-1' }) }),
+      data: expect.objectContaining({ eventType: 'analysis.task.completed', data: expect.objectContaining({
+        taskId: 'task-1', observations: { accepted: 1, rejected: 0 },
+      }) }),
     }))
   })
 

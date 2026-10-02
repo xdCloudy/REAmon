@@ -49,7 +49,21 @@ const resultFor = (manifest: ToolPluginManifest, input: ToolExecutionInput): Too
   toolId: manifest.id,
   capabilities: manifest.capabilities,
   produced: manifest.produces,
-  data: { targetProfile: input.targetProfile },
+  data: {
+    targetProfile: input.targetProfile,
+    observations: [{
+      kind: 'entity',
+      type: 'artifact',
+      key: input.artifactId ? `artifact:${input.artifactId}` : `profile:${input.targetProfile.targetType}:${input.targetProfile.format}`,
+      label: input.artifactId || input.targetProfile.format,
+      attributes: {
+        targetType: input.targetProfile.targetType,
+        format: input.targetProfile.format,
+        mimeType: input.targetProfile.mimeType,
+        extension: input.targetProfile.extension,
+      },
+    }],
+  },
 })
 
 export const BUILTIN_TOOL_PLUGINS: ToolPlugin[] = [

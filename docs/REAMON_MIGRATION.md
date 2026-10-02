@@ -10,7 +10,7 @@ REAmon is an incremental fork of RedAmon. This table records the current boundar
 | Artifact path identity | Flat original filename | `relativePath` + `parentPath` under an import root | GENERALISING | Paths are normalised and kept distinct even when SHA-256 content matches. Opaque storage paths remain internal; refresh comparison reports changed paths rather than collapsing them. |
 | Reconnaissance pipeline | Existing recon services and orchestrators | Analysis pipeline and capability-driven plan | GENERALISING | Keep event and execution infrastructure; move target assumptions behind providers. |
 | Attack-surface graph | Neo4j graph and graph UI | Universal knowledge graph | REPURPOSED | Graph relationships will represent code, data, runtime, and evidence entities, not only network scope. |
-| Scanner results / findings | Pentest-oriented result paths | Generic observations, findings, and evidence | GENERALISING | New relational models establish generic persistence; legacy result paths remain during migration. |
+| Scanner results / findings | Pentest-oriented result paths | Generic observations, findings, and evidence | GENERALISING | Typed, bounded `ReamonObservation` persistence now accompanies successful provider tasks; legacy result paths remain during migration. |
 | Agent execution | Existing agentic runtime and model settings | Capability-oriented investigation agents | GENERALISING | Preserve human control, provider settings, and streaming while decoupling roles from pentest phases. |
 | MCP integration | Existing MCP servers and route | External RE tool and agent provider boundary | REPURPOSED | Keep MCP plumbing; expose logical inventory, provider-manifest compatibility, and proposal-only analysis planning without executing heavyweight tools from reads. |
 | WebSocket / SSE / activity | Existing live streams | Workspace timeline and live analysis activity | REPURPOSED | `WorkspaceActivity` provides durable events; existing streams remain available for projection. |
@@ -53,7 +53,9 @@ concurrent requests, cancel or retry an import, preserve relative paths, aggrega
 profile, resolve compatible capabilities, queue a reviewed analysis proposal, and run
 the small reference providers with lease-protected task/evidence/activity state.
 Stale-task recovery, retry, and cancellation controls are now available to operators,
-and an internal worker trigger can dispatch bounded queued batches. Derived-artifact
-provenance, server-mounted sources, durable worker polling/ownership, true background
-uploads, real process/MCP execution, process-level cancellation, graph ingestion, and
-replacing older duplicate artifact rows during refresh remain follow-up work.
+and an internal worker trigger can dispatch bounded queued batches. Successful provider
+results now persist retry-safe typed observations and appear in the workspace. Derived-
+artifact provenance, server-mounted sources, durable worker polling/ownership, true
+background uploads, real process/MCP execution, process-level cancellation, Neo4j
+projection, and replacing older duplicate artifact rows during refresh remain follow-up
+work.

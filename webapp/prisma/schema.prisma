@@ -444,6 +444,7 @@ model Project {
   findings                    Finding[]
   hypotheses                  Hypothesis[]
   evidence                    Evidence[]
+  observations                ReamonObservation[]
   activities                  WorkspaceActivity[]
   imports                     WorkspaceImport[]
 
@@ -2419,6 +2420,7 @@ model Target {
   findings    Finding[]
   hypotheses  Hypothesis[]
   evidence    Evidence[]
+  observations ReamonObservation[]
   rootImports WorkspaceImport[] @relation("WorkspaceImportRootTarget")
 
   @@index([projectId, status])
@@ -2454,6 +2456,7 @@ model Artifact {
   findings       Finding[]
   hypotheses     Hypothesis[]
   evidence       Evidence[]
+  observations   ReamonObservation[]
 
   @@index([projectId, status])
   @@index([projectId, sha256])
@@ -2536,6 +2539,7 @@ model Task {
   completedAt DateTime? @map("completed_at")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
+  observations ReamonObservation[]
 
   @@index([projectId, status])
   @@index([projectId, category])
@@ -2599,6 +2603,39 @@ model Evidence {
   @@index([targetId])
   @@index([artifactId])
   @@map("reamon_evidence")
+}
+
+/// A normalized provider observation. The relational shape is the durable
+/// source of truth for workspace queries; a future graph projector can turn
+/// entity/relationship rows into Neo4j nodes and edges without re-running a
+/// provider.
+model ReamonObservation {
+  id          String   @id @default(cuid())
+  projectId   String   @map("project_id")
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  taskId      String?  @map("task_id")
+  task        Task?    @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  targetId    String?  @map("target_id")
+  target      Target?  @relation(fields: [targetId], references: [id], onDelete: SetNull)
+  artifactId  String?  @map("artifact_id")
+  artifact    Artifact? @relation(fields: [artifactId], references: [id], onDelete: SetNull)
+  kind        String
+  type        String
+  stableKey   String   @map("stable_key")
+  label       String?
+  source      String
+  relation    String?
+  fromKey     String?  @map("from_key")
+  toKey       String?  @map("to_key")
+  attributes  Json     @default("{}")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@unique([projectId, source, stableKey])
+  @@index([projectId, kind, type])
+  @@index([projectId, taskId])
+  @@index([projectId, artifactId])
+  @@map("reamon_observations")
 }
 
 model WorkspaceActivity {

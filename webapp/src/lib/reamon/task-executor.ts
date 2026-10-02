@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import prisma from '@/lib/prisma'
 import { getBuiltinProvider } from './provider-registry'
 import { resolveCapabilities } from './capabilities'
+import { ingestToolResult } from './result-ingestion'
 import type { TargetProfile, ToolResult } from './types'
 
 const taskSelect = {
@@ -111,6 +112,7 @@ async function settleTask(
     const updatedTask = await tx.task.findUnique({ where: { id: task.id }, select: taskSelect })
     if (!updatedTask) return null
 
+    let observationSummary = { accepted: 0, rejected: 0 }
     if (outcome === 'COMPLETED' && result) {
       await tx.evidence.create({
         data: {
@@ -122,6 +124,14 @@ async function settleTask(
           source: result.toolId,
           data: result.data as unknown as Prisma.InputJsonValue,
         },
+      })
+      observationSummary = await ingestToolResult(tx, {
+        projectId: task.projectId,
+        taskId: task.id,
+        targetId: task.targetId,
+        artifactId: task.artifactId,
+        source: result.toolId,
+        data: result.data,
       })
     }
     await tx.workspaceActivity.create({
@@ -137,6 +147,7 @@ async function settleTask(
           artifactId: task.artifactId,
           providerId: task.provider?.pluginId || null,
           capability: task.capability,
+          ...(outcome === 'COMPLETED' ? { observations: observationSummary } : {}),
           ...(outcome === 'FAILED' ? { error } : {}),
         },
       },

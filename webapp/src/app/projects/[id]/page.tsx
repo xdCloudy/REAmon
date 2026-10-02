@@ -8,7 +8,7 @@ import { WorkspaceFileTree } from '@/components/reamon/WorkspaceFileTree'
 import { WorkspaceImportPanel } from '@/components/reamon/WorkspaceImportPanel'
 import { WorkspaceAnalysisPlanPanel, type WorkspaceAnalysisPlan } from '@/components/reamon/WorkspaceAnalysisPlan'
 import { WorkspaceTaskList } from '@/components/reamon/WorkspaceTaskList'
-import type { CapabilityMatch, ProgressMetric, TargetProfile, WorkspaceCapabilitySummary, WorkspaceImportSnapshot, WorkspaceProfile } from '@/lib/reamon'
+import type { CapabilityMatch, ProgressMetric, TargetProfile, WorkspaceCapabilitySummary, WorkspaceImportSnapshot, WorkspaceObservation, WorkspaceProfile } from '@/lib/reamon'
 import styles from './page.module.css'
 
 interface WorkspaceSnapshot {
@@ -36,12 +36,13 @@ interface WorkspaceSnapshot {
   findings: Array<{ id: string; title: string; severity: string; status: string }>
   hypotheses: Array<{ id: string; statement: string; status: string }>
   evidence: Array<{ id: string; summary: string; source: string; createdAt: string }>
+  observations: WorkspaceObservation[]
   activities: Array<{ id: string; actor: string; eventType: string; message: string; createdAt: string }>
   capabilities: WorkspaceCapabilitySummary[]
   imports: WorkspaceImportSnapshot[]
   artifactPage: { limit: number; total: number; hasMore: boolean }
   progress: { overallPercent: number; metrics: ProgressMetric[] }
-  counts: { targets: number; artifacts: number; tasks: number; findings: number; hypotheses: number; evidence: number }
+  counts: { targets: number; artifacts: number; tasks: number; findings: number; hypotheses: number; evidence: number; observations: number }
 }
 
 async function fetchWorkspace(projectId: string): Promise<WorkspaceSnapshot> {
@@ -68,6 +69,13 @@ function profileLabel(profile: TargetProfile): string {
   if (profile.architecture) details.push(profile.architecture)
   if (profile.platform) details.push(profile.platform)
   return details.join(' · ')
+}
+
+function observationTitle(observation: WorkspaceObservation): string {
+  if (observation.kind === 'relationship' && observation.fromKey && observation.toKey) {
+    return `${observation.fromKey} ${observation.relation || observation.type} ${observation.toKey}`
+  }
+  return observation.label || observation.key
 }
 
 function ProgressBar({ metric }: { metric: ProgressMetric }) {
@@ -142,7 +150,7 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
       </header>
 
       <div className={styles.stats}>
-        <Stat label="Targets" value={data.counts.targets} /><Stat label="Artifacts" value={data.counts.artifacts} /><Stat label="Tasks" value={data.counts.tasks} /><Stat label="Findings" value={data.counts.findings} /><Stat label="Hypotheses" value={data.counts.hypotheses} /><Stat label="Evidence" value={data.counts.evidence} />
+        <Stat label="Targets" value={data.counts.targets} /><Stat label="Artifacts" value={data.counts.artifacts} /><Stat label="Tasks" value={data.counts.tasks} /><Stat label="Findings" value={data.counts.findings} /><Stat label="Hypotheses" value={data.counts.hypotheses} /><Stat label="Evidence" value={data.counts.evidence} /><Stat label="Observations" value={data.counts.observations} />
       </div>
 
       <WorkspaceImportPanel projectId={projectId} onImported={() => {
@@ -174,6 +182,11 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
         <div className={styles.panelHeader}><h2 id="targets-heading">Logical analysis targets</h2><span className={styles.muted}>{logicalTargets.length} detected</span></div>
         {logicalTargets.length ? <div className={styles.logicalTargets}>{logicalTargets.map((target) => <button type="button" key={target.id} className={`${styles.logicalTarget} ${selectedTarget === target.id ? styles.logicalTargetSelected : ''}`} onClick={() => setSelectedTarget(target.id)}><span><Waypoints size={16} /><strong>{target.name}</strong><small>{target.targetType} · {profileLabel(target.profile)}</small></span><span className={styles.status}><CheckCircle2 size={14} /> {target.status}</span></button>)}</div> : <div className={styles.empty}><CircleDashed size={25} /><span>Executable and library candidates will become logical targets after import.</span></div>}
         {selectedLogicalTarget && <div className={styles.targetNotice}>Selected target: <strong>{selectedLogicalTarget.name}</strong>. Artifact details and capabilities are available from the file tree.</div>}
+      </section>
+
+      <section className={styles.panel} aria-labelledby="observations-heading">
+        <div className={styles.panelHeader}><h2 id="observations-heading">Knowledge observed</h2><span className={styles.muted}>{data.counts.observations} normalized record{data.counts.observations === 1 ? '' : 's'}</span></div>
+        {data.observations.length ? data.observations.map((observation) => <div className={styles.listRow} key={observation.id}><span className={styles.observationMain}><strong>{observationTitle(observation)}</strong><small>{observation.type} · {observation.source} · {Object.keys(observation.attributes).length} attribute{Object.keys(observation.attributes).length === 1 ? '' : 's'}</small></span><span className={styles.type}>{observation.kind}</span></div>) : <p className={styles.muted}>Completed providers will publish typed entities and relationships here.</p>}
       </section>
 
       <div className={styles.bottomGrid}>

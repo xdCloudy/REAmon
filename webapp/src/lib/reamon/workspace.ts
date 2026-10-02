@@ -3,7 +3,7 @@ import { resolveCapabilities, resolveWorkspaceCapabilities } from './capabilitie
 import { buildProgressModel } from './progress'
 import { getActiveWorkspaceImportSelection } from './inventory-query'
 import { activeWorkspaceTargetIds } from './imports'
-import type { TargetProfile, WorkspaceImportSnapshot } from './types'
+import type { TargetProfile, WorkspaceImportSnapshot, WorkspaceObservation } from './types'
 import type { WorkspaceImportComparison } from './imports'
 
 export const WORKSPACE_ARTIFACT_PREVIEW_LIMIT = 500
@@ -39,6 +39,7 @@ export async function getWorkspaceSnapshot(projectId: string) {
     findings,
     hypotheses,
     evidence,
+    observations,
     activities,
     taskStatuses,
     findingStatuses,
@@ -47,6 +48,7 @@ export async function getWorkspaceSnapshot(projectId: string) {
     findingCount,
     hypothesisCount,
     evidenceCount,
+    observationCount,
   ] = await Promise.all([
     prisma.target.findMany({ where: { projectId }, orderBy: { createdAt: 'asc' } }),
     prisma.artifact.findMany({
@@ -83,6 +85,7 @@ export async function getWorkspaceSnapshot(projectId: string) {
     prisma.finding.findMany({ where: { projectId }, orderBy: { createdAt: 'desc' }, take: 25 }),
     prisma.hypothesis.findMany({ where: { projectId }, orderBy: { createdAt: 'desc' }, take: 25 }),
     prisma.evidence.findMany({ where: { projectId }, orderBy: { createdAt: 'desc' }, take: 25 }),
+    prisma.reamonObservation.findMany({ where: { projectId }, orderBy: { updatedAt: 'desc' }, take: 40 }),
     prisma.workspaceActivity.findMany({ where: { projectId }, orderBy: { createdAt: 'desc' }, take: 20 }),
     prisma.task.findMany({ where: { projectId }, select: { status: true } }),
     prisma.finding.findMany({ where: { projectId }, select: { status: true } }),
@@ -91,6 +94,7 @@ export async function getWorkspaceSnapshot(projectId: string) {
     prisma.finding.count({ where: { projectId } }),
     prisma.hypothesis.count({ where: { projectId } }),
     prisma.evidence.count({ where: { projectId } }),
+    prisma.reamonObservation.count({ where: { projectId } }),
   ])
 
   const activeArtifactTargetIds = new Set(artifactMetadata
@@ -154,6 +158,24 @@ export async function getWorkspaceSnapshot(projectId: string) {
     findings,
     hypotheses,
     evidence,
+    observations: observations.map((observation): WorkspaceObservation => ({
+      id: observation.id,
+      projectId: observation.projectId,
+      taskId: observation.taskId,
+      targetId: observation.targetId,
+      artifactId: observation.artifactId,
+      kind: observation.kind as WorkspaceObservation['kind'],
+      type: observation.type,
+      key: observation.stableKey,
+      label: observation.label || undefined,
+      source: observation.source,
+      relation: observation.relation || undefined,
+      fromKey: observation.fromKey || undefined,
+      toKey: observation.toKey || undefined,
+      attributes: observation.attributes as WorkspaceObservation['attributes'],
+      createdAt: observation.createdAt.toISOString(),
+      updatedAt: observation.updatedAt.toISOString(),
+    })),
     activities,
     capabilities: resolveWorkspaceCapabilities(artifactMetadata.map((artifact) => ({ id: artifact.id, profile: asProfile(artifact.profile) }))),
     imports: imports.map((workspaceImport): WorkspaceImportSnapshot => {
@@ -197,6 +219,7 @@ export async function getWorkspaceSnapshot(projectId: string) {
       findings: findingCount,
       hypotheses: hypothesisCount,
       evidence: evidenceCount,
+      observations: observationCount,
     },
   }
 }

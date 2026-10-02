@@ -113,6 +113,38 @@ export interface ToolResult {
   error?: string
 }
 
+export const OBSERVATION_KINDS = ['entity', 'relationship', 'fact'] as const
+export type ObservationKind = (typeof OBSERVATION_KINDS)[number]
+export type ObservationValue = string | number | boolean | null
+export type ObservationAttributes = Record<string, ObservationValue>
+
+/**
+ * Provider output that can be promoted into the investigation knowledge
+ * layer. `key` is provider-defined but must be stable for the same thing
+ * across retries; the ingestion boundary namespaces it by project and source.
+ */
+export interface ToolObservation {
+  kind: ObservationKind
+  type: string
+  key: string
+  label?: string
+  relation?: string
+  fromKey?: string
+  toKey?: string
+  attributes: ObservationAttributes
+}
+
+export interface WorkspaceObservation extends ToolObservation {
+  id: string
+  projectId: string
+  taskId: string | null
+  targetId: string | null
+  artifactId: string | null
+  source: string
+  createdAt: string
+  updatedAt: string
+}
+
 export interface ToolPlugin {
   manifest: ToolPluginManifest
   analyze(input: ToolExecutionInput): Promise<ToolResult>

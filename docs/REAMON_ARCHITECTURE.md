@@ -166,7 +166,8 @@ The first provider contract is in `webapp/src/lib/reamon/types.ts`:
 - `ToolPluginManifest`: provider identity, category, accepted target/artifact profiles, capabilities, requirements, and produced entity types.
 - `Capability`: a stable verb such as `identify`, `extract_metadata`, `disassemble`, `decompile`, or `runtime_observation`.
 - `ToolRequirement`: runtime, target, environment, or configuration requirements.
-- `ToolResult`: a typed execution boundary for status, produced entities, relationships, evidence, and provider metadata.
+- `ToolResult`: a typed execution boundary for status, bounded observations, evidence, and provider metadata.
+- `ToolObservation`: a stable-keyed `entity`, `relationship`, or `fact` that can be upserted into the project knowledge layer.
 - `ToolPlugin`: a manifest plus an execution function.
 
 The resolver currently registers two built-in providers: the profiler provider and a source-inspector placeholder. They demonstrate registration and matching without making Ghidra, JADX, or any other tool a core dependency. Future providers can connect through three equivalent boundaries:
@@ -197,7 +198,7 @@ Target / Artifact
 
 Candidate relationship types include `CONTAINS`, `CALLS`, `REFERENCES`, `READS`, `WRITES`, `IMPORTS`, `EXPORTS`, `LOADS`, `SPAWNS`, `CONNECTS_TO`, `OBSERVED_AS`, `DERIVED_FROM`, `SUPPORTS`, `CONTRADICTS`, `DEPENDS_ON`, and `RELATED_TO`.
 
-PostgreSQL owns workspace identity, permissions, lifecycle state, provider/task records, hashes, evidence metadata, and audit-friendly activity. Neo4j owns high-connectivity entity and relationship traversal. A graph write should retain source and workspace provenance in PostgreSQL so graph data can be rebuilt or audited.
+PostgreSQL owns workspace identity, permissions, lifecycle state, provider/task records, hashes, evidence metadata, normalized `ReamonObservation` rows, and audit-friendly activity. Observation ingestion is bounded, project-scoped, retry-safe, and transactional with successful task settlement. Neo4j owns high-connectivity entity and relationship traversal once a graph projector is deployed. A graph write should retain source and workspace provenance in PostgreSQL so graph data can be rebuilt or audited.
 
 ## Agents and orchestration
 
@@ -228,7 +229,8 @@ Create REVERSE_ENGINEERING workspace
   → aggregate workspace inventory and resolve capabilities
   → expose bounded inventory and artifact-detail APIs to the UI/agent boundary
   → queue reviewed provider proposals as idempotent analysis tasks
-  → render searchable tree, artifact details, progress, work, hypotheses, activity
+  → settle provider output into evidence and typed observations
+  → render searchable tree, artifact details, progress, work, observations, hypotheses, activity
 ```
 
 The dashboard is intentionally honest: empty tasks, findings, hypotheses, and activity
@@ -252,8 +254,9 @@ The architecture leaves room for Ghidra, JADX, Rizin, Binwalk, Apktool, Frida, G
 The persisted provider registry, explicit task-queue boundary, and reference executor
 are now in place. Execution attempts carry a lease token, so stale running tasks can
 be recovered or retried without allowing a late provider response to overwrite the
-new attempt. An internal-key-protected worker trigger selects bounded queued batches
-and delegates them to that executor; deployment still needs a durable poller and
-ownership/heartbeat policy. The next high-value work is adding real native/MCP/process
-providers, then ingesting provider results into the graph and projecting durable events
-into the dashboard.
+new attempt. Successful results are also normalized into bounded, stable-keyed
+observations and shown in the workspace. An internal-key-protected worker trigger
+selects bounded queued batches and delegates them to that executor; deployment still
+needs a durable poller and ownership/heartbeat policy. The next high-value work is
+adding real native/MCP/process providers, then projecting observations into Neo4j and
+projecting durable events into the dashboard.
