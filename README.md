@@ -101,7 +101,7 @@ tests, and an operational path.
 | Provider results and knowledge graph ingestion | 20% | 57% | Relationship identity hints, historical backfill scheduling, and graph-rebuild provenance. |
 | Approvals, live activity, and operator controls | 10% | 30% | Durable event projection, approvals, and richer recovery UX. |
 | Legacy RedAmon migration | 10% | 40% | Move remaining project, agent, report, and settings surfaces without breaking existing data. |
-| Production hardening and release QA | 10% | 70% | External alert delivery, backup/restore drills, upgrade checks, and deployment runbooks. |
+| Production hardening and release QA | 10% | 75% | External alert delivery, backup/restore drills, and deployment runbooks. |
 
 The main path to “shipped” is therefore: add additional MCP/process providers and
 multi-worker stress coverage → expand relationship identity hints and graph-rebuild
@@ -231,9 +231,11 @@ Before exposing a deployment:
 
 The webapp entrypoint synchronises the Prisma schema on startup to preserve the
 upstream self-hosting workflow. Take a database backup and inspect schema changes
-before upgrading a production instance. `/api/health` is a lightweight liveness
-check; `/api/health/ready` verifies both the PostgreSQL connection and writable
-REAmon artifact storage, and is the endpoint used by the Compose healthcheck.
+before upgrading a production instance. Startup refuses destructive Prisma schema
+drift by default; set `REAMON_DB_PUSH_ACCEPT_DATA_LOSS=true` only for a planned,
+backed-up upgrade after reviewing the schema change. `/api/health` is a lightweight
+liveness check; `/api/health/ready` verifies both the PostgreSQL connection and
+writable REAmon artifact storage, and is the endpoint used by the Compose healthcheck.
 
 ## Development
 

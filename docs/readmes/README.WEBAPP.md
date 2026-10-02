@@ -186,11 +186,12 @@ Features:
   `docker exec redamon-webapp grep -rl '<new rule>' /app/.next/static/chunks/`,
   and check free memory before building
   ([TROUBLESHOOTING.md](TROUBLESHOOTING.md#host-and-docker-gotchas)).
-- **Every container start runs `prisma db push --accept-data-loss`** against the
-  image's own `prisma/schema.prisma` ([webapp/Dockerfile](../../webapp/Dockerfile)).
-  Starting an image built from an older schema DROPS every column that exists only
-  in a newer one, including a column someone else added in an uncommitted schema
-  edit on the same database.
+- **Every container start synchronizes the schema with `prisma db push`** against
+  the image's own `prisma/schema.prisma` ([webapp/Dockerfile](../../webapp/Dockerfile)).
+  Destructive changes are refused by default. Set
+  `REAMON_DB_PUSH_ACCEPT_DATA_LOSS=true` only for a planned, backed-up upgrade
+  after reviewing the schema diff; that opt-in can drop columns no longer present
+  in the image schema.
 - **A CSS-module selector list whose items each hold two `:global()`s compiles
   wrong.** Next 16 / Turbopack emits a stray `)` on the last item, for example
   `:global([data-theme="light"]) .header :global(.a):disabled, :global([data-theme="light"]) .header :global(.b):disabled {}`.

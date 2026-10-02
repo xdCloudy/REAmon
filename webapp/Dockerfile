@@ -113,8 +113,8 @@ COPY --from=builder /app/node_modules/bcryptjs ./node_modules/bcryptjs
 # Entrypoint: migrate, sync schema to PostgreSQL, then start server.
 #
 # Order matters in BOTH directions around `db push`:
-#   BEFORE  — the push carries --accept-data-loss and DROPS columns no longer in
-#             schema.prisma. Anything that needs to read a dropped column has to
+#   BEFORE  — an explicitly opted-in destructive push can DROP columns no longer
+#             in schema.prisma. Anything that needs to read a dropped column has to
 #             run first; the TruffleHog profile migration does, and it exits
 #             non-zero on failure so the push never destroys the source data.
 #   AFTER   — the push would also drop the FTS objects, the ingest role and the
@@ -125,8 +125,10 @@ COPY --from=builder /app/node_modules/bcryptjs ./node_modules/bcryptjs
 #             (clamp-triage-review-budget) run here too.
 # The push itself is fatal: a webapp serving without the columns its code
 # expects fails on every request that touches them, which is worse than a
-# restart. compose restarts it (unless-stopped) once Postgres answers.
-RUN printf '#!/bin/sh\nnode scripts/migrate-trufflehog-profiles.mjs 2>&1 || exit 1\necho "Syncing Prisma schema..."\nnode node_modules/prisma/build/index.js db push --skip-generate --accept-data-loss --schema ./prisma/schema.prisma 2>&1 || exit 1\nnode scripts/apply-ingest-role.mjs 2>&1\nnode scripts/apply-traffic-fts.mjs 2>&1\nnode scripts/apply-engagement-immutability.mjs 2>&1\nnode scripts/clamp-triage-review-budget.mjs 2>&1\nexec node server.js\n' > /app/entrypoint.sh \
+# restart. compose restarts it (unless-stopped) once Postgres answers. The
+# destructive flag is opt-in through REAMON_DB_PUSH_ACCEPT_DATA_LOSS=true after
+# a backup and an operator-reviewed upgrade.
+RUN printf '#!/bin/sh\nnode scripts/migrate-trufflehog-profiles.mjs 2>&1 || exit 1\nif [ "${REAMON_DB_PUSH_ACCEPT_DATA_LOSS:-false}" = "true" ]; then\n  echo "Syncing Prisma schema with destructive changes explicitly enabled..."\n  SCHEMA_DATA_LOSS_FLAG="--accept-data-loss"\nelse\n  echo "Syncing Prisma schema with destructive changes disabled..."\n  SCHEMA_DATA_LOSS_FLAG=""\nfi\nnode node_modules/prisma/build/index.js db push --skip-generate $SCHEMA_DATA_LOSS_FLAG --schema ./prisma/schema.prisma 2>&1 || exit 1\nnode scripts/apply-ingest-role.mjs 2>&1\nnode scripts/apply-traffic-fts.mjs 2>&1\nnode scripts/apply-engagement-immutability.mjs 2>&1\nnode scripts/clamp-triage-review-budget.mjs 2>&1\nexec node server.js\n' > /app/entrypoint.sh \
     && chmod +x /app/entrypoint.sh
 
 USER nextjs
