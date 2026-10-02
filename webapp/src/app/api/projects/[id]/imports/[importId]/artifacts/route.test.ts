@@ -181,7 +181,8 @@ describe('POST /api/projects/[id]/imports/[importId]/artifacts', () => {
 
     const response = await POST(uploadRequest('bin/app.exe'), params())
 
-    expect(response.status).toBe(400)
+    expect(response.status).toBe(500)
+    expect(await response.json()).toEqual({ error: 'Failed to upload artifact' })
     expect(await readFile(path.join(storageRoot, previousStoragePath), 'utf8')).toBe('previous')
     expect(mocks.artifactUpdate).not.toHaveBeenCalled()
   })

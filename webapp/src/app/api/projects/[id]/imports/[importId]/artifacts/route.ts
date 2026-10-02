@@ -7,7 +7,7 @@ import prisma from '@/lib/prisma'
 import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
 import { resolveCapabilities } from '@/lib/reamon/capabilities'
 import { isLogicalTargetCandidate } from '@/lib/reamon/inventory'
-import { parentPathOf, normalizeRelativePath } from '@/lib/reamon/paths'
+import { InvalidWorkspacePathError, parentPathOf, normalizeRelativePath } from '@/lib/reamon/paths'
 import { profileArtifact } from '@/lib/reamon/profiler'
 
 interface RouteParams { params: Promise<{ id: string; importId: string }> }
@@ -202,6 +202,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     if (writtenPath && !databaseCommitted) await unlink(writtenPath).catch(() => {})
     console.error('Failed to import REAmon workspace artifact:', error)
     const message = error instanceof Error ? error.message : 'Failed to upload artifact'
-    return NextResponse.json({ error: /path|manifest|file|import|limit|absolute|invalid/i.test(message) ? message : 'Failed to upload artifact' }, { status: 400, headers: { 'Cache-Control': 'no-store' } })
+    const invalidInput = error instanceof InvalidWorkspacePathError
+    return NextResponse.json({ error: invalidInput ? message : 'Failed to upload artifact' }, { status: invalidInput ? 400 : 500, headers: { 'Cache-Control': 'no-store' } })
   }
 }
