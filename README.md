@@ -80,14 +80,15 @@ MCP, and runtime integrations remain optional follow-on providers.
 
 ## Production readiness
 
-<progress value="73" max="100">73%</progress> <strong>73%</strong>
+<progress value="74" max="100">74%</progress> <strong>74%</strong>
 
 This is a weighted engineering snapshot, reviewed 2026-10-02 after adding explicit
 task execution, lease-protected recovery, cancellation controls, worker ownership,
 cooperative provider cancellation, a bounded process provider with timeout and
 SIGTERM cancellation, durable task and worker heartbeats, stale/degraded worker
 operator alerts, bounded typed observation ingestion with canonical identity hints,
-replayable graph projection, and live task/operator refresh. It measures the
+replayable graph projection with durable run activity, and live task/operator refresh.
+It measures the
 distance to a dependable self-hosted production release, not the number of UI
 screens or lines of code. The bar moves only when a workstream has working code,
 tests, and an operational path.
@@ -97,7 +98,7 @@ tests, and an operational path.
 | Workspace foundation and access control | 20% | 100% | Keep regression coverage green during migration. |
 | Import, profiling, storage, and inventory | 15% | 90% | Derived-artifact provenance, server-mounted sources, and refresh cleanup. |
 | Provider registry, scheduling, and provider execution | 15% | 99% | Additional MCP/process adapters and multi-worker stress. |
-| Provider results and knowledge graph ingestion | 20% | 55% | Relationship identity hints, historical backfill scheduling, and graph-rebuild provenance. |
+| Provider results and knowledge graph ingestion | 20% | 57% | Relationship identity hints, historical backfill scheduling, and graph-rebuild provenance. |
 | Approvals, live activity, and operator controls | 10% | 30% | Durable event projection, approvals, and richer recovery UX. |
 | Legacy RedAmon migration | 10% | 40% | Move remaining project, agent, report, and settings surfaces without breaking existing data. |
 | Production hardening and release QA | 10% | 70% | External alert delivery, backup/restore drills, upgrade checks, and deployment runbooks. |

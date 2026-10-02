@@ -280,7 +280,10 @@ bounded timeout. Dispatches also persist worker last-seen, outcome counts, durat
 and the last provider error; the workspace labels workers stale after a bounded
 silence window and surfaces stale/degraded worker alerts. Remaining worker hardening
 is multi-worker stress testing, external alert delivery, and additional MCP/process
-adapters. Observation ingestion now derives a bounded canonical identity from an
+adapters. Projection runs now append durable started, completed, and failed
+workspace activity with a correlation id, selected counts, and bounded error detail
+so an operator can distinguish an empty projection from a failed graph write.
+Observation ingestion now derives a bounded canonical identity from an
 explicit `identity`, `identityKey`, `canonicalKey`, or `qualifiedName` hint (and from
 normalized string values); observations without a hint remain source-scoped. Neo4j
 projection merges nodes and relationships by that canonical key while retaining the
