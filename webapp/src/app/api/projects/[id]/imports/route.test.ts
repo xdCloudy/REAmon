@@ -30,7 +30,7 @@ vi.mock('@/lib/access', () => ({
   requireProjectAccess: mocks.requireProjectAccess,
 }))
 
-import { POST } from './route'
+import { GET, POST } from './route'
 
 function requestFor(body: Record<string, unknown>): Request {
   return new Request('http://localhost/api/projects/project-1/imports', {
@@ -148,5 +148,18 @@ describe('POST /api/projects/[id]/imports', () => {
     expect(response.status).toBe(400)
     expect((await response.json()).error).toMatch(/unsupported/i)
     expect(mocks.transaction).not.toHaveBeenCalled()
+  })
+})
+
+describe('GET /api/projects/[id]/imports', () => {
+  test('reports effective server-side import limits', async () => {
+    vi.stubEnv('REAMON_MAX_IMPORT_FILES', '123')
+    vi.stubEnv('REAMON_MAX_IMPORT_BYTES', '456')
+    vi.stubEnv('REAMON_MAX_ARTIFACT_BYTES', '789')
+
+    const response = await GET(new Request('http://localhost/api/projects/project-1/imports'), params())
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ limits: { maxFiles: 123, maxImportBytes: 456, maxArtifactBytes: 789 } })
   })
 })

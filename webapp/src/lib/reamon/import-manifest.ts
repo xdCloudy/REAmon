@@ -10,12 +10,18 @@ const DEFAULT_MAX_FILES = 50_000
 const DEFAULT_MAX_IMPORT_BYTES = 8 * 1024 * 1024 * 1024
 const DEFAULT_MAX_ARTIFACT_BYTES = 512 * 1024 * 1024
 
+export interface WorkspaceImportLimits {
+  maxFiles: number
+  maxImportBytes: number
+  maxArtifactBytes: number
+}
+
 function configuredPositiveInt(name: string, fallback: number): number {
   const value = Number.parseInt(process.env[name] || '', 10)
   return Number.isSafeInteger(value) && value > 0 ? value : fallback
 }
 
-export function workspaceImportLimits() {
+export function workspaceImportLimits(): WorkspaceImportLimits {
   return {
     maxFiles: configuredPositiveInt('REAMON_MAX_IMPORT_FILES', DEFAULT_MAX_FILES),
     maxImportBytes: configuredPositiveInt('REAMON_MAX_IMPORT_BYTES', DEFAULT_MAX_IMPORT_BYTES),

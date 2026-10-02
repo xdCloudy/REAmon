@@ -13,6 +13,12 @@ import {
 import type { WorkspaceImportComparison } from '@/lib/reamon/imports'
 import styles from './WorkspaceImportPanel.module.css'
 
+interface WorkspaceImportLimits {
+  maxFiles: number
+  maxImportBytes: number
+  maxArtifactBytes: number
+}
+
 interface WorkspaceImportPanelProps {
   projectId: string
   onImported: () => void
@@ -70,6 +76,7 @@ export function WorkspaceImportPanel({ projectId, onImported }: WorkspaceImportP
   const [comparing, setComparing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [limits, setLimits] = useState<WorkspaceImportLimits | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const comparisonRequestRef = useRef(0)
 
@@ -79,6 +86,22 @@ export function WorkspaceImportPanel({ projectId, onImported }: WorkspaceImportP
     // TypeScript DOM types do not make Chromium's prefixed API a dependency.
     directoryInput.current?.setAttribute('webkitdirectory', '')
   }, [])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    const loadLimits = async () => {
+      try {
+        const response = await fetch(`/api/projects/${projectId}/imports`, { signal: controller.signal })
+        if (!response.ok) return
+        const data = await response.json() as { limits?: WorkspaceImportLimits }
+        if (data.limits) setLimits(data.limits)
+      } catch {
+        // The import remains usable if the informational limits request fails.
+      }
+    }
+    void loadLimits()
+    return () => controller.abort()
+  }, [projectId])
 
   const compareSelection = async (nextSelection: WorkspaceSelection) => {
     const requestId = comparisonRequestRef.current + 1
@@ -220,7 +243,7 @@ export function WorkspaceImportPanel({ projectId, onImported }: WorkspaceImportP
         </div>
       )}
       {error && <p className={styles.error} role="alert">{error}</p>}
-      <p className={styles.limits}>Everything selected is included by default. Upload limits are configurable by the server; the browser never exposes your absolute local path.</p>
+      <p className={styles.limits}>Everything selected is included by default. {limits ? <>Configured limits: {limits.maxFiles.toLocaleString()} files · {formatBytes(limits.maxImportBytes)} per import · {formatBytes(limits.maxArtifactBytes)} per file. </> : 'Upload limits are configurable by the server. '}The browser never exposes your absolute local path.</p>
     </section>
   )
 }

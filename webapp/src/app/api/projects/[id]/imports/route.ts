@@ -9,6 +9,20 @@ import { normalizeRootName } from '@/lib/reamon/paths'
 
 interface RouteParams { params: Promise<{ id: string }> }
 
+export async function GET(_request: Request, { params }: RouteParams) {
+  try {
+    const { id: projectId } = await params
+    const effectiveUser = await requireEffectiveUser()
+    if (effectiveUser instanceof NextResponse) return effectiveUser
+    const access = await requireProjectAccess(effectiveUser, projectId)
+    if (access instanceof NextResponse) return access
+    return NextResponse.json({ limits: workspaceImportLimits() }, { headers: { 'Cache-Control': 'private, no-store' } })
+  } catch (error) {
+    console.error('Failed to fetch REAmon workspace import limits:', error)
+    return NextResponse.json({ error: 'Failed to fetch workspace import limits' }, { status: 500, headers: { 'Cache-Control': 'no-store' } })
+  }
+}
+
 function serializeImport(value: {
   id: string
   sourceType: string
