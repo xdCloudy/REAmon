@@ -170,11 +170,12 @@ The first provider contract is in `webapp/src/lib/reamon/types.ts`:
 - `ToolObservation`: a stable-keyed `entity`, `relationship`, or `fact` that can be upserted into the project knowledge layer.
 - `ToolPlugin`: a manifest plus an execution function.
 
-The resolver currently registers three built-in providers: the profiler provider, a
-source inspector backed by a bounded `strings` process adapter, and an ELF header
-inspector backed by `readelf`. Process adapters receive only a confined server-side
-artifact path, never a user-controlled command or shell expression, and convert
-bounded stdout into stable observations. Future
+The resolver currently registers four built-in providers: the profiler provider, a
+source inspector backed by a bounded `strings` process adapter, an ELF header
+inspector backed by `readelf`, and a generic file inspector backed by `file`.
+Process adapters receive only a confined server-side artifact path, never a
+user-controlled command or shell expression, and convert bounded stdout into stable
+observations. Future
 providers can connect through three equivalent boundaries:
 
 1. Native REAmon plugins for deep integrations.

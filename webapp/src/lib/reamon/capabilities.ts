@@ -10,6 +10,7 @@ import type {
 } from './types'
 import { sourceInspectorPlugin } from './source-inspector'
 import { elfInspectorPlugin } from './elf-inspector'
+import { fileInspectorPlugin } from './file-inspector'
 
 export const CAPABILITIES: Capability[] = [
   { id: 'identify', label: 'Identify', description: 'Classify a target or artifact using observable metadata.', category: 'profiling' },
@@ -69,6 +70,9 @@ export const BUILTIN_TOOL_PLUGINS: ToolPlugin[] = [
   },
   {
     ...elfInspectorPlugin,
+  },
+  {
+    ...fileInspectorPlugin,
   },
 ]
 
