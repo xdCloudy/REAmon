@@ -8,7 +8,10 @@
  *
  * @vitest-environment node
  */
-import { beforeEach, describe, expect, test, vi } from 'vitest'
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   transaction: vi.fn(),
@@ -31,6 +34,8 @@ vi.mock('@/lib/access', () => ({
 }))
 
 import { GET, POST } from './route'
+
+let sourceRoot = ''
 
 function requestFor(body: Record<string, unknown>): Request {
   return new Request('http://localhost/api/projects/project-1/imports', {
@@ -81,6 +86,15 @@ beforeEach(() => {
     workspaceImport: { create: mocks.importCreate },
     workspaceActivity: { create: mocks.activityCreate },
   }))
+})
+
+beforeEach(async () => {
+  sourceRoot = await mkdtemp(path.join(os.tmpdir(), 'reamon-server-import-route-'))
+})
+
+afterEach(async () => {
+  vi.unstubAllEnvs()
+  if (sourceRoot) await rm(sourceRoot, { recursive: true, force: true })
 })
 
 describe('POST /api/projects/[id]/imports', () => {
@@ -147,6 +161,60 @@ describe('POST /api/projects/[id]/imports', () => {
 
     expect(response.status).toBe(400)
     expect((await response.json()).error).toMatch(/unsupported/i)
+    expect(mocks.transaction).not.toHaveBeenCalled()
+  })
+
+  test('inventories an allowlisted server directory without exposing its absolute path', async () => {
+    await mkdir(path.join(sourceRoot, 'bin'), { recursive: true })
+    await writeFile(path.join(sourceRoot, 'bin', 'app.exe'), 'abc')
+    await writeFile(path.join(sourceRoot, 'README.txt'), 'hello')
+    vi.stubEnv('REAMON_SERVER_SOURCE_ROOTS', sourceRoot)
+    mocks.importCreate.mockResolvedValueOnce({
+      id: 'import-server-1',
+      sourceType: 'SERVER_DIRECTORY',
+      rootName: 'MountedApp',
+      status: 'PENDING',
+      totalFiles: 2,
+      completedFiles: 0,
+      failedFiles: 0,
+      totalBytes: 8n,
+      uploadedBytes: 0n,
+      errorSummary: '',
+      completedAt: null,
+      rootTargetId: 'root-target-1',
+      rootTarget: { profile: {} },
+      manifest: [
+        { relativePath: 'README.txt', size: 5 },
+        { relativePath: 'bin/app.exe', size: 3 },
+      ],
+      artifacts: [],
+    })
+
+    const response = await POST(requestFor({ rootName: 'MountedApp', sourceType: 'SERVER_DIRECTORY', sourcePath: sourceRoot }), params())
+
+    expect(response.status).toBe(201)
+    expect(JSON.stringify(await response.json())).not.toContain(sourceRoot)
+    const createData = mocks.importCreate.mock.calls[0][0].data
+    expect(createData).toMatchObject({
+      sourceType: 'SERVER_DIRECTORY',
+      totalFiles: 2,
+      totalBytes: 8n,
+      metadata: expect.objectContaining({ serverSourcePath: sourceRoot }),
+    })
+    expect(mocks.targetCreate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ locator: 'server-directory:MountedApp' }),
+    }))
+    expect(createData.manifest).toEqual([
+      expect.objectContaining({ relativePath: 'README.txt', size: 5 }),
+      expect.objectContaining({ relativePath: 'bin/app.exe', size: 3 }),
+    ])
+  })
+
+  test('keeps server-mounted imports disabled when no source roots are configured', async () => {
+    const response = await POST(requestFor({ rootName: 'MountedApp', sourceType: 'SERVER_DIRECTORY', sourcePath: sourceRoot }), params())
+
+    expect(response.status).toBe(400)
+    expect((await response.json()).error).toMatch(/not configured/i)
     expect(mocks.transaction).not.toHaveBeenCalled()
   })
 })

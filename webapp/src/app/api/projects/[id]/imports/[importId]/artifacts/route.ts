@@ -9,6 +9,7 @@ import { resolveCapabilities } from '@/lib/reamon/capabilities'
 import { isLogicalTargetCandidate } from '@/lib/reamon/inventory'
 import { InvalidWorkspacePathError, parentPathOf, normalizeRelativePath } from '@/lib/reamon/paths'
 import { profileArtifact } from '@/lib/reamon/profiler'
+import { readServerSourceArtifact, SERVER_DIRECTORY_SOURCE_TYPE, ServerSourceError } from '@/lib/reamon/server-import'
 
 interface RouteParams { params: Promise<{ id: string; importId: string }> }
 
@@ -52,20 +53,24 @@ export async function POST(request: Request, { params }: RouteParams) {
 
     const form = await request.formData()
     const fileValue = form.get('file')
-    if (!(fileValue instanceof File)) return NextResponse.json({ error: 'A file is required' }, { status: 400, headers: { 'Cache-Control': 'no-store' } })
-    if (fileValue.size > maxArtifactBytes()) {
-      return NextResponse.json({ error: `File exceeds the ${Math.round(maxArtifactBytes() / 1024 / 1024)} MiB limit` }, { status: 413, headers: { 'Cache-Control': 'no-store' } })
-    }
-
-    const relativePath = normalizeRelativePath(String(form.get('relativePath') || fileValue.name || ''))
     const workspaceImport = await prisma.workspaceImport.findFirst({
       where: { id: importId, projectId },
-      select: { id: true, projectId: true, rootTargetId: true, status: true, manifest: true },
+      select: { id: true, projectId: true, rootTargetId: true, status: true, sourceType: true, metadata: true, manifest: true },
     })
     if (!workspaceImport) return NextResponse.json({ error: 'Import not found' }, { status: 404, headers: { 'Cache-Control': 'no-store' } })
     if (workspaceImport.status === 'COMPLETED' || workspaceImport.status === 'CANCELLED') {
       return NextResponse.json({ error: `Import is already ${workspaceImport.status.toLowerCase()}` }, { status: 409, headers: { 'Cache-Control': 'no-store' } })
     }
+
+    const isServerSource = workspaceImport.sourceType === SERVER_DIRECTORY_SOURCE_TYPE
+    if (!isServerSource && !(fileValue instanceof File)) {
+      return NextResponse.json({ error: 'A file is required' }, { status: 400, headers: { 'Cache-Control': 'no-store' } })
+    }
+    if (isServerSource && fileValue !== null) {
+      return NextResponse.json({ error: 'Server-mounted imports do not accept uploaded files' }, { status: 400, headers: { 'Cache-Control': 'no-store' } })
+    }
+
+    const relativePath = normalizeRelativePath(String(form.get('relativePath') || (fileValue instanceof File ? fileValue.name : '')))
 
     const manifest = Array.isArray(workspaceImport.manifest) ? workspaceImport.manifest as Array<{ relativePath?: unknown; size?: unknown }> : []
     const manifestEntry = manifest.find((entry) => entry.relativePath === relativePath)
@@ -73,13 +78,33 @@ export async function POST(request: Request, { params }: RouteParams) {
       return NextResponse.json({ error: 'Path is not present in the import manifest' }, { status: 400, headers: { 'Cache-Control': 'no-store' } })
     }
     const declaredSize = Number(manifestEntry.size)
-    if (Number.isSafeInteger(declaredSize) && declaredSize !== fileValue.size) {
-      return NextResponse.json({ error: `Uploaded size does not match the manifest for ${relativePath}` }, { status: 400, headers: { 'Cache-Control': 'no-store' } })
-    }
 
-    const bytes = new Uint8Array(await fileValue.arrayBuffer())
+    let bytes: Uint8Array
+    let mimeType = 'application/octet-stream'
+    if (isServerSource) {
+      const metadata = workspaceImport.metadata && typeof workspaceImport.metadata === 'object' && !Array.isArray(workspaceImport.metadata)
+        ? workspaceImport.metadata as Record<string, unknown>
+        : {}
+      if (typeof metadata.serverSourcePath !== 'string') {
+        return NextResponse.json({ error: 'Server source metadata is missing' }, { status: 409, headers: { 'Cache-Control': 'no-store' } })
+      }
+      bytes = await readServerSourceArtifact(metadata.serverSourcePath, relativePath, Number.isSafeInteger(declaredSize) ? declaredSize : undefined)
+    } else {
+      const file = fileValue as File
+      if (file.size > maxArtifactBytes()) {
+        return NextResponse.json({ error: `File exceeds the ${Math.round(maxArtifactBytes() / 1024 / 1024)} MiB limit` }, { status: 413, headers: { 'Cache-Control': 'no-store' } })
+      }
+      if (Number.isSafeInteger(declaredSize) && declaredSize !== file.size) {
+        return NextResponse.json({ error: `Uploaded size does not match the manifest for ${relativePath}` }, { status: 400, headers: { 'Cache-Control': 'no-store' } })
+      }
+      bytes = new Uint8Array(await file.arrayBuffer())
+      mimeType = file.type
+    }
+    if (Number.isSafeInteger(declaredSize) && declaredSize !== bytes.byteLength) {
+      return NextResponse.json({ error: `Imported size does not match the manifest for ${relativePath}` }, { status: 400, headers: { 'Cache-Control': 'no-store' } })
+    }
     const originalName = basenameOf(relativePath)
-    const profile = profileArtifact(bytes, relativePath, fileValue.type)
+    const profile = profileArtifact(bytes, relativePath, mimeType)
     const capabilities = resolveCapabilities(profile)
     const profileJson = profile as unknown as Prisma.InputJsonValue
     const sha256 = createHash('sha256').update(bytes).digest('hex')
@@ -202,7 +227,9 @@ export async function POST(request: Request, { params }: RouteParams) {
     if (writtenPath && !databaseCommitted) await unlink(writtenPath).catch(() => {})
     console.error('Failed to import REAmon workspace artifact:', error)
     const message = error instanceof Error ? error.message : 'Failed to upload artifact'
+    const serverSourceError = error instanceof ServerSourceError
     const invalidInput = error instanceof InvalidWorkspacePathError
-    return NextResponse.json({ error: invalidInput ? message : 'Failed to upload artifact' }, { status: invalidInput ? 400 : 500, headers: { 'Cache-Control': 'no-store' } })
+    const status = serverSourceError ? error.status : invalidInput ? 400 : 500
+    return NextResponse.json({ error: serverSourceError || invalidInput ? message : 'Failed to upload artifact' }, { status, headers: { 'Cache-Control': 'no-store' } })
   }
 }

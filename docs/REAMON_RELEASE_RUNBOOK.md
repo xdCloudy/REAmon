@@ -27,6 +27,12 @@ rollback can be reconstructed.
 5. Keep `REAMON_DB_PUSH_ACCEPT_DATA_LOSS=false` for the normal upgrade path. The
    image refuses destructive Prisma drift unless an operator explicitly opts in.
 
+If server-mounted imports are required, set `REAMON_SERVER_SOURCE_ROOTS` to absolute
+paths inside the webapp container and add matching read-only bind mounts to the webapp
+service. Leave it empty for deployments that only accept browser snapshots. Never
+configure a host path that is not mounted into the container; the application fails
+closed when a configured root is unavailable.
+
 ## Backup
 
 Set a backup directory outside the repository and retain it according to the
@@ -160,6 +166,9 @@ For a destructive schema change or corrupted data:
 - Compose renders without errors and all expected services are healthy.
 - `/api/health/ready` returns HTTP 200 with database and artifact checks `ok`.
 - The runtime image contains `strings`, `readelf`, and `file` for bounded REAmon providers.
+- If server-mounted imports are enabled, every configured source root is present as a
+  read-only mount and a disposable import rejects symlinks, path escapes, and changed
+  files between inventory and ingestion.
 - No repeated migration, worker, or graph projection errors appear in the last five
   minutes of logs.
 - A test workspace can import an artifact, schedule analysis, display its task

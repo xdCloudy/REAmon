@@ -77,6 +77,15 @@ completed snapshot of the same root and stores the deterministic delta in import
 metadata. In-flight snapshots can be cancelled; partial artifacts remain visible and
 the import can be resumed or replaced by a later snapshot.
 
+Server-mounted imports use the same manifest and artifact lifecycle through the
+`SERVER_DIRECTORY` source type. They are disabled unless `REAMON_SERVER_SOURCE_ROOTS`
+contains configured absolute container paths. Inventory and reads resolve real paths,
+reject symbolic links and special files, enforce the same file/count/byte limits, and
+store the resolved source only in internal import metadata. API responses and logical
+artifact records never return the host path. Deployments must mount source directories
+read-only into the webapp and treat each mount as trusted input that may change between
+inventory and import; changed files are rejected for a fresh import attempt.
+
 ## Targets and artifacts
 
 `Target` describes the thing under investigation and can be a `FILE`, `DIRECTORY`, `REPOSITORY`, `PROCESS`, `DEVICE`, `SERVICE`, `REMOTE_HOST`, `CAPTURE`, `FILESYSTEM`, `DEBUG_SESSION`, `CUSTOM`, or `UNKNOWN`. A target can have multiple related artifacts.

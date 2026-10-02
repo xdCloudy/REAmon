@@ -6,6 +6,7 @@ import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
 import { buildWorkspaceProfile } from '@/lib/reamon/inventory'
 import { parseImportManifest, workspaceImportLimits } from '@/lib/reamon/import-manifest'
 import { normalizeRootName } from '@/lib/reamon/paths'
+import { inventoryServerSource, SERVER_DIRECTORY_SOURCE_TYPE, ServerSourceError } from '@/lib/reamon/server-import'
 
 interface RouteParams { params: Promise<{ id: string }> }
 
@@ -73,13 +74,26 @@ export async function POST(request: Request, { params }: RouteParams) {
     const access = await requireProjectAccess(effectiveUser, projectId)
     if (access instanceof NextResponse) return access
 
-    const body = await request.json() as { rootName?: unknown; sourceType?: unknown; files?: unknown }
+    const body = await request.json() as { rootName?: unknown; sourceType?: unknown; sourcePath?: unknown; files?: unknown }
     const rootName = normalizeRootName(String(body.rootName || ''))
     const sourceType = String(body.sourceType || 'BROWSER_DIRECTORY')
-    if (sourceType !== 'BROWSER_DIRECTORY') {
+    let entries
+    let totalBytes
+    let metadata: Record<string, unknown> = { browserSnapshot: true, maxFiles: workspaceImportLimits().maxFiles }
+    if (sourceType === 'BROWSER_DIRECTORY') {
+      ({ entries, totalBytes } = parseImportManifest(body.files))
+    } else if (sourceType === SERVER_DIRECTORY_SOURCE_TYPE) {
+      if (typeof body.sourcePath !== 'string' || !body.sourcePath.trim()) {
+        return NextResponse.json({ error: 'A server source path is required' }, { status: 400, headers: { 'Cache-Control': 'no-store' } })
+      }
+      const inventory = await inventoryServerSource(body.sourcePath)
+      if (!inventory.entries.length) throw new Error('At least one file is required')
+      entries = inventory.entries
+      totalBytes = inventory.totalBytes
+      metadata = { serverSourcePath: inventory.sourcePath, maxFiles: workspaceImportLimits().maxFiles }
+    } else {
       return NextResponse.json({ error: 'Unsupported workspace source type' }, { status: 400, headers: { 'Cache-Control': 'no-store' } })
     }
-    const { entries, totalBytes } = parseImportManifest(body.files)
     const profile = buildWorkspaceProfile([])
     const result = await prisma.$transaction(async (tx) => {
       const rootTarget = await tx.target.create({
@@ -87,7 +101,7 @@ export async function POST(request: Request, { params }: RouteParams) {
           projectId,
           name: rootName,
           targetType: 'DIRECTORY',
-          locator: `directory:${rootName}`,
+          locator: `${sourceType === SERVER_DIRECTORY_SOURCE_TYPE ? 'server-directory' : 'directory'}:${rootName}`,
           status: 'DISCOVERED',
           profile: profile as unknown as Prisma.InputJsonValue,
         },
@@ -102,7 +116,7 @@ export async function POST(request: Request, { params }: RouteParams) {
           totalFiles: entries.length,
           totalBytes: BigInt(totalBytes),
           manifest: entries as unknown as Prisma.InputJsonValue,
-          metadata: { browserSnapshot: true, maxFiles: workspaceImportLimits().maxFiles },
+          metadata: metadata as Prisma.InputJsonValue,
         },
         include: { rootTarget: { select: { profile: true } }, artifacts: { select: { relativePath: true } } },
       })
@@ -121,7 +135,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     return NextResponse.json(serializeImport(result), { status: 201, headers: { 'Cache-Control': 'no-store' } })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to create workspace import'
-    const status = /limit|path|manifest|file|required|invalid|duplicate/i.test(message) ? 400 : 500
+    const status = error instanceof ServerSourceError ? error.status : /limit|path|manifest|file|required|invalid|duplicate/i.test(message) ? 400 : 500
     console.error('Failed to create REAmon workspace import:', error)
     return NextResponse.json({ error: status === 400 ? message : 'Failed to create workspace import' }, { status, headers: { 'Cache-Control': 'no-store' } })
   }

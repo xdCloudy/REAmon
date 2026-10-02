@@ -46,6 +46,7 @@ vi.mock('@/lib/reamon/inventory', () => ({ isLogicalTargetCandidate: mocks.isLog
 import { POST } from './route'
 
 let storageRoot = ''
+let sourceRoot = ''
 
 function params() {
   return { params: Promise.resolve({ id: 'project-1', importId: 'import-1' }) }
@@ -55,6 +56,15 @@ function uploadRequest(relativePath: string, contents = 'abc'): Request {
   const form = new FormData()
   form.set('relativePath', relativePath)
   form.set('file', new File([contents], path.basename(relativePath), { type: 'application/octet-stream' }))
+  return new Request('http://localhost/api/projects/project-1/imports/import-1/artifacts', {
+    method: 'POST',
+    body: form,
+  })
+}
+
+function serverRequest(relativePath: string): Request {
+  const form = new FormData()
+  form.set('relativePath', relativePath)
   return new Request('http://localhost/api/projects/project-1/imports/import-1/artifacts', {
     method: 'POST',
     body: form,
@@ -73,6 +83,7 @@ const profile = {
 beforeEach(async () => {
   vi.clearAllMocks()
   storageRoot = await mkdtemp(path.join(os.tmpdir(), 'reamon-import-route-'))
+  sourceRoot = await mkdtemp(path.join(os.tmpdir(), 'reamon-server-import-'))
   vi.stubEnv('REAMON_ARTIFACTS_PATH', storageRoot)
   mocks.requireEffectiveUser.mockResolvedValue({ userId: 'user-1' })
   mocks.requireProjectAccess.mockResolvedValue({ project: { id: 'project-1', userId: 'user-1' } })
@@ -106,6 +117,7 @@ beforeEach(async () => {
 afterEach(async () => {
   vi.unstubAllEnvs()
   if (storageRoot) await rm(storageRoot, { recursive: true, force: true })
+  if (sourceRoot) await rm(sourceRoot, { recursive: true, force: true })
 })
 
 describe('POST /api/projects/[id]/imports/[importId]/artifacts', () => {
@@ -185,5 +197,27 @@ describe('POST /api/projects/[id]/imports/[importId]/artifacts', () => {
     expect(await response.json()).toEqual({ error: 'Failed to upload artifact' })
     expect(await readFile(path.join(storageRoot, previousStoragePath), 'utf8')).toBe('previous')
     expect(mocks.artifactUpdate).not.toHaveBeenCalled()
+  })
+
+  test('reads an allowlisted server artifact without accepting an uploaded file', async () => {
+    await mkdir(path.join(sourceRoot, 'bin'), { recursive: true })
+    await writeFile(path.join(sourceRoot, 'bin', 'app.exe'), 'abc')
+    vi.stubEnv('REAMON_SERVER_SOURCE_ROOTS', sourceRoot)
+    mocks.workspaceImportFindFirst.mockResolvedValueOnce({
+      id: 'import-1',
+      projectId: 'project-1',
+      rootTargetId: 'root-target-1',
+      status: 'PENDING',
+      sourceType: 'SERVER_DIRECTORY',
+      metadata: { serverSourcePath: sourceRoot },
+      manifest: [{ relativePath: 'bin/app.exe', size: 3 }],
+    })
+
+    const response = await POST(serverRequest('bin/app.exe'), params())
+
+    expect(response.status).toBe(201)
+    const storagePath = mocks.artifactCreate.mock.calls[0][0].data.storagePath as string
+    expect(await readFile(path.join(storageRoot, storagePath), 'utf8')).toBe('abc')
+    expect(mocks.profileArtifact).toHaveBeenCalledWith(expect.any(Uint8Array), 'bin/app.exe', 'application/octet-stream')
   })
 })

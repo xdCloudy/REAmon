@@ -47,19 +47,20 @@ REAmon is an incremental fork of RedAmon. This table records the current boundar
 
 ## Directory-workspace milestone
 
-The current vertical slice is complete for browser snapshots: select a folder, create a
-REAmon workspace, preview the manifest and latest refresh delta, upload in bounded
-concurrent requests, cancel or retry an import, preserve relative paths, aggregate the
-profile, resolve compatible capabilities, queue a reviewed analysis proposal, and run
-the small reference providers with lease-protected task/evidence/activity state.
+The current vertical slice is complete for browser snapshots and allowlisted server
+directories: select a folder or inventory a read-only configured mount, create a REAmon
+workspace, preview the manifest and latest refresh delta, upload or import in bounded
+requests, cancel or retry an import, preserve relative paths, aggregate the profile,
+resolve compatible capabilities, queue a reviewed analysis proposal, and run the small
+reference providers with lease-protected task/evidence/activity state.
 Stale-task recovery, retry, and cancellation controls are now available to operators,
 and an internal worker trigger can dispatch bounded queued batches. The production
 Compose stack now runs a private restartable poller, and successful provider results
 persist retry-safe typed observations that appear in the workspace. Active provider
 leases now record an owner and refresh a guarded heartbeat, while stale recovery remains
 safe for older rows without one. Providers receive a cooperative cancellation signal
-when operators cancel running work. Derived-artifact provenance, server-mounted sources,
-the staging multi-worker drill (hermetic contention coverage is now tested), true background uploads,
+when operators cancel running work. Derived-artifact provenance, the staging multi-worker
+drill (hermetic contention coverage is now tested), true background uploads,
 additional MCP/process adapters,
 and replacing older duplicate artifact rows during refresh remain follow-up work. The
 workspace task panel now refreshes active work automatically and labels the current

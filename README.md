@@ -102,7 +102,7 @@ tests, and an operational path.
 | Workstream | Weight | Complete | What remains before production |
 | --- | ---: | ---: | --- |
 | Workspace foundation and access control | 20% | 100% | Keep regression coverage green during migration. |
-| Import, profiling, storage, and inventory | 15% | 90% | Derived-artifact provenance, server-mounted sources, and refresh cleanup. |
+| Import, profiling, storage, and inventory | 15% | 95% | Derived-artifact provenance and refresh cleanup. |
 | Provider registry, scheduling, and provider execution | 15% | 99% | Additional MCP/process adapters and broader provider coverage. |
 | Provider results and knowledge graph ingestion | 20% | 82% | Richer repair UX and additional result adapters. |
 | Approvals, live activity, and operator controls | 10% | 30% | Durable event projection, approvals, and richer recovery UX. |
