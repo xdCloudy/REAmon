@@ -230,7 +230,9 @@ Before exposing a deployment:
 
 The webapp entrypoint synchronises the Prisma schema on startup to preserve the
 upstream self-hosting workflow. Take a database backup and inspect schema changes
-before upgrading a production instance.
+before upgrading a production instance. `/api/health` is a lightweight liveness
+check; `/api/health/ready` verifies both the PostgreSQL connection and writable
+REAmon artifact storage, and is the endpoint used by the Compose healthcheck.
 
 ## Development
 

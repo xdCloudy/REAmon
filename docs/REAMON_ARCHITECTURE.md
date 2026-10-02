@@ -215,6 +215,11 @@ Agents should query the workspace’s installed and compatible capabilities befo
 
 Existing SSE, WebSocket, MCP, and activity infrastructure is reusable for live events. REAmon activity records provide a durable timeline; streaming can later project the same events to connected clients.
 
+The webapp exposes separate liveness and readiness checks. `/api/health` confirms
+the Node process is serving; `/api/health/ready` checks PostgreSQL and readable,
+writable artifact storage so Compose does not report a container healthy while
+startup dependencies are unavailable.
+
 ## Deterministic progress
 
 Progress is derived from stored lifecycle state. The initial shared stages are `DISCOVERED`, `IDENTIFIED`, `CLASSIFIED`, `ANALYSED`, and `VERIFIED`. The progress model calculates metrics for targets, artifacts, tasks, findings, and hypotheses only when that entity type exists, and averages those metrics for the workspace percentage.
