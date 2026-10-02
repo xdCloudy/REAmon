@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import prisma from '@/lib/prisma'
 import { getBuiltinProvider } from './provider-registry'
 import { resolveCapabilities } from './capabilities'
+import { resolveArtifactStoragePath } from './artifact-storage'
 import { ingestToolResult } from './result-ingestion'
 import type { TargetProfile, ToolResult } from './types'
 
@@ -31,7 +32,7 @@ const taskSelect = {
   createdAt: true,
   updatedAt: true,
   provider: { select: { id: true, pluginId: true, name: true, enabled: true } },
-  artifact: { select: { id: true, targetId: true, relativePath: true, profile: true } },
+  artifact: { select: { id: true, targetId: true, relativePath: true, profile: true, storagePath: true } },
 } satisfies Prisma.TaskSelect
 
 type TaskRow = Prisma.TaskGetPayload<{ select: typeof taskSelect }>
@@ -256,6 +257,13 @@ export async function executeAnalysisTask(projectId: string, taskId: string, lea
   const capability = match?.capabilities.find((candidate) => candidate.toLowerCase() === (task.capability || '').toLowerCase())
   if (!match || !capability) return failTask(task, runToken, 'Provider is no longer compatible with the artifact')
 
+  let artifactPath: string
+  try {
+    artifactPath = resolveArtifactStoragePath(task.artifact.storagePath)
+  } catch {
+    return failTask(task, runToken, 'Artifact storage path is invalid or outside the configured artifact volume')
+  }
+
   let result: ToolResult
   const controller = new AbortController()
   const stopHeartbeat = startTaskHeartbeat(projectId, task.id, runToken, controller)
@@ -263,6 +271,7 @@ export async function executeAnalysisTask(projectId: string, taskId: string, lea
     result = await plugin.analyze({
       targetProfile: profile,
       artifactId: task.artifactId || undefined,
+      artifactPath,
       options: asOptions(task.options),
       signal: controller.signal,
     })

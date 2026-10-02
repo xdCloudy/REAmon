@@ -43,7 +43,7 @@ function task(overrides: Record<string, unknown> = {}) {
     leaseHeartbeatAt: null, leaseOwner: null,
     createdAt: new Date('2026-10-02T12:00:00Z'), updatedAt: new Date('2026-10-02T12:00:00Z'),
     provider: { id: 'provider-1', pluginId: provider.manifest.id, name: provider.manifest.name, enabled: true },
-    artifact: { id: 'artifact-1', targetId: 'target-1', relativePath: 'src/main.c', profile: { targetType: 'FILE', format: 'source' } },
+    artifact: { id: 'artifact-1', targetId: 'target-1', relativePath: 'src/main.c', storagePath: 'project-1/import-1/artifact-1', profile: { targetType: 'FILE', format: 'source' } },
     ...overrides,
   }
 }
@@ -83,7 +83,7 @@ describe('executeAnalysisTask', () => {
       data: expect.objectContaining({ status: 'RUNNING', progress: 10, leaseOwner: 'webapp' }),
     }))
     expect(mocks.analyze).toHaveBeenCalledWith({
-      targetProfile: { targetType: 'FILE', format: 'source' }, artifactId: 'artifact-1', options: { mode: 'conservative' }, signal: expect.any(AbortSignal),
+      targetProfile: { targetType: 'FILE', format: 'source' }, artifactId: 'artifact-1', artifactPath: expect.stringContaining('project-1/import-1/artifact-1'), options: { mode: 'conservative' }, signal: expect.any(AbortSignal),
     })
     expect(mocks.evidenceCreate).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ kind: 'analysis', source: provider.manifest.id, artifactId: 'artifact-1' }),

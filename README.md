@@ -65,21 +65,24 @@ The first REAmon milestone is implemented and running on the `reamon/bootstrap` 
   executing providers in the request path.
 - Show targets, artifacts, detected metadata, capabilities, progress, findings,
   hypotheses, evidence, and activity in a real data-backed dashboard.
+- Run a bounded `strings` process provider against stored source artifacts, capture
+  stable string observations, and terminate the process on cancellation or timeout.
 - Preserve the existing PostgreSQL, Neo4j, agent, MCP, authentication, and event
   infrastructure while migration proceeds incrementally.
 
-The current profiler is deliberately conservative. The provider registry and task
-executor are now real boundaries, but the built-in providers remain small reference
-implementations rather than complete binary-identification tooling.
+The current profiler is deliberately conservative and the built-in provider set is
+small. The source inspector is a real, bounded process adapter; broader binary,
+MCP, and runtime integrations remain optional follow-on providers.
 
 ## Production readiness
 
-<progress value="69" max="100">69%</progress> <strong>69%</strong>
+<progress value="70" max="100">70%</progress> <strong>70%</strong>
 
 This is a weighted engineering snapshot, reviewed 2026-10-02 after adding explicit
 task execution, lease-protected recovery, cancellation controls, worker ownership,
-cooperative provider cancellation, durable task heartbeats, bounded typed observation ingestion, and replayable graph
-projection, and live task/operator refresh. It measures the
+cooperative provider cancellation, a bounded process provider with timeout and
+SIGTERM cancellation, durable task heartbeats, bounded typed observation ingestion,
+replayable graph projection, and live task/operator refresh. It measures the
 distance to a dependable self-hosted production release, not the number of UI
 screens or lines of code. The bar moves only when a workstream has working code,
 tests, and an operational path.
@@ -88,14 +91,14 @@ tests, and an operational path.
 | --- | ---: | ---: | --- |
 | Workspace foundation and access control | 20% | 100% | Keep regression coverage green during migration. |
 | Import, profiling, storage, and inventory | 15% | 90% | Derived-artifact provenance, server-mounted sources, and refresh cleanup. |
-| Provider registry, scheduling, and reference execution | 15% | 97% | Real process/MCP providers, process-level cancellation inside those adapters, and multi-worker stress/alerting. |
+| Provider registry, scheduling, and provider execution | 15% | 99% | Additional MCP/process adapters, multi-worker stress, and worker alerting. |
 | Provider results and knowledge graph ingestion | 20% | 45% | Cross-provider identity/relationship resolution, historical backfill scheduling, and graph-rebuild provenance. |
 | Approvals, live activity, and operator controls | 10% | 30% | Durable event projection, approvals, and richer recovery UX. |
 | Legacy RedAmon migration | 10% | 40% | Move remaining project, agent, report, and settings surfaces without breaking existing data. |
-| Production hardening and release QA | 10% | 45% | Full container gate, worker operations/observability, backup/restore drills, upgrade checks, and deployment runbooks. |
+| Production hardening and release QA | 10% | 55% | Worker operations/observability, backup/restore drills, upgrade checks, and deployment runbooks. |
 
-The main path to “shipped” is therefore: add real providers and process-level cancellation
-inside those adapters → resolve cross-provider identities and graph-rebuild
+The main path to “shipped” is therefore: add additional MCP/process providers and
+multi-worker alerting → resolve cross-provider identities and graph-rebuild
 provenance → finish migration and
 production QA. See [`docs/REAMON_ARCHITECTURE.md`](docs/REAMON_ARCHITECTURE.md)
 for the boundary decisions behind this sequence.
@@ -190,9 +193,13 @@ import includes everything selected by default; refresh comparisons use manifest
 before upload and authoritative hashes after upload.
 
 Artifacts are stored in the named `reamon_artifacts` volume. The default per-file
-limit is 512 MiB and the default import limit is 50,000 files / 8 GiB. Set
+limit is 512 MiB and the default import limit is 50,000 files / 8 GiB. Process
+providers are bounded to a 60-second execution window and 2 MiB of captured output
+by default. Set
 `REAMON_MAX_ARTIFACT_BYTES`, `REAMON_MAX_IMPORT_FILES`, or `REAMON_MAX_IMPORT_BYTES`
-in `.env` before starting the webapp to change them. Keep the artifact volume backed up
+in `.env` before starting the webapp to change import limits; use
+`REAMON_PROCESS_TIMEOUT_MS` and `REAMON_MAX_PROCESS_OUTPUT_BYTES` to tune provider
+limits. Keep the artifact volume backed up
 with the PostgreSQL and Neo4j data volumes.
 
 ## Production deployment
@@ -273,8 +280,8 @@ docs/REAMON_*.md           Current architecture and migration decisions
 
 ## Roadmap
 
-1. Deploy the worker trigger with ownership, retries, process-level cancellation,
-   and native/MCP/process providers.
+1. Add the remaining MCP/process providers and multi-worker worker alerting around
+   the existing ownership, retry, and process-cancellation path.
 2. Ingest universal code/data/runtime entities and relationships into Neo4j.
 3. Add approvals and live event streaming for target-agnostic analysis workflows.
 4. Migrate the inherited project, agent, report, and settings surfaces away from

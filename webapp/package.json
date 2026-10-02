@@ -9,7 +9,8 @@
     "start": "next start",
     "lint": "eslint src/lib/reamon 'src/app/projects/[id]' 'src/app/api/projects/[id]/targets' 'src/app/api/projects/[id]/workspace' 'src/app/api/projects/[id]/artifacts'",
     "lint:all": "eslint .",
-    "type-check": "tsc --noEmit",
+    "type-check": "tsc --noEmit -p tsconfig.build.json",
+    "type-check:all": "tsc --noEmit",
     "reamon:worker": "node scripts/reamon-task-worker.mjs",
     "test": "vitest run --no-file-parallelism",
     "test:coverage": "vitest run --no-file-parallelism --coverage",
@@ -69,5 +70,12 @@
   },
   "engines": {
     "node": ">=20.0.0"
+  },
+  "overrides": {
+    "@prisma/config": {
+      "deepmerge-ts": "8.0.2",
+      "effect": "3.22.2"
+    },
+    "esbuild": "0.28.2"
   }
 }

@@ -3,6 +3,12 @@ import type { NextConfig } from 'next'
 const nextConfig: NextConfig = {
   output: 'standalone',
 
+  // Keep production type-checking focused on shipped application code. Vitest
+  // owns the test suite, including its test-only mocks and fixtures.
+  typescript: {
+    tsconfigPath: './tsconfig.build.json',
+  },
+
   serverExternalPackages: ['neo4j-driver', 'pdfjs-dist', 'pdf-parse'],
 
   images: {

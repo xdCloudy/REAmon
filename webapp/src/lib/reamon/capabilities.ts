@@ -8,6 +8,7 @@ import type {
   ToolResult,
   WorkspaceCapabilitySummary,
 } from './types'
+import { sourceInspectorPlugin } from './source-inspector'
 
 export const CAPABILITIES: Capability[] = [
   { id: 'identify', label: 'Identify', description: 'Classify a target or artifact using observable metadata.', category: 'profiling' },
@@ -29,18 +30,6 @@ const profilerManifest: ToolPluginManifest = {
   acceptsFormats: ['*'],
   capabilities: ['identify', 'hash', 'extract_metadata'],
   produces: ['TargetProfile', 'ArtifactProfile'],
-  requirements: [],
-}
-
-const sourceInspectorManifest: ToolPluginManifest = {
-  id: 'reamon-source-inspector',
-  name: 'REAmon Source Inspector',
-  category: 'static_analysis',
-  integration: 'native',
-  acceptsTargetTypes: ['FILE'],
-  acceptsFormats: ['source'],
-  capabilities: ['extract_strings'],
-  produces: ['String', 'CodeEntity'],
   requirements: [],
 }
 
@@ -74,10 +63,7 @@ export const BUILTIN_TOOL_PLUGINS: ToolPlugin[] = [
     },
   },
   {
-    manifest: sourceInspectorManifest,
-    async analyze(input) {
-      return resultFor(sourceInspectorManifest, input)
-    },
+    ...sourceInspectorPlugin,
   },
 ]
 

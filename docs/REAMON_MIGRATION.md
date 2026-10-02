@@ -39,7 +39,7 @@ REAmon is an incremental fork of RedAmon. This table records the current boundar
 
 - A separate `Workspace` database table is deferred. The existing `Project` record already supplies identity, ownership, and settings, so duplicating it would create avoidable migration risk.
 - Unknown input is persisted as a valid target profile rather than rejected.
-- The first profiler and providers are local, typed contracts. They do not require external analysis tools, making the UI and storage path testable in a minimal self-hosted deployment.
+- The first profiler is local and the source inspector is a typed, bounded `strings` process provider. The production image includes that executable; the provider remains optional at scheduling time and fails closed when its controlled artifact path or executable is unavailable.
 - Artifact bytes are stored under a dedicated configurable volume. The service must never commit uploaded target data.
 - `REAMON_MAX_ARTIFACT_BYTES`, `REAMON_MAX_IMPORT_FILES`, and `REAMON_MAX_IMPORT_BYTES` are enforced before storage and are configurable per deployment; defaults are sized for real application investigations while remaining bounded.
 - Target import writes the file before the relational transaction, then removes those bytes if persistence fails. Artifact downloads require project access and cannot escape the configured storage root.
@@ -60,7 +60,7 @@ leases now record an owner and refresh a guarded heartbeat, while stale recovery
 safe for older rows without one. Providers receive a cooperative cancellation signal
 when operators cancel running work. Derived-artifact provenance, server-mounted sources,
 multi-worker stress/alerting, true background uploads,
-real process/MCP execution, process-level cancellation inside those adapters, projection observability,
+additional MCP/process adapters, multi-worker stress/alerting, projection observability,
 and replacing older duplicate artifact rows during refresh remain follow-up work. The
 workspace task panel now refreshes active work automatically and labels the current
 worker plus heartbeat freshness. The internal projection route can replay the

@@ -170,13 +170,20 @@ The first provider contract is in `webapp/src/lib/reamon/types.ts`:
 - `ToolObservation`: a stable-keyed `entity`, `relationship`, or `fact` that can be upserted into the project knowledge layer.
 - `ToolPlugin`: a manifest plus an execution function.
 
-The resolver currently registers two built-in providers: the profiler provider and a source-inspector placeholder. They demonstrate registration and matching without making Ghidra, JADX, or any other tool a core dependency. Future providers can connect through three equivalent boundaries:
+The resolver currently registers two built-in providers: the profiler provider and a
+source inspector backed by a bounded `strings` process adapter. The source adapter
+receives only a confined server-side artifact path, never a user-controlled command
+or shell expression, and converts bounded stdout into stable observations. Future
+providers can connect through three equivalent boundaries:
 
 1. Native REAmon plugins for deep integrations.
 2. MCP clients for external RE tools and agent servers.
 3. Generic command adapters for manifest-described CLI tools.
 
-The command adapter boundary should validate arguments, constrain execution, capture stdout/stderr, and convert declared output formats into `ToolResult`; it is not implemented in this bootstrap.
+The command adapter boundary validates fixed arguments, constrains execution to the
+configured artifact path, captures bounded stdout/stderr, and converts the result
+into `ToolResult`. The first adapter is intentionally narrow; each additional
+command must declare its executable, timeout, output bound, and cancellation policy.
 
 Capability resolution is available at both artifact and workspace level. Artifact
 matches identify which providers can operate on a particular profile. Workspace
@@ -263,8 +270,8 @@ Compose stack now runs a private, restartable Node poller against that route and
 replays each project with completed work through the graph projection route. The
 workspace refreshes while work is running and shows the current lease owner and
 heartbeat freshness, so operators can distinguish active work from a stalled lease.
-The
-remaining worker hardening is multi-worker stress/alerting and process-level cancellation
-inside real process adapters. The next high-value work is adding real native/MCP/process
-providers, then resolving cross-provider identities, adding graph-rebuild provenance,
-and projecting durable events into the dashboard.
+The source process adapter now terminates its child on operator cancellation or a
+bounded timeout. Remaining worker hardening is multi-worker stress/alerting and
+additional MCP/process adapters. The next high-value work is resolving cross-provider
+identities, adding graph-rebuild provenance, and projecting durable events into the
+dashboard.
