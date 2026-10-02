@@ -1,7 +1,7 @@
 import prisma from '@/lib/prisma'
 import { resolveCapabilities, resolveWorkspaceCapabilities } from './capabilities'
 import { buildProgressModel } from './progress'
-import { activeWorkspaceImportIds } from './imports'
+import { activeWorkspaceImportIds, activeWorkspaceTargetIds } from './imports'
 import type { TargetProfile, WorkspaceImportSnapshot } from './types'
 import type { WorkspaceImportComparison } from './imports'
 
@@ -26,18 +26,21 @@ export async function getWorkspaceSnapshot(projectId: string) {
   const importStatesPromise = prisma.workspaceImport.findMany({
     where: { projectId },
     orderBy: { createdAt: 'desc' },
-    select: { id: true, rootName: true, status: true, createdAt: true },
+    select: { id: true, rootName: true, status: true, rootTargetId: true, createdAt: true },
   })
   const [project, imports, importStates] = await Promise.all([projectPromise, importsPromise, importStatesPromise])
   if (!project) return null
 
   const activeImportIds = activeWorkspaceImportIds(importStates)
+  const activeRootTargetIds = new Set(importStates
+    .filter((workspaceImport) => activeImportIds.has(workspaceImport.id) && workspaceImport.rootTargetId)
+    .map((workspaceImport) => workspaceImport.rootTargetId as string))
   const artifactWhere = activeImportIds.size
     ? { projectId, OR: [{ importId: null }, { importId: { in: [...activeImportIds] } }] }
     : { projectId, importId: null }
 
   const [
-    targets,
+    allTargets,
     artifacts,
     tasks,
     findings,
@@ -67,6 +70,17 @@ export async function getWorkspaceSnapshot(projectId: string) {
     prisma.hypothesis.count({ where: { projectId } }),
     prisma.evidence.count({ where: { projectId } }),
   ])
+
+  const activeArtifactTargetIds = new Set(artifacts
+    .map((artifact) => artifact.targetId)
+    .filter((targetId): targetId is string => Boolean(targetId)))
+  const visibleTargetIds = activeWorkspaceTargetIds(
+    allTargets,
+    activeRootTargetIds,
+    activeArtifactTargetIds,
+    importStates.length > 0,
+  )
+  const targets = allTargets.filter((target) => visibleTargetIds.has(target.id))
 
   const serializedArtifacts = artifacts.map((artifact) => {
     const profile = asProfile(artifact.profile)

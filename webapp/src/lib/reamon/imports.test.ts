@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { activeWorkspaceImportIds, compareWorkspaceImports } from './imports'
+import { activeWorkspaceImportIds, activeWorkspaceTargetIds, compareWorkspaceImports } from './imports'
 
 describe('workspace import comparisons', () => {
   test('selects the latest completed snapshot without deleting history', () => {
@@ -19,6 +19,18 @@ describe('workspace import comparisons', () => {
     ])
 
     expect([...active]).toEqual(['new-pending'])
+  })
+
+  test('keeps active imported targets and legacy targets without duplicating history', () => {
+    const visible = activeWorkspaceTargetIds([
+      { id: 'active-root', targetType: 'DIRECTORY', parentTargetId: null },
+      { id: 'active-binary', targetType: 'FILE', parentTargetId: 'active-root' },
+      { id: 'old-binary', targetType: 'FILE', parentTargetId: 'old-root' },
+      { id: 'old-root', targetType: 'DIRECTORY', parentTargetId: null },
+      { id: 'legacy-target', targetType: 'REMOTE_HOST', parentTargetId: null },
+    ], new Set(['active-root']), new Set(['active-binary']), true)
+
+    expect([...visible]).toEqual(['active-root', 'active-binary', 'legacy-target'])
   })
 
   test('classifies added, changed, removed, and unchanged paths', () => {

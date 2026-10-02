@@ -24,6 +24,7 @@ export interface WorkspaceImportState {
   id: string
   rootName: string
   status: string
+  rootTargetId?: string | null
   createdAt?: Date | string
 }
 
@@ -55,6 +56,37 @@ export function activeWorkspaceImportIds(imports: WorkspaceImportState[]): Set<s
     if (selected) active.add(selected.id)
   }
   return active
+}
+
+export function activeWorkspaceTargetIds(
+  targets: Array<{ id: string; targetType: string; parentTargetId: string | null }>,
+  activeRootTargetIds: Set<string>,
+  activeArtifactTargetIds: Set<string>,
+  hasImportHistory: boolean,
+): Set<string> {
+  if (!hasImportHistory) return new Set(targets.map((target) => target.id))
+
+  const visible = new Set<string>(activeRootTargetIds)
+  for (const target of targets) if (activeArtifactTargetIds.has(target.id)) visible.add(target.id)
+  for (const target of targets) {
+    // Targets from the inherited RedAmon model have no import parent and must
+    // continue to render while the project is being migrated.
+    if (!target.parentTargetId && target.targetType !== 'DIRECTORY') visible.add(target.id)
+  }
+  let changed = true
+  while (changed) {
+    changed = false
+    for (const target of targets) {
+      // Logical targets created by an import are usually direct children of
+      // its root. Keep walking so future nested target relationships remain
+      // safe even if rows arrive in a different order.
+      if (target.parentTargetId && visible.has(target.parentTargetId) && !visible.has(target.id)) {
+        visible.add(target.id)
+        changed = true
+      }
+    }
+  }
+  return visible
 }
 
 function sameContent(previous: ImportComparisonEntry, current: ImportComparisonEntry, mode: ImportComparisonMode): boolean {
