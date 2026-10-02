@@ -109,6 +109,7 @@ import { FINDING_SECTIONS, listFindings, listMuted } from '@/lib/mcp/findingTool
 import { compareScanVersions, listScanVersions } from '@/lib/mcp/versionTools'
 import { startRecon, stopRecon, updateReconSettings } from '@/lib/mcp/writeTools'
 import { getWorkspaceArtifact, listWorkspaceInventory } from '@/lib/mcp/workspaceTools'
+import { getWorkspaceSummary } from '@/lib/mcp/workspaceSummaryTools'
 import {
   MAX_KEYS_PER_CALL,
   refusedFieldsSentence,
@@ -407,6 +408,24 @@ export function buildMcpServer(ctx: McpContext, instructions?: string): McpServe
       a => getWorkspaceArtifact(ctx, a),
       a => a.projectId,
     )
+  )
+
+  server.registerTool(
+    'workspace_get_summary',
+    {
+      title: 'Summarize workspace inventory',
+      description:
+        'Summarize a REAmon investigation workspace using stored deterministic state. The ' +
+        'result includes active roots, file/directory/target/task/finding/evidence counts, ' +
+        'detected formats/platforms/architectures/runtimes, sampled logical targets, compatible ' +
+        'provider counts, and lifecycle progress. It uses the active import snapshot and does ' +
+        'not run analysis, ask an LLM for percentages, return file bytes, or expose host paths. ' +
+        'Use workspace_list_files when you need the individual logical paths.',
+      annotations: READ_ONLY,
+      _meta: scopesMeta({ required: ['recon:read'] }),
+      inputSchema: { projectId: projectIdSchema },
+    },
+    handler(ctx, 'workspace_get_summary', a => getWorkspaceSummary(ctx, a.projectId), a => a.projectId)
   )
 
   server.registerTool(

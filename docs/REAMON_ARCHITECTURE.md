@@ -122,6 +122,11 @@ workspace API such as `find_executables()` without granting them host paths or m
 them understand the upload layout. Heavy analysis is still proposed or scheduled by
 later orchestration work rather than automatically run by inventory reads.
 
+`workspace_get_summary` provides the planning-level view: active roots, deterministic
+counts, top profile dimensions, sampled logical targets, compatible provider counts, and
+the stored lifecycle progress model. Its response is bounded and contains no per-file
+payload, so agents can decide which inventory pages or capabilities to inspect next.
+
 ## Target profiler
 
 The initial profiler is intentionally conservative. It combines filename extension, MIME hints, magic bytes, basic header inspection, and byte entropy. It currently recognises representative ELF, PE, Mach-O, ZIP/APK/JAR, PDF, SQLite, PCAP, and source-code inputs. Everything else produces a valid `UNKNOWN` profile.
