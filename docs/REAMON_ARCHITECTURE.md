@@ -252,6 +252,8 @@ The architecture leaves room for Ghidra, JADX, Rizin, Binwalk, Apktool, Frida, G
 The persisted provider registry, explicit task-queue boundary, and reference executor
 are now in place. Execution attempts carry a lease token, so stale running tasks can
 be recovered or retried without allowing a late provider response to overwrite the
-new attempt. The next high-value work is moving execution into a recoverable
-background worker, adding real native/MCP/process providers, then ingesting provider
-results into the graph and projecting durable events into the dashboard.
+new attempt. An internal-key-protected worker trigger selects bounded queued batches
+and delegates them to that executor; deployment still needs a durable poller and
+ownership/heartbeat policy. The next high-value work is adding real native/MCP/process
+providers, then ingesting provider results into the graph and projecting durable events
+into the dashboard.

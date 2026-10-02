@@ -52,7 +52,8 @@ REAmon workspace, preview the manifest and latest refresh delta, upload in bound
 concurrent requests, cancel or retry an import, preserve relative paths, aggregate the
 profile, resolve compatible capabilities, queue a reviewed analysis proposal, and run
 the small reference providers with lease-protected task/evidence/activity state.
-Stale-task recovery, retry, and cancellation controls are now available to operators.
-Derived-artifact provenance, server-mounted sources, true background uploads, real
-process/MCP execution, process-level cancellation, graph ingestion, and replacing
-older duplicate artifact rows during refresh remain follow-up work.
+Stale-task recovery, retry, and cancellation controls are now available to operators,
+and an internal worker trigger can dispatch bounded queued batches. Derived-artifact
+provenance, server-mounted sources, durable worker polling/ownership, true background
+uploads, real process/MCP execution, process-level cancellation, graph ingestion, and
+replacing older duplicate artifact rows during refresh remain follow-up work.
