@@ -198,7 +198,7 @@ Target / Artifact
 
 Candidate relationship types include `CONTAINS`, `CALLS`, `REFERENCES`, `READS`, `WRITES`, `IMPORTS`, `EXPORTS`, `LOADS`, `SPAWNS`, `CONNECTS_TO`, `OBSERVED_AS`, `DERIVED_FROM`, `SUPPORTS`, `CONTRADICTS`, `DEPENDS_ON`, and `RELATED_TO`.
 
-PostgreSQL owns workspace identity, permissions, lifecycle state, provider/task records, hashes, evidence metadata, normalized `ReamonObservation` rows, and audit-friendly activity. Observation ingestion is bounded, project-scoped, retry-safe, and transactional with successful task settlement. Neo4j owns high-connectivity entity and relationship traversal once a graph projector is deployed. A graph write should retain source and workspace provenance in PostgreSQL so graph data can be rebuilt or audited.
+PostgreSQL owns workspace identity, permissions, lifecycle state, provider/task records, hashes, evidence metadata, normalized `ReamonObservation` rows, and audit-friendly activity. Observation ingestion is bounded, project-scoped, retry-safe, and transactional with successful task settlement. The internal graph projection route replays those rows into fixed-label, project-scoped Neo4j nodes and relationships without interpolating provider-controlled identifiers. Neo4j owns high-connectivity entity and relationship traversal; source and workspace provenance remains in PostgreSQL so graph data can be rebuilt or audited.
 
 ## Agents and orchestration
 
@@ -260,5 +260,5 @@ selects bounded queued batches and delegates them to that executor; the producti
 Compose stack now runs a private, restartable Node poller against that route. The
 remaining worker hardening is ownership/heartbeat policy and process-level
 cancellation. The next high-value work is adding real native/MCP/process providers,
-then projecting observations into Neo4j and projecting durable events into the
-dashboard.
+then scheduling projection runs, resolving cross-provider identities, and
+projecting durable events into the dashboard.

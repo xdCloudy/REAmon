@@ -57,5 +57,7 @@ and an internal worker trigger can dispatch bounded queued batches. The producti
 Compose stack now runs a private restartable poller, and successful provider results
 persist retry-safe typed observations that appear in the workspace. Derived-artifact
 provenance, server-mounted sources, worker ownership/heartbeat, true background uploads,
-real process/MCP execution, process-level cancellation, Neo4j projection, and replacing
-older duplicate artifact rows during refresh remain follow-up work.
+real process/MCP execution, process-level cancellation, automatic projection scheduling,
+and replacing older duplicate artifact rows during refresh remain follow-up work. The
+internal projection route can replay the normalized observation store into Neo4j;
+cross-provider identity resolution is still follow-up work.

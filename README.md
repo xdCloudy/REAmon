@@ -74,11 +74,12 @@ implementations rather than complete binary-identification tooling.
 
 ## Production readiness
 
-<progress value="62" max="100">62%</progress> <strong>62%</strong>
+<progress value="64" max="100">64%</progress> <strong>64%</strong>
 
 This is a weighted engineering snapshot, reviewed 2026-10-02 after adding explicit
 task execution, lease-protected recovery, cancellation controls, an internal
-worker process, and bounded typed observation ingestion. It measures the
+worker process, bounded typed observation ingestion, and replayable graph
+projection. It measures the
 distance to a dependable self-hosted production release, not the number of UI
 screens or lines of code. The bar moves only when a workstream has working code,
 tests, and an operational path.
@@ -88,13 +89,13 @@ tests, and an operational path.
 | Workspace foundation and access control | 20% | 100% | Keep regression coverage green during migration. |
 | Import, profiling, storage, and inventory | 15% | 90% | Derived-artifact provenance, server-mounted sources, and refresh cleanup. |
 | Provider registry, scheduling, and reference execution | 15% | 90% | Worker ownership/heartbeat, real process/MCP providers, and process-level cancellation. |
-| Provider results and knowledge graph ingestion | 20% | 25% | Neo4j projection, cross-provider identity/relationship resolution, and graph-rebuild provenance. |
+| Provider results and knowledge graph ingestion | 20% | 35% | Automatic projection scheduling, cross-provider identity/relationship resolution, and graph-rebuild provenance. |
 | Approvals, live activity, and operator controls | 10% | 20% | Durable event projection, approvals, and recovery UX. |
 | Legacy RedAmon migration | 10% | 40% | Move remaining project, agent, report, and settings surfaces without breaking existing data. |
 | Production hardening and release QA | 10% | 40% | Full container gate, worker operations/observability, backup/restore drills, upgrade checks, and deployment runbooks. |
 
 The main path to “shipped” is therefore: add worker ownership/heartbeat and process-level
-cancellation → add real providers → project normalized
+cancellation → add real providers → schedule normalized
 observations into the graph and visualise results → finish migration and
 production QA. See [`docs/REAMON_ARCHITECTURE.md`](docs/REAMON_ARCHITECTURE.md)
 for the boundary decisions behind this sequence.
