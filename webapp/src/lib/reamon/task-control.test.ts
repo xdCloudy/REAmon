@@ -17,7 +17,7 @@ vi.mock('@/lib/prisma', () => ({
   },
 }))
 
-import { recoverStaleAnalysisTasks, retryAnalysisTask } from './task-control'
+import { cancelAnalysisTask, recoverStaleAnalysisTasks, retryAnalysisTask } from './task-control'
 
 function task(overrides: Record<string, unknown> = {}) {
   return {
@@ -88,5 +88,23 @@ describe('recoverStaleAnalysisTasks', () => {
 
     expect(result).toMatchObject({ recovered: 0, staleAfterMinutes: 5 })
     expect(mocks.taskFindMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ status: 'RUNNING' }) }))
+  })
+})
+
+describe('cancelAnalysisTask', () => {
+  test('cancels a running lease and records the operator action', async () => {
+    mocks.taskFindFirst.mockResolvedValue(task({ status: 'RUNNING', progress: 35, error: '', completedAt: null }))
+    mocks.taskFindUnique.mockResolvedValue(task({ status: 'CANCELLED', progress: 35, error: 'Cancelled by operator', completedAt: new Date() }))
+
+    const result = await cancelAnalysisTask('project-1', 'task-1')
+
+    expect(result).toMatchObject({ outcome: 'CANCELLED', task: { status: 'CANCELLED', progress: 35 } })
+    expect(mocks.taskUpdateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'task-1', projectId: 'project-1', status: { in: ['QUEUED', 'RUNNING'] }, runToken: 'run-1' },
+      data: expect.objectContaining({ status: 'CANCELLED', runToken: null }),
+    }))
+    expect(mocks.activityCreate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ eventType: 'analysis.task.cancelled' }),
+    }))
   })
 })

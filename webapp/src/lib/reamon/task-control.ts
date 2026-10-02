@@ -7,6 +7,7 @@ const taskSelect = {
   status: true,
   progress: true,
   error: true,
+  runToken: true,
   startedAt: true,
   completedAt: true,
   createdAt: true,
@@ -24,7 +25,7 @@ type TaskControlRow = Prisma.TaskGetPayload<{ select: typeof taskSelect }>
 type StaleTaskRow = Prisma.TaskGetPayload<{ select: typeof staleTaskSelect }>
 
 export type TaskControlResult = {
-  outcome: 'REQUEUED' | 'SKIPPED'
+  outcome: 'REQUEUED' | 'CANCELLED' | 'SKIPPED'
   task: {
     id: string
     title: string
@@ -98,6 +99,50 @@ export async function retryAnalysisTask(projectId: string, taskId: string): Prom
     return current ? { outcome: 'SKIPPED', task: serialiseTask(current) } : null
   }
   return { outcome: 'REQUEUED', task: serialiseTask(requeued) }
+}
+
+export async function cancelAnalysisTask(projectId: string, taskId: string): Promise<TaskControlResult | null> {
+  const task = await loadTask(projectId, taskId)
+  if (!task) return null
+  if (task.status !== 'QUEUED' && task.status !== 'RUNNING') {
+    return { outcome: 'SKIPPED', task: serialiseTask(task) }
+  }
+
+  const cancelledAt = new Date()
+  const cancelled = await prisma.$transaction(async (tx) => {
+    const updated = await tx.task.updateMany({
+      where: { id: taskId, projectId, status: { in: ['QUEUED', 'RUNNING'] }, runToken: task.runToken },
+      data: {
+        status: 'CANCELLED',
+        progress: task.status === 'QUEUED' ? 0 : task.progress,
+        result: Prisma.JsonNull,
+        error: 'Cancelled by operator',
+        startedAt: task.status === 'QUEUED' ? null : task.startedAt,
+        completedAt: cancelledAt,
+        runToken: null,
+      },
+    })
+    if (updated.count !== 1) return null
+
+    const current = await tx.task.findUnique({ where: { id: taskId }, select: taskSelect })
+    if (!current) return null
+    await tx.workspaceActivity.create({
+      data: {
+        projectId,
+        actor: 'Operator',
+        eventType: 'analysis.task.cancelled',
+        message: `Cancelled ${current.title}`,
+        data: { taskId, previousStatus: task.status },
+      },
+    })
+    return current
+  })
+
+  if (!cancelled) {
+    const current = await loadTask(projectId, taskId)
+    return current ? { outcome: 'SKIPPED', task: serialiseTask(current) } : null
+  }
+  return { outcome: 'CANCELLED', task: serialiseTask(cancelled) }
 }
 
 function normaliseStaleAfterMinutes(value: number | undefined): number {

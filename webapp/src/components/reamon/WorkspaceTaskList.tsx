@@ -50,6 +50,22 @@ export function WorkspaceTaskList({ projectId, tasks, onChanged }: {
     }
   }
 
+  async function cancel(task: WorkspaceTaskListItem) {
+    setPendingAction(`cancel:${task.id}`)
+    setFeedback(null)
+    try {
+      const response = await fetch(`/api/projects/${projectId}/workspace/tasks/${task.id}/cancel`, { method: 'POST' })
+      const payload = await response.json().catch(() => ({})) as { error?: string }
+      if (!response.ok) throw new Error(payload.error || 'Unable to cancel analysis task')
+      setFeedback(`${task.title} was cancelled.`)
+      onChanged?.()
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : 'Unable to cancel analysis task')
+    } finally {
+      setPendingAction(null)
+    }
+  }
+
   async function recoverStale() {
     setPendingAction('recover')
     setFeedback(null)
@@ -79,12 +95,17 @@ export function WorkspaceTaskList({ projectId, tasks, onChanged }: {
         <div className={styles.row} key={task.id}>
           <span className={styles.title}>{task.title}</span>
           <span className={styles.status}>{task.status} · {task.progress}%</span>
-          {task.status === 'QUEUED' && <button type="button" className={styles.actionButton} disabled={pendingAction !== null} onClick={() => void execute(task)}>
-            {pendingAction === `execute:${task.id}` ? 'Running…' : 'Run'}
-          </button>}
-          {(task.status === 'FAILED' || task.status === 'CANCELLED') && <button type="button" className={styles.actionButton} disabled={pendingAction !== null} onClick={() => void retry(task)}>
-            {pendingAction === `retry:${task.id}` ? 'Requeuing…' : 'Retry'}
-          </button>}
+          <span className={styles.actions}>
+            {task.status === 'QUEUED' && <button type="button" className={styles.actionButton} disabled={pendingAction !== null} onClick={() => void execute(task)}>
+              {pendingAction === `execute:${task.id}` ? 'Running…' : 'Run'}
+            </button>}
+            {(task.status === 'FAILED' || task.status === 'CANCELLED') && <button type="button" className={styles.actionButton} disabled={pendingAction !== null} onClick={() => void retry(task)}>
+              {pendingAction === `retry:${task.id}` ? 'Requeuing…' : 'Retry'}
+            </button>}
+            {(task.status === 'QUEUED' || task.status === 'RUNNING') && <button type="button" className={styles.actionButton} disabled={pendingAction !== null} onClick={() => void cancel(task)}>
+              {pendingAction === `cancel:${task.id}` ? 'Cancelling…' : 'Cancel'}
+            </button>}
+          </span>
         </div>
       ))}
     </div>

@@ -49,6 +49,15 @@ describe('WorkspaceTaskList', () => {
     expect(fetch).toHaveBeenCalledWith('/api/projects/project-1/workspace/tasks/recover', { method: 'POST' })
   })
 
+  test('cancels a running task', async () => {
+    render(<WorkspaceTaskList projectId="project-1" tasks={[{ id: 'task-1', title: 'Inspect source', status: 'RUNNING', progress: 10 }]} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Inspect source was cancelled.'))
+
+    expect(fetch).toHaveBeenCalledWith('/api/projects/project-1/workspace/tasks/task-1/cancel', { method: 'POST' })
+  })
+
   test('does not offer execution for completed tasks', () => {
     render(<WorkspaceTaskList projectId="project-1" tasks={[{ id: 'task-1', title: 'Inspect source', status: 'COMPLETED', progress: 100 }]} />)
     expect(screen.queryByRole('button', { name: 'Run' })).toBeNull()
