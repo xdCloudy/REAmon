@@ -894,7 +894,7 @@ const REFERENCES: ReferenceSpec[] = [
       'capabilities before proposing analysis. Historical refresh rows and host storage paths are ' +
       'not part of the current agent view.',
     areas: ['workspace'],
-    workflows: ['inspect-workspace'],
+    workflows: ['inspect-workspace', 'propose-analysis'],
   },
   {
     path: 'references/lifecycle-and-scans.md',

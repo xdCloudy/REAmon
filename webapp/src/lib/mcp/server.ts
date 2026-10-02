@@ -110,6 +110,7 @@ import { compareScanVersions, listScanVersions } from '@/lib/mcp/versionTools'
 import { startRecon, stopRecon, updateReconSettings } from '@/lib/mcp/writeTools'
 import { getWorkspaceArtifact, listWorkspaceInventory } from '@/lib/mcp/workspaceTools'
 import { getWorkspaceSummary } from '@/lib/mcp/workspaceSummaryTools'
+import { planWorkspaceAnalysis } from '@/lib/mcp/workspacePlanTools'
 import {
   MAX_KEYS_PER_CALL,
   refusedFieldsSentence,
@@ -428,6 +429,32 @@ export function buildMcpServer(ctx: McpContext, instructions?: string): McpServe
       inputSchema: { projectId: projectIdSchema },
     },
     handler(ctx, 'workspace_get_summary', a => getWorkspaceSummary(ctx, a.projectId), a => a.projectId)
+  )
+
+  server.registerTool(
+    'workspace_plan_analysis',
+    {
+      title: 'Propose workspace analysis',
+      description:
+        'Build a bounded, deterministic proposal for analysis from the active REAmon workspace ' +
+        'inventory. It returns artifact paths, stored profiles, compatible providers, and the ' +
+        'capabilities those providers advertise. Use it to select work before creating a task or ' +
+        'calling a future executor. This is proposal-only: it does not run Ghidra, JADX, a command, ' +
+        'an MCP server, or any other heavyweight tool, and it never exposes host storage paths. ' +
+        'Page with offset when hasMoreArtifacts or hasMoreSteps is true.',
+      annotations: READ_ONLY,
+      _meta: scopesMeta({ required: ['recon:read'] }),
+      inputSchema: {
+        projectId: projectIdSchema,
+        search: z.string().max(200).optional().describe('Search the logical relative path or file name.'),
+        format: z.string().max(64).optional().describe('Detected profile format, for example pe, elf, or source.'),
+        kind: z.enum(['executables', 'source']).optional().describe('Limit to likely executable or source-file extensions.'),
+        capability: z.string().max(64).optional().describe('Only propose providers advertising this capability.'),
+        limit: z.number().int().min(1).max(100).optional().describe('Default 100, maximum 100 candidate artifacts per page.'),
+        offset: z.number().int().min(0).max(100000).optional().describe('Number of matching artifacts to skip.'),
+      },
+    },
+    handler(ctx, 'workspace_plan_analysis', a => planWorkspaceAnalysis(ctx, a), a => a.projectId)
   )
 
   server.registerTool(

@@ -127,6 +127,14 @@ counts, top profile dimensions, sampled logical targets, compatible provider cou
 the stored lifecycle progress model. Its response is bounded and contains no per-file
 payload, so agents can decide which inventory pages or capabilities to inspect next.
 
+`workspace_plan_analysis` is the next read-only boundary. It expands a bounded inventory
+page into deterministic `PROPOSED` steps for each compatible provider capability, optionally
+filtered to one capability. It is intentionally not a scheduler or executor: a proposal
+does not run a tool, create evidence, or change project state. Agents must review the
+artifact details and provider requirements before a future task/execution boundary is used.
+Both artifact pagination and the proposal step count are bounded, and the response signals
+when the proposal is partial.
+
 ## Target profiler
 
 The initial profiler is intentionally conservative. It combines filename extension, MIME hints, magic bytes, basic header inspection, and byte entropy. It currently recognises representative ELF, PE, Mach-O, ZIP/APK/JAR, PDF, SQLite, PCAP, and source-code inputs. Everything else produces a valid `UNKNOWN` profile.
