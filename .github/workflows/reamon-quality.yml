@@ -1,0 +1,107 @@
+name: REAmon quality
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - reamon/bootstrap
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: reamon-quality-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  webapp:
+    name: Webapp checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: webapp
+    env:
+      POSTGRES_PASSWORD: test-password
+      POSTGRES_USER: redamon
+      POSTGRES_DB: redamon
+      NEO4J_AUTH: neo4j/test-password
+      NEO4J_PASSWORD: test-password
+      REAMON_DB_PUSH_ACCEPT_DATA_LOSS: "false"
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: webapp/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check
+        run: npm run type-check
+
+      - name: Lint REAmon code
+        run: npm run lint
+
+      - name: Run REAmon tests
+        run: >-
+          npm test --
+          src/lib/reamon
+          src/components/reamon
+          'src/app/api/projects/[id]/workspace'
+          src/app/api/internal/reamon
+          src/lib/mcp/workspaceTools.test.ts
+          src/lib/mcp/workspacePlanTools.test.ts
+          src/lib/mcp/workspaceSummaryTools.test.ts
+          scripts/reamon-task-worker.test.mjs
+
+      - name: Build production webapp
+        run: npm run build
+
+  compose:
+    name: Compose configuration
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Render Compose configuration
+        env:
+          POSTGRES_PASSWORD: test-password
+          POSTGRES_USER: redamon
+          POSTGRES_DB: redamon
+          NEO4J_AUTH: neo4j/test-password
+          NEO4J_PASSWORD: test-password
+          REAMON_DB_PUSH_ACCEPT_DATA_LOSS: "false"
+        run: docker compose config --quiet
+
+  image:
+    name: Production image smoke test
+    runs-on: ubuntu-latest
+    needs: webapp
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Build production image
+        run: docker build --tag reamon-webapp:ci webapp
+
+      - name: Verify non-root runtime image
+        run: >-
+          docker run --rm --entrypoint sh reamon-webapp:ci -lc
+          'set -eu;
+          test "$(id -u)" != 0;
+          sh -n /app/entrypoint.sh;
+          test -f /app/server.js;
+          test -x /app/entrypoint.sh;
+          test -d /data/reamon-artifacts;
+          grep -R -q worker.degraded /app/.next/server;
+          grep -R -q projectionRunId /app/.next/server;
+          test -f /app/prisma/migrations/20261003000000_add_reamon_projection_runs/migration.sql;
+          echo production-image-smoke-passed'

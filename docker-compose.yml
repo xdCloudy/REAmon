@@ -1226,7 +1226,6 @@ services:
   # exits rather than silently running unauthenticated.
   reamon-worker:
     image: ${REAMON_WEBAPP_IMAGE:-redamon-webapp:latest}
-    container_name: redamon-reamon-worker
     mem_limit: ${REAMON_WORKER_MEM:-512m}
     pids_limit: ${REAMON_WORKER_PIDS:-128}
     cpus: ${REAMON_WORKER_CPUS:-1}

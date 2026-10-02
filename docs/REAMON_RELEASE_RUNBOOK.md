@@ -21,7 +21,7 @@ rollback can be reconstructed.
    ```bash
    git rev-parse HEAD
    docker compose ps
-   docker image inspect reamon-webapp:production --format '{{.Id}}' || true
+   docker image inspect "${REAMON_WEBAPP_IMAGE:-redamon-webapp:latest}" --format '{{.Id}}' || true
    ```
 
 5. Keep `REAMON_DB_PUSH_ACCEPT_DATA_LOSS=false` for the normal upgrade path. The
@@ -77,6 +77,28 @@ non-empty before proceeding.
 The readiness endpoint must report both PostgreSQL and writable artifact storage as
 healthy. A failed readiness check is a release failure; do not route traffic to the
 new container while it is unhealthy.
+
+## Multi-worker drill
+
+The worker service intentionally has no fixed `container_name`, so Compose can run
+multiple claimers on one host. In a staging workspace, start two workers and verify
+that each has a distinct worker id while a queued task is dispatched only once:
+
+```bash
+docker compose up -d --scale reamon-worker=2 reamon-worker
+docker compose ps reamon-worker
+docker compose logs --since=2m reamon-worker
+```
+
+Create one disposable workspace task, wait for it to reach a terminal state, and
+confirm the activity stream contains one completion and one graph replay for that
+task. Stop one worker during a second disposable task, wait past the configured
+stale threshold, and confirm the surviving worker recovers the claim. Tear down
+the extra workers after the drill with:
+
+```bash
+docker compose up -d --scale reamon-worker=1 reamon-worker
+```
 
 ## Worker alert smoke test
 
