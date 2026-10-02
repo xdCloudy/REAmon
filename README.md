@@ -74,11 +74,11 @@ implementations rather than complete binary-identification tooling.
 
 ## Production readiness
 
-<progress value="66" max="100">66%</progress> <strong>66%</strong>
+<progress value="67" max="100">67%</progress> <strong>67%</strong>
 
 This is a weighted engineering snapshot, reviewed 2026-10-02 after adding explicit
 task execution, lease-protected recovery, cancellation controls, an internal
-worker process, bounded typed observation ingestion, and replayable graph
+worker process, durable task heartbeats, bounded typed observation ingestion, and replayable graph
 projection. It measures the
 distance to a dependable self-hosted production release, not the number of UI
 screens or lines of code. The bar moves only when a workstream has working code,
@@ -88,13 +88,13 @@ tests, and an operational path.
 | --- | ---: | ---: | --- |
 | Workspace foundation and access control | 20% | 100% | Keep regression coverage green during migration. |
 | Import, profiling, storage, and inventory | 15% | 90% | Derived-artifact provenance, server-mounted sources, and refresh cleanup. |
-| Provider registry, scheduling, and reference execution | 15% | 90% | Worker ownership/heartbeat, real process/MCP providers, and process-level cancellation. |
+| Provider registry, scheduling, and reference execution | 15% | 95% | Multi-worker ownership policy, real process/MCP providers, and process-level cancellation. |
 | Provider results and knowledge graph ingestion | 20% | 45% | Cross-provider identity/relationship resolution, historical backfill scheduling, and graph-rebuild provenance. |
 | Approvals, live activity, and operator controls | 10% | 20% | Durable event projection, approvals, and recovery UX. |
 | Legacy RedAmon migration | 10% | 40% | Move remaining project, agent, report, and settings surfaces without breaking existing data. |
-| Production hardening and release QA | 10% | 40% | Full container gate, worker operations/observability, backup/restore drills, upgrade checks, and deployment runbooks. |
+| Production hardening and release QA | 10% | 45% | Full container gate, worker operations/observability, backup/restore drills, upgrade checks, and deployment runbooks. |
 
-The main path to “shipped” is therefore: add worker ownership/heartbeat and process-level
+The main path to “shipped” is therefore: finish worker ownership/observability and process-level
 cancellation → add real providers → resolve cross-provider identities and graph-rebuild
 provenance → finish migration and
 production QA. See [`docs/REAMON_ARCHITECTURE.md`](docs/REAMON_ARCHITECTURE.md)

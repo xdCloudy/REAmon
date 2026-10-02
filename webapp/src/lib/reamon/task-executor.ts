@@ -22,6 +22,7 @@ const taskSelect = {
   error: true,
   runToken: true,
   startedAt: true,
+  leaseHeartbeatAt: true,
   completedAt: true,
   createdAt: true,
   updatedAt: true,
@@ -47,6 +48,7 @@ export interface ExecutedAnalysisTask {
     result: unknown
     error: string
     startedAt: string | null
+    leaseHeartbeatAt: string | null
     completedAt: string | null
     createdAt: string
     updatedAt: string
@@ -68,6 +70,7 @@ function serialiseTask(task: TaskRow): ExecutedAnalysisTask['task'] {
     result: task.result,
     error: task.error,
     startedAt: task.startedAt?.toISOString() || null,
+    leaseHeartbeatAt: task.leaseHeartbeatAt?.toISOString() || null,
     completedAt: task.completedAt?.toISOString() || null,
     createdAt: task.createdAt.toISOString(),
     updatedAt: task.updatedAt.toISOString(),
@@ -80,6 +83,28 @@ function asOptions(value: unknown): Record<string, unknown> {
 
 function boundedError(value: string): string {
   return value.trim().slice(0, 4000) || 'Provider execution failed'
+}
+
+function heartbeatIntervalMs(): number {
+  const raw = Number(process.env.REAMON_TASK_HEARTBEAT_SECONDS)
+  const seconds = Number.isFinite(raw) ? Math.min(300, Math.max(5, Math.floor(raw))) : 60
+  return seconds * 1000
+}
+
+function startTaskHeartbeat(projectId: string, taskId: string, runToken: string): () => void {
+  let updateInFlight = false
+  const interval = setInterval(() => {
+    if (updateInFlight) return
+    updateInFlight = true
+    void prisma.task.updateMany({
+      where: { id: taskId, projectId, status: 'RUNNING', runToken },
+      data: { leaseHeartbeatAt: new Date() },
+    }).catch(() => undefined).finally(() => {
+      updateInFlight = false
+    })
+  }, heartbeatIntervalMs())
+  interval.unref?.()
+  return () => clearInterval(interval)
 }
 
 async function loadTask(projectId: string, taskId: string): Promise<TaskRow | null> {
@@ -104,6 +129,7 @@ async function settleTask(
         progress: outcome === 'COMPLETED' ? 100 : task.progress,
         result: result?.data === undefined ? undefined : result.data as unknown as Prisma.InputJsonValue,
         error: outcome === 'COMPLETED' ? '' : error,
+        leaseHeartbeatAt: null,
         completedAt,
       },
     })
@@ -173,7 +199,15 @@ export async function executeAnalysisTask(projectId: string, taskId: string): Pr
   const runToken = randomUUID()
   const claimed = await prisma.task.updateMany({
     where: { id: task.id, projectId, status: 'QUEUED' },
-    data: { status: 'RUNNING', progress: 10, startedAt: new Date(), completedAt: null, error: '', runToken },
+    data: {
+      status: 'RUNNING',
+      progress: 10,
+      startedAt: new Date(),
+      leaseHeartbeatAt: new Date(),
+      completedAt: null,
+      error: '',
+      runToken,
+    },
   })
   if (claimed.count !== 1) {
     const current = await loadTask(projectId, taskId)
@@ -193,6 +227,7 @@ export async function executeAnalysisTask(projectId: string, taskId: string): Pr
   if (!match || !capability) return failTask(task, runToken, 'Provider is no longer compatible with the artifact')
 
   let result: ToolResult
+  const stopHeartbeat = startTaskHeartbeat(projectId, task.id, runToken)
   try {
     result = await plugin.analyze({
       targetProfile: profile,
@@ -200,8 +235,10 @@ export async function executeAnalysisTask(projectId: string, taskId: string): Pr
       options: asOptions(task.options),
     })
   } catch (error) {
+    stopHeartbeat()
     return failTask(task, runToken, error instanceof Error ? error.message : 'Provider execution failed')
   }
+  stopHeartbeat()
   if (result.status !== 'completed') return settleTask(task, runToken, 'FAILED', plugin.manifest.name, result, result.error)
   return settleTask(task, runToken, 'COMPLETED', plugin.manifest.name, result)
 }

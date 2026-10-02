@@ -55,10 +55,12 @@ the small reference providers with lease-protected task/evidence/activity state.
 Stale-task recovery, retry, and cancellation controls are now available to operators,
 and an internal worker trigger can dispatch bounded queued batches. The production
 Compose stack now runs a private restartable poller, and successful provider results
-persist retry-safe typed observations that appear in the workspace. Derived-artifact
-provenance, server-mounted sources, worker ownership/heartbeat, true background uploads,
-real process/MCP execution, process-level cancellation, automatic projection scheduling,
+persist retry-safe typed observations that appear in the workspace. Active provider
+leases now refresh a guarded heartbeat, while stale recovery remains safe for older
+rows without one. Derived-artifact provenance, server-mounted sources, multi-worker
+ownership/observability, true background uploads,
+real process/MCP execution, process-level cancellation, projection observability,
 and replacing older duplicate artifact rows during refresh remain follow-up work. The
-the internal projection route can replay the normalized observation store into Neo4j,
+internal projection route can replay the normalized observation store into Neo4j,
 and the worker invokes it for projects with completed tasks; cross-provider identity
 resolution and historical backfill scheduling are still follow-up work.

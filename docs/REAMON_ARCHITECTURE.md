@@ -252,14 +252,15 @@ The migration is tracked in [REAMON_MIGRATION.md](REAMON_MIGRATION.md). The broa
 The architecture leaves room for Ghidra, JADX, Rizin, Binwalk, Apktool, Frida, GDB, LLDB, x64dbg, WinDbg, QEMU, ADB, custom MCP servers, and arbitrary command-line tools. Each integration should declare what it accepts, what it requires, what capabilities it provides, and what generic entities or evidence it produces.
 
 The persisted provider registry, explicit task-queue boundary, and reference executor
-are now in place. Execution attempts carry a lease token, so stale running tasks can
-be recovered or retried without allowing a late provider response to overwrite the
-new attempt. Successful results are also normalized into bounded, stable-keyed
-observations and shown in the workspace. An internal-key-protected worker trigger
+are now in place. Execution attempts carry a lease token and refresh a heartbeat while
+the provider is active, so stale running tasks can be recovered or retried without
+allowing a late provider response to overwrite the new attempt. Successful results are
+also normalized into bounded, stable-keyed observations and shown in the workspace. An
+internal-key-protected worker trigger
 selects bounded queued batches and delegates them to that executor; the production
 Compose stack now runs a private, restartable Node poller against that route and
 replays each project with completed work through the graph projection route. The
-remaining worker hardening is ownership/heartbeat policy and process-level
+remaining worker hardening is multi-worker ownership/observability and process-level
 cancellation. The next high-value work is adding real native/MCP/process providers,
 then resolving cross-provider identities, adding graph-rebuild provenance, and
 projecting durable events into the dashboard.

@@ -68,7 +68,10 @@ describe('retryAnalysisTask', () => {
 describe('recoverStaleAnalysisTasks', () => {
   test('requeues old running tasks and records recovery activity', async () => {
     mocks.taskFindMany.mockResolvedValue([
-      { id: 'task-1', projectId: 'project-1', title: 'Old task', runToken: 'run-1', startedAt: new Date(Date.now() - 60 * 60 * 1000) },
+      {
+        id: 'task-1', projectId: 'project-1', title: 'Old task', runToken: 'run-1',
+        startedAt: new Date(Date.now() - 60 * 60 * 1000), leaseHeartbeatAt: new Date(Date.now() - 60 * 60 * 1000),
+      },
     ])
 
     const result = await recoverStaleAnalysisTasks('project-1', 30)
@@ -85,7 +88,10 @@ describe('recoverStaleAnalysisTasks', () => {
 
   test('can recover stale tasks across all projects for the worker', async () => {
     mocks.taskFindMany.mockResolvedValue([
-      { id: 'task-2', projectId: 'project-2', title: 'Other task', runToken: 'run-2', startedAt: new Date(Date.now() - 60 * 60 * 1000) },
+      {
+        id: 'task-2', projectId: 'project-2', title: 'Other task', runToken: 'run-2',
+        startedAt: new Date(Date.now() - 60 * 60 * 1000), leaseHeartbeatAt: new Date(Date.now() - 60 * 60 * 1000),
+      },
     ])
 
     const result = await recoverStaleAnalysisTasks(undefined, 30)

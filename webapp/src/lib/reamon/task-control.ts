@@ -9,6 +9,7 @@ const taskSelect = {
   error: true,
   runToken: true,
   startedAt: true,
+  leaseHeartbeatAt: true,
   completedAt: true,
   createdAt: true,
   updatedAt: true,
@@ -20,6 +21,7 @@ const staleTaskSelect = {
   title: true,
   runToken: true,
   startedAt: true,
+  leaseHeartbeatAt: true,
 } satisfies Prisma.TaskSelect
 
 type TaskControlRow = Prisma.TaskGetPayload<{ select: typeof taskSelect }>
@@ -34,6 +36,7 @@ export type TaskControlResult = {
     progress: number
     error: string
     startedAt: string | null
+    leaseHeartbeatAt: string | null
     completedAt: string | null
     createdAt: string
     updatedAt: string
@@ -48,6 +51,7 @@ function serialiseTask(task: TaskControlRow): TaskControlResult['task'] {
     progress: task.progress,
     error: task.error,
     startedAt: task.startedAt?.toISOString() || null,
+    leaseHeartbeatAt: task.leaseHeartbeatAt?.toISOString() || null,
     completedAt: task.completedAt?.toISOString() || null,
     createdAt: task.createdAt.toISOString(),
     updatedAt: task.updatedAt.toISOString(),
@@ -74,6 +78,7 @@ export async function retryAnalysisTask(projectId: string, taskId: string): Prom
         result: Prisma.JsonNull,
         error: '',
         startedAt: null,
+        leaseHeartbeatAt: null,
         completedAt: null,
         runToken: null,
       },
@@ -119,6 +124,7 @@ export async function cancelAnalysisTask(projectId: string, taskId: string): Pro
         result: Prisma.JsonNull,
         error: 'Cancelled by operator',
         startedAt: task.status === 'QUEUED' ? null : task.startedAt,
+        leaseHeartbeatAt: null,
         completedAt: cancelledAt,
         runToken: null,
       },
@@ -155,7 +161,14 @@ export async function recoverStaleAnalysisTasks(projectId: string | undefined, r
   const staleAfterMinutes = normaliseStaleAfterMinutes(requestedMinutes)
   const cutoff = new Date(Date.now() - staleAfterMinutes * 60 * 1000)
   const candidates = await prisma.task.findMany({
-    where: { ...(projectId ? { projectId } : {}), status: 'RUNNING', startedAt: { not: null, lt: cutoff } },
+    where: {
+      ...(projectId ? { projectId } : {}),
+      status: 'RUNNING',
+      OR: [
+        { leaseHeartbeatAt: { not: null, lt: cutoff } },
+        { leaseHeartbeatAt: null, startedAt: { not: null, lt: cutoff } },
+      ],
+    },
     select: staleTaskSelect,
     orderBy: { startedAt: 'asc' },
   })
@@ -173,6 +186,7 @@ export async function recoverStaleAnalysisTasks(projectId: string | undefined, r
           result: Prisma.JsonNull,
           error: `Recovered after ${staleAfterMinutes} minutes without completion`,
           startedAt: null,
+          leaseHeartbeatAt: null,
           completedAt: null,
           runToken: null,
         },
@@ -185,7 +199,12 @@ export async function recoverStaleAnalysisTasks(projectId: string | undefined, r
           actor: 'Operator',
           eventType: 'analysis.task.recovered',
           message: `Recovered stale task ${task.title}; it is queued for a safe retry`,
-          data: { taskId: task.id, staleAfterMinutes, startedAt: task.startedAt?.toISOString() || null },
+          data: {
+            taskId: task.id,
+            staleAfterMinutes,
+            startedAt: task.startedAt?.toISOString() || null,
+            leaseHeartbeatAt: task.leaseHeartbeatAt?.toISOString() || null,
+          },
         },
       })
     }

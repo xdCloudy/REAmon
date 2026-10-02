@@ -25,6 +25,7 @@ vi.mock('./provider-registry', () => ({ getBuiltinProvider: mocks.getBuiltinProv
 vi.mock('./capabilities', () => ({ resolveCapabilities: mocks.resolveCapabilities }))
 
 import { executeAnalysisTask } from './task-executor'
+import type { ToolResult } from './types'
 
 const provider = {
   manifest: {
@@ -132,5 +133,34 @@ describe('executeAnalysisTask', () => {
     expect(result).toMatchObject({ outcome: 'SKIPPED', task: { status: 'RUNNING' } })
     expect(mocks.taskUpdateMany).not.toHaveBeenCalled()
     expect(mocks.analyze).not.toHaveBeenCalled()
+  })
+
+  test('refreshes the lease while a provider is still running', async () => {
+    vi.useFakeTimers()
+    const previousHeartbeatSeconds = process.env.REAMON_TASK_HEARTBEAT_SECONDS
+    process.env.REAMON_TASK_HEARTBEAT_SECONDS = '5'
+    let finish!: (value: ToolResult) => void
+    mocks.analyze.mockImplementation(() => new Promise<ToolResult>((resolve) => {
+      finish = resolve
+    }))
+
+    try {
+      const executing = executeAnalysisTask('project-1', 'task-1')
+      await vi.advanceTimersByTimeAsync(5000)
+
+      expect(mocks.taskUpdateMany).toHaveBeenCalledWith(expect.objectContaining({
+        where: { id: 'task-1', projectId: 'project-1', status: 'RUNNING', runToken: expect.any(String) },
+        data: { leaseHeartbeatAt: expect.any(Date) },
+      }))
+
+      finish({
+        status: 'completed', toolId: provider.manifest.id, capabilities: ['extract_strings'], produced: ['String'], data: { strings: ['hello'] },
+      })
+      await executing
+    } finally {
+      if (previousHeartbeatSeconds === undefined) delete process.env.REAMON_TASK_HEARTBEAT_SECONDS
+      else process.env.REAMON_TASK_HEARTBEAT_SECONDS = previousHeartbeatSeconds
+      vi.useRealTimers()
+    }
   })
 })
