@@ -237,6 +237,8 @@ drift by default; set `REAMON_DB_PUSH_ACCEPT_DATA_LOSS=true` only for a planned,
 backed-up upgrade after reviewing the schema change. `/api/health` is a lightweight
 liveness check; `/api/health/ready` verifies both the PostgreSQL connection and
 writable REAmon artifact storage, and is the endpoint used by the Compose healthcheck.
+Follow [`docs/REAMON_RELEASE_RUNBOOK.md`](docs/REAMON_RELEASE_RUNBOOK.md) for
+backup, upgrade, smoke-test, rollback, and restore procedures.
 
 ## Development
 
