@@ -1,7 +1,26 @@
 import { describe, expect, test } from 'vitest'
-import { compareWorkspaceImports } from './imports'
+import { activeWorkspaceImportIds, compareWorkspaceImports } from './imports'
 
 describe('workspace import comparisons', () => {
+  test('selects the latest completed snapshot without deleting history', () => {
+    const active = activeWorkspaceImportIds([
+      { id: 'new-partial', rootName: 'ExampleApp', status: 'UPLOADING', createdAt: '2026-10-01T12:00:00Z' },
+      { id: 'old-complete', rootName: 'ExampleApp', status: 'COMPLETED', createdAt: '2026-10-01T11:00:00Z' },
+      { id: 'other-root', rootName: 'Firmware', status: 'CANCELLED', createdAt: '2026-10-01T10:00:00Z' },
+    ])
+
+    expect([...active]).toEqual(['old-complete', 'other-root'])
+  })
+
+  test('shows a partial snapshot when no completed snapshot exists', () => {
+    const active = activeWorkspaceImportIds([
+      { id: 'old-cancelled', rootName: 'ExampleApp', status: 'CANCELLED', createdAt: '2026-10-01T11:00:00Z' },
+      { id: 'new-pending', rootName: 'ExampleApp', status: 'PENDING', createdAt: '2026-10-01T12:00:00Z' },
+    ])
+
+    expect([...active]).toEqual(['new-pending'])
+  })
+
   test('classifies added, changed, removed, and unchanged paths', () => {
     const comparison = compareWorkspaceImports(
       [

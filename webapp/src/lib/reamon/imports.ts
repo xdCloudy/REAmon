@@ -20,7 +20,42 @@ export interface WorkspaceImportComparison {
   unchangedPaths: string[]
 }
 
+export interface WorkspaceImportState {
+  id: string
+  rootName: string
+  status: string
+  createdAt?: Date | string
+}
+
 const MAX_SAMPLE_PATHS = 200
+
+/**
+ * Select the import rows that represent the current workspace view. Refreshes
+ * are additive for audit/history, but the explorer must not render the same
+ * logical path from every prior snapshot. A completed snapshot remains the
+ * active view while a newer partial import is still in progress; if no
+ * completed snapshot exists, the newest partial/cancelled snapshot is visible
+ * so operators can inspect and resume it.
+ */
+export function activeWorkspaceImportIds(imports: WorkspaceImportState[]): Set<string> {
+  const byRoot = new Map<string, WorkspaceImportState[]>()
+  for (const workspaceImport of imports) {
+    const group = byRoot.get(workspaceImport.rootName) || []
+    group.push(workspaceImport)
+    byRoot.set(workspaceImport.rootName, group)
+  }
+
+  const active = new Set<string>()
+  for (const group of byRoot.values()) {
+    const ordered = [...group].sort((left, right) => {
+      if (!left.createdAt || !right.createdAt) return 0
+      return new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
+    })
+    const selected = ordered.find((workspaceImport) => workspaceImport.status === 'COMPLETED') || ordered[0]
+    if (selected) active.add(selected.id)
+  }
+  return active
+}
 
 function sameContent(previous: ImportComparisonEntry, current: ImportComparisonEntry, mode: ImportComparisonMode): boolean {
   if (mode === 'HASH' && previous.sha256 && current.sha256) return previous.sha256 === current.sha256

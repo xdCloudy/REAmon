@@ -1,6 +1,7 @@
 import prisma from '@/lib/prisma'
 import { resolveCapabilities, resolveWorkspaceCapabilities } from './capabilities'
 import { buildProgressModel } from './progress'
+import { activeWorkspaceImportIds } from './imports'
 import type { TargetProfile, WorkspaceImportSnapshot } from './types'
 import type { WorkspaceImportComparison } from './imports'
 
@@ -9,11 +10,31 @@ function asProfile(value: unknown): TargetProfile {
 }
 
 export async function getWorkspaceSnapshot(projectId: string) {
-  const project = await prisma.project.findUnique({
+  const projectPromise = prisma.project.findUnique({
     where: { id: projectId },
     select: { id: true, name: true, description: true, createdAt: true, updatedAt: true },
   })
+  const importsPromise = prisma.workspaceImport.findMany({
+    where: { projectId },
+    orderBy: { createdAt: 'desc' },
+    take: 10,
+    include: {
+      rootTarget: { select: { profile: true } },
+      artifacts: { select: { relativePath: true } },
+    },
+  })
+  const importStatesPromise = prisma.workspaceImport.findMany({
+    where: { projectId },
+    orderBy: { createdAt: 'desc' },
+    select: { id: true, rootName: true, status: true, createdAt: true },
+  })
+  const [project, imports, importStates] = await Promise.all([projectPromise, importsPromise, importStatesPromise])
   if (!project) return null
+
+  const activeImportIds = activeWorkspaceImportIds(importStates)
+  const artifactWhere = activeImportIds.size
+    ? { projectId, OR: [{ importId: null }, { importId: { in: [...activeImportIds] } }] }
+    : { projectId, importId: null }
 
   const [
     targets,
@@ -30,10 +51,9 @@ export async function getWorkspaceSnapshot(projectId: string) {
     findingCount,
     hypothesisCount,
     evidenceCount,
-    imports,
   ] = await Promise.all([
     prisma.target.findMany({ where: { projectId }, orderBy: { createdAt: 'asc' } }),
-    prisma.artifact.findMany({ where: { projectId }, orderBy: { createdAt: 'desc' } }),
+    prisma.artifact.findMany({ where: artifactWhere, orderBy: { createdAt: 'desc' } }),
     prisma.task.findMany({ where: { projectId }, orderBy: { createdAt: 'desc' }, take: 25 }),
     prisma.finding.findMany({ where: { projectId }, orderBy: { createdAt: 'desc' }, take: 25 }),
     prisma.hypothesis.findMany({ where: { projectId }, orderBy: { createdAt: 'desc' }, take: 25 }),
@@ -46,15 +66,6 @@ export async function getWorkspaceSnapshot(projectId: string) {
     prisma.finding.count({ where: { projectId } }),
     prisma.hypothesis.count({ where: { projectId } }),
     prisma.evidence.count({ where: { projectId } }),
-    prisma.workspaceImport.findMany({
-      where: { projectId },
-      orderBy: { createdAt: 'desc' },
-      take: 10,
-      include: {
-        rootTarget: { select: { profile: true } },
-        artifacts: { select: { relativePath: true } },
-      },
-    }),
   ])
 
   const serializedArtifacts = artifacts.map((artifact) => {
