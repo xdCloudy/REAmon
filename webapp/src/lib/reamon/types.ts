@@ -102,6 +102,7 @@ export interface ToolExecutionInput {
   artifactId?: string
   artifactPath?: string
   options?: Record<string, unknown>
+  signal?: AbortSignal
 }
 
 export interface ToolResult {

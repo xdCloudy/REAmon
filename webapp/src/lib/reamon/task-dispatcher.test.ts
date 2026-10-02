@@ -34,8 +34,8 @@ describe('dispatchQueuedAnalysisTasks', () => {
       take: 10,
       select: { id: true, projectId: true },
     })
-    expect(mocks.executeAnalysisTask).toHaveBeenNthCalledWith(1, 'project-1', 'task-1')
-    expect(mocks.executeAnalysisTask).toHaveBeenNthCalledWith(2, 'project-1', 'task-2')
+    expect(mocks.executeAnalysisTask).toHaveBeenNthCalledWith(1, 'project-1', 'task-1', 'internal-dispatch')
+    expect(mocks.executeAnalysisTask).toHaveBeenNthCalledWith(2, 'project-1', 'task-2', 'internal-dispatch')
   })
 
   test('uses a single task by default and tolerates a claim that disappears', async () => {

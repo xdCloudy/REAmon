@@ -62,4 +62,10 @@ describe('WorkspaceTaskList', () => {
     render(<WorkspaceTaskList projectId="project-1" tasks={[{ id: 'task-1', title: 'Inspect source', status: 'COMPLETED', progress: 100 }]} />)
     expect(screen.queryByRole('button', { name: 'Run' })).toBeNull()
   })
+
+  test('shows the current lease owner for running tasks', () => {
+    render(<WorkspaceTaskList projectId="project-1" tasks={[{ id: 'task-1', title: 'Inspect source', status: 'RUNNING', progress: 35, leaseOwner: 'worker-a' }]} />)
+
+    expect(screen.getByText('RUNNING · 35% · worker-a')).toBeInTheDocument()
+  })
 })

@@ -8,6 +8,7 @@ export interface WorkspaceTaskListItem {
   title: string
   status: string
   progress: number
+  leaseOwner?: string | null
 }
 
 export function WorkspaceTaskList({ projectId, tasks, onChanged }: {
@@ -94,7 +95,7 @@ export function WorkspaceTaskList({ projectId, tasks, onChanged }: {
       {tasks.map((task) => (
         <div className={styles.row} key={task.id}>
           <span className={styles.title}>{task.title}</span>
-          <span className={styles.status}>{task.status} · {task.progress}%</span>
+          <span className={styles.status}>{task.status} · {task.progress}%{task.status === 'RUNNING' && task.leaseOwner ? ` · ${task.leaseOwner}` : ''}</span>
           <span className={styles.actions}>
             {task.status === 'QUEUED' && <button type="button" className={styles.actionButton} disabled={pendingAction !== null} onClick={() => void execute(task)}>
               {pendingAction === `execute:${task.id}` ? 'Running…' : 'Run'}

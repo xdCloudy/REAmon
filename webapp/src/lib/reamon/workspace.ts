@@ -77,6 +77,8 @@ export async function getWorkspaceSnapshot(projectId: string) {
         result: true,
         error: true,
         startedAt: true,
+        leaseHeartbeatAt: true,
+        leaseOwner: true,
         completedAt: true,
         createdAt: true,
         updatedAt: true,

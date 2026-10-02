@@ -2537,6 +2537,7 @@ model Task {
   idempotencyKey String? @unique @map("idempotency_key")
   startedAt   DateTime? @map("started_at")
   leaseHeartbeatAt DateTime? @map("lease_heartbeat_at")
+  leaseOwner  String?  @map("lease_owner")
   completedAt DateTime? @map("completed_at")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
@@ -2547,6 +2548,7 @@ model Task {
   @@index([projectId, providerId, capability])
   @@index([status, startedAt])
   @@index([status, leaseHeartbeatAt])
+  @@index([status, leaseOwner])
   @@map("reamon_tasks")
 }
 

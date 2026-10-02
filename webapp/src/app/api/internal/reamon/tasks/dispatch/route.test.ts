@@ -19,7 +19,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   mocks.internal.mockReturnValue(true)
   mocks.recoverStaleAnalysisTasks.mockResolvedValue({ recovered: 1, staleAfterMinutes: 30 })
-  mocks.dispatchQueuedAnalysisTasks.mockResolvedValue({ requested: 2, selected: 1, results: [taskResult] })
+  mocks.dispatchQueuedAnalysisTasks.mockResolvedValue({ requested: 2, selected: 1, workerId: 'worker-a', results: [taskResult] })
 })
 
 describe('POST /api/internal/reamon/tasks/dispatch', () => {
@@ -35,20 +35,30 @@ describe('POST /api/internal/reamon/tasks/dispatch', () => {
   test('recovers and dispatches a bounded project-scoped batch', async () => {
     const response = await POST(new Request('http://localhost', {
       method: 'POST',
-      body: JSON.stringify({ projectId: 'project-1', limit: 2, staleAfterMinutes: 45 }),
+      body: JSON.stringify({ projectId: 'project-1', limit: 2, staleAfterMinutes: 45, workerId: 'worker-a' }),
       headers: { 'Content-Type': 'application/json' },
     }) as never)
 
     expect(response.status).toBe(200)
-    expect(await response.json()).toMatchObject({ recovered: 1, requested: 2, selected: 1, results: [taskResult] })
-    expect(mocks.recoverStaleAnalysisTasks).toHaveBeenCalledWith('project-1', 45)
-    expect(mocks.dispatchQueuedAnalysisTasks).toHaveBeenCalledWith({ projectId: 'project-1', limit: 2 })
+    expect(await response.json()).toMatchObject({ recovered: 1, requested: 2, selected: 1, workerId: 'worker-a', results: [taskResult] })
+    expect(mocks.recoverStaleAnalysisTasks).toHaveBeenCalledWith('project-1', 45, 'worker-a')
+    expect(mocks.dispatchQueuedAnalysisTasks).toHaveBeenCalledWith({ projectId: 'project-1', limit: 2, workerId: 'worker-a' })
   })
 
   test('rejects malformed worker input', async () => {
     const response = await POST(new Request('http://localhost', {
       method: 'POST',
       body: JSON.stringify({ limit: '2' }),
+    }) as never)
+
+    expect(response.status).toBe(400)
+    expect(mocks.dispatchQueuedAnalysisTasks).not.toHaveBeenCalled()
+  })
+
+  test('rejects an unsafe worker identifier', async () => {
+    const response = await POST(new Request('http://localhost', {
+      method: 'POST',
+      body: JSON.stringify({ workerId: '../worker' }),
     }) as never)
 
     expect(response.status).toBe(400)
@@ -63,6 +73,6 @@ describe('POST /api/internal/reamon/tasks/dispatch', () => {
     }) as never)
 
     expect(response.status).toBe(200)
-    expect(mocks.recoverStaleAnalysisTasks).toHaveBeenCalledWith(undefined, undefined)
+    expect(mocks.recoverStaleAnalysisTasks).toHaveBeenCalledWith(undefined, undefined, 'internal-dispatch')
   })
 })

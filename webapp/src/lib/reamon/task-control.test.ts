@@ -23,6 +23,7 @@ function task(overrides: Record<string, unknown> = {}) {
   return {
     id: 'task-1', title: 'Inspect source', status: 'FAILED', progress: 10, error: 'provider unavailable',
     runToken: 'run-1', startedAt: new Date('2026-10-02T12:00:00Z'), completedAt: new Date('2026-10-02T12:01:00Z'),
+    leaseHeartbeatAt: null, leaseOwner: 'worker-a',
     createdAt: new Date('2026-10-02T11:00:00Z'), updatedAt: new Date('2026-10-02T12:01:00Z'),
     ...overrides,
   }
@@ -74,7 +75,7 @@ describe('recoverStaleAnalysisTasks', () => {
       },
     ])
 
-    const result = await recoverStaleAnalysisTasks('project-1', 30)
+    const result = await recoverStaleAnalysisTasks('project-1', 30, 'worker-a')
 
     expect(result).toMatchObject({ recovered: 1, staleAfterMinutes: 30 })
     expect(mocks.taskUpdateMany).toHaveBeenCalledWith(expect.objectContaining({
@@ -82,7 +83,7 @@ describe('recoverStaleAnalysisTasks', () => {
       data: expect.objectContaining({ status: 'QUEUED', progress: 0, runToken: null }),
     }))
     expect(mocks.activityCreate).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ eventType: 'analysis.task.recovered', data: expect.objectContaining({ taskId: 'task-1' }) }),
+      data: expect.objectContaining({ eventType: 'analysis.task.recovered', data: expect.objectContaining({ taskId: 'task-1', recoveredBy: 'worker-a' }) }),
     }))
   })
 
@@ -122,7 +123,7 @@ describe('cancelAnalysisTask', () => {
     expect(result).toMatchObject({ outcome: 'CANCELLED', task: { status: 'CANCELLED', progress: 35 } })
     expect(mocks.taskUpdateMany).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: 'task-1', projectId: 'project-1', status: { in: ['QUEUED', 'RUNNING'] }, runToken: 'run-1' },
-      data: expect.objectContaining({ status: 'CANCELLED', runToken: null }),
+      data: expect.objectContaining({ status: 'CANCELLED', runToken: null, leaseOwner: null }),
     }))
     expect(mocks.activityCreate).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ eventType: 'analysis.task.cancelled' }),

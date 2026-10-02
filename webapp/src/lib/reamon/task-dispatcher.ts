@@ -7,11 +7,13 @@ const MAX_BATCH_SIZE = 10
 export interface DispatchQueuedTaskInput {
   projectId?: string
   limit?: number
+  workerId?: string
 }
 
 export interface DispatchQueuedTaskResult {
   requested: number
   selected: number
+  workerId: string
   results: ExecutedAnalysisTask[]
 }
 
@@ -22,6 +24,7 @@ function normaliseLimit(value: number | undefined): number {
 
 export async function dispatchQueuedAnalysisTasks(input: DispatchQueuedTaskInput = {}): Promise<DispatchQueuedTaskResult> {
   const limit = normaliseLimit(input.limit)
+  const workerId = input.workerId?.trim().slice(0, 128) || 'internal-dispatch'
   const queued = await prisma.task.findMany({
     where: { status: 'QUEUED', ...(input.projectId ? { projectId: input.projectId } : {}) },
     orderBy: { createdAt: 'asc' },
@@ -30,8 +33,8 @@ export async function dispatchQueuedAnalysisTasks(input: DispatchQueuedTaskInput
   })
   const results: ExecutedAnalysisTask[] = []
   for (const task of queued) {
-    const result = await executeAnalysisTask(task.projectId, task.id)
+    const result = await executeAnalysisTask(task.projectId, task.id, workerId)
     if (result) results.push(result)
   }
-  return { requested: limit, selected: queued.length, results }
+  return { requested: limit, selected: queued.length, workerId, results }
 }

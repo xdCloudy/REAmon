@@ -10,6 +10,7 @@ interface DispatchBody {
   limit?: unknown
   recoverStale?: unknown
   staleAfterMinutes?: unknown
+  workerId?: unknown
 }
 
 function badRequest(error: string) {
@@ -47,16 +48,25 @@ export async function POST(request: NextRequest) {
       staleAfterMinutes = body.staleAfterMinutes
     }
 
+    let workerId = 'internal-dispatch'
+    if (body.workerId !== undefined) {
+      if (typeof body.workerId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(body.workerId.trim())) {
+        return badRequest('workerId must be a bounded identifier')
+      }
+      workerId = body.workerId.trim()
+    }
+
     const recovered = body.recoverStale !== false
-      ? await recoverStaleAnalysisTasks(projectId, staleAfterMinutes)
+      ? await recoverStaleAnalysisTasks(projectId, staleAfterMinutes, workerId)
       : { recovered: 0, staleAfterMinutes: staleAfterMinutes ?? 30 }
-    const dispatched = await dispatchQueuedAnalysisTasks({ projectId, limit })
+    const dispatched = await dispatchQueuedAnalysisTasks({ projectId, limit, workerId })
 
     return NextResponse.json({
       recovered: recovered.recovered,
       staleAfterMinutes: recovered.staleAfterMinutes,
       requested: dispatched.requested,
       selected: dispatched.selected,
+      workerId: dispatched.workerId,
       results: dispatched.results.map((result) => ({ outcome: result.outcome, task: result.task })),
     }, { headers: { 'Cache-Control': 'no-store' } })
   } catch (error) {

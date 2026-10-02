@@ -6,6 +6,9 @@ import { resolveCapabilities } from './capabilities'
 import { ingestToolResult } from './result-ingestion'
 import type { TargetProfile, ToolResult } from './types'
 
+const DEFAULT_LEASE_OWNER = 'webapp'
+const MAX_LEASE_OWNER_LENGTH = 128
+
 const taskSelect = {
   id: true,
   projectId: true,
@@ -23,6 +26,7 @@ const taskSelect = {
   runToken: true,
   startedAt: true,
   leaseHeartbeatAt: true,
+  leaseOwner: true,
   completedAt: true,
   createdAt: true,
   updatedAt: true,
@@ -49,6 +53,7 @@ export interface ExecutedAnalysisTask {
     error: string
     startedAt: string | null
     leaseHeartbeatAt: string | null
+    leaseOwner: string | null
     completedAt: string | null
     createdAt: string
     updatedAt: string
@@ -71,6 +76,7 @@ function serialiseTask(task: TaskRow): ExecutedAnalysisTask['task'] {
     error: task.error,
     startedAt: task.startedAt?.toISOString() || null,
     leaseHeartbeatAt: task.leaseHeartbeatAt?.toISOString() || null,
+    leaseOwner: task.leaseOwner,
     completedAt: task.completedAt?.toISOString() || null,
     createdAt: task.createdAt.toISOString(),
     updatedAt: task.updatedAt.toISOString(),
@@ -91,18 +97,39 @@ function heartbeatIntervalMs(): number {
   return seconds * 1000
 }
 
-function startTaskHeartbeat(projectId: string, taskId: string, runToken: string): () => void {
+function normaliseLeaseOwner(value: string | undefined): string {
+  const owner = value?.trim() || DEFAULT_LEASE_OWNER
+  return owner.slice(0, MAX_LEASE_OWNER_LENGTH)
+}
+
+function startTaskHeartbeat(
+  projectId: string,
+  taskId: string,
+  runToken: string,
+  controller: AbortController,
+): () => void {
   let updateInFlight = false
-  const interval = setInterval(() => {
+  const refresh = () => {
     if (updateInFlight) return
     updateInFlight = true
-    void prisma.task.updateMany({
-      where: { id: taskId, projectId, status: 'RUNNING', runToken },
-      data: { leaseHeartbeatAt: new Date() },
+    void prisma.task.findFirst({
+      where: { id: taskId, projectId, status: 'CANCELLED' },
+      select: { id: true, status: true },
+    }).catch(() => null).then((cancelled) => {
+      if (cancelled?.status === 'CANCELLED') {
+        controller.abort()
+        return null
+      }
+      return prisma.task.updateMany({
+        where: { id: taskId, projectId, status: 'RUNNING', runToken },
+        data: { leaseHeartbeatAt: new Date() },
+      })
     }).catch(() => undefined).finally(() => {
       updateInFlight = false
     })
-  }, heartbeatIntervalMs())
+  }
+  refresh()
+  const interval = setInterval(refresh, heartbeatIntervalMs())
   interval.unref?.()
   return () => clearInterval(interval)
 }
@@ -130,6 +157,7 @@ async function settleTask(
         result: result?.data === undefined ? undefined : result.data as unknown as Prisma.InputJsonValue,
         error: outcome === 'COMPLETED' ? '' : error,
         leaseHeartbeatAt: null,
+        leaseOwner: null,
         completedAt,
       },
     })
@@ -191,12 +219,13 @@ async function failTask(task: TaskRow, runToken: string, message: string): Promi
   return settleTask(task, runToken, 'FAILED', task.provider?.name || 'Provider', undefined, message)
 }
 
-export async function executeAnalysisTask(projectId: string, taskId: string): Promise<ExecutedAnalysisTask | null> {
+export async function executeAnalysisTask(projectId: string, taskId: string, leaseOwner?: string): Promise<ExecutedAnalysisTask | null> {
   const task = await loadTask(projectId, taskId)
   if (!task) return null
   if (task.status !== 'QUEUED') return { outcome: 'SKIPPED', task: serialiseTask(task) }
 
   const runToken = randomUUID()
+  const owner = normaliseLeaseOwner(leaseOwner)
   const claimed = await prisma.task.updateMany({
     where: { id: task.id, projectId, status: 'QUEUED' },
     data: {
@@ -204,6 +233,7 @@ export async function executeAnalysisTask(projectId: string, taskId: string): Pr
       progress: 10,
       startedAt: new Date(),
       leaseHeartbeatAt: new Date(),
+      leaseOwner: owner,
       completedAt: null,
       error: '',
       runToken,
@@ -227,12 +257,14 @@ export async function executeAnalysisTask(projectId: string, taskId: string): Pr
   if (!match || !capability) return failTask(task, runToken, 'Provider is no longer compatible with the artifact')
 
   let result: ToolResult
-  const stopHeartbeat = startTaskHeartbeat(projectId, task.id, runToken)
+  const controller = new AbortController()
+  const stopHeartbeat = startTaskHeartbeat(projectId, task.id, runToken, controller)
   try {
     result = await plugin.analyze({
       targetProfile: profile,
       artifactId: task.artifactId || undefined,
       options: asOptions(task.options),
+      signal: controller.signal,
     })
   } catch (error) {
     stopHeartbeat()

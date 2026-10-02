@@ -35,6 +35,8 @@ services:
     build: !reset null
     image: node:22-alpine
     working_dir: /app
+    environment:
+      REAMON_WORKER_ID: reamon-worker-dev
     command: ["node", "scripts/reamon-task-worker.mjs"]
     volumes:
       - ./webapp:/app:ro

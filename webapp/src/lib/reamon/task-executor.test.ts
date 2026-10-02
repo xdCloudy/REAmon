@@ -40,6 +40,7 @@ function task(overrides: Record<string, unknown> = {}) {
     id: 'task-1', projectId: 'project-1', targetId: 'target-1', artifactId: 'artifact-1', providerId: 'provider-1',
     capability: 'extract_strings', title: 'Inspect source', category: 'static_analysis', status: 'QUEUED', progress: 0,
     options: { mode: 'conservative' }, result: null, error: '', startedAt: null, completedAt: null,
+    leaseHeartbeatAt: null, leaseOwner: null,
     createdAt: new Date('2026-10-02T12:00:00Z'), updatedAt: new Date('2026-10-02T12:00:00Z'),
     provider: { id: 'provider-1', pluginId: provider.manifest.id, name: provider.manifest.name, enabled: true },
     artifact: { id: 'artifact-1', targetId: 'target-1', relativePath: 'src/main.c', profile: { targetType: 'FILE', format: 'source' } },
@@ -79,10 +80,10 @@ describe('executeAnalysisTask', () => {
     expect(result).toMatchObject({ outcome: 'COMPLETED', task: { status: 'COMPLETED', progress: 100 } })
     expect(mocks.taskUpdateMany).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: 'task-1', projectId: 'project-1', status: 'QUEUED' },
-      data: expect.objectContaining({ status: 'RUNNING', progress: 10 }),
+      data: expect.objectContaining({ status: 'RUNNING', progress: 10, leaseOwner: 'webapp' }),
     }))
     expect(mocks.analyze).toHaveBeenCalledWith({
-      targetProfile: { targetType: 'FILE', format: 'source' }, artifactId: 'artifact-1', options: { mode: 'conservative' },
+      targetProfile: { targetType: 'FILE', format: 'source' }, artifactId: 'artifact-1', options: { mode: 'conservative' }, signal: expect.any(AbortSignal),
     })
     expect(mocks.evidenceCreate).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ kind: 'analysis', source: provider.manifest.id, artifactId: 'artifact-1' }),
@@ -162,5 +163,27 @@ describe('executeAnalysisTask', () => {
       else process.env.REAMON_TASK_HEARTBEAT_SECONDS = previousHeartbeatSeconds
       vi.useRealTimers()
     }
+  })
+
+  test('aborts a provider signal when its task is cancelled', async () => {
+    mocks.taskFindFirst
+      .mockResolvedValueOnce(task())
+      .mockResolvedValueOnce(task({ status: 'CANCELLED', runToken: null }))
+      .mockResolvedValueOnce(task({ status: 'CANCELLED', runToken: null }))
+    mocks.taskSettleUpdateMany.mockResolvedValue({ count: 0 })
+    mocks.analyze.mockImplementation(async ({ signal }: { signal?: AbortSignal }) => {
+      await Promise.resolve()
+      expect(signal?.aborted).toBe(true)
+      return {
+        status: 'completed', toolId: provider.manifest.id, capabilities: ['extract_strings'], produced: ['String'], data: { strings: ['hello'] },
+      }
+    })
+
+    const result = await executeAnalysisTask('project-1', 'task-1', 'worker-a')
+
+    expect(result).toMatchObject({ outcome: 'SKIPPED', task: { status: 'CANCELLED' } })
+    expect(mocks.taskUpdateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ leaseOwner: 'worker-a' }) }))
+    expect(mocks.analyze).toHaveBeenCalledWith(expect.objectContaining({ signal: expect.any(AbortSignal) }))
+    expect(mocks.evidenceCreate).not.toHaveBeenCalled()
   })
 })

@@ -10,6 +10,7 @@ const taskSelect = {
   runToken: true,
   startedAt: true,
   leaseHeartbeatAt: true,
+  leaseOwner: true,
   completedAt: true,
   createdAt: true,
   updatedAt: true,
@@ -22,6 +23,7 @@ const staleTaskSelect = {
   runToken: true,
   startedAt: true,
   leaseHeartbeatAt: true,
+  leaseOwner: true,
 } satisfies Prisma.TaskSelect
 
 type TaskControlRow = Prisma.TaskGetPayload<{ select: typeof taskSelect }>
@@ -37,6 +39,7 @@ export type TaskControlResult = {
     error: string
     startedAt: string | null
     leaseHeartbeatAt: string | null
+    leaseOwner: string | null
     completedAt: string | null
     createdAt: string
     updatedAt: string
@@ -52,6 +55,7 @@ function serialiseTask(task: TaskControlRow): TaskControlResult['task'] {
     error: task.error,
     startedAt: task.startedAt?.toISOString() || null,
     leaseHeartbeatAt: task.leaseHeartbeatAt?.toISOString() || null,
+    leaseOwner: task.leaseOwner,
     completedAt: task.completedAt?.toISOString() || null,
     createdAt: task.createdAt.toISOString(),
     updatedAt: task.updatedAt.toISOString(),
@@ -79,6 +83,7 @@ export async function retryAnalysisTask(projectId: string, taskId: string): Prom
         error: '',
         startedAt: null,
         leaseHeartbeatAt: null,
+        leaseOwner: null,
         completedAt: null,
         runToken: null,
       },
@@ -125,6 +130,7 @@ export async function cancelAnalysisTask(projectId: string, taskId: string): Pro
         error: 'Cancelled by operator',
         startedAt: task.status === 'QUEUED' ? null : task.startedAt,
         leaseHeartbeatAt: null,
+        leaseOwner: null,
         completedAt: cancelledAt,
         runToken: null,
       },
@@ -157,7 +163,7 @@ function normaliseStaleAfterMinutes(value: number | undefined): number {
   return Math.min(24 * 60, Math.max(5, Math.floor(value as number)))
 }
 
-export async function recoverStaleAnalysisTasks(projectId: string | undefined, requestedMinutes?: number) {
+export async function recoverStaleAnalysisTasks(projectId: string | undefined, requestedMinutes?: number, recoveredBy?: string) {
   const staleAfterMinutes = normaliseStaleAfterMinutes(requestedMinutes)
   const cutoff = new Date(Date.now() - staleAfterMinutes * 60 * 1000)
   const candidates = await prisma.task.findMany({
@@ -187,6 +193,7 @@ export async function recoverStaleAnalysisTasks(projectId: string | undefined, r
           error: `Recovered after ${staleAfterMinutes} minutes without completion`,
           startedAt: null,
           leaseHeartbeatAt: null,
+          leaseOwner: null,
           completedAt: null,
           runToken: null,
         },
@@ -204,6 +211,8 @@ export async function recoverStaleAnalysisTasks(projectId: string | undefined, r
             staleAfterMinutes,
             startedAt: task.startedAt?.toISOString() || null,
             leaseHeartbeatAt: task.leaseHeartbeatAt?.toISOString() || null,
+            leaseOwner: task.leaseOwner,
+            recoveredBy: recoveredBy?.trim().slice(0, 128) || null,
           },
         },
       })

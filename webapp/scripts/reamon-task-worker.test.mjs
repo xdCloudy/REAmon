@@ -4,13 +4,15 @@ import { dispatchOnce, projectOnce, readWorkerConfig, runWorker, WorkerConfigura
 describe('REAmon task worker', () => {
   test('requires a real internal key and clamps worker settings', () => {
     expect(() => readWorkerConfig({ INTERNAL_API_KEY: 'changeme' })).toThrow(WorkerConfigurationError)
+    expect(() => readWorkerConfig({ INTERNAL_API_KEY: 'secret', REAMON_WORKER_ID: '../worker' })).toThrow(WorkerConfigurationError)
     expect(readWorkerConfig({
       INTERNAL_API_KEY: 'secret',
       REAMON_WORKER_WEBAPP_URL: 'http://webapp:3000/',
       REAMON_WORKER_POLL_SECONDS: '999',
       REAMON_WORKER_BATCH_SIZE: '99',
       REAMON_WORKER_STALE_AFTER_MINUTES: '1',
-    })).toMatchObject({ webappUrl: 'http://webapp:3000', pollSeconds: 300, batchSize: 10, staleAfterMinutes: 5 })
+      REAMON_WORKER_ID: 'worker-a',
+    })).toMatchObject({ webappUrl: 'http://webapp:3000', pollSeconds: 300, batchSize: 10, staleAfterMinutes: 5, workerId: 'worker-a' })
   })
 
   test('dispatches with internal auth and bounded recovery settings', async () => {
@@ -20,13 +22,13 @@ describe('REAmon task worker', () => {
       json: async () => ({ recovered: 1, selected: 2, results: [{ outcome: 'COMPLETED' }] }),
     })
     const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
-    const result = await dispatchOnce({ webappUrl: 'http://webapp:3000', internalKey: 'secret', batchSize: 2, staleAfterMinutes: 30 }, fetchImpl, logger)
+    const result = await dispatchOnce({ webappUrl: 'http://webapp:3000', internalKey: 'secret', workerId: 'worker-a', batchSize: 2, staleAfterMinutes: 30 }, fetchImpl, logger)
 
     expect(result).toMatchObject({ recovered: 1, selected: 2 })
     expect(fetchImpl).toHaveBeenCalledWith('http://webapp:3000/api/internal/reamon/tasks/dispatch', expect.objectContaining({
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-internal-key': 'secret' },
-      body: JSON.stringify({ limit: 2, recoverStale: true, staleAfterMinutes: 30 }),
+      body: JSON.stringify({ limit: 2, recoverStale: true, staleAfterMinutes: 30, workerId: 'worker-a' }),
     }))
   })
 
@@ -37,7 +39,7 @@ describe('REAmon task worker', () => {
       json: async () => ({ projectId: 'project-1', nodes: 2, relationships: 1 }),
     })
     const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
-    const result = await projectOnce({ webappUrl: 'http://webapp:3000', internalKey: 'secret' }, 'project-1', fetchImpl, logger)
+    const result = await projectOnce({ webappUrl: 'http://webapp:3000', internalKey: 'secret', workerId: 'worker-a' }, 'project-1', fetchImpl, logger)
 
     expect(result).toMatchObject({ projectId: 'project-1', nodes: 2 })
     expect(fetchImpl).toHaveBeenCalledWith('http://webapp:3000/api/internal/reamon/graph/project', expect.objectContaining({
@@ -61,7 +63,7 @@ describe('REAmon task worker', () => {
       .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ nodes: 1, relationships: 0 }) })
     let stopped = false
     await runWorker(
-      { webappUrl: 'http://webapp:3000', internalKey: 'secret', batchSize: 1, pollSeconds: 1, staleAfterMinutes: 30 },
+      { webappUrl: 'http://webapp:3000', internalKey: 'secret', workerId: 'worker-a', batchSize: 1, pollSeconds: 1, staleAfterMinutes: 30 },
       { fetchImpl, sleepImpl: async () => { stopped = true }, shouldStop: () => stopped, logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } },
     )
 

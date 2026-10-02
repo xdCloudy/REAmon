@@ -6,6 +6,7 @@ const DEFAULT_STALE_AFTER_MINUTES = 30
 const MAX_POLL_SECONDS = 300
 const MAX_BATCH_SIZE = 10
 const MAX_STALE_AFTER_MINUTES = 24 * 60
+const MAX_WORKER_ID_LENGTH = 128
 
 export class WorkerConfigurationError extends Error {}
 
@@ -14,6 +15,14 @@ function boundedNumber(value, fallback, min, max) {
   const parsed = Number(value)
   if (!Number.isFinite(parsed)) throw new WorkerConfigurationError(`Expected a finite number, received ${String(value)}`)
   return Math.min(max, Math.max(min, Math.floor(parsed)))
+}
+
+function boundedWorkerId(value, fallback = 'reamon-worker') {
+  const workerId = (value || fallback).trim()
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(workerId) || workerId.length > MAX_WORKER_ID_LENGTH) {
+    throw new WorkerConfigurationError('REAMON_WORKER_ID must be a bounded identifier')
+  }
+  return workerId
 }
 
 export function readWorkerConfig(env = process.env) {
@@ -36,6 +45,7 @@ export function readWorkerConfig(env = process.env) {
     pollSeconds: boundedNumber(env.REAMON_WORKER_POLL_SECONDS, DEFAULT_POLL_SECONDS, 5, MAX_POLL_SECONDS),
     batchSize: boundedNumber(env.REAMON_WORKER_BATCH_SIZE, DEFAULT_BATCH_SIZE, 1, MAX_BATCH_SIZE),
     staleAfterMinutes: boundedNumber(env.REAMON_WORKER_STALE_AFTER_MINUTES, DEFAULT_STALE_AFTER_MINUTES, 5, MAX_STALE_AFTER_MINUTES),
+    workerId: boundedWorkerId(env.REAMON_WORKER_ID || env.HOSTNAME),
   }
 }
 
@@ -47,6 +57,7 @@ export async function dispatchOnce(config, fetchImpl = fetch, logger = console) 
       limit: config.batchSize,
       recoverStale: true,
       staleAfterMinutes: config.staleAfterMinutes,
+      workerId: config.workerId || 'reamon-worker',
     }),
     signal: AbortSignal.timeout(20_000),
   })
@@ -61,7 +72,7 @@ export async function dispatchOnce(config, fetchImpl = fetch, logger = console) 
 
   const result = await response.json()
   if (result.recovered || result.selected) {
-    logger.info(`[reamon-worker] recovered=${result.recovered || 0} selected=${result.selected || 0} completed=${(result.results || []).length}`)
+    logger.info(`[reamon-worker:${config.workerId || 'reamon-worker'}] recovered=${result.recovered || 0} selected=${result.selected || 0} completed=${(result.results || []).length}`)
   }
   return result
 }
@@ -112,7 +123,7 @@ async function main() {
   const stop = () => { stopping = true }
   process.once('SIGTERM', stop)
   process.once('SIGINT', stop)
-  console.info(`[reamon-worker] polling every ${config.pollSeconds}s with batch size ${config.batchSize}`)
+  console.info(`[reamon-worker:${config.workerId}] polling every ${config.pollSeconds}s with batch size ${config.batchSize}`)
   await runWorker(config, { shouldStop: () => stopping })
   console.info('[reamon-worker] stopped')
 }
