@@ -1,7 +1,8 @@
 import prisma from '@/lib/prisma'
 import { resolveCapabilities, resolveWorkspaceCapabilities } from './capabilities'
 import { buildProgressModel } from './progress'
-import { activeWorkspaceImportIds, activeWorkspaceTargetIds } from './imports'
+import { getActiveWorkspaceImportSelection } from './inventory-query'
+import { activeWorkspaceTargetIds } from './imports'
 import type { TargetProfile, WorkspaceImportSnapshot } from './types'
 import type { WorkspaceImportComparison } from './imports'
 
@@ -23,21 +24,9 @@ export async function getWorkspaceSnapshot(projectId: string) {
       artifacts: { select: { relativePath: true } },
     },
   })
-  const importStatesPromise = prisma.workspaceImport.findMany({
-    where: { projectId },
-    orderBy: { createdAt: 'desc' },
-    select: { id: true, rootName: true, status: true, rootTargetId: true, createdAt: true },
-  })
-  const [project, imports, importStates] = await Promise.all([projectPromise, importsPromise, importStatesPromise])
+  const selectionPromise = getActiveWorkspaceImportSelection(projectId)
+  const [project, imports, selection] = await Promise.all([projectPromise, importsPromise, selectionPromise])
   if (!project) return null
-
-  const activeImportIds = activeWorkspaceImportIds(importStates)
-  const activeRootTargetIds = new Set(importStates
-    .filter((workspaceImport) => activeImportIds.has(workspaceImport.id) && workspaceImport.rootTargetId)
-    .map((workspaceImport) => workspaceImport.rootTargetId as string))
-  const artifactWhere = activeImportIds.size
-    ? { projectId, OR: [{ importId: null }, { importId: { in: [...activeImportIds] } }] }
-    : { projectId, importId: null }
 
   const [
     allTargets,
@@ -56,7 +45,7 @@ export async function getWorkspaceSnapshot(projectId: string) {
     evidenceCount,
   ] = await Promise.all([
     prisma.target.findMany({ where: { projectId }, orderBy: { createdAt: 'asc' } }),
-    prisma.artifact.findMany({ where: artifactWhere, orderBy: { createdAt: 'desc' } }),
+    prisma.artifact.findMany({ where: selection.artifactWhere, orderBy: { createdAt: 'desc' } }),
     prisma.task.findMany({ where: { projectId }, orderBy: { createdAt: 'desc' }, take: 25 }),
     prisma.finding.findMany({ where: { projectId }, orderBy: { createdAt: 'desc' }, take: 25 }),
     prisma.hypothesis.findMany({ where: { projectId }, orderBy: { createdAt: 'desc' }, take: 25 }),
@@ -76,9 +65,9 @@ export async function getWorkspaceSnapshot(projectId: string) {
     .filter((targetId): targetId is string => Boolean(targetId)))
   const visibleTargetIds = activeWorkspaceTargetIds(
     allTargets,
-    activeRootTargetIds,
+    selection.activeRootTargetIds,
     activeArtifactTargetIds,
-    importStates.length > 0,
+    selection.states.length > 0,
   )
   const targets = allTargets.filter((target) => visibleTargetIds.has(target.id))
 
