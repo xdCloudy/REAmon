@@ -121,7 +121,10 @@ export interface ToolPlugin {
 export interface CapabilityMatch {
   pluginId: string
   pluginName: string
+  category: string
   integration: ToolIntegration
+  acceptsTargetTypes: TargetType[]
+  acceptsFormats: string[]
   capabilities: string[]
   produces: string[]
   requirements: ToolRequirement[]
@@ -130,8 +133,13 @@ export interface CapabilityMatch {
 export interface WorkspaceCapabilitySummary {
   pluginId: string
   pluginName: string
+  category: string
   integration: ToolIntegration
+  acceptsTargetTypes: TargetType[]
+  acceptsFormats: string[]
   capabilities: string[]
+  produces: string[]
+  requirements: ToolRequirement[]
   compatibleArtifactIds: string[]
 }
 

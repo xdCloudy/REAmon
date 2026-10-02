@@ -23,7 +23,8 @@ const inventory: WorkspaceFileQueryResult = {
       targetId: 'target-1', importId: 'import-1', sizeBytes: 10, sha256: 'hash-1', extension: 'dll',
       status: 'IDENTIFIED', profile,
       capabilities: [{
-        pluginId: 'ghidra', pluginName: 'Ghidra', integration: 'process',
+        pluginId: 'ghidra', pluginName: 'Ghidra', category: 'static_analysis', integration: 'process',
+        acceptsTargetTypes: ['FILE'], acceptsFormats: ['pe'],
         capabilities: ['disassemble', 'decompile'], produces: ['Function'], requirements: [],
       }],
     },
@@ -79,4 +80,3 @@ describe('workspace analysis planning', () => {
     expect(plan.hasMoreSteps).toBe(true)
   })
 })
-

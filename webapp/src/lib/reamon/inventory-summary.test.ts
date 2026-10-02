@@ -82,6 +82,11 @@ describe('workspace inventory summary', () => {
     expect(result?.logicalTargets.map((target) => target.id)).toContain('stale-target')
     expect(result?.capabilities.find((provider) => provider.pluginId === 'reamon-artifact-profiler')).toMatchObject({
       compatibleArtifactCount: 2,
+      category: 'profiling',
+      acceptsTargetTypes: ['FILE', 'CAPTURE', 'UNKNOWN'],
+      acceptsFormats: ['*'],
+      produces: ['TargetProfile', 'ArtifactProfile'],
+      requirements: [],
     })
     expect(mocks.artifactFindMany).toHaveBeenCalledWith(expect.objectContaining({ where: { projectId: 'project-1', importId: 'import-1' } }))
   })

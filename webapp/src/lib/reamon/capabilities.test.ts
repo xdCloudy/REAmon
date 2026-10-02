@@ -37,7 +37,12 @@ describe('REAmon capability resolution', () => {
 
     const matches = resolveCapabilities(profile(), [plugin])
     expect(matches).toHaveLength(1)
-    expect(matches[0].capabilities).toEqual(['disassemble'])
+    expect(matches[0]).toMatchObject({
+      category: 'static_analysis',
+      acceptsTargetTypes: ['FILE'],
+      acceptsFormats: ['elf'],
+      capabilities: ['disassemble'],
+    })
     expect(resolveCapabilities(profile({ format: 'unknown', targetType: 'UNKNOWN' }), [plugin])).toEqual([])
   })
 
@@ -49,7 +54,11 @@ describe('REAmon capability resolution', () => {
       },
       async analyze(input) { return { status: 'completed', toolId: 'workspace-tool', capabilities: ['disassemble'], produced: ['Instruction'], data: { input } } },
     }
-    expect(resolveWorkspaceCapabilities([], [plugin])).toEqual([{ pluginId: 'workspace-tool', pluginName: 'Workspace tool', integration: 'native', capabilities: ['disassemble'], compatibleArtifactIds: [] }])
+    expect(resolveWorkspaceCapabilities([], [plugin])).toEqual([{
+      pluginId: 'workspace-tool', pluginName: 'Workspace tool', category: 'static_analysis', integration: 'native',
+      acceptsTargetTypes: ['FILE'], acceptsFormats: ['elf'], capabilities: ['disassemble'], produces: ['Instruction'],
+      requirements: [], compatibleArtifactIds: [],
+    }])
     expect(resolveWorkspaceCapabilities([{ id: 'artifact-1', profile: profile() }], [plugin])[0].compatibleArtifactIds).toEqual(['artifact-1'])
   })
 })

@@ -135,6 +135,11 @@ artifact details and provider requirements before a future task/execution bounda
 Both artifact pagination and the proposal step count are bounded, and the response signals
 when the proposal is partial.
 
+Workspace capability summaries also retain the relevant plugin-manifest boundary: category,
+accepted target types and formats, capabilities, produced entity types, requirements, and
+the count of active compatible artifacts. The web workspace and `workspace_get_summary` expose
+that metadata so an operator or agent can understand why a provider matches before selecting it.
+
 ## Target profiler
 
 The initial profiler is intentionally conservative. It combines filename extension, MIME hints, magic bytes, basic header inspection, and byte entropy. It currently recognises representative ELF, PE, Mach-O, ZIP/APK/JAR, PDF, SQLite, PCAP, and source-code inputs. Everything else produces a valid `UNKNOWN` profile.

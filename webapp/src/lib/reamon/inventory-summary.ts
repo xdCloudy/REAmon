@@ -65,8 +65,13 @@ export interface WorkspaceInventorySummary {
   capabilities: Array<{
     pluginId: string
     pluginName: string
+    category: string
     integration: string
+    acceptsTargetTypes: string[]
+    acceptsFormats: string[]
     capabilities: string[]
+    produces: string[]
+    requirements: Array<{ key: string; value?: string | number | boolean; optional?: boolean }>
     compatibleArtifactCount: number
   }>
   progress: ProgressModel
@@ -165,8 +170,13 @@ export async function getWorkspaceInventorySummary(projectId: string): Promise<W
   }))).map((provider) => ({
     pluginId: provider.pluginId,
     pluginName: provider.pluginName,
+    category: provider.category,
     integration: provider.integration,
+    acceptsTargetTypes: provider.acceptsTargetTypes,
+    acceptsFormats: provider.acceptsFormats,
     capabilities: provider.capabilities,
+    produces: provider.produces,
+    requirements: provider.requirements,
     compatibleArtifactCount: provider.compatibleArtifactIds.length,
   }))
 

@@ -33,7 +33,8 @@ beforeEach(() => {
       id: 'artifact-1', name: 'app.exe', relativePath: 'bin/app.exe', parentPath: 'bin',
       targetId: null, importId: 'import-1', sizeBytes: 1, sha256: 'hash', extension: 'exe',
       status: 'IDENTIFIED', profile: { format: 'pe' }, capabilities: [{
-        pluginId: 'profiler', pluginName: 'Profiler', integration: 'native',
+        pluginId: 'profiler', pluginName: 'Profiler', category: 'profiling', integration: 'native',
+        acceptsTargetTypes: ['FILE'], acceptsFormats: ['*'],
         capabilities: ['identify'], produces: [], requirements: [],
       }],
     }],
@@ -64,4 +65,3 @@ describe('REAmon workspace analysis planning MCP tool', () => {
     expect(h.listFiles).not.toHaveBeenCalled()
   })
 })
-

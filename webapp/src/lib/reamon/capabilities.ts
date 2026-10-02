@@ -80,7 +80,10 @@ export function resolveCapabilities(
     .map((plugin) => ({
       pluginId: plugin.manifest.id,
       pluginName: plugin.manifest.name,
+      category: plugin.manifest.category,
       integration: plugin.manifest.integration,
+      acceptsTargetTypes: plugin.manifest.acceptsTargetTypes,
+      acceptsFormats: plugin.manifest.acceptsFormats,
       capabilities: plugin.manifest.capabilities,
       produces: plugin.manifest.produces,
       requirements: plugin.manifest.requirements,
@@ -94,8 +97,13 @@ export function resolveWorkspaceCapabilities(
   const summaries = new Map<string, WorkspaceCapabilitySummary>(plugins.map((plugin) => [plugin.manifest.id, {
     pluginId: plugin.manifest.id,
     pluginName: plugin.manifest.name,
+    category: plugin.manifest.category,
     integration: plugin.manifest.integration,
+    acceptsTargetTypes: plugin.manifest.acceptsTargetTypes,
+    acceptsFormats: plugin.manifest.acceptsFormats,
     capabilities: plugin.manifest.capabilities,
+    produces: plugin.manifest.produces,
+    requirements: plugin.manifest.requirements,
     compatibleArtifactIds: [],
   }]))
   for (const artifact of artifacts) {
