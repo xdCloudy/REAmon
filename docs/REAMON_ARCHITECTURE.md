@@ -257,8 +257,9 @@ be recovered or retried without allowing a late provider response to overwrite t
 new attempt. Successful results are also normalized into bounded, stable-keyed
 observations and shown in the workspace. An internal-key-protected worker trigger
 selects bounded queued batches and delegates them to that executor; the production
-Compose stack now runs a private, restartable Node poller against that route. The
+Compose stack now runs a private, restartable Node poller against that route and
+replays each project with completed work through the graph projection route. The
 remaining worker hardening is ownership/heartbeat policy and process-level
 cancellation. The next high-value work is adding real native/MCP/process providers,
-then scheduling projection runs, resolving cross-provider identities, and
+then resolving cross-provider identities, adding graph-rebuild provenance, and
 projecting durable events into the dashboard.

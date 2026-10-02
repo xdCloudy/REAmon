@@ -59,5 +59,6 @@ persist retry-safe typed observations that appear in the workspace. Derived-arti
 provenance, server-mounted sources, worker ownership/heartbeat, true background uploads,
 real process/MCP execution, process-level cancellation, automatic projection scheduling,
 and replacing older duplicate artifact rows during refresh remain follow-up work. The
-internal projection route can replay the normalized observation store into Neo4j;
-cross-provider identity resolution is still follow-up work.
+the internal projection route can replay the normalized observation store into Neo4j,
+and the worker invokes it for projects with completed tasks; cross-provider identity
+resolution and historical backfill scheduling are still follow-up work.

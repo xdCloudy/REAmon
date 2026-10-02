@@ -66,12 +66,38 @@ export async function dispatchOnce(config, fetchImpl = fetch, logger = console) 
   return result
 }
 
+export async function projectOnce(config, projectId, fetchImpl = fetch, logger = console) {
+  const response = await fetchImpl(`${config.webappUrl}/api/internal/reamon/graph/project`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-internal-key': config.internalKey },
+    body: JSON.stringify({ projectId }),
+    signal: AbortSignal.timeout(20_000),
+  })
+
+  if (response.status === 401 || response.status === 403) {
+    throw new WorkerConfigurationError(`Graph projection authentication rejected with HTTP ${response.status}`)
+  }
+  if (!response.ok) {
+    logger.warn(`[reamon-worker] graph projection returned HTTP ${response.status} for project ${projectId}`)
+    return null
+  }
+  const result = await response.json()
+  logger.info(`[reamon-worker] projected project=${projectId} nodes=${result.nodes || 0} relationships=${result.relationships || 0}`)
+  return result
+}
+
 const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds))
 
 export async function runWorker(config, { fetchImpl = fetch, sleepImpl = sleep, logger = console, shouldStop = () => false } = {}) {
   while (!shouldStop()) {
     try {
-      await dispatchOnce(config, fetchImpl, logger)
+      const result = await dispatchOnce(config, fetchImpl, logger)
+      const projectIds = [...new Set((result?.results || [])
+        .filter((entry) => entry?.outcome === 'COMPLETED' && typeof entry.task?.projectId === 'string')
+        .map((entry) => entry.task.projectId))]
+      for (const projectId of projectIds) {
+        await projectOnce(config, projectId, fetchImpl, logger)
+      }
     } catch (error) {
       if (error instanceof WorkerConfigurationError) throw error
       logger.error('[reamon-worker] dispatch failed; will retry', error)
