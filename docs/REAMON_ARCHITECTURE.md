@@ -293,10 +293,14 @@ workspace activity with a correlation id, selected counts, and bounded error det
 so an operator can distinguish an empty projection from a failed graph write. Large
 replays continue through bounded monotonic pages instead of silently stopping at the
 per-request observation cap.
+Every page carries the same projection marker; the completed page performs a
+marker-based Neo4j sweep that removes stale REAmon nodes and relationships. A
+short-lived PostgreSQL project lease fences overlapping workers across pages, and
+the run record exposes the removed counts for operator review.
 Observation ingestion now derives a bounded canonical identity from an
 explicit `identity`, `identityKey`, `canonicalKey`, or `qualifiedName` hint (and from
 normalized string values); observations without a hint remain source-scoped. Neo4j
 projection merges nodes and relationships by that canonical key while retaining the
-provider's stable key and source as provenance. The next high-value work is graph
-drift reconciliation, additional result adapters, and projecting durable events into
-the dashboard.
+provider's stable key and source as provenance. The next high-value work is richer
+repair UX, additional result adapters, and projecting durable events into the
+dashboard.

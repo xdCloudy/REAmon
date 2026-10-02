@@ -76,5 +76,9 @@ Worker dispatches now persist last-seen and bounded outcome telemetry, and the
 workspace marks silent workers as stale. Failed dispatches optionally emit a bounded
 webhook alert configured through `REAMON_WORKER_ALERT_WEBHOOK_URL` (with an optional
 bearer token); delivery is best-effort and does not fail task dispatch. Multi-worker
-stress, backup/restore drills, graph drift reconciliation, and additional alerting for a worker that disappears
-without another request remain release follow-up work.
+stress, backup/restore drills, and additional alerting for a worker that disappears
+without another request remain release follow-up work. Completed graph replays now
+mark every projected record with one run identity and remove stale graph records
+only after the final page; a short-lived PostgreSQL project lease prevents
+concurrent backfill workers from reconciling the same project. The workspace shows
+the removed node and relationship counts.

@@ -38,6 +38,11 @@ export interface ObservationProjectionResult {
   truncated: boolean
 }
 
+export interface ObservationReconciliationResult {
+  deletedNodes: number
+  deletedRelationships: number
+}
+
 function normaliseBatchSize(value: number | undefined): number {
   if (!Number.isFinite(value)) return DEFAULT_BATCH_SIZE
   return Math.min(MAX_BATCH_SIZE, Math.max(1, Math.floor(value as number)))
@@ -48,7 +53,7 @@ function normaliseOffset(value: number | undefined): number {
   return Math.min(MAX_PROJECTION_OFFSET, Math.max(0, Math.floor(value as number)))
 }
 
-function graphProperties(observation: ProjectableObservation): Record<string, ObservationValue> {
+function graphProperties(observation: ProjectableObservation, projectionRunId?: string): Record<string, ObservationValue> {
   const properties: Record<string, ObservationValue> = {
     observation_id: observation.id,
     project_id: observation.projectId,
@@ -62,6 +67,7 @@ function graphProperties(observation: ProjectableObservation): Record<string, Ob
     target_id: observation.targetId,
     artifact_id: observation.artifactId,
     updated_at: observation.updatedAt,
+    reamon_projection_run_id: projectionRunId || null,
   }
   for (const [key, value] of Object.entries(observation.attributes)) {
     properties[`reamon_attr_${key}`] = value
@@ -69,7 +75,7 @@ function graphProperties(observation: ProjectableObservation): Record<string, Ob
   return properties
 }
 
-function relationshipProperties(observation: ProjectableObservation): Record<string, ObservationValue> {
+function relationshipProperties(observation: ProjectableObservation, projectionRunId?: string): Record<string, ObservationValue> {
   const properties: Record<string, ObservationValue> = {
     project_id: observation.projectId,
     source: observation.source,
@@ -80,6 +86,7 @@ function relationshipProperties(observation: ProjectableObservation): Record<str
     updated_at: observation.updatedAt,
     from_canonical_key: observation.fromCanonicalKey,
     to_canonical_key: observation.toCanonicalKey,
+    reamon_projection_run_id: projectionRunId || null,
   }
   for (const [key, value] of Object.entries(observation.attributes)) {
     properties[`reamon_attr_${key}`] = value
@@ -97,6 +104,7 @@ export async function projectObservations(
   observations: ProjectableObservation[],
   projectId: string,
   requestedBatchSize?: number,
+  projectionRunId?: string,
 ): Promise<{ nodes: number; relationships: number }> {
   const batchSize = normaliseBatchSize(requestedBatchSize)
   const nodes = observations.filter((observation) => observation.kind !== 'relationship')
@@ -106,7 +114,7 @@ export async function projectObservations(
   )
 
   for (let index = 0; index < nodes.length; index += batchSize) {
-    const batch = nodes.slice(index, index + batchSize).map(graphProperties)
+    const batch = nodes.slice(index, index + batchSize).map((observation) => graphProperties(observation, projectionRunId))
     await session.run(
       `UNWIND $observations AS observation
        MERGE (n:ReamonObservation {
@@ -122,7 +130,7 @@ export async function projectObservations(
   for (let index = 0; index < relationships.length; index += batchSize) {
     const batch = relationships.slice(index, index + batchSize)
     const relationshipRows = batch.map((observation) => ({
-      ...relationshipProperties(observation),
+      ...relationshipProperties(observation, projectionRunId),
       from_key: observation.fromCanonicalKey || canonicalByReference.get(`${observation.source}:${observation.fromKey}`) || `source:${observation.source}:${observation.fromKey}`,
       to_key: observation.toCanonicalKey || canonicalByReference.get(`${observation.source}:${observation.toKey}`) || `source:${observation.source}:${observation.toKey}`,
       from_stable_key: observation.fromKey,
@@ -135,18 +143,20 @@ export async function projectObservations(
          canonical_key: relationship.from_key
        })
        ON CREATE SET from.kind = 'entity', from.observation_type = 'unknown', from.source = relationship.source, from.stable_key = relationship.from_stable_key
+       SET from.reamon_projection_run_id = $projectionRunId
        MERGE (to:ReamonObservation {
          project_id: $projectId,
          canonical_key: relationship.to_key
        })
        ON CREATE SET to.kind = 'entity', to.observation_type = 'unknown', to.source = relationship.source, to.stable_key = relationship.to_stable_key
+       SET to.reamon_projection_run_id = $projectionRunId
        MERGE (from)-[r:REAMON_RELATIONSHIP {
          project_id: $projectId,
          canonical_key: relationship.canonical_key
        }]->(to)
        SET r += relationship
        RETURN count(r)`,
-      { projectId, relationships: relationshipRows },
+      { projectId, projectionRunId: projectionRunId || null, relationships: relationshipRows },
     )
   }
 
@@ -159,6 +169,7 @@ export async function projectReamonObservations(
   requestedLimit?: number,
   requestedBatchSize?: number,
   requestedOffset?: number,
+  projectionRunId?: string,
 ): Promise<ObservationProjectionResult> {
   const limit = Math.min(MAX_PROJECTED_OBSERVATIONS, Math.max(1, Math.floor(Number.isFinite(requestedLimit) ? requestedLimit as number : MAX_PROJECTED_OBSERVATIONS)))
   const offset = normaliseOffset(requestedOffset)
@@ -199,7 +210,7 @@ export async function projectReamonObservations(
     toCanonicalKey: observation.toCanonicalKey,
     attributes: observation.attributes as ProjectableObservation['attributes'],
     updatedAt: observation.updatedAt.toISOString(),
-  })), projectId, requestedBatchSize)
+  })), projectId, requestedBatchSize, projectionRunId)
   return {
     projectId,
     offset,
@@ -208,4 +219,38 @@ export async function projectReamonObservations(
     ...result,
     truncated,
   }
+}
+
+/**
+ * Remove graph records from an explicitly completed projection run that are no
+ * longer present in the relational observation source. The run marker is
+ * written on every page, so this remains bounded in memory and safe for large
+ * projects. The caller must hold the project projection lease.
+ */
+export async function reconcileProjectedGraph(
+  session: Session,
+  projectId: string,
+  projectionRunId: string,
+): Promise<ObservationReconciliationResult> {
+  const relationshipResult = await session.run(
+    `MATCH ()-[relationship:REAMON_RELATIONSHIP {project_id: $projectId}]->()
+     WHERE coalesce(relationship.reamon_projection_run_id, '') <> $projectionRunId
+     DELETE relationship
+     RETURN count(*) AS deleted`,
+    { projectId, projectionRunId },
+  )
+  const nodeResult = await session.run(
+    `MATCH (node:ReamonObservation {project_id: $projectId})
+     WHERE coalesce(node.reamon_projection_run_id, '') <> $projectionRunId
+     DETACH DELETE node
+     RETURN count(*) AS deleted`,
+    { projectId, projectionRunId },
+  )
+  const value = (result: { records?: Array<{ get: (key: string) => unknown }> }) => {
+    const raw = result.records?.[0]?.get('deleted')
+    return typeof raw === 'object' && raw !== null && 'toNumber' in raw && typeof raw.toNumber === 'function'
+      ? raw.toNumber()
+      : Number(raw || 0)
+  }
+  return { deletedRelationships: value(relationshipResult), deletedNodes: value(nodeResult) }
 }

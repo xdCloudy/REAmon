@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getGraphSession } from '@/app/api/graph/neo4j'
 import prisma from '@/lib/prisma'
 import { isInternalRequest } from '@/lib/session'
-import { projectReamonObservations } from '@/lib/reamon/observation-projector'
+import { projectReamonObservations, reconcileProjectedGraph } from '@/lib/reamon/observation-projector'
 
 export const runtime = 'nodejs'
 
@@ -15,6 +15,8 @@ interface ProjectionBody {
   batchSize?: unknown
   offset?: unknown
 }
+
+const PROJECTION_LEASE_MS = 5 * 60 * 1000
 
 function badRequest(error: string) {
   return NextResponse.json({ error }, { status: 400, headers: { 'Cache-Control': 'no-store' } })
@@ -53,9 +55,37 @@ async function createProjectionRun(projectionRunId: string, projectId: string, o
   }
 }
 
+async function acquireProjectionLease(projectId: string, projectionRunId: string): Promise<boolean> {
+  const now = new Date()
+  const leaseUntil = new Date(now.getTime() + PROJECTION_LEASE_MS)
+  const rows = await prisma.$queryRaw<Array<{ project_id: string }>>(Prisma.sql`
+    INSERT INTO "reamon_projection_leases" ("project_id", "projection_run_id", "lease_until", "created_at", "updated_at")
+    VALUES (${projectId}, ${projectionRunId}, ${leaseUntil}, ${now}, ${now})
+    ON CONFLICT ("project_id") DO UPDATE
+      SET "projection_run_id" = EXCLUDED."projection_run_id",
+          "lease_until" = EXCLUDED."lease_until",
+          "updated_at" = EXCLUDED."updated_at"
+      WHERE "reamon_projection_leases"."projection_run_id" = ${projectionRunId}
+         OR "reamon_projection_leases"."lease_until" <= ${now}
+    RETURNING "project_id"
+  `)
+  return rows.length === 1
+}
+
+async function releaseProjectionLease(projectId: string, projectionRunId: string) {
+  try {
+    await prisma.$executeRaw(Prisma.sql`
+      DELETE FROM "reamon_projection_leases"
+      WHERE "project_id" = ${projectId} AND "projection_run_id" = ${projectionRunId}
+    `)
+  } catch (error) {
+    console.error('Failed to release REAmon projection lease:', error)
+  }
+}
+
 async function finishProjectionRun(
   projectionRunId: string,
-  data: { status: string; offset?: number; selected?: number; nodes?: number; relationships?: number; truncated?: boolean; error?: string; completedAt?: Date },
+  data: { status: string; offset?: number; selected?: number; nodes?: number; relationships?: number; truncated?: boolean; reconciled?: boolean; deletedNodes?: number; deletedRelationships?: number; error?: string; completedAt?: Date },
 ) {
   try {
     await prisma.reamonProjectionRun.update({ where: { projectionRunId }, data })
@@ -69,6 +99,9 @@ export async function POST(request: NextRequest) {
 
   let projectId: string | null = null
   let projectionRunId: string | null = null
+  let projectionRunCreated = false
+  let projectionLeaseAcquired = false
+  let projectionLeaseShouldRelease = false
   try {
     let body: ProjectionBody
     try {
@@ -85,7 +118,15 @@ export async function POST(request: NextRequest) {
 
     projectId = body.projectId.trim()
     projectionRunId = typeof body.projectionRunId === 'string' ? body.projectionRunId.trim() : randomUUID()
+    projectionLeaseAcquired = await acquireProjectionLease(projectId, projectionRunId)
+    if (!projectionLeaseAcquired) {
+      return NextResponse.json({ error: 'A graph projection is already running for this project' }, {
+        status: 409,
+        headers: { 'Cache-Control': 'no-store', 'Retry-After': '30' },
+      })
+    }
     await createProjectionRun(projectionRunId, projectId, typeof body.offset === 'number' ? Math.min(1_000_000, Math.max(0, Math.floor(body.offset))) : 0)
+    projectionRunCreated = true
     await recordProjectionActivity(projectId, 'analysis.graph_projection.started', `Started graph projection for ${projectId}`, {
       projectionRunId,
       limit: body.limit ?? null,
@@ -95,7 +136,11 @@ export async function POST(request: NextRequest) {
 
     const session = getGraphSession()
     try {
-      const result = await projectReamonObservations(projectId, session, body.limit as number | undefined, body.batchSize as number | undefined, body.offset as number | undefined)
+      const result = await projectReamonObservations(projectId, session, body.limit as number | undefined, body.batchSize as number | undefined, body.offset as number | undefined, projectionRunId)
+      projectionLeaseShouldRelease = !result.truncated
+      const reconciliation = result.truncated
+        ? { reconciled: false, deletedNodes: 0, deletedRelationships: 0 }
+        : { reconciled: true, ...(await reconcileProjectedGraph(session, projectId, projectionRunId)) }
       await finishProjectionRun(projectionRunId, {
         status: 'COMPLETED',
         offset: result.offset,
@@ -103,18 +148,21 @@ export async function POST(request: NextRequest) {
         nodes: result.nodes,
         relationships: result.relationships,
         truncated: result.truncated,
+        ...reconciliation,
         completedAt: new Date(),
       })
       await recordProjectionActivity(projectId, 'analysis.graph_projection.completed', `Projected ${result.nodes} nodes and ${result.relationships} relationships for ${projectId}`, {
         projectionRunId,
         ...result,
+        ...reconciliation,
       })
-      return NextResponse.json({ ...result, projectionRunId }, { headers: { 'Cache-Control': 'no-store' } })
+      return NextResponse.json({ ...result, ...reconciliation, projectionRunId }, { headers: { 'Cache-Control': 'no-store' } })
     } finally {
       await session.close()
     }
   } catch (error) {
-    if (projectId && projectionRunId) {
+    projectionLeaseShouldRelease = true
+    if (projectId && projectionRunId && projectionRunCreated) {
       await finishProjectionRun(projectionRunId, {
         status: 'FAILED',
         error: error instanceof Error ? error.message.slice(0, 1000) : 'Unknown projection error',
@@ -127,5 +175,7 @@ export async function POST(request: NextRequest) {
     }
     console.error('Failed to project REAmon observations:', error)
     return NextResponse.json({ error: 'Failed to project observations' }, { status: 500, headers: { 'Cache-Control': 'no-store' } })
+  } finally {
+    if (projectId && projectionRunId && projectionLeaseAcquired && projectionLeaseShouldRelease) await releaseProjectionLease(projectId, projectionRunId)
   }
 }
