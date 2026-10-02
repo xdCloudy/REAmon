@@ -39,7 +39,7 @@ REAmon is an incremental fork of RedAmon. This table records the current boundar
 
 - A separate `Workspace` database table is deferred. The existing `Project` record already supplies identity, ownership, and settings, so duplicating it would create avoidable migration risk.
 - Unknown input is persisted as a valid target profile rather than rejected.
-- The first profiler is local and the source inspector is a typed, bounded `strings` process provider. The production image includes that executable; the provider remains optional at scheduling time and fails closed when its controlled artifact path or executable is unavailable.
+- The first profiler is local and the source/ELF inspectors are typed, bounded `strings` and `readelf` process providers. The production image includes those executables; providers remain optional at scheduling time and fail closed when a controlled artifact path or executable is unavailable.
 - Artifact bytes are stored under a dedicated configurable volume. The service must never commit uploaded target data.
 - `REAMON_MAX_ARTIFACT_BYTES`, `REAMON_MAX_IMPORT_FILES`, and `REAMON_MAX_IMPORT_BYTES` are enforced before storage and are configurable per deployment; defaults are sized for real application investigations while remaining bounded.
 - Target import writes the file before the relational transaction, then removes those bytes if persistence fails. Artifact downloads require project access and cannot escape the configured storage root.
@@ -59,7 +59,7 @@ persist retry-safe typed observations that appear in the workspace. Active provi
 leases now record an owner and refresh a guarded heartbeat, while stale recovery remains
 safe for older rows without one. Providers receive a cooperative cancellation signal
 when operators cancel running work. Derived-artifact provenance, server-mounted sources,
-multi-worker stress testing, true background uploads,
+the staging multi-worker drill (hermetic contention coverage is now tested), true background uploads,
 additional MCP/process adapters,
 and replacing older duplicate artifact rows during refresh remain follow-up work. The
 workspace task panel now refreshes active work automatically and labels the current

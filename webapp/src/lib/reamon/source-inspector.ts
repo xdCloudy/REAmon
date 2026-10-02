@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { spawn } from 'node:child_process'
+import { runBoundedProcess } from './bounded-process'
 import type { ToolExecutionInput, ToolPlugin, ToolPluginManifest, ToolResult } from './types'
 
 const DEFAULT_TIMEOUT_MS = 60_000
@@ -40,101 +40,14 @@ function boundedError(error: unknown): string {
   return (error instanceof Error ? error.message : String(error)).trim().slice(0, 4000) || 'Process provider failed'
 }
 
-interface ProcessResult {
-  stdout: string
-  stderr: string
-  truncated: boolean
-}
-
-function runStrings(artifactPath: string, signal: AbortSignal | undefined, maxOutputBytes: number, timeoutMs: number): Promise<ProcessResult> {
-  return new Promise((resolve, reject) => {
-    if (signal?.aborted) {
-      reject(new Error('Provider execution cancelled'))
-      return
-    }
-
-    const child = spawn('strings', ['-a', '-n', '4', '--', artifactPath], {
-      shell: false,
-      windowsHide: true,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    })
-    const stdout: Buffer[] = []
-    const stderr: Buffer[] = []
-    let stdoutBytes = 0
-    let stderrBytes = 0
-    let truncated = false
-    let aborted = false
-    let timedOut = false
-    let finished = false
-    let killTimer: NodeJS.Timeout | undefined
-    const timeout = setTimeout(() => {
-      timedOut = true
-      child.kill('SIGTERM')
-      killTimer = setTimeout(() => child.kill('SIGKILL'), 2_000)
-      killTimer.unref?.()
-    }, timeoutMs)
-    timeout.unref?.()
-
-    const finishError = (error: Error) => {
-      if (finished) return
-      finished = true
-      clearTimeout(timeout)
-      if (killTimer) clearTimeout(killTimer)
-      signal?.removeEventListener('abort', onAbort)
-      reject(error)
-    }
-    const onAbort = () => {
-      aborted = true
-      child.kill('SIGTERM')
-      killTimer = setTimeout(() => child.kill('SIGKILL'), 2_000)
-      killTimer.unref?.()
-    }
-    const appendStdout = (chunk: Buffer) => {
-      if (stdoutBytes >= maxOutputBytes) {
-        truncated = true
-        return
-      }
-      const remaining = maxOutputBytes - stdoutBytes
-      const bounded = chunk.byteLength > remaining ? chunk.subarray(0, remaining) : chunk
-      stdout.push(bounded)
-      stdoutBytes += bounded.byteLength
-      if (bounded.byteLength < chunk.byteLength) {
-        truncated = true
-        child.kill('SIGTERM')
-      }
-    }
-
-    signal?.addEventListener('abort', onAbort, { once: true })
-    child.stdout.on('data', appendStdout)
-    child.stderr.on('data', (chunk: Buffer) => {
-      const remaining = 64 * 1024 - stderrBytes
-      if (remaining <= 0) return
-      const bounded = chunk.subarray(0, remaining)
-      stderr.push(bounded)
-      stderrBytes += bounded.byteLength
-    })
-    child.once('error', (error) => finishError(error instanceof Error ? error : new Error(String(error))))
-    child.once('close', (code) => {
-      if (finished) return
-      finished = true
-      clearTimeout(timeout)
-      if (killTimer) clearTimeout(killTimer)
-      signal?.removeEventListener('abort', onAbort)
-      if (aborted) {
-        reject(new Error('Provider execution cancelled'))
-        return
-      }
-      if (timedOut) {
-        reject(new Error(`strings provider timed out after ${Math.ceil(timeoutMs / 1000)} seconds`))
-        return
-      }
-      if (code !== 0 && !truncated) {
-        const detail = Buffer.concat(stderr).toString('utf8').trim()
-        reject(new Error(detail || `strings provider exited with code ${code ?? 'unknown'}`))
-        return
-      }
-      resolve({ stdout: Buffer.concat(stdout).toString('utf8'), stderr: Buffer.concat(stderr).toString('utf8'), truncated })
-    })
+function runStrings(artifactPath: string, signal: AbortSignal | undefined, maxOutputBytes: number, timeoutMs: number) {
+  return runBoundedProcess({
+    executable: 'strings',
+    args: ['-a', '-n', '4', '--', artifactPath],
+    signal,
+    maxOutputBytes,
+    timeoutMs,
+    timeoutError: (value) => `strings provider timed out after ${Math.ceil(value / 1000)} seconds`,
   })
 }
 

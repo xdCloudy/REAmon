@@ -31,6 +31,7 @@ const AGENT_API_URL = process.env.AGENT_API_URL || 'http://localhost:8080'
 
 // Recon orchestrator URL for file deletion
 const RECON_ORCHESTRATOR_URL = process.env.RECON_ORCHESTRATOR_URL || 'http://localhost:8010'
+const TRIAGE_STOP_TIMEOUT_MS = 1_000
 
 interface RouteParams {
   params: Promise<{ id: string }>
@@ -536,7 +537,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     // Best-effort: an unreachable agent must not block the delete, because the
     // run's publish and heartbeat both fail closed on the missing project.
     try {
-      await callGraphTriage('stop_run', { userId: eff.userId, projectId: id })
+      await callGraphTriage('stop_run', { userId: eff.userId, projectId: id }, {}, { timeoutMs: TRIAGE_STOP_TIMEOUT_MS })
     } catch (e) {
       console.warn('Could not stop a triage run before project delete:', e)
     }

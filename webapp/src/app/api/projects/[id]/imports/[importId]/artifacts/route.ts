@@ -27,8 +27,9 @@ function basenameOf(relativePath: string): string {
   return relativePath.split('/').pop() || relativePath
 }
 
-function storagePathFor(projectId: string, importId: string, artifactId: string): { relative: string; absolute: string } {
-  return confinedStoragePath(path.join(projectId, importId, artifactId))
+function storagePathFor(projectId: string, importId: string, artifactId: string, sha256: string): { relative: string; absolute: string } {
+  // Keep each upload immutable so a failed retry cannot overwrite live bytes.
+  return confinedStoragePath(path.join(projectId, importId, artifactId, sha256))
 }
 
 function confinedStoragePath(relative: string): { relative: string; absolute: string } {
@@ -42,7 +43,6 @@ function confinedStoragePath(relative: string): { relative: string; absolute: st
 export async function POST(request: Request, { params }: RouteParams) {
   let writtenPath = ''
   let databaseCommitted = false
-  let existingArtifact = false
   try {
     const { id: projectId, importId } = await params
     const effectiveUser = await requireEffectiveUser()
@@ -87,11 +87,8 @@ export async function POST(request: Request, { params }: RouteParams) {
       where: { projectId, importId, relativePath },
       select: { id: true, storagePath: true, targetId: true, sizeBytes: true },
     })
-    existingArtifact = Boolean(existing)
     const artifactId = existing?.id || randomUUID()
-    const storage = existing?.storagePath
-      ? confinedStoragePath(existing.storagePath)
-      : storagePathFor(projectId, importId, artifactId)
+    const storage = storagePathFor(projectId, importId, artifactId, sha256)
     writtenPath = storage.absolute
     await mkdir(path.dirname(storage.absolute), { recursive: true })
     await writeFile(storage.absolute, bytes)
@@ -202,7 +199,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       },
     }, { status: existing ? 200 : 201, headers: { 'Cache-Control': 'no-store' } })
   } catch (error) {
-    if (writtenPath && !databaseCommitted && !existingArtifact) await unlink(writtenPath).catch(() => {})
+    if (writtenPath && !databaseCommitted) await unlink(writtenPath).catch(() => {})
     console.error('Failed to import REAmon workspace artifact:', error)
     const message = error instanceof Error ? error.message : 'Failed to upload artifact'
     return NextResponse.json({ error: /path|manifest|file|import|limit|absolute|invalid/i.test(message) ? message : 'Failed to upload artifact' }, { status: 400, headers: { 'Cache-Control': 'no-store' } })

@@ -65,8 +65,9 @@ The first REAmon milestone is implemented and running on the `reamon/bootstrap` 
   executing providers in the request path.
 - Show targets, artifacts, detected metadata, capabilities, progress, findings,
   hypotheses, evidence, and activity in a real data-backed dashboard.
-- Run a bounded `strings` process provider against stored source artifacts, capture
-  stable string observations, and terminate the process on cancellation or timeout.
+- Run bounded `strings` and `readelf` process providers against stored source and
+  ELF artifacts, capture stable observations, and terminate the process on
+  cancellation or timeout.
 - Converge observations with explicit provider-independent identity hints before
   graph projection, including explicit relationship endpoint hints while retaining
   source-specific keys for provenance.
@@ -106,10 +107,10 @@ tests, and an operational path.
 | Provider results and knowledge graph ingestion | 20% | 82% | Richer repair UX and additional result adapters. |
 | Approvals, live activity, and operator controls | 10% | 30% | Durable event projection, approvals, and richer recovery UX. |
 | Legacy RedAmon migration | 10% | 40% | Move remaining project, agent, report, and settings surfaces without breaking existing data. |
-| Production hardening and release QA | 10% | 92% | Backup/restore drills, multi-worker stress, and final deployment evidence. |
+| Production hardening and release QA | 10% | 92% | Backup/restore drills, a staging multi-worker drill, and final deployment evidence. |
 
 The main path to “shipped” is therefore: add additional MCP/process providers and
-multi-worker stress coverage → finish migration and
+complete the staging multi-worker drill → finish migration and
 production QA. See [`docs/REAMON_ARCHITECTURE.md`](docs/REAMON_ARCHITECTURE.md)
 for the boundary decisions behind this sequence.
 
@@ -302,8 +303,8 @@ docs/REAMON_*.md           Current architecture and migration decisions
 
 ## Roadmap
 
-1. Add the remaining MCP/process providers and multi-worker stress coverage around
-   the existing ownership, retry, and process-cancellation path.
+1. Add the remaining MCP/process providers and complete the staging multi-worker
+   drill around the existing ownership, retry, and process-cancellation path.
 2. Ingest universal code/data/runtime entities and relationships into Neo4j.
 3. Add approvals and live event streaming for target-agnostic analysis workflows.
 4. Migrate the inherited project, agent, report, and settings surfaces away from

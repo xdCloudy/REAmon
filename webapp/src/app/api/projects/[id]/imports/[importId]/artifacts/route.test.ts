@@ -3,7 +3,7 @@
  *
  * @vitest-environment node
  */
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { beforeEach, afterEach, describe, expect, test, vi } from 'vitest'
@@ -127,7 +127,7 @@ describe('POST /api/projects/[id]/imports/[importId]/artifacts', () => {
         importId: 'import-1',
         relativePath: 'bin/app.exe',
         parentPath: 'bin',
-        storagePath: expect.stringMatching(/^project-1[\\/]import-1[\\/][a-f0-9-]+$/),
+        storagePath: expect.stringMatching(/^project-1[\\/]import-1[\\/][a-f0-9-]+[\\/][a-f0-9]{64}$/),
       }),
     }))
     const storagePath = mocks.artifactCreate.mock.calls[0][0].data.storagePath as string
@@ -165,5 +165,24 @@ describe('POST /api/projects/[id]/imports/[importId]/artifacts', () => {
     expect(mocks.importUpdate).toHaveBeenCalledWith(expect.objectContaining({
       data: { status: 'UPLOADING' },
     }))
+  })
+
+  test('keeps the previous bytes when an existing-artifact retry cannot commit', async () => {
+    const previousStoragePath = 'project-1/import-1/artifact-existing/old-content'
+    await mkdir(path.join(storageRoot, path.dirname(previousStoragePath)), { recursive: true })
+    await writeFile(path.join(storageRoot, previousStoragePath), 'previous')
+    mocks.artifactFindFirst.mockResolvedValue({
+      id: 'artifact-existing',
+      storagePath: previousStoragePath,
+      targetId: 'target-existing',
+      sizeBytes: 8,
+    })
+    mocks.transaction.mockRejectedValueOnce(new Error('database unavailable'))
+
+    const response = await POST(uploadRequest('bin/app.exe'), params())
+
+    expect(response.status).toBe(400)
+    expect(await readFile(path.join(storageRoot, previousStoragePath), 'utf8')).toBe('previous')
+    expect(mocks.artifactUpdate).not.toHaveBeenCalled()
   })
 })

@@ -170,10 +170,11 @@ The first provider contract is in `webapp/src/lib/reamon/types.ts`:
 - `ToolObservation`: a stable-keyed `entity`, `relationship`, or `fact` that can be upserted into the project knowledge layer.
 - `ToolPlugin`: a manifest plus an execution function.
 
-The resolver currently registers two built-in providers: the profiler provider and a
-source inspector backed by a bounded `strings` process adapter. The source adapter
-receives only a confined server-side artifact path, never a user-controlled command
-or shell expression, and converts bounded stdout into stable observations. Future
+The resolver currently registers three built-in providers: the profiler provider, a
+source inspector backed by a bounded `strings` process adapter, and an ELF header
+inspector backed by `readelf`. Process adapters receive only a confined server-side
+artifact path, never a user-controlled command or shell expression, and convert
+bounded stdout into stable observations. Future
 providers can connect through three equivalent boundaries:
 
 1. Native REAmon plugins for deep integrations.
@@ -182,7 +183,7 @@ providers can connect through three equivalent boundaries:
 
 The command adapter boundary validates fixed arguments, constrains execution to the
 configured artifact path, captures bounded stdout/stderr, and converts the result
-into `ToolResult`. The first adapter is intentionally narrow; each additional
+into `ToolResult`. The initial adapters are intentionally narrow; each additional
 command must declare its executable, timeout, output bound, and cancellation policy.
 
 Capability resolution is available at both artifact and workspace level. Artifact
@@ -284,7 +285,7 @@ and the last provider error; the workspace labels workers stale after a bounded
 silence window and surfaces stale/degraded worker alerts. Failed dispatches can also
 send an optional environment-configured webhook with bounded, non-secret JSON; URL
 validation, a five-second timeout, and best-effort handling keep alert delivery from
-blocking work. Remaining worker hardening is multi-worker stress testing and
+blocking work. Remaining worker hardening is the staging multi-worker drill and
 additional MCP/process adapters. The worker also performs a bounded, round-robin
 historical backfill sweep for projects with normalized observations; set
 `REAMON_WORKER_BACKFILL_INTERVAL_SECONDS=0` to disable it. Projection runs now persist started/completed/failed

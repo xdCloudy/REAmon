@@ -164,6 +164,75 @@ describe('executeAnalysisTask', () => {
     expect(mocks.evidenceCreate).toHaveBeenCalledOnce()
   })
 
+  test('stress: settles each task once when many workers contend across a batch', async () => {
+    const taskCount = 24
+    const workerCount = 8
+    const states = new Map<string, { status: 'QUEUED' | 'RUNNING' | 'COMPLETED'; runToken: string | null }>(
+      Array.from({ length: taskCount }, (_, index) => [`task-${index + 1}`, { status: 'QUEUED', runToken: null }]),
+    )
+    const executions = new Map<string, number>()
+    const rowFor = (id: string) => {
+      const state = states.get(id)
+      return task({
+        id,
+        artifactId: `artifact-${id}`,
+        status: state?.status || 'QUEUED',
+        runToken: state?.runToken,
+        artifact: { id: `artifact-${id}`, targetId: 'target-1', relativePath: `${id}.c`, storagePath: `project-1/import-1/${id}`, profile: { targetType: 'FILE', format: 'source' } },
+      })
+    }
+    const pause = () => new Promise<void>((resolve) => setImmediate(resolve))
+
+    mocks.taskFindFirst.mockImplementation(async (input: { where?: { id?: string; status?: string } }) => {
+      await pause()
+      const id = input.where?.id || 'task-1'
+      const state = states.get(id)
+      if (input.where?.status === 'CANCELLED') return null
+      return state ? rowFor(id) : null
+    })
+    mocks.taskUpdateMany.mockImplementation(async (input: { where: { id: string; status: string; runToken?: string }; data: { status: 'RUNNING'; runToken?: string } }) => {
+      await pause()
+      const state = states.get(input.where.id)
+      if (!state || state.status !== input.where.status || (input.where.runToken && state.runToken !== input.where.runToken)) return { count: 0 }
+      if (input.data.status === 'RUNNING') {
+        state.status = 'RUNNING'
+        state.runToken = input.data.runToken || null
+      }
+      return { count: 1 }
+    })
+    mocks.taskSettleUpdateMany.mockImplementation(async (input: { where: { id: string; status: string; runToken: string }; data: { status: 'COMPLETED' } }) => {
+      await pause()
+      const state = states.get(input.where.id)
+      if (!state || state.status !== input.where.status || state.runToken !== input.where.runToken) return { count: 0 }
+      state.status = input.data.status
+      return { count: 1 }
+    })
+    mocks.taskFindUnique.mockImplementation(async (input: { where: { id: string } }) => rowFor(input.where.id))
+    mocks.analyze.mockImplementation(async ({ artifactId }: { artifactId?: string }) => {
+      await pause()
+      const id = artifactId?.replace('artifact-', '') || 'unknown'
+      executions.set(id, (executions.get(id) || 0) + 1)
+      return {
+        status: 'completed', toolId: provider.manifest.id, capabilities: ['extract_strings'], produced: ['String'], data: {
+          strings: ['hello'],
+          observations: [{ kind: 'entity', type: 'function', key: `fn:${id}`, label: 'main', attributes: { address: 4096 } }],
+        },
+      }
+    })
+
+    const attempts = Array.from(states.keys()).flatMap((taskId) =>
+      Array.from({ length: workerCount }, (_, worker) => executeAnalysisTask('project-1', taskId, `worker-${worker + 1}`)),
+    )
+    const results = await Promise.all(attempts)
+
+    expect(executions.size).toBe(taskCount)
+    expect([...executions.values()]).toEqual(Array(taskCount).fill(1))
+    expect(mocks.evidenceCreate).toHaveBeenCalledTimes(taskCount)
+    expect(mocks.observationUpsert).toHaveBeenCalledTimes(taskCount)
+    expect(results.filter((result) => result?.outcome === 'COMPLETED')).toHaveLength(taskCount)
+    expect(results.filter((result) => result?.outcome === 'SKIPPED')).toHaveLength(taskCount * (workerCount - 1))
+  })
+
   test('refreshes the lease while a provider is still running', async () => {
     vi.useFakeTimers()
     const previousHeartbeatSeconds = process.env.REAMON_TASK_HEARTBEAT_SECONDS

@@ -84,6 +84,10 @@ export type TriageOp =
   | 'list_findings' | 'human_verdict' | 'preflight' | 'stop_run'
   | 'mute_batch'
 
+export interface TriageFetchOptions {
+  timeoutMs?: number
+}
+
 /**
  * Call the agent's internal `/graph/triage`, where the graph writes live, and
  * hand back the status and parsed body for a route that post-processes them.
@@ -92,6 +96,7 @@ export async function graphTriage(
   op: TriageOp,
   caller: TriageCaller,
   extra: Record<string, unknown> = {},
+  fetchOptions: TriageFetchOptions = {},
 ): Promise<{ status: number; body: Record<string, unknown> }> {
   try {
     const res = await agentFetch('/graph/triage', {
@@ -103,7 +108,7 @@ export async function graphTriage(
         project_id: caller.projectId,
         ...extra,
       }),
-    })
+    }, fetchOptions)
     const body = await res.json().catch(() => ({ error: 'invalid response from agent' }))
     return { status: res.status, body }
   } catch (err) {
@@ -124,7 +129,8 @@ export async function callGraphTriage(
   op: TriageOp,
   caller: TriageCaller,
   extra: Record<string, unknown> = {},
+  fetchOptions: TriageFetchOptions = {},
 ): Promise<NextResponse> {
-  const { status, body } = await graphTriage(op, caller, extra)
+  const { status, body } = await graphTriage(op, caller, extra, fetchOptions)
   return NextResponse.json(body, { status })
 }

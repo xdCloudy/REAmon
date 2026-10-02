@@ -17,6 +17,17 @@ const profile = (overrides: Partial<TargetProfile> = {}): TargetProfile => ({
 })
 
 describe('REAmon capability resolution', () => {
+  it('offers the built-in ELF header inspector for ELF artifacts', () => {
+    expect(resolveCapabilities(profile())).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        pluginId: 'reamon-elf-inspector',
+        integration: 'process',
+        acceptsFormats: ['elf'],
+        capabilities: ['inspect_binary_header'],
+      }),
+    ]))
+  })
+
   it('matches generic profiling and rejects format-specific tools', () => {
     const plugin: ToolPlugin = {
       manifest: {
