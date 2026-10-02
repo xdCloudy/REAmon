@@ -28,7 +28,9 @@ describe('WorkspaceTaskList', () => {
   })
 
   test('retries a failed task', async () => {
-    render(<WorkspaceTaskList projectId="project-1" tasks={[{ id: 'task-1', title: 'Inspect source', status: 'FAILED', progress: 10 }]} />)
+    render(<WorkspaceTaskList projectId="project-1" tasks={[{ id: 'task-1', title: 'Inspect source', status: 'FAILED', progress: 10, error: 'Provider timed out' }]} />)
+
+    expect(screen.getByText('Provider timed out')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Inspect source was requeued.'))

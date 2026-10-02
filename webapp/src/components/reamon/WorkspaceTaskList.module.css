@@ -3,6 +3,7 @@
 .toolbarHint { color: var(--text-secondary); font-size: var(--text-xs); }
 .row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: var(--space-3); align-items: center; border-bottom: 1px solid var(--border-subtle); padding: var(--space-2) 0; }
 .title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.error { color: var(--status-danger-text); display: block; font-size: var(--text-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .status { color: var(--text-secondary); font-size: var(--text-sm); white-space: nowrap; }
 .actions { display: inline-flex; gap: var(--space-2); justify-content: flex-end; }
 .actionButton { border: 1px solid var(--border-default); border-radius: var(--radius-sm); background: var(--bg-primary); color: var(--text-primary); cursor: pointer; font-size: var(--text-xs); padding: .3rem .55rem; white-space: nowrap; }
