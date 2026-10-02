@@ -1,15 +1,11 @@
 import { readFile } from 'node:fs/promises'
-import path from 'node:path'
 import { NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
 import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
+import { resolveArtifactStoragePath } from '@/lib/reamon/artifact-storage'
 
 interface RouteParams {
   params: Promise<{ id: string; artifactId: string }>
-}
-
-function artifactRoot(): string {
-  return path.resolve(process.env.REAMON_ARTIFACTS_PATH || path.join(process.cwd(), 'data', 'reamon-artifacts'))
 }
 
 function safeDownloadName(name: string): string {
@@ -31,15 +27,21 @@ export async function GET(_request: Request, { params }: RouteParams) {
     })
     if (!artifact) return NextResponse.json({ error: 'Artifact not found' }, { status: 404, headers: { 'Cache-Control': 'no-store' } })
 
-    const root = artifactRoot()
-    const filePath = path.resolve(root, artifact.storagePath)
-    const relative = path.relative(root, filePath)
-    if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
+    let filePath: string
+    try {
+      filePath = resolveArtifactStoragePath(artifact.storagePath)
+    } catch {
       console.error('Refusing artifact path outside REAmon storage root')
       return NextResponse.json({ error: 'Artifact storage path is invalid' }, { status: 500, headers: { 'Cache-Control': 'no-store' } })
     }
 
-    const bytes = await readFile(filePath)
+    let bytes: Buffer
+    try {
+      bytes = await readFile(filePath)
+    } catch (error) {
+      console.error('REAmon artifact bytes are unavailable:', error)
+      return NextResponse.json({ error: 'Artifact is temporarily unavailable' }, { status: 503, headers: { 'Cache-Control': 'no-store' } })
+    }
     return new NextResponse(new Uint8Array(bytes), {
       headers: {
         'Cache-Control': 'private, no-store',
@@ -50,6 +52,6 @@ export async function GET(_request: Request, { params }: RouteParams) {
     })
   } catch (error) {
     console.error('Failed to download REAmon artifact:', error)
-    return NextResponse.json({ error: 'Artifact is unavailable' }, { status: 404, headers: { 'Cache-Control': 'no-store' } })
+    return NextResponse.json({ error: 'Failed to download artifact' }, { status: 500, headers: { 'Cache-Control': 'no-store' } })
   }
 }
