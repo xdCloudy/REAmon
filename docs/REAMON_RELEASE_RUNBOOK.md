@@ -74,6 +74,13 @@ non-empty before proceeding.
    docker compose ps
    ```
 
+   Verify that the bounded REAmon process providers are present in the actual
+   runtime image:
+
+   ```bash
+   docker compose exec -T webapp sh -lc 'command -v strings && command -v readelf && command -v file'
+   ```
+
 The readiness endpoint must report both PostgreSQL and writable artifact storage as
 healthy. A failed readiness check is a release failure; do not route traffic to the
 new container while it is unhealthy.
@@ -152,6 +159,7 @@ For a destructive schema change or corrupted data:
 
 - Compose renders without errors and all expected services are healthy.
 - `/api/health/ready` returns HTTP 200 with database and artifact checks `ok`.
+- The runtime image contains `strings`, `readelf`, and `file` for bounded REAmon providers.
 - No repeated migration, worker, or graph projection errors appear in the last five
   minutes of logs.
 - A test workspace can import an artifact, schedule analysis, display its task

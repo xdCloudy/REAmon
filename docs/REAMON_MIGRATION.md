@@ -39,7 +39,7 @@ REAmon is an incremental fork of RedAmon. This table records the current boundar
 
 - A separate `Workspace` database table is deferred. The existing `Project` record already supplies identity, ownership, and settings, so duplicating it would create avoidable migration risk.
 - Unknown input is persisted as a valid target profile rather than rejected.
-- The first profiler is local and the source/ELF inspectors are typed, bounded `strings` and `readelf` process providers. The production image includes those executables; providers remain optional at scheduling time and fail closed when a controlled artifact path or executable is unavailable.
+- The first profiler is local and the source/ELF/file inspectors are typed, bounded `strings`, `readelf`, and `file` process providers. The production image includes those executables; providers remain optional at scheduling time and fail closed when a controlled artifact path or executable is unavailable.
 - Artifact bytes are stored under a dedicated configurable volume. The service must never commit uploaded target data.
 - `REAMON_MAX_ARTIFACT_BYTES`, `REAMON_MAX_IMPORT_FILES`, and `REAMON_MAX_IMPORT_BYTES` are enforced before storage and are configurable per deployment; defaults are sized for real application investigations while remaining bounded.
 - Target import writes the file before the relational transaction, then removes those bytes if persistence fails. Artifact downloads require project access and cannot escape the configured storage root.
