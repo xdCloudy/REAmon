@@ -136,6 +136,34 @@ describe('executeAnalysisTask', () => {
     expect(mocks.analyze).not.toHaveBeenCalled()
   })
 
+  test('allows only one provider execution when two workers claim the same task', async () => {
+    let initialReads = 0
+    mocks.taskFindFirst.mockImplementation(async (input: { where?: { status?: string } }) => {
+      if (input.where?.status === 'CANCELLED') return null
+      initialReads += 1
+      return initialReads <= 2 ? task() : task({ status: 'RUNNING', leaseOwner: 'worker-a' })
+    })
+    mocks.taskUpdateMany
+      .mockResolvedValueOnce({ count: 1 })
+      .mockResolvedValueOnce({ count: 0 })
+
+    let release!: (result: ToolResult) => void
+    mocks.analyze.mockImplementation(() => new Promise<ToolResult>((resolve) => { release = resolve }))
+
+    const first = executeAnalysisTask('project-1', 'task-1', 'worker-a')
+    const second = executeAnalysisTask('project-1', 'task-1', 'worker-b')
+    await new Promise<void>((resolve) => setImmediate(resolve))
+
+    expect(mocks.analyze).toHaveBeenCalledOnce()
+    release({
+      status: 'completed', toolId: provider.manifest.id, capabilities: ['extract_strings'], produced: ['String'], data: { strings: ['hello'] },
+    })
+    const results = await Promise.all([first, second])
+
+    expect(results.map((result) => result?.outcome)).toEqual(['COMPLETED', 'SKIPPED'])
+    expect(mocks.evidenceCreate).toHaveBeenCalledOnce()
+  })
+
   test('refreshes the lease while a provider is still running', async () => {
     vi.useFakeTimers()
     const previousHeartbeatSeconds = process.env.REAMON_TASK_HEARTBEAT_SECONDS
