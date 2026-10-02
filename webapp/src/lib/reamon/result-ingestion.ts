@@ -82,6 +82,8 @@ function normalizeObservation(value: unknown): ToolObservation | null {
     relation: boundedString(record.relation, 256) || undefined,
     fromKey: boundedString(record.fromKey, 256) || undefined,
     toKey: boundedString(record.toKey, 256) || undefined,
+    fromCanonicalKey: boundedString(record.fromCanonicalKey, 512) || undefined,
+    toCanonicalKey: boundedString(record.toCanonicalKey, 512) || undefined,
     attributes: asAttributes(record.attributes),
   }
   if (kind === 'relationship' && (!observation.fromKey || !observation.toKey)) return null
@@ -156,6 +158,8 @@ export async function ingestToolResult(
         relation: observation.relation,
         fromKey: observation.fromKey,
         toKey: observation.toKey,
+        fromCanonicalKey: observation.fromCanonicalKey,
+        toCanonicalKey: observation.toCanonicalKey,
         attributes,
       },
       update: {
@@ -169,6 +173,8 @@ export async function ingestToolResult(
         relation: observation.relation,
         fromKey: observation.fromKey,
         toKey: observation.toKey,
+        fromCanonicalKey: observation.fromCanonicalKey,
+        toCanonicalKey: observation.toCanonicalKey,
         attributes,
       },
     })

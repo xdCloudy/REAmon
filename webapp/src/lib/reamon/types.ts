@@ -132,6 +132,8 @@ export interface ToolObservation {
   relation?: string
   fromKey?: string
   toKey?: string
+  fromCanonicalKey?: string
+  toCanonicalKey?: string
   attributes: ObservationAttributes
 }
 

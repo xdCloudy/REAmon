@@ -60,13 +60,13 @@ leases now record an owner and refresh a guarded heartbeat, while stale recovery
 safe for older rows without one. Providers receive a cooperative cancellation signal
 when operators cancel running work. Derived-artifact provenance, server-mounted sources,
 multi-worker stress testing, external alert delivery, true background uploads,
-additional MCP/process adapters, relationship identity hints, graph-rebuild provenance,
+additional MCP/process adapters, graph-rebuild provenance,
 and replacing older duplicate artifact rows during refresh remain follow-up work. The
 workspace task panel now refreshes active work automatically and labels the current
 worker plus heartbeat freshness. The internal projection route can replay the
 normalized observation store into Neo4j,
-and the worker invokes it for projects with completed tasks; relationship identity
-hints and historical backfill scheduling are still follow-up work. Projection runs now
+and the worker invokes it for projects with completed tasks; historical backfill
+scheduling and graph-rebuild provenance are still follow-up work. Projection runs now
 write durable workspace activity for started, completed, and failed graph writes so
 operators can see recovery context without reading worker logs.
 Worker dispatches now persist last-seen and bounded outcome telemetry, and the

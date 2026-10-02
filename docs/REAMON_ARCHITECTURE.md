@@ -288,5 +288,5 @@ explicit `identity`, `identityKey`, `canonicalKey`, or `qualifiedName` hint (and
 normalized string values); observations without a hint remain source-scoped. Neo4j
 projection merges nodes and relationships by that canonical key while retaining the
 provider's stable key and source as provenance. The next high-value work is expanding
-relationship identity hints, adding graph-rebuild provenance, and projecting durable
-events into the dashboard.
+historical backfill scheduling, adding graph-rebuild provenance, and projecting
+durable events into the dashboard.

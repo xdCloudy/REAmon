@@ -21,6 +21,8 @@ export interface ProjectableObservation {
   relation: string | null
   fromKey: string | null
   toKey: string | null
+  fromCanonicalKey: string | null
+  toCanonicalKey: string | null
   attributes: Record<string, ObservationValue>
   updatedAt: string
 }
@@ -68,6 +70,8 @@ function relationshipProperties(observation: ProjectableObservation): Record<str
     relation: observation.relation || observation.type,
     observation_id: observation.id,
     updated_at: observation.updatedAt,
+    from_canonical_key: observation.fromCanonicalKey,
+    to_canonical_key: observation.toCanonicalKey,
   }
   for (const [key, value] of Object.entries(observation.attributes)) {
     properties[`reamon_attr_${key}`] = value
@@ -111,8 +115,8 @@ export async function projectObservations(
     const batch = relationships.slice(index, index + batchSize)
     const relationshipRows = batch.map((observation) => ({
       ...relationshipProperties(observation),
-      from_key: canonicalByReference.get(`${observation.source}:${observation.fromKey}`) || `source:${observation.source}:${observation.fromKey}`,
-      to_key: canonicalByReference.get(`${observation.source}:${observation.toKey}`) || `source:${observation.source}:${observation.toKey}`,
+      from_key: observation.fromCanonicalKey || canonicalByReference.get(`${observation.source}:${observation.fromKey}`) || `source:${observation.source}:${observation.fromKey}`,
+      to_key: observation.toCanonicalKey || canonicalByReference.get(`${observation.source}:${observation.toKey}`) || `source:${observation.source}:${observation.toKey}`,
       from_stable_key: observation.fromKey,
       to_stable_key: observation.toKey,
     }))
@@ -167,6 +171,8 @@ export async function projectReamonObservations(
       relation: true,
       fromKey: true,
       toKey: true,
+      fromCanonicalKey: true,
+      toCanonicalKey: true,
       attributes: true,
       updatedAt: true,
     },
@@ -178,6 +184,8 @@ export async function projectReamonObservations(
     kind: observation.kind as ObservationKind,
     stableKey: observation.stableKey,
     canonicalKey: observation.canonicalKey,
+    fromCanonicalKey: observation.fromCanonicalKey,
+    toCanonicalKey: observation.toCanonicalKey,
     attributes: observation.attributes as ProjectableObservation['attributes'],
     updatedAt: observation.updatedAt.toISOString(),
   })), projectId, requestedBatchSize)

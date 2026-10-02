@@ -176,6 +176,8 @@ export async function getWorkspaceSnapshot(projectId: string) {
       relation: observation.relation || undefined,
       fromKey: observation.fromKey || undefined,
       toKey: observation.toKey || undefined,
+      fromCanonicalKey: observation.fromCanonicalKey || undefined,
+      toCanonicalKey: observation.toCanonicalKey || undefined,
       attributes: observation.attributes as WorkspaceObservation['attributes'],
       createdAt: observation.createdAt.toISOString(),
       updatedAt: observation.updatedAt.toISOString(),

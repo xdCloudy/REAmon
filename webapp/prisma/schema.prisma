@@ -2651,6 +2651,8 @@ model ReamonObservation {
   relation    String?
   fromKey     String?  @map("from_key")
   toKey       String?  @map("to_key")
+  fromCanonicalKey String? @map("from_canonical_key")
+  toCanonicalKey   String? @map("to_canonical_key")
   attributes  Json     @default("{}")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")

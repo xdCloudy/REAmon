@@ -68,7 +68,8 @@ The first REAmon milestone is implemented and running on the `reamon/bootstrap` 
 - Run a bounded `strings` process provider against stored source artifacts, capture
   stable string observations, and terminate the process on cancellation or timeout.
 - Converge observations with explicit provider-independent identity hints before
-  graph projection, while retaining source-specific keys for provenance.
+  graph projection, including explicit relationship endpoint hints while retaining
+  source-specific keys for provenance.
 - Persist worker dispatch health, show stale-worker status, and surface an operator
   alert when a worker is stale or reports a failed dispatch.
 - Preserve the existing PostgreSQL, Neo4j, agent, MCP, authentication, and event
@@ -80,7 +81,7 @@ MCP, and runtime integrations remain optional follow-on providers.
 
 ## Production readiness
 
-<progress value="74" max="100">74%</progress> <strong>74%</strong>
+<progress value="75" max="100">75%</progress> <strong>75%</strong>
 
 This is a weighted engineering snapshot, reviewed 2026-10-02 after adding explicit
 task execution, lease-protected recovery, cancellation controls, worker ownership,
@@ -98,14 +99,14 @@ tests, and an operational path.
 | Workspace foundation and access control | 20% | 100% | Keep regression coverage green during migration. |
 | Import, profiling, storage, and inventory | 15% | 90% | Derived-artifact provenance, server-mounted sources, and refresh cleanup. |
 | Provider registry, scheduling, and provider execution | 15% | 99% | Additional MCP/process adapters and multi-worker stress. |
-| Provider results and knowledge graph ingestion | 20% | 57% | Relationship identity hints, historical backfill scheduling, and graph-rebuild provenance. |
+| Provider results and knowledge graph ingestion | 20% | 60% | Historical backfill scheduling and graph-rebuild provenance. |
 | Approvals, live activity, and operator controls | 10% | 30% | Durable event projection, approvals, and richer recovery UX. |
 | Legacy RedAmon migration | 10% | 40% | Move remaining project, agent, report, and settings surfaces without breaking existing data. |
 | Production hardening and release QA | 10% | 75% | External alert delivery, backup/restore drills, and deployment runbooks. |
 
 The main path to “shipped” is therefore: add additional MCP/process providers and
-multi-worker stress coverage → expand relationship identity hints and graph-rebuild
-provenance → finish migration and
+multi-worker stress coverage → add historical backfill and graph-rebuild provenance
+→ finish migration and
 production QA. See [`docs/REAMON_ARCHITECTURE.md`](docs/REAMON_ARCHITECTURE.md)
 for the boundary decisions behind this sequence.
 
