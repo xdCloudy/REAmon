@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { ChevronDown, ChevronRight, Download, File, Folder, Search } from 'lucide-react'
 import type { CapabilityMatch, TargetProfile } from '@/lib/reamon'
 import styles from './WorkspaceFileTree.module.css'
@@ -16,6 +16,13 @@ interface WorkspaceArtifact {
   profile: TargetProfile
   capabilities: CapabilityMatch[]
   updatedAt: string
+}
+
+interface WorkspaceArtifactDetails {
+  tasks: Array<{ id: string; title: string; status: string; progress: number }>
+  findings: Array<{ id: string; title: string; severity: string; status: string }>
+  hypotheses: Array<{ id: string; statement: string; status: string }>
+  evidence: Array<{ id: string; summary: string; source: string }>
 }
 
 interface TreeNode {
@@ -133,7 +140,38 @@ export function WorkspaceFileTree({ projectId, rootName, artifacts }: { projectI
   const [query, setQuery] = useState('')
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set(['']))
   const [selected, setSelected] = useState<WorkspaceArtifact | null>(null)
+  const [details, setDetails] = useState<WorkspaceArtifactDetails | null>(null)
+  const [detailsLoading, setDetailsLoading] = useState(false)
+  const [detailsError, setDetailsError] = useState(false)
   const tree = useMemo(() => filterTree(buildTree(artifacts), query.trim().toLowerCase()), [artifacts, query])
+  const selectedId = selected?.id
+
+  useEffect(() => {
+    if (!selectedId) {
+      setDetails(null)
+      setDetailsLoading(false)
+      setDetailsError(false)
+      return
+    }
+    const controller = new AbortController()
+    setDetails(null)
+    setDetailsLoading(true)
+    setDetailsError(false)
+    const loadDetails = async () => {
+      try {
+        const response = await fetch(`/api/projects/${projectId}/workspace/files/${selectedId}`, { signal: controller.signal })
+        if (!response.ok) throw new Error('Unable to load artifact details')
+        const nextDetails = await response.json() as WorkspaceArtifactDetails
+        setDetails(nextDetails)
+      } catch (error) {
+        if (!controller.signal.aborted) setDetailsError(true)
+      } finally {
+        if (!controller.signal.aborted) setDetailsLoading(false)
+      }
+    }
+    void loadDetails()
+    return () => controller.abort()
+  }, [projectId, selectedId])
 
   const toggle = (path: string) => {
     setExpanded((current) => {
@@ -165,6 +203,9 @@ export function WorkspaceFileTree({ projectId, rootName, artifacts }: { projectI
           </dl>
           <p className={styles.detailLabel}>Available capabilities</p>
           {selected.capabilities.length ? <div className={styles.tags}>{selected.capabilities.flatMap((match) => match.capabilities).filter((value, index, values) => values.indexOf(value) === index).map((capability) => <span key={capability}>{capability.replaceAll('_', ' ')}</span>)}</div> : <p className={styles.emptyDetail}>No compatible providers are registered for this artifact.</p>}
+          {detailsLoading && <p className={styles.detailLabel}>Loading related workspace records…</p>}
+          {detailsError && <p className={styles.detailError}>Related workspace records are temporarily unavailable.</p>}
+          {details && <div className={styles.relatedSummary} aria-label="Related workspace records"><p className={styles.detailLabel}>Related investigation records</p><div><span>{details.tasks.length} tasks</span><span>{details.findings.length} findings</span><span>{details.hypotheses.length} hypotheses</span><span>{details.evidence.length} evidence</span></div></div>}
           <a className="secondaryButton" href={`/api/projects/${projectId}/artifacts/${selected.id}`} download><Download size={15} /> Download artifact</a>
         </> : <div className={styles.emptyDetail}><File size={24} /><span>Select a file to inspect its profile, hash, and capabilities.</span></div>}
       </aside>

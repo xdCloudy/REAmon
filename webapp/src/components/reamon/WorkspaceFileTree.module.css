@@ -33,6 +33,11 @@
 .detailLabel { margin: 0; }
 .tags { display: flex; flex-wrap: wrap; gap: var(--space-1); }
 .tags span { padding: .25rem .4rem; border-radius: var(--radius-sm); background: var(--accent-secondary-subtle); color: var(--status-info-text); font-size: .68rem; text-transform: capitalize; }
+.relatedSummary { display: flex; flex-direction: column; gap: var(--space-2); }
+.relatedSummary p { margin: 0; }
+.relatedSummary div { display: flex; flex-wrap: wrap; gap: var(--space-1); }
+.relatedSummary span { color: var(--text-secondary); font-size: .68rem; }
+.detailError { color: var(--status-danger-text); font-size: var(--text-xs); margin: 0; }
 .empty, .emptyDetail { color: var(--text-tertiary); font-size: var(--text-sm); }
 .empty { padding: var(--space-5); }
 .emptyDetail { min-height: 150px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-2); text-align: center; margin: 0; }
