@@ -108,6 +108,7 @@ import { listGraphViews, runGraphView } from '@/lib/mcp/viewTools'
 import { FINDING_SECTIONS, listFindings, listMuted } from '@/lib/mcp/findingTools'
 import { compareScanVersions, listScanVersions } from '@/lib/mcp/versionTools'
 import { startRecon, stopRecon, updateReconSettings } from '@/lib/mcp/writeTools'
+import { getWorkspaceArtifact, listWorkspaceInventory } from '@/lib/mcp/workspaceTools'
 import {
   MAX_KEYS_PER_CALL,
   refusedFieldsSentence,
@@ -350,6 +351,62 @@ export function buildMcpServer(ctx: McpContext, instructions?: string): McpServe
       inputSchema: {},
     },
     handler(ctx, 'list_projects', () => listProjects(ctx))
+  )
+
+  server.registerTool(
+    'workspace_list_files',
+    {
+      title: 'List workspace files',
+      description:
+        'List the logical files in a REAmon investigation workspace. This is the inventory ' +
+        'for the selected project, not a host-directory listing: paths are relative to the ' +
+        'workspace root and internal storage paths are never returned. Results use the active ' +
+        'import snapshot, so a refresh does not expose historical duplicate files. Search by ' +
+        'path or name, filter by detected format or executable/source kind, and page through ' +
+        'large workspaces with limit and offset. Each row includes compatible capabilities so ' +
+        'you can propose analysis without running heavyweight tools automatically.',
+      annotations: READ_ONLY,
+      _meta: scopesMeta({ required: ['recon:read'] }),
+      inputSchema: {
+        projectId: projectIdSchema,
+        search: z.string().max(200).optional().describe('Search the logical relative path or file name.'),
+        format: z.string().max(64).optional().describe('Detected profile format, for example pe, elf, or source.'),
+        kind: z.enum(['executables', 'source']).optional().describe('Limit to likely executable or source-file extensions.'),
+        limit: z.number().int().min(1).max(100).optional().describe('Default 100, maximum 100 per call.'),
+        offset: z.number().int().min(0).max(100000).optional().describe('Number of matching files to skip.'),
+      },
+    },
+    handler(
+      ctx,
+      'workspace_list_files',
+      a => listWorkspaceInventory(ctx, a),
+      a => a.projectId,
+    )
+  )
+
+  server.registerTool(
+    'workspace_get_artifact',
+    {
+      title: 'Get workspace artifact',
+      description:
+        'Get the logical details for one active REAmon workspace artifact. Pass the artifact ' +
+        'id returned by workspace_list_files. The result includes its relative path, hash, ' +
+        'profile, compatible capabilities, logical target/import relationship, and bounded ' +
+        'related tasks, findings, hypotheses, and evidence. It never returns the opaque server ' +
+        'storage path or bytes, and a historical or foreign artifact is reported as not found.',
+      annotations: READ_ONLY,
+      _meta: scopesMeta({ required: ['recon:read'] }),
+      inputSchema: {
+        projectId: projectIdSchema,
+        artifactId: entityIdSchema.describe('An artifact id returned by workspace_list_files.'),
+      },
+    },
+    handler(
+      ctx,
+      'workspace_get_artifact',
+      a => getWorkspaceArtifact(ctx, a),
+      a => a.projectId,
+    )
   )
 
   server.registerTool(

@@ -57,7 +57,7 @@ let tools: Awaited<ReturnType<typeof listTools>>['tools']
  * Kept as ONE number rather than repeated at each call site, so adding a tool
  * fails in one place with a clear message instead of in three with three.
  */
-const EXPECTED_TOOL_COUNT = 48
+const EXPECTED_TOOL_COUNT = 50
 
 beforeEach(async () => {
   vi.clearAllMocks()
@@ -132,6 +132,8 @@ describe('tools/list satisfies the MCP contract', () => {
       'update_project_scope',
       'update_recon_preset',
       'update_recon_settings',
+      'workspace_get_artifact',
+      'workspace_list_files',
     ])
   })
 })
@@ -158,6 +160,7 @@ describe('the advertised input schemas are usable', () => {
       'list_graph_views', 'run_graph_view', 'queue_recon', 'cancel_queued_scan',
       'get_scan_status', 'set_finding_verdict',
       'mute_findings', 'unmute_findings', 'search_muted_findings',
+      'workspace_list_files', 'workspace_get_artifact',
     ]) {
       const schema = byName(name).inputSchema as { required?: string[] }
       expect(schema.required ?? [], `${name}`).toContain('projectId')

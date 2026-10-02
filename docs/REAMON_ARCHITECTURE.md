@@ -109,6 +109,19 @@ workspace capability reducers still operate over the full active metadata set on
 server, so bounding the UI payload does not turn the displayed progress into an
 estimate.
 
+### Agent and MCP inventory boundary
+
+The authenticated inbound MCP server exposes the same logical inventory through two
+read-only tools: `workspace_list_files` supports bounded path/name search, detected
+format and executable/source filters, offset pagination, and per-artifact compatible
+capabilities; `workspace_get_artifact` returns one artifact's profile, capabilities,
+logical target/import relationship, and bounded related investigation records. Both
+tools require the existing `recon:read` scope, verify the token owner's project before
+querying, and apply the active-snapshot selector. This gives future agents a stable
+workspace API such as `find_executables()` without granting them host paths or making
+them understand the upload layout. Heavy analysis is still proposed or scheduled by
+later orchestration work rather than automatically run by inventory reads.
+
 ## Target profiler
 
 The initial profiler is intentionally conservative. It combines filename extension, MIME hints, magic bytes, basic header inspection, and byte entropy. It currently recognises representative ELF, PE, Mach-O, ZIP/APK/JAR, PDF, SQLite, PCAP, and source-code inputs. Everything else produces a valid `UNKNOWN` profile.

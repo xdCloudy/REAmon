@@ -26,6 +26,7 @@ export interface WorkspaceFileRecord {
   extension: string
   status: string
   profile: unknown
+  capabilities: CapabilityMatch[]
 }
 
 export interface WorkspaceFileQueryResult {
@@ -131,7 +132,16 @@ export async function listWorkspaceFiles(projectId: string, query: WorkspaceFile
     prisma.artifact.count({ where }),
   ])
   const hasMore = rows.length > limit
-  return { artifacts: rows.slice(0, limit), total, limit, offset, hasMore }
+  return {
+    artifacts: rows.slice(0, limit).map((artifact) => ({
+      ...artifact,
+      capabilities: resolveCapabilities(artifact.profile as unknown as TargetProfile),
+    })),
+    total,
+    limit,
+    offset,
+    hasMore,
+  }
 }
 
 export async function getWorkspaceArtifact(projectId: string, artifactId: string): Promise<WorkspaceArtifactDetails | null> {
