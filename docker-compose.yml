@@ -1020,6 +1020,7 @@ services:
   # ===========================================================================
 
   webapp:
+    image: ${REAMON_WEBAPP_IMAGE:-redamon-webapp:latest}
     build:
       context: ./webapp
       args:
@@ -1210,6 +1211,30 @@ services:
     networks:
       - redamon
       - orchestrator-net
+
+  # REAmon queued-task worker. It shares the production webapp image but runs
+  # only the bounded internal dispatcher loop; no public port or target-data
+  # volume is exposed. Leave INTERNAL_API_KEY unset/default and this service
+  # exits rather than silently running unauthenticated.
+  reamon-worker:
+    image: ${REAMON_WEBAPP_IMAGE:-redamon-webapp:latest}
+    container_name: redamon-reamon-worker
+    mem_limit: ${REAMON_WORKER_MEM:-512m}
+    pids_limit: ${REAMON_WORKER_PIDS:-128}
+    cpus: ${REAMON_WORKER_CPUS:-1}
+    environment:
+      REAMON_WORKER_WEBAPP_URL: http://webapp:3000
+      REAMON_WORKER_POLL_SECONDS: ${REAMON_WORKER_POLL_SECONDS:-10}
+      REAMON_WORKER_BATCH_SIZE: ${REAMON_WORKER_BATCH_SIZE:-1}
+      REAMON_WORKER_STALE_AFTER_MINUTES: ${REAMON_WORKER_STALE_AFTER_MINUTES:-30}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-}
+    command: ["node", "scripts/reamon-task-worker.mjs"]
+    depends_on:
+      webapp:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - redamon
 
   # ===========================================================================
   # HTTP Traffic Capture (mitmproxy) — Phase 1. Both services build from

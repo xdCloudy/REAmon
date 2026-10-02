@@ -10,6 +10,7 @@
     "lint": "eslint src/lib/reamon 'src/app/projects/[id]' 'src/app/api/projects/[id]/targets' 'src/app/api/projects/[id]/workspace' 'src/app/api/projects/[id]/artifacts'",
     "lint:all": "eslint .",
     "type-check": "tsc --noEmit",
+    "reamon:worker": "node scripts/reamon-task-worker.mjs",
     "test": "vitest run --no-file-parallelism",
     "test:coverage": "vitest run --no-file-parallelism --coverage",
     "docs:mcp": "MCP_DOCS_WRITE=1 vitest run src/lib/mcp/apiReference.test.ts",

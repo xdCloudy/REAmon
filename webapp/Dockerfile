@@ -92,7 +92,7 @@ RUN mkdir -p /data/reamon-artifacts && chown nextjs:nodejs /data/reamon-artifact
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
-# CLI utility scripts (admin setup, password reset)
+# CLI utility scripts (admin setup, password reset, REAmon worker)
 COPY --from=builder --chown=nextjs:nodejs /app/scripts ./scripts
 
 # Prisma schema + CLI for automatic migration on startup

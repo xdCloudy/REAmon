@@ -68,7 +68,7 @@ describe('retryAnalysisTask', () => {
 describe('recoverStaleAnalysisTasks', () => {
   test('requeues old running tasks and records recovery activity', async () => {
     mocks.taskFindMany.mockResolvedValue([
-      { id: 'task-1', title: 'Old task', runToken: 'run-1', startedAt: new Date(Date.now() - 60 * 60 * 1000) },
+      { id: 'task-1', projectId: 'project-1', title: 'Old task', runToken: 'run-1', startedAt: new Date(Date.now() - 60 * 60 * 1000) },
     ])
 
     const result = await recoverStaleAnalysisTasks('project-1', 30)
@@ -81,6 +81,21 @@ describe('recoverStaleAnalysisTasks', () => {
     expect(mocks.activityCreate).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ eventType: 'analysis.task.recovered', data: expect.objectContaining({ taskId: 'task-1' }) }),
     }))
+  })
+
+  test('can recover stale tasks across all projects for the worker', async () => {
+    mocks.taskFindMany.mockResolvedValue([
+      { id: 'task-2', projectId: 'project-2', title: 'Other task', runToken: 'run-2', startedAt: new Date(Date.now() - 60 * 60 * 1000) },
+    ])
+
+    const result = await recoverStaleAnalysisTasks(undefined, 30)
+
+    expect(result).toMatchObject({ recovered: 1, staleAfterMinutes: 30 })
+    expect(mocks.taskFindMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.not.objectContaining({ projectId: expect.anything() }) }))
+    expect(mocks.taskUpdateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'task-2', status: 'RUNNING', runToken: 'run-2' },
+    }))
+    expect(mocks.activityCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ projectId: 'project-2' }) }))
   })
 
   test('uses the safe default and clamps a too-short recovery window', async () => {

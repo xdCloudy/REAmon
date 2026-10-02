@@ -54,4 +54,15 @@ describe('POST /api/internal/reamon/tasks/dispatch', () => {
     expect(response.status).toBe(400)
     expect(mocks.dispatchQueuedAnalysisTasks).not.toHaveBeenCalled()
   })
+
+  test('recovers stale tasks globally when the worker omits a project', async () => {
+    const response = await POST(new Request('http://localhost', {
+      method: 'POST',
+      body: JSON.stringify({ limit: 1 }),
+      headers: { 'Content-Type': 'application/json' },
+    }) as never)
+
+    expect(response.status).toBe(200)
+    expect(mocks.recoverStaleAnalysisTasks).toHaveBeenCalledWith(undefined, undefined)
+  })
 })

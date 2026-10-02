@@ -256,7 +256,9 @@ are now in place. Execution attempts carry a lease token, so stale running tasks
 be recovered or retried without allowing a late provider response to overwrite the
 new attempt. Successful results are also normalized into bounded, stable-keyed
 observations and shown in the workspace. An internal-key-protected worker trigger
-selects bounded queued batches and delegates them to that executor; deployment still
-needs a durable poller and ownership/heartbeat policy. The next high-value work is
-adding real native/MCP/process providers, then projecting observations into Neo4j and
-projecting durable events into the dashboard.
+selects bounded queued batches and delegates them to that executor; the production
+Compose stack now runs a private, restartable Node poller against that route. The
+remaining worker hardening is ownership/heartbeat policy and process-level
+cancellation. The next high-value work is adding real native/MCP/process providers,
+then projecting observations into Neo4j and projecting durable events into the
+dashboard.

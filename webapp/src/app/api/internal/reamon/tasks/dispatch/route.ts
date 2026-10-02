@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
       if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return badRequest('Request body must be an object')
       body = parsed as DispatchBody
     } catch {
-      // Empty bodies use a one-task batch without stale recovery.
+      // Empty bodies use bounded defaults and global stale recovery.
     }
 
     let projectId: string | undefined
@@ -47,7 +47,7 @@ export async function POST(request: NextRequest) {
       staleAfterMinutes = body.staleAfterMinutes
     }
 
-    const recovered = projectId && body.recoverStale !== false
+    const recovered = body.recoverStale !== false
       ? await recoverStaleAnalysisTasks(projectId, staleAfterMinutes)
       : { recovered: 0, staleAfterMinutes: staleAfterMinutes ?? 30 }
     const dispatched = await dispatchQueuedAnalysisTasks({ projectId, limit })

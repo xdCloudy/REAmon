@@ -16,6 +16,7 @@ const taskSelect = {
 
 const staleTaskSelect = {
   id: true,
+  projectId: true,
   title: true,
   runToken: true,
   startedAt: true,
@@ -150,11 +151,11 @@ function normaliseStaleAfterMinutes(value: number | undefined): number {
   return Math.min(24 * 60, Math.max(5, Math.floor(value as number)))
 }
 
-export async function recoverStaleAnalysisTasks(projectId: string, requestedMinutes?: number) {
+export async function recoverStaleAnalysisTasks(projectId: string | undefined, requestedMinutes?: number) {
   const staleAfterMinutes = normaliseStaleAfterMinutes(requestedMinutes)
   const cutoff = new Date(Date.now() - staleAfterMinutes * 60 * 1000)
   const candidates = await prisma.task.findMany({
-    where: { projectId, status: 'RUNNING', startedAt: { not: null, lt: cutoff } },
+    where: { ...(projectId ? { projectId } : {}), status: 'RUNNING', startedAt: { not: null, lt: cutoff } },
     select: staleTaskSelect,
     orderBy: { startedAt: 'asc' },
   })
@@ -165,7 +166,7 @@ export async function recoverStaleAnalysisTasks(projectId: string, requestedMinu
     let count = 0
     for (const task of candidates) {
       const updated = await tx.task.updateMany({
-        where: { id: task.id, projectId, status: 'RUNNING', runToken: task.runToken },
+        where: { id: task.id, ...(projectId ? { projectId } : {}), status: 'RUNNING', runToken: task.runToken },
         data: {
           status: 'QUEUED',
           progress: 0,
@@ -180,7 +181,7 @@ export async function recoverStaleAnalysisTasks(projectId: string, requestedMinu
       count += 1
       await tx.workspaceActivity.create({
         data: {
-          projectId,
+          projectId: task.projectId,
           actor: 'Operator',
           eventType: 'analysis.task.recovered',
           message: `Recovered stale task ${task.title}; it is queued for a safe retry`,

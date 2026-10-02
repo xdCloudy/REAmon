@@ -31,6 +31,14 @@ services:
       - js_recon_uploads:/data/js-recon-uploads
       - js_recon_custom:/data/js-recon-custom
 
+  reamon-worker:
+    build: !reset null
+    image: node:22-alpine
+    working_dir: /app
+    command: ["node", "scripts/reamon-task-worker.mjs"]
+    volumes:
+      - ./webapp:/app:ro
+
 volumes:
   webapp_node_modules:
   webapp_next_cache:

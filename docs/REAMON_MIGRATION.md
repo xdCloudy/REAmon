@@ -53,9 +53,9 @@ concurrent requests, cancel or retry an import, preserve relative paths, aggrega
 profile, resolve compatible capabilities, queue a reviewed analysis proposal, and run
 the small reference providers with lease-protected task/evidence/activity state.
 Stale-task recovery, retry, and cancellation controls are now available to operators,
-and an internal worker trigger can dispatch bounded queued batches. Successful provider
-results now persist retry-safe typed observations and appear in the workspace. Derived-
-artifact provenance, server-mounted sources, durable worker polling/ownership, true
-background uploads, real process/MCP execution, process-level cancellation, Neo4j
-projection, and replacing older duplicate artifact rows during refresh remain follow-up
-work.
+and an internal worker trigger can dispatch bounded queued batches. The production
+Compose stack now runs a private restartable poller, and successful provider results
+persist retry-safe typed observations that appear in the workspace. Derived-artifact
+provenance, server-mounted sources, worker ownership/heartbeat, true background uploads,
+real process/MCP execution, process-level cancellation, Neo4j projection, and replacing
+older duplicate artifact rows during refresh remain follow-up work.
