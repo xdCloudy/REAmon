@@ -133,6 +133,12 @@ describe('list_projects', () => {
     )
   })
 
+  test('returns project kind so agents can choose workspace or legacy workflows', async () => {
+    await listProjects(ctx())
+    const select = h.findManyProjects.mock.calls[0][0].select
+    expect(select.projectKind).toBe(true)
+  })
+
   test('needs recon:read', async () => {
     await expect(listProjects(ctx([]))).rejects.toBeInstanceOf(McpScopeError)
   })

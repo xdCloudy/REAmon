@@ -344,9 +344,11 @@ export function buildMcpServer(ctx: McpContext, instructions?: string): McpServe
     {
       title: 'List projects',
       description:
-        'List the RedAmon projects this token can reach. The token belongs to one user and ' +
-        'only ever sees that user\'s own projects. Start here to discover a projectId; every ' +
-        'other tool needs one. This does not report scan state - use get_recon_status for that.',
+        'List the REAmon projects and reverse-engineering workspaces this token can reach. The ' +
+        'token belongs to one user and only ever sees that user\'s own projects. Start here to ' +
+        'discover a projectId and read projectKind: REVERSE_ENGINEERING projects use the ' +
+        'workspace_* inventory tools, while LEGACY_SECURITY projects use the inherited recon ' +
+        'surface. This does not report scan state - use get_recon_status for that.',
       annotations: READ_ONLY,
       _meta: scopesMeta({ required: ['recon:read'] }),
       inputSchema: {},

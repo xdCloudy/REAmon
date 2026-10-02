@@ -104,10 +104,11 @@ export async function listProjects(ctx: McpContext) {
   enforceRate(ctx, 'read')
 
   // Checked against the READ classification, which is a different set from the
-  // write allowlist: `targetDomain` is readable so a caller knows which
-  // engagement it is looking at, and writable by nobody here.
+  // write allowlist. `projectKind` lets an agent choose the workspace or legacy
+  // engagement workflow without guessing from the name; `targetDomain` remains
+  // readable for legacy projects and is not required for REAmon workspaces.
   const select = {
-    id: true, name: true, targetDomain: true, targetIps: true,
+    id: true, name: true, projectKind: true, targetDomain: true, targetIps: true,
     ipMode: true, domainBatchMode: true, updatedAt: true,
     // The groups themselves are internal, but whether any of them enumerates is
     // the difference between a five-host scan and a multi-hour one, so a caller
