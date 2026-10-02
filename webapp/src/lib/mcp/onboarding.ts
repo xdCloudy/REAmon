@@ -886,6 +886,17 @@ interface ReferenceSpec {
 
 const REFERENCES: ReferenceSpec[] = [
   {
+    path: 'references/workspaces.md',
+    title: 'Reverse-engineering workspaces',
+    intro:
+      'A REAmon project is an investigation workspace, not a single file or a network engagement. ' +
+      'Start from the active root and deterministic summary, then inspect logical paths and ' +
+      'capabilities before proposing analysis. Historical refresh rows and host storage paths are ' +
+      'not part of the current agent view.',
+    areas: ['workspace'],
+    workflows: ['inspect-workspace'],
+  },
+  {
     path: 'references/lifecycle-and-scans.md',
     title: 'Lifecycle and scans',
     intro:
