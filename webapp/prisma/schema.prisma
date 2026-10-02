@@ -2645,6 +2645,7 @@ model ReamonObservation {
   kind        String
   type        String
   stableKey   String   @map("stable_key")
+  canonicalKey String  @map("canonical_key")
   label       String?
   source      String
   relation    String?
@@ -2655,6 +2656,7 @@ model ReamonObservation {
   updatedAt   DateTime @updatedAt @map("updated_at")
 
   @@unique([projectId, source, stableKey])
+  @@index([projectId, canonicalKey])
   @@index([projectId, kind, type])
   @@index([projectId, taskId])
   @@index([projectId, artifactId])

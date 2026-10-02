@@ -95,7 +95,7 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=builder --chown=nextjs:nodejs /app/scripts ./scripts
 
 # Prisma schema + CLI for automatic migration on startup
-COPY --from=builder /app/prisma ./prisma
+COPY --from=builder --chown=nextjs:nodejs /app/prisma ./prisma
 # The standalone trace contains the application runtime, but it intentionally
 # omits the Prisma CLI and engine packages used by entrypoint.sh. Copy those
 # exact, already-resolved packages from the builder instead of resolving them a

@@ -275,5 +275,10 @@ bounded timeout. Dispatches also persist worker last-seen, outcome counts, durat
 and the last provider error; the workspace labels workers stale after a bounded
 silence window and surfaces stale/degraded worker alerts. Remaining worker hardening
 is multi-worker stress testing, external alert delivery, and additional MCP/process
-adapters. The next high-value work is resolving cross-provider identities, adding
-graph-rebuild provenance, and projecting durable events into the dashboard.
+adapters. Observation ingestion now derives a bounded canonical identity from an
+explicit `identity`, `identityKey`, `canonicalKey`, or `qualifiedName` hint (and from
+normalized string values); observations without a hint remain source-scoped. Neo4j
+projection merges nodes and relationships by that canonical key while retaining the
+provider's stable key and source as provenance. The next high-value work is expanding
+relationship identity hints, adding graph-rebuild provenance, and projecting durable
+events into the dashboard.

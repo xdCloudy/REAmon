@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { Prisma } from '@prisma/client'
 import type {
   ObservationAttributes,
@@ -32,6 +33,37 @@ function asAttributes(value: unknown): ObservationAttributes {
     }
   }
   return attributes
+}
+
+function identityHint(observation: ToolObservation): string | null {
+  if (observation.kind === 'relationship') return null
+  const hinted = [
+    observation.attributes.identityKey,
+    observation.attributes.identity,
+    observation.attributes.canonicalKey,
+    observation.attributes.qualifiedName,
+  ].find((value): value is string => typeof value === 'string' && value.trim().length > 0)
+  if (hinted) return hinted
+  if (observation.type.toLowerCase() === 'string' && typeof observation.attributes.value === 'string') {
+    return observation.attributes.value
+  }
+  return null
+}
+
+/**
+ * Resolve a provider observation to a graph identity. Explicit identity hints
+ * are intentionally provider-independent; observations without one retain the
+ * old source-scoped behavior and cannot accidentally merge unrelated entities.
+ */
+export function canonicalKeyForObservation(source: string, observation: ToolObservation): string {
+  const hint = identityHint(observation)
+  if (!hint) return `source:${source}:${observation.key}`
+  const normalized = hint.trim().replace(/\s+/g, ' ').toLowerCase()
+  const digest = createHash('sha256')
+    .update(`${observation.type.toLowerCase()}:${normalized}`)
+    .digest('hex')
+    .slice(0, 32)
+  return `identity:${observation.type.toLowerCase()}:${digest}`
 }
 
 function normalizeObservation(value: unknown): ToolObservation | null {
@@ -118,6 +150,7 @@ export async function ingestToolResult(
         kind: observation.kind,
         type: observation.type,
         stableKey: observation.key,
+        canonicalKey: canonicalKeyForObservation(input.source, observation),
         label: observation.label,
         source: input.source,
         relation: observation.relation,
@@ -131,6 +164,7 @@ export async function ingestToolResult(
         artifactId: input.artifactId,
         kind: observation.kind,
         type: observation.type,
+        canonicalKey: canonicalKeyForObservation(input.source, observation),
         label: observation.label,
         relation: observation.relation,
         fromKey: observation.fromKey,

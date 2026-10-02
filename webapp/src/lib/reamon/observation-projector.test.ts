@@ -8,7 +8,7 @@ import { projectObservations, projectReamonObservations } from './observation-pr
 
 const entity = {
   id: 'observation-1', projectId: 'project-1', taskId: 'task-1', targetId: 'target-1', artifactId: 'artifact-1',
-  kind: 'entity' as const, type: 'function', stableKey: 'fn:main', label: 'main', source: 'provider', relation: null,
+  kind: 'entity' as const, type: 'function', stableKey: 'fn:main', canonicalKey: 'identity:function:main', label: 'main', source: 'provider', relation: null,
   fromKey: null, toKey: null, attributes: { address: 4096, exported: true }, updatedAt: '2026-10-02T12:00:00.000Z',
 }
 
@@ -30,7 +30,7 @@ describe('projectObservations', () => {
     })
     expect(run.mock.calls[1][1]).toMatchObject({
       projectId: 'project-1',
-      relationships: [expect.objectContaining({ stable_key: 'call:main->parse', from_key: 'fn:main', to_key: 'fn:parse' })],
+      relationships: [expect.objectContaining({ stable_key: 'call:main->parse', from_key: 'identity:function:main', to_key: 'source:provider:fn:parse' })],
     })
     expect(run.mock.calls[0][0]).toContain('MERGE (n:ReamonObservation')
     expect(run.mock.calls[1][0]).toContain('REAMON_RELATIONSHIP')

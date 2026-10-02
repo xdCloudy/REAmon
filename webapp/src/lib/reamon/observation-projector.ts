@@ -15,6 +15,7 @@ export interface ProjectableObservation {
   kind: ObservationKind
   type: string
   stableKey: string
+  canonicalKey: string
   label: string | null
   source: string
   relation: string | null
@@ -43,6 +44,7 @@ function graphProperties(observation: ProjectableObservation): Record<string, Ob
     project_id: observation.projectId,
     source: observation.source,
     stable_key: observation.stableKey,
+    canonical_key: observation.canonicalKey,
     kind: observation.kind,
     observation_type: observation.type,
     label: observation.label,
@@ -62,6 +64,7 @@ function relationshipProperties(observation: ProjectableObservation): Record<str
     project_id: observation.projectId,
     source: observation.source,
     stable_key: observation.stableKey,
+    canonical_key: observation.canonicalKey,
     relation: observation.relation || observation.type,
     observation_id: observation.id,
     updated_at: observation.updatedAt,
@@ -86,6 +89,9 @@ export async function projectObservations(
   const batchSize = normaliseBatchSize(requestedBatchSize)
   const nodes = observations.filter((observation) => observation.kind !== 'relationship')
   const relationships = observations.filter((observation) => observation.kind === 'relationship')
+  const canonicalByReference = new Map(
+    observations.map((observation) => [`${observation.source}:${observation.stableKey}`, observation.canonicalKey]),
+  )
 
   for (let index = 0; index < nodes.length; index += batchSize) {
     const batch = nodes.slice(index, index + batchSize).map(graphProperties)
@@ -93,8 +99,7 @@ export async function projectObservations(
       `UNWIND $observations AS observation
        MERGE (n:ReamonObservation {
          project_id: $projectId,
-         source: observation.source,
-         stable_key: observation.stable_key
+         canonical_key: observation.canonical_key
        })
        SET n += observation
        RETURN count(n)`,
@@ -106,27 +111,26 @@ export async function projectObservations(
     const batch = relationships.slice(index, index + batchSize)
     const relationshipRows = batch.map((observation) => ({
       ...relationshipProperties(observation),
-      from_key: observation.fromKey,
-      to_key: observation.toKey,
+      from_key: canonicalByReference.get(`${observation.source}:${observation.fromKey}`) || `source:${observation.source}:${observation.fromKey}`,
+      to_key: canonicalByReference.get(`${observation.source}:${observation.toKey}`) || `source:${observation.source}:${observation.toKey}`,
+      from_stable_key: observation.fromKey,
+      to_stable_key: observation.toKey,
     }))
     await session.run(
       `UNWIND $relationships AS relationship
        MERGE (from:ReamonObservation {
          project_id: $projectId,
-         source: relationship.source,
-         stable_key: relationship.from_key
+         canonical_key: relationship.from_key
        })
-       ON CREATE SET from.kind = 'entity', from.observation_type = 'unknown'
+       ON CREATE SET from.kind = 'entity', from.observation_type = 'unknown', from.source = relationship.source, from.stable_key = relationship.from_stable_key
        MERGE (to:ReamonObservation {
          project_id: $projectId,
-         source: relationship.source,
-         stable_key: relationship.to_key
+         canonical_key: relationship.to_key
        })
-       ON CREATE SET to.kind = 'entity', to.observation_type = 'unknown'
+       ON CREATE SET to.kind = 'entity', to.observation_type = 'unknown', to.source = relationship.source, to.stable_key = relationship.to_stable_key
        MERGE (from)-[r:REAMON_RELATIONSHIP {
          project_id: $projectId,
-         source: relationship.source,
-         stable_key: relationship.stable_key
+         canonical_key: relationship.canonical_key
        }]->(to)
        SET r += relationship
        RETURN count(r)`,
@@ -157,6 +161,7 @@ export async function projectReamonObservations(
       kind: true,
       type: true,
       stableKey: true,
+      canonicalKey: true,
       label: true,
       source: true,
       relation: true,
@@ -172,6 +177,7 @@ export async function projectReamonObservations(
     ...observation,
     kind: observation.kind as ObservationKind,
     stableKey: observation.stableKey,
+    canonicalKey: observation.canonicalKey,
     attributes: observation.attributes as ProjectableObservation['attributes'],
     updatedAt: observation.updatedAt.toISOString(),
   })), projectId, requestedBatchSize)

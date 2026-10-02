@@ -1,6 +1,6 @@
 /** @vitest-environment node */
 import { describe, expect, test, vi } from 'vitest'
-import { ingestToolResult, parseToolObservations } from './result-ingestion'
+import { canonicalKeyForObservation, ingestToolResult, parseToolObservations } from './result-ingestion'
 
 describe('parseToolObservations', () => {
   test('accepts typed entities and relationships while rejecting unsafe shapes', () => {
@@ -28,6 +28,15 @@ describe('parseToolObservations', () => {
 })
 
 describe('ingestToolResult', () => {
+  test('derives provider-independent keys only from explicit identity hints', () => {
+    const observation = { kind: 'entity' as const, type: 'function', key: 'provider-specific', attributes: { identity: 'com.example.Main' } }
+    const first = canonicalKeyForObservation('provider-a', observation)
+    const second = canonicalKeyForObservation('provider-b', { ...observation, key: 'different-key' })
+
+    expect(first).toBe(second)
+    expect(canonicalKeyForObservation('provider-a', { ...observation, attributes: {} })).toBe('source:provider-a:provider-specific')
+  })
+
   test('upserts observations using the project, source, and stable key', async () => {
     const upsert = vi.fn().mockResolvedValue({ id: 'observation-1' })
     const tx = { reamonObservation: { upsert } } as never
