@@ -6,6 +6,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, CheckCircle2, CircleDashed, Gauge, Waypoints } from 'lucide-react'
 import { WorkspaceFileTree } from '@/components/reamon/WorkspaceFileTree'
 import { WorkspaceImportPanel } from '@/components/reamon/WorkspaceImportPanel'
+import { WorkspaceAnalysisPlanPanel, type WorkspaceAnalysisPlan } from '@/components/reamon/WorkspaceAnalysisPlan'
 import type { CapabilityMatch, ProgressMetric, TargetProfile, WorkspaceCapabilitySummary, WorkspaceImportSnapshot, WorkspaceProfile } from '@/lib/reamon'
 import styles from './page.module.css'
 
@@ -45,6 +46,12 @@ interface WorkspaceSnapshot {
 async function fetchWorkspace(projectId: string): Promise<WorkspaceSnapshot> {
   const response = await fetch(`/api/projects/${projectId}/workspace`)
   if (!response.ok) throw new Error('Unable to load workspace')
+  return response.json()
+}
+
+async function fetchAnalysisPlan(projectId: string): Promise<WorkspaceAnalysisPlan> {
+  const response = await fetch(`/api/projects/${projectId}/workspace/analysis-plan?limit=100`)
+  if (!response.ok) throw new Error('Unable to load analysis proposals')
   return response.json()
 }
 
@@ -110,6 +117,7 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
   const queryClient = useQueryClient()
   const [selectedTarget, setSelectedTarget] = useState<string | null>(null)
   const workspace = useQuery({ queryKey: ['reamon-workspace', projectId], queryFn: () => fetchWorkspace(projectId) })
+  const analysisPlan = useQuery({ queryKey: ['reamon-analysis-plan', projectId], queryFn: () => fetchAnalysisPlan(projectId) })
 
   const data = workspace.data
   const rootTarget = useMemo(() => data?.targets.find((target) => target.targetType === 'DIRECTORY'), [data?.targets])
@@ -136,7 +144,10 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
         <Stat label="Targets" value={data.counts.targets} /><Stat label="Artifacts" value={data.counts.artifacts} /><Stat label="Tasks" value={data.counts.tasks} /><Stat label="Findings" value={data.counts.findings} /><Stat label="Hypotheses" value={data.counts.hypotheses} /><Stat label="Evidence" value={data.counts.evidence} />
       </div>
 
-      <WorkspaceImportPanel projectId={projectId} onImported={() => void queryClient.invalidateQueries({ queryKey: ['reamon-workspace', projectId] })} />
+      <WorkspaceImportPanel projectId={projectId} onImported={() => {
+        void queryClient.invalidateQueries({ queryKey: ['reamon-workspace', projectId] })
+        void queryClient.invalidateQueries({ queryKey: ['reamon-analysis-plan', projectId] })
+      }} />
       <ImportStatus latestImport={latestImport} />
 
       <section className={styles.panel} aria-labelledby="inventory-heading">
@@ -148,6 +159,8 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
         <section className={styles.panel} aria-labelledby="progress-heading"><div className={styles.panelHeader}><h2 id="progress-heading">Progress</h2><span className={styles.muted}>Deterministic lifecycle state</span></div>{data.progress.metrics.length ? data.progress.metrics.map((metric) => <ProgressBar key={metric.id} metric={metric} />) : <p className={styles.muted}>Progress appears as investigation entities are created.</p>}</section>
         <section className={styles.panel} aria-labelledby="providers-heading"><div className={styles.panelHeader}><h2 id="providers-heading">Available capabilities</h2><span className={styles.muted}>{data.capabilities.length} provider{data.capabilities.length === 1 ? '' : 's'}</span></div>{data.capabilities.length ? data.capabilities.map((provider) => <div className={styles.providerRow} key={provider.pluginId}><span><strong>{provider.pluginName}</strong><small>{provider.capabilities.slice(0, 4).join(' · ')}</small></span><span className={styles.providerCount}>{provider.compatibleArtifactIds.length} compatible artifacts</span></div>) : <p className={styles.muted}>Capabilities will appear as providers are registered.</p>}</section>
       </div>
+
+      <WorkspaceAnalysisPlanPanel plan={analysisPlan.data} isLoading={analysisPlan.isLoading} isError={analysisPlan.isError} />
 
       <section className={styles.panel} aria-labelledby="files-heading">
         <div className={styles.panelHeader}><h2 id="files-heading">Project files</h2><span className={styles.muted}>Relative paths are preserved as workspace context</span></div>
