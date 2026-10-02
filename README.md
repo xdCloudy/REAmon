@@ -74,10 +74,10 @@ implementations rather than complete binary-identification tooling.
 
 ## Production readiness
 
-<progress value="56" max="100">56%</progress> <strong>56%</strong>
+<progress value="57" max="100">57%</progress> <strong>57%</strong>
 
 This is a weighted engineering snapshot, reviewed 2026-10-02 after adding explicit
-task execution. It measures the
+task execution and lease-protected recovery controls. It measures the
 distance to a dependable self-hosted production release, not the number of UI
 screens or lines of code. The bar moves only when a workstream has working code,
 tests, and an operational path.
@@ -86,11 +86,11 @@ tests, and an operational path.
 | --- | ---: | ---: | --- |
 | Workspace foundation and access control | 20% | 100% | Keep regression coverage green during migration. |
 | Import, profiling, storage, and inventory | 15% | 90% | Derived-artifact provenance, server-mounted sources, and refresh cleanup. |
-| Provider registry, scheduling, and reference execution | 15% | 70% | Background worker ownership, real process/MCP providers, retries, and cancellation. |
+| Provider registry, scheduling, and reference execution | 15% | 75% | Background worker ownership, real process/MCP providers, and cancellation. |
 | Provider results and knowledge graph ingestion | 20% | 15% | Persist typed observations, entities, relationships, and graph-rebuild provenance. |
 | Approvals, live activity, and operator controls | 10% | 20% | Durable event projection, approvals, and recovery UX. |
 | Legacy RedAmon migration | 10% | 40% | Move remaining project, agent, report, and settings surfaces without breaking existing data. |
-| Production hardening and release QA | 10% | 25% | Full container gate, backup/restore drills, upgrade checks, observability, and deployment runbooks. |
+| Production hardening and release QA | 10% | 30% | Full container gate, backup/restore drills, upgrade checks, observability, and deployment runbooks. |
 
 The main path to “shipped” is therefore: harden queued execution with worker/event
 recovery → add real providers → ingest and

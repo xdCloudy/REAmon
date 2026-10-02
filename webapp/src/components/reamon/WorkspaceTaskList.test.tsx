@@ -17,14 +17,36 @@ describe('WorkspaceTaskList', () => {
   })
 
   test('runs a queued task and refreshes the workspace after completion', async () => {
-    const onExecuted = vi.fn()
-    render(<WorkspaceTaskList projectId="project-1" onExecuted={onExecuted} tasks={[{ id: 'task-1', title: 'Inspect source', status: 'QUEUED', progress: 0 }]} />)
+    const onChanged = vi.fn()
+    render(<WorkspaceTaskList projectId="project-1" onChanged={onChanged} tasks={[{ id: 'task-1', title: 'Inspect source', status: 'QUEUED', progress: 0 }]} />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Run' }))
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Inspect source completed.'))
 
     expect(fetch).toHaveBeenCalledWith('/api/projects/project-1/workspace/tasks/task-1/execute', { method: 'POST' })
-    expect(onExecuted).toHaveBeenCalledOnce()
+    expect(onChanged).toHaveBeenCalledOnce()
+  })
+
+  test('retries a failed task', async () => {
+    render(<WorkspaceTaskList projectId="project-1" tasks={[{ id: 'task-1', title: 'Inspect source', status: 'FAILED', progress: 10 }]} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Inspect source was requeued.'))
+
+    expect(fetch).toHaveBeenCalledWith('/api/projects/project-1/workspace/tasks/task-1/retry', { method: 'POST' })
+  })
+
+  test('recovers stale tasks from the operator control', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ recovered: 2 }),
+    }))
+    render(<WorkspaceTaskList projectId="project-1" tasks={[{ id: 'task-1', title: 'Inspect source', status: 'RUNNING', progress: 10 }]} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Recover stale' }))
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Recovered 2 stale tasks.'))
+
+    expect(fetch).toHaveBeenCalledWith('/api/projects/project-1/workspace/tasks/recover', { method: 'POST' })
   })
 
   test('does not offer execution for completed tasks', () => {

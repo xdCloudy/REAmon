@@ -4,7 +4,8 @@ import { beforeEach, describe, expect, test, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   taskFindFirst: vi.fn(),
   taskUpdateMany: vi.fn(),
-  taskUpdate: vi.fn(),
+  taskSettleUpdateMany: vi.fn(),
+  taskFindUnique: vi.fn(),
   evidenceCreate: vi.fn(),
   activityCreate: vi.fn(),
   transaction: vi.fn(),
@@ -48,11 +49,12 @@ beforeEach(() => {
   vi.clearAllMocks()
   mocks.taskFindFirst.mockResolvedValue(task())
   mocks.taskUpdateMany.mockResolvedValue({ count: 1 })
-  mocks.taskUpdate.mockResolvedValue(task({ status: 'COMPLETED', progress: 100, result: { strings: ['hello'] }, completedAt: new Date('2026-10-02T12:01:00Z') }))
+  mocks.taskSettleUpdateMany.mockResolvedValue({ count: 1 })
+  mocks.taskFindUnique.mockResolvedValue(task({ status: 'COMPLETED', progress: 100, result: { strings: ['hello'] }, completedAt: new Date('2026-10-02T12:01:00Z') }))
   mocks.evidenceCreate.mockResolvedValue({ id: 'evidence-1' })
   mocks.activityCreate.mockResolvedValue({ id: 'activity-1' })
   mocks.transaction.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) => callback({
-    task: { update: mocks.taskUpdate },
+    task: { updateMany: mocks.taskSettleUpdateMany, findUnique: mocks.taskFindUnique },
     evidence: { create: mocks.evidenceCreate },
     workspaceActivity: { create: mocks.activityCreate },
   }))
@@ -87,7 +89,7 @@ describe('executeAnalysisTask', () => {
     mocks.analyze.mockResolvedValue({
       status: 'failed', toolId: provider.manifest.id, capabilities: ['extract_strings'], produced: [], data: {}, error: 'provider unavailable',
     })
-    mocks.taskUpdate.mockResolvedValue(task({ status: 'FAILED', error: 'provider unavailable' }))
+    mocks.taskFindUnique.mockResolvedValue(task({ status: 'FAILED', error: 'provider unavailable' }))
 
     const result = await executeAnalysisTask('project-1', 'task-1')
 
@@ -96,6 +98,19 @@ describe('executeAnalysisTask', () => {
     expect(mocks.activityCreate).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ eventType: 'analysis.task.failed' }),
     }))
+  })
+
+  test('does not settle or create evidence after its lease is recovered', async () => {
+    mocks.taskSettleUpdateMany.mockResolvedValue({ count: 0 })
+    mocks.taskFindFirst
+      .mockResolvedValueOnce(task())
+      .mockResolvedValueOnce(task({ status: 'QUEUED', progress: 0, runToken: null, startedAt: null }))
+
+    const result = await executeAnalysisTask('project-1', 'task-1')
+
+    expect(result).toMatchObject({ outcome: 'SKIPPED', task: { status: 'QUEUED' } })
+    expect(mocks.evidenceCreate).not.toHaveBeenCalled()
+    expect(mocks.activityCreate).not.toHaveBeenCalled()
   })
 
   test('does not rerun a task that is already running', async () => {

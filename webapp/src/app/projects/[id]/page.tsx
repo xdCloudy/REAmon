@@ -177,7 +177,7 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
       </section>
 
       <div className={styles.bottomGrid}>
-        <section className={styles.panel} aria-labelledby="work-heading"><div className={styles.panelHeader}><h2 id="work-heading">Tasks and findings</h2></div>{!data.tasks.length && !data.findings.length ? <p className={styles.muted}>No analysis work has been scheduled.</p> : <>{data.tasks.length > 0 && <WorkspaceTaskList projectId={projectId} tasks={data.tasks} onExecuted={() => {
+        <section className={styles.panel} aria-labelledby="work-heading"><div className={styles.panelHeader}><h2 id="work-heading">Tasks and findings</h2></div>{!data.tasks.length && !data.findings.length ? <p className={styles.muted}>No analysis work has been scheduled.</p> : <>{data.tasks.length > 0 && <WorkspaceTaskList projectId={projectId} tasks={data.tasks} onChanged={() => {
           void queryClient.invalidateQueries({ queryKey: ['reamon-workspace', projectId] })
         }} />}{data.findings.map((finding) => <div className={styles.listRow} key={finding.id}><span>{finding.title}</span><span className={styles.type}>{finding.severity} · {finding.status}</span></div>)}</>}</section>
         <section className={styles.panel} aria-labelledby="hypotheses-heading"><div className={styles.panelHeader}><h2 id="hypotheses-heading">Hypotheses</h2></div>{data.hypotheses.length ? data.hypotheses.map((hypothesis) => <div className={styles.listRow} key={hypothesis.id}><span>{hypothesis.statement}</span><span className={styles.type}>{hypothesis.status}</span></div>) : <p className={styles.muted}>No hypotheses recorded.</p>}</section>

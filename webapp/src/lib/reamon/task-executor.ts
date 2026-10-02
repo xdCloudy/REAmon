@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client'
+import { randomUUID } from 'node:crypto'
 import prisma from '@/lib/prisma'
 import { getBuiltinProvider } from './provider-registry'
 import { resolveCapabilities } from './capabilities'
@@ -18,6 +19,7 @@ const taskSelect = {
   options: true,
   result: true,
   error: true,
+  runToken: true,
   startedAt: true,
   completedAt: true,
   createdAt: true,
@@ -85,6 +87,7 @@ async function loadTask(projectId: string, taskId: string): Promise<TaskRow | nu
 
 async function settleTask(
   task: TaskRow,
+  runToken: string,
   outcome: 'COMPLETED' | 'FAILED',
   providerName: string,
   result?: ToolResult,
@@ -93,8 +96,8 @@ async function settleTask(
   const error = boundedError(failure || result?.error || '')
   const completedAt = new Date()
   const updated = await prisma.$transaction(async (tx) => {
-    const updatedTask = await tx.task.update({
-      where: { id: task.id },
+    const claim = await tx.task.updateMany({
+      where: { id: task.id, projectId: task.projectId, status: 'RUNNING', runToken },
       data: {
         status: outcome,
         progress: outcome === 'COMPLETED' ? 100 : task.progress,
@@ -102,8 +105,12 @@ async function settleTask(
         error: outcome === 'COMPLETED' ? '' : error,
         completedAt,
       },
-      select: taskSelect,
     })
+    if (claim.count !== 1) return null
+
+    const updatedTask = await tx.task.findUnique({ where: { id: task.id }, select: taskSelect })
+    if (!updatedTask) return null
+
     if (outcome === 'COMPLETED' && result) {
       await tx.evidence.create({
         data: {
@@ -136,11 +143,15 @@ async function settleTask(
     })
     return updatedTask
   })
+  if (!updated) {
+    const current = await loadTask(task.projectId, task.id)
+    return current ? { outcome: 'SKIPPED', task: serialiseTask(current) } : { outcome: 'SKIPPED', task: serialiseTask(task) }
+  }
   return { outcome, task: serialiseTask(updated) }
 }
 
-async function failTask(task: TaskRow, message: string): Promise<ExecutedAnalysisTask> {
-  return settleTask(task, 'FAILED', task.provider?.name || 'Provider', undefined, message)
+async function failTask(task: TaskRow, runToken: string, message: string): Promise<ExecutedAnalysisTask> {
+  return settleTask(task, runToken, 'FAILED', task.provider?.name || 'Provider', undefined, message)
 }
 
 export async function executeAnalysisTask(projectId: string, taskId: string): Promise<ExecutedAnalysisTask | null> {
@@ -148,26 +159,27 @@ export async function executeAnalysisTask(projectId: string, taskId: string): Pr
   if (!task) return null
   if (task.status !== 'QUEUED') return { outcome: 'SKIPPED', task: serialiseTask(task) }
 
+  const runToken = randomUUID()
   const claimed = await prisma.task.updateMany({
     where: { id: task.id, projectId, status: 'QUEUED' },
-    data: { status: 'RUNNING', progress: 10, startedAt: new Date(), error: '' },
+    data: { status: 'RUNNING', progress: 10, startedAt: new Date(), completedAt: null, error: '', runToken },
   })
   if (claimed.count !== 1) {
     const current = await loadTask(projectId, taskId)
     return current ? { outcome: 'SKIPPED', task: serialiseTask(current) } : null
   }
 
-  if (!task.provider) return failTask(task, 'Task provider is missing')
-  if (!task.provider.enabled) return failTask(task, 'Task provider is disabled')
-  if (!task.artifact) return failTask(task, 'Task artifact is missing')
+  if (!task.provider) return failTask(task, runToken, 'Task provider is missing')
+  if (!task.provider.enabled) return failTask(task, runToken, 'Task provider is disabled')
+  if (!task.artifact) return failTask(task, runToken, 'Task artifact is missing')
 
   const plugin = getBuiltinProvider(task.provider.pluginId)
-  if (!plugin) return failTask(task, `Provider ${task.provider.pluginId} is not installed`)
+  if (!plugin) return failTask(task, runToken, `Provider ${task.provider.pluginId} is not installed`)
 
   const profile = task.artifact.profile as unknown as TargetProfile
   const match = resolveCapabilities(profile, [plugin])[0]
   const capability = match?.capabilities.find((candidate) => candidate.toLowerCase() === (task.capability || '').toLowerCase())
-  if (!match || !capability) return failTask(task, 'Provider is no longer compatible with the artifact')
+  if (!match || !capability) return failTask(task, runToken, 'Provider is no longer compatible with the artifact')
 
   let result: ToolResult
   try {
@@ -177,8 +189,8 @@ export async function executeAnalysisTask(projectId: string, taskId: string): Pr
       options: asOptions(task.options),
     })
   } catch (error) {
-    return failTask(task, error instanceof Error ? error.message : 'Provider execution failed')
+    return failTask(task, runToken, error instanceof Error ? error.message : 'Provider execution failed')
   }
-  if (result.status !== 'completed') return settleTask(task, 'FAILED', plugin.manifest.name, result, result.error)
-  return settleTask(task, 'COMPLETED', plugin.manifest.name, result)
+  if (result.status !== 'completed') return settleTask(task, runToken, 'FAILED', plugin.manifest.name, result, result.error)
+  return settleTask(task, runToken, 'COMPLETED', plugin.manifest.name, result)
 }

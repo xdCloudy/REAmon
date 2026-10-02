@@ -250,6 +250,8 @@ The migration is tracked in [REAMON_MIGRATION.md](REAMON_MIGRATION.md). The broa
 The architecture leaves room for Ghidra, JADX, Rizin, Binwalk, Apktool, Frida, GDB, LLDB, x64dbg, WinDbg, QEMU, ADB, custom MCP servers, and arbitrary command-line tools. Each integration should declare what it accepts, what it requires, what capabilities it provides, and what generic entities or evidence it produces.
 
 The persisted provider registry, explicit task-queue boundary, and reference executor
-are now in place. The next high-value work is moving execution into a recoverable
+are now in place. Execution attempts carry a lease token, so stale running tasks can
+be recovered or retried without allowing a late provider response to overwrite the
+new attempt. The next high-value work is moving execution into a recoverable
 background worker, adding real native/MCP/process providers, then ingesting provider
 results into the graph and projecting durable events into the dashboard.

@@ -2530,6 +2530,7 @@ model Task {
   options     Json     @default("{}")
   result      Json?
   error       String   @default("") @db.Text
+  runToken    String?  @map("run_token")
   idempotencyKey String? @unique @map("idempotency_key")
   startedAt   DateTime? @map("started_at")
   completedAt DateTime? @map("completed_at")
@@ -2539,6 +2540,7 @@ model Task {
   @@index([projectId, status])
   @@index([projectId, category])
   @@index([projectId, providerId, capability])
+  @@index([status, startedAt])
   @@map("reamon_tasks")
 }
 

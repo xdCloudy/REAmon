@@ -51,7 +51,8 @@ The current vertical slice is complete for browser snapshots: select a folder, c
 REAmon workspace, preview the manifest and latest refresh delta, upload in bounded
 concurrent requests, cancel or retry an import, preserve relative paths, aggregate the
 profile, resolve compatible capabilities, queue a reviewed analysis proposal, and run
-the small reference providers with durable task/evidence/activity state.
-Derived-artifact provenance, server-mounted sources, true background uploads, real
-process/MCP execution, graph ingestion, and replacing older duplicate artifact rows
-during refresh remain follow-up work.
+the small reference providers with lease-protected task/evidence/activity state.
+Stale-task recovery and retry controls are now available to operators. Derived-artifact
+provenance, server-mounted sources, true background uploads, real process/MCP execution,
+cancellation, graph ingestion, and replacing older duplicate artifact rows during
+refresh remain follow-up work.
