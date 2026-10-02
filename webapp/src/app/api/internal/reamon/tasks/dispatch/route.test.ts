@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, test, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   recoverStaleAnalysisTasks: vi.fn(),
   dispatchQueuedAnalysisTasks: vi.fn(),
+  notifyWorkerAlert: vi.fn(),
   recordWorkerDispatch: vi.fn(),
   internal: vi.fn(),
 }))
@@ -11,6 +12,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/lib/session', () => ({ isInternalRequest: mocks.internal }))
 vi.mock('@/lib/reamon/task-control', () => ({ recoverStaleAnalysisTasks: mocks.recoverStaleAnalysisTasks }))
 vi.mock('@/lib/reamon/task-dispatcher', () => ({ dispatchQueuedAnalysisTasks: mocks.dispatchQueuedAnalysisTasks }))
+vi.mock('@/lib/reamon/worker-alerts', () => ({ notifyWorkerAlert: mocks.notifyWorkerAlert }))
 vi.mock('@/lib/reamon/worker-health', () => ({ recordWorkerDispatch: mocks.recordWorkerDispatch }))
 
 import { POST } from './route'
@@ -22,6 +24,7 @@ beforeEach(() => {
   mocks.internal.mockReturnValue(true)
   mocks.recoverStaleAnalysisTasks.mockResolvedValue({ recovered: 1, staleAfterMinutes: 30 })
   mocks.dispatchQueuedAnalysisTasks.mockResolvedValue({ requested: 2, selected: 1, workerId: 'worker-a', results: [taskResult] })
+  mocks.notifyWorkerAlert.mockResolvedValue({ configured: false, delivered: false, reason: 'healthy' })
   mocks.recordWorkerDispatch.mockResolvedValue({})
 })
 
@@ -47,6 +50,7 @@ describe('POST /api/internal/reamon/tasks/dispatch', () => {
     expect(mocks.recoverStaleAnalysisTasks).toHaveBeenCalledWith('project-1', 45, 'worker-a')
     expect(mocks.dispatchQueuedAnalysisTasks).toHaveBeenCalledWith({ projectId: 'project-1', limit: 2, workerId: 'worker-a' })
     expect(mocks.recordWorkerDispatch).toHaveBeenCalledWith(expect.objectContaining({ workerId: 'worker-a', recovered: 1, selected: 1, completed: 1, failed: 0 }))
+    expect(mocks.notifyWorkerAlert).toHaveBeenCalledWith(expect.objectContaining({ workerId: 'worker-a', selected: 1, completed: 1, failed: 0 }))
   })
 
   test('rejects malformed worker input', async () => {

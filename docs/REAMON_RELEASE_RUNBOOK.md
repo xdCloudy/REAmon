@@ -78,6 +78,24 @@ The readiness endpoint must report both PostgreSQL and writable artifact storage
 healthy. A failed readiness check is a release failure; do not route traffic to the
 new container while it is unhealthy.
 
+## Worker alert smoke test
+
+If outbound alerting is enabled, set `REAMON_WORKER_ALERT_WEBHOOK_URL` and, when the
+receiver requires it, `REAMON_WORKER_ALERT_WEBHOOK_TOKEN` in the deployment secret
+store. Render Compose and confirm the values are present without printing the token:
+
+```bash
+docker compose config --quiet
+docker compose exec webapp sh -lc 'test -n "$REAMON_WORKER_ALERT_WEBHOOK_URL"'
+```
+
+Trigger a disposable provider failure in a non-production workspace and verify that
+the receiver gets one `source=reamon`, `event=worker.degraded` JSON event. Confirm
+the task-dispatch response and workspace activity still complete if the receiver is
+unavailable; webhook delivery is intentionally best-effort with a five-second
+timeout. Stale workers are still detected in the dashboard because a stopped worker
+cannot deliver its own alert.
+
 ## Planned destructive schema changes
 
 Only after a verified backup and a reviewed schema diff, set

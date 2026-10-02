@@ -71,5 +71,8 @@ are still follow-up work. Projection runs now
 write durable workspace activity for started, completed, and failed graph writes so
 operators can see recovery context without reading worker logs.
 Worker dispatches now persist last-seen and bounded outcome telemetry, and the
-workspace marks silent workers as stale; alert routing and multi-worker stress remain
-release follow-up work.
+workspace marks silent workers as stale. Failed dispatches optionally emit a bounded
+webhook alert configured through `REAMON_WORKER_ALERT_WEBHOOK_URL` (with an optional
+bearer token); delivery is best-effort and does not fail task dispatch. Multi-worker
+stress, backup/restore drills, and additional alerting for a worker that disappears
+without another request remain release follow-up work.

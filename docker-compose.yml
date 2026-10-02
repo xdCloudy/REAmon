@@ -1169,6 +1169,8 @@ services:
       # for a planned, backed-up upgrade after reviewing the schema change.
       REAMON_DB_PUSH_ACCEPT_DATA_LOSS: ${REAMON_DB_PUSH_ACCEPT_DATA_LOSS:-false}
       REAMON_WORKER_STALE_SECONDS: ${REAMON_WORKER_STALE_SECONDS:-90}
+      REAMON_WORKER_ALERT_WEBHOOK_URL: ${REAMON_WORKER_ALERT_WEBHOOK_URL:-}
+      REAMON_WORKER_ALERT_WEBHOOK_TOKEN: ${REAMON_WORKER_ALERT_WEBHOOK_TOKEN:-}
       REPORT_OUTPUT_PATH: /data/reports
       WORDLIST_UPLOAD_PATH: /data/recon-wordlists
       NUCLEI_TEMPLATES_PATH: /data/nuclei-templates

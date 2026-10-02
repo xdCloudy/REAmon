@@ -278,9 +278,11 @@ heartbeat freshness, so operators can distinguish active work from a stalled lea
 The source process adapter now terminates its child on operator cancellation or a
 bounded timeout. Dispatches also persist worker last-seen, outcome counts, duration,
 and the last provider error; the workspace labels workers stale after a bounded
-silence window and surfaces stale/degraded worker alerts. Remaining worker hardening
-is multi-worker stress testing, external alert delivery, and additional MCP/process
-adapters. Projection runs now append durable started, completed, and failed
+silence window and surfaces stale/degraded worker alerts. Failed dispatches can also
+send an optional environment-configured webhook with bounded, non-secret JSON; URL
+validation, a five-second timeout, and best-effort handling keep alert delivery from
+blocking work. Remaining worker hardening is multi-worker stress testing and
+additional MCP/process adapters. Projection runs now append durable started, completed, and failed
 workspace activity with a correlation id, selected counts, and bounded error detail
 so an operator can distinguish an empty projection from a failed graph write. Large
 replays continue through bounded monotonic pages instead of silently stopping at the

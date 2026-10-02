@@ -81,13 +81,13 @@ MCP, and runtime integrations remain optional follow-on providers.
 
 ## Production readiness
 
-<progress value="75" max="100">75%</progress> <strong>75%</strong>
+<progress value="76" max="100">76%</progress> <strong>76%</strong>
 
 This is a weighted engineering snapshot, reviewed 2026-10-02 after adding explicit
 task execution, lease-protected recovery, cancellation controls, worker ownership,
 cooperative provider cancellation, a bounded process provider with timeout and
 SIGTERM cancellation, durable task and worker heartbeats, stale/degraded worker
-operator alerts, bounded typed observation ingestion with canonical identity hints,
+operator alerts with optional outbound webhook delivery, bounded typed observation ingestion with canonical identity hints,
 replayable, paginated graph projection with durable run activity, and live
 task/operator refresh. It measures the
 distance to a dependable self-hosted production release, not the number of UI
@@ -102,13 +102,19 @@ tests, and an operational path.
 | Provider results and knowledge graph ingestion | 20% | 60% | Historical backfill scheduling and graph-rebuild provenance. |
 | Approvals, live activity, and operator controls | 10% | 30% | Durable event projection, approvals, and richer recovery UX. |
 | Legacy RedAmon migration | 10% | 40% | Move remaining project, agent, report, and settings surfaces without breaking existing data. |
-| Production hardening and release QA | 10% | 75% | External alert delivery, backup/restore drills, and deployment runbooks. |
+| Production hardening and release QA | 10% | 85% | Backup/restore drills, multi-worker stress, and final deployment evidence. |
 
 The main path to “shipped” is therefore: add additional MCP/process providers and
 multi-worker stress coverage → add historical backfill and graph-rebuild provenance
 → finish migration and
 production QA. See [`docs/REAMON_ARCHITECTURE.md`](docs/REAMON_ARCHITECTURE.md)
 for the boundary decisions behind this sequence.
+
+For production alerting, set `REAMON_WORKER_ALERT_WEBHOOK_URL` and optionally
+`REAMON_WORKER_ALERT_WEBHOOK_TOKEN`. Failed provider dispatches send a bounded
+`worker.degraded` JSON event with a five-second timeout; missing or failing alert
+delivery never fails the dispatch request. The dashboard remains the source of
+truth for stale workers, including workers that stop reporting entirely.
 
 ## Architecture
 

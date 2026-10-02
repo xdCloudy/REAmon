@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { isInternalRequest } from '@/lib/session'
 import { recoverStaleAnalysisTasks } from '@/lib/reamon/task-control'
 import { dispatchQueuedAnalysisTasks } from '@/lib/reamon/task-dispatcher'
+import { notifyWorkerAlert } from '@/lib/reamon/worker-alerts'
 import { recordWorkerDispatch } from '@/lib/reamon/worker-health'
 
 export const runtime = 'nodejs'
@@ -62,18 +63,33 @@ export async function POST(request: NextRequest) {
       : { recovered: 0, staleAfterMinutes: staleAfterMinutes ?? 30 }
     const startedAt = Date.now()
     const dispatched = await dispatchQueuedAnalysisTasks({ projectId, limit, workerId })
+    const failed = dispatched.results.filter((result) => result.outcome === 'FAILED').length
+    const firstError = dispatched.results.find((result) => result.outcome === 'FAILED')?.task.error || undefined
     try {
       await recordWorkerDispatch({
         workerId,
         recovered: recovered.recovered,
         selected: dispatched.selected,
         completed: dispatched.results.filter((result) => result.outcome === 'COMPLETED').length,
-        failed: dispatched.results.filter((result) => result.outcome === 'FAILED').length,
+        failed,
         durationMs: Math.max(0, Date.now() - startedAt),
-        error: dispatched.results.find((result) => result.outcome === 'FAILED')?.task.error || undefined,
+        error: firstError,
       })
     } catch (error) {
       console.error('Failed to record REAmon worker health:', error)
+    }
+    try {
+      await notifyWorkerAlert({
+        workerId,
+        recovered: recovered.recovered,
+        selected: dispatched.selected,
+        completed: dispatched.results.filter((result) => result.outcome === 'COMPLETED').length,
+        failed,
+        durationMs: Math.max(0, Date.now() - startedAt),
+        error: firstError,
+      })
+    } catch (error) {
+      console.error('Failed to deliver REAmon worker alert:', error)
     }
 
     return NextResponse.json({
