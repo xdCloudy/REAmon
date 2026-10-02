@@ -3,13 +3,15 @@
 import { use, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, CheckCircle2, CircleDashed, Gauge, Server, Waypoints } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, CheckCircle2, CircleDashed, Gauge, Server, Waypoints } from 'lucide-react'
 import { WorkspaceFileTree } from '@/components/reamon/WorkspaceFileTree'
 import { WorkspaceImportPanel } from '@/components/reamon/WorkspaceImportPanel'
 import { WorkspaceAnalysisPlanPanel, type WorkspaceAnalysisPlan } from '@/components/reamon/WorkspaceAnalysisPlan'
 import { WorkspaceTaskList } from '@/components/reamon/WorkspaceTaskList'
 import type { CapabilityMatch, ProgressMetric, TargetProfile, WorkspaceCapabilitySummary, WorkspaceImportSnapshot, WorkspaceObservation, WorkspaceProfile } from '@/lib/reamon'
 import styles from './page.module.css'
+
+type WorkerHealth = { workerId: string; status: string; lastSeenAt: string; lastDispatchAt: string | null; lastDispatchDurationMs: number | null; lastRecovered: number; lastSelected: number; lastCompleted: number; lastFailed: number; lastError: string }
 
 interface WorkspaceSnapshot {
   workspace: { id: string; name: string; description: string | null; createdAt: string; updatedAt: string }
@@ -43,7 +45,7 @@ interface WorkspaceSnapshot {
   artifactPage: { limit: number; total: number; hasMore: boolean }
   progress: { overallPercent: number; metrics: ProgressMetric[] }
   counts: { targets: number; artifacts: number; tasks: number; findings: number; hypotheses: number; evidence: number; observations: number }
-  workers: Array<{ workerId: string; status: string; lastSeenAt: string; lastDispatchAt: string | null; lastDispatchDurationMs: number | null; lastRecovered: number; lastSelected: number; lastCompleted: number; lastFailed: number; lastError: string }>
+  workers: WorkerHealth[]
 }
 
 async function fetchWorkspace(projectId: string): Promise<WorkspaceSnapshot> {
@@ -122,6 +124,25 @@ function ImportStatus({ latestImport }: { latestImport: WorkspaceImportSnapshot 
   )
 }
 
+function WorkerHealthAlert({ workers }: { workers: WorkerHealth[] }) {
+  const attention = workers.filter((worker) => worker.status === 'STALE' || worker.status === 'DEGRADED')
+  if (!attention.length) return null
+
+  const degraded = attention.filter((worker) => worker.status === 'DEGRADED').length
+  const names = attention.slice(0, 3).map((worker) => worker.workerId).join(', ')
+  const remainder = attention.length > 3 ? ` and ${attention.length - 3} more` : ''
+  return (
+    <aside className={styles.workerAlert} role="alert" aria-labelledby="worker-alert-heading">
+      <AlertTriangle size={19} aria-hidden="true" />
+      <div>
+        <strong id="worker-alert-heading">Analysis worker attention required</strong>
+        <p>{degraded ? `${degraded} worker${degraded === 1 ? '' : 's'} reported a failed dispatch. ` : ''}{attention.length - degraded ? `${attention.length - degraded} worker${attention.length - degraded === 1 ? '' : 's'} are stale. ` : ''}Affected: {names}{remainder}.</p>
+        <small>New analysis tasks may wait until the worker process recovers. Check the worker logs before retrying failed tasks.</small>
+      </div>
+    </aside>
+  )
+}
+
 export default function WorkspacePage({ params }: { params: Promise<{ id: string }> }) {
   const { id: projectId } = use(params)
   const queryClient = useQueryClient()
@@ -129,7 +150,12 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
   const workspace = useQuery({
     queryKey: ['reamon-workspace', projectId],
     queryFn: () => fetchWorkspace(projectId),
-    refetchInterval: (query) => query.state.data?.tasks.some((task) => task.status === 'RUNNING') ? 3000 : false,
+    refetchInterval: (query) => {
+      const snapshot = query.state.data
+      if (snapshot?.tasks.some((task) => task.status === 'RUNNING')) return 3000
+      if (snapshot?.workers.length) return 30000
+      return false
+    },
     refetchIntervalInBackground: false,
   })
   const analysisPlan = useQuery({ queryKey: ['reamon-analysis-plan', projectId], queryFn: () => fetchAnalysisPlan(projectId) })
@@ -154,6 +180,8 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
         <div><p className={styles.eyebrow}>Reverse-engineering workspace</p><h1>{data.workspace.name}</h1><p className={styles.description}>{data.workspace.description || 'Analyse anything. Connect the evidence. Understand the system.'}</p></div>
         <div className={styles.progressSummary} aria-label={`Workspace progress: ${data.progress.overallPercent}%`}><Gauge size={17} /><strong>{data.progress.overallPercent}%</strong><span>progress</span></div>
       </header>
+
+      <WorkerHealthAlert workers={data.workers} />
 
       <div className={styles.stats}>
         <Stat label="Targets" value={data.counts.targets} /><Stat label="Artifacts" value={data.counts.artifacts} /><Stat label="Tasks" value={data.counts.tasks} /><Stat label="Findings" value={data.counts.findings} /><Stat label="Hypotheses" value={data.counts.hypotheses} /><Stat label="Evidence" value={data.counts.evidence} /><Stat label="Observations" value={data.counts.observations} />

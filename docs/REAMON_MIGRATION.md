@@ -59,8 +59,8 @@ persist retry-safe typed observations that appear in the workspace. Active provi
 leases now record an owner and refresh a guarded heartbeat, while stale recovery remains
 safe for older rows without one. Providers receive a cooperative cancellation signal
 when operators cancel running work. Derived-artifact provenance, server-mounted sources,
-multi-worker stress/alerting, true background uploads,
-additional MCP/process adapters, multi-worker stress/alerting, projection observability,
+multi-worker stress testing, external alert delivery, true background uploads,
+additional MCP/process adapters, projection observability,
 and replacing older duplicate artifact rows during refresh remain follow-up work. The
 workspace task panel now refreshes active work automatically and labels the current
 worker plus heartbeat freshness. The internal projection route can replay the

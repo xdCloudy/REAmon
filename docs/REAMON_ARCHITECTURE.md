@@ -273,7 +273,7 @@ heartbeat freshness, so operators can distinguish active work from a stalled lea
 The source process adapter now terminates its child on operator cancellation or a
 bounded timeout. Dispatches also persist worker last-seen, outcome counts, duration,
 and the last provider error; the workspace labels workers stale after a bounded
-silence window. Remaining worker hardening is multi-worker stress/alerting and
-additional MCP/process adapters. The next high-value work is resolving cross-provider
-identities, adding graph-rebuild provenance, and projecting durable events into the
-dashboard.
+silence window and surfaces stale/degraded worker alerts. Remaining worker hardening
+is multi-worker stress testing, external alert delivery, and additional MCP/process
+adapters. The next high-value work is resolving cross-provider identities, adding
+graph-rebuild provenance, and projecting durable events into the dashboard.
