@@ -282,7 +282,9 @@ silence window and surfaces stale/degraded worker alerts. Remaining worker harde
 is multi-worker stress testing, external alert delivery, and additional MCP/process
 adapters. Projection runs now append durable started, completed, and failed
 workspace activity with a correlation id, selected counts, and bounded error detail
-so an operator can distinguish an empty projection from a failed graph write.
+so an operator can distinguish an empty projection from a failed graph write. Large
+replays continue through bounded monotonic pages instead of silently stopping at the
+per-request observation cap.
 Observation ingestion now derives a bounded canonical identity from an
 explicit `identity`, `identityKey`, `canonicalKey`, or `qualifiedName` hint (and from
 normalized string values); observations without a hint remain source-scoped. Neo4j

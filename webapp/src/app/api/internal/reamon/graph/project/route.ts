@@ -12,6 +12,7 @@ interface ProjectionBody {
   projectId?: unknown
   limit?: unknown
   batchSize?: unknown
+  offset?: unknown
 }
 
 function badRequest(error: string) {
@@ -55,6 +56,7 @@ export async function POST(request: NextRequest) {
     if (typeof body.projectId !== 'string' || !body.projectId.trim() || body.projectId.length > 128) return badRequest('projectId must be a bounded string')
     if (body.limit !== undefined && (typeof body.limit !== 'number' || !Number.isFinite(body.limit))) return badRequest('limit must be a number')
     if (body.batchSize !== undefined && (typeof body.batchSize !== 'number' || !Number.isFinite(body.batchSize))) return badRequest('batchSize must be a number')
+    if (body.offset !== undefined && (typeof body.offset !== 'number' || !Number.isFinite(body.offset))) return badRequest('offset must be a number')
 
     projectId = body.projectId.trim()
     projectionRunId = randomUUID()
@@ -62,11 +64,12 @@ export async function POST(request: NextRequest) {
       projectionRunId,
       limit: body.limit ?? null,
       batchSize: body.batchSize ?? null,
+      offset: body.offset ?? 0,
     })
 
     const session = getGraphSession()
     try {
-      const result = await projectReamonObservations(projectId, session, body.limit as number | undefined, body.batchSize as number | undefined)
+      const result = await projectReamonObservations(projectId, session, body.limit as number | undefined, body.batchSize as number | undefined, body.offset as number | undefined)
       await recordProjectionActivity(projectId, 'analysis.graph_projection.completed', `Projected ${result.nodes} nodes and ${result.relationships} relationships for ${projectId}`, {
         projectionRunId,
         ...result,

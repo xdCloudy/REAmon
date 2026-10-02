@@ -37,11 +37,22 @@ describe('POST /api/internal/reamon/graph/project', () => {
 
     expect(response.status).toBe(200)
     expect(await response.json()).toMatchObject({ projectId: 'project-1', selected: 2 })
-    expect(mocks.project).toHaveBeenCalledWith('project-1', expect.anything(), 100, 25)
+    expect(mocks.project).toHaveBeenCalledWith('project-1', expect.anything(), 100, 25, undefined)
     expect(mocks.close).toHaveBeenCalledOnce()
     expect(mocks.activityCreate).toHaveBeenCalledTimes(2)
     expect(mocks.activityCreate.mock.calls[0][0]).toMatchObject({ data: { projectId: 'project-1', eventType: 'analysis.graph_projection.started' } })
     expect(mocks.activityCreate.mock.calls[1][0]).toMatchObject({ data: { projectId: 'project-1', eventType: 'analysis.graph_projection.completed' } })
+  })
+
+  test('passes a bounded backfill offset to the projector', async () => {
+    const response = await POST(new Request('http://localhost', {
+      method: 'POST',
+      body: JSON.stringify({ projectId: 'project-1', limit: 100, offset: 1000 }),
+      headers: { 'Content-Type': 'application/json' },
+    }) as never)
+
+    expect(response.status).toBe(200)
+    expect(mocks.project).toHaveBeenCalledWith('project-1', expect.anything(), 100, undefined, 1000)
   })
 
   test('records a durable failure when graph projection cannot complete', async () => {

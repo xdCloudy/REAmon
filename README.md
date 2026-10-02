@@ -88,8 +88,8 @@ task execution, lease-protected recovery, cancellation controls, worker ownershi
 cooperative provider cancellation, a bounded process provider with timeout and
 SIGTERM cancellation, durable task and worker heartbeats, stale/degraded worker
 operator alerts, bounded typed observation ingestion with canonical identity hints,
-replayable graph projection with durable run activity, and live task/operator refresh.
-It measures the
+replayable, paginated graph projection with durable run activity, and live
+task/operator refresh. It measures the
 distance to a dependable self-hosted production release, not the number of UI
 screens or lines of code. The bar moves only when a workstream has working code,
 tests, and an operational path.

@@ -65,8 +65,9 @@ and replacing older duplicate artifact rows during refresh remain follow-up work
 workspace task panel now refreshes active work automatically and labels the current
 worker plus heartbeat freshness. The internal projection route can replay the
 normalized observation store into Neo4j,
-and the worker invokes it for projects with completed tasks; historical backfill
-scheduling and graph-rebuild provenance are still follow-up work. Projection runs now
+and the worker invokes it for projects with completed tasks, continuing through
+bounded projection pages; historical backfill scheduling and graph-rebuild provenance
+are still follow-up work. Projection runs now
 write durable workspace activity for started, completed, and failed graph writes so
 operators can see recovery context without reading worker logs.
 Worker dispatches now persist last-seen and bounded outcome telemetry, and the

@@ -49,6 +49,20 @@ describe('REAmon task worker', () => {
     }))
   })
 
+  test('continues a truncated projection from the server-provided offset', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ projectId: 'project-1', offset: 100, nextOffset: 200, truncated: true, nodes: 2, relationships: 1 }),
+    })
+    const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+    await projectOnce({ webappUrl: 'http://webapp:3000', internalKey: 'secret', workerId: 'worker-a' }, 'project-1', fetchImpl, logger, 100)
+
+    expect(fetchImpl).toHaveBeenCalledWith('http://webapp:3000/api/internal/reamon/graph/project', expect.objectContaining({
+      body: JSON.stringify({ projectId: 'project-1', offset: 100 }),
+    }))
+  })
+
   test('projects each distinct project with completed work after a poll', async () => {
     const fetchImpl = vi.fn()
       .mockResolvedValueOnce({
@@ -60,14 +74,16 @@ describe('REAmon task worker', () => {
           { outcome: 'FAILED', task: { projectId: 'project-2' } },
         ] }),
       })
-      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ nodes: 1, relationships: 0 }) })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ offset: 0, nextOffset: 1, truncated: true, nodes: 1, relationships: 0 }) })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ offset: 1, nextOffset: null, truncated: false, nodes: 0, relationships: 0 }) })
     let stopped = false
     await runWorker(
       { webappUrl: 'http://webapp:3000', internalKey: 'secret', workerId: 'worker-a', batchSize: 1, pollSeconds: 1, staleAfterMinutes: 30 },
       { fetchImpl, sleepImpl: async () => { stopped = true }, shouldStop: () => stopped, logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } },
     )
 
-    expect(fetchImpl).toHaveBeenCalledTimes(2)
+    expect(fetchImpl).toHaveBeenCalledTimes(3)
     expect(fetchImpl.mock.calls[1][0]).toBe('http://webapp:3000/api/internal/reamon/graph/project')
+    expect(JSON.parse(fetchImpl.mock.calls[2][1].body)).toEqual({ projectId: 'project-1', offset: 1 })
   })
 })

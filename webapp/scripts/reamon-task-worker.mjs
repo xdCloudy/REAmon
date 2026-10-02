@@ -7,6 +7,7 @@ const MAX_POLL_SECONDS = 300
 const MAX_BATCH_SIZE = 10
 const MAX_STALE_AFTER_MINUTES = 24 * 60
 const MAX_WORKER_ID_LENGTH = 128
+const MAX_PROJECTION_PAGES = 100
 
 export class WorkerConfigurationError extends Error {}
 
@@ -77,11 +78,12 @@ export async function dispatchOnce(config, fetchImpl = fetch, logger = console) 
   return result
 }
 
-export async function projectOnce(config, projectId, fetchImpl = fetch, logger = console) {
+export async function projectOnce(config, projectId, fetchImpl = fetch, logger = console, offset = 0) {
+  const body = { projectId, ...(offset > 0 ? { offset } : {}) }
   const response = await fetchImpl(`${config.webappUrl}/api/internal/reamon/graph/project`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-internal-key': config.internalKey },
-    body: JSON.stringify({ projectId }),
+    body: JSON.stringify(body),
     signal: AbortSignal.timeout(20_000),
   })
 
@@ -93,8 +95,23 @@ export async function projectOnce(config, projectId, fetchImpl = fetch, logger =
     return null
   }
   const result = await response.json()
-  logger.info(`[reamon-worker] projected project=${projectId} nodes=${result.nodes || 0} relationships=${result.relationships || 0}`)
+  logger.info(`[reamon-worker] projected project=${projectId} offset=${result.offset || 0} nodes=${result.nodes || 0} relationships=${result.relationships || 0}`)
   return result
+}
+
+async function projectAllPages(config, projectId, fetchImpl, logger) {
+  let offset = 0
+  for (let page = 0; page < MAX_PROJECTION_PAGES; page += 1) {
+    const result = await projectOnce(config, projectId, fetchImpl, logger, offset)
+    if (!result?.truncated) return
+    const nextOffset = Number(result.nextOffset)
+    if (!Number.isSafeInteger(nextOffset) || nextOffset <= offset) {
+      logger.warn(`[reamon-worker] graph projection returned an invalid continuation for project ${projectId}`)
+      return
+    }
+    offset = nextOffset
+  }
+  logger.warn(`[reamon-worker] graph projection reached the ${MAX_PROJECTION_PAGES}-page safety limit for project ${projectId}`)
 }
 
 const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds))
@@ -107,7 +124,7 @@ export async function runWorker(config, { fetchImpl = fetch, sleepImpl = sleep, 
         .filter((entry) => entry?.outcome === 'COMPLETED' && typeof entry.task?.projectId === 'string')
         .map((entry) => entry.task.projectId))]
       for (const projectId of projectIds) {
-        await projectOnce(config, projectId, fetchImpl, logger)
+        await projectAllPages(config, projectId, fetchImpl, logger)
       }
     } catch (error) {
       if (error instanceof WorkerConfigurationError) throw error

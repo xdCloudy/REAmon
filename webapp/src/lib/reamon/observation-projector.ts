@@ -5,6 +5,7 @@ import type { ObservationKind, ObservationValue } from './types'
 const DEFAULT_BATCH_SIZE = 500
 const MAX_BATCH_SIZE = 1000
 export const MAX_PROJECTED_OBSERVATIONS = 10_000
+export const MAX_PROJECTION_OFFSET = 1_000_000
 
 export interface ProjectableObservation {
   id: string
@@ -29,6 +30,8 @@ export interface ProjectableObservation {
 
 export interface ObservationProjectionResult {
   projectId: string
+  offset: number
+  nextOffset: number | null
   selected: number
   nodes: number
   relationships: number
@@ -38,6 +41,11 @@ export interface ObservationProjectionResult {
 function normaliseBatchSize(value: number | undefined): number {
   if (!Number.isFinite(value)) return DEFAULT_BATCH_SIZE
   return Math.min(MAX_BATCH_SIZE, Math.max(1, Math.floor(value as number)))
+}
+
+function normaliseOffset(value: number | undefined): number {
+  if (!Number.isFinite(value)) return 0
+  return Math.min(MAX_PROJECTION_OFFSET, Math.max(0, Math.floor(value as number)))
 }
 
 function graphProperties(observation: ProjectableObservation): Record<string, ObservationValue> {
@@ -150,11 +158,14 @@ export async function projectReamonObservations(
   session: Session,
   requestedLimit?: number,
   requestedBatchSize?: number,
+  requestedOffset?: number,
 ): Promise<ObservationProjectionResult> {
   const limit = Math.min(MAX_PROJECTED_OBSERVATIONS, Math.max(1, Math.floor(Number.isFinite(requestedLimit) ? requestedLimit as number : MAX_PROJECTED_OBSERVATIONS)))
+  const offset = normaliseOffset(requestedOffset)
   const rows = await prisma.reamonObservation.findMany({
     where: { projectId },
     orderBy: { updatedAt: 'asc' },
+    skip: offset,
     take: Math.min(MAX_PROJECTED_OBSERVATIONS + 1, limit + 1),
     select: {
       id: true,
@@ -191,6 +202,8 @@ export async function projectReamonObservations(
   })), projectId, requestedBatchSize)
   return {
     projectId,
+    offset,
+    nextOffset: truncated ? offset + observations.length : null,
     selected: observations.length,
     ...result,
     truncated,
