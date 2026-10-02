@@ -261,6 +261,9 @@ observations and shown in the workspace. An internal-key-protected worker trigge
 selects bounded queued batches and delegates them to that executor; the production
 Compose stack now runs a private, restartable Node poller against that route and
 replays each project with completed work through the graph projection route. The
+workspace refreshes while work is running and shows the current lease owner and
+heartbeat freshness, so operators can distinguish active work from a stalled lease.
+The
 remaining worker hardening is multi-worker stress/alerting and process-level cancellation
 inside real process adapters. The next high-value work is adding real native/MCP/process
 providers, then resolving cross-provider identities, adding graph-rebuild provenance,

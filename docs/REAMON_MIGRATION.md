@@ -62,6 +62,8 @@ when operators cancel running work. Derived-artifact provenance, server-mounted 
 multi-worker stress/alerting, true background uploads,
 real process/MCP execution, process-level cancellation inside those adapters, projection observability,
 and replacing older duplicate artifact rows during refresh remain follow-up work. The
-internal projection route can replay the normalized observation store into Neo4j,
+workspace task panel now refreshes active work automatically and labels the current
+worker plus heartbeat freshness. The internal projection route can replay the
+normalized observation store into Neo4j,
 and the worker invokes it for projects with completed tasks; cross-provider identity
 resolution and historical backfill scheduling are still follow-up work.

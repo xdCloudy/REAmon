@@ -32,7 +32,7 @@ interface WorkspaceSnapshot {
     createdAt: string
     updatedAt: string
   }>
-  tasks: Array<{ id: string; title: string; category: string; status: string; progress: number; leaseOwner: string | null }>
+  tasks: Array<{ id: string; title: string; category: string; status: string; progress: number; leaseOwner: string | null; leaseHeartbeatAt: string | null }>
   findings: Array<{ id: string; title: string; severity: string; status: string }>
   hypotheses: Array<{ id: string; statement: string; status: string }>
   evidence: Array<{ id: string; summary: string; source: string; createdAt: string }>
@@ -125,7 +125,12 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
   const { id: projectId } = use(params)
   const queryClient = useQueryClient()
   const [selectedTarget, setSelectedTarget] = useState<string | null>(null)
-  const workspace = useQuery({ queryKey: ['reamon-workspace', projectId], queryFn: () => fetchWorkspace(projectId) })
+  const workspace = useQuery({
+    queryKey: ['reamon-workspace', projectId],
+    queryFn: () => fetchWorkspace(projectId),
+    refetchInterval: (query) => query.state.data?.tasks.some((task) => task.status === 'RUNNING') ? 3000 : false,
+    refetchIntervalInBackground: false,
+  })
   const analysisPlan = useQuery({ queryKey: ['reamon-analysis-plan', projectId], queryFn: () => fetchAnalysisPlan(projectId) })
 
   const data = workspace.data

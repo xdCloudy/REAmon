@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { WorkspaceTaskList } from './WorkspaceTaskList'
+import { heartbeatLabel, WorkspaceTaskList } from './WorkspaceTaskList'
 
 afterEach(() => {
   cleanup()
@@ -64,8 +64,13 @@ describe('WorkspaceTaskList', () => {
   })
 
   test('shows the current lease owner for running tasks', () => {
-    render(<WorkspaceTaskList projectId="project-1" tasks={[{ id: 'task-1', title: 'Inspect source', status: 'RUNNING', progress: 35, leaseOwner: 'worker-a' }]} />)
+    render(<WorkspaceTaskList projectId="project-1" tasks={[{ id: 'task-1', title: 'Inspect source', status: 'RUNNING', progress: 35, leaseOwner: 'worker-a', leaseHeartbeatAt: new Date().toISOString() }]} />)
 
-    expect(screen.getByText('RUNNING · 35% · worker-a')).toBeInTheDocument()
+    expect(screen.getByText('RUNNING · 35% · worker-a · heartbeat fresh')).toBeInTheDocument()
+  })
+
+  test('labels an old heartbeat as stale', () => {
+    expect(heartbeatLabel(new Date(Date.now() - 120_000).toISOString())).toBe('heartbeat stale (2m ago)')
+    expect(heartbeatLabel(null)).toBe('heartbeat pending')
   })
 })

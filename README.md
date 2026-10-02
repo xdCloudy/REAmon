@@ -74,12 +74,12 @@ implementations rather than complete binary-identification tooling.
 
 ## Production readiness
 
-<progress value="68" max="100">68%</progress> <strong>68%</strong>
+<progress value="69" max="100">69%</progress> <strong>69%</strong>
 
 This is a weighted engineering snapshot, reviewed 2026-10-02 after adding explicit
 task execution, lease-protected recovery, cancellation controls, worker ownership,
 cooperative provider cancellation, durable task heartbeats, bounded typed observation ingestion, and replayable graph
-projection. It measures the
+projection, and live task/operator refresh. It measures the
 distance to a dependable self-hosted production release, not the number of UI
 screens or lines of code. The bar moves only when a workstream has working code,
 tests, and an operational path.
@@ -90,7 +90,7 @@ tests, and an operational path.
 | Import, profiling, storage, and inventory | 15% | 90% | Derived-artifact provenance, server-mounted sources, and refresh cleanup. |
 | Provider registry, scheduling, and reference execution | 15% | 97% | Real process/MCP providers, process-level cancellation inside those adapters, and multi-worker stress/alerting. |
 | Provider results and knowledge graph ingestion | 20% | 45% | Cross-provider identity/relationship resolution, historical backfill scheduling, and graph-rebuild provenance. |
-| Approvals, live activity, and operator controls | 10% | 20% | Durable event projection, approvals, and recovery UX. |
+| Approvals, live activity, and operator controls | 10% | 30% | Durable event projection, approvals, and richer recovery UX. |
 | Legacy RedAmon migration | 10% | 40% | Move remaining project, agent, report, and settings surfaces without breaking existing data. |
 | Production hardening and release QA | 10% | 45% | Full container gate, worker operations/observability, backup/restore drills, upgrade checks, and deployment runbooks. |
 

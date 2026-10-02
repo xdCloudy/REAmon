@@ -9,6 +9,17 @@ export interface WorkspaceTaskListItem {
   status: string
   progress: number
   leaseOwner?: string | null
+  leaseHeartbeatAt?: string | null
+}
+
+export function heartbeatLabel(value: string | null | undefined): string {
+  if (!value) return 'heartbeat pending'
+  const timestamp = Date.parse(value)
+  if (!Number.isFinite(timestamp)) return 'heartbeat unavailable'
+  const ageSeconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000))
+  if (ageSeconds < 5) return 'heartbeat fresh'
+  if (ageSeconds < 60) return `heartbeat ${ageSeconds}s ago`
+  return `heartbeat stale (${Math.floor(ageSeconds / 60)}m ago)`
 }
 
 export function WorkspaceTaskList({ projectId, tasks, onChanged }: {
@@ -95,7 +106,7 @@ export function WorkspaceTaskList({ projectId, tasks, onChanged }: {
       {tasks.map((task) => (
         <div className={styles.row} key={task.id}>
           <span className={styles.title}>{task.title}</span>
-          <span className={styles.status}>{task.status} · {task.progress}%{task.status === 'RUNNING' && task.leaseOwner ? ` · ${task.leaseOwner}` : ''}</span>
+          <span className={styles.status} title={task.status === 'RUNNING' ? heartbeatLabel(task.leaseHeartbeatAt) : undefined}>{task.status} · {task.progress}%{task.status === 'RUNNING' ? ` · ${task.leaseOwner || 'worker pending'} · ${heartbeatLabel(task.leaseHeartbeatAt)}` : ''}</span>
           <span className={styles.actions}>
             {task.status === 'QUEUED' && <button type="button" className={styles.actionButton} disabled={pendingAction !== null} onClick={() => void execute(task)}>
               {pendingAction === `execute:${task.id}` ? 'Running…' : 'Run'}
