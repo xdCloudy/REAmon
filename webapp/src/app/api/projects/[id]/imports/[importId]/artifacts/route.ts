@@ -15,6 +15,13 @@ interface RouteParams { params: Promise<{ id: string; importId: string }> }
 
 const DEFAULT_MAX_ARTIFACT_BYTES = 512 * 1024 * 1024
 
+class WorkspaceImportClosedError extends Error {
+  constructor() {
+    super('Import is no longer accepting artifacts')
+    this.name = 'WorkspaceImportClosedError'
+  }
+}
+
 function maxArtifactBytes(): number {
   const value = Number.parseInt(process.env.REAMON_MAX_ARTIFACT_BYTES || '', 10)
   return Number.isSafeInteger(value) && value > 0 ? value : DEFAULT_MAX_ARTIFACT_BYTES
@@ -108,17 +115,28 @@ export async function POST(request: Request, { params }: RouteParams) {
     const capabilities = resolveCapabilities(profile)
     const profileJson = profile as unknown as Prisma.InputJsonValue
     const sha256 = createHash('sha256').update(bytes).digest('hex')
-    const existing = await prisma.artifact.findFirst({
-      where: { projectId, importId, relativePath },
-      select: { id: true, storagePath: true, targetId: true, sizeBytes: true },
-    })
-    const artifactId = existing?.id || randomUUID()
-    const storage = storagePathFor(projectId, importId, artifactId, sha256)
+    // Always write a fresh immutable candidate before entering the transaction.
+    // The import row is then locked inside the transaction before looking up
+    // the logical path, so concurrent retries cannot create duplicate rows or
+    // overwrite bytes that a previous request still needs.
+    const candidateArtifactId = randomUUID()
+    const storage = storagePathFor(projectId, importId, candidateArtifactId, sha256)
     writtenPath = storage.absolute
     await mkdir(path.dirname(storage.absolute), { recursive: true })
     await writeFile(storage.absolute, bytes)
 
     const result = await prisma.$transaction(async (tx) => {
+      // Updating the import row first serializes same-import uploads on
+      // PostgreSQL's row lock. The path lookup must happen after that lock.
+      const lockedImport = await tx.workspaceImport.updateMany({
+        where: { id: importId, status: { notIn: ['COMPLETED', 'CANCELLED'] } },
+        data: { status: 'UPLOADING' },
+      })
+      if (lockedImport.count !== 1) throw new WorkspaceImportClosedError()
+      const existing = await tx.artifact.findFirst({
+        where: { projectId, importId, relativePath },
+        select: { id: true, storagePath: true, targetId: true },
+      })
       let targetId = existing?.targetId || workspaceImport.rootTargetId
       if (isLogicalTargetCandidate({ relativePath, sizeBytes: bytes.byteLength, profile }) && !existing?.targetId) {
         const target = await tx.target.create({
@@ -156,7 +174,7 @@ export async function POST(request: Request, { params }: RouteParams) {
           })
         : await tx.artifact.create({
             data: {
-              id: artifactId,
+              id: candidateArtifactId,
               projectId,
               importId,
               targetId,
@@ -206,30 +224,36 @@ export async function POST(request: Request, { params }: RouteParams) {
             uploadedBytes: { increment: BigInt(bytes.byteLength) },
           },
         })
-      } else {
-        await tx.workspaceImport.update({ where: { id: importId }, data: { status: 'UPLOADING' } })
       }
-      return artifact
+      return { artifact, previousStoragePath: existing?.storagePath || null, reused: Boolean(existing) }
     })
     databaseCommitted = true
+    if (result.previousStoragePath && result.previousStoragePath !== storage.relative) {
+      try {
+        await unlink(confinedStoragePath(result.previousStoragePath).absolute)
+      } catch (error) {
+        console.warn('Failed to remove replaced REAmon artifact bytes:', error)
+      }
+    }
 
     return NextResponse.json({
       artifact: {
-        id: result.id,
+        id: result.artifact.id,
         relativePath,
-        sizeBytes: result.sizeBytes,
-        sha256: result.sha256,
+        sizeBytes: result.artifact.sizeBytes,
+        sha256: result.artifact.sha256,
         profile,
         capabilities,
       },
-    }, { status: existing ? 200 : 201, headers: { 'Cache-Control': 'no-store' } })
+    }, { status: result.reused ? 200 : 201, headers: { 'Cache-Control': 'no-store' } })
   } catch (error) {
     if (writtenPath && !databaseCommitted) await unlink(writtenPath).catch(() => {})
     console.error('Failed to import REAmon workspace artifact:', error)
     const message = error instanceof Error ? error.message : 'Failed to upload artifact'
     const serverSourceError = error instanceof ServerSourceError
     const invalidInput = error instanceof InvalidWorkspacePathError
-    const status = serverSourceError ? error.status : invalidInput ? 400 : 500
-    return NextResponse.json({ error: serverSourceError || invalidInput ? message : 'Failed to upload artifact' }, { status, headers: { 'Cache-Control': 'no-store' } })
+    const closedImport = error instanceof WorkspaceImportClosedError
+    const status = serverSourceError ? error.status : invalidInput ? 400 : closedImport ? 409 : 500
+    return NextResponse.json({ error: serverSourceError || invalidInput || closedImport ? message : 'Failed to upload artifact' }, { status, headers: { 'Cache-Control': 'no-store' } })
   }
 }

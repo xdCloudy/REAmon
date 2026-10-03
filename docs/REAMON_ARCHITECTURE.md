@@ -112,6 +112,14 @@ written; workspace responses expose only source IDs, logical paths, hashes, and 
 never host storage paths. This leaves refresh deduplication and replacement cleanup as a
 separate lifecycle concern.
 
+Import artifact writes use an immutable candidate path and a guarded import-row transition.
+The row lock is acquired before the logical-path lookup, so concurrent retries converge on
+one artifact row and increment import counters only for the first successful path. If a
+retry replaces an existing row, the old bytes are removed only after the database commit;
+if finalization or cancellation wins the race, the candidate is discarded and the import
+remains closed. Completed snapshots and their logical artifact rows are retained for audit
+and authoritative hash comparison; storage compaction requires an explicit retention policy.
+
 ### Workspace inventory boundary
 
 `webapp/src/lib/reamon/inventory-query.ts` is the DB-backed inventory boundary for

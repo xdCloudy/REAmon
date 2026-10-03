@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   evidenceDeleteMany: vi.fn(),
   evidenceCreate: vi.fn(),
   activityCreate: vi.fn(),
+  importUpdateMany: vi.fn(),
   importUpdate: vi.fn(),
   requireEffectiveUser: vi.fn(),
   requireProjectAccess: vi.fn(),
@@ -104,13 +105,14 @@ beforeEach(async () => {
   mocks.evidenceDeleteMany.mockResolvedValue({ count: 0 })
   mocks.evidenceCreate.mockResolvedValue({ id: 'evidence-1' })
   mocks.activityCreate.mockResolvedValue({ id: 'activity-1' })
+  mocks.importUpdateMany.mockResolvedValue({ count: 1 })
   mocks.importUpdate.mockResolvedValue({ id: 'import-1' })
   mocks.transaction.mockImplementation(async (callback: (tx: unknown) => unknown) => callback({
     target: { create: mocks.targetCreate },
-    artifact: { create: mocks.artifactCreate, update: mocks.artifactUpdate },
+    artifact: { findFirst: mocks.artifactFindFirst, create: mocks.artifactCreate, update: mocks.artifactUpdate },
     evidence: { deleteMany: mocks.evidenceDeleteMany, create: mocks.evidenceCreate },
     workspaceActivity: { create: mocks.activityCreate },
-    workspaceImport: { update: mocks.importUpdate },
+    workspaceImport: { updateMany: mocks.importUpdateMany, update: mocks.importUpdate },
   }))
 })
 
@@ -159,9 +161,12 @@ describe('POST /api/projects/[id]/imports/[importId]/artifacts', () => {
   })
 
   test('retries an existing path idempotently instead of creating a duplicate artifact', async () => {
+    const previousStoragePath = 'project-1/import-1/artifact-existing/old-content'
+    await mkdir(path.join(storageRoot, path.dirname(previousStoragePath)), { recursive: true })
+    await writeFile(path.join(storageRoot, previousStoragePath), 'previous')
     mocks.artifactFindFirst.mockResolvedValue({
       id: 'artifact-existing',
-      storagePath: 'project-1/import-1/artifact-existing',
+      storagePath: previousStoragePath,
       targetId: 'target-existing',
       sizeBytes: 3,
     })
@@ -174,9 +179,23 @@ describe('POST /api/projects/[id]/imports/[importId]/artifacts', () => {
       where: { id: 'artifact-existing' },
       data: expect.objectContaining({ relativePath: 'bin/app.exe' }),
     }))
-    expect(mocks.importUpdate).toHaveBeenCalledWith(expect.objectContaining({
+    expect(mocks.importUpdateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'import-1', status: { notIn: ['COMPLETED', 'CANCELLED'] } },
       data: { status: 'UPLOADING' },
     }))
+    await expect(readFile(path.join(storageRoot, previousStoragePath), 'utf8')).rejects.toThrow()
+    expect(mocks.importUpdateMany.mock.invocationCallOrder[0]).toBeLessThan(mocks.artifactFindFirst.mock.invocationCallOrder[0])
+  })
+
+  test('does not reopen an import finalized while bytes were being written', async () => {
+    mocks.importUpdateMany.mockResolvedValue({ count: 0 })
+
+    const response = await POST(uploadRequest('bin/app.exe'), params())
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({ error: 'Import is no longer accepting artifacts' })
+    expect(mocks.artifactFindFirst).not.toHaveBeenCalled()
+    expect(mocks.artifactCreate).not.toHaveBeenCalled()
   })
 
   test('keeps the previous bytes when an existing-artifact retry cannot commit', async () => {
