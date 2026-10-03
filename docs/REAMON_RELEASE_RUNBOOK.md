@@ -14,7 +14,12 @@ rollback can be reconstructed.
 
    ```bash
    docker compose config --quiet
+   scripts/reamon-release-preflight.sh
    ```
+
+   The preflight requires the deployment's normal Compose variables but does not
+   print their values. It also checks that the production Dockerfile packages
+   the bounded REAmon process-provider tools.
 
 4. Record the current release and service state:
 
@@ -85,6 +90,7 @@ non-empty before proceeding.
 
    ```bash
    docker compose exec -T webapp sh -lc 'command -v strings && command -v readelf && command -v file'
+   scripts/reamon-release-preflight.sh --live
    ```
 
 The readiness endpoint must report both PostgreSQL and writable artifact storage as
