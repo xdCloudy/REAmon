@@ -89,37 +89,39 @@ optional follow-on capabilities rather than production prerequisites.
 
 ## Production readiness
 
-<progress value="100" max="100">100%</progress> <strong>100%</strong>
+<progress value="85" max="100">85%</progress> <strong>85%</strong>
 
-This is a weighted engineering snapshot, reviewed 2026-10-03 after adding explicit
-task execution, lease-protected recovery, cancellation controls, worker ownership,
-cooperative provider cancellation, a bounded process provider with timeout and
-SIGTERM cancellation, durable task and worker heartbeats, stale/degraded worker
-operator alerts with optional outbound webhook delivery, bounded typed observation ingestion with canonical identity hints,
-replayable, paginated graph projection with durable run records, fenced drift
-reconciliation, scheduled historical backfill, activity, and live
-task/operator refresh, approval-gated execution, normalized provider findings, bounded import
-retention, scale-safe worker deployment, and hosted quality gates. It measures the
-distance to a dependable self-hosted production release, not the number of UI
-screens or lines of code. The bar moves only when a workstream has working code,
-tests, and an operational path.
+This is a weighted engineering snapshot, reviewed 2026-10-03 against the evidence
+currently present in the repository. The latest hosted quality gate is green: the
+REAmon-focused test suite, type-check, lint, production build, Compose render, and
+non-root production-image smoke test all pass. The score measures the distance to a
+dependable self-hosted production release, not the number of UI screens or lines of
+code.
+
+A 100% score is not yet justified. The release runbook still requires deployment-level
+evidence that is not produced by CI: a staging multi-worker contention/recovery drill,
+an isolated PostgreSQL + artifact backup/restore drill, and representative live
+workspace/import/analysis verification. The RedAmon migration inventory also still
+contains GENERALISING and DEPRECATED surfaces, and the universal graph/provider layer
+is intentionally narrower than the long-term REAmon target.
 
 | Workstream | Weight | Complete | What remains before production |
 | --- | ---: | ---: | --- |
-| Workspace foundation and access control | 20% | 100% | Keep regression coverage green during migration. |
-| Import, profiling, storage, and inventory | 15% | 100% | Operate the bounded retention job and keep refresh regressions green. |
-| Provider registry, scheduling, and provider execution | 15% | 100% | Optional MCP and specialist adapters can extend the manifest boundary. |
-| Provider results and knowledge graph ingestion | 20% | 100% | Specialist result adapters remain optional; normalized observations/findings are durable and reviewable. |
-| Approvals, live activity, and operator controls | 10% | 100% | Future policy presets are product expansion, not an execution safety gap. |
-| Legacy RedAmon compatibility bridge | 10% | 100% | Full surface migration remains additive roadmap work; the compatibility report makes the boundary explicit and reversible. |
-| Production hardening and release QA | 10% | 100% | Run the supplied staging drills for each deployment environment and record the evidence. |
+| Workspace foundation and access control | 20% | 95% | Run deployment-level access/auth regression checks and keep them green through migration. |
+| Import, profiling, storage, and inventory | 15% | 95% | Exercise retention, large imports, refresh/recovery, and backup interaction in staging. |
+| Provider registry, scheduling, and provider execution | 15% | 90% | Validate multi-worker recovery under real Compose deployment and broaden specialist/MCP adapters without weakening the typed boundary. |
+| Provider results and knowledge graph ingestion | 20% | 85% | Validate graph replay/reconciliation in staging and continue universal code/data/runtime entity coverage. |
+| Approvals, live activity, and operator controls | 10% | 85% | Complete staging recovery/alert drills and improve operator-facing repair/recovery paths. |
+| Legacy RedAmon compatibility bridge | 10% | 65% | Continue isolating GENERALISING/DEPRECATED pentest-era surfaces and migrate remaining project/agent/report/settings flows. |
+| Production hardening and release QA | 10% | 60% | Execute and record the release-runbook drills, representative live smoke test, backup/restore proof, and final deployment evidence. |
 
-The production baseline is now complete. Optional specialist providers, richer
-reports, and the eventual removal of inherited RedAmon surfaces remain roadmap work
-behind explicit compatibility boundaries. See
-[`docs/REAMON_ARCHITECTURE.md`](docs/REAMON_ARCHITECTURE.md) and
-[`docs/REAMON_RELEASE_RUNBOOK.md`](docs/REAMON_RELEASE_RUNBOOK.md) for the release
-evidence and operating boundary.
+Weighted result: **84.75%**, rounded to **85%**.
+
+The project is therefore best described as a strong release candidate / late
+pre-production baseline rather than a fully completed production release. The core
+execution, persistence, approval, worker, graph, and deployment boundaries are in
+place; the remaining gap is primarily operational proof, migration cleanup, and
+broader end-to-end validation.
 
 For production alerting, set `REAMON_WORKER_ALERT_WEBHOOK_URL` and optionally
 `REAMON_WORKER_ALERT_WEBHOOK_TOKEN`. Failed provider dispatches send a bounded
