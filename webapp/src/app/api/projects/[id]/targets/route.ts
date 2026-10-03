@@ -8,6 +8,12 @@ import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
 import { profileArtifact } from '@/lib/reamon/profiler'
 import { resolveCapabilities } from '@/lib/reamon/capabilities'
 import { normalizeRelativePath, parentPathOf } from '@/lib/reamon/paths'
+import {
+  parseProvenanceArtifactIds,
+  parseProvenanceTaskId,
+  PROVENANCE_RELATION,
+  recordArtifactProvenance,
+} from '@/lib/reamon/provenance'
 
 interface RouteParams {
   params: Promise<{ id: string }>
@@ -33,6 +39,35 @@ export async function POST(request: Request, { params }: RouteParams) {
     if (access instanceof NextResponse) return access
 
     const form = await request.formData()
+    let sourceArtifactIds: string[]
+    let sourceTaskId: string | null
+    try {
+      sourceArtifactIds = parseProvenanceArtifactIds(form.get('sourceArtifactIds'))
+      sourceTaskId = parseProvenanceTaskId(form.get('sourceTaskId'))
+    } catch (error) {
+      return NextResponse.json({ error: error instanceof Error ? error.message : 'Invalid artifact provenance' }, { status: 400, headers: { 'Cache-Control': 'no-store' } })
+    }
+    if (sourceTaskId && sourceArtifactIds.length === 0) {
+      return NextResponse.json({ error: 'sourceTaskId requires sourceArtifactIds' }, { status: 400, headers: { 'Cache-Control': 'no-store' } })
+    }
+    const sourceArtifacts = sourceArtifactIds.length
+      ? await prisma.artifact.findMany({
+          where: { projectId, id: { in: sourceArtifactIds } },
+          select: { id: true, relativePath: true, sha256: true },
+        })
+      : []
+    if (sourceArtifacts.length !== sourceArtifactIds.length) {
+      return NextResponse.json({ error: 'One or more source artifacts were not found in this project' }, { status: 400, headers: { 'Cache-Control': 'no-store' } })
+    }
+    if (sourceTaskId) {
+      const sourceTask = await prisma.task.findFirst({
+        where: { id: sourceTaskId, projectId },
+        select: { artifactId: true },
+      })
+      if (!sourceTask || !sourceTask.artifactId || !sourceArtifactIds.includes(sourceTask.artifactId)) {
+        return NextResponse.json({ error: 'sourceTaskId must belong to one of the source artifacts' }, { status: 400, headers: { 'Cache-Control': 'no-store' } })
+      }
+    }
     const fileValue = form.get('file')
     if (!(fileValue instanceof File)) {
       return NextResponse.json({ error: 'A file is required' }, { status: 400, headers: { 'Cache-Control': 'no-store' } })
@@ -108,6 +143,13 @@ export async function POST(request: Request, { params }: RouteParams) {
           },
         })
 
+        await recordArtifactProvenance(tx, {
+          projectId,
+          artifactId: artifact.id,
+          sourceArtifacts,
+          taskId: sourceTaskId,
+        })
+
         await tx.evidence.create({
           data: {
             projectId,
@@ -125,7 +167,13 @@ export async function POST(request: Request, { params }: RouteParams) {
             actor: 'Profiler',
             eventType: 'artifact.profiled',
             message: `Profiled ${originalName} as ${profile.format}`,
-            data: { artifactId: artifact.id, targetId: target.id, format: profile.format },
+            data: {
+              artifactId: artifact.id,
+              targetId: target.id,
+              format: profile.format,
+              derivedFromArtifactIds: sourceArtifactIds,
+              sourceTaskId,
+            },
           },
         })
 
@@ -154,6 +202,13 @@ export async function POST(request: Request, { params }: RouteParams) {
           status: artifact.status,
           profile,
           capabilities,
+          provenance: sourceArtifacts.map((sourceArtifact) => ({
+            relation: PROVENANCE_RELATION,
+            sourceArtifactId: sourceArtifact.id,
+            sourceRelativePath: sourceArtifact.relativePath,
+            sourceSha256: sourceArtifact.sha256,
+            taskId: sourceTaskId,
+          })),
         },
       }, { status: 201, headers: { 'Cache-Control': 'no-store' } })
     } catch (error) {

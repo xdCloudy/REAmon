@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client'
 import prisma from '@/lib/prisma'
 import { resolveCapabilities } from './capabilities'
 import { activeWorkspaceImportIds, type WorkspaceImportState } from './imports'
+import { MAX_PROVENANCE_INPUTS } from './provenance'
 import type { CapabilityMatch, TargetProfile } from './types'
 
 export type WorkspaceFileKind = 'executables' | 'source'
@@ -59,6 +60,16 @@ export interface WorkspaceArtifactDetails extends WorkspaceFileRecord {
   findings: Array<{ id: string; title: string; severity: string; status: string; createdAt: string; updatedAt: string }>
   hypotheses: Array<{ id: string; statement: string; status: string; createdAt: string; updatedAt: string }>
   evidence: Array<{ id: string; kind: string; summary: string; source: string; createdAt: string }>
+  provenance: Array<{
+    id: string
+    relation: string
+    sourceArtifactId: string
+    sourceRelativePath: string
+    sourceOriginalName: string
+    sourceSha256: string
+    taskId: string | null
+    createdAt: string
+  }>
 }
 
 export interface ActiveWorkspaceImportSelection {
@@ -190,6 +201,18 @@ export async function getWorkspaceArtifact(projectId: string, artifactId: string
         take: 25,
         select: { id: true, kind: true, summary: true, source: true, createdAt: true },
       },
+      derivedFrom: {
+        orderBy: { createdAt: 'asc' },
+        take: MAX_PROVENANCE_INPUTS,
+        select: {
+          id: true,
+          relation: true,
+          sourceArtifactId: true,
+          taskId: true,
+          createdAt: true,
+          sourceArtifact: { select: { relativePath: true, originalName: true, sha256: true } },
+        },
+      },
     },
   })
   if (!artifact) return null
@@ -216,5 +239,15 @@ export async function getWorkspaceArtifact(projectId: string, artifactId: string
     findings: artifact.findings.map((finding) => ({ ...finding, createdAt: finding.createdAt.toISOString(), updatedAt: finding.updatedAt.toISOString() })),
     hypotheses: artifact.hypotheses.map((hypothesis) => ({ ...hypothesis, createdAt: hypothesis.createdAt.toISOString(), updatedAt: hypothesis.updatedAt.toISOString() })),
     evidence: artifact.evidence.map((item) => ({ ...item, createdAt: item.createdAt.toISOString() })),
+    provenance: artifact.derivedFrom.map((lineage) => ({
+      id: lineage.id,
+      relation: lineage.relation,
+      sourceArtifactId: lineage.sourceArtifactId,
+      sourceRelativePath: lineage.sourceArtifact.relativePath || lineage.sourceArtifact.originalName,
+      sourceOriginalName: lineage.sourceArtifact.originalName,
+      sourceSha256: lineage.sourceArtifact.sha256,
+      taskId: lineage.taskId,
+      createdAt: lineage.createdAt.toISOString(),
+    })),
   }
 }

@@ -59,8 +59,10 @@ Compose stack now runs a private restartable poller, and successful provider res
 persist retry-safe typed observations that appear in the workspace. Active provider
 leases now record an owner and refresh a guarded heartbeat, while stale recovery remains
 safe for older rows without one. Providers receive a cooperative cancellation signal
-when operators cancel running work. Derived-artifact provenance, the staging multi-worker
-drill (hermetic contention coverage is now tested), true background uploads,
+when operators cancel running work. Durable multi-input derived-artifact lineage is now
+stored transactionally with source hashes, logical paths, and optional producing task IDs;
+only project-scoped source IDs are accepted and no host storage paths are exposed. The
+staging multi-worker drill (hermetic contention coverage is now tested), true background uploads,
 additional MCP/process adapters,
 and replacing older duplicate artifact rows during refresh remain follow-up work. The
 workspace task panel now refreshes active work automatically and labels the current

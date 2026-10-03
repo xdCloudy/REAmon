@@ -89,6 +89,7 @@ describe('workspace inventory queries', () => {
       findings: [],
       hypotheses: [],
       evidence: [],
+      derivedFrom: [],
     })
 
     const { getWorkspaceArtifact } = await import('./inventory-query')

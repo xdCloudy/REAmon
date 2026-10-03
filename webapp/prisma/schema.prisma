@@ -445,6 +445,7 @@ model Project {
   hypotheses                  Hypothesis[]
   evidence                    Evidence[]
   observations                ReamonObservation[]
+  artifactProvenance          ArtifactProvenance[]
   projectionRuns              ReamonProjectionRun[]
   projectionLease             ReamonProjectionLease?
   activities                  WorkspaceActivity[]
@@ -2459,6 +2460,8 @@ model Artifact {
   hypotheses     Hypothesis[]
   evidence       Evidence[]
   observations   ReamonObservation[]
+  derivedFrom    ArtifactProvenance[] @relation("ArtifactProvenanceOutput")
+  usedAsSource   ArtifactProvenance[] @relation("ArtifactProvenanceInput")
 
   @@index([projectId, status])
   @@index([projectId, sha256])
@@ -2466,6 +2469,31 @@ model Artifact {
   @@index([projectId, relativePath])
   @@index([importId, relativePath])
   @@map("reamon_artifacts")
+}
+
+/// Immutable, project-scoped lineage for an artifact produced from one or
+/// more existing artifacts. The join shape intentionally supports fan-in so
+/// a future provider can produce one output from a whole input set.
+model ArtifactProvenance {
+  id               String   @id @default(cuid())
+  projectId        String   @map("project_id")
+  project          Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  artifactId       String   @map("artifact_id")
+  artifact         Artifact @relation("ArtifactProvenanceOutput", fields: [artifactId], references: [id], onDelete: Cascade)
+  sourceArtifactId String   @map("source_artifact_id")
+  sourceArtifact   Artifact @relation("ArtifactProvenanceInput", fields: [sourceArtifactId], references: [id], onDelete: Cascade)
+  taskId           String?  @map("task_id")
+  task             Task?    @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  relation         String   @default("DERIVED_FROM")
+  /// Stable idempotency key: output, source, task, and relation.
+  provenanceKey    String   @unique @map("provenance_key")
+  metadata         Json     @default("{}")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  @@index([projectId, artifactId])
+  @@index([projectId, sourceArtifactId])
+  @@index([projectId, taskId])
+  @@map("reamon_artifact_provenance")
 }
 
 model WorkspaceImport {
@@ -2602,6 +2630,7 @@ model Task {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
   observations ReamonObservation[]
+  provenance  ArtifactProvenance[]
 
   @@index([projectId, status])
   @@index([projectId, category])

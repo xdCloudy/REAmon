@@ -85,9 +85,9 @@ MCP, and runtime integrations remain optional follow-on providers.
 
 ## Production readiness
 
-<progress value="81" max="100">81%</progress> <strong>81%</strong>
+<progress value="82" max="100">82%</progress> <strong>82%</strong>
 
-This is a weighted engineering snapshot, reviewed 2026-10-02 after adding explicit
+This is a weighted engineering snapshot, reviewed 2026-10-03 after adding explicit
 task execution, lease-protected recovery, cancellation controls, worker ownership,
 cooperative provider cancellation, a bounded process provider with timeout and
 SIGTERM cancellation, durable task and worker heartbeats, stale/degraded worker
@@ -102,7 +102,7 @@ tests, and an operational path.
 | Workstream | Weight | Complete | What remains before production |
 | --- | ---: | ---: | --- |
 | Workspace foundation and access control | 20% | 100% | Keep regression coverage green during migration. |
-| Import, profiling, storage, and inventory | 15% | 95% | Derived-artifact provenance and refresh cleanup. |
+| Import, profiling, storage, and inventory | 15% | 98% | Refresh deduplication and cleanup of replaced artifact rows. |
 | Provider registry, scheduling, and provider execution | 15% | 99% | Additional MCP/process adapters and broader provider coverage. |
 | Provider results and knowledge graph ingestion | 20% | 82% | Richer repair UX and additional result adapters. |
 | Approvals, live activity, and operator controls | 10% | 30% | Durable event projection, approvals, and richer recovery UX. |

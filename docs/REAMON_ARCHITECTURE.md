@@ -101,6 +101,17 @@ for every icon or configuration file.
 
 The storage path is deliberately opaque to analysis providers. Providers receive target/artifact metadata and a controlled execution context rather than depending on a particular upload directory.
 
+### Derived-artifact lineage
+
+`ArtifactProvenance` is the durable project-scoped fan-in join for outputs created from
+one or more existing artifacts. A derived upload records every source artifact, an
+optional producing task, the `DERIVED_FROM` relation, and bounded logical source metadata
+inside the same transaction as the output artifact. A deterministic provenance key makes
+retries idempotent. Source IDs are checked against the project before any bytes are
+written; workspace responses expose only source IDs, logical paths, hashes, and task IDs,
+never host storage paths. This leaves refresh deduplication and replacement cleanup as a
+separate lifecycle concern.
+
 ### Workspace inventory boundary
 
 `webapp/src/lib/reamon/inventory-query.ts` is the DB-backed inventory boundary for
@@ -216,7 +227,7 @@ Target / Artifact
 
 Candidate relationship types include `CONTAINS`, `CALLS`, `REFERENCES`, `READS`, `WRITES`, `IMPORTS`, `EXPORTS`, `LOADS`, `SPAWNS`, `CONNECTS_TO`, `OBSERVED_AS`, `DERIVED_FROM`, `SUPPORTS`, `CONTRADICTS`, `DEPENDS_ON`, and `RELATED_TO`.
 
-PostgreSQL owns workspace identity, permissions, lifecycle state, provider/task records, hashes, evidence metadata, normalized `ReamonObservation` rows, and audit-friendly activity. Observation ingestion is bounded, project-scoped, retry-safe, and transactional with successful task settlement. The internal graph projection route replays those rows into fixed-label, project-scoped Neo4j nodes and relationships without interpolating provider-controlled identifiers. Neo4j owns high-connectivity entity and relationship traversal; source and workspace provenance remains in PostgreSQL so graph data can be rebuilt or audited.
+PostgreSQL owns workspace identity, permissions, lifecycle state, provider/task records, hashes, evidence metadata, normalized `ReamonObservation` rows, derived-artifact lineage, and audit-friendly activity. Observation ingestion and provenance recording are bounded, project-scoped, retry-safe, and transactional with successful task or artifact settlement. The internal graph projection route replays those rows into fixed-label, project-scoped Neo4j nodes and relationships without interpolating provider-controlled identifiers. Neo4j owns high-connectivity entity and relationship traversal; source and workspace provenance remains in PostgreSQL so graph data can be rebuilt or audited.
 
 ## Agents and orchestration
 
