@@ -1,0 +1,9 @@
+.container { display: grid; gap: .55rem; }
+.row { display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding: .7rem 0; border-top: 1px solid var(--border-subtle, #e5e7eb); }
+.title { display: grid; gap: .2rem; min-width: 0; }
+.title strong { overflow: hidden; text-overflow: ellipsis; }
+.title small { color: var(--text-muted, #6b7280); text-transform: capitalize; }
+.actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .35rem; }
+.actions button { border: 1px solid var(--border-subtle, #d1d5db); border-radius: .35rem; background: var(--surface, white); padding: .3rem .5rem; cursor: pointer; }
+.actions button:disabled { cursor: wait; opacity: .6; }
+.feedback { margin: 0; color: var(--text-muted, #6b7280); font-size: .85rem; }

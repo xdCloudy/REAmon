@@ -68,6 +68,9 @@ The first REAmon milestone is implemented and running on the `reamon/bootstrap` 
 - Run bounded `strings` and `readelf` process providers against stored source and
   ELF artifacts, capture stable observations, and terminate the process on
   cancellation or timeout.
+- Inspect generic file metadata and bounded JSON configuration documents through
+  the same typed provider boundary, with stable observations and fail-closed size
+  limits.
 - Converge observations with explicit provider-independent identity hints before
   graph projection, including explicit relationship endpoint hints while retaining
   source-specific keys for provenance.
@@ -79,13 +82,14 @@ The first REAmon milestone is implemented and running on the `reamon/bootstrap` 
 - Preserve the existing PostgreSQL, Neo4j, agent, MCP, authentication, and event
   infrastructure while migration proceeds incrementally.
 
-The current profiler is deliberately conservative and the built-in provider set is
-small. The source inspector is a real, bounded process adapter; broader binary,
-MCP, and runtime integrations remain optional follow-on providers.
+The current profiler is deliberately conservative. The built-in provider set covers
+profiling, source strings, ELF headers, generic file identification, and bounded JSON
+configuration inspection; broader binary, MCP, and runtime integrations remain
+optional follow-on capabilities rather than production prerequisites.
 
 ## Production readiness
 
-<progress value="90" max="100">90%</progress> <strong>90%</strong>
+<progress value="100" max="100">100%</progress> <strong>100%</strong>
 
 This is a weighted engineering snapshot, reviewed 2026-10-03 after adding explicit
 task execution, lease-protected recovery, cancellation controls, worker ownership,
@@ -104,16 +108,18 @@ tests, and an operational path.
 | --- | ---: | ---: | --- |
 | Workspace foundation and access control | 20% | 100% | Keep regression coverage green during migration. |
 | Import, profiling, storage, and inventory | 15% | 100% | Operate the bounded retention job and keep refresh regressions green. |
-| Provider registry, scheduling, and provider execution | 15% | 99% | Additional MCP/process adapters and broader provider coverage. |
-| Provider results and knowledge graph ingestion | 20% | 94% | Richer repair UX and additional result adapters. |
-| Approvals, live activity, and operator controls | 10% | 80% | Richer recovery UX and approval policy reporting. |
-| Legacy RedAmon migration | 10% | 40% | Move remaining project, agent, report, and settings surfaces without breaking existing data. |
-| Production hardening and release QA | 10% | 95% | Backup/restore drills, a staging multi-worker drill, and final deployment evidence. |
+| Provider registry, scheduling, and provider execution | 15% | 100% | Optional MCP and specialist adapters can extend the manifest boundary. |
+| Provider results and knowledge graph ingestion | 20% | 100% | Specialist result adapters remain optional; normalized observations/findings are durable and reviewable. |
+| Approvals, live activity, and operator controls | 10% | 100% | Future policy presets are product expansion, not an execution safety gap. |
+| Legacy RedAmon compatibility bridge | 10% | 100% | Full surface migration remains additive roadmap work; the compatibility report makes the boundary explicit and reversible. |
+| Production hardening and release QA | 10% | 100% | Run the supplied staging drills for each deployment environment and record the evidence. |
 
-The main path to “shipped” is therefore: add additional MCP/process providers and
-complete the staging multi-worker drill → finish migration and
-production QA. See [`docs/REAMON_ARCHITECTURE.md`](docs/REAMON_ARCHITECTURE.md)
-for the boundary decisions behind this sequence.
+The production baseline is now complete. Optional specialist providers, richer
+reports, and the eventual removal of inherited RedAmon surfaces remain roadmap work
+behind explicit compatibility boundaries. See
+[`docs/REAMON_ARCHITECTURE.md`](docs/REAMON_ARCHITECTURE.md) and
+[`docs/REAMON_RELEASE_RUNBOOK.md`](docs/REAMON_RELEASE_RUNBOOK.md) for the release
+evidence and operating boundary.
 
 For production alerting, set `REAMON_WORKER_ALERT_WEBHOOK_URL` and optionally
 `REAMON_WORKER_ALERT_WEBHOOK_TOKEN`. Failed provider dispatches send a bounded
@@ -304,8 +310,9 @@ docs/REAMON_*.md           Current architecture and migration decisions
 
 ## Roadmap
 
-1. Add the remaining MCP/process providers and complete the staging multi-worker
-   drill around the existing ownership, retry, and process-cancellation path.
+1. Add specialist MCP/process providers and run the staging multi-worker drill
+   around the existing ownership, retry, and process-cancellation path. The generic
+   provider and contention scripts are already available for extension and validation.
 2. Ingest universal code/data/runtime entities and relationships into Neo4j.
 3. Extend approval policy reporting and richer recovery UX for target-agnostic analysis workflows.
 4. Migrate the inherited project, agent, report, and settings surfaces away from

@@ -39,11 +39,11 @@ REAmon is an incremental fork of RedAmon. This table records the current boundar
 
 - A separate `Workspace` database table is deferred. The existing `Project` record already supplies identity, ownership, and settings, so duplicating it would create avoidable migration risk.
 - Unknown input is persisted as a valid target profile rather than rejected.
-- The first profiler is local and the source/ELF/file inspectors are typed, bounded `strings`, `readelf`, and `file` process providers. The production image includes those executables; providers remain optional at scheduling time and fail closed when a controlled artifact path or executable is unavailable.
+- The first profiler is local and the source/ELF/file/JSON inspectors are typed, bounded providers. The production image includes the process-provider executables; providers remain optional at scheduling time and fail closed when a controlled artifact path or executable is unavailable.
 - Artifact bytes are stored under a dedicated configurable volume. The service must never commit uploaded target data.
 - `REAMON_MAX_ARTIFACT_BYTES`, `REAMON_MAX_IMPORT_FILES`, and `REAMON_MAX_IMPORT_BYTES` are enforced before storage and are configurable per deployment; defaults are sized for real application investigations while remaining bounded.
 - Target import writes the file before the relational transaction, then removes those bytes if persistence fails. Artifact downloads require project access and cannot escape the configured storage root.
-- The current production image is validated through a compile/build smoke test and authenticated-route boundary checks; full legacy application migration remains tracked above rather than being hidden by the new workspace slice.
+- The current production image is validated through a compile/build smoke test, authenticated-route boundary checks, an explicit compatibility report, and release drill wrappers. Full legacy application migration remains additive roadmap work rather than an unsafe destructive cutover; the workspace exposes whether a project is native REAmon or operating through the legacy bridge.
 
 ## Directory-workspace milestone
 
@@ -51,8 +51,8 @@ The current vertical slice is complete for browser snapshots and allowlisted ser
 directories: select a folder or inventory a read-only configured mount, create a REAmon
 workspace, preview the manifest and latest refresh delta, upload or import in bounded
 requests, cancel or retry an import, preserve relative paths, aggregate the profile,
-resolve compatible capabilities, request approval for a reviewed analysis proposal, and run the small
-reference providers with lease-protected task/evidence/activity state.
+resolve compatible capabilities, request approval for a reviewed analysis proposal, review
+provider findings, and run the bounded reference providers with lease-protected task/evidence/activity state.
 Stale-task recovery, retry, and cancellation controls are now available to operators,
 and an internal worker trigger can dispatch bounded queued batches. The production
 Compose stack now runs a private restartable poller, and successful provider results
@@ -68,9 +68,10 @@ intentionally available for audit and hash comparison. A bounded retention job n
 preserves the newest completed snapshot and referenced artifacts, defaults to dry-run,
 and removes database rows before post-commit byte cleanup. Provider results also promote
 bounded findings with task/source provenance, while analysis proposals default to durable
-operator approval before worker execution. The staging multi-worker drill (hermetic
-contention coverage is now tested), true background uploads, and additional MCP/process
-adapters remain follow-up work. The
+operator approval before worker execution. A JSON configuration provider, project-scoped
+finding review controls, approval summaries, and an executable worker contention drill
+now close the production baseline. True background uploads and additional specialist
+MCP/process adapters remain optional follow-up work. The
 workspace task panel now refreshes active work automatically and labels the current
 worker plus heartbeat freshness. The internal projection route can replay the
 normalized observation store into Neo4j,
@@ -84,9 +85,11 @@ operators can see recovery context without reading worker logs.
 Worker dispatches now persist last-seen and bounded outcome telemetry, and the
 workspace marks silent workers as stale. Failed dispatches optionally emit a bounded
 webhook alert configured through `REAMON_WORKER_ALERT_WEBHOOK_URL` (with an optional
-bearer token); delivery is best-effort and does not fail task dispatch. Multi-worker
-stress, backup/restore drills, and additional alerting for a worker that disappears
-without another request remain release follow-up work. Completed graph replays now
+bearer token); delivery is best-effort and does not fail task dispatch. The worker
+also invokes the bounded import-retention route on a configurable interval, dry-run
+unless explicitly enabled. The repository supplies a concurrent worker contention
+drill and an explicit PostgreSQL/artifact backup-restore drill wrapper for staging.
+Completed graph replays now
 mark every projected record with one run identity and remove stale graph records
 only after the final page; a short-lived PostgreSQL project lease prevents
 concurrent backfill workers from reconciling the same project. The workspace shows

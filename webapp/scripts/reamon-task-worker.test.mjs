@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from 'vitest'
-import { dispatchOnce, listBackfillProjects, projectOnce, readWorkerConfig, runWorker, WorkerConfigurationError } from './reamon-task-worker.mjs'
+import { dispatchOnce, listBackfillProjects, projectOnce, readWorkerConfig, runRetentionOnce, runWorker, WorkerConfigurationError } from './reamon-task-worker.mjs'
 
 describe('REAmon task worker', () => {
   test('requires a real internal key and clamps worker settings', () => {
@@ -116,5 +116,16 @@ describe('REAmon task worker', () => {
     expect(fetchImpl.mock.calls[1][0]).toBe('http://webapp:3000/api/internal/reamon/graph/backfill')
     expect(JSON.parse(fetchImpl.mock.calls[1][1].body)).toEqual({ limit: 2, offset: 0 })
     expect(JSON.parse(fetchImpl.mock.calls[2][1].body)).toEqual({ projectId: 'project-old' })
+  })
+
+  test('runs retention in dry-run mode by default and never sends credentials in the body', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ candidates: 2, deleted: 0 }) })
+    const result = await runRetentionOnce({ webappUrl: 'http://webapp:3000', internalKey: 'secret', retentionApply: false }, fetchImpl, { info: vi.fn(), warn: vi.fn() })
+    expect(result).toMatchObject({ candidates: 2, deleted: 0 })
+    expect(fetchImpl).toHaveBeenCalledWith('http://webapp:3000/api/internal/reamon/imports/retention', expect.objectContaining({
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-internal-key': 'secret' },
+      body: JSON.stringify({ apply: false }),
+    }))
   })
 })

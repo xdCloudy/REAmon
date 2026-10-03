@@ -10,14 +10,17 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 LIVE=0
+DRILL=0
 
 usage() {
   cat <<'USAGE'
-Usage: scripts/reamon-release-preflight.sh [--live]
+Usage: scripts/reamon-release-preflight.sh [--live] [--drill]
 
 Options:
   --live  Also check the running webapp readiness endpoint, writable artifact
           storage, bundled process-provider tools, and configured source roots.
+  --drill Run the concurrent staging-worker contention drill. Requires the
+          REAMON_DRILL_* variables documented in the release runbook.
 USAGE
 }
 
@@ -33,6 +36,7 @@ pass() {
 while (($#)); do
   case "$1" in
     --live) LIVE=1 ;;
+    --drill) DRILL=1 ;;
     -h|--help) usage; exit 0 ;;
     *) usage >&2; fail "unknown option: $1" ;;
   esac
@@ -50,6 +54,10 @@ grep -Eq 'binutils[[:space:]]+file|file[[:space:]]+binutils' webapp/Dockerfile \
   || fail 'webapp/Dockerfile does not package both binutils and file'
 pass 'production image declares strings/readelf and file runtime dependencies'
 
+bash -n scripts/reamon-worker-contention-drill.sh scripts/reamon-backup-restore-drill.sh
+scripts/reamon-backup-restore-drill.sh --check
+pass 'release drill scripts pass syntax and dependency checks'
+
 if [[ -n "${REAMON_SERVER_SOURCE_ROOTS:-}" ]]; then
   while IFS= read -r source_root; do
     [[ -z "$source_root" ]] && continue
@@ -58,6 +66,11 @@ if [[ -n "${REAMON_SERVER_SOURCE_ROOTS:-}" ]]; then
   pass 'configured server source roots use absolute paths'
 else
   pass 'server-mounted imports are disabled'
+fi
+
+if ((DRILL)); then
+  scripts/reamon-worker-contention-drill.sh
+  pass 'concurrent staging-worker contention drill passed'
 fi
 
 if ((LIVE)); then

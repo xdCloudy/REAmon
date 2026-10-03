@@ -8,13 +8,16 @@ import { WorkspaceFileTree } from '@/components/reamon/WorkspaceFileTree'
 import { WorkspaceImportPanel } from '@/components/reamon/WorkspaceImportPanel'
 import { WorkspaceAnalysisPlanPanel, type WorkspaceAnalysisPlan } from '@/components/reamon/WorkspaceAnalysisPlan'
 import { WorkspaceTaskList } from '@/components/reamon/WorkspaceTaskList'
+import { WorkspaceFindingList } from '@/components/reamon/WorkspaceFindingList'
 import type { CapabilityMatch, ProgressMetric, TargetProfile, WorkspaceCapabilitySummary, WorkspaceImportSnapshot, WorkspaceObservation, WorkspaceProfile } from '@/lib/reamon'
+import type { LegacyCompatibilityReport } from '@/lib/reamon/legacy-compat'
 import styles from './page.module.css'
 
 type WorkerHealth = { workerId: string; status: string; lastSeenAt: string; lastDispatchAt: string | null; lastDispatchDurationMs: number | null; lastRecovered: number; lastSelected: number; lastCompleted: number; lastFailed: number; lastError: string }
 
 interface WorkspaceSnapshot {
-  workspace: { id: string; name: string; description: string | null; createdAt: string; updatedAt: string }
+  workspace: { id: string; name: string; description: string | null; projectKind: string; createdAt: string; updatedAt: string }
+  compatibility: LegacyCompatibilityReport
   targets: Array<{ id: string; name: string; targetType: string; status: string; parentTargetId: string | null; profile: TargetProfile }>
   artifacts: Array<{
     id: string
@@ -47,6 +50,7 @@ interface WorkspaceSnapshot {
   progress: { overallPercent: number; metrics: ProgressMetric[] }
   counts: { targets: number; artifacts: number; tasks: number; findings: number; hypotheses: number; evidence: number; observations: number }
   workers: WorkerHealth[]
+  approvalSummary: { total: number; pending: number; approved: number; rejected: number }
 }
 
 async function fetchWorkspace(projectId: string): Promise<WorkspaceSnapshot> {
@@ -184,9 +188,19 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
 
       <WorkerHealthAlert workers={data.workers} />
 
+      <section className={styles.panel} aria-labelledby="compatibility-heading">
+        <div className={styles.panelHeader}><h2 id="compatibility-heading">Migration compatibility</h2><span className={styles.muted}>{data.compatibility.mode === 'native' ? 'Native REAmon workspace' : 'Legacy bridge active'}</span></div>
+        <div className={styles.listRow}><span><strong>{data.workspace.projectKind}</strong><small>{data.compatibility.dataPolicy} data policy · legacy routes remain explicit and reversible</small></span><span className={styles.type}>{data.compatibility.surfaces.filter((surface) => surface.status === 'AVAILABLE').length} available · {data.compatibility.surfaces.filter((surface) => surface.status === 'BRIDGED').length} bridged</span></div>
+      </section>
+
       <div className={styles.stats}>
         <Stat label="Targets" value={data.counts.targets} /><Stat label="Artifacts" value={data.counts.artifacts} /><Stat label="Tasks" value={data.counts.tasks} /><Stat label="Findings" value={data.counts.findings} /><Stat label="Hypotheses" value={data.counts.hypotheses} /><Stat label="Evidence" value={data.counts.evidence} /><Stat label="Observations" value={data.counts.observations} />
       </div>
+
+      <section className={styles.panel} aria-labelledby="approval-summary-heading">
+        <div className={styles.panelHeader}><h2 id="approval-summary-heading">Operator approvals</h2><span className={styles.muted}>{data.approvalSummary.pending} pending</span></div>
+        <div className={styles.importStatusGrid}><span>Total decisions</span><strong>{data.approvalSummary.total.toLocaleString()}</strong><span>Pending</span><strong>{data.approvalSummary.pending.toLocaleString()}</strong><span>Approved</span><strong>{data.approvalSummary.approved.toLocaleString()}</strong><span>Rejected</span><strong>{data.approvalSummary.rejected.toLocaleString()}</strong></div>
+      </section>
 
       <WorkspaceImportPanel projectId={projectId} onImported={() => {
         void queryClient.invalidateQueries({ queryKey: ['reamon-workspace', projectId] })
@@ -228,7 +242,9 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
         <section className={styles.panel} aria-labelledby="workers-heading"><div className={styles.panelHeader}><h2 id="workers-heading">Analysis workers</h2><span className={styles.muted}>{data.workers.length} registered</span></div>{data.workers.length ? data.workers.map((worker) => <div className={styles.listRow} key={worker.workerId}><span className={styles.observationMain}><strong><Server size={13} aria-hidden="true" /> {worker.workerId}</strong><small>Last seen {new Date(worker.lastSeenAt).toLocaleString()} · {worker.lastSelected} selected · {worker.lastCompleted} completed</small>{worker.lastError && <small className={styles.uploadError}>{worker.lastError}</small>}</span><span className={styles.type}>{worker.status}</span></div>) : <p className={styles.muted}>No worker has reported a dispatch heartbeat yet.</p>}</section>
         <section className={styles.panel} aria-labelledby="work-heading"><div className={styles.panelHeader}><h2 id="work-heading">Tasks and findings</h2></div>{!data.tasks.length && !data.findings.length ? <p className={styles.muted}>No analysis work has been scheduled.</p> : <>{data.tasks.length > 0 && <WorkspaceTaskList projectId={projectId} tasks={data.tasks} onChanged={() => {
           void queryClient.invalidateQueries({ queryKey: ['reamon-workspace', projectId] })
-        }} />}{data.findings.map((finding) => <div className={styles.listRow} key={finding.id}><span>{finding.title}</span><span className={styles.type}>{finding.severity} · {finding.status}</span></div>)}</>}</section>
+        }} />}{data.findings.length > 0 && <WorkspaceFindingList projectId={projectId} findings={data.findings} onChanged={() => {
+          void queryClient.invalidateQueries({ queryKey: ['reamon-workspace', projectId] })
+        }} />}</>}</section>
         <section className={styles.panel} aria-labelledby="hypotheses-heading"><div className={styles.panelHeader}><h2 id="hypotheses-heading">Hypotheses</h2></div>{data.hypotheses.length ? data.hypotheses.map((hypothesis) => <div className={styles.listRow} key={hypothesis.id}><span>{hypothesis.statement}</span><span className={styles.type}>{hypothesis.status}</span></div>) : <p className={styles.muted}>No hypotheses recorded.</p>}</section>
         <section className={styles.panel} aria-labelledby="projection-runs-heading"><div className={styles.panelHeader}><h2 id="projection-runs-heading">Graph replays</h2><span className={styles.muted}>{data.projectionRuns.length} recent</span></div>{data.projectionRuns.length ? data.projectionRuns.map((run) => <div className={styles.listRow} key={run.projectionRunId}><span className={styles.observationMain}><strong>{run.status} · {run.selected.toLocaleString()} observations</strong><small>{run.nodes.toLocaleString()} nodes · {run.relationships.toLocaleString()} relationships · page offset {run.offset.toLocaleString()}</small>{run.reconciled && <small>Reconciled · removed {run.deletedNodes.toLocaleString()} nodes / {run.deletedRelationships.toLocaleString()} relationships</small>}{run.error && <small className={styles.uploadError}>{run.error}</small>}</span><span className={styles.type}>{new Date(run.startedAt).toLocaleString()}</span></div>) : <p className={styles.muted}>Graph replay history will appear after a provider publishes observations.</p>}</section>
         <section className={styles.panel} aria-labelledby="activity-heading"><div className={styles.panelHeader}><h2 id="activity-heading">Recent activity</h2></div>{data.activities.length ? data.activities.map((activity) => <div className={styles.activityRow} key={activity.id}><span className={styles.activityDot} /><div><strong>{activity.actor}</strong><p>{activity.message}</p><time>{new Date(activity.createdAt).toLocaleString()}</time></div></div>) : <p className={styles.muted}>Activity will appear as the workspace changes.</p>}</section>

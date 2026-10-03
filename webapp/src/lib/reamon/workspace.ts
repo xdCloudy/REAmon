@@ -6,6 +6,7 @@ import { activeWorkspaceTargetIds } from './imports'
 import { listWorkerHealth } from './worker-health'
 import type { TargetProfile, WorkspaceImportSnapshot, WorkspaceObservation } from './types'
 import type { WorkspaceImportComparison } from './imports'
+import { buildLegacyCompatibilityReport } from './legacy-compat'
 
 export const WORKSPACE_ARTIFACT_PREVIEW_LIMIT = 500
 
@@ -16,7 +17,7 @@ function asProfile(value: unknown): TargetProfile {
 export async function getWorkspaceSnapshot(projectId: string) {
   const projectPromise = prisma.project.findUnique({
     where: { id: projectId },
-    select: { id: true, name: true, description: true, createdAt: true, updatedAt: true },
+    select: { id: true, name: true, description: true, projectKind: true, createdAt: true, updatedAt: true },
   })
   const importsPromise = prisma.workspaceImport.findMany({
     where: { projectId },
@@ -52,6 +53,7 @@ export async function getWorkspaceSnapshot(projectId: string) {
     hypothesisCount,
     evidenceCount,
     observationCount,
+    approvalStatuses,
   ] = await Promise.all([
     prisma.target.findMany({ where: { projectId }, orderBy: { createdAt: 'asc' } }),
     prisma.artifact.findMany({
@@ -131,7 +133,15 @@ export async function getWorkspaceSnapshot(projectId: string) {
     prisma.hypothesis.count({ where: { projectId } }),
     prisma.evidence.count({ where: { projectId } }),
     prisma.reamonObservation.count({ where: { projectId } }),
+    prisma.reamonApproval.findMany({ where: { projectId }, select: { status: true } }),
   ])
+
+  const approvalSummary = approvalStatuses.reduce((summary, approval) => {
+    if (approval.status === 'PENDING') summary.pending += 1
+    else if (approval.status === 'APPROVED') summary.approved += 1
+    else if (approval.status === 'REJECTED') summary.rejected += 1
+    return summary
+  }, { pending: 0, approved: 0, rejected: 0 })
 
   const activeArtifactTargetIds = new Set(artifactMetadata
     .map((artifact) => artifact.targetId)
@@ -180,6 +190,7 @@ export async function getWorkspaceSnapshot(projectId: string) {
       createdAt: project.createdAt.toISOString(),
       updatedAt: project.updatedAt.toISOString(),
     },
+    compatibility: buildLegacyCompatibilityReport(project.projectKind),
     targets: targets.map((target) => ({
       ...target,
       targetType: target.targetType,
@@ -274,6 +285,10 @@ export async function getWorkspaceSnapshot(projectId: string) {
       hypotheses: hypothesisCount,
       evidence: evidenceCount,
       observations: observationCount,
+    },
+    approvalSummary: {
+      ...approvalSummary,
+      total: approvalStatuses.length,
     },
   }
 }

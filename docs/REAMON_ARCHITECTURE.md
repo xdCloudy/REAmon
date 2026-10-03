@@ -198,9 +198,11 @@ The first provider contract is in `webapp/src/lib/reamon/types.ts`:
 - `ToolObservation`: a stable-keyed `entity`, `relationship`, or `fact` that can be upserted into the project knowledge layer.
 - `ToolPlugin`: a manifest plus an execution function.
 
-The resolver currently registers four built-in providers: the profiler provider, a
+The resolver currently registers five built-in providers: the profiler provider, a
 source inspector backed by a bounded `strings` process adapter, an ELF header
-inspector backed by `readelf`, and a generic file inspector backed by `file`.
+inspector backed by `readelf`, a generic file inspector backed by `file`, and a
+bounded JSON configuration inspector. The JSON provider reads only a controlled
+artifact path, refuses files over 512 KiB, and emits a stable document observation.
 Process adapters receive only a confined server-side artifact path, never a
 user-controlled command or shell expression, and convert bounded stdout into stable
 observations. Future
@@ -314,8 +316,9 @@ and the last provider error; the workspace labels workers stale after a bounded
 silence window and surfaces stale/degraded worker alerts. Failed dispatches can also
 send an optional environment-configured webhook with bounded, non-secret JSON; URL
 validation, a five-second timeout, and best-effort handling keep alert delivery from
-blocking work. Remaining worker hardening is the staging multi-worker drill and
-additional MCP/process adapters. The worker also performs a bounded, round-robin
+blocking work. The repository now includes an executable staging multi-worker
+contention drill and an explicit backup/restore drill wrapper; additional MCP/process
+adapters remain optional extension work. The worker also performs a bounded, round-robin
 historical backfill sweep for projects with normalized observations; set
 `REAMON_WORKER_BACKFILL_INTERVAL_SECONDS=0` to disable it. Projection runs now persist started/completed/failed
 state as well as append durable started, completed, and failed
@@ -337,8 +340,8 @@ task/source pair before recording the completion activity. Operator-created anal
 proposals default to a durable `AWAITING_APPROVAL` state; an approval decision is
 project-scoped, races are fenced transactionally, and only approved tasks enter the
 worker `QUEUED` state. The approval API and workspace controls retain who decided and
-why. Historical import compaction is explicit and dry-run by default: the newest
+why, while the workspace reports pending/approved/rejected totals. Finding review is
+similarly project-scoped, status-bounded, and activity-audited. Historical import compaction is explicit and dry-run by default: the newest
 snapshot and any snapshot referenced by analysis or lineage are protected, rows are
 removed transactionally, and bytes are unlinked only after commit. The next high-value
-work is richer repair UX, additional result adapters, and projecting durable events into
-the dashboard.
+work is specialist provider breadth and optional report/dashboard expansion.

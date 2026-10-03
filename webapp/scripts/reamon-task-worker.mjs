@@ -12,6 +12,8 @@ const DEFAULT_BACKFILL_INTERVAL_SECONDS = 300
 const MAX_BACKFILL_INTERVAL_SECONDS = 24 * 60 * 60
 const DEFAULT_BACKFILL_BATCH_SIZE = 5
 const MAX_BACKFILL_BATCH_SIZE = 10
+const DEFAULT_RETENTION_INTERVAL_SECONDS = 24 * 60 * 60
+const MAX_RETENTION_INTERVAL_SECONDS = 7 * 24 * 60 * 60
 
 export class WorkerConfigurationError extends Error {}
 
@@ -28,6 +30,11 @@ function boundedWorkerId(value, fallback = 'reamon-worker') {
     throw new WorkerConfigurationError('REAMON_WORKER_ID must be a bounded identifier')
   }
   return workerId
+}
+
+function booleanValue(value, fallback = false) {
+  if (value === undefined || value === '') return fallback
+  return ['1', 'true', 'yes', 'on'].includes(String(value).trim().toLowerCase())
 }
 
 export function readWorkerConfig(env = process.env) {
@@ -52,6 +59,8 @@ export function readWorkerConfig(env = process.env) {
     staleAfterMinutes: boundedNumber(env.REAMON_WORKER_STALE_AFTER_MINUTES, DEFAULT_STALE_AFTER_MINUTES, 5, MAX_STALE_AFTER_MINUTES),
     backfillIntervalSeconds: boundedNumber(env.REAMON_WORKER_BACKFILL_INTERVAL_SECONDS, DEFAULT_BACKFILL_INTERVAL_SECONDS, 0, MAX_BACKFILL_INTERVAL_SECONDS),
     backfillBatchSize: boundedNumber(env.REAMON_WORKER_BACKFILL_BATCH_SIZE, DEFAULT_BACKFILL_BATCH_SIZE, 1, MAX_BACKFILL_BATCH_SIZE),
+    retentionIntervalSeconds: boundedNumber(env.REAMON_WORKER_RETENTION_INTERVAL_SECONDS, DEFAULT_RETENTION_INTERVAL_SECONDS, 0, MAX_RETENTION_INTERVAL_SECONDS),
+    retentionApply: booleanValue(env.REAMON_WORKER_RETENTION_APPLY),
     workerId: boundedWorkerId(env.REAMON_WORKER_ID || env.HOSTNAME),
   }
 }
@@ -123,6 +132,25 @@ export async function listBackfillProjects(config, fetchImpl = fetch, logger = c
   return response.json()
 }
 
+export async function runRetentionOnce(config, fetchImpl = fetch, logger = console) {
+  const response = await fetchImpl(`${config.webappUrl}/api/internal/reamon/imports/retention`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-internal-key': config.internalKey },
+    body: JSON.stringify({ apply: config.retentionApply === true }),
+    signal: AbortSignal.timeout(20_000),
+  })
+  if (response.status === 401 || response.status === 403) {
+    throw new WorkerConfigurationError(`Import retention authentication rejected with HTTP ${response.status}`)
+  }
+  if (!response.ok) {
+    logger.warn(`[reamon-worker] import retention returned HTTP ${response.status}`)
+    return null
+  }
+  const result = await response.json()
+  logger.info(`[reamon-worker] import retention apply=${config.retentionApply === true} candidates=${result.candidates || 0} deleted=${result.deleted || 0}`)
+  return result
+}
+
 async function projectAllPages(config, projectId, fetchImpl, logger) {
   let offset = 0
   let projectionRunId = null
@@ -145,6 +173,7 @@ const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, mil
 export async function runWorker(config, { fetchImpl = fetch, sleepImpl = sleep, logger = console, shouldStop = () => false } = {}) {
   let backfillOffset = 0
   let nextBackfillAt = 0
+  let nextRetentionAt = 0
   while (!shouldStop()) {
     try {
       const result = await dispatchOnce(config, fetchImpl, logger)
@@ -169,6 +198,11 @@ export async function runWorker(config, { fetchImpl = fetch, sleepImpl = sleep, 
           backfillOffset = 0
         }
         nextBackfillAt = Date.now() + Number(config.backfillIntervalSeconds) * 1000
+      }
+
+      if (Number(config.retentionIntervalSeconds) > 0 && Date.now() >= nextRetentionAt) {
+        await runRetentionOnce(config, fetchImpl, logger)
+        nextRetentionAt = Date.now() + Number(config.retentionIntervalSeconds) * 1000
       }
     } catch (error) {
       if (error instanceof WorkerConfigurationError) throw error

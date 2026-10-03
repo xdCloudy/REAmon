@@ -32,6 +32,11 @@ rollback can be reconstructed.
 5. Keep `REAMON_DB_PUSH_ACCEPT_DATA_LOSS=false` for the normal upgrade path. The
    image refuses destructive Prisma drift unless an operator explicitly opts in.
 
+   For a staging release, provide `REAMON_DRILL_WEBAPP_URL`,
+   `REAMON_DRILL_INTERNAL_KEY`, and a disposable `REAMON_DRILL_PROJECT_ID`, then
+   run `scripts/reamon-release-preflight.sh --drill`. The drill sends two concurrent
+   dispatches and fails if both claim the same task.
+
 If server-mounted imports are required, set `REAMON_SERVER_SOURCE_ROOTS` to absolute
 paths inside the webapp container and add matching read-only bind mounts to the webapp
 service. Leave it empty for deployments that only accept browser snapshots. Never
@@ -74,6 +79,13 @@ first and resolve the actual volume name with `docker volume ls`; do not assume 
 Compose project prefix. Verify that `postgres.dump` and the artifact archive are
 non-empty before proceeding.
 
+The repository also includes a safe wrapper for repeating this check against an
+explicitly different restore database. Run `scripts/reamon-backup-restore-drill.sh
+--check` during preflight. In a PostgreSQL tooling environment, set
+`REAMON_DRILL_SOURCE_DATABASE_URL`, `REAMON_DRILL_RESTORE_DATABASE_URL`, and
+`REAMON_DRILL_ARTIFACT_ROOT`, then run `scripts/reamon-backup-restore-drill.sh --run`.
+It refuses to run when source and restore URLs match.
+
 ## Import retention and compaction
 
 Run the internal retention job in dry-run mode first. It is bounded to 25 imports
@@ -103,6 +115,12 @@ is unlinked. A non-empty `storageCleanupFailures` result is an operational warni
 that must be resolved before declaring compaction complete; the database remains
 authoritative, and the affected volume should be inspected or restored from the
 matching artifact backup before the next release.
+
+The private worker invokes the same endpoint on
+`REAMON_WORKER_RETENTION_INTERVAL_SECONDS` (default 24 hours). Keep
+`REAMON_WORKER_RETENTION_APPLY=false` until the dry-run report has been reviewed;
+set it to `true` only for a deployment that has an approved backup and retention
+decision.
 
 ## Upgrade
 
@@ -161,6 +179,11 @@ the extra workers after the drill with:
 ```bash
 docker compose up -d --scale reamon-worker=1 reamon-worker
 ```
+
+For a repeatable API-level assertion against that disposable project, use the
+contention drill described in Preflight. It checks worker identity and duplicate
+task claims while leaving the task and activity evidence available for operator
+inspection.
 
 ## Worker alert smoke test
 
@@ -222,6 +245,8 @@ For a destructive schema change or corrupted data:
   files between inventory and ingestion.
 - No repeated migration, worker, or graph projection errors appear in the last five
   minutes of logs.
-- A test workspace can import an artifact, schedule analysis, display its task
-  result, and show the resulting observation activity.
+- A test workspace can import an artifact, schedule analysis, review a finding,
+  and show the resulting observation/activity records.
+- A staging worker contention run has passed, and the backup/restore drill has
+  restored PostgreSQL into an isolated target while verifying the artifact archive.
 - The backup path, release commit, image id, and operator decision are recorded.

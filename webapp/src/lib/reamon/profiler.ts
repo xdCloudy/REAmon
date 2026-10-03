@@ -107,6 +107,17 @@ function detectFormat(bytes: Uint8Array, extension: string): {
     }
   }
 
+  if (extension === 'json') {
+    return {
+      format: 'json',
+      targetType: 'FILE',
+      architecture: null,
+      platform: null,
+      runtimes: [],
+      embeddedArtifacts: [],
+    }
+  }
+
   if (bytes.length >= 4 && [0xa1b2c3d4, 0xd4c3b2a1, 0x0a0d0d0a].includes(magic)) {
     return {
       format: 'pcap',
@@ -148,6 +159,7 @@ function mimeTypeFor(format: string, extension: string, providedMimeType: string
   if (format === 'pdf') return 'application/pdf'
   if (format === 'pcap') return 'application/vnd.tcpdump.pcap'
   if (format === 'sqlite') return 'application/vnd.sqlite3'
+  if (format === 'json') return 'application/json'
   return extension ? 'application/octet-stream' : 'application/octet-stream'
 }
 

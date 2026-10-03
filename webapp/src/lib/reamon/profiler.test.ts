@@ -30,4 +30,9 @@ describe('REAmon target profiler', () => {
     expect(profile.format).toBe('source')
     expect(profile.mimeType).toBe('text/plain')
   })
+
+  it('classifies JSON configuration separately from source code', () => {
+    const profile = profileArtifact(new TextEncoder().encode('{"enabled":true}'), 'settings.json')
+    expect(profile).toMatchObject({ format: 'json', mimeType: 'application/json', targetType: 'FILE' })
+  })
 })
