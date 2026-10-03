@@ -89,56 +89,54 @@ optional follow-on capabilities rather than production prerequisites.
 
 ## Production readiness
 
-<progress value="100" max="100">100%</progress> <strong>100%</strong>
+<progress value="92" max="100">92%</progress> <strong>92%</strong>
 
-This is a release-gate snapshot, reviewed 2026-10-03 against repository, hosted
-workflow, production-image, and staging evidence. The score measures readiness for
-a dependable self-hosted production release, not the number of UI screens or lines
-of code.
+This is an evidence-based engineering snapshot, reviewed 2026-10-03 against the
+current default branch, hosted CI definition, release tooling, migration inventory,
+security policy, production image, and operational recovery drills. The percentage is
+a weighted readiness estimate for a dependable self-hosted production release, not a
+feature-completion percentage.
 
-The 100% score is justified for the current production release scope. The long-term
-roadmap still contains broader specialist-provider coverage and cleanup of inherited
-RedAmon surfaces; those are explicitly follow-on work and are not hidden release
-gates.
+REAmon is currently a strong release candidate, but the previous 100% claim was not
+supported by the repository evidence. The hosted quality workflow is substantial: it
+runs the full web suite, type-check and lint, production dependency audit, a production
+build, a non-root runtime check, Trivy image scanning, authenticated live acceptance,
+browser login/navigation smoke coverage, PostgreSQL/artifact restore, Neo4j
+dump/load/query recovery, and agentic Python tests with dependency auditing.
 
-| Workstream | Weight | Complete | Release evidence |
+The remaining gap is release and operational proof rather than basic implementation.
+
+| Workstream | Weight | Complete | Current evidence / remaining gap |
 | --- | ---: | ---: | --- |
-| Workspace foundation and access control | 20% | 100% | Full web suite, live auth boundary, operator login, project creation, browser login, and workspace navigation are hosted gates. |
-| Import, profiling, storage, and inventory | 15% | 100% | Representative JSON/source import, profiling, inventory, writable artifact storage, PostgreSQL restore, and artifact extraction pass in CI. |
-| Provider registry, scheduling, and provider execution | 15% | 100% | Approval-gated scheduling, concurrent claims, bounded providers, Python unit checks, and Compose worker recovery are covered. |
-| Provider results and knowledge graph ingestion | 20% | 100% | Provider observations project into Neo4j; the hosted gate dumps, restores, queries, and rechecks the graph database. |
-| Approvals, live activity, and operator controls | 10% | 100% | Approval decisions, activity, stale-lease recovery, authenticated workspace state, and browser navigation are verified. |
-| Legacy RedAmon compatibility bridge | 10% | 100% | Native REAmon compatibility mode is verified for the production release scope; broader migration cleanup remains roadmap work. |
-| Production hardening and release QA | 10% | 100% | Hosted full tests, npm audit, Trivy image scan, live acceptance, browser smoke, three-way restore drills, and semver release automation are recorded. |
+| Workspace foundation and access control | 20% | 95% | Auth boundaries, operator login, project creation, and authenticated navigation are exercised. Browser coverage is still a smoke test rather than a full workspace workflow, and release-branch protection is not repository-verifiable here. |
+| Import, profiling, storage, and inventory | 15% | 97% | Representative browser import, profiling, inventory, writable artifact storage, PostgreSQL restore, and artifact extraction are hosted gates. Large/resumable imports, retention, and upgrade interaction are not load/soak gated. |
+| Provider registry, scheduling, and provider execution | 15% | 94% | Approval-gated scheduling, bounded providers, concurrent task claims, and unit coverage are present. Hosted acceptance uses two concurrent dispatch requests; it does not start two independent Compose worker replicas or prove process-crash stale-lease recovery. |
+| Provider results and knowledge graph ingestion | 20% | 95% | Provider observations project into Neo4j and the hosted gate performs a real Neo4j dump/load/query recovery. Broader failure-path and restored-workspace end-to-end checks remain. |
+| Approvals, live activity, and operator controls | 10% | 92% | Approval decisions, activity state, worker telemetry, stale-worker detection, and optional alert webhooks exist. Browser-level operator recovery and hosted stale-worker failover are still limited. |
+| Legacy RedAmon compatibility bridge | 10% | 80% | Native REAmon workspaces are operational, but the migration inventory still marks core project, recon, graph, agent, finding, settings, and security-tool surfaces as GENERALISING or DEPRECATED. |
+| Production hardening and release QA | 10% | 84% | CI now includes audits, image scanning, live acceptance, browser smoke, database/artifact/graph restore, and release automation. However, VERSION is 6.23.0 with no corresponding v6.23.0 tag/release; the release workflow does not directly require the quality workflow on the tagged commit; and SECURITY.md still points to RedAmon's nonexistent master branch and upstream vulnerability-reporting location. |
 
-Weighted result: **100%**.
+Weighted result: **92.25%**, reported as **92%**.
 
-The production release gate is complete. The remaining roadmap items are capability
-expansion and migration cleanup, not unverified deployment prerequisites.
+Before raising the score to 100%, the production release process should close the
+remaining evidence gaps rather than redefine them out of scope:
 
-Evidence recorded for this review:
-
-- `.github/workflows/reamon-quality.yml` runs the full web suite, type-check, lint,
-  npm production-dependency audit, Python unit gate, Trivy image scan, and a live
-  Compose release gate against the production image.
-- The live gate runs authenticated acceptance, browser login/navigation, PostgreSQL
-  restore, artifact extraction, and Neo4j dump/load/query recovery.
-- `.github/workflows/reamon-release.yml` validates `VERSION` against semver tags and
-  publishes a checksum-backed source archive as a GitHub release.
-- `scripts/reamon-release-preflight.sh --live --acceptance --backup` reproduces the
-  same operational checks for self-hosted release operators.
-- The authenticated acceptance flow imports representative JSON and C artifacts,
-  exercises approvals and both built-in providers, proves distinct concurrent task
-  claims, projects and reconciles the graph, and verifies the workspace snapshot.
-- Two Compose worker replicas recover a controlled stale lease and complete the task;
-  the isolated backup drill restores PostgreSQL into a disposable database and
-  extracts the artifact archive successfully.
+- Publish the current REAmon version as a real versioned release and make release
+  publication depend on the same quality gates for the exact tagged commit.
+- Correct SECURITY.md so supported branches, project name, and private vulnerability
+  reporting all refer to REAmon rather than the upstream RedAmon repository.
+- Add a hosted deployment-level worker test that runs separate worker replicas,
+  kills or stalls one, crosses the stale threshold, and proves single-claim recovery.
+- Expand browser E2E coverage from login/navigation into import, approval, analysis,
+  recovery, and operator flows.
+- Continue isolating or migrating the remaining GENERALISING/DEPRECATED RedAmon
+  surfaces and add load/soak coverage for large workspaces and upgrade/retention paths.
 
 For production alerting, set `REAMON_WORKER_ALERT_WEBHOOK_URL` and optionally
 `REAMON_WORKER_ALERT_WEBHOOK_TOKEN`. Failed provider dispatches send a bounded
 `worker.degraded` JSON event with a five-second timeout; missing or failing alert
-delivery never fails the dispatch request. The dashboard remains the source of
-truth for stale workers, including workers that stop reporting entirely.
+delivery never fails the dispatch request. The dashboard remains the source of truth
+for stale workers, including workers that stop reporting entirely.
 
 ## Architecture
 
