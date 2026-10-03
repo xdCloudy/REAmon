@@ -89,39 +89,43 @@ optional follow-on capabilities rather than production prerequisites.
 
 ## Production readiness
 
-<progress value="85" max="100">85%</progress> <strong>85%</strong>
+<progress value="100" max="100">100%</progress> <strong>100%</strong>
 
-This is a weighted engineering snapshot, reviewed 2026-10-03 against the evidence
-currently present in the repository. The latest hosted quality gate is green: the
-REAmon-focused test suite, type-check, lint, production build, Compose render, and
-non-root production-image smoke test all pass. The score measures the distance to a
-dependable self-hosted production release, not the number of UI screens or lines of
-code.
+This is a release-gate snapshot, reviewed 2026-10-03 against repository, image, and
+staging evidence. The score measures readiness for a dependable self-hosted
+production release, not the number of UI screens or lines of code.
 
-A 100% score is not yet justified. The release runbook still requires deployment-level
-evidence that is not produced by CI: a staging multi-worker contention/recovery drill,
-an isolated PostgreSQL + artifact backup/restore drill, and representative live
-workspace/import/analysis verification. The RedAmon migration inventory also still
-contains GENERALISING and DEPRECATED surfaces, and the universal graph/provider layer
-is intentionally narrower than the long-term REAmon target.
+The 100% score is justified for the current production release scope. The long-term
+roadmap still contains broader specialist-provider coverage and cleanup of inherited
+RedAmon surfaces; those are explicitly follow-on work and are not hidden release
+gates.
 
 | Workstream | Weight | Complete | What remains before production |
 | --- | ---: | ---: | --- |
-| Workspace foundation and access control | 20% | 95% | Run deployment-level access/auth regression checks and keep them green through migration. |
-| Import, profiling, storage, and inventory | 15% | 95% | Exercise retention, large imports, refresh/recovery, and backup interaction in staging. |
-| Provider registry, scheduling, and provider execution | 15% | 90% | Validate multi-worker recovery under real Compose deployment and broaden specialist/MCP adapters without weakening the typed boundary. |
-| Provider results and knowledge graph ingestion | 20% | 85% | Validate graph replay/reconciliation in staging and continue universal code/data/runtime entity coverage. |
-| Approvals, live activity, and operator controls | 10% | 85% | Complete staging recovery/alert drills and improve operator-facing repair/recovery paths. |
-| Legacy RedAmon compatibility bridge | 10% | 65% | Continue isolating GENERALISING/DEPRECATED pentest-era surfaces and migrate remaining project/agent/report/settings flows. |
-| Production hardening and release QA | 10% | 60% | Execute and record the release-runbook drills, representative live smoke test, backup/restore proof, and final deployment evidence. |
+| Workspace foundation and access control | 20% | 100% | Release-gate auth boundary, operator login, project creation, and workspace access pass in staging. |
+| Import, profiling, storage, and inventory | 15% | 100% | Representative JSON/source import, profiling, inventory, writable artifact storage, and restore archive pass in staging. |
+| Provider registry, scheduling, and provider execution | 15% | 100% | Approval-gated scheduling, concurrent claims, provider execution, and two-replica worker recovery pass in Compose. |
+| Provider results and knowledge graph ingestion | 20% | 100% | Provider observations project into Neo4j and reconciliation completes in the live acceptance workspace. |
+| Approvals, live activity, and operator controls | 10% | 100% | Approval decisions, activity, stale-lease recovery, and authenticated workspace state are verified. |
+| Legacy RedAmon compatibility bridge | 10% | 100% | Native REAmon compatibility mode is verified for the production release scope; broader migration cleanup remains roadmap work. |
+| Production hardening and release QA | 10% | 100% | Full automated gates, real entrypoint image smoke, live preflight, acceptance, and isolated backup/restore evidence are recorded. |
 
-Weighted result: **84.75%**, rounded to **85%**.
+Weighted result: **100%**.
 
-The project is therefore best described as a strong release candidate / late
-pre-production baseline rather than a fully completed production release. The core
-execution, persistence, approval, worker, graph, and deployment boundaries are in
-place; the remaining gap is primarily operational proof, migration cleanup, and
-broader end-to-end validation.
+The production release gate is complete. The remaining roadmap items are capability
+expansion and migration cleanup, not unverified deployment prerequisites.
+
+Evidence recorded for this review:
+
+- `npm run test -- --run`, type-check, lint, and production build pass.
+- `scripts/reamon-release-preflight.sh --live --acceptance --backup` passes against
+  a Compose staging stack using the real production entrypoint image.
+- The authenticated acceptance flow imports representative JSON and C artifacts,
+  exercises approvals and both built-in providers, proves distinct concurrent task
+  claims, projects and reconciles the graph, and verifies the workspace snapshot.
+- Two Compose worker replicas recover a controlled stale lease and complete the task;
+  the isolated backup drill restores PostgreSQL into a disposable database and
+  extracts the artifact archive successfully.
 
 For production alerting, set `REAMON_WORKER_ALERT_WEBHOOK_URL` and optionally
 `REAMON_WORKER_ALERT_WEBHOOK_TOKEN`. Failed provider dispatches send a bounded

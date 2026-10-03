@@ -53,6 +53,19 @@ ENV NODE_OPTIONS=--max-old-space-size=4096
 
 RUN npm run build
 
+# Prisma CLI runtime closure. Keep this as one directory so the runner gets a
+# single layer instead of repeating the existing runner filesystem for every
+# small hoisted package.
+RUN set -eux; \
+    mkdir -p /tmp/prisma-runtime/node_modules/@prisma /tmp/prisma-runtime/node_modules/@standard-schema; \
+    for package in prisma bcryptjs c12 chokidar readdirp confbox defu dotenv exsolve giget citty consola node-fetch-native nypm pathe tinyexec jiti ohash perfect-debounce pkg-types rc9 destr deepmerge-ts effect fast-check pure-rand empathic; do \
+      cp -a "node_modules/$package" "/tmp/prisma-runtime/node_modules/$package"; \
+    done; \
+    for package in config debug engines engines-version fetch-engine get-platform; do \
+      cp -a "node_modules/@prisma/$package" "/tmp/prisma-runtime/node_modules/@prisma/$package"; \
+    done; \
+    cp -a node_modules/@standard-schema/spec /tmp/prisma-runtime/node_modules/@standard-schema/spec
+
 # Stage 3: Runner (Production)
 FROM node:22-slim AS runner
 WORKDIR /app
@@ -97,18 +110,10 @@ COPY --from=builder --chown=nextjs:nodejs /app/scripts ./scripts
 # Prisma schema + CLI for automatic migration on startup
 COPY --from=builder --chown=nextjs:nodejs /app/prisma ./prisma
 # The standalone trace contains the application runtime, but it intentionally
-# omits the Prisma CLI and engine packages used by entrypoint.sh. Copy those
-# exact, already-resolved packages from the builder instead of resolving them a
-# second time over the network in the runner stage. This keeps image builds
-# deterministic and prevents a release from hanging on a duplicate engine
-# download.
-COPY --from=builder /app/node_modules/prisma ./node_modules/prisma
-COPY --from=builder /app/node_modules/@prisma/config ./node_modules/@prisma/config
-COPY --from=builder /app/node_modules/@prisma/debug ./node_modules/@prisma/debug
-COPY --from=builder /app/node_modules/@prisma/engines ./node_modules/@prisma/engines
-COPY --from=builder /app/node_modules/@prisma/fetch-engine ./node_modules/@prisma/fetch-engine
-COPY --from=builder /app/node_modules/@prisma/get-platform ./node_modules/@prisma/get-platform
-COPY --from=builder /app/node_modules/bcryptjs ./node_modules/bcryptjs
+# omits the Prisma CLI and engine packages used by entrypoint.sh. Copy the
+# already-resolved closure from the builder instead of resolving it over the
+# network in the runner.
+COPY --from=builder /tmp/prisma-runtime/node_modules ./node_modules
 
 # Entrypoint: migrate, sync schema to PostgreSQL, then start server.
 #

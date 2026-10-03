@@ -32,10 +32,27 @@ rollback can be reconstructed.
 5. Keep `REAMON_DB_PUSH_ACCEPT_DATA_LOSS=false` for the normal upgrade path. The
    image refuses destructive Prisma drift unless an operator explicitly opts in.
 
-   For a staging release, provide `REAMON_DRILL_WEBAPP_URL`,
-   `REAMON_DRILL_INTERNAL_KEY`, and a disposable `REAMON_DRILL_PROJECT_ID`, then
-   run `scripts/reamon-release-preflight.sh --drill`. The drill sends two concurrent
-   dispatches and fails if both claim the same task.
+For a staging release, provide `REAMON_DRILL_WEBAPP_URL`,
+`REAMON_DRILL_INTERNAL_KEY`, and a disposable `REAMON_DRILL_PROJECT_ID`, then
+run `scripts/reamon-release-preflight.sh --drill`. The drill sends two concurrent
+dispatches and fails if both claim the same task.
+
+For the complete staging release gate, set `COMPOSE_PROJECT_NAME` to the Compose
+project that owns the running services and run:
+
+```bash
+COMPOSE_PROJECT_NAME=reamon-staging \
+REAMON_ACCEPTANCE_BASE_URL=http://127.0.0.1:3000 \
+REAMON_ACCEPTANCE_INTERNAL_KEY="$INTERNAL_API_KEY" \
+REAMON_ACCEPTANCE_EMAIL="$ADMIN_EMAIL" \
+REAMON_ACCEPTANCE_PASSWORD="$ADMIN_PASSWORD" \
+REAMON_DRILL_COMPOSE_RESTORE_DATABASE=reamon_restore_check \
+scripts/reamon-release-preflight.sh --live --acceptance --backup
+```
+
+`REAMON_ACCEPTANCE_BASE_URL`, `REAMON_ACCEPTANCE_INTERNAL_KEY`,
+`REAMON_ACCEPTANCE_EMAIL`, and `REAMON_ACCEPTANCE_PASSWORD` are required for
+`--acceptance`; `REAMON_DRILL_COMPOSE_RESTORE_DATABASE` is required for `--backup`.
 
 If server-mounted imports are required, set `REAMON_SERVER_SOURCE_ROOTS` to absolute
 paths inside the webapp container and add matching read-only bind mounts to the webapp
@@ -85,6 +102,18 @@ explicitly different restore database. Run `scripts/reamon-backup-restore-drill.
 `REAMON_DRILL_SOURCE_DATABASE_URL`, `REAMON_DRILL_RESTORE_DATABASE_URL`, and
 `REAMON_DRILL_ARTIFACT_ROOT`, then run `scripts/reamon-backup-restore-drill.sh --run`.
 It refuses to run when source and restore URLs match.
+
+For a Compose deployment, use the explicit project name and a disposable database:
+
+```bash
+COMPOSE_PROJECT_NAME=reamon-staging \
+REAMON_DRILL_COMPOSE_RESTORE_DATABASE=reamon_restore_check \
+scripts/reamon-backup-restore-drill.sh --compose
+```
+
+The Compose drill sets `PGUSER` explicitly for the container's database tools,
+restores PostgreSQL into the named isolated database, and verifies that the
+artifact archive can be listed and extracted.
 
 ## Import retention and compaction
 
@@ -183,7 +212,9 @@ docker compose up -d --scale reamon-worker=1 reamon-worker
 For a repeatable API-level assertion against that disposable project, use the
 contention drill described in Preflight. It checks worker identity and duplicate
 task claims while leaving the task and activity evidence available for operator
-inspection.
+inspection. As a deployment-level recovery check, start two real Compose worker
+replicas, recover a controlled stale lease, and verify terminal task completion
+before scaling the service back down.
 
 ## Worker alert smoke test
 

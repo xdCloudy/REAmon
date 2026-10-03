@@ -11,16 +11,22 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 LIVE=0
 DRILL=0
+ACCEPTANCE=0
+BACKUP=0
 
 usage() {
   cat <<'USAGE'
-Usage: scripts/reamon-release-preflight.sh [--live] [--drill]
+Usage: scripts/reamon-release-preflight.sh [--live] [--drill] [--acceptance] [--backup]
 
 Options:
   --live  Also check the running webapp readiness endpoint, writable artifact
           storage, bundled process-provider tools, and configured source roots.
   --drill Run the concurrent staging-worker contention drill. Requires the
           REAMON_DRILL_* variables documented in the release runbook.
+  --acceptance Run the authenticated staging acceptance flow. Requires the
+               REAMON_ACCEPTANCE_* variables and a running webapp/Neo4j stack.
+  --backup Run the Compose PostgreSQL and artifact backup/restore drill. Requires
+           REAMON_DRILL_COMPOSE_RESTORE_DATABASE and a running stack.
 USAGE
 }
 
@@ -37,6 +43,8 @@ while (($#)); do
   case "$1" in
     --live) LIVE=1 ;;
     --drill) DRILL=1 ;;
+    --acceptance) ACCEPTANCE=1 ;;
+    --backup) BACKUP=1 ;;
     -h|--help) usage; exit 0 ;;
     *) usage >&2; fail "unknown option: $1" ;;
   esac
@@ -55,6 +63,7 @@ grep -Eq 'binutils[[:space:]]+file|file[[:space:]]+binutils' webapp/Dockerfile \
 pass 'production image declares strings/readelf and file runtime dependencies'
 
 bash -n scripts/reamon-worker-contention-drill.sh scripts/reamon-backup-restore-drill.sh
+node --check scripts/reamon-staging-acceptance.mjs
 scripts/reamon-backup-restore-drill.sh --check
 pass 'release drill scripts pass syntax and dependency checks'
 
@@ -71,6 +80,16 @@ fi
 if ((DRILL)); then
   scripts/reamon-worker-contention-drill.sh
   pass 'concurrent staging-worker contention drill passed'
+fi
+
+if ((ACCEPTANCE)); then
+  node scripts/reamon-staging-acceptance.mjs
+  pass 'authenticated staging acceptance flow passed'
+fi
+
+if ((BACKUP)); then
+  scripts/reamon-backup-restore-drill.sh --compose
+  pass 'Compose database and artifact backup/restore drill passed'
 fi
 
 if ((LIVE)); then
