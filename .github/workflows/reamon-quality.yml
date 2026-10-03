@@ -97,6 +97,7 @@ jobs:
       WEBAPP_PORT: "3000"
       WEBAPP_CPUS: "1"
       REAMON_WORKER_POLL_SECONDS: "5"
+      REAMON_WORKER_STALE_AFTER_MINUTES: "5"
       REAMON_WORKER_BACKFILL_INTERVAL_SECONDS: "0"
       REAMON_WORKER_RETENTION_INTERVAL_SECONDS: "0"
     steps:
@@ -154,6 +155,7 @@ jobs:
           REAMON_ACCEPTANCE_INTERNAL_KEY: ci-internal-key
           REAMON_ACCEPTANCE_EMAIL: acceptance@reamon.invalid
           REAMON_ACCEPTANCE_PASSWORD: ci-acceptance-password
+          REAMON_ACCEPTANCE_STATE_FILE: /tmp/reamon-acceptance-state.json
         run: node scripts/reamon-staging-acceptance.mjs
 
       - name: Install browser smoke dependencies
@@ -166,7 +168,23 @@ jobs:
           REAMON_BROWSER_BASE_URL: http://127.0.0.1:3000
           REAMON_BROWSER_EMAIL: acceptance@reamon.invalid
           REAMON_BROWSER_PASSWORD: ci-acceptance-password
-        run: python3 scripts/reamon-browser-smoke.py
+        run: >-
+          REAMON_BROWSER_PROJECT_ID="$(node -e 'const fs=require("fs"); const value=JSON.parse(fs.readFileSync("/tmp/reamon-acceptance-state.json", "utf8")); process.stdout.write(value.projectId)')"
+          REAMON_BROWSER_IMPORT_FIXTURE="$GITHUB_WORKSPACE/tests/fixtures/reamon-browser-smoke.json"
+          python3 scripts/reamon-browser-smoke.py
+
+      - name: Run two-replica worker crash and recovery drill
+        run: >-
+          REAMON_FAILOVER_TASK_ID="$(node -e 'const fs=require("fs"); const value=JSON.parse(fs.readFileSync("/tmp/reamon-acceptance-state.json", "utf8")); process.stdout.write(value.failoverTaskId)')"
+          REAMON_FAILOVER_STALE_AFTER_MINUTES=5
+          scripts/reamon-worker-failover-drill.sh
+
+      - name: Run bounded worker load and soak drill
+        run: >-
+          REAMON_SOAK_ARTIFACT_ID="$(node -e 'const fs=require("fs"); const value=JSON.parse(fs.readFileSync("/tmp/reamon-acceptance-state.json", "utf8")); process.stdout.write(value.recoveryArtifactId)')"
+          REAMON_SOAK_TASK_COUNT=4
+          REAMON_SOAK_DURATION_SECONDS=30
+          scripts/reamon-worker-soak-drill.sh
 
       - name: Verify PostgreSQL and artifact restore
         env:

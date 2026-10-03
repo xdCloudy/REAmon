@@ -6,6 +6,7 @@ on:
       - 'v*.*.*'
 
 permissions:
+  actions: read
   contents: write
 
 jobs:
@@ -23,6 +24,20 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           test "${RELEASE_TAG}" = "v$(tr -d '[:space:]' < VERSION)"
+
+      - name: Require green quality workflow for this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          runs="$(gh run list \
+            --repo "${GITHUB_REPOSITORY}" \
+            --workflow reamon-quality.yml \
+            --commit "${GITHUB_SHA}" \
+            --limit 20 \
+            --json status,conclusion,headSha,url)"
+          echo "${runs}"
+          passing="$(jq '[.[] | select(.headSha == env.GITHUB_SHA and .status == "completed" and .conclusion == "success")] | length' <<<"${runs}")"
+          test "${passing}" -ge 1
 
       - name: Build source archive and checksum
         env:

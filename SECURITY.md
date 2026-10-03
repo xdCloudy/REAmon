@@ -2,20 +2,21 @@
 
 ## Supported Versions
 
-RedAmon follows a rolling-release model. Only the **latest version** on the `master` branch receives security updates.
+REAmon follows a rolling-release model. Only the **current release** on the
+`reamon/bootstrap` branch receives security updates.
 
 | Version                       | Supported          |
 | ----------------------------- | ------------------ |
-| Latest release on `master`    | :white_check_mark: |
-| Any older version             | :x:                |
+| `v6.23.0` / current `reamon/bootstrap` | :white_check_mark: |
+| Any older release or branch             | :x:                |
 
 If you are running an older version, please update to the latest release before reporting issues. See the [Updating to a New Version](README.md#updating-to-a-new-version) section.
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability in RedAmon, **please do not open a public GitHub issue**. Instead, report it privately:
+If you discover a security vulnerability in REAmon, **please do not open a public GitHub issue**. Instead, report it privately:
 
-1. **GitHub Private Vulnerability Reporting** — Go to the [Security Advisories](https://github.com/samugit83/redamon/security/advisories) page and click **"Report a vulnerability"**.
+1. **GitHub Private Vulnerability Reporting** — Go to the [Security Advisories](https://github.com/xdCloudy/REAmon/security/advisories) page and click **"Report a vulnerability"**.
 2. **Email** — Send a detailed report to the repository owner via their GitHub profile contact.
 
 ### What to Include
@@ -36,7 +37,7 @@ If you discover a security vulnerability in RedAmon, **please do not open a publ
 
 The following are **in scope** for security reports:
 
-- Vulnerabilities in RedAmon's own code (webapp, recon orchestrator, agent, MCP servers)
+- Vulnerabilities in REAmon's own code (webapp, recon orchestrator, agent, MCP servers)
 - Docker container misconfigurations that could lead to host compromise
 - Authentication/authorization bypasses in the web application
 - Credential leaks (API keys, Neo4j/PostgreSQL passwords exposed unintentionally)
@@ -60,4 +61,4 @@ We are committed to working with the security community and will credit reporter
 
 ## Important Reminder
 
-RedAmon is an offensive security tool intended for **authorized testing only**. See [DISCLAIMER.md](DISCLAIMER.md) for the full legal disclaimer and acceptable use policy.
+REAmon is an offensive security tool intended for **authorized testing only**. See [DISCLAIMER.md](DISCLAIMER.md) for the full legal disclaimer and acceptable use policy.

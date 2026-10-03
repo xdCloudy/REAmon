@@ -19,6 +19,7 @@ const baseUrl = (process.env.REAMON_ACCEPTANCE_BASE_URL || 'http://127.0.0.1:300
 const internalKey = process.env.REAMON_ACCEPTANCE_INTERNAL_KEY || ''
 const email = process.env.REAMON_ACCEPTANCE_EMAIL || ''
 const password = process.env.REAMON_ACCEPTANCE_PASSWORD || ''
+const stateFile = process.env.REAMON_ACCEPTANCE_STATE_FILE || ''
 
 if (!internalKey || !email || !password) {
   console.error('FAIL: REAMON_ACCEPTANCE_INTERNAL_KEY, REAMON_ACCEPTANCE_EMAIL, and REAMON_ACCEPTANCE_PASSWORD are required')
@@ -66,6 +67,12 @@ function expect(condition, message) {
   if (!condition) fail(message)
 }
 
+async function writeState(state) {
+  if (!stateFile) return
+  const { writeFile } = await import('node:fs/promises')
+  await writeFile(stateFile, `${JSON.stringify(state, null, 2)}\n`, 'utf8')
+}
+
 async function main() {
   await request('/api/health/ready')
   const unauthenticatedProjects = await request('/api/projects', {}, [401])
@@ -97,9 +104,11 @@ async function main() {
     nested: { source: 'acceptance' },
   }, null, 2))
   const sourceBytes = Buffer.from('int main(void) { return 42; }\nconst staging_marker = "reamon-acceptance";\n')
+  const recoveryBytes = Buffer.from(JSON.stringify({ recovery: true, source: 'worker-failover' }, null, 2))
   const manifest = [
     { relativePath: 'fixtures/sample.json', size: jsonBytes.length, lastModified: Date.now() },
     { relativePath: 'src/main.c', size: sourceBytes.length, lastModified: Date.now() },
+    { relativePath: 'fixtures/recovery.json', size: recoveryBytes.length, lastModified: Date.now() },
   ]
   const createdImport = await request(`/api/projects/${projectId}/imports`, jsonOptions('POST', {
     rootName: 'staging-fixture',
@@ -112,6 +121,7 @@ async function main() {
   for (const [entry, bytes, mime] of [
     [manifest[0], jsonBytes, 'application/json'],
     [manifest[1], sourceBytes, 'text/plain'],
+    [manifest[2], recoveryBytes, 'application/json'],
   ]) {
     const form = new FormData()
     form.set('relativePath', entry.relativePath)
@@ -138,7 +148,8 @@ async function main() {
   expect(Array.isArray(artifacts) && artifacts.length >= 2, 'workspace inventory did not expose the imported artifacts')
   const jsonArtifact = artifacts.find((artifact) => artifact.relativePath === 'fixtures/sample.json')
   const sourceArtifact = artifacts.find((artifact) => artifact.relativePath === 'src/main.c')
-  expect(jsonArtifact?.id && sourceArtifact?.id, 'representative artifacts were not discoverable')
+  const recoveryArtifact = artifacts.find((artifact) => artifact.relativePath === 'fixtures/recovery.json')
+  expect(jsonArtifact?.id && sourceArtifact?.id && recoveryArtifact?.id, 'representative artifacts were not discoverable')
 
   const scheduled = await Promise.all([
     request(`/api/projects/${projectId}/workspace/analysis-plan/schedule`, jsonOptions('POST', {
@@ -169,6 +180,17 @@ async function main() {
   }
   console.log('PASS: approval-gated analysis scheduling')
 
+  const failoverScheduled = await request(`/api/projects/${projectId}/workspace/analysis-plan/schedule`, jsonOptions('POST', {
+    artifactId: recoveryArtifact.id,
+    providerId: 'reamon-json-inspector',
+    capability: 'extract_metadata',
+    approvalRequired: true,
+  }, cookie), [201])
+  const failoverTaskId = failoverScheduled.body?.task?.id
+  expect(typeof failoverTaskId === 'string' && failoverTaskId.length > 0, 'worker failover task was not scheduled')
+  await writeState({ projectId, importId, taskIds, failoverTaskId, recoveryArtifactId: recoveryArtifact.id, projectName: project.body?.name })
+  console.log(`PASS: controlled worker failover task queued for browser approval task=${failoverTaskId}`)
+
   const dispatch = (workerId) => request('/api/internal/reamon/tasks/dispatch', jsonOptions('POST', {
     projectId,
     limit: 1,
@@ -198,6 +220,7 @@ async function main() {
   expect(workspace?.imports?.some((item) => item.id === importId && item.status === 'COMPLETED'), 'workspace snapshot omitted the completed import')
   expect(workspace?.tasks?.filter((task) => taskIds.includes(task.id)).every((task) => task.status === 'COMPLETED'), 'workspace snapshot omitted completed task state')
   expect(workspace?.approvalSummary?.approved >= 2, 'workspace snapshot omitted approved analysis state')
+  expect(workspace?.approvalSummary?.pending >= 1, 'workspace snapshot omitted the controlled failover approval')
   expect(workspace?.observations?.length >= 2, 'workspace snapshot omitted provider observations')
   expect(workspace?.projectionRuns?.some((run) => run.status === 'COMPLETED' && run.reconciled === true), 'workspace snapshot omitted reconciled graph state')
   expect(workspace?.compatibility?.mode === 'native', 'reverse-engineering workspace is not in native compatibility mode')

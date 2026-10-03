@@ -1,0 +1,4 @@
+{
+  "browser": "operator-smoke",
+  "purpose": "production-readiness-e2e"
+}

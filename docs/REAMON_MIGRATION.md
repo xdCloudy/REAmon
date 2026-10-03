@@ -2,6 +2,17 @@
 
 REAmon is an incremental fork of RedAmon. This table records the current boundary so migration work stays reviewable and existing infrastructure is not removed accidentally.
 
+## Native release contract
+
+The production release gate covers the native `REVERSE_ENGINEERING` workspace path.
+Rows marked `GENERALISING` or `DEPRECATED` remain supported compatibility surfaces
+where the table says they are retained, but they are not silently treated as native
+REAmon capabilities. The release gate verifies this boundary by checking that a
+native workspace reports `compatibility.mode === "native"`, imports and analyzes
+artifacts without legacy route calls, and survives worker, database, and graph
+restore drills. Removing a retained legacy surface still requires an explicit
+migration change and an update to this inventory.
+
 | RedAmon subsystem | Current status | REAmon replacement | Migration state | Notes |
 | --- | --- | --- | --- | --- |
 | Project / engagement root | Existing `Project` model and routes | Workspace-compatible project root | GENERALISING | Existing ownership, settings, and URLs are preserved. New REAmon records reference the project. |
