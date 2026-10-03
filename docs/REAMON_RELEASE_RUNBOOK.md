@@ -96,6 +96,9 @@ non-empty before proceeding.
    ```bash
    docker compose exec -T webapp sh -lc 'command -v strings && command -v readelf && command -v file'
    scripts/reamon-release-preflight.sh --live
+
+   docker run --rm --entrypoint sh "${REAMON_WEBAPP_IMAGE:-redamon-webapp:latest}" -lc \
+     'test "$(id -u)" = 1001 && command -v strings && command -v readelf && command -v file'
    ```
 
 The readiness endpoint must report both PostgreSQL and writable artifact storage as
@@ -177,6 +180,8 @@ For a destructive schema change or corrupted data:
 - Compose renders without errors and all expected services are healthy.
 - `/api/health/ready` returns HTTP 200 with database and artifact checks `ok`.
 - The runtime image contains `strings`, `readelf`, and `file` for bounded REAmon providers.
+- The release image starts and passes its tool smoke check as the non-root `nextjs`
+  user (UID 1001).
 - If server-mounted imports are enabled, every configured source root is present as a
   read-only mount and a disposable import rejects symlinks, path escapes, and changed
   files between inventory and ingestion.
