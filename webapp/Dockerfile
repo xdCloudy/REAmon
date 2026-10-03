@@ -77,6 +77,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         openssl ca-certificates wget binutils file \
     && rm -rf /var/lib/apt/lists/*
 
+# npm is needed only in the dependency and builder stages. Keeping the base
+# image's package manager in the runtime layer needlessly widens the attack
+# surface and makes its transitive advisories production findings.
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
+
 RUN groupadd --system --gid 1001 nodejs
 RUN useradd --system --uid 1001 --gid nodejs --no-create-home nextjs
 
