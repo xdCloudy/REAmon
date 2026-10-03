@@ -69,6 +69,14 @@ async function resolveSourceDirectory(sourcePath: string): Promise<string> {
   }
 
   const roots = await allowedRoots()
+  try {
+    const requested = await lstat(sourcePath)
+    if (requested.isSymbolicLink()) throw new ServerSourceError('SYMLINK', 'Symbolic links are not supported in server-mounted imports')
+    if (!requested.isDirectory()) throw new ServerSourceError('INVALID_PATH', 'Server source must be a directory')
+  } catch (error) {
+    if (error instanceof ServerSourceError) throw error
+    throw new ServerSourceError('UNAVAILABLE', 'Server source is unavailable', 409)
+  }
   let resolved: string
   try {
     resolved = await realpath(sourcePath)

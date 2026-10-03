@@ -55,6 +55,18 @@ describe('server-mounted workspace imports', () => {
     await expect(readServerSourceArtifact(sourceRoot, 'link.txt')).rejects.toMatchObject({ code: 'SYMLINK' })
   })
 
+  test('rejects a symbolic link used as the requested source directory', async () => {
+    sourceRoot = await mkdtemp(path.join(os.tmpdir(), 'reamon-server-import-'))
+    const sourceAlias = path.join(sourceRoot, 'alias')
+    const realSource = path.join(sourceRoot, 'real-source')
+    await mkdir(realSource)
+    await writeFile(path.join(realSource, 'app.bin'), 'bytes')
+    await symlink(realSource, sourceAlias)
+    vi.stubEnv('REAMON_SERVER_SOURCE_ROOTS', sourceRoot)
+
+    await expect(inventoryServerSource(sourceAlias)).rejects.toMatchObject({ code: 'SYMLINK' })
+  })
+
   test('reads only a manifest-sized regular file beneath the source root', async () => {
     sourceRoot = await mkdtemp(path.join(os.tmpdir(), 'reamon-server-import-'))
     await mkdir(path.join(sourceRoot, 'bin'))
