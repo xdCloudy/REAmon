@@ -113,6 +113,28 @@ describe('executeAnalysisTask', () => {
     }))
   })
 
+  test('bounds persisted provider payloads while retaining normalized observations', async () => {
+    vi.stubEnv('REAMON_MAX_RESULT_BYTES', '65536')
+    mocks.analyze.mockResolvedValue({
+      status: 'completed', toolId: provider.manifest.id, capabilities: ['extract_strings'], produced: ['String'], data: {
+        output: 'x'.repeat(100_000),
+        observations: [{ kind: 'entity', type: 'function', key: 'fn:bounded', attributes: {} }],
+      },
+    })
+
+    await executeAnalysisTask('project-1', 'task-1')
+
+    const persistedResult = mocks.taskSettleUpdateMany.mock.calls[0][0].data.result
+    expect(persistedResult).toMatchObject({ _reamonTruncated: true, maxBytes: 65_536, reason: 'size' })
+    expect(persistedResult.originalBytes).toBeGreaterThan(65_536)
+    expect(mocks.evidenceCreate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ data: persistedResult }),
+    }))
+    expect(mocks.observationUpsert).toHaveBeenCalledWith(expect.objectContaining({
+      where: { projectId_source_stableKey: { projectId: 'project-1', source: provider.manifest.id, stableKey: 'fn:bounded' } },
+    }))
+  })
+
   test('does not settle or create evidence after its lease is recovered', async () => {
     mocks.taskSettleUpdateMany.mockResolvedValue({ count: 0 })
     mocks.taskFindFirst

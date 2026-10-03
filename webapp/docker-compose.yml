@@ -26,6 +26,7 @@ services:
       REAMON_MAX_ARTIFACT_BYTES: ${REAMON_MAX_ARTIFACT_BYTES:-536870912}
       REAMON_MAX_IMPORT_FILES: ${REAMON_MAX_IMPORT_FILES:-50000}
       REAMON_MAX_IMPORT_BYTES: ${REAMON_MAX_IMPORT_BYTES:-8589934592}
+      REAMON_MAX_RESULT_BYTES: ${REAMON_MAX_RESULT_BYTES:-2097152}
       # Empty disables server-mounted imports. Configure absolute container
       # paths only after adding matching read-only mounts to this service.
       REAMON_SERVER_SOURCE_ROOTS: ${REAMON_SERVER_SOURCE_ROOTS:-}

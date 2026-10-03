@@ -38,6 +38,11 @@ service. Leave it empty for deployments that only accept browser snapshots. Neve
 configure a host path that is not mounted into the container; the application fails
 closed when a configured root is unavailable.
 
+`REAMON_MAX_RESULT_BYTES` bounds the provider JSON envelope persisted in task and
+evidence rows (default 2 MiB, hard-capped at 8 MiB). Oversized provider results are
+recorded with a truncation marker while normalized observations still pass through
+their own bounded ingestion limits.
+
 ## Backup
 
 Set a backup directory outside the repository and retain it according to the

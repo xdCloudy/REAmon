@@ -5,6 +5,7 @@ import { getBuiltinProvider } from './provider-registry'
 import { resolveCapabilities } from './capabilities'
 import { resolveArtifactStoragePath } from './artifact-storage'
 import { ingestToolResult } from './result-ingestion'
+import { boundResultData } from './result-bounds'
 import type { TargetProfile, ToolResult } from './types'
 
 const DEFAULT_LEASE_OWNER = 'webapp'
@@ -148,6 +149,7 @@ async function settleTask(
   failure?: string,
 ): Promise<ExecutedAnalysisTask> {
   const error = boundedError(failure || result?.error || '')
+  const persistedResult = outcome === 'COMPLETED' && result ? boundResultData(result.data) : undefined
   const completedAt = new Date()
   const updated = await prisma.$transaction(async (tx) => {
     const claim = await tx.task.updateMany({
@@ -155,7 +157,7 @@ async function settleTask(
       data: {
         status: outcome,
         progress: outcome === 'COMPLETED' ? 100 : task.progress,
-        result: result?.data === undefined ? undefined : result.data as unknown as Prisma.InputJsonValue,
+        result: persistedResult,
         error: outcome === 'COMPLETED' ? '' : error,
         leaseHeartbeatAt: null,
         leaseOwner: null,
@@ -177,7 +179,7 @@ async function settleTask(
           kind: 'analysis',
           summary: `${providerName} completed ${task.capability || 'analysis'}`,
           source: result.toolId,
-          data: result.data as unknown as Prisma.InputJsonValue,
+          data: persistedResult as Prisma.InputJsonValue,
         },
       })
       observationSummary = await ingestToolResult(tx, {
