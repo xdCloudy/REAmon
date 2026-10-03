@@ -115,6 +115,18 @@ The Compose drill sets `PGUSER` explicitly for the container's database tools,
 restores PostgreSQL into the named isolated database, and verifies that the
 artifact archive can be listed and extracted.
 
+The graph store has a separate offline-safe drill because `neo4j-admin` cannot
+dump a database mounted by a running server. With graph writers stopped, it
+creates a real `neo4j-admin database dump`, loads it into a disposable volume,
+starts an isolated Neo4j container, and verifies that the restored graph can be
+queried:
+
+```bash
+COMPOSE_PROJECT_NAME=reamon-staging \
+NEO4J_PASSWORD="$NEO4J_PASSWORD" \
+scripts/reamon-neo4j-backup-restore-drill.sh --compose
+```
+
 ## Import retention and compaction
 
 Run the internal retention job in dry-run mode first. It is bounded to 25 imports
@@ -281,3 +293,6 @@ For a destructive schema change or corrupted data:
 - A staging worker contention run has passed, and the backup/restore drill has
   restored PostgreSQL into an isolated target while verifying the artifact archive.
 - The backup path, release commit, image id, and operator decision are recorded.
+- The PostgreSQL, artifact, and Neo4j restore drills are machine-recorded in the
+  hosted quality workflow; the browser login smoke test also passes against the
+  production image.

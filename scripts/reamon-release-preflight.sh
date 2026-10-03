@@ -62,9 +62,10 @@ grep -Eq 'binutils[[:space:]]+file|file[[:space:]]+binutils' webapp/Dockerfile \
   || fail 'webapp/Dockerfile does not package both binutils and file'
 pass 'production image declares strings/readelf and file runtime dependencies'
 
-bash -n scripts/reamon-worker-contention-drill.sh scripts/reamon-backup-restore-drill.sh
+bash -n scripts/reamon-worker-contention-drill.sh scripts/reamon-backup-restore-drill.sh scripts/reamon-neo4j-backup-restore-drill.sh
 node --check scripts/reamon-staging-acceptance.mjs
 scripts/reamon-backup-restore-drill.sh --check
+scripts/reamon-neo4j-backup-restore-drill.sh --check
 pass 'release drill scripts pass syntax and dependency checks'
 
 if [[ -n "${REAMON_SERVER_SOURCE_ROOTS:-}" ]]; then
@@ -89,7 +90,8 @@ fi
 
 if ((BACKUP)); then
   scripts/reamon-backup-restore-drill.sh --compose
-  pass 'Compose database and artifact backup/restore drill passed'
+  scripts/reamon-neo4j-backup-restore-drill.sh --compose
+  pass 'Compose PostgreSQL, Neo4j, and artifact backup/restore drills passed'
 fi
 
 if ((LIVE)); then
@@ -98,9 +100,16 @@ if ((LIVE)); then
     || fail 'webapp is not running'
 
   webapp_port="${WEBAPP_PORT:-3000}"
-  curl --fail --silent --show-error --max-time "${REAMON_PREFLIGHT_TIMEOUT_SECONDS:-10}" \
-    "http://127.0.0.1:${webapp_port}/api/health/ready" >/dev/null \
-    || fail 'webapp readiness endpoint is not healthy'
+  ready=0
+  for attempt in $(seq 1 "${REAMON_PREFLIGHT_STARTUP_ATTEMPTS:-60}"); do
+    if curl --fail --silent --show-error --max-time "${REAMON_PREFLIGHT_TIMEOUT_SECONDS:-10}" \
+      "http://127.0.0.1:${webapp_port}/api/health/ready" >/dev/null; then
+      ready=1
+      break
+    fi
+    sleep 2
+  done
+  ((ready == 1)) || fail 'webapp readiness endpoint is not healthy'
   pass 'webapp readiness endpoint is healthy'
 
   docker compose exec -T webapp sh -lc \

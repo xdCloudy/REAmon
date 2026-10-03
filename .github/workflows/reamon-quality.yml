@@ -43,6 +43,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
       - name: Type-check
         run: npm run type-check
 
@@ -50,16 +53,7 @@ jobs:
         run: npm run lint
 
       - name: Run REAmon tests
-        run: >-
-          npm test --
-          src/lib/reamon
-          src/components/reamon
-          'src/app/api/projects/[id]/workspace'
-          src/app/api/internal/reamon
-          src/lib/mcp/workspaceTools.test.ts
-          src/lib/mcp/workspacePlanTools.test.ts
-          src/lib/mcp/workspaceSummaryTools.test.ts
-          scripts/reamon-task-worker.test.mjs
+        run: npm run test -- --run
 
       - name: Build production webapp
         run: npm run build
@@ -85,6 +79,26 @@ jobs:
     name: Production image smoke test
     runs-on: ubuntu-latest
     needs: webapp
+    env:
+      COMPOSE_PROJECT_NAME: reamon-ci
+      POSTGRES_PASSWORD: ci-postgres-password
+      POSTGRES_USER: redamon
+      POSTGRES_DB: redamon
+      POSTGRES_CPUS: "1"
+      POSTGRES_MEM: 512m
+      NEO4J_PASSWORD: ci-neo4j-password
+      NEO4J_CPUS: "2"
+      NEO4J_MEM: 1g
+      NEO4J_HEAP: 512m
+      NEO4J_PAGECACHE: 256m
+      AUTH_SECRET: ci-auth-secret
+      INTERNAL_API_KEY: ci-internal-key
+      REAMON_WEBAPP_IMAGE: reamon-webapp:ci
+      WEBAPP_PORT: "3000"
+      WEBAPP_CPUS: "1"
+      REAMON_WORKER_POLL_SECONDS: "5"
+      REAMON_WORKER_BACKFILL_INTERVAL_SECONDS: "0"
+      REAMON_WORKER_RETENTION_INTERVAL_SECONDS: "0"
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -105,3 +119,99 @@ jobs:
           grep -R -q projectionRunId /app/.next/server;
           test -f /app/prisma/migrations/20261003000000_add_reamon_projection_runs/migration.sql;
           echo production-image-smoke-passed'
+
+      - name: Scan production image
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: reamon-webapp:ci
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: Start live release stack
+        run: docker compose up -d postgres neo4j webapp
+
+      - name: Wait for live readiness
+        run: >-
+          for attempt in $(seq 1 90); do
+          if curl --fail --silent --show-error http://127.0.0.1:3000/api/health/ready; then
+          exit 0; fi; sleep 2; done;
+          docker compose logs --tail=200 webapp postgres neo4j;
+          exit 1
+
+      - name: Seed disposable acceptance operator
+        run: >-
+          docker compose exec -T
+          -e ADMIN_NAME='CI Acceptance Operator'
+          -e ADMIN_EMAIL=acceptance@reamon.invalid
+          -e ADMIN_PASSWORD=ci-acceptance-password
+          webapp node scripts/create-admin.mjs
+
+      - name: Run authenticated live acceptance
+        env:
+          REAMON_ACCEPTANCE_BASE_URL: http://127.0.0.1:3000
+          REAMON_ACCEPTANCE_INTERNAL_KEY: ci-internal-key
+          REAMON_ACCEPTANCE_EMAIL: acceptance@reamon.invalid
+          REAMON_ACCEPTANCE_PASSWORD: ci-acceptance-password
+        run: node scripts/reamon-staging-acceptance.mjs
+
+      - name: Install browser smoke dependencies
+        run: |
+          python3 -m pip install --disable-pip-version-check --no-cache-dir playwright==1.62.0
+          python3 -m playwright install --with-deps chromium
+
+      - name: Run browser login smoke test
+        env:
+          REAMON_BROWSER_BASE_URL: http://127.0.0.1:3000
+          REAMON_BROWSER_EMAIL: acceptance@reamon.invalid
+          REAMON_BROWSER_PASSWORD: ci-acceptance-password
+        run: python3 scripts/reamon-browser-smoke.py
+
+      - name: Verify PostgreSQL and artifact restore
+        env:
+          REAMON_DRILL_COMPOSE_RESTORE_DATABASE: reamon_restore_check
+          REAMON_DRILL_OUTPUT_DIR: /tmp/reamon-postgres-restore-evidence
+        run: scripts/reamon-backup-restore-drill.sh --compose
+
+      - name: Verify Neo4j dump and restore
+        env:
+          REAMON_NEO4J_DRILL_OUTPUT_DIR: /tmp/reamon-neo4j-restore-evidence
+        run: scripts/reamon-neo4j-backup-restore-drill.sh --compose
+
+      - name: Recheck readiness after restore drill
+        run: >-
+          for attempt in $(seq 1 90); do
+          if curl --fail --silent --show-error http://127.0.0.1:3000/api/health/ready; then
+          exit 0; fi; sleep 2; done;
+          docker compose logs --tail=200 webapp postgres neo4j;
+          exit 1
+
+      - name: Tear down live release stack
+        if: always()
+        run: docker compose down --volumes --remove-orphans
+
+  agentic:
+    name: Agentic Python unit checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Build test agent image without optional KB models
+        run: >-
+          docker build --build-arg SKIP_KB=true
+          --tag redamon-agent:latest
+          --file agentic/Dockerfile .
+
+      - name: Audit installed Python dependencies
+        run: >-
+          docker run --rm redamon-agent:latest sh -lc
+          'pip install --disable-pip-version-check --no-cache-dir pip-audit >/dev/null
+          && pip-audit --strict'
+
+      - name: Run isolated Python unit gate
+        env:
+          REDAMON_TEST_PARALLEL: "2"
+        run: ./agentic/run_tests.sh unit
