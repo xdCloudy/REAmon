@@ -22,6 +22,13 @@ with sync_playwright() as playwright:
     page = browser.new_page(viewport={"width": 1440, "height": 900})
     page.goto(f"{BASE_URL}/login", wait_until="networkidle")
 
+    # A fresh deployment can show the release-notification modal above the
+    # first-use legal gate. Dismiss it so the smoke test exercises login rather
+    # than timing out on a covered button.
+    later = page.get_by_role("button", name="Later")
+    if later.count():
+        later.click()
+
     # Exercise the first-use legal gate when this is a fresh browser context.
     if page.get_by_role("button", name="OK, continue").count():
         page.get_by_role("button", name="OK, continue").click()

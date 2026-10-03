@@ -176,7 +176,7 @@ RUN git config --system http.version HTTP/1.1 && \
 # be installed too. The plugin lands in /root/.trivy (the runtime HOME) and
 # is baked into the image, surviving container restarts. Version pinned for
 # reproducible builds.
-ARG TRIVY_VERSION=v0.73.0
+ARG TRIVY_VERSION=v0.75.0
 RUN curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
         | sh -s -- -b /usr/local/bin "${TRIVY_VERSION}" \
     && trivy plugin install mcp
