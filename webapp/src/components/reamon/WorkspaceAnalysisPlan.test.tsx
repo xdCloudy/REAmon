@@ -40,16 +40,16 @@ describe('WorkspaceAnalysisPlanPanel', () => {
     }))
   })
 
-  test('queues a reviewed proposal and reports the task lifecycle', async () => {
+  test('requests approval for a reviewed proposal and reports the task lifecycle', async () => {
     const onScheduled = vi.fn()
     render(<WorkspaceAnalysisPlanPanel projectId="project-1" plan={plan} isLoading={false} isError={false} onScheduled={onScheduled} />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Queue' }))
-    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('extract_strings queued for src/main.c.'))
+    fireEvent.click(screen.getByRole('button', { name: 'Request approval' }))
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('extract_strings is awaiting operator approval for src/main.c.'))
 
     expect(fetch).toHaveBeenCalledWith('/api/projects/project-1/workspace/analysis-plan/schedule', expect.objectContaining({
       method: 'POST',
-      body: JSON.stringify({ artifactId: 'artifact-1', providerId: 'reamon-source-inspector', capability: 'extract_strings' }),
+      body: JSON.stringify({ artifactId: 'artifact-1', providerId: 'reamon-source-inspector', capability: 'extract_strings', approvalRequired: true }),
     }))
     expect(onScheduled).toHaveBeenCalledOnce()
   })

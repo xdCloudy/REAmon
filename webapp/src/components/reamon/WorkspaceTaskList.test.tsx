@@ -60,6 +60,20 @@ describe('WorkspaceTaskList', () => {
     expect(fetch).toHaveBeenCalledWith('/api/projects/project-1/workspace/tasks/task-1/cancel', { method: 'POST' })
   })
 
+  test('approves a pending task and refreshes the workspace', async () => {
+    const onChanged = vi.fn()
+    render(<WorkspaceTaskList projectId="project-1" onChanged={onChanged} tasks={[{ id: 'task-1', title: 'Inspect source', status: 'AWAITING_APPROVAL', progress: 0, approval: { id: 'approval-1', status: 'PENDING' } }]} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Approve' }))
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Inspect source was approved.'))
+
+    expect(fetch).toHaveBeenCalledWith('/api/projects/project-1/approvals/approval-1', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ decision: 'approve' }),
+    }))
+    expect(onChanged).toHaveBeenCalledOnce()
+  })
+
   test('does not offer execution for completed tasks', () => {
     render(<WorkspaceTaskList projectId="project-1" tasks={[{ id: 'task-1', title: 'Inspect source', status: 'COMPLETED', progress: 100 }]} />)
     expect(screen.queryByRole('button', { name: 'Run' })).toBeNull()

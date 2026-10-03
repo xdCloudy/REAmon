@@ -49,6 +49,6 @@ describe('POST /api/projects/[id]/workspace/tasks/[taskId]/cancel', () => {
     const response = await POST(new Request('http://localhost', { method: 'POST' }), params)
 
     expect(response.status).toBe(409)
-    expect(await response.json()).toMatchObject({ error: 'Only queued or running tasks can be cancelled' })
+    expect(await response.json()).toMatchObject({ error: 'Only queued, awaiting-approval, or running tasks can be cancelled' })
   })
 })

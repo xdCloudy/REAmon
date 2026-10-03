@@ -17,7 +17,7 @@ export async function POST(_request: Request, { params }: RouteParams) {
     const result = await cancelAnalysisTask(projectId, taskId)
     if (!result) return NextResponse.json({ error: 'Analysis task not found' }, { status: 404, headers: NO_STORE })
     if (result.outcome === 'SKIPPED') {
-      return NextResponse.json({ error: 'Only queued or running tasks can be cancelled', task: result.task }, { status: 409, headers: NO_STORE })
+      return NextResponse.json({ error: 'Only queued, awaiting-approval, or running tasks can be cancelled', task: result.task }, { status: 409, headers: NO_STORE })
     }
     return NextResponse.json({ cancelled: true, task: result.task }, { headers: NO_STORE })
   } catch (error) {

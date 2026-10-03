@@ -85,7 +85,7 @@ MCP, and runtime integrations remain optional follow-on providers.
 
 ## Production readiness
 
-<progress value="82" max="100">82%</progress> <strong>82%</strong>
+<progress value="90" max="100">90%</progress> <strong>90%</strong>
 
 This is a weighted engineering snapshot, reviewed 2026-10-03 after adding explicit
 task execution, lease-protected recovery, cancellation controls, worker ownership,
@@ -94,7 +94,8 @@ SIGTERM cancellation, durable task and worker heartbeats, stale/degraded worker
 operator alerts with optional outbound webhook delivery, bounded typed observation ingestion with canonical identity hints,
 replayable, paginated graph projection with durable run records, fenced drift
 reconciliation, scheduled historical backfill, activity, and live
-task/operator refresh, scale-safe worker deployment, and hosted quality gates. It measures the
+task/operator refresh, approval-gated execution, normalized provider findings, bounded import
+retention, scale-safe worker deployment, and hosted quality gates. It measures the
 distance to a dependable self-hosted production release, not the number of UI
 screens or lines of code. The bar moves only when a workstream has working code,
 tests, and an operational path.
@@ -102,12 +103,12 @@ tests, and an operational path.
 | Workstream | Weight | Complete | What remains before production |
 | --- | ---: | ---: | --- |
 | Workspace foundation and access control | 20% | 100% | Keep regression coverage green during migration. |
-| Import, profiling, storage, and inventory | 15% | 99% | Define long-term retention/compaction policy for historical snapshots. |
+| Import, profiling, storage, and inventory | 15% | 100% | Operate the bounded retention job and keep refresh regressions green. |
 | Provider registry, scheduling, and provider execution | 15% | 99% | Additional MCP/process adapters and broader provider coverage. |
-| Provider results and knowledge graph ingestion | 20% | 82% | Richer repair UX and additional result adapters. |
-| Approvals, live activity, and operator controls | 10% | 30% | Durable event projection, approvals, and richer recovery UX. |
+| Provider results and knowledge graph ingestion | 20% | 94% | Richer repair UX and additional result adapters. |
+| Approvals, live activity, and operator controls | 10% | 80% | Richer recovery UX and approval policy reporting. |
 | Legacy RedAmon migration | 10% | 40% | Move remaining project, agent, report, and settings surfaces without breaking existing data. |
-| Production hardening and release QA | 10% | 92% | Backup/restore drills, a staging multi-worker drill, and final deployment evidence. |
+| Production hardening and release QA | 10% | 95% | Backup/restore drills, a staging multi-worker drill, and final deployment evidence. |
 
 The main path to “shipped” is therefore: add additional MCP/process providers and
 complete the staging multi-worker drill → finish migration and
@@ -306,7 +307,7 @@ docs/REAMON_*.md           Current architecture and migration decisions
 1. Add the remaining MCP/process providers and complete the staging multi-worker
    drill around the existing ownership, retry, and process-cancellation path.
 2. Ingest universal code/data/runtime entities and relationships into Neo4j.
-3. Add approvals and live event streaming for target-agnostic analysis workflows.
+3. Extend approval policy reporting and richer recovery UX for target-agnostic analysis workflows.
 4. Migrate the inherited project, agent, report, and settings surfaces away from
    engagement/recon terminology without breaking existing data.
 5. Add capability-specific dashboards and reports while retaining one workspace

@@ -6,6 +6,7 @@ import { resolveCapabilities } from './capabilities'
 import { resolveArtifactStoragePath } from './artifact-storage'
 import { ingestToolResult } from './result-ingestion'
 import { boundResultData } from './result-bounds'
+import { taskRequiresApproval } from './task-approval'
 import type { TargetProfile, ToolResult } from './types'
 
 const DEFAULT_LEASE_OWNER = 'webapp'
@@ -32,6 +33,7 @@ const taskSelect = {
   completedAt: true,
   createdAt: true,
   updatedAt: true,
+  approval: { select: { status: true } },
   provider: { select: { id: true, pluginId: true, name: true, enabled: true } },
   artifact: { select: { id: true, targetId: true, relativePath: true, profile: true, storagePath: true } },
 } satisfies Prisma.TaskSelect
@@ -226,6 +228,9 @@ export async function executeAnalysisTask(projectId: string, taskId: string, lea
   const task = await loadTask(projectId, taskId)
   if (!task) return null
   if (task.status !== 'QUEUED') return { outcome: 'SKIPPED', task: serialiseTask(task) }
+  if (taskRequiresApproval(task.options) && task.approval?.status !== 'APPROVED') {
+    return { outcome: 'SKIPPED', task: serialiseTask(task) }
+  }
 
   const runToken = randomUUID()
   const owner = normaliseLeaseOwner(leaseOwner)

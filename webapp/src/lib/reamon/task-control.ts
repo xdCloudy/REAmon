@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client'
 import prisma from '@/lib/prisma'
+import { taskRequiresApproval } from './task-approval'
 
 const taskSelect = {
   id: true,
@@ -7,6 +8,7 @@ const taskSelect = {
   status: true,
   progress: true,
   error: true,
+  options: true,
   runToken: true,
   startedAt: true,
   leaseHeartbeatAt: true,
@@ -66,7 +68,7 @@ async function loadTask(projectId: string, taskId: string): Promise<TaskControlR
   return prisma.task.findFirst({ where: { id: taskId, projectId }, select: taskSelect })
 }
 
-export async function retryAnalysisTask(projectId: string, taskId: string): Promise<TaskControlResult | null> {
+export async function retryAnalysisTask(projectId: string, taskId: string, requestedBy?: string): Promise<TaskControlResult | null> {
   const task = await loadTask(projectId, taskId)
   if (!task) return null
   if (task.status !== 'FAILED' && task.status !== 'CANCELLED') {
@@ -74,10 +76,11 @@ export async function retryAnalysisTask(projectId: string, taskId: string): Prom
   }
 
   const requeued = await prisma.$transaction(async (tx) => {
+    const requiresApproval = taskRequiresApproval(task.options)
     const claimed = await tx.task.updateMany({
       where: { id: taskId, projectId, status: { in: ['FAILED', 'CANCELLED'] } },
       data: {
-        status: 'QUEUED',
+        status: requiresApproval ? 'AWAITING_APPROVAL' : 'QUEUED',
         progress: 0,
         result: Prisma.JsonNull,
         error: '',
@@ -90,6 +93,14 @@ export async function retryAnalysisTask(projectId: string, taskId: string): Prom
     })
     if (claimed.count !== 1) return null
 
+    if (requiresApproval) {
+      await tx.reamonApproval.upsert({
+        where: { taskId },
+        create: { projectId, taskId, requestedBy: requestedBy?.trim().slice(0, 128) || 'Operator' },
+        update: { status: 'PENDING', requestedBy: requestedBy?.trim().slice(0, 128) || 'Operator', decidedBy: null, reason: '', decidedAt: null },
+      })
+    }
+
     const updated = await tx.task.findUnique({ where: { id: taskId }, select: taskSelect })
     if (!updated) return null
 
@@ -97,9 +108,9 @@ export async function retryAnalysisTask(projectId: string, taskId: string): Prom
       data: {
         projectId,
         actor: 'Operator',
-        eventType: 'analysis.task.requeued',
-        message: `Requeued ${updated.title} for another execution attempt`,
-        data: { taskId, reason: 'manual_retry' },
+        eventType: requiresApproval ? 'analysis.task.approval_requested' : 'analysis.task.requeued',
+        message: requiresApproval ? `Requested approval to retry ${updated.title}` : `Requeued ${updated.title} for another execution attempt`,
+        data: { taskId, reason: 'manual_retry', requiresApproval },
       },
     })
     return updated
@@ -115,20 +126,20 @@ export async function retryAnalysisTask(projectId: string, taskId: string): Prom
 export async function cancelAnalysisTask(projectId: string, taskId: string): Promise<TaskControlResult | null> {
   const task = await loadTask(projectId, taskId)
   if (!task) return null
-  if (task.status !== 'QUEUED' && task.status !== 'RUNNING') {
+  if (task.status !== 'QUEUED' && task.status !== 'RUNNING' && task.status !== 'AWAITING_APPROVAL') {
     return { outcome: 'SKIPPED', task: serialiseTask(task) }
   }
 
   const cancelledAt = new Date()
   const cancelled = await prisma.$transaction(async (tx) => {
     const updated = await tx.task.updateMany({
-      where: { id: taskId, projectId, status: { in: ['QUEUED', 'RUNNING'] }, runToken: task.runToken },
+      where: { id: taskId, projectId, status: { in: ['AWAITING_APPROVAL', 'QUEUED', 'RUNNING'] }, runToken: task.runToken },
       data: {
         status: 'CANCELLED',
-        progress: task.status === 'QUEUED' ? 0 : task.progress,
+        progress: task.status === 'QUEUED' || task.status === 'AWAITING_APPROVAL' ? 0 : task.progress,
         result: Prisma.JsonNull,
         error: 'Cancelled by operator',
-        startedAt: task.status === 'QUEUED' ? null : task.startedAt,
+        startedAt: task.status === 'QUEUED' || task.status === 'AWAITING_APPROVAL' ? null : task.startedAt,
         leaseHeartbeatAt: null,
         leaseOwner: null,
         completedAt: cancelledAt,

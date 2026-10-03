@@ -40,11 +40,11 @@ export function WorkspaceAnalysisPlanPanel({ projectId, plan, isLoading, isError
       const response = await fetch(`/api/projects/${projectId}/workspace/analysis-plan/schedule`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ artifactId: step.artifactId, providerId: step.provider.pluginId, capability: step.capability }),
+          body: JSON.stringify({ artifactId: step.artifactId, providerId: step.provider.pluginId, capability: step.capability, approvalRequired: true }),
       })
       const payload = await response.json().catch(() => ({})) as { error?: string; reused?: boolean; task?: { status?: string } }
       if (!response.ok) throw new Error(payload.error || 'Unable to queue analysis task')
-      setFeedback(payload.reused ? 'This analysis proposal is already queued.' : `${step.capability} queued for ${step.relativePath}.`)
+      setFeedback(payload.reused ? 'This analysis proposal is already queued or awaiting approval.' : `${step.capability} is awaiting operator approval for ${step.relativePath}.`)
       onScheduled?.()
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : 'Unable to queue analysis task')
@@ -58,7 +58,7 @@ export function WorkspaceAnalysisPlanPanel({ projectId, plan, isLoading, isError
       <div className={styles.header}>
         <div>
           <h2 id="analysis-plan-heading"><ClipboardList size={17} /> Analysis proposals</h2>
-          <p>Deterministic provider matches from the active inventory. Queue a reviewed proposal to create work for the executor.</p>
+          <p>Deterministic provider matches from the active inventory. Each proposal requests operator approval before execution.</p>
         </div>
         {plan && <span className={styles.badge}>QUEUEABLE</span>}
       </div>
@@ -79,7 +79,7 @@ export function WorkspaceAnalysisPlanPanel({ projectId, plan, isLoading, isError
               <span className={styles.capability}>{step.capability}</span>
               <span className={styles.status}>{step.status}</span>
               <button type="button" className={styles.queueButton} disabled={pendingId !== null} onClick={() => void schedule(step)}>
-                {pendingId === step.id ? 'Queueing…' : 'Queue'}
+                {pendingId === step.id ? 'Requesting…' : 'Request approval'}
               </button>
             </div>
           ))}

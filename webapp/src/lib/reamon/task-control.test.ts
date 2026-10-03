@@ -52,7 +52,7 @@ describe('retryAnalysisTask', () => {
       data: expect.objectContaining({ status: 'QUEUED', runToken: null }),
     }))
     expect(mocks.activityCreate).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ eventType: 'analysis.task.requeued', data: { taskId: 'task-1', reason: 'manual_retry' } }),
+      data: expect.objectContaining({ eventType: 'analysis.task.requeued', data: expect.objectContaining({ taskId: 'task-1', reason: 'manual_retry', requiresApproval: false }) }),
     }))
   })
 
@@ -122,7 +122,7 @@ describe('cancelAnalysisTask', () => {
 
     expect(result).toMatchObject({ outcome: 'CANCELLED', task: { status: 'CANCELLED', progress: 35 } })
     expect(mocks.taskUpdateMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { id: 'task-1', projectId: 'project-1', status: { in: ['QUEUED', 'RUNNING'] }, runToken: 'run-1' },
+      where: { id: 'task-1', projectId: 'project-1', status: { in: ['AWAITING_APPROVAL', 'QUEUED', 'RUNNING'] }, runToken: 'run-1' },
       data: expect.objectContaining({ status: 'CANCELLED', runToken: null, leaseOwner: null }),
     }))
     expect(mocks.activityCreate).toHaveBeenCalledWith(expect.objectContaining({

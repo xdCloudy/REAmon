@@ -40,7 +40,7 @@ describe('POST /api/projects/[id]/workspace/tasks/[taskId]/retry', () => {
 
     expect(response.status).toBe(200)
     expect(await response.json()).toMatchObject({ retried: true, task: { id: 'task-1', status: 'QUEUED' } })
-    expect(mocks.retryAnalysisTask).toHaveBeenCalledWith('project-1', 'task-1')
+    expect(mocks.retryAnalysisTask).toHaveBeenCalledWith('project-1', 'task-1', 'user-1')
   })
 
   test('rejects a task that is no longer retryable', async () => {

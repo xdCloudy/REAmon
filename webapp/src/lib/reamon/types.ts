@@ -39,7 +39,7 @@ export type TargetStatus =
   | 'ANALYSED'
   | 'VERIFIED'
 
-export type TaskStatus = 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED'
+export type TaskStatus = 'AWAITING_APPROVAL' | 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED'
 export type FindingStatus = 'OPEN' | 'REVIEWING' | 'ACCEPTED' | 'REJECTED' | 'VERIFIED'
 export type HypothesisStatus = 'OPEN' | 'INVESTIGATING' | 'SUPPORTED' | 'VERIFIED' | 'REJECTED'
 

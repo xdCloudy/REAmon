@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   requireProjectAccess: vi.fn(),
   taskFindUnique: vi.fn(),
   taskCreate: vi.fn(),
+  approvalCreate: vi.fn(),
   activityCreate: vi.fn(),
   transaction: vi.fn(),
 }))
@@ -62,7 +63,7 @@ function task(overrides: Record<string, unknown> = {}) {
     id: 'task-1',
     title: 'REAmon Source Inspector: extract_strings · src/main.c',
     category: 'static_analysis',
-    status: 'QUEUED',
+    status: 'AWAITING_APPROVAL',
     progress: 0,
     providerId: provider.id,
     capability: 'extract_strings',
@@ -93,9 +94,11 @@ beforeEach(() => {
   mocks.ensureProviderRegistered.mockResolvedValue(provider)
   mocks.taskFindUnique.mockResolvedValue(null)
   mocks.taskCreate.mockResolvedValue(task())
+  mocks.approvalCreate.mockResolvedValue({ id: 'approval-1', status: 'PENDING' })
   mocks.activityCreate.mockResolvedValue({ id: 'activity-1' })
   mocks.transaction.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) => callback({
     task: { create: mocks.taskCreate },
+    reamonApproval: { create: mocks.approvalCreate },
     workspaceActivity: { create: mocks.activityCreate },
   }))
 })
@@ -113,7 +116,7 @@ describe('POST /api/projects/[id]/workspace/analysis-plan/schedule', () => {
     expect(mocks.getWorkspaceArtifact).not.toHaveBeenCalled()
   })
 
-  test('authenticates, verifies compatibility, persists the provider, and queues a task', async () => {
+  test('authenticates, verifies compatibility, persists the provider, and requests approval', async () => {
     const response = await POST(new Request('http://localhost', {
       method: 'POST',
       body: JSON.stringify({ artifactId: 'artifact-1', providerId: plugin.manifest.id, capability: 'EXTRACT_STRINGS' }),
@@ -121,19 +124,38 @@ describe('POST /api/projects/[id]/workspace/analysis-plan/schedule', () => {
     }), params)
 
     expect(response.status).toBe(201)
-    expect(await response.json()).toMatchObject({ scheduled: true, reused: false, task: { status: 'QUEUED', capability: 'extract_strings' } })
+    expect(await response.json()).toMatchObject({ scheduled: true, reused: false, task: { status: 'AWAITING_APPROVAL', capability: 'extract_strings' } })
     expect(mocks.requireProjectAccess).toHaveBeenCalledWith({ userId: 'user-1' }, 'project-1')
     expect(mocks.getWorkspaceArtifact).toHaveBeenCalledWith('project-1', 'artifact-1')
     expect(mocks.ensureProviderRegistered).toHaveBeenCalledWith(plugin.manifest)
     expect(mocks.taskCreate).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({
         projectId: 'project-1', artifactId: 'artifact-1', targetId: 'target-1',
-        providerId: 'provider-row-1', capability: 'extract_strings', status: 'QUEUED',
+        providerId: 'provider-row-1', capability: 'extract_strings', status: 'AWAITING_APPROVAL',
         idempotencyKey: 'analysis:project-1:artifact-1:reamon-source-inspector:extract_strings',
       }),
     }))
+    expect(mocks.approvalCreate).toHaveBeenCalledWith(expect.objectContaining({
+      data: { projectId: 'project-1', taskId: 'task-1', requestedBy: 'user-1' },
+    }))
     expect(mocks.activityCreate).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ eventType: 'analysis.task.queued', data: expect.objectContaining({ taskId: 'task-1' }) }),
+      data: expect.objectContaining({ eventType: 'analysis.task.approval_requested', data: expect.objectContaining({ taskId: 'task-1', requiresApproval: true }) }),
+    }))
+  })
+
+  test('allows trusted automation to bypass approval explicitly', async () => {
+    mocks.taskCreate.mockResolvedValue(task({ status: 'QUEUED' }))
+
+    const response = await POST(new Request('http://localhost', {
+      method: 'POST',
+      body: JSON.stringify({ artifactId: 'artifact-1', providerId: plugin.manifest.id, capability: 'extract_strings', approvalRequired: false }),
+    }), params)
+
+    expect(response.status).toBe(201)
+    expect(await response.json()).toMatchObject({ task: { status: 'QUEUED' } })
+    expect(mocks.approvalCreate).not.toHaveBeenCalled()
+    expect(mocks.activityCreate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ eventType: 'analysis.task.queued', data: expect.objectContaining({ requiresApproval: false }) }),
     }))
   })
 

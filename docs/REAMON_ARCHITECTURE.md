@@ -331,6 +331,14 @@ Observation ingestion now derives a bounded canonical identity from an
 explicit `identity`, `identityKey`, `canonicalKey`, or `qualifiedName` hint (and from
 normalized string values); observations without a hint remain source-scoped. Neo4j
 projection merges nodes and relationships by that canonical key while retaining the
-provider's stable key and source as provenance. The next high-value work is richer
-repair UX, additional result adapters, and projecting durable events into the
-dashboard.
+provider's stable key and source as provenance. Provider results also promote bounded,
+stable-keyed findings into the relational workspace, replacing findings from a retried
+task/source pair before recording the completion activity. Operator-created analysis
+proposals default to a durable `AWAITING_APPROVAL` state; an approval decision is
+project-scoped, races are fenced transactionally, and only approved tasks enter the
+worker `QUEUED` state. The approval API and workspace controls retain who decided and
+why. Historical import compaction is explicit and dry-run by default: the newest
+snapshot and any snapshot referenced by analysis or lineage are protected, rows are
+removed transactionally, and bytes are unlinked only after commit. The next high-value
+work is richer repair UX, additional result adapters, and projecting durable events into
+the dashboard.

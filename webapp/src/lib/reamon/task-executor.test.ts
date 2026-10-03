@@ -7,6 +7,9 @@ const mocks = vi.hoisted(() => ({
   taskSettleUpdateMany: vi.fn(),
   taskFindUnique: vi.fn(),
   evidenceCreate: vi.fn(),
+  findingFindFirst: vi.fn(),
+  findingUpdate: vi.fn(),
+  findingCreate: vi.fn(),
   observationUpsert: vi.fn(),
   activityCreate: vi.fn(),
   transaction: vi.fn(),
@@ -60,6 +63,7 @@ beforeEach(() => {
   mocks.transaction.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) => callback({
     task: { updateMany: mocks.taskSettleUpdateMany, findUnique: mocks.taskFindUnique },
     evidence: { create: mocks.evidenceCreate },
+    finding: { findFirst: mocks.findingFindFirst, update: mocks.findingUpdate, create: mocks.findingCreate },
     reamonObservation: { upsert: mocks.observationUpsert },
     workspaceActivity: { create: mocks.activityCreate },
   }))
@@ -93,7 +97,7 @@ describe('executeAnalysisTask', () => {
     }))
     expect(mocks.activityCreate).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ eventType: 'analysis.task.completed', data: expect.objectContaining({
-        taskId: 'task-1', observations: { accepted: 1, rejected: 0 },
+        taskId: 'task-1', observations: expect.objectContaining({ accepted: 1, rejected: 0, findingsAccepted: 0 }),
       }) }),
     }))
   })

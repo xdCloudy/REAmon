@@ -1,6 +1,6 @@
 /** @vitest-environment node */
 import { describe, expect, test, vi } from 'vitest'
-import { canonicalKeyForObservation, ingestToolResult, parseToolObservations } from './result-ingestion'
+import { canonicalKeyForObservation, ingestToolResult, parseToolFindings, parseToolObservations } from './result-ingestion'
 
 describe('parseToolObservations', () => {
   test('accepts typed entities and relationships while rejecting unsafe shapes', () => {
@@ -28,6 +28,17 @@ describe('parseToolObservations', () => {
 })
 
 describe('ingestToolResult', () => {
+  test('bounds provider findings and rejects unsafe or duplicate entries', () => {
+    expect(parseToolFindings({ findings: [
+      { key: 'finding-1', title: 'Unsafe parser', severity: 'HIGH', description: 'bounded', data: { confidence: 0.9, ignored: ['nested'] } },
+      { key: 'finding-1', title: 'duplicate', severity: 'low' },
+      { key: 'bad', title: 'invalid severity', severity: 'urgent' },
+    ] })).toEqual({
+      findings: [expect.objectContaining({ key: 'finding-1', severity: 'high', data: { confidence: 0.9 } })],
+      rejected: 2,
+    })
+  })
+
   test('derives provider-independent keys only from explicit identity hints', () => {
     const observation = { kind: 'entity' as const, type: 'function', key: 'provider-specific', attributes: { identity: 'com.example.Main' } }
     const first = canonicalKeyForObservation('provider-a', observation)
@@ -39,7 +50,8 @@ describe('ingestToolResult', () => {
 
   test('upserts observations using the project, source, and stable key', async () => {
     const upsert = vi.fn().mockResolvedValue({ id: 'observation-1' })
-    const tx = { reamonObservation: { upsert } } as never
+    const findingCreate = vi.fn().mockResolvedValue({ id: 'finding-1' })
+    const tx = { reamonObservation: { upsert }, finding: { findFirst: vi.fn().mockResolvedValue(null), update: vi.fn(), create: findingCreate } } as never
 
     const summary = await ingestToolResult(tx, {
       projectId: 'project-1',
@@ -50,7 +62,7 @@ describe('ingestToolResult', () => {
       data: { observations: [{ kind: 'entity', type: 'function', key: 'fn:main', attributes: {} }] },
     })
 
-    expect(summary).toEqual({ accepted: 1, rejected: 0 })
+    expect(summary).toEqual({ accepted: 1, rejected: 0, findingsAccepted: 0, findingsRejected: 0 })
     expect(upsert).toHaveBeenCalledWith(expect.objectContaining({
       where: { projectId_source_stableKey: { projectId: 'project-1', source: 'reamon-source-inspector', stableKey: 'fn:main' } },
       create: expect.objectContaining({ projectId: 'project-1', taskId: 'task-1', artifactId: 'artifact-1', stableKey: 'fn:main' }),
@@ -75,5 +87,20 @@ describe('ingestToolResult', () => {
       create: expect.objectContaining({ fromCanonicalKey: 'identity:function:main', toCanonicalKey: 'identity:function:parse' }),
       update: expect.objectContaining({ fromCanonicalKey: 'identity:function:main', toCanonicalKey: 'identity:function:parse' }),
     }))
+  })
+
+  test('persists normalized findings with source and task provenance', async () => {
+    const findingCreate = vi.fn().mockResolvedValue({ id: 'finding-1' })
+    const tx = { reamonObservation: { upsert: vi.fn() }, finding: { findFirst: vi.fn().mockResolvedValue(null), update: vi.fn(), create: findingCreate } } as never
+
+    const summary = await ingestToolResult(tx, {
+      projectId: 'project-1', taskId: 'task-1', targetId: 'target-1', artifactId: 'artifact-1', source: 'provider-a',
+      data: { findings: [{ key: 'finding-1', title: 'Unsafe parser', severity: 'high', description: 'Review parser input', data: { confidence: 0.9 } }] },
+    })
+
+    expect(summary).toMatchObject({ accepted: 0, rejected: 0, findingsAccepted: 1, findingsRejected: 0 })
+    expect(findingCreate).toHaveBeenCalledWith({ data: expect.objectContaining({
+      projectId: 'project-1', taskId: 'task-1', source: 'provider-a', stableKey: 'finding-1', severity: 'high', status: 'OPEN',
+    }) })
   })
 })

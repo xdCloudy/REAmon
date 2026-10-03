@@ -85,6 +85,17 @@ export async function getWorkspaceSnapshot(projectId: string) {
         completedAt: true,
         createdAt: true,
         updatedAt: true,
+        approval: {
+          select: {
+            id: true,
+            status: true,
+            requestedBy: true,
+            decidedBy: true,
+            reason: true,
+            requestedAt: true,
+            decidedAt: true,
+          },
+        },
       },
     }),
     prisma.finding.findMany({ where: { projectId }, orderBy: { createdAt: 'desc' }, take: 25 }),

@@ -8,8 +8,10 @@ import type {
 
 export const MAX_OBSERVATIONS_PER_RESULT = 500
 export const MAX_OBSERVATION_ATTRIBUTES = 64
+export const MAX_FINDINGS_PER_RESULT = 200
 
 const OBSERVATION_KINDS = new Set<ObservationKind>(['entity', 'relationship', 'fact'])
+const FINDING_SEVERITIES = new Set(['critical', 'high', 'medium', 'low', 'info'])
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null
@@ -95,6 +97,56 @@ export interface ParsedObservations {
   rejected: number
 }
 
+export interface ToolFinding {
+  key: string
+  title: string
+  description: string
+  severity: string
+  data: ObservationAttributes
+}
+
+export interface ParsedFindings {
+  findings: ToolFinding[]
+  rejected: number
+}
+
+function normalizeFinding(value: unknown): ToolFinding | null {
+  const record = asRecord(value)
+  if (!record) return null
+  const key = boundedString(record.key, 256) || boundedString(record.fingerprint, 256)
+  const title = boundedString(record.title, 500)
+  if (!key || !title) return null
+  const severityValue = boundedString(record.severity, 32)?.toLowerCase() || 'info'
+  if (!FINDING_SEVERITIES.has(severityValue)) return null
+  return {
+    key,
+    title,
+    description: boundedString(record.description, 8000) || '',
+    severity: severityValue,
+    data: asAttributes(record.data),
+  }
+}
+
+export function parseToolFindings(data: unknown): ParsedFindings {
+  const record = asRecord(data)
+  const rawFindings = record?.findings
+  if (!Array.isArray(rawFindings)) return { findings: [], rejected: 0 }
+
+  const findings: ToolFinding[] = []
+  const seenKeys = new Set<string>()
+  let rejected = Math.max(0, rawFindings.length - MAX_FINDINGS_PER_RESULT)
+  for (const rawFinding of rawFindings.slice(0, MAX_FINDINGS_PER_RESULT)) {
+    const finding = normalizeFinding(rawFinding)
+    if (!finding || seenKeys.has(finding.key)) {
+      rejected += 1
+      continue
+    }
+    seenKeys.add(finding.key)
+    findings.push(finding)
+  }
+  return { findings, rejected }
+}
+
 export function parseToolObservations(data: unknown): ParsedObservations {
   const record = asRecord(data)
   const rawObservations = record?.observations
@@ -127,6 +179,8 @@ export interface ObservationIngestionInput {
 export interface ObservationIngestionSummary {
   accepted: number
   rejected: number
+  findingsAccepted: number
+  findingsRejected: number
 }
 
 export async function ingestToolResult(
@@ -179,5 +233,31 @@ export async function ingestToolResult(
       },
     })
   }
-  return { accepted: parsed.observations.length, rejected: parsed.rejected }
+  const parsedFindings = parseToolFindings(input.data)
+  for (const finding of parsedFindings.findings) {
+    const data = {
+      projectId: input.projectId,
+      taskId: input.taskId,
+      targetId: input.targetId,
+      artifactId: input.artifactId,
+      title: finding.title,
+      description: finding.description,
+      severity: finding.severity,
+      source: input.source,
+      stableKey: finding.key,
+      data: finding.data as unknown as Prisma.InputJsonValue,
+    }
+    const existing = await tx.finding.findFirst({
+      where: { projectId: input.projectId, taskId: input.taskId, source: input.source, stableKey: finding.key },
+      select: { id: true },
+    })
+    if (existing) await tx.finding.update({ where: { id: existing.id }, data })
+    else await tx.finding.create({ data: { ...data, status: 'OPEN' } })
+  }
+  return {
+    accepted: parsed.observations.length,
+    rejected: parsed.rejected,
+    findingsAccepted: parsedFindings.findings.length,
+    findingsRejected: parsedFindings.rejected,
+  }
 }

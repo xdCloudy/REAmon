@@ -14,7 +14,7 @@ export async function POST(_request: Request, { params }: RouteParams) {
     const access = await requireProjectAccess(effectiveUser, projectId)
     if (access instanceof NextResponse) return access
 
-    const result = await retryAnalysisTask(projectId, taskId)
+    const result = await retryAnalysisTask(projectId, taskId, effectiveUser.userId)
     if (!result) return NextResponse.json({ error: 'Analysis task not found' }, { status: 404, headers: NO_STORE })
     if (result.outcome === 'SKIPPED') {
       return NextResponse.json({ error: 'Only failed or cancelled tasks can be retried', task: result.task }, { status: 409, headers: NO_STORE })

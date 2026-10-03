@@ -11,6 +11,7 @@ export interface WorkspaceTaskListItem {
   error?: string | null
   leaseOwner?: string | null
   leaseHeartbeatAt?: string | null
+  approval?: { id: string; status: string } | null
 }
 
 export function heartbeatLabel(value: string | null | undefined): string {
@@ -79,6 +80,27 @@ export function WorkspaceTaskList({ projectId, tasks, onChanged }: {
     }
   }
 
+  async function decide(task: WorkspaceTaskListItem, decision: 'approve' | 'reject') {
+    if (!task.approval) return
+    setPendingAction(`${decision}:${task.id}`)
+    setFeedback(null)
+    try {
+      const response = await fetch(`/api/projects/${projectId}/approvals/${task.approval.id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ decision }),
+      })
+      const payload = await response.json().catch(() => ({})) as { error?: string }
+      if (!response.ok) throw new Error(payload.error || `Unable to ${decision} task approval`)
+      setFeedback(decision === 'approve' ? `${task.title} was approved.` : `${task.title} was rejected.`)
+      onChanged?.()
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : `Unable to ${decision} task approval`)
+    } finally {
+      setPendingAction(null)
+    }
+  }
+
   async function recoverStale() {
     setPendingAction('recover')
     setFeedback(null)
@@ -98,7 +120,7 @@ export function WorkspaceTaskList({ projectId, tasks, onChanged }: {
   return (
     <div className={styles.container}>
       <div className={styles.toolbar}>
-        <span className={styles.toolbarHint}>Execution is lease-protected and safe to recover after a stalled run.</span>
+        <span className={styles.toolbarHint}>Execution is approval-gated when requested, lease-protected, and safe to recover after a stalled run.</span>
         <button type="button" className={styles.actionButton} disabled={pendingAction !== null} onClick={() => void recoverStale()}>
           {pendingAction === 'recover' ? 'Recovering…' : 'Recover stale'}
         </button>
@@ -121,6 +143,14 @@ export function WorkspaceTaskList({ projectId, tasks, onChanged }: {
             {(task.status === 'QUEUED' || task.status === 'RUNNING') && <button type="button" className={styles.actionButton} disabled={pendingAction !== null} onClick={() => void cancel(task)}>
               {pendingAction === `cancel:${task.id}` ? 'Cancelling…' : 'Cancel'}
             </button>}
+            {task.status === 'AWAITING_APPROVAL' && task.approval?.status === 'PENDING' && <>
+              <button type="button" className={styles.actionButton} disabled={pendingAction !== null} onClick={() => void decide(task, 'approve')}>
+                {pendingAction === `approve:${task.id}` ? 'Approving…' : 'Approve'}
+              </button>
+              <button type="button" className={styles.actionButton} disabled={pendingAction !== null} onClick={() => void decide(task, 'reject')}>
+                {pendingAction === `reject:${task.id}` ? 'Rejecting…' : 'Reject'}
+              </button>
+            </>}
           </span>
         </div>
       ))}

@@ -51,7 +51,7 @@ The current vertical slice is complete for browser snapshots and allowlisted ser
 directories: select a folder or inventory a read-only configured mount, create a REAmon
 workspace, preview the manifest and latest refresh delta, upload or import in bounded
 requests, cancel or retry an import, preserve relative paths, aggregate the profile,
-resolve compatible capabilities, queue a reviewed analysis proposal, and run the small
+resolve compatible capabilities, request approval for a reviewed analysis proposal, and run the small
 reference providers with lease-protected task/evidence/activity state.
 Stale-task recovery, retry, and cancellation controls are now available to operators,
 and an internal worker trigger can dispatch bounded queued batches. The production
@@ -64,10 +64,13 @@ stored transactionally with source hashes, logical paths, and optional producing
 only project-scoped source IDs are accepted and no host storage paths are exposed. Same-import
 retries now serialize on the import row, converge on one logical artifact, reject a concurrent
 finalize/cancel race, and remove replaced bytes only after commit. Historical snapshots remain
-intentionally available for audit and hash comparison; retention/compaction policy is the
-remaining storage lifecycle decision. The staging multi-worker drill (hermetic contention
-coverage is now tested), true background uploads, and additional MCP/process adapters remain
-follow-up work. The
+intentionally available for audit and hash comparison. A bounded retention job now
+preserves the newest completed snapshot and referenced artifacts, defaults to dry-run,
+and removes database rows before post-commit byte cleanup. Provider results also promote
+bounded findings with task/source provenance, while analysis proposals default to durable
+operator approval before worker execution. The staging multi-worker drill (hermetic
+contention coverage is now tested), true background uploads, and additional MCP/process
+adapters remain follow-up work. The
 workspace task panel now refreshes active work automatically and labels the current
 worker plus heartbeat freshness. The internal projection route can replay the
 normalized observation store into Neo4j,

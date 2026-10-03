@@ -13,6 +13,7 @@ interface ScheduleBody {
   artifactId?: unknown
   providerId?: unknown
   capability?: unknown
+  approvalRequired?: unknown
 }
 
 const NO_STORE = { 'Cache-Control': 'no-store' }
@@ -26,6 +27,12 @@ function readString(body: ScheduleBody, key: keyof ScheduleBody, max: number): s
   if (typeof value !== 'string') return null
   const normalised = value.trim()
   return normalised && normalised.length <= max ? normalised : null
+}
+
+function readBoolean(body: ScheduleBody, key: keyof ScheduleBody, defaultValue: boolean): boolean | null {
+  const value = body[key]
+  if (value === undefined) return defaultValue
+  return typeof value === 'boolean' ? value : null
 }
 
 function serialiseTask(task: {
@@ -77,6 +84,8 @@ export async function POST(request: Request, { params }: RouteParams) {
     const artifactId = readString(body, 'artifactId', 128)
     const providerId = readString(body, 'providerId', 128)
     const requestedCapability = readString(body, 'capability', 64)?.toLowerCase() || null
+    const requiresApproval = readBoolean(body, 'approvalRequired', true)
+    if (requiresApproval === null) return badRequest('approvalRequired must be a boolean')
     if (!artifactId || !providerId || !requestedCapability) {
       return badRequest('artifactId, providerId, and capability are required')
     }
@@ -126,20 +135,25 @@ export async function POST(request: Request, { params }: RouteParams) {
             capability,
             title: `${plugin.manifest.name}: ${capability} · ${artifact.relativePath}`,
             category: plugin.manifest.category,
-            status: 'QUEUED',
+            status: requiresApproval ? 'AWAITING_APPROVAL' : 'QUEUED',
             progress: 0,
-            options: {},
+            options: { requiresApproval },
             idempotencyKey,
           },
           select: taskSelect,
         })
+        if (requiresApproval) {
+          await tx.reamonApproval.create({
+            data: { projectId, taskId: created.id, requestedBy: effectiveUser.userId },
+          })
+        }
         await tx.workspaceActivity.create({
           data: {
             projectId,
             actor: 'Operator',
-            eventType: 'analysis.task.queued',
-            message: `Queued ${capability} for ${artifact.relativePath}`,
-            data: { taskId: created.id, artifactId: artifact.id, providerId: provider.pluginId, capability },
+            eventType: requiresApproval ? 'analysis.task.approval_requested' : 'analysis.task.queued',
+            message: requiresApproval ? `Requested approval for ${capability} on ${artifact.relativePath}` : `Queued ${capability} for ${artifact.relativePath}`,
+            data: { taskId: created.id, artifactId: artifact.id, providerId: provider.pluginId, capability, requiresApproval },
           },
         })
         return created

@@ -45,6 +45,9 @@ const INTERNAL_ALLOWLIST: { method: string; pattern: RegExp }[] = [
   // Periodic pruning of long-dead MCP access tokens. The webapp has no
   // scheduler of its own, so the orchestrator's maintenance loop drives it.
   { method: 'POST', pattern: /^\/api\/internal\/mcp-tokens\/prune$/ },
+  // REAmon import retention is driven by an internal maintenance caller and
+  // remains dry-run unless the caller explicitly sends apply=true.
+  { method: 'POST', pattern: /^\/api\/internal\/reamon\/imports\/retention$/ },
   // Scan Timeline scheduler: the orchestrator worker polls for due schedules and
   // asks the webapp to run or defer them (the webapp owns the version freeze).
   { method: 'GET', pattern: /^\/api\/internal\/scan-schedules\/due$/ },

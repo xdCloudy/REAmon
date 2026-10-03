@@ -43,6 +43,11 @@ evidence rows (default 2 MiB, hard-capped at 8 MiB). Oversized provider results 
 recorded with a truncation marker while normalized observations still pass through
 their own bounded ingestion limits.
 
+`REAMON_IMPORT_RETENTION_DAYS` defaults to 90 days, with a seven-day minimum when
+enabled. Retention always preserves the newest completed snapshot for each project
+and skips any older snapshot whose artifacts are referenced by tasks, evidence,
+findings, observations, or artifact lineage. Set it to `0` to disable pruning.
+
 ## Backup
 
 Set a backup directory outside the repository and retain it according to the
@@ -68,6 +73,36 @@ database dump procedure. If using a Docker volume archive, stop all graph writer
 first and resolve the actual volume name with `docker volume ls`; do not assume the
 Compose project prefix. Verify that `postgres.dump` and the artifact archive are
 non-empty before proceeding.
+
+## Import retention and compaction
+
+Run the internal retention job in dry-run mode first. It is bounded to 25 imports
+per invocation and does not expose storage paths:
+
+```bash
+curl --fail -X POST \
+  -H "X-Internal-Key: $INTERNAL_API_KEY" \
+  -H 'Content-Type: application/json' \
+  "http://127.0.0.1:${WEBAPP_PORT:-3000}/api/internal/reamon/imports/retention" \
+  -d '{}'
+```
+
+Review the candidate and protected counts, then explicitly apply the same policy
+after the PostgreSQL and artifact backups are recorded:
+
+```bash
+curl --fail -X POST \
+  -H "X-Internal-Key: $INTERNAL_API_KEY" \
+  -H 'Content-Type: application/json' \
+  "http://127.0.0.1:${WEBAPP_PORT:-3000}/api/internal/reamon/imports/retention" \
+  -d '{"apply":true}'
+```
+
+Database rows are removed in a transaction before each corresponding artifact byte
+is unlinked. A non-empty `storageCleanupFailures` result is an operational warning
+that must be resolved before declaring compaction complete; the database remains
+authoritative, and the affected volume should be inspected or restored from the
+matching artifact backup before the next release.
 
 ## Upgrade
 
