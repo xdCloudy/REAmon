@@ -21,11 +21,16 @@ compose() { docker compose "$@"; }
 restore_worker_scale() { compose up -d --no-build --scale reamon-worker=1 reamon-worker >/dev/null 2>&1 || true; }
 trap restore_worker_scale EXIT
 
-compose up -d --no-build --scale reamon-worker=2 reamon-worker >/dev/null
+compose rm -sf reamon-worker >/dev/null 2>&1 || true
+# Create the containers without starting them. This closes the race where a
+# freshly approved task could be consumed before the drill seeds its stale
+# lease, while still giving the lease the exact hostname of the replica that
+# will be killed.
+compose create --no-build --scale reamon-worker=2 reamon-worker >/dev/null
 
 containers=()
 for attempt in $(seq 1 30); do
-  mapfile -t containers < <(compose ps -q reamon-worker)
+  mapfile -t containers < <(compose ps -aq reamon-worker)
   if ((${#containers[@]} >= 2)); then break; fi
   sleep 2
 done
@@ -46,6 +51,18 @@ survivor_worker="$(docker inspect --format '{{.Config.Hostname}}' "$survivor_con
 
 seeded="$(compose exec -T webapp node scripts/reamon-seed-stale-task.mjs "$TASK_ID" "$dead_worker" "$STALE_AFTER_MINUTES")"
 echo "PASS: replicas=${dead_worker},${survivor_worker} seeded stale lease: $seeded"
+
+docker start "${containers[0]}" "${containers[1]}" >/dev/null
+for attempt in $(seq 1 30); do
+  mapfile -t running_containers < <(compose ps -q reamon-worker)
+  if ((${#running_containers[@]} >= 2)); then break; fi
+  sleep 2
+done
+if ((${#running_containers[@]} != 2)); then
+  compose ps reamon-worker >&2 || true
+  echo 'FAIL: both worker replicas did not start after the stale lease was seeded' >&2
+  exit 1
+fi
 
 docker kill --signal KILL "$dead_container" >/dev/null
 echo "PASS: killed worker replica=${dead_worker}; waiting for surviving replica=${survivor_worker} to recover the lease"
