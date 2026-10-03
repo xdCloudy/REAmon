@@ -13,6 +13,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     DEBIAN_FRONTEND=noninteractive
 
+# Keep the image's bootstrap tooling inside the supported security window. The
+# base Python image intentionally ships a small pip/setuptools pair, but those
+# versions are part of the runtime image and are included in the CI audit.
+RUN python -m pip install --no-cache-dir --upgrade "pip>=26.2.0" "setuptools>=83.0.0"
+
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \

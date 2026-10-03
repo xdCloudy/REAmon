@@ -103,7 +103,9 @@ const rowCount = (c: HTMLElement) => c.querySelectorAll('tbody tr').length
 async function openFilters() {
   const already = screen.queryByPlaceholderText('Find a column…')
   if (already) return already
-  fireEvent.click(await screen.findByRole('button', { name: /^Filters/i }))
+  const button = await screen.findByRole('button', { name: /^Filters/i })
+  await waitFor(() => expect(button).toBeEnabled())
+  fireEvent.click(button)
   return screen.findByPlaceholderText('Find a column…')
 }
 

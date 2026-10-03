@@ -148,7 +148,9 @@ function bodyRowCount(container: HTMLElement): number {
 }
 
 async function openFilters() {
-  fireEvent.click(await screen.findByRole('button', { name: /^Filters/i }))
+  const button = await screen.findByRole('button', { name: /^Filters/i })
+  await waitFor(() => expect(button).toBeEnabled())
+  fireEvent.click(button)
   return screen.findByPlaceholderText('Find a column…')
 }
 

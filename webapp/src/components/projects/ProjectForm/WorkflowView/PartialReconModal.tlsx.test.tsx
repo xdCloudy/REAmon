@@ -13,7 +13,7 @@
  * Run: npx vitest run src/components/projects/ProjectForm/WorkflowView/PartialReconModal.tlsx.test.tsx
  */
 import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, cleanup, fireEvent } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react'
 import { PartialReconModal } from './PartialReconModal'
 
 vi.mock('@/providers/ProjectProvider', async orig => ({
@@ -75,7 +75,7 @@ describe('PartialReconModal — Tlsx inputs', () => {
   test('the run button is reachable when the graph has IPs and ports', async () => {
     renderModal('Tlsx')
     const btn = await screen.findByRole('button', { name: /Run Partial Recon/i })
-    expect((btn as HTMLButtonElement).disabled).toBe(false)
+    await waitFor(() => expect(btn).toBeEnabled())
   })
 
   test('control: a tool with no IP input does not show the IPs control', async () => {
