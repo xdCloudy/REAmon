@@ -14,6 +14,9 @@ const MAX_SOURCE_BYTES = 64 * 1024
 const MAX_ARTIFACT_BYTES = 2 * 1024 * 1024
 const MAX_QUESTION_CHARS = 1000
 const MAX_RESULT_BYTES = 128 * 1024
+const MAX_CONTEXT_UNITS = 8
+const MAX_CONTEXT_BYTES = 16 * 1024
+const MAX_DISASSEMBLY_BYTES = 8 * 1024
 
 function plainObject(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
@@ -26,6 +29,16 @@ function validId(value: unknown): value is string {
 function isInside(root: string, file: string): boolean {
   const relative = path.relative(root, file)
   return Boolean(relative) && relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)
+}
+
+function classReferencesOf(value: unknown): string[] {
+  let parsed = value
+  if (typeof value === 'string') {
+    try { parsed = JSON.parse(value) } catch { return [] }
+  }
+  if (!Array.isArray(parsed)) return []
+  return [...new Set(parsed.filter((entry): entry is string => typeof entry === 'string')
+    .map((entry) => entry.trim()).filter((entry) => entry && entry.length <= 500))].slice(0, 100)
 }
 
 export async function POST(request: Request, { params }: RouteParams) {
@@ -91,6 +104,69 @@ export async function POST(request: Request, { params }: RouteParams) {
       || observation.label
       || 'Selected code unit'
     const language = typeof attributes.language === 'string' ? attributes.language : 'unknown'
+
+    // Give the model a small, same-run neighborhood so names can be inferred from
+    // how this class interacts with its collaborators, rather than this file alone.
+    const runPrefix = `${segments.slice(0, 4).join('/')}/`
+    const references = classReferencesOf(attributes.classReferences).filter((name) => name !== unitName)
+    const relatedRows = references.length ? await prisma.reamonObservation.findMany({
+      where: { projectId, artifactId: artifact.id, type: 'code_unit', label: { in: references } },
+      select: { label: true, attributes: true },
+      orderBy: { updatedAt: 'desc' },
+      take: 1000,
+    }) : []
+    const relatedByName = new Map<string, Record<string, unknown>>()
+    for (const row of relatedRows) {
+      const name = row.label || ''
+      const relatedAttributes = plainObject(row.attributes)
+      const relatedArtifactId = typeof relatedAttributes.codeArtifactId === 'string' ? relatedAttributes.codeArtifactId : ''
+      if (references.includes(name) && relatedArtifactId.startsWith(runPrefix) && !relatedByName.has(name)) {
+        relatedByName.set(name, relatedAttributes)
+      }
+    }
+    const contextSources: Array<{ unit_name: string; language: string; source_code: string }> = []
+    let contextBytes = 0
+    for (const name of references) {
+      if (contextSources.length >= MAX_CONTEXT_UNITS || contextBytes >= MAX_CONTEXT_BYTES) break
+      const relatedAttributes = relatedByName.get(name)
+      const relatedArtifactId = typeof relatedAttributes?.codeArtifactId === 'string' ? relatedAttributes.codeArtifactId : ''
+      if (!relatedArtifactId.startsWith(runPrefix) || !relatedArtifactId.includes('/sources/')) continue
+      const relatedPath = resolveDerivedArtifactPath(relatedArtifactId)
+      try {
+        const safeRelatedPath = await realpath(relatedPath)
+        if (!isInside(rootPath, safeRelatedPath)) continue
+        const relatedInfo = await stat(safeRelatedPath)
+        if (!relatedInfo.isFile() || relatedInfo.size > MAX_ARTIFACT_BYTES) continue
+        const remaining = MAX_CONTEXT_BYTES - contextBytes
+        const relatedBytes = await readFile(safeRelatedPath)
+        const source = relatedBytes.subarray(0, Math.min(remaining, MAX_CONTEXT_BYTES)).toString('utf8')
+        if (!source.trim()) continue
+        contextSources.push({
+          unit_name: name,
+          language: typeof relatedAttributes?.language === 'string' ? relatedAttributes.language.slice(0, 80) : language,
+          source_code: source,
+        })
+        contextBytes += Buffer.byteLength(source, 'utf8')
+      } catch {
+        // Related evidence is optional; the selected source remains usable.
+      }
+    }
+
+    const disassemblyArtifactId = typeof attributes.disassemblyArtifactId === 'string' ? attributes.disassemblyArtifactId : ''
+    let disassemblySource = ''
+    if (disassemblyArtifactId.startsWith(runPrefix)) {
+      try {
+        const safeDisassemblyPath = await realpath(resolveDerivedArtifactPath(disassemblyArtifactId))
+        if (isInside(rootPath, safeDisassemblyPath)) {
+          const disassemblyInfo = await stat(safeDisassemblyPath)
+          if (disassemblyInfo.isFile() && disassemblyInfo.size <= MAX_ARTIFACT_BYTES) {
+            disassemblySource = (await readFile(safeDisassemblyPath)).subarray(0, MAX_DISASSEMBLY_BYTES).toString('utf8')
+          }
+        }
+      } catch {
+        // Bytecode evidence is optional; the selected source remains usable.
+      }
+    }
     const timeoutSeconds = typeof provider.timeout === 'number' && Number.isFinite(provider.timeout) ? provider.timeout : 120
     const timeoutMs = Math.max(10_000, Math.min(300_000, timeoutSeconds * 1000))
 
@@ -103,6 +179,8 @@ export async function POST(request: Request, { params }: RouteParams) {
         unit_name: String(unitName).slice(0, 500),
         language: language.slice(0, 80),
         source_code: bytes.toString('utf8'),
+        context_sources: contextSources,
+        disassembly_source: disassemblySource,
         question: typeof body.question === 'string' ? body.question.trim() : '',
       }),
     }, { timeoutMs })
