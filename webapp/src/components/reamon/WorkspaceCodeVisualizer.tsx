@@ -713,6 +713,13 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
             <div><dt>Artifact</dt><dd>{selectedUnit.artifactPath || 'Not linked'}</dd></div>
             <div><dt>Provider</dt><dd>{selectedUnit.source}</dd></div>
           </dl>
+          {(selectedUnit.classReferences?.length ?? 0) > 0 && <section className={styles.classReferences} aria-label="Related classes">
+            <div><strong>Related classes</strong><span>From Android bytecode references</span></div>
+            <ul>{selectedUnit.classReferences?.slice(0, 24).map((name) => <li key={name}>
+              <button type="button" onClick={() => { setFilter(name); setSelectedId(null); setGraphUnit(null); setPackagePath('') }} title={`Find ${name} in this run`}>{name}</button>
+            </li>)}</ul>
+            {(selectedUnit.classReferences?.length ?? 0) > 24 && <small>Showing 24 of {selectedUnit.classReferences?.length} references.</small>}
+          </section>}
           {selectedUnit.artifactId && selectedUnit.codeArtifactId
             ? <a
                 className={styles.codeLink}

@@ -12,7 +12,7 @@ interface JadxResponse {
   codeBytes?: number
   returnedUnits: number
   truncated: boolean
-  units: Array<{ name: string; relativePath: string; codeArtifactId: string; disassemblyArtifactId?: string; disassemblyLanguage?: string; unitType?: string; language?: string; sizeBytes: number }>
+  units: Array<{ name: string; relativePath: string; codeArtifactId: string; disassemblyArtifactId?: string; disassemblyLanguage?: string; unitType?: string; language?: string; sizeBytes: number; classReferences?: string[] }>
   warnings?: string
 }
 
@@ -90,7 +90,8 @@ export async function executeJadx(input: ToolExecutionInput): Promise<ToolResult
       && (unit.disassemblyArtifactId === undefined || typeof unit.disassemblyArtifactId === 'string')
       && (unit.disassemblyLanguage === undefined || typeof unit.disassemblyLanguage === 'string')
       && (unit.unitType === undefined || typeof unit.unitType === 'string')
-      && (unit.language === undefined || typeof unit.language === 'string'))
+      && (unit.language === undefined || typeof unit.language === 'string')
+      && (unit.classReferences === undefined || (Array.isArray(unit.classReferences) && unit.classReferences.length <= 100 && unit.classReferences.every((name) => typeof name === 'string' && name.length <= 500))))
     if (!units.length) throw new Error('JADX did not produce any viewable Java classes')
 
     const observations = units.map((unit) => ({
@@ -108,6 +109,7 @@ export async function executeJadx(input: ToolExecutionInput): Promise<ToolResult
         codeArtifactId: unit.codeArtifactId.slice(0, 2000),
         ...(unit.disassemblyArtifactId ? { disassemblyArtifactId: unit.disassemblyArtifactId.slice(0, 2000) } : {}),
         ...(unit.disassemblyLanguage ? { disassemblyLanguage: unit.disassemblyLanguage.slice(0, 80) } : {}),
+        ...(unit.classReferences?.length ? { classReferences: unit.classReferences } : {}),
       },
     }))
     return {

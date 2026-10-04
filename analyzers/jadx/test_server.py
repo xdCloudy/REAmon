@@ -60,9 +60,17 @@ class JadxServiceTests(unittest.TestCase):
         self.assertEqual(server.dex_inputs(self.apk), [f"{self.apk}/classes.dex", f"{self.apk}/classes2.dex", f"{self.apk}/classes10.dex"])
         self.assertEqual(server.dex_inputs(self.jar), [])
 
+    def test_class_references_are_limited_to_known_classes_and_exclude_self(self):
+        text = "invoke-virtual {v0}, Lcom/example/Worker;->run()V\nnew-instance v1, Lcom/example/Other;\nconst-class v2, Lcom/example/Main;"
+        references = server.class_references(text, Path("com/example/Main.smali"), {
+            "com/example/Main", "com/example/Worker", "com/example/Other",
+        })
+        self.assertEqual(references, ["com.example.Other", "com.example.Worker"])
+
     def test_decompile_stores_java_with_its_linked_smali_listing(self):
         source_text = "package com.example;\npublic class MainActivity {}\n"
-        smali_text = ".class public Lcom/example/MainActivity;\n.method public onCreate()V\n    return-void\n.end method\n"
+        worker_source_text = "package com.example;\npublic class Worker {}\n"
+        smali_text = ".class public Lcom/example/MainActivity;\n.method public onCreate()V\n    invoke-virtual {v0}, Lcom/example/Worker;->run()V\n    return-void\n.end method\n"
 
         def fake_popen(args, **kwargs):
             if "disassemble" in args:
@@ -70,11 +78,15 @@ class JadxServiceTests(unittest.TestCase):
                 listing = output / "com" / "example" / "MainActivity.smali"
                 listing.parent.mkdir(parents=True, exist_ok=True)
                 listing.write_bytes(smali_text.encode())
+                worker = output / "com" / "example" / "Worker.smali"
+                worker.write_bytes(b".class public Lcom/example/Worker;\n")
             else:
                 output = Path(args[args.index("-d") + 1])
                 source = output / "sources" / "com" / "example" / "MainActivity.java"
                 source.parent.mkdir(parents=True)
                 source.write_bytes(source_text.encode())
+                worker_source = output / "sources" / "com" / "example" / "Worker.java"
+                worker_source.write_bytes(worker_source_text.encode())
             return FakeProcess()
 
         request = {"projectId": "project-1", "artifactId": "artifact-1", "taskId": "task-1",
@@ -84,21 +96,22 @@ class JadxServiceTests(unittest.TestCase):
             result = server.analyse(request, report_progress=progress.append)
 
         self.assertEqual(result["status"], "completed")
-        self.assertEqual(result["classCount"], 1)
-        self.assertEqual(result["javaClassCount"], 1)
-        self.assertEqual(result["disassembledClassCount"], 1)
-        self.assertEqual(result["codeBytes"], len(source_text.encode()) + len(smali_text.encode()))
-        self.assertEqual(result["returnedUnits"], 1)
+        self.assertEqual(result["classCount"], 2)
+        self.assertEqual(result["javaClassCount"], 2)
+        self.assertEqual(result["disassembledClassCount"], 2)
+        self.assertEqual(result["codeBytes"], len(source_text.encode()) + len(worker_source_text.encode()) + len(smali_text.encode()) + len(b".class public Lcom/example/Worker;\n"))
+        self.assertEqual(result["returnedUnits"], 2)
         self.assertFalse(result["truncated"])
         unit = result["units"][0]
         self.assertEqual(unit["name"], "com.example.MainActivity")
         self.assertEqual(unit["language"], "Java")
         self.assertEqual(unit["disassemblyLanguage"], "Smali")
+        self.assertEqual(unit["classReferences"], ["com.example.Worker"])
         self.assertTrue((self.derived / unit["codeArtifactId"]).is_file())
         self.assertTrue((self.derived / unit["disassemblyArtifactId"]).is_file())
         self.assertTrue(unit["codeArtifactId"].startswith("project-1/artifact-1/task-1/run-1/"))
         self.assertIn("Decompiling Android bytecode with JADX", progress)
-        self.assertIn("Indexing Java source 1 of 1", progress)
+        self.assertIn("Indexing Java source 1 of 2", progress)
 
     def test_decompile_passes_java_archive_to_jadx_without_running_baksmali(self):
         def fake_popen(args, **kwargs):

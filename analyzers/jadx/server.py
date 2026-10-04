@@ -14,9 +14,11 @@ MAX_SOURCE_FILES = min(50000, max(1, int(os.environ.get("JADX_MAX_SOURCE_FILES",
 MAX_RETURNED_UNITS = min(20000, max(1, int(os.environ.get("JADX_MAX_RETURNED_UNITS", "20000"))))
 MAX_VIEWABLE_BYTES = 2 * 1024 * 1024
 STREAM_RESULT_CHUNK_SIZE = 100
+MAX_CLASS_REFERENCES = 100
 SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
 PACKAGE_PATTERN = re.compile(r"^\s*package\s+([A-Za-z0-9_.$]+)\s*;", re.MULTILINE)
 TYPE_PATTERN = re.compile(r"\b(?:class|interface|enum|record)\s+([A-Za-z_$][A-Za-z0-9_$]*)")
+SMALI_CLASS_DESCRIPTOR = re.compile(r"L([A-Za-z0-9_$/]+);")
 SLOTS = threading.BoundedSemaphore(2)
 
 class AnalysisError(Exception):
@@ -101,6 +103,17 @@ def smali_files(root, existing_bytes=0):
                 truncated = True
                 return found, total, truncated, oversized
     return found, total, truncated, oversized
+
+def class_references(smali_text, current_path, known_paths):
+    """Return bounded references to classes included in this DEX analysis."""
+    current = current_path.with_suffix("").as_posix()
+    references = set()
+    for match in SMALI_CLASS_DESCRIPTOR.finditer(smali_text):
+        path = match.group(1)
+        if path == current or path not in known_paths:
+            continue
+        references.add(path.replace("/", "."))
+    return sorted(references, key=str.casefold)[:MAX_CLASS_REFERENCES]
 
 
 def dex_inputs(path):
@@ -261,6 +274,7 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                             warnings.append(str(error))
                         disassembly_root = run_root / "disassembly"
                         source_by_smali = {Path(unit["relativePath"]).with_suffix(".smali").as_posix(): unit for unit in units}
+                        known_smali_paths = {smali.relative_to(disassembly_output).with_suffix("").as_posix() for smali in raw_smali}
                         for smali in raw_smali:
                             relative = smali.relative_to(disassembly_output)
                             if relative.is_absolute() or ".." in relative.parts:
@@ -268,6 +282,7 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                             raw = smali.read_bytes()
                             if not raw:
                                 continue
+                            references = class_references(raw.decode("utf-8", errors="replace"), relative, known_smali_paths)
                             destination = disassembly_root / relative
                             destination.parent.mkdir(parents=True, exist_ok=True)
                             destination.write_bytes(raw)
@@ -277,11 +292,12 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                                 paired["disassemblyArtifactId"] = disassembly_id
                                 paired["disassemblyLanguage"] = "Smali"
                                 paired["disassemblyBytes"] = len(raw)
+                                paired["classReferences"] = references
                             else:
                                 dotted_name = relative.with_suffix("").as_posix().replace("/", ".")
                                 units.append({"name": dotted_name[:500], "relativePath": relative.as_posix()[:1000],
                                               "codeArtifactId": disassembly_id, "sizeBytes": len(raw),
-                                              "language": "Smali", "unitType": "class"})
+                                              "language": "Smali", "unitType": "class", "classReferences": references})
                             disassembled_class_count += 1
                         if not raw_smali:
                             warnings.append("Baksmali did not produce any viewable DEX listings.")

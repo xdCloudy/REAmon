@@ -18,6 +18,7 @@ export interface CodeUnitObservationAttributes {
   codeArtifactId?: string
   disassemblyArtifactId?: string
   disassemblyLanguage?: string
+  classReferences?: string[]
 }
 
 export interface CodeUnitObservationRow {
@@ -45,6 +46,7 @@ export interface CodeUnit {
   codeArtifactId: string | null
   disassemblyArtifactId: string | null
   disassemblyLanguage: string | null
+  classReferences?: string[]
   maintainedSource?: boolean
   updatedAt: string
 }
@@ -98,6 +100,9 @@ export function normalizeCodeUnit(row: CodeUnitObservationRow): CodeUnit | null 
     codeArtifactId: text(attributes.codeArtifactId, 2000),
     disassemblyArtifactId: text(attributes.disassemblyArtifactId, 2000),
     disassemblyLanguage: text(attributes.disassemblyLanguage, 80),
+    classReferences: Array.isArray(attributes.classReferences)
+      ? [...new Set(attributes.classReferences.filter((value): value is string => typeof value === 'string').map((value) => value.trim()).filter(Boolean))].slice(0, 100)
+      : [],
     maintainedSource: false,
     updatedAt,
   }
