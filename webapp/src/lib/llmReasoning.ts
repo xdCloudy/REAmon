@@ -1,4 +1,4 @@
-export const REASONING_EFFORTS = ['low', 'medium', 'high', 'max'] as const
+export const REASONING_EFFORTS = ['none', 'low', 'medium', 'high', 'max'] as const
 
 export type ReasoningEffort = typeof REASONING_EFFORTS[number]
 

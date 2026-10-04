@@ -1,3 +1,4 @@
+/** @vitest-environment node */
 import { describe, expect, it } from 'vitest'
 import { resolveCapabilities, resolveWorkspaceCapabilities } from './capabilities'
 import type { TargetProfile, ToolPlugin } from './types'
@@ -17,6 +18,63 @@ const profile = (overrides: Partial<TargetProfile> = {}): TargetProfile => ({
 })
 
 describe('REAmon capability resolution', () => {
+  it('offers JADX decompilation for an identified Android APK', () => {
+    expect(resolveCapabilities(profile({
+      format: 'apk',
+      extension: 'apk',
+      mimeType: 'application/vnd.android.package-archive',
+      architecture: null,
+      platform: 'android',
+      runtimes: ['dalvik', 'art'],
+      embeddedArtifacts: ['dex', 'resources'],
+    }))).toEqual(expect.arrayContaining([
+      expect.objectContaining({ pluginId: 'reamon-jadx', capabilities: ['decompile'] }),
+    ]))
+  })
+
+  it('offers JADX decompilation for an identified Java archive', () => {
+    expect(resolveCapabilities(profile({
+      format: 'jar',
+      extension: 'jar',
+      mimeType: 'application/java-archive',
+      architecture: null,
+      platform: 'jvm',
+      runtimes: ['jvm'],
+    }))).toEqual(expect.arrayContaining([
+      expect.objectContaining({ pluginId: 'reamon-jadx', capabilities: ['decompile'], acceptsFormats: ['apk', 'jar', 'dex', 'class'] }),
+    ]))
+  })
+
+  it('offers ILSpy decompilation only for managed PE assemblies', () => {
+    const managed = resolveCapabilities(profile({ format: 'pe-dotnet', extension: 'dll', platform: 'windows', runtimes: ['dotnet'] }))
+    expect(managed).toEqual(expect.arrayContaining([
+      expect.objectContaining({ pluginId: 'reamon-ilspy', capabilities: ['decompile'], acceptsFormats: ['pe-dotnet'] }),
+    ]))
+    expect(managed.some((match) => match.pluginId === 'reamon-ghidra')).toBe(false)
+    expect(resolveCapabilities(profile({ format: 'pe-dll', extension: 'dll' })).some((match) => match.pluginId === 'reamon-ilspy')).toBe(false)
+  })
+
+  it.each([
+    { format: 'dex', extension: 'dex', platform: 'android', runtimes: ['dalvik', 'art'] },
+    { format: 'class', extension: 'class', platform: 'jvm', runtimes: ['jvm'] },
+  ])('offers JADX decompilation for standalone $format bytecode', ({ format, extension, platform, runtimes }) => {
+    expect(resolveCapabilities(profile({ format, extension, platform, runtimes }))).toEqual(expect.arrayContaining([
+      expect.objectContaining({ pluginId: 'reamon-jadx', capabilities: ['decompile'], acceptsFormats: ['apk', 'jar', 'dex', 'class'] }),
+    ]))
+  })
+
+  it('offers dynamic dependency and symbol extraction for ELF artifacts', () => {
+    expect(resolveCapabilities(profile())).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        pluginId: 'reamon-elf-dependencies',
+        acceptsFormats: ['elf'],
+        capabilities: ['extract_dependencies'],
+        produces: ['BinaryDependency', 'BinarySymbol', 'Relationship'],
+      }),
+    ]))
+    expect(resolveCapabilities(profile({ format: 'pe' })).some((match) => match.pluginId === 'reamon-elf-dependencies')).toBe(false)
+  })
+
   it('offers the built-in ELF header inspector for ELF artifacts', () => {
     expect(resolveCapabilities(profile())).toEqual(expect.arrayContaining([
       expect.objectContaining({
@@ -27,6 +85,20 @@ describe('REAmon capability resolution', () => {
       }),
     ]))
   })
+
+  it.each(['apk', 'elf', 'wasm', 'json', 'source', 'unknown'])(
+    'offers bounded string extraction for %s artifacts',
+    (format) => {
+      expect(resolveCapabilities(profile({ format }))).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          pluginId: 'reamon-source-inspector',
+          pluginName: 'REAmon Strings Inspector',
+          acceptsFormats: ['*'],
+          capabilities: ['extract_strings'],
+        }),
+      ]))
+    },
+  )
 
   it('matches generic profiling and rejects format-specific tools', () => {
     const plugin: ToolPlugin = {

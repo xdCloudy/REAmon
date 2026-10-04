@@ -3,12 +3,15 @@
 import { use, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertTriangle, ArrowLeft, CheckCircle2, CircleDashed, Gauge, Server, Waypoints } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, CheckCircle2, CircleDashed, Server, Waypoints } from 'lucide-react'
 import { WorkspaceFileTree } from '@/components/reamon/WorkspaceFileTree'
 import { WorkspaceImportPanel } from '@/components/reamon/WorkspaceImportPanel'
 import { WorkspaceAnalysisPlanPanel, type WorkspaceAnalysisPlan } from '@/components/reamon/WorkspaceAnalysisPlan'
+import { WorkspaceDecompilationAction } from '@/components/reamon/WorkspaceDecompilationAction'
 import { WorkspaceTaskList } from '@/components/reamon/WorkspaceTaskList'
 import { WorkspaceFindingList } from '@/components/reamon/WorkspaceFindingList'
+import { WorkspaceCodeVisualizer } from '@/components/reamon/WorkspaceCodeVisualizer'
+import { summarizeWorkerAttention } from '@/lib/reamon/worker-health'
 import type { CapabilityMatch, ProgressMetric, TargetProfile, WorkspaceCapabilitySummary, WorkspaceImportSnapshot, WorkspaceObservation, WorkspaceProfile } from '@/lib/reamon'
 import styles from './page.module.css'
 
@@ -35,7 +38,7 @@ interface WorkspaceSnapshot {
     createdAt: string
     updatedAt: string
   }>
-  tasks: Array<{ id: string; title: string; category: string; status: string; progress: number; error: string; leaseOwner: string | null; leaseHeartbeatAt: string | null; approval: { id: string; status: string } | null }>
+  tasks: Array<{ id: string; title: string; category: string; status: string; progress: number; progressMessage: string; error: string; providerId: string | null; capability: string | null; result: Record<string, unknown> | null; leaseOwner: string | null; leaseHeartbeatAt: string | null; approval: { id: string; status: string } | null }>
   findings: Array<{ id: string; title: string; severity: string; status: string }>
   hypotheses: Array<{ id: string; statement: string; status: string }>
   evidence: Array<{ id: string; summary: string; source: string; createdAt: string }>
@@ -45,7 +48,7 @@ interface WorkspaceSnapshot {
   capabilities: WorkspaceCapabilitySummary[]
   imports: WorkspaceImportSnapshot[]
   artifactPage: { limit: number; total: number; hasMore: boolean }
-  progress: { overallPercent: number; metrics: ProgressMetric[] }
+  progress: { metrics: ProgressMetric[] }
   counts: { targets: number; artifacts: number; tasks: number; findings: number; hypotheses: number; evidence: number; observations: number }
   workers: WorkerHealth[]
   approvalSummary: { total: number; pending: number; approved: number; rejected: number }
@@ -87,8 +90,8 @@ function observationTitle(observation: WorkspaceObservation): string {
 function ProgressBar({ metric }: { metric: ProgressMetric }) {
   return (
     <div className={styles.metric}>
-      <div className={styles.metricHeader}><span>{metric.label}</span><span>{metric.percent}%</span></div>
-      <div className={styles.track} aria-label={`${metric.label}: ${metric.percent}%`}><div className={styles.fill} style={{ width: `${metric.percent}%` }} /></div>
+      <span>{metric.label}</span>
+      <strong className={styles.metricCount}>{metric.numerator.toLocaleString()} / {metric.denominator.toLocaleString()}</strong>
     </div>
   )
 }
@@ -119,7 +122,8 @@ function ImportStatus({ latestImport }: { latestImport: WorkspaceImportSnapshot 
   return (
     <div className={styles.importStatus} aria-live="polite">
       <div className={styles.panelHeader}><h2>Latest import</h2><span className={styles.type}>{latestImport.status}</span></div>
-      <div className={styles.importStatusGrid}><span>Root</span><strong>{latestImport.rootName}</strong><span>Inventory</span><strong>{latestImport.totalFiles.toLocaleString()} files · {formatBytes(latestImport.totalBytes)}</strong><span>Uploaded</span><strong>{latestImport.completedFiles.toLocaleString()} / {latestImport.totalFiles.toLocaleString()} files · {percent}%</strong><span>Profile</span><strong>{latestImport.profile?.interestingArtifacts ?? 0} interesting artifacts</strong></div>
+      <div className={styles.importStatusGrid}><span>Root</span><strong>{latestImport.rootName}</strong><span>Inventory</span><strong>{latestImport.totalFiles.toLocaleString()} files · {formatBytes(latestImport.totalBytes)}</strong><span>Transfer progress</span><strong>{latestImport.completedFiles.toLocaleString()} / {latestImport.totalFiles.toLocaleString()} files · {percent}%</strong><span>Profile</span><strong>{latestImport.profile?.interestingArtifacts ?? 0} interesting artifacts</strong></div>
+      <p className={styles.muted}>Transfer progress only confirms that files reached the workspace. It does not measure decompilation or other analysis.</p>
       {latestImport.comparison && <p className={styles.muted}>{latestImport.comparison.mode === 'HASH' ? 'Authoritative refresh' : 'Manifest refresh'}: +{latestImport.comparison.addedCount} added · {latestImport.comparison.changedCount} changed · {latestImport.comparison.removedCount} removed · {latestImport.comparison.unchangedCount} unchanged.</p>}
       {latestImport.missingPaths.length > 0 && <p className={styles.uploadError}>{latestImport.missingPaths.length} file paths still need upload. Retry the import to resume.</p>}
       {latestImport.errorSummary && <p className={styles.uploadError}>{latestImport.errorSummary}</p>}
@@ -128,19 +132,26 @@ function ImportStatus({ latestImport }: { latestImport: WorkspaceImportSnapshot 
 }
 
 function WorkerHealthAlert({ workers }: { workers: WorkerHealth[] }) {
-  const attention = workers.filter((worker) => worker.status === 'STALE' || worker.status === 'DEGRADED')
-  if (!attention.length) return null
+  const attention = summarizeWorkerAttention(workers)
+  if (!attention) return null
 
-  const degraded = attention.filter((worker) => worker.status === 'DEGRADED').length
-  const names = attention.slice(0, 3).map((worker) => worker.workerId).join(', ')
-  const remainder = attention.length > 3 ? ` and ${attention.length - 3} more` : ''
+  const names = attention.workers.slice(0, 3).map((worker) => worker.workerId).join(', ')
+  const remainder = attention.workers.length > 3 ? ` and ${attention.workers.length - 3} more` : ''
+  const message = attention.kind === 'degraded'
+    ? `${attention.workers.length} responsive worker${attention.workers.length === 1 ? '' : 's'} reported a failed dispatch. Affected: ${names}${remainder}.`
+    : attention.kind === 'stale'
+      ? `No worker has checked in recently. ${attention.workers.length} registered worker${attention.workers.length === 1 ? ' is' : 's are'} stale: ${names}${remainder}.`
+      : 'No worker has reported a heartbeat yet.'
+  const guidance = attention.kind === 'degraded'
+    ? 'Review the worker status details below before retrying failed tasks.'
+    : 'New analysis tasks may wait until a worker checks in.'
   return (
     <aside className={styles.workerAlert} role="alert" aria-labelledby="worker-alert-heading">
       <AlertTriangle size={19} aria-hidden="true" />
       <div>
         <strong id="worker-alert-heading">Analysis worker attention required</strong>
-        <p>{degraded ? `${degraded} worker${degraded === 1 ? '' : 's'} reported a failed dispatch. ` : ''}{attention.length - degraded ? `${attention.length - degraded} worker${attention.length - degraded === 1 ? '' : 's'} are stale. ` : ''}Affected: {names}{remainder}.</p>
-        <small>New analysis tasks may wait until the worker process recovers. Check the worker logs before retrying failed tasks.</small>
+        <p>{message}</p>
+        <small>{guidance}</small>
       </div>
     </aside>
   )
@@ -150,12 +161,13 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
   const { id: projectId } = use(params)
   const queryClient = useQueryClient()
   const [selectedTarget, setSelectedTarget] = useState<string | null>(null)
+  const [decompilationActionPending, setDecompilationActionPending] = useState(false)
   const workspace = useQuery({
     queryKey: ['reamon-workspace', projectId],
     queryFn: () => fetchWorkspace(projectId),
     refetchInterval: (query) => {
       const snapshot = query.state.data
-      if (snapshot?.tasks.some((task) => task.status === 'RUNNING')) return 3000
+      if (decompilationActionPending || snapshot?.tasks.some((task) => task.status === 'RUNNING')) return 3000
       if (snapshot?.workers.length) return 30000
       return false
     },
@@ -166,6 +178,15 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
   const data = workspace.data
   const rootTarget = useMemo(() => data?.targets.find((target) => target.targetType === 'DIRECTORY'), [data?.targets])
   const latestImport = data?.imports[0]
+  const hasDecompilableArtifact = data?.artifacts.some((artifact) => ['apk', 'jar', 'dex', 'class', 'elf', 'pe', 'pe-dll', 'pe-dotnet', 'macho'].includes(artifact.profile.format)) ?? false
+  const decompileTask = data?.tasks.find((task) => task.capability === 'decompile')
+  const decompileResult = decompileTask?.result
+  const returnedClassCount = typeof decompileResult?.returnedClassCount === 'number' ? decompileResult.returnedClassCount : null
+  const discoveredClassCount = typeof decompileResult?.decompiledClassCount === 'number' ? decompileResult.decompiledClassCount : null
+  const sourceScanLimited = typeof decompileResult?.warnings === 'string' && /produced more than|source scan.*limit/i.test(decompileResult.warnings)
+  const hasPartialDecompilation = decompileTask?.status === 'COMPLETED' && decompileResult?.truncated === true
+  const decompileProposal = analysisPlan.data?.steps.find((step) => step.capability === 'decompile')
+  const decompilationTaskActive = decompileTask && ['AWAITING_APPROVAL', 'QUEUED', 'RUNNING'].includes(decompileTask.status)
   const logicalTargets = data?.targets.filter((target) => target.targetType !== 'DIRECTORY') || []
   const selectedLogicalTarget = logicalTargets.find((target) => target.id === selectedTarget)
 
@@ -180,7 +201,6 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
 
       <header className={styles.hero}>
         <div><p className={styles.eyebrow}>Reverse-engineering workspace</p><h1>{data.workspace.name}</h1><p className={styles.description}>{data.workspace.description || 'Analyse anything. Connect the evidence. Understand the system.'}</p></div>
-        <div className={styles.progressSummary} aria-label={`Workspace progress: ${data.progress.overallPercent}%`}><Gauge size={17} /><strong>{data.progress.overallPercent}%</strong><span>progress</span></div>
       </header>
 
       <WorkerHealthAlert workers={data.workers} />
@@ -197,8 +217,31 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
       <WorkspaceImportPanel projectId={projectId} onImported={() => {
         void queryClient.invalidateQueries({ queryKey: ['reamon-workspace', projectId] })
         void queryClient.invalidateQueries({ queryKey: ['reamon-analysis-plan', projectId] })
+        void queryClient.invalidateQueries({ queryKey: ['reamon-code-units', projectId] })
       }} />
       <ImportStatus latestImport={latestImport} />
+      {hasDecompilableArtifact && <aside className={styles.analysisNextStep} id="analysis-next-step">
+        <div><strong>{hasPartialDecompilation && returnedClassCount !== null ? discoveredClassCount !== null && !sourceScanLimited ? `Previous run indexed ${returnedClassCount.toLocaleString()} of ${discoveredClassCount.toLocaleString()} Java classes.` : `At least ${returnedClassCount.toLocaleString()} Java classes indexed; the total is unknown.` : decompileTask?.status === 'AWAITING_APPROVAL' ? 'Decompilation is waiting for approval.' : decompileTask?.status === 'QUEUED' ? 'Decompilation is queued.' : decompileTask?.status === 'RUNNING' ? 'Decompilation is running.' : decompileTask?.status === 'COMPLETED' ? 'Decompilation run finished.' : decompileTask?.status === 'FAILED' ? 'Decompilation failed.' : decompileTask?.status === 'CANCELLED' ? 'Decompilation was cancelled.' : 'Import complete; decompilation has not started.'}</strong><p>{hasPartialDecompilation ? 'This run did not index every code unit. A new run uses current analyzer settings, up to 20,000 classes; larger targets can still be partial. This performs static decompilation; it does not launch the Android app.' : decompileTask?.status === 'AWAITING_APPROVAL' ? 'Approve this task under Tasks and findings, then choose Run.' : decompileTask?.status === 'QUEUED' ? 'The approved task is ready. Choose Run under Tasks and findings.' : decompileTask?.status === 'RUNNING' ? decompileTask.progressMessage || 'The isolated analyzer is processing the imported artifact.' : decompileTask?.status === 'COMPLETED' ? 'Review indexed coverage and any truncation warnings in the visualizer below. Start another run to refresh the results.' : decompileTask ? 'Review the task details below, or start a fresh analysis attempt.' : 'Choose Run decompilation to start the matching isolated analyzer for this imported artifact. This performs static analysis; it does not launch the Android app.'}</p></div>
+        {!decompilationTaskActive && decompileProposal && <WorkspaceDecompilationAction projectId={projectId} artifactId={decompileProposal.artifactId} providerId={decompileProposal.provider.pluginId} hasPreviousRun={Boolean(decompileTask)} onPendingChange={setDecompilationActionPending} onChanged={() => {
+          void queryClient.invalidateQueries({ queryKey: ['reamon-workspace', projectId] })
+          void queryClient.invalidateQueries({ queryKey: ['reamon-code-units', projectId] })
+        }} />}
+        {!decompilationTaskActive && analysisPlan.isLoading && <span className={styles.muted}>Finding a compatible decompiler…</span>}
+        {!decompilationTaskActive && analysisPlan.isError && <span className={styles.uploadError}>Available analysis proposals could not be loaded. Refresh the workspace and try again.</span>}
+        {!decompilationTaskActive && !analysisPlan.isLoading && !analysisPlan.isError && !decompileProposal && <span className={styles.muted}>No compatible decompiler is available for this artifact.</span>}
+        {decompileTask && <a href="#analysis-tasks">Open task controls</a>}
+        <a href="#analysis-proposals">View all analysis proposals</a>
+      </aside>}
+      <WorkspaceAnalysisPlanPanel projectId={projectId} plan={analysisPlan.data} isLoading={analysisPlan.isLoading} isError={analysisPlan.isError} onScheduled={() => {
+        void queryClient.invalidateQueries({ queryKey: ['reamon-workspace', projectId] })
+        void queryClient.invalidateQueries({ queryKey: ['reamon-code-units', projectId] })
+      }} />
+      <WorkspaceCodeVisualizer
+        projectId={projectId}
+        isAnalyzing={data.tasks.some((task) => task.status === 'RUNNING')}
+        decompilationTask={decompileTask ? { status: decompileTask.status, progressMessage: decompileTask.progressMessage } : undefined}
+        decompilationHref={hasDecompilableArtifact ? '#analysis-next-step' : undefined}
+      />
 
       <section className={styles.panel} aria-labelledby="inventory-heading">
         <div className={styles.panelHeader}><h2 id="inventory-heading">Workspace inventory</h2><span className={styles.muted}>{rootTarget ? profileLabel(rootTarget.profile) : 'Awaiting import'}</span></div>
@@ -206,13 +249,10 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
       </section>
 
       <div className={styles.grid}>
-        <section className={styles.panel} aria-labelledby="progress-heading"><div className={styles.panelHeader}><h2 id="progress-heading">Progress</h2><span className={styles.muted}>Deterministic lifecycle state</span></div>{data.progress.metrics.length ? data.progress.metrics.map((metric) => <ProgressBar key={metric.id} metric={metric} />) : <p className={styles.muted}>Progress appears as investigation entities are created.</p>}</section>
+        <section className={styles.panel} aria-labelledby="progress-heading"><div className={styles.panelHeader}><h2 id="progress-heading">Recorded work status</h2></div><p className={styles.muted}>Counts describe tasks and cases already recorded. They do not estimate how much of an artifact has been analyzed.</p>{data.progress.metrics.length ? data.progress.metrics.map((metric) => <ProgressBar key={metric.id} metric={metric} />) : <p className={styles.muted}>No analysis tasks, findings, or hypotheses have been recorded.</p>}</section>
         <section className={styles.panel} aria-labelledby="providers-heading"><div className={styles.panelHeader}><h2 id="providers-heading">Available capabilities</h2><span className={styles.muted}>{data.capabilities.length} provider{data.capabilities.length === 1 ? '' : 's'}</span></div>{data.capabilities.length ? data.capabilities.map((provider) => <div className={styles.providerRow} key={provider.pluginId}><span><strong>{provider.pluginName}</strong><small>{provider.capabilities.slice(0, 4).join(' · ')}</small><small>Accepts {provider.acceptsFormats.slice(0, 3).join(', ')} · produces {provider.produces.slice(0, 3).join(', ') || 'provider results'}</small></span><span className={styles.providerCount}>{provider.compatibleArtifactIds.length} compatible artifacts</span></div>) : <p className={styles.muted}>Capabilities will appear as providers are registered.</p>}</section>
       </div>
 
-      <WorkspaceAnalysisPlanPanel projectId={projectId} plan={analysisPlan.data} isLoading={analysisPlan.isLoading} isError={analysisPlan.isError} onScheduled={() => {
-        void queryClient.invalidateQueries({ queryKey: ['reamon-workspace', projectId] })
-      }} />
 
       <section className={styles.panel} aria-labelledby="files-heading">
         <div className={styles.panelHeader}><h2 id="files-heading">Project files</h2><span className={styles.muted}>Relative paths are preserved as workspace context</span></div>
@@ -232,8 +272,9 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
 
       <div className={styles.bottomGrid}>
         <section className={styles.panel} aria-labelledby="workers-heading"><div className={styles.panelHeader}><h2 id="workers-heading">Analysis workers</h2><span className={styles.muted}>{data.workers.length} registered</span></div>{data.workers.length ? data.workers.map((worker) => <div className={styles.listRow} key={worker.workerId}><span className={styles.observationMain}><strong><Server size={13} aria-hidden="true" /> {worker.workerId}</strong><small>Last seen {new Date(worker.lastSeenAt).toLocaleString()} · {worker.lastSelected} selected · {worker.lastCompleted} completed</small>{worker.lastError && <small className={styles.uploadError}>{worker.lastError}</small>}</span><span className={styles.type}>{worker.status}</span></div>) : <p className={styles.muted}>No worker has reported a dispatch heartbeat yet.</p>}</section>
-        <section className={styles.panel} aria-labelledby="work-heading"><div className={styles.panelHeader}><h2 id="work-heading">Tasks and findings</h2></div>{!data.tasks.length && !data.findings.length ? <p className={styles.muted}>No analysis work has been scheduled.</p> : <>{data.tasks.length > 0 && <WorkspaceTaskList projectId={projectId} tasks={data.tasks} onChanged={() => {
+        <section id="analysis-tasks" className={styles.panel} aria-labelledby="work-heading"><div className={styles.panelHeader}><h2 id="work-heading">Tasks and findings</h2></div>{!data.tasks.length && !data.findings.length ? <p className={styles.muted}>No analysis work has been scheduled.</p> : <>{data.tasks.length > 0 && <WorkspaceTaskList projectId={projectId} tasks={data.tasks} onChanged={() => {
           void queryClient.invalidateQueries({ queryKey: ['reamon-workspace', projectId] })
+          void queryClient.invalidateQueries({ queryKey: ['reamon-code-units', projectId] })
         }} />}{data.findings.length > 0 && <WorkspaceFindingList projectId={projectId} findings={data.findings} onChanged={() => {
           void queryClient.invalidateQueries({ queryKey: ['reamon-workspace', projectId] })
         }} />}</>}</section>

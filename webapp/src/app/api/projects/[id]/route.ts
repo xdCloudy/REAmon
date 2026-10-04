@@ -10,6 +10,7 @@ import { clearProjectGraph } from '@/lib/graphRestore'
 import { orchestratorFetch } from '@/lib/orchestrator'
 import { isInternalRequest, isScannerRequest } from '@/lib/session'
 import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
+import { removeDerivedArtifactProject } from '@/lib/reamon/derived-storage'
 import { toAuthProfileMetadata } from '@/lib/authProfile'
 import { callGraphTriage } from '@/lib/triageClient'
 import { pickProjectColumns } from '@/lib/projectColumns'
@@ -583,6 +584,13 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     await prisma.project.delete({
       where: { id }
     })
+
+    // Derived source is stored separately from imported artifact bytes.
+    try {
+      await removeDerivedArtifactProject(id)
+    } catch (e) {
+      console.warn(`[project-delete] derived source cleanup failed for ${id}:`, e)
+    }
 
     // 1b. GC captured body blobs this project exclusively owned (ref-counted).
     if (capturedBodyRefs.length > 0) {

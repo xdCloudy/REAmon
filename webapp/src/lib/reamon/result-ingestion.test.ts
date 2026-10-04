@@ -1,6 +1,6 @@
 /** @vitest-environment node */
 import { describe, expect, test, vi } from 'vitest'
-import { canonicalKeyForObservation, ingestToolResult, parseToolFindings, parseToolObservations } from './result-ingestion'
+import { canonicalKeyForObservation, ingestToolResult, MAX_CODE_UNITS_PER_RESULT, parseToolFindings, parseToolObservations } from './result-ingestion'
 
 describe('parseToolObservations', () => {
   test('accepts typed entities and relationships while rejecting unsafe shapes', () => {
@@ -24,6 +24,29 @@ describe('parseToolObservations', () => {
 
   test('ignores results without an observations array', () => {
     expect(parseToolObservations({ strings: ['hello'] })).toEqual({ observations: [], rejected: 0 })
+  })
+
+  test('allows bounded decompiler indexes to exceed the general observation cap', () => {
+    const observations = Array.from({ length: 1200 }, (_, index) => ({
+      kind: 'entity', type: 'code_unit', key: `unit:${index}`, attributes: { unitType: 'class', sizeBytes: 1 },
+    }))
+
+    const result = parseToolObservations({ observations }, MAX_CODE_UNITS_PER_RESULT)
+
+    expect(result.observations).toHaveLength(1200)
+    expect(result.rejected).toBe(0)
+    expect(parseToolObservations({ observations })).toMatchObject({ rejected: 700 })
+  })
+
+  test('accepts the full configured 20,000 code unit result and rejects only excess units', () => {
+    const observations = Array.from({ length: MAX_CODE_UNITS_PER_RESULT + 3 }, (_, index) => ({
+      kind: 'entity', type: 'code_unit', key: `large-unit:${index}`, attributes: { unitType: 'class', sizeBytes: 1 },
+    }))
+
+    const result = parseToolObservations({ observations }, MAX_CODE_UNITS_PER_RESULT)
+
+    expect(result.observations).toHaveLength(20_000)
+    expect(result.rejected).toBe(3)
   })
 })
 

@@ -1,0 +1,73 @@
+const languageAliases: Record<string, string> = {
+  'c': 'c',
+  'c++': 'cpp',
+  'c#': 'csharp',
+  'csharp': 'csharp',
+  'go': 'go',
+  'golang': 'go',
+  'java': 'java',
+  'javascript': 'javascript',
+  'js': 'javascript',
+  'json': 'json',
+  'kotlin': 'kotlin',
+  'objective-c': 'objectivec',
+  'objective c': 'objectivec',
+  'python': 'python',
+  'py': 'python',
+  'ruby': 'ruby',
+  'rust': 'rust',
+  'scala': 'scala',
+  'swift': 'swift',
+  'typescript': 'typescript',
+  'ts': 'typescript',
+  'xml': 'xml',
+  'html': 'markup',
+  'yaml': 'yaml',
+  'yml': 'yaml',
+  'sql': 'sql',
+  'bash': 'bash',
+  'shell': 'bash',
+  'sh': 'bash',
+  'assembly': 'nasm',
+  'asm': 'nasm',
+  'nasm': 'nasm',
+}
+
+const extensionAliases: Record<string, string> = {
+  c: 'c',
+  cc: 'cpp',
+  cpp: 'cpp',
+  cs: 'csharp',
+  go: 'go',
+  h: 'c',
+  hpp: 'cpp',
+  java: 'java',
+  js: 'javascript',
+  json: 'json',
+  kt: 'kotlin',
+  m: 'objectivec',
+  mm: 'objectivec',
+  py: 'python',
+  rb: 'ruby',
+  rs: 'rust',
+  scala: 'scala',
+  sh: 'bash',
+  swift: 'swift',
+  ts: 'typescript',
+  tsx: 'tsx',
+  xml: 'xml',
+  html: 'markup',
+  yaml: 'yaml',
+  yml: 'yaml',
+  sql: 'sql',
+  asm: 'nasm',
+  s: 'nasm',
+}
+
+export function sourceSyntaxLanguage(language: string | null | undefined, fileName: string | null | undefined): string | undefined {
+  const normalizedLanguage = language?.trim().toLowerCase()
+  if (normalizedLanguage && languageAliases[normalizedLanguage]) return languageAliases[normalizedLanguage]
+
+  const extension = fileName?.split('.').pop()?.trim().toLowerCase()
+  return extension ? extensionAliases[extension] : undefined
+}

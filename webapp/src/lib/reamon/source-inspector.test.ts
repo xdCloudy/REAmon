@@ -34,6 +34,24 @@ describe('REAmon process source inspector', () => {
     }
   })
 
+  test('extracts strings from binary APK content', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'reamon-apk-strings-'))
+    const filePath = path.join(root, 'sample.apk')
+    await writeFile(filePath, Buffer.from([0x50, 0x4b, 0x03, 0x04, 0, 0, ...Buffer.from('com.example.Main'), 0, ...Buffer.from('https://api.example.test/v1'), 0]))
+    try {
+      const result = await executeSourceInspection({
+        targetProfile: { targetType: 'FILE', format: 'apk', mimeType: 'application/vnd.android.package-archive', extension: 'apk', architecture: null, platform: 'android', runtimes: ['dalvik', 'art'], embeddedArtifacts: ['dex'], entropy: null, metadata: {} },
+        artifactId: 'apk-1',
+        artifactPath: filePath,
+      })
+
+      expect(result).toMatchObject({ status: 'completed', toolId: 'reamon-source-inspector' })
+      expect(result.data).toMatchObject({ strings: expect.arrayContaining(['com.example.Main', 'https://api.example.test/v1']) })
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   test('fails closed when no controlled artifact path is provided', async () => {
     const result = await executeSourceInspection({
       targetProfile: { targetType: 'FILE', format: 'source', mimeType: 'text/plain', extension: 'txt', architecture: null, platform: null, runtimes: [], embeddedArtifacts: [], entropy: null, metadata: {} },

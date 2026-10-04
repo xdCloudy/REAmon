@@ -11,13 +11,13 @@ const MAX_STRINGS = 2_000
 
 export const sourceInspectorManifest: ToolPluginManifest = {
   id: 'reamon-source-inspector',
-  name: 'REAmon Source Inspector',
+  name: 'REAmon Strings Inspector',
   category: 'static_analysis',
   integration: 'process',
   acceptsTargetTypes: ['FILE'],
-  acceptsFormats: ['source'],
+  acceptsFormats: ['*'],
   capabilities: ['extract_strings'],
-  produces: ['String', 'CodeEntity'],
+  produces: ['String'],
   requirements: [
     { key: 'executable', value: 'strings' },
     { key: 'artifactPath' },

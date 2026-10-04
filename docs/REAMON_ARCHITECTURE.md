@@ -223,6 +223,63 @@ summaries identify each installed provider and the compatible artifact IDs witho
 automatically scheduling heavyweight analysis across every match. Inventory and
 profiling happen first; task planning remains an explicit next stage.
 
+## Code-unit map and visualizer
+
+Code-aware providers publish one `ReamonObservation` of type `code_unit` per
+function, class, symbol, or other addressable unit. The stable observation carries
+`unitType`, `name` or `qualifiedName`, `address` or `startAddress`, and positive
+`sizeBytes`; optional fields include `language`, `coveragePercent` or
+`decompiledBytes`, and `codeArtifactId`. Decompiled text belongs in a project-scoped
+derived artifact, with provenance back to the input and task, rather than in a
+large graph observation.
+
+`GET /api/projects/[id]/visualizer` is authenticated, project-scoped, and limited to
+observations for active workspace artifacts. It returns at most 5,000 normalized
+units. The project workspace lays them out as a treemap sized by bytes and colored by
+the provider's stated decompilation coverage; name, address, path, minimum-size, and
+maximum-coverage filters operate on the returned units. Missing coverage remains
+unknown instead of being counted as zero. The visualizer links a selected unit to
+its derived code artifact when the provider supplies one.
+
+The built-in JADX provider accepts APK, JVM JAR, standalone DEX, and JVM class
+artifacts and runs JADX 1.5.6 in a
+dedicated container with no database or internet network access. It receives the
+artifact volume read-only, writes generated Java under a separate derived-source
+volume, and emits up to 5,000 class-sized `code_unit` observations per task. Class tiles
+use generated Java source size; address and whole-program coverage remain unknown.
+The visualizer links each indexed class to an authenticated route that checks project
+access, active import membership, and the matching provider observation before
+reading source.
+
+JADX is bounded by container CPU, memory, process count, temporary storage, output
+size, file count, and execution timeout. Cancelling the task closes the analyzer
+request and terminates its process group.
+
+The built-in ILSpy provider accepts PE artifacts whose optional header declares a
+non-empty CLR data-directory entry. Native PE files continue to resolve to Ghidra.
+ILSpyCmd 11.1.0.9782 runs in a separate .NET 10 container with no database or
+internet network access, reads imported artifacts read-only, and writes bounded C#
+type outputs under the derived-source volume. The visualizer links each indexed C#
+unit through the authenticated derived-code route. Container memory, CPU, process
+count, temporary storage, source-file count, output size, returned units, and
+execution time are bounded. If source discovery reaches its cap, the run reports
+coverage as unknown rather than treating the scanned lower bound as an exact total.
+
+The built-in Ghidra provider accepts profiled ELF, PE, and Mach-O artifacts and runs
+Ghidra 12.1.4 headless in a separate container with no database or internet network
+access. It receives native binaries read-only, runs automatic analysis plus a
+bounded function decompilation script, then stores generated C-like output under the
+derived-source volume. Each function becomes an address-aware `code_unit`; up to 500
+functions are linked to the authenticated code route. Function body size defines
+treemap area. Byte-level coverage is not measured and stays unknown. Ghidra CPU,
+memory, temporary storage, process count, functions considered, output size, and
+analysis timeout are bounded. Cancelling the task terminates the Ghidra process
+group.
+
+The workspace no longer averages target lifecycle, artifact lifecycle, and task
+completion into one percentage. Those measures describe different states; code
+coverage belongs in the visualizer summary once analyzer observations exist.
+
 ## Universal knowledge model
 
 The relational models provide durable project state and provenance. The graph model is intended for connected entities and relationships such as:

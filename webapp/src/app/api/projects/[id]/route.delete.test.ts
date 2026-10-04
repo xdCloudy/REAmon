@@ -16,6 +16,7 @@ const h = vi.hoisted(() => ({
   effectiveUser: vi.fn(),
   countAuthorizations: vi.fn(),
   archiveTransaction: vi.fn(),
+  removeDerivedArtifactProject: vi.fn(),
 }))
 
 vi.mock('@/lib/prisma', () => ({
@@ -31,6 +32,7 @@ vi.mock('@/lib/prisma', () => ({
 }))
 vi.mock('@/app/api/graph/neo4j', () => ({ getGraphSession: () => ({ run: vi.fn(), close: vi.fn() }) }))
 vi.mock('@/lib/orchestrator', () => ({ orchestratorFetch: (...a: unknown[]) => h.orchestratorFetch(...a) }))
+vi.mock('@/lib/reamon/derived-storage', () => ({ removeDerivedArtifactProject: h.removeDerivedArtifactProject }))
 vi.mock('@/lib/access', async () => {
   const actual = await vi.importActual<typeof import('@/lib/access')>('@/lib/access')
   return { ...actual, requireEffectiveUser: () => h.effectiveUser(), requireProjectAccess: () => null }
@@ -45,6 +47,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   h.effectiveUser.mockResolvedValue({ userId: 'u1' })
   h.projectDelete.mockResolvedValue({ id: 'p1', userId: 'u1' })
+  h.removeDerivedArtifactProject.mockResolvedValue(undefined)
   h.jobQueueUpdateMany.mockResolvedValue({ count: 2 })
   h.capturedFindMany.mockResolvedValue([])
   h.orchestratorFetch.mockResolvedValue({ ok: true, json: async () => ({ deleted: [] }) })
@@ -96,6 +99,7 @@ test('cancels non-terminal queue rows before deleting the project (C-7)', async 
 
 test('calls the orchestrator stop endpoints for the running scan types', async () => {
   await DELETE(del(), params('p1'))
+  expect(h.removeDerivedArtifactProject).toHaveBeenCalledWith('p1')
   const stopCalls = h.orchestratorFetch.mock.calls
     .map(c => String(c[0]))
     .filter(u => u.endsWith('/stop'))

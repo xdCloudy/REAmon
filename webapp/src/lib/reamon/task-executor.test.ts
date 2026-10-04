@@ -1,4 +1,5 @@
 /** @vitest-environment node */
+import path from 'node:path'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
@@ -32,8 +33,8 @@ import type { ToolResult } from './types'
 
 const provider = {
   manifest: {
-    id: 'reamon-source-inspector', name: 'REAmon Source Inspector', category: 'static_analysis', integration: 'native',
-    acceptsTargetTypes: ['FILE'], acceptsFormats: ['source'], capabilities: ['extract_strings'], produces: ['String'], requirements: [],
+    id: 'reamon-source-inspector', name: 'REAmon Strings Inspector', category: 'static_analysis', integration: 'native',
+    acceptsTargetTypes: ['FILE'], acceptsFormats: ['*'], capabilities: ['extract_strings'], produces: ['String'], requirements: [],
   },
   analyze: mocks.analyze,
 }
@@ -86,9 +87,9 @@ describe('executeAnalysisTask', () => {
       where: { id: 'task-1', projectId: 'project-1', status: 'QUEUED' },
       data: expect.objectContaining({ status: 'RUNNING', progress: 10, leaseOwner: 'webapp' }),
     }))
-    expect(mocks.analyze).toHaveBeenCalledWith({
-      targetProfile: { targetType: 'FILE', format: 'source' }, artifactId: 'artifact-1', artifactPath: expect.stringContaining('project-1/import-1/artifact-1'), options: { mode: 'conservative' }, signal: expect.any(AbortSignal),
-    })
+    expect(mocks.analyze).toHaveBeenCalledWith(expect.objectContaining({
+      targetProfile: { targetType: 'FILE', format: 'source' }, artifactId: 'artifact-1', projectId: 'project-1', taskId: 'task-1', runToken: expect.any(String), artifactPath: expect.stringContaining(path.join('project-1', 'import-1', 'artifact-1')), options: { mode: 'conservative' }, signal: expect.any(AbortSignal), reportProgress: expect.any(Function),
+    }))
     expect(mocks.evidenceCreate).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ kind: 'analysis', source: provider.manifest.id, artifactId: 'artifact-1' }),
     }))
@@ -99,6 +100,23 @@ describe('executeAnalysisTask', () => {
       data: expect.objectContaining({ eventType: 'analysis.task.completed', data: expect.objectContaining({
         taskId: 'task-1', observations: expect.objectContaining({ accepted: 1, rejected: 0, findingsAccepted: 0 }),
       }) }),
+    }))
+  })
+
+  test('persists bounded progress messages under the active run lease', async () => {
+    mocks.analyze.mockImplementation(async (input: { reportProgress?: (message: string) => Promise<void> | void }) => {
+      await input.reportProgress?.('  Indexing Java source 4 of 12  ')
+      return {
+        status: 'completed', toolId: provider.manifest.id, capabilities: ['extract_strings'], produced: ['String'],
+        data: { strings: [], observations: [] },
+      }
+    })
+
+    await executeAnalysisTask('project-1', 'task-1')
+
+    expect(mocks.taskUpdateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: 'task-1', projectId: 'project-1', status: 'RUNNING', runToken: expect.any(String) }),
+      data: expect.objectContaining({ progressMessage: 'Indexing Java source 4 of 12', leaseHeartbeatAt: expect.any(Date) }),
     }))
   })
 
@@ -136,6 +154,35 @@ describe('executeAnalysisTask', () => {
     }))
     expect(mocks.observationUpsert).toHaveBeenCalledWith(expect.objectContaining({
       where: { projectId_source_stableKey: { projectId: 'project-1', source: provider.manifest.id, stableKey: 'fn:bounded' } },
+    }))
+  })
+
+  test('persists decompiler run metrics without duplicating large observation arrays', async () => {
+    const observations = Array.from({ length: 600 }, (_, index) => ({
+      kind: 'entity', type: 'code_unit', key: `class:${index}`, label: `Class${index}`,
+      attributes: { unitType: 'class', sizeBytes: 1024, decompiled: true, codeArtifactId: `sources/Class${index}.java` },
+    }))
+    mocks.analyze.mockResolvedValue({
+      status: 'completed', toolId: 'reamon-jadx', capabilities: ['decompile'], produced: ['CodeUnit', 'DecompiledSource'], data: {
+        decompiledClassCount: 600, returnedClassCount: 600, codeBytes: 819200, truncated: false, warnings: '', observations,
+      },
+    })
+
+    await executeAnalysisTask('project-1', 'task-1')
+
+    const persistedResult = mocks.taskSettleUpdateMany.mock.calls[0][0].data.result
+    expect(persistedResult).toEqual({
+      decompiledClassCount: 600,
+      returnedClassCount: 600,
+      codeBytes: 819200,
+      truncated: false,
+      warnings: '',
+      normalizedObservationCount: 600,
+    })
+    expect(mocks.observationUpsert).toHaveBeenCalledTimes(600)
+    expect(mocks.transaction).toHaveBeenCalledWith(expect.any(Function), { maxWait: 10_000, timeout: 120_000 })
+    expect(mocks.taskUpdateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ progressMessage: 'Saving analyzer results to the workspace' }),
     }))
   })
 

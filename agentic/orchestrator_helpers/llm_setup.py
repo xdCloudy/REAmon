@@ -12,7 +12,7 @@ from orchestrator_helpers.llm_url_guard import validate_llm_base_url
 
 logger = logging.getLogger(__name__)
 
-OLLAMA_REASONING_EFFORTS = frozenset({"low", "medium", "high", "max"})
+OLLAMA_REASONING_EFFORTS = frozenset({"none", "low", "medium", "high", "max"})
 
 # Anthropic models that reject the `temperature` parameter (HTTP 400
 # "temperature is deprecated for this model"). Anthropic deprecated the param
@@ -48,11 +48,9 @@ def _resolve_reasoning_effort(custom_llm_config: dict) -> str | None:
     """Return the OpenAI-compatible ``reasoning_effort`` value to send, if any.
 
     Enabling the control is an explicit opt-in and works through reverse
-    proxies. When disabled we send nothing at all, so the model's own default
-    thinking behavior is preserved and unrelated OpenAI-compatible providers
-    are untouched. Enabling reasoning on a model that lacks the thinking
-    capability makes the endpoint reject the request; ``retry_llm_call``
-    self-heals that by dropping ``reasoning_effort`` and retrying once.
+    proxies. ``none`` asks compatible endpoints such as llama.cpp to disable
+    hidden thinking. When disabled we send nothing, preserving model defaults.
+    Unsupported endpoints are retried without this optional parameter.
     """
     if custom_llm_config.get("reasoningEnabled") is not True:
         return None

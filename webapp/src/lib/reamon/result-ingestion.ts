@@ -7,6 +7,7 @@ import type {
 } from './types'
 
 export const MAX_OBSERVATIONS_PER_RESULT = 500
+export const MAX_CODE_UNITS_PER_RESULT = 20000
 export const MAX_OBSERVATION_ATTRIBUTES = 64
 export const MAX_FINDINGS_PER_RESULT = 200
 
@@ -147,15 +148,16 @@ export function parseToolFindings(data: unknown): ParsedFindings {
   return { findings, rejected }
 }
 
-export function parseToolObservations(data: unknown): ParsedObservations {
+export function parseToolObservations(data: unknown, maxObservations = MAX_OBSERVATIONS_PER_RESULT): ParsedObservations {
   const record = asRecord(data)
   const rawObservations = record?.observations
   if (!Array.isArray(rawObservations)) return { observations: [], rejected: 0 }
 
   const observations: ToolObservation[] = []
   const seenKeys = new Set<string>()
-  let rejected = Math.max(0, rawObservations.length - MAX_OBSERVATIONS_PER_RESULT)
-  for (const rawObservation of rawObservations.slice(0, MAX_OBSERVATIONS_PER_RESULT)) {
+  const limit = Math.max(1, Math.min(MAX_CODE_UNITS_PER_RESULT, Math.floor(maxObservations)))
+  let rejected = Math.max(0, rawObservations.length - limit)
+  for (const rawObservation of rawObservations.slice(0, limit)) {
     const observation = normalizeObservation(rawObservation)
     if (!observation || seenKeys.has(observation.key)) {
       rejected += 1
@@ -174,6 +176,7 @@ export interface ObservationIngestionInput {
   artifactId: string | null
   source: string
   data: unknown
+  maxObservations?: number
 }
 
 export interface ObservationIngestionSummary {
@@ -187,7 +190,7 @@ export async function ingestToolResult(
   tx: Prisma.TransactionClient,
   input: ObservationIngestionInput,
 ): Promise<ObservationIngestionSummary> {
-  const parsed = parseToolObservations(input.data)
+  const parsed = parseToolObservations(input.data, input.maxObservations)
   for (const observation of parsed.observations) {
     const attributes = observation.attributes as unknown as Prisma.InputJsonValue
     await tx.reamonObservation.upsert({

@@ -100,9 +100,13 @@ export interface ToolPluginManifest {
 export interface ToolExecutionInput {
   targetProfile: TargetProfile
   artifactId?: string
+  projectId?: string
+  taskId?: string
+  runToken?: string
   artifactPath?: string
   options?: Record<string, unknown>
   signal?: AbortSignal
+  reportProgress?: (message: string) => Promise<void> | void
 }
 
 export interface ToolResult {
@@ -187,7 +191,6 @@ export interface ProgressMetric {
 }
 
 export interface ProgressModel {
-  overallPercent: number
   metrics: ProgressMetric[]
 }
 

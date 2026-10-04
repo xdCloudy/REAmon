@@ -4,7 +4,7 @@ import prisma from '@/lib/prisma'
 import { getBuiltinProvider } from './provider-registry'
 import { resolveCapabilities } from './capabilities'
 import { resolveArtifactStoragePath } from './artifact-storage'
-import { ingestToolResult } from './result-ingestion'
+import { ingestToolResult, MAX_CODE_UNITS_PER_RESULT, MAX_OBSERVATIONS_PER_RESULT } from './result-ingestion'
 import { boundResultData } from './result-bounds'
 import { taskRequiresApproval } from './task-approval'
 import type { TargetProfile, ToolResult } from './types'
@@ -23,6 +23,7 @@ const taskSelect = {
   category: true,
   status: true,
   progress: true,
+  progressMessage: true,
   options: true,
   result: true,
   error: true,
@@ -53,6 +54,7 @@ export interface ExecutedAnalysisTask {
     category: string
     status: string
     progress: number
+    progressMessage: string
     result: unknown
     error: string
     startedAt: string | null
@@ -76,6 +78,7 @@ function serialiseTask(task: TaskRow): ExecutedAnalysisTask['task'] {
     category: task.category,
     status: task.status,
     progress: task.progress,
+    progressMessage: task.progressMessage,
     result: task.result,
     error: task.error,
     startedAt: task.startedAt?.toISOString() || null,
@@ -93,6 +96,16 @@ function asOptions(value: unknown): Record<string, unknown> {
 
 function boundedError(value: string): string {
   return value.trim().slice(0, 4000) || 'Provider execution failed'
+}
+
+function boundedTaskResultData(value: unknown): Prisma.InputJsonValue {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    const { observations, ...summary } = value as Record<string, unknown>
+    if (Array.isArray(observations)) {
+      return boundResultData({ ...summary, normalizedObservationCount: observations.length })
+    }
+  }
+  return boundResultData(value)
 }
 
 function heartbeatIntervalMs(): number {
@@ -151,14 +164,18 @@ async function settleTask(
   failure?: string,
 ): Promise<ExecutedAnalysisTask> {
   const error = boundedError(failure || result?.error || '')
-  const persistedResult = outcome === 'COMPLETED' && result ? boundResultData(result.data) : undefined
+  const persistedResult = outcome === 'COMPLETED' && result ? boundedTaskResultData(result.data) : undefined
   const completedAt = new Date()
+  const transactionOptions = result?.capabilities.some((capability) => capability === 'decompile' || capability === 'disassemble')
+    ? { maxWait: 10_000, timeout: 120_000 }
+    : undefined
   const updated = await prisma.$transaction(async (tx) => {
     const claim = await tx.task.updateMany({
       where: { id: task.id, projectId: task.projectId, status: 'RUNNING', runToken },
       data: {
         status: outcome,
         progress: outcome === 'COMPLETED' ? 100 : task.progress,
+        progressMessage: outcome === 'COMPLETED' ? 'Analysis complete' : 'Analysis failed',
         result: persistedResult,
         error: outcome === 'COMPLETED' ? '' : error,
         leaseHeartbeatAt: null,
@@ -191,6 +208,7 @@ async function settleTask(
         artifactId: task.artifactId,
         source: result.toolId,
         data: result.data,
+        maxObservations: (result.capabilities.includes('decompile') || result.capabilities.includes('disassemble')) ? MAX_CODE_UNITS_PER_RESULT : MAX_OBSERVATIONS_PER_RESULT,
       })
     }
     await tx.workspaceActivity.create({
@@ -212,7 +230,7 @@ async function settleTask(
       },
     })
     return updatedTask
-  })
+  }, transactionOptions)
   if (!updated) {
     const current = await loadTask(task.projectId, task.id)
     return current ? { outcome: 'SKIPPED', task: serialiseTask(current) } : { outcome: 'SKIPPED', task: serialiseTask(task) }
@@ -239,6 +257,7 @@ export async function executeAnalysisTask(projectId: string, taskId: string, lea
     data: {
       status: 'RUNNING',
       progress: 10,
+      progressMessage: 'Starting analysis',
       startedAt: new Date(),
       leaseHeartbeatAt: new Date(),
       leaseOwner: owner,
@@ -274,13 +293,30 @@ export async function executeAnalysisTask(projectId: string, taskId: string, lea
   let result: ToolResult
   const controller = new AbortController()
   const stopHeartbeat = startTaskHeartbeat(projectId, task.id, runToken, controller)
+  const reportProgress = async (message: string) => {
+    const progressMessage = message.trim().slice(0, 500)
+    if (!progressMessage) return
+    try {
+      const updated = await prisma.task.updateMany({
+        where: { id: task.id, projectId, status: 'RUNNING', runToken },
+        data: { progressMessage, leaseHeartbeatAt: new Date() },
+      })
+      if (updated.count === 0) controller.abort()
+    } catch (error) {
+      console.warn('Could not persist REAmon analyzer progress:', error)
+    }
+  }
   try {
     result = await plugin.analyze({
       targetProfile: profile,
       artifactId: task.artifactId || undefined,
+      projectId: task.projectId,
+      taskId: task.id,
+      runToken,
       artifactPath,
       options: asOptions(task.options),
       signal: controller.signal,
+      reportProgress,
     })
   } catch (error) {
     stopHeartbeat()
@@ -288,5 +324,6 @@ export async function executeAnalysisTask(projectId: string, taskId: string, lea
   }
   stopHeartbeat()
   if (result.status !== 'completed') return settleTask(task, runToken, 'FAILED', plugin.manifest.name, result, result.error)
+  await reportProgress('Saving analyzer results to the workspace')
   return settleTask(task, runToken, 'COMPLETED', plugin.manifest.name, result)
 }

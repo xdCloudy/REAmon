@@ -79,7 +79,7 @@ export interface ActiveWorkspaceImportSelection {
   artifactWhere: Prisma.ArtifactWhereInput
 }
 
-const EXECUTABLE_EXTENSIONS = ['app', 'apk', 'bin', 'dylib', 'dll', 'elf', 'exe', 'jar', 'so', 'sys', 'wasm']
+const EXECUTABLE_EXTENSIONS = ['app', 'apk', 'bin', 'class', 'dex', 'dylib', 'dll', 'elf', 'exe', 'jar', 'so', 'sys', 'wasm']
 const SOURCE_EXTENSIONS = ['asm', 'c', 'cc', 'cpp', 'cs', 'go', 'h', 'hpp', 'java', 'js', 'jsx', 'kt', 'py', 'rs', 'swift', 'ts', 'tsx']
 
 export async function getActiveWorkspaceImportSelection(projectId: string): Promise<ActiveWorkspaceImportSelection> {

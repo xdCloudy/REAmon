@@ -14,6 +14,7 @@ interface ScheduleBody {
   providerId?: unknown
   capability?: unknown
   approvalRequired?: unknown
+  runAttemptId?: unknown
 }
 
 const NO_STORE = { 'Cache-Control': 'no-store' }
@@ -33,6 +34,13 @@ function readBoolean(body: ScheduleBody, key: keyof ScheduleBody, defaultValue: 
   const value = body[key]
   if (value === undefined) return defaultValue
   return typeof value === 'boolean' ? value : null
+}
+
+function readRunAttemptId(body: ScheduleBody): string | null | false {
+  if (body.runAttemptId === undefined) return null
+  return typeof body.runAttemptId === 'string' && /^[a-f0-9]{32}$/i.test(body.runAttemptId)
+    ? body.runAttemptId.toLowerCase()
+    : false
 }
 
 function serialiseTask(task: {
@@ -85,7 +93,9 @@ export async function POST(request: Request, { params }: RouteParams) {
     const providerId = readString(body, 'providerId', 128)
     const requestedCapability = readString(body, 'capability', 64)?.toLowerCase() || null
     const requiresApproval = readBoolean(body, 'approvalRequired', true)
+    const runAttemptId = readRunAttemptId(body)
     if (requiresApproval === null) return badRequest('approvalRequired must be a boolean')
+    if (runAttemptId === false) return badRequest('runAttemptId must be a 32-character hexadecimal value')
     if (!artifactId || !providerId || !requestedCapability) {
       return badRequest('artifactId, providerId, and capability are required')
     }
@@ -106,7 +116,8 @@ export async function POST(request: Request, { params }: RouteParams) {
       return NextResponse.json({ error: 'Provider is disabled' }, { status: 409, headers: NO_STORE })
     }
 
-    const idempotencyKey = `analysis:${projectId}:${artifact.id}:${provider.pluginId}:${capability}`
+    const baseIdempotencyKey = `analysis:${projectId}:${artifact.id}:${provider.pluginId}:${capability}`
+    const idempotencyKey = runAttemptId ? `${baseIdempotencyKey}:${runAttemptId}` : baseIdempotencyKey
     const taskSelect = {
       id: true,
       title: true,
@@ -122,6 +133,22 @@ export async function POST(request: Request, { params }: RouteParams) {
     const existing = await prisma.task.findUnique({ where: { idempotencyKey }, select: taskSelect })
     if (existing) {
       return NextResponse.json({ scheduled: false, reused: true, task: serialiseTask(existing) }, { headers: NO_STORE })
+    }
+    if (runAttemptId) {
+      const activeTask = await prisma.task.findFirst({
+        where: {
+          projectId,
+          artifactId: artifact.id,
+          providerId: provider.id,
+          capability,
+          status: { in: ['AWAITING_APPROVAL', 'QUEUED', 'RUNNING'] },
+        },
+        orderBy: { createdAt: 'desc' },
+        select: taskSelect,
+      })
+      if (activeTask) {
+        return NextResponse.json({ scheduled: false, reused: true, task: serialiseTask(activeTask) }, { headers: NO_STORE })
+      }
     }
 
     try {

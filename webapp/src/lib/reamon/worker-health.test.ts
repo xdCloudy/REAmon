@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@/lib/prisma', () => ({ default: { reamonWorker: mocks.worker } }))
 
-import { listWorkerHealth, recordWorkerDispatch } from './worker-health'
+import { listWorkerHealth, recordWorkerDispatch, summarizeWorkerAttention } from './worker-health'
 
 describe('REAmon worker health', () => {
   beforeEach(() => {
@@ -45,5 +45,18 @@ describe('REAmon worker health', () => {
     ])
 
     await expect(listWorkerHealth()).resolves.toEqual([expect.objectContaining({ workerId: 'worker-a', status: 'STALE', lastSelected: 1 })])
+  })
+
+  test('does not report old worker registrations as a blocker while a worker is responsive', () => {
+    expect(summarizeWorkerAttention([
+      { workerId: 'current', status: 'IDLE' },
+      { workerId: 'old', status: 'STALE' },
+    ])).toBeNull()
+  })
+
+  test('reports a failed responsive worker or the absence of a heartbeat', () => {
+    expect(summarizeWorkerAttention([{ workerId: 'current', status: 'DEGRADED' }])).toEqual({ kind: 'degraded', workers: [{ workerId: 'current', status: 'DEGRADED' }] })
+    expect(summarizeWorkerAttention([{ workerId: 'old', status: 'STALE' }])).toEqual({ kind: 'stale', workers: [{ workerId: 'old', status: 'STALE' }] })
+    expect(summarizeWorkerAttention([])).toEqual({ kind: 'unavailable', workers: [] })
   })
 })
