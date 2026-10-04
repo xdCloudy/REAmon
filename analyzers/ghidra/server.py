@@ -106,7 +106,7 @@ def run_ghidra(arguments, log_file, cancel_check, home):
             process.wait()
         raise
 
-def analyse(body, cancel_check=lambda: False):
+def analyse(body, cancel_check=lambda: False, report_progress=lambda message: None):
     project_id, artifact_id = safe_id(body.get("projectId")), safe_id(body.get("artifactId"))
     task_id, run_id = safe_id(body.get("taskId")), safe_id(body.get("runId"))
     input_path = resolve_input(body.get("artifactPath"))
@@ -118,6 +118,7 @@ def analyse(body, cancel_check=lambda: False):
     if run_root.exists():
         shutil.rmtree(run_root)
 
+    report_progress("Waiting for a Ghidra analyzer slot")
     with SLOTS:
         try:
             with tempfile.TemporaryDirectory(prefix="reamon-ghidra-") as temporary:
@@ -142,6 +143,7 @@ def analyse(body, cancel_check=lambda: False):
                 ]
                 with log_path.open("wb") as log_file:
                     try:
+                        report_progress("Analyzing the binary with Ghidra")
                         return_code = run_ghidra(command, log_file, cancel_check, home)
                     except OSError as error:
                         raise AnalysisError("Ghidra headless analyzer could not be started") from error
@@ -151,6 +153,7 @@ def analyse(body, cancel_check=lambda: False):
                 if return_code != 0 or not manifest.is_file() or not summary_path.is_file():
                     detail = log_text[-1200:] if log_text else f"Ghidra exited with code {return_code}"
                     raise AnalysisError(f"Ghidra could not produce function decompilation: {detail}")
+                report_progress("Ghidra analysis finished; indexing decompiled functions")
                 summary = parse_summary(summary_path)
                 rows = []
                 total_bytes = 0
@@ -186,6 +189,7 @@ def analyse(body, cancel_check=lambda: False):
                 if not rows:
                     raise AnalysisError(log_text[-1200:] or "Ghidra found no functions it could decompile")
                 returned = rows[:MAX_RETURNED_UNITS]
+                report_progress(f"Indexing {len(returned)} function results")
                 returned_addresses = {row[1] for row in returned}
                 calls = []
                 call_edges_truncated = summary.get("callsTruncated") == "true"
@@ -223,7 +227,10 @@ def analyse(body, cancel_check=lambda: False):
                     call_edges_truncated = True
                 sources_root = run_root / "sources"
                 units = []
-                for name, address, size_bytes, relative, source, assembly_relative, assembly in returned:
+                progress_stride = max(1, len(returned) // 25)
+                for unit_index, (name, address, size_bytes, relative, source, assembly_relative, assembly) in enumerate(returned, start=1):
+                    if unit_index == 1 or unit_index % progress_stride == 0 or unit_index == len(returned):
+                        report_progress(f"Saving function {unit_index} of {len(returned)}")
                     destination = sources_root / relative
                     destination.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copyfile(source, destination)
@@ -278,6 +285,7 @@ def analyse(body, cancel_check=lambda: False):
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "REAmon-Ghidra/1.0"
+    protocol_version = "HTTP/1.1"
     def _send(self, status, value):
         encoded = json.dumps(value, separators=(",", ":")).encode("utf-8")
         self.send_response(status)
@@ -286,6 +294,19 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(encoded)
+    def _start_stream(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
+        self.send_header("Transfer-Encoding", "chunked")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+    def _send_stream_event(self, value):
+        encoded = json.dumps(value, separators=(",", ":")).encode("utf-8") + b"\n"
+        self.wfile.write(f"{len(encoded):X}\r\n".encode("ascii") + encoded + b"\r\n")
+        self.wfile.flush()
+    def _finish_stream(self):
+        self.wfile.write(b"0\r\n\r\n")
+        self.wfile.flush()
     def do_GET(self):
         if self.path != "/health":
             self._send(404, {"error": "Not found"})
@@ -295,6 +316,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.path != "/analyze":
             self._send(404, {"error": "Not found"})
             return
+        stream_started = False
         try:
             length = int(self.headers.get("Content-Length", "0"))
             if length < 1 or length > 16 * 1024:
@@ -302,11 +324,26 @@ class Handler(BaseHTTPRequestHandler):
             body = json.loads(self.rfile.read(length))
             if not isinstance(body, dict):
                 raise AnalysisError("Request body must be an object")
+            if "application/x-ndjson" in self.headers.get("Accept", ""):
+                self._start_stream()
+                stream_started = True
+                result = analyse(body, lambda: client_disconnected(self.connection),
+                                 lambda message: self._send_stream_event({"type": "progress", "message": message}))
+                self._send_stream_event({"type": "result", "data": result})
+                self._finish_stream()
+                return
             self._send(200, analyse(body, lambda: client_disconnected(self.connection)))
         except (ValueError, json.JSONDecodeError):
             self._send(400, {"error": "Request body must be valid JSON"})
         except AnalysisError as error:
-            self._send(422, {"error": str(error)[:1200]})
+            if stream_started:
+                try:
+                    self._send_stream_event({"type": "error", "error": str(error)[:1200]})
+                    self._finish_stream()
+                except (BrokenPipeError, ConnectionResetError):
+                    return
+            else:
+                self._send(422, {"error": str(error)[:1200]})
         except (BrokenPipeError, ConnectionResetError):
             return
     def log_message(self, format, *args):

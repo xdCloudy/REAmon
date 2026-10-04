@@ -106,6 +106,7 @@ export interface ToolExecutionInput {
   artifactPath?: string
   options?: Record<string, unknown>
   signal?: AbortSignal
+  reportProgress?: (message: string) => Promise<void> | void
 }
 
 export interface ToolResult {

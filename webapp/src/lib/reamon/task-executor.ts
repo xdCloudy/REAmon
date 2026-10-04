@@ -23,6 +23,7 @@ const taskSelect = {
   category: true,
   status: true,
   progress: true,
+  progressMessage: true,
   options: true,
   result: true,
   error: true,
@@ -53,6 +54,7 @@ export interface ExecutedAnalysisTask {
     category: string
     status: string
     progress: number
+    progressMessage: string
     result: unknown
     error: string
     startedAt: string | null
@@ -76,6 +78,7 @@ function serialiseTask(task: TaskRow): ExecutedAnalysisTask['task'] {
     category: task.category,
     status: task.status,
     progress: task.progress,
+    progressMessage: task.progressMessage,
     result: task.result,
     error: task.error,
     startedAt: task.startedAt?.toISOString() || null,
@@ -169,6 +172,7 @@ async function settleTask(
       data: {
         status: outcome,
         progress: outcome === 'COMPLETED' ? 100 : task.progress,
+        progressMessage: outcome === 'COMPLETED' ? 'Analysis complete' : 'Analysis failed',
         result: persistedResult,
         error: outcome === 'COMPLETED' ? '' : error,
         leaseHeartbeatAt: null,
@@ -250,6 +254,7 @@ export async function executeAnalysisTask(projectId: string, taskId: string, lea
     data: {
       status: 'RUNNING',
       progress: 10,
+      progressMessage: 'Starting analysis',
       startedAt: new Date(),
       leaseHeartbeatAt: new Date(),
       leaseOwner: owner,
@@ -285,6 +290,19 @@ export async function executeAnalysisTask(projectId: string, taskId: string, lea
   let result: ToolResult
   const controller = new AbortController()
   const stopHeartbeat = startTaskHeartbeat(projectId, task.id, runToken, controller)
+  const reportProgress = async (message: string) => {
+    const progressMessage = message.trim().slice(0, 500)
+    if (!progressMessage) return
+    try {
+      const updated = await prisma.task.updateMany({
+        where: { id: task.id, projectId, status: 'RUNNING', runToken },
+        data: { progressMessage, leaseHeartbeatAt: new Date() },
+      })
+      if (updated.count === 0) controller.abort()
+    } catch (error) {
+      console.warn('Could not persist REAmon analyzer progress:', error)
+    }
+  }
   try {
     result = await plugin.analyze({
       targetProfile: profile,
@@ -295,6 +313,7 @@ export async function executeAnalysisTask(projectId: string, taskId: string, lea
       artifactPath,
       options: asOptions(task.options),
       signal: controller.signal,
+      reportProgress,
     })
   } catch (error) {
     stopHeartbeat()

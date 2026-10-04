@@ -7,6 +7,7 @@ const taskSelect = {
   title: true,
   status: true,
   progress: true,
+  progressMessage: true,
   error: true,
   options: true,
   runToken: true,
@@ -38,6 +39,7 @@ export type TaskControlResult = {
     title: string
     status: string
     progress: number
+    progressMessage: string
     error: string
     startedAt: string | null
     leaseHeartbeatAt: string | null
@@ -54,6 +56,7 @@ function serialiseTask(task: TaskControlRow): TaskControlResult['task'] {
     title: task.title,
     status: task.status,
     progress: task.progress,
+    progressMessage: task.progressMessage,
     error: task.error,
     startedAt: task.startedAt?.toISOString() || null,
     leaseHeartbeatAt: task.leaseHeartbeatAt?.toISOString() || null,
@@ -82,6 +85,7 @@ export async function retryAnalysisTask(projectId: string, taskId: string, reque
       data: {
         status: requiresApproval ? 'AWAITING_APPROVAL' : 'QUEUED',
         progress: 0,
+        progressMessage: 'Ready to retry',
         result: Prisma.JsonNull,
         error: '',
         startedAt: null,
@@ -200,6 +204,7 @@ export async function recoverStaleAnalysisTasks(projectId: string | undefined, r
         data: {
           status: 'QUEUED',
           progress: 0,
+          progressMessage: 'Recovered for retry',
           result: Prisma.JsonNull,
           error: `Recovered after ${staleAfterMinutes} minutes without completion`,
           startedAt: null,

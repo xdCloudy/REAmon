@@ -54,6 +54,8 @@
 .tileName { fill: #fff; font: 600 13px var(--font-mono); pointer-events: none; }
 .tileMeta { fill: rgba(255, 255, 255, .74); font: 11px var(--font-mono); pointer-events: none; }
 .noMatches { color: var(--text-tertiary); font-size: var(--text-sm); margin: var(--space-3) 0; }
+.emptyAction { display: inline-flex; width: fit-content; align-items: center; justify-content: center; border: 1px solid var(--accent-secondary); border-radius: var(--radius-sm); padding: var(--space-2) var(--space-3); background: var(--accent-secondary); color: var(--bg-primary); font-size: var(--text-sm); font-weight: var(--font-semibold); text-decoration: none; }
+.emptyAction:hover, .emptyAction:focus-visible { filter: brightness(1.08); outline: 2px solid var(--accent-secondary); outline-offset: 2px; }
 .details { margin-top: var(--space-4); border-top: 1px solid var(--border-subtle); padding-top: var(--space-4); }
 .detailLabel { display: block; color: var(--text-tertiary); font-size: var(--text-xs); margin-bottom: var(--space-1); }
 .details > div:first-child strong { color: var(--text-primary); font-family: var(--font-mono); font-size: var(--text-sm); overflow-wrap: anywhere; }

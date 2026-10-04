@@ -148,7 +148,7 @@ def run_analysis_tool(arguments, stderr_file, cancel_check, tool_name, deadline=
             process.wait()
         raise
 
-def analyse(body, cancel_check=lambda: False):
+def analyse(body, cancel_check=lambda: False, report_progress=lambda message: None):
     project_id, artifact_id = safe_id(body.get("projectId")), safe_id(body.get("artifactId"))
     task_id, run_id = safe_id(body.get("taskId")), safe_id(body.get("runId"))
     input_path = resolve_input(body.get("artifactPath"))
@@ -160,12 +160,14 @@ def analyse(body, cancel_check=lambda: False):
     if run_root.exists():
         shutil.rmtree(run_root)
     analysis_deadline = time.monotonic() + TIMEOUT_SECONDS
+    report_progress("Waiting for a JADX analyzer slot")
     with SLOTS:
         try:
             with tempfile.TemporaryDirectory(prefix="reamon-jadx-") as temporary:
                 output, stderr_path = Path(temporary) / "out", Path(temporary) / "jadx.stderr"
                 with stderr_path.open("wb") as stderr_file:
                     try:
+                        report_progress("Decompiling Android bytecode with JADX")
                         return_code = run_analysis_tool([
                             str(Path(os.environ.get("JADX_HOME", "/opt/jadx")) / "bin" / "jadx"),
                             "--no-res", "--output-format", "java", "--threads-count", "2",
@@ -179,10 +181,14 @@ def analyse(body, cancel_check=lambda: False):
                 raw_sources, total_source_bytes, source_scan_truncated = source_files(output) if output.exists() else ([], 0, False)
                 if not raw_sources:
                     raise AnalysisError(log_text or "JADX produced no Java source files")
+                report_progress(f"JADX finished; indexing {len(raw_sources)} Java source files")
                 sources_root = run_root / "sources"
                 sources_root.mkdir(parents=True, exist_ok=True)
                 units, total_files = [], len(raw_sources)
-                for source in raw_sources:
+                progress_stride = max(1, total_files // 25)
+                for source_index, source in enumerate(raw_sources, start=1):
+                    if source_index == 1 or source_index % progress_stride == 0 or source_index == total_files:
+                        report_progress(f"Indexing Java source {source_index} of {total_files}")
                     relative = source.relative_to(output)
                     if relative.is_absolute() or ".." in relative.parts:
                         continue
@@ -207,9 +213,11 @@ def analyse(body, cancel_check=lambda: False):
                 smali_total_bytes = 0
                 disassembled_class_count = 0
                 if dex_file_paths:
+                    report_progress(f"Disassembling {len(dex_file_paths)} DEX file(s) with Baksmali")
                     disassembly_output = Path(temporary) / "smali"
                     disassembly_success = False
-                    for dex_path in dex_file_paths:
+                    for dex_index, dex_path in enumerate(dex_file_paths, start=1):
+                        report_progress(f"Disassembling DEX file {dex_index} of {len(dex_file_paths)}")
                         disassembly_stderr = Path(temporary) / "baksmali.stderr"
                         with disassembly_stderr.open("wb") as stderr_file:
                             try:
@@ -269,6 +277,7 @@ def analyse(body, cancel_check=lambda: False):
                         if oversized_smali:
                             warnings.append(f"{oversized_smali} Smali class listings exceeded the 2 MiB viewer limit and were not linked.")
                 units.sort(key=lambda unit: str(unit["relativePath"]).casefold())
+                report_progress("Saving decompiled sources and preparing results")
                 returned = units[:MAX_RETURNED_UNITS]
                 if source_scan_truncated:
                     warnings.append(f"JADX produced more than {len(raw_sources)} Java source files; this run indexed the first {len(raw_sources)} in sorted path order.")
@@ -294,6 +303,7 @@ def analyse(body, cancel_check=lambda: False):
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "REAmon-JADX/1.0"
+    protocol_version = "HTTP/1.1"
     def _send(self, status, value):
         encoded = json.dumps(value, separators=(",", ":")).encode("utf-8")
         self.send_response(status)
@@ -302,6 +312,19 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(encoded)
+    def _start_stream(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
+        self.send_header("Transfer-Encoding", "chunked")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+    def _send_stream_event(self, value):
+        encoded = json.dumps(value, separators=(",", ":")).encode("utf-8") + b"\n"
+        self.wfile.write(f"{len(encoded):X}\r\n".encode("ascii") + encoded + b"\r\n")
+        self.wfile.flush()
+    def _finish_stream(self):
+        self.wfile.write(b"0\r\n\r\n")
+        self.wfile.flush()
     def do_GET(self):
         if self.path != "/health":
             self._send(404, {"error": "Not found"})
@@ -311,6 +334,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.path != "/analyze":
             self._send(404, {"error": "Not found"})
             return
+        stream_started = False
         try:
             length = int(self.headers.get("Content-Length", "0"))
             if length < 1 or length > 16 * 1024:
@@ -318,11 +342,26 @@ class Handler(BaseHTTPRequestHandler):
             body = json.loads(self.rfile.read(length))
             if not isinstance(body, dict):
                 raise AnalysisError("Request body must be an object")
+            if "application/x-ndjson" in self.headers.get("Accept", ""):
+                self._start_stream()
+                stream_started = True
+                result = analyse(body, lambda: client_disconnected(self.connection),
+                                 lambda message: self._send_stream_event({"type": "progress", "message": message}))
+                self._send_stream_event({"type": "result", "data": result})
+                self._finish_stream()
+                return
             self._send(200, analyse(body, lambda: client_disconnected(self.connection)))
         except (ValueError, json.JSONDecodeError):
             self._send(400, {"error": "Request body must be valid JSON"})
         except AnalysisError as error:
-            self._send(422, {"error": str(error)[:1000]})
+            if stream_started:
+                try:
+                    self._send_stream_event({"type": "error", "error": str(error)[:1000]})
+                    self._finish_stream()
+                except (BrokenPipeError, ConnectionResetError):
+                    return
+            else:
+                self._send(422, {"error": str(error)[:1000]})
         except (BrokenPipeError, ConnectionResetError):
             return
     def log_message(self, format, *args):

@@ -14,11 +14,11 @@ function unit(overrides: Partial<CodeUnit> = {}): CodeUnit {
   }
 }
 
-function renderVisualizer() {
+function renderVisualizer(props: { isAnalyzing?: boolean; decompilationTask?: { status: string; progressMessage?: string | null }; decompilationHref?: string } = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } })
   return render(
     <QueryClientProvider client={client}>
-      <WorkspaceCodeVisualizer projectId="project-1" isAnalyzing={false} />
+      <WorkspaceCodeVisualizer projectId="project-1" isAnalyzing={props.isAnalyzing ?? false} decompilationTask={props.decompilationTask} decompilationHref={props.decompilationHref} />
     </QueryClientProvider>,
   )
 }
@@ -60,12 +60,37 @@ describe('WorkspaceCodeVisualizer', () => {
     expect(requests.filter((request) => request === '/api/projects/project-1/visualizer')).toHaveLength(1)
   })
 
-  test('states that no code units are available before an analyzer publishes them', async () => {
+  test('offers a direct route to decompilation when an artifact is ready but has no code units', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ units: [], total: 0, hasMore: false }) }))
-    renderVisualizer()
+    renderVisualizer({ decompilationHref: '#analysis-next-step' })
 
     expect(await screen.findByText('No code units have been analyzed yet.')).toBeInTheDocument()
-    expect(screen.getByText(/An analyzer must publish functions or other code units/)).toBeInTheDocument()
+    expect(screen.getByText(/Run a compatible analyzer to populate this map/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Run decompilation' })).toHaveAttribute('href', '#analysis-next-step')
+  })
+
+  test('shows a running state instead of the empty-result prompt while analysis is active', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ units: [], total: 0, hasMore: false }) }))
+    renderVisualizer({ isAnalyzing: true, decompilationTask: { status: 'RUNNING', progressMessage: 'Indexing Java source 3 of 10' }, decompilationHref: '#analysis-next-step' })
+
+    expect(await screen.findByText('Decompilation is running.')).toBeInTheDocument()
+    expect(screen.getByText('Indexing Java source 3 of 10')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Run decompilation' })).not.toBeInTheDocument()
+  })
+
+  test('sends queued and approval-blocked runs to task controls', async () => {
+    for (const [status, label] of [
+      ['QUEUED', 'Decompilation is queued.'],
+      ['AWAITING_APPROVAL', 'Decompilation is waiting for approval.'],
+    ]) {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ units: [], total: 0, hasMore: false }) }))
+      const view = renderVisualizer({ decompilationTask: { status } })
+
+      expect(await screen.findByText(label)).toBeInTheDocument()
+      expect(screen.getByRole('link', { name: 'Open task controls' })).toHaveAttribute('href', '#analysis-tasks')
+      view.unmount()
+      vi.unstubAllGlobals()
+    }
   })
 
   test('filters, selects a code unit, and links to its stored code artifact', async () => {

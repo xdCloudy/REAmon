@@ -78,6 +78,7 @@ export async function getWorkspaceSnapshot(projectId: string) {
         category: true,
         status: true,
         progress: true,
+        progressMessage: true,
         options: true,
         result: true,
         error: true,

@@ -1,7 +1,11 @@
 import base64
+import http.client
+import json
 import os
 import tempfile
+import threading
 import unittest
+from http.server import ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import patch
 
@@ -68,8 +72,9 @@ class GhidraServiceTests(unittest.TestCase):
             "runId": "run-1",
             "artifactPath": str(self.binary),
         }
+        progress = []
         with patch.object(server, "run_ghidra", side_effect=fake_run):
-            result = server.analyse(request)
+            result = server.analyse(request, report_progress=progress.append)
 
         self.assertEqual(result["status"], "completed")
         self.assertEqual(result["functionCount"], 1)
@@ -91,6 +96,38 @@ class GhidraServiceTests(unittest.TestCase):
         stored_assembly = self.derived / result["units"][0]["disassemblyArtifactId"]
         self.assertEqual(stored_assembly.read_text(), assembly)
         self.assertTrue(result["units"][0]["disassemblyArtifactId"].startswith("project-1/artifact-1/task-1/run-1/"))
+        self.assertIn("Analyzing the binary with Ghidra", progress)
+        self.assertIn("Saving function 1 of 1", progress)
+
+    def test_analyze_endpoint_streams_progress_and_result_events(self):
+        httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
+        thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+        thread.start()
+
+        def fake_analyse(body, cancel_check, report_progress):
+            self.assertEqual(body, {"taskId": "task-1"})
+            report_progress("Saving function 1 of 1")
+            return {"status": "completed", "units": []}
+
+        connection = http.client.HTTPConnection("127.0.0.1", httpd.server_port, timeout=5)
+        try:
+            with patch.object(server, "analyse", side_effect=fake_analyse):
+                connection.request("POST", "/analyze", body=json.dumps({"taskId": "task-1"}), headers={
+                    "Content-Type": "application/json", "Accept": "application/x-ndjson",
+                })
+                response = connection.getresponse()
+                events = [json.loads(line) for line in response.read().splitlines()]
+
+            self.assertEqual(response.status, 200)
+            self.assertIn("application/x-ndjson", response.getheader("Content-Type"))
+            self.assertEqual(events, [
+                {"type": "progress", "message": "Saving function 1 of 1"},
+                {"type": "result", "data": {"status": "completed", "units": []}},
+            ])
+        finally:
+            connection.close()
+            httpd.shutdown()
+            httpd.server_close()
 
 
 if __name__ == "__main__":

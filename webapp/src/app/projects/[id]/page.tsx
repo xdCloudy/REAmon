@@ -37,7 +37,7 @@ interface WorkspaceSnapshot {
     createdAt: string
     updatedAt: string
   }>
-  tasks: Array<{ id: string; title: string; category: string; status: string; progress: number; error: string; providerId: string | null; capability: string | null; leaseOwner: string | null; leaseHeartbeatAt: string | null; approval: { id: string; status: string } | null }>
+  tasks: Array<{ id: string; title: string; category: string; status: string; progress: number; progressMessage: string; error: string; providerId: string | null; capability: string | null; leaseOwner: string | null; leaseHeartbeatAt: string | null; approval: { id: string; status: string } | null }>
   findings: Array<{ id: string; title: string; severity: string; status: string }>
   hypotheses: Array<{ id: string; statement: string; status: string }>
   evidence: Array<{ id: string; summary: string; source: string; createdAt: string }>
@@ -207,7 +207,7 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
       }} />
       <ImportStatus latestImport={latestImport} />
       {hasDecompilableArtifact && <aside className={styles.analysisNextStep} id="analysis-next-step">
-        <div><strong>{decompileTask?.status === 'AWAITING_APPROVAL' ? 'Decompilation is waiting for approval.' : decompileTask?.status === 'QUEUED' ? 'Decompilation is queued.' : decompileTask?.status === 'RUNNING' ? 'Decompilation is running.' : decompileTask?.status === 'COMPLETED' ? 'Decompilation is complete.' : decompileTask?.status === 'FAILED' ? 'Decompilation failed.' : decompileTask?.status === 'CANCELLED' ? 'Decompilation was cancelled.' : 'Import complete; decompilation has not started.'}</strong><p>{decompileTask?.status === 'AWAITING_APPROVAL' ? 'Approve this task under Tasks and findings, then choose Run.' : decompileTask?.status === 'QUEUED' ? 'The approved task is ready. Choose Run under Tasks and findings.' : decompileTask?.status === 'RUNNING' ? 'The isolated analyzer is processing the imported artifact.' : decompileTask?.status === 'COMPLETED' ? 'View the extracted code in the visualizer below.' : decompileTask ? 'Review the task details and retry it under Tasks and findings.' : 'Choose Run decompilation to start the matching isolated analyzer for this imported artifact.'}</p></div>
+        <div><strong>{decompileTask?.status === 'AWAITING_APPROVAL' ? 'Decompilation is waiting for approval.' : decompileTask?.status === 'QUEUED' ? 'Decompilation is queued.' : decompileTask?.status === 'RUNNING' ? 'Decompilation is running.' : decompileTask?.status === 'COMPLETED' ? 'Decompilation is complete.' : decompileTask?.status === 'FAILED' ? 'Decompilation failed.' : decompileTask?.status === 'CANCELLED' ? 'Decompilation was cancelled.' : 'Import complete; decompilation has not started.'}</strong><p>{decompileTask?.status === 'AWAITING_APPROVAL' ? 'Approve this task under Tasks and findings, then choose Run.' : decompileTask?.status === 'QUEUED' ? 'The approved task is ready. Choose Run under Tasks and findings.' : decompileTask?.status === 'RUNNING' ? decompileTask.progressMessage || 'The isolated analyzer is processing the imported artifact.' : decompileTask?.status === 'COMPLETED' ? 'View the extracted code in the visualizer below.' : decompileTask ? 'Review the task details and retry it under Tasks and findings.' : 'Choose Run decompilation to start the matching isolated analyzer for this imported artifact.'}</p></div>
         {!decompileTask && decompileProposal && <WorkspaceDecompilationAction projectId={projectId} artifactId={decompileProposal.artifactId} providerId={decompileProposal.provider.pluginId} onPendingChange={setDecompilationActionPending} onChanged={() => {
           void queryClient.invalidateQueries({ queryKey: ['reamon-workspace', projectId] })
           void queryClient.invalidateQueries({ queryKey: ['reamon-code-units', projectId] })
@@ -225,6 +225,8 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
       <WorkspaceCodeVisualizer
         projectId={projectId}
         isAnalyzing={data.tasks.some((task) => task.status === 'RUNNING')}
+        decompilationTask={decompileTask ? { status: decompileTask.status, progressMessage: decompileTask.progressMessage } : undefined}
+        decompilationHref={hasDecompilableArtifact ? '#analysis-next-step' : undefined}
       />
 
       <section className={styles.panel} aria-labelledby="inventory-heading">

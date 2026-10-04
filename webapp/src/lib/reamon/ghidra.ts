@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import type { ToolExecutionInput, ToolObservation, ToolPlugin, ToolPluginManifest, ToolResult } from './types'
+import { readAnalyzerResponse } from './analyzer-response'
 
 const MAX_UNITS = 2000
 const DEFAULT_TIMEOUT_MS = 15 * 60_000
@@ -77,7 +78,7 @@ export async function executeGhidra(input: ToolExecutionInput): Promise<ToolResu
   try {
     const response = await fetch(`${baseUrl}/analyze`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', accept: 'application/x-ndjson' },
       body: JSON.stringify({
         projectId: input.projectId,
         artifactId: input.artifactId,
@@ -88,7 +89,7 @@ export async function executeGhidra(input: ToolExecutionInput): Promise<ToolResu
       signal,
       cache: 'no-store',
     })
-    const payload: unknown = await response.json().catch(() => null)
+    const payload: unknown = await readAnalyzerResponse<unknown>(response, input.reportProgress)
     if (!response.ok) {
       const detail = payload && typeof payload === 'object' && 'error' in payload && typeof payload.error === 'string'
         ? payload.error.slice(0, 1200)

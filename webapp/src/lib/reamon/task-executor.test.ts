@@ -86,9 +86,9 @@ describe('executeAnalysisTask', () => {
       where: { id: 'task-1', projectId: 'project-1', status: 'QUEUED' },
       data: expect.objectContaining({ status: 'RUNNING', progress: 10, leaseOwner: 'webapp' }),
     }))
-    expect(mocks.analyze).toHaveBeenCalledWith({
-      targetProfile: { targetType: 'FILE', format: 'source' }, artifactId: 'artifact-1', projectId: 'project-1', taskId: 'task-1', runToken: expect.any(String), artifactPath: expect.stringContaining('project-1/import-1/artifact-1'), options: { mode: 'conservative' }, signal: expect.any(AbortSignal),
-    })
+    expect(mocks.analyze).toHaveBeenCalledWith(expect.objectContaining({
+      targetProfile: { targetType: 'FILE', format: 'source' }, artifactId: 'artifact-1', projectId: 'project-1', taskId: 'task-1', runToken: expect.any(String), artifactPath: expect.stringContaining('project-1/import-1/artifact-1'), options: { mode: 'conservative' }, signal: expect.any(AbortSignal), reportProgress: expect.any(Function),
+    }))
     expect(mocks.evidenceCreate).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ kind: 'analysis', source: provider.manifest.id, artifactId: 'artifact-1' }),
     }))
@@ -99,6 +99,23 @@ describe('executeAnalysisTask', () => {
       data: expect.objectContaining({ eventType: 'analysis.task.completed', data: expect.objectContaining({
         taskId: 'task-1', observations: expect.objectContaining({ accepted: 1, rejected: 0, findingsAccepted: 0 }),
       }) }),
+    }))
+  })
+
+  test('persists bounded progress messages under the active run lease', async () => {
+    mocks.analyze.mockImplementation(async (input: { reportProgress?: (message: string) => Promise<void> | void }) => {
+      await input.reportProgress?.('  Indexing Java source 4 of 12  ')
+      return {
+        status: 'completed', toolId: provider.manifest.id, capabilities: ['extract_strings'], produced: ['String'],
+        data: { strings: [], observations: [] },
+      }
+    })
+
+    await executeAnalysisTask('project-1', 'task-1')
+
+    expect(mocks.taskUpdateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: 'task-1', projectId: 'project-1', status: 'RUNNING', runToken: expect.any(String) }),
+      data: expect.objectContaining({ progressMessage: 'Indexing Java source 4 of 12', leaseHeartbeatAt: expect.any(Date) }),
     }))
   })
 

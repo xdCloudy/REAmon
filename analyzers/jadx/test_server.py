@@ -1,7 +1,11 @@
+import http.client
+import json
 import os
 import tempfile
+import threading
 import unittest
 import zipfile
+from http.server import ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import patch
 
@@ -75,8 +79,9 @@ class JadxServiceTests(unittest.TestCase):
 
         request = {"projectId": "project-1", "artifactId": "artifact-1", "taskId": "task-1",
                    "runId": "run-1", "artifactPath": str(self.apk)}
+        progress = []
         with patch.object(server.subprocess, "Popen", side_effect=fake_popen):
-            result = server.analyse(request)
+            result = server.analyse(request, report_progress=progress.append)
 
         self.assertEqual(result["status"], "completed")
         self.assertEqual(result["classCount"], 1)
@@ -92,6 +97,8 @@ class JadxServiceTests(unittest.TestCase):
         self.assertTrue((self.derived / unit["codeArtifactId"]).is_file())
         self.assertTrue((self.derived / unit["disassemblyArtifactId"]).is_file())
         self.assertTrue(unit["codeArtifactId"].startswith("project-1/artifact-1/task-1/run-1/"))
+        self.assertIn("Decompiling Android bytecode with JADX", progress)
+        self.assertIn("Indexing Java source 1 of 1", progress)
 
     def test_decompile_passes_java_archive_to_jadx_without_running_baksmali(self):
         def fake_popen(args, **kwargs):
@@ -139,6 +146,36 @@ class JadxServiceTests(unittest.TestCase):
         self.assertTrue(result["truncated"])
         self.assertEqual(result["returnedUnits"], 2)
         self.assertIn("indexed the first 2", result["warnings"])
+
+    def test_analyze_endpoint_streams_progress_and_result_events(self):
+        httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
+        thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+        thread.start()
+
+        def fake_analyse(body, cancel_check, report_progress):
+            self.assertEqual(body, {"taskId": "task-1"})
+            report_progress("Indexing Java source 1 of 1")
+            return {"status": "completed", "units": []}
+
+        connection = http.client.HTTPConnection("127.0.0.1", httpd.server_port, timeout=5)
+        try:
+            with patch.object(server, "analyse", side_effect=fake_analyse):
+                connection.request("POST", "/analyze", body=json.dumps({"taskId": "task-1"}), headers={
+                    "Content-Type": "application/json", "Accept": "application/x-ndjson",
+                })
+                response = connection.getresponse()
+                events = [json.loads(line) for line in response.read().splitlines()]
+
+            self.assertEqual(response.status, 200)
+            self.assertIn("application/x-ndjson", response.getheader("Content-Type"))
+            self.assertEqual(events, [
+                {"type": "progress", "message": "Indexing Java source 1 of 1"},
+                {"type": "result", "data": {"status": "completed", "units": []}},
+            ])
+        finally:
+            connection.close()
+            httpd.shutdown()
+            httpd.server_close()
 
 
 if __name__ == "__main__":

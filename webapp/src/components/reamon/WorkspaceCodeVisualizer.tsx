@@ -189,7 +189,12 @@ function CallGraphPanel({ focusUnit, graph, isLoading, isError, error, onSelectU
   </section>
 }
 
-export function WorkspaceCodeVisualizer({ projectId, isAnalyzing }: { projectId: string; isAnalyzing: boolean }) {
+export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationTask, decompilationHref }: {
+  projectId: string
+  isAnalyzing: boolean
+  decompilationTask?: { status: string; progressMessage?: string | null }
+  decompilationHref?: string
+}) {
   const [filter, setFilter] = useState('')
   const [visualizerView, setVisualizerView] = useState<'treemap' | 'callgraph'>('treemap')
   const [graphSearch, setGraphSearch] = useState('')
@@ -416,9 +421,30 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing }: { projectId:
       {query.isError && <p className={styles.error}>Could not load code units. Refresh the workspace and try again.</p>}
       {!query.isLoading && !query.isError && query.data && units.length === 0 && query.data.total === 0 && (
         <div className={styles.empty}>
-          <strong>No code units have been analyzed yet.</strong>
-          <p>Importing a file only records and profiles it. An analyzer must publish functions or other code units before this map can show program structure.</p>
-          <span>Each unit should include its name, address, byte size, coverage details, and a link to its viewable code artifact.</span>
+          {decompilationTask?.status === 'RUNNING' ? <>
+            <strong>Decompilation is running.</strong>
+            <p>{decompilationTask.progressMessage || 'The code map will fill in after the analyzer publishes its results.'}</p>
+          </> : decompilationTask?.status === 'QUEUED' ? <>
+            <strong>Decompilation is queued.</strong>
+            <p>Open the task controls and choose Run to start the analyzer.</p>
+            <a className={styles.emptyAction} href="#analysis-tasks">Open task controls</a>
+          </> : decompilationTask?.status === 'AWAITING_APPROVAL' ? <>
+            <strong>Decompilation is waiting for approval.</strong>
+            <p>Approve the task in the task controls before running it.</p>
+            <a className={styles.emptyAction} href="#analysis-tasks">Open task controls</a>
+          </> : decompilationTask?.status === 'COMPLETED' ? <>
+            <strong>The analyzer finished without viewable code units.</strong>
+            <p>Review the task output and warnings under task controls.</p>
+            <a className={styles.emptyAction} href="#analysis-tasks">Review task</a>
+          </> : decompilationTask?.status === 'FAILED' || decompilationTask?.status === 'CANCELLED' ? <>
+            <strong>Decompilation did not finish.</strong>
+            <p>Review the task and retry it from the task controls.</p>
+            <a className={styles.emptyAction} href="#analysis-tasks">Open task controls</a>
+          </> : <>
+            <strong>No code units have been analyzed yet.</strong>
+            <p>Importing a file records and profiles it. Run a compatible analyzer to populate this map with classes, functions, and their code.</p>
+            {decompilationHref && <a className={styles.emptyAction} href={decompilationHref}>Run decompilation</a>}
+          </>}
         </div>
       )}
       {!query.isLoading && !query.isError && query.data && units.length === 0 && query.data.total > 0 && (
