@@ -12,6 +12,9 @@ interface CodeUnitResponse {
   hasMore: boolean
 }
 
+interface CodeExplanationProvider { id: string; name: string; modelIdentifier: string }
+interface CodeExplanationResponse { explanation: string; providerName: string; model: string; sourceTruncated: boolean }
+
 const EMPTY_CODE_UNITS: CodeUnit[] = []
 
 async function fetchCodeUnits(projectId: string): Promise<CodeUnitResponse> {
@@ -33,6 +36,13 @@ async function fetchSource(url: string, signal: AbortSignal): Promise<string> {
     throw new Error(detail?.error || 'Could not load decompiled source')
   }
   return response.text()
+}
+
+async function fetchExplanationProviders(projectId: string): Promise<CodeExplanationProvider[]> {
+  const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/providers`, { cache: 'no-store' })
+  if (!response.ok) throw new Error('Unable to load saved AI providers')
+  const data = await response.json() as { providers?: CodeExplanationProvider[] }
+  return Array.isArray(data.providers) ? data.providers : []
 }
 
 function formatBytes(size: number): string {
@@ -59,6 +69,11 @@ export function WorkspaceCodeVisualizer({ projectId, hasApk, isAnalyzing }: { pr
   const [filter, setFilter] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [copyStatus, setCopyStatus] = useState('')
+  const [providerId, setProviderId] = useState('')
+  const [question, setQuestion] = useState('')
+  const [explanation, setExplanation] = useState<CodeExplanationResponse | null>(null)
+  const [explainError, setExplainError] = useState('')
+  const [explaining, setExplaining] = useState(false)
   const query = useQuery({
     queryKey: ['reamon-code-units', projectId],
     queryFn: () => fetchCodeUnits(projectId),
@@ -79,6 +94,17 @@ export function WorkspaceCodeVisualizer({ projectId, hasApk, isAnalyzing }: { pr
     staleTime: 5 * 60_000,
     gcTime: 60_000,
   })
+  const explanationProvidersQuery = useQuery({
+    queryKey: ['reamon-code-explanation-providers', projectId],
+    queryFn: () => fetchExplanationProviders(projectId),
+    enabled: Boolean(selectedSourceUrl),
+    staleTime: 60_000,
+    gcTime: 5 * 60_000,
+  })
+  const explanationProviders = explanationProvidersQuery.data || []
+  const selectedProviderId = explanationProviders.some((provider) => provider.id === providerId)
+    ? providerId
+    : explanationProviders[0]?.id || ''
 
   async function copySource() {
     if (!sourceQuery.data) return
@@ -87,6 +113,27 @@ export function WorkspaceCodeVisualizer({ projectId, hasApk, isAnalyzing }: { pr
       setCopyStatus('Copied')
     } catch {
       setCopyStatus('Clipboard unavailable')
+    }
+  }
+
+  async function explainSelectedUnit() {
+    if (!selectedUnit || !selectedProviderId) return
+    setExplaining(true)
+    setExplainError('')
+    setExplanation(null)
+    try {
+      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/explain`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ unitId: selectedUnit.id, providerId: selectedProviderId, question: question.trim() }),
+      })
+      const result = await response.json().catch(() => ({})) as CodeExplanationResponse & { error?: string }
+      if (!response.ok) throw new Error(result.error || 'Could not explain this code unit')
+      setExplanation(result)
+    } catch (error) {
+      setExplainError(error instanceof Error ? error.message : 'Could not explain this code unit')
+    } finally {
+      setExplaining(false)
     }
   }
 
@@ -150,12 +197,14 @@ export function WorkspaceCodeVisualizer({ projectId, hasApk, isAnalyzing }: { pr
                 role="button"
                 tabIndex={0}
                 aria-label={`${unit.name}, ${formatBytes(unit.sizeBytes)}, ${coverage}${unit.address ? `, address ${unit.address}` : ''}`}
-                onClick={() => { setSelectedId(unit.id); setCopyStatus('') }}
+                onClick={() => { setSelectedId(unit.id); setCopyStatus(''); setExplanation(null); setExplainError('') }}
                 onKeyDown={(event) => {
                   if (event.key === 'Enter' || event.key === ' ') {
                     event.preventDefault()
                     setSelectedId(unit.id)
                     setCopyStatus('')
+                    setExplanation(null)
+                    setExplainError('')
                   }
                 }}
               >
@@ -198,6 +247,33 @@ export function WorkspaceCodeVisualizer({ projectId, hasApk, isAnalyzing }: { pr
           {sourceQuery.isLoading && <p className={styles.message}>Loading decompiled source…</p>}
           {sourceQuery.isError && <p className={styles.error}>{sourceQuery.error instanceof Error ? sourceQuery.error.message : 'Could not load decompiled source'}</p>}
           {sourceQuery.data !== undefined && <pre className={styles.sourceCode}><code>{sourceQuery.data}</code></pre>}
+        </section>}
+        {selectedUnit && selectedSourceUrl && <section className={styles.explainPanel} aria-labelledby="code-explain-heading">
+          <div>
+            <h3 id="code-explain-heading">Explain this code with AI</h3>
+            <p>When you choose Explain, this source is sent to the selected saved provider. API keys stay on the server.</p>
+          </div>
+          {explanationProvidersQuery.isLoading && <p className={styles.message}>Loading saved providers…</p>}
+          {explanationProvidersQuery.isError && <p className={styles.error}>Could not load saved AI providers.</p>}
+          {!explanationProvidersQuery.isLoading && !explanationProvidersQuery.isError && explanationProviders.length === 0 && <p className={styles.message}>No OpenAI-compatible provider is saved yet. <a href="/settings">Add one in Settings</a>.</p>}
+          {explanationProviders.length > 0 && <>
+            <label className={styles.explainField}>Saved provider
+              <select value={selectedProviderId} onChange={(event) => setProviderId(event.target.value)}>
+                {explanationProviders.map((provider) => <option key={provider.id} value={provider.id}>{provider.name} · {provider.modelIdentifier}</option>)}
+              </select>
+            </label>
+            <label className={styles.explainField}>Question about this code (optional)
+              <textarea value={question} onChange={(event) => setQuestion(event.target.value)} maxLength={1000} rows={3} placeholder="What state does this method change?" />
+            </label>
+            <button type="button" className={styles.explainButton} onClick={() => void explainSelectedUnit()} disabled={!selectedProviderId || explaining || sourceQuery.isError || sourceQuery.isLoading}>
+              {explaining ? 'Explaining…' : 'Explain selected code'}
+            </button>
+          </>}
+          {explainError && <p className={styles.error} role="alert">{explainError}</p>}
+          {explanation && <div className={styles.explanation} aria-live="polite">
+            <div><strong>{explanation.providerName} · {explanation.model}</strong>{explanation.sourceTruncated && <span>Source was truncated to fit the model request.</span>}</div>
+            <pre>{explanation.explanation}</pre>
+          </div>}
         </section>}
       </>}
       <button type="button" className={styles.refresh} onClick={() => void query.refetch()} disabled={query.isFetching}>

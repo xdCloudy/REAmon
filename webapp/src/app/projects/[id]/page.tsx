@@ -120,7 +120,8 @@ function ImportStatus({ latestImport }: { latestImport: WorkspaceImportSnapshot 
   return (
     <div className={styles.importStatus} aria-live="polite">
       <div className={styles.panelHeader}><h2>Latest import</h2><span className={styles.type}>{latestImport.status}</span></div>
-      <div className={styles.importStatusGrid}><span>Root</span><strong>{latestImport.rootName}</strong><span>Inventory</span><strong>{latestImport.totalFiles.toLocaleString()} files · {formatBytes(latestImport.totalBytes)}</strong><span>Uploaded</span><strong>{latestImport.completedFiles.toLocaleString()} / {latestImport.totalFiles.toLocaleString()} files · {percent}%</strong><span>Profile</span><strong>{latestImport.profile?.interestingArtifacts ?? 0} interesting artifacts</strong></div>
+      <div className={styles.importStatusGrid}><span>Root</span><strong>{latestImport.rootName}</strong><span>Inventory</span><strong>{latestImport.totalFiles.toLocaleString()} files · {formatBytes(latestImport.totalBytes)}</strong><span>Transfer progress</span><strong>{latestImport.completedFiles.toLocaleString()} / {latestImport.totalFiles.toLocaleString()} files · {percent}%</strong><span>Profile</span><strong>{latestImport.profile?.interestingArtifacts ?? 0} interesting artifacts</strong></div>
+      <p className={styles.muted}>Transfer progress only confirms that files reached the workspace. It does not measure decompilation or other analysis.</p>
       {latestImport.comparison && <p className={styles.muted}>{latestImport.comparison.mode === 'HASH' ? 'Authoritative refresh' : 'Manifest refresh'}: +{latestImport.comparison.addedCount} added · {latestImport.comparison.changedCount} changed · {latestImport.comparison.removedCount} removed · {latestImport.comparison.unchangedCount} unchanged.</p>}
       {latestImport.missingPaths.length > 0 && <p className={styles.uploadError}>{latestImport.missingPaths.length} file paths still need upload. Retry the import to resume.</p>}
       {latestImport.errorSummary && <p className={styles.uploadError}>{latestImport.errorSummary}</p>}
@@ -201,9 +202,13 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
       }} />
       <ImportStatus latestImport={latestImport} />
       {data.artifacts.some((artifact) => artifact.profile.format === 'apk') && !data.tasks.some((task) => task.capability === 'decompile') && <aside className={styles.analysisNextStep}>
-        <div><strong>APK uploaded; decompilation has not started.</strong><p>Open analysis proposals to request JADX, then approve the task before running it.</p></div>
+        <div><strong>APK uploaded; decompilation has not started.</strong><p>Request JADX approval below. Then approve the task and choose Run under Tasks and findings.</p></div>
         <a href="#analysis-proposals">Open analysis proposals</a>
       </aside>}
+      <WorkspaceAnalysisPlanPanel projectId={projectId} plan={analysisPlan.data} isLoading={analysisPlan.isLoading} isError={analysisPlan.isError} onScheduled={() => {
+        void queryClient.invalidateQueries({ queryKey: ['reamon-workspace', projectId] })
+        void queryClient.invalidateQueries({ queryKey: ['reamon-code-units', projectId] })
+      }} />
       <WorkspaceCodeVisualizer
         projectId={projectId}
         hasApk={data.artifacts.some((artifact) => artifact.profile.format === 'apk')}
@@ -220,10 +225,6 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
         <section className={styles.panel} aria-labelledby="providers-heading"><div className={styles.panelHeader}><h2 id="providers-heading">Available capabilities</h2><span className={styles.muted}>{data.capabilities.length} provider{data.capabilities.length === 1 ? '' : 's'}</span></div>{data.capabilities.length ? data.capabilities.map((provider) => <div className={styles.providerRow} key={provider.pluginId}><span><strong>{provider.pluginName}</strong><small>{provider.capabilities.slice(0, 4).join(' · ')}</small><small>Accepts {provider.acceptsFormats.slice(0, 3).join(', ')} · produces {provider.produces.slice(0, 3).join(', ') || 'provider results'}</small></span><span className={styles.providerCount}>{provider.compatibleArtifactIds.length} compatible artifacts</span></div>) : <p className={styles.muted}>Capabilities will appear as providers are registered.</p>}</section>
       </div>
 
-      <WorkspaceAnalysisPlanPanel projectId={projectId} plan={analysisPlan.data} isLoading={analysisPlan.isLoading} isError={analysisPlan.isError} onScheduled={() => {
-        void queryClient.invalidateQueries({ queryKey: ['reamon-workspace', projectId] })
-        void queryClient.invalidateQueries({ queryKey: ['reamon-code-units', projectId] })
-      }} />
 
       <section className={styles.panel} aria-labelledby="files-heading">
         <div className={styles.panelHeader}><h2 id="files-heading">Project files</h2><span className={styles.muted}>Relative paths are preserved as workspace context</span></div>
