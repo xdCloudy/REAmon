@@ -60,6 +60,22 @@ describe('WorkspaceCodeVisualizer', () => {
     expect(requests.filter((request) => request === '/api/projects/project-1/visualizer')).toHaveLength(1)
   })
 
+  test('explains partial APK coverage and links to a fresh run', async () => {
+    const partialRun = {
+      id: 'run-partial', title: 'Partial JADX run', createdAt: '2026-10-04T00:00:00.000Z', completedAt: '2026-10-04T00:01:00.000Z',
+      artifactName: 'app.apk', providerId: 'reamon-jadx', codeUnitCount: 500, unitLabel: 'classes', discoveredUnitCount: 5000,
+      returnedUnitCount: 500, indexedUnitCount: 500, linkPercent: 10, codeBytes: 4096, truncated: true, warnings: '', failedUnitCount: null, visitedUnitCount: null,
+    }
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({
+      units: [unit()], total: 500, hasMore: false, runs: [partialRun], selectedRunId: partialRun.id,
+    }) }))
+    renderVisualizer({ decompilationHref: '#analysis-next-step' })
+
+    expect(await screen.findByText('500 code units indexed of 5,000 analyzed classes')).toBeInTheDocument()
+    expect(screen.getByRole('progressbar', { name: 'Indexed code unit coverage' })).toHaveAttribute('aria-valuenow', '10')
+    expect(screen.getByText(/Partial index\. This bar shows indexed coverage/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Run decompilation again' })).toHaveAttribute('href', '#analysis-next-step')
+  })
   test('offers a direct route to decompilation when an artifact is ready but has no code units', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ units: [], total: 0, hasMore: false }) }))
     renderVisualizer({ decompilationHref: '#analysis-next-step' })

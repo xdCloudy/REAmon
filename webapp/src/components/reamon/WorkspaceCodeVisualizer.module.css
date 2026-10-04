@@ -24,6 +24,8 @@
 .runProgress { height: 14px; overflow: hidden; border-radius: 2px; background: var(--bg-primary); }
 .runProgress span { display: block; height: 100%; border-radius: inherit; background: var(--accent-secondary); transition: width 180ms ease; }
 .runSummaryMeta { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--space-2); color: var(--text-tertiary); font-size: var(--text-xs); }
+.runAgain { color: var(--accent-secondary); font-weight: var(--font-semibold); text-decoration: underline; text-underline-offset: 2px; }
+.runAgain:hover, .runAgain:focus-visible { color: var(--text-primary); }
 .runWarning { margin: 0; color: var(--status-warning, #b99a3b); font-size: var(--text-xs); }
 .empty { min-height: 185px; display: flex; flex-direction: column; justify-content: center; border: 1px dashed var(--border-strong); border-radius: var(--radius-default); padding: var(--space-5); background: var(--bg-tertiary); }
 .empty strong { font-size: var(--text-base); color: var(--text-primary); }
