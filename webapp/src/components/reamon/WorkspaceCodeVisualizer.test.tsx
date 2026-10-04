@@ -268,6 +268,8 @@ describe('WorkspaceCodeVisualizer', () => {
     vi.stubGlobal('fetch', fetchMock)
     renderVisualizer()
 
+    fireEvent.click(await screen.findByRole('button', { name: /com package/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /example package/ }))
     fireEvent.click(await screen.findByRole('button', { name: /com\.example\.MainActivity/ }))
     const comparison = await screen.findByRole('region', { name: 'Decompilation and disassembly comparison' })
     expect(within(comparison).getByText('Smali')).toBeInTheDocument()

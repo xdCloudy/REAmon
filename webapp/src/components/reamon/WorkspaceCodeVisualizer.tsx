@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Code2, Copy, ExternalLink, RefreshCw, Search } from 'lucide-react'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
-import { filterCodeUnits, layoutCodeUnitTreemap, parseCodeUnitFilter, summarizeCodeUnits, type CodeUnit } from '@/lib/reamon/code-units'
+import { buildCodeUnitTreemapEntries, filterCodeUnits, filterCodeUnitsByPackage, layoutCodeUnitTreemap, parseCodeUnitFilter, summarizeCodeUnits, type CodeUnit, type CodeUnitTreemapEntry } from '@/lib/reamon/code-units'
 import type { CallGraphRecord, CallGraphRelationship } from '@/lib/reamon/callgraph-layout'
 import { sourceSyntaxLanguage } from './source-language'
 import { WorkspaceCallGraphCanvas } from './WorkspaceCallGraphCanvas'
@@ -215,6 +215,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
   const [filter, setFilter] = useState('')
   const [serverSearch, setServerSearch] = useState('')
   const [visualizerView, setVisualizerView] = useState<'treemap' | 'callgraph'>('treemap')
+  const [packagePath, setPackagePath] = useState('')
   const [graphSearch, setGraphSearch] = useState('')
   const [graphFocusKey, setGraphFocusKey] = useState<string | null>(null)
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
@@ -245,6 +246,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
   const baseUnits = query.data?.units || EMPTY_CODE_UNITS
   const runs = query.data?.runs || []
   const currentRunId = runs.some((run) => run.id === selectedRunId) ? selectedRunId : query.data?.selectedRunId || null
+  useEffect(() => { setPackagePath('') }, [currentRunId])
   const pageState = additionalPage?.runId === currentRunId && additionalPage.search === serverSearch ? additionalPage : null
   const units = useMemo(() => {
     if (!pageState?.units.length) return baseUnits
@@ -264,8 +266,10 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
   })
   const canShowCallGraph = currentRun?.providerId === 'reamon-ghidra'
   const visibleUnits = useMemo(() => filterCodeUnits(units, filter), [units, filter])
-  const rectangles = useMemo(() => layoutCodeUnitTreemap(visibleUnits, 1200, 560), [visibleUnits])
-  const summary = useMemo(() => summarizeCodeUnits(visibleUnits), [visibleUnits])
+  const packageUnits = useMemo(() => filterCodeUnitsByPackage(visibleUnits, packagePath), [packagePath, visibleUnits])
+  const treemapEntries = useMemo(() => buildCodeUnitTreemapEntries(visibleUnits, packagePath), [packagePath, visibleUnits])
+  const rectangles = useMemo(() => layoutCodeUnitTreemap(treemapEntries, 1200, 560), [treemapEntries])
+  const summary = useMemo(() => summarizeCodeUnits(packageUnits), [packageUnits])
   const selectedUnit = visibleUnits.find((unit) => unit.id === selectedId)
     || (graphUnit?.id === selectedId ? graphUnit : undefined)
   const callGraphQuery = useQuery({
@@ -363,10 +367,37 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
     setSelectedId(null)
     setGraphUnit(null)
     setVisualizerView('treemap')
+    setPackagePath('')
     setGraphFocusKey(null)
     setGraphSearch('')
     setCopyStatus('')
     setAssemblyCopyStatus('')
+    setExplanation(null)
+    setExplainError('')
+  }
+
+  function openTreemapEntry(entry: CodeUnitTreemapEntry) {
+    if (entry.packagePath) {
+      setPackagePath(entry.packagePath)
+      setSelectedId(null)
+      setGraphUnit(null)
+      setExplanation(null)
+      setExplainError('')
+      return
+    }
+    if (!entry.codeUnit) return
+    setSelectedId(entry.codeUnit.id)
+    setGraphUnit(null)
+    setCopyStatus('')
+    setAssemblyCopyStatus('')
+    setExplanation(null)
+    setExplainError('')
+  }
+
+  function showPackage(packageName: string) {
+    setPackagePath(packageName)
+    setSelectedId(null)
+    setGraphUnit(null)
     setExplanation(null)
     setExplainError('')
   }
@@ -402,7 +433,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
         <div>
           <p className={styles.kicker}>Program structure</p>
           <h2 id="code-visualizer-heading"><Code2 size={18} /> Code visualizer</h2>
-          <p className={styles.description}>Browse analyzed functions and other code units by size. Tiles are backed by provider observations.</p>
+          <p className={styles.description}>Browse packages, functions, and other code units by size. Select a package to open its contents; tiles are backed by provider observations.</p>
         </div>
         {query.data && <span className={styles.badge}>{nextCursor ? `${units.length.toLocaleString()} / ${query.data.total.toLocaleString()} code units` : `${units.length.toLocaleString()} code units`}</span>}
       </div>
@@ -508,33 +539,37 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
           <span><i className={styles.unknown} /> Unmeasured</span>
         </div>
 
-        {visualizerView === 'treemap' && (visibleUnits.length ? <div className={styles.mapFrame}>
-          <svg className={styles.map} viewBox="0 0 1200 560" role="group" aria-label="Code units sized by bytes and colored by measured coverage">
+        {visualizerView === 'treemap' && (treemapEntries.length ? <div className={styles.mapFrame}>
+          {packagePath && <nav className={styles.packagePath} aria-label="Code package path">
+            <button type="button" onClick={() => showPackage('')}>All packages</button>
+            {packagePath.split('.').map((part, index, parts) => {
+              const path = parts.slice(0, index + 1).join('.')
+              return <span key={path}><span aria-hidden="true">/</span><button type="button" aria-current={index === parts.length - 1 ? 'page' : undefined} onClick={() => showPackage(path)}>{part}</button></span>
+            })}
+          </nav>}
+          <svg className={styles.map} viewBox="0 0 1200 560" role="group" aria-label="Package and code unit treemap sized by bytes and colored by measured coverage">
             {rectangles.map(({ unit, x, y, width, height }) => {
               const label = shortenLabel(unit.name, width)
-              const coverage = unit.coveragePercent === null ? 'coverage unmeasured' : `${unit.coveragePercent}% coverage`
+              const coverage = unit.coveragePercent === null ? 'coverage unmeasured' : `${Math.round(unit.coveragePercent)}% coverage`
+              const detail = unit.packagePath ? `${unit.unitCount.toLocaleString()} code units` : formatBytes(unit.sizeBytes)
               return <g
-                key={unit.id}
-                className={`${styles.tile} ${unit.id === selectedId ? styles.selected : ''}`}
+                key={unit.key}
+                className={`${styles.tile} ${unit.codeUnit?.id === selectedId ? styles.selected : ''} ${unit.packagePath ? styles.packageTile : ''}`}
                 role="button"
                 tabIndex={0}
-                aria-label={`${unit.name}, ${formatBytes(unit.sizeBytes)}, ${coverage}${unit.address ? `, address ${unit.address}` : ''}`}
-                onClick={() => { setSelectedId(unit.id); setGraphUnit(null); setCopyStatus(''); setAssemblyCopyStatus(''); setExplanation(null); setExplainError('') }}
+                aria-label={`${unit.name}${unit.packagePath ? ' package' : ''}, ${formatBytes(unit.sizeBytes)}, ${coverage}${unit.packagePath ? `, ${unit.unitCount.toLocaleString()} code units` : unit.codeUnit?.address ? `, address ${unit.codeUnit.address}` : ''}`}
+                onClick={() => openTreemapEntry(unit)}
                 onKeyDown={(event) => {
                   if (event.key === 'Enter' || event.key === ' ') {
                     event.preventDefault()
-                    setSelectedId(unit.id)
-                    setGraphUnit(null)
-                    setCopyStatus('')
-                    setExplanation(null)
-                    setExplainError('')
+                    openTreemapEntry(unit)
                   }
                 }}
               >
-                <title>{`${unit.name} · ${formatBytes(unit.sizeBytes)} · ${coverage}${unit.address ? ` · ${unit.address}` : ''}`}</title>
+                <title>{`${unit.name}${unit.packagePath ? ' package' : ''} · ${formatBytes(unit.sizeBytes)} · ${coverage}${unit.packagePath ? ` · ${unit.unitCount.toLocaleString()} code units` : unit.codeUnit?.address ? ` · ${unit.codeUnit.address}` : ''}`}</title>
                 <rect x={x + 1} y={y + 1} width={Math.max(0, width - 2)} height={Math.max(0, height - 2)} fill={unitColor(unit.coveragePercent)} rx="3" />
                 {label && <text x={x + 9} y={y + 20} className={styles.tileName}>{label}</text>}
-                {label && width > 115 && height > 48 && <text x={x + 9} y={y + 38} className={styles.tileMeta}>{unit.address || formatBytes(unit.sizeBytes)}</text>}
+                {label && width > 115 && height > 48 && <text x={x + 9} y={y + 38} className={styles.tileMeta}>{detail}</text>}
               </g>
             })}
           </svg>

@@ -147,20 +147,103 @@ export function filterCodeUnits(units: CodeUnit[], query: string): CodeUnit[] {
   })
 }
 
-export interface CodeUnitRect {
-  unit: CodeUnit
+export interface CodeUnitRect<T> {
+  unit: T
   x: number
   y: number
   width: number
   height: number
 }
 
-export function layoutCodeUnitTreemap(units: CodeUnit[], width: number, height: number): CodeUnitRect[] {
+export interface CodeUnitTreemapEntry {
+  key: string
+  name: string
+  sizeBytes: number
+  coveragePercent: number | null
+  codeUnit?: CodeUnit
+  packagePath?: string
+  unitCount: number
+}
+
+function codeUnitPath(unit: CodeUnit): string[] {
+  const artifactPath = unit.codeArtifactId?.replace(/\\/g, '/')
+  if (artifactPath) {
+    const parts = artifactPath.split('/').filter(Boolean)
+    const isJvmClass = (unit.language === 'Java' || unit.language === 'Smali') && unit.unitType === 'class'
+    const sourceRoot = isJvmClass
+      ? Math.max(parts.lastIndexOf('sources'), parts.lastIndexOf('smali'))
+      : parts.lastIndexOf('functions')
+    if (sourceRoot >= 0) return parts.slice(sourceRoot + 1, -1)
+  }
+
+  if ((unit.language === 'Java' || unit.language === 'Smali') && unit.unitType === 'class') {
+    const nameParts = unit.name.split('.')
+    if (nameParts.length > 1) return nameParts.slice(0, -1)
+  }
+  return []
+}
+
+export function buildCodeUnitTreemapEntries(units: CodeUnit[], packagePath = ''): CodeUnitTreemapEntry[] {
+  const selectedPath = packagePath.split('.').filter(Boolean)
+  const groups = new Map<string, { sizeBytes: number; weightedCoverage: number; measuredBytes: number; unitCount: number }>()
+  const entries: CodeUnitTreemapEntry[] = []
+
+  for (const unit of units) {
+    const path = codeUnitPath(unit)
+    if (selectedPath.some((part, index) => path[index] !== part)) continue
+    if (path.length > selectedPath.length) {
+      const segment = path[selectedPath.length]
+      const group = groups.get(segment) || { sizeBytes: 0, weightedCoverage: 0, measuredBytes: 0, unitCount: 0 }
+      group.sizeBytes += unit.sizeBytes
+      group.unitCount += 1
+      if (unit.coveragePercent !== null) {
+        group.weightedCoverage += unit.sizeBytes * unit.coveragePercent
+        group.measuredBytes += unit.sizeBytes
+      }
+      groups.set(segment, group)
+      continue
+    }
+    if (path.length !== selectedPath.length) continue
+    entries.push({
+      key: `unit:${unit.id}`,
+      name: unit.name,
+      sizeBytes: unit.sizeBytes,
+      coveragePercent: unit.coveragePercent,
+      codeUnit: unit,
+      unitCount: 1,
+    })
+  }
+
+  for (const [segment, group] of groups) {
+    const childPath = [...selectedPath, segment].join('.')
+    entries.push({
+      key: `package:${childPath}`,
+      name: segment,
+      sizeBytes: group.sizeBytes,
+      coveragePercent: group.measuredBytes > 0 ? group.weightedCoverage / group.measuredBytes : null,
+      packagePath: childPath,
+      unitCount: group.unitCount,
+    })
+  }
+
+  return entries.sort((left, right) => right.sizeBytes - left.sizeBytes || left.name.localeCompare(right.name))
+}
+
+export function filterCodeUnitsByPackage(units: CodeUnit[], packagePath: string): CodeUnit[] {
+  const selectedPath = packagePath.split('.').filter(Boolean)
+  if (!selectedPath.length) return units
+  return units.filter((unit) => {
+    const path = codeUnitPath(unit)
+    return selectedPath.every((part, index) => path[index] === part)
+  })
+}
+
+export function layoutCodeUnitTreemap<T extends { sizeBytes: number; name: string }>(units: T[], width: number, height: number): CodeUnitRect<T>[] {
   if (!units.length || width <= 0 || height <= 0) return []
   const sorted = [...units].sort((left, right) => right.sizeBytes - left.sizeBytes || left.name.localeCompare(right.name))
   const totalSize = sorted.reduce((sum, unit) => sum + unit.sizeBytes, 0)
   if (!Number.isFinite(totalSize) || totalSize <= 0) return []
-  const rectangles: CodeUnitRect[] = []
+  const rectangles: CodeUnitRect<T>[] = []
   let remainingIndex = 0
   let x = 0, y = 0, remainingWidth = width, remainingHeight = height
   const areaScale = width * height / totalSize
@@ -180,7 +263,7 @@ export function layoutCodeUnitTreemap(units: CodeUnit[], width: number, height: 
       break
     }
     const shortSide = Math.min(remainingWidth, remainingHeight)
-    const row: CodeUnit[] = []
+    const row: T[] = []
     let rowSize = 0, smallestSize = Number.POSITIVE_INFINITY, largestSize = 0
     while (remainingIndex < sorted.length) {
       const candidate = sorted[remainingIndex]

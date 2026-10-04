@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
+  buildCodeUnitTreemapEntries,
   filterCodeUnits,
+  filterCodeUnitsByPackage,
   layoutCodeUnitTreemap,
   normalizeCodeUnit,
   parseCodeUnitFilter,
@@ -53,6 +55,23 @@ describe('code visualizer unit normalization', () => {
     expect(Math.max(...areas) - Math.min(...areas)).toBeLessThan(0.01)
     expect(Math.max(...rectangles.map((rect) => Math.max(rect.width / rect.height, rect.height / rect.width)))).toBeLessThan(3)
     expect(rectangles.reduce((sum, rect) => sum + rect.width * rect.height, 0)).toBeCloseTo(1200 * 560, 5)
+  })
+
+  it('groups code artifacts by package with size-weighted coverage and drills down to code units', () => {
+    const units = [
+      unit({ id: 'main', name: 'com.example.MainActivity', unitType: 'class', codeArtifactId: 'p/a/t/r/sources/com/example/MainActivity.java', sizeBytes: 100, coveragePercent: 100 }),
+      unit({ id: 'util', name: 'com.example.Util', unitType: 'class', codeArtifactId: 'p/a/t/r/sources/com/example/Util.java', sizeBytes: 300, coveragePercent: 50 }),
+      unit({ id: 'other', name: 'org.sample.Other', unitType: 'class', codeArtifactId: 'p/a/t/r/sources/org/sample/Other.java', sizeBytes: 100, coveragePercent: null }),
+    ]
+
+    const roots = buildCodeUnitTreemapEntries(units)
+    expect(roots.map(({ name, packagePath, sizeBytes, unitCount, coveragePercent }) => ({ name, packagePath, sizeBytes, unitCount, coveragePercent }))).toEqual([
+      { name: 'com', packagePath: 'com', sizeBytes: 400, unitCount: 2, coveragePercent: 62.5 },
+      { name: 'org', packagePath: 'org', sizeBytes: 100, unitCount: 1, coveragePercent: null },
+    ])
+    const packages = buildCodeUnitTreemapEntries(units, 'com.example')
+    expect(packages.map(({ codeUnit }) => codeUnit?.id)).toEqual(['util', 'main'])
+    expect(filterCodeUnitsByPackage(units, 'com.example').map(({ id }) => id)).toEqual(['main', 'util'])
   })
 
   it('keeps treemap areas bounded and reports coverage only for measured bytes', () => {
