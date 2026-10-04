@@ -194,14 +194,18 @@ describe('WorkspaceCodeVisualizer', () => {
     expect(screen.getByRole('group', { name: 'Maintained source legend' })).toBeInTheDocument()
   })
 
-  test('offers a bundle download when maintained source is available', async () => {
+  test('offers a run source bundle that includes the complete selected decompilation', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({
-      units: [unit({ maintainedSource: true })], total: 1, maintainedCount: 1, hasMore: false,
+      units: [unit({ maintainedSource: true })], total: 1, maintainedCount: 1, hasMore: false, selectedRunId: 'run-1', runs: [{
+        id: 'run-1', title: 'JADX run', createdAt: '2026-10-04T00:00:00.000Z', completedAt: '2026-10-04T00:01:00.000Z',
+        artifactName: 'app.apk', providerId: 'reamon-jadx', codeUnitCount: 1, unitLabel: 'classes', discoveredUnitCount: 1,
+        returnedUnitCount: 1, indexedUnitCount: 1, linkPercent: 100, codeBytes: 100, truncated: false, warnings: '', failedUnitCount: null, visitedUnitCount: null,
+      }],
     }) }))
     renderVisualizer()
 
-    const download = await screen.findByRole('link', { name: 'Download 1 maintained source copy' })
-    expect(download).toHaveAttribute('href', '/api/projects/project-1/visualizer/maintained/export')
+    const download = await screen.findByRole('link', { name: 'Download source bundle · 1 code unit' })
+    expect(download).toHaveAttribute('href', '/api/projects/project-1/visualizer/maintained/export?taskId=run-1')
   })
 
   test('searches units beyond the first page of a run', async () => {
