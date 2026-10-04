@@ -23,17 +23,13 @@ restart_before="$(docker inspect --format '{{.RestartCount}}' "${workers[0]}")"
 
 soak_json="$(compose exec -T webapp node scripts/reamon-create-soak-tasks.mjs "$ARTIFACT_ID" "$COUNT")"
 echo "PASS: created bounded worker soak: ${soak_json}"
+mapfile -t task_ids < <(node -e 'const value=JSON.parse(process.argv[1]); for (const id of value.taskIds) console.log(id)' "$soak_json")
 
 complete=0
 for attempt in $(seq 1 "$MAX_WAIT_SECONDS"); do
-  complete=0
-  failed=0
-  while IFS= read -r task_id; do
-    status_json="$(compose exec -T webapp node scripts/reamon-task-status.mjs "$task_id" 2>/dev/null || true)"
-    status="$(node -e 'const value=JSON.parse(process.argv[1]); process.stdout.write(value.status)' "$status_json" 2>/dev/null || true)"
-    [[ "$status" == COMPLETED ]] && complete=$((complete + 1))
-    [[ "$status" == FAILED ]] && failed=$((failed + 1))
-  done < <(node -e 'const value=JSON.parse(process.argv[1]); for (const id of value.taskIds) console.log(id)' "$soak_json")
+  status_json="$(compose exec -T webapp node scripts/reamon-soak-status.mjs "${task_ids[@]}" 2>/dev/null || true)"
+  complete="$(node -e 'const value=JSON.parse(process.argv[1]); process.stdout.write(String(value.completed))' "$status_json" 2>/dev/null || echo 0)"
+  failed="$(node -e 'const value=JSON.parse(process.argv[1]); process.stdout.write(String(value.failed))' "$status_json" 2>/dev/null || echo 0)"
   if (( failed > 0 )); then
     echo "FAIL: worker soak produced failed tasks" >&2
     exit 1

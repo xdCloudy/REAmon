@@ -1,4 +1,5 @@
 import { pathToFileURL } from 'node:url'
+import os from 'node:os'
 
 const DEFAULT_POLL_SECONDS = 10
 const DEFAULT_BATCH_SIZE = 1
@@ -61,7 +62,10 @@ export function readWorkerConfig(env = process.env) {
     backfillBatchSize: boundedNumber(env.REAMON_WORKER_BACKFILL_BATCH_SIZE, DEFAULT_BACKFILL_BATCH_SIZE, 1, MAX_BACKFILL_BATCH_SIZE),
     retentionIntervalSeconds: boundedNumber(env.REAMON_WORKER_RETENTION_INTERVAL_SECONDS, DEFAULT_RETENTION_INTERVAL_SECONDS, 0, MAX_RETENTION_INTERVAL_SECONDS),
     retentionApply: booleanValue(env.REAMON_WORKER_RETENTION_APPLY),
-    workerId: boundedWorkerId(env.REAMON_WORKER_ID || env.HOSTNAME),
+    // Some Compose/CI environments expose HOSTNAME as a service address
+    // (for example 0.0.0.0) instead of the container identity. Fall back to
+    // the runtime hostname so scaled replicas always register distinctly.
+    workerId: boundedWorkerId(env.REAMON_WORKER_ID || (env.HOSTNAME && env.HOSTNAME !== '0.0.0.0' ? env.HOSTNAME : os.hostname())),
   }
 }
 
