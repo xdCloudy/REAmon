@@ -10,6 +10,7 @@ interface CodeUnitResponse {
   units: CodeUnit[]
   total: number
   hasMore: boolean
+  nextCursor: string | null
   runs: Array<{
     id: string
     title: string
@@ -36,9 +37,12 @@ interface CodeExplanationResponse { explanation: string; providerName: string; m
 
 const EMPTY_CODE_UNITS: CodeUnit[] = []
 
-async function fetchCodeUnits(projectId: string, taskId: string | null): Promise<CodeUnitResponse> {
-  const query = taskId ? `?taskId=${encodeURIComponent(taskId)}` : ''
-  const response = await fetch(`/api/projects/${projectId}/visualizer${query}`)
+async function fetchCodeUnits(projectId: string, taskId: string | null, cursor: string | null = null, signal?: AbortSignal): Promise<CodeUnitResponse> {
+  const params = new URLSearchParams()
+  if (taskId) params.set('taskId', taskId)
+  if (cursor) params.set('cursor', cursor)
+  const query = params.size ? `?${params.toString()}` : ''
+  const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer${query}`, { signal, cache: 'no-store' })
   if (!response.ok) throw new Error('Unable to load code units')
   return response.json()
 }
@@ -100,16 +104,27 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing }: { projectId:
   const [explanation, setExplanation] = useState<CodeExplanationResponse | null>(null)
   const [explainError, setExplainError] = useState('')
   const [explaining, setExplaining] = useState(false)
+  const [additionalPage, setAdditionalPage] = useState<{ runId: string | null; units: CodeUnit[]; nextCursor: string | null } | null>(null)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [loadMoreError, setLoadMoreError] = useState('')
   const query = useQuery({
     queryKey: ['reamon-code-units', projectId, selectedRunId],
-    queryFn: () => fetchCodeUnits(projectId, selectedRunId),
+    queryFn: ({ signal }) => fetchCodeUnits(projectId, selectedRunId, null, signal),
     staleTime: 5_000,
     refetchInterval: isAnalyzing ? 3000 : false,
     refetchIntervalInBackground: false,
   })
-  const units = query.data?.units || EMPTY_CODE_UNITS
+  const baseUnits = query.data?.units || EMPTY_CODE_UNITS
   const runs = query.data?.runs || []
   const currentRunId = runs.some((run) => run.id === selectedRunId) ? selectedRunId : query.data?.selectedRunId || null
+  const pageState = additionalPage?.runId === currentRunId ? additionalPage : null
+  const units = useMemo(() => {
+    if (!pageState?.units.length) return baseUnits
+    const byId = new Map(baseUnits.map((unit) => [unit.id, unit]))
+    for (const unit of pageState.units) byId.set(unit.id, unit)
+    return [...byId.values()]
+  }, [baseUnits, pageState])
+  const nextCursor = pageState ? pageState.nextCursor : query.data?.nextCursor || null
   const currentRunIndex = runs.findIndex((run) => run.id === currentRunId)
   const currentRun = currentRunIndex >= 0 ? runs[currentRunIndex] : null
   const visibleUnits = useMemo(() => filterCodeUnits(units, filter), [units, filter])
@@ -178,11 +193,37 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing }: { projectId:
 
   function showRun(taskId: string | null) {
     setSelectedRunId(taskId)
+    setAdditionalPage(null)
+    setLoadMoreError('')
     setSelectedId(null)
     setCopyStatus('')
     setAssemblyCopyStatus('')
     setExplanation(null)
     setExplainError('')
+  }
+
+  async function loadMoreUnits() {
+    if (!nextCursor || loadingMore) return
+    setLoadingMore(true)
+    setLoadMoreError('')
+    try {
+      const page = await fetchCodeUnits(projectId, currentRunId, nextCursor)
+      setAdditionalPage((previous) => ({
+        runId: currentRunId,
+        units: [...(previous?.runId === currentRunId ? previous.units : []), ...page.units],
+        nextCursor: page.nextCursor || null,
+      }))
+    } catch (error) {
+      setLoadMoreError(error instanceof Error ? error.message : 'Could not load more code units')
+    } finally {
+      setLoadingMore(false)
+    }
+  }
+
+  async function refreshMap() {
+    await query.refetch()
+    setAdditionalPage(null)
+    setLoadMoreError('')
   }
 
   return (
@@ -193,7 +234,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing }: { projectId:
           <h2 id="code-visualizer-heading"><Code2 size={18} /> Code visualizer</h2>
           <p className={styles.description}>Browse analyzed functions and other code units by size. Tiles are backed by provider observations.</p>
         </div>
-        {query.data && <span className={styles.badge}>{query.data.hasMore ? `${units.length.toLocaleString()} / ${query.data.total.toLocaleString()} code units` : `${units.length.toLocaleString()} code units`}</span>}
+        {query.data && <span className={styles.badge}>{nextCursor ? `${units.length.toLocaleString()} / ${query.data.total.toLocaleString()} code units` : `${units.length.toLocaleString()} code units`}</span>}
       </div>
 
       {currentRun && <nav className={styles.runHistory} aria-label="Analysis run history">
@@ -227,25 +268,25 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing }: { projectId:
 
       {query.isLoading && <p className={styles.message}>Loading code units…</p>}
       {query.isError && <p className={styles.error}>Could not load code units. Refresh the workspace and try again.</p>}
-      {!query.isLoading && !query.isError && query.data?.units.length === 0 && query.data.total === 0 && (
+      {!query.isLoading && !query.isError && query.data && units.length === 0 && query.data.total === 0 && (
         <div className={styles.empty}>
           <strong>No code units have been analyzed yet.</strong>
           <p>Importing a file only records and profiles it. An analyzer must publish functions or other code units before this map can show program structure.</p>
           <span>Each unit should include its name, address, byte size, coverage details, and a link to its viewable code artifact.</span>
         </div>
       )}
-      {!query.isLoading && !query.isError && query.data?.units.length === 0 && query.data.total > 0 && (
+      {!query.isLoading && !query.isError && query.data && units.length === 0 && query.data.total > 0 && (
         <div className={styles.empty}>
-          <strong>Code-unit observations are missing their byte size.</strong>
+          <strong>This batch has no code units with a usable byte size.</strong>
           <p>The map needs each provider to report a positive size for a function, class, or other unit. The stored records remain available in the investigation history.</p>
         </div>
       )}
 
-      {!query.isLoading && !query.isError && query.data && query.data.units.length > 0 && <>
+      {!query.isLoading && !query.isError && query.data && units.length > 0 && <>
         <div className={styles.stats}>
           <div><strong>{units.length.toLocaleString()}</strong><span>Mapped code units</span></div>
           <div><strong>{formatBytes(summary.totalBytes)}</strong><span>Mapped bytes in filter</span></div>
-          <div><strong>{summary.coveragePercent === null ? 'Unknown' : `${summary.coveragePercent}%`}</strong><span>Coverage of measured units</span></div>
+          <div><strong>{summary.coveragePercent === null ? 'Unknown' : `${summary.coveragePercent}%`}</strong><span>Coverage of measured units in filter</span></div>
           <div><strong>{summary.decompiledUnits.toLocaleString()}</strong><span>Fully covered units</span></div>
         </div>
         {summary.unmeasuredBytes > 0 && <p className={styles.message}>{formatBytes(summary.unmeasuredBytes)} of mapped code has no coverage value from its provider.</p>}
@@ -294,7 +335,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing }: { projectId:
           </svg>
         </div> : <p className={styles.noMatches}>No code units match this filter.</p>}
 
-        {query.data.hasMore && <p className={styles.message}>The map contains the newest {units.length.toLocaleString()} size-described units from {query.data.total.toLocaleString()} observations. Search currently filters the units loaded here.</p>}
+        {nextCursor && <p className={styles.message}>Showing {units.length.toLocaleString()} of {query.data.total.toLocaleString()} code units. Search currently filters the units loaded here.</p>}
         {selectedUnit && <div className={styles.details}>
           <div><span className={styles.detailLabel}>Selected code unit</span><strong>{selectedUnit.name}</strong></div>
           <dl>
@@ -372,7 +413,14 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing }: { projectId:
           </div>}
         </section>}
       </>}
-      <button type="button" className={styles.refresh} onClick={() => void query.refetch()} disabled={query.isFetching}>
+      {nextCursor && <div className={styles.loadMore}>
+        <span>Loaded {units.length.toLocaleString()} of {query.data?.total.toLocaleString() || '0'} code units</span>
+        <button type="button" className={styles.runButton} onClick={() => void loadMoreUnits()} disabled={loadingMore}>
+          {loadingMore ? 'Loading code units…' : 'Load more code units'}
+        </button>
+        {loadMoreError && <p className={styles.error} role="alert">{loadMoreError}</p>}
+      </div>}
+      <button type="button" className={styles.refresh} onClick={() => void refreshMap()} disabled={query.isFetching}>
         <RefreshCw size={14} className={query.isFetching ? styles.spin : undefined} /> {query.isFetching ? 'Refreshing…' : 'Refresh map'}
       </button>
     </section>

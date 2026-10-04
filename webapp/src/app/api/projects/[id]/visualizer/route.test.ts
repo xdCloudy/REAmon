@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server'
 
 const mocks = vi.hoisted(() => ({
   findMany: vi.fn(),
+  findFirst: vi.fn(),
   count: vi.fn(),
   groupBy: vi.fn(),
   taskFindMany: vi.fn(),
@@ -13,7 +14,7 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock('@/lib/prisma', () => ({ default: {
-  reamonObservation: { findMany: mocks.findMany, count: mocks.count, groupBy: mocks.groupBy },
+  reamonObservation: { findMany: mocks.findMany, findFirst: mocks.findFirst, count: mocks.count, groupBy: mocks.groupBy },
   task: { findMany: mocks.taskFindMany },
 } }))
 vi.mock('@/lib/reamon/inventory-query', () => ({ getActiveWorkspaceImportSelection: mocks.getActiveWorkspaceImportSelection }))
@@ -32,6 +33,7 @@ beforeEach(() => {
   mocks.requireProjectAccess.mockResolvedValue({ project: { id: 'project-1', userId: 'user-1' } })
   mocks.getActiveWorkspaceImportSelection.mockResolvedValue({ artifactWhere: { projectId: 'project-1', importId: { in: ['active-import'] } } })
   mocks.findMany.mockResolvedValue([])
+  mocks.findFirst.mockResolvedValue(null)
   mocks.count.mockResolvedValue(0)
   mocks.groupBy.mockResolvedValue([])
   mocks.taskFindMany.mockResolvedValue([])
@@ -82,8 +84,40 @@ describe('GET /api/projects/[id]/visualizer', () => {
     })
     expect(mocks.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: { projectId: 'project-1', type: 'code_unit', taskId: 'run-1', artifact: { is: { projectId: 'project-1', importId: { in: ['active-import'] } } } },
-      take: 5001,
+      take: 1001,
     }))
+  })
+
+  test('paginates large code-unit maps with a run-scoped cursor', async () => {
+    const row = {
+      id: 'observation-1000', stableKey: 'function:1000', label: 'fn1000', source: 'ghidra', artifactId: 'artifact-1',
+      updatedAt: new Date('2026-10-04T00:00:00.000Z'),
+      attributes: { unitType: 'function', qualifiedName: 'app.fn1000', sizeBytes: 128, language: 'C' },
+      artifact: { relativePath: 'bin/app.exe', originalName: 'app.exe' },
+    }
+    mocks.taskFindMany.mockResolvedValue([{ id: 'run-1', title: 'Run', createdAt: new Date(), completedAt: new Date(), artifact: { originalName: 'app.exe', relativePath: 'app.exe' } }])
+    mocks.groupBy.mockResolvedValue([{ taskId: 'run-1', _count: { _all: 2 } }])
+    mocks.findFirst.mockResolvedValue({ id: 'observation-999' })
+    mocks.findMany.mockResolvedValue([row])
+    mocks.count.mockResolvedValue(1001)
+
+    const response = await GET(new Request('http://localhost/api/projects/project-1/visualizer?taskId=run-1&cursor=observation-999'), params)
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ units: [{ id: 'observation-1000' }], total: 1001, hasMore: false, nextCursor: null, selectedRunId: 'run-1' })
+    expect(mocks.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ id: 'observation-999', taskId: 'run-1' }) }))
+    expect(mocks.findMany).toHaveBeenCalledWith(expect.objectContaining({ cursor: { id: 'observation-999' }, skip: 1, take: 1001 }))
+  })
+
+  test('rejects cursors outside the selected run before reading another page', async () => {
+    mocks.taskFindMany.mockResolvedValue([{ id: 'run-1', title: 'Run', createdAt: new Date(), completedAt: new Date(), artifact: { originalName: 'app.exe', relativePath: 'app.exe' } }])
+    mocks.groupBy.mockResolvedValue([{ taskId: 'run-1', _count: { _all: 1 } }])
+    mocks.findFirst.mockResolvedValue(null)
+
+    const response = await GET(new Request('http://localhost/api/projects/project-1/visualizer?taskId=run-1&cursor=other-run-row'), params)
+
+    expect(response.status).toBe(400)
+    expect(mocks.findMany).not.toHaveBeenCalled()
   })
 
   test('selects a requested older run and rejects IDs outside the active workspace history', async () => {

@@ -85,7 +85,8 @@ export async function GET(request: Request, { params }: RouteParams) {
         }
       })
       .filter((run) => run.codeUnitCount > 0)
-    const requestedTaskId = new URL(request.url).searchParams.get('taskId')?.trim() || null
+    const searchParams = new URL(request.url).searchParams
+    const requestedTaskId = searchParams.get('taskId')?.trim() || null
     if (requestedTaskId && !runs.some((run) => run.id === requestedTaskId)) {
       return NextResponse.json({ error: 'Analysis run not found' }, { status: 404, headers: { 'Cache-Control': 'private, no-store' } })
     }
@@ -96,10 +97,19 @@ export async function GET(request: Request, { params }: RouteParams) {
       artifact: { is: selection.artifactWhere },
       ...(selectedRunId ? { taskId: selectedRunId } : {}),
     }
+    const cursorId = searchParams.get('cursor')?.trim() || null
+    if (cursorId && cursorId.length > 128) {
+      return NextResponse.json({ error: 'Invalid code unit cursor' }, { status: 400, headers: { 'Cache-Control': 'private, no-store' } })
+    }
+    if (cursorId) {
+      const cursor = await prisma.reamonObservation.findFirst({ where: { ...where, id: cursorId }, select: { id: true } })
+      if (!cursor) return NextResponse.json({ error: 'Code unit cursor is outside this analysis run' }, { status: 400, headers: { 'Cache-Control': 'private, no-store' } })
+    }
     const [rows, total] = await Promise.all([
       prisma.reamonObservation.findMany({
         where,
-        orderBy: [{ updatedAt: 'desc' }, { stableKey: 'asc' }],
+        orderBy: [{ updatedAt: 'desc' }, { stableKey: 'asc' }, { id: 'asc' }],
+        ...(cursorId ? { cursor: { id: cursorId }, skip: 1 } : {}),
         take: CODE_UNIT_QUERY_LIMIT + 1,
         select: {
           id: true,
@@ -115,13 +125,14 @@ export async function GET(request: Request, { params }: RouteParams) {
       prisma.reamonObservation.count({ where }),
     ])
 
-    const units = rows.slice(0, CODE_UNIT_QUERY_LIMIT)
-      .map(normalizeCodeUnit)
-      .filter((unit) => unit !== null)
+    const pageRows = rows.slice(0, CODE_UNIT_QUERY_LIMIT)
+    const units = pageRows.map(normalizeCodeUnit).filter((unit) => unit !== null)
+    const nextCursor = rows.length > CODE_UNIT_QUERY_LIMIT ? pageRows.at(-1)?.id || null : null
     return NextResponse.json({
       units,
       total,
-      hasMore: total > CODE_UNIT_QUERY_LIMIT,
+      hasMore: nextCursor !== null,
+      nextCursor,
       runs,
       selectedRunId,
       summary: summarizeCodeUnits(units),

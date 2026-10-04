@@ -85,6 +85,8 @@
 .explanation > div { display: flex; flex-wrap: wrap; gap: var(--space-2); color: var(--text-tertiary); font-size: var(--text-xs); }
 .explanation > div strong { color: var(--text-primary); }
 .explanation pre { max-height: 540px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text-primary); font-family: var(--font-sans); font-size: var(--text-sm); line-height: 1.6; }
+.loadMore { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: var(--space-3); padding: var(--space-3) 0 0; color: var(--text-tertiary); font-size: var(--text-xs); }
+.loadMore .error { flex-basis: 100%; text-align: center; }
 .refresh { display: inline-flex; align-items: center; gap: var(--space-1-5); border: 1px solid var(--border-default); border-radius: var(--radius-sm); background: var(--bg-primary); color: var(--text-secondary); cursor: pointer; font-size: var(--text-xs); padding: .35rem .55rem; margin-top: var(--space-3); }
 .refresh:hover:not(:disabled) { border-color: var(--accent-secondary); color: var(--text-primary); }
 .refresh:disabled { cursor: wait; opacity: .6; }

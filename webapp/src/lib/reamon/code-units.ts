@@ -1,5 +1,5 @@
 export const CODE_UNIT_OBSERVATION_TYPE = 'code_unit'
-export const CODE_UNIT_QUERY_LIMIT = 5000
+export const CODE_UNIT_QUERY_LIMIT = 1000
 
 export interface CodeUnitObservationAttributes {
   unitType: string

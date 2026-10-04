@@ -90,6 +90,25 @@ describe('WorkspaceCodeVisualizer', () => {
     await waitFor(() => expect(screen.queryByRole('button', { name: /app\.MainActivity\.onCreate/ })).toBeNull())
   })
 
+  test('loads the next batch of code units within the selected run', async () => {
+    const first = unit({ id: 'unit-first', name: 'app.first' })
+    const second = unit({ id: 'unit-second', name: 'app.second', codeArtifactId: null })
+    const run = { id: 'run-new', title: 'Latest analysis', createdAt: '2026-10-04T00:00:00.000Z', completedAt: '2026-10-04T00:01:00.000Z', artifactName: 'app.exe', codeUnitCount: 2, unitLabel: 'functions', discoveredUnitCount: 2, returnedUnitCount: 2, indexedUnitCount: 2, linkPercent: 100, codeBytes: 2048, truncated: false, warnings: '', failedUnitCount: null, visitedUnitCount: null }
+    const fetchMock = vi.fn((input: string) => {
+      if (input.includes('cursor=')) return Promise.resolve({ ok: true, json: async () => ({ units: [second], total: 2, hasMore: false, nextCursor: null, runs: [run], selectedRunId: 'run-new' }) })
+      return Promise.resolve({ ok: true, json: async () => ({ units: [first], total: 2, hasMore: true, nextCursor: 'unit-first', runs: [run], selectedRunId: 'run-new' }) })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderVisualizer()
+
+    expect(await screen.findByRole('button', { name: /app\.first/ })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Load more code units' }))
+
+    expect(await screen.findByRole('button', { name: /app\.second/ })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Load more code units' })).not.toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith('/api/projects/project-1/visualizer?taskId=run-new&cursor=unit-first', expect.objectContaining({ cache: 'no-store' }))
+  })
+
   test('compares Ghidra decompiled source with its linked disassembly', async () => {
     const native = unit({
       id: 'native-main', name: 'main', address: '00401000', language: 'C', unitType: 'function',
