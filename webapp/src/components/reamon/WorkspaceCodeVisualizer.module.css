@@ -25,6 +25,7 @@
 .runSummaryHeading span { color: var(--text-tertiary); font-size: var(--text-xs); }
 .runProgress { height: 14px; overflow: hidden; border-radius: 2px; background: var(--bg-primary); }
 .runProgress span { display: block; height: 100%; border-radius: inherit; background: var(--accent-secondary); transition: width 180ms ease; }
+.maintainedProgress span { background: var(--status-success, #00a876); }
 .runSummaryMeta { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--space-2); color: var(--text-tertiary); font-size: var(--text-xs); }
 .runAgain { color: var(--accent-secondary); font-weight: var(--font-semibold); text-decoration: underline; text-underline-offset: 2px; }
 .runAgain:hover, .runAgain:focus-visible { color: var(--text-primary); }

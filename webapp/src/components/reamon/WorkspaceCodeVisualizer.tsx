@@ -39,6 +39,13 @@ interface CodeUnitResponse {
   selectedRunId: string | null
 }
 
+interface MaintainedCoverageResponse {
+  taskId: string
+  codeUnitCount: number
+  maintainedUnitCount: number
+  coveragePercent: number
+}
+
 interface CallGraphNode {
   key: string
   label: string
@@ -69,6 +76,17 @@ async function fetchCodeUnits(projectId: string, taskId: string | null, cursor: 
   const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer${query}`, { signal, cache: 'no-store' })
   if (!response.ok) throw new Error('Unable to load code units')
   return response.json()
+}
+
+async function fetchMaintainedCoverage(projectId: string, taskId: string, signal?: AbortSignal): Promise<MaintainedCoverageResponse> {
+  const params = new URLSearchParams({ taskId })
+  const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/coverage?${params.toString()}`, { signal, cache: 'no-store' })
+  if (!response.ok) throw new Error('Unable to load maintained-source coverage')
+  const result = await response.json() as Partial<MaintainedCoverageResponse>
+  if (result.taskId !== taskId || !Number.isSafeInteger(result.codeUnitCount) || !Number.isSafeInteger(result.maintainedUnitCount) || !Number.isSafeInteger(result.coveragePercent)) {
+    throw new Error('Maintained-source coverage response is incomplete')
+  }
+  return result as MaintainedCoverageResponse
 }
 
 async function fetchCallGraph(projectId: string, taskId: string, unitId: string, signal?: AbortSignal): Promise<CallGraphResponse> {
@@ -275,6 +293,14 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
   const nextCursor = pageState ? pageState.nextCursor : query.data?.nextCursor || null
   const currentRunIndex = runs.findIndex((run) => run.id === currentRunId)
   const currentRun = currentRunIndex >= 0 ? runs[currentRunIndex] : null
+  const maintainedCoverageQuery = useQuery({
+    queryKey: ['reamon-maintained-coverage', projectId, currentRunId],
+    queryFn: ({ signal }) => fetchMaintainedCoverage(projectId, currentRunId as string, signal),
+    enabled: Boolean(currentRunId),
+    staleTime: 5_000,
+    refetchInterval: isAnalyzing ? 3000 : false,
+    refetchIntervalInBackground: false,
+  })
   const runCallGraphQuery = useQuery({
     queryKey: ['reamon-callgraph-run', projectId, currentRunId],
     queryFn: ({ signal }) => fetchRunCallGraph(projectId, currentRunId as string, signal),
@@ -465,6 +491,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
       if (!response.ok) throw new Error(result.error || 'Could not save the maintained source')
       setMaintainedSaved(true)
       await queryClient.invalidateQueries({ queryKey: ['reamon-code-units', projectId] })
+      await queryClient.invalidateQueries({ queryKey: ['reamon-maintained-coverage', projectId, currentRunId] })
     } catch (error) {
       setMaintenanceError(error instanceof Error ? error.message : 'Could not save the maintained source')
     } finally {
@@ -546,7 +573,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
         <div>
           <p className={styles.kicker}>Program structure</p>
           <h2 id="code-visualizer-heading"><Code2 size={18} /> Code visualizer</h2>
-          <p className={styles.description}>Browse packages, functions, and other code units by size. Select a package to open its contents; tiles are backed by provider observations.</p>
+          <p className={styles.description}>Follow each code unit from analyzer decompilation through reverse engineering into a separate, maintainable source copy. Select a tile to inspect the original, create and review its maintained version, then save or export both outputs.</p>
         </div>
         {query.data && <span className={styles.badge}>{nextCursor ? `${units.length.toLocaleString()} / ${query.data.total.toLocaleString()} code units` : `${units.length.toLocaleString()} code units`}</span>}
       </div>
@@ -583,6 +610,23 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
           {currentRun.failedUnitCount !== null && currentRun.failedUnitCount > 0 && <span>{currentRun.failedUnitCount.toLocaleString()} functions could not be decompiled{currentRun.visitedUnitCount !== null ? ` of ${currentRun.visitedUnitCount.toLocaleString()} visited` : ''}</span>}
         </div>
         {currentRun.warnings && <p className={styles.runWarning}>{currentRun.warnings}</p>}
+      </div>}
+
+      {currentRun && <div className={styles.runSummary} aria-label="Selected run maintainable-source progress">
+        {maintainedCoverageQuery.isLoading && <p className={styles.message}>Checking reverse-engineered source coverage…</p>}
+        {maintainedCoverageQuery.isError && <p className={styles.error} role="alert">Could not load maintainable-source progress. Refresh the map to try again.</p>}
+        {maintainedCoverageQuery.data && <>
+          <div className={styles.runSummaryHeading}>
+            <div>
+              <strong>{maintainedCoverageQuery.data.coveragePercent}% reverse engineered into maintainable source</strong>
+              <span>{maintainedCoverageQuery.data.maintainedUnitCount.toLocaleString()} of {maintainedCoverageQuery.data.codeUnitCount.toLocaleString()} code units have a saved maintained copy</span>
+            </div>
+            <span>AI drafts count after review and save</span>
+          </div>
+          <div className={`${styles.runProgress} ${styles.maintainedProgress}`} role="progressbar" aria-label="Maintained source coverage" aria-valuemin={0} aria-valuemax={100} aria-valuenow={maintainedCoverageQuery.data.coveragePercent} aria-valuetext={`${maintainedCoverageQuery.data.coveragePercent}% reverse engineered into maintainable source`}>
+            <span style={{ width: `${maintainedCoverageQuery.data.coveragePercent}%` }} />
+          </div>
+        </>}
       </div>}
 
       {query.isLoading && <p className={styles.message}>Loading code units…</p>}

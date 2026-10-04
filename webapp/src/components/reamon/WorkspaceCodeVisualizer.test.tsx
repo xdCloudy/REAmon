@@ -29,6 +29,20 @@ afterEach(() => {
 })
 
 describe('WorkspaceCodeVisualizer', () => {
+  test('shows separate decompilation and maintainable-source progress for the selected run', async () => {
+    const run = { id: 'run-1', title: 'JADX run', createdAt: '2026-10-04T00:00:00.000Z', completedAt: '2026-10-04T00:01:00.000Z', artifactName: 'app.apk', providerId: 'reamon-jadx', codeUnitCount: 2, unitLabel: 'classes', discoveredUnitCount: 2, returnedUnitCount: 2, indexedUnitCount: 2, linkPercent: 100, codeBytes: 100, truncated: false, warnings: '', failedUnitCount: null, visitedUnitCount: null }
+    const fetchMock = vi.fn((input: string) => input.includes('/visualizer/coverage')
+      ? Promise.resolve({ ok: true, json: async () => ({ taskId: 'run-1', codeUnitCount: 2, maintainedUnitCount: 1, coveragePercent: 50 }) })
+      : Promise.resolve({ ok: true, json: async () => ({ units: [unit()], total: 2, hasMore: false, selectedRunId: 'run-1', runs: [run] }) }))
+    vi.stubGlobal('fetch', fetchMock)
+    renderVisualizer()
+
+    expect(await screen.findByRole('progressbar', { name: 'Indexed code unit coverage' })).toHaveAttribute('aria-valuenow', '100')
+    expect(await screen.findByRole('progressbar', { name: 'Maintained source coverage' })).toHaveAttribute('aria-valuenow', '50')
+    expect(screen.getByText('1 of 2 code units have a saved maintained copy')).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith('/api/projects/project-1/visualizer/coverage?taskId=run-1', expect.objectContaining({ cache: 'no-store' }))
+  })
+
   test('navigates between completed decompilation runs', async () => {
     const requests: string[] = []
     const fetchMock = vi.fn((input: string) => {
