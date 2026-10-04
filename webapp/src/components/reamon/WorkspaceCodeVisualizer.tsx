@@ -10,6 +10,8 @@ interface CodeUnitResponse {
   units: CodeUnit[]
   total: number
   hasMore: boolean
+  runs: Array<{ id: string; title: string; createdAt: string; completedAt: string | null; artifactName: string; codeUnitCount: number }>
+  selectedRunId: string | null
 }
 
 interface CodeExplanationProvider { id: string; name: string; modelIdentifier: string }
@@ -17,8 +19,9 @@ interface CodeExplanationResponse { explanation: string; providerName: string; m
 
 const EMPTY_CODE_UNITS: CodeUnit[] = []
 
-async function fetchCodeUnits(projectId: string): Promise<CodeUnitResponse> {
-  const response = await fetch(`/api/projects/${projectId}/visualizer`)
+async function fetchCodeUnits(projectId: string, taskId: string | null): Promise<CodeUnitResponse> {
+  const query = taskId ? `?taskId=${encodeURIComponent(taskId)}` : ''
+  const response = await fetch(`/api/projects/${projectId}/visualizer${query}`)
   if (!response.ok) throw new Error('Unable to load code units')
   return response.json()
 }
@@ -67,6 +70,7 @@ function shortenLabel(value: string, width: number): string {
 
 export function WorkspaceCodeVisualizer({ projectId, isAnalyzing }: { projectId: string; isAnalyzing: boolean }) {
   const [filter, setFilter] = useState('')
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [copyStatus, setCopyStatus] = useState('')
   const [providerId, setProviderId] = useState('')
@@ -75,13 +79,17 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing }: { projectId:
   const [explainError, setExplainError] = useState('')
   const [explaining, setExplaining] = useState(false)
   const query = useQuery({
-    queryKey: ['reamon-code-units', projectId],
-    queryFn: () => fetchCodeUnits(projectId),
+    queryKey: ['reamon-code-units', projectId, selectedRunId],
+    queryFn: () => fetchCodeUnits(projectId, selectedRunId),
     staleTime: 5_000,
     refetchInterval: isAnalyzing ? 3000 : false,
     refetchIntervalInBackground: false,
   })
   const units = query.data?.units || EMPTY_CODE_UNITS
+  const runs = query.data?.runs || []
+  const currentRunId = runs.some((run) => run.id === selectedRunId) ? selectedRunId : query.data?.selectedRunId || null
+  const currentRunIndex = runs.findIndex((run) => run.id === currentRunId)
+  const currentRun = currentRunIndex >= 0 ? runs[currentRunIndex] : null
   const visibleUnits = useMemo(() => filterCodeUnits(units, filter), [units, filter])
   const rectangles = useMemo(() => layoutCodeUnitTreemap(visibleUnits, 1200, 560), [visibleUnits])
   const summary = useMemo(() => summarizeCodeUnits(visibleUnits), [visibleUnits])
@@ -137,6 +145,14 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing }: { projectId:
     }
   }
 
+  function showRun(taskId: string | null) {
+    setSelectedRunId(taskId)
+    setSelectedId(null)
+    setCopyStatus('')
+    setExplanation(null)
+    setExplainError('')
+  }
+
   return (
     <section className={styles.panel} aria-labelledby="code-visualizer-heading">
       <div className={styles.header}>
@@ -147,6 +163,17 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing }: { projectId:
         </div>
         {query.data && <span className={styles.badge}>{query.data.hasMore ? `${units.length.toLocaleString()} / ${query.data.total.toLocaleString()} code units` : `${units.length.toLocaleString()} code units`}</span>}
       </div>
+
+      {currentRun && <nav className={styles.runHistory} aria-label="Decompilation run history">
+        <button type="button" className={styles.runButton} aria-label="Previous run" disabled={currentRunIndex >= runs.length - 1} onClick={() => showRun(runs[currentRunIndex + 1]?.id || null)}>Previous</button>
+        <div className={styles.runDetails} aria-live="polite">
+          <strong>Run {currentRunIndex + 1} of {runs.length}</strong>
+          <span>{currentRun.artifactName} · {new Date(currentRun.completedAt || currentRun.createdAt).toLocaleString()}</span>
+          <small>{currentRun.codeUnitCount.toLocaleString()} code units</small>
+        </div>
+        <button type="button" className={styles.runButton} aria-label="Next run" disabled={currentRunIndex <= 0} onClick={() => showRun(runs[currentRunIndex - 1]?.id || null)}>Next</button>
+        <button type="button" className={styles.runButton} aria-label="Latest run" disabled={currentRunIndex === 0} onClick={() => showRun(null)}>Latest</button>
+      </nav>}
 
       {query.isLoading && <p className={styles.message}>Loading code units…</p>}
       {query.isError && <p className={styles.error}>Could not load code units. Refresh the workspace and try again.</p>}

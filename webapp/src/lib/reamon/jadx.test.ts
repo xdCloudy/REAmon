@@ -1,5 +1,6 @@
 import { describe, expect, test, vi } from 'vitest'
 import { executeJadx } from './jadx'
+import { canonicalKeyForObservation } from './result-ingestion'
 
 const input = {
   targetProfile: { targetType: 'FILE' as const, format: 'apk', mimeType: 'application/vnd.android.package-archive', extension: 'apk', architecture: null, platform: 'android', runtimes: [], embeddedArtifacts: [], entropy: null, metadata: {} },
@@ -23,10 +24,25 @@ describe('JADX process provider', () => {
 
     expect(result).toMatchObject({ status: 'completed', toolId: 'reamon-jadx', data: { decompiledClassCount: 1, returnedClassCount: 1 } })
     expect(result.data.observations).toEqual([expect.objectContaining({
-      type: 'code_unit', key: 'jadx:class:com/example/MainActivity.java', label: 'com.example.MainActivity',
+      type: 'code_unit', key: expect.stringMatching(/^jadx:class:[0-9a-f]{32}$/), label: 'com.example.MainActivity',
       attributes: expect.objectContaining({ unitType: 'class', language: 'Java', sizeBytes: 4096, decompiled: true }),
     })])
     expect(fetch).toHaveBeenCalledWith('http://jadx-analyzer:8010/analyze', expect.objectContaining({ method: 'POST' }))
+  })
+
+  test('retains separate run observations while preserving graph identity', async () => {
+    vi.stubEnv('REAMON_JADX_URL', 'http://jadx-analyzer:8010')
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(resultBody()), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const first = await executeJadx(input)
+    const second = await executeJadx({ ...input, taskId: 'task-2', runToken: 'run-2' })
+    const firstUnit = first.data.observations?.[0]
+    const secondUnit = second.data.observations?.[0]
+
+    expect(firstUnit?.key).not.toBe(secondUnit?.key)
+    expect(firstUnit && secondUnit && canonicalKeyForObservation('reamon-jadx', firstUnit))
+      .toBe(firstUnit && secondUnit && canonicalKeyForObservation('reamon-jadx', secondUnit))
   })
 
   test('accepts a profiled Java archive and uses the same isolated JADX service', async () => {

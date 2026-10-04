@@ -5,6 +5,13 @@
 .kicker { color: var(--accent-secondary); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); text-transform: uppercase; margin: 0 0 var(--space-1); font-weight: var(--font-semibold); }
 .description, .message { color: var(--text-secondary); font-size: var(--text-sm); line-height: 1.45; margin: var(--space-2) 0 0; }
 .badge { color: var(--status-info-text); background: var(--accent-secondary-subtle); border-radius: var(--radius-sm); padding: .25rem .45rem; font-size: var(--text-xs); white-space: nowrap; }
+.runHistory { display: flex; align-items: center; gap: var(--space-2); margin: 0 0 var(--space-3); padding: var(--space-2); border: 1px solid var(--border-default); border-radius: var(--radius-default); background: var(--bg-tertiary); }
+.runButton { flex: 0 0 auto; border: 1px solid var(--border-default); border-radius: var(--radius-sm); padding: .35rem .55rem; background: var(--bg-primary); color: var(--text-secondary); cursor: pointer; font-size: var(--text-xs); }
+.runButton:hover:not(:disabled) { border-color: var(--accent-secondary); color: var(--text-primary); }
+.runButton:disabled { cursor: default; opacity: .5; }
+.runDetails { display: flex; flex: 1 1 auto; flex-direction: column; align-items: center; gap: .15rem; min-width: 0; text-align: center; }
+.runDetails strong { color: var(--text-primary); font-size: var(--text-xs); }
+.runDetails span, .runDetails small { max-width: 100%; overflow: hidden; color: var(--text-tertiary); font-size: var(--text-xs); text-overflow: ellipsis; white-space: nowrap; }
 .empty { min-height: 185px; display: flex; flex-direction: column; justify-content: center; border: 1px dashed var(--border-strong); border-radius: var(--radius-default); padding: var(--space-5); background: var(--bg-tertiary); }
 .empty strong { font-size: var(--text-base); color: var(--text-primary); }
 .empty p { max-width: 720px; margin: var(--space-2) 0; color: var(--text-secondary); line-height: 1.5; font-size: var(--text-sm); }
@@ -78,6 +85,8 @@
   .map { min-height: 200px; }
   .details dl { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .sourceCode { max-height: 440px; padding: var(--space-3); font-size: .7rem; }
+  .runHistory { gap: var(--space-1); padding: var(--space-1); }
+  .runButton { padding: .35rem .4rem; }
 }
 
 @media (prefers-reduced-motion: reduce) {

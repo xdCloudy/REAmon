@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import type { ToolExecutionInput, ToolPlugin, ToolPluginManifest, ToolResult } from './types'
 
 const MAX_UNITS = 500
@@ -89,7 +90,7 @@ export async function executeJadx(input: ToolExecutionInput): Promise<ToolResult
     const observations = units.map((unit) => ({
       kind: 'entity',
       type: 'code_unit',
-      key: `jadx:class:${unit.relativePath}`,
+      key: `jadx:class:${createHash('sha256').update(`${input.artifactId}:${input.taskId}:${unit.relativePath}`).digest('hex').slice(0, 32)}`,
       label: unit.name,
       attributes: {
         unitType: 'class',

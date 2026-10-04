@@ -5,12 +5,17 @@ import { NextResponse } from 'next/server'
 const mocks = vi.hoisted(() => ({
   findMany: vi.fn(),
   count: vi.fn(),
+  groupBy: vi.fn(),
+  taskFindMany: vi.fn(),
   getActiveWorkspaceImportSelection: vi.fn(),
   requireEffectiveUser: vi.fn(),
   requireProjectAccess: vi.fn(),
 }))
 
-vi.mock('@/lib/prisma', () => ({ default: { reamonObservation: { findMany: mocks.findMany, count: mocks.count } } }))
+vi.mock('@/lib/prisma', () => ({ default: {
+  reamonObservation: { findMany: mocks.findMany, count: mocks.count, groupBy: mocks.groupBy },
+  task: { findMany: mocks.taskFindMany },
+} }))
 vi.mock('@/lib/reamon/inventory-query', () => ({ getActiveWorkspaceImportSelection: mocks.getActiveWorkspaceImportSelection }))
 vi.mock('@/lib/access', () => ({
   requireEffectiveUser: mocks.requireEffectiveUser,
@@ -28,6 +33,8 @@ beforeEach(() => {
   mocks.getActiveWorkspaceImportSelection.mockResolvedValue({ artifactWhere: { projectId: 'project-1', importId: { in: ['active-import'] } } })
   mocks.findMany.mockResolvedValue([])
   mocks.count.mockResolvedValue(0)
+  mocks.groupBy.mockResolvedValue([])
+  mocks.taskFindMany.mockResolvedValue([])
 })
 
 describe('GET /api/projects/[id]/visualizer', () => {
@@ -38,9 +45,17 @@ describe('GET /api/projects/[id]/visualizer', () => {
 
     expect(response.status).toBe(401)
     expect(mocks.findMany).not.toHaveBeenCalled()
+    expect(mocks.taskFindMany).not.toHaveBeenCalled()
   })
 
-  test('returns normalized units from active workspace artifacts only', async () => {
+  test('returns the latest completed run and its normalized units from active artifacts', async () => {
+    mocks.taskFindMany.mockResolvedValue([{
+      id: 'run-1', title: 'Decompile app.apk',
+      createdAt: new Date('2026-10-04T00:00:00.000Z'),
+      completedAt: new Date('2026-10-04T00:01:00.000Z'),
+      artifact: { originalName: 'app.apk', relativePath: 'app.apk' },
+    }])
+    mocks.groupBy.mockResolvedValue([{ taskId: 'run-1', _count: { _all: 1 } }])
     mocks.findMany.mockResolvedValue([{
       id: 'observation-1', stableKey: 'function:0x401000', label: 'main', source: 'ghidra', artifactId: 'artifact-1',
       updatedAt: new Date('2026-10-04T00:00:00.000Z'),
@@ -55,11 +70,36 @@ describe('GET /api/projects/[id]/visualizer', () => {
     expect(await response.json()).toMatchObject({
       total: 1,
       hasMore: false,
+      selectedRunId: 'run-1',
+      runs: [{ id: 'run-1', artifactName: 'app.apk', codeUnitCount: 1 }],
       units: [{ id: 'observation-1', name: 'app.main', address: '0x401000', sizeBytes: 256, coveragePercent: 70, artifactPath: 'bin/app.exe' }],
     })
     expect(mocks.findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { projectId: 'project-1', type: 'code_unit', artifact: { is: { projectId: 'project-1', importId: { in: ['active-import'] } } } },
+      where: { projectId: 'project-1', type: 'code_unit', taskId: 'run-1', artifact: { is: { projectId: 'project-1', importId: { in: ['active-import'] } } } },
       take: 5001,
     }))
+  })
+
+  test('selects a requested older run and rejects IDs outside the active workspace history', async () => {
+    mocks.taskFindMany.mockResolvedValue([
+      { id: 'run-new', title: 'New', createdAt: new Date(), completedAt: new Date(), artifact: { originalName: 'app.apk', relativePath: 'app.apk' } },
+      { id: 'run-old', title: 'Old', createdAt: new Date(), completedAt: new Date(), artifact: { originalName: 'app.apk', relativePath: 'app.apk' } },
+    ])
+    mocks.groupBy.mockResolvedValue([
+      { taskId: 'run-new', _count: { _all: 2 } },
+      { taskId: 'run-old', _count: { _all: 1 } },
+    ])
+
+    const response = await GET(new Request('http://localhost/api/projects/project-1/visualizer?taskId=run-old'), params)
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ selectedRunId: 'run-old', total: 0 })
+    expect(mocks.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ taskId: 'run-old' }) }))
+
+    mocks.findMany.mockClear()
+    const missing = await GET(new Request('http://localhost/api/projects/project-1/visualizer?taskId=other-project-run'), params)
+
+    expect(missing.status).toBe(404)
+    expect(mocks.findMany).not.toHaveBeenCalled()
   })
 })

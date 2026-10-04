@@ -28,7 +28,7 @@ describe('Ghidra provider', () => {
     const result = await executeGhidra(input)
     expect(result.status).toBe('completed')
     expect(result.data.observations).toMatchObject([{
-      type: 'code_unit', key: 'ghidra:function:ram:00401000', label: 'main',
+      type: 'code_unit', key: expect.stringMatching(/^ghidra:function:[0-9a-f]{32}$/), label: 'main',
       attributes: { unitType: 'function', address: 'ram:00401000', language: 'C', sizeBytes: 32, decompiled: true },
     }])
     expect(vi.mocked(fetch)).toHaveBeenCalledWith('http://ghidra-analyzer:8011/analyze', expect.objectContaining({ method: 'POST' }))

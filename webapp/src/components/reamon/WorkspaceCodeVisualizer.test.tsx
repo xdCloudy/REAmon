@@ -29,6 +29,37 @@ afterEach(() => {
 })
 
 describe('WorkspaceCodeVisualizer', () => {
+  test('navigates between completed decompilation runs', async () => {
+    const requests: string[] = []
+    const fetchMock = vi.fn((input: string) => {
+      requests.push(input)
+      const older = input.includes('taskId=run-old')
+      return Promise.resolve({ ok: true, json: async () => ({
+        units: [unit({ id: older ? 'older-unit' : 'latest-unit', name: older ? 'older.Main' : 'latest.Main' })],
+        total: 1,
+        hasMore: false,
+        runs: [
+          { id: 'run-new', title: 'Latest analysis', createdAt: '2026-10-04T00:00:00.000Z', completedAt: '2026-10-04T00:01:00.000Z', artifactName: 'app.apk', codeUnitCount: 2 },
+          { id: 'run-old', title: 'Previous analysis', createdAt: '2026-10-03T00:00:00.000Z', completedAt: '2026-10-03T00:01:00.000Z', artifactName: 'app.apk', codeUnitCount: 1 },
+        ],
+        selectedRunId: older ? 'run-old' : 'run-new',
+      }) })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderVisualizer()
+    const history = await screen.findByRole('navigation', { name: 'Decompilation run history' })
+
+    expect(history).toHaveTextContent('Run 1 of 2')
+    fireEvent.click(screen.getByRole('button', { name: 'Previous run' }))
+    await waitFor(() => expect(requests).toContain('/api/projects/project-1/visualizer?taskId=run-old'))
+    await waitFor(() => expect(screen.getByRole('navigation', { name: 'Decompilation run history' })).toHaveTextContent('Run 2 of 2'))
+    expect(await screen.findByRole('button', { name: /older\.Main/ })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Latest run' }))
+    await waitFor(() => expect(screen.getByRole('navigation', { name: 'Decompilation run history' })).toHaveTextContent('Run 1 of 2'))
+    expect(requests.filter((request) => request === '/api/projects/project-1/visualizer')).toHaveLength(1)
+  })
+
   test('states that no code units are available before a decompiler publishes them', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ units: [], total: 0, hasMore: false }) }))
     renderVisualizer()
