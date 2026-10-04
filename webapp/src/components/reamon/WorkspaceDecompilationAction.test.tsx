@@ -20,7 +20,7 @@ describe('WorkspaceDecompilationAction', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Run decompilation' }))
 
-    expect(await screen.findByRole('status')).toHaveTextContent('Decompilation is complete.')
+    expect(await screen.findByRole('status')).toHaveTextContent('Decompilation run finished.')
     expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/projects/project-1/workspace/analysis-plan/schedule', expect.objectContaining({
       method: 'POST',
       body: expect.stringMatching(/^\{"artifactId":"artifact-1","providerId":"reamon-jadx","capability":"decompile","approvalRequired":false,"runAttemptId":"[a-f0-9]{32}"\}$/),

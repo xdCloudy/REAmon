@@ -47,7 +47,7 @@ export function WorkspaceDecompilationAction({ projectId, artifactId, providerId
           AWAITING_APPROVAL: { message: 'Approval is already pending. Approve the task, then choose Run under Tasks and findings.', href: '#analysis-tasks', linkLabel: 'Open task controls' },
           QUEUED: { message: 'Decompilation is queued. Choose Run under Tasks and findings.', href: '#analysis-tasks', linkLabel: 'Open task controls' },
           RUNNING: { message: 'Decompilation is already running. Track it under Tasks and findings.', href: '#analysis-tasks', linkLabel: 'Open task controls' },
-          COMPLETED: { message: 'Decompilation is complete. Browse its output in the code visualizer.', href: '#code-visualizer', linkLabel: 'Open code visualizer' },
+          COMPLETED: { message: 'The previous decompilation run finished. Check its coverage in the code visualizer or start another run.', href: '#code-visualizer', linkLabel: 'Open code visualizer' },
           FAILED: { message: 'The previous decompilation failed. Retry it under Tasks and findings.', href: '#analysis-tasks', linkLabel: 'Open task controls' },
           CANCELLED: { message: 'The previous decompilation was cancelled. Retry it under Tasks and findings.', href: '#analysis-tasks', linkLabel: 'Open task controls' },
         }
@@ -74,7 +74,7 @@ export function WorkspaceDecompilationAction({ projectId, artifactId, providerId
         AWAITING_APPROVAL: { message: 'Approval is required before this task can run.', href: '#analysis-tasks', linkLabel: 'Open task controls' },
         QUEUED: { message: 'Decompilation is queued. Choose Run under Tasks and findings.', href: '#analysis-tasks', linkLabel: 'Open task controls' },
         RUNNING: { message: 'Decompilation is running. Track its status under Tasks and findings.', href: '#analysis-tasks', linkLabel: 'Open task controls' },
-        COMPLETED: { message: 'Decompilation is complete. Browse its output in the code visualizer.', href: '#code-visualizer', linkLabel: 'Open code visualizer' },
+        COMPLETED: { message: 'Decompilation run finished. Review indexed coverage and any truncation warnings in the code visualizer.', href: '#code-visualizer', linkLabel: 'Open code visualizer' },
         FAILED: { message: `Decompilation failed: ${execution.task?.error || 'the analyzer returned no result'}.`, href: '#analysis-tasks', linkLabel: 'Open task controls' },
         CANCELLED: { message: 'Decompilation was cancelled. Retry it under Tasks and findings.', href: '#analysis-tasks', linkLabel: 'Open task controls' },
       }
