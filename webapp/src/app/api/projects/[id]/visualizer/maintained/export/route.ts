@@ -1,6 +1,6 @@
 import archiver from 'archiver'
 import { createHash } from 'node:crypto'
-import { realpath, stat } from 'node:fs/promises'
+import { readFile, realpath, stat } from 'node:fs/promises'
 import { Readable } from 'node:stream'
 import path from 'node:path'
 import { NextResponse } from 'next/server'
