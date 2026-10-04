@@ -84,7 +84,8 @@ def test_code_deobfuscation_returns_complete_source_and_uses_exact_provider(api,
     monkeypatch.delenv('SCANNER_API_KEY', raising=False)
 
     class TransformAnswer:
-        content = '<think>private reasoning</think>\n```java\nprivate String accountName;\n```'
+        content = '<think>private reasoning</think>\n```java\nclass Example { String read() { return accountName; } }\n```'
+        response_metadata = {'finish_reason': 'stop'}
 
     class TransformLlm:
         messages = None
@@ -99,15 +100,67 @@ def test_code_deobfuscation_returns_complete_source_and_uses_exact_provider(api,
          patch('orchestrator_helpers.llm_setup.setup_llm', return_value=llm) as setup:
         response = TestClient(api.app).post('/reamon/code/deobfuscate', json={
             'model': 'custom/provider-1', 'user_id': 'user-1', 'unit_name': 'a.b',
-            'language': 'Java', 'source_code': 'private String a;',
+            'language': 'Java', 'source_code': 'class Example { String read() { return a; } }',
         })
 
     assert response.status_code == 200, response.text
-    assert response.json() == {'source_code': 'private String accountName;', 'model_used': 'custom/provider-1'}
+    assert response.json() == {'source_code': 'class Example { String read() { return accountName; } }', 'syntax_validated': True, 'model_used': 'custom/provider-1'}
     fetch.assert_called_once_with('user-1')
     assert setup.call_args.kwargs['custom_llm_config'] == provider
     assert 'preserve' in llm.messages[0].content.lower()
     assert 'DECOMPILED_SOURCE' in llm.messages[1].content
+
+
+def test_code_deobfuscation_rejects_model_output_that_does_not_parse(api, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    monkeypatch.delenv('INTERNAL_API_KEY', raising=False)
+    monkeypatch.delenv('SCANNER_API_KEY', raising=False)
+
+    class InvalidAnswer:
+        content = 'class Example { String read() { return accountName;'
+        response_metadata = {'finish_reason': 'stop'}
+
+    class InvalidLlm:
+        async def ainvoke(self, _messages):
+            return InvalidAnswer()
+
+    provider = {'id': 'provider-1', 'providerType': 'openai_compatible', 'modelIdentifier': 'Qwen3.5-0.8B'}
+    with patch.object(api, 'fetch_user_providers', return_value=[provider]), \
+         patch('orchestrator_helpers.llm_setup.setup_llm', return_value=InvalidLlm()):
+        response = TestClient(api.app).post('/reamon/code/deobfuscate', json={
+            'model': 'custom/provider-1', 'user_id': 'user-1', 'unit_name': 'Example',
+            'language': 'Java', 'source_code': 'class Example { String read() { return a; } }',
+        })
+
+    assert response.status_code == 422
+    assert response.json()['code'] == 'invalid_source'
+
+
+def test_code_deobfuscation_rejects_model_token_limit(api, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    monkeypatch.delenv('INTERNAL_API_KEY', raising=False)
+    monkeypatch.delenv('SCANNER_API_KEY', raising=False)
+
+    class IncompleteAnswer:
+        content = 'class Example {'
+        response_metadata = {'finish_reason': 'length'}
+
+    class IncompleteLlm:
+        async def ainvoke(self, _messages):
+            return IncompleteAnswer()
+
+    provider = {'id': 'provider-1', 'providerType': 'openai_compatible', 'modelIdentifier': 'Qwen3.5-0.8B'}
+    with patch.object(api, 'fetch_user_providers', return_value=[provider]), \
+         patch('orchestrator_helpers.llm_setup.setup_llm', return_value=IncompleteLlm()):
+        response = TestClient(api.app).post('/reamon/code/deobfuscate', json={
+            'model': 'custom/provider-1', 'user_id': 'user-1', 'unit_name': 'Example',
+            'language': 'Java', 'source_code': 'class Example {}',
+        })
+
+    assert response.status_code == 422
+    assert response.json()['code'] == 'incomplete_source'
 
 
 def test_code_deobfuscation_rejects_oversized_source_before_loading_provider(api, monkeypatch):

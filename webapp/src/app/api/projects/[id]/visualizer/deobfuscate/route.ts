@@ -113,6 +113,10 @@ export async function POST(request: Request, { params }: RouteParams) {
         ? 'Could not load your saved AI provider. Try again shortly.'
         : result.code === 'model_unavailable'
           ? 'The selected AI provider could not answer. Check its settings and try again.'
+          : result.code === 'incomplete_source'
+            ? 'The model stopped before returning the complete file. Increase its output token limit or choose a model with a larger context window, then retry.'
+            : result.code === 'invalid_source'
+              ? 'The model draft did not parse as complete source. Try a stronger model or a more focused transformation.'
           : 'AI could not produce a maintainable version. Try again shortly.'
       return NextResponse.json({ error: message }, { status: response.status, headers: { 'Cache-Control': 'no-store' } })
     }
@@ -127,6 +131,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       sourceCode: result.source_code,
       providerName: provider.name,
       model: provider.modelIdentifier,
+      syntaxValidated: result.syntax_validated === true,
     }, { headers: { 'Cache-Control': 'private, no-store' } })
   } catch (error) {
     if (error instanceof AgentUnreachableError) {

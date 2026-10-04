@@ -55,7 +55,7 @@ interface CallGraphResponse {
 
 interface CodeExplanationProvider { id: string; name: string; modelIdentifier: string }
 interface CodeExplanationResponse { explanation: string; providerName: string; model: string; sourceTruncated: boolean }
-interface CodeMaintenanceResponse { sourceCode: string; providerName: string; model: string }
+interface CodeMaintenanceResponse { sourceCode: string; providerName: string; model: string; syntaxValidated?: boolean }
 
 const EMPTY_CODE_UNITS: CodeUnit[] = []
 
@@ -781,7 +781,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
             </button>
           </>}
           {maintenanceError && <p className={styles.error} role="alert">{maintenanceError}</p>}
-          {maintenanceMeta && <p className={styles.message}>Draft from {maintenanceMeta.providerName} · {maintenanceMeta.model}. Verify names and behavior against the original before using it.</p>}
+          {maintenanceMeta && <p className={styles.message}>Draft from {maintenanceMeta.providerName} · {maintenanceMeta.model}. {maintenanceMeta.syntaxValidated ? 'The source parser found no syntax errors; behavior and renamed symbols still need review.' : 'Syntax validation was unavailable for this language; check that the draft is complete and valid.'}</p>}
           {maintainedQuery.isError && <p className={styles.error} role="alert">{maintainedQuery.error instanceof Error ? maintainedQuery.error.message : 'Could not load maintained source'}</p>}
           {maintainedDraft && <>
             <div className={styles.maintainedComparison}>
