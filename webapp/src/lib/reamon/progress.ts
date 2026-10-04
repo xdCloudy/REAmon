@@ -53,9 +53,5 @@ export function buildProgressModel(input: ProgressInput): ProgressModel {
     completionMetric('hypotheses', 'Hypothesis verification', input.hypothesisStatuses.filter((status) => status === 'VERIFIED').length, input.hypothesisStatuses.length),
   ].filter((metric): metric is ProgressMetric => metric !== null && metric.denominator > 0)
 
-  const overallPercent = metrics.length
-    ? Math.round(metrics.reduce((sum, metric) => sum + metric.percent, 0) / metrics.length)
-    : 0
-
-  return { overallPercent, metrics }
+  return { metrics }
 }

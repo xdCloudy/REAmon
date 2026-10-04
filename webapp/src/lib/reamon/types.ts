@@ -187,7 +187,6 @@ export interface ProgressMetric {
 }
 
 export interface ProgressModel {
-  overallPercent: number
   metrics: ProgressMetric[]
 }
 

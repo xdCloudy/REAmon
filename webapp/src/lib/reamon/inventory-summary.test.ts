@@ -77,7 +77,7 @@ describe('workspace inventory summary', () => {
       },
       logicalTargets: [{ id: 'root-1' }, { id: 'target-1' }, { id: 'stale-target' }],
       logicalTargetsTruncated: false,
-      progress: { overallPercent: expect.any(Number), metrics: expect.any(Array) },
+      progress: { metrics: expect.any(Array) },
     })
     expect(result?.logicalTargets.map((target) => target.id)).toContain('stale-target')
     expect(result?.capabilities.find((provider) => provider.pluginId === 'reamon-artifact-profiler')).toMatchObject({

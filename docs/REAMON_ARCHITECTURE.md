@@ -223,6 +223,35 @@ summaries identify each installed provider and the compatible artifact IDs witho
 automatically scheduling heavyweight analysis across every match. Inventory and
 profiling happen first; task planning remains an explicit next stage.
 
+## Code-unit map and visualizer
+
+Code-aware providers publish one `ReamonObservation` of type `code_unit` per
+function, class, symbol, or other addressable unit. The stable observation carries
+`unitType`, `name` or `qualifiedName`, `address` or `startAddress`, and positive
+`sizeBytes`; optional fields include `language`, `coveragePercent` or
+`decompiledBytes`, and `codeArtifactId`. Decompiled text belongs in a project-scoped
+derived artifact, with provenance back to the input and task, rather than in a
+large graph observation.
+
+`GET /api/projects/[id]/visualizer` is authenticated, project-scoped, and limited to
+observations for active workspace artifacts. It returns at most 5,000 normalized
+units. The project workspace lays them out as a treemap sized by bytes and colored by
+the provider's stated decompilation coverage; name, address, path, minimum-size, and
+maximum-coverage filters operate on the returned units. Missing coverage remains
+unknown instead of being counted as zero. The visualizer links a selected unit to
+its derived code artifact when the provider supplies one.
+
+No built-in provider currently emits `code_unit` observations. The workspace shows
+that state explicitly after import; an APK profile, hash, or generic file
+identification does not count as decompilation. The next provider milestone must
+run an actual backend analyzer, persist its code and unit metadata through the
+provider/result boundary, and produce fixture-backed coverage values before this map
+can represent analyzed programs.
+
+The workspace no longer averages target lifecycle, artifact lifecycle, and task
+completion into one percentage. Those measures describe different states; code
+coverage belongs in the visualizer summary once analyzer observations exist.
+
 ## Universal knowledge model
 
 The relational models provide durable project state and provenance. The graph model is intended for connected entities and relationships such as:

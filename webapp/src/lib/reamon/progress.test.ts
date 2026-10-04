@@ -20,12 +20,12 @@ describe('REAmon deterministic progress', () => {
     ])
     expect(progress.metrics.find((metric) => metric.id === 'tasks')?.percent).toBe(50)
     expect(progress.metrics.find((metric) => metric.id === 'findings')?.percent).toBe(50)
-    expect(progress.overallPercent).toBeGreaterThan(0)
+    expect(progress.metrics.find((metric) => metric.id === 'artifact_lifecycle')?.percent).toBe(63)
   })
 
   it('does not invent progress for an empty workspace', () => {
     expect(buildProgressModel({
       targetStatuses: [], artifactStatuses: [], taskStatuses: [], findingStatuses: [], hypothesisStatuses: [],
-    })).toEqual({ overallPercent: 0, metrics: [] })
+    })).toEqual({ metrics: [] })
   })
 })

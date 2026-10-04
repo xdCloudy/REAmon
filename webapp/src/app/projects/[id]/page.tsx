@@ -3,12 +3,13 @@
 import { use, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertTriangle, ArrowLeft, CheckCircle2, CircleDashed, Gauge, Server, Waypoints } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, CheckCircle2, CircleDashed, Server, Waypoints } from 'lucide-react'
 import { WorkspaceFileTree } from '@/components/reamon/WorkspaceFileTree'
 import { WorkspaceImportPanel } from '@/components/reamon/WorkspaceImportPanel'
 import { WorkspaceAnalysisPlanPanel, type WorkspaceAnalysisPlan } from '@/components/reamon/WorkspaceAnalysisPlan'
 import { WorkspaceTaskList } from '@/components/reamon/WorkspaceTaskList'
 import { WorkspaceFindingList } from '@/components/reamon/WorkspaceFindingList'
+import { WorkspaceCodeVisualizer } from '@/components/reamon/WorkspaceCodeVisualizer'
 import type { CapabilityMatch, ProgressMetric, TargetProfile, WorkspaceCapabilitySummary, WorkspaceImportSnapshot, WorkspaceObservation, WorkspaceProfile } from '@/lib/reamon'
 import styles from './page.module.css'
 
@@ -45,7 +46,7 @@ interface WorkspaceSnapshot {
   capabilities: WorkspaceCapabilitySummary[]
   imports: WorkspaceImportSnapshot[]
   artifactPage: { limit: number; total: number; hasMore: boolean }
-  progress: { overallPercent: number; metrics: ProgressMetric[] }
+  progress: { metrics: ProgressMetric[] }
   counts: { targets: number; artifacts: number; tasks: number; findings: number; hypotheses: number; evidence: number; observations: number }
   workers: WorkerHealth[]
   approvalSummary: { total: number; pending: number; approved: number; rejected: number }
@@ -180,7 +181,6 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
 
       <header className={styles.hero}>
         <div><p className={styles.eyebrow}>Reverse-engineering workspace</p><h1>{data.workspace.name}</h1><p className={styles.description}>{data.workspace.description || 'Analyse anything. Connect the evidence. Understand the system.'}</p></div>
-        <div className={styles.progressSummary} aria-label={`Workspace progress: ${data.progress.overallPercent}%`}><Gauge size={17} /><strong>{data.progress.overallPercent}%</strong><span>progress</span></div>
       </header>
 
       <WorkerHealthAlert workers={data.workers} />
@@ -197,8 +197,14 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
       <WorkspaceImportPanel projectId={projectId} onImported={() => {
         void queryClient.invalidateQueries({ queryKey: ['reamon-workspace', projectId] })
         void queryClient.invalidateQueries({ queryKey: ['reamon-analysis-plan', projectId] })
+        void queryClient.invalidateQueries({ queryKey: ['reamon-code-units', projectId] })
       }} />
       <ImportStatus latestImport={latestImport} />
+      <WorkspaceCodeVisualizer
+        projectId={projectId}
+        hasApk={data.artifacts.some((artifact) => artifact.profile.format === 'apk')}
+        isAnalyzing={data.tasks.some((task) => task.status === 'RUNNING')}
+      />
 
       <section className={styles.panel} aria-labelledby="inventory-heading">
         <div className={styles.panelHeader}><h2 id="inventory-heading">Workspace inventory</h2><span className={styles.muted}>{rootTarget ? profileLabel(rootTarget.profile) : 'Awaiting import'}</span></div>
@@ -206,12 +212,13 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
       </section>
 
       <div className={styles.grid}>
-        <section className={styles.panel} aria-labelledby="progress-heading"><div className={styles.panelHeader}><h2 id="progress-heading">Progress</h2><span className={styles.muted}>Deterministic lifecycle state</span></div>{data.progress.metrics.length ? data.progress.metrics.map((metric) => <ProgressBar key={metric.id} metric={metric} />) : <p className={styles.muted}>Progress appears as investigation entities are created.</p>}</section>
+        <section className={styles.panel} aria-labelledby="progress-heading"><div className={styles.panelHeader}><h2 id="progress-heading">Lifecycle metrics</h2><span className={styles.muted}>Entity stages and recorded task status; no overall completion estimate</span></div>{data.progress.metrics.length ? data.progress.metrics.map((metric) => <ProgressBar key={metric.id} metric={metric} />) : <p className={styles.muted}>Lifecycle metrics appear as analysis entities and tasks are recorded.</p>}</section>
         <section className={styles.panel} aria-labelledby="providers-heading"><div className={styles.panelHeader}><h2 id="providers-heading">Available capabilities</h2><span className={styles.muted}>{data.capabilities.length} provider{data.capabilities.length === 1 ? '' : 's'}</span></div>{data.capabilities.length ? data.capabilities.map((provider) => <div className={styles.providerRow} key={provider.pluginId}><span><strong>{provider.pluginName}</strong><small>{provider.capabilities.slice(0, 4).join(' · ')}</small><small>Accepts {provider.acceptsFormats.slice(0, 3).join(', ')} · produces {provider.produces.slice(0, 3).join(', ') || 'provider results'}</small></span><span className={styles.providerCount}>{provider.compatibleArtifactIds.length} compatible artifacts</span></div>) : <p className={styles.muted}>Capabilities will appear as providers are registered.</p>}</section>
       </div>
 
       <WorkspaceAnalysisPlanPanel projectId={projectId} plan={analysisPlan.data} isLoading={analysisPlan.isLoading} isError={analysisPlan.isError} onScheduled={() => {
         void queryClient.invalidateQueries({ queryKey: ['reamon-workspace', projectId] })
+        void queryClient.invalidateQueries({ queryKey: ['reamon-code-units', projectId] })
       }} />
 
       <section className={styles.panel} aria-labelledby="files-heading">
@@ -234,6 +241,7 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
         <section className={styles.panel} aria-labelledby="workers-heading"><div className={styles.panelHeader}><h2 id="workers-heading">Analysis workers</h2><span className={styles.muted}>{data.workers.length} registered</span></div>{data.workers.length ? data.workers.map((worker) => <div className={styles.listRow} key={worker.workerId}><span className={styles.observationMain}><strong><Server size={13} aria-hidden="true" /> {worker.workerId}</strong><small>Last seen {new Date(worker.lastSeenAt).toLocaleString()} · {worker.lastSelected} selected · {worker.lastCompleted} completed</small>{worker.lastError && <small className={styles.uploadError}>{worker.lastError}</small>}</span><span className={styles.type}>{worker.status}</span></div>) : <p className={styles.muted}>No worker has reported a dispatch heartbeat yet.</p>}</section>
         <section className={styles.panel} aria-labelledby="work-heading"><div className={styles.panelHeader}><h2 id="work-heading">Tasks and findings</h2></div>{!data.tasks.length && !data.findings.length ? <p className={styles.muted}>No analysis work has been scheduled.</p> : <>{data.tasks.length > 0 && <WorkspaceTaskList projectId={projectId} tasks={data.tasks} onChanged={() => {
           void queryClient.invalidateQueries({ queryKey: ['reamon-workspace', projectId] })
+          void queryClient.invalidateQueries({ queryKey: ['reamon-code-units', projectId] })
         }} />}{data.findings.length > 0 && <WorkspaceFindingList projectId={projectId} findings={data.findings} onChanged={() => {
           void queryClient.invalidateQueries({ queryKey: ['reamon-workspace', projectId] })
         }} />}</>}</section>

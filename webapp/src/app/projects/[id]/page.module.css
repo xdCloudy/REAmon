@@ -22,9 +22,6 @@
 .eyebrow, .sectionKicker { color: var(--accent-secondary); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); text-transform: uppercase; margin: 0 0 var(--space-2); font-weight: var(--font-semibold); }
 .hero h1 { margin: 0; font-size: clamp(1.65rem, 3vw, 2.35rem); letter-spacing: -0.03em; }
 .description { color: var(--text-secondary); max-width: 700px; margin: var(--space-2) 0 0; line-height: 1.5; }
-.progressSummary { display: flex; align-items: center; gap: var(--space-2); color: var(--accent-secondary); border: 1px solid var(--border-default); background: var(--bg-secondary); padding: var(--space-3) var(--space-4); border-radius: var(--radius-lg); white-space: nowrap; }
-.progressSummary strong { color: var(--text-primary); font-size: var(--text-xl); }
-.progressSummary span { color: var(--text-secondary); font-size: var(--text-xs); }
 .workerAlert { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-3); align-items: flex-start; border: 1px solid var(--status-warning); border-radius: var(--radius-lg); padding: var(--space-4); background: var(--status-warning-bg); color: var(--status-warning-text); }
 .workerAlert > svg { flex: 0 0 auto; margin-top: 0.1rem; }
 .workerAlert strong { display: block; color: var(--text-primary); font-size: var(--text-sm); }

@@ -26,8 +26,11 @@
 
 ## What REAmon is becoming
 
-REAmon is not an APK reverse-engineer or a Ghidra frontend. A workspace can contain
-multiple related targets and artifacts:
+REAmon is intended to orchestrate reverse-engineering engines such as Ghidra and
+JADX on the backend, then present their output in one investigation workspace. The
+current bootstrap establishes inventory, provider, and task foundations; it does
+not yet decompile APKs or general binaries. A workspace can contain multiple
+related targets and artifacts:
 
 ```text
 Workspace
@@ -64,6 +67,10 @@ The first REAmon milestone is implemented and running on the `reamon/bootstrap` 
   executing providers in the request path.
 - Show targets, artifacts, detected metadata, capabilities, progress, findings,
   hypotheses, evidence, and activity in a real data-backed dashboard.
+- Add a code visualizer foundation that consumes normalized code-unit observations,
+  draws a searchable size/coverage treemap, and opens linked code artifacts. The
+  current built-in providers do not emit code units, so imported files show an
+  explicit not-decompiled state until an analyzer integration is installed.
 - Run bounded `strings` and `readelf` process providers against stored source and
   ELF artifacts, capture stable observations, and terminate the process on
   cancellation or timeout.
@@ -86,7 +93,7 @@ profiling, source strings, ELF headers, generic file identification, and bounded
 configuration inspection; broader binary and runtime integrations remain
 optional follow-on capabilities rather than production prerequisites.
 
-## Production readiness
+## Bootstrap release readiness
 
 <progress value="100" max="100">100%</progress> <strong>100%</strong>
 
@@ -94,6 +101,12 @@ This is a release-gate snapshot, reviewed 2026-10-03 against repository, hosted
 workflow, production-image, and staging evidence. The score measures readiness for
 a dependable self-hosted production release, not the number of UI screens or lines
 of code.
+
+This rating covers the bootstrap release scope only. It does not measure readiness
+for REAmon's broader product goal of reverse-engineering arbitrary programs from
+import through decompilation, navigation, AI-assisted analysis, and runtime work.
+That broader goal remains in progress; native decompiler integrations and populated
+code-unit visualizations are not available in this bootstrap.
 
 The 100% score is justified for the current production release scope. The product
 boundary is release-gated independently: no native workspace depends on a retired
