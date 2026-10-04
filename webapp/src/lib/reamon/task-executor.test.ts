@@ -32,8 +32,8 @@ import type { ToolResult } from './types'
 
 const provider = {
   manifest: {
-    id: 'reamon-source-inspector', name: 'REAmon Source Inspector', category: 'static_analysis', integration: 'native',
-    acceptsTargetTypes: ['FILE'], acceptsFormats: ['source'], capabilities: ['extract_strings'], produces: ['String'], requirements: [],
+    id: 'reamon-source-inspector', name: 'REAmon Strings Inspector', category: 'static_analysis', integration: 'native',
+    acceptsTargetTypes: ['FILE'], acceptsFormats: ['*'], capabilities: ['extract_strings'], produces: ['String'], requirements: [],
   },
   analyze: mocks.analyze,
 }

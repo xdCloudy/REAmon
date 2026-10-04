@@ -39,11 +39,11 @@ const params = { params: Promise.resolve({ id: 'project-1' }) }
 const plugin = {
   manifest: {
     id: 'reamon-source-inspector',
-    name: 'REAmon Source Inspector',
+    name: 'REAmon Strings Inspector',
     category: 'static_analysis',
     integration: 'native',
     acceptsTargetTypes: ['FILE'],
-    acceptsFormats: ['source'],
+    acceptsFormats: ['*'],
     capabilities: ['extract_strings'],
     produces: ['String'],
     requirements: [],
@@ -61,7 +61,7 @@ const provider = { id: 'provider-row-1', pluginId: plugin.manifest.id, name: plu
 function task(overrides: Record<string, unknown> = {}) {
   return {
     id: 'task-1',
-    title: 'REAmon Source Inspector: extract_strings · src/main.c',
+    title: 'REAmon Strings Inspector: extract_strings · src/main.c',
     category: 'static_analysis',
     status: 'AWAITING_APPROVAL',
     progress: 0,

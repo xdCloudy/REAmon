@@ -131,7 +131,8 @@ scanner, pentest, or upstream-update surface.
 Weighted result: **100%**.
 
 The production release gate is complete. The remaining roadmap items are capability
-expansion and migration cleanup, not unverified deployment prerequisites.
+expansion and migration cleanup, not unverified deployment prerequisites. String extraction
+is now available through the shared provider for every imported file format.
 
 Evidence recorded for this review:
 
@@ -335,9 +336,10 @@ docs/REAMON_*.md           Current architecture and product-boundary decisions
 
 ## Roadmap
 
-1. Add specialist binary/process providers and run the staging multi-worker drill
-   around the existing ownership, retry, and process-cancellation path. The generic
-   provider and contention scripts are already available for extension and validation.
+1. Expand specialist binary/process providers beyond shared string extraction and run
+   the staging multi-worker drill around the existing ownership, retry, and
+   process-cancellation path. The generic provider and contention scripts are already
+   available for extension and validation.
 2. Ingest universal code/data/runtime entities and relationships into Neo4j.
 3. Extend approval policy reporting and richer recovery UX for target-agnostic analysis workflows.
 4. Add specialist binary, runtime, and data providers behind the capability boundary.

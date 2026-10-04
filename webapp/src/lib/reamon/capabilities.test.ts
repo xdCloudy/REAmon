@@ -65,6 +65,20 @@ describe('REAmon capability resolution', () => {
     ]))
   })
 
+  it.each(['apk', 'elf', 'wasm', 'json', 'source', 'unknown'])(
+    'offers bounded string extraction for %s artifacts',
+    (format) => {
+      expect(resolveCapabilities(profile({ format }))).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          pluginId: 'reamon-source-inspector',
+          pluginName: 'REAmon Strings Inspector',
+          acceptsFormats: ['*'],
+          capabilities: ['extract_strings'],
+        }),
+      ]))
+    },
+  )
+
   it('matches generic profiling and rejects format-specific tools', () => {
     const plugin: ToolPlugin = {
       manifest: {

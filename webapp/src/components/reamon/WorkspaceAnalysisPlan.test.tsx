@@ -20,10 +20,10 @@ const plan: WorkspaceAnalysisPlan = {
     },
     capability: 'extract_strings',
     provider: {
-      pluginId: 'reamon-source-inspector', pluginName: 'REAmon Source Inspector', category: 'static_analysis', integration: 'native',
-      acceptsTargetTypes: ['FILE'], acceptsFormats: ['source'], capabilities: ['extract_strings'], produces: ['String'], requirements: [],
+      pluginId: 'reamon-source-inspector', pluginName: 'REAmon Strings Inspector', category: 'static_analysis', integration: 'native',
+      acceptsTargetTypes: ['FILE'], acceptsFormats: ['*'], capabilities: ['extract_strings'], produces: ['String'], requirements: [],
     },
-    reason: 'Source inspector advertises extract_strings.',
+    reason: 'Strings inspector advertises extract_strings.',
   }],
 }
 
