@@ -863,7 +863,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
         {selectedUnit && selectedSourceUrl && <section className={styles.maintainPanel} aria-labelledby="code-maintain-heading">
           <div>
             <h3 id="code-maintain-heading"><WandSparkles size={16} /> Reverse engineer into maintainable code</h3>
-            <p>Use the decompiled source, related classes, and bytecode to recover meaningful names in a maintainable copy. Review and edit the result before saving; the original decompilation stays intact.</p>
+            <p>Use the decompiled source, related classes, and bytecode to recover intent, meaningful names, and clearer source structure. The AI can simplify compiler and decompiler artifacts while preserving expected behavior. Review and edit the reconstructed copy before saving; the original decompilation stays intact.</p>
           </div>
           {explanationProvidersQuery.isLoading && <p className={styles.message}>Loading saved providers…</p>}
           {explanationProvidersQuery.isError && <p className={styles.error}>Could not load saved AI providers.</p>}
@@ -874,15 +874,15 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
                 {explanationProviders.map((provider) => <option key={provider.id} value={provider.id}>{provider.name} · {provider.modelIdentifier}</option>)}
               </select>
             </label>
-            <label className={styles.explainField}>Guidance for names and structure (optional)
-              <textarea value={question} onChange={(event) => setQuestion(event.target.value)} maxLength={1000} rows={3} placeholder="For example: infer what the short field names represent from how they are used." />
+            <label className={styles.explainField}>Reverse-engineering guidance (optional)
+              <textarea value={question} onChange={(event) => setQuestion(event.target.value)} maxLength={1000} rows={3} placeholder="For example: recover the purpose of short names and simplify generated control flow." />
             </label>
             <button type="button" className={styles.explainButton} onClick={() => void deobfuscateSelectedUnit()} disabled={!selectedProviderId || transforming || sourceQuery.isError || sourceQuery.isLoading || maintainedQuery.isLoading}>
               {transforming ? 'Reverse engineering…' : 'Create maintainable version'}
             </button>
           </>}
           {maintenanceError && <p className={styles.error} role="alert">{maintenanceError}</p>}
-          {maintenanceMeta && <p className={styles.message}>Draft from {maintenanceMeta.providerName} · {maintenanceMeta.model}. {maintenanceMeta.syntaxValidated ? 'The source parser found no syntax errors; behavior and renamed symbols still need review.' : 'Syntax validation was unavailable for this language; check that the draft is complete and valid.'}</p>}
+          {maintenanceMeta && <p className={styles.message}>Reverse-engineered draft from {maintenanceMeta.providerName} · {maintenanceMeta.model}. {maintenanceMeta.syntaxValidated ? 'The source parser found no syntax errors. Review the reconstructed logic and behavior before saving.' : 'Syntax validation was unavailable for this language. Check the reconstructed code and its behavior before saving.'}</p>}
           {maintainedQuery.isError && <p className={styles.error} role="alert">{maintainedQuery.error instanceof Error ? maintainedQuery.error.message : 'Could not load maintained source'}</p>}
           {maintainedDraft && <>
             <div className={styles.maintainedComparison}>
