@@ -6,6 +6,7 @@ import prisma from '@/lib/prisma'
 import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
 import { getActiveWorkspaceImportSelection } from '@/lib/reamon/inventory-query'
 import { derivedArtifactRoot, resolveDerivedArtifactPath } from '@/lib/reamon/derived-storage'
+import { MAINTAINED_SOURCE_OBSERVATION_SOURCE, MAINTAINED_SOURCE_OBSERVATION_TYPE } from '@/lib/reamon/code-units'
 
 interface RouteParams { params: Promise<{ id: string; unitId: string }> }
 const MAX_SOURCE_BYTES = 512 * 1024
@@ -108,6 +109,40 @@ export async function PUT(request: Request, { params }: RouteParams) {
     const temporaryPath = `${absolute}.${randomUUID()}.tmp`
     await writeFile(temporaryPath, sourceCode, { encoding: 'utf8', flag: 'wx', mode: 0o600 })
     await rename(temporaryPath, absolute)
+    const attributes = resolved.attributes
+    const label = (typeof attributes.qualifiedName === 'string' && attributes.qualifiedName)
+      || (typeof attributes.name === 'string' && attributes.name)
+      || resolved.observation.label
+      || resolved.unitId
+    const now = new Date().toISOString()
+    await prisma.reamonObservation.upsert({
+      where: {
+        projectId_source_stableKey: {
+          projectId,
+          source: MAINTAINED_SOURCE_OBSERVATION_SOURCE,
+          stableKey: resolved.unitId,
+        },
+      },
+      update: {
+        artifactId: resolved.artifactId,
+        kind: 'source',
+        type: MAINTAINED_SOURCE_OBSERVATION_TYPE,
+        canonicalKey: `maintained-source:${resolved.artifactId}:${resolved.unitId}`,
+        label,
+        attributes: { unitId: resolved.unitId, relativePath: resolved.relativePath, updatedAt: now },
+      },
+      create: {
+        projectId,
+        artifactId: resolved.artifactId,
+        source: MAINTAINED_SOURCE_OBSERVATION_SOURCE,
+        stableKey: resolved.unitId,
+        kind: 'source',
+        type: MAINTAINED_SOURCE_OBSERVATION_TYPE,
+        canonicalKey: `maintained-source:${resolved.artifactId}:${resolved.unitId}`,
+        label,
+        attributes: { unitId: resolved.unitId, relativePath: resolved.relativePath, updatedAt: now },
+      },
+    })
     return NextResponse.json({
       saved: true,
       fileName: safeFileName(path.basename(absolute)),

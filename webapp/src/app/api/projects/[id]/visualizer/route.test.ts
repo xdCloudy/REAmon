@@ -109,6 +109,32 @@ describe('GET /api/projects/[id]/visualizer', () => {
     expect(mocks.findMany).toHaveBeenCalledWith(expect.objectContaining({ cursor: { id: 'observation-999' }, skip: 1, take: 1001 }))
   })
 
+  test('marks saved maintained copies on their code units and reports workspace coverage', async () => {
+    mocks.taskFindMany.mockResolvedValue([{ id: 'run-1', title: 'Run', createdAt: new Date(), completedAt: new Date(), artifact: { originalName: 'app.apk', relativePath: 'app.apk' } }])
+    mocks.groupBy.mockResolvedValue([{ taskId: 'run-1', _count: { _all: 1 } }])
+    mocks.findMany
+      .mockResolvedValueOnce([{
+        id: 'observation-1', stableKey: 'class:app.Main', label: 'Main', source: 'jadx', artifactId: 'artifact-1',
+        updatedAt: new Date('2026-10-04T00:00:00.000Z'),
+        attributes: { unitType: 'class', qualifiedName: 'app.Main', sizeBytes: 100, language: 'Java' },
+        artifact: { relativePath: 'app.apk', originalName: 'app.apk' },
+      }])
+      .mockResolvedValueOnce([{ stableKey: 'observation-1' }])
+    mocks.count.mockResolvedValueOnce(1).mockResolvedValueOnce(1)
+
+    const response = await GET(new Request('http://localhost/api/projects/project-1/visualizer'), params)
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      maintainedCount: 1,
+      units: [{ id: 'observation-1', maintainedSource: true }],
+    })
+    expect(mocks.findMany).toHaveBeenLastCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ source: 'reamon-maintained-source', type: 'maintained_source', stableKey: { in: ['observation-1'] } }),
+      select: { stableKey: true },
+    }))
+  })
+
   test('searches the whole selected run before returning a page and count', async () => {
     mocks.taskFindMany.mockResolvedValue([{ id: 'run-1', title: 'Run', createdAt: new Date(), completedAt: new Date(), artifact: { originalName: 'app.apk', relativePath: 'app.apk' } }])
     mocks.groupBy.mockResolvedValue([{ taskId: 'run-1', _count: { _all: 1200 } }])

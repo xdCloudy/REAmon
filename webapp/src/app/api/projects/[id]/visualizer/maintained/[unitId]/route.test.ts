@@ -4,11 +4,11 @@ import os from 'node:os'
 import path from 'node:path'
 
 const h = vi.hoisted(() => ({
-  user: vi.fn(), access: vi.fn(), selection: vi.fn(), observation: vi.fn(), artifact: vi.fn(), root: vi.fn(), resolvePath: vi.fn(),
+  user: vi.fn(), access: vi.fn(), selection: vi.fn(), observation: vi.fn(), upsert: vi.fn(), artifact: vi.fn(), root: vi.fn(), resolvePath: vi.fn(),
 }))
 
 vi.mock('@/lib/prisma', () => ({ default: {
-  reamonObservation: { findFirst: h.observation },
+  reamonObservation: { findFirst: h.observation, upsert: h.upsert },
   artifact: { findFirst: h.artifact },
 } }))
 vi.mock('@/lib/access', () => ({ requireEffectiveUser: h.user, requireProjectAccess: h.access }))
@@ -29,6 +29,7 @@ beforeEach(async () => {
     id: 'unit-1', artifactId: 'artifact-1', label: 'app.Main',
     attributes: { language: 'Java', codeArtifactId: 'project-1/artifact-1/run/source/Main.java' },
   })
+  h.upsert.mockResolvedValue({})
   h.artifact.mockResolvedValue({ id: 'artifact-1' })
   testRoot = await mkdtemp(path.join(os.tmpdir(), 'reamon-maintained-'))
   h.root.mockReturnValue(testRoot)
@@ -46,6 +47,10 @@ describe('/api/projects/[id]/visualizer/maintained/[unitId]', () => {
     }), routeParams)
     expect(save.status).toBe(200)
     expect(await save.json()).toMatchObject({ saved: true, fileName: expect.stringMatching(/\.java$/) })
+    expect(h.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      where: { projectId_source_stableKey: { projectId: 'project-1', source: 'reamon-maintained-source', stableKey: 'unit-1' } },
+      create: expect.objectContaining({ type: 'maintained_source', artifactId: 'artifact-1' }),
+    }))
 
     const view = await GET(new Request('http://localhost'), routeParams)
     expect(await view.json()).toMatchObject({ exists: true, sourceCode: 'class Main { String name; }' })

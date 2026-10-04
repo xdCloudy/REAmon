@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Code2, Copy, Download, ExternalLink, RefreshCw, Search, WandSparkles } from 'lucide-react'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
@@ -14,6 +14,7 @@ import styles from './WorkspaceCodeVisualizer.module.css'
 interface CodeUnitResponse {
   units: CodeUnit[]
   total: number
+  maintainedCount: number
   hasMore: boolean
   nextCursor: string | null
   runs: Array<{
@@ -235,6 +236,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
   const [transforming, setTransforming] = useState(false)
   const [savingMaintained, setSavingMaintained] = useState(false)
   const [maintainedSaved, setMaintainedSaved] = useState(false)
+  const queryClient = useQueryClient()
   const initializedMaintainedUnits = useRef(new Set<string>())
   const [additionalPage, setAdditionalPage] = useState<{ runId: string | null; search: string; units: CodeUnit[]; nextCursor: string | null } | null>(null)
   const [loadingMore, setLoadingMore] = useState(false)
@@ -449,6 +451,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
       const result = await response.json().catch(() => ({})) as { error?: string }
       if (!response.ok) throw new Error(result.error || 'Could not save the maintained source')
       setMaintainedSaved(true)
+      await queryClient.invalidateQueries({ queryKey: ['reamon-code-units', projectId] })
     } catch (error) {
       setMaintenanceError(error instanceof Error ? error.message : 'Could not save the maintained source')
     } finally {
@@ -621,6 +624,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
           <div><strong>{formatBytes(summary.totalBytes)}</strong><span>Mapped bytes in filter</span></div>
           <div><strong>{summary.coveragePercent === null ? 'Unknown' : `${summary.coveragePercent}%`}</strong><span>Decompilation completeness of measured bytes</span></div>
           <div><strong>{summary.decompiledUnits.toLocaleString()}</strong><span>Fully decompiled units</span></div>
+          <div><strong>{(query.data.maintainedCount || 0).toLocaleString()}</strong><span>Maintained copies in active workspace</span></div>
         </div>
         {summary.unmeasuredBytes > 0 && <p className={styles.message}>{formatBytes(summary.unmeasuredBytes)} of mapped code has no decompilation completeness value from its provider.</p>}
 
@@ -629,6 +633,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
           <span><i className={styles.partial} /> Partial decompilation</span>
           <span><i className={styles.none} /> No decompilation</span>
           <span><i className={styles.unknown} /> Unmeasured</span>
+          <span><i className={styles.maintainedLegend}>M</i> Maintained source saved</span>
         </div>
 
         {visualizerView === 'treemap' && (treemapEntries.length ? <div className={styles.mapFrame}>
@@ -644,12 +649,14 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
               const label = shortenLabel(unit.name, width)
               const coverage = unit.coveragePercent === null ? 'decompilation completeness unmeasured' : `${Math.round(unit.coveragePercent)}% decompilation completeness`
               const detail = unit.packagePath ? `${unit.unitCount.toLocaleString()} code units` : formatBytes(unit.sizeBytes)
+              const maintained = unit.maintainedUnitCount > 0
+              const maintainedDetail = unit.packagePath ? `${unit.maintainedUnitCount} maintained source ${unit.maintainedUnitCount === 1 ? 'copy' : 'copies'}` : 'maintained source saved'
               return <g
                 key={unit.key}
                 className={`${styles.tile} ${unit.codeUnit?.id === selectedId ? styles.selected : ''} ${unit.packagePath ? styles.packageTile : ''}`}
                 role="button"
                 tabIndex={0}
-                aria-label={`${unit.name}${unit.packagePath ? ' package' : ''}, ${formatBytes(unit.sizeBytes)}, ${coverage}${unit.packagePath ? `, ${unit.unitCount.toLocaleString()} code units` : unit.codeUnit?.address ? `, address ${unit.codeUnit.address}` : ''}`}
+                aria-label={`${unit.name}${unit.packagePath ? ' package' : ''}, ${formatBytes(unit.sizeBytes)}, ${coverage}${unit.packagePath ? `, ${unit.unitCount.toLocaleString()} code units` : unit.codeUnit?.address ? `, address ${unit.codeUnit.address}` : ''}${maintained ? `, ${maintainedDetail}` : ''}`}
                 onClick={() => openTreemapEntry(unit)}
                 onKeyDown={(event) => {
                   if (event.key === 'Enter' || event.key === ' ') {
@@ -658,8 +665,9 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
                   }
                 }}
               >
-                <title>{`${unit.name}${unit.packagePath ? ' package' : ''} · ${formatBytes(unit.sizeBytes)} · ${coverage}${unit.packagePath ? ` · ${unit.unitCount.toLocaleString()} code units` : unit.codeUnit?.address ? ` · ${unit.codeUnit.address}` : ''}`}</title>
+                <title>{`${unit.name}${unit.packagePath ? ' package' : ''} · ${formatBytes(unit.sizeBytes)} · ${coverage}${unit.packagePath ? ` · ${unit.unitCount.toLocaleString()} code units` : unit.codeUnit?.address ? ` · ${unit.codeUnit.address}` : ''}${maintained ? ` · ${maintainedDetail}` : ''}`}</title>
                 <rect x={x + 1} y={y + 1} width={Math.max(0, width - 2)} height={Math.max(0, height - 2)} fill={unitColor(unit.coveragePercent)} rx="3" />
+                {maintained && width >= 28 && height >= 24 && <><circle className={styles.maintainedBadge} cx={x + width - 13} cy={y + 13} r="9" /><text className={styles.maintainedBadgeText} x={x + width - 13} y={y + 13}>M</text></>}
                 {label && <text x={x + 9} y={y + 20} className={styles.tileName}>{label}</text>}
                 {label && width > 115 && height > 48 && <text x={x + 9} y={y + 38} className={styles.tileMeta}>{detail}</text>}
               </g>
@@ -696,7 +704,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
 
         {nextCursor && <p className={styles.message}>Showing {units.length.toLocaleString()} of {query.data.total.toLocaleString()} code units matching the name, address, or path search. Load more to include additional units in size and coverage filters.</p>}
         {selectedUnit && <div className={styles.details}>
-          <div><span className={styles.detailLabel}>Selected code unit</span><strong>{selectedUnit.name}</strong></div>
+          <div><span className={styles.detailLabel}>Selected code unit</span><strong>{selectedUnit.name}</strong>{selectedUnit.maintainedSource && <span className={styles.savedStatus}>Maintained source saved</span>}</div>
           <dl>
             <div><dt>Address</dt><dd>{selectedUnit.address || 'Not supplied'}</dd></div>
             <div><dt>Size</dt><dd>{formatBytes(selectedUnit.sizeBytes)}</dd></div>

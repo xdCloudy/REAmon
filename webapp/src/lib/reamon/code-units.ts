@@ -1,4 +1,6 @@
 export const CODE_UNIT_OBSERVATION_TYPE = 'code_unit'
+export const MAINTAINED_SOURCE_OBSERVATION_TYPE = 'maintained_source'
+export const MAINTAINED_SOURCE_OBSERVATION_SOURCE = 'reamon-maintained-source'
 export const CODE_UNIT_QUERY_LIMIT = 1000
 
 export interface CodeUnitObservationAttributes {
@@ -43,6 +45,7 @@ export interface CodeUnit {
   codeArtifactId: string | null
   disassemblyArtifactId: string | null
   disassemblyLanguage: string | null
+  maintainedSource?: boolean
   updatedAt: string
 }
 
@@ -95,6 +98,7 @@ export function normalizeCodeUnit(row: CodeUnitObservationRow): CodeUnit | null 
     codeArtifactId: text(attributes.codeArtifactId, 2000),
     disassemblyArtifactId: text(attributes.disassemblyArtifactId, 2000),
     disassemblyLanguage: text(attributes.disassemblyLanguage, 80),
+    maintainedSource: false,
     updatedAt,
   }
 }
@@ -163,6 +167,7 @@ export interface CodeUnitTreemapEntry {
   codeUnit?: CodeUnit
   packagePath?: string
   unitCount: number
+  maintainedUnitCount: number
 }
 
 function codeUnitPath(unit: CodeUnit): string[] {
@@ -185,7 +190,7 @@ function codeUnitPath(unit: CodeUnit): string[] {
 
 export function buildCodeUnitTreemapEntries(units: CodeUnit[], packagePath = ''): CodeUnitTreemapEntry[] {
   const selectedPath = packagePath.split('.').filter(Boolean)
-  const groups = new Map<string, { sizeBytes: number; weightedCoverage: number; measuredBytes: number; unitCount: number }>()
+  const groups = new Map<string, { sizeBytes: number; weightedCoverage: number; measuredBytes: number; unitCount: number; maintainedUnitCount: number }>()
   const entries: CodeUnitTreemapEntry[] = []
 
   for (const unit of units) {
@@ -193,9 +198,10 @@ export function buildCodeUnitTreemapEntries(units: CodeUnit[], packagePath = '')
     if (selectedPath.some((part, index) => path[index] !== part)) continue
     if (path.length > selectedPath.length) {
       const segment = path[selectedPath.length]
-      const group = groups.get(segment) || { sizeBytes: 0, weightedCoverage: 0, measuredBytes: 0, unitCount: 0 }
+      const group = groups.get(segment) || { sizeBytes: 0, weightedCoverage: 0, measuredBytes: 0, unitCount: 0, maintainedUnitCount: 0 }
       group.sizeBytes += unit.sizeBytes
       group.unitCount += 1
+      if (unit.maintainedSource) group.maintainedUnitCount += 1
       if (unit.coveragePercent !== null) {
         group.weightedCoverage += unit.sizeBytes * unit.coveragePercent
         group.measuredBytes += unit.sizeBytes
@@ -211,6 +217,7 @@ export function buildCodeUnitTreemapEntries(units: CodeUnit[], packagePath = '')
       coveragePercent: unit.coveragePercent,
       codeUnit: unit,
       unitCount: 1,
+      maintainedUnitCount: unit.maintainedSource ? 1 : 0,
     })
   }
 
@@ -223,6 +230,7 @@ export function buildCodeUnitTreemapEntries(units: CodeUnit[], packagePath = '')
       coveragePercent: group.measuredBytes > 0 ? group.weightedCoverage / group.measuredBytes : null,
       packagePath: childPath,
       unitCount: group.unitCount,
+      maintainedUnitCount: group.maintainedUnitCount,
     })
   }
 

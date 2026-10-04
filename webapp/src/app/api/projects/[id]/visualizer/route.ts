@@ -2,7 +2,14 @@ import { NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
 import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
 import { getActiveWorkspaceImportSelection } from '@/lib/reamon/inventory-query'
-import { CODE_UNIT_OBSERVATION_TYPE, CODE_UNIT_QUERY_LIMIT, normalizeCodeUnit, summarizeCodeUnits } from '@/lib/reamon/code-units'
+import {
+  CODE_UNIT_OBSERVATION_TYPE,
+  CODE_UNIT_QUERY_LIMIT,
+  MAINTAINED_SOURCE_OBSERVATION_SOURCE,
+  MAINTAINED_SOURCE_OBSERVATION_TYPE,
+  normalizeCodeUnit,
+  summarizeCodeUnits,
+} from '@/lib/reamon/code-units'
 
 interface RouteParams { params: Promise<{ id: string }> }
 
@@ -125,7 +132,13 @@ export async function GET(request: Request, { params }: RouteParams) {
       const cursor = await prisma.reamonObservation.findFirst({ where: { ...where, id: cursorId }, select: { id: true } })
       if (!cursor) return NextResponse.json({ error: 'Code unit cursor is outside this analysis run' }, { status: 400, headers: { 'Cache-Control': 'private, no-store' } })
     }
-    const [rows, total] = await Promise.all([
+    const maintainedWhere = {
+      projectId,
+      source: MAINTAINED_SOURCE_OBSERVATION_SOURCE,
+      type: MAINTAINED_SOURCE_OBSERVATION_TYPE,
+      artifact: { is: selection.artifactWhere },
+    }
+    const [rows, total, maintainedCount] = await Promise.all([
       prisma.reamonObservation.findMany({
         where,
         orderBy: [{ updatedAt: 'desc' }, { stableKey: 'asc' }, { id: 'asc' }],
@@ -143,14 +156,26 @@ export async function GET(request: Request, { params }: RouteParams) {
         },
       }),
       prisma.reamonObservation.count({ where }),
+      prisma.reamonObservation.count({ where: maintainedWhere }),
     ])
 
     const pageRows = rows.slice(0, CODE_UNIT_QUERY_LIMIT)
-    const units = pageRows.map(normalizeCodeUnit).filter((unit) => unit !== null)
+    const maintainedRows = pageRows.length
+      ? await prisma.reamonObservation.findMany({
+        where: { ...maintainedWhere, stableKey: { in: pageRows.map((row) => row.id) } },
+        select: { stableKey: true },
+      })
+      : []
+    const maintainedUnitIds = new Set(maintainedRows.map((row) => row.stableKey))
+    const units = pageRows
+      .map(normalizeCodeUnit)
+      .filter((unit) => unit !== null)
+      .map((unit) => ({ ...unit, maintainedSource: maintainedUnitIds.has(unit.id) }))
     const nextCursor = rows.length > CODE_UNIT_QUERY_LIMIT ? pageRows.at(-1)?.id || null : null
     return NextResponse.json({
       units,
       total,
+      maintainedCount,
       hasMore: nextCursor !== null,
       nextCursor,
       runs,

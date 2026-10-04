@@ -59,15 +59,15 @@ describe('code visualizer unit normalization', () => {
 
   it('groups code artifacts by package with size-weighted coverage and drills down to code units', () => {
     const units = [
-      unit({ id: 'main', name: 'com.example.MainActivity', unitType: 'class', codeArtifactId: 'p/a/t/r/sources/com/example/MainActivity.java', sizeBytes: 100, coveragePercent: 100 }),
+      unit({ id: 'main', name: 'com.example.MainActivity', unitType: 'class', codeArtifactId: 'p/a/t/r/sources/com/example/MainActivity.java', sizeBytes: 100, coveragePercent: 100, maintainedSource: true }),
       unit({ id: 'util', name: 'com.example.Util', unitType: 'class', codeArtifactId: 'p/a/t/r/sources/com/example/Util.java', sizeBytes: 300, coveragePercent: 50 }),
       unit({ id: 'other', name: 'org.sample.Other', unitType: 'class', codeArtifactId: 'p/a/t/r/sources/org/sample/Other.java', sizeBytes: 100, coveragePercent: null }),
     ]
 
     const roots = buildCodeUnitTreemapEntries(units)
-    expect(roots.map(({ name, packagePath, sizeBytes, unitCount, coveragePercent }) => ({ name, packagePath, sizeBytes, unitCount, coveragePercent }))).toEqual([
-      { name: 'com', packagePath: 'com', sizeBytes: 400, unitCount: 2, coveragePercent: 62.5 },
-      { name: 'org', packagePath: 'org', sizeBytes: 100, unitCount: 1, coveragePercent: null },
+    expect(roots.map(({ name, packagePath, sizeBytes, unitCount, coveragePercent, maintainedUnitCount }) => ({ name, packagePath, sizeBytes, unitCount, coveragePercent, maintainedUnitCount }))).toEqual([
+      { name: 'com', packagePath: 'com', sizeBytes: 400, unitCount: 2, coveragePercent: 62.5, maintainedUnitCount: 1 },
+      { name: 'org', packagePath: 'org', sizeBytes: 100, unitCount: 1, coveragePercent: null, maintainedUnitCount: 0 },
     ])
     const packages = buildCodeUnitTreemapEntries(units, 'com.example')
     expect(packages.map(({ codeUnit }) => codeUnit?.id)).toEqual(['util', 'main'])
