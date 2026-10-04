@@ -15,6 +15,25 @@ describe('REAmon target profiler', () => {
     expect(profile.runtimes).toContain('native-library')
   })
 
+  it('identifies standalone Android DEX bytecode', () => {
+    const bytes = new Uint8Array([0x64, 0x65, 0x78, 0x0a, 0x30, 0x33, 0x35, 0x00])
+    const profile = profileArtifact(bytes, 'classes.dex')
+
+    expect(profile).toMatchObject({
+      targetType: 'FILE', format: 'dex', mimeType: 'application/vnd.android.dex', platform: 'android',
+      runtimes: ['dalvik', 'art'], metadata: { hasMagic: true },
+    })
+  })
+
+  it('identifies standalone JVM class files from their class-file magic', () => {
+    const profile = profileArtifact(new Uint8Array([0xca, 0xfe, 0xba, 0xbe, 0x00, 0x00, 0x00, 0x3d]), 'Main.class')
+
+    expect(profile).toMatchObject({
+      targetType: 'FILE', format: 'class', mimeType: 'application/java-vm', platform: 'jvm',
+      runtimes: ['jvm'], metadata: { hasMagic: true },
+    })
+  })
+
   it('keeps an unrecognised input valid as an UNKNOWN target', () => {
     const profile = profileArtifact(new Uint8Array([1, 2, 3, 4]), 'mystery.dat')
 

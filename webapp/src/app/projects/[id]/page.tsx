@@ -168,7 +168,7 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
   const data = workspace.data
   const rootTarget = useMemo(() => data?.targets.find((target) => target.targetType === 'DIRECTORY'), [data?.targets])
   const latestImport = data?.imports[0]
-  const hasDecompilableArtifact = data?.artifacts.some((artifact) => ['apk', 'jar', 'elf', 'pe', 'pe-dll', 'macho'].includes(artifact.profile.format)) ?? false
+  const hasDecompilableArtifact = data?.artifacts.some((artifact) => ['apk', 'jar', 'dex', 'class', 'elf', 'pe', 'pe-dll', 'macho'].includes(artifact.profile.format)) ?? false
   const logicalTargets = data?.targets.filter((target) => target.targetType !== 'DIRECTORY') || []
   const selectedLogicalTarget = logicalTargets.find((target) => target.id === selectedTarget)
 

@@ -13,8 +13,8 @@ export interface InventoryArtifact {
 }
 
 const CONFIG_EXTENSIONS = new Set(['json', 'yaml', 'yml', 'toml', 'ini', 'cfg', 'conf', 'config', 'properties', 'env'])
-const INTERESTING_FORMATS = new Set(['pe', 'pe-dll', 'elf', 'macho', 'apk', 'jar', 'sqlite', 'pcap'])
-const INTERESTING_EXTENSIONS = new Set(['exe', 'dll', 'sys', 'so', 'dylib', 'app', 'bin', 'img', 'iso', 'wasm'])
+const INTERESTING_FORMATS = new Set(['pe', 'pe-dll', 'elf', 'macho', 'apk', 'jar', 'dex', 'class', 'sqlite', 'pcap'])
+const INTERESTING_EXTENSIONS = new Set(['exe', 'dll', 'sys', 'so', 'dylib', 'app', 'bin', 'img', 'iso', 'wasm', 'dex', 'class'])
 
 function extensionOf(relativePath: string): string {
   const name = relativePath.split('/').pop() || ''

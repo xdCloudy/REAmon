@@ -48,6 +48,29 @@ function detectFormat(bytes: Uint8Array, extension: string): {
     }
   }
 
+  if (bytes.length >= 8 && /^dex\n\d{3}\u0000$/.test(readAscii(bytes, 0, 8))) {
+    return {
+      format: 'dex',
+      targetType: 'FILE',
+      architecture: null,
+      platform: 'android',
+      runtimes: ['dalvik', 'art'],
+      embeddedArtifacts: [],
+    }
+  }
+
+  if (bytes.length >= 8 && extension === 'class'
+      && bytes[0] === 0xca && bytes[1] === 0xfe && bytes[2] === 0xba && bytes[3] === 0xbe) {
+    return {
+      format: 'class',
+      targetType: 'FILE',
+      architecture: null,
+      platform: 'jvm',
+      runtimes: ['jvm'],
+      embeddedArtifacts: [],
+    }
+  }
+
   if (bytes.length >= 2 && bytes[0] === 0x4d && bytes[1] === 0x5a) {
     return {
       format: extension === 'dll' ? 'pe-dll' : 'pe',
@@ -156,6 +179,8 @@ function mimeTypeFor(format: string, extension: string, providedMimeType: string
   if (format === 'elf') return 'application/x-executable'
   if (format === 'pe' || format === 'pe-dll') return 'application/vnd.microsoft.portable-executable'
   if (format === 'apk' || format === 'jar' || format === 'zip') return 'application/zip'
+  if (format === 'dex') return 'application/vnd.android.dex'
+  if (format === 'class') return 'application/java-vm'
   if (format === 'pdf') return 'application/pdf'
   if (format === 'pcap') return 'application/vnd.tcpdump.pcap'
   if (format === 'sqlite') return 'application/vnd.sqlite3'

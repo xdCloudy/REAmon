@@ -241,7 +241,8 @@ maximum-coverage filters operate on the returned units. Missing coverage remains
 unknown instead of being counted as zero. The visualizer links a selected unit to
 its derived code artifact when the provider supplies one.
 
-The built-in JADX provider accepts APK and JVM JAR artifacts and runs JADX 1.5.6 in a
+The built-in JADX provider accepts APK, JVM JAR, standalone DEX, and JVM class
+artifacts and runs JADX 1.5.6 in a
 dedicated container with no database or internet network access. It receives the
 artifact volume read-only, writes generated Java under a separate derived-source
 volume, and emits up to 500 class-sized `code_unit` observations per task. Class tiles

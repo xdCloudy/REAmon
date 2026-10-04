@@ -40,7 +40,16 @@ describe('REAmon capability resolution', () => {
       platform: 'jvm',
       runtimes: ['jvm'],
     }))).toEqual(expect.arrayContaining([
-      expect.objectContaining({ pluginId: 'reamon-jadx', capabilities: ['decompile'], acceptsFormats: ['apk', 'jar'] }),
+      expect.objectContaining({ pluginId: 'reamon-jadx', capabilities: ['decompile'], acceptsFormats: ['apk', 'jar', 'dex', 'class'] }),
+    ]))
+  })
+
+  it.each([
+    { format: 'dex', extension: 'dex', platform: 'android', runtimes: ['dalvik', 'art'] },
+    { format: 'class', extension: 'class', platform: 'jvm', runtimes: ['jvm'] },
+  ])('offers JADX decompilation for standalone $format bytecode', ({ format, extension, platform, runtimes }) => {
+    expect(resolveCapabilities(profile({ format, extension, platform, runtimes }))).toEqual(expect.arrayContaining([
+      expect.objectContaining({ pluginId: 'reamon-jadx', capabilities: ['decompile'], acceptsFormats: ['apk', 'jar', 'dex', 'class'] }),
     ]))
   })
 

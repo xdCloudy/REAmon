@@ -19,7 +19,7 @@ export const jadxManifest: ToolPluginManifest = {
   category: 'static_analysis',
   integration: 'process',
   acceptsTargetTypes: ['FILE'],
-  acceptsFormats: ['apk', 'jar'],
+  acceptsFormats: ['apk', 'jar', 'dex', 'class'],
   capabilities: ['decompile'],
   produces: ['CodeUnit', 'DecompiledSource'],
   requirements: [
@@ -50,7 +50,7 @@ export async function executeJadx(input: ToolExecutionInput): Promise<ToolResult
     produced: jadxManifest.produces,
   }
   if (!input.artifactPath || !input.artifactId || !input.projectId || !input.taskId || !input.runToken) {
-    return { status: 'failed', ...base, data: {}, error: 'JADX requires a stored APK or Java archive and task context' }
+    return { status: 'failed', ...base, data: {}, error: 'JADX requires a stored supported bytecode artifact and task context' }
   }
 
   const baseUrl = process.env.REAMON_JADX_URL?.trim().replace(/\/$/, '')
