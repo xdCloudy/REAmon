@@ -26,7 +26,7 @@ export async function GET(request: Request, { params }: RouteParams) {
     const decompileTasks = await prisma.task.findMany({
       where: {
         projectId,
-        capability: 'decompile',
+        capability: { in: ['decompile', 'disassemble'] },
         status: 'COMPLETED',
         artifact: { is: selection.artifactWhere },
       },
@@ -60,10 +60,11 @@ export async function GET(request: Request, { params }: RouteParams) {
       .map((task) => {
         const result = resultRecord(task.result)
         const codeUnitCount = countByTaskId.get(task.id) || 0
-        const discoveredUnitCount = finiteCount(result.decompiledClassCount ?? result.decompiledFunctionCount)
+        const isWasm = task.provider?.pluginId === 'reamon-wabt'
+        const discoveredUnitCount = finiteCount(isWasm ? result.wasmFunctionCount : result.decompiledClassCount ?? result.decompiledFunctionCount)
         const returnedUnitCount = finiteCount(result.returnedClassCount ?? result.returnedFunctionCount) ?? codeUnitCount
         const indexedUnitCount = Math.min(codeUnitCount, returnedUnitCount)
-        const unitLabel = task.provider?.pluginId === 'reamon-jadx' ? 'classes' : task.provider?.pluginId === 'reamon-ghidra' ? 'functions' : 'code units'
+        const unitLabel = task.provider?.pluginId === 'reamon-jadx' ? 'classes' : task.provider?.pluginId === 'reamon-ghidra' || isWasm ? 'functions' : 'code units'
         return {
           id: task.id,
           title: task.title,

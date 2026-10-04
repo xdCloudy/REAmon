@@ -201,7 +201,7 @@ async function settleTask(
         artifactId: task.artifactId,
         source: result.toolId,
         data: result.data,
-        maxObservations: result.capabilities.includes('decompile') ? MAX_CODE_UNITS_PER_RESULT : MAX_OBSERVATIONS_PER_RESULT,
+        maxObservations: (result.capabilities.includes('decompile') || result.capabilities.includes('disassemble')) ? MAX_CODE_UNITS_PER_RESULT : MAX_OBSERVATIONS_PER_RESULT,
       })
     }
     await tx.workspaceActivity.create({

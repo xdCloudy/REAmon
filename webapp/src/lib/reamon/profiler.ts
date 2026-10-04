@@ -48,6 +48,10 @@ function detectFormat(bytes: Uint8Array, extension: string): {
     }
   }
 
+  if (bytes.length >= 8 && readAscii(bytes,0,4) === '\u0000asm' && bytes[4] === 1 && bytes[5] === 0 && bytes[6] === 0 && bytes[7] === 0) {
+    return { format: 'wasm', targetType: 'FILE', architecture: 'wasm32', platform: 'webassembly', runtimes: ['wasm'], embeddedArtifacts: [] }
+  }
+
   if (bytes.length >= 8 && /^dex\n\d{3}\u0000$/.test(readAscii(bytes, 0, 8))) {
     return {
       format: 'dex',
@@ -177,6 +181,7 @@ function mimeTypeFor(format: string, extension: string, providedMimeType: string
   if (providedMimeType && providedMimeType !== 'application/octet-stream') return providedMimeType
   if (format === 'source') return 'text/plain'
   if (format === 'elf') return 'application/x-executable'
+  if (format === 'wasm') return 'application/wasm'
   if (format === 'pe' || format === 'pe-dll') return 'application/vnd.microsoft.portable-executable'
   if (format === 'apk' || format === 'jar' || format === 'zip') return 'application/zip'
   if (format === 'dex') return 'application/vnd.android.dex'

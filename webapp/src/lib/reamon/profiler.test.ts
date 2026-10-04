@@ -15,6 +15,12 @@ describe('REAmon target profiler', () => {
     expect(profile.runtimes).toContain('native-library')
   })
 
+  it('identifies WebAssembly modules from their versioned binary header', () => {
+    const profile = profileArtifact(new Uint8Array([0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]), 'module.wasm')
+
+    expect(profile).toMatchObject({ targetType: 'FILE', format: 'wasm', mimeType: 'application/wasm', architecture: 'wasm32', platform: 'webassembly', runtimes: ['wasm'] })
+  })
+
   it('identifies standalone Android DEX bytecode', () => {
     const bytes = new Uint8Array([0x64, 0x65, 0x78, 0x0a, 0x30, 0x33, 0x35, 0x00])
     const profile = profileArtifact(bytes, 'classes.dex')

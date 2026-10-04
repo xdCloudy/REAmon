@@ -1172,6 +1172,7 @@ services:
       REAMON_DERIVED_PATH: /data/reamon-derived
       REAMON_JADX_URL: http://jadx-analyzer:8010
       REAMON_GHIDRA_URL: http://ghidra-analyzer:8011
+      REAMON_WASM_URL: http://wasm-analyzer:8012
       REAMON_MAX_ARTIFACT_BYTES: ${REAMON_MAX_ARTIFACT_BYTES:-536870912}
       REAMON_MAX_IMPORT_FILES: ${REAMON_MAX_IMPORT_FILES:-50000}
       REAMON_MAX_IMPORT_BYTES: ${REAMON_MAX_IMPORT_BYTES:-8589934592}
@@ -1327,6 +1328,42 @@ services:
       timeout: 5s
       retries: 3
       start_period: 120s
+    networks:
+      - reamon-analysis
+
+  # Isolated WABT WebAssembly to WAT analyzer.
+  wasm-analyzer:
+    build:
+      context: ./analyzers/wasm
+    image: reamon-wasm:local
+    container_name: reamon-wasm
+    init: true
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+    mem_limit: 1g
+    pids_limit: 64
+    cpus: 1
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=512m,mode=1777
+    environment:
+      REAMON_ARTIFACTS_PATH: /data/reamon-artifacts
+      REAMON_DERIVED_PATH: /data/reamon-derived
+    volumes:
+      - reamon_artifacts:/data/reamon-artifacts:ro
+      - reamon_derived:/data/reamon-derived:rw
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8012/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     networks:
       - reamon-analysis
 

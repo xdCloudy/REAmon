@@ -47,20 +47,20 @@ describe('WorkspaceCodeVisualizer', () => {
     })
     vi.stubGlobal('fetch', fetchMock)
     renderVisualizer()
-    const history = await screen.findByRole('navigation', { name: 'Decompilation run history' })
+    const history = await screen.findByRole('navigation', { name: 'Analysis run history' })
 
     expect(history).toHaveTextContent('Run 1 of 2')
     fireEvent.click(screen.getByRole('button', { name: 'Previous run' }))
     await waitFor(() => expect(requests).toContain('/api/projects/project-1/visualizer?taskId=run-old'))
-    await waitFor(() => expect(screen.getByRole('navigation', { name: 'Decompilation run history' })).toHaveTextContent('Run 2 of 2'))
+    await waitFor(() => expect(screen.getByRole('navigation', { name: 'Analysis run history' })).toHaveTextContent('Run 2 of 2'))
     expect(await screen.findByRole('button', { name: /older\.Main/ })).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Latest run' }))
-    await waitFor(() => expect(screen.getByRole('navigation', { name: 'Decompilation run history' })).toHaveTextContent('Run 1 of 2'))
+    await waitFor(() => expect(screen.getByRole('navigation', { name: 'Analysis run history' })).toHaveTextContent('Run 1 of 2'))
     expect(requests.filter((request) => request === '/api/projects/project-1/visualizer')).toHaveLength(1)
   })
 
-  test('states that no code units are available before a decompiler publishes them', async () => {
+  test('states that no code units are available before an analyzer publishes them', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ units: [], total: 0, hasMore: false }) }))
     renderVisualizer()
 

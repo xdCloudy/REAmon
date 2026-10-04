@@ -181,7 +181,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing }: { projectId:
         {query.data && <span className={styles.badge}>{query.data.hasMore ? `${units.length.toLocaleString()} / ${query.data.total.toLocaleString()} code units` : `${units.length.toLocaleString()} code units`}</span>}
       </div>
 
-      {currentRun && <nav className={styles.runHistory} aria-label="Decompilation run history">
+      {currentRun && <nav className={styles.runHistory} aria-label="Analysis run history">
         <button type="button" className={styles.runButton} aria-label="Previous run" disabled={currentRunIndex >= runs.length - 1} onClick={() => showRun(runs[currentRunIndex + 1]?.id || null)}>Previous</button>
         <div className={styles.runDetails} aria-live="polite">
           <strong>Run {currentRunIndex + 1} of {runs.length}</strong>
@@ -192,19 +192,19 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing }: { projectId:
         <button type="button" className={styles.runButton} aria-label="Latest run" disabled={currentRunIndex === 0} onClick={() => showRun(null)}>Latest</button>
       </nav>}
 
-      {currentRun && <div className={styles.runSummary} aria-label="Selected decompilation summary">
+      {currentRun && <div className={styles.runSummary} aria-label="Selected analysis summary">
         <div className={styles.runSummaryHeading}>
           <div>
-            <strong>{currentRun.linkPercent === null ? `${currentRun.indexedUnitCount.toLocaleString()} ${currentRun.unitLabel} linked` : `${currentRun.linkPercent}% of decompiled ${currentRun.unitLabel} linked`}</strong>
-            <span>{currentRun.indexedUnitCount.toLocaleString()} source links{currentRun.discoveredUnitCount !== null ? ` of ${currentRun.discoveredUnitCount.toLocaleString()} decompiled ${currentRun.unitLabel}` : ''}</span>
+            <strong>{currentRun.linkPercent === null ? `${currentRun.indexedUnitCount.toLocaleString()} ${currentRun.unitLabel} indexed` : `${currentRun.linkPercent}% of analyzed ${currentRun.unitLabel} indexed`}</strong>
+            <span>{currentRun.indexedUnitCount.toLocaleString()} code units indexed{currentRun.discoveredUnitCount !== null ? ` of ${currentRun.discoveredUnitCount.toLocaleString()} analyzed ${currentRun.unitLabel}` : ''}</span>
           </div>
           <span>Code {formatBytes(currentRun.codeBytes ?? units.reduce((sum, unit) => sum + unit.sizeBytes, 0))}</span>
         </div>
-        {currentRun.linkPercent !== null && <div className={styles.runProgress} role="progressbar" aria-label="Source link coverage" aria-valuemin={0} aria-valuemax={100} aria-valuenow={currentRun.linkPercent} aria-valuetext={`${currentRun.linkPercent}% of decompiled ${currentRun.unitLabel} linked`}>
+        {currentRun.linkPercent !== null && <div className={styles.runProgress} role="progressbar" aria-label="Indexed code unit coverage" aria-valuemin={0} aria-valuemax={100} aria-valuenow={currentRun.linkPercent} aria-valuetext={`${currentRun.linkPercent}% of analyzed ${currentRun.unitLabel} indexed`}>
           <span style={{ width: `${currentRun.linkPercent}%` }} />
         </div>}
         <div className={styles.runSummaryMeta}>
-          <span>{currentRun.truncated ? 'Partial index; the analyzer reached a configured limit.' : `${currentRun.indexedUnitCount.toLocaleString()} linked code units`}</span>
+          <span>{currentRun.truncated ? 'Partial index; the analyzer reached a configured limit.' : `${currentRun.indexedUnitCount.toLocaleString()} indexed code units`}</span>
           {currentRun.failedUnitCount !== null && currentRun.failedUnitCount > 0 && <span>{currentRun.failedUnitCount.toLocaleString()} functions could not be decompiled{currentRun.visitedUnitCount !== null ? ` of ${currentRun.visitedUnitCount.toLocaleString()} visited` : ''}</span>}
         </div>
         {currentRun.warnings && <p className={styles.runWarning}>{currentRun.warnings}</p>}
@@ -216,7 +216,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing }: { projectId:
         <div className={styles.empty}>
           <strong>No code units have been analyzed yet.</strong>
           <p>Importing a file only records and profiles it. An analyzer must publish functions or other code units before this map can show program structure.</p>
-          <span>Each unit should include its name, address, byte size, decompilation coverage, and a link to its viewable code artifact.</span>
+          <span>Each unit should include its name, address, byte size, coverage details, and a link to its viewable code artifact.</span>
         </div>
       )}
       {!query.isLoading && !query.isError && query.data?.units.length === 0 && query.data.total > 0 && (

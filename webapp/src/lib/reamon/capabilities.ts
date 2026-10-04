@@ -14,6 +14,7 @@ import { fileInspectorPlugin } from './file-inspector'
 import { jsonInspectorPlugin } from './json-inspector'
 import { jadxPlugin } from './jadx'
 import { ghidraPlugin } from './ghidra'
+import { wasmPlugin } from './wasm'
 
 export const CAPABILITIES: Capability[] = [
   { id: 'identify', label: 'Identify', description: 'Classify a target or artifact using observable metadata.', category: 'profiling' },
@@ -85,6 +86,9 @@ export const BUILTIN_TOOL_PLUGINS: ToolPlugin[] = [
   },
   {
     ...ghidraPlugin,
+  },
+  {
+    ...wasmPlugin,
   },
 ]
 
