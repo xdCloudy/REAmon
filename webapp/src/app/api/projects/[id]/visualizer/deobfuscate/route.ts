@@ -195,6 +195,8 @@ export async function POST(request: Request, { params }: RouteParams) {
             ? 'The model stopped before returning the complete file. Increase its output token limit or choose a model with a larger context window, then retry.'
             : result.code === 'invalid_source'
               ? 'The model draft did not parse as complete source. Try a stronger model or a more focused transformation.'
+              : result.code === 'wrong_target'
+                ? 'The model returned a different Java type instead of the selected code unit. Try a stronger model or reduce its supporting context.'
           : 'AI could not produce a maintainable version. Try again shortly.'
       return NextResponse.json({ error: message }, { status: response.status, headers: { 'Cache-Control': 'no-store' } })
     }

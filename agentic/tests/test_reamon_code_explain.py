@@ -99,7 +99,7 @@ def test_code_deobfuscation_returns_complete_source_and_uses_exact_provider(api,
     with patch.object(api, 'fetch_user_providers', return_value=[provider]) as fetch, \
          patch('orchestrator_helpers.llm_setup.setup_llm', return_value=llm) as setup:
         response = TestClient(api.app).post('/reamon/code/deobfuscate', json={
-            'model': 'custom/provider-1', 'user_id': 'user-1', 'unit_name': 'a.b',
+            'model': 'custom/provider-1', 'user_id': 'user-1', 'unit_name': 'Example',
             'language': 'Java', 'source_code': 'class Example { String read() { return a; } }',
         })
 
@@ -109,6 +109,34 @@ def test_code_deobfuscation_returns_complete_source_and_uses_exact_provider(api,
     assert setup.call_args.kwargs['custom_llm_config'] == provider
     assert 'preserve' in llm.messages[0].content.lower()
     assert 'DECOMPILED_SOURCE' in llm.messages[1].content
+    assert 'never output these files' in llm.messages[1].content
+
+
+def test_code_deobfuscation_rejects_a_different_java_type(api, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    monkeypatch.delenv('INTERNAL_API_KEY', raising=False)
+    monkeypatch.delenv('SCANNER_API_KEY', raising=False)
+
+    class WrongTypeAnswer:
+        content = 'class RelatedHttpResponse { void close() {} }'
+        response_metadata = {'finish_reason': 'stop'}
+
+    class WrongTypeLlm:
+        async def ainvoke(self, _messages):
+            return WrongTypeAnswer()
+
+    provider = {'id': 'provider-1', 'providerType': 'openai_compatible', 'modelIdentifier': 'Qwen3.5-0.8B'}
+    with patch.object(api, 'fetch_user_providers', return_value=[provider]), \
+         patch('orchestrator_helpers.llm_setup.setup_llm', return_value=WrongTypeLlm()):
+        response = TestClient(api.app).post('/reamon/code/deobfuscate', json={
+            'model': 'custom/provider-1', 'user_id': 'user-1', 'unit_name': 'zc.p',
+            'language': 'Java', 'source_code': 'package zc; public interface p { a0 intercept(o value); }',
+            'context_sources': [{'unit_name': 'zc.a0', 'language': 'Java', 'source_code': 'class a0 {}'}],
+        })
+
+    assert response.status_code == 422
+    assert response.json()['code'] == 'wrong_target'
 
 
 def test_code_deobfuscation_rejects_model_output_that_does_not_parse(api, monkeypatch):

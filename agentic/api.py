@@ -540,6 +540,24 @@ def _reamon_source_parser(language: str):
         return None
 
 
+def _java_top_level_types(parser, source: str) -> list[tuple[str, str]]:
+    """Return Java top-level type kind/name pairs for selected-file validation."""
+    try:
+        root = parser.parse(source.encode("utf-8")).root_node
+        declarations = {"class_declaration", "interface_declaration", "enum_declaration", "record_declaration"}
+        result = []
+        for node in root.named_children:
+            if node.type not in declarations:
+                continue
+            name_node = node.child_by_field_name("name")
+            if name_node is not None:
+                result.append((node.type, name_node.text.decode("utf-8")))
+        return result
+    except Exception as exc:  # noqa: BLE001
+        logger.debug(f"Java selected-type validation unavailable: {exc}")
+        return []
+
+
 @app.post("/reamon/code/deobfuscate", tags=["REAmon"], dependencies=[Depends(require_internal_auth)])
 async def deobfuscate_reamon_code(body: ReamonCodeDeobfuscateRequest):
     """Recover readable names and structure in one explicitly selected source unit."""
@@ -579,10 +597,12 @@ Use the selected file as the only output target. Make conservative identifier re
     response, failure = await _invoke_feature_llm("REAmon code deobfuscation", requested_model, llm, [
         SystemMessage(content=system_prompt),
         HumanMessage(content=(
-            f"Code unit: {body.unit_name.strip()}\nLanguage: {body.language}\n"
-            f"Requested focus: {wrap_untrusted(question, 'USER_REQUEST')}\n"
-            f"Supporting evidence (never output these files): {supporting_evidence}\n\n"
-            f"Source to transform: {wrap_untrusted(body.source_code, 'DECOMPILED_SOURCE')}"
+            f"Selected code unit: {body.unit_name.strip()}\nLanguage: {body.language}\n"
+            f"Requested focus: {wrap_untrusted(question, 'USER_REQUEST')}\n\n"
+            "Transform only this selected source file. Its declarations define the output target; "
+            "do not return a related class or any supporting file.\n"
+            f"Selected source to transform: {wrap_untrusted(body.source_code, 'DECOMPILED_SOURCE')}\n\n"
+            f"Supporting evidence (never output these files): {supporting_evidence}"
         )),
     ])
     if failure:
@@ -609,6 +629,14 @@ Use the selected file as the only output target. Make conservative identifier re
             logger.debug(f"REAmon source validation failed for {body.language}: {exc}")
     if parser is not None and not syntax_validated:
         return JSONResponse(content={"error": "The model draft does not parse as complete source. Try a stronger model or a more focused transformation.", "code": "invalid_source", "model_used": requested_model}, status_code=422)
+    if body.language.strip().lower() == "java" and parser is not None:
+        selected_types = _java_top_level_types(parser, body.source_code)
+        rewritten_types = _java_top_level_types(parser, rewritten)
+        if selected_types and rewritten_types != selected_types:
+            return JSONResponse(content={
+                "error": "The model returned a different Java type instead of the selected code unit. Try a stronger model or reduce its supporting context.",
+                "code": "wrong_target", "model_used": requested_model,
+            }, status_code=422)
     return {"source_code": rewritten, "syntax_validated": syntax_validated, "model_used": requested_model}
 
 

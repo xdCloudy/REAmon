@@ -108,6 +108,16 @@ describe('POST /api/projects/[id]/visualizer/deobfuscate', () => {
     expect(String(h.agentFetch.mock.calls.at(-1)?.[1]?.body)).not.toContain('apiKey')
   })
 
+  it('explains when a draft belongs to a different Java type', async () => {
+    h.agentFetch.mockResolvedValueOnce(new Response(JSON.stringify({ code: 'wrong_target' }), { status: 422 }))
+    const response = await deobfuscate(request({ unitId: 'unit-1', providerId: 'provider-1' }), routeParams)
+
+    expect(response.status).toBe(422)
+    expect(await response.json()).toEqual({
+      error: 'The model returned a different Java type instead of the selected code unit. Try a stronger model or reduce its supporting context.',
+    })
+  })
+
   it('rejects source paths outside the selected artifact before requesting AI', async () => {
     h.observation.mockResolvedValueOnce({
       id: 'unit-1', artifactId: 'artifact-1', attributes: { codeArtifactId: 'project-1/artifact-other/private.java' },
