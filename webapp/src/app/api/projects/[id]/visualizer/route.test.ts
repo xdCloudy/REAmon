@@ -125,7 +125,10 @@ describe('GET /api/projects/[id]/visualizer', () => {
       OR: expect.arrayContaining([
         { label: { contains: 'com.example.Main', mode: 'insensitive' } },
         { attributes: { path: ['qualifiedName'], string_contains: 'com.example.Main', mode: 'insensitive' } },
-        { artifact: { is: { relativePath: { contains: 'com.example.Main', mode: 'insensitive' } } } },
+        { artifact: { is: { OR: [
+          { relativePath: { contains: 'com.example.Main', mode: 'insensitive' } },
+          { originalName: { contains: 'com.example.Main', mode: 'insensitive' } },
+        ] } } },
       ]),
     })
     expect(mocks.count).toHaveBeenCalledWith({ where: queryWhere })
