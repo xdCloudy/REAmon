@@ -131,6 +131,12 @@ function unitColor(coverage: number | null): string {
   return 'var(--status-error, #9b4d4d)'
 }
 
+function maintenanceColor(maintainedUnitCount: number, unitCount: number): string {
+  if (maintainedUnitCount <= 0) return 'var(--status-neutral-bg, #394458)'
+  if (maintainedUnitCount >= unitCount) return 'var(--status-success, #00a876)'
+  return 'var(--status-warning, #b99a3b)'
+}
+
 function shortenLabel(value: string, width: number): string {
   const maxCharacters = Math.max(0, Math.floor((width - 14) / 7.2))
   if (maxCharacters < 5) return ''
@@ -218,6 +224,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
   const [maintenanceFilter, setMaintenanceFilter] = useState<'all' | 'needs-work' | 'maintained'>('all')
   const [serverSearch, setServerSearch] = useState('')
   const [visualizerView, setVisualizerView] = useState<'treemap' | 'callgraph'>('treemap')
+  const [mapLayer, setMapLayer] = useState<'decompilation' | 'maintenance'>('decompilation')
   const [packagePath, setPackagePath] = useState('')
   const [graphSearch, setGraphSearch] = useState('')
   const [graphFocusKey, setGraphFocusKey] = useState<string | null>(null)
@@ -633,6 +640,11 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
           <button type="button" className={maintenanceFilter === 'needs-work' ? styles.viewButtonActive : styles.viewButton} aria-pressed={maintenanceFilter === 'needs-work'} onClick={() => showMaintenanceFilter('needs-work')}>Needs work ({mapScopeUnits.filter((unit) => !unit.maintainedSource).length.toLocaleString()})</button>
           <button type="button" className={maintenanceFilter === 'maintained' ? styles.viewButtonActive : styles.viewButton} aria-pressed={maintenanceFilter === 'maintained'} onClick={() => showMaintenanceFilter('maintained')}>Maintained ({mapScopeUnits.filter((unit) => unit.maintainedSource).length.toLocaleString()})</button>
         </div>}
+        {visualizerView === 'treemap' && <div className={styles.maintenanceFilters} role="group" aria-label="Treemap color layer">
+          <span>Color by</span>
+          <button type="button" className={mapLayer === 'decompilation' ? styles.viewButtonActive : styles.viewButton} aria-pressed={mapLayer === 'decompilation'} onClick={() => setMapLayer('decompilation')}>Decompilation</button>
+          <button type="button" className={mapLayer === 'maintenance' ? styles.viewButtonActive : styles.viewButton} aria-pressed={mapLayer === 'maintenance'} onClick={() => setMapLayer('maintenance')}>Maintained source</button>
+        </div>}
       </>}
 
       {!query.isLoading && !query.isError && query.data && units.length > 0 && <>
@@ -646,13 +658,17 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
         </div>
         {summary.unmeasuredBytes > 0 && <p className={styles.message}>{formatBytes(summary.unmeasuredBytes)} of mapped code has no decompilation completeness value from its provider.</p>}
 
-        <div className={styles.legend} aria-label="Decompilation completeness legend">
+        {mapLayer === 'decompilation' ? <div className={styles.legend} role="group" aria-label="Decompilation completeness legend">
           <span><i className={styles.complete} /> Full decompilation</span>
           <span><i className={styles.partial} /> Partial decompilation</span>
           <span><i className={styles.none} /> No decompilation</span>
           <span><i className={styles.unknown} /> Unmeasured</span>
           <span><i className={styles.maintainedLegend}>M</i> Maintained source saved</span>
-        </div>
+        </div> : <div className={styles.legend} role="group" aria-label="Maintained source legend">
+          <span><i className={styles.complete} /> Maintained source saved</span>
+          <span><i className={styles.unknown} /> Not yet maintained</span>
+          <span><i className={styles.partial} /> Partly maintained package</span>
+        </div>}
 
         {visualizerView === 'treemap' && (treemapEntries.length ? <div className={styles.mapFrame}>
           {packagePath && <nav className={styles.packagePath} aria-label="Code package path">
@@ -662,19 +678,24 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
               return <span key={path}><span aria-hidden="true">/</span><button type="button" aria-current={index === parts.length - 1 ? 'page' : undefined} onClick={() => showPackage(path)}>{part}</button></span>
             })}
           </nav>}
-          <svg className={styles.map} viewBox="0 0 1200 560" role="group" aria-label="Package and code unit treemap sized by bytes and colored by decompilation completeness">
+          <svg className={styles.map} viewBox="0 0 1200 560" role="group" aria-label={`Package and code unit treemap sized by bytes and colored by ${mapLayer === 'decompilation' ? 'decompilation completeness' : 'maintained source status'}`}>
             {rectangles.map(({ unit, x, y, width, height }) => {
               const label = shortenLabel(unit.name, width)
               const coverage = unit.coveragePercent === null ? 'decompilation completeness unmeasured' : `${Math.round(unit.coveragePercent)}% decompilation completeness`
               const detail = unit.packagePath ? `${unit.unitCount.toLocaleString()} code units` : formatBytes(unit.sizeBytes)
               const maintained = unit.maintainedUnitCount > 0
-              const maintainedDetail = unit.packagePath ? `${unit.maintainedUnitCount} maintained source ${unit.maintainedUnitCount === 1 ? 'copy' : 'copies'}` : 'maintained source saved'
+              const maintainedDetail = unit.packagePath
+                ? `${unit.maintainedUnitCount} of ${unit.unitCount} units have maintained source`
+                : unit.codeUnit?.maintainedSource ? 'maintained source saved' : 'not yet reverse-engineered into maintained source'
+              const fill = mapLayer === 'decompilation'
+                ? unitColor(unit.coveragePercent)
+                : maintenanceColor(unit.maintainedUnitCount, unit.unitCount)
               return <g
                 key={unit.key}
                 className={`${styles.tile} ${unit.codeUnit?.id === selectedId ? styles.selected : ''} ${unit.packagePath ? styles.packageTile : ''}`}
                 role="button"
                 tabIndex={0}
-                aria-label={`${unit.name}${unit.packagePath ? ' package' : ''}, ${formatBytes(unit.sizeBytes)}, ${coverage}${unit.packagePath ? `, ${unit.unitCount.toLocaleString()} code units` : unit.codeUnit?.address ? `, address ${unit.codeUnit.address}` : ''}${maintained ? `, ${maintainedDetail}` : ''}`}
+                aria-label={`${unit.name}${unit.packagePath ? ' package' : ''}, ${formatBytes(unit.sizeBytes)}, ${coverage}${unit.packagePath ? `, ${unit.unitCount.toLocaleString()} code units` : unit.codeUnit?.address ? `, address ${unit.codeUnit.address}` : ''}, ${maintainedDetail}`}
                 onClick={() => openTreemapEntry(unit)}
                 onKeyDown={(event) => {
                   if (event.key === 'Enter' || event.key === ' ') {
@@ -683,8 +704,8 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
                   }
                 }}
               >
-                <title>{`${unit.name}${unit.packagePath ? ' package' : ''} · ${formatBytes(unit.sizeBytes)} · ${coverage}${unit.packagePath ? ` · ${unit.unitCount.toLocaleString()} code units` : unit.codeUnit?.address ? ` · ${unit.codeUnit.address}` : ''}${maintained ? ` · ${maintainedDetail}` : ''}`}</title>
-                <rect x={x + 1} y={y + 1} width={Math.max(0, width - 2)} height={Math.max(0, height - 2)} fill={unitColor(unit.coveragePercent)} rx="3" />
+                <title>{`${unit.name}${unit.packagePath ? ' package' : ''} · ${formatBytes(unit.sizeBytes)} · ${coverage}${unit.packagePath ? ` · ${unit.unitCount.toLocaleString()} code units` : unit.codeUnit?.address ? ` · ${unit.codeUnit.address}` : ''} · ${maintainedDetail}`}</title>
+                <rect x={x + 1} y={y + 1} width={Math.max(0, width - 2)} height={Math.max(0, height - 2)} fill={fill} rx="3" />
                 {maintained && width >= 28 && height >= 24 && <><circle className={styles.maintainedBadge} cx={x + width - 13} cy={y + 13} r="9" /><text className={styles.maintainedBadgeText} x={x + width - 13} y={y + 13}>M</text></>}
                 {label && <text x={x + 9} y={y + 20} className={styles.tileName}>{label}</text>}
                 {label && width > 115 && height > 48 && <text x={x + 9} y={y + 38} className={styles.tileMeta}>{detail}</text>}

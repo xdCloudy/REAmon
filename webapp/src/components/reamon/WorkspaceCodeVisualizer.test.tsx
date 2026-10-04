@@ -173,6 +173,27 @@ describe('WorkspaceCodeVisualizer', () => {
     expect(screen.queryByRole('button', { name: /app\.Maintained/ })).not.toBeInTheDocument()
   })
 
+  test('switches treemap colors between decompilation completeness and maintained source status', async () => {
+    const units = [
+      unit({ id: 'maintained-unit', name: 'app.Ready', unitType: 'class', maintainedSource: true, coveragePercent: 100 }),
+      unit({ id: 'needs-work-unit', name: 'app.Pending', unitType: 'class', maintainedSource: false, coveragePercent: 35 }),
+    ]
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ units, total: 2, hasMore: false }) }))
+    renderVisualizer()
+
+    fireEvent.click(await screen.findByRole('button', { name: /app package/ }))
+    const maintainedTile = await screen.findByRole('button', { name: /app\.Ready/ })
+    const pendingTile = await screen.findByRole('button', { name: /app\.Pending/ })
+    expect(maintainedTile.querySelector('rect')).toHaveAttribute('fill', 'var(--status-success, #00a876)')
+    expect(pendingTile.querySelector('rect')).toHaveAttribute('fill', 'var(--status-warning, #b99a3b)')
+
+    const layers = screen.getByRole('group', { name: 'Treemap color layer' })
+    fireEvent.click(within(layers).getByRole('button', { name: 'Maintained source' }))
+    expect(maintainedTile.querySelector('rect')).toHaveAttribute('fill', 'var(--status-success, #00a876)')
+    expect(pendingTile.querySelector('rect')).toHaveAttribute('fill', 'var(--status-neutral-bg, #394458)')
+    expect(screen.getByRole('group', { name: 'Maintained source legend' })).toBeInTheDocument()
+  })
+
   test('searches units beyond the first page of a run', async () => {
     const first = unit({ id: 'unit-first', name: 'app.First' })
     const later = unit({ id: 'unit-later', name: 'app.deep.Target' })
