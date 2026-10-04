@@ -13,7 +13,7 @@ interface GhidraResponse {
   codeBytes?: number
   returnedUnits: number
   truncated: boolean
-  units: Array<{ name: string; address: string; relativePath: string; codeArtifactId: string; sizeBytes: number }>
+  units: Array<{ name: string; address: string; relativePath: string; codeArtifactId: string; disassemblyArtifactId?: string; sizeBytes: number }>
   warnings?: string
 }
 
@@ -88,7 +88,8 @@ export async function executeGhidra(input: ToolExecutionInput): Promise<ToolResu
     const units = payload.units.slice(0, MAX_UNITS).filter((unit) =>
       unit && typeof unit.name === 'string' && typeof unit.address === 'string'
       && typeof unit.relativePath === 'string' && typeof unit.codeArtifactId === 'string'
-      && Number.isFinite(unit.sizeBytes) && unit.sizeBytes > 0)
+      && Number.isFinite(unit.sizeBytes) && unit.sizeBytes > 0
+      && (unit.disassemblyArtifactId === undefined || typeof unit.disassemblyArtifactId === 'string'))
     if (!units.length) throw new Error('Ghidra did not produce any viewable function decompilations')
 
     const observations = units.map((unit) => ({
@@ -105,6 +106,7 @@ export async function executeGhidra(input: ToolExecutionInput): Promise<ToolResu
         language: 'C',
         decompiled: true,
         codeArtifactId: unit.codeArtifactId.slice(0, 2000),
+        ...(unit.disassemblyArtifactId ? { disassemblyArtifactId: unit.disassemblyArtifactId.slice(0, 2000) } : {}),
       },
     }))
     return {

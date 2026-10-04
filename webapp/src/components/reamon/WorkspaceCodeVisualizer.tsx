@@ -43,10 +43,10 @@ async function fetchCodeUnits(projectId: string, taskId: string | null): Promise
   return response.json()
 }
 
-function sourceUrl(projectId: string, unit: CodeUnit): string | null {
-  if (!unit.artifactId || !unit.codeArtifactId) return null
-  const sourcePath = unit.codeArtifactId.split('/').map(encodeURIComponent).join('/')
-  return `/api/projects/${encodeURIComponent(projectId)}/artifacts/${encodeURIComponent(unit.artifactId)}/decompiled/${sourcePath}`
+function artifactUrl(projectId: string, unit: CodeUnit, codeArtifactId: string | null): string | null {
+  if (!unit.artifactId || !codeArtifactId) return null
+  const sourcePath = codeArtifactId.split('/').map(encodeURIComponent).join('/')
+  return '/api/projects/' + encodeURIComponent(projectId) + '/artifacts/' + encodeURIComponent(unit.artifactId) + '/decompiled/' + sourcePath
 }
 
 async function fetchSource(url: string, signal: AbortSignal): Promise<string> {
@@ -94,6 +94,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing }: { projectId:
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [copyStatus, setCopyStatus] = useState('')
+  const [assemblyCopyStatus, setAssemblyCopyStatus] = useState('')
   const [providerId, setProviderId] = useState('')
   const [question, setQuestion] = useState('')
   const [explanation, setExplanation] = useState<CodeExplanationResponse | null>(null)
@@ -115,11 +116,19 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing }: { projectId:
   const rectangles = useMemo(() => layoutCodeUnitTreemap(visibleUnits, 1200, 560), [visibleUnits])
   const summary = useMemo(() => summarizeCodeUnits(visibleUnits), [visibleUnits])
   const selectedUnit = visibleUnits.find((unit) => unit.id === selectedId)
-  const selectedSourceUrl = selectedUnit ? sourceUrl(projectId, selectedUnit) : null
+  const selectedSourceUrl = selectedUnit ? artifactUrl(projectId, selectedUnit, selectedUnit.codeArtifactId) : null
+  const selectedDisassemblyUrl = selectedUnit ? artifactUrl(projectId, selectedUnit, selectedUnit.disassemblyArtifactId) : null
   const sourceQuery = useQuery({
     queryKey: ['reamon-decompiled-source', selectedUnit?.id, selectedUnit?.codeArtifactId],
     queryFn: ({ signal }) => fetchSource(selectedSourceUrl as string, signal),
     enabled: Boolean(selectedSourceUrl),
+    staleTime: 5 * 60_000,
+    gcTime: 60_000,
+  })
+  const disassemblyQuery = useQuery({
+    queryKey: ['reamon-disassembly', selectedUnit?.id, selectedUnit?.disassemblyArtifactId],
+    queryFn: ({ signal }) => fetchSource(selectedDisassemblyUrl as string, signal),
+    enabled: Boolean(selectedDisassemblyUrl),
     staleTime: 5 * 60_000,
     gcTime: 60_000,
   })
@@ -135,13 +144,14 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing }: { projectId:
     ? providerId
     : explanationProviders[0]?.id || ''
 
-  async function copySource() {
-    if (!sourceQuery.data) return
+  async function copySource(text = sourceQuery.data, assembly = false) {
+    if (!text) return
+    const setStatus = assembly ? setAssemblyCopyStatus : setCopyStatus
     try {
-      await navigator.clipboard.writeText(sourceQuery.data)
-      setCopyStatus('Copied')
+      await navigator.clipboard.writeText(text)
+      setStatus('Copied')
     } catch {
-      setCopyStatus('Clipboard unavailable')
+      setStatus('Clipboard unavailable')
     }
   }
 
@@ -170,6 +180,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing }: { projectId:
     setSelectedRunId(taskId)
     setSelectedId(null)
     setCopyStatus('')
+    setAssemblyCopyStatus('')
     setExplanation(null)
     setExplainError('')
   }
@@ -263,7 +274,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing }: { projectId:
                 role="button"
                 tabIndex={0}
                 aria-label={`${unit.name}, ${formatBytes(unit.sizeBytes)}, ${coverage}${unit.address ? `, address ${unit.address}` : ''}`}
-                onClick={() => { setSelectedId(unit.id); setCopyStatus(''); setExplanation(null); setExplainError('') }}
+                onClick={() => { setSelectedId(unit.id); setCopyStatus(''); setAssemblyCopyStatus(''); setExplanation(null); setExplainError('') }}
                 onKeyDown={(event) => {
                   if (event.key === 'Enter' || event.key === ' ') {
                     event.preventDefault()
@@ -303,16 +314,35 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing }: { projectId:
               ><ExternalLink size={14} /> Open code separately</a>
             : <p className={styles.message}>This provider has not attached a viewable code artifact to the unit.</p>}
         </div>}
-        {selectedUnit && selectedSourceUrl && <section className={styles.sourcePanel} aria-label={isWatUnit(selectedUnit) ? "WAT disassembly" : "Decompiled source"}>
-          <div className={styles.sourceHeader}>
-            <div><strong>{selectedUnit.name}</strong><span>{selectedUnit.language || 'Source'} · {selectedUnit.codeArtifactId?.split('/').pop()}</span></div>
-            <button type="button" className={styles.copyButton} onClick={() => void copySource()} disabled={!sourceQuery.data}>
-              <Copy size={14} /> {copyStatus || 'Copy code'}
-            </button>
-          </div>
-          {sourceQuery.isLoading && <p className={styles.message}>Loading code output…</p>}
-          {sourceQuery.isError && <p className={styles.error}>{sourceQuery.error instanceof Error ? sourceQuery.error.message : 'Could not load code output'}</p>}
-          {sourceQuery.data !== undefined && <pre className={styles.sourceCode}><code>{sourceQuery.data}</code></pre>}
+        {selectedUnit && selectedSourceUrl && <section className={styles.sourcePanel} aria-label={selectedDisassemblyUrl ? 'Decompilation and disassembly comparison' : (isWatUnit(selectedUnit) ? 'WAT disassembly' : 'Decompiled source')}>
+          {selectedDisassemblyUrl ? <div className={styles.comparison}>
+            <div className={styles.listingPane}>
+              <div className={styles.sourceHeader}>
+                <div><strong>Decompiled source</strong><span>{selectedUnit.language || 'Source'} · {selectedUnit.codeArtifactId?.split('/').pop()}</span></div>
+                <button type="button" className={styles.copyButton} onClick={() => void copySource()} disabled={!sourceQuery.data}><Copy size={14} /> {copyStatus || 'Copy source'}</button>
+              </div>
+              {sourceQuery.isLoading && <p className={styles.message}>Loading decompiled source…</p>}
+              {sourceQuery.isError && <p className={styles.error}>{sourceQuery.error instanceof Error ? sourceQuery.error.message : 'Could not load decompiled source'}</p>}
+              {sourceQuery.data !== undefined && <pre className={styles.sourceCode}><code>{sourceQuery.data}</code></pre>}
+            </div>
+            <div className={styles.listingPane}>
+              <div className={styles.sourceHeader}>
+                <div><strong>Disassembly</strong><span>{selectedUnit.address || 'Function listing'} · {selectedUnit.disassemblyArtifactId?.split('/').pop()}</span></div>
+                <button type="button" className={styles.copyButton} onClick={() => void copySource(disassemblyQuery.data, true)} disabled={!disassemblyQuery.data}><Copy size={14} /> {assemblyCopyStatus || 'Copy assembly'}</button>
+              </div>
+              {disassemblyQuery.isLoading && <p className={styles.message}>Loading instruction listing…</p>}
+              {disassemblyQuery.isError && <p className={styles.error}>{disassemblyQuery.error instanceof Error ? disassemblyQuery.error.message : 'Could not load instruction listing'}</p>}
+              {disassemblyQuery.data !== undefined && <pre className={styles.sourceCode}><code>{disassemblyQuery.data}</code></pre>}
+            </div>
+          </div> : <>
+            <div className={styles.sourceHeader}>
+              <div><strong>{selectedUnit.name}</strong><span>{selectedUnit.language || 'Source'} · {selectedUnit.codeArtifactId?.split('/').pop()}</span></div>
+              <button type="button" className={styles.copyButton} onClick={() => void copySource()} disabled={!sourceQuery.data}><Copy size={14} /> {copyStatus || 'Copy code'}</button>
+            </div>
+            {sourceQuery.isLoading && <p className={styles.message}>Loading code output…</p>}
+            {sourceQuery.isError && <p className={styles.error}>{sourceQuery.error instanceof Error ? sourceQuery.error.message : 'Could not load code output'}</p>}
+            {sourceQuery.data !== undefined && <pre className={styles.sourceCode}><code>{sourceQuery.data}</code></pre>}
+          </>}
         </section>}
         {selectedUnit && selectedSourceUrl && <section className={styles.explainPanel} aria-labelledby="code-explain-heading">
           <div>

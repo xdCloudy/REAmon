@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 import { afterEach, describe, expect, test, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { WorkspaceCodeVisualizer } from './WorkspaceCodeVisualizer'
 import type { CodeUnit } from '@/lib/reamon/code-units'
@@ -8,7 +8,7 @@ import type { CodeUnit } from '@/lib/reamon/code-units'
 function unit(overrides: Partial<CodeUnit> = {}): CodeUnit {
   return {
     id: 'unit-1', name: 'app.MainActivity.onCreate', address: '0x1000', sizeBytes: 1024,
-    coveragePercent: 35, language: 'Java', unitType: 'method', artifactId: 'artifact-1',
+    coveragePercent: 35, language: 'Java', unitType: 'method', artifactId: 'artifact-1', disassemblyArtifactId: null,
     artifactPath: 'classes.dex', source: 'jadx', codeArtifactId: 'project-1/artifact-1/task-1/run-1/sources/app/MainActivity.java', updatedAt: '2026-10-04T00:00:00.000Z',
     ...overrides,
   }
@@ -88,6 +88,28 @@ describe('WorkspaceCodeVisualizer', () => {
     expect(await screen.findByRole('button', { name: 'Explain selected code' })).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledTimes(3)
     await waitFor(() => expect(screen.queryByRole('button', { name: /app\.MainActivity\.onCreate/ })).toBeNull())
+  })
+
+  test('compares Ghidra decompiled source with its linked disassembly', async () => {
+    const native = unit({
+      id: 'native-main', name: 'main', address: '00401000', language: 'C', unitType: 'function',
+      codeArtifactId: 'project-1/artifact-1/task-1/run-1/sources/functions/main.c',
+      disassemblyArtifactId: 'project-1/artifact-1/task-1/run-1/assembly/functions/main.asm',
+    })
+    const fetchMock = vi.fn((input: string) => {
+      if (input.includes('/decompiled/') && input.includes('/assembly/')) return Promise.resolve({ ok: true, text: async () => '00401000: PUSH RBP\n00401001: MOV RBP, RSP' })
+      if (input.includes('/decompiled/')) return Promise.resolve({ ok: true, text: async () => 'int main(void) {\n    return 0;\n}' })
+      return Promise.resolve({ ok: true, json: async () => ({ units: [native], total: 1, hasMore: false }) })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderVisualizer()
+
+    fireEvent.click(await screen.findByRole('button', { name: /main/ }))
+    const comparison = await screen.findByRole('region', { name: 'Decompilation and disassembly comparison' })
+    expect(within(comparison).getByText('Decompiled source')).toBeInTheDocument()
+    expect(within(comparison).getByText('Disassembly')).toBeInTheDocument()
+    expect(await within(comparison).findByText(/MOV RBP, RSP/)).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/decompiled/project-1/artifact-1/task-1/run-1/assembly/functions/main.asm'), expect.any(Object))
   })
 
   test('labels WAT as disassembly and exposes its linked code', async () => {

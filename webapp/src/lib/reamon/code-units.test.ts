@@ -12,7 +12,7 @@ function unit(overrides: Partial<CodeUnit> = {}): CodeUnit {
   return {
     id: 'unit-1', name: 'app.MainActivity.onCreate', address: '0x1000', sizeBytes: 1024,
     coveragePercent: 100, language: 'Java', unitType: 'method', artifactId: 'artifact-1',
-    artifactPath: 'classes.dex', source: 'jadx', codeArtifactId: null, updatedAt: '2026-10-04T00:00:00.000Z',
+    artifactPath: 'classes.dex', source: 'jadx', codeArtifactId: null, disassemblyArtifactId: null, updatedAt: '2026-10-04T00:00:00.000Z',
     ...overrides,
   }
 }

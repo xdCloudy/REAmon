@@ -4,6 +4,8 @@ import ghidra.app.decompiler.DecompileOptions;
 import ghidra.app.script.GhidraScript;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.FunctionIterator;
+import ghidra.program.model.listing.Instruction;
+import ghidra.program.model.listing.InstructionIterator;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -20,6 +22,7 @@ public class ReamonExport extends GhidraScript {
         Path exportRoot = Path.of(args[0]).toAbsolutePath().normalize();
         int maxFunctions = Integer.parseInt(args[1]);
         Files.createDirectories(exportRoot.resolve("functions"));
+        Files.createDirectories(exportRoot.resolve("assembly"));
         Path manifest = exportRoot.resolve("manifest.tsv");
         Path summary = exportRoot.resolve("summary.txt");
         Files.deleteIfExists(manifest);
@@ -63,10 +66,24 @@ public class ReamonExport extends GhidraScript {
                     throw new IllegalStateException("Function source path escaped export directory");
                 }
                 Files.writeString(source, code, StandardCharsets.UTF_8);
+                String assemblyFilename = String.format("%06d_%s.asm", decompiled, safeAddress);
+                Path assembly = exportRoot.resolve("assembly").resolve(assemblyFilename).normalize();
+                if (!assembly.startsWith(exportRoot.resolve("assembly").normalize())) {
+                    throw new IllegalStateException("Function assembly path escaped export directory");
+                }
+                StringBuilder listing = new StringBuilder();
+                InstructionIterator instructions = currentProgram.getListing().getInstructions(function.getBody(), true);
+                while (instructions.hasNext()) {
+                    monitor.checkCancelled();
+                    Instruction instruction = instructions.next();
+                    listing.append(instruction.getAddress()).append(": ").append(instruction).append('\n');
+                }
+                Files.writeString(assembly, listing, StandardCharsets.UTF_8);
                 long sizeBytes = Math.max(1L, function.getBody().getNumAddresses());
                 String encodedName = Base64.getEncoder().encodeToString(function.getName().getBytes(StandardCharsets.UTF_8));
                 String relativePath = "functions/" + filename;
-                String line = encodedName + "\t" + address + "\t" + sizeBytes + "\t" + relativePath + "\n";
+                String assemblyRelativePath = "assembly/" + assemblyFilename;
+                String line = encodedName + "\t" + address + "\t" + sizeBytes + "\t" + relativePath + "\t" + assemblyRelativePath + "\n";
                 Files.writeString(manifest, line, StandardCharsets.UTF_8,
                     java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
                 decompiled++;

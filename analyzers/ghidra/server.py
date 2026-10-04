@@ -153,17 +153,25 @@ def analyse(body, cancel_check=lambda: False):
                 summary = parse_summary(summary_path)
                 rows = []
                 total_bytes = 0
+                total_assembly_bytes = 0
                 for line in manifest.read_text(encoding="utf-8", errors="replace").splitlines():
                     fields = line.split("\t")
-                    if len(fields) != 4:
+                    if len(fields) not in (4, 5):
                         continue
-                    encoded_name, address, size_text, relative = fields
+                    encoded_name, address, size_text, relative = fields[:4]
+                    assembly_relative = fields[4] if len(fields) == 5 else ""
                     if not re.fullmatch(r"[A-Za-z0-9_./-]{1,500}", relative) or ".." in Path(relative).parts:
                         continue
                     source = within(export_root, export_root / relative)
                     source_size = source.stat().st_size
                     total_bytes += source_size
-                    if source_size < 1 or total_bytes > MAX_OUTPUT_BYTES:
+                    assembly = None
+                    if assembly_relative:
+                        if not re.fullmatch(r"[A-Za-z0-9_./-]{1,500}", assembly_relative) or ".." in Path(assembly_relative).parts:
+                            continue
+                        assembly = within(export_root, export_root / assembly_relative)
+                        total_assembly_bytes += assembly.stat().st_size
+                    if source_size < 1 or total_bytes + total_assembly_bytes > MAX_OUTPUT_BYTES:
                         raise AnalysisError("Ghidra function sources exceeded the configured storage limit")
                     try:
                         name = base64.b64decode(encoded_name, validate=True).decode("utf-8", errors="replace")
@@ -172,24 +180,31 @@ def analyse(body, cancel_check=lambda: False):
                         continue
                     if not name or size_bytes < 1:
                         continue
-                    rows.append((name[:500], address[:128], size_bytes, relative, source))
+                    rows.append((name[:500], address[:128], size_bytes, relative, source, assembly_relative, assembly))
 
                 if not rows:
                     raise AnalysisError(log_text[-1200:] or "Ghidra found no functions it could decompile")
                 returned = rows[:MAX_RETURNED_UNITS]
                 sources_root = run_root / "sources"
                 units = []
-                for name, address, size_bytes, relative, source in returned:
+                for name, address, size_bytes, relative, source, assembly_relative, assembly in returned:
                     destination = sources_root / relative
                     destination.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copyfile(source, destination)
-                    units.append({
+                    unit = {
                         "name": name,
                         "address": address,
                         "relativePath": relative,
                         "codeArtifactId": destination.relative_to(DERIVED_ROOT).as_posix(),
                         "sizeBytes": size_bytes,
-                    })
+                    }
+                    if assembly is not None:
+                        assembly_destination = run_root / assembly_relative
+                        assembly_destination.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copyfile(assembly, assembly_destination)
+                        unit["disassemblyArtifactId"] = assembly_destination.relative_to(DERIVED_ROOT).as_posix()
+                        unit["disassemblyBytes"] = assembly.stat().st_size
+                    units.append(unit)
 
                 warnings = []
                 if summary.get("truncated") == "true":

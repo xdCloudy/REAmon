@@ -1,3 +1,4 @@
+/** @vitest-environment node */
 import os from 'node:os'
 import path from 'node:path'
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
@@ -20,6 +21,7 @@ import { GET } from './route'
 
 const relativePath = 'project-1/artifact-1/task-1/run-1/sources/app/Main.java'
 const context = { params: Promise.resolve({ id: 'project-1', artifactId: 'artifact-1', codePath: relativePath.split('/') }) }
+const assemblyPath = 'project-1/artifact-1/task-1/run-1/assembly/main.asm'
 let derivedRoot = ''
 
 afterEach(async () => {
@@ -59,10 +61,33 @@ describe('GET decompiled code artifact', () => {
         projectId: 'project-1',
         artifactId: 'artifact-1',
         type: 'code_unit',
-        attributes: { path: ['codeArtifactId'], equals: relativePath },
+        OR: [
+          { attributes: { path: ['codeArtifactId'], equals: relativePath } },
+          { attributes: { path: ['disassemblyArtifactId'], equals: relativePath } },
+        ],
       }),
     }))
     expect(mocks.artifactFindFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { AND: [{ id: 'artifact-1', projectId: 'project-1' }, { projectId: 'project-1', importId: { in: ['active-import'] } }] } }))
+  })
+
+  test('serves disassembly only when it is linked to a code-unit observation', async () => {
+    const assemblyContext = { params: Promise.resolve({ id: 'project-1', artifactId: 'artifact-1', codePath: assemblyPath.split('/') }) }
+    const assemblyFile = path.join(derivedRoot, assemblyPath)
+    await mkdir(path.dirname(assemblyFile), { recursive: true })
+    await writeFile(assemblyFile, '00401000: PUSH RBP\n')
+
+    const response = await GET(new Request('http://localhost'), assemblyContext)
+
+    expect(response.status).toBe(200)
+    expect(await response.text()).toContain('PUSH RBP')
+    expect(mocks.observationFindFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        OR: [
+          { attributes: { path: ['codeArtifactId'], equals: assemblyPath } },
+          { attributes: { path: ['disassemblyArtifactId'], equals: assemblyPath } },
+        ],
+      }),
+    }))
   })
 
   test('does not serve unlinked source paths', async () => {

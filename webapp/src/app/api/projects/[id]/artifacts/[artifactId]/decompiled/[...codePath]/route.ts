@@ -45,7 +45,10 @@ export async function GET(_request: Request, { params }: RouteParams) {
         projectId,
         artifactId,
         type: 'code_unit',
-        attributes: { path: ['codeArtifactId'], equals: relativePath },
+        OR: [
+          { attributes: { path: ['codeArtifactId'], equals: relativePath } },
+          { attributes: { path: ['disassemblyArtifactId'], equals: relativePath } },
+        ],
       },
       select: { id: true },
     })

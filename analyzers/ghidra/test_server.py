@@ -36,15 +36,20 @@ class GhidraServiceTests(unittest.TestCase):
     def test_copies_script_exports_into_a_bounded_result(self):
         source = "int main(void) { return 0; }\n"
         relative = "functions/000000_ram_00401000.c"
+        assembly_relative = "assembly/000000_ram_00401000.asm"
+        assembly = "ram:00401000: PUSH RBP\nram:00401001: MOV RBP, RSP\n"
 
         def fake_run(arguments, log_file, cancel_check, home):
             export_root = Path(arguments[arguments.index("ReamonExport.java") + 1])
             function_file = export_root / relative
             function_file.parent.mkdir(parents=True)
             function_file.write_text(source)
+            assembly_file = export_root / assembly_relative
+            assembly_file.parent.mkdir(parents=True)
+            assembly_file.write_text(assembly)
             encoded_name = base64.b64encode(b"main").decode("ascii")
             (export_root / "manifest.tsv").write_text(
-                f"{encoded_name}\tram:00401000\t32\t{relative}\n"
+                f"{encoded_name}\tram:00401000\t32\t{relative}\t{assembly_relative}\n"
             )
             (export_root / "summary.txt").write_text(
                 "visited=1\ndecompiled=1\nfailed=0\ntruncated=false\n"
@@ -71,6 +76,10 @@ class GhidraServiceTests(unittest.TestCase):
         stored = self.derived / result["units"][0]["codeArtifactId"]
         self.assertEqual(stored.read_text(), source)
         self.assertTrue(result["units"][0]["codeArtifactId"].startswith("project-1/artifact-1/task-1/run-1/"))
+        self.assertEqual(result["units"][0]["disassemblyBytes"], len(assembly.encode()))
+        stored_assembly = self.derived / result["units"][0]["disassemblyArtifactId"]
+        self.assertEqual(stored_assembly.read_text(), assembly)
+        self.assertTrue(result["units"][0]["disassemblyArtifactId"].startswith("project-1/artifact-1/task-1/run-1/"))
 
 
 if __name__ == "__main__":
