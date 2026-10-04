@@ -14,6 +14,7 @@ import { elfDependenciesPlugin } from './elf-dependencies'
 import { fileInspectorPlugin } from './file-inspector'
 import { jsonInspectorPlugin } from './json-inspector'
 import { jadxPlugin } from './jadx'
+import { ilspyPlugin } from './ilspy'
 import { ghidraPlugin } from './ghidra'
 import { wasmPlugin } from './wasm'
 
@@ -88,6 +89,9 @@ export const BUILTIN_TOOL_PLUGINS: ToolPlugin[] = [
   },
   {
     ...jadxPlugin,
+  },
+  {
+    ...ilspyPlugin,
   },
   {
     ...ghidraPlugin,

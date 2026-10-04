@@ -255,6 +255,16 @@ JADX is bounded by container CPU, memory, process count, temporary storage, outp
 size, file count, and execution timeout. Cancelling the task closes the analyzer
 request and terminates its process group.
 
+The built-in ILSpy provider accepts PE artifacts whose optional header declares a
+non-empty CLR data-directory entry. Native PE files continue to resolve to Ghidra.
+ILSpyCmd 11.1.0.9782 runs in a separate .NET 10 container with no database or
+internet network access, reads imported artifacts read-only, and writes bounded C#
+type outputs under the derived-source volume. The visualizer links each indexed C#
+unit through the authenticated derived-code route. Container memory, CPU, process
+count, temporary storage, source-file count, output size, returned units, and
+execution time are bounded. If source discovery reaches its cap, the run reports
+coverage as unknown rather than treating the scanned lower bound as an exact total.
+
 The built-in Ghidra provider accepts profiled ELF, PE, and Mach-O artifacts and runs
 Ghidra 12.1.4 headless in a separate container with no database or internet network
 access. It receives native binaries read-only, runs automatic analysis plus a

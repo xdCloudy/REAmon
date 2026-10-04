@@ -1171,6 +1171,7 @@ services:
       REAMON_ARTIFACTS_PATH: /data/reamon-artifacts
       REAMON_DERIVED_PATH: /data/reamon-derived
       REAMON_JADX_URL: http://jadx-analyzer:8010
+      REAMON_ILSPY_URL: http://ilspy-analyzer:8013
       REAMON_GHIDRA_URL: http://ghidra-analyzer:8011
       REAMON_WASM_URL: http://wasm-analyzer:8012
       REAMON_MAX_ARTIFACT_BYTES: ${REAMON_MAX_ARTIFACT_BYTES:-536870912}
@@ -1285,6 +1286,48 @@ services:
       timeout: 5s
       retries: 3
       start_period: 60s
+    networks:
+      - reamon-analysis
+
+  # ILSpy handles managed PE assemblies in a secret-free .NET container.
+  ilspy-analyzer:
+    build:
+      context: ./analyzers/ilspy
+    image: ${REAMON_ILSPY_IMAGE:-reamon-ilspy:local}
+    container_name: reamon-ilspy
+    init: true
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+    mem_limit: ${REAMON_ILSPY_MEM:-4g}
+    pids_limit: ${REAMON_ILSPY_PIDS:-128}
+    cpus: ${REAMON_ILSPY_CPUS:-2}
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=${REAMON_ILSPY_TMP_SIZE:-2g},mode=1777
+    environment:
+      REAMON_ARTIFACTS_PATH: /data/reamon-artifacts
+      REAMON_DERIVED_PATH: /data/reamon-derived
+      ILSPY_TIMEOUT_SECONDS: ${REAMON_ILSPY_TIMEOUT_SECONDS:-900}
+      ILSPY_MAX_OUTPUT_BYTES: ${REAMON_ILSPY_MAX_OUTPUT_BYTES:-536870912}
+      ILSPY_MAX_SOURCE_FILES: ${REAMON_ILSPY_MAX_SOURCE_FILES:-10000}
+      ILSPY_MAX_RETURNED_UNITS: ${REAMON_ILSPY_MAX_RETURNED_UNITS:-5000}
+      ILSPY_VERSION: 11.1.0.9782
+    volumes:
+      - reamon_artifacts:/data/reamon-artifacts:ro
+      - reamon_derived:/data/reamon-derived:rw
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8013/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
     networks:
       - reamon-analysis
 

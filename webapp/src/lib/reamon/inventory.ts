@@ -13,7 +13,7 @@ export interface InventoryArtifact {
 }
 
 const CONFIG_EXTENSIONS = new Set(['json', 'yaml', 'yml', 'toml', 'ini', 'cfg', 'conf', 'config', 'properties', 'env'])
-const INTERESTING_FORMATS = new Set(['pe', 'pe-dll', 'elf', 'macho', 'apk', 'jar', 'dex', 'class', 'sqlite', 'pcap'])
+const INTERESTING_FORMATS = new Set(['pe', 'pe-dll', 'pe-dotnet', 'elf', 'macho', 'apk', 'jar', 'dex', 'class', 'sqlite', 'pcap'])
 const INTERESTING_EXTENSIONS = new Set(['exe', 'dll', 'sys', 'so', 'dylib', 'app', 'bin', 'img', 'iso', 'wasm', 'dex', 'class'])
 
 function extensionOf(relativePath: string): string {
@@ -48,7 +48,7 @@ export function buildWorkspaceProfile(artifacts: InventoryArtifact[]): Workspace
     if (CONFIG_EXTENSIONS.has(extensionOf(artifact.relativePath))) configurationFileCount += 1
     if (isLogicalTargetCandidate(artifact)) {
       interestingArtifacts += 1
-      if (entrypoints.length < 20 && ['pe', 'elf', 'macho', 'apk'].includes(artifact.profile.format)) {
+      if (entrypoints.length < 20 && ['pe', 'pe-dotnet', 'elf', 'macho', 'apk'].includes(artifact.profile.format)) {
         entrypoints.push(artifact.relativePath)
       }
     }

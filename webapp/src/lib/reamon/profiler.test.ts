@@ -1,6 +1,25 @@
 import { describe, expect, it } from 'vitest'
 import { profileArtifact } from './profiler'
 
+function peFixture(cliHeaderRva = 0): Uint8Array {
+  const bytes = new Uint8Array(0x300)
+  bytes.set([0x4d, 0x5a], 0)
+  bytes[0x3c] = 0x80
+  bytes.set([0x50, 0x45, 0, 0], 0x80)
+  bytes[0x94] = 0xf0
+  bytes[0x95] = 0
+  bytes[0x98] = 0x0b
+  bytes[0x99] = 0x02
+  bytes[0x98 + 108] = 16
+  const clrDirectory = 0x98 + 112 + (14 * 8)
+  bytes[clrDirectory] = cliHeaderRva & 0xff
+  bytes[clrDirectory + 1] = (cliHeaderRva >>> 8) & 0xff
+  bytes[clrDirectory + 2] = (cliHeaderRva >>> 16) & 0xff
+  bytes[clrDirectory + 3] = (cliHeaderRva >>> 24) & 0xff
+  if (cliHeaderRva > 0) bytes[clrDirectory + 4] = 0x48
+  return bytes
+}
+
 describe('REAmon target profiler', () => {
   it('identifies ELF architecture without requiring a platform-specific tool', () => {
     const bytes = new Uint8Array(32)
@@ -38,6 +57,20 @@ describe('REAmon target profiler', () => {
       targetType: 'FILE', format: 'class', mimeType: 'application/java-vm', platform: 'jvm',
       runtimes: ['jvm'], metadata: { hasMagic: true },
     })
+  })
+
+  it('identifies managed PE assemblies and leaves native PE files on the native path', () => {
+    expect(profileArtifact(peFixture(0x2000), 'library.dll')).toMatchObject({
+      format: 'pe-dotnet', mimeType: 'application/vnd.microsoft.portable-executable', platform: 'windows', runtimes: ['dotnet'],
+    })
+    expect(profileArtifact(peFixture(), 'native.dll')).toMatchObject({ format: 'pe-dll', runtimes: ['native'] })
+  })
+
+  it('does not treat a truncated PE optional header as a managed assembly', () => {
+    const bytes = peFixture(0x2000)
+    bytes[0x94] = 0x20
+    bytes[0x95] = 0
+    expect(profileArtifact(bytes, 'truncated.exe').format).toBe('pe')
   })
 
   it('keeps an unrecognised input valid as an UNKNOWN target', () => {

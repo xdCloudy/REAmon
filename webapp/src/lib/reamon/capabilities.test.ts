@@ -45,6 +45,15 @@ describe('REAmon capability resolution', () => {
     ]))
   })
 
+  it('offers ILSpy decompilation only for managed PE assemblies', () => {
+    const managed = resolveCapabilities(profile({ format: 'pe-dotnet', extension: 'dll', platform: 'windows', runtimes: ['dotnet'] }))
+    expect(managed).toEqual(expect.arrayContaining([
+      expect.objectContaining({ pluginId: 'reamon-ilspy', capabilities: ['decompile'], acceptsFormats: ['pe-dotnet'] }),
+    ]))
+    expect(managed.some((match) => match.pluginId === 'reamon-ghidra')).toBe(false)
+    expect(resolveCapabilities(profile({ format: 'pe-dll', extension: 'dll' })).some((match) => match.pluginId === 'reamon-ilspy')).toBe(false)
+  })
+
   it.each([
     { format: 'dex', extension: 'dex', platform: 'android', runtimes: ['dalvik', 'art'] },
     { format: 'class', extension: 'class', platform: 'jvm', runtimes: ['jvm'] },

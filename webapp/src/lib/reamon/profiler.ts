@@ -16,6 +16,33 @@ function readAscii(bytes: Uint8Array, start: number, length: number): string {
   return String.fromCharCode(...bytes.slice(start, start + length))
 }
 
+function readUInt16(bytes: Uint8Array, offset: number): number | null {
+  if (offset < 0 || offset + 2 > bytes.length) return null
+  return bytes[offset] | (bytes[offset + 1] << 8)
+}
+
+function readUInt32(bytes: Uint8Array, offset: number): number | null {
+  if (offset < 0 || offset + 4 > bytes.length) return null
+  return (bytes[offset] | (bytes[offset + 1] << 8) | (bytes[offset + 2] << 16) | (bytes[offset + 3] << 24)) >>> 0
+}
+
+function hasCliHeader(bytes: Uint8Array): boolean {
+  const peOffset = readUInt32(bytes, 0x3c)
+  if (peOffset === null || peOffset + 24 > bytes.length || readAscii(bytes, peOffset, 4) !== 'PE\u0000\u0000') return false
+  const optionalHeaderSize = readUInt16(bytes, peOffset + 20)
+  if (optionalHeaderSize === null) return false
+  const optionalHeader = peOffset + 24
+  const optionalMagic = readUInt16(bytes, optionalHeader)
+  const numberOfDirectoriesOffset = optionalMagic === 0x10b ? 92 : optionalMagic === 0x20b ? 108 : -1
+  const directoriesOffset = optionalMagic === 0x10b ? 96 : optionalMagic === 0x20b ? 112 : -1
+  if (numberOfDirectoriesOffset < 0 || optionalHeaderSize < directoriesOffset + (15 * 8)) return false
+  const numberOfDirectories = readUInt32(bytes, optionalHeader + numberOfDirectoriesOffset)
+  if (numberOfDirectories === null || numberOfDirectories <= 14) return false
+  const cliHeaderRva = readUInt32(bytes, optionalHeader + directoriesOffset + (14 * 8))
+  const cliHeaderSize = readUInt32(bytes, optionalHeader + directoriesOffset + (14 * 8) + 4)
+  return cliHeaderRva !== null && cliHeaderRva > 0 && cliHeaderSize !== null && cliHeaderSize > 0
+}
+
 function detectFormat(bytes: Uint8Array, extension: string): {
   format: string
   targetType: TargetType
@@ -76,12 +103,13 @@ function detectFormat(bytes: Uint8Array, extension: string): {
   }
 
   if (bytes.length >= 2 && bytes[0] === 0x4d && bytes[1] === 0x5a) {
+    const managed = hasCliHeader(bytes)
     return {
-      format: extension === 'dll' ? 'pe-dll' : 'pe',
+      format: managed ? 'pe-dotnet' : extension === 'dll' ? 'pe-dll' : 'pe',
       targetType: 'FILE',
       architecture: null,
       platform: 'windows',
-      runtimes: ['native'],
+      runtimes: managed ? ['dotnet'] : ['native'],
       embeddedArtifacts: [],
     }
   }
@@ -182,7 +210,7 @@ function mimeTypeFor(format: string, extension: string, providedMimeType: string
   if (format === 'source') return 'text/plain'
   if (format === 'elf') return 'application/x-executable'
   if (format === 'wasm') return 'application/wasm'
-  if (format === 'pe' || format === 'pe-dll') return 'application/vnd.microsoft.portable-executable'
+  if (format === 'pe' || format === 'pe-dll' || format === 'pe-dotnet') return 'application/vnd.microsoft.portable-executable'
   if (format === 'apk' || format === 'jar' || format === 'zip') return 'application/zip'
   if (format === 'dex') return 'application/vnd.android.dex'
   if (format === 'class') return 'application/java-vm'

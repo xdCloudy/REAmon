@@ -26,13 +26,13 @@
 
 ## What REAmon is becoming
 
-REAmon is intended to orchestrate reverse-engineering engines such as Ghidra and
-JADX on the backend, then present their output in one investigation workspace. The
-current build decompiles Android APKs through an isolated JADX backend and native
-ELF, PE, and Mach-O files through isolated Ghidra headless analysis. Both publish
-bounded function or class indexes in the code visualizer. Other formats and dynamic
-analysis still need matching engines. A workspace can contain multiple related
-targets and artifacts:
+REAmon orchestrates reverse-engineering engines such as Ghidra, JADX, and ILSpy on
+the backend, then presents their output in one investigation workspace. Android APKs
+use isolated JADX, managed .NET PE assemblies use isolated ILSpy, and native ELF, PE,
+and Mach-O files use isolated Ghidra headless analysis. These providers publish
+bounded function or code-unit indexes in the code visualizer. Other formats and
+dynamic analysis still need matching engines. A workspace can contain multiple
+related targets and artifacts:
 
 ```text
 Workspace
@@ -71,6 +71,9 @@ The first REAmon milestone is implemented and running on the `reamon/bootstrap` 
   hypotheses, evidence, and activity in a real data-backed dashboard.
 - Run JADX 1.5.6 in an isolated backend service for APK decompilation; store bounded
   Java source outputs separately and publish class-sized code-unit observations.
+- Detect managed PE assemblies from their CLR data directory and run pinned ILSpyCmd
+  in an isolated backend service; store bounded C# type outputs and publish browsable
+  code-unit observations without routing native PE files through the managed provider.
 - Run Ghidra 12.1.4 headless in an isolated backend service for ELF, PE, and Mach-O
   decompilation; store bounded C-like function outputs separately and publish
   address-aware code-unit observations.
