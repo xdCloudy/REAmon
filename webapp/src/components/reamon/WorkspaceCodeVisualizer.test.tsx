@@ -14,11 +14,11 @@ function unit(overrides: Partial<CodeUnit> = {}): CodeUnit {
   }
 }
 
-function renderVisualizer(hasApk = true) {
+function renderVisualizer() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } })
   return render(
     <QueryClientProvider client={client}>
-      <WorkspaceCodeVisualizer projectId="project-1" hasApk={hasApk} isAnalyzing={false} />
+      <WorkspaceCodeVisualizer projectId="project-1" isAnalyzing={false} />
     </QueryClientProvider>,
   )
 }
@@ -29,11 +29,11 @@ afterEach(() => {
 })
 
 describe('WorkspaceCodeVisualizer', () => {
-  test('states that an imported APK has no decompiled code units yet', async () => {
+  test('states that no code units are available before a decompiler publishes them', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ units: [], total: 0, hasMore: false }) }))
     renderVisualizer()
 
-    expect(await screen.findByText('The APK is stored and identified; no code has been decompiled yet.')).toBeInTheDocument()
+    expect(await screen.findByText('No code units have been analyzed yet.')).toBeInTheDocument()
     expect(screen.getByText(/An analyzer must publish functions or other code units/)).toBeInTheDocument()
   })
 

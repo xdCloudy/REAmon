@@ -29,7 +29,21 @@ describe('JADX process provider', () => {
     expect(fetch).toHaveBeenCalledWith('http://jadx-analyzer:8010/analyze', expect.objectContaining({ method: 'POST' }))
   })
 
+  test('accepts a profiled Java archive and uses the same isolated JADX service', async () => {
+    vi.stubEnv('REAMON_JADX_URL', 'http://jadx-analyzer:8010')
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(resultBody()), { status: 200 })))
+
+    const result = await executeJadx({
+      ...input,
+      targetProfile: { ...input.targetProfile, format: 'jar', extension: 'jar', platform: 'jvm', runtimes: ['jvm'] },
+    })
+
+    expect(result).toMatchObject({ status: 'completed', toolId: 'reamon-jadx', data: { decompiledClassCount: 1 } })
+    expect(fetch).toHaveBeenCalledWith('http://jadx-analyzer:8010/analyze', expect.objectContaining({ method: 'POST' }))
+  })
+
   test('reports a missing analyzer instead of advertising a false success', async () => {
+
     vi.stubEnv('REAMON_JADX_URL', '')
 
     const result = await executeJadx(input)

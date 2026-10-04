@@ -65,7 +65,7 @@ function shortenLabel(value: string, width: number): string {
   return value.length > maxCharacters ? `${value.slice(0, maxCharacters - 1)}…` : value
 }
 
-export function WorkspaceCodeVisualizer({ projectId, hasApk, isAnalyzing }: { projectId: string; hasApk: boolean; isAnalyzing: boolean }) {
+export function WorkspaceCodeVisualizer({ projectId, isAnalyzing }: { projectId: string; isAnalyzing: boolean }) {
   const [filter, setFilter] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [copyStatus, setCopyStatus] = useState('')
@@ -152,7 +152,7 @@ export function WorkspaceCodeVisualizer({ projectId, hasApk, isAnalyzing }: { pr
       {query.isError && <p className={styles.error}>Could not load code units. Refresh the workspace and try again.</p>}
       {!query.isLoading && !query.isError && query.data?.units.length === 0 && query.data.total === 0 && (
         <div className={styles.empty}>
-          <strong>{hasApk ? 'The APK is stored and identified; no code has been decompiled yet.' : 'No code units have been analyzed yet.'}</strong>
+          <strong>No code units have been analyzed yet.</strong>
           <p>Importing a file only records and profiles it. An analyzer must publish functions or other code units before this map can show program structure.</p>
           <span>Each unit should include its name, address, byte size, decompilation coverage, and a link to its viewable code artifact.</span>
         </div>

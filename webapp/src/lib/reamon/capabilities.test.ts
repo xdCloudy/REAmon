@@ -31,6 +31,19 @@ describe('REAmon capability resolution', () => {
     ]))
   })
 
+  it('offers JADX decompilation for an identified Java archive', () => {
+    expect(resolveCapabilities(profile({
+      format: 'jar',
+      extension: 'jar',
+      mimeType: 'application/java-archive',
+      architecture: null,
+      platform: 'jvm',
+      runtimes: ['jvm'],
+    }))).toEqual(expect.arrayContaining([
+      expect.objectContaining({ pluginId: 'reamon-jadx', capabilities: ['decompile'], acceptsFormats: ['apk', 'jar'] }),
+    ]))
+  })
+
   it('offers the built-in ELF header inspector for ELF artifacts', () => {
     expect(resolveCapabilities(profile())).toEqual(expect.arrayContaining([
       expect.objectContaining({

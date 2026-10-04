@@ -168,6 +168,7 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
   const data = workspace.data
   const rootTarget = useMemo(() => data?.targets.find((target) => target.targetType === 'DIRECTORY'), [data?.targets])
   const latestImport = data?.imports[0]
+  const hasDecompilableArtifact = data?.artifacts.some((artifact) => ['apk', 'jar', 'elf', 'pe', 'pe-dll', 'macho'].includes(artifact.profile.format)) ?? false
   const logicalTargets = data?.targets.filter((target) => target.targetType !== 'DIRECTORY') || []
   const selectedLogicalTarget = logicalTargets.find((target) => target.id === selectedTarget)
 
@@ -201,8 +202,8 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
         void queryClient.invalidateQueries({ queryKey: ['reamon-code-units', projectId] })
       }} />
       <ImportStatus latestImport={latestImport} />
-      {data.artifacts.some((artifact) => artifact.profile.format === 'apk') && !data.tasks.some((task) => task.capability === 'decompile') && <aside className={styles.analysisNextStep}>
-        <div><strong>APK uploaded; decompilation has not started.</strong><p>Request JADX approval below. Then approve the task and choose Run under Tasks and findings.</p></div>
+      {hasDecompilableArtifact && !data.tasks.some((task) => task.capability === 'decompile') && <aside className={styles.analysisNextStep}>
+        <div><strong>Import complete; decompilation has not started.</strong><p>Request approval for a compatible decompiler below. Then approve the task and choose Run under Tasks and findings.</p></div>
         <a href="#analysis-proposals">Open analysis proposals</a>
       </aside>}
       <WorkspaceAnalysisPlanPanel projectId={projectId} plan={analysisPlan.data} isLoading={analysisPlan.isLoading} isError={analysisPlan.isError} onScheduled={() => {
@@ -211,7 +212,6 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
       }} />
       <WorkspaceCodeVisualizer
         projectId={projectId}
-        hasApk={data.artifacts.some((artifact) => artifact.profile.format === 'apk')}
         isAnalyzing={data.tasks.some((task) => task.status === 'RUNNING')}
       />
 

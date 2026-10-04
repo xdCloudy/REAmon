@@ -23,6 +23,8 @@ class JadxServiceTests(unittest.TestCase):
         self.artifacts.mkdir()
         self.apk = self.artifacts / "app.apk"
         self.apk.write_bytes(b"apk")
+        self.jar = self.artifacts / "app.jar"
+        self.jar.write_bytes(b"jar")
         server.ARTIFACT_ROOT = self.artifacts.resolve()
         server.DERIVED_ROOT = self.derived.resolve()
 
@@ -58,6 +60,24 @@ class JadxServiceTests(unittest.TestCase):
         code_path = result["units"][0]["codeArtifactId"]
         self.assertTrue((self.derived / code_path).is_file())
         self.assertTrue(code_path.startswith("project-1/artifact-1/task-1/run-1/"))
+
+    def test_decompile_passes_java_archive_to_jadx_and_stores_source(self):
+        def fake_popen(args, **kwargs):
+            self.assertEqual(args[-1], str(self.jar))
+            output = Path(args[args.index("-d") + 1])
+            source = output / "sources" / "com" / "example" / "Library.java"
+            source.parent.mkdir(parents=True)
+            source.write_text("package com.example;\npublic class Library {}\n")
+            return FakeProcess()
+
+        request = {"projectId": "project-1", "artifactId": "artifact-1", "taskId": "task-1",
+                   "runId": "run-1", "artifactPath": str(self.jar)}
+        with patch.object(server.subprocess, "Popen", side_effect=fake_popen):
+            result = server.analyse(request)
+
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(result["units"][0]["name"], "com.example.Library")
+        self.assertTrue((self.derived / result["units"][0]["codeArtifactId"]).is_file())
 
     def test_large_output_returns_bounded_partial_results_with_warning(self):
         def fake_popen(args, **kwargs):
