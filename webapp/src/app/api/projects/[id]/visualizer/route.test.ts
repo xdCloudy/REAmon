@@ -109,6 +109,35 @@ describe('GET /api/projects/[id]/visualizer', () => {
     expect(mocks.findMany).toHaveBeenCalledWith(expect.objectContaining({ cursor: { id: 'observation-999' }, skip: 1, take: 1001 }))
   })
 
+  test('searches the whole selected run before returning a page and count', async () => {
+    mocks.taskFindMany.mockResolvedValue([{ id: 'run-1', title: 'Run', createdAt: new Date(), completedAt: new Date(), artifact: { originalName: 'app.apk', relativePath: 'app.apk' } }])
+    mocks.groupBy.mockResolvedValue([{ taskId: 'run-1', _count: { _all: 1200 } }])
+    mocks.findMany.mockResolvedValue([])
+    mocks.count.mockResolvedValue(3)
+
+    const response = await GET(new Request('http://localhost/api/projects/project-1/visualizer?taskId=run-1&q=com.example.Main'), params)
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ total: 3, selectedRunId: 'run-1' })
+    const queryWhere = mocks.findMany.mock.calls[0][0].where
+    expect(queryWhere).toMatchObject({
+      taskId: 'run-1',
+      OR: expect.arrayContaining([
+        { label: { contains: 'com.example.Main', mode: 'insensitive' } },
+        { attributes: { path: ['qualifiedName'], string_contains: 'com.example.Main', mode: 'insensitive' } },
+        { artifact: { is: { relativePath: { contains: 'com.example.Main', mode: 'insensitive' } } } },
+      ]),
+    })
+    expect(mocks.count).toHaveBeenCalledWith({ where: queryWhere })
+  })
+
+  test('rejects an overlong code-unit search term', async () => {
+    const response = await GET(new Request(`http://localhost/api/projects/project-1/visualizer?q=${'a'.repeat(301)}`), params)
+
+    expect(response.status).toBe(400)
+    expect(mocks.findMany).not.toHaveBeenCalled()
+  })
+
   test('rejects cursors outside the selected run before reading another page', async () => {
     mocks.taskFindMany.mockResolvedValue([{ id: 'run-1', title: 'Run', createdAt: new Date(), completedAt: new Date(), artifact: { originalName: 'app.exe', relativePath: 'app.exe' } }])
     mocks.groupBy.mockResolvedValue([{ taskId: 'run-1', _count: { _all: 1 } }])

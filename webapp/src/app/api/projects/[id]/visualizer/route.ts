@@ -22,6 +22,11 @@ export async function GET(request: Request, { params }: RouteParams) {
     const access = await requireProjectAccess(user, projectId)
     if (access instanceof NextResponse) return access
 
+    const searchParams = new URL(request.url).searchParams
+    const search = searchParams.get('q')?.trim() || ''
+    if (search.length > 300) {
+      return NextResponse.json({ error: 'Code unit search is too long' }, { status: 400, headers: { 'Cache-Control': 'private, no-store' } })
+    }
     const selection = await getActiveWorkspaceImportSelection(projectId)
     const decompileTasks = await prisma.task.findMany({
       where: {
@@ -86,7 +91,6 @@ export async function GET(request: Request, { params }: RouteParams) {
         }
       })
       .filter((run) => run.codeUnitCount > 0)
-    const searchParams = new URL(request.url).searchParams
     const requestedTaskId = searchParams.get('taskId')?.trim() || null
     if (requestedTaskId && !runs.some((run) => run.id === requestedTaskId)) {
       return NextResponse.json({ error: 'Analysis run not found' }, { status: 404, headers: { 'Cache-Control': 'private, no-store' } })
@@ -97,6 +101,16 @@ export async function GET(request: Request, { params }: RouteParams) {
       type: CODE_UNIT_OBSERVATION_TYPE,
       artifact: { is: selection.artifactWhere },
       ...(selectedRunId ? { taskId: selectedRunId } : {}),
+      ...(search ? {
+        OR: [
+          { label: { contains: search, mode: 'insensitive' as const } },
+          { stableKey: { contains: search, mode: 'insensitive' as const } },
+          ...['name', 'qualifiedName', 'address', 'startAddress', 'language', 'codeArtifactId'].map((key) => ({
+            attributes: { path: [key], string_contains: search, mode: 'insensitive' as const },
+          })),
+          { artifact: { is: { relativePath: { contains: search, mode: 'insensitive' as const } } } },
+        ],
+      } : {}),
     }
     const cursorId = searchParams.get('cursor')?.trim() || null
     if (cursorId && cursorId.length > 128) {

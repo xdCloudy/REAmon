@@ -111,8 +111,33 @@ describe('WorkspaceCodeVisualizer', () => {
     expect(screen.getByRole('link', { name: 'Open code separately' })).toHaveAttribute('href', '/api/projects/project-1/artifacts/artifact-1/decompiled/project-1/artifact-1/task-1/run-1/sources/app/MainActivity.java')
     expect(await screen.findByText(/saveState\(\);/)).toBeInTheDocument()
     expect(await screen.findByRole('button', { name: 'Explain selected code' })).toBeInTheDocument()
-    expect(fetchMock).toHaveBeenCalledTimes(3)
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4))
     await waitFor(() => expect(screen.queryByRole('button', { name: /app\.MainActivity\.onCreate/ })).toBeNull())
+  })
+
+  test('searches units beyond the first page of a run', async () => {
+    const first = unit({ id: 'unit-first', name: 'app.First' })
+    const later = unit({ id: 'unit-later', name: 'app.deep.Target' })
+    const run = { id: 'run-new', title: 'Latest analysis', createdAt: '2026-10-04T00:00:00.000Z', completedAt: '2026-10-04T00:01:00.000Z', artifactName: 'app.apk', codeUnitCount: 1200, unitLabel: 'classes', discoveredUnitCount: 1200, returnedUnitCount: 1200, indexedUnitCount: 1200, linkPercent: 100, codeBytes: 2048, truncated: false, warnings: '', failedUnitCount: null, visitedUnitCount: null }
+    const requests: string[] = []
+    const fetchMock = vi.fn((input: string) => {
+      requests.push(input)
+      const searching = input.includes('q=app.deep.target')
+      return Promise.resolve({ ok: true, json: async () => ({
+        units: [searching ? later : first], total: searching ? 1 : 1200,
+        hasMore: !searching, nextCursor: searching ? null : 'unit-first', runs: [run], selectedRunId: 'run-new',
+      }) })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderVisualizer()
+
+    const filter = await screen.findByRole('textbox', { name: 'Filter code units' })
+    fireEvent.change(filter, { target: { value: 'app.deep.Target' } })
+
+    expect(await screen.findByRole('button', { name: /app\.deep\.Target/ })).toBeInTheDocument()
+    await waitFor(() => expect(requests).toContain('/api/projects/project-1/visualizer?q=app.deep.target'))
+    expect(screen.queryByRole('button', { name: /app\.First/ })).not.toBeInTheDocument()
+    expect(screen.getByText(/search spans the full run/i)).toBeInTheDocument()
   })
 
   test('opens a Ghidra callee from the call graph even when it is outside the loaded treemap page', async () => {
@@ -167,11 +192,13 @@ describe('WorkspaceCodeVisualizer', () => {
     renderVisualizer()
 
     expect(await screen.findByRole('button', { name: /app\.first/ })).toBeInTheDocument()
+    fireEvent.change(screen.getByRole('textbox', { name: 'Filter code units' }), { target: { value: 'app' } })
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/projects/project-1/visualizer?q=app', expect.any(Object)))
     fireEvent.click(screen.getByRole('button', { name: 'Load more code units' }))
 
     expect(await screen.findByRole('button', { name: /app\.second/ })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Load more code units' })).not.toBeInTheDocument()
-    expect(fetchMock).toHaveBeenCalledWith('/api/projects/project-1/visualizer?taskId=run-new&cursor=unit-first', expect.objectContaining({ cache: 'no-store' }))
+    expect(fetchMock).toHaveBeenCalledWith('/api/projects/project-1/visualizer?taskId=run-new&cursor=unit-first&q=app', expect.objectContaining({ cache: 'no-store' }))
   })
 
   test('compares Ghidra decompiled source with its linked disassembly', async () => {

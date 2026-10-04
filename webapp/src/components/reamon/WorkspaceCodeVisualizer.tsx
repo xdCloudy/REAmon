@@ -1,9 +1,9 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Code2, Copy, ExternalLink, RefreshCw, Search } from 'lucide-react'
-import { filterCodeUnits, layoutCodeUnitTreemap, summarizeCodeUnits, type CodeUnit } from '@/lib/reamon/code-units'
+import { filterCodeUnits, layoutCodeUnitTreemap, parseCodeUnitFilter, summarizeCodeUnits, type CodeUnit } from '@/lib/reamon/code-units'
 import type { CallGraphRecord, CallGraphRelationship } from '@/lib/reamon/callgraph-layout'
 import { WorkspaceCallGraphCanvas } from './WorkspaceCallGraphCanvas'
 import styles from './WorkspaceCodeVisualizer.module.css'
@@ -55,10 +55,11 @@ interface CodeExplanationResponse { explanation: string; providerName: string; m
 
 const EMPTY_CODE_UNITS: CodeUnit[] = []
 
-async function fetchCodeUnits(projectId: string, taskId: string | null, cursor: string | null = null, signal?: AbortSignal): Promise<CodeUnitResponse> {
+async function fetchCodeUnits(projectId: string, taskId: string | null, cursor: string | null = null, signal?: AbortSignal, search = ''): Promise<CodeUnitResponse> {
   const params = new URLSearchParams()
   if (taskId) params.set('taskId', taskId)
   if (cursor) params.set('cursor', cursor)
+  if (search) params.set('q', search)
   const query = params.size ? `?${params.toString()}` : ''
   const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer${query}`, { signal, cache: 'no-store' })
   if (!response.ok) throw new Error('Unable to load code units')
@@ -196,6 +197,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
   decompilationHref?: string
 }) {
   const [filter, setFilter] = useState('')
+  const [serverSearch, setServerSearch] = useState('')
   const [visualizerView, setVisualizerView] = useState<'treemap' | 'callgraph'>('treemap')
   const [graphSearch, setGraphSearch] = useState('')
   const [graphFocusKey, setGraphFocusKey] = useState<string | null>(null)
@@ -209,12 +211,17 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
   const [explanation, setExplanation] = useState<CodeExplanationResponse | null>(null)
   const [explainError, setExplainError] = useState('')
   const [explaining, setExplaining] = useState(false)
-  const [additionalPage, setAdditionalPage] = useState<{ runId: string | null; units: CodeUnit[]; nextCursor: string | null } | null>(null)
+  const [additionalPage, setAdditionalPage] = useState<{ runId: string | null; search: string; units: CodeUnit[]; nextCursor: string | null } | null>(null)
   const [loadingMore, setLoadingMore] = useState(false)
   const [loadMoreError, setLoadMoreError] = useState('')
+  const filterSearch = parseCodeUnitFilter(filter).text
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setServerSearch(filterSearch), 250)
+    return () => window.clearTimeout(timeout)
+  }, [filterSearch])
   const query = useQuery({
-    queryKey: ['reamon-code-units', projectId, selectedRunId],
-    queryFn: ({ signal }) => fetchCodeUnits(projectId, selectedRunId, null, signal),
+    queryKey: ['reamon-code-units', projectId, selectedRunId, serverSearch],
+    queryFn: ({ signal }) => fetchCodeUnits(projectId, selectedRunId, null, signal, serverSearch),
     staleTime: 5_000,
     refetchInterval: isAnalyzing ? 3000 : false,
     refetchIntervalInBackground: false,
@@ -222,7 +229,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
   const baseUnits = query.data?.units || EMPTY_CODE_UNITS
   const runs = query.data?.runs || []
   const currentRunId = runs.some((run) => run.id === selectedRunId) ? selectedRunId : query.data?.selectedRunId || null
-  const pageState = additionalPage?.runId === currentRunId ? additionalPage : null
+  const pageState = additionalPage?.runId === currentRunId && additionalPage.search === serverSearch ? additionalPage : null
   const units = useMemo(() => {
     if (!pageState?.units.length) return baseUnits
     const byId = new Map(baseUnits.map((unit) => [unit.id, unit]))
@@ -353,10 +360,11 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
     setLoadingMore(true)
     setLoadMoreError('')
     try {
-      const page = await fetchCodeUnits(projectId, currentRunId, nextCursor)
+      const page = await fetchCodeUnits(projectId, currentRunId, nextCursor, undefined, serverSearch)
       setAdditionalPage((previous) => ({
         runId: currentRunId,
-        units: [...(previous?.runId === currentRunId ? previous.units : []), ...page.units],
+        search: serverSearch,
+        units: [...(previous?.runId === currentRunId && previous.search === serverSearch ? previous.units : []), ...page.units],
         nextCursor: page.nextCursor || null,
       }))
     } catch (error) {
@@ -419,8 +427,14 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
 
       {query.isLoading && <p className={styles.message}>Loading code units…</p>}
       {query.isError && <p className={styles.error}>Could not load code units. Refresh the workspace and try again.</p>}
+      {!query.isLoading && !query.isError && query.data && units.length === 0 && query.data.total === 0 && filter.trim() && (
+        <div className={styles.empty} role="status">
+          <strong>No code units match this filter.</strong>
+          <p>Name, address, and path search checks the full selected run. Clear or change the filter to see other code units.</p>
+        </div>
+      )}
       {!query.isLoading && !query.isError && query.data && units.length === 0 && query.data.total === 0 && (
-        <div className={styles.empty}>
+        !filter.trim() && <div className={styles.empty}>
           {decompilationTask?.status === 'RUNNING' ? <>
             <strong>Decompilation is running.</strong>
             <p>{decompilationTask.progressMessage || 'The code map will fill in after the analyzer publishes its results.'}</p>
@@ -453,6 +467,14 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
           <p>The map needs each provider to report a positive size for a function, class, or other unit. The stored records remain available in the investigation history.</p>
         </div>
       )}
+      {!query.isLoading && !query.isError && query.data && (query.data.total > 0 || filter.trim()) && <>
+        <label className={styles.filter}>
+          <Search size={16} aria-hidden="true" />
+          <span className={styles.srOnly}>Filter code units</span>
+          <input value={filter} maxLength={300} onChange={(event) => setFilter(event.target.value)} placeholder="Search this run by name, address, or path · >10kb · <70%" />
+        </label>
+        <p className={styles.message}>Name, address, and path search spans the full run. Size and coverage tokens filter the code units loaded here.</p>
+      </>}
 
       {!query.isLoading && !query.isError && query.data && units.length > 0 && <>
         <div className={styles.stats}>
@@ -462,12 +484,6 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
           <div><strong>{summary.decompiledUnits.toLocaleString()}</strong><span>Fully covered units</span></div>
         </div>
         {summary.unmeasuredBytes > 0 && <p className={styles.message}>{formatBytes(summary.unmeasuredBytes)} of mapped code has no coverage value from its provider.</p>}
-
-        <label className={styles.filter}>
-          <Search size={16} aria-hidden="true" />
-          <span className={styles.srOnly}>Filter code units</span>
-          <input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Filter names, addresses, or paths · >10kb · <70%" />
-        </label>
 
         <div className={styles.legend} aria-label="Code coverage legend">
           <span><i className={styles.complete} /> Full coverage</span>
@@ -535,7 +551,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
           {runCallGraphQuery.data?.truncated && <p className={styles.message}>Showing the first 400 call relationships returned by the analyzer.</p>}
         </section>}
 
-        {nextCursor && <p className={styles.message}>Showing {units.length.toLocaleString()} of {query.data.total.toLocaleString()} code units. Search currently filters the units loaded here.</p>}
+        {nextCursor && <p className={styles.message}>Showing {units.length.toLocaleString()} of {query.data.total.toLocaleString()} code units matching the name, address, or path search. Load more to include additional units in size and coverage filters.</p>}
         {selectedUnit && <div className={styles.details}>
           <div><span className={styles.detailLabel}>Selected code unit</span><strong>{selectedUnit.name}</strong></div>
           <dl>
