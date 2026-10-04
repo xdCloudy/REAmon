@@ -125,7 +125,7 @@ export async function getWorkspaceSnapshot(projectId: string) {
       },
     }),
     prisma.workspaceActivity.findMany({ where: { projectId }, orderBy: { createdAt: 'desc' }, take: 20 }),
-    prisma.task.findMany({ where: { projectId }, select: { status: true } }),
+    prisma.task.findMany({ where: { projectId }, select: { status: true, category: true } }),
     prisma.finding.findMany({ where: { projectId }, select: { status: true } }),
     prisma.hypothesis.findMany({ where: { projectId }, select: { status: true } }),
     prisma.task.count({ where: { projectId } }),
@@ -177,7 +177,7 @@ export async function getWorkspaceSnapshot(projectId: string) {
   })
 
   const progress = buildProgressModel({
-    taskStatuses: taskStatuses.map((task) => task.status as never),
+    taskStatuses: taskStatuses.map((task) => ({ status: task.status as never, category: task.category })),
     findingStatuses: findingStatuses.map((finding) => finding.status as never),
     hypothesisStatuses: hypothesisStatuses.map((hypothesis) => hypothesis.status as never),
   })

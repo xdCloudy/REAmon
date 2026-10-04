@@ -12,14 +12,15 @@ function completionMetric(id: string, label: string, completed: number, total: n
 }
 
 export interface ProgressInput {
-  taskStatuses: TaskStatus[]
+  taskStatuses: Array<{ status: TaskStatus; category: string }>
   findingStatuses: FindingStatus[]
   hypothesisStatuses: HypothesisStatus[]
 }
 
 export function buildProgressModel(input: ProgressInput): ProgressModel {
+  const analysisTasks = input.taskStatuses.filter((task) => task.category !== 'profiling')
   const metrics = [
-    completionMetric('tasks', 'Recorded tasks completed', input.taskStatuses.filter((status) => status === 'COMPLETED').length, input.taskStatuses.length),
+    completionMetric('tasks', 'Analysis tasks completed', analysisTasks.filter((task) => task.status === 'COMPLETED').length, analysisTasks.length),
     completionMetric('findings', 'Verified findings', input.findingStatuses.filter((status) => status === 'VERIFIED').length, input.findingStatuses.length),
     completionMetric('hypotheses', 'Verified hypotheses', input.hypothesisStatuses.filter((status) => status === 'VERIFIED').length, input.hypothesisStatuses.length),
   ].filter((metric): metric is ProgressMetric => metric !== null && metric.denominator > 0)

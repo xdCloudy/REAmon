@@ -146,7 +146,7 @@ export async function getWorkspaceInventorySummary(projectId: string): Promise<W
       orderBy: [{ relativePath: 'asc' }, { id: 'asc' }],
       select: { id: true, targetId: true, sizeBytes: true, status: true, profile: true },
     }),
-    prisma.task.findMany({ where: { projectId }, select: { status: true } }),
+    prisma.task.findMany({ where: { projectId }, select: { status: true, category: true } }),
     prisma.finding.findMany({ where: { projectId }, select: { status: true } }),
     prisma.hypothesis.findMany({ where: { projectId }, select: { status: true } }),
     prisma.evidence.count({ where: { projectId } }),
@@ -229,7 +229,7 @@ export async function getWorkspaceInventorySummary(projectId: string): Promise<W
     logicalTargetsTruncated: visibleTargets.length > MAX_SAMPLE_TARGETS,
     capabilities,
     progress: buildProgressModel({
-      taskStatuses: tasks.map((task) => task.status as never),
+      taskStatuses: tasks.map((task) => ({ status: task.status as never, category: task.category })),
       findingStatuses: findings.map((finding) => finding.status as never),
       hypothesisStatuses: hypotheses.map((hypothesis) => hypothesis.status as never),
     }),
