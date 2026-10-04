@@ -82,7 +82,7 @@ describe('WorkspaceTaskList', () => {
   test('shows the current lease owner for running tasks', () => {
     render(<WorkspaceTaskList projectId="project-1" tasks={[{ id: 'task-1', title: 'Inspect source', status: 'RUNNING', progress: 35, leaseOwner: 'worker-a', leaseHeartbeatAt: new Date().toISOString() }]} />)
 
-    expect(screen.getByText('RUNNING · 35% · worker-a · heartbeat fresh')).toBeInTheDocument()
+    expect(screen.getByText('RUNNING · progress not reported · worker-a · heartbeat fresh')).toBeInTheDocument()
   })
 
   test('labels an old heartbeat as stale', () => {

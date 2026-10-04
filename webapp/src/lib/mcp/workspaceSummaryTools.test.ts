@@ -29,7 +29,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   __resetRateLimiter()
   h.getSummary.mockResolvedValue({
-    projectId: 'project-1', rootCount: 1, counts: { files: 1 }, capabilities: [], progress: { overallPercent: 0, metrics: [] },
+    projectId: 'project-1', rootCount: 1, counts: { files: 1 }, capabilities: [], progress: { metrics: [] },
   })
 })
 
@@ -55,4 +55,3 @@ describe('REAmon workspace summary MCP tool', () => {
     expect(h.assertProject).toHaveBeenCalledWith('owner', 'missing')
   })
 })
-

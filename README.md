@@ -26,8 +26,13 @@
 
 ## What REAmon is becoming
 
-REAmon is not an APK reverse-engineer or a Ghidra frontend. A workspace can contain
-multiple related targets and artifacts:
+REAmon is intended to orchestrate reverse-engineering engines such as Ghidra and
+JADX on the backend, then present their output in one investigation workspace. The
+current build decompiles Android APKs through an isolated JADX backend and native
+ELF, PE, and Mach-O files through isolated Ghidra headless analysis. Both publish
+bounded function or class indexes in the code visualizer. Other formats and dynamic
+analysis still need matching engines. A workspace can contain multiple related
+targets and artifacts:
 
 ```text
 Workspace
@@ -64,6 +69,13 @@ The first REAmon milestone is implemented and running on the `reamon/bootstrap` 
   executing providers in the request path.
 - Show targets, artifacts, detected metadata, capabilities, progress, findings,
   hypotheses, evidence, and activity in a real data-backed dashboard.
+- Run JADX 1.5.6 in an isolated backend service for APK decompilation; store bounded
+  Java source outputs separately and publish class-sized code-unit observations.
+- Run Ghidra 12.1.4 headless in an isolated backend service for ELF, PE, and Mach-O
+  decompilation; store bounded C-like function outputs separately and publish
+  address-aware code-unit observations.
+- Draw a searchable size/coverage treemap from provider code-unit observations and
+  open source only through an authenticated, active-workspace artifact route.
 - Run bounded `strings` and `readelf` process providers against stored source and
   ELF artifacts, capture stable observations, and terminate the process on
   cancellation or timeout.
@@ -81,12 +93,13 @@ The first REAmon milestone is implemented and running on the `reamon/bootstrap` 
 - Preserve the PostgreSQL, Neo4j, agent, authentication, and event infrastructure
   needed by the REAmon workspace.
 
-The current profiler is deliberately conservative. The built-in provider set covers
-profiling, source strings, ELF headers, generic file identification, and bounded JSON
-configuration inspection; broader binary and runtime integrations remain
-optional follow-on capabilities rather than production prerequisites.
+The current provider set covers profiling, source strings, ELF headers, generic file
+identification, bounded JSON inspection, APK-to-Java decompilation through JADX, and
+native ELF, PE, and Mach-O decompilation through Ghidra. Runtime instrumentation,
+other executable formats, and broader language-specific workflows remain future
+work.
 
-## Production readiness
+## Bootstrap release readiness
 
 <progress value="100" max="100">100%</progress> <strong>100%</strong>
 
@@ -94,6 +107,12 @@ This is a release-gate snapshot, reviewed 2026-10-03 against repository, hosted
 workflow, production-image, and staging evidence. The score measures readiness for
 a dependable self-hosted production release, not the number of UI screens or lines
 of code.
+
+This rating covers the bootstrap release scope only. It does not measure readiness
+for REAmon's broader product goal of reverse-engineering arbitrary programs from
+import through decompilation, navigation, AI-assisted analysis, and runtime work.
+That broader goal remains in progress; native decompiler integrations and populated
+code-unit visualizations are not available in this bootstrap.
 
 The 100% score is justified for the current production release scope. The product
 boundary is release-gated independently: no native workspace depends on a retired
