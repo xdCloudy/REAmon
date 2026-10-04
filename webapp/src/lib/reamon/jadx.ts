@@ -2,13 +2,13 @@ import { createHash } from 'node:crypto'
 import type { ToolExecutionInput, ToolPlugin, ToolPluginManifest, ToolResult } from './types'
 import { readAnalyzerResponse } from './analyzer-response'
 
-const MAX_UNITS = 5000
+const MAX_UNITS = 20000
 const DEFAULT_TIMEOUT_MS = 20 * 60_000
 
 interface JadxResponse {
   status: 'completed'
   toolVersion: string
-  classCount: number
+  classCount: number | null
   codeBytes?: number
   returnedUnits: number
   truncated: boolean
@@ -115,10 +115,10 @@ export async function executeJadx(input: ToolExecutionInput): Promise<ToolResult
       ...base,
       data: {
         observations,
-        decompiledClassCount: payload.classCount,
+        decompiledClassCount: typeof payload.classCount === 'number' && Number.isSafeInteger(payload.classCount) && payload.classCount >= 0 ? payload.classCount : null,
         returnedClassCount: observations.length,
         codeBytes: typeof payload.codeBytes === 'number' && Number.isFinite(payload.codeBytes) ? Math.max(0, Math.floor(payload.codeBytes)) : observations.reduce((sum, observation) => sum + Number(observation.attributes.sizeBytes), 0),
-        truncated: payload.truncated || payload.classCount > observations.length,
+        truncated: payload.truncated || (payload.classCount !== null && payload.classCount > observations.length),
         jadxVersion: payload.toolVersion,
         warnings: payload.warnings?.slice(0, 4000) || '',
       },

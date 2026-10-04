@@ -435,7 +435,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
           <span style={{ width: `${currentRun.linkPercent}%` }} />
         </div>}
         <div className={styles.runSummaryMeta}>
-          <span>{currentRun.truncated ? 'Partial index. This bar shows indexed coverage, not whether the task finished.' : `${currentRun.indexedUnitCount.toLocaleString()} indexed code units`}</span>{currentRun.truncated && decompilationHref && <a className={styles.runAgain} href={decompilationHref}>Run decompilation again</a>}
+          <span>{currentRun.truncated ? currentRun.linkPercent === null ? 'Partial index; the analyzer could not determine the total class count.' : 'Partial index. This bar shows indexed coverage, not whether the task finished.' : `${currentRun.indexedUnitCount.toLocaleString()} indexed code units`}</span>{currentRun.truncated && decompilationHref && <a className={styles.runAgain} href={decompilationHref}>Run decompilation again</a>}
           {currentRun.failedUnitCount !== null && currentRun.failedUnitCount > 0 && <span>{currentRun.failedUnitCount.toLocaleString()} functions could not be decompiled{currentRun.visitedUnitCount !== null ? ` of ${currentRun.visitedUnitCount.toLocaleString()} visited` : ''}</span>}
         </div>
         {currentRun.warnings && <p className={styles.runWarning}>{currentRun.warnings}</p>}

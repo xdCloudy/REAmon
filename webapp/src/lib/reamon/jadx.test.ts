@@ -31,6 +31,18 @@ describe('JADX process provider', () => {
     expect(fetch).toHaveBeenCalledWith('http://jadx-analyzer:8010/analyze', expect.objectContaining({ method: 'POST' }))
   })
 
+  test('keeps the analyzed count unknown when JADX stops at its source scan limit', async () => {
+    vi.stubEnv('REAMON_JADX_URL', 'http://jadx-analyzer:8010')
+    const body = resultBody()
+    body.classCount = null
+    body.truncated = true
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(body), { status: 200 })))
+
+    const result = await executeJadx(input)
+
+    expect(result).toMatchObject({ status: 'completed', data: { decompiledClassCount: null, returnedClassCount: 1, truncated: true } })
+  })
+
   test('links Smali DEX output to its Java class observation', async () => {
     vi.stubEnv('REAMON_JADX_URL', 'http://jadx-analyzer:8010')
     const body = resultBody()

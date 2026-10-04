@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import type { ToolExecutionInput, ToolPlugin, ToolPluginManifest, ToolResult } from './types'
 import { readAnalyzerResponse } from './analyzer-response'
 
-const MAX_UNITS = 5000
+const MAX_UNITS = 20000
 const DEFAULT_TIMEOUT_MS = 20 * 60_000
 
 interface IlspyResponse {

@@ -7,7 +7,7 @@ import type {
 } from './types'
 
 export const MAX_OBSERVATIONS_PER_RESULT = 500
-export const MAX_CODE_UNITS_PER_RESULT = 5000
+export const MAX_CODE_UNITS_PER_RESULT = 20000
 export const MAX_OBSERVATION_ATTRIBUTES = 64
 export const MAX_FINDINGS_PER_RESULT = 200
 

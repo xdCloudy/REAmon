@@ -1,4 +1,5 @@
 /** @vitest-environment node */
+import path from 'node:path'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
@@ -87,7 +88,7 @@ describe('executeAnalysisTask', () => {
       data: expect.objectContaining({ status: 'RUNNING', progress: 10, leaseOwner: 'webapp' }),
     }))
     expect(mocks.analyze).toHaveBeenCalledWith(expect.objectContaining({
-      targetProfile: { targetType: 'FILE', format: 'source' }, artifactId: 'artifact-1', projectId: 'project-1', taskId: 'task-1', runToken: expect.any(String), artifactPath: expect.stringContaining('project-1/import-1/artifact-1'), options: { mode: 'conservative' }, signal: expect.any(AbortSignal), reportProgress: expect.any(Function),
+      targetProfile: { targetType: 'FILE', format: 'source' }, artifactId: 'artifact-1', projectId: 'project-1', taskId: 'task-1', runToken: expect.any(String), artifactPath: expect.stringContaining(path.join('project-1', 'import-1', 'artifact-1')), options: { mode: 'conservative' }, signal: expect.any(AbortSignal), reportProgress: expect.any(Function),
     }))
     expect(mocks.evidenceCreate).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ kind: 'analysis', source: provider.manifest.id, artifactId: 'artifact-1' }),

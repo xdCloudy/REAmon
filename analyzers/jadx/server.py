@@ -10,8 +10,8 @@ DERIVED_ROOT = Path(os.environ.get("REAMON_DERIVED_PATH", "/data/reamon-derived"
 PORT = int(os.environ.get("PORT", "8010"))
 TIMEOUT_SECONDS = min(1200, max(60, int(os.environ.get("JADX_TIMEOUT_SECONDS", "900"))))
 MAX_OUTPUT_BYTES = min(1024**3, max(1024**2, int(os.environ.get("JADX_MAX_OUTPUT_BYTES", str(512 * 1024**2)))))
-MAX_SOURCE_FILES = min(10000, max(1, int(os.environ.get("JADX_MAX_SOURCE_FILES", "5000"))))
-MAX_RETURNED_UNITS = min(5000, max(1, int(os.environ.get("JADX_MAX_RETURNED_UNITS", "5000"))))
+MAX_SOURCE_FILES = min(50000, max(1, int(os.environ.get("JADX_MAX_SOURCE_FILES", "20000"))))
+MAX_RETURNED_UNITS = min(20000, max(1, int(os.environ.get("JADX_MAX_RETURNED_UNITS", "20000"))))
 MAX_VIEWABLE_BYTES = 2 * 1024 * 1024
 SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
 PACKAGE_PATTERN = re.compile(r"^\s*package\s+([A-Za-z0-9_.$]+)\s*;", re.MULTILINE)
@@ -287,8 +287,8 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                     warnings.append(log_text[:4000])
                 elif jadx_return_code:
                     warnings.append(f"JADX exited with code {jadx_return_code}.")
-                return {"status": "completed", "toolVersion": "1.5.6", "classCount": len(units),
-                        "javaClassCount": total_files, "disassembledClassCount": disassembled_class_count,
+                return {"status": "completed", "toolVersion": "1.5.6", "classCount": None if source_scan_truncated else len(units),
+                        "javaClassCount": None if source_scan_truncated else total_files, "disassembledClassCount": disassembled_class_count,
                         "codeBytes": total_source_bytes + smali_total_bytes,
                         "returnedUnits": len(returned), "truncated": source_scan_truncated or total_files > len(returned) or len(units) > len(returned),
                         "units": returned, "warnings": " ".join(warnings)}

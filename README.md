@@ -97,10 +97,10 @@ The first REAmon milestone is implemented and running on the `reamon/bootstrap` 
   needed by the REAmon workspace.
 
 The current provider set covers profiling, source strings, ELF headers, generic file
-identification, bounded JSON inspection, APK-to-Java decompilation through JADX, and
-native ELF, PE, and Mach-O decompilation through Ghidra. Runtime instrumentation,
-other executable formats, and broader language-specific workflows remain future
-work.
+identification, bounded JSON inspection, APK-to-Java decompilation through JADX,
+managed .NET PE decompilation through ILSpy, and native ELF, PE, and Mach-O
+decompilation through Ghidra. Runtime instrumentation, additional executable formats,
+resource extraction, and broader language-specific workflows remain future work.
 
 ## Bootstrap release readiness
 

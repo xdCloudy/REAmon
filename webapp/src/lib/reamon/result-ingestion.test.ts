@@ -37,6 +37,17 @@ describe('parseToolObservations', () => {
     expect(result.rejected).toBe(0)
     expect(parseToolObservations({ observations })).toMatchObject({ rejected: 700 })
   })
+
+  test('accepts the full configured 20,000 code unit result and rejects only excess units', () => {
+    const observations = Array.from({ length: MAX_CODE_UNITS_PER_RESULT + 3 }, (_, index) => ({
+      kind: 'entity', type: 'code_unit', key: `large-unit:${index}`, attributes: { unitType: 'class', sizeBytes: 1 },
+    }))
+
+    const result = parseToolObservations({ observations }, MAX_CODE_UNITS_PER_RESULT)
+
+    expect(result.observations).toHaveLength(20_000)
+    expect(result.rejected).toBe(3)
+  })
 })
 
 describe('ingestToolResult', () => {

@@ -69,12 +69,12 @@ class JadxServiceTests(unittest.TestCase):
                 output = Path(args[args.index("-o") + 1])
                 listing = output / "com" / "example" / "MainActivity.smali"
                 listing.parent.mkdir(parents=True, exist_ok=True)
-                listing.write_text(smali_text)
+                listing.write_bytes(smali_text.encode())
             else:
                 output = Path(args[args.index("-d") + 1])
                 source = output / "sources" / "com" / "example" / "MainActivity.java"
                 source.parent.mkdir(parents=True)
-                source.write_text(source_text)
+                source.write_bytes(source_text.encode())
             return FakeProcess()
 
         request = {"projectId": "project-1", "artifactId": "artifact-1", "taskId": "task-1",
@@ -142,7 +142,8 @@ class JadxServiceTests(unittest.TestCase):
             result = server.analyse(request)
 
         self.assertEqual(result["status"], "completed")
-        self.assertEqual(result["classCount"], 2)
+        self.assertIsNone(result["classCount"])
+        self.assertIsNone(result["javaClassCount"])
         self.assertTrue(result["truncated"])
         self.assertEqual(result["returnedUnits"], 1)
         self.assertIn("indexed the first 2", result["warnings"])

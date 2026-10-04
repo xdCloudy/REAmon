@@ -76,6 +76,20 @@ describe('WorkspaceCodeVisualizer', () => {
     expect(screen.getByText(/Partial index\. This bar shows indexed coverage/)).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Run decompilation again' })).toHaveAttribute('href', '#analysis-next-step')
   })
+  test('does not show a percentage when the analyzer reached its scan limit', async () => {
+    const partialRun = {
+      id: 'run-unknown-count', title: 'Limited JADX run', createdAt: '2026-10-04T00:00:00.000Z', completedAt: '2026-10-04T00:01:00.000Z', artifactName: 'app.apk', codeUnitCount: 5000, unitLabel: 'classes', discoveredUnitCount: null,
+      returnedUnitCount: 5000, indexedUnitCount: 5000, linkPercent: null, codeBytes: 4096, truncated: true, warnings: 'Source scan stopped at its configured limit.', failedUnitCount: null, visitedUnitCount: null,
+    }
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({
+      units: [unit()], total: 5000, hasMore: false, runs: [partialRun], selectedRunId: partialRun.id,
+    }) }))
+    renderVisualizer({ decompilationHref: '#analysis-next-step' })
+
+    expect(await screen.findByText('5,000 classes indexed')).toBeInTheDocument()
+    expect(screen.queryByRole('progressbar', { name: 'Indexed code unit coverage' })).not.toBeInTheDocument()
+    expect(screen.getByText('Partial index; the analyzer could not determine the total class count.')).toBeInTheDocument()
+  })
   test('offers a direct route to decompilation when an artifact is ready but has no code units', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ units: [], total: 0, hasMore: false }) }))
     renderVisualizer({ decompilationHref: '#analysis-next-step' })
