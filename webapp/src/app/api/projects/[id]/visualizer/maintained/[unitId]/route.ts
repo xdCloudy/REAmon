@@ -7,6 +7,7 @@ import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
 import { getActiveWorkspaceImportSelection } from '@/lib/reamon/inventory-query'
 import { derivedArtifactRoot, resolveDerivedArtifactPath } from '@/lib/reamon/derived-storage'
 import { MAINTAINED_SOURCE_OBSERVATION_SOURCE, MAINTAINED_SOURCE_OBSERVATION_TYPE } from '@/lib/reamon/code-units'
+import { extractMaintainedSymbols } from '@/lib/reamon/maintenance-memory'
 
 interface RouteParams { params: Promise<{ id: string; unitId: string }> }
 const MAX_SOURCE_BYTES = 512 * 1024
@@ -68,6 +69,23 @@ export async function GET(request: Request, { params }: RouteParams) {
     const resolved = await resolveUnit(projectId, unitId)
     if ('response' in resolved) return resolved.response
     const { absolute, fileRealPath } = await checkedPath(resolved.relativePath)
+    const savedSource = await prisma.reamonMaintainedSource.findUnique({
+      where: { projectId_codeUnitId: { projectId, codeUnitId: unitId } },
+      select: { sourceCode: true, updatedAt: true },
+    })
+    if (savedSource) {
+      if (new URL(request.url).searchParams.get('download') === '1') {
+        return new NextResponse(savedSource.sourceCode, {
+          headers: {
+            'Cache-Control': 'private, no-store',
+            'Content-Type': 'text/plain; charset=utf-8',
+            'Content-Disposition': `attachment; filename="${safeFileName(path.basename(absolute))}"`,
+            'X-Content-Type-Options': 'nosniff',
+          },
+        })
+      }
+      return NextResponse.json({ exists: true, sourceCode: savedSource.sourceCode, updatedAt: savedSource.updatedAt.toISOString() }, { headers: { 'Cache-Control': 'private, no-store' } })
+    }
     if (!fileRealPath) return NextResponse.json({ exists: false, sourceCode: null }, { headers: { 'Cache-Control': 'private, no-store' } })
     const info = await stat(fileRealPath)
     if (!info.isFile() || info.size > MAX_SOURCE_BYTES) return NextResponse.json({ error: 'Maintained source exceeds the view limit' }, { status: 413 })
@@ -153,6 +171,28 @@ export async function PUT(request: Request, { params }: RouteParams) {
         canonicalKey: `maintained-source:${resolved.artifactId}:${resolved.unitId}`,
         label,
         attributes: { unitId: resolved.unitId, relativePath: resolved.relativePath, updatedAt: now },
+      },
+    })
+    const language = typeof attributes.language === 'string' ? attributes.language.slice(0, 80) : 'unknown'
+    await prisma.reamonMaintainedSource.upsert({
+      where: { projectId_codeUnitId: { projectId, codeUnitId: resolved.unitId } },
+      update: {
+        artifactId: resolved.artifactId,
+        unitName: label,
+        language,
+        sourceCode,
+        symbolIndex: extractMaintainedSymbols(sourceCode),
+        relativePath: resolved.relativePath,
+      },
+      create: {
+        projectId,
+        artifactId: resolved.artifactId,
+        codeUnitId: resolved.unitId,
+        unitName: label,
+        language,
+        sourceCode,
+        symbolIndex: extractMaintainedSymbols(sourceCode),
+        relativePath: resolved.relativePath,
       },
     })
     return NextResponse.json({

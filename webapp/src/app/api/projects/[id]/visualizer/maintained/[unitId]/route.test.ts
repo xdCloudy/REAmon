@@ -5,10 +5,12 @@ import path from 'node:path'
 
 const h = vi.hoisted(() => ({
   user: vi.fn(), access: vi.fn(), selection: vi.fn(), observation: vi.fn(), upsert: vi.fn(), artifact: vi.fn(), root: vi.fn(), resolvePath: vi.fn(),
+  maintainedFindUnique: vi.fn(), maintainedUpsert: vi.fn(),
 }))
 
 vi.mock('@/lib/prisma', () => ({ default: {
   reamonObservation: { findFirst: h.observation, upsert: h.upsert },
+  reamonMaintainedSource: { findUnique: h.maintainedFindUnique, upsert: h.maintainedUpsert },
   artifact: { findFirst: h.artifact },
 } }))
 vi.mock('@/lib/access', () => ({ requireEffectiveUser: h.user, requireProjectAccess: h.access }))
@@ -30,6 +32,8 @@ beforeEach(async () => {
     attributes: { language: 'Java', codeArtifactId: 'project-1/artifact-1/run/source/Main.java' },
   })
   h.upsert.mockResolvedValue({})
+  h.maintainedFindUnique.mockResolvedValue(null)
+  h.maintainedUpsert.mockResolvedValue({})
   h.artifact.mockResolvedValue({ id: 'artifact-1' })
   testRoot = await mkdtemp(path.join(os.tmpdir(), 'reamon-maintained-'))
   h.root.mockReturnValue(testRoot)
@@ -65,12 +69,29 @@ describe('/api/projects/[id]/visualizer/maintained/[unitId]', () => {
       where: { projectId_source_stableKey: { projectId: 'project-1', source: 'reamon-maintained-source', stableKey: 'unit-1' } },
       create: expect.objectContaining({ type: 'maintained_source', artifactId: 'artifact-1' }),
     }))
+    expect(h.maintainedUpsert).toHaveBeenCalledWith(expect.objectContaining({
+      where: { projectId_codeUnitId: { projectId: 'project-1', codeUnitId: 'unit-1' } },
+      create: expect.objectContaining({
+        projectId: 'project-1', artifactId: 'artifact-1', codeUnitId: 'unit-1',
+        unitName: 'app.Main', language: 'Java', sourceCode: 'class Main { String name; }',
+        symbolIndex: ['Main'],
+      }),
+    }))
 
     const view = await GET(new Request('http://localhost'), routeParams)
     expect(await view.json()).toMatchObject({ exists: true, sourceCode: 'class Main { String name; }' })
     const download = await GET(new Request('http://localhost?download=1'), routeParams)
     expect(await download.text()).toBe('class Main { String name; }')
     expect(download.headers.get('Content-Disposition')).toMatch(/attachment; filename=/)
+  })
+
+  it('serves the database copy as the saved source of truth', async () => {
+    const updatedAt = new Date('2026-10-04T12:00:00Z')
+    h.maintainedFindUnique.mockResolvedValueOnce({ sourceCode: 'class Main { void run() {} }', updatedAt })
+
+    const response = await GET(new Request('http://localhost'), routeParams)
+
+    expect(await response.json()).toMatchObject({ exists: true, sourceCode: 'class Main { void run() {} }', updatedAt: updatedAt.toISOString() })
   })
 
   it('does not save source units linked outside the active artifact', async () => {

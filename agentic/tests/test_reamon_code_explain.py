@@ -101,6 +101,7 @@ def test_code_deobfuscation_returns_complete_source_and_uses_exact_provider(api,
         response = TestClient(api.app).post('/reamon/code/deobfuscate', json={
             'model': 'custom/provider-1', 'user_id': 'user-1', 'unit_name': 'Example',
             'language': 'Java', 'source_code': 'class Example { String read(String a) { String value = a; return value; } }',
+            'project_symbol_context': 'example.AccountStore (Java): loadAccount, saveAccount',
         })
 
     assert response.status_code == 200, response.text
@@ -110,6 +111,8 @@ def test_code_deobfuscation_returns_complete_source_and_uses_exact_provider(api,
     assert 'preserve' in llm.messages[0].content.lower()
     assert 'DECOMPILED_SOURCE' in llm.messages[1].content
     assert 'never output these files' in llm.messages[1].content
+    assert 'PROJECT_SYMBOL_INDEX' in llm.messages[1].content
+    assert 'loadAccount, saveAccount' in llm.messages[1].content
     assert 'simplify compiler or decompiler artifacts' in llm.messages[0].content
 
 

@@ -6,10 +6,14 @@ import os from 'node:os'
 import path from 'node:path'
 
 const h = vi.hoisted(() => ({
-  user: vi.fn(), access: vi.fn(), selection: vi.fn(), task: vi.fn(), observations: vi.fn(), root: vi.fn(), resolvePath: vi.fn(),
+  user: vi.fn(), access: vi.fn(), selection: vi.fn(), task: vi.fn(), observations: vi.fn(), root: vi.fn(), resolvePath: vi.fn(), maintainedSources: vi.fn(),
 }))
 
-vi.mock('@/lib/prisma', () => ({ default: { task: { findFirst: h.task }, reamonObservation: { findMany: h.observations } } }))
+vi.mock('@/lib/prisma', () => ({ default: {
+  task: { findFirst: h.task },
+  reamonObservation: { findMany: h.observations },
+  reamonMaintainedSource: { findMany: h.maintainedSources },
+} }))
 vi.mock('@/lib/access', () => ({ requireEffectiveUser: h.user, requireProjectAccess: h.access }))
 vi.mock('@/lib/reamon/inventory-query', () => ({ getActiveWorkspaceImportSelection: h.selection }))
 vi.mock('@/lib/reamon/derived-storage', () => ({ derivedArtifactRoot: h.root, resolveDerivedArtifactPath: h.resolvePath }))
@@ -32,6 +36,10 @@ beforeEach(async () => {
       qualifiedName: 'com.example.Main', language: 'Java',
       codeArtifactId: 'project-1/artifact-1/task-1/run-1/sources/com/example/Main.java',
     } }])
+  h.maintainedSources.mockResolvedValue([{
+    codeUnitId: 'unit-1', artifactId: 'artifact-1', sourceCode: 'package com.example;\npublic class DatabaseMaintained { }\n',
+    updatedAt: new Date('2026-10-04T00:00:00.000Z'),
+  }])
   testRoot = await mkdtemp(path.join(os.tmpdir(), 'reamon-source-bundle-'))
   h.root.mockReturnValue(testRoot)
   h.resolvePath.mockImplementation((relativePath: string) => path.join(testRoot, relativePath))
@@ -64,7 +72,7 @@ describe('GET /api/projects/[id]/visualizer/maintained/export', () => {
     }
 
     expect(decompiled).toContain('class a')
-    expect(maintained).toContain('class Main')
+    expect(maintained).toContain('class DatabaseMaintained')
     expect(await zip.file('README.txt')?.async('string')).toContain('decompiled/ contains the analyzer output')
     expect(manifest).toMatchObject({ codeUnitCount: 1, decompiledFiles: 1, maintainedFiles: 1, skippedFiles: 0 })
     expect(manifest.files[0]).toMatchObject({

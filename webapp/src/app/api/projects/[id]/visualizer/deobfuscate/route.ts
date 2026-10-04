@@ -6,6 +6,7 @@ import { AgentUnreachableError, agentFetch } from '@/lib/agentFetch'
 import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
 import { getActiveWorkspaceImportSelection } from '@/lib/reamon/inventory-query'
 import { derivedArtifactRoot, resolveDerivedArtifactPath } from '@/lib/reamon/derived-storage'
+import { buildProjectSymbolContext } from '@/lib/reamon/maintenance-memory'
 
 interface RouteParams { params: Promise<{ id: string }> }
 interface DeobfuscateBody { unitId?: unknown; providerId?: unknown; question?: unknown }
@@ -111,19 +112,36 @@ export async function POST(request: Request, { params }: RouteParams) {
     const references = classReferencesOf(attributes.classReferences).filter((name) => name !== unitName)
     const relatedRows = references.length ? await prisma.reamonObservation.findMany({
       where: { projectId, artifactId: artifact.id, type: 'code_unit', label: { in: references } },
-      select: { label: true, attributes: true },
+      select: { id: true, label: true, attributes: true },
       orderBy: { updatedAt: 'desc' },
       take: 1000,
     }) : []
     const relatedByName = new Map<string, Record<string, unknown>>()
+    const relatedUnitIdByName = new Map<string, string>()
     for (const row of relatedRows) {
       const name = row.label || ''
       const relatedAttributes = plainObject(row.attributes)
       const relatedArtifactId = typeof relatedAttributes.codeArtifactId === 'string' ? relatedAttributes.codeArtifactId : ''
       if (references.includes(name) && relatedArtifactId.startsWith(runPrefix) && !relatedByName.has(name)) {
         relatedByName.set(name, relatedAttributes)
+        relatedUnitIdByName.set(name, row.id)
       }
     }
+    const relatedUnitIds = [...relatedUnitIdByName.values()]
+    const [maintainedRelatedRows, projectSymbolRows] = await Promise.all([
+      relatedUnitIds.length ? prisma.reamonMaintainedSource.findMany({
+        where: { projectId, codeUnitId: { in: relatedUnitIds } },
+        select: { codeUnitId: true, unitName: true, language: true, sourceCode: true },
+        orderBy: { updatedAt: 'desc' },
+      }) : Promise.resolve([]),
+      prisma.reamonMaintainedSource.findMany({
+        where: { projectId },
+        select: { unitName: true, language: true, symbolIndex: true },
+        orderBy: { updatedAt: 'desc' },
+      }),
+    ])
+    const maintainedByUnitId = new Map(maintainedRelatedRows.map((row) => [row.codeUnitId, row]))
+    const projectSymbolContext = buildProjectSymbolContext(projectSymbolRows, new Set(references))
     const contextSources: Array<{ unit_name: string; language: string; source_code: string }> = []
     let contextBytes = 0
     for (const name of references) {
@@ -131,6 +149,18 @@ export async function POST(request: Request, { params }: RouteParams) {
       const relatedAttributes = relatedByName.get(name)
       const relatedArtifactId = typeof relatedAttributes?.codeArtifactId === 'string' ? relatedAttributes.codeArtifactId : ''
       if (!relatedArtifactId.startsWith(runPrefix) || !relatedArtifactId.includes('/sources/')) continue
+      const relatedUnitId = relatedUnitIdByName.get(name)
+      const maintainedSource = relatedUnitId ? maintainedByUnitId.get(relatedUnitId) : undefined
+      if (maintainedSource?.sourceCode.trim()) {
+        const source = maintainedSource.sourceCode.slice(0, MAX_CONTEXT_BYTES - contextBytes)
+        contextSources.push({
+          unit_name: `${name} (saved maintained version: ${maintainedSource.unitName})`,
+          language: maintainedSource.language.slice(0, 80),
+          source_code: source,
+        })
+        contextBytes += Buffer.byteLength(source, 'utf8')
+        continue
+      }
       const relatedPath = resolveDerivedArtifactPath(relatedArtifactId)
       try {
         const safeRelatedPath = await realpath(relatedPath)
@@ -181,6 +211,7 @@ export async function POST(request: Request, { params }: RouteParams) {
         source_code: bytes.toString('utf8'),
         context_sources: contextSources,
         disassembly_source: disassemblySource,
+        project_symbol_context: projectSymbolContext,
         question: typeof body.question === 'string' ? body.question.trim() : '',
       }),
     }, { timeoutMs })

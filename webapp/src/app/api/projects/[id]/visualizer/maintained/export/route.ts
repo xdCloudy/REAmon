@@ -109,6 +109,11 @@ export async function GET(request: Request, { params }: RouteParams) {
       select: { stableKey: true, artifactId: true, updatedAt: true },
     })
     const maintainedByUnit = new Map(maintainedRows.map((row) => [row.stableKey, row]))
+    const maintainedSourceRows = await prisma.reamonMaintainedSource.findMany({
+      where: { projectId, codeUnitId: { in: codeUnits.map((unit) => unit.id) } },
+      select: { codeUnitId: true, artifactId: true, sourceCode: true, updatedAt: true },
+    })
+    const maintainedSourceByUnit = new Map(maintainedSourceRows.map((row) => [row.codeUnitId, row]))
     const storageRoot = await realpath(derivedArtifactRoot())
     const archive = archiver('zip', { zlib: { level: 6 } })
     const manifestEntries: Array<Record<string, unknown>> = []
@@ -170,6 +175,7 @@ export async function GET(request: Request, { params }: RouteParams) {
       let maintainedArchivePath: string | null = null
       let maintainedBytes = 0
       const maintained = maintainedByUnit.get(unit.id)
+      const maintainedSource = maintainedSourceByUnit.get(unit.id)
       if (maintained) {
         if (maintained.artifactId !== task.artifactId) {
           maintainedStatus = 'skipped'
@@ -178,14 +184,22 @@ export async function GET(request: Request, { params }: RouteParams) {
         } else {
           const relativeMaintainedPath = `${projectId}/maintained/${createHash('sha256').update(unit.id).digest('hex')}-${safeSourceName(originalPath)}`
           try {
-            const safeMaintainedPath = await realpath(resolveDerivedArtifactPath(relativeMaintainedPath))
-            if (!isInside(storageRoot, safeMaintainedPath)) throw new Error('Maintained source path is outside storage.')
-            const maintainedInfo = await stat(safeMaintainedPath)
-            if (!maintainedInfo.isFile() || maintainedInfo.size > MAX_SOURCE_BYTES) throw new Error('Maintained source is missing or exceeds the 2 MiB per-file export limit.')
-            maintainedBytes = maintainedInfo.size
+            let maintainedContent: Buffer | string
+            if (maintainedSource?.artifactId === task.artifactId) {
+              maintainedContent = maintainedSource.sourceCode
+              maintainedBytes = Buffer.byteLength(maintainedContent, 'utf8')
+            } else {
+              const safeMaintainedPath = await realpath(resolveDerivedArtifactPath(relativeMaintainedPath))
+              if (!isInside(storageRoot, safeMaintainedPath)) throw new Error('Maintained source path is outside storage.')
+              const maintainedInfo = await stat(safeMaintainedPath)
+              if (!maintainedInfo.isFile() || maintainedInfo.size > MAX_SOURCE_BYTES) throw new Error('Maintained source is missing or exceeds the 2 MiB per-file export limit.')
+              maintainedBytes = maintainedInfo.size
+              maintainedContent = await readFile(safeMaintainedPath)
+            }
+            if (maintainedBytes > MAX_SOURCE_BYTES) throw new Error('Maintained source exceeds the 2 MiB per-file export limit.')
             if (totalSourceBytes + maintainedBytes > MAX_ARCHIVE_SOURCE_BYTES) throw new Error('The 512 MiB archive source limit was reached.')
             maintainedArchivePath = uniqueArchivePath(maintainedPath, unit.id, maintainedArchivePaths)
-            archive.file(safeMaintainedPath, { name: maintainedArchivePath })
+            archive.append(maintainedContent, { name: maintainedArchivePath })
             totalSourceBytes += maintainedBytes
             maintainedFiles += 1
             maintainedStatus = 'exported'
@@ -208,7 +222,9 @@ export async function GET(request: Request, { params }: RouteParams) {
         maintainedPath: maintainedStatus === 'exported' ? maintainedArchivePath : null,
         maintainedStatus,
         ...(maintainedReason ? { maintainedReason } : {}),
-        updatedAt: maintained?.updatedAt instanceof Date ? maintained.updatedAt.toISOString() : maintained?.updatedAt || null,
+        updatedAt: maintainedSource?.updatedAt instanceof Date
+          ? maintainedSource.updatedAt.toISOString()
+          : maintained?.updatedAt instanceof Date ? maintained.updatedAt.toISOString() : maintained?.updatedAt || null,
         decompiledBytes: decompiledStatus === 'exported' ? originalBytes : null,
         maintainedBytes: maintainedStatus === 'exported' ? maintainedBytes : null,
       })

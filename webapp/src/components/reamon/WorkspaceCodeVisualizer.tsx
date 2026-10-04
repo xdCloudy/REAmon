@@ -863,7 +863,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
         {selectedUnit && selectedSourceUrl && <section className={styles.maintainPanel} aria-labelledby="code-maintain-heading">
           <div>
             <h3 id="code-maintain-heading"><WandSparkles size={16} /> Reverse engineer into maintainable code</h3>
-            <p>Use the decompiled source, related classes, and bytecode to recover intent, meaningful names, and clearer source structure. The AI can simplify compiler and decompiler artifacts while preserving expected behavior. Review and edit the reconstructed copy before saving; the original decompilation stays intact.</p>
+            <p>Use the decompiled source, related classes, bytecode, and names from previously saved maintained code across this project to recover intent and build consistent, clearer source. Review and edit the reconstructed copy before saving; the original decompilation stays intact.</p>
           </div>
           {explanationProvidersQuery.isLoading && <p className={styles.message}>Loading saved providers…</p>}
           {explanationProvidersQuery.isError && <p className={styles.error}>Could not load saved AI providers.</p>}
