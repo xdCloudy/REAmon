@@ -32,6 +32,21 @@ interface CodeUnitResponse {
   selectedRunId: string | null
 }
 
+interface CallGraphNode {
+  key: string
+  label: string
+  address: string | null
+  codeUnit: CodeUnit | null
+  isFocus: boolean
+}
+
+interface CallGraphResponse {
+  focusKey: string
+  nodes: CallGraphNode[]
+  edges: Array<{ id: string; fromKey: string; toKey: string; label: string }>
+  truncated: boolean
+}
+
 interface CodeExplanationProvider { id: string; name: string; modelIdentifier: string }
 interface CodeExplanationResponse { explanation: string; providerName: string; model: string; sourceTruncated: boolean }
 
@@ -44,6 +59,16 @@ async function fetchCodeUnits(projectId: string, taskId: string | null, cursor: 
   const query = params.size ? `?${params.toString()}` : ''
   const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer${query}`, { signal, cache: 'no-store' })
   if (!response.ok) throw new Error('Unable to load code units')
+  return response.json()
+}
+
+async function fetchCallGraph(projectId: string, taskId: string, unitId: string, signal?: AbortSignal): Promise<CallGraphResponse> {
+  const params = new URLSearchParams({ taskId, unitId })
+  const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/callgraph?${params.toString()}`, { signal, cache: 'no-store' })
+  if (!response.ok) {
+    const detail = await response.json().catch(() => null) as { error?: string } | null
+    throw new Error(detail?.error || 'Unable to load this function call graph')
+  }
   return response.json()
 }
 
@@ -93,10 +118,69 @@ function shortenLabel(value: string, width: number): string {
   return value.length > maxCharacters ? `${value.slice(0, maxCharacters - 1)}…` : value
 }
 
+function CallGraphPanel({ focusUnit, graph, isLoading, isError, error, onSelectUnit }: {
+  focusUnit: CodeUnit
+  graph: CallGraphResponse | undefined
+  isLoading: boolean
+  isError: boolean
+  error: string
+  onSelectUnit: (unit: CodeUnit) => void
+}) {
+  const nodeByKey = new Map((graph?.nodes || []).map((node) => [node.key, node]))
+  const incoming = (graph?.edges || []).filter((edge) => edge.toKey === graph?.focusKey)
+  const outgoing = (graph?.edges || []).filter((edge) => edge.fromKey === graph?.focusKey)
+  const maxVisible = 8
+
+  function nodeControl(node: CallGraphNode | undefined, fallbackLabel: string, isFocus = false) {
+    if (!node) return <span className={styles.graphExternal}>{fallbackLabel}<small>Function unavailable</small></span>
+    if (isFocus) return <span className={`${styles.graphNode} ${styles.graphFocus}`}><strong>{node.label}</strong>{node.address && <small>{node.address}</small>}</span>
+    if (node.codeUnit) return <button type="button" className={styles.graphNode} onClick={() => onSelectUnit(node.codeUnit as CodeUnit)} aria-label={`Open function ${node.label}`}>
+      <strong>{node.label}</strong>{node.address && <small>{node.address}</small>}
+    </button>
+    return <span className={styles.graphExternal} title="External or not decompiled in this run"><strong>{node.label}</strong><small>{node.address || 'External or not decompiled'}</small></span>
+  }
+
+  return <section className={styles.callGraph} aria-labelledby="call-graph-heading">
+    <div className={styles.callGraphHeader}>
+      <div><h3 id="call-graph-heading">Function call graph</h3><p>Direct callers and callees from this Ghidra run. Select a linked function to open its code.</p></div>
+      <span className={styles.graphBadge}>Ghidra</span>
+    </div>
+    {isLoading && <p className={styles.message}>Loading function relationships…</p>}
+    {isError && <p className={styles.error} role="alert">{error}</p>}
+    {!isLoading && !isError && graph && incoming.length === 0 && outgoing.length === 0 && <p className={styles.message}>No direct call relationships were recorded for this function.</p>}
+    {!isLoading && !isError && graph && (incoming.length > 0 || outgoing.length > 0) && <div className={styles.graphGroups}>
+      {incoming.length > 0 && <div className={styles.graphGroup}>
+        <h4>Called by</h4>
+        <div className={styles.graphEdges}>
+          {incoming.slice(0, maxVisible).map((edge) => <div className={styles.graphEdge} key={edge.id}>
+            {nodeControl(nodeByKey.get(edge.fromKey), edge.fromKey)}
+            <span className={styles.graphArrow} aria-label="calls">→</span>
+            {nodeControl(nodeByKey.get(edge.toKey), focusUnit.name, true)}
+          </div>)}
+        </div>
+        {incoming.length > maxVisible && <p className={styles.message}>Showing {maxVisible} of {incoming.length} callers.</p>}
+      </div>}
+      {outgoing.length > 0 && <div className={styles.graphGroup}>
+        <h4>Calls</h4>
+        <div className={styles.graphEdges}>
+          {outgoing.slice(0, maxVisible).map((edge) => <div className={styles.graphEdge} key={edge.id}>
+            {nodeControl(nodeByKey.get(edge.fromKey), focusUnit.name, true)}
+            <span className={styles.graphArrow} aria-label="calls">→</span>
+            {nodeControl(nodeByKey.get(edge.toKey), edge.toKey)}
+          </div>)}
+        </div>
+        {outgoing.length > maxVisible && <p className={styles.message}>Showing {maxVisible} of {outgoing.length} called functions.</p>}
+      </div>}
+      {graph.truncated && <p className={styles.message}>This function has more relationships than the graph response limit; showing the first results.</p>}
+    </div>}
+  </section>
+}
+
 export function WorkspaceCodeVisualizer({ projectId, isAnalyzing }: { projectId: string; isAnalyzing: boolean }) {
   const [filter, setFilter] = useState('')
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [graphUnit, setGraphUnit] = useState<CodeUnit | null>(null)
   const [copyStatus, setCopyStatus] = useState('')
   const [assemblyCopyStatus, setAssemblyCopyStatus] = useState('')
   const [providerId, setProviderId] = useState('')
@@ -131,6 +215,14 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing }: { projectId:
   const rectangles = useMemo(() => layoutCodeUnitTreemap(visibleUnits, 1200, 560), [visibleUnits])
   const summary = useMemo(() => summarizeCodeUnits(visibleUnits), [visibleUnits])
   const selectedUnit = visibleUnits.find((unit) => unit.id === selectedId)
+    || (graphUnit?.id === selectedId ? graphUnit : undefined)
+  const callGraphQuery = useQuery({
+    queryKey: ['reamon-callgraph', projectId, currentRunId, selectedUnit?.id],
+    queryFn: ({ signal }) => fetchCallGraph(projectId, currentRunId as string, selectedUnit?.id as string, signal),
+    enabled: Boolean(currentRunId && selectedUnit?.source === 'reamon-ghidra' && selectedUnit.unitType === 'function'),
+    staleTime: 30_000,
+    gcTime: 60_000,
+  })
   const selectedSourceUrl = selectedUnit ? artifactUrl(projectId, selectedUnit, selectedUnit.codeArtifactId) : null
   const selectedDisassemblyUrl = selectedUnit ? artifactUrl(projectId, selectedUnit, selectedUnit.disassemblyArtifactId) : null
   const sourceQuery = useQuery({
@@ -196,6 +288,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing }: { projectId:
     setAdditionalPage(null)
     setLoadMoreError('')
     setSelectedId(null)
+    setGraphUnit(null)
     setCopyStatus('')
     setAssemblyCopyStatus('')
     setExplanation(null)
@@ -315,11 +408,12 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing }: { projectId:
                 role="button"
                 tabIndex={0}
                 aria-label={`${unit.name}, ${formatBytes(unit.sizeBytes)}, ${coverage}${unit.address ? `, address ${unit.address}` : ''}`}
-                onClick={() => { setSelectedId(unit.id); setCopyStatus(''); setAssemblyCopyStatus(''); setExplanation(null); setExplainError('') }}
+                onClick={() => { setSelectedId(unit.id); setGraphUnit(null); setCopyStatus(''); setAssemblyCopyStatus(''); setExplanation(null); setExplainError('') }}
                 onKeyDown={(event) => {
                   if (event.key === 'Enter' || event.key === ' ') {
                     event.preventDefault()
                     setSelectedId(unit.id)
+                    setGraphUnit(null)
                     setCopyStatus('')
                     setExplanation(null)
                     setExplainError('')
@@ -355,6 +449,21 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing }: { projectId:
               ><ExternalLink size={14} /> Open code separately</a>
             : <p className={styles.message}>This provider has not attached a viewable code artifact to the unit.</p>}
         </div>}
+        {selectedUnit?.source === 'reamon-ghidra' && selectedUnit.unitType === 'function' && <CallGraphPanel
+          focusUnit={selectedUnit}
+          graph={callGraphQuery.data}
+          isLoading={callGraphQuery.isLoading}
+          isError={callGraphQuery.isError}
+          error={callGraphQuery.error instanceof Error ? callGraphQuery.error.message : 'Unable to load this function call graph'}
+          onSelectUnit={(unit) => {
+            setGraphUnit(unit)
+            setSelectedId(unit.id)
+            setCopyStatus('')
+            setAssemblyCopyStatus('')
+            setExplanation(null)
+            setExplainError('')
+          }}
+        />}
         {selectedUnit && selectedSourceUrl && <section className={styles.sourcePanel} aria-label={selectedDisassemblyUrl ? 'Decompilation and disassembly comparison' : (selectedUnit.language === 'WebAssembly Text (WAT)' ? 'WAT disassembly' : isDisassemblyUnit(selectedUnit) ? 'Smali disassembly' : 'Decompiled source')}>
           {selectedDisassemblyUrl ? <div className={styles.comparison}>
             <div className={styles.listingPane}>

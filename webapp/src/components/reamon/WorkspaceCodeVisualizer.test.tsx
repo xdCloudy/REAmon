@@ -90,6 +90,46 @@ describe('WorkspaceCodeVisualizer', () => {
     await waitFor(() => expect(screen.queryByRole('button', { name: /app\.MainActivity\.onCreate/ })).toBeNull())
   })
 
+  test('opens a Ghidra callee from the call graph even when it is outside the loaded treemap page', async () => {
+    const main = unit({
+      id: 'native-main', name: 'main', address: '0x1000', language: 'C', unitType: 'function', source: 'reamon-ghidra',
+      codeArtifactId: 'project-1/artifact-1/native-run/sources/main.c',
+    })
+    const helper = unit({
+      id: 'native-helper', name: 'helper', address: '0x1080', language: 'C', unitType: 'function', source: 'reamon-ghidra',
+      codeArtifactId: 'project-1/artifact-1/native-run/sources/helper.c',
+    })
+    const run = { id: 'native-run', title: 'Ghidra run', createdAt: '2026-10-04T00:00:00.000Z', completedAt: '2026-10-04T00:01:00.000Z', artifactName: 'program', codeUnitCount: 2, unitLabel: 'functions', discoveredUnitCount: 2, returnedUnitCount: 2, indexedUnitCount: 2, linkPercent: 100, codeBytes: 2048, truncated: false, warnings: '', failedUnitCount: null, visitedUnitCount: 2 }
+    const fetchMock = vi.fn((input: string) => {
+      if (input.includes('/visualizer/callgraph')) {
+        const helperFocus = input.includes('unitId=native-helper')
+        return Promise.resolve({
+          ok: true,
+          json: async () => helperFocus
+            ? { focusKey: 'key-helper', nodes: [{ key: 'key-helper', label: 'helper', address: '0x1080', codeUnit: helper, isFocus: true }], edges: [], truncated: false }
+            : { focusKey: 'key-main', nodes: [
+                { key: 'key-main', label: 'main', address: '0x1000', codeUnit: main, isFocus: true },
+                { key: 'key-helper', label: 'helper', address: '0x1080', codeUnit: helper, isFocus: false },
+              ], edges: [{ id: 'edge-main-helper', fromKey: 'key-main', toKey: 'key-helper', label: 'main calls helper' }], truncated: false },
+        })
+      }
+      if (input.includes('/visualizer/providers')) return Promise.resolve({ ok: true, json: async () => ({ providers: [] }) })
+      if (input.includes('/decompiled/')) return Promise.resolve({ ok: true, text: async () => 'return 7;' })
+      return Promise.resolve({ ok: true, json: async () => ({ units: [main], total: 2, hasMore: true, nextCursor: 'native-main', runs: [run], selectedRunId: 'native-run' }) })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderVisualizer()
+
+    fireEvent.click(await screen.findByRole('button', { name: /main,/ }))
+    const graph = await screen.findByRole('region', { name: 'Function call graph' })
+    fireEvent.click(await within(graph).findByRole('button', { name: 'Open function helper' }))
+
+    expect(await screen.findByText('Selected code unit')).toBeInTheDocument()
+    expect(screen.getAllByText('helper').length).toBeGreaterThan(0)
+    expect(await screen.findByText('return 7;')).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/visualizer/callgraph?taskId=native-run&unitId=native-helper'), expect.any(Object))
+  })
+
   test('loads the next batch of code units within the selected run', async () => {
     const first = unit({ id: 'unit-first', name: 'app.first' })
     const second = unit({ id: 'unit-second', name: 'app.second', codeArtifactId: null })
