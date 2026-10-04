@@ -11,7 +11,7 @@ PORT = int(os.environ.get("PORT", "8010"))
 TIMEOUT_SECONDS = min(1200, max(60, int(os.environ.get("JADX_TIMEOUT_SECONDS", "900"))))
 MAX_OUTPUT_BYTES = min(1024**3, max(1024**2, int(os.environ.get("JADX_MAX_OUTPUT_BYTES", str(512 * 1024**2)))))
 MAX_SOURCE_FILES = min(10000, max(1, int(os.environ.get("JADX_MAX_SOURCE_FILES", "5000"))))
-MAX_RETURNED_UNITS = min(500, max(1, int(os.environ.get("JADX_MAX_RETURNED_UNITS", "500"))))
+MAX_RETURNED_UNITS = min(5000, max(1, int(os.environ.get("JADX_MAX_RETURNED_UNITS", "5000"))))
 SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
 PACKAGE_PATTERN = re.compile(r"^\s*package\s+([A-Za-z0-9_.$]+)\s*;", re.MULTILINE)
 TYPE_PATTERN = re.compile(r"\b(?:class|interface|enum|record)\s+([A-Za-z_$][A-Za-z0-9_$]*)")
@@ -130,7 +130,7 @@ def analyse(body, cancel_check=lambda: False):
                         raise AnalysisError("JADX could not be started") from error
                     stderr_file.flush()
                 log_text = stderr_path.read_bytes()[-4096:].decode("utf-8", errors="replace").strip()
-                raw_sources, _, source_scan_truncated = source_files(output) if output.exists() else ([], 0, False)
+                raw_sources, total_source_bytes, source_scan_truncated = source_files(output) if output.exists() else ([], 0, False)
                 if not raw_sources:
                     raise AnalysisError(log_text or "JADX produced no Java source files")
                 sources_root = run_root / "sources"
@@ -164,6 +164,7 @@ def analyse(body, cancel_check=lambda: False):
                 elif return_code:
                     warnings.append(f"JADX exited with code {return_code}.")
                 return {"status": "completed", "toolVersion": "1.5.6", "classCount": total_files,
+                        "codeBytes": total_source_bytes,
                         "returnedUnits": len(returned), "truncated": source_scan_truncated or total_files > len(returned),
                         "units": returned, "warnings": " ".join(warnings)}
         except AnalysisError:

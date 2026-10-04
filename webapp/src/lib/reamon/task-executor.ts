@@ -4,7 +4,7 @@ import prisma from '@/lib/prisma'
 import { getBuiltinProvider } from './provider-registry'
 import { resolveCapabilities } from './capabilities'
 import { resolveArtifactStoragePath } from './artifact-storage'
-import { ingestToolResult } from './result-ingestion'
+import { ingestToolResult, MAX_CODE_UNITS_PER_RESULT, MAX_OBSERVATIONS_PER_RESULT } from './result-ingestion'
 import { boundResultData } from './result-bounds'
 import { taskRequiresApproval } from './task-approval'
 import type { TargetProfile, ToolResult } from './types'
@@ -95,6 +95,16 @@ function boundedError(value: string): string {
   return value.trim().slice(0, 4000) || 'Provider execution failed'
 }
 
+function boundedTaskResultData(value: unknown): Prisma.InputJsonValue {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    const { observations, ...summary } = value as Record<string, unknown>
+    if (Array.isArray(observations)) {
+      return boundResultData({ ...summary, normalizedObservationCount: observations.length })
+    }
+  }
+  return boundResultData(value)
+}
+
 function heartbeatIntervalMs(): number {
   const raw = Number(process.env.REAMON_TASK_HEARTBEAT_SECONDS)
   const seconds = Number.isFinite(raw) ? Math.min(300, Math.max(5, Math.floor(raw))) : 60
@@ -151,7 +161,7 @@ async function settleTask(
   failure?: string,
 ): Promise<ExecutedAnalysisTask> {
   const error = boundedError(failure || result?.error || '')
-  const persistedResult = outcome === 'COMPLETED' && result ? boundResultData(result.data) : undefined
+  const persistedResult = outcome === 'COMPLETED' && result ? boundedTaskResultData(result.data) : undefined
   const completedAt = new Date()
   const updated = await prisma.$transaction(async (tx) => {
     const claim = await tx.task.updateMany({
@@ -191,6 +201,7 @@ async function settleTask(
         artifactId: task.artifactId,
         source: result.toolId,
         data: result.data,
+        maxObservations: result.capabilities.includes('decompile') ? MAX_CODE_UNITS_PER_RESULT : MAX_OBSERVATIONS_PER_RESULT,
       })
     }
     await tx.workspaceActivity.create({

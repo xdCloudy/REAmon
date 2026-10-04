@@ -39,8 +39,8 @@ describe('WorkspaceCodeVisualizer', () => {
         total: 1,
         hasMore: false,
         runs: [
-          { id: 'run-new', title: 'Latest analysis', createdAt: '2026-10-04T00:00:00.000Z', completedAt: '2026-10-04T00:01:00.000Z', artifactName: 'app.apk', codeUnitCount: 2 },
-          { id: 'run-old', title: 'Previous analysis', createdAt: '2026-10-03T00:00:00.000Z', completedAt: '2026-10-03T00:01:00.000Z', artifactName: 'app.apk', codeUnitCount: 1 },
+          { id: 'run-new', title: 'Latest analysis', createdAt: '2026-10-04T00:00:00.000Z', completedAt: '2026-10-04T00:01:00.000Z', artifactName: 'app.apk', codeUnitCount: 2, unitLabel: 'classes', discoveredUnitCount: 2, returnedUnitCount: 2, indexedUnitCount: 2, linkPercent: 100, codeBytes: 4096, truncated: false, warnings: '', failedUnitCount: null, visitedUnitCount: null },
+          { id: 'run-old', title: 'Previous analysis', createdAt: '2026-10-03T00:00:00.000Z', completedAt: '2026-10-03T00:01:00.000Z', artifactName: 'app.apk', codeUnitCount: 1, unitLabel: 'classes', discoveredUnitCount: 1, returnedUnitCount: 1, indexedUnitCount: 1, linkPercent: 100, codeBytes: 2048, truncated: false, warnings: '', failedUnitCount: null, visitedUnitCount: null },
         ],
         selectedRunId: older ? 'run-old' : 'run-new',
       }) })

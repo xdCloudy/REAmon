@@ -20,13 +20,14 @@ describe('Ghidra provider', () => {
 
   it('converts function exports into linked code-unit observations', async () => {
     vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({
-      status: 'completed', toolVersion: '12.1.4', functionCount: 1, returnedUnits: 1, truncated: false,
+      status: 'completed', toolVersion: '12.1.4', functionCount: 1, visitedFunctionCount: 2, failedFunctionCount: 1, codeBytes: 64, returnedUnits: 1, truncated: false,
       units: [{ name: 'main', address: 'ram:00401000', relativePath: 'functions/main.c', codeArtifactId: 'project-1/artifact-1/task-1/run-1/sources/functions/main.c', sizeBytes: 32 }],
       warnings: '',
     }), { status: 200, headers: { 'content-type': 'application/json' } }))
 
     const result = await executeGhidra(input)
     expect(result.status).toBe('completed')
+    expect(result.data).toMatchObject({ decompiledFunctionCount: 1, returnedFunctionCount: 1, visitedFunctionCount: 2, failedFunctionCount: 1, codeBytes: 64 })
     expect(result.data.observations).toMatchObject([{
       type: 'code_unit', key: expect.stringMatching(/^ghidra:function:[0-9a-f]{32}$/), label: 'main',
       attributes: { unitType: 'function', address: 'ram:00401000', language: 'C', sizeBytes: 32, decompiled: true },

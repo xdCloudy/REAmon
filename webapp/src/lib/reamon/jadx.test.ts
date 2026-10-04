@@ -22,7 +22,7 @@ describe('JADX process provider', () => {
 
     const result = await executeJadx(input)
 
-    expect(result).toMatchObject({ status: 'completed', toolId: 'reamon-jadx', data: { decompiledClassCount: 1, returnedClassCount: 1 } })
+    expect(result).toMatchObject({ status: 'completed', toolId: 'reamon-jadx', data: { decompiledClassCount: 1, returnedClassCount: 1, codeBytes: 4096 } })
     expect(result.data.observations).toEqual([expect.objectContaining({
       type: 'code_unit', key: expect.stringMatching(/^jadx:class:[0-9a-f]{32}$/), label: 'com.example.MainActivity',
       attributes: expect.objectContaining({ unitType: 'class', language: 'Java', sizeBytes: 4096, decompiled: true }),

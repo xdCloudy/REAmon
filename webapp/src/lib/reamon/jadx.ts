@@ -1,13 +1,14 @@
 import { createHash } from 'node:crypto'
 import type { ToolExecutionInput, ToolPlugin, ToolPluginManifest, ToolResult } from './types'
 
-const MAX_UNITS = 500
+const MAX_UNITS = 5000
 const DEFAULT_TIMEOUT_MS = 20 * 60_000
 
 interface JadxResponse {
   status: 'completed'
   toolVersion: string
   classCount: number
+  codeBytes?: number
   returnedUnits: number
   truncated: boolean
   units: Array<{ name: string; relativePath: string; codeArtifactId: string; sizeBytes: number }>
@@ -109,6 +110,7 @@ export async function executeJadx(input: ToolExecutionInput): Promise<ToolResult
         observations,
         decompiledClassCount: payload.classCount,
         returnedClassCount: observations.length,
+        codeBytes: typeof payload.codeBytes === 'number' && Number.isFinite(payload.codeBytes) ? Math.max(0, Math.floor(payload.codeBytes)) : observations.reduce((sum, observation) => sum + Number(observation.attributes.sizeBytes), 0),
         truncated: payload.truncated || payload.classCount > observations.length,
         jadxVersion: payload.toolVersion,
         warnings: payload.warnings?.slice(0, 4000) || '',

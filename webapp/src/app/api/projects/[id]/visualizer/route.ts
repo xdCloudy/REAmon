@@ -6,6 +6,14 @@ import { CODE_UNIT_OBSERVATION_TYPE, CODE_UNIT_QUERY_LIMIT, normalizeCodeUnit, s
 
 interface RouteParams { params: Promise<{ id: string }> }
 
+function resultRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+}
+
+function finiteCount(value: unknown): number | null {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null
+}
+
 export async function GET(request: Request, { params }: RouteParams) {
   try {
     const { id: projectId } = await params
@@ -29,6 +37,8 @@ export async function GET(request: Request, { params }: RouteParams) {
         title: true,
         createdAt: true,
         completedAt: true,
+        result: true,
+        provider: { select: { pluginId: true } },
         artifact: { select: { originalName: true, relativePath: true } },
       },
     })
@@ -47,14 +57,32 @@ export async function GET(request: Request, { params }: RouteParams) {
       : []
     const countByTaskId = new Map(observationCounts.map((row) => [row.taskId, row._count._all]))
     const runs = decompileTasks
-      .map((task) => ({
-        id: task.id,
-        title: task.title,
-        createdAt: task.createdAt.toISOString(),
-        completedAt: task.completedAt?.toISOString() || null,
-        artifactName: task.artifact?.relativePath || task.artifact?.originalName || 'Unknown artifact',
-        codeUnitCount: countByTaskId.get(task.id) || 0,
-      }))
+      .map((task) => {
+        const result = resultRecord(task.result)
+        const codeUnitCount = countByTaskId.get(task.id) || 0
+        const discoveredUnitCount = finiteCount(result.decompiledClassCount ?? result.decompiledFunctionCount)
+        const returnedUnitCount = finiteCount(result.returnedClassCount ?? result.returnedFunctionCount) ?? codeUnitCount
+        const indexedUnitCount = Math.min(codeUnitCount, returnedUnitCount)
+        const unitLabel = task.provider?.pluginId === 'reamon-jadx' ? 'classes' : task.provider?.pluginId === 'reamon-ghidra' ? 'functions' : 'code units'
+        return {
+          id: task.id,
+          title: task.title,
+          createdAt: task.createdAt.toISOString(),
+          completedAt: task.completedAt?.toISOString() || null,
+          artifactName: task.artifact?.relativePath || task.artifact?.originalName || 'Unknown artifact',
+          codeUnitCount,
+          unitLabel,
+          discoveredUnitCount,
+          returnedUnitCount,
+          indexedUnitCount,
+          codeBytes: finiteCount(result.codeBytes),
+          linkPercent: discoveredUnitCount ? Math.min(100, Math.round((indexedUnitCount / discoveredUnitCount) * 100)) : null,
+          truncated: result.truncated === true || (discoveredUnitCount !== null && returnedUnitCount < discoveredUnitCount),
+          warnings: typeof result.warnings === 'string' ? result.warnings.slice(0, 4000) : '',
+          failedUnitCount: finiteCount(result.failedFunctionCount),
+          visitedUnitCount: finiteCount(result.visitedFunctionCount),
+        }
+      })
       .filter((run) => run.codeUnitCount > 0)
     const requestedTaskId = new URL(request.url).searchParams.get('taskId')?.trim() || null
     if (requestedTaskId && !runs.some((run) => run.id === requestedTaskId)) {

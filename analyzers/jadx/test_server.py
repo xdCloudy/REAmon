@@ -56,6 +56,9 @@ class JadxServiceTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "completed")
         self.assertEqual(result["classCount"], 1)
+        self.assertEqual(result["codeBytes"], len("package com.example;\npublic class MainActivity {}\n".encode()))
+        self.assertEqual(result["returnedUnits"], 1)
+        self.assertFalse(result["truncated"])
         self.assertEqual(result["units"][0]["name"], "com.example.MainActivity")
         code_path = result["units"][0]["codeArtifactId"]
         self.assertTrue((self.derived / code_path).is_file())

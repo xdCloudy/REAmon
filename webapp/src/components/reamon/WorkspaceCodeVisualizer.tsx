@@ -10,7 +10,24 @@ interface CodeUnitResponse {
   units: CodeUnit[]
   total: number
   hasMore: boolean
-  runs: Array<{ id: string; title: string; createdAt: string; completedAt: string | null; artifactName: string; codeUnitCount: number }>
+  runs: Array<{
+    id: string
+    title: string
+    createdAt: string
+    completedAt: string | null
+    artifactName: string
+    codeUnitCount: number
+    unitLabel: string
+    discoveredUnitCount: number | null
+    returnedUnitCount: number
+    indexedUnitCount: number
+    linkPercent: number | null
+    codeBytes: number | null
+    truncated: boolean
+    warnings: string
+    failedUnitCount: number | null
+    visitedUnitCount: number | null
+  }>
   selectedRunId: string | null
 }
 
@@ -174,6 +191,24 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing }: { projectId:
         <button type="button" className={styles.runButton} aria-label="Next run" disabled={currentRunIndex <= 0} onClick={() => showRun(runs[currentRunIndex - 1]?.id || null)}>Next</button>
         <button type="button" className={styles.runButton} aria-label="Latest run" disabled={currentRunIndex === 0} onClick={() => showRun(null)}>Latest</button>
       </nav>}
+
+      {currentRun && <div className={styles.runSummary} aria-label="Selected decompilation summary">
+        <div className={styles.runSummaryHeading}>
+          <div>
+            <strong>{currentRun.linkPercent === null ? `${currentRun.indexedUnitCount.toLocaleString()} ${currentRun.unitLabel} linked` : `${currentRun.linkPercent}% of decompiled ${currentRun.unitLabel} linked`}</strong>
+            <span>{currentRun.indexedUnitCount.toLocaleString()} source links{currentRun.discoveredUnitCount !== null ? ` of ${currentRun.discoveredUnitCount.toLocaleString()} decompiled ${currentRun.unitLabel}` : ''}</span>
+          </div>
+          <span>Code {formatBytes(currentRun.codeBytes ?? units.reduce((sum, unit) => sum + unit.sizeBytes, 0))}</span>
+        </div>
+        {currentRun.linkPercent !== null && <div className={styles.runProgress} role="progressbar" aria-label="Source link coverage" aria-valuemin={0} aria-valuemax={100} aria-valuenow={currentRun.linkPercent} aria-valuetext={`${currentRun.linkPercent}% of decompiled ${currentRun.unitLabel} linked`}>
+          <span style={{ width: `${currentRun.linkPercent}%` }} />
+        </div>}
+        <div className={styles.runSummaryMeta}>
+          <span>{currentRun.truncated ? 'Partial index; the analyzer reached a configured limit.' : `${currentRun.indexedUnitCount.toLocaleString()} linked code units`}</span>
+          {currentRun.failedUnitCount !== null && currentRun.failedUnitCount > 0 && <span>{currentRun.failedUnitCount.toLocaleString()} functions could not be decompiled{currentRun.visitedUnitCount !== null ? ` of ${currentRun.visitedUnitCount.toLocaleString()} visited` : ''}</span>}
+        </div>
+        {currentRun.warnings && <p className={styles.runWarning}>{currentRun.warnings}</p>}
+      </div>}
 
       {query.isLoading && <p className={styles.message}>Loading code units…</p>}
       {query.isError && <p className={styles.error}>Could not load code units. Refresh the workspace and try again.</p>}

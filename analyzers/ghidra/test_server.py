@@ -63,6 +63,9 @@ class GhidraServiceTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "completed")
         self.assertEqual(result["functionCount"], 1)
+        self.assertEqual(result["visitedFunctionCount"], 1)
+        self.assertEqual(result["failedFunctionCount"], 0)
+        self.assertEqual(result["codeBytes"], len(source.encode()))
         self.assertEqual(result["units"][0]["name"], "main")
         self.assertEqual(result["units"][0]["address"], "ram:00401000")
         stored = self.derived / result["units"][0]["codeArtifactId"]

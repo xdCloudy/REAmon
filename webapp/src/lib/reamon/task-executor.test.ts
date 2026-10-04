@@ -139,6 +139,31 @@ describe('executeAnalysisTask', () => {
     }))
   })
 
+  test('persists decompiler run metrics without duplicating large observation arrays', async () => {
+    const observations = Array.from({ length: 600 }, (_, index) => ({
+      kind: 'entity', type: 'code_unit', key: `class:${index}`, label: `Class${index}`,
+      attributes: { unitType: 'class', sizeBytes: 1024, decompiled: true, codeArtifactId: `sources/Class${index}.java` },
+    }))
+    mocks.analyze.mockResolvedValue({
+      status: 'completed', toolId: 'reamon-jadx', capabilities: ['decompile'], produced: ['CodeUnit', 'DecompiledSource'], data: {
+        decompiledClassCount: 600, returnedClassCount: 600, codeBytes: 819200, truncated: false, warnings: '', observations,
+      },
+    })
+
+    await executeAnalysisTask('project-1', 'task-1')
+
+    const persistedResult = mocks.taskSettleUpdateMany.mock.calls[0][0].data.result
+    expect(persistedResult).toEqual({
+      decompiledClassCount: 600,
+      returnedClassCount: 600,
+      codeBytes: 819200,
+      truncated: false,
+      warnings: '',
+      normalizedObservationCount: 600,
+    })
+    expect(mocks.observationUpsert).toHaveBeenCalledTimes(600)
+  })
+
   test('does not settle or create evidence after its lease is recovered', async () => {
     mocks.taskSettleUpdateMany.mockResolvedValue({ count: 0 })
     mocks.taskFindFirst

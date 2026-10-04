@@ -53,6 +53,8 @@ describe('GET /api/projects/[id]/visualizer', () => {
       id: 'run-1', title: 'Decompile app.apk',
       createdAt: new Date('2026-10-04T00:00:00.000Z'),
       completedAt: new Date('2026-10-04T00:01:00.000Z'),
+      provider: { pluginId: 'reamon-ghidra' },
+      result: { decompiledFunctionCount: 2, returnedFunctionCount: 1, codeBytes: 4096, truncated: true, warnings: 'Function cap reached.', failedFunctionCount: 1, visitedFunctionCount: 3 },
       artifact: { originalName: 'app.apk', relativePath: 'app.apk' },
     }])
     mocks.groupBy.mockResolvedValue([{ taskId: 'run-1', _count: { _all: 1 } }])
@@ -71,7 +73,11 @@ describe('GET /api/projects/[id]/visualizer', () => {
       total: 1,
       hasMore: false,
       selectedRunId: 'run-1',
-      runs: [{ id: 'run-1', artifactName: 'app.apk', codeUnitCount: 1 }],
+      runs: [{
+        id: 'run-1', artifactName: 'app.apk', codeUnitCount: 1, unitLabel: 'functions',
+        discoveredUnitCount: 2, returnedUnitCount: 1, indexedUnitCount: 1, linkPercent: 50,
+        codeBytes: 4096, truncated: true, warnings: 'Function cap reached.', failedUnitCount: 1, visitedUnitCount: 3,
+      }],
       units: [{ id: 'observation-1', name: 'app.main', address: '0x401000', sizeBytes: 256, coveragePercent: 70, artifactPath: 'bin/app.exe' }],
     })
     expect(mocks.findMany).toHaveBeenCalledWith(expect.objectContaining({

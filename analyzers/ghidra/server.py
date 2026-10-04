@@ -10,8 +10,8 @@ DERIVED_ROOT = Path(os.environ.get("REAMON_DERIVED_PATH", "/data/reamon-derived"
 PORT = int(os.environ.get("PORT", "8011"))
 TIMEOUT_SECONDS = min(1800, max(60, int(os.environ.get("GHIDRA_TIMEOUT_SECONDS", "900"))))
 MAX_OUTPUT_BYTES = min(536870912, max(1048576, int(os.environ.get("GHIDRA_MAX_OUTPUT_BYTES", "268435456"))))
-MAX_FUNCTIONS = min(2000, max(1, int(os.environ.get("GHIDRA_MAX_FUNCTIONS", "500"))))
-MAX_RETURNED_UNITS = min(500, max(1, int(os.environ.get("GHIDRA_MAX_RETURNED_UNITS", "500"))))
+MAX_FUNCTIONS = min(2000, max(1, int(os.environ.get("GHIDRA_MAX_FUNCTIONS", "2000"))))
+MAX_RETURNED_UNITS = min(2000, max(1, int(os.environ.get("GHIDRA_MAX_RETURNED_UNITS", "2000"))))
 GHIDRA_HOME = Path(os.environ.get("GHIDRA_HOME", "/opt/ghidra/current")).resolve()
 SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
 SLOTS = threading.BoundedSemaphore(1)
@@ -203,6 +203,9 @@ def analyse(body, cancel_check=lambda: False):
                     "status": "completed",
                     "toolVersion": "12.1.4",
                     "functionCount": len(rows),
+                    "visitedFunctionCount": int(summary.get("visited", "0")),
+                    "failedFunctionCount": failures,
+                    "codeBytes": total_bytes,
                     "returnedUnits": len(units),
                     "truncated": summary.get("truncated") == "true" or len(rows) > len(units),
                     "units": units,

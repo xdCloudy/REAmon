@@ -1,6 +1,6 @@
 /** @vitest-environment node */
 import { describe, expect, test, vi } from 'vitest'
-import { canonicalKeyForObservation, ingestToolResult, parseToolFindings, parseToolObservations } from './result-ingestion'
+import { canonicalKeyForObservation, ingestToolResult, MAX_CODE_UNITS_PER_RESULT, parseToolFindings, parseToolObservations } from './result-ingestion'
 
 describe('parseToolObservations', () => {
   test('accepts typed entities and relationships while rejecting unsafe shapes', () => {
@@ -24,6 +24,18 @@ describe('parseToolObservations', () => {
 
   test('ignores results without an observations array', () => {
     expect(parseToolObservations({ strings: ['hello'] })).toEqual({ observations: [], rejected: 0 })
+  })
+
+  test('allows bounded decompiler indexes to exceed the general observation cap', () => {
+    const observations = Array.from({ length: 1200 }, (_, index) => ({
+      kind: 'entity', type: 'code_unit', key: `unit:${index}`, attributes: { unitType: 'class', sizeBytes: 1 },
+    }))
+
+    const result = parseToolObservations({ observations }, MAX_CODE_UNITS_PER_RESULT)
+
+    expect(result.observations).toHaveLength(1200)
+    expect(result.rejected).toBe(0)
+    expect(parseToolObservations({ observations })).toMatchObject({ rejected: 700 })
   })
 })
 

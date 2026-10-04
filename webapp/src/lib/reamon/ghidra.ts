@@ -1,13 +1,16 @@
 import { createHash } from 'node:crypto'
 import type { ToolExecutionInput, ToolPlugin, ToolPluginManifest, ToolResult } from './types'
 
-const MAX_UNITS = 500
+const MAX_UNITS = 2000
 const DEFAULT_TIMEOUT_MS = 15 * 60_000
 
 interface GhidraResponse {
   status: 'completed'
   toolVersion: string
   functionCount: number
+  visitedFunctionCount?: number
+  failedFunctionCount?: number
+  codeBytes?: number
   returnedUnits: number
   truncated: boolean
   units: Array<{ name: string; address: string; relativePath: string; codeArtifactId: string; sizeBytes: number }>
@@ -110,6 +113,9 @@ export async function executeGhidra(input: ToolExecutionInput): Promise<ToolResu
       data: {
         decompiledFunctionCount: payload.functionCount,
         returnedFunctionCount: observations.length,
+        visitedFunctionCount: typeof payload.visitedFunctionCount === 'number' && Number.isFinite(payload.visitedFunctionCount) ? payload.visitedFunctionCount : null,
+        failedFunctionCount: typeof payload.failedFunctionCount === 'number' && Number.isFinite(payload.failedFunctionCount) ? payload.failedFunctionCount : null,
+        codeBytes: typeof payload.codeBytes === 'number' && Number.isFinite(payload.codeBytes) ? Math.max(0, Math.floor(payload.codeBytes)) : observations.reduce((sum, observation) => sum + Number(observation.attributes.sizeBytes), 0),
         truncated: payload.truncated || payload.functionCount > observations.length,
         ghidraVersion: payload.toolVersion,
         warnings: payload.warnings?.slice(0, 4000) || '',
