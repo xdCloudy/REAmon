@@ -163,6 +163,13 @@ def test_code_deobfuscation_rejects_model_token_limit(api, monkeypatch):
     assert response.json()['code'] == 'incomplete_source'
 
 
+def test_openai_compatible_none_reasoning_mode_is_forwarded_for_local_endpoints():
+    from orchestrator_helpers.llm_setup import _resolve_reasoning_effort
+
+    assert _resolve_reasoning_effort({'reasoningEnabled': True, 'reasoningEffort': 'none'}) == 'none'
+    assert _resolve_reasoning_effort({'reasoningEnabled': False, 'reasoningEffort': 'none'}) is None
+
+
 def test_code_deobfuscation_rejects_oversized_source_before_loading_provider(api, monkeypatch):
     from fastapi.testclient import TestClient
 

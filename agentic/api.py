@@ -2071,7 +2071,7 @@ class LlmProviderTestRequest(BaseModel):
     maxTokens: int = 16384
     sslVerify: bool = True
     reasoningEnabled: bool = False
-    reasoningEffort: Literal["low", "medium", "high", "max"] = "high"
+    reasoningEffort: Literal["none", "low", "medium", "high", "max"] = "high"
     awsRegion: str = "us-east-1"
     awsAccessKeyId: str = ""
     awsSecretKey: str = ""

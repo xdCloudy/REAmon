@@ -119,7 +119,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }
       if (body.reasoningEffort !== undefined && !isReasoningEffort(body.reasoningEffort)) {
         return NextResponse.json(
-          { error: 'reasoningEffort must be one of: low, medium, high, max' },
+          { error: 'reasoningEffort must be one of: none, low, medium, high, max' },
           { status: 400 }
         )
       }

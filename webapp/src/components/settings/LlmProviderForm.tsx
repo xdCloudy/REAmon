@@ -437,7 +437,7 @@ export function LlmProviderForm({ userId, provider, existingProviderTypes = [], 
                 checked={form.reasoningEnabled}
                 onChange={e => updateForm('reasoningEnabled', e.target.checked)}
               />
-              <span>Enable reasoning effort</span>
+              <span>Configure model reasoning</span>
             </label>
             <select
               className="select"
@@ -453,9 +453,10 @@ export function LlmProviderForm({ userId, provider, existingProviderTypes = [], 
               ))}
             </select>
             <span className="formHint">
-              Sends <code>reasoning_effort</code> to the endpoint. When disabled, nothing
-              is sent and the model&apos;s default is used. Enable only for thinking-capable
-              models; others reject a level (the agent auto-retries without it).
+              Sends <code>reasoning_effort</code> to compatible endpoints. Choose None to
+              disable hidden thinking on endpoints such as llama.cpp and leave more of the
+              output budget for source code. When disabled, the model&apos;s default is used;
+              unsupported endpoints retry without this setting.
             </span>
           </div>
 

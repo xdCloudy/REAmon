@@ -70,10 +70,12 @@ const PROVIDER: ProviderData = {
 
 describe('LlmProviderForm Ollama reasoning control', () => {
   beforeEach(() => {
+    cleanup()
     vi.restoreAllMocks()
     toastSuccess.mockReset()
     toastError.mockReset()
   })
+  afterEach(cleanup)
 
   test('enables the effort selector and persists the selected level', async () => {
     const fetchMock = mockFetch({})
@@ -88,7 +90,7 @@ describe('LlmProviderForm Ollama reasoning control', () => {
       />,
     )
 
-    const toggle = screen.getByRole('checkbox', { name: 'Enable reasoning effort' })
+    const toggle = screen.getByRole('checkbox', { name: 'Configure model reasoning' })
     const effort = screen.getByRole('combobox', { name: 'Reasoning effort' })
     expect(toggle).not.toBeChecked()
     expect(effort).toBeDisabled()
@@ -104,6 +106,21 @@ describe('LlmProviderForm Ollama reasoning control', () => {
     expect(body.reasoningEnabled).toBe(true)
     expect(body.reasoningEffort).toBe('medium')
     expect(onSave).toHaveBeenCalled()
+  })
+
+  test('saves None so compatible local endpoints can disable hidden thinking', async () => {
+    const fetchMock = mockFetch({})
+    render(<LlmProviderForm userId="user-1" provider={PROVIDER} onSave={vi.fn()} onCancel={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Configure model reasoning' }))
+    fireEvent.change(screen.getByRole('combobox', { name: 'Reasoning effort' }), { target: { value: 'none' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Update Provider' }))
+
+    await waitFor(() => expect(providerCalls(fetchMock)).toHaveLength(1))
+    const request = providerCalls(fetchMock)[0][1] as RequestInit
+    const body = JSON.parse(request.body as string)
+    expect(body.reasoningEnabled).toBe(true)
+    expect(body.reasoningEffort).toBe('none')
   })
 })
 
@@ -134,7 +151,7 @@ describe('LlmProviderForm save errors', () => {
       <LlmProviderForm userId="ghost" provider={PROVIDER} onSave={onSave} onCancel={vi.fn()} />,
     )
     // Save stays disabled until the form is dirty (useDirtyState).
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Enable reasoning effort' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Configure model reasoning' }))
     fireEvent.click(screen.getByRole('button', { name: 'Update Provider' }))
 
     await waitFor(() => expect(toastError).toHaveBeenCalledWith('User not found. Log out and back in.'))
@@ -153,7 +170,7 @@ describe('LlmProviderForm save errors', () => {
     render(
       <LlmProviderForm userId="user-1" provider={PROVIDER} onSave={vi.fn()} onCancel={vi.fn()} />,
     )
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Enable reasoning effort' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Configure model reasoning' }))
     fireEvent.click(screen.getByRole('button', { name: 'Update Provider' }))
 
     await waitFor(() => expect(toastError).toHaveBeenCalledWith('Failed to save provider (HTTP 502)'))
@@ -211,7 +228,7 @@ describe('LlmProviderForm agent preflight', () => {
     render(<LlmProviderForm userId="user-1" provider={PROVIDER} onSave={onSave} onCancel={vi.fn()} />)
 
     await screen.findByRole('status')
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Enable reasoning effort' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Configure model reasoning' }))
     fireEvent.click(screen.getByRole('button', { name: 'Update Provider' }))
 
     await waitFor(() => expect(onSave).toHaveBeenCalled())
