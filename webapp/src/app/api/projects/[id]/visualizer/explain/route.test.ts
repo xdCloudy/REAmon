@@ -23,6 +23,7 @@ vi.mock('@/lib/agentFetch', () => ({
 }))
 
 import { POST } from './route'
+import { POST as deobfuscate } from '../deobfuscate/route'
 
 const routeParams = { params: Promise.resolve({ id: 'project-1' }) }
 
@@ -87,6 +88,31 @@ describe('POST /api/projects/[id]/visualizer/explain', () => {
       id: 'unit-1', artifactId: 'artifact-1', attributes: { codeArtifactId: 'project-1/artifact-other/private.java' },
     })
     const response = await POST(request({ unitId: 'unit-1', providerId: 'provider-1' }), routeParams)
+    expect(response.status).toBe(404)
+    expect(h.resolvePath).not.toHaveBeenCalled()
+    expect(h.agentFetch).not.toHaveBeenCalled()
+  })
+})
+
+describe('POST /api/projects/[id]/visualizer/deobfuscate', () => {
+  it('sends the selected source to the exact saved provider for a source transformation', async () => {
+    h.agentFetch.mockResolvedValueOnce(new Response(JSON.stringify({ source_code: 'return currentAccountName;' }), { status: 200 }))
+    const response = await deobfuscate(request({ unitId: 'unit-1', providerId: 'provider-1', question: 'Use names based on actual behavior.' }), routeParams)
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ sourceCode: 'return currentAccountName;', providerName: 'Local Qwen', model: 'Qwen3.5-0.8B' })
+    expect(h.agentFetch).toHaveBeenCalledWith('/reamon/code/deobfuscate', expect.objectContaining({
+      method: 'POST', body: expect.stringContaining('"model":"custom/provider-1"'),
+    }), { timeoutMs: 90_000 })
+    expect(String(h.agentFetch.mock.calls.at(-1)?.[1]?.body)).toContain('"source_code":"return state.value;"')
+    expect(String(h.agentFetch.mock.calls.at(-1)?.[1]?.body)).not.toContain('apiKey')
+  })
+
+  it('rejects source paths outside the selected artifact before requesting AI', async () => {
+    h.observation.mockResolvedValueOnce({
+      id: 'unit-1', artifactId: 'artifact-1', attributes: { codeArtifactId: 'project-1/artifact-other/private.java' },
+    })
+    const response = await deobfuscate(request({ unitId: 'unit-1', providerId: 'provider-1' }), routeParams)
     expect(response.status).toBe(404)
     expect(h.resolvePath).not.toHaveBeenCalled()
     expect(h.agentFetch).not.toHaveBeenCalled()

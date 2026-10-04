@@ -343,4 +343,32 @@ describe('WorkspaceCodeVisualizer', () => {
     expect(explainCall?.[1]?.method).toBe('POST')
     expect(JSON.parse(String(explainCall?.[1]?.body))).toMatchObject({ unitId: 'unit-1', providerId: 'provider-local', question: 'What state does it read?' })
   })
+
+  test('creates an editable AI reverse-engineered copy and saves it separately', async () => {
+    const units = [unit()]
+    const fetchMock = vi.fn((input: string, init?: RequestInit) => {
+      if (input.includes('/visualizer/providers')) return Promise.resolve({ ok: true, json: async () => ({ providers: [{ id: 'provider-local', name: 'Local Qwen', modelIdentifier: 'Qwen3.5-0.8B' }] }) })
+      if (input.includes('/visualizer/maintained/') && init?.method !== 'PUT') return Promise.resolve({ ok: true, json: async () => ({ exists: false, sourceCode: null }) })
+      if (input.includes('/decompiled/')) return Promise.resolve({ ok: true, text: async () => 'private String a;' })
+      if (input.includes('/visualizer/deobfuscate')) return Promise.resolve({ ok: true, json: async () => ({ sourceCode: 'private String accountName;', providerName: 'Local Qwen', model: 'Qwen3.5-0.8B' }) })
+      if (input.includes('/visualizer/maintained/') && init?.method === 'PUT') return Promise.resolve({ ok: true, json: async () => ({ saved: true }) })
+      return Promise.resolve({ ok: true, json: async () => ({ units, total: 1, hasMore: false }) })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderVisualizer()
+
+    fireEvent.click(await screen.findByRole('button', { name: /app\.MainActivity\.onCreate/ }))
+    const editable = await screen.findByRole('textbox', { name: 'Editable maintained source' })
+    expect(editable).toHaveValue('private String a;')
+    fireEvent.click(screen.getByRole('button', { name: 'Create maintainable version' }))
+    await waitFor(() => expect(editable).toHaveValue('private String accountName;'))
+    fireEvent.change(editable, { target: { value: 'private String accountName;\n' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save maintained copy' }))
+
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Maintained copy saved separately'))
+    const transformCall = fetchMock.mock.calls.find(([input]) => String(input).includes('/visualizer/deobfuscate'))
+    expect(JSON.parse(String(transformCall?.[1]?.body))).toMatchObject({ unitId: 'unit-1', providerId: 'provider-local' })
+    const saveCall = fetchMock.mock.calls.find(([input, init]) => String(input).includes('/visualizer/maintained/') && init?.method === 'PUT')
+    expect(JSON.parse(String(saveCall?.[1]?.body))).toEqual({ sourceCode: 'private String accountName;\n' })
+  })
 })

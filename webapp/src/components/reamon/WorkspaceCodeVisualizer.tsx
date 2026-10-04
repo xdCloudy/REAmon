@@ -1,8 +1,8 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Code2, Copy, ExternalLink, RefreshCw, Search } from 'lucide-react'
+import { Code2, Copy, Download, ExternalLink, RefreshCw, Search, WandSparkles } from 'lucide-react'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { buildCodeUnitTreemapEntries, filterCodeUnits, filterCodeUnitsByPackage, layoutCodeUnitTreemap, parseCodeUnitFilter, summarizeCodeUnits, type CodeUnit, type CodeUnitTreemapEntry } from '@/lib/reamon/code-units'
@@ -55,6 +55,7 @@ interface CallGraphResponse {
 
 interface CodeExplanationProvider { id: string; name: string; modelIdentifier: string }
 interface CodeExplanationResponse { explanation: string; providerName: string; model: string; sourceTruncated: boolean }
+interface CodeMaintenanceResponse { sourceCode: string; providerName: string; model: string }
 
 const EMPTY_CODE_UNITS: CodeUnit[] = []
 
@@ -228,6 +229,13 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
   const [explanation, setExplanation] = useState<CodeExplanationResponse | null>(null)
   const [explainError, setExplainError] = useState('')
   const [explaining, setExplaining] = useState(false)
+  const [maintainedDraft, setMaintainedDraft] = useState('')
+  const [maintenanceMeta, setMaintenanceMeta] = useState<CodeMaintenanceResponse | null>(null)
+  const [maintenanceError, setMaintenanceError] = useState('')
+  const [transforming, setTransforming] = useState(false)
+  const [savingMaintained, setSavingMaintained] = useState(false)
+  const [maintainedSaved, setMaintainedSaved] = useState(false)
+  const initializedMaintainedUnits = useRef(new Set<string>())
   const [additionalPage, setAdditionalPage] = useState<{ runId: string | null; search: string; units: CodeUnit[]; nextCursor: string | null } | null>(null)
   const [loadingMore, setLoadingMore] = useState(false)
   const [loadMoreError, setLoadMoreError] = useState('')
@@ -295,6 +303,35 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
     staleTime: 5 * 60_000,
     gcTime: 60_000,
   })
+  const maintainedQuery = useQuery({
+    queryKey: ['reamon-maintained-source', projectId, selectedUnit?.id],
+    queryFn: async ({ signal }) => {
+      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/maintained/${encodeURIComponent(selectedUnit?.id || '')}`, { signal, cache: 'no-store' })
+      if (!response.ok) throw new Error('Unable to load the maintained source copy')
+      return response.json() as Promise<{ exists: boolean; sourceCode: string | null; updatedAt?: string }>
+    },
+    enabled: Boolean(selectedUnit && selectedSourceUrl),
+    staleTime: 30_000,
+    gcTime: 60_000,
+  })
+  useEffect(() => {
+    setMaintainedSaved(false)
+    setMaintenanceMeta(null)
+    setMaintenanceError('')
+    setMaintainedDraft('')
+  }, [selectedUnit?.id])
+  useEffect(() => {
+    const unitId = selectedUnit?.id
+    if (!unitId || initializedMaintainedUnits.current.has(unitId) || !maintainedQuery.isFetched) return
+    if (maintainedQuery.data?.exists && typeof maintainedQuery.data.sourceCode === 'string') {
+      setMaintainedDraft(maintainedQuery.data.sourceCode)
+      setMaintainedSaved(true)
+      initializedMaintainedUnits.current.add(unitId)
+    } else if (sourceQuery.data !== undefined) {
+      setMaintainedDraft(sourceQuery.data)
+      initializedMaintainedUnits.current.add(unitId)
+    }
+  }, [selectedUnit?.id, maintainedQuery.data, maintainedQuery.isFetched, sourceQuery.data])
   const explanationProvidersQuery = useQuery({
     queryKey: ['reamon-code-explanation-providers', projectId],
     queryFn: () => fetchExplanationProviders(projectId),
@@ -374,6 +411,49 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
     setAssemblyCopyStatus('')
     setExplanation(null)
     setExplainError('')
+  }
+
+  async function deobfuscateSelectedUnit() {
+    if (!selectedUnit || !selectedProviderId) return
+    setTransforming(true)
+    setMaintenanceError('')
+    setMaintenanceMeta(null)
+    try {
+      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/deobfuscate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ unitId: selectedUnit.id, providerId: selectedProviderId, question: question.trim() }),
+      })
+      const result = await response.json().catch(() => ({})) as CodeMaintenanceResponse & { error?: string }
+      if (!response.ok) throw new Error(result.error || 'Could not create a maintainable version')
+      setMaintainedDraft(result.sourceCode)
+      setMaintenanceMeta(result)
+      setMaintainedSaved(false)
+    } catch (error) {
+      setMaintenanceError(error instanceof Error ? error.message : 'Could not create a maintainable version')
+    } finally {
+      setTransforming(false)
+    }
+  }
+
+  async function saveMaintainedSource() {
+    if (!selectedUnit || !maintainedDraft.trim()) return
+    setSavingMaintained(true)
+    setMaintenanceError('')
+    try {
+      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/maintained/${encodeURIComponent(selectedUnit.id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sourceCode: maintainedDraft }),
+      })
+      const result = await response.json().catch(() => ({})) as { error?: string }
+      if (!response.ok) throw new Error(result.error || 'Could not save the maintained source')
+      setMaintainedSaved(true)
+    } catch (error) {
+      setMaintenanceError(error instanceof Error ? error.message : 'Could not save the maintained source')
+    } finally {
+      setSavingMaintained(false)
+    }
   }
 
   function openTreemapEntry(entry: CodeUnitTreemapEntry) {
@@ -677,6 +757,46 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
             {sourceQuery.isLoading && <p className={styles.message}>Loading code output…</p>}
             {sourceQuery.isError && <p className={styles.error}>{sourceQuery.error instanceof Error ? sourceQuery.error.message : 'Could not load code output'}</p>}
             {sourceQuery.data !== undefined && <SourceListing source={sourceQuery.data} language={selectedUnit.language} fileName={selectedUnit.codeArtifactId?.split('/').pop()} />}
+          </>}
+        </section>}
+        {selectedUnit && selectedSourceUrl && <section className={styles.maintainPanel} aria-labelledby="code-maintain-heading">
+          <div>
+            <h3 id="code-maintain-heading"><WandSparkles size={16} /> Reverse engineer into maintainable code</h3>
+            <p>Ask your saved model to recover meaningful names and improve structure using evidence in this source. Review and edit the result before saving it as a separate maintained copy; the original decompilation stays intact.</p>
+          </div>
+          {explanationProvidersQuery.isLoading && <p className={styles.message}>Loading saved providers…</p>}
+          {explanationProvidersQuery.isError && <p className={styles.error}>Could not load saved AI providers.</p>}
+          {!explanationProvidersQuery.isLoading && !explanationProvidersQuery.isError && explanationProviders.length === 0 && <p className={styles.message}>No OpenAI-compatible provider is saved yet. <a href="/settings">Add one in Settings</a>.</p>}
+          {explanationProviders.length > 0 && <>
+            <label className={styles.explainField}>Saved provider
+              <select value={selectedProviderId} onChange={(event) => setProviderId(event.target.value)}>
+                {explanationProviders.map((provider) => <option key={provider.id} value={provider.id}>{provider.name} · {provider.modelIdentifier}</option>)}
+              </select>
+            </label>
+            <label className={styles.explainField}>Guidance for names and structure (optional)
+              <textarea value={question} onChange={(event) => setQuestion(event.target.value)} maxLength={1000} rows={3} placeholder="For example: infer what the short field names represent from how they are used." />
+            </label>
+            <button type="button" className={styles.explainButton} onClick={() => void deobfuscateSelectedUnit()} disabled={!selectedProviderId || transforming || sourceQuery.isError || sourceQuery.isLoading || maintainedQuery.isLoading}>
+              {transforming ? 'Reverse engineering…' : 'Create maintainable version'}
+            </button>
+          </>}
+          {maintenanceError && <p className={styles.error} role="alert">{maintenanceError}</p>}
+          {maintenanceMeta && <p className={styles.message}>Draft from {maintenanceMeta.providerName} · {maintenanceMeta.model}. Verify names and behavior against the original before using it.</p>}
+          {maintainedQuery.isError && <p className={styles.error} role="alert">{maintainedQuery.error instanceof Error ? maintainedQuery.error.message : 'Could not load maintained source'}</p>}
+          {maintainedDraft && <>
+            <div className={styles.maintainedComparison}>
+              <div><strong>Original decompilation</strong>
+                {sourceQuery.data !== undefined && <SourceListing source={sourceQuery.data} language={selectedUnit.language} fileName={selectedUnit.codeArtifactId?.split('/').pop()} />}
+              </div>
+              <label>Editable maintained copy
+                <textarea aria-label="Editable maintained source" value={maintainedDraft} spellCheck={false} onChange={(event) => { setMaintainedDraft(event.target.value); setMaintainedSaved(false) }} />
+              </label>
+            </div>
+            <div className={styles.maintainedActions}>
+              <button type="button" className={styles.explainButton} onClick={() => void saveMaintainedSource()} disabled={savingMaintained || !maintainedDraft.trim()}>{savingMaintained ? 'Saving…' : maintainedSaved ? 'Save changes' : 'Save maintained copy'}</button>
+              {maintainedSaved && <a className={styles.copyButton} href={`/api/projects/${encodeURIComponent(projectId)}/visualizer/maintained/${encodeURIComponent(selectedUnit.id)}?download=1`}><Download size={14} /> Download source</a>}
+              {maintainedSaved && <span className={styles.savedStatus} role="status">Maintained copy saved separately</span>}
+            </div>
           </>}
         </section>}
         {selectedUnit && selectedSourceUrl && <section className={styles.explainPanel} aria-labelledby="code-explain-heading">
