@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   requireEffectiveUser: vi.fn(),
   requireProjectAccess: vi.fn(),
   taskFindUnique: vi.fn(),
+  taskFindFirst: vi.fn(),
   taskCreate: vi.fn(),
   approvalCreate: vi.fn(),
   activityCreate: vi.fn(),
@@ -28,7 +29,7 @@ vi.mock('@/lib/access', () => ({
 }))
 vi.mock('@/lib/prisma', () => ({
   default: {
-    task: { findUnique: mocks.taskFindUnique },
+    task: { findUnique: mocks.taskFindUnique, findFirst: mocks.taskFindFirst },
     $transaction: mocks.transaction,
   },
 }))
@@ -93,6 +94,7 @@ beforeEach(() => {
   }])
   mocks.ensureProviderRegistered.mockResolvedValue(provider)
   mocks.taskFindUnique.mockResolvedValue(null)
+  mocks.taskFindFirst.mockResolvedValue(null)
   mocks.taskCreate.mockResolvedValue(task())
   mocks.approvalCreate.mockResolvedValue({ id: 'approval-1', status: 'PENDING' })
   mocks.activityCreate.mockResolvedValue({ id: 'activity-1' })
@@ -171,6 +173,47 @@ describe('POST /api/projects/[id]/workspace/analysis-plan/schedule', () => {
     expect(await response.json()).toMatchObject({ scheduled: false, reused: true, task: { id: 'existing-task' } })
     expect(mocks.taskCreate).not.toHaveBeenCalled()
     expect(mocks.activityCreate).not.toHaveBeenCalled()
+  })
+
+  test('creates a fresh idempotent task for an explicit rerun attempt', async () => {
+    mocks.taskCreate.mockResolvedValue(task({ status: 'QUEUED' }))
+
+    const response = await POST(new Request('http://localhost', {
+      method: 'POST',
+      body: JSON.stringify({ artifactId: 'artifact-1', providerId: plugin.manifest.id, capability: 'extract_strings', approvalRequired: false, runAttemptId: 'a'.repeat(32) }),
+    }), params)
+
+    expect(response.status).toBe(201)
+    expect(mocks.taskFindUnique).toHaveBeenCalledWith(expect.objectContaining({ where: { idempotencyKey: `analysis:project-1:artifact-1:${plugin.manifest.id}:extract_strings:${'a'.repeat(32)}` } }))
+    expect(mocks.taskFindFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ artifactId: 'artifact-1', status: { in: ['AWAITING_APPROVAL', 'QUEUED', 'RUNNING'] } }),
+    }))
+    expect(mocks.taskCreate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ idempotencyKey: `analysis:project-1:artifact-1:${plugin.manifest.id}:extract_strings:${'a'.repeat(32)}` }),
+    }))
+  })
+
+  test('reuses an active task instead of starting a second analyzer run', async () => {
+    mocks.taskFindFirst.mockResolvedValue(task({ id: 'active-task', status: 'RUNNING' }))
+
+    const response = await POST(new Request('http://localhost', {
+      method: 'POST',
+      body: JSON.stringify({ artifactId: 'artifact-1', providerId: plugin.manifest.id, capability: 'extract_strings', runAttemptId: 'b'.repeat(32) }),
+    }), params)
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ scheduled: false, reused: true, task: { id: 'active-task', status: 'RUNNING' } })
+    expect(mocks.taskCreate).not.toHaveBeenCalled()
+  })
+
+  test('rejects malformed explicit rerun identifiers', async () => {
+    const response = await POST(new Request('http://localhost', {
+      method: 'POST',
+      body: JSON.stringify({ artifactId: 'artifact-1', providerId: plugin.manifest.id, capability: 'extract_strings', runAttemptId: '../invalid' }),
+    }), params)
+
+    expect(response.status).toBe(400)
+    expect(mocks.taskCreate).not.toHaveBeenCalled()
   })
 
   test('rejects a provider that cannot perform the requested capability', async () => {

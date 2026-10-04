@@ -23,7 +23,7 @@ describe('WorkspaceDecompilationAction', () => {
     expect(await screen.findByRole('status')).toHaveTextContent('Decompilation is complete.')
     expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/projects/project-1/workspace/analysis-plan/schedule', expect.objectContaining({
       method: 'POST',
-      body: JSON.stringify({ artifactId: 'artifact-1', providerId: 'reamon-jadx', capability: 'decompile', approvalRequired: false }),
+      body: expect.stringMatching(/^\{"artifactId":"artifact-1","providerId":"reamon-jadx","capability":"decompile","approvalRequired":false,"runAttemptId":"[a-f0-9]{32}"\}$/),
     }))
     expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/projects/project-1/workspace/tasks/task-1/execute', { method: 'POST' })
     expect(onPendingChange).toHaveBeenNthCalledWith(1, true)
@@ -45,5 +45,11 @@ describe('WorkspaceDecompilationAction', () => {
     expect(await screen.findByRole('status')).toHaveTextContent('Approval is already pending.')
     expect(screen.getByRole('link', { name: 'Open task controls' })).toHaveAttribute('href', '#analysis-tasks')
     expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  test('labels the action for a previous task as another decompilation attempt', () => {
+    render(<WorkspaceDecompilationAction projectId="project-1" artifactId="artifact-1" providerId="reamon-jadx" hasPreviousRun />)
+
+    expect(screen.getByRole('button', { name: 'Run decompilation again' })).toBeInTheDocument()
   })
 })

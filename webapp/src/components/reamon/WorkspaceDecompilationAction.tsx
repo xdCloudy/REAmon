@@ -6,15 +6,21 @@ import styles from './WorkspaceDecompilationAction.module.css'
 type TaskStatus = 'AWAITING_APPROVAL' | 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED'
 type Feedback = { message: string; href?: string; linkLabel?: string }
 
-export function WorkspaceDecompilationAction({ projectId, artifactId, providerId, onChanged, onPendingChange }: {
+export function WorkspaceDecompilationAction({ projectId, artifactId, providerId, hasPreviousRun, onChanged, onPendingChange }: {
   projectId: string
   artifactId: string
   providerId: string
+  hasPreviousRun?: boolean
   onChanged?: () => void
   onPendingChange?: (pending: boolean) => void
 }) {
   const [pending, setPending] = useState(false)
   const [feedback, setFeedback] = useState<Feedback | null>(null)
+
+  function createRunAttemptId(): string {
+    const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16))
+    return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')
+  }
 
   async function start() {
     if (pending) return
@@ -25,7 +31,7 @@ export function WorkspaceDecompilationAction({ projectId, artifactId, providerId
       const scheduleResponse = await fetch(`/api/projects/${projectId}/workspace/analysis-plan/schedule`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ artifactId, providerId, capability: 'decompile', approvalRequired: false }),
+        body: JSON.stringify({ artifactId, providerId, capability: 'decompile', approvalRequired: false, runAttemptId: createRunAttemptId() }),
       })
       const scheduled = await scheduleResponse.json().catch(() => ({})) as {
         error?: string
@@ -86,7 +92,7 @@ export function WorkspaceDecompilationAction({ projectId, artifactId, providerId
 
   return <div className={styles.container}>
     <button type="button" className={styles.action} disabled={pending} onClick={() => void start()}>
-      {pending ? 'Starting decompilation…' : 'Run decompilation'}
+      {pending ? 'Starting decompilation…' : hasPreviousRun ? 'Run decompilation again' : 'Run decompilation'}
     </button>
     {feedback && <p className={styles.feedback} role="status">{feedback.message}{feedback.href && <a href={feedback.href}>{feedback.linkLabel}</a>}</p>}
   </div>

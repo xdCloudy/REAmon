@@ -173,6 +173,7 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
   const hasDecompilableArtifact = data?.artifacts.some((artifact) => ['apk', 'jar', 'dex', 'class', 'elf', 'pe', 'pe-dll', 'macho'].includes(artifact.profile.format)) ?? false
   const decompileTask = data?.tasks.find((task) => task.capability === 'decompile')
   const decompileProposal = analysisPlan.data?.steps.find((step) => step.capability === 'decompile')
+  const decompilationTaskActive = decompileTask && ['AWAITING_APPROVAL', 'QUEUED', 'RUNNING'].includes(decompileTask.status)
   const logicalTargets = data?.targets.filter((target) => target.targetType !== 'DIRECTORY') || []
   const selectedLogicalTarget = logicalTargets.find((target) => target.id === selectedTarget)
 
@@ -207,14 +208,14 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
       }} />
       <ImportStatus latestImport={latestImport} />
       {hasDecompilableArtifact && <aside className={styles.analysisNextStep} id="analysis-next-step">
-        <div><strong>{decompileTask?.status === 'AWAITING_APPROVAL' ? 'Decompilation is waiting for approval.' : decompileTask?.status === 'QUEUED' ? 'Decompilation is queued.' : decompileTask?.status === 'RUNNING' ? 'Decompilation is running.' : decompileTask?.status === 'COMPLETED' ? 'Decompilation is complete.' : decompileTask?.status === 'FAILED' ? 'Decompilation failed.' : decompileTask?.status === 'CANCELLED' ? 'Decompilation was cancelled.' : 'Import complete; decompilation has not started.'}</strong><p>{decompileTask?.status === 'AWAITING_APPROVAL' ? 'Approve this task under Tasks and findings, then choose Run.' : decompileTask?.status === 'QUEUED' ? 'The approved task is ready. Choose Run under Tasks and findings.' : decompileTask?.status === 'RUNNING' ? decompileTask.progressMessage || 'The isolated analyzer is processing the imported artifact.' : decompileTask?.status === 'COMPLETED' ? 'View the extracted code in the visualizer below.' : decompileTask ? 'Review the task details and retry it under Tasks and findings.' : 'Choose Run decompilation to start the matching isolated analyzer for this imported artifact.'}</p></div>
-        {!decompileTask && decompileProposal && <WorkspaceDecompilationAction projectId={projectId} artifactId={decompileProposal.artifactId} providerId={decompileProposal.provider.pluginId} onPendingChange={setDecompilationActionPending} onChanged={() => {
+        <div><strong>{decompileTask?.status === 'AWAITING_APPROVAL' ? 'Decompilation is waiting for approval.' : decompileTask?.status === 'QUEUED' ? 'Decompilation is queued.' : decompileTask?.status === 'RUNNING' ? 'Decompilation is running.' : decompileTask?.status === 'COMPLETED' ? 'Decompilation is complete.' : decompileTask?.status === 'FAILED' ? 'Decompilation failed.' : decompileTask?.status === 'CANCELLED' ? 'Decompilation was cancelled.' : 'Import complete; decompilation has not started.'}</strong><p>{decompileTask?.status === 'AWAITING_APPROVAL' ? 'Approve this task under Tasks and findings, then choose Run.' : decompileTask?.status === 'QUEUED' ? 'The approved task is ready. Choose Run under Tasks and findings.' : decompileTask?.status === 'RUNNING' ? decompileTask.progressMessage || 'The isolated analyzer is processing the imported artifact.' : decompileTask?.status === 'COMPLETED' ? 'View the extracted code below, or run the analyzer again to create a fresh result.' : decompileTask ? 'Review the task details below, or start a fresh analysis attempt.' : 'Choose Run decompilation to start the matching isolated analyzer for this imported artifact.'}</p></div>
+        {!decompilationTaskActive && decompileProposal && <WorkspaceDecompilationAction projectId={projectId} artifactId={decompileProposal.artifactId} providerId={decompileProposal.provider.pluginId} hasPreviousRun={Boolean(decompileTask)} onPendingChange={setDecompilationActionPending} onChanged={() => {
           void queryClient.invalidateQueries({ queryKey: ['reamon-workspace', projectId] })
           void queryClient.invalidateQueries({ queryKey: ['reamon-code-units', projectId] })
         }} />}
-        {!decompileTask && analysisPlan.isLoading && <span className={styles.muted}>Finding a compatible decompiler…</span>}
-        {!decompileTask && analysisPlan.isError && <span className={styles.uploadError}>Available analysis proposals could not be loaded. Refresh the workspace and try again.</span>}
-        {!decompileTask && !analysisPlan.isLoading && !analysisPlan.isError && !decompileProposal && <span className={styles.muted}>No compatible decompiler is available for this artifact.</span>}
+        {!decompilationTaskActive && analysisPlan.isLoading && <span className={styles.muted}>Finding a compatible decompiler…</span>}
+        {!decompilationTaskActive && analysisPlan.isError && <span className={styles.uploadError}>Available analysis proposals could not be loaded. Refresh the workspace and try again.</span>}
+        {!decompilationTaskActive && !analysisPlan.isLoading && !analysisPlan.isError && !decompileProposal && <span className={styles.muted}>No compatible decompiler is available for this artifact.</span>}
         {decompileTask && <a href="#analysis-tasks">Open task controls</a>}
         <a href="#analysis-proposals">View all analysis proposals</a>
       </aside>}
