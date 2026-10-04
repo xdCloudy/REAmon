@@ -54,6 +54,18 @@ describe('REAmon capability resolution', () => {
     ]))
   })
 
+  it('offers dynamic dependency and symbol extraction for ELF artifacts', () => {
+    expect(resolveCapabilities(profile())).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        pluginId: 'reamon-elf-dependencies',
+        acceptsFormats: ['elf'],
+        capabilities: ['extract_dependencies'],
+        produces: ['BinaryDependency', 'BinarySymbol', 'Relationship'],
+      }),
+    ]))
+    expect(resolveCapabilities(profile({ format: 'pe' })).some((match) => match.pluginId === 'reamon-elf-dependencies')).toBe(false)
+  })
+
   it('offers the built-in ELF header inspector for ELF artifacts', () => {
     expect(resolveCapabilities(profile())).toEqual(expect.arrayContaining([
       expect.objectContaining({

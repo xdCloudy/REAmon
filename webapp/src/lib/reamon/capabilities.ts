@@ -10,6 +10,7 @@ import type {
 } from './types'
 import { sourceInspectorPlugin } from './source-inspector'
 import { elfInspectorPlugin } from './elf-inspector'
+import { elfDependenciesPlugin } from './elf-dependencies'
 import { fileInspectorPlugin } from './file-inspector'
 import { jsonInspectorPlugin } from './json-inspector'
 import { jadxPlugin } from './jadx'
@@ -22,6 +23,7 @@ export const CAPABILITIES: Capability[] = [
   { id: 'extract_metadata', label: 'Extract metadata', description: 'Read format, architecture, platform, and runtime metadata.', category: 'profiling' },
   { id: 'extract_strings', label: 'Extract strings', description: 'Recover printable strings for triage and correlation.', category: 'static_analysis' },
   { id: 'inspect_binary_header', label: 'Inspect binary header', description: 'Read executable format, architecture, entrypoint, and ABI metadata.', category: 'static_analysis' },
+  { id: 'extract_dependencies', label: 'Extract dependencies', description: 'Recover dynamic libraries and imported or exported symbols from native executables.', category: 'static_analysis' },
   { id: 'disassemble', label: 'Disassemble', description: 'Translate machine code into instructions.', category: 'static_analysis' },
   { id: 'decompile', label: 'Decompile', description: 'Produce higher-level code representations.', category: 'static_analysis' },
   { id: 'runtime_observation', label: 'Runtime observation', description: 'Collect observations from a live process or device.', category: 'dynamic_analysis' },
@@ -74,6 +76,9 @@ export const BUILTIN_TOOL_PLUGINS: ToolPlugin[] = [
   },
   {
     ...elfInspectorPlugin,
+  },
+  {
+    ...elfDependenciesPlugin,
   },
   {
     ...fileInspectorPlugin,

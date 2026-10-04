@@ -132,7 +132,8 @@ Weighted result: **100%**.
 
 The production release gate is complete. The remaining roadmap items are capability
 expansion and migration cleanup, not unverified deployment prerequisites. String extraction
-is now available through the shared provider for every imported file format.
+is now available through the shared provider for every imported file format. ELF artifacts
+also expose dynamic dependencies and imported/exported symbols as graph observations.
 
 Evidence recorded for this review:
 
