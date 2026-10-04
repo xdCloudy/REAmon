@@ -21,7 +21,7 @@ export function ProviderRequiredModal({ onCancel }: { onCancel: () => void }) {
         </div>
         <h2 className={styles.gateTitle}>Configure an LLM provider first</h2>
         <p className={styles.gateMessage}>
-          RedAmon needs at least one LLM provider (DeepSeek, Anthropic, OpenAI, ...) before
+          REAmon needs at least one LLM provider (DeepSeek, Anthropic, OpenAI, ...) before
           you can create a project. The autonomous agent and the AI recon pipeline both rely on it.
         </p>
         <div className={styles.gateActions}>
@@ -75,7 +75,7 @@ export function ModelSelectionModal({
         </div>
         <h2 className={styles.gateTitle}>Select the AI models</h2>
         <p className={styles.gateMessage}>
-          Choose the models RedAmon will use for this project. We&apos;ll remember them as the
+          Choose the models REAmon will use for this project. We&apos;ll remember them as the
           default for your next project.
         </p>
 

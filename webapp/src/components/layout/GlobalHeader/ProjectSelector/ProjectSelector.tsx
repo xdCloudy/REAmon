@@ -43,17 +43,17 @@ export function ProjectSelector() {
     })
     setIsOpen(false)
 
-    // If on a project settings page, navigate to the new project's settings.
+    // If on a project settings URL, navigate to the new workspace.
     // The guard already ran above, so push directly (avoid a second prompt).
     if (pathname.match(/\/projects\/[^/]+\/settings/)) {
-      router.pushUnguarded(`/projects/${project.id}/settings`)
+      router.pushUnguarded(`/projects/${project.id}`)
     }
   }
 
   const handleSettings = (e: React.MouseEvent) => {
     e.stopPropagation()
     if (currentProject) {
-      router.push(`/projects/${currentProject.id}/settings`)
+      router.push(`/projects/${currentProject.id}`)
       setIsOpen(false)
     }
   }
@@ -86,7 +86,7 @@ export function ProjectSelector() {
           <button
             className={styles.settingsIconButton}
             onClick={handleSettings}
-            title="Project Settings"
+            title="Open workspace"
           >
             <Settings size={13} />
           </button>
@@ -101,7 +101,7 @@ export function ProjectSelector() {
               <button
                 className={styles.settingsButton}
                 onClick={handleSettings}
-                title="Project Settings"
+                title="Open workspace"
               >
                 <Settings size={12} />
               </button>

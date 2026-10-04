@@ -4,14 +4,10 @@
 # Start:  docker compose up -d
 # Stop:   docker compose down
 # Logs:   docker compose logs -f
-# Build:  docker compose --profile tools build
-# GVM:    Starts automatically with `docker compose up -d`
-#         (first run takes ~10-15 min for feed sync)
-#         Credentials: gvmd auto-creates admin/admin, then `redamon.sh install
-#         --gvm` rotates it to a strong GVM_PASSWORD (pinned in .env) that the app
-#         also uses. Both sides read GVM_PASSWORD, so keep them in sync.
-#         Change password: docker compose exec -u gvmd gvmd gvmd --user=admin --new-password='<password>'
-#         (then set the same value as GVM_PASSWORD in .env and recreate recon-orchestrator)
+# Build:  docker compose build agent webapp
+# The default Compose application contains only the REAmon core. Historical
+# scanner services are behind the explicit `legacy-pentest` profile and are not
+# started or built by REAmon lifecycle commands.
 # =============================================================================
 
 services:
@@ -28,7 +24,7 @@ services:
     cpus: ${POSTGRES_CPUS:-4}               # D1: CPU cap (generous; host has more)
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-redamon}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set - run redamon.sh (STRIDE S13)}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set - run reamon.sh (STRIDE S13)}
       POSTGRES_DB: ${POSTGRES_DB:-redamon}
     ports:
       # Loopback-only: app tier reaches Postgres over the internal `redamon`
@@ -58,7 +54,7 @@ services:
     pids_limit: ${NEO4J_PIDS:-1024}         # D1: fork-bomb ceiling (generous)
     cpus: ${NEO4J_CPUS:-8}                   # D1: CPU cap (generous)
     environment:
-      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:?NEO4J_PASSWORD must be set - run redamon.sh (STRIDE S13)}
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:?NEO4J_PASSWORD must be set - run reamon.sh (STRIDE S13)}
       NEO4J_PLUGINS: '["apoc"]'
       NEO4J_dbms_security_procedures_unrestricted: apoc.*
       NEO4J_dbms_security_procedures_allowlist: apoc.*
@@ -103,6 +99,7 @@ services:
   # scan tasks that nothing will ever run (issue #174).
 
   gvm-vt:
+    profiles: ["legacy-pentest"]
     image: registry.community.greenbone.net/community/vulnerability-tests
     container_name: redamon-gvm-vt
     mem_limit: ${GVM_DATA_MEM:-1g}    # per-loader cap; redamon.sh floors it at 512m (the feed copy OOMs below ~128m)
@@ -113,6 +110,7 @@ services:
       - vt_data:/mnt
 
   gvm-notus-data:
+    profiles: ["legacy-pentest"]
     image: registry.community.greenbone.net/community/notus-data
     container_name: redamon-gvm-notus-data
     mem_limit: ${GVM_DATA_MEM:-1g}    # per-loader cap; redamon.sh floors it at 512m (the feed copy OOMs below ~128m)
@@ -121,6 +119,7 @@ services:
       - notus_data:/mnt
 
   gvm-scap-data:
+    profiles: ["legacy-pentest"]
     image: registry.community.greenbone.net/community/scap-data
     container_name: redamon-gvm-scap-data
     mem_limit: ${GVM_DATA_MEM:-1g}    # per-loader cap; redamon.sh floors it at 512m (the feed copy OOMs below ~128m)
@@ -129,6 +128,7 @@ services:
       - scap_data:/mnt
 
   gvm-cert-bund-data:
+    profiles: ["legacy-pentest"]
     image: registry.community.greenbone.net/community/cert-bund-data
     container_name: redamon-gvm-cert-data
     mem_limit: ${GVM_DATA_MEM:-1g}    # per-loader cap; redamon.sh floors it at 512m (the feed copy OOMs below ~128m)
@@ -137,6 +137,7 @@ services:
       - cert_data:/mnt
 
   gvm-dfn-cert-data:
+    profiles: ["legacy-pentest"]
     image: registry.community.greenbone.net/community/dfn-cert-data
     container_name: redamon-gvm-dfn-cert
     mem_limit: ${GVM_DATA_MEM:-1g}    # per-loader cap; redamon.sh floors it at 512m (the feed copy OOMs below ~128m)
@@ -147,6 +148,7 @@ services:
       - gvm-cert-bund-data
 
   gvm-data-objects:
+    profiles: ["legacy-pentest"]
     image: registry.community.greenbone.net/community/data-objects
     container_name: redamon-gvm-data-objects
     mem_limit: ${GVM_DATA_MEM:-1g}    # per-loader cap; redamon.sh floors it at 512m (the feed copy OOMs below ~128m)
@@ -157,6 +159,7 @@ services:
       - data_objects:/mnt
 
   gvm-report-formats:
+    profiles: ["legacy-pentest"]
     image: registry.community.greenbone.net/community/report-formats
     container_name: redamon-gvm-report-formats
     mem_limit: ${GVM_DATA_MEM:-1g}    # per-loader cap; redamon.sh floors it at 512m (the feed copy OOMs below ~128m)
@@ -169,6 +172,7 @@ services:
       - gvm-data-objects
 
   gvm-gpg-data:
+    profiles: ["legacy-pentest"]
     image: registry.community.greenbone.net/community/gpg-data
     container_name: redamon-gvm-gpg-data
     mem_limit: ${GVM_DATA_MEM:-1g}    # per-loader cap; redamon.sh floors it at 512m (the feed copy OOMs below ~128m)
@@ -179,6 +183,7 @@ services:
   # --- GVM runtime services ---
 
   gvm-redis:
+    profiles: ["legacy-pentest"]
     image: registry.community.greenbone.net/community/redis-server:stable
     container_name: redamon-gvm-redis
     mem_limit: ${GVM_REDIS_MEM:-1g}   # sized from host RAM by redamon.sh (holds the whole VT feed; routinely multi-GB)
@@ -187,6 +192,7 @@ services:
       - gvm_redis_socket:/run/redis/
 
   gvm-postgres:
+    profiles: ["legacy-pentest"]
     image: registry.community.greenbone.net/community/pg-gvm:stable
     container_name: redamon-gvm-postgres
     mem_limit: ${GVM_POSTGRES_MEM:-1g}   # sized from host RAM by redamon.sh (GVM's own database)
@@ -218,6 +224,7 @@ services:
       start_period: 30s
 
   gvmd:
+    profiles: ["legacy-pentest"]
     image: registry.community.greenbone.net/community/gvmd:stable
     container_name: redamon-gvm-gvmd
     mem_limit: ${GVMD_MEM:-3g}              # sized from host RAM by redamon.sh (gvm profile)
@@ -247,6 +254,7 @@ services:
         condition: service_completed_successfully
 
   gvm-ospd:
+    profiles: ["legacy-pentest"]
     image: registry.community.greenbone.net/community/ospd-openvas:stable
     container_name: redamon-gvm-ospd
     mem_limit: ${GVM_OSPD_MEM:-2g}   # sized from host RAM by redamon.sh (the actual OpenVAS scanner: heaviest of the stack)
@@ -399,6 +407,7 @@ services:
   # the Linux VM, so the unix socket is shareable on macOS + Linux). See
   # services/docker_broker/.
   docker-broker:
+    profiles: ["legacy-pentest"]
     build: ./services/docker_broker
     image: redamon-docker-broker:latest
     container_name: redamon-docker-broker
@@ -444,6 +453,7 @@ services:
       start_period: 5s
 
   recon-orchestrator:
+    profiles: ["legacy-pentest"]
     build: ./recon_orchestrator
     container_name: redamon-recon-orchestrator
     mem_limit: ${RECON_ORCHESTRATOR_MEM:-1g}   # sized from host RAM by redamon.sh
@@ -666,7 +676,7 @@ services:
       # it reaches Neo4j by service name, not localhost.
       ORCHESTRATOR_NEO4J_URI: ${ORCHESTRATOR_NEO4J_URI:-bolt://neo4j:7687}
       NEO4J_USER: neo4j
-      NEO4J_PASSWORD: ${NEO4J_PASSWORD:?NEO4J_PASSWORD must be set - run redamon.sh (STRIDE S13)}
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:?NEO4J_PASSWORD must be set - run reamon.sh (STRIDE S13)}
       # Agent API for AI hooks in recon (e.g., FFuf AI-extension inference).
       # Spawned recon containers run on host network, so reach the agent via
       # its host-mapped port (default 8090) rather than the docker-network name.
@@ -703,6 +713,7 @@ services:
       - orchestrator-net
 
   kali-sandbox:
+    profiles: ["legacy-pentest"]
     build:
       context: ./mcp
       dockerfile: kali-sandbox/Dockerfile
@@ -790,8 +801,8 @@ services:
       PLAYWRIGHT_PORT: "8005"
       MSF_PROGRESS_PORT: "8013"
       HYDRA_PROGRESS_PORT: "8014"
-      MSF_AUTO_UPDATE: "${MSF_AUTO_UPDATE:-true}"
-      NUCLEI_AUTO_UPDATE: "${NUCLEI_AUTO_UPDATE:-true}"
+      MSF_AUTO_UPDATE: "${MSF_AUTO_UPDATE:-false}"
+      NUCLEI_AUTO_UPDATE: "${NUCLEI_AUTO_UPDATE:-false}"
       TERMINAL_WS_PORT: "8016"
       # INBOUND auth token the MCP servers validate on every SSE request (STRIDE
       # S10). This is NOT an outbound secret — it is the credential the worker
@@ -837,7 +848,7 @@ services:
       context: .
       dockerfile: agentic/Dockerfile
       args:
-        SKIP_KB: "${SKIP_KB:-false}"
+        SKIP_KB: "${SKIP_KB:-true}"
         TORCH_INDEX_URL: "${TORCH_INDEX_URL:-https://download.pytorch.org/whl/cpu}"
     container_name: redamon-agent
     mem_limit: ${AGENT_MEM:-3g}             # sized from host RAM by redamon.sh
@@ -852,7 +863,7 @@ services:
       # Neo4j (internal docker network)
       NEO4J_URI: bolt://neo4j:7687
       NEO4J_USER: neo4j
-      NEO4J_PASSWORD: ${NEO4J_PASSWORD:?NEO4J_PASSWORD must be set - run redamon.sh (STRIDE S13)}
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:?NEO4J_PASSWORD must be set - run reamon.sh (STRIDE S13)}
       # WebSocket config
       WS_HEARTBEAT_INTERVAL: "30"
       WS_TIMEOUT: "300"
@@ -891,7 +902,7 @@ services:
       KB_PATH: /app/knowledge_base/data
       # Fireteam requires AsyncPostgresSaver for safe mid-wave checkpointing.
       PERSISTENT_CHECKPOINTER: "true"
-      DATABASE_URL: "postgresql://${POSTGRES_USER:-redamon}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set - run redamon.sh (STRIDE S13)}@postgres:5432/${POSTGRES_DB:-redamon}"
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-redamon}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set - run reamon.sh (STRIDE S13)}@postgres:5432/${POSTGRES_DB:-redamon}"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -909,8 +920,6 @@ services:
       - ./agentic/agent-workspace:/workspace
     depends_on:
       neo4j:
-        condition: service_healthy
-      kali-sandbox:
         condition: service_healthy
       postgres:
         condition: service_healthy
@@ -954,7 +963,7 @@ services:
     environment:
       NEO4J_URI: bolt://neo4j:7687
       NEO4J_USER: neo4j
-      NEO4J_PASSWORD: ${NEO4J_PASSWORD:?NEO4J_PASSWORD must be set - run redamon.sh (STRIDE S13)}
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:?NEO4J_PASSWORD must be set - run reamon.sh (STRIDE S13)}
       KB_PATH: /app/knowledge_base/data
       NVD_API_KEY: "${NVD_API_KEY:-}"
     volumes:
@@ -1024,7 +1033,7 @@ services:
     build:
       context: ./webapp
       args:
-        REDAMON_VERSION: "${REDAMON_VERSION:-0.0.0}"
+        REAMON_VERSION: "${REAMON_VERSION:-0.0.0}"
     container_name: redamon-webapp
     mem_limit: ${WEBAPP_MEM:-1g}            # sized from host RAM by redamon.sh
     pids_limit: ${WEBAPP_PIDS:-512}         # D1: fork-bomb ceiling (generous)
@@ -1033,7 +1042,7 @@ services:
       - "${WEBAPP_PORT:-3000}:3000"
     environment:
       # PostgreSQL (Prisma)
-      DATABASE_URL: "postgresql://${POSTGRES_USER:-redamon}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set - run redamon.sh (STRIDE S13)}@postgres:5432/${POSTGRES_DB:-redamon}"
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-redamon}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set - run reamon.sh (STRIDE S13)}@postgres:5432/${POSTGRES_DB:-redamon}"
       # HTTP traffic capture: body full-text search (Phase 3). Off by default —
       # the GIN-over-bodies index is sizable vs the 1g Postgres cap (§6.3/§15.8).
       # Applied idempotently by the entrypoint after `db push`; drops when off.
@@ -1046,7 +1055,7 @@ services:
       # Neo4j (server-side graph queries)
       NEO4J_URI: bolt://neo4j:7687
       NEO4J_USER: neo4j
-      NEO4J_PASSWORD: ${NEO4J_PASSWORD:?NEO4J_PASSWORD must be set - run redamon.sh (STRIDE S13)}
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:?NEO4J_PASSWORD must be set - run reamon.sh (STRIDE S13)}
       # Ceiling on a single Cypher query. The driver's connection timeouts only
       # bound ACQUIRING a connection, so without this a whole-graph read on a very
       # large project leaves the request pending forever and pins a pooled

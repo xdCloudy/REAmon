@@ -94,8 +94,8 @@ describe('ProjectForm adopts the updatedAt of every write it causes', () => {
 
   test('the settings page hands the saved row back', () => {
     const page = read('../app/projects/[id]/settings/page.tsx')
-    expect(page).toContain('return saveProject(data)')
-    expect(page).toMatch(/const updated = await saveProject\(data\)[\s\S]*return updated/)
+    expect(page).toContain('redirect(`/projects/${encodeURIComponent(id)}`)')
+    expect(page).not.toContain('saveProject')
   })
 
   test('a refused save reaches the form, which keeps the edit unsaved', () => {

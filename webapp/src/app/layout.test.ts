@@ -4,7 +4,7 @@ import path from 'node:path'
 
 /**
  * Issue #175 regression: the browser -> agent WebSocket routing hint
- * (window.__REDAMON_WS__) must be resolved from process.env at REQUEST time.
+ * (window.__REAMON_WS__) must be resolved from process.env at REQUEST time.
  *
  * Every page under the root layout is a 'use client' shell with no server data,
  * so without `dynamic = 'force-dynamic'` Next prerenders them into static
@@ -30,6 +30,6 @@ describe('root layout -- request-time rendering (issue #175)', () => {
 
   test('still injects the WS routing hint resolved from process.env', () => {
     expect(SRC).toContain('resolveWsHint(process.env)')
-    expect(SRC).toContain('window.__REDAMON_WS__=')
+    expect(SRC).toContain('window.__REAMON_WS__=')
   })
 })

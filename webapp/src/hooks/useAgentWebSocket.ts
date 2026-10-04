@@ -1,7 +1,7 @@
 /**
  * useAgentWebSocket Hook
  *
- * Custom React hook for managing WebSocket connection to the RedAmon agent backend.
+ * Custom React hook for managing WebSocket connection to the REAmon agent backend.
  * Provides automatic reconnection, message handling, and type-safe communication.
  */
 
@@ -306,7 +306,7 @@ export function useAgentWebSocket({
     if (event.code === 1008) {
       const authError = new Error(
         ticketMissingRef.current
-          ? 'Agent WebSocket authentication failed: no session ticket was issued. Run ./redamon.sh update to generate AGENT_WS_TICKET_SECRET, then restart the webapp and agent.'
+          ? 'Agent WebSocket authentication failed: no session ticket was issued. Check AGENT_WS_TICKET_SECRET and restart the REAmon webapp and agent.'
           : 'Agent WebSocket authentication failed: the agent rejected the session ticket. Check that AGENT_WS_TICKET_SECRET matches for the webapp and agent containers.'
       )
       setStatus(ConnectionStatus.FAILED)

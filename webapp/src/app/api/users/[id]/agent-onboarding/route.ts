@@ -88,7 +88,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     layout,
     // The same stamp buildMcpServer reports as the server version, so a reader
     // can tell which build a downloaded pack describes.
-    version: process.env.NEXT_PUBLIC_REDAMON_VERSION || '0.0.0',
+    version: process.env.NEXT_PUBLIC_REAMON_VERSION || '0.0.0',
   }
 
   try {

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# RedAmon CLI - Simplified installation, update, and lifecycle management
+# REAmon CLI - installation and lifecycle management
 # =============================================================================
 set -euo pipefail
 
@@ -14,19 +14,13 @@ KBASE_FLAG_FILE="$SCRIPT_DIR/.kbase-enabled"
 KBASE_DISABLED_FLAG_FILE="$SCRIPT_DIR/.kbase-disabled"
 LEGACY_SKIPKBASE_FLAG_FILE="$SCRIPT_DIR/.skipkbase"
 
-# Service lists
-CORE_SERVICES="postgres neo4j docker-broker recon-orchestrator kali-sandbox agent webapp"
-# Build-only images run on demand (NOT long-running services). All live under the
-# compose `tools` profile and the redamon-* tag namespace. ai-attack-surface is the
-# AI Attack Surface scanner (garak/pyrit/giskard/promptfoo). wcvs is the Web Cache
-# Vulnerability Scanner, run docker-in-docker by the recon container for the web
-# cache poisoning module.
-TOOL_IMAGES="redamon-recon:latest redamon-vuln-scanner:latest redamon-github-hunter:latest redamon-trufflehog:latest redamon-baddns:latest redamon-ai-attack-surface:latest redamon-codefix-sandbox:latest redamon-wcvs:latest redamon-supply-chain-analyzer:latest redamon-supply-chain:latest"
-# Core services whose images are BUILT from this repo (postgres/neo4j are pulled,
-# so they are absent here). Used to verify `up` has something to start; the tags
-# are resolved through `docker compose config` so a renamed compose project or a
-# clone directory other than "redamon" still matches.
-CORE_BUILD_SERVICES="docker-broker recon-orchestrator kali-sandbox agent webapp"
+# REAmon runtime: PostgreSQL, Neo4j, the analysis agent, the web application,
+# and the background worker. Pentest scanners, GVM/OpenVAS, Kali, recon, and
+# capture services remain in the historical compose file only for reference;
+# they are not part of the REAmon lifecycle and are never built or started here.
+CORE_SERVICES="postgres neo4j agent webapp reamon-worker"
+TOOL_IMAGES=""
+CORE_BUILD_SERVICES="agent webapp"
 DEV_COMPOSE="-f docker-compose.yml -f docker-compose.dev.yml"
 
 # Free disk (GB) required before a Docker build starts. A full build has to fit
@@ -87,11 +81,8 @@ NC='\033[0m' # No Color
 
 print_banner() {
     echo -e "${RED}${BOLD}"
-    echo "  ____          _    _                         "
-    echo " |  _ \\ ___  __| |  / \\   _ __ ___   ___  _ __"
-    echo " | |_) / _ \\/ _\` | / _ \\ | '_ \` _ \\ / _ \\| '_ \\ "
-    echo " |  _ <  __/ (_| |/ ___ \\| | | | | | (_) | | | |"
-    echo " |_| \\_\\___|\\__,_/_/   \\_\\_| |_| |_|\\___/|_| |_|"
+    echo "  R E A m o n"
+    echo "  Reverse-engineering analysis workspace"
     echo -e "${NC}"
 }
 
@@ -1354,15 +1345,9 @@ _reconcile_capture_if_running() {
 # on, reconcile them here so capture survives a restart. Idempotent + best-effort;
 # retries briefly while the just-started orchestrator becomes reachable.
 ensure_capture_proxy_running() {
-    _capture_master_switch_on || return 0
-    docker ps --format '{{.Names}}' 2>/dev/null | grep -q '^redamon-capture-proxy$' && return 0
-    info "HTTP Traffic Capture is enabled — starting the capture proxy..."
-    local i
-    for i in 1 2 3 4 5 6 7 8; do
-        if _capture_start_post; then success "Capture proxy started."; return 0; fi
-        sleep 3
-    done
-    warn "HTTP Traffic Capture is on but the capture proxy could not be started (orchestrator not ready or ORCHESTRATOR_API_KEY missing). Re-run ./redamon.sh up, or toggle it in Settings."
+    # REAmon is an analysis workspace; the inherited traffic-capture lifecycle
+    # is intentionally retired and must never be started by install/up.
+    return 0
 }
 
 get_version() {
@@ -1374,11 +1359,15 @@ get_version() {
 }
 
 is_gvm_enabled() {
-    [[ -f "$GVM_FLAG_FILE" ]]
+    # GVM/OpenVAS is not a REAmon runtime feature. Treat stale legacy markers as
+    # disabled so an old installation cannot silently re-enable scanner services.
+    return 1
 }
 
 is_kbase_enabled() {
-    [[ -f "$KBASE_FLAG_FILE" ]]
+    # The inherited pentest knowledge base is not part of the REAmon product.
+    # Ignore stale markers from an older installation.
+    return 1
 }
 
 # ---------------------------------------------------------------------------
@@ -2990,8 +2979,8 @@ cmd_install() {
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --gvm)   gvm_mode="true" ;;
-            --kbase) kbase_mode="true" ;;
+            --gvm)   error "GVM/OpenVAS is not part of REAmon."; exit 2 ;;
+            --kbase) error "The inherited pentest knowledge base is not part of REAmon."; exit 2 ;;
             --gpu)   gpu_mode="on" ;;
             --cpu)   gpu_mode="off" ;;
             *) error "Unknown flag: $1"; exit 1 ;;
@@ -3015,7 +3004,7 @@ cmd_install() {
 
     local version
     version="$(get_version)"
-    info "Installing RedAmon v${version}..."
+    info "Installing REAmon v${version}..."
     if [[ "$gvm_mode" == "true" ]]; then
         info "Mode: Full stack (with GVM/OpenVAS)"
         touch "$GVM_FLAG_FILE"
@@ -3034,7 +3023,7 @@ cmd_install() {
         touch "$KBASE_FLAG_FILE"
         rm -f "$KBASE_DISABLED_FLAG_FILE"
     else
-        info "Mode: Skipping Knowledge Base (default; pass --kbase to enable)"
+        info "Mode: REAmon analysis runtime (legacy Knowledge Base disabled)"
         rm -f "$KBASE_FLAG_FILE"
         touch "$KBASE_DISABLED_FLAG_FILE"
     fi
@@ -3071,14 +3060,10 @@ cmd_install() {
     # it; reconcile_gvm_admin_password (post-up) applies it to the live gvmd.
     ensure_gvm_secret
 
-    # Build all images (tools + core services + the on-demand capture proxy).
-    # The capture-proxy / traffic-ingest pair lives in the "capture" profile and is
-    # spawned on demand by the orchestrator (never by `up`), but its image
-    # (redamon-capture-proxy:latest) must still EXIST or the first Settings toggle
-    # fails with an image-not-found pull error. Building it here — alongside tools —
-    # guarantees a fresh install can start capture without any extra step.
-    info "Building all images (this may take a while on first run)..."
-    compose_build --profile tools --profile capture build
+    # Build only the REAmon application images. Scanner/tool profiles are not
+    # part of this product and must not be pulled into a normal installation.
+    info "Building REAmon application images (this may take a while on first run)..."
+    compose_build build agent webapp
 
     # Reap the images the build just orphaned. A rebuild does not replace an image
     # in place: it builds a new one and MOVES the tag, leaving the previous image
@@ -3095,13 +3080,6 @@ cmd_install() {
     # delete the whole tool set that was just built (tool images are build-only and
     # never run) and the core images too, immediately after paying for them.
     docker image prune -f >/dev/null 2>&1 || true
-
-    # AFTER the tool build: the sync runs inside the analyzer image, so calling
-    # it earlier silently skipped on a fresh install and left the offline OSV
-    # database empty - the supply-chain feature would then report "no <eco>
-    # ecosystem" on every scan until someone ran supply-chain-sync by hand.
-    ensure_osv_db
-    ensure_sca_intel
 
     # Pull GVM images with retry (large images, unreliable registry)
     if [[ "$gvm_mode" == "true" ]]; then
@@ -3129,17 +3107,13 @@ cmd_install() {
     # is already usable (they can Ctrl+C the KB question and start working).
     echo ""
     echo -e "  ${GREEN}${BOLD}==========================================================${NC}"
-    echo -e "  ${GREEN}${BOLD}  RedAmon v${version} is ready!${NC}"
+    echo -e "  ${GREEN}${BOLD}  REAmon v${version} is ready!${NC}"
     echo -e "  ${GREEN}${BOLD}  Open ${CYAN}http://localhost:3000${GREEN}${BOLD} in your browser${NC}"
     echo -e "  ${GREEN}${BOLD}==========================================================${NC}"
     echo ""
 
     # Ensure an admin user exists (prompts if none found)
     ensure_admin
-
-    # HTTP Traffic Capture: start the orchestrator-spawned proxy if the master
-    # switch is on (it is not compose-managed, so `up`/restart won't bring it back).
-    ensure_capture_proxy_running
 
     # Bootstrap the Knowledge Base if enabled (reads KB_ENABLED from kb_config.yaml).
     # Install always runs a fresh bootstrap -- first-time setup populates FAISS +
@@ -3155,17 +3129,14 @@ cmd_install() {
             success "Knowledge Base ready (profile: ${kb_profile})"
         else
             warn "KB bootstrap failed -- agent will start with an empty KB"
-            warn "Retry with: ./redamon.sh kb build ${kb_profile}"
+            warn "Retry with: ./reamon.sh up after reviewing the worker logs"
         fi
     else
         info "KB_ENABLED=false -- skipping Knowledge Base bootstrap"
     fi
 
     echo ""
-    echo -e "  ${CYAN}Status:${NC}  ./redamon.sh status"
-    echo ""
-    echo -e "  ${YELLOW}If RedAmon is useful to you, a GitHub star helps others find the project:${NC}"
-    echo -e "  ${CYAN}https://github.com/samugit83/redamon${NC}"
+    echo -e "  ${CYAN}Status:${NC}  ./reamon.sh status"
     echo ""
     if [[ "$gvm_mode" == "true" ]]; then
         # Apply the pinned GVM_PASSWORD to the live gvmd 'admin' user (gvmd only
@@ -3859,11 +3830,9 @@ cmd_up_dev() {
     ensure_auth_secrets
     mcp_server_preflight || exit 1
     ensure_volume_ownership
-    ensure_osv_db
-    ensure_sca_intel
     ensure_db_secrets
 
-    info "Starting RedAmon in DEV mode (GVM: ${gvm_flag})..."
+    info "Starting REAmon in DEV mode..."
 
     if [[ "$gvm_flag" == "true" ]]; then
         pull_gvm_images
@@ -3883,17 +3852,13 @@ cmd_up_dev() {
     # is already usable (they can Ctrl+C the KB question and start working).
     echo ""
     echo -e "  ${GREEN}${BOLD}==========================================================${NC}"
-    echo -e "  ${GREEN}${BOLD}  RedAmon DEV is ready!${NC}"
+    echo -e "  ${GREEN}${BOLD}  REAmon DEV is ready!${NC}"
     echo -e "  ${GREEN}${BOLD}  Open ${CYAN}http://localhost:3000${GREEN}${BOLD} in your browser (hot-reload)${NC}"
     echo -e "  ${GREEN}${BOLD}==========================================================${NC}"
     echo ""
 
     # Ensure an admin user exists (prompts if none found)
     ensure_admin
-
-    # HTTP Traffic Capture: start the orchestrator-spawned proxy if the master
-    # switch is on (it is not compose-managed, so `up`/restart won't bring it back).
-    ensure_capture_proxy_running
 
     # Refresh the Knowledge Base if enabled (behavior B -- always run ingest,
     # trust manifest dedup). Same rationale as cmd_up. Dev mode still benefits
@@ -3907,7 +3872,7 @@ cmd_up_dev() {
             success "Knowledge Base ready (profile: ${kb_profile})"
         else
             warn "KB refresh failed -- agent will start with the existing KB state"
-            warn "Retry with: ./redamon.sh kb build ${kb_profile}"
+            warn "Retry with: ./reamon.sh up after reviewing the worker logs"
         fi
     fi
 }
@@ -3961,11 +3926,9 @@ cmd_up() {
     ensure_auth_secrets
     mcp_server_preflight || exit 1
     ensure_volume_ownership
-    ensure_osv_db
-    ensure_sca_intel
     ensure_db_secrets
 
-    info "Starting RedAmon (GVM: ${gvm_mode})..."
+    info "Starting REAmon..."
 
     # Pull GVM images with retry (large images, unreliable registry)
     if [[ "$gvm_mode" == "true" ]]; then
@@ -3988,17 +3951,13 @@ cmd_up() {
     # is already usable (they can Ctrl+C the KB question and start working).
     echo ""
     echo -e "  ${GREEN}${BOLD}==========================================================${NC}"
-    echo -e "  ${GREEN}${BOLD}  RedAmon is ready!${NC}"
+    echo -e "  ${GREEN}${BOLD}  REAmon is ready!${NC}"
     echo -e "  ${GREEN}${BOLD}  Open ${CYAN}http://localhost:3000${GREEN}${BOLD} in your browser${NC}"
     echo -e "  ${GREEN}${BOLD}==========================================================${NC}"
     echo ""
 
     # Ensure an admin user exists (prompts if none found)
     ensure_admin
-
-    # HTTP Traffic Capture: start the orchestrator-spawned proxy if the master
-    # switch is on (it is not compose-managed, so `up`/restart won't bring it back).
-    ensure_capture_proxy_running
 
     # Refresh the Knowledge Base if enabled. Behavior B: always run the ingest
     # pipeline on up. The two-layer dedup (file hashes + manifest) skips
@@ -4015,13 +3974,13 @@ cmd_up() {
             success "Knowledge Base ready (profile: ${kb_profile})"
         else
             warn "KB refresh failed -- agent will start with the existing KB state"
-            warn "Retry with: ./redamon.sh kb build ${kb_profile}"
+            warn "Retry with: ./reamon.sh up after reviewing the worker logs"
         fi
     fi
 }
 
 cmd_down() {
-    info "Stopping RedAmon..."
+    info "Stopping REAmon..."
     # The on-demand LLM + any in-flight AI scan containers are orchestrator-spawned
     # (not compose-managed), so stop them too — otherwise the local LLM keeps
     # holding RAM after `down`.
@@ -4031,8 +3990,8 @@ cmd_down() {
 }
 
 cmd_clean() {
-    warn "This will remove all RedAmon containers and images."
-    warn "Your data (databases, reports, scan results) will be preserved in Docker volumes."
+    warn "This will remove all REAmon containers and images."
+    warn "Your data (databases and workspace artifacts) will be preserved in Docker volumes."
     echo ""
     read -rp "Continue? [y/N] " confirm
     if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
@@ -4044,23 +4003,20 @@ cmd_clean() {
     remove_spawned_containers
     docker compose --profile tools down
 
-    info "Removing RedAmon images..."
+    info "Removing REAmon images..."
     remove_redamon_images
     docker image prune -f >/dev/null 2>&1 || true
 
-    success "All RedAmon containers and images removed. Volumes preserved."
+    success "All REAmon containers and images removed. Volumes preserved."
     echo ""
-    info "To reinstall: ./redamon.sh install"
+    info "To reinstall: ./reamon.sh install"
 }
 
 cmd_purge() {
     echo ""
     warn "This will PERMANENTLY DELETE:"
-    warn "  - All RedAmon containers and images"
-    warn "  - ALL DATA: PostgreSQL, Neo4j, GVM feeds, reports, scan results"
-    warn "  - Host-side KB index state (FAISS index, manifest, last-ingest marker)"
-    warn "  - KB dedup state (.manifest.json, .file_hashes.json)"
-    warn "  - Downloaded source files under services/knowledge_base/data/cache are PRESERVED"
+    warn "  - All REAmon containers and images"
+    warn "  - ALL DATA: PostgreSQL, Neo4j, and workspace artifacts"
     echo ""
     echo -e "${RED}${BOLD}This action cannot be undone.${NC}"
     echo ""
@@ -4098,7 +4054,7 @@ cmd_purge() {
     # One per project+source, so bounded — but `purge` claims to leave nothing.
     rm -rf /tmp/redamon/trufflehog_* >/dev/null 2>&1 || true
 
-    info "Removing RedAmon images..."
+    info "Removing REAmon images..."
     remove_redamon_images
     docker image prune -f >/dev/null 2>&1 || true
 
@@ -4157,9 +4113,9 @@ cmd_purge() {
     rm -f "$KBASE_DISABLED_FLAG_FILE"
     rm -f "$LEGACY_SKIPKBASE_FLAG_FILE"
     rm -f "$GPU_ENABLED_FLAG_FILE" "$GPU_DISABLED_FLAG_FILE" "$TORCH_VARIANT_MARKER"
-    success "Full cleanup complete. All RedAmon data and images have been removed."
+    success "Full cleanup complete. All REAmon data and images have been removed."
     echo ""
-    info "To reinstall: ./redamon.sh install"
+    info "To reinstall: ./reamon.sh install"
 }
 
 # Operational memory view for `status`.
@@ -4195,13 +4151,13 @@ _status_memory_report() {
             drift=" ${YELLOW}(expected ${want}MB)${NC}"
         fi
         if [[ "$oomk" == "true" ]]; then
-            echo -e "    ${RED}OOM-KILLED${NC}  ${c} (cap $(( mem / 1048576 ))MB, restarts ${restarts})"
+            echo -e "    ${RED}OOM-KILLED${NC}  ${name} (cap $(( mem / 1048576 ))MB, restarts ${restarts})"
             any=1
         elif [[ "${restarts:-0}" -gt 0 ]]; then
-            echo -e "    ${YELLOW}restarts=${restarts}${NC}  ${c} (cap $(( mem / 1048576 ))MB)${drift}"
+            echo -e "    ${YELLOW}restarts=${restarts}${NC}  ${name} (cap $(( mem / 1048576 ))MB)${drift}"
             any=1
         elif [[ -n "$drift" ]]; then
-            echo -e "    ${c}: $(( mem / 1048576 ))MB${drift}"
+            echo -e "    ${name}: $(( mem / 1048576 ))MB${drift}"
             any=1
         fi
     done <<< "$(docker ps --format '{{.Names}}' 2>/dev/null | grep '^redamon-' || true)"
@@ -4257,7 +4213,7 @@ _status_core_service_report() {
     # command - `up` cannot start images that were never built.
     if (( have_any == 0 )); then
         echo ""
-        echo -e "  ${YELLOW}No RedAmon services are installed yet.${NC} Run: ./redamon.sh install"
+        echo -e "  ${YELLOW}No REAmon services are installed yet.${NC} Run: ./reamon.sh install"
         return 0
     fi
 
@@ -4270,7 +4226,7 @@ _status_core_service_report() {
         echo -e "  ${YELLOW}The webapp reaches these by container name, so while one is down the UI"
         echo -e "  fails with 'ENOTFOUND <name>'. Inspect with:${NC}"
         echo "    docker compose logs --tail=100 <service>"
-        echo -e "  ${YELLOW}then bring it back with:${NC} ./redamon.sh up"
+        echo -e "  ${YELLOW}then bring it back with:${NC} ./reamon.sh up"
     fi
 }
 
@@ -4284,16 +4240,9 @@ cmd_status() {
     print_banner
     echo -e "  ${CYAN}Version:${NC}       v${version}"
 
-    # GVM feature gate
-    if is_gvm_enabled; then
-        echo -e "  ${CYAN}GVM_ENABLED:${NC}   ${GREEN}true${NC}"
-    else
-        echo -e "  ${CYAN}GVM_ENABLED:${NC}   false"
-    fi
+    echo -e "  ${CYAN}Runtime:${NC}        REAmon core (scanner services disabled)"
 
-    # PyTorch build variant, read from the FROZEN marker (not re-detected): this
-    # is what the installed images actually contain. "not built yet" on a clone
-    # that has never run install/update.
+    # PyTorch build variant, read from the frozen marker rather than re-detected.
     local _tv
     _tv="$(cat "$TORCH_VARIANT_MARKER" 2>/dev/null)" || _tv=""
     case "$_tv" in
@@ -4301,29 +4250,6 @@ cmd_status() {
         cpu) echo -e "  ${CYAN}TORCH_BUILD:${NC}   cpu" ;;
         *)   echo -e "  ${CYAN}TORCH_BUILD:${NC}   not built yet" ;;
     esac
-
-    # KB feature gate (from kb_config.yaml / env var)
-    if is_kb_enabled; then
-        echo -e "  ${CYAN}KB_ENABLED:${NC}    ${GREEN}true${NC}"
-    else
-        echo -e "  ${CYAN}KB_ENABLED:${NC}    false"
-    fi
-
-    # KB data state — always shown, independent of KB_ENABLED
-    local faiss_count neo4j_count kb_state
-    faiss_count=$(_kb_get_faiss_count)
-    neo4j_count=$(_kb_get_neo4j_count)
-
-    if [[ "$faiss_count" == "0" && "$neo4j_count" == "0" ]]; then
-        kb_state="${YELLOW}empty${NC}"
-    elif [[ "$faiss_count" == "unknown" || "$neo4j_count" == "unknown" ]]; then
-        kb_state="${YELLOW}unknown${NC}"
-    elif [[ "$faiss_count" == "0" || "$neo4j_count" == "0" ]]; then
-        kb_state="${YELLOW}partial${NC}"
-    else
-        kb_state="${GREEN}populated${NC}"
-    fi
-    echo -e "  ${CYAN}KB:${NC}            ${kb_state} (FAISS: ${faiss_count} vectors; NEO4J: ${neo4j_count} chunks)"
 
     echo ""
 
@@ -4496,44 +4422,33 @@ cmd_kb_help() {
 
 cmd_help() {
     print_banner
-    echo -e "${BOLD}Usage:${NC} ./redamon.sh <command> [options]"
+    echo -e "${BOLD}Usage:${NC} ./reamon.sh <command> [options]"
     echo ""
     echo -e "${BOLD}Commands:${NC}"
-    echo -e "  ${GREEN}install${NC}              Build and start RedAmon (no GVM, no Knowledge Base)"
-    echo -e "  ${GREEN}install --gvm${NC}        Build and start RedAmon (with GVM/OpenVAS)"
-    echo -e "  ${GREEN}install --kbase${NC}      Build with Knowledge Base (~4.4 GB heavier, local KB enabled)"
-    echo -e "  ${GREEN}install --gpu${NC}        Build the KB on CUDA PyTorch (~2.5 GB heavier; needs nvidia-container-toolkit)"
-    echo -e "  ${GREEN}install --cpu${NC}        Force CPU-only PyTorch (default; auto-detected when neither flag is given)"
-    echo -e "  ${GREEN}update${NC}           Pull latest version and smart-rebuild changed services"
+    echo -e "  ${GREEN}install${NC}              Build and start REAmon (no legacy scanners)"
+    echo -e "  ${GREEN}install --gpu${NC}        Use CUDA for optional analysis dependencies (needs nvidia-container-toolkit)"
+    echo -e "  ${GREEN}install --cpu${NC}        Force CPU-only analysis dependencies (default)"
+    echo -e "  ${GREEN}update${NC}           Disabled; releases are installed from the REAmon repository"
     echo -e "  ${GREEN}up${NC}               Start services"
-    echo -e "  ${GREEN}up dev${NC}           Start in dev mode (hot-reload, auto-detects GVM mode)"
+    echo -e "  ${GREEN}up dev${NC}           Start in dev mode (hot-reload)"
     echo -e "  ${GREEN}down${NC}             Stop services (preserves data)"
     echo -e "  ${GREEN}clean${NC}            Remove containers and images (keeps data)"
     echo -e "  ${GREEN}purge${NC}            Remove everything including all data"
-    echo -e "  ${GREEN}status${NC}           Show running services, version, GVM, and KB state"
-    echo -e "  ${GREEN}migrate-layout${NC}   Move data left at pre-6.9 paths (runs automatically on update/up)"
+    echo -e "  ${GREEN}status${NC}           Show running REAmon services and release state"
+    echo -e "  ${GREEN}migrate-layout${NC}   Migrate local workspace data layout"
     echo -e "  ${GREEN}create-admin${NC}     Create the admin login (or reset it); use if no prompt appeared at install"
     echo -e "  ${GREEN}reset-password${NC}   Reset an existing user's password"
-    echo -e "  ${GREEN}kb <command>${NC}     Knowledge Base management (build/update/rebuild/stats)"
-    echo -e "  ${GREEN}supply-chain-sync [ecos]${NC}  Populate the offline OSV DB (default: npm; e.g. 'npm PyPI Go')"
-    echo -e "  ${GREEN}sca-intel-sync [--force|--seed-only]${NC}  Populate the supply-chain incident intel (supplychainattack.org; --seed-only installs the bundled offline copy, no network)"
     echo -e "  ${GREEN}test [tier]${NC}      Run the test suite: unit (default) | integration | live | all | coverage"
     echo -e "  ${GREEN}help${NC}             Show this help message"
     echo ""
     echo -e "${BOLD}Examples:${NC}"
-    echo "  ./redamon.sh install               # First-time setup (lightweight: no GVM, no KB)"
-    echo "  ./redamon.sh install --kbase       # First-time setup with local Knowledge Base"
-    echo "  ./redamon.sh install --gvm         # First-time setup with GVM/OpenVAS"
-    echo "  ./redamon.sh install --gvm --kbase # First-time setup with everything"
-    echo "  ./redamon.sh install --kbase --gpu  # Knowledge Base on the GPU (CUDA PyTorch)"
-    echo "  ./redamon.sh update           # Update to latest version"
-    echo "  ./redamon.sh up               # Start after reboot"
-    echo "  ./redamon.sh up dev           # Dev mode with hot-reload (auto-detects GVM)"
-    echo "  ./redamon.sh create-admin     # Create the admin login (or reset it)"
-    echo "  ./redamon.sh reset-password   # Reset a user's password"
-    echo "  ./redamon.sh kb build lite    # Build Knowledge Base"
-    echo "  ./redamon.sh kb update        # Refresh all KB sources"
-    echo "  ./redamon.sh kb stats         # Show KB chunk counts"
+    echo "  ./reamon.sh install               # First-time REAmon setup"
+    echo "  ./reamon.sh install --gpu         # Optional CUDA build for analysis workloads"
+    echo "  ./reamon.sh update             # Fails closed: upstream updates are disabled"
+    echo "  ./reamon.sh up                  # Start after reboot"
+    echo "  ./reamon.sh up dev              # Dev mode with hot-reload"
+    echo "  ./reamon.sh create-admin        # Create the admin login (or reset it)"
+    echo "  ./reamon.sh reset-password      # Reset a user's password"
     echo ""
 }
 
@@ -4800,12 +4715,15 @@ esac
 # Running it here also means the .env block is written BEFORE any `docker compose
 # up` in those commands reads it.
 case "${1:-help}" in
-    install|update|up) export_resource_caps; prune_removed_containers ;;
+    install|up) export_resource_caps; prune_removed_containers ;;
 esac
 
 case "${1:-help}" in
     install) shift; cmd_install "$@" ;;
-    update)  shift; cmd_update "$@" ;;
+    update)
+        error "Upstream update checks are disabled in REAmon. Install reviewed REAmon releases through the project repository."
+        exit 2
+        ;;
     up)
         if [[ "${2:-}" == "dev" ]]; then
             cmd_up_dev
@@ -4825,25 +4743,12 @@ case "${1:-help}" in
     clean)   cmd_clean ;;
     purge)   cmd_purge ;;
     status)  cmd_status ;;
-    kb)
-        shift
-        case "${1:-help}" in
-            build)   shift; cmd_kb_build   "${1:-lite}" ;;
-            update)  shift; cmd_kb_update  "${1:-}" ;;
-            rebuild) shift; cmd_kb_rebuild "${1:-standard}" ;;
-            stats)   cmd_kb_stats ;;
-            help|--help|-h|"") cmd_kb_help ;;
-            *)
-                error "Unknown kb command: $1"
-                cmd_kb_help
-                exit 1
-                ;;
-        esac
+    kb|supply-chain-sync|sca-intel-sync)
+        error "Legacy pentest data services are not part of REAmon."
+        exit 2
         ;;
     reset-password) cmd_reset_password ;;
     create-admin)   cmd_create_admin ;;
-    supply-chain-sync) shift; cmd_supply_chain_sync "$@" ;;
-    sca-intel-sync) shift; cmd_sca_intel_sync "$@" ;;
     test)           shift; cmd_test "${1:-unit}" ;;
     help|--help|-h) cmd_help ;;
     *)

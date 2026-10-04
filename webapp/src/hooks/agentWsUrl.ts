@@ -26,7 +26,7 @@
 declare global {
   interface Window {
     /** Server-injected browser->agent WS routing hint (app/layout.tsx). */
-    __REDAMON_WS__?: { url?: string; port?: string }
+    __REAMON_WS__?: { url?: string; port?: string }
   }
 }
 
@@ -46,7 +46,7 @@ function applyPath(url: string, path: string): string {
 
 /**
  * Server-side (app/layout.tsx): resolve the browser->agent WS routing hint from env
- * so it can be injected as `window.__REDAMON_WS__`. Pure + exported so the mapping
+ * so it can be injected as `window.__REAMON_WS__`. Pure + exported so the mapping
  * is unit-tested independently of React rendering.
  *
  *  - AGENT_WS_PUBLIC_URL (explicit full URL) wins.
@@ -73,7 +73,7 @@ export function buildAgentWsUrl(path: string, ticket?: string): string {
   // A reverse-proxied deploy leaves this unset and keeps the same-origin path
   // below. The browser can't tell "proxy on an odd port" from "raw webapp port"
   // on its own, so the SERVER declares which one it is.
-  const rt = (typeof window !== 'undefined' ? window.__REDAMON_WS__ : undefined) || undefined
+  const rt = (typeof window !== 'undefined' ? window.__REAMON_WS__ : undefined) || undefined
   if (configured) {
     base = applyPath(configured, path)
   } else if (rt && rt.url) {

@@ -119,7 +119,7 @@ describe('buildAgentWsUrl -- browser auto-detect, proxied deploy uses same origi
 
 describe('buildAgentWsUrl -- runtime routing hint (issue #159: no-reverse-proxy deploy)', () => {
   function stubWindow(loc: { protocol: string; hostname: string; port: string }, hint: unknown) {
-    vi.stubGlobal('window', { location: loc, __REDAMON_WS__: hint })
+    vi.stubGlobal('window', { location: loc, __REAMON_WS__: hint })
   }
 
   test('agent-port hint over a LAN IP dials the agent port on the browser host (THE FIX)', () => {
@@ -179,7 +179,7 @@ describe('buildAgentWsUrl -- base URL without the /ws/agent suffix (robustness)'
   test('runtime url hint WITHOUT the suffix appends the path (AGENT_WS_PUBLIC_URL footgun)', () => {
     vi.stubGlobal('window', {
       location: { protocol: 'http:', hostname: '10.0.0.5', port: '3000' },
-      __REDAMON_WS__: { url: 'ws://10.0.0.5:8090' },
+      __REAMON_WS__: { url: 'ws://10.0.0.5:8090' },
     })
     expect(buildAgentWsUrl('/ws/kali-terminal')).toBe('ws://10.0.0.5:8090/ws/kali-terminal')
     expect(buildAgentWsUrl('/ws/agent')).toBe('ws://10.0.0.5:8090/ws/agent')
@@ -188,7 +188,7 @@ describe('buildAgentWsUrl -- base URL without the /ws/agent suffix (robustness)'
   test('empty hint object falls back to same-origin (no crash, no :8090 leak)', () => {
     vi.stubGlobal('window', {
       location: { protocol: 'https:', hostname: 'redamon.example.com', port: '' },
-      __REDAMON_WS__: {},
+      __REAMON_WS__: {},
     })
     const url = buildAgentWsUrl('/ws/agent')
     expect(url).toBe('wss://redamon.example.com/ws/agent')

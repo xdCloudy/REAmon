@@ -547,7 +547,7 @@ export function LlmProviderForm({ userId, provider, existingProviderTypes = [], 
           <AlertTriangle size={14} />
           <span>
             {agentHealth.error
-              || 'The RedAmon agent service is offline, so connections cannot be tested right now.'}
+              || 'The REAmon agent service is offline, so connections cannot be tested right now.'}
           </span>
           <button className={styles.agentOfflineRetry} onClick={agentHealth.refresh} type="button">
             <RefreshCw size={12} /> Re-check
@@ -561,7 +561,7 @@ export function LlmProviderForm({ userId, provider, existingProviderTypes = [], 
           // Never gate on 'unknown': a slow probe must not block a working setup.
           disabled={testing || agentHealth.status === 'offline'}
           title={agentHealth.status === 'offline'
-            ? 'Unavailable while the RedAmon agent service is offline'
+            ? 'Unavailable while the REAmon agent service is offline'
             : undefined}
         >
           {testing ? <Loader2 size={14} className={styles.spin} /> : null}

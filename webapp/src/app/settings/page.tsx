@@ -2,18 +2,15 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { Plus, Pencil, Trash2, Loader2, Eye, EyeOff, Upload, Download, Swords, RotateCw, Copy, Check, ExternalLink, ChevronDown, ChevronRight, Info, BookOpen, Server, KeyRound } from 'lucide-react'
+import { Plus, Pencil, Trash2, Loader2, Eye, EyeOff, Upload, Download, Swords, RotateCw, Copy, Check, ExternalLink, ChevronDown, ChevronRight, Info, BookOpen } from 'lucide-react'
 import { useProject } from '@/providers/ProjectProvider'
 import { useAuth } from '@/providers/AuthProvider'
-import { useVersionCheck } from '@/hooks/useVersionCheck'
 // Shared with the inline shortcuts the scan sections render, so a key cannot be
 // described one way here and another way on the card that asks for it.
 import { CredentialDrawer } from '@/components/settings/CredentialDrawer'
 import { githubKeyGroups, trufflehogKeyGroups, TRUFFLEHOG_KEY_FIELDS } from '@/lib/credentialFields'
 import { useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard'
 import { LlmProviderForm } from '@/components/settings/LlmProviderForm'
-import McpServersTab from '@/components/settings/mcp/McpServersTab'
-import McpTokensTab from '@/components/settings/mcp-tokens/McpTokensTab'
 import type { ProviderData } from '@/components/settings/LlmProviderForm'
 import { TradecraftResourceForm } from '@/components/settings/TradecraftResourceForm'
 import { TradecraftResourceList } from '@/components/settings/TradecraftResourceList'
@@ -30,7 +27,7 @@ import { ApiUsageControls } from '@/components/settings/api-usage/ApiUsageContro
 import { ApiUsageReportModal } from '@/components/settings/api-usage/ApiUsageReportModal'
 import { ApiUsageLlmChip } from '@/components/settings/api-usage/ApiUsageLlmChip'
 import { llmInventoryHint } from '@/lib/apiUsage/inventory'
-import { FeatureModelsSection } from '@/components/settings/FeatureModelsSection'
+import { REAMON_DOCUMENTATION_URL, REAMON_REPOSITORY_URL, REAMON_VERSION } from '@/lib/reamon/version'
 
 /** A Secret Multiscanner credential column (TRUFFLEHOG_KEY_FIELDS). */
 type TrufflehogField = `trufflehog${string}`
@@ -873,7 +870,7 @@ export default function SettingsPage() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = 'redamon-api-keys-template.json'
+    a.download = 'reamon-api-keys-template.json'
     a.click()
     URL.revokeObjectURL(url)
     toast.success('Template downloaded')
@@ -920,7 +917,7 @@ export default function SettingsPage() {
   }, [pendingImport])
 
   const searchParams = useSearchParams()
-  const validTabs = ['providers', 'skills', 'chat-skills', 'tradecraft', 'keys', 'mcp', 'mcp-tokens', 'system']
+  const validTabs = ['providers', 'system']
   const initialTab = searchParams.get('tab') || 'providers'
   const [activeTab, setActiveTab] = useState(validTabs.includes(initialTab) ? initialTab : 'providers')
 
@@ -1092,24 +1089,6 @@ export default function SettingsPage() {
         <button className={`${styles.tab} ${activeTab === 'providers' ? styles.tabActive : ''}`} onClick={() => switchTab('providers')}>
           LLM Providers
         </button>
-        <button className={`${styles.tab} ${activeTab === 'skills' ? styles.tabActive : ''}`} onClick={() => switchTab('skills')}>
-          <Swords size={14} /> Agent Skills
-        </button>
-        <button className={`${styles.tab} ${activeTab === 'chat-skills' ? styles.tabActive : ''}`} onClick={() => switchTab('chat-skills')}>
-          <BookOpen size={14} /> Chat Skills
-        </button>
-        <button className={`${styles.tab} ${activeTab === 'tradecraft' ? styles.tabActive : ''}`} onClick={() => switchTab('tradecraft')}>
-          <BookOpen size={14} /> Tradecraft
-        </button>
-        <button className={`${styles.tab} ${activeTab === 'keys' ? styles.tabActive : ''}`} onClick={() => switchTab('keys')}>
-          API Keys & Tunneling
-        </button>
-        <button className={`${styles.tab} ${activeTab === 'mcp' ? styles.tabActive : ''}`} onClick={() => switchTab('mcp')}>
-          <Server size={14} /> MCP Tool Plugins
-        </button>
-        <button className={`${styles.tab} ${activeTab === 'mcp-tokens' ? styles.tabActive : ''}`} onClick={() => switchTab('mcp-tokens')}>
-          <KeyRound size={14} /> MCP Server
-        </button>
         <button className={`${styles.tab} ${activeTab === 'system' ? styles.tabActive : ''}`} onClick={() => switchTab('system')}>
           <Info size={14} /> System
         </button>
@@ -1120,7 +1099,7 @@ export default function SettingsPage() {
         <div className={styles.sectionHeader}>
           <h2 className={styles.sectionTitle} style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
             <span>LLM Providers</span>
-            <WikiInfoButton target="https://github.com/samugit83/redamon/wiki/AI-Model-Providers" title="Open AI Model Providers wiki page" />
+            <WikiInfoButton target="https://github.com/xdCloudy/REAmon/tree/reamon/bootstrap/docs" title="Open REAmon analysis documentation" />
           </h2>
           <div className={styles.sectionHeaderActions}>
             <ApiUsageControls controller={apiUsage} buttonClassName={styles.sectionHeaderBtn} />
@@ -1192,13 +1171,6 @@ export default function SettingsPage() {
           )
         )}
 
-        {!showProviderForm && !editingProvider && (
-          <FeatureModelsSection
-            userId={userId}
-            providersCount={providers.length}
-            providersLoading={providersLoading}
-          />
-        )}
       </div>}
 
       {/* Tab: Agent Skills */}
@@ -1206,7 +1178,7 @@ export default function SettingsPage() {
         <div className={styles.sectionHeader}>
           <h2 className={styles.sectionTitle} style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
             <Swords size={16} /> Agent Skills
-            <WikiInfoButton target="https://github.com/samugit83/redamon/wiki/Agent-Skills" title="Open Agent Skills wiki page" />
+            <WikiInfoButton target="https://github.com/xdCloudy/REAmon/tree/reamon/bootstrap/docs" title="Open REAmon documentation" />
           </h2>
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
             <button
@@ -1230,7 +1202,7 @@ export default function SettingsPage() {
         </div>
         <p className={styles.sectionHint}>
           Upload .md files defining custom attack skill workflows. Skills become available as toggles in all project settings.
-          {' '}Browse <a href="https://github.com/samugit83/redamon/wiki/Agent-Skills#community-skills" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent-primary)', textDecoration: 'underline' }}>community skills</a> for ready-to-use templates.
+          {' '}Browse the REAmon documentation for provider and agent guidance.
         </p>
 
         {skillsLoading ? (
@@ -1273,7 +1245,7 @@ export default function SettingsPage() {
         <div className={styles.sectionHeader}>
           <h2 className={styles.sectionTitle} style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
             <BookOpen size={16} /> Chat Skills
-            <WikiInfoButton target="https://github.com/samugit83/redamon/wiki/Chat-Skills" title="Open Chat Skills wiki page" />
+            <WikiInfoButton target="https://github.com/xdCloudy/REAmon/tree/reamon/bootstrap/docs" title="Open REAmon documentation" />
           </h2>
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
             <button
@@ -1356,7 +1328,7 @@ export default function SettingsPage() {
         <div className={styles.sectionHeader}>
           <h2 className={styles.sectionTitle}>
             Tradecraft Resources
-            <WikiInfoButton target="https://github.com/samugit83/redamon/wiki/Tradecraft-Lookup" title="Open Tradecraft Lookup wiki page" />
+            <WikiInfoButton target="https://github.com/xdCloudy/REAmon/tree/reamon/bootstrap/docs" title="Open REAmon documentation" />
           </h2>
           {!tcShowForm && !tcEditing && (
             <button className="primaryButton" onClick={() => setTcShowForm(true)}>
@@ -1766,7 +1738,7 @@ export default function SettingsPage() {
         <div className={styles.sectionHeader}>
           <h2 className={styles.sectionTitle} style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
             <span>Tunneling</span>
-            <WikiInfoButton target="https://github.com/samugit83/redamon/wiki/Reverse-Shells" title="Open Reverse Shells wiki page" />
+            <WikiInfoButton target="https://github.com/xdCloudy/REAmon/tree/reamon/bootstrap/docs" title="Open REAmon documentation" />
           </h2>
         </div>
         <p className={styles.sectionHint}>
@@ -1831,9 +1803,6 @@ export default function SettingsPage() {
       </div></>}
 
       {/* Tab: System */}
-      {activeTab === 'mcp' && userId && <McpServersTab userId={userId} onDirtyChange={setChildDirty} />}
-      {activeTab === 'mcp-tokens' && userId && <McpTokensTab userId={userId} onDirtyChange={setChildDirty} />}
-
       {activeTab === 'system' && (
         <>
           <SystemSection />
@@ -2179,163 +2148,23 @@ export default function SettingsPage() {
   )
 }
 
-// ---------------------------------------------------------------------------
-// System Section (version info + update check)
-// ---------------------------------------------------------------------------
-
 function SystemSection() {
-  const { currentVersion, latestVersion, changelog, updateAvailable, loading } = useVersionCheck()
-
-  const [copied, setCopied] = useState(false)
-  const [expandedVersions, setExpandedVersions] = useState<Set<string>>(new Set())
-
-  const handleCopy = useCallback(() => {
-    navigator.clipboard.writeText('./redamon.sh update').then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    })
-  }, [])
-
-  const toggleVersion = (version: string) => {
-    setExpandedVersions(prev => {
-      const next = new Set(prev)
-      if (next.has(version)) next.delete(version)
-      else next.add(version)
-      return next
-    })
-  }
-
   return (
     <div className={styles.section}>
       <div className={styles.sectionHeader}>
         <h2 className={styles.sectionTitle} style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
-          <Info size={16} /> System
-          <WikiInfoButton target="https://github.com/samugit83/redamon/wiki/Troubleshooting" title="Open Troubleshooting wiki page" />
+          <Info size={16} /> REAmon release
         </h2>
       </div>
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-        {/* Version info */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-          <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-            Current version: <strong style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>v{currentVersion}</strong>
-          </span>
-
-          {latestVersion && !updateAvailable && (
-            <span style={{
-              display: 'inline-flex', alignItems: 'center', gap: '4px',
-              fontSize: '11px', fontWeight: 600, padding: '2px 8px', borderRadius: '4px',
-              background: 'var(--status-success-bg)', color: 'var(--status-success-text)',
-            }}>
-              Up to date
-            </span>
-          )}
-
-          {updateAvailable && latestVersion && (
-            <span style={{
-              display: 'inline-flex', alignItems: 'center', gap: '4px',
-              fontSize: '11px', fontWeight: 600, padding: '2px 8px', borderRadius: '4px',
-              background: 'var(--status-warning-bg)', color: 'var(--status-warning-text)',
-            }}>
-              v{latestVersion} available
-            </span>
-          )}
-
-          {loading && (
-            <Loader2 size={12} className={styles.spin} style={{ marginLeft: 'auto' }} />
-          )}
-        </div>
-
-        {/* Update available: show command + changelog */}
-        {updateAvailable && (
-          <>
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: '8px',
-              padding: '8px 12px', background: 'var(--bg-primary)',
-              border: '1px solid var(--border-default)', borderRadius: '6px',
-              fontFamily: 'var(--font-mono)',
-            }}>
-              <code style={{ flex: 1, fontSize: '13px', color: 'var(--color-success)' }}>
-                ./redamon.sh update
-              </code>
-              <button
-                onClick={handleCopy}
-                title="Copy command"
-                style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  padding: '4px', background: 'none', border: '1px solid var(--border-default)',
-                  borderRadius: '4px', color: 'var(--text-tertiary)', cursor: 'pointer',
-                }}
-              >
-                {copied ? <Check size={12} /> : <Copy size={12} />}
-              </button>
-            </div>
-
-            {/* Changelog */}
-            {changelog && changelog.length > 0 && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)' }}>
-                  Changes since v{currentVersion}:
-                </span>
-                <div style={{
-                  maxHeight: '250px', overflowY: 'auto',
-                  border: '1px solid var(--border-default)', borderRadius: '6px',
-                  background: 'var(--bg-primary)',
-                }}>
-                  {changelog.map((entry: { version: string; date: string; sections: { title: string; items: string[] }[] }) => {
-                    const isExpanded = expandedVersions.has(entry.version)
-                    return (
-                      <div key={entry.version} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                        <button
-                          type="button"
-                          onClick={() => toggleVersion(entry.version)}
-                          style={{
-                            display: 'flex', alignItems: 'center', gap: '6px',
-                            width: '100%', padding: '6px 10px', background: 'none',
-                            border: 'none', cursor: 'pointer', fontSize: '12px',
-                            color: 'var(--text-primary)', textAlign: 'left',
-                          }}
-                        >
-                          {isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-                          <strong style={{ fontFamily: 'var(--font-mono)' }}>v{entry.version}</strong>
-                          <span style={{ color: 'var(--text-tertiary)', fontSize: '11px', marginLeft: 'auto' }}>{entry.date}</span>
-                        </button>
-                        {isExpanded && (
-                          <div style={{ padding: '0 10px 8px 28px' }}>
-                            {entry.sections.map((section: { title: string; items: string[] }) => (
-                              <div key={section.title} style={{ marginTop: '4px' }}>
-                                <div style={{ fontSize: '10px', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                                  {section.title}
-                                </div>
-                                <ul style={{ margin: '2px 0 0', paddingLeft: '16px', listStyle: 'disc' }}>
-                                  {section.items.map((item: string, i: number) => (
-                                    <li key={i} style={{ fontSize: '11px', color: 'var(--text-secondary)', lineHeight: '1.5' }}>{item}</li>
-                                  ))}
-                                </ul>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-            )}
-          </>
-        )}
-
-        {/* Links */}
-        <div style={{ display: 'flex', gap: '12px', fontSize: '11px' }}>
-          <a
-            href="https://github.com/samugit83/redamon/blob/master/CHANGELOG.md"
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{ display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--text-tertiary)', textDecoration: 'none' }}
-          >
-            <ExternalLink size={11} /> Changelog
-          </a>
-        </div>
+      <p className={styles.sectionHint}>REAmon does not contact an upstream project or check for remote versions. Releases are reviewed and installed by the deployment operator.</p>
+      <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', fontSize: '12px' }}>
+        <span>Installed release: <strong>v{REAMON_VERSION}</strong></span>
+        <a href={REAMON_REPOSITORY_URL} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: 'var(--accent-primary)', textDecoration: 'none' }}>
+          <ExternalLink size={11} /> REAmon repository
+        </a>
+        <a href={REAMON_DOCUMENTATION_URL} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: 'var(--accent-primary)', textDecoration: 'none' }}>
+          <ExternalLink size={11} /> Documentation
+        </a>
       </div>
     </div>
   )

@@ -10,14 +10,12 @@ import { WorkspaceAnalysisPlanPanel, type WorkspaceAnalysisPlan } from '@/compon
 import { WorkspaceTaskList } from '@/components/reamon/WorkspaceTaskList'
 import { WorkspaceFindingList } from '@/components/reamon/WorkspaceFindingList'
 import type { CapabilityMatch, ProgressMetric, TargetProfile, WorkspaceCapabilitySummary, WorkspaceImportSnapshot, WorkspaceObservation, WorkspaceProfile } from '@/lib/reamon'
-import type { LegacyCompatibilityReport } from '@/lib/reamon/legacy-compat'
 import styles from './page.module.css'
 
 type WorkerHealth = { workerId: string; status: string; lastSeenAt: string; lastDispatchAt: string | null; lastDispatchDurationMs: number | null; lastRecovered: number; lastSelected: number; lastCompleted: number; lastFailed: number; lastError: string }
 
 interface WorkspaceSnapshot {
   workspace: { id: string; name: string; description: string | null; projectKind: string; createdAt: string; updatedAt: string }
-  compatibility: LegacyCompatibilityReport
   targets: Array<{ id: string; name: string; targetType: string; status: string; parentTargetId: string | null; profile: TargetProfile }>
   artifacts: Array<{
     id: string
@@ -178,7 +176,6 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
     <div className={styles.page}>
       <div className={styles.topbar}>
         <Link href="/projects" className={styles.backLink}><ArrowLeft size={15} /> Projects</Link>
-        <Link href={`/projects/${data.workspace.id}/settings`} className="secondaryButton">Workspace settings</Link>
       </div>
 
       <header className={styles.hero}>
@@ -187,11 +184,6 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
       </header>
 
       <WorkerHealthAlert workers={data.workers} />
-
-      <section className={styles.panel} aria-labelledby="compatibility-heading">
-        <div className={styles.panelHeader}><h2 id="compatibility-heading">Migration compatibility</h2><span className={styles.muted}>{data.compatibility.mode === 'native' ? 'Native REAmon workspace' : 'Legacy bridge active'}</span></div>
-        <div className={styles.listRow}><span><strong>{data.workspace.projectKind}</strong><small>{data.compatibility.dataPolicy} data policy · legacy routes remain explicit and reversible</small></span><span className={styles.type}>{data.compatibility.surfaces.filter((surface) => surface.status === 'AVAILABLE').length} available · {data.compatibility.surfaces.filter((surface) => surface.status === 'BRIDGED').length} bridged</span></div>
-      </section>
 
       <div className={styles.stats}>
         <Stat label="Targets" value={data.counts.targets} /><Stat label="Artifacts" value={data.counts.artifacts} /><Stat label="Tasks" value={data.counts.tasks} /><Stat label="Findings" value={data.counts.findings} /><Stat label="Hypotheses" value={data.counts.hypotheses} /><Stat label="Evidence" value={data.counts.evidence} /><Stat label="Observations" value={data.counts.observations} />

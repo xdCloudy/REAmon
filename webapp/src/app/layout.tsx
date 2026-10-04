@@ -12,7 +12,7 @@ import { ThemeDbBridge } from '@/components/ThemeDbBridge'
 import { resolveWsHint } from '@/hooks/agentWsUrl'
 
 // Render every route per REQUEST, not at build time. The head below injects
-// window.__REDAMON_WS__ from process.env, and every page under this layout is a
+// the agent WebSocket hint from process.env, and every page under this layout is a
 // 'use client' shell with no server data - so Next prerendered them all into
 // static .next/server/app/*.html at `next build`, where AGENT_WS_MODE is unset
 // (webapp/Dockerfile passes no such build ARG). The hint was therefore never
@@ -53,7 +53,7 @@ export default function RootLayout({
               // <script> tag (JSON.stringify does not escape `/`, so `</script>`
               // would otherwise terminate it). The value is trusted server env, but
               // this keeps the injection XSS-safe by construction.
-              __html: `window.__REDAMON_WS__=${JSON.stringify(wsHint).replace(/</g, '\\u003c')};`,
+              __html: `window.__REAMON_WS__=${JSON.stringify(wsHint).replace(/</g, '\\u003c')};`,
             }}
           />
         )}
@@ -63,7 +63,7 @@ export default function RootLayout({
             __html: `
               (function() {
                 try {
-                  var theme = localStorage.getItem('redamon-theme');
+                  var theme = localStorage.getItem('reamon-theme');
                   if (theme === 'dark' || theme === 'light') {
                     document.documentElement.setAttribute('data-theme', theme);
                   } else if (window.matchMedia('(prefers-color-scheme: light)').matches) {

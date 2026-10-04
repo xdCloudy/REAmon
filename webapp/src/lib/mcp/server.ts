@@ -307,7 +307,7 @@ export const SANDBOX_TOOL_NAMES: ReadonlySet<string> = new Set([
 
 export function buildMcpServer(ctx: McpContext, instructions?: string): McpServer {
   const server = new McpServer(
-    { name: MCP_SERVER_NAME, version: process.env.NEXT_PUBLIC_REDAMON_VERSION || '0.0.0' },
+    { name: MCP_SERVER_NAME, version: process.env.NEXT_PUBLIC_REAMON_VERSION || '0.0.0' },
     // `instructions` reaches the client at `initialize` and is the only
     // onboarding most of them ever get: outside the Claude family, no client
     // loads a SKILL.md. Built by instructions.ts from the same source as the

@@ -12,7 +12,12 @@ const AUTH_COOKIE_NAME = 'redamon-auth'
 // It must NOT be written as '/api/mcp': matching is
 // `pathname === p || pathname.startsWith(p + '/')`, so that entry would make
 // the OUTBOUND plugin-admin routes (/api/mcp/manifest|reload|test) public too.
-const PUBLIC_PATHS = ['/login', '/api/auth/login', '/api/auth/logout', '/api/health', '/api/version/check', '/api/global/tunnel-config/sync', '/api/mcp-server']
+const PUBLIC_PATHS = ['/login', '/api/auth/login', '/api/auth/logout', '/api/health', '/api/global/tunnel-config/sync', '/api/mcp-server']
+
+// These pages belong to the retired network-security product surface. Keep
+// their URLs deterministic for old bookmarks, but do not ship them as part of
+// the REAmon workspace navigation.
+const RETIRED_PRODUCT_PATHS = ['/graph', '/traffic', '/cypherfix', '/ai-attack-surface', '/insights', '/reports']
 
 // S2/E2: the internal-key bypass is scoped to exactly the routes that internal
 // services (agent / orchestrator / recon) legitimately reach with X-Internal-Key.
@@ -124,6 +129,10 @@ async function verifyJwt(token: string): Promise<{ sub: string; role: string } |
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
+
+  if (RETIRED_PRODUCT_PATHS.some((path) => pathname === path || pathname.startsWith(`${path}/`))) {
+    return NextResponse.redirect(new URL('/projects', request.url))
+  }
 
   // Allow public paths
   if (PUBLIC_PATHS.some(p => pathname === p || pathname.startsWith(p + '/'))) {

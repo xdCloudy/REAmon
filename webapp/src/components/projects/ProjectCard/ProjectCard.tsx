@@ -1,6 +1,6 @@
 'use client'
 
-import { Calendar, FolderTree, Globe, Settings, Trash2 } from 'lucide-react'
+import { Calendar, FolderTree, Globe, Trash2 } from 'lucide-react'
 import Link from 'next/link'
 import styles from './ProjectCard.module.css'
 
@@ -55,12 +55,12 @@ export function ProjectCard({
         </div>
         <div className={styles.actions}>
           <Link
-            href={`/projects/${id}/settings`}
+            href={`/projects/${id}`}
             className="iconButton"
             onClick={(e) => e.stopPropagation()}
-            title="Project Settings"
+            title="Open workspace"
           >
-            <Settings size={14} />
+            <FolderTree size={14} />
           </Link>
           {onDelete && (
             <button

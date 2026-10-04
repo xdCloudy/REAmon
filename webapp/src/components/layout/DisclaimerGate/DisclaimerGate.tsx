@@ -3,16 +3,14 @@
 import { useState, useEffect, useCallback } from 'react'
 import Image from 'next/image'
 import {
-  ShieldAlert, ExternalLink, Star, Github,
+  ShieldAlert, ExternalLink,
   Rocket, UserPlus, FolderPlus,
-  Bot, Play, BookOpen,
+  Bot, Play,
 } from 'lucide-react'
 import {
   DISCLAIMER_VERSION,
   DISCLAIMER_STORAGE_KEY,
   DISCLAIMER_GITHUB_URL,
-  REDAMON_GITHUB_URL,
-  WIKI_URL,
 } from '@/lib/disclaimerVersion'
 import styles from './DisclaimerGate.module.css'
 
@@ -29,7 +27,7 @@ const CHECKBOXES = [
   {
     id: 'authorization',
     label:
-      'I confirm I have explicit written authorization to test target systems and understand unauthorized access is illegal under CFAA, Computer Misuse Act, and equivalent laws.',
+      'I confirm I have the right to inspect and analyze every file, application, device, or dataset I import into this workspace.',
   },
   {
     id: 'liability',
@@ -39,22 +37,22 @@ const CHECKBOXES = [
   {
     id: 'data-privacy',
     label:
-      'I understand that target data, credentials, findings, and other investigation details may be transmitted to external LLM providers (OpenAI, Anthropic, etc.) and third-party services with no privacy guarantee.',
+      'I understand that imported data and analysis context may be sent to the LLM providers and external services I configure, with no privacy guarantee from REAmon.',
   },
   {
     id: 'data-persistence',
     label:
-      'I understand all data is stored indefinitely in Neo4j/PostgreSQL with no automatic deletion. I am responsible for cleanup after investigations.',
+      'I understand imported artifacts, evidence, and analysis history are stored in the configured PostgreSQL, Neo4j, and artifact volumes until I remove them.',
   },
   {
     id: 'ai-agent',
     label:
-      'I understand AI agents may take unexpected actions including scope drift, service degradation, or unintended target interaction. Approval gates are best-effort safeguards.',
+      'I understand AI-assisted analysis can be incomplete or incorrect, and that approval gates do not replace review by a qualified operator.',
   },
   {
     id: 'third-party',
     label:
-      'I understand I must comply with licenses of all bundled tools (AGPL-3.0, GPL, MIT, etc.) and applicable regulations including export controls.',
+      'I understand I must comply with the licenses and legal requirements applicable to the software and data I analyze.',
   },
 ] as const
 
@@ -138,29 +136,18 @@ export function DisclaimerGate({ children }: DisclaimerGateProps) {
 
             <div className={styles.missionBox}>
               <p className={styles.missionText}>
-                REAmon originated as a fork of RedAmon and keeps its MIT license
-                and attribution. The project is evolving toward a general
-                reverse-engineering workspace.
+                REAmon is a focused reverse-engineering workspace for importing
+                software, preserving evidence, and coordinating bounded analysis
+                under operator control.
               </p>
               <p className={styles.missionText}>
-                We&apos;re not asking for money, just a ⭐ GitHub star to help us grow, gain visibility, and attract contributors. If you&apos;d like to go further, feel free to open a pull request or reach out to our maintainers directly.<br />Every contribution matters.
+                Contributions, bug reports, and provider integrations are welcome
+                in the REAmon repository.
               </p>
               <p className={styles.footerSignature}>
-                Happy hunting!<br />Samuele &amp; Ritesh
+                Understand the system. Preserve the evidence.
               </p>
             </div>
-
-            <a
-              href={REDAMON_GITHUB_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={styles.starLink}
-            >
-              <Github size={20} />
-              <Star size={18} className={styles.starIcon} />
-              <span>View upstream RedAmon source</span>
-              <ExternalLink size={13} className={styles.starExternal} />
-            </a>
           </div>
 
           <div className={styles.footer}>
@@ -250,14 +237,8 @@ export function DisclaimerGate({ children }: DisclaimerGateProps) {
           </div>
 
           <div className={styles.footer}>
-            <a
-              href={WIKI_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={styles.fullDisclaimerLink}
-            >
-              <BookOpen size={14} />
-              Read the complete manual on the Wiki
+            <a href="https://github.com/xdCloudy/REAmon/tree/reamon/bootstrap/docs" target="_blank" rel="noopener noreferrer" className={styles.fullDisclaimerLink}>
+              Read the REAmon documentation
               <ExternalLink size={12} />
             </a>
             <button className={styles.acceptButton} onClick={handleAccept}>
@@ -282,11 +263,9 @@ export function DisclaimerGate({ children }: DisclaimerGateProps) {
         <div className={styles.body}>
           <p className={styles.intro}>
             <strong>REAmon</strong> is an AI-assisted reverse-engineering
-            platform intended for{' '}
-            <strong>authorized security testing</strong>,{' '}
-            <strong>educational purposes</strong>, and{' '}
-            <strong>research</strong>. Before using this tool, you must read and
-            accept the following terms.
+            workspace intended for authorized software analysis, education, and
+            research. Before using this tool, you must read and accept the
+            following terms.
           </p>
 
           <div className={styles.linkWrapper}>

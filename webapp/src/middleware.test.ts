@@ -138,8 +138,14 @@ describe('middleware - internal requests', () => {
 /* ------------------------------------------------------------------ */
 
 describe('middleware - unauthenticated', () => {
-  test('redirects page request to /login', async () => {
+  test('redirects retired product pages to the REAmon workspace list', async () => {
     const req = makeRequest('/graph')
+    const res = await middleware(req)
+    expect(res.headers.get('location')).toContain('/projects')
+  })
+
+  test('redirects page request to /login', async () => {
+    const req = makeRequest('/projects')
     const res = await middleware(req)
     expect(res.headers.get('location')).toContain('/login')
   })
@@ -158,7 +164,7 @@ describe('middleware - unauthenticated', () => {
 describe('middleware - authenticated', () => {
   test('allows request with valid JWT cookie', async () => {
     const token = await createTestToken('user-1', 'admin')
-    const req = makeRequest('/graph', { cookie: token })
+    const req = makeRequest('/projects', { cookie: token })
     const res = await middleware(req)
     expect(res.status).not.toBe(401)
     expect(res.headers.get('location')).toBeNull()
@@ -184,7 +190,7 @@ describe('middleware - authenticated', () => {
       .setExpirationTime(Math.floor(Date.now() / 1000) - 1800)
       .sign(secret)
 
-    const req = makeRequest('/graph', { cookie: token })
+    const req = makeRequest('/projects', { cookie: token })
     const res = await middleware(req)
     expect(res.headers.get('location')).toContain('/login')
   })

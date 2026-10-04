@@ -12,7 +12,7 @@ import React from 'react'
 /*  Mocks – Next.js modules & child components                       */
 /* ------------------------------------------------------------------ */
 
-let mockPathname = '/graph'
+let mockPathname = '/projects'
 
 vi.mock('next/navigation', () => ({
   usePathname: () => mockPathname,
@@ -85,7 +85,7 @@ function getLogoLink() {
 /* ------------------------------------------------------------------ */
 
 beforeEach(() => {
-  mockPathname = '/graph'
+  mockPathname = '/projects'
 })
 
 afterEach(() => {
@@ -99,10 +99,10 @@ describe('GlobalHeader – logo link', () => {
     expect(logoLink.tagName).toBe('A')
   })
 
-  test('logo links to /graph', () => {
+  test('logo links to /projects', () => {
     render(<GlobalHeader />)
     const logoLink = getLogoLink()
-    expect(logoLink.getAttribute('href')).toBe('/graph')
+    expect(logoLink.getAttribute('href')).toBe('/projects')
   })
 
   test('logo contains the brand image with correct src and alt', () => {
@@ -133,7 +133,7 @@ describe('GlobalHeader – logo link', () => {
   })
 })
 
-describe('GlobalHeader – logo href is /graph on every route', () => {
+describe('GlobalHeader – logo href is /projects on every route', () => {
   test.each([
     '/graph',
     '/cypherfix',
@@ -143,11 +143,11 @@ describe('GlobalHeader – logo href is /graph on every route', () => {
     '/settings',
     '/graph/some-sub-view',
     '/projects/123/edit',
-  ])('logo links to /graph when pathname is %s', (route) => {
+  ])('logo links to /projects when pathname is %s', (route) => {
     mockPathname = route
     render(<GlobalHeader />)
     const logoLink = getLogoLink()
-    expect(logoLink.getAttribute('href')).toBe('/graph')
+    expect(logoLink.getAttribute('href')).toBe('/projects')
   })
 })
 
@@ -158,20 +158,19 @@ describe('GlobalHeader – structure', () => {
     expect(imgs).toHaveLength(1)
   })
 
-  test('logo link is distinct from the Knowledge Graph nav link', () => {
+  test('logo link is distinct from the Projects nav link', () => {
     render(<GlobalHeader />)
     const logoLink = getLogoLink()
-    const knowledgeGraphLink = screen.getByRole('link', { name: /knowledge graph/i })
-    expect(logoLink).not.toBe(knowledgeGraphLink)
-    expect(knowledgeGraphLink.getAttribute('href')).toBe('/graph')
+    const projectsLink = screen.getByRole('link', { name: /projects/i })
+    expect(logoLink).not.toBe(projectsLink)
+    expect(projectsLink.getAttribute('href')).toBe('/projects')
   })
 
-  test('header contains all core nav links', () => {
+  test('header exposes only REAmon workspace navigation', () => {
     render(<GlobalHeader />)
-    const expectedLabels = ['Knowledge Graph', 'CypherFix', 'Insights', 'TrafficMind', 'Reports']
-    for (const label of expectedLabels) {
-      const link = screen.getByRole('link', { name: new RegExp(label, 'i') })
-      expect(link).toBeDefined()
-    }
+    expect(screen.getByRole('link', { name: /projects/i })).toBeDefined()
+    expect(screen.getByTitle('REAmon documentation')).toBeDefined()
+    expect(screen.queryByRole('link', { name: /cypherfix/i })).toBeNull()
+    expect(screen.queryByRole('link', { name: /trafficmind/i })).toBeNull()
   })
 })

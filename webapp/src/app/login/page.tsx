@@ -1,14 +1,11 @@
 'use client'
 
 import { useState, FormEvent } from 'react'
-import { useRouter } from 'next/navigation'
 import Image from 'next/image'
-import { useVersionCheck } from '@/hooks/useVersionCheck'
+import { REAMON_VERSION } from '@/lib/reamon/version'
 import styles from './page.module.css'
 
 export default function LoginPage() {
-  const router = useRouter()
-  const { currentVersion } = useVersionCheck()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -107,7 +104,7 @@ export default function LoginPage() {
         </div>
 
         <div className={styles.footer}>
-          <span className={styles.version}>v{currentVersion}</span>
+          <span className={styles.version}>REAmon v{REAMON_VERSION}</span>
         </div>
       </div>
     </div>

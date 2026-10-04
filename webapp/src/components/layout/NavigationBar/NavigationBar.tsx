@@ -1,7 +1,7 @@
 'use client'
 
 import { usePathname } from 'next/navigation'
-import { Network, ShieldCheck, Target, ClipboardList, FolderOpen, ShieldAlert } from 'lucide-react'
+import { FolderOpen } from 'lucide-react'
 import { GuardedLink } from '@/components/GuardedLink'
 import styles from './NavigationBar.module.css'
 
@@ -18,36 +18,6 @@ const navItems: NavItem[] = [
     href: '/projects',
     icon: <FolderOpen size={16} />,
     enabled: true,
-  },
-  {
-    label: 'Knowledge Graph',
-    href: '/graph',
-    icon: <Network size={16} />,
-    enabled: true,
-  },
-  {
-    label: 'AI Gauntlet',
-    href: '/ai-attack-surface',
-    icon: <ShieldAlert size={16} />,
-    enabled: true,
-  },
-  {
-    label: 'Vulnerabilities',
-    href: '/vulnerabilities',
-    icon: <ShieldCheck size={16} />,
-    enabled: false,
-  },
-  {
-    label: 'MITRE ATT&CK',
-    href: '/mitre',
-    icon: <Target size={16} />,
-    enabled: false,
-  },
-  {
-    label: 'Actions Log',
-    href: '/actions',
-    icon: <ClipboardList size={16} />,
-    enabled: false,
   },
 ]
 

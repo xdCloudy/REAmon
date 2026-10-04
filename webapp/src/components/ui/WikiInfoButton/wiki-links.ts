@@ -1,8 +1,7 @@
-// Centralized map of every webapp section/tool to its wiki page (and optional anchor).
-// Wiki source lives at https://github.com/samugit83/redamon/wiki and locally at
-// `redamon.wiki/`. Page filenames there map 1:1 to URLs (without the `.md`).
+// Centralized map of documentation destinations. REAmon documentation is kept
+// in the repository so the product never depends on an upstream wiki.
 
-const WIKI_BASE = 'https://github.com/samugit83/redamon/wiki'
+const WIKI_BASE = 'https://github.com/xdCloudy/REAmon/tree/reamon/bootstrap/docs'
 
 /** Build the full wiki URL for a given page (and optional GitHub-slug anchor). */
 export function buildWikiUrl(page: string, anchor?: string): string {

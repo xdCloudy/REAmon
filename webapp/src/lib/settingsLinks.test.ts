@@ -17,9 +17,9 @@ function pageValidTabs(): string[] {
 
 describe('settingsHref', () => {
   test('builds a tab-anchored href', () => {
-    expect(settingsHref(SETTINGS_TABS.keys)).toBe('/settings?tab=keys')
-    expect(SETTINGS_KEYS_HREF).toBe('/settings?tab=keys')
-    expect(SETTINGS_SKILLS_HREF).toBe('/settings?tab=skills')
+    expect(settingsHref(SETTINGS_TABS.system)).toBe('/settings?tab=system')
+    expect(SETTINGS_KEYS_HREF).toBe('/settings?tab=providers')
+    expect(SETTINGS_SKILLS_HREF).toBe('/settings?tab=providers')
   })
 
   // The whole point of these links is landing on a specific tab. An id the page
