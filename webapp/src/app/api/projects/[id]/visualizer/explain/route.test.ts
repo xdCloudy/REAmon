@@ -118,6 +118,16 @@ describe('POST /api/projects/[id]/visualizer/deobfuscate', () => {
     })
   })
 
+  it('shows a helpful error when the model context window is too small', async () => {
+    h.agentFetch.mockResolvedValueOnce(new Response(JSON.stringify({ code: 'context_exceeded' }), { status: 413 }))
+    const response = await deobfuscate(request({ unitId: 'unit-1', providerId: 'provider-1' }), routeParams)
+
+    expect(response.status).toBe(413)
+    expect(await response.json()).toEqual({
+      error: 'This code unit exceeds the model context window even after related-code context was removed. Choose a larger-context model or a smaller code unit.',
+    })
+  })
+
   it('rejects source paths outside the selected artifact before requesting AI', async () => {
     h.observation.mockResolvedValueOnce({
       id: 'unit-1', artifactId: 'artifact-1', attributes: { codeArtifactId: 'project-1/artifact-other/private.java' },

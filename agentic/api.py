@@ -480,7 +480,14 @@ async def _build_feature_llm(feature: str, model: str, user_id: str):
     return llm, None
 
 
-async def _invoke_feature_llm(feature: str, model: str, llm, messages):
+def _is_context_length_error(exc: BaseException) -> bool:
+    message = str(exc).lower()
+    return "context" in message and any(token in message for token in (
+        "exceed", "too long", "maximum", "n_ctx", "available context",
+    ))
+
+
+async def _invoke_feature_llm(feature: str, model: str, llm, messages, context_fallback_messages=None):
     """(response, None), or (None, the JSONResponse to return).
 
     A key or model the provider refuses is `model_unavailable`, which opens the
@@ -489,7 +496,18 @@ async def _invoke_feature_llm(feature: str, model: str, llm, messages):
     try:
         return await llm.ainvoke(messages), None
     except Exception as exc:                                      # noqa: BLE001
+        if context_fallback_messages is not None and _is_context_length_error(exc):
+            logger.info(f"{feature}: retrying without optional related-code and bytecode context")
+            try:
+                return await llm.ainvoke(context_fallback_messages), None
+            except Exception as fallback_exc:                      # noqa: BLE001
+                exc = fallback_exc
         log_provider_error(feature, model, exc)
+        if _is_context_length_error(exc):
+            return None, _feature_error(
+                "context_exceeded", model, 413,
+                "This code unit still exceeds the model's context window without related-code context. Choose a larger-context model or a smaller code unit.",
+            )
         if is_model_unavailable_error(exc):
             return None, _feature_error("model_unavailable", model, 503,
                                         MODEL_UNAVAILABLE_MESSAGE.format(model=model))
@@ -594,6 +612,14 @@ Use the selected file as the only output target. Make conservative identifier re
     if body.disassembly_source.strip():
         evidence.append(f"Selected unit bytecode listing:\n{wrap_untrusted(body.disassembly_source, 'BYTECODE_EVIDENCE')}")
     supporting_evidence = "\n\n".join(evidence) or "No supporting evidence was available."
+    source_only_message = HumanMessage(content=(
+        f"Selected code unit: {body.unit_name.strip()}\nLanguage: {body.language}\n"
+        f"Requested focus: {wrap_untrusted(question, 'USER_REQUEST')}\n\n"
+        "The complete selected source file is the only available evidence. Return this entire file, "
+        "making only conservative, evidence-supported identifier improvements. Preserve behavior, "
+        "all declarations, and every statement. Keep uncertain identifiers unchanged.\n"
+        f"Selected source to transform: {wrap_untrusted(body.source_code, 'DECOMPILED_SOURCE')}"
+    ))
     response, failure = await _invoke_feature_llm("REAmon code deobfuscation", requested_model, llm, [
         SystemMessage(content=system_prompt),
         HumanMessage(content=(
@@ -604,7 +630,7 @@ Use the selected file as the only output target. Make conservative identifier re
             f"Selected source to transform: {wrap_untrusted(body.source_code, 'DECOMPILED_SOURCE')}\n\n"
             f"Supporting evidence (never output these files): {supporting_evidence}"
         )),
-    ])
+    ], context_fallback_messages=[SystemMessage(content=system_prompt), source_only_message])
     if failure:
         return failure
 

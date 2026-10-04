@@ -195,9 +195,11 @@ export async function POST(request: Request, { params }: RouteParams) {
             ? 'The model stopped before returning the complete file. Increase its output token limit or choose a model with a larger context window, then retry.'
             : result.code === 'invalid_source'
               ? 'The model draft did not parse as complete source. Try a stronger model or a more focused transformation.'
-              : result.code === 'wrong_target'
-                ? 'The model still returned a different Java type after retrying with the selected file only. Choose a stronger model.'
-          : 'AI could not produce a maintainable version. Try again shortly.'
+            : result.code === 'wrong_target'
+              ? 'The model still returned a different Java type after retrying with the selected file only. Choose a stronger model.'
+              : result.code === 'context_exceeded'
+                ? 'This code unit exceeds the model context window even after related-code context was removed. Choose a larger-context model or a smaller code unit.'
+                : 'AI could not produce a maintainable version. Try again shortly.'
       return NextResponse.json({ error: message }, { status: response.status, headers: { 'Cache-Control': 'no-store' } })
     }
     if (typeof result.source_code !== 'string' || !result.source_code.trim()) {
