@@ -645,6 +645,9 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
           <button type="button" className={mapLayer === 'decompilation' ? styles.viewButtonActive : styles.viewButton} aria-pressed={mapLayer === 'decompilation'} onClick={() => setMapLayer('decompilation')}>Decompilation</button>
           <button type="button" className={mapLayer === 'maintenance' ? styles.viewButtonActive : styles.viewButton} aria-pressed={mapLayer === 'maintenance'} onClick={() => setMapLayer('maintenance')}>Maintained source</button>
         </div>}
+        {visualizerView === 'treemap' && (query.data?.maintainedCount || 0) > 0 && <a className={styles.runButton} href={`/api/projects/${encodeURIComponent(projectId)}/visualizer/maintained/export`}>
+          Download {query.data?.maintainedCount.toLocaleString()} maintained source {query.data?.maintainedCount === 1 ? 'copy' : 'copies'}
+        </a>}
       </>}
 
       {!query.isLoading && !query.isError && query.data && units.length > 0 && <>

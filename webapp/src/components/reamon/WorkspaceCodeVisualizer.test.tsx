@@ -194,6 +194,16 @@ describe('WorkspaceCodeVisualizer', () => {
     expect(screen.getByRole('group', { name: 'Maintained source legend' })).toBeInTheDocument()
   })
 
+  test('offers a bundle download when maintained source is available', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({
+      units: [unit({ maintainedSource: true })], total: 1, maintainedCount: 1, hasMore: false,
+    }) }))
+    renderVisualizer()
+
+    const download = await screen.findByRole('link', { name: 'Download 1 maintained source copy' })
+    expect(download).toHaveAttribute('href', '/api/projects/project-1/visualizer/maintained/export')
+  })
+
   test('searches units beyond the first page of a run', async () => {
     const first = unit({ id: 'unit-first', name: 'app.First' })
     const later = unit({ id: 'unit-later', name: 'app.deep.Target' })
