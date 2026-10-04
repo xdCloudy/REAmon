@@ -487,6 +487,13 @@ def _is_context_length_error(exc: BaseException) -> bool:
     ))
 
 
+def _response_was_truncated(response) -> bool:
+    metadata = getattr(response, "response_metadata", None)
+    return isinstance(metadata, dict) and str(metadata.get("finish_reason", "")).lower() in {
+        "length", "max_tokens", "token_limit",
+    }
+
+
 async def _invoke_feature_llm(feature: str, model: str, llm, messages, context_fallback_messages=None):
     """(response, None), or (None, the JSONResponse to return).
 
@@ -634,8 +641,19 @@ The selected file is the only output target. Use related decompiled classes and 
     if failure:
         return failure
 
-    metadata = getattr(response, "response_metadata", None)
-    if isinstance(metadata, dict) and str(metadata.get("finish_reason", "")).lower() in {"length", "max_tokens", "token_limit"}:
+    # Some local servers report a truncated completion instead of rejecting an
+    # oversized prompt. Drop optional evidence and retry so the selected file
+    # gets the model's context and output budget.
+    if _response_was_truncated(response) and (body.context_sources or body.disassembly_source.strip()):
+        logger.info("REAmon code deobfuscation: retrying truncated output without optional related-code and bytecode context")
+        response, failure = await _invoke_feature_llm(
+            "REAmon code deobfuscation without optional context", requested_model, llm,
+            [SystemMessage(content=system_prompt), source_only_message],
+        )
+        if failure:
+            return failure
+
+    if _response_was_truncated(response):
         return JSONResponse(content={"error": "The model stopped before returning the complete file. Increase its output token limit or choose a model with a larger context window, then retry.", "code": "incomplete_source", "model_used": requested_model}, status_code=422)
 
     rewritten = normalize_content(getattr(response, "content", None)).strip()

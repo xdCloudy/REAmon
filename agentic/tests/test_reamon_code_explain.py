@@ -215,6 +215,48 @@ def test_code_deobfuscation_retries_without_optional_context_when_local_model_co
     assert 'DECOMPILED_SOURCE' in llm.messages[1][1].content
 
 
+def test_code_deobfuscation_retries_truncated_output_without_optional_context(api, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    monkeypatch.delenv('INTERNAL_API_KEY', raising=False)
+    monkeypatch.delenv('SCANNER_API_KEY', raising=False)
+
+    class TruncatedAnswer:
+        content = 'class Example {'
+        response_metadata = {'finish_reason': 'length'}
+
+    class CompleteAnswer:
+        content = 'class Example { String read() { return "ready"; } }'
+        response_metadata = {'finish_reason': 'stop'}
+
+    class TruncatingLlm:
+        messages = []
+
+        async def ainvoke(self, messages):
+            self.messages.append(messages)
+            return TruncatedAnswer() if len(self.messages) == 1 else CompleteAnswer()
+
+    provider = {'id': 'provider-1', 'providerType': 'openai_compatible', 'modelIdentifier': 'Qwen3.5-0.8B'}
+    llm = TruncatingLlm()
+    with patch.object(api, 'fetch_user_providers', return_value=[provider]), \
+         patch('orchestrator_helpers.llm_setup.setup_llm', return_value=llm):
+        response = TestClient(api.app).post('/reamon/code/deobfuscate', json={
+            'model': 'custom/provider-1', 'user_id': 'user-1', 'unit_name': 'Example',
+            'language': 'Java', 'source_code': 'class Example { String read() { return a; } }',
+            'context_sources': [{'unit_name': 'ExampleState', 'language': 'Java', 'source_code': 'class ExampleState { String a; }'}],
+            'disassembly_source': 'invoke-virtual {v1}, Ljava/lang/String;->length()I',
+        })
+
+    assert response.status_code == 200, response.text
+    assert response.json()['source_code'] == CompleteAnswer.content
+    assert len(llm.messages) == 2
+    assert 'RELATED_DECOMPILED_SOURCE' in llm.messages[0][1].content
+    assert 'BYTECODE_EVIDENCE' in llm.messages[0][1].content
+    assert 'RELATED_DECOMPILED_SOURCE' not in llm.messages[1][1].content
+    assert 'BYTECODE_EVIDENCE' not in llm.messages[1][1].content
+    assert 'DECOMPILED_SOURCE' in llm.messages[1][1].content
+
+
 def test_code_deobfuscation_reports_when_selected_source_alone_exceeds_model_context(api, monkeypatch):
     from fastapi.testclient import TestClient
 
