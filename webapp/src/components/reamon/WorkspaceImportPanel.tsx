@@ -232,7 +232,7 @@ export function WorkspaceImportPanel({ projectId, onImported }: WorkspaceImportP
           <div className={styles.progressMeta}><span>{progress.completedFiles.toLocaleString()} / {progress.totalFiles.toLocaleString()} files</span><span>{formatBytes(progress.uploadedBytes)} / {formatBytes(progress.totalBytes)}</span></div>
           {progress.currentPath && <code>{progress.currentPath}</code>}
           {progress.failedPaths.length > 0 && <span className={styles.failure}>{progress.failedPaths.length} failed</span>}
-          {progress.phase === 'COMPLETED' && <div className={styles.nextStep} role="status"><strong>Import complete. Analysis is a separate step.</strong><span>This indicator tracks file transfer only; it does not measure reverse-engineering progress.</span><a href="#analysis-proposals">Review available analyses</a></div>}
+          {progress.phase === 'COMPLETED' && <div className={styles.nextStep} role="status"><strong>Import complete. Analysis is a separate step.</strong><span>This indicator tracks file transfer only; it does not measure reverse-engineering progress.</span><a href="#analysis-next-step">Go to analysis actions</a></div>}
         </div>
       )}
       {selection && (
