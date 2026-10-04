@@ -89,61 +89,72 @@ optional follow-on capabilities rather than production prerequisites.
 
 ## Production readiness
 
-<progress value="100" max="100">100%</progress> <strong>100%</strong>
+<progress value="96" max="100">96%</progress> <strong>96%</strong>
 
-This is a release-gate snapshot, reviewed 2026-10-03 against repository, hosted
-workflow, production-image, and staging evidence. The score measures readiness for
-a dependable self-hosted production release, not the number of UI screens or lines
-of code.
+This is an evidence-based engineering snapshot, reviewed 2026-10-04 against the
+current release commit, hosted workflows, production image, migration inventory,
+release tooling, recovery drills, and documented deployment path. The percentage is
+a weighted readiness estimate for a dependable self-hosted production release, not a
+feature-completion percentage.
 
-The 100% score is justified for the current production release scope. The long-term
-migration inventory still records inherited RedAmon surfaces, but the native REAmon
-path is release-gated independently: no native workspace depends on a deprecated
-surface, and the compatibility bridge remains explicit, tested, and reversible.
+REAmon has a strong production release gate and the current `v6.23.0` release is
+substantially better evidenced than the earlier release candidates. The hosted
+quality workflow passes the full web suite, type-check, lint, production dependency
+audit, Python dependency audit and tests, production build, non-root runtime check,
+Trivy image scan, authenticated live acceptance, browser import/operator coverage,
+two-replica worker kill/recovery, PostgreSQL/artifact restore, Neo4j dump/load/query
+restore, and a bounded worker load/soak drill. Release publication also requires a
+green quality workflow for the exact tagged commit.
 
-| Workstream | Weight | Complete | Release evidence |
+A 100% claim is still not supported by the repository evidence. The native REAmon
+path is releasable, but several production-hardening and operational-confidence gaps
+remain outside the current hosted gate.
+
+| Workstream | Weight | Complete | Current evidence / remaining gap |
 | --- | ---: | ---: | --- |
-| Workspace foundation and access control | 20% | 100% | Full web suite, live auth boundary, operator login, project creation, browser login, and workspace navigation are hosted gates. |
-| Import, profiling, storage, and inventory | 15% | 100% | Representative JSON/source import, profiling, inventory, writable artifact storage, PostgreSQL restore, and artifact extraction pass in CI. |
-| Provider registry, scheduling, and provider execution | 15% | 100% | Approval-gated scheduling, concurrent claims, bounded providers, Python unit checks, and a killed-replica Compose worker recovery drill are covered. |
-| Provider results and knowledge graph ingestion | 20% | 100% | Provider observations project into Neo4j; the hosted gate dumps, restores, queries, and rechecks the graph database. |
-| Approvals, live activity, and operator controls | 10% | 100% | Browser import, approval, analysis, stale-recovery control, authenticated workspace state, and live activity are verified. |
-| Legacy RedAmon compatibility bridge | 10% | 100% | Native REAmon compatibility mode is verified for the production release scope; broader migration cleanup remains roadmap work. |
-| Production hardening and release QA | 10% | 100% | Hosted full tests, npm audit, Trivy image scan, live acceptance, browser operator E2E, two-replica crash recovery, three-way restore drills, and exact-commit semver release automation are recorded. |
+| Workspace foundation and access control | 20% | 98% | Auth boundaries, operator login, workspace creation, browser import, authenticated navigation, approval, and recovery controls are hosted gates. Broader adversarial/security testing is not evidenced as a release gate. |
+| Import, profiling, storage, and inventory | 15% | 96% | Representative JSON/source imports, profiling, inventory, writable artifact storage, retention logic, PostgreSQL restore, and artifact extraction are covered. Large/resumable workspace imports and retention/upgrade interaction are not meaningfully load- or soak-gated. |
+| Provider registry, scheduling, and provider execution | 15% | 98% | Approval-gated scheduling, bounded providers, concurrent claims, Python checks, and a real two-replica killed-worker recovery drill pass. The hosted soak remains intentionally small and short. |
+| Provider results and knowledge graph ingestion | 20% | 98% | Provider observations project into Neo4j and the release gate performs a real dump/load/query recovery. Wider corrupted-state and long-duration failure-path coverage remains limited. |
+| Approvals, live activity, and operator controls | 10% | 97% | Browser approval/recovery controls, authenticated workspace state, durable activity, worker telemetry, stale-worker handling, and alert-webhook support are implemented and exercised. External alert delivery and extended operational-failure drills remain deployment responsibilities. |
+| Legacy RedAmon compatibility bridge | 10% | 90% | The native REAmon release contract is explicit and tested independently, but the migration inventory still contains multiple GENERALISING and DEPRECATED inherited surfaces and the hardened deployment tooling retains substantial RedAmon compatibility plumbing. |
+| Production hardening and release QA | 10% | 90% | Exact-commit release gating, dependency/image audits, backup/restore drills, non-root image checks, and a versioned checksum-backed release are present. The hardened internet-facing deployment is not itself exercised by the hosted quality workflow; production startup still performs guarded `prisma db push` rather than using a migration-only deployment path; the load/soak gate is 4 tasks for 30 seconds; and release artifacts are checksummed but not signed/provenanced. |
 
-Weighted result: **100%**.
+Weighted result: **96.0%**, reported as **96%**.
 
-The production release gate is complete. The remaining roadmap items are capability
-expansion and migration cleanup, not unverified deployment prerequisites.
+The remaining 4% is not missing product surface area. It is production assurance:
+
+- Exercise the hardened `tooling/deploy/single-host` path in CI or a repeatable
+  staging gate, including TLS/reverse-proxy configuration and externally visible
+  route isolation.
+- Replace production-time `prisma db push` with an explicit migration-only release
+  path, retaining destructive-change review and restore safeguards.
+- Add a materially longer load/soak test with larger imports, more tasks, cancellation,
+  retention, worker restarts, and upgrade interaction.
+- Produce signed/provenanced release artifacts (for example signed checksums and/or
+  attestations/SBOMs) rather than relying on source archives plus SHA-256 alone.
 
 Evidence recorded for this review:
 
-- `.github/workflows/reamon-quality.yml` runs the full web suite, type-check, lint,
-  npm production-dependency audit, Python unit gate, Trivy image scan, and a live
-  Compose release gate against the production image.
-- The live gate runs authenticated acceptance, browser import/approval/analysis/
-  recovery controls, PostgreSQL restore, artifact extraction, and Neo4j dump/load/query
-  recovery. It also scales the worker service to two replicas, kills one container,
-  crosses the configured stale threshold, and requires one recovered completion.
-- `.github/workflows/reamon-release.yml` validates `VERSION` against semver tags,
-  requires a green quality workflow for the exact tagged commit, and publishes a
-  checksum-backed source archive as a GitHub release. The reviewed release is
-  [v6.23.0](https://github.com/xdCloudy/REAmon/releases/tag/v6.23.0).
+- `.github/workflows/reamon-quality.yml` passed all four jobs for commit
+  `bef597a670269202f325dac3a98cd0f9d88d86ba`, including the production-image,
+  browser, worker-failover, load/soak, PostgreSQL/artifact restore, and Neo4j restore
+  gates.
+- `.github/workflows/reamon-release.yml` requires a successful quality workflow for
+  the exact tagged commit before publishing a release.
+- [v6.23.0](https://github.com/xdCloudy/REAmon/releases/tag/v6.23.0) was published
+  successfully from that reviewed commit with a SHA-256 checksum-backed source archive.
 - `scripts/reamon-release-preflight.sh --live --acceptance --backup` reproduces the
-  same operational checks for self-hosted release operators.
-- The authenticated acceptance flow imports representative JSON and C artifacts,
-  exercises approvals and both built-in providers, proves distinct concurrent task
-  claims, projects and reconciles the graph, and verifies the workspace snapshot.
-- Two Compose worker replicas recover a controlled stale lease and complete the task
-  exactly once; the isolated backup drill restores PostgreSQL into a disposable
-  database and extracts the artifact archive successfully. A bounded four-task,
-  two-replica load/soak run then verifies stable containers without restart churn.
+  core operational checks for self-hosted release operators.
+- The native `REVERSE_ENGINEERING` compatibility contract remains explicit in
+  `docs/REAMON_MIGRATION.md`; incomplete legacy migration is not silently counted as
+  native REAmon functionality.
 
 For production alerting, set `REAMON_WORKER_ALERT_WEBHOOK_URL` and optionally
 `REAMON_WORKER_ALERT_WEBHOOK_TOKEN`. Failed provider dispatches send a bounded
 `worker.degraded` JSON event with a five-second timeout; missing or failing alert
-delivery never fails the dispatch request. The dashboard remains the source of
-truth for stale workers, including workers that stop reporting entirely.
+delivery never fails the dispatch request. The dashboard remains the source of truth
+for stale workers, including workers that stop reporting entirely.
 
 ## Architecture
 
