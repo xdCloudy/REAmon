@@ -26,37 +26,17 @@ export interface FunctionGraphNodeData extends Record<string, unknown> {
 export type FunctionGraphNode = Node<FunctionGraphNodeData, 'functionGraphNode'>
 export type FunctionGraphEdge = Edge
 
-function directedDistances(start: string, edges: CallGraphRelationship[], reverse: boolean): Map<string, number> {
-  const adjacency = new Map<string, string[]>()
-  for (const edge of edges) {
-    const from = reverse ? edge.toKey : edge.fromKey
-    const to = reverse ? edge.fromKey : edge.toKey
-    const targets = adjacency.get(from) || []
-    targets.push(to)
-    adjacency.set(from, targets)
-  }
-
-  const distances = new Map<string, number>([[start, 0]])
-  const queue = [start]
-  for (let index = 0; index < queue.length; index += 1) {
-    const current = queue[index]
-    const nextDistance = (distances.get(current) || 0) + 1
-    for (const next of adjacency.get(current) || []) {
-      if (distances.has(next)) continue
-      distances.set(next, nextDistance)
-      queue.push(next)
-    }
-  }
-  return distances
-}
+const MAX_NEIGHBORS_PER_DIRECTION = 8
+const GRAPH_COLUMN_GAP = 320
+const GRAPH_ROW_GAP = 104
 
 export function layoutCallGraph(
   records: CallGraphRecord[],
   relationships: CallGraphRelationship[],
   requestedFocusKey?: string | null,
-): { nodes: FunctionGraphNode[]; edges: FunctionGraphEdge[]; focusKey: string | null } {
+): { nodes: FunctionGraphNode[]; edges: FunctionGraphEdge[]; focusKey: string | null; hiddenNodeCount: number } {
   const byKey = new Map(records.map((node) => [node.key, node]))
-  if (!records.length) return { nodes: [], edges: [], focusKey: null }
+  if (!records.length) return { nodes: [], edges: [], focusKey: null, hiddenNodeCount: 0 }
 
   const degree = new Map<string, number>()
   for (const edge of relationships) {
@@ -66,38 +46,28 @@ export function layoutCallGraph(
   const focusKey = requestedFocusKey && byKey.has(requestedFocusKey)
     ? requestedFocusKey
     : [...records].sort((left, right) => (degree.get(right.key) || 0) - (degree.get(left.key) || 0) || left.label.localeCompare(right.label))[0].key
-  const outgoing = directedDistances(focusKey, relationships, false)
-  const incoming = directedDistances(focusKey, relationships, true)
-  const columns = new Map<number, CallGraphRecord[]>()
-  let outerColumn = 1
-
-  for (const record of records) {
-    const outDistance = outgoing.get(record.key)
-    const inDistance = incoming.get(record.key)
-    let column: number
-    if (record.key === focusKey) column = 0
-    else if (outDistance !== undefined && (inDistance === undefined || outDistance <= inDistance)) column = outDistance
-    else if (inDistance !== undefined) column = -inDistance
-    else column = 0
-    outerColumn = Math.max(outerColumn, Math.abs(column))
-    const group = columns.get(column) || []
-    group.push(record)
-    columns.set(column, group)
-  }
-
-  const disconnected = columns.get(0)?.filter((node) => node.key !== focusKey) || []
-  if (disconnected.length) {
-    columns.set(0, (columns.get(0) || []).filter((node) => node.key === focusKey))
-    columns.set(outerColumn + 1, disconnected)
-  }
+  const incomingKeys = new Set(relationships.filter((edge) => edge.toKey === focusKey).map((edge) => edge.fromKey))
+  const outgoingKeys = new Set(relationships.filter((edge) => edge.fromKey === focusKey).map((edge) => edge.toKey))
+  const compareNeighbors = (leftKey: string, rightKey: string) =>
+    (byKey.get(leftKey)?.label || leftKey).localeCompare(byKey.get(rightKey)?.label || rightKey) || leftKey.localeCompare(rightKey)
+  const incoming = [...incomingKeys].filter((key) => byKey.has(key) && key !== focusKey).sort(compareNeighbors)
+  const outgoing = [...outgoingKeys].filter((key) => byKey.has(key) && key !== focusKey && !incomingKeys.has(key)).sort(compareNeighbors)
+  const visibleIncoming = incoming.slice(0, MAX_NEIGHBORS_PER_DIRECTION)
+  const visibleOutgoing = outgoing.slice(0, MAX_NEIGHBORS_PER_DIRECTION)
+  const visibleKeys = new Set([focusKey, ...visibleIncoming, ...visibleOutgoing])
+  const columns: Array<{ column: number; keys: string[] }> = [
+    { column: -1, keys: visibleIncoming },
+    { column: 1, keys: visibleOutgoing },
+  ]
 
   const positioned: FunctionGraphNode[] = []
-  for (const [column, group] of columns) {
-    group.sort((left, right) => left.label.localeCompare(right.label) || left.key.localeCompare(right.key))
-    group.forEach((record, index) => positioned.push({
+  for (const { column, keys } of columns) {
+    keys.forEach((key, index) => {
+      const record = byKey.get(key)!
+      positioned.push({
       id: record.key,
       type: 'functionGraphNode',
-      position: { x: column * 260, y: (index - (group.length - 1) / 2) * 130 },
+      position: { x: column * GRAPH_COLUMN_GAP, y: (index - (keys.length - 1) / 2) * GRAPH_ROW_GAP },
       width: 210,
       height: 76,
       data: {
@@ -106,12 +76,26 @@ export function layoutCallGraph(
         codeUnit: record.codeUnit,
         isFocus: record.key === focusKey,
       },
-    }))
+      })
+    })
   }
+  const focusRecord = byKey.get(focusKey)!
+  positioned.push({
+    id: focusRecord.key,
+    type: 'functionGraphNode',
+    position: { x: 0, y: 0 },
+    width: 210,
+    height: 76,
+    data: {
+      label: focusRecord.label,
+      address: focusRecord.address,
+      codeUnit: focusRecord.codeUnit,
+      isFocus: true,
+    },
+  })
 
-  const visibleKeys = new Set(positioned.map((node) => node.id))
   const flowEdges = relationships
-    .filter((edge) => visibleKeys.has(edge.fromKey) && visibleKeys.has(edge.toKey))
+    .filter((edge) => visibleKeys.has(edge.fromKey) && visibleKeys.has(edge.toKey) && (edge.fromKey === focusKey || edge.toKey === focusKey))
     .map((edge): FunctionGraphEdge => ({
       id: edge.id,
       source: edge.fromKey,
@@ -124,5 +108,5 @@ export function layoutCallGraph(
       labelBgStyle: { fill: '#111722', fillOpacity: 0.9 },
     }))
 
-  return { nodes: positioned, edges: flowEdges, focusKey }
+  return { nodes: positioned, edges: flowEdges, focusKey, hiddenNodeCount: records.length - visibleKeys.size }
 }

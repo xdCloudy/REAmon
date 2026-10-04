@@ -110,8 +110,9 @@
 .graphSearchResults strong, .graphSearchResults small { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .graphSearchResults strong { color: var(--text-primary); font: 600 var(--text-xs) var(--font-mono); }
 .graphSearchResults small { margin-top: .2rem; color: var(--text-tertiary); font: var(--text-xs) var(--font-mono); }
-.graphCanvas { width: 100%; height: min(68vh, 680px); min-height: 430px; overflow: hidden; border: 1px solid var(--border-default); border-radius: var(--radius-default); background: #111722; }
+.graphCanvas { position: relative; width: 100%; height: min(68vh, 680px); min-height: 430px; overflow: hidden; border: 1px solid var(--border-default); border-radius: var(--radius-default); background: #111722; }
 .graphCanvas :global(.react-flow) { background: #111722; }
+.graphCanvasNote { position: absolute; z-index: 5; right: 12px; bottom: 10px; max-width: min(520px, calc(100% - 24px)); margin: 0; border: 1px solid #34465b; border-radius: 6px; padding: .35rem .55rem; background: rgba(17, 23, 34, .94); color: #c5d2e1; font-size: .72rem; line-height: 1.35; }
 .flowNode { display: flex; width: 210px; min-height: 76px; flex-direction: column; justify-content: center; align-items: flex-start; gap: .25rem; overflow: hidden; border: 1px solid #416080; border-radius: 8px; padding: .55rem .7rem; background: #1b2938; color: #eef4fc; text-align: left; }
 button.flowNode { cursor: pointer; font: inherit; }
 button.flowNode:hover, button.flowNode:focus-visible { border-color: #86c8ff; outline: 2px solid #86c8ff; outline-offset: 1px; background: #24384b; }

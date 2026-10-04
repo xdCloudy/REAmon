@@ -100,8 +100,9 @@ async function fetchCallGraph(projectId: string, taskId: string, unitId: string,
   return response.json()
 }
 
-async function fetchRunCallGraph(projectId: string, taskId: string, signal?: AbortSignal): Promise<CallGraphResponse> {
+async function fetchRunCallGraph(projectId: string, taskId: string, unitId: string, signal?: AbortSignal): Promise<CallGraphResponse> {
   const params = new URLSearchParams({ taskId, view: 'graph' })
+  if (unitId) params.set('unitId', unitId)
   const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/callgraph?${params.toString()}`, { signal, cache: 'no-store' })
   if (!response.ok) {
     const detail = await response.json().catch(() => null) as { error?: string } | null
@@ -302,13 +303,6 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
     refetchInterval: isAnalyzing ? 3000 : false,
     refetchIntervalInBackground: false,
   })
-  const runCallGraphQuery = useQuery({
-    queryKey: ['reamon-callgraph-run', projectId, currentRunId],
-    queryFn: ({ signal }) => fetchRunCallGraph(projectId, currentRunId as string, signal),
-    enabled: Boolean(currentRunId && (currentRun?.providerId === 'reamon-ghidra' || currentRun?.providerId === 'reamon-jadx') && visualizerView === 'callgraph'),
-    staleTime: 30_000,
-    gcTime: 60_000,
-  })
   const canShowCallGraph = currentRun?.providerId === 'reamon-ghidra' || currentRun?.providerId === 'reamon-jadx'
   const graphType = currentRun?.providerId === 'reamon-jadx' ? 'class_dependencies' : 'function_calls'
   const visibleUnits = useMemo(() => filterCodeUnits(units, filter), [units, filter])
@@ -321,6 +315,13 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
   const maintainedUnits = useMemo(() => packageUnits.filter((unit) => unit.maintainedSource).length, [packageUnits])
   const selectedUnit = packageUnits.find((unit) => unit.id === selectedId)
     || (graphUnit?.id === selectedId ? graphUnit : undefined)
+  const runCallGraphQuery = useQuery({
+    queryKey: ['reamon-callgraph-run', projectId, currentRunId, selectedUnit?.id],
+    queryFn: ({ signal }) => fetchRunCallGraph(projectId, currentRunId as string, selectedUnit?.id || '', signal),
+    enabled: Boolean(currentRunId && (currentRun?.providerId === 'reamon-ghidra' || currentRun?.providerId === 'reamon-jadx') && visualizerView === 'callgraph'),
+    staleTime: 30_000,
+    gcTime: 60_000,
+  })
   const callGraphQuery = useQuery({
     queryKey: ['reamon-callgraph', projectId, currentRunId, selectedUnit?.id],
     queryFn: ({ signal }) => fetchCallGraph(projectId, currentRunId as string, selectedUnit?.id as string, signal),

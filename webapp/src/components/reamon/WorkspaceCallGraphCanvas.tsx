@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import {
   Background,
   Controls,
@@ -9,6 +9,7 @@ import {
   MiniMap,
   Position,
   ReactFlow,
+  useReactFlow,
   type NodeProps,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
@@ -42,6 +43,23 @@ function FunctionNode({ data, selected }: NodeProps<GraphFlowNode>) {
 
 const nodeTypes = { functionGraphNode: FunctionNode }
 
+function FitGraphWhenReady({ layoutKey }: { layoutKey: string }) {
+  const { fitView } = useReactFlow()
+
+  useEffect(() => {
+    // React Flow's initial fit can run before a below-the-fold canvas has its final
+    // dimensions. Refitting after the browser has laid out the canvas makes the
+    // first view useful and also follows later focus changes.
+    const timer = window.setTimeout(() => {
+      void fitView({ padding: 0.2, maxZoom: 1.15 })
+    }, 180)
+
+    return () => window.clearTimeout(timer)
+  }, [fitView, layoutKey])
+
+  return null
+}
+
 export function WorkspaceCallGraphCanvas({ nodes, edges, focusKey, graphType = 'function_calls', onSelectNode }: {
   nodes: CallGraphRecord[]
   edges: CallGraphRelationship[]
@@ -73,7 +91,7 @@ export function WorkspaceCallGraphCanvas({ nodes, edges, focusKey, graphType = '
       edges={flowEdges}
       nodeTypes={nodeTypes}
       fitView
-      fitViewOptions={{ padding: 0.2, maxZoom: 1.15 }}
+      fitViewOptions={{ padding: 0.2, minZoom: 0.5, maxZoom: 1.15 }}
       minZoom={0.08}
       maxZoom={1.75}
       nodesConnectable={false}
@@ -88,6 +106,10 @@ export function WorkspaceCallGraphCanvas({ nodes, edges, focusKey, graphType = '
         const data = node.data as GraphNodeData
         return data.isFocus ? '#41b88b' : data.codeUnit ? '#61aeea' : '#667085'
       }} />
+      <FitGraphWhenReady layoutKey={`${graph.focusKey || ''}:${flowNodes.map((node) => node.id).join('|')}`} />
     </ReactFlow>
+    {graph.hiddenNodeCount > 0 && <p className={styles.graphCanvasNote} aria-live="polite">
+      Showing this item and its direct relationships. {graph.hiddenNodeCount.toLocaleString()} other items are outside this view; choose another code unit above to explore them.
+    </p>}
   </div>
 }
