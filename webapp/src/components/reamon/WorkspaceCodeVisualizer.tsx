@@ -3,8 +3,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Code2, Copy, ExternalLink, RefreshCw, Search } from 'lucide-react'
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
+import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { filterCodeUnits, layoutCodeUnitTreemap, parseCodeUnitFilter, summarizeCodeUnits, type CodeUnit } from '@/lib/reamon/code-units'
 import type { CallGraphRecord, CallGraphRelationship } from '@/lib/reamon/callgraph-layout'
+import { sourceSyntaxLanguage } from './source-language'
 import { WorkspaceCallGraphCanvas } from './WorkspaceCallGraphCanvas'
 import styles from './WorkspaceCodeVisualizer.module.css'
 
@@ -130,6 +133,19 @@ function shortenLabel(value: string, width: number): string {
   const maxCharacters = Math.max(0, Math.floor((width - 14) / 7.2))
   if (maxCharacters < 5) return ''
   return value.length > maxCharacters ? `${value.slice(0, maxCharacters - 1)}…` : value
+}
+
+function SourceListing({ source, language, fileName }: { source: string; language: string | null | undefined; fileName: string | null | undefined }) {
+  const syntaxLanguage = sourceSyntaxLanguage(language, fileName)
+  return <SyntaxHighlighter
+    className={styles.sourceCode}
+    language={syntaxLanguage}
+    style={vscDarkPlus}
+    showLineNumbers
+    lineNumberStyle={{ color: '#68788f', minWidth: '3.25em', paddingRight: '1.25em', userSelect: 'none' }}
+    customStyle={{ margin: 0, borderRadius: 0, background: 'transparent', fontSize: 'inherit', lineHeight: 'inherit' }}
+    codeTagProps={{ className: styles.sourceCodeText }}
+  >{source}</SyntaxHighlighter>
 }
 
 function CallGraphPanel({ focusUnit, graph, isLoading, isError, error, onSelectUnit }: {
@@ -595,7 +611,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
               </div>
               {sourceQuery.isLoading && <p className={styles.message}>Loading decompiled source…</p>}
               {sourceQuery.isError && <p className={styles.error}>{sourceQuery.error instanceof Error ? sourceQuery.error.message : 'Could not load decompiled source'}</p>}
-              {sourceQuery.data !== undefined && <pre className={styles.sourceCode}><code>{sourceQuery.data}</code></pre>}
+              {sourceQuery.data !== undefined && <SourceListing source={sourceQuery.data} language={selectedUnit.language} fileName={selectedUnit.codeArtifactId?.split('/').pop()} />}
             </div>
             <div className={styles.listingPane}>
               <div className={styles.sourceHeader}>
@@ -604,7 +620,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
               </div>
               {disassemblyQuery.isLoading && <p className={styles.message}>Loading instruction listing…</p>}
               {disassemblyQuery.isError && <p className={styles.error}>{disassemblyQuery.error instanceof Error ? disassemblyQuery.error.message : 'Could not load instruction listing'}</p>}
-              {disassemblyQuery.data !== undefined && <pre className={styles.sourceCode}><code>{disassemblyQuery.data}</code></pre>}
+              {disassemblyQuery.data !== undefined && <SourceListing source={disassemblyQuery.data} language={selectedUnit.disassemblyLanguage} fileName={selectedUnit.disassemblyArtifactId?.split('/').pop()} />}
             </div>
           </div> : <>
             <div className={styles.sourceHeader}>
@@ -613,7 +629,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
             </div>
             {sourceQuery.isLoading && <p className={styles.message}>Loading code output…</p>}
             {sourceQuery.isError && <p className={styles.error}>{sourceQuery.error instanceof Error ? sourceQuery.error.message : 'Could not load code output'}</p>}
-            {sourceQuery.data !== undefined && <pre className={styles.sourceCode}><code>{sourceQuery.data}</code></pre>}
+            {sourceQuery.data !== undefined && <SourceListing source={sourceQuery.data} language={selectedUnit.language} fileName={selectedUnit.codeArtifactId?.split('/').pop()} />}
           </>}
         </section>}
         {selectedUnit && selectedSourceUrl && <section className={styles.explainPanel} aria-labelledby="code-explain-heading">

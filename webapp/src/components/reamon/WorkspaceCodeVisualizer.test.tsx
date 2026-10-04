@@ -109,7 +109,7 @@ describe('WorkspaceCodeVisualizer', () => {
 
     expect(await screen.findByText('Selected code unit')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Open code separately' })).toHaveAttribute('href', '/api/projects/project-1/artifacts/artifact-1/decompiled/project-1/artifact-1/task-1/run-1/sources/app/MainActivity.java')
-    expect(await screen.findByText(/saveState\(\);/)).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole('region', { name: 'Decompiled source' }).querySelector('code')?.textContent).toContain('saveState();'))
     expect(await screen.findByRole('button', { name: 'Explain selected code' })).toBeInTheDocument()
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4))
     await waitFor(() => expect(screen.queryByRole('button', { name: /app\.MainActivity\.onCreate/ })).toBeNull())
@@ -176,7 +176,7 @@ describe('WorkspaceCodeVisualizer', () => {
 
     expect(await screen.findByText('Selected code unit')).toBeInTheDocument()
     expect(screen.getAllByText('helper').length).toBeGreaterThan(0)
-    expect(await screen.findByText('return 7;')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole('region', { name: 'Decompiled source' }).querySelector('code')?.textContent).toContain('return 7;'))
     expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/visualizer/callgraph?taskId=native-run&unitId=native-helper'), expect.any(Object))
   })
 
@@ -219,7 +219,7 @@ describe('WorkspaceCodeVisualizer', () => {
     const comparison = await screen.findByRole('region', { name: 'Decompilation and disassembly comparison' })
     expect(within(comparison).getByText('Decompiled source')).toBeInTheDocument()
     expect(within(comparison).getByText('Assembly')).toBeInTheDocument()
-    expect(await within(comparison).findByText(/MOV RBP, RSP/)).toBeInTheDocument()
+    await waitFor(() => expect(comparison.querySelectorAll('code')[1]?.textContent).toContain('MOV RBP, RSP'))
     expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/decompiled/project-1/artifact-1/task-1/run-1/assembly/functions/main.asm'), expect.any(Object))
   })
 

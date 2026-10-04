@@ -110,6 +110,7 @@ button.flowNode:hover, button.flowNode:focus-visible { border-color: #86c8ff; ou
 .copyButton:hover:not(:disabled) { border-color: var(--accent-secondary); color: #fff; }
 .copyButton:disabled { cursor: wait; opacity: .55; }
 .sourceCode { max-height: 560px; margin: 0; overflow: auto; padding: var(--space-4); color: #d4deed; font-family: var(--font-mono); font-size: .76rem; line-height: 1.55; tab-size: 4; white-space: pre; }
+.sourceCodeText { font-family: inherit; }
 .sourcePanel .message, .sourcePanel .error { margin: 0; padding: var(--space-4); }
 .sourcePanel .message { color: #aab8ca; }
 .sourcePanel .error { color: #ff9b9b; }
