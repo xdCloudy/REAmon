@@ -51,6 +51,6 @@ describe('WorkspaceImportPanel', () => {
     expect(transfer).toHaveAttribute('aria-valuenow', '100')
     expect(transfer).toHaveAttribute('aria-valuetext', '100% of selected files transferred; analysis is tracked separately')
     expect(await screen.findByText('Import complete. Analysis is a separate step.')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Review available analyses' })).toHaveAttribute('href', '#analysis-proposals')
+    expect(screen.getByRole('link', { name: 'Go to analysis actions' })).toHaveAttribute('href', '#analysis-next-step')
   })
 })
