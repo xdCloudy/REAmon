@@ -51,8 +51,13 @@ class GhidraServiceTests(unittest.TestCase):
             (export_root / "manifest.tsv").write_text(
                 f"{encoded_name}\tram:00401000\t32\t{relative}\t{assembly_relative}\n"
             )
+            encoded_source = base64.b64encode(b"main").decode("ascii")
+            encoded_target = base64.b64encode(b"helper").decode("ascii")
+            (export_root / "calls.tsv").write_text(
+                f"ram:00401000\tram:00402000\t{encoded_source}\t{encoded_target}\n"
+            )
             (export_root / "summary.txt").write_text(
-                "visited=1\ndecompiled=1\nfailed=0\ntruncated=false\n"
+                "visited=1\ndecompiled=1\nfailed=0\ntruncated=false\ncallCount=1\ncallsTruncated=false\n"
             )
             return 0
 
@@ -73,6 +78,12 @@ class GhidraServiceTests(unittest.TestCase):
         self.assertEqual(result["codeBytes"], len(source.encode()))
         self.assertEqual(result["units"][0]["name"], "main")
         self.assertEqual(result["units"][0]["address"], "ram:00401000")
+        self.assertEqual(result["callCount"], 1)
+        self.assertFalse(result["callGraphTruncated"])
+        self.assertEqual(result["calls"], [{
+            "fromAddress": "ram:00401000", "toAddress": "ram:00402000",
+            "fromName": "main", "toName": "helper",
+        }])
         stored = self.derived / result["units"][0]["codeArtifactId"]
         self.assertEqual(stored.read_text(), source)
         self.assertTrue(result["units"][0]["codeArtifactId"].startswith("project-1/artifact-1/task-1/run-1/"))

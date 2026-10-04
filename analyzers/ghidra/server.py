@@ -12,6 +12,7 @@ TIMEOUT_SECONDS = min(1800, max(60, int(os.environ.get("GHIDRA_TIMEOUT_SECONDS",
 MAX_OUTPUT_BYTES = min(536870912, max(1048576, int(os.environ.get("GHIDRA_MAX_OUTPUT_BYTES", "268435456"))))
 MAX_FUNCTIONS = min(2000, max(1, int(os.environ.get("GHIDRA_MAX_FUNCTIONS", "2000"))))
 MAX_RETURNED_UNITS = min(2000, max(1, int(os.environ.get("GHIDRA_MAX_RETURNED_UNITS", "2000"))))
+MAX_CALL_EDGES = min(400, max(0, int(os.environ.get("GHIDRA_MAX_CALL_EDGES", "400"))))
 GHIDRA_HOME = Path(os.environ.get("GHIDRA_HOME", "/opt/ghidra/current")).resolve()
 SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
 SLOTS = threading.BoundedSemaphore(1)
@@ -134,7 +135,7 @@ def analyse(body, cancel_check=lambda: False):
                     str(project_dir), "reamon-analysis",
                     "-import", str(input_path),
                     "-scriptPath", "/app/scripts",
-                    "-postScript", "ReamonExport.java", str(export_root), str(MAX_FUNCTIONS),
+                    "-postScript", "ReamonExport.java", str(export_root), str(MAX_FUNCTIONS), str(MAX_CALL_EDGES),
                     "-analysisTimeoutPerFile", str(min(600, max(30, int(os.environ.get("GHIDRA_FILE_TIMEOUT_SECONDS", "300"))))),
                     "-max-cpu", "2",
                     "-deleteProject",
@@ -185,6 +186,41 @@ def analyse(body, cancel_check=lambda: False):
                 if not rows:
                     raise AnalysisError(log_text[-1200:] or "Ghidra found no functions it could decompile")
                 returned = rows[:MAX_RETURNED_UNITS]
+                returned_addresses = {row[1] for row in returned}
+                calls = []
+                call_edges_truncated = summary.get("callsTruncated") == "true"
+                calls_path = export_root / "calls.tsv"
+                if calls_path.is_file():
+                    seen_calls = set()
+                    for line in calls_path.read_text(encoding="utf-8", errors="replace").splitlines():
+                        fields = line.split("\t")
+                        if len(fields) != 4:
+                            continue
+                        from_address, to_address, encoded_from_name, encoded_to_name = fields
+                        if (from_address not in returned_addresses
+                                or not re.fullmatch(r"[A-Za-z0-9:_-]{1,128}", from_address)
+                                or not re.fullmatch(r"[A-Za-z0-9:_-]{1,128}", to_address)):
+                            continue
+                        try:
+                            from_name = base64.b64decode(encoded_from_name, validate=True).decode("utf-8", errors="replace")
+                            to_name = base64.b64decode(encoded_to_name, validate=True).decode("utf-8", errors="replace")
+                        except (ValueError, UnicodeDecodeError):
+                            continue
+                        edge = (from_address, to_address)
+                        if edge in seen_calls:
+                            continue
+                        seen_calls.add(edge)
+                        if len(calls) >= MAX_CALL_EDGES:
+                            call_edges_truncated = True
+                            break
+                        calls.append({
+                            "fromAddress": from_address,
+                            "toAddress": to_address,
+                            "fromName": from_name[:500],
+                            "toName": to_name[:500],
+                        })
+                if summary.get("callsTruncated") == "true" and not call_edges_truncated:
+                    call_edges_truncated = True
                 sources_root = run_root / "sources"
                 units = []
                 for name, address, size_bytes, relative, source, assembly_relative, assembly in returned:
@@ -214,6 +250,8 @@ def analyse(body, cancel_check=lambda: False):
                     warnings.append(f"Ghidra could not decompile {failures} of {summary.get('visited', 'unknown')} considered functions.")
                 if len(rows) > len(returned):
                     warnings.append(f"Only the first {len(returned)} of {len(rows)} decompiled functions are available as code units.")
+                if call_edges_truncated:
+                    warnings.append(f"Ghidra call graph output was limited to {MAX_CALL_EDGES} edges.")
                 return {
                     "status": "completed",
                     "toolVersion": "12.1.4",
@@ -222,7 +260,10 @@ def analyse(body, cancel_check=lambda: False):
                     "failedFunctionCount": failures,
                     "codeBytes": total_bytes,
                     "returnedUnits": len(units),
-                    "truncated": summary.get("truncated") == "true" or len(rows) > len(units),
+                    "callCount": len(calls),
+                    "callGraphTruncated": call_edges_truncated,
+                    "calls": calls,
+                    "truncated": summary.get("truncated") == "true" or len(rows) > len(units) or call_edges_truncated,
                     "units": units,
                     "warnings": " ".join(warnings),
                 }

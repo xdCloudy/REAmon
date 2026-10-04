@@ -6,6 +6,9 @@ import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.FunctionIterator;
 import ghidra.program.model.listing.Instruction;
 import ghidra.program.model.listing.InstructionIterator;
+import ghidra.program.model.symbol.Reference;
+import java.util.HashSet;
+import java.util.Set;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -15,17 +18,20 @@ public class ReamonExport extends GhidraScript {
     @Override
     protected void run() throws Exception {
         String[] args = getScriptArgs();
-        if (args.length < 2) {
-            throw new IllegalArgumentException("Expected export directory and function limit");
+        if (args.length < 3) {
+            throw new IllegalArgumentException("Expected export directory, function limit, and call-edge limit");
         }
 
         Path exportRoot = Path.of(args[0]).toAbsolutePath().normalize();
         int maxFunctions = Integer.parseInt(args[1]);
+        int maxCallEdges = Integer.parseInt(args[2]);
         Files.createDirectories(exportRoot.resolve("functions"));
         Files.createDirectories(exportRoot.resolve("assembly"));
         Path manifest = exportRoot.resolve("manifest.tsv");
         Path summary = exportRoot.resolve("summary.txt");
+        Path calls = exportRoot.resolve("calls.tsv");
         Files.deleteIfExists(manifest);
+        Files.deleteIfExists(calls);
 
         DecompInterface decompiler = new DecompInterface();
         decompiler.setOptions(new DecompileOptions());
@@ -37,6 +43,10 @@ public class ReamonExport extends GhidraScript {
         int decompiled = 0;
         int failed = 0;
         boolean truncated = false;
+        boolean callsTruncated = false;
+        int callCount = 0;
+        Set<String> seenCalls = new HashSet<>();
+        StringBuilder callManifest = new StringBuilder();
         try {
             FunctionIterator functions = currentProgram.getFunctionManager().getFunctions(true);
             while (functions.hasNext()) {
@@ -77,6 +87,24 @@ public class ReamonExport extends GhidraScript {
                     monitor.checkCancelled();
                     Instruction instruction = instructions.next();
                     listing.append(instruction.getAddress()).append(": ").append(instruction).append('\n');
+                    Reference[] references = currentProgram.getReferenceManager().getReferencesFrom(instruction.getAddress());
+                    for (Reference reference : references) {
+                        if (!reference.getReferenceType().isCall()) continue;
+                        String targetAddress = reference.getToAddress().toString();
+                        String edgeKey = address + "\t" + targetAddress;
+                        if (!seenCalls.add(edgeKey)) continue;
+                        if (callCount >= maxCallEdges) {
+                            callsTruncated = true;
+                            continue;
+                        }
+                        Function target = currentProgram.getFunctionManager().getFunctionAt(reference.getToAddress());
+                        String targetName = target != null ? target.getName() : "sub_" + targetAddress;
+                        String encodedSourceName = Base64.getEncoder().encodeToString(function.getName().getBytes(StandardCharsets.UTF_8));
+                        String encodedTargetName = Base64.getEncoder().encodeToString(targetName.getBytes(StandardCharsets.UTF_8));
+                        callManifest.append(address).append('\t').append(targetAddress).append('\t')
+                            .append(encodedSourceName).append('\t').append(encodedTargetName).append('\n');
+                        callCount++;
+                    }
                 }
                 Files.writeString(assembly, listing, StandardCharsets.UTF_8);
                 long sizeBytes = Math.max(1L, function.getBody().getNumAddresses());
@@ -92,11 +120,14 @@ public class ReamonExport extends GhidraScript {
             decompiler.dispose();
         }
 
+        Files.writeString(calls, callManifest.toString(), StandardCharsets.UTF_8);
         Files.writeString(summary,
             "visited=" + visited + "\n" +
             "decompiled=" + decompiled + "\n" +
             "failed=" + failed + "\n" +
-            "truncated=" + truncated + "\n",
+            "truncated=" + truncated + "\n" +
+            "callCount=" + callCount + "\n" +
+            "callsTruncated=" + callsTruncated + "\n",
             StandardCharsets.UTF_8);
     }
 }

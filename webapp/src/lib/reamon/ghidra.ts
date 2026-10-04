@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto'
-import type { ToolExecutionInput, ToolPlugin, ToolPluginManifest, ToolResult } from './types'
+import type { ToolExecutionInput, ToolObservation, ToolPlugin, ToolPluginManifest, ToolResult } from './types'
 
 const MAX_UNITS = 2000
 const DEFAULT_TIMEOUT_MS = 15 * 60_000
+const MAX_CALL_EDGES = 400
 
 interface GhidraResponse {
   status: 'completed'
@@ -14,6 +15,9 @@ interface GhidraResponse {
   returnedUnits: number
   truncated: boolean
   units: Array<{ name: string; address: string; relativePath: string; codeArtifactId: string; disassemblyArtifactId?: string; sizeBytes: number }>
+  calls?: Array<{ fromAddress: string; toAddress: string; fromName: string; toName: string }>
+  callCount?: number
+  callGraphTruncated?: boolean
   warnings?: string
 }
 
@@ -25,11 +29,19 @@ export const ghidraManifest: ToolPluginManifest = {
   acceptsTargetTypes: ['FILE'],
   acceptsFormats: ['elf', 'pe', 'pe-dll', 'macho'],
   capabilities: ['decompile'],
-  produces: ['CodeUnit', 'DecompiledSource', 'FunctionAddress'],
+  produces: ['CodeUnit', 'DecompiledSource', 'FunctionAddress', 'CallGraph', 'Relationship'],
   requirements: [
     { key: 'service', value: 'Ghidra isolated headless analyzer container' },
     { key: 'artifactPath' },
   ],
+}
+
+function codeUnitKey(artifactId: string, taskId: string, address: string): string {
+  return `ghidra:function:${createHash('sha256').update(`${artifactId}:${taskId}:${address}`).digest('hex').slice(0, 32)}`
+}
+
+function graphFunctionKey(artifactId: string, address: string): string {
+  return `ghidra:function-target:${createHash('sha256').update(`${artifactId}:${address}`).digest('hex').slice(0, 32)}`
 }
 
 function errorText(error: unknown): string {
@@ -95,10 +107,11 @@ export async function executeGhidra(input: ToolExecutionInput): Promise<ToolResu
     const observations = units.map((unit) => ({
       kind: 'entity',
       type: 'code_unit',
-      key: `ghidra:function:${createHash('sha256').update(`${input.artifactId}:${input.taskId}:${unit.address}`).digest('hex').slice(0, 32)}`,
+      key: codeUnitKey(input.artifactId!, input.taskId!, unit.address),
       label: unit.name,
       attributes: {
         unitType: 'function',
+        identity: `${input.artifactId}:${unit.address}`,
         name: unit.name.slice(0, 500),
         qualifiedName: unit.name.slice(0, 500),
         address: unit.address.slice(0, 128),
@@ -108,17 +121,71 @@ export async function executeGhidra(input: ToolExecutionInput): Promise<ToolResu
         codeArtifactId: unit.codeArtifactId.slice(0, 2000),
         ...(unit.disassemblyArtifactId ? { disassemblyArtifactId: unit.disassemblyArtifactId.slice(0, 2000) } : {}),
       },
-    }))
+    })) as ToolObservation[]
+    const unitAddresses = new Set(units.map((unit) => unit.address))
+    const functionNodes = new Set<string>()
+    const seenEdges = new Set<string>()
+    const calls = (Array.isArray(payload.calls) ? payload.calls : []).slice(0, MAX_CALL_EDGES)
+    for (const call of calls) {
+      if (!call || typeof call.fromAddress !== 'string' || typeof call.toAddress !== 'string'
+          || typeof call.fromName !== 'string' || typeof call.toName !== 'string'
+          || call.fromAddress.length > 128 || call.toAddress.length > 128
+          || call.fromName.length > 500 || call.toName.length > 500
+          || !unitAddresses.has(call.fromAddress)) continue
+      const edgeIdentity = call.fromAddress + '->' + call.toAddress
+      if (seenEdges.has(edgeIdentity)) continue
+      seenEdges.add(edgeIdentity)
+      const fromKey = codeUnitKey(input.artifactId, input.taskId, call.fromAddress)
+      let toKey: string
+      if (unitAddresses.has(call.toAddress)) {
+        toKey = codeUnitKey(input.artifactId, input.taskId, call.toAddress)
+      } else {
+        toKey = graphFunctionKey(input.artifactId, call.toAddress)
+        if (!functionNodes.has(toKey)) {
+          functionNodes.add(toKey)
+          observations.push({
+            kind: 'entity',
+            type: 'function',
+            key: toKey,
+            label: call.toName.slice(0, 500),
+            attributes: {
+              identity: `${input.artifactId}:${call.toAddress}`,
+              qualifiedName: call.toName.slice(0, 500),
+              name: call.toName.slice(0, 500),
+              address: call.toAddress,
+              language: 'C',
+              externalOrUndecompiled: true,
+            },
+          })
+        }
+      }
+      const edgeDigest = createHash('sha256')
+        .update(`${input.artifactId}:${call.fromAddress}:${call.toAddress}`)
+        .digest('hex').slice(0, 32)
+      observations.push({
+        kind: 'relationship',
+        type: 'calls',
+        relation: 'calls',
+        key: `ghidra:call:${edgeDigest}`,
+        fromKey,
+        toKey,
+        label: `${call.fromName} calls ${call.toName}`.slice(0, 500),
+        attributes: { fromAddress: call.fromAddress, toAddress: call.toAddress },
+      })
+    }
+    const callGraphTruncated = payload.callGraphTruncated === true || (payload.calls?.length || 0) > MAX_CALL_EDGES
     return {
       status: 'completed',
       ...base,
       data: {
         decompiledFunctionCount: payload.functionCount,
-        returnedFunctionCount: observations.length,
+        returnedFunctionCount: units.length,
+        callCount: seenEdges.size,
+        callGraphTruncated,
         visitedFunctionCount: typeof payload.visitedFunctionCount === 'number' && Number.isFinite(payload.visitedFunctionCount) ? payload.visitedFunctionCount : null,
         failedFunctionCount: typeof payload.failedFunctionCount === 'number' && Number.isFinite(payload.failedFunctionCount) ? payload.failedFunctionCount : null,
-        codeBytes: typeof payload.codeBytes === 'number' && Number.isFinite(payload.codeBytes) ? Math.max(0, Math.floor(payload.codeBytes)) : observations.reduce((sum, observation) => sum + Number(observation.attributes.sizeBytes), 0),
-        truncated: payload.truncated || payload.functionCount > observations.length,
+        codeBytes: typeof payload.codeBytes === 'number' && Number.isFinite(payload.codeBytes) ? Math.max(0, Math.floor(payload.codeBytes)) : units.reduce((sum, unit) => sum + Math.floor(unit.sizeBytes), 0),
+        truncated: payload.truncated || payload.functionCount > units.length || callGraphTruncated,
         ghidraVersion: payload.toolVersion,
         warnings: payload.warnings?.slice(0, 4000) || '',
         observations,
