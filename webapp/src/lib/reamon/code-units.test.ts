@@ -40,6 +40,14 @@ describe('code visualizer unit normalization', () => {
     expect(normalizeCodeUnit({ ...row, attributes: { sizeBytes: Number.MAX_SAFE_INTEGER + 1 } })).toBeNull()
   })
 
+  it('reads Android class references from scalar observation metadata', () => {
+    const normalized = normalizeCodeUnit({
+      id: 'refs', stableKey: 'class:refs', label: 'app.Main', source: 'jadx', artifactId: 'artifact-1',
+      updatedAt: '2026-10-04T00:00:00.000Z', attributes: { sizeBytes: 80, classReferences: '["app.Main","app.Worker","app.Worker"]' },
+    })
+    expect(normalized?.classReferences).toEqual(['app.Main', 'app.Worker'])
+  })
+
   it('parses size and coverage filters and applies name filtering', () => {
     expect(parseCodeUnitFilter('MainActivity >1kb <70%')).toEqual({ text: 'mainactivity', minimumBytes: 1024, maximumCoverage: 70 })
     const units = [unit(), unit({ id: 'unit-2', name: 'app.MainActivity.onPause', sizeBytes: 2048, coveragePercent: 35 })]

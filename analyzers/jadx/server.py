@@ -15,6 +15,7 @@ MAX_RETURNED_UNITS = min(20000, max(1, int(os.environ.get("JADX_MAX_RETURNED_UNI
 MAX_VIEWABLE_BYTES = 2 * 1024 * 1024
 STREAM_RESULT_CHUNK_SIZE = 100
 MAX_CLASS_REFERENCES = 100
+MAX_CLASS_REFERENCE_BYTES = 3500
 SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
 PACKAGE_PATTERN = re.compile(r"^\s*package\s+([A-Za-z0-9_.$]+)\s*;", re.MULTILINE)
 TYPE_PATTERN = re.compile(r"\b(?:class|interface|enum|record)\s+([A-Za-z_$][A-Za-z0-9_$]*)")
@@ -113,7 +114,14 @@ def class_references(smali_text, current_path, known_paths):
         if path == current or path not in known_paths:
             continue
         references.add(path.replace("/", "."))
-    return sorted(references, key=str.casefold)[:MAX_CLASS_REFERENCES]
+    bounded, size = [], 2
+    for reference in sorted(references, key=str.casefold):
+        encoded_size = len(json.dumps(reference, ensure_ascii=False).encode("utf-8")) + (1 if bounded else 0)
+        if len(bounded) >= MAX_CLASS_REFERENCES or size + encoded_size > MAX_CLASS_REFERENCE_BYTES:
+            break
+        bounded.append(reference)
+        size += encoded_size
+    return bounded
 
 
 def dex_inputs(path):

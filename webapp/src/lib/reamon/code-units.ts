@@ -100,9 +100,7 @@ export function normalizeCodeUnit(row: CodeUnitObservationRow): CodeUnit | null 
     codeArtifactId: text(attributes.codeArtifactId, 2000),
     disassemblyArtifactId: text(attributes.disassemblyArtifactId, 2000),
     disassemblyLanguage: text(attributes.disassemblyLanguage, 80),
-    classReferences: Array.isArray(attributes.classReferences)
-      ? [...new Set(attributes.classReferences.filter((value): value is string => typeof value === 'string').map((value) => value.trim()).filter(Boolean))].slice(0, 100)
-      : [],
+    classReferences: classReferencesOf(attributes.classReferences),
     maintainedSource: false,
     updatedAt,
   }
@@ -162,6 +160,15 @@ export interface CodeUnitRect<T> {
   y: number
   width: number
   height: number
+}
+
+function classReferencesOf(value: unknown): string[] {
+  let parsed = value
+  if (typeof value === 'string') {
+    try { parsed = JSON.parse(value) } catch { return [] }
+  }
+  if (!Array.isArray(parsed)) return []
+  return [...new Set(parsed.filter((entry): entry is string => typeof entry === 'string').map((entry) => entry.trim()).filter(Boolean))].slice(0, 100)
 }
 
 export interface CodeUnitTreemapEntry {

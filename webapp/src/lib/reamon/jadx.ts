@@ -109,7 +109,7 @@ export async function executeJadx(input: ToolExecutionInput): Promise<ToolResult
         codeArtifactId: unit.codeArtifactId.slice(0, 2000),
         ...(unit.disassemblyArtifactId ? { disassemblyArtifactId: unit.disassemblyArtifactId.slice(0, 2000) } : {}),
         ...(unit.disassemblyLanguage ? { disassemblyLanguage: unit.disassemblyLanguage.slice(0, 80) } : {}),
-        ...(unit.classReferences?.length ? { classReferences: unit.classReferences } : {}),
+        ...(unit.classReferences?.length ? { classReferences: JSON.stringify(unit.classReferences) } : {}),
       },
     }))
     return {
