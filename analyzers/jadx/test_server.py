@@ -235,6 +235,15 @@ class ResultChunkStreamTests(unittest.TestCase):
         self.assertEqual([unit for chunk in chunks for unit in chunk], units)
         self.assertEqual(events[-1], {"type": "result_end"})
 
+    def test_result_chunks_are_bounded_by_bytes_even_below_the_item_limit(self):
+        units = [{"id": index, "detail": "x" * (24 * 1024)} for index in range(80)]
+        events = list(server.stream_result_events({"status": "completed", "units": units, "warnings": ""}))
+
+        self.assertEqual(events[0]["type"], "result_start")
+        self.assertTrue(all(len(json.dumps(event, separators=(",", ":")).encode("utf-8")) <= server.STREAM_RESULT_CHUNK_BYTES for event in events))
+        chunks = [event["items"] for event in events if event["type"] == "result_chunk"]
+        self.assertEqual([unit for chunk in chunks for unit in chunk], units)
+
 
 if __name__ == "__main__":
     unittest.main()

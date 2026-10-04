@@ -26,6 +26,7 @@ MAX_SOURCE_FILES = min(50000, max(1, int(os.environ.get("ILSPY_MAX_SOURCE_FILES"
 MAX_RETURNED_UNITS = min(20000, max(1, int(os.environ.get("ILSPY_MAX_RETURNED_UNITS", "20000"))))
 MAX_VIEWABLE_BYTES = 2 * 1024 * 1024
 STREAM_RESULT_CHUNK_SIZE = 100
+STREAM_RESULT_CHUNK_BYTES = 1024 * 1024
 SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
 NAMESPACE_PATTERN = re.compile(r"^\s*namespace\s+([A-Za-z_][A-Za-z0-9_.]*)\s*(?:;|\{)", re.MULTILINE)
 TYPE_PATTERN = re.compile(r"\b(?:class|interface|struct|enum|record|delegate)\s+([A-Za-z_][A-Za-z0-9_]*)")
@@ -37,14 +38,41 @@ class AnalysisError(Exception):
 
 def stream_result_events(result):
     arrays = {key: value for key, value in result.items() if isinstance(value, list)}
-    if sum(len(value) for value in arrays.values()) <= STREAM_RESULT_CHUNK_SIZE:
-        yield {"type": "result", "data": result}
+    single_result = {"type": "result", "data": result}
+    if sum(len(value) for value in arrays.values()) <= STREAM_RESULT_CHUNK_SIZE and len(json.dumps(single_result, separators=(",", ":")).encode("utf-8")) <= STREAM_RESULT_CHUNK_BYTES:
+        yield single_result
         return
     metadata = {key: value for key, value in result.items() if not isinstance(value, list)}
-    yield {"type": "result_start", "data": metadata, "arrayFields": list(arrays)}
+    start_event = {"type": "result_start", "data": metadata, "arrayFields": list(arrays)}
+    if len(json.dumps(start_event, separators=(",", ":")).encode("utf-8")) > STREAM_RESULT_CHUNK_BYTES:
+        raise AnalysisError("ILSpy result metadata exceeded the streaming limit")
+    yield start_event
     for field, values in arrays.items():
-        for start in range(0, len(values), STREAM_RESULT_CHUNK_SIZE):
-            yield {"type": "result_chunk", "field": field, "items": values[start:start + STREAM_RESULT_CHUNK_SIZE]}
+        chunk = []
+        chunk_event = {"type": "result_chunk", "field": field, "items": chunk}
+        chunk_bytes = len(json.dumps(chunk_event, separators=(",", ":")).encode("utf-8"))
+        for item in values:
+            item_bytes = len(json.dumps(item, separators=(",", ":")).encode("utf-8"))
+            item_cost = item_bytes + (1 if chunk else 0)
+            if item_cost + chunk_bytes > STREAM_RESULT_CHUNK_BYTES:
+                if not chunk:
+                    raise AnalysisError("An ILSpy result item exceeded the streaming limit")
+                yield chunk_event
+                chunk = []
+                chunk_event = {"type": "result_chunk", "field": field, "items": chunk}
+                chunk_bytes = len(json.dumps(chunk_event, separators=(",", ":")).encode("utf-8"))
+                item_cost = item_bytes
+                if item_cost + chunk_bytes > STREAM_RESULT_CHUNK_BYTES:
+                    raise AnalysisError("An ILSpy result item exceeded the streaming limit")
+            chunk.append(item)
+            chunk_bytes += item_cost
+            if len(chunk) >= STREAM_RESULT_CHUNK_SIZE:
+                yield chunk_event
+                chunk = []
+                chunk_event = {"type": "result_chunk", "field": field, "items": chunk}
+                chunk_bytes = len(json.dumps(chunk_event, separators=(",", ":")).encode("utf-8"))
+        if chunk:
+            yield chunk_event
     yield {"type": "result_end"}
 
 
