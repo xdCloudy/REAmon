@@ -102,6 +102,18 @@ export async function PUT(request: Request, { params }: RouteParams) {
     if (typeof sourceCode !== 'string' || !sourceCode.trim()) return NextResponse.json({ error: 'Maintained source cannot be empty' }, { status: 400 })
     if (Buffer.byteLength(sourceCode, 'utf8') > MAX_SOURCE_BYTES) return NextResponse.json({ error: 'Maintained source exceeds the save limit' }, { status: 413 })
 
+    const original = await checkedPath(resolved.originalPath)
+    if (original.fileRealPath) {
+      const originalInfo = await stat(original.fileRealPath)
+      if (originalInfo.isFile() && originalInfo.size <= MAX_SOURCE_BYTES) {
+        const originalSource = await readFile(original.fileRealPath, 'utf8')
+        const normalize = (value: string) => value.replace(/\r\n?/g, '\n').trim()
+        if (normalize(sourceCode) === normalize(originalSource)) {
+          return NextResponse.json({ error: 'This source matches the original decompilation. Edit it or create a maintained version before saving.' }, { status: 422 })
+        }
+      }
+    }
+
     const { rootRealPath, absolute } = await checkedPath(resolved.relativePath)
     await mkdir(path.dirname(absolute), { recursive: true })
     const parentPath = await realpath(path.dirname(absolute))

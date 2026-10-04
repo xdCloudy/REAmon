@@ -309,6 +309,8 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
     staleTime: 5 * 60_000,
     gcTime: 60_000,
   })
+  const maintainedDraftDiffersFromSource = sourceQuery.data === undefined
+    || maintainedDraft.replace(/\r\n?/g, '\n').trim() !== sourceQuery.data.replace(/\r\n?/g, '\n').trim()
   const maintainedQuery = useQuery({
     queryKey: ['reamon-maintained-source', projectId, selectedUnit?.id],
     queryFn: async ({ signal }) => {
@@ -824,7 +826,8 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
               </label>
             </div>
             <div className={styles.maintainedActions}>
-              <button type="button" className={styles.explainButton} onClick={() => void saveMaintainedSource()} disabled={savingMaintained || !maintainedDraft.trim()}>{savingMaintained ? 'Saving…' : maintainedSaved ? 'Save changes' : 'Save maintained copy'}</button>
+              <button type="button" className={styles.explainButton} onClick={() => void saveMaintainedSource()} disabled={savingMaintained || !maintainedDraft.trim() || !maintainedDraftDiffersFromSource}>{savingMaintained ? 'Saving…' : maintainedSaved ? 'Save changes' : 'Save maintained copy'}</button>
+              {!maintainedDraftDiffersFromSource && <span className={styles.message}>Edit the decompilation or create a maintained version before saving.</span>}
               {maintainedSaved && <a className={styles.copyButton} href={`/api/projects/${encodeURIComponent(projectId)}/visualizer/maintained/${encodeURIComponent(selectedUnit.id)}?download=1`}><Download size={14} /> Download source</a>}
               {maintainedSaved && <span className={styles.savedStatus} role="status">Maintained copy saved separately</span>}
             </div>

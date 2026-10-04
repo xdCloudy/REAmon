@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 
@@ -41,6 +41,20 @@ afterEach(async () => {
 })
 
 describe('/api/projects/[id]/visualizer/maintained/[unitId]', () => {
+  it('rejects saving an unchanged decompilation as maintained source', async () => {
+    const originalPath = path.join(testRoot, 'project-1/artifact-1/run/source/Main.java')
+    await mkdir(path.dirname(originalPath), { recursive: true })
+    await writeFile(originalPath, 'class Main { String name; }')
+
+    const response = await PUT(new Request('http://localhost', {
+      method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sourceCode: 'class Main { String name; }' }),
+    }), routeParams)
+
+    expect(response.status).toBe(422)
+    expect(await response.json()).toMatchObject({ error: expect.stringContaining('matches the original decompilation') })
+    expect(h.upsert).not.toHaveBeenCalled()
+  })
+
   it('saves an independent maintained copy and serves it for editing and download', async () => {
     const save = await PUT(new Request('http://localhost', {
       method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sourceCode: 'class Main { String name; }' }),

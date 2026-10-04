@@ -386,6 +386,8 @@ describe('WorkspaceCodeVisualizer', () => {
     fireEvent.click(await screen.findByRole('button', { name: /app\.MainActivity\.onCreate/ }))
     const editable = await screen.findByRole('textbox', { name: 'Editable maintained source' })
     expect(editable).toHaveValue('private String a;')
+    expect(screen.getByRole('button', { name: 'Save maintained copy' })).toBeDisabled()
+    expect(screen.getByText('Edit the decompilation or create a maintained version before saving.')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Create maintainable version' }))
     await waitFor(() => expect(editable).toHaveValue('private String accountName;'))
     fireEvent.change(editable, { target: { value: 'private String accountName;\n' } })
