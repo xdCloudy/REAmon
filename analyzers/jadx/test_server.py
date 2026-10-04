@@ -138,14 +138,15 @@ class JadxServiceTests(unittest.TestCase):
 
         request = {"projectId": "project-1", "artifactId": "artifact-1", "taskId": "task-1",
                    "runId": "run-1", "artifactPath": str(self.apk)}
-        with patch.object(server, "MAX_SOURCE_FILES", 2), patch.object(server.subprocess, "Popen", side_effect=fake_popen):
+        with patch.object(server, "MAX_SOURCE_FILES", 2), patch.object(server, "MAX_RETURNED_UNITS", 1), patch.object(server.subprocess, "Popen", side_effect=fake_popen):
             result = server.analyse(request)
 
         self.assertEqual(result["status"], "completed")
         self.assertEqual(result["classCount"], 2)
         self.assertTrue(result["truncated"])
-        self.assertEqual(result["returnedUnits"], 2)
+        self.assertEqual(result["returnedUnits"], 1)
         self.assertIn("indexed the first 2", result["warnings"])
+        self.assertIn("Only the first 1 of 2 indexed Java source files", result["warnings"])
 
     def test_analyze_endpoint_streams_progress_and_result_events(self):
         httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)

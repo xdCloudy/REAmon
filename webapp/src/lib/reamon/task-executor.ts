@@ -166,6 +166,9 @@ async function settleTask(
   const error = boundedError(failure || result?.error || '')
   const persistedResult = outcome === 'COMPLETED' && result ? boundedTaskResultData(result.data) : undefined
   const completedAt = new Date()
+  const transactionOptions = result?.capabilities.some((capability) => capability === 'decompile' || capability === 'disassemble')
+    ? { maxWait: 10_000, timeout: 120_000 }
+    : undefined
   const updated = await prisma.$transaction(async (tx) => {
     const claim = await tx.task.updateMany({
       where: { id: task.id, projectId: task.projectId, status: 'RUNNING', runToken },
@@ -227,7 +230,7 @@ async function settleTask(
       },
     })
     return updatedTask
-  })
+  }, transactionOptions)
   if (!updated) {
     const current = await loadTask(task.projectId, task.id)
     return current ? { outcome: 'SKIPPED', task: serialiseTask(current) } : { outcome: 'SKIPPED', task: serialiseTask(task) }
@@ -321,5 +324,6 @@ export async function executeAnalysisTask(projectId: string, taskId: string, lea
   }
   stopHeartbeat()
   if (result.status !== 'completed') return settleTask(task, runToken, 'FAILED', plugin.manifest.name, result, result.error)
+  await reportProgress('Saving analyzer results to the workspace')
   return settleTask(task, runToken, 'COMPLETED', plugin.manifest.name, result)
 }

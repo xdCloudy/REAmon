@@ -245,7 +245,7 @@ The built-in JADX provider accepts APK, JVM JAR, standalone DEX, and JVM class
 artifacts and runs JADX 1.5.6 in a
 dedicated container with no database or internet network access. It receives the
 artifact volume read-only, writes generated Java under a separate derived-source
-volume, and emits up to 500 class-sized `code_unit` observations per task. Class tiles
+volume, and emits up to 5,000 class-sized `code_unit` observations per task. Class tiles
 use generated Java source size; address and whole-program coverage remain unknown.
 The visualizer links each indexed class to an authenticated route that checks project
 access, active import membership, and the matching provider observation before

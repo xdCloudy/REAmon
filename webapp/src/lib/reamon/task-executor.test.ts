@@ -179,6 +179,10 @@ describe('executeAnalysisTask', () => {
       normalizedObservationCount: 600,
     })
     expect(mocks.observationUpsert).toHaveBeenCalledTimes(600)
+    expect(mocks.transaction).toHaveBeenCalledWith(expect.any(Function), { maxWait: 10_000, timeout: 120_000 })
+    expect(mocks.taskUpdateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ progressMessage: 'Saving analyzer results to the workspace' }),
+    }))
   })
 
   test('does not settle or create evidence after its lease is recovered', async () => {
