@@ -196,7 +196,7 @@ export async function POST(request: Request, { params }: RouteParams) {
             : result.code === 'invalid_source'
               ? 'The model draft did not parse as complete source. Try a stronger model or a more focused transformation.'
               : result.code === 'wrong_target'
-                ? 'The model returned a different Java type instead of the selected code unit. Try a stronger model or reduce its supporting context.'
+                ? 'The model still returned a different Java type after retrying with the selected file only. Choose a stronger model.'
           : 'AI could not produce a maintainable version. Try again shortly.'
       return NextResponse.json({ error: message }, { status: response.status, headers: { 'Cache-Control': 'no-store' } })
     }

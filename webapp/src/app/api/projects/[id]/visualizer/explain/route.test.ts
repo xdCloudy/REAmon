@@ -114,7 +114,7 @@ describe('POST /api/projects/[id]/visualizer/deobfuscate', () => {
 
     expect(response.status).toBe(422)
     expect(await response.json()).toEqual({
-      error: 'The model returned a different Java type instead of the selected code unit. Try a stronger model or reduce its supporting context.',
+      error: 'The model still returned a different Java type after retrying with the selected file only. Choose a stronger model.',
     })
   })
 

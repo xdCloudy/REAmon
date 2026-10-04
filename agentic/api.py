@@ -633,10 +633,38 @@ Use the selected file as the only output target. Make conservative identifier re
         selected_types = _java_top_level_types(parser, body.source_code)
         rewritten_types = _java_top_level_types(parser, rewritten)
         if selected_types and rewritten_types != selected_types:
-            return JSONResponse(content={
-                "error": "The model returned a different Java type instead of the selected code unit. Try a stronger model or reduce its supporting context.",
-                "code": "wrong_target", "model_used": requested_model,
-            }, status_code=422)
+            logger.warning("REAmon code deobfuscation returned a different Java type; retrying without supporting context")
+            response, failure = await _invoke_feature_llm("REAmon code deobfuscation target retry", requested_model, llm, [
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=(
+                    f"Selected code unit: {body.unit_name.strip()}\nLanguage: Java\n"
+                    "The previous answer returned the wrong type. Retry with the selected file only. "
+                    "Do not use, reproduce, or infer from any related files or bytecode. Keep the selected "
+                    "top-level type name and return its complete source file.\n"
+                    f"Requested focus: {wrap_untrusted(question, 'USER_REQUEST')}\n"
+                    f"Selected source to transform: {wrap_untrusted(body.source_code, 'DECOMPILED_SOURCE')}"
+                )),
+            ])
+            if failure:
+                return failure
+            metadata = getattr(response, "response_metadata", None)
+            if isinstance(metadata, dict) and str(metadata.get("finish_reason", "")).lower() in {"length", "max_tokens", "token_limit"}:
+                return JSONResponse(content={"error": "The model stopped before returning the complete file. Increase its output token limit or choose a model with a larger context window, then retry.", "code": "incomplete_source", "model_used": requested_model}, status_code=422)
+            rewritten = normalize_content(getattr(response, "content", None)).strip()
+            rewritten = re.sub(r"<think>.*?</think>", "", rewritten, flags=re.IGNORECASE | re.DOTALL).strip()
+            if rewritten.startswith("```"):
+                rewritten = re.sub(r"^```[^\n]*\n|\n```$", "", rewritten, flags=re.DOTALL).strip()
+            if not rewritten or len(rewritten.encode("utf-8")) > 128 * 1024:
+                return JSONResponse(content={"error": "The AI provider returned no complete source", "model_used": requested_model}, status_code=502)
+            syntax_validated = not parser.parse(rewritten.encode("utf-8")).root_node.has_error
+            if not syntax_validated:
+                return JSONResponse(content={"error": "The model draft did not parse as complete source. Try a stronger model or a more focused transformation.", "code": "invalid_source", "model_used": requested_model}, status_code=422)
+            rewritten_types = _java_top_level_types(parser, rewritten)
+            if rewritten_types != selected_types:
+                return JSONResponse(content={
+                    "error": "The model still returned a different Java type after retrying with the selected file only. Choose a stronger model.",
+                    "code": "wrong_target", "model_used": requested_model,
+                }, status_code=422)
     return {"source_code": rewritten, "syntax_validated": syntax_validated, "model_used": requested_model}
 
 

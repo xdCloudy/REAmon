@@ -112,7 +112,41 @@ def test_code_deobfuscation_returns_complete_source_and_uses_exact_provider(api,
     assert 'never output these files' in llm.messages[1].content
 
 
-def test_code_deobfuscation_rejects_a_different_java_type(api, monkeypatch):
+def test_code_deobfuscation_retries_without_context_after_a_different_java_type(api, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    monkeypatch.delenv('INTERNAL_API_KEY', raising=False)
+    monkeypatch.delenv('SCANNER_API_KEY', raising=False)
+
+    class WrongTypeLlm:
+        messages = []
+
+        async def ainvoke(self, _messages):
+            self.messages.append(_messages)
+            class Answer:
+                content = ('class RelatedHttpResponse { void close() {} }'
+                           if len(self.messages) == 1
+                           else 'package zc; public interface p { a0 intercept(o value); }')
+                response_metadata = {'finish_reason': 'stop'}
+            return Answer()
+
+    provider = {'id': 'provider-1', 'providerType': 'openai_compatible', 'modelIdentifier': 'Qwen3.5-0.8B'}
+    llm = WrongTypeLlm()
+    with patch.object(api, 'fetch_user_providers', return_value=[provider]), \
+         patch('orchestrator_helpers.llm_setup.setup_llm', return_value=llm):
+        response = TestClient(api.app).post('/reamon/code/deobfuscate', json={
+            'model': 'custom/provider-1', 'user_id': 'user-1', 'unit_name': 'zc.p',
+            'language': 'Java', 'source_code': 'package zc; public interface p { a0 intercept(o value); }',
+            'context_sources': [{'unit_name': 'zc.a0', 'language': 'Java', 'source_code': 'class a0 {}'}],
+        })
+
+    assert response.status_code == 200
+    assert response.json()['source_code'] == 'package zc; public interface p { a0 intercept(o value); }'
+    assert len(llm.messages) == 2
+    assert 'RELATED_DECOMPILED_SOURCE' not in llm.messages[1][1].content
+
+
+def test_code_deobfuscation_rejects_a_different_java_type_after_fallback(api, monkeypatch):
     from fastapi.testclient import TestClient
 
     monkeypatch.delenv('INTERNAL_API_KEY', raising=False)
@@ -132,7 +166,6 @@ def test_code_deobfuscation_rejects_a_different_java_type(api, monkeypatch):
         response = TestClient(api.app).post('/reamon/code/deobfuscate', json={
             'model': 'custom/provider-1', 'user_id': 'user-1', 'unit_name': 'zc.p',
             'language': 'Java', 'source_code': 'package zc; public interface p { a0 intercept(o value); }',
-            'context_sources': [{'unit_name': 'zc.a0', 'language': 'Java', 'source_code': 'class a0 {}'}],
         })
 
     assert response.status_code == 422
