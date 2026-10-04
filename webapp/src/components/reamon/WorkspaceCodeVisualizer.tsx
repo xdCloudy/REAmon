@@ -215,6 +215,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
   decompilationHref?: string
 }) {
   const [filter, setFilter] = useState('')
+  const [maintenanceFilter, setMaintenanceFilter] = useState<'all' | 'needs-work' | 'maintained'>('all')
   const [serverSearch, setServerSearch] = useState('')
   const [visualizerView, setVisualizerView] = useState<'treemap' | 'callgraph'>('treemap')
   const [packagePath, setPackagePath] = useState('')
@@ -276,12 +277,14 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
   })
   const canShowCallGraph = currentRun?.providerId === 'reamon-ghidra'
   const visibleUnits = useMemo(() => filterCodeUnits(units, filter), [units, filter])
-  const packageUnits = useMemo(() => filterCodeUnitsByPackage(visibleUnits, packagePath), [packagePath, visibleUnits])
-  const treemapEntries = useMemo(() => buildCodeUnitTreemapEntries(visibleUnits, packagePath), [packagePath, visibleUnits])
+  const mapScopeUnits = useMemo(() => filterCodeUnitsByPackage(visibleUnits, packagePath), [packagePath, visibleUnits])
+  const packageUnits = useMemo(() => mapScopeUnits.filter((unit) => maintenanceFilter === 'all'
+    || (maintenanceFilter === 'maintained' ? Boolean(unit.maintainedSource) : !unit.maintainedSource)), [maintenanceFilter, mapScopeUnits])
+  const treemapEntries = useMemo(() => buildCodeUnitTreemapEntries(packageUnits, packagePath), [packagePath, packageUnits])
   const rectangles = useMemo(() => layoutCodeUnitTreemap(treemapEntries, 1200, 560), [treemapEntries])
   const summary = useMemo(() => summarizeCodeUnits(packageUnits), [packageUnits])
   const maintainedUnits = useMemo(() => packageUnits.filter((unit) => unit.maintainedSource).length, [packageUnits])
-  const selectedUnit = visibleUnits.find((unit) => unit.id === selectedId)
+  const selectedUnit = packageUnits.find((unit) => unit.id === selectedId)
     || (graphUnit?.id === selectedId ? graphUnit : undefined)
   const callGraphQuery = useQuery({
     queryKey: ['reamon-callgraph', projectId, currentRunId, selectedUnit?.id],
@@ -486,6 +489,12 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
     setExplainError('')
   }
 
+  function showMaintenanceFilter(value: 'all' | 'needs-work' | 'maintained') {
+    setMaintenanceFilter(value)
+    setSelectedId(null)
+    setGraphUnit(null)
+  }
+
   async function loadMoreUnits(loadAll = false) {
     if (!nextCursor || loadingMore) return
     setLoadingMore(true)
@@ -615,7 +624,13 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
           <span className={styles.srOnly}>Filter code units</span>
           <input value={filter} maxLength={300} onChange={(event) => setFilter(event.target.value)} placeholder="Search this run by name, address, or path · >10kb · <70%" />
         </label>
-        <p className={styles.message}>Name, address, and path search spans the full run. Size and decompilation completeness filters apply to code units loaded here.</p>
+        <p className={styles.message}>Name, address, and path search spans the full run. Size, decompilation, and maintained-source filters apply to code units loaded here.</p>
+        {visualizerView === 'treemap' && <div className={styles.maintenanceFilters} role="group" aria-label="Maintained source status">
+          <span>Maintained source</span>
+          <button type="button" className={maintenanceFilter === 'all' ? styles.viewButtonActive : styles.viewButton} aria-pressed={maintenanceFilter === 'all'} onClick={() => showMaintenanceFilter('all')}>All ({mapScopeUnits.length.toLocaleString()})</button>
+          <button type="button" className={maintenanceFilter === 'needs-work' ? styles.viewButtonActive : styles.viewButton} aria-pressed={maintenanceFilter === 'needs-work'} onClick={() => showMaintenanceFilter('needs-work')}>Needs work ({mapScopeUnits.filter((unit) => !unit.maintainedSource).length.toLocaleString()})</button>
+          <button type="button" className={maintenanceFilter === 'maintained' ? styles.viewButtonActive : styles.viewButton} aria-pressed={maintenanceFilter === 'maintained'} onClick={() => showMaintenanceFilter('maintained')}>Maintained ({mapScopeUnits.filter((unit) => unit.maintainedSource).length.toLocaleString()})</button>
+        </div>}
       </>}
 
       {!query.isLoading && !query.isError && query.data && units.length > 0 && <>
@@ -674,7 +689,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
               </g>
             })}
           </svg>
-        </div> : <p className={styles.noMatches}>No code units match this filter.</p>)}
+        </div> : <p className={styles.noMatches}>{maintenanceFilter === 'all' ? 'No code units match this filter.' : 'No code units match this maintained-source status in the current map.'}</p>)}
 
         {visualizerView === 'callgraph' && <section className={styles.callGraph} aria-labelledby="run-call-graph-heading">
           <div className={styles.callGraphHeader}>

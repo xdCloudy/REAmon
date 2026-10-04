@@ -150,6 +150,29 @@ describe('WorkspaceCodeVisualizer', () => {
     await waitFor(() => expect(screen.queryByRole('button', { name: /app\.MainActivity\.onCreate/ })).toBeNull())
   })
 
+  test('filters the map between units needing work and saved maintained copies', async () => {
+    const units = [
+      unit({ id: 'maintained-unit', name: 'app.Maintained', unitType: 'class', maintainedSource: true, coveragePercent: 100 }),
+      unit({ id: 'needs-work-unit', name: 'app.NeedsWork', unitType: 'class', maintainedSource: false, coveragePercent: 35 }),
+    ]
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ units, total: 2, hasMore: false }) }))
+    renderVisualizer()
+
+    const status = await screen.findByRole('group', { name: 'Maintained source status' })
+    expect(within(status).getByRole('button', { name: 'All (2)' })).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.click(within(status).getByRole('button', { name: 'Maintained (1)' }))
+    expect(within(status).getByRole('button', { name: 'Maintained (1)' })).toHaveAttribute('aria-pressed', 'true')
+    expect(within(screen.getByText('Code units in this map').parentElement!).getByText('1')).toBeInTheDocument()
+    fireEvent.click(await screen.findByRole('button', { name: /app package/ }))
+    expect(await screen.findByRole('button', { name: /app\.Maintained/ })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /app\.NeedsWork/ })).not.toBeInTheDocument()
+
+    fireEvent.click(within(status).getByRole('button', { name: 'Needs work (1)' }))
+    expect(within(status).getByRole('button', { name: 'Needs work (1)' })).toHaveAttribute('aria-pressed', 'true')
+    expect(await screen.findByRole('button', { name: /app\.NeedsWork/ })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /app\.Maintained/ })).not.toBeInTheDocument()
+  })
+
   test('searches units beyond the first page of a run', async () => {
     const first = unit({ id: 'unit-first', name: 'app.First' })
     const later = unit({ id: 'unit-later', name: 'app.deep.Target' })

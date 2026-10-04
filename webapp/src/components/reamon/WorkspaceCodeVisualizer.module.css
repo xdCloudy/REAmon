@@ -9,6 +9,8 @@
 .viewButton, .viewButtonActive { border: 0; border-radius: calc(var(--radius-sm) - 2px); padding: .4rem .7rem; background: transparent; color: var(--text-tertiary); cursor: pointer; font: inherit; font-size: var(--text-xs); }
 .viewButton:hover { color: var(--text-primary); }
 .viewButtonActive { background: var(--bg-primary); color: var(--text-primary); box-shadow: 0 1px 3px rgba(0, 0, 0, .28); }
+.maintenanceFilters { display: flex; align-items: center; flex-wrap: wrap; gap: 2px; width: fit-content; max-width: 100%; margin-top: var(--space-2); padding: 3px; border: 1px solid var(--border-default); border-radius: var(--radius-sm); background: var(--bg-tertiary); }
+.maintenanceFilters > span { padding: 0 var(--space-2); color: var(--text-tertiary); font-size: var(--text-xs); }
 .runHistory { display: flex; align-items: center; gap: var(--space-2); margin: 0 0 var(--space-3); padding: var(--space-2); border: 1px solid var(--border-default); border-radius: var(--radius-default); background: var(--bg-tertiary); }
 .runButton { flex: 0 0 auto; border: 1px solid var(--border-default); border-radius: var(--radius-sm); padding: .35rem .55rem; background: var(--bg-primary); color: var(--text-secondary); cursor: pointer; font-size: var(--text-xs); }
 .runButton:hover:not(:disabled) { border-color: var(--accent-secondary); color: var(--text-primary); }
