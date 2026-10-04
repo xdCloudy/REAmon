@@ -14,7 +14,7 @@ rollback can be reconstructed.
 
    ```bash
    docker compose config --quiet
-   scripts/reamon-release-preflight.sh
+   tooling/scripts/reamon-release-preflight.sh
    ```
 
    The preflight requires the deployment's normal Compose variables but does not
@@ -34,7 +34,7 @@ rollback can be reconstructed.
 
 For a staging release, provide `REAMON_DRILL_WEBAPP_URL`,
 `REAMON_DRILL_INTERNAL_KEY`, and a disposable `REAMON_DRILL_PROJECT_ID`, then
-run `scripts/reamon-release-preflight.sh --drill`. The drill sends two concurrent
+run `tooling/scripts/reamon-release-preflight.sh --drill`. The drill sends two concurrent
 dispatches and fails if both claim the same task.
 
 For the complete staging release gate, set `COMPOSE_PROJECT_NAME` to the Compose
@@ -47,7 +47,7 @@ REAMON_ACCEPTANCE_INTERNAL_KEY="$INTERNAL_API_KEY" \
 REAMON_ACCEPTANCE_EMAIL="$ADMIN_EMAIL" \
 REAMON_ACCEPTANCE_PASSWORD="$ADMIN_PASSWORD" \
 REAMON_DRILL_COMPOSE_RESTORE_DATABASE=reamon_restore_check \
-scripts/reamon-release-preflight.sh --live --acceptance --backup
+tooling/scripts/reamon-release-preflight.sh --live --acceptance --backup
 ```
 
 `REAMON_ACCEPTANCE_BASE_URL`, `REAMON_ACCEPTANCE_INTERNAL_KEY`,
@@ -97,10 +97,10 @@ Compose project prefix. Verify that `postgres.dump` and the artifact archive are
 non-empty before proceeding.
 
 The repository also includes a safe wrapper for repeating this check against an
-explicitly different restore database. Run `scripts/reamon-backup-restore-drill.sh
+explicitly different restore database. Run `tooling/scripts/reamon-backup-restore-drill.sh
 --check` during preflight. In a PostgreSQL tooling environment, set
 `REAMON_DRILL_SOURCE_DATABASE_URL`, `REAMON_DRILL_RESTORE_DATABASE_URL`, and
-`REAMON_DRILL_ARTIFACT_ROOT`, then run `scripts/reamon-backup-restore-drill.sh --run`.
+`REAMON_DRILL_ARTIFACT_ROOT`, then run `tooling/scripts/reamon-backup-restore-drill.sh --run`.
 It refuses to run when source and restore URLs match.
 
 For a Compose deployment, use the explicit project name and a disposable database:
@@ -108,7 +108,7 @@ For a Compose deployment, use the explicit project name and a disposable databas
 ```bash
 COMPOSE_PROJECT_NAME=reamon-staging \
 REAMON_DRILL_COMPOSE_RESTORE_DATABASE=reamon_restore_check \
-scripts/reamon-backup-restore-drill.sh --compose
+tooling/scripts/reamon-backup-restore-drill.sh --compose
 ```
 
 The Compose drill sets `PGUSER` explicitly for the container's database tools,
@@ -124,7 +124,7 @@ queried:
 ```bash
 COMPOSE_PROJECT_NAME=reamon-staging \
 NEO4J_PASSWORD="$NEO4J_PASSWORD" \
-scripts/reamon-neo4j-backup-restore-drill.sh --compose
+tooling/scripts/reamon-neo4j-backup-restore-drill.sh --compose
 ```
 
 ## Import retention and compaction
@@ -189,7 +189,7 @@ decision.
 
    ```bash
    docker compose exec -T webapp sh -lc 'command -v strings && command -v readelf && command -v file'
-   scripts/reamon-release-preflight.sh --live
+   tooling/scripts/reamon-release-preflight.sh --live
 
    docker run --rm --entrypoint sh "${REAMON_WEBAPP_IMAGE:-redamon-webapp:latest}" -lc \
      'test "$(id -u)" = 1001 && command -v strings && command -v readelf && command -v file'

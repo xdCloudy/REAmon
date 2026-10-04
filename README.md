@@ -127,7 +127,7 @@ Evidence recorded for this review:
   requires a green quality workflow for the exact tagged commit, and publishes a
   checksum-backed source archive as a GitHub release. The reviewed release is
   [v6.23.0](https://github.com/xdCloudy/REAmon/releases/tag/v6.23.0).
-- `scripts/reamon-release-preflight.sh --live --acceptance --backup` reproduces the
+- `tooling/scripts/reamon-release-preflight.sh --live --acceptance --backup` reproduces the
   same operational checks for self-hosted release operators.
 - The authenticated acceptance flow imports representative JSON and C artifacts,
   exercises approvals and both built-in providers, proves distinct concurrent task

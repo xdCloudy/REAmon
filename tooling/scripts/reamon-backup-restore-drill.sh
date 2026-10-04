@@ -34,7 +34,7 @@ case "$MODE" in
       exit 2
     }
     ;;
-  *) echo 'Usage: scripts/reamon-backup-restore-drill.sh [--check|--run|--compose]' >&2; exit 2 ;;
+  *) echo 'Usage: tooling/scripts/reamon-backup-restore-drill.sh [--check|--run|--compose]' >&2; exit 2 ;;
 esac
 
 workdir="${REAMON_DRILL_OUTPUT_DIR:-$(mktemp -d)}"

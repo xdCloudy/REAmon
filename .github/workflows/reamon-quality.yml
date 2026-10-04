@@ -156,7 +156,7 @@ jobs:
           REAMON_ACCEPTANCE_EMAIL: acceptance@reamon.invalid
           REAMON_ACCEPTANCE_PASSWORD: ci-acceptance-password
           REAMON_ACCEPTANCE_STATE_FILE: /tmp/reamon-acceptance-state.json
-        run: node scripts/reamon-staging-acceptance.mjs
+        run: node tooling/scripts/reamon-staging-acceptance.mjs
 
       - name: Install browser smoke dependencies
         run: |
@@ -171,31 +171,31 @@ jobs:
         run: >-
           REAMON_BROWSER_PROJECT_ID="$(node -e 'const fs=require("fs"); const value=JSON.parse(fs.readFileSync("/tmp/reamon-acceptance-state.json", "utf8")); process.stdout.write(value.projectId)')"
           REAMON_BROWSER_IMPORT_FIXTURE="$GITHUB_WORKSPACE/tests/fixtures/reamon-browser-smoke.json"
-          python3 scripts/reamon-browser-smoke.py
+          python3 tooling/scripts/reamon-browser-smoke.py
 
       - name: Run two-replica worker crash and recovery drill
         run: >-
           REAMON_FAILOVER_TASK_ID="$(node -e 'const fs=require("fs"); const value=JSON.parse(fs.readFileSync("/tmp/reamon-acceptance-state.json", "utf8")); process.stdout.write(value.failoverTaskId)')"
           REAMON_FAILOVER_STALE_AFTER_MINUTES=5
-          scripts/reamon-worker-failover-drill.sh
+          tooling/scripts/reamon-worker-failover-drill.sh
 
       - name: Run bounded worker load and soak drill
         run: >-
           REAMON_SOAK_ARTIFACT_ID="$(node -e 'const fs=require("fs"); const value=JSON.parse(fs.readFileSync("/tmp/reamon-acceptance-state.json", "utf8")); process.stdout.write(value.recoveryArtifactId)')"
           REAMON_SOAK_TASK_COUNT=4
           REAMON_SOAK_DURATION_SECONDS=30
-          scripts/reamon-worker-soak-drill.sh
+          tooling/scripts/reamon-worker-soak-drill.sh
 
       - name: Verify PostgreSQL and artifact restore
         env:
           REAMON_DRILL_COMPOSE_RESTORE_DATABASE: reamon_restore_check
           REAMON_DRILL_OUTPUT_DIR: /tmp/reamon-postgres-restore-evidence
-        run: scripts/reamon-backup-restore-drill.sh --compose
+        run: tooling/scripts/reamon-backup-restore-drill.sh --compose
 
       - name: Verify Neo4j dump and restore
         env:
           REAMON_NEO4J_DRILL_OUTPUT_DIR: /tmp/reamon-neo4j-restore-evidence
-        run: scripts/reamon-neo4j-backup-restore-drill.sh --compose
+        run: tooling/scripts/reamon-neo4j-backup-restore-drill.sh --compose
 
       - name: Recheck readiness after restore drill
         run: >-

@@ -18,7 +18,7 @@ case "$MODE" in
     command -v docker >/dev/null 2>&1 || { echo 'FAIL: docker is required for --compose' >&2; exit 2; }
     docker compose version >/dev/null 2>&1 || { echo 'FAIL: docker compose is required for --compose' >&2; exit 2; }
     ;;
-  *) echo 'Usage: scripts/reamon-neo4j-backup-restore-drill.sh [--check|--compose]' >&2; exit 2 ;;
+  *) echo 'Usage: tooling/scripts/reamon-neo4j-backup-restore-drill.sh [--check|--compose]' >&2; exit 2 ;;
 esac
 
 workdir="${REAMON_NEO4J_DRILL_OUTPUT_DIR:-$(mktemp -d)}"

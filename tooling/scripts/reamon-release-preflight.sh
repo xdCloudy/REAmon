@@ -8,7 +8,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 LIVE=0
 DRILL=0
 ACCEPTANCE=0
@@ -16,7 +16,7 @@ BACKUP=0
 
 usage() {
   cat <<'USAGE'
-Usage: scripts/reamon-release-preflight.sh [--live] [--drill] [--acceptance] [--backup]
+Usage: tooling/scripts/reamon-release-preflight.sh [--live] [--drill] [--acceptance] [--backup]
 
 Options:
   --live  Also check the running webapp readiness endpoint, writable artifact
@@ -62,10 +62,10 @@ grep -Eq 'binutils[[:space:]]+file|file[[:space:]]+binutils' webapp/Dockerfile \
   || fail 'webapp/Dockerfile does not package both binutils and file'
 pass 'production image declares strings/readelf and file runtime dependencies'
 
-bash -n scripts/reamon-worker-contention-drill.sh scripts/reamon-backup-restore-drill.sh scripts/reamon-neo4j-backup-restore-drill.sh
-node --check scripts/reamon-staging-acceptance.mjs
-scripts/reamon-backup-restore-drill.sh --check
-scripts/reamon-neo4j-backup-restore-drill.sh --check
+bash -n tooling/scripts/reamon-worker-contention-drill.sh tooling/scripts/reamon-backup-restore-drill.sh tooling/scripts/reamon-neo4j-backup-restore-drill.sh
+node --check tooling/scripts/reamon-staging-acceptance.mjs
+tooling/scripts/reamon-backup-restore-drill.sh --check
+tooling/scripts/reamon-neo4j-backup-restore-drill.sh --check
 pass 'release drill scripts pass syntax and dependency checks'
 
 if [[ -n "${REAMON_SERVER_SOURCE_ROOTS:-}" ]]; then
@@ -79,18 +79,18 @@ else
 fi
 
 if ((DRILL)); then
-  scripts/reamon-worker-contention-drill.sh
+  tooling/scripts/reamon-worker-contention-drill.sh
   pass 'concurrent staging-worker contention drill passed'
 fi
 
 if ((ACCEPTANCE)); then
-  node scripts/reamon-staging-acceptance.mjs
+  node tooling/scripts/reamon-staging-acceptance.mjs
   pass 'authenticated staging acceptance flow passed'
 fi
 
 if ((BACKUP)); then
-  scripts/reamon-backup-restore-drill.sh --compose
-  scripts/reamon-neo4j-backup-restore-drill.sh --compose
+  tooling/scripts/reamon-backup-restore-drill.sh --compose
+  tooling/scripts/reamon-neo4j-backup-restore-drill.sh --compose
   pass 'Compose PostgreSQL, Neo4j, and artifact backup/restore drills passed'
 fi
 
