@@ -88,7 +88,7 @@ export function normalizeCodeUnit(row: CodeUnitObservationRow): CodeUnit | null 
     artifactId: row.artifactId,
     artifactPath,
     source: row.source.slice(0, 120),
-    codeArtifactId: text(attributes.codeArtifactId, 128),
+    codeArtifactId: text(attributes.codeArtifactId, 2000),
     updatedAt,
   }
 }

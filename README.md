@@ -28,9 +28,9 @@
 
 REAmon is intended to orchestrate reverse-engineering engines such as Ghidra and
 JADX on the backend, then present their output in one investigation workspace. The
-current bootstrap establishes inventory, provider, and task foundations; it does
-not yet decompile APKs or general binaries. A workspace can contain multiple
-related targets and artifacts:
+the current build now decompiles Android APKs through an isolated JADX backend and
+shows indexed classes in its code visualizer. Other binaries still need matching
+analysis engines. A workspace can contain multiple related targets and artifacts:
 
 ```text
 Workspace
@@ -67,10 +67,10 @@ The first REAmon milestone is implemented and running on the `reamon/bootstrap` 
   executing providers in the request path.
 - Show targets, artifacts, detected metadata, capabilities, progress, findings,
   hypotheses, evidence, and activity in a real data-backed dashboard.
-- Add a code visualizer foundation that consumes normalized code-unit observations,
-  draws a searchable size/coverage treemap, and opens linked code artifacts. The
-  current built-in providers do not emit code units, so imported files show an
-  explicit not-decompiled state until an analyzer integration is installed.
+- Run JADX 1.5.6 in an isolated backend service for APK decompilation; store bounded
+  Java source outputs separately and publish class-sized code-unit observations.
+- Draw a searchable size/coverage treemap from provider code-unit observations and
+  open source only through an authenticated, active-workspace artifact route.
 - Run bounded `strings` and `readelf` process providers against stored source and
   ELF artifacts, capture stable observations, and terminate the process on
   cancellation or timeout.
@@ -88,10 +88,10 @@ The first REAmon milestone is implemented and running on the `reamon/bootstrap` 
 - Preserve the PostgreSQL, Neo4j, agent, authentication, and event infrastructure
   needed by the REAmon workspace.
 
-The current profiler is deliberately conservative. The built-in provider set covers
-profiling, source strings, ELF headers, generic file identification, and bounded JSON
-configuration inspection; broader binary and runtime integrations remain
-optional follow-on capabilities rather than production prerequisites.
+The current provider set covers profiling, source strings, ELF headers, generic file
+identification, bounded JSON inspection, and APK-to-Java decompilation through JADX.
+PE, ELF and Mach-O decompilation, Ghidra headless integration, runtime instrumentation,
+and broader language-specific workflows remain future work.
 
 ## Bootstrap release readiness
 

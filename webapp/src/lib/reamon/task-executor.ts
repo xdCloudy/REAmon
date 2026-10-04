@@ -278,6 +278,9 @@ export async function executeAnalysisTask(projectId: string, taskId: string, lea
     result = await plugin.analyze({
       targetProfile: profile,
       artifactId: task.artifactId || undefined,
+      projectId: task.projectId,
+      taskId: task.id,
+      runToken,
       artifactPath,
       options: asOptions(task.options),
       signal: controller.signal,

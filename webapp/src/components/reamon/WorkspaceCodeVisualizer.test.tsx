@@ -9,7 +9,7 @@ function unit(overrides: Partial<CodeUnit> = {}): CodeUnit {
   return {
     id: 'unit-1', name: 'app.MainActivity.onCreate', address: '0x1000', sizeBytes: 1024,
     coveragePercent: 35, language: 'Java', unitType: 'method', artifactId: 'artifact-1',
-    artifactPath: 'classes.dex', source: 'jadx', codeArtifactId: 'source-1', updatedAt: '2026-10-04T00:00:00.000Z',
+    artifactPath: 'classes.dex', source: 'jadx', codeArtifactId: 'project-1/artifact-1/task-1/run-1/sources/app/MainActivity.java', updatedAt: '2026-10-04T00:00:00.000Z',
     ...overrides,
   }
 }
@@ -47,7 +47,7 @@ describe('WorkspaceCodeVisualizer', () => {
     fireEvent.click(await screen.findByRole('button', { name: /app\.MainActivity\.onPause/ }))
 
     expect(await screen.findByText('Selected code unit')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Open decompiled code' })).toHaveAttribute('href', '/api/projects/project-1/artifacts/source-1')
+    expect(screen.getByRole('link', { name: 'Open decompiled code' })).toHaveAttribute('href', '/api/projects/project-1/artifacts/artifact-1/decompiled/project-1/artifact-1/task-1/run-1/sources/app/MainActivity.java')
     await waitFor(() => expect(screen.queryByRole('button', { name: /app\.MainActivity\.onCreate/ })).toBeNull())
   })
 })

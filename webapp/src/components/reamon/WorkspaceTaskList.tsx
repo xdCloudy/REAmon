@@ -132,7 +132,7 @@ export function WorkspaceTaskList({ projectId, tasks, onChanged }: {
             {task.title}
             {task.error && <small className={styles.error}>{task.error}</small>}
           </span>
-          <span className={styles.status} title={task.status === 'RUNNING' ? heartbeatLabel(task.leaseHeartbeatAt) : undefined}>{task.status} · {task.progress}%{task.status === 'RUNNING' ? ` · ${task.leaseOwner || 'worker pending'} · ${heartbeatLabel(task.leaseHeartbeatAt)}` : ''}</span>
+          <span className={styles.status} title={task.status === 'RUNNING' ? heartbeatLabel(task.leaseHeartbeatAt) : undefined}>{task.status === 'RUNNING' ? `RUNNING · progress not reported · ${task.leaseOwner || 'worker pending'} · ${heartbeatLabel(task.leaseHeartbeatAt)}` : task.status}</span>
           <span className={styles.actions}>
             {task.status === 'QUEUED' && <button type="button" className={styles.actionButton} disabled={pendingAction !== null} onClick={() => void execute(task)}>
               {pendingAction === `execute:${task.id}` ? 'Running…' : 'Run'}

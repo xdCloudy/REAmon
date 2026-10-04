@@ -144,8 +144,13 @@ export function WorkspaceCodeVisualizer({ projectId, hasApk, isAnalyzing }: { pr
             <div><dt>Artifact</dt><dd>{selectedUnit.artifactPath || 'Not linked'}</dd></div>
             <div><dt>Provider</dt><dd>{selectedUnit.source}</dd></div>
           </dl>
-          {selectedUnit.codeArtifactId
-            ? <a className={styles.codeLink} href={`/api/projects/${encodeURIComponent(projectId)}/artifacts/${encodeURIComponent(selectedUnit.codeArtifactId)}`}><ExternalLink size={14} /> Open decompiled code</a>
+          {selectedUnit.artifactId && selectedUnit.codeArtifactId
+            ? <a
+                className={styles.codeLink}
+                href={`/api/projects/${encodeURIComponent(projectId)}/artifacts/${encodeURIComponent(selectedUnit.artifactId)}/decompiled/${selectedUnit.codeArtifactId.split('/').map(encodeURIComponent).join('/')}`}
+                target="_blank"
+                rel="noreferrer"
+              ><ExternalLink size={14} /> Open decompiled code</a>
             : <p className={styles.message}>This provider has not attached a viewable code artifact to the unit.</p>}
         </div>}
       </>}
