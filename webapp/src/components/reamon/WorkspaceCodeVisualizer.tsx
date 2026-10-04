@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Code2, ExternalLink, RefreshCw, Search } from 'lucide-react'
+import { Code2, Copy, ExternalLink, RefreshCw, Search } from 'lucide-react'
 import { filterCodeUnits, layoutCodeUnitTreemap, summarizeCodeUnits, type CodeUnit } from '@/lib/reamon/code-units'
 import styles from './WorkspaceCodeVisualizer.module.css'
 
@@ -18,6 +18,21 @@ async function fetchCodeUnits(projectId: string): Promise<CodeUnitResponse> {
   const response = await fetch(`/api/projects/${projectId}/visualizer`)
   if (!response.ok) throw new Error('Unable to load code units')
   return response.json()
+}
+
+function sourceUrl(projectId: string, unit: CodeUnit): string | null {
+  if (!unit.artifactId || !unit.codeArtifactId) return null
+  const sourcePath = unit.codeArtifactId.split('/').map(encodeURIComponent).join('/')
+  return `/api/projects/${encodeURIComponent(projectId)}/artifacts/${encodeURIComponent(unit.artifactId)}/decompiled/${sourcePath}`
+}
+
+async function fetchSource(url: string, signal: AbortSignal): Promise<string> {
+  const response = await fetch(url, { signal, cache: 'no-store' })
+  if (!response.ok) {
+    const detail = await response.json().catch(() => null) as { error?: string } | null
+    throw new Error(detail?.error || 'Could not load decompiled source')
+  }
+  return response.text()
 }
 
 function formatBytes(size: number): string {
@@ -43,6 +58,7 @@ function shortenLabel(value: string, width: number): string {
 export function WorkspaceCodeVisualizer({ projectId, hasApk, isAnalyzing }: { projectId: string; hasApk: boolean; isAnalyzing: boolean }) {
   const [filter, setFilter] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [copyStatus, setCopyStatus] = useState('')
   const query = useQuery({
     queryKey: ['reamon-code-units', projectId],
     queryFn: () => fetchCodeUnits(projectId),
@@ -55,6 +71,24 @@ export function WorkspaceCodeVisualizer({ projectId, hasApk, isAnalyzing }: { pr
   const rectangles = useMemo(() => layoutCodeUnitTreemap(visibleUnits, 1200, 560), [visibleUnits])
   const summary = useMemo(() => summarizeCodeUnits(visibleUnits), [visibleUnits])
   const selectedUnit = visibleUnits.find((unit) => unit.id === selectedId)
+  const selectedSourceUrl = selectedUnit ? sourceUrl(projectId, selectedUnit) : null
+  const sourceQuery = useQuery({
+    queryKey: ['reamon-decompiled-source', selectedUnit?.id, selectedUnit?.codeArtifactId],
+    queryFn: ({ signal }) => fetchSource(selectedSourceUrl as string, signal),
+    enabled: Boolean(selectedSourceUrl),
+    staleTime: 5 * 60_000,
+    gcTime: 60_000,
+  })
+
+  async function copySource() {
+    if (!sourceQuery.data) return
+    try {
+      await navigator.clipboard.writeText(sourceQuery.data)
+      setCopyStatus('Copied')
+    } catch {
+      setCopyStatus('Clipboard unavailable')
+    }
+  }
 
   return (
     <section className={styles.panel} aria-labelledby="code-visualizer-heading">
@@ -116,11 +150,12 @@ export function WorkspaceCodeVisualizer({ projectId, hasApk, isAnalyzing }: { pr
                 role="button"
                 tabIndex={0}
                 aria-label={`${unit.name}, ${formatBytes(unit.sizeBytes)}, ${coverage}${unit.address ? `, address ${unit.address}` : ''}`}
-                onClick={() => setSelectedId(unit.id)}
+                onClick={() => { setSelectedId(unit.id); setCopyStatus('') }}
                 onKeyDown={(event) => {
                   if (event.key === 'Enter' || event.key === ' ') {
                     event.preventDefault()
                     setSelectedId(unit.id)
+                    setCopyStatus('')
                   }
                 }}
               >
@@ -147,12 +182,23 @@ export function WorkspaceCodeVisualizer({ projectId, hasApk, isAnalyzing }: { pr
           {selectedUnit.artifactId && selectedUnit.codeArtifactId
             ? <a
                 className={styles.codeLink}
-                href={`/api/projects/${encodeURIComponent(projectId)}/artifacts/${encodeURIComponent(selectedUnit.artifactId)}/decompiled/${selectedUnit.codeArtifactId.split('/').map(encodeURIComponent).join('/')}`}
+                href={selectedSourceUrl || undefined}
                 target="_blank"
                 rel="noreferrer"
-              ><ExternalLink size={14} /> Open decompiled code</a>
+              ><ExternalLink size={14} /> Open source separately</a>
             : <p className={styles.message}>This provider has not attached a viewable code artifact to the unit.</p>}
         </div>}
+        {selectedUnit && selectedSourceUrl && <section className={styles.sourcePanel} aria-label="Decompiled source">
+          <div className={styles.sourceHeader}>
+            <div><strong>{selectedUnit.name}</strong><span>{selectedUnit.language || 'Source'} · {selectedUnit.codeArtifactId?.split('/').pop()}</span></div>
+            <button type="button" className={styles.copyButton} onClick={() => void copySource()} disabled={!sourceQuery.data}>
+              <Copy size={14} /> {copyStatus || 'Copy source'}
+            </button>
+          </div>
+          {sourceQuery.isLoading && <p className={styles.message}>Loading decompiled source…</p>}
+          {sourceQuery.isError && <p className={styles.error}>{sourceQuery.error instanceof Error ? sourceQuery.error.message : 'Could not load decompiled source'}</p>}
+          {sourceQuery.data !== undefined && <pre className={styles.sourceCode}><code>{sourceQuery.data}</code></pre>}
+        </section>}
       </>}
       <button type="button" className={styles.refresh} onClick={() => void query.refetch()} disabled={query.isFetching}>
         <RefreshCw size={14} className={query.isFetching ? styles.spin : undefined} /> {query.isFetching ? 'Refreshing…' : 'Refresh map'}

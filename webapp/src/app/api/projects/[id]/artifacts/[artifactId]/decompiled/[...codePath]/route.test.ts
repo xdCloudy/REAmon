@@ -6,13 +6,13 @@ import { NextResponse } from 'next/server'
 
 const mocks = vi.hoisted(() => ({
   artifactFindFirst: vi.fn(),
-  observationFindMany: vi.fn(),
+  observationFindFirst: vi.fn(),
   getActiveWorkspaceImportSelection: vi.fn(),
   requireEffectiveUser: vi.fn(),
   requireProjectAccess: vi.fn(),
 }))
 
-vi.mock('@/lib/prisma', () => ({ default: { artifact: { findFirst: mocks.artifactFindFirst }, reamonObservation: { findMany: mocks.observationFindMany } } }))
+vi.mock('@/lib/prisma', () => ({ default: { artifact: { findFirst: mocks.artifactFindFirst }, reamonObservation: { findFirst: mocks.observationFindFirst } } }))
 vi.mock('@/lib/reamon/inventory-query', () => ({ getActiveWorkspaceImportSelection: mocks.getActiveWorkspaceImportSelection }))
 vi.mock('@/lib/access', () => ({ requireEffectiveUser: mocks.requireEffectiveUser, requireProjectAccess: mocks.requireProjectAccess }))
 
@@ -35,7 +35,7 @@ beforeEach(async () => {
   mocks.requireProjectAccess.mockResolvedValue({ project: { id: 'project-1', userId: 'user-1' } })
   mocks.getActiveWorkspaceImportSelection.mockResolvedValue({ artifactWhere: { projectId: 'project-1', importId: { in: ['active-import'] } } })
   mocks.artifactFindFirst.mockResolvedValue({ id: 'artifact-1' })
-  mocks.observationFindMany.mockResolvedValue([{ attributes: { codeArtifactId: relativePath } }])
+  mocks.observationFindFirst.mockResolvedValue({ id: 'unit-1' })
   const file = path.join(derivedRoot, relativePath)
   await mkdir(path.dirname(file), { recursive: true })
   await writeFile(file, 'package app;\nclass Main {}\n')
@@ -54,11 +54,19 @@ describe('GET decompiled code artifact', () => {
     expect(response.status).toBe(200)
     expect(response.headers.get('content-type')).toContain('text/plain')
     expect(await response.text()).toContain('class Main')
+    expect(mocks.observationFindFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        projectId: 'project-1',
+        artifactId: 'artifact-1',
+        type: 'code_unit',
+        attributes: { path: ['codeArtifactId'], equals: relativePath },
+      }),
+    }))
     expect(mocks.artifactFindFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { AND: [{ id: 'artifact-1', projectId: 'project-1' }, { projectId: 'project-1', importId: { in: ['active-import'] } }] } }))
   })
 
   test('does not serve unlinked source paths', async () => {
-    mocks.observationFindMany.mockResolvedValue([])
+    mocks.observationFindFirst.mockResolvedValue(null)
     const response = await GET(new Request('http://localhost'), context)
     expect(response.status).toBe(404)
   })

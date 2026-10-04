@@ -9,10 +9,6 @@ import { derivedArtifactRoot, resolveDerivedArtifactPath } from '@/lib/reamon/de
 interface RouteParams { params: Promise<{ id: string; artifactId: string; codePath: string[] }> }
 const MAX_SOURCE_BYTES = 2 * 1024 * 1024
 
-function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
-}
-
 function safeName(value: string): string {
   return value.replace(/["\\/\u0000-\u001f\u007f]/g, '_').slice(0, 180) || 'decompiled.java'
 }
@@ -44,12 +40,16 @@ export async function GET(_request: Request, { params }: RouteParams) {
     })
     if (!artifact) return NextResponse.json({ error: 'Artifact not found' }, { status: 404, headers: { 'Cache-Control': 'no-store' } })
 
-    const rows = await prisma.reamonObservation.findMany({
-      where: { projectId, artifactId, source: 'reamon-jadx', type: 'code_unit' },
-      select: { attributes: true },
-      take: 500,
+    const linkedCodeUnit = await prisma.reamonObservation.findFirst({
+      where: {
+        projectId,
+        artifactId,
+        type: 'code_unit',
+        attributes: { path: ['codeArtifactId'], equals: relativePath },
+      },
+      select: { id: true },
     })
-    if (!rows.some((row) => asRecord(row.attributes).codeArtifactId === relativePath)) {
+    if (!linkedCodeUnit) {
       return NextResponse.json({ error: 'Decompiled source not found' }, { status: 404, headers: { 'Cache-Control': 'no-store' } })
     }
 

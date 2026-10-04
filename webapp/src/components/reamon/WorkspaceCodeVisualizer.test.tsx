@@ -39,7 +39,10 @@ describe('WorkspaceCodeVisualizer', () => {
 
   test('filters, selects a code unit, and links to its stored code artifact', async () => {
     const units = [unit(), unit({ id: 'unit-2', name: 'app.MainActivity.onPause', sizeBytes: 2048 })]
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ units, total: 2, hasMore: false }) }))
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ units, total: 2, hasMore: false }) })
+      .mockResolvedValue({ ok: true, text: async () => 'void onPause() {\n    saveState();\n}' })
+    vi.stubGlobal('fetch', fetchMock)
     renderVisualizer()
 
     const filter = await screen.findByRole('textbox', { name: 'Filter code units' })
@@ -47,7 +50,9 @@ describe('WorkspaceCodeVisualizer', () => {
     fireEvent.click(await screen.findByRole('button', { name: /app\.MainActivity\.onPause/ }))
 
     expect(await screen.findByText('Selected code unit')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Open decompiled code' })).toHaveAttribute('href', '/api/projects/project-1/artifacts/artifact-1/decompiled/project-1/artifact-1/task-1/run-1/sources/app/MainActivity.java')
+    expect(screen.getByRole('link', { name: 'Open source separately' })).toHaveAttribute('href', '/api/projects/project-1/artifacts/artifact-1/decompiled/project-1/artifact-1/task-1/run-1/sources/app/MainActivity.java')
+    expect(await screen.findByText(/saveState\(\);/)).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledTimes(2)
     await waitFor(() => expect(screen.queryByRole('button', { name: /app\.MainActivity\.onCreate/ })).toBeNull())
   })
 })
