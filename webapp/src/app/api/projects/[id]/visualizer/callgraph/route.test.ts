@@ -37,7 +37,7 @@ beforeEach(() => {
   mocks.requireEffectiveUser.mockResolvedValue({ userId: 'user-1' })
   mocks.requireProjectAccess.mockResolvedValue({ project: { id: 'project-1', userId: 'user-1' } })
   mocks.getActiveWorkspaceImportSelection.mockResolvedValue({ artifactWhere })
-  mocks.taskFindFirst.mockResolvedValue({ id: 'run-1', artifactId: 'artifact-1' })
+  mocks.taskFindFirst.mockResolvedValue({ id: 'run-1', artifactId: 'artifact-1', provider: { pluginId: 'reamon-ghidra' } })
   mocks.observationFindFirst.mockResolvedValue(focusRow)
   mocks.observationFindMany.mockResolvedValue([])
 })
@@ -112,6 +112,61 @@ describe('GET /api/projects/[id]/visualizer/callgraph', () => {
       where: expect.not.objectContaining({ OR: expect.anything() }),
       take: 401,
     }))
+  })
+
+  test('builds a bounded class-dependency graph from saved JADX references', async () => {
+    const main = {
+      ...focusRow,
+      id: 'unit-main', stableKey: 'jadx:class:main', source: 'reamon-jadx', label: 'app.Main',
+      attributes: { unitType: 'class', name: 'app.Main', qualifiedName: 'app.Main', sizeBytes: 240, language: 'Java', codeArtifactId: 'sources/app/Main.java', classReferences: '["app.Helper"]' },
+    }
+    const helper = {
+      ...focusRow,
+      id: 'unit-helper', stableKey: 'jadx:class:helper', source: 'reamon-jadx', label: 'app.Helper',
+      attributes: { unitType: 'class', name: 'app.Helper', qualifiedName: 'app.Helper', sizeBytes: 180, language: 'Java', codeArtifactId: 'sources/app/Helper.java', classReferences: '[]' },
+    }
+    mocks.taskFindFirst.mockResolvedValue({ id: 'run-1', artifactId: 'artifact-1', provider: { pluginId: 'reamon-jadx' } })
+    mocks.observationFindMany.mockResolvedValue([main, helper])
+
+    const response = await GET(new Request('http://localhost/api/projects/project-1/visualizer/callgraph?taskId=run-1&view=graph'), params)
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      graphType: 'class_dependencies', focusKey: null, truncated: false,
+      nodes: [
+        { key: 'jadx:class:main', label: 'app.Main', codeUnit: { id: 'unit-main' } },
+        { key: 'jadx:class:helper', label: 'app.Helper', codeUnit: { id: 'unit-helper' } },
+      ],
+      edges: [{ fromKey: 'jadx:class:main', toKey: 'jadx:class:helper', label: 'depends on' }],
+    })
+  })
+
+  test('limits a focused JADX dependency graph to direct neighbors', async () => {
+    const main = {
+      ...focusRow,
+      id: 'unit-main', stableKey: 'jadx:class:main', source: 'reamon-jadx', label: 'app.Main',
+      attributes: { unitType: 'class', name: 'app.Main', qualifiedName: 'app.Main', sizeBytes: 240, language: 'Java', codeArtifactId: 'sources/app/Main.java', classReferences: '["app.Helper"]' },
+    }
+    const helper = {
+      ...focusRow,
+      id: 'unit-helper', stableKey: 'jadx:class:helper', source: 'reamon-jadx', label: 'app.Helper',
+      attributes: { unitType: 'class', name: 'app.Helper', qualifiedName: 'app.Helper', sizeBytes: 180, language: 'Java', codeArtifactId: 'sources/app/Helper.java', classReferences: '[]' },
+    }
+    mocks.taskFindFirst.mockResolvedValue({ id: 'run-1', artifactId: 'artifact-1', provider: { pluginId: 'reamon-jadx' } })
+    mocks.observationFindMany.mockResolvedValue([main, helper])
+
+    const response = await GET(new Request('http://localhost/api/projects/project-1/visualizer/callgraph?taskId=run-1&unitId=unit-helper'), params)
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      graphType: 'class_dependencies', focusKey: 'jadx:class:helper', truncated: false,
+      nodes: [
+        { key: 'jadx:class:main', isFocus: false },
+        { key: 'jadx:class:helper', isFocus: true },
+      ],
+      edges: [{ fromKey: 'jadx:class:main', toKey: 'jadx:class:helper' }],
+    })
+    expect(mocks.observationFindFirst).not.toHaveBeenCalled()
   })
 
   test('rejects missing, non Ghidra, and out-of-run functions', async () => {

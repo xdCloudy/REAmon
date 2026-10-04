@@ -7,6 +7,7 @@ import { normalizeCodeUnit } from '@/lib/reamon/code-units'
 interface RouteParams { params: Promise<{ id: string }> }
 
 const MAX_EDGES = 400
+const MAX_JADX_UNITS = 20_000
 const NO_STORE = { 'Cache-Control': 'private, no-store' }
 
 function attributesRecord(value: unknown): Record<string, unknown> {
@@ -30,7 +31,7 @@ export async function GET(request: Request, { params }: RouteParams) {
     const unitId = search.get('unitId')?.trim() || ''
     const runGraph = search.get('view') === 'graph'
     if (!taskId || taskId.length > 128 || (unitId.length > 128) || (!unitId && !runGraph)) {
-      return NextResponse.json({ error: 'A valid Ghidra run is required' }, { status: 400, headers: NO_STORE })
+      return NextResponse.json({ error: 'A valid Ghidra or JADX run is required' }, { status: 400, headers: NO_STORE })
     }
 
     const selection = await getActiveWorkspaceImportSelection(projectId)
@@ -40,12 +41,65 @@ export async function GET(request: Request, { params }: RouteParams) {
         projectId,
         capability: 'decompile',
         status: 'COMPLETED',
-        provider: { is: { pluginId: 'reamon-ghidra' } },
+        provider: { is: { pluginId: { in: ['reamon-ghidra', 'reamon-jadx'] } } },
         artifact: { is: selection.artifactWhere },
       },
-      select: { id: true, artifactId: true },
+      select: { id: true, artifactId: true, provider: { select: { pluginId: true } } },
     })
-    if (!task?.artifactId) return NextResponse.json({ error: 'Ghidra analysis run not found' }, { status: 404, headers: NO_STORE })
+    if (!task?.artifactId) return NextResponse.json({ error: 'Decompilation run not found' }, { status: 404, headers: NO_STORE })
+
+    if (task.provider?.pluginId === 'reamon-jadx') {
+      const classRows = await prisma.reamonObservation.findMany({
+        where: {
+          projectId,
+          taskId: task.id,
+          artifactId: task.artifactId,
+          type: 'code_unit',
+          source: 'reamon-jadx',
+          artifact: { is: selection.artifactWhere },
+        },
+        orderBy: [{ stableKey: 'asc' }, { id: 'asc' }],
+        take: MAX_JADX_UNITS + 1,
+        select: {
+          id: true, stableKey: true, label: true, source: true, artifactId: true, updatedAt: true, attributes: true,
+          artifact: { select: { relativePath: true, originalName: true } },
+        },
+      })
+      const truncated = classRows.length > MAX_JADX_UNITS
+      const classes = classRows.slice(0, MAX_JADX_UNITS).flatMap((row) => {
+        const codeUnit = normalizeCodeUnit(row)
+        return codeUnit?.unitType === 'class' ? [{ row, codeUnit }] : []
+      }).sort((left, right) => left.codeUnit.name.localeCompare(right.codeUnit.name) || left.row.stableKey.localeCompare(right.row.stableKey))
+      const byName = new Map(classes.map((entry) => [entry.codeUnit.name, entry]))
+      const focus = unitId ? classes.find(({ codeUnit }) => codeUnit.id === unitId) : undefined
+      if (unitId && !focus) {
+        return NextResponse.json({ error: 'Class is outside this JADX analysis run' }, { status: 404, headers: NO_STORE })
+      }
+      const nodes = new Map<string, { key: string; label: string; address: string | null; codeUnit: NonNullable<ReturnType<typeof normalizeCodeUnit>>; isFocus: boolean }>()
+      const edges: Array<{ id: string; fromKey: string; toKey: string; label: string }> = []
+      let edgeLimitReached = false
+      for (const { row, codeUnit } of classes) {
+        const references = Array.isArray(codeUnit.classReferences) ? codeUnit.classReferences : []
+        for (const reference of references) {
+          const target = byName.get(reference)
+          if (!target || target.codeUnit.id === codeUnit.id || (focus && focus.codeUnit.id !== codeUnit.id && focus.codeUnit.id !== target.codeUnit.id)) continue
+          const edge = { id: `dependency:${row.stableKey}:${target.row.stableKey}`, fromKey: row.stableKey, toKey: target.row.stableKey, label: 'depends on' }
+          for (const [key, unit] of [[edge.fromKey, codeUnit], [edge.toKey, target.codeUnit]] as const) {
+            if (!nodes.has(key)) nodes.set(key, {
+              key, label: unit.name, address: null, codeUnit: unit, isFocus: unit.id === focus?.codeUnit.id,
+            })
+          }
+          edges.push(edge)
+          if (edges.length > MAX_EDGES) {
+            edges.pop()
+            edgeLimitReached = true
+            break
+          }
+        }
+        if (edgeLimitReached) break
+      }
+      return NextResponse.json({ graphType: 'class_dependencies', focusKey: focus?.row.stableKey || null, nodes: [...nodes.values()], edges, truncated: truncated || edgeLimitReached }, { headers: NO_STORE })
+    }
 
     const focusRow = unitId ? await prisma.reamonObservation.findFirst({
       where: {

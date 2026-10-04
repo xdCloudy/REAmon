@@ -55,6 +55,7 @@ interface CallGraphNode {
 }
 
 interface CallGraphResponse {
+  graphType?: 'function_calls' | 'class_dependencies'
   focusKey: string | null
   nodes: CallGraphNode[]
   edges: Array<{ id: string; fromKey: string; toKey: string; label: string }>
@@ -304,11 +305,12 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
   const runCallGraphQuery = useQuery({
     queryKey: ['reamon-callgraph-run', projectId, currentRunId],
     queryFn: ({ signal }) => fetchRunCallGraph(projectId, currentRunId as string, signal),
-    enabled: Boolean(currentRunId && currentRun?.providerId === 'reamon-ghidra' && visualizerView === 'callgraph'),
+    enabled: Boolean(currentRunId && (currentRun?.providerId === 'reamon-ghidra' || currentRun?.providerId === 'reamon-jadx') && visualizerView === 'callgraph'),
     staleTime: 30_000,
     gcTime: 60_000,
   })
-  const canShowCallGraph = currentRun?.providerId === 'reamon-ghidra'
+  const canShowCallGraph = currentRun?.providerId === 'reamon-ghidra' || currentRun?.providerId === 'reamon-jadx'
+  const graphType = currentRun?.providerId === 'reamon-jadx' ? 'class_dependencies' : 'function_calls'
   const visibleUnits = useMemo(() => filterCodeUnits(units, filter), [units, filter])
   const mapScopeUnits = useMemo(() => filterCodeUnitsByPackage(visibleUnits, packagePath), [packagePath, visibleUnits])
   const packageUnits = useMemo(() => mapScopeUnits.filter((unit) => maintenanceFilter === 'all'
@@ -580,7 +582,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
 
       {canShowCallGraph && <div className={styles.viewSwitcher} role="group" aria-label="Code visualizer view">
         <button type="button" className={visualizerView === 'treemap' ? styles.viewButtonActive : styles.viewButton} aria-pressed={visualizerView === 'treemap'} onClick={() => setVisualizerView('treemap')}>Treemap</button>
-        <button type="button" className={visualizerView === 'callgraph' ? styles.viewButtonActive : styles.viewButton} aria-pressed={visualizerView === 'callgraph'} onClick={() => setVisualizerView('callgraph')}>Call graph</button>
+        <button type="button" className={visualizerView === 'callgraph' ? styles.viewButtonActive : styles.viewButton} aria-pressed={visualizerView === 'callgraph'} onClick={() => setVisualizerView('callgraph')}>{graphType === 'class_dependencies' ? 'Class dependencies' : 'Call graph'}</button>
       </div>}
 
       {currentRun && <nav className={styles.runHistory} aria-label="Analysis run history">
@@ -763,13 +765,15 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
 
         {visualizerView === 'callgraph' && <section className={styles.callGraph} aria-labelledby="run-call-graph-heading">
           <div className={styles.callGraphHeader}>
-            <div><h3 id="run-call-graph-heading">Program call graph</h3><p>Functions and direct calls recorded by Ghidra. Drag to arrange, scroll to zoom, or select a function to open its code.</p></div>
-            {runCallGraphQuery.data && <span className={styles.graphBadge}>{runCallGraphQuery.data.nodes.length.toLocaleString()} functions · {runCallGraphQuery.data.edges.length.toLocaleString()} calls</span>}
+            <div><h3 id="run-call-graph-heading">{graphType === 'class_dependencies' ? 'Program class dependencies' : 'Program call graph'}</h3><p>{graphType === 'class_dependencies' ? 'Classes connected by references found in Android bytecode. Select a class to open its decompiled source.' : 'Functions and direct calls recorded by Ghidra. Drag to arrange, scroll to zoom, or select a function to open its code.'}</p></div>
+            {runCallGraphQuery.data && <span className={styles.graphBadge}>{graphType === 'class_dependencies'
+              ? `${runCallGraphQuery.data.nodes.length.toLocaleString()} classes · ${runCallGraphQuery.data.edges.length.toLocaleString()} dependencies`
+              : `${runCallGraphQuery.data.nodes.length.toLocaleString()} functions · ${runCallGraphQuery.data.edges.length.toLocaleString()} calls`}</span>}
           </div>
           <label className={styles.filter}>
             <Search size={16} aria-hidden="true" />
             <span className={styles.srOnly}>Search call graph</span>
-            <input value={graphSearch} onChange={(event) => setGraphSearch(event.target.value)} placeholder="Find a function by name or address" />
+            <input value={graphSearch} onChange={(event) => setGraphSearch(event.target.value)} placeholder={graphType === 'class_dependencies' ? 'Find a class by name' : 'Find a function by name or address'} />
           </label>
           {graphSearchResults.length > 0 && <div className={styles.graphSearchResults} aria-label="Call graph search results">
             {graphSearchResults.map((node) => <button type="button" key={node.key} onClick={() => selectGraphNode(node)}>
@@ -778,14 +782,15 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
           </div>}
           {runCallGraphQuery.isLoading && <p className={styles.message}>Loading run relationships…</p>}
           {runCallGraphQuery.isError && <p className={styles.error} role="alert">{runCallGraphQuery.error instanceof Error ? runCallGraphQuery.error.message : 'Unable to load this run call graph'}</p>}
-          {!runCallGraphQuery.isLoading && !runCallGraphQuery.isError && runCallGraphQuery.data && runCallGraphQuery.data.nodes.length === 0 && <p className={styles.message}>This Ghidra run did not record any function calls.</p>}
+          {!runCallGraphQuery.isLoading && !runCallGraphQuery.isError && runCallGraphQuery.data && runCallGraphQuery.data.nodes.length === 0 && <p className={styles.message}>{graphType === 'class_dependencies' ? 'This JADX run did not record any class references.' : 'This Ghidra run did not record any function calls.'}</p>}
           {!runCallGraphQuery.isLoading && !runCallGraphQuery.isError && runCallGraphQuery.data && runCallGraphQuery.data.nodes.length > 0 && <WorkspaceCallGraphCanvas
             nodes={runCallGraphQuery.data.nodes as CallGraphRecord[]}
             edges={runCallGraphQuery.data.edges as CallGraphRelationship[]}
             focusKey={graphFocus?.key || runCallGraphQuery.data.focusKey}
+            graphType={runCallGraphQuery.data.graphType || graphType}
             onSelectNode={selectGraphNode}
           />}
-          {runCallGraphQuery.data?.truncated && <p className={styles.message}>Showing the first 400 call relationships returned by the analyzer.</p>}
+          {runCallGraphQuery.data?.truncated && <p className={styles.message}>{graphType === 'class_dependencies' ? 'The graph has more class references than the display limit; refine the class filter to explore a smaller area.' : 'Showing the first 400 call relationships returned by the analyzer.'}</p>}
         </section>}
 
         {nextCursor && <p className={styles.message}>Showing {units.length.toLocaleString()} of {query.data.total.toLocaleString()} code units matching the name, address, or path search. Load more to include additional units in size and coverage filters.</p>}

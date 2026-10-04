@@ -287,6 +287,32 @@ describe('WorkspaceCodeVisualizer', () => {
     expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/visualizer/callgraph?taskId=native-run&unitId=native-helper'), expect.any(Object))
   })
 
+  test('shows Android class dependencies from the selected JADX run', async () => {
+    const main = unit({ id: 'android-main', name: 'app.Main', unitType: 'class', source: 'reamon-jadx' })
+    const helper = unit({ id: 'android-helper', name: 'app.Helper', unitType: 'class', source: 'reamon-jadx' })
+    const run = { id: 'android-run', title: 'JADX run', createdAt: '2026-10-04T00:00:00.000Z', completedAt: '2026-10-04T00:01:00.000Z', artifactName: 'app.apk', providerId: 'reamon-jadx', codeUnitCount: 2, unitLabel: 'classes', discoveredUnitCount: 2, returnedUnitCount: 2, indexedUnitCount: 2, linkPercent: 100, codeBytes: 2048, truncated: false, warnings: '', failedUnitCount: null, visitedUnitCount: null }
+    const fetchMock = vi.fn((input: string) => {
+      if (input.includes('/visualizer/callgraph')) return Promise.resolve({ ok: true, json: async () => ({
+        graphType: 'class_dependencies', focusKey: 'key-main', truncated: false,
+        nodes: [
+          { key: 'key-main', label: 'app.Main', address: null, codeUnit: main, isFocus: true },
+          { key: 'key-helper', label: 'app.Helper', address: null, codeUnit: helper, isFocus: false },
+        ],
+        edges: [{ id: 'main-helper', fromKey: 'key-main', toKey: 'key-helper', label: 'depends on' }],
+      }) })
+      if (input.includes('/visualizer/coverage')) return Promise.resolve({ ok: true, json: async () => ({ taskId: 'android-run', codeUnitCount: 2, maintainedUnitCount: 0, coveragePercent: 0 }) })
+      return Promise.resolve({ ok: true, json: async () => ({ units: [main], total: 2, hasMore: false, runs: [run], selectedRunId: 'android-run' }) })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderVisualizer()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Class dependencies' }))
+
+    expect(await screen.findByRole('heading', { name: 'Program class dependencies' })).toBeInTheDocument()
+    expect(await screen.findByRole('region', { name: 'Program class dependency graph' })).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith('/api/projects/project-1/visualizer/callgraph?taskId=android-run&view=graph', expect.any(Object))
+  })
+
   test('loads the next batch of code units within the selected run', async () => {
     const first = unit({ id: 'unit-first', name: 'app.first' })
     const second = unit({ id: 'unit-second', name: 'app.second', codeArtifactId: null })
