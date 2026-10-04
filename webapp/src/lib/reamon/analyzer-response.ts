@@ -1,3 +1,5 @@
+const MAX_ANALYZER_EVENT_CHARS = 32 * 1024 * 1024
+
 export async function readAnalyzerResponse<T>(
   response: Response,
   reportProgress?: (message: string) => Promise<void> | void,
@@ -15,7 +17,7 @@ export async function readAnalyzerResponse<T>(
 
   async function consumeLine(line: string) {
     if (!line.trim()) return
-    if (line.length > 1024 * 1024) throw new Error('Analyzer progress event exceeded the size limit')
+    if (line.length > MAX_ANALYZER_EVENT_CHARS) throw new Error('Analyzer progress event exceeded the size limit')
     let event: unknown
     try {
       event = JSON.parse(line)
@@ -37,7 +39,7 @@ export async function readAnalyzerResponse<T>(
     while (true) {
       const { done, value } = await reader.read()
       buffer += decoder.decode(value, { stream: !done })
-      if (buffer.length > 1024 * 1024 && !buffer.includes('\n')) {
+      if (buffer.length > MAX_ANALYZER_EVENT_CHARS && !buffer.includes('\n')) {
         throw new Error('Analyzer progress buffer exceeded the size limit')
       }
       let newline = buffer.indexOf('\n')

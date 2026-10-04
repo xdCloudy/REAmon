@@ -28,4 +28,13 @@ describe('readAnalyzerResponse', () => {
 
     await expect(readAnalyzerResponse(response)).resolves.toEqual({ status: 'completed' })
   })
+
+  test('accepts a bounded large decompiler result event', async () => {
+    const result = { status: 'completed', sourceIndex: 'x'.repeat(1024 * 1024 + 1) }
+    const response = new Response(JSON.stringify({ type: 'result', data: result }), {
+      headers: { 'Content-Type': 'application/x-ndjson' },
+    })
+
+    await expect(readAnalyzerResponse(response)).resolves.toEqual(result)
+  })
 })
