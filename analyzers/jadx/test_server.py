@@ -146,7 +146,33 @@ class JadxServiceTests(unittest.TestCase):
         self.assertTrue(result["truncated"])
         self.assertEqual(result["returnedUnits"], 1)
         self.assertIn("indexed the first 2", result["warnings"])
-        self.assertIn("Only the first 1 of 2 indexed Java source files", result["warnings"])
+        self.assertIn("Only the first 1 of 2 discovered code units", result["warnings"])
+
+    def test_return_limit_warning_counts_smali_only_classes(self):
+        def fake_popen(args, **kwargs):
+            if "disassemble" in args:
+                output = Path(args[args.index("-o") + 1])
+                for name in ("Class0", "SmaliOnly"):
+                    listing = output / f"{name}.smali"
+                    listing.parent.mkdir(parents=True, exist_ok=True)
+                    listing.write_text(f".class L{name};\n")
+            else:
+                output = Path(args[args.index("-d") + 1])
+                for number in range(2):
+                    source = output / "sources" / f"Class{number}.java"
+                    source.parent.mkdir(parents=True, exist_ok=True)
+                    source.write_text(f"public class Class{number} {{}}\n")
+            return FakeProcess()
+
+        request = {"projectId": "project-1", "artifactId": "artifact-1", "taskId": "task-1",
+                   "runId": "run-1", "artifactPath": str(self.apk)}
+        with patch.object(server, "MAX_SOURCE_FILES", 2), patch.object(server, "MAX_RETURNED_UNITS", 1), patch.object(server.subprocess, "Popen", side_effect=fake_popen):
+            result = server.analyse(request)
+
+        self.assertEqual(result["javaClassCount"], 2)
+        self.assertEqual(result["classCount"], 3)
+        self.assertEqual(result["returnedUnits"], 1)
+        self.assertIn("Only the first 1 of 3 discovered code units", result["warnings"])
 
     def test_analyze_endpoint_streams_progress_and_result_events(self):
         httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)

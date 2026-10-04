@@ -281,8 +281,8 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                 returned = units[:MAX_RETURNED_UNITS]
                 if source_scan_truncated:
                     warnings.append(f"JADX produced more than {len(raw_sources)} Java source files; this run indexed the first {len(raw_sources)} in sorted path order.")
-                if total_files > len(returned):
-                    warnings.append(f"Only the first {len(returned)} of {total_files} indexed Java source files are available as code units.")
+                if len(units) > len(returned):
+                    warnings.append(f"Only the first {len(returned)} of {len(units)} discovered code units are available in the visualizer.")
                 if log_text:
                     warnings.append(log_text[:4000])
                 elif jadx_return_code:
