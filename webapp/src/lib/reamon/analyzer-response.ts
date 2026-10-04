@@ -1,4 +1,5 @@
 const MAX_ANALYZER_EVENT_CHARS = 32 * 1024 * 1024
+const MAX_ANALYZER_RESULT_ITEMS = 100_000
 
 export async function readAnalyzerResponse<T>(
   response: Response,
@@ -13,6 +14,9 @@ export async function readAnalyzerResponse<T>(
   const decoder = new TextDecoder()
   let buffer = ''
   let result: T | undefined
+  let streamedResult: Record<string, unknown> | undefined
+  let streamedItemCount = 0
+  let streamedResultComplete = false
   let streamError: string | undefined
 
   async function consumeLine(line: string) {
@@ -30,6 +34,33 @@ export async function readAnalyzerResponse<T>(
       await reportProgress?.(record.message.slice(0, 500))
     } else if (record.type === 'result' && record.data && typeof record.data === 'object') {
       result = record.data as T
+    } else if (record.type === 'result_start') {
+      if (streamedResult || result || !record.data || typeof record.data !== 'object' || Array.isArray(record.data) || !Array.isArray(record.arrayFields)) {
+        throw new Error('Analyzer returned an invalid result stream')
+      }
+      streamedResult = { ...(record.data as Record<string, unknown>) }
+      const fields = new Set<string>()
+      for (const field of record.arrayFields) {
+        if (typeof field !== 'string' || !/^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(field) || Object.hasOwn(streamedResult, field) || fields.has(field)) {
+          throw new Error('Analyzer returned an invalid result stream')
+        }
+        fields.add(field)
+        streamedResult[field] = []
+      }
+    } else if (record.type === 'result_chunk') {
+      const field = record.field
+      const items = record.items
+      if (!streamedResult || streamedResultComplete || typeof field !== 'string' || !Array.isArray(streamedResult[field]) || !Array.isArray(items)) {
+        throw new Error('Analyzer returned an invalid result stream')
+      }
+      streamedItemCount += items.length
+      if (streamedItemCount > MAX_ANALYZER_RESULT_ITEMS) throw new Error('Analyzer result exceeded the item limit')
+      const target = streamedResult[field] as unknown[]
+      for (const item of items) target.push(item)
+    } else if (record.type === 'result_end') {
+      if (!streamedResult || streamedResultComplete) throw new Error('Analyzer returned an invalid result stream')
+      result = streamedResult as T
+      streamedResultComplete = true
     } else if (record.type === 'error' && typeof record.error === 'string') {
       streamError = record.error.slice(0, 1200)
     }
@@ -55,6 +86,7 @@ export async function readAnalyzerResponse<T>(
     reader.releaseLock()
   }
   if (streamError) throw new Error(streamError)
+  if (streamedResult && !streamedResultComplete) throw new Error('Analyzer result stream ended before completion')
   if (result === undefined) throw new Error('Analyzer progress stream ended without a result')
   return result
 }

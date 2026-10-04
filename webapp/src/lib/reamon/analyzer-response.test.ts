@@ -37,4 +37,27 @@ describe('readAnalyzerResponse', () => {
 
     await expect(readAnalyzerResponse(response)).resolves.toEqual(result)
   })
+
+  test('reassembles bounded result chunks into the complete analyzer result', async () => {
+    const response = new Response([
+      JSON.stringify({ type: 'progress', message: 'Indexing source' }),
+      JSON.stringify({ type: 'result_start', data: { status: 'completed', warnings: '' }, arrayFields: ['units', 'edges'] }),
+      JSON.stringify({ type: 'result_chunk', field: 'units', items: [{ name: 'A' }, { name: 'B' }] }),
+      JSON.stringify({ type: 'result_chunk', field: 'edges', items: [{ from: 'A', to: 'B' }] }),
+      JSON.stringify({ type: 'result_end' }),
+    ].join('\n'), { headers: { 'Content-Type': 'application/x-ndjson' } })
+
+    await expect(readAnalyzerResponse(response)).resolves.toEqual({
+      status: 'completed', warnings: '', units: [{ name: 'A' }, { name: 'B' }], edges: [{ from: 'A', to: 'B' }],
+    })
+  })
+
+  test('rejects an incomplete chunked result instead of treating it as a completed analysis', async () => {
+    const response = new Response([
+      JSON.stringify({ type: 'result_start', data: { status: 'completed' }, arrayFields: ['units'] }),
+      JSON.stringify({ type: 'result_chunk', field: 'units', items: [{ name: 'A' }] }),
+    ].join('\n'), { headers: { 'Content-Type': 'application/x-ndjson' } })
+
+    await expect(readAnalyzerResponse(response)).rejects.toThrow('Analyzer result stream ended before completion')
+  })
 })

@@ -13,12 +13,25 @@ MAX_OUTPUT_BYTES = min(536870912, max(1048576, int(os.environ.get("GHIDRA_MAX_OU
 MAX_FUNCTIONS = min(2000, max(1, int(os.environ.get("GHIDRA_MAX_FUNCTIONS", "2000"))))
 MAX_RETURNED_UNITS = min(2000, max(1, int(os.environ.get("GHIDRA_MAX_RETURNED_UNITS", "2000"))))
 MAX_CALL_EDGES = min(400, max(0, int(os.environ.get("GHIDRA_MAX_CALL_EDGES", "400"))))
+STREAM_RESULT_CHUNK_SIZE = 100
 GHIDRA_HOME = Path(os.environ.get("GHIDRA_HOME", "/opt/ghidra/current")).resolve()
 SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
 SLOTS = threading.BoundedSemaphore(1)
 
 class AnalysisError(Exception):
     pass
+
+def stream_result_events(result):
+    arrays = {key: value for key, value in result.items() if isinstance(value, list)}
+    if sum(len(value) for value in arrays.values()) <= STREAM_RESULT_CHUNK_SIZE:
+        yield {"type": "result", "data": result}
+        return
+    metadata = {key: value for key, value in result.items() if not isinstance(value, list)}
+    yield {"type": "result_start", "data": metadata, "arrayFields": list(arrays)}
+    for field, values in arrays.items():
+        for start in range(0, len(values), STREAM_RESULT_CHUNK_SIZE):
+            yield {"type": "result_chunk", "field": field, "items": values[start:start + STREAM_RESULT_CHUNK_SIZE]}
+    yield {"type": "result_end"}
 
 def safe_id(value):
     if not isinstance(value, str) or len(value) > 128 or not SAFE_ID.fullmatch(value):
@@ -329,7 +342,8 @@ class Handler(BaseHTTPRequestHandler):
                 stream_started = True
                 result = analyse(body, lambda: client_disconnected(self.connection),
                                  lambda message: self._send_stream_event({"type": "progress", "message": message}))
-                self._send_stream_event({"type": "result", "data": result})
+                for event in stream_result_events(result):
+                    self._send_stream_event(event)
                 self._finish_stream()
                 return
             self._send(200, analyse(body, lambda: client_disconnected(self.connection)))

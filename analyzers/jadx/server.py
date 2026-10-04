@@ -13,6 +13,7 @@ MAX_OUTPUT_BYTES = min(1024**3, max(1024**2, int(os.environ.get("JADX_MAX_OUTPUT
 MAX_SOURCE_FILES = min(50000, max(1, int(os.environ.get("JADX_MAX_SOURCE_FILES", "20000"))))
 MAX_RETURNED_UNITS = min(20000, max(1, int(os.environ.get("JADX_MAX_RETURNED_UNITS", "20000"))))
 MAX_VIEWABLE_BYTES = 2 * 1024 * 1024
+STREAM_RESULT_CHUNK_SIZE = 100
 SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
 PACKAGE_PATTERN = re.compile(r"^\s*package\s+([A-Za-z0-9_.$]+)\s*;", re.MULTILINE)
 TYPE_PATTERN = re.compile(r"\b(?:class|interface|enum|record)\s+([A-Za-z_$][A-Za-z0-9_$]*)")
@@ -20,6 +21,18 @@ SLOTS = threading.BoundedSemaphore(2)
 
 class AnalysisError(Exception):
     pass
+
+def stream_result_events(result):
+    arrays = {key: value for key, value in result.items() if isinstance(value, list)}
+    if sum(len(value) for value in arrays.values()) <= STREAM_RESULT_CHUNK_SIZE:
+        yield {"type": "result", "data": result}
+        return
+    metadata = {key: value for key, value in result.items() if not isinstance(value, list)}
+    yield {"type": "result_start", "data": metadata, "arrayFields": list(arrays)}
+    for field, values in arrays.items():
+        for start in range(0, len(values), STREAM_RESULT_CHUNK_SIZE):
+            yield {"type": "result_chunk", "field": field, "items": values[start:start + STREAM_RESULT_CHUNK_SIZE]}
+    yield {"type": "result_end"}
 
 def safe_id(value):
     if not isinstance(value, str) or len(value) > 128 or not SAFE_ID.fullmatch(value):
@@ -347,7 +360,8 @@ class Handler(BaseHTTPRequestHandler):
                 stream_started = True
                 result = analyse(body, lambda: client_disconnected(self.connection),
                                  lambda message: self._send_stream_event({"type": "progress", "message": message}))
-                self._send_stream_event({"type": "result", "data": result})
+                for event in stream_result_events(result):
+                    self._send_stream_event(event)
                 self._finish_stream()
                 return
             self._send(200, analyse(body, lambda: client_disconnected(self.connection)))

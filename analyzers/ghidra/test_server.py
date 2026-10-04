@@ -129,6 +129,17 @@ class GhidraServiceTests(unittest.TestCase):
             httpd.shutdown()
             httpd.server_close()
 
+class ResultChunkStreamTests(unittest.TestCase):
+    def test_large_result_arrays_are_split_into_bounded_events(self):
+        units = [{"id": index} for index in range(server.STREAM_RESULT_CHUNK_SIZE * 2 + 1)]
+        events = list(server.stream_result_events({"status": "completed", "units": units, "warnings": ""}))
+
+        self.assertEqual(events[0], {"type": "result_start", "data": {"status": "completed", "warnings": ""}, "arrayFields": ["units"]})
+        chunks = [event["items"] for event in events if event["type"] == "result_chunk"]
+        self.assertEqual([len(chunk) for chunk in chunks], [100, 100, 1])
+        self.assertEqual([unit for chunk in chunks for unit in chunk], units)
+        self.assertEqual(events[-1], {"type": "result_end"})
+
 
 if __name__ == "__main__":
     unittest.main()
