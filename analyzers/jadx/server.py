@@ -125,10 +125,13 @@ def class_references(smali_text, current_path, known_paths):
 
 
 def dex_inputs(path):
-    if path.suffix.lower() == ".dex":
-        return [str(path)]
-    if path.suffix.lower() != ".apk":
+    try:
+        with path.open("rb") as artifact:
+            magic = artifact.read(4)
+    except OSError:
         return []
+    if magic.startswith(b"dex\n") or path.suffix.lower() == ".dex":
+        return [str(path)]
     try:
         with zipfile.ZipFile(path) as archive:
             entries = sorted({name for name in archive.namelist()

@@ -60,6 +60,12 @@ class JadxServiceTests(unittest.TestCase):
         self.assertEqual(server.dex_inputs(self.apk), [f"{self.apk}/classes.dex", f"{self.apk}/classes2.dex", f"{self.apk}/classes10.dex"])
         self.assertEqual(server.dex_inputs(self.jar), [])
 
+    def test_detects_extensionless_uploaded_apk_blob(self):
+        uploaded_blob = self.artifacts / "opaque-artifact-id"
+        with zipfile.ZipFile(uploaded_blob, "w") as archive:
+            archive.writestr("classes.dex", b"dex")
+        self.assertEqual(server.dex_inputs(uploaded_blob), [f"{uploaded_blob}/classes.dex"])
+
     def test_class_references_are_limited_to_known_classes_and_exclude_self(self):
         text = "invoke-virtual {v0}, Lcom/example/Worker;->run()V\nnew-instance v1, Lcom/example/Other;\nconst-class v2, Lcom/example/Main;"
         references = server.class_references(text, Path("com/example/Main.smali"), {
