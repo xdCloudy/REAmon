@@ -226,6 +226,8 @@ export async function POST(request: Request, { params }: RouteParams) {
             ? 'The model stopped before returning the complete file. Increase its output token limit or choose a model with a larger context window, then retry.'
             : result.code === 'invalid_source'
               ? 'The model draft did not parse as complete source. Try a stronger model or a more focused transformation.'
+            : result.code === 'behavior_dropped'
+              ? 'The model removed executable Java logic. Choose a stronger model or retry with a narrower transformation.'
             : result.code === 'wrong_target'
               ? 'The model still returned a different Java type after retrying with the selected file only. Choose a stronger model.'
               : result.code === 'context_exceeded'

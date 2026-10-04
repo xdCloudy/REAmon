@@ -116,6 +116,34 @@ def test_code_deobfuscation_returns_complete_source_and_uses_exact_provider(api,
     assert 'simplify compiler or decompiler artifacts' in llm.messages[0].content
 
 
+def test_code_deobfuscation_rejects_java_drafts_that_drop_executable_bodies(api, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    monkeypatch.delenv('INTERNAL_API_KEY', raising=False)
+    monkeypatch.delenv('SCANNER_API_KEY', raising=False)
+
+    class NoOpAnswer:
+        content = 'class Example { String read() { /* TODO */ return null; } }'
+        response_metadata = {'finish_reason': 'stop'}
+
+    class NoOpLlm:
+        async def ainvoke(self, _messages):
+            return NoOpAnswer()
+
+    provider = {'id': 'provider-1', 'providerType': 'openai_compatible', 'modelIdentifier': 'Qwen3.5-0.8B'}
+    with patch.object(api, 'fetch_user_providers', return_value=[provider]), patch(
+        'orchestrator_helpers.llm_setup.setup_llm', return_value=NoOpLlm()
+    ):
+        response = TestClient(api.app).post('/reamon/code/deobfuscate', json={
+            'model': 'custom/provider-1', 'user_id': 'user-1', 'unit_name': 'Example',
+            'language': 'Java',
+            'source_code': 'class Example { String read() { return state; } void save() { persist(state); } }',
+        })
+
+    assert response.status_code == 422
+    assert response.json()['code'] == 'behavior_dropped'
+
+
 def test_code_deobfuscation_allows_a_recovered_java_type_name(api, monkeypatch):
     from fastapi.testclient import TestClient
 

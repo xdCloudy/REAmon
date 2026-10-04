@@ -584,6 +584,28 @@ def _java_top_level_types(parser, source: str) -> list[tuple[str, str]]:
         return []
 
 
+def _java_executable_body_count(parser, source: str) -> int:
+    """Count Java methods/constructors with at least one non-comment statement."""
+    try:
+        root = parser.parse(source.encode("utf-8")).root_node
+        count = 0
+        stack = [root]
+        while stack:
+            node = stack.pop()
+            if node.type in {"method_declaration", "constructor_declaration"}:
+                body = node.child_by_field_name("body")
+                if body is not None and any(
+                    child.type not in {"line_comment", "block_comment"}
+                    for child in body.named_children
+                ):
+                    count += 1
+            stack.extend(node.named_children)
+        return count
+    except Exception as exc:  # noqa: BLE001
+        logger.debug(f"Java executable-body validation unavailable: {exc}")
+        return 0
+
+
 @app.post("/reamon/code/deobfuscate", tags=["REAmon"], dependencies=[Depends(require_internal_auth)])
 async def deobfuscate_reamon_code(body: ReamonCodeDeobfuscateRequest):
     """Reverse engineer one selected decompiled unit into a maintainable source draft."""
@@ -719,6 +741,13 @@ The selected file is the only output target. Use related decompiled classes and 
                     "error": "The model did not preserve this file's Java top-level declaration kinds. Choose a stronger model.",
                     "code": "wrong_target", "model_used": requested_model,
                 }, status_code=422)
+        selected_bodies = _java_executable_body_count(parser, body.source_code)
+        rewritten_bodies = _java_executable_body_count(parser, rewritten)
+        if rewritten_bodies < selected_bodies:
+            return JSONResponse(content={
+                "error": "The model removed executable Java method or constructor logic. Choose a stronger model or retry with a narrower transformation.",
+                "code": "behavior_dropped", "model_used": requested_model,
+            }, status_code=422)
     return {"source_code": rewritten, "syntax_validated": syntax_validated, "model_used": requested_model}
 
 

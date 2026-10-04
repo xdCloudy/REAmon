@@ -6,13 +6,14 @@ import { NextRequest } from 'next/server'
 
 const h = vi.hoisted(() => ({
   user: vi.fn(), access: vi.fn(), selection: vi.fn(), provider: vi.fn(), observation: vi.fn(), artifact: vi.fn(),
-  agentFetch: vi.fn(), root: vi.fn(), resolvePath: vi.fn(),
+  maintainedSource: vi.fn(), agentFetch: vi.fn(), root: vi.fn(), resolvePath: vi.fn(),
 }))
 
 vi.mock('@/lib/prisma', () => ({ default: {
   userLlmProvider: { findFirst: h.provider },
   reamonObservation: { findFirst: h.observation },
   artifact: { findFirst: h.artifact },
+  reamonMaintainedSource: { findMany: h.maintainedSource },
 } }))
 vi.mock('@/lib/access', () => ({ requireEffectiveUser: h.user, requireProjectAccess: h.access }))
 vi.mock('@/lib/reamon/inventory-query', () => ({ getActiveWorkspaceImportSelection: h.selection }))
@@ -48,6 +49,7 @@ beforeEach(async () => {
     attributes: { qualifiedName: 'MainActivity.onCreate', language: 'Java', codeArtifactId: 'project-1/artifact-1/task-1/run-1/sources/MainActivity.java' },
   })
   h.artifact.mockResolvedValue({ id: 'artifact-1' })
+  h.maintainedSource.mockResolvedValue([])
   testRoot = await mkdtemp(path.join(os.tmpdir(), 'reamon-explain-'))
   h.root.mockReturnValue(testRoot)
   h.resolvePath.mockImplementation((relativePath: string) => path.join(testRoot, relativePath))
@@ -115,6 +117,16 @@ describe('POST /api/projects/[id]/visualizer/deobfuscate', () => {
     expect(response.status).toBe(422)
     expect(await response.json()).toEqual({
       error: 'The model still returned a different Java type after retrying with the selected file only. Choose a stronger model.',
+    })
+  })
+
+  it('explains when a draft removes executable Java logic', async () => {
+    h.agentFetch.mockResolvedValueOnce(new Response(JSON.stringify({ code: 'behavior_dropped' }), { status: 422 }))
+    const response = await deobfuscate(request({ unitId: 'unit-1', providerId: 'provider-1' }), routeParams)
+
+    expect(response.status).toBe(422)
+    expect(await response.json()).toEqual({
+      error: 'The model removed executable Java logic. Choose a stronger model or retry with a narrower transformation.',
     })
   })
 
