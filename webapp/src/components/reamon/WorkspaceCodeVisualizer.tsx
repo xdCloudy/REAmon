@@ -402,18 +402,29 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
     setExplainError('')
   }
 
-  async function loadMoreUnits() {
+  async function loadMoreUnits(loadAll = false) {
     if (!nextCursor || loadingMore) return
     setLoadingMore(true)
     setLoadMoreError('')
     try {
-      const page = await fetchCodeUnits(projectId, currentRunId, nextCursor, undefined, serverSearch)
-      setAdditionalPage((previous) => ({
-        runId: currentRunId,
-        search: serverSearch,
-        units: [...(previous?.runId === currentRunId && previous.search === serverSearch ? previous.units : []), ...page.units],
-        nextCursor: page.nextCursor || null,
-      }))
+      let cursor = nextCursor
+      let loadedUnits = pageState?.units || []
+      let pagesLoaded = 0
+      while (cursor) {
+        const page = await fetchCodeUnits(projectId, currentRunId, cursor, undefined, serverSearch)
+        loadedUnits = [...loadedUnits, ...page.units]
+        const nextPageCursor = page.nextCursor || null
+        setAdditionalPage({
+          runId: currentRunId,
+          search: serverSearch,
+          units: loadedUnits,
+          nextCursor: nextPageCursor,
+        })
+        pagesLoaded += 1
+        if (!loadAll || !nextPageCursor) break
+        if (nextPageCursor === cursor || pagesLoaded >= 100) throw new Error('The code-unit page cursor did not advance')
+        cursor = nextPageCursor
+      }
     } catch (error) {
       setLoadMoreError(error instanceof Error ? error.message : 'Could not load more code units')
     } finally {
@@ -696,9 +707,12 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
         </section>}
       </>}
       {nextCursor && <div className={styles.loadMore}>
-        <span>Loaded {units.length.toLocaleString()} of {query.data?.total.toLocaleString() || '0'} code units</span>
+        <span role="status">Loaded {units.length.toLocaleString()} of {query.data?.total.toLocaleString() || '0'} code units</span>
         <button type="button" className={styles.runButton} onClick={() => void loadMoreUnits()} disabled={loadingMore}>
           {loadingMore ? 'Loading code units…' : 'Load more code units'}
+        </button>
+        <button type="button" className={styles.runButton} onClick={() => void loadMoreUnits(true)} disabled={loadingMore}>
+          {loadingMore ? 'Loading full map…' : `Load all ${Math.max(0, (query.data?.total || 0) - units.length).toLocaleString()} remaining`}
         </button>
         {loadMoreError && <p className={styles.error} role="alert">{loadMoreError}</p>}
       </div>}

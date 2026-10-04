@@ -231,6 +231,27 @@ describe('WorkspaceCodeVisualizer', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/projects/project-1/visualizer?taskId=run-new&cursor=unit-first&q=app', expect.objectContaining({ cache: 'no-store' }))
   })
 
+  test('loads every code-unit page to build a complete map', async () => {
+    const units = ['one', 'two', 'three', 'four', 'five'].map((name) => unit({ id: name, name: `app.${name}` }))
+    const fetchMock = vi.fn((input: string) => {
+      const page = input.includes('cursor=cursor-two')
+        ? { units: [units[4]], total: 5, hasMore: false, nextCursor: null }
+        : input.includes('cursor=cursor-one')
+          ? { units: [units[2], units[3]], total: 5, hasMore: true, nextCursor: 'cursor-two' }
+          : { units: [units[0], units[1]], total: 5, hasMore: true, nextCursor: 'cursor-one' }
+      return Promise.resolve({ ok: true, json: async () => page })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderVisualizer()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Load all 3 remaining' }))
+
+    expect(await screen.findByText('5 code units', { exact: true })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Load more code units' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Load all/ })).not.toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith('/api/projects/project-1/visualizer?cursor=cursor-two', expect.objectContaining({ cache: 'no-store' }))
+  })
+
   test('compares Ghidra decompiled source with its linked disassembly', async () => {
     const native = unit({
       id: 'native-main', name: 'main', address: '00401000', language: 'C', unitType: 'function',
