@@ -175,7 +175,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing }: { projectId:
   }
 
   return (
-    <section className={styles.panel} aria-labelledby="code-visualizer-heading">
+    <section id="code-visualizer" className={styles.panel} aria-labelledby="code-visualizer-heading">
       <div className={styles.header}>
         <div>
           <p className={styles.kicker}>Program structure</p>

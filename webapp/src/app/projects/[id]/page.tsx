@@ -7,6 +7,7 @@ import { AlertTriangle, ArrowLeft, CheckCircle2, CircleDashed, Server, Waypoints
 import { WorkspaceFileTree } from '@/components/reamon/WorkspaceFileTree'
 import { WorkspaceImportPanel } from '@/components/reamon/WorkspaceImportPanel'
 import { WorkspaceAnalysisPlanPanel, type WorkspaceAnalysisPlan } from '@/components/reamon/WorkspaceAnalysisPlan'
+import { WorkspaceDecompilationAction } from '@/components/reamon/WorkspaceDecompilationAction'
 import { WorkspaceTaskList } from '@/components/reamon/WorkspaceTaskList'
 import { WorkspaceFindingList } from '@/components/reamon/WorkspaceFindingList'
 import { WorkspaceCodeVisualizer } from '@/components/reamon/WorkspaceCodeVisualizer'
@@ -152,14 +153,13 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
   const { id: projectId } = use(params)
   const queryClient = useQueryClient()
   const [selectedTarget, setSelectedTarget] = useState<string | null>(null)
-  const [decompileRequestPending, setDecompileRequestPending] = useState(false)
-  const [decompileRequestMessage, setDecompileRequestMessage] = useState('')
+  const [decompilationActionPending, setDecompilationActionPending] = useState(false)
   const workspace = useQuery({
     queryKey: ['reamon-workspace', projectId],
     queryFn: () => fetchWorkspace(projectId),
     refetchInterval: (query) => {
       const snapshot = query.state.data
-      if (snapshot?.tasks.some((task) => task.status === 'RUNNING')) return 3000
+      if (decompilationActionPending || snapshot?.tasks.some((task) => task.status === 'RUNNING')) return 3000
       if (snapshot?.workers.length) return 30000
       return false
     },
@@ -172,41 +172,9 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
   const latestImport = data?.imports[0]
   const hasDecompilableArtifact = data?.artifacts.some((artifact) => ['apk', 'jar', 'dex', 'class', 'elf', 'pe', 'pe-dll', 'macho'].includes(artifact.profile.format)) ?? false
   const decompileTask = data?.tasks.find((task) => task.capability === 'decompile')
-  const hasDecompileTask = Boolean(decompileTask)
   const decompileProposal = analysisPlan.data?.steps.find((step) => step.capability === 'decompile')
   const logicalTargets = data?.targets.filter((target) => target.targetType !== 'DIRECTORY') || []
   const selectedLogicalTarget = logicalTargets.find((target) => target.id === selectedTarget)
-
-  async function requestDecompileApproval() {
-    if (!decompileProposal) return
-    setDecompileRequestPending(true)
-    setDecompileRequestMessage('')
-    try {
-      const response = await fetch(`/api/projects/${projectId}/workspace/analysis-plan/schedule`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          artifactId: decompileProposal.artifactId,
-          providerId: decompileProposal.provider.pluginId,
-          capability: decompileProposal.capability,
-          approvalRequired: true,
-        }),
-      })
-      const payload = await response.json().catch(() => ({})) as { error?: string; reused?: boolean; task?: { status?: string } }
-      if (!response.ok) throw new Error(payload.error || 'Unable to request decompiler approval')
-      const isQueued = payload.task?.status === 'QUEUED'
-      setDecompileRequestMessage(isQueued
-        ? 'This decompilation is already approved and queued. Go to Tasks and findings to run it.'
-        : payload.reused
-          ? 'A decompilation request already exists. Go to Tasks and findings to approve it, then choose Run.'
-          : 'Approval requested. Go to Tasks and findings, approve the task, then choose Run.')
-      void queryClient.invalidateQueries({ queryKey: ['reamon-workspace', projectId] })
-    } catch (error) {
-      setDecompileRequestMessage(error instanceof Error ? error.message : 'Unable to request decompiler approval')
-    } finally {
-      setDecompileRequestPending(false)
-    }
-  }
 
   if (workspace.isLoading) return <div className={styles.loading}>Loading workspace…</div>
   if (workspace.isError || !data) return <div className={styles.error}>Unable to load this workspace. Check that it still exists.</div>
@@ -238,10 +206,17 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
         void queryClient.invalidateQueries({ queryKey: ['reamon-code-units', projectId] })
       }} />
       <ImportStatus latestImport={latestImport} />
-      {hasDecompilableArtifact && (!hasDecompileTask || Boolean(decompileRequestMessage)) && <aside className={styles.analysisNextStep}>
-        <div><strong>{decompileTask?.status === 'AWAITING_APPROVAL' ? 'Decompilation is waiting for approval.' : decompileTask?.status === 'QUEUED' ? 'Decompilation is approved and queued.' : decompileTask?.status === 'RUNNING' ? 'Decompilation is running.' : decompileTask?.status === 'COMPLETED' ? 'Decompilation is complete.' : decompileTask?.status === 'FAILED' ? 'Decompilation failed.' : decompileTask?.status === 'CANCELLED' ? 'Decompilation was cancelled.' : 'Import complete; decompilation has not started.'}</strong><p>{decompileTask ? 'Check its status under Tasks and findings.' : 'The APK is stored, but no code has been extracted yet. Request decompiler approval, then approve the task and choose Run.'}</p>{decompileRequestMessage && <p className={styles.analysisRequestMessage} role="status">{decompileRequestMessage} {decompileRequestMessage.includes('Tasks and findings') && <a href="#analysis-tasks">Open task controls</a>}</p>}</div>
-        <button type="button" className={styles.analysisAction} disabled={!decompileProposal || decompileRequestPending || hasDecompileTask} onClick={() => void requestDecompileApproval()}>{decompileRequestPending ? 'Requesting approval…' : hasDecompileTask ? 'Request already created' : decompileProposal ? 'Request decompilation approval' : 'Finding a compatible decompiler…'}</button>
-        <a href="#analysis-proposals">Open analysis proposals</a>
+      {hasDecompilableArtifact && <aside className={styles.analysisNextStep} id="analysis-next-step">
+        <div><strong>{decompileTask?.status === 'AWAITING_APPROVAL' ? 'Decompilation is waiting for approval.' : decompileTask?.status === 'QUEUED' ? 'Decompilation is queued.' : decompileTask?.status === 'RUNNING' ? 'Decompilation is running.' : decompileTask?.status === 'COMPLETED' ? 'Decompilation is complete.' : decompileTask?.status === 'FAILED' ? 'Decompilation failed.' : decompileTask?.status === 'CANCELLED' ? 'Decompilation was cancelled.' : 'Import complete; decompilation has not started.'}</strong><p>{decompileTask?.status === 'AWAITING_APPROVAL' ? 'Approve this task under Tasks and findings, then choose Run.' : decompileTask?.status === 'QUEUED' ? 'The approved task is ready. Choose Run under Tasks and findings.' : decompileTask?.status === 'RUNNING' ? 'The isolated analyzer is processing the imported artifact.' : decompileTask?.status === 'COMPLETED' ? 'View the extracted code in the visualizer below.' : decompileTask ? 'Review the task details and retry it under Tasks and findings.' : 'Choose Run decompilation to start the matching isolated analyzer for this imported artifact.'}</p></div>
+        {!decompileTask && decompileProposal && <WorkspaceDecompilationAction projectId={projectId} artifactId={decompileProposal.artifactId} providerId={decompileProposal.provider.pluginId} onPendingChange={setDecompilationActionPending} onChanged={() => {
+          void queryClient.invalidateQueries({ queryKey: ['reamon-workspace', projectId] })
+          void queryClient.invalidateQueries({ queryKey: ['reamon-code-units', projectId] })
+        }} />}
+        {!decompileTask && analysisPlan.isLoading && <span className={styles.muted}>Finding a compatible decompiler…</span>}
+        {!decompileTask && analysisPlan.isError && <span className={styles.uploadError}>Available analysis proposals could not be loaded. Refresh the workspace and try again.</span>}
+        {!decompileTask && !analysisPlan.isLoading && !analysisPlan.isError && !decompileProposal && <span className={styles.muted}>No compatible decompiler is available for this artifact.</span>}
+        {decompileTask && <a href="#analysis-tasks">Open task controls</a>}
+        <a href="#analysis-proposals">View all analysis proposals</a>
       </aside>}
       <WorkspaceAnalysisPlanPanel projectId={projectId} plan={analysisPlan.data} isLoading={analysisPlan.isLoading} isError={analysisPlan.isError} onScheduled={() => {
         void queryClient.invalidateQueries({ queryKey: ['reamon-workspace', projectId] })

@@ -44,7 +44,7 @@ export function WorkspaceAnalysisPlanPanel({ projectId, plan, isLoading, isError
       })
       const payload = await response.json().catch(() => ({})) as { error?: string; reused?: boolean; task?: { status?: string } }
       if (!response.ok) throw new Error(payload.error || 'Unable to queue analysis task')
-      setFeedback(payload.reused ? 'This proposal is already queued or awaiting approval.' : `${step.capability} is awaiting approval for ${step.relativePath}. Approve it under Tasks and findings, then choose Run.`)
+      setFeedback(payload.reused ? 'This proposal is already queued or awaiting approval.' : `${step.capability} is awaiting operator approval for ${step.relativePath}. Approve it under Tasks and findings, then choose Run.`)
       onScheduled?.()
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : 'Unable to queue analysis task')

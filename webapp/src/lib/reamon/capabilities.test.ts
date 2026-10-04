@@ -1,3 +1,4 @@
+/** @vitest-environment node */
 import { describe, expect, it } from 'vitest'
 import { resolveCapabilities, resolveWorkspaceCapabilities } from './capabilities'
 import type { TargetProfile, ToolPlugin } from './types'
