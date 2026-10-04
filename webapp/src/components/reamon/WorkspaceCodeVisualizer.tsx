@@ -4,6 +4,8 @@ import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Code2, Copy, ExternalLink, RefreshCw, Search } from 'lucide-react'
 import { filterCodeUnits, layoutCodeUnitTreemap, summarizeCodeUnits, type CodeUnit } from '@/lib/reamon/code-units'
+import type { CallGraphRecord, CallGraphRelationship } from '@/lib/reamon/callgraph-layout'
+import { WorkspaceCallGraphCanvas } from './WorkspaceCallGraphCanvas'
 import styles from './WorkspaceCodeVisualizer.module.css'
 
 interface CodeUnitResponse {
@@ -17,6 +19,7 @@ interface CodeUnitResponse {
     createdAt: string
     completedAt: string | null
     artifactName: string
+    providerId: string | null
     codeUnitCount: number
     unitLabel: string
     discoveredUnitCount: number | null
@@ -41,7 +44,7 @@ interface CallGraphNode {
 }
 
 interface CallGraphResponse {
-  focusKey: string
+  focusKey: string | null
   nodes: CallGraphNode[]
   edges: Array<{ id: string; fromKey: string; toKey: string; label: string }>
   truncated: boolean
@@ -68,6 +71,16 @@ async function fetchCallGraph(projectId: string, taskId: string, unitId: string,
   if (!response.ok) {
     const detail = await response.json().catch(() => null) as { error?: string } | null
     throw new Error(detail?.error || 'Unable to load this function call graph')
+  }
+  return response.json()
+}
+
+async function fetchRunCallGraph(projectId: string, taskId: string, signal?: AbortSignal): Promise<CallGraphResponse> {
+  const params = new URLSearchParams({ taskId, view: 'graph' })
+  const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/callgraph?${params.toString()}`, { signal, cache: 'no-store' })
+  if (!response.ok) {
+    const detail = await response.json().catch(() => null) as { error?: string } | null
+    throw new Error(detail?.error || 'Unable to load this run call graph')
   }
   return response.json()
 }
@@ -178,6 +191,9 @@ function CallGraphPanel({ focusUnit, graph, isLoading, isError, error, onSelectU
 
 export function WorkspaceCodeVisualizer({ projectId, isAnalyzing }: { projectId: string; isAnalyzing: boolean }) {
   const [filter, setFilter] = useState('')
+  const [visualizerView, setVisualizerView] = useState<'treemap' | 'callgraph'>('treemap')
+  const [graphSearch, setGraphSearch] = useState('')
+  const [graphFocusKey, setGraphFocusKey] = useState<string | null>(null)
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [graphUnit, setGraphUnit] = useState<CodeUnit | null>(null)
@@ -211,6 +227,14 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing }: { projectId:
   const nextCursor = pageState ? pageState.nextCursor : query.data?.nextCursor || null
   const currentRunIndex = runs.findIndex((run) => run.id === currentRunId)
   const currentRun = currentRunIndex >= 0 ? runs[currentRunIndex] : null
+  const runCallGraphQuery = useQuery({
+    queryKey: ['reamon-callgraph-run', projectId, currentRunId],
+    queryFn: ({ signal }) => fetchRunCallGraph(projectId, currentRunId as string, signal),
+    enabled: Boolean(currentRunId && currentRun?.providerId === 'reamon-ghidra' && visualizerView === 'callgraph'),
+    staleTime: 30_000,
+    gcTime: 60_000,
+  })
+  const canShowCallGraph = currentRun?.providerId === 'reamon-ghidra'
   const visibleUnits = useMemo(() => filterCodeUnits(units, filter), [units, filter])
   const rectangles = useMemo(() => layoutCodeUnitTreemap(visibleUnits, 1200, 560), [visibleUnits])
   const summary = useMemo(() => summarizeCodeUnits(visibleUnits), [visibleUnits])
@@ -250,6 +274,27 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing }: { projectId:
   const selectedProviderId = explanationProviders.some((provider) => provider.id === providerId)
     ? providerId
     : explanationProviders[0]?.id || ''
+  const graphSearchResults = useMemo(() => {
+    const search = graphSearch.trim().toLocaleLowerCase()
+    if (!search) return []
+    return (runCallGraphQuery.data?.nodes || [])
+      .filter((node) => `${node.label} ${node.address || ''} ${node.codeUnit?.artifactPath || ''}`.toLocaleLowerCase().includes(search))
+      .slice(0, 8)
+  }, [runCallGraphQuery.data, graphSearch])
+  const graphFocus = runCallGraphQuery.data?.nodes.find((node) => node.key === graphFocusKey)
+    || runCallGraphQuery.data?.nodes.find((node) => node.codeUnit?.id === selectedUnit?.id)
+    || null
+
+  function selectGraphNode(node: CallGraphRecord) {
+    setGraphFocusKey(node.key)
+    if (!node.codeUnit) return
+    setGraphUnit(node.codeUnit)
+    setSelectedId(node.codeUnit.id)
+    setCopyStatus('')
+    setAssemblyCopyStatus('')
+    setExplanation(null)
+    setExplainError('')
+  }
 
   async function copySource(text = sourceQuery.data, assembly = false) {
     if (!text) return
@@ -289,6 +334,9 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing }: { projectId:
     setLoadMoreError('')
     setSelectedId(null)
     setGraphUnit(null)
+    setVisualizerView('treemap')
+    setGraphFocusKey(null)
+    setGraphSearch('')
     setCopyStatus('')
     setAssemblyCopyStatus('')
     setExplanation(null)
@@ -329,6 +377,11 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing }: { projectId:
         </div>
         {query.data && <span className={styles.badge}>{nextCursor ? `${units.length.toLocaleString()} / ${query.data.total.toLocaleString()} code units` : `${units.length.toLocaleString()} code units`}</span>}
       </div>
+
+      {canShowCallGraph && <div className={styles.viewSwitcher} role="group" aria-label="Code visualizer view">
+        <button type="button" className={visualizerView === 'treemap' ? styles.viewButtonActive : styles.viewButton} aria-pressed={visualizerView === 'treemap'} onClick={() => setVisualizerView('treemap')}>Treemap</button>
+        <button type="button" className={visualizerView === 'callgraph' ? styles.viewButtonActive : styles.viewButton} aria-pressed={visualizerView === 'callgraph'} onClick={() => setVisualizerView('callgraph')}>Call graph</button>
+      </div>}
 
       {currentRun && <nav className={styles.runHistory} aria-label="Analysis run history">
         <button type="button" className={styles.runButton} aria-label="Previous run" disabled={currentRunIndex >= runs.length - 1} onClick={() => showRun(runs[currentRunIndex + 1]?.id || null)}>Previous</button>
@@ -397,7 +450,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing }: { projectId:
           <span><i className={styles.unknown} /> Unmeasured</span>
         </div>
 
-        {visibleUnits.length ? <div className={styles.mapFrame}>
+        {visualizerView === 'treemap' && (visibleUnits.length ? <div className={styles.mapFrame}>
           <svg className={styles.map} viewBox="0 0 1200 560" role="group" aria-label="Code units sized by bytes and colored by measured coverage">
             {rectangles.map(({ unit, x, y, width, height }) => {
               const label = shortenLabel(unit.name, width)
@@ -427,7 +480,34 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing }: { projectId:
               </g>
             })}
           </svg>
-        </div> : <p className={styles.noMatches}>No code units match this filter.</p>}
+        </div> : <p className={styles.noMatches}>No code units match this filter.</p>)}
+
+        {visualizerView === 'callgraph' && <section className={styles.callGraph} aria-labelledby="run-call-graph-heading">
+          <div className={styles.callGraphHeader}>
+            <div><h3 id="run-call-graph-heading">Program call graph</h3><p>Functions and direct calls recorded by Ghidra. Drag to arrange, scroll to zoom, or select a function to open its code.</p></div>
+            {runCallGraphQuery.data && <span className={styles.graphBadge}>{runCallGraphQuery.data.nodes.length.toLocaleString()} functions · {runCallGraphQuery.data.edges.length.toLocaleString()} calls</span>}
+          </div>
+          <label className={styles.filter}>
+            <Search size={16} aria-hidden="true" />
+            <span className={styles.srOnly}>Search call graph</span>
+            <input value={graphSearch} onChange={(event) => setGraphSearch(event.target.value)} placeholder="Find a function by name or address" />
+          </label>
+          {graphSearchResults.length > 0 && <div className={styles.graphSearchResults} aria-label="Call graph search results">
+            {graphSearchResults.map((node) => <button type="button" key={node.key} onClick={() => selectGraphNode(node)}>
+              <strong>{node.label}</strong><small>{node.address || (node.codeUnit ? node.codeUnit.artifactPath : 'External or not decompiled')}</small>
+            </button>)}
+          </div>}
+          {runCallGraphQuery.isLoading && <p className={styles.message}>Loading run relationships…</p>}
+          {runCallGraphQuery.isError && <p className={styles.error} role="alert">{runCallGraphQuery.error instanceof Error ? runCallGraphQuery.error.message : 'Unable to load this run call graph'}</p>}
+          {!runCallGraphQuery.isLoading && !runCallGraphQuery.isError && runCallGraphQuery.data && runCallGraphQuery.data.nodes.length === 0 && <p className={styles.message}>This Ghidra run did not record any function calls.</p>}
+          {!runCallGraphQuery.isLoading && !runCallGraphQuery.isError && runCallGraphQuery.data && runCallGraphQuery.data.nodes.length > 0 && <WorkspaceCallGraphCanvas
+            nodes={runCallGraphQuery.data.nodes as CallGraphRecord[]}
+            edges={runCallGraphQuery.data.edges as CallGraphRelationship[]}
+            focusKey={graphFocus?.key || runCallGraphQuery.data.focusKey}
+            onSelectNode={selectGraphNode}
+          />}
+          {runCallGraphQuery.data?.truncated && <p className={styles.message}>Showing the first 400 call relationships returned by the analyzer.</p>}
+        </section>}
 
         {nextCursor && <p className={styles.message}>Showing {units.length.toLocaleString()} of {query.data.total.toLocaleString()} code units. Search currently filters the units loaded here.</p>}
         {selectedUnit && <div className={styles.details}>
@@ -449,7 +529,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing }: { projectId:
               ><ExternalLink size={14} /> Open code separately</a>
             : <p className={styles.message}>This provider has not attached a viewable code artifact to the unit.</p>}
         </div>}
-        {selectedUnit?.source === 'reamon-ghidra' && selectedUnit.unitType === 'function' && <CallGraphPanel
+        {visualizerView === 'treemap' && selectedUnit?.source === 'reamon-ghidra' && selectedUnit.unitType === 'function' && <CallGraphPanel
           focusUnit={selectedUnit}
           graph={callGraphQuery.data}
           isLoading={callGraphQuery.isLoading}

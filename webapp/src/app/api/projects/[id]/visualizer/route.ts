@@ -71,6 +71,7 @@ export async function GET(request: Request, { params }: RouteParams) {
           createdAt: task.createdAt.toISOString(),
           completedAt: task.completedAt?.toISOString() || null,
           artifactName: task.artifact?.relativePath || task.artifact?.originalName || 'Unknown artifact',
+          providerId: task.provider?.pluginId || null,
           codeUnitCount,
           unitLabel,
           discoveredUnitCount,

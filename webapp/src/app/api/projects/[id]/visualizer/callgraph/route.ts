@@ -6,7 +6,7 @@ import { normalizeCodeUnit } from '@/lib/reamon/code-units'
 
 interface RouteParams { params: Promise<{ id: string }> }
 
-const MAX_EDGES = 200
+const MAX_EDGES = 400
 const NO_STORE = { 'Cache-Control': 'private, no-store' }
 
 function attributesRecord(value: unknown): Record<string, unknown> {
@@ -28,8 +28,9 @@ export async function GET(request: Request, { params }: RouteParams) {
     const search = new URL(request.url).searchParams
     const taskId = search.get('taskId')?.trim() || ''
     const unitId = search.get('unitId')?.trim() || ''
-    if (!taskId || taskId.length > 128 || !unitId || unitId.length > 128) {
-      return NextResponse.json({ error: 'A valid Ghidra run and function are required' }, { status: 400, headers: NO_STORE })
+    const runGraph = search.get('view') === 'graph'
+    if (!taskId || taskId.length > 128 || (unitId.length > 128) || (!unitId && !runGraph)) {
+      return NextResponse.json({ error: 'A valid Ghidra run is required' }, { status: 400, headers: NO_STORE })
     }
 
     const selection = await getActiveWorkspaceImportSelection(projectId)
@@ -46,7 +47,7 @@ export async function GET(request: Request, { params }: RouteParams) {
     })
     if (!task?.artifactId) return NextResponse.json({ error: 'Ghidra analysis run not found' }, { status: 404, headers: NO_STORE })
 
-    const focusRow = await prisma.reamonObservation.findFirst({
+    const focusRow = unitId ? await prisma.reamonObservation.findFirst({
       where: {
         id: unitId,
         projectId,
@@ -66,9 +67,9 @@ export async function GET(request: Request, { params }: RouteParams) {
         attributes: true,
         artifact: { select: { relativePath: true, originalName: true } },
       },
-    })
+    }) : null
     const focusUnit = focusRow && normalizeCodeUnit(focusRow)
-    if (!focusRow || !focusUnit || focusUnit.unitType !== 'function') {
+    if (unitId && (!focusRow || !focusUnit || focusUnit.unitType !== 'function')) {
       return NextResponse.json({ error: 'Function is outside this Ghidra analysis run' }, { status: 404, headers: NO_STORE })
     }
 
@@ -80,7 +81,7 @@ export async function GET(request: Request, { params }: RouteParams) {
         kind: 'relationship',
         type: 'calls',
         source: 'reamon-ghidra',
-        OR: [{ fromKey: focusRow.stableKey }, { toKey: focusRow.stableKey }],
+        ...(focusRow ? { OR: [{ fromKey: focusRow.stableKey }, { toKey: focusRow.stableKey }] } : {}),
       },
       orderBy: [{ stableKey: 'asc' }, { id: 'asc' }],
       take: MAX_EDGES + 1,
@@ -88,8 +89,8 @@ export async function GET(request: Request, { params }: RouteParams) {
     })
     const truncated = edgeRows.length > MAX_EDGES
     const edges = edgeRows.slice(0, MAX_EDGES).filter((edge) => edge.fromKey && edge.toKey)
-    const endpointKeys = [...new Set([focusRow.stableKey, ...edges.flatMap((edge) => [edge.fromKey!, edge.toKey!])])]
-    const nodeRows = endpointKeys.length > 1
+    const endpointKeys = [...new Set([...(focusRow ? [focusRow.stableKey] : []), ...edges.flatMap((edge) => [edge.fromKey!, edge.toKey!])])]
+    const nodeRows = endpointKeys.length > 0
       ? await prisma.reamonObservation.findMany({
         where: {
           projectId,
@@ -120,10 +121,10 @@ export async function GET(request: Request, { params }: RouteParams) {
       const codeUnit = row.type === 'code_unit' ? normalizeCodeUnit(row) : null
       return [{
         key,
-        label: text(attributes.qualifiedName ?? attributes.name ?? row.label, key === focusRow.stableKey ? focusUnit.name : 'Unknown function'),
+        label: text(attributes.qualifiedName ?? attributes.name ?? row.label, key === focusRow?.stableKey ? focusUnit?.name || 'Selected function' : 'Unknown function'),
         address: text(attributes.address, '', 128) || null,
         codeUnit,
-        isFocus: key === focusRow.stableKey,
+        isFocus: key === focusRow?.stableKey,
       }]
     })
     const nodeKeys = new Set(nodes.map((node) => node.key))
@@ -131,7 +132,7 @@ export async function GET(request: Request, { params }: RouteParams) {
       .filter((edge) => nodeKeys.has(edge.fromKey!) && nodeKeys.has(edge.toKey!))
       .map((edge) => ({ id: edge.id, fromKey: edge.fromKey!, toKey: edge.toKey!, label: edge.label || 'calls' }))
 
-    return NextResponse.json({ focusKey: focusRow.stableKey, nodes, edges: visibleEdges, truncated }, { headers: NO_STORE })
+    return NextResponse.json({ focusKey: focusRow?.stableKey || null, nodes, edges: visibleEdges, truncated }, { headers: NO_STORE })
   } catch (error) {
     console.error('Failed to load Ghidra call graph:', error)
     return NextResponse.json({ error: 'Failed to load call graph' }, { status: 500, headers: NO_STORE })

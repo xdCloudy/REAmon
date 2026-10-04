@@ -82,7 +82,35 @@ describe('GET /api/projects/[id]/visualizer/callgraph', () => {
     }))
     expect(mocks.observationFindMany).toHaveBeenNthCalledWith(1, expect.objectContaining({
       where: expect.objectContaining({ taskId: 'run-1', artifactId: 'artifact-1', OR: [{ fromKey: focusRow.stableKey }, { toKey: focusRow.stableKey }] }),
-      take: 201,
+      take: 401,
+    }))
+  })
+
+  test('returns the bounded call graph for a completed Ghidra run without a focus function', async () => {
+    const callee = {
+      ...focusRow,
+      id: 'unit-helper',
+      stableKey: 'ghidra:function:helper',
+      label: 'helper',
+      attributes: { ...focusRow.attributes, name: 'helper', qualifiedName: 'helper', address: '0x1080', codeArtifactId: 'sources/helper.c' },
+    }
+    mocks.observationFindMany
+      .mockResolvedValueOnce([{ id: 'edge-1', stableKey: 'edge-main-helper', label: 'main calls helper', fromKey: focusRow.stableKey, toKey: callee.stableKey }])
+      .mockResolvedValueOnce([focusRow, callee])
+
+    const response = await GET(new Request('http://localhost/api/projects/project-1/visualizer/callgraph?taskId=run-1&view=graph'), params)
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      focusKey: null,
+      truncated: false,
+      nodes: [{ key: focusRow.stableKey, isFocus: false }, { key: callee.stableKey, isFocus: false }],
+      edges: [{ id: 'edge-1', fromKey: focusRow.stableKey, toKey: callee.stableKey }],
+    })
+    expect(mocks.observationFindFirst).not.toHaveBeenCalled()
+    expect(mocks.observationFindMany).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      where: expect.not.objectContaining({ OR: expect.anything() }),
+      take: 401,
     }))
   })
 
