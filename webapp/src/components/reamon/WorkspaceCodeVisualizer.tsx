@@ -251,7 +251,7 @@ export function WorkspaceCodeVisualizer({ projectId, hasApk, isAnalyzing }: { pr
         {selectedUnit && selectedSourceUrl && <section className={styles.explainPanel} aria-labelledby="code-explain-heading">
           <div>
             <h3 id="code-explain-heading">Explain this code with AI</h3>
-            <p>When you choose Explain, this source is sent to the selected saved provider. API keys stay on the server.</p>
+            <p>When you choose Explain, this source is sent to the selected saved provider. API keys stay on the server. Check the explanation against the source before relying on it.</p>
           </div>
           {explanationProvidersQuery.isLoading && <p className={styles.message}>Loading saved providers…</p>}
           {explanationProvidersQuery.isError && <p className={styles.error}>Could not load saved AI providers.</p>}

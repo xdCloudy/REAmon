@@ -71,7 +71,7 @@ describe('WorkspaceCodeVisualizer', () => {
     renderVisualizer()
 
     fireEvent.click(await screen.findByRole('button', { name: /app\.MainActivity\.onCreate/ }))
-    expect(await screen.findByText('When you choose Explain, this source is sent to the selected saved provider. API keys stay on the server.')).toBeInTheDocument()
+    expect(await screen.findByText('When you choose Explain, this source is sent to the selected saved provider. API keys stay on the server. Check the explanation against the source before relying on it.')).toBeInTheDocument()
     expect(fetchMock.mock.calls.some(([input]) => String(input).includes('/visualizer/explain'))).toBe(false)
 
     fireEvent.change(await screen.findByRole('textbox', { name: /Question about this code/ }), { target: { value: 'What state does it read?' } })
