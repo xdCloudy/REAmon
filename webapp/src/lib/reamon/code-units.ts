@@ -306,11 +306,14 @@ export function layoutCodeUnitTreemap<T extends { sizeBytes: number; name: strin
 
 export function summarizeCodeUnits(units: CodeUnit[]) {
   const totalBytes = units.reduce((sum, unit) => sum + unit.sizeBytes, 0)
+  const sourceLinkedUnits = units.filter((unit) => Boolean(unit.artifactId && unit.codeArtifactId)).length
   const measuredUnits = units.filter((unit) => unit.coveragePercent !== null)
   const measuredBytes = measuredUnits.reduce((sum, unit) => sum + unit.sizeBytes, 0)
   const decompiledBytes = measuredUnits.reduce((sum, unit) => sum + unit.sizeBytes * ((unit.coveragePercent || 0) / 100), 0)
   return {
     totalBytes,
+    sourceLinkedUnits,
+    sourceLinkedPercent: units.length ? Math.round((sourceLinkedUnits / units.length) * 100) : null,
     measuredBytes,
     unmeasuredBytes: totalBytes - measuredBytes,
     coveragePercent: measuredBytes ? Math.round((decompiledBytes / measuredBytes) * 100) : null,

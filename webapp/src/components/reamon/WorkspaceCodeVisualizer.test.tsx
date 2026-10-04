@@ -138,6 +138,8 @@ describe('WorkspaceCodeVisualizer', () => {
     fireEvent.click(await screen.findByRole('button', { name: /app\.MainActivity\.onPause/ }))
 
     expect(await screen.findByText('Selected code unit')).toBeInTheDocument()
+    expect(screen.getByText(/Viewable source links/)).toBeInTheDocument()
+    expect(screen.getByText('Decompilation completeness of measured bytes')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Open code separately' })).toHaveAttribute('href', '/api/projects/project-1/artifacts/artifact-1/decompiled/project-1/artifact-1/task-1/run-1/sources/app/MainActivity.java')
     await waitFor(() => expect(screen.getByRole('region', { name: 'Decompiled source' }).querySelector('code')?.textContent).toContain('saveState();'))
     expect(await screen.findByRole('button', { name: 'Explain selected code' })).toBeInTheDocument()

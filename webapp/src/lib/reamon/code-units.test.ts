@@ -14,7 +14,7 @@ function unit(overrides: Partial<CodeUnit> = {}): CodeUnit {
   return {
     id: 'unit-1', name: 'app.MainActivity.onCreate', address: '0x1000', sizeBytes: 1024,
     coveragePercent: 100, language: 'Java', unitType: 'method', artifactId: 'artifact-1',
-    artifactPath: 'classes.dex', source: 'jadx', codeArtifactId: null, disassemblyArtifactId: null, disassemblyLanguage: null, updatedAt: '2026-10-04T00:00:00.000Z',
+    artifactPath: 'classes.dex', source: 'jadx', codeArtifactId: 'run/sources/Main.java', disassemblyArtifactId: null, disassemblyLanguage: null, updatedAt: '2026-10-04T00:00:00.000Z',
     ...overrides,
   }
 }
@@ -80,7 +80,17 @@ describe('code visualizer unit normalization', () => {
 
     expect(rectangles.map(({ unit: item }) => item.id)).toEqual(['unit-1', 'unit-2'])
     expect(rectangles.every((rect) => rect.x >= 0 && rect.y >= 0 && rect.x + rect.width <= 1200 && rect.y + rect.height <= 560)).toBe(true)
-    expect(summarizeCodeUnits(units)).toEqual({ totalBytes: 1536, measuredBytes: 1024, unmeasuredBytes: 512, coveragePercent: 100, decompiledUnits: 1 })
-    expect(summarizeCodeUnits([unit({ coveragePercent: null })]).coveragePercent).toBeNull()
+    expect(summarizeCodeUnits(units)).toEqual({ totalBytes: 1536, sourceLinkedUnits: 2, sourceLinkedPercent: 100, measuredBytes: 1024, unmeasuredBytes: 512, coveragePercent: 100, decompiledUnits: 1 })
+    expect(summarizeCodeUnits([unit({ coveragePercent: null, codeArtifactId: null })])).toMatchObject({ sourceLinkedUnits: 0, sourceLinkedPercent: 0, coveragePercent: null })
+  })
+
+  it('counts only units linked to a viewable source artifact', () => {
+    const units = [
+      unit(),
+      unit({ id: 'no-source-path', codeArtifactId: null }),
+      unit({ id: 'no-artifact', artifactId: null }),
+    ]
+
+    expect(summarizeCodeUnits(units)).toMatchObject({ sourceLinkedUnits: 1, sourceLinkedPercent: 33 })
   })
 })

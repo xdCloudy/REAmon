@@ -531,22 +531,23 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
           <span className={styles.srOnly}>Filter code units</span>
           <input value={filter} maxLength={300} onChange={(event) => setFilter(event.target.value)} placeholder="Search this run by name, address, or path · >10kb · <70%" />
         </label>
-        <p className={styles.message}>Name, address, and path search spans the full run. Size and coverage tokens filter the code units loaded here.</p>
+        <p className={styles.message}>Name, address, and path search spans the full run. Size and decompilation completeness filters apply to code units loaded here.</p>
       </>}
 
       {!query.isLoading && !query.isError && query.data && units.length > 0 && <>
         <div className={styles.stats}>
           <div><strong>{units.length.toLocaleString()}</strong><span>Mapped code units</span></div>
+          <div><strong>{summary.sourceLinkedPercent === null ? 'Unknown' : `${summary.sourceLinkedPercent}%`}</strong><span>Viewable source links ({summary.sourceLinkedUnits.toLocaleString()}/{units.length.toLocaleString()})</span></div>
           <div><strong>{formatBytes(summary.totalBytes)}</strong><span>Mapped bytes in filter</span></div>
-          <div><strong>{summary.coveragePercent === null ? 'Unknown' : `${summary.coveragePercent}%`}</strong><span>Coverage of measured units in filter</span></div>
-          <div><strong>{summary.decompiledUnits.toLocaleString()}</strong><span>Fully covered units</span></div>
+          <div><strong>{summary.coveragePercent === null ? 'Unknown' : `${summary.coveragePercent}%`}</strong><span>Decompilation completeness of measured bytes</span></div>
+          <div><strong>{summary.decompiledUnits.toLocaleString()}</strong><span>Fully decompiled units</span></div>
         </div>
-        {summary.unmeasuredBytes > 0 && <p className={styles.message}>{formatBytes(summary.unmeasuredBytes)} of mapped code has no coverage value from its provider.</p>}
+        {summary.unmeasuredBytes > 0 && <p className={styles.message}>{formatBytes(summary.unmeasuredBytes)} of mapped code has no decompilation completeness value from its provider.</p>}
 
-        <div className={styles.legend} aria-label="Code coverage legend">
-          <span><i className={styles.complete} /> Full coverage</span>
-          <span><i className={styles.partial} /> Partial coverage</span>
-          <span><i className={styles.none} /> No coverage</span>
+        <div className={styles.legend} aria-label="Decompilation completeness legend">
+          <span><i className={styles.complete} /> Full decompilation</span>
+          <span><i className={styles.partial} /> Partial decompilation</span>
+          <span><i className={styles.none} /> No decompilation</span>
           <span><i className={styles.unknown} /> Unmeasured</span>
         </div>
 
@@ -558,10 +559,10 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
               return <span key={path}><span aria-hidden="true">/</span><button type="button" aria-current={index === parts.length - 1 ? 'page' : undefined} onClick={() => showPackage(path)}>{part}</button></span>
             })}
           </nav>}
-          <svg className={styles.map} viewBox="0 0 1200 560" role="group" aria-label="Package and code unit treemap sized by bytes and colored by measured coverage">
+          <svg className={styles.map} viewBox="0 0 1200 560" role="group" aria-label="Package and code unit treemap sized by bytes and colored by decompilation completeness">
             {rectangles.map(({ unit, x, y, width, height }) => {
               const label = shortenLabel(unit.name, width)
-              const coverage = unit.coveragePercent === null ? 'coverage unmeasured' : `${Math.round(unit.coveragePercent)}% coverage`
+              const coverage = unit.coveragePercent === null ? 'decompilation completeness unmeasured' : `${Math.round(unit.coveragePercent)}% decompilation completeness`
               const detail = unit.packagePath ? `${unit.unitCount.toLocaleString()} code units` : formatBytes(unit.sizeBytes)
               return <g
                 key={unit.key}
