@@ -15,6 +15,7 @@ export interface CodeUnitObservationAttributes {
   language?: string
   codeArtifactId?: string
   disassemblyArtifactId?: string
+  disassemblyLanguage?: string
 }
 
 export interface CodeUnitObservationRow {
@@ -41,6 +42,7 @@ export interface CodeUnit {
   source: string
   codeArtifactId: string | null
   disassemblyArtifactId: string | null
+  disassemblyLanguage: string | null
   updatedAt: string
 }
 
@@ -92,6 +94,7 @@ export function normalizeCodeUnit(row: CodeUnitObservationRow): CodeUnit | null 
     source: row.source.slice(0, 120),
     codeArtifactId: text(attributes.codeArtifactId, 2000),
     disassemblyArtifactId: text(attributes.disassemblyArtifactId, 2000),
+    disassemblyLanguage: text(attributes.disassemblyLanguage, 80),
     updatedAt,
   }
 }

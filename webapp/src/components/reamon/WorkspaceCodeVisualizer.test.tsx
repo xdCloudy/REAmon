@@ -8,7 +8,7 @@ import type { CodeUnit } from '@/lib/reamon/code-units'
 function unit(overrides: Partial<CodeUnit> = {}): CodeUnit {
   return {
     id: 'unit-1', name: 'app.MainActivity.onCreate', address: '0x1000', sizeBytes: 1024,
-    coveragePercent: 35, language: 'Java', unitType: 'method', artifactId: 'artifact-1', disassemblyArtifactId: null,
+    coveragePercent: 35, language: 'Java', unitType: 'method', artifactId: 'artifact-1', disassemblyArtifactId: null, disassemblyLanguage: null,
     artifactPath: 'classes.dex', source: 'jadx', codeArtifactId: 'project-1/artifact-1/task-1/run-1/sources/app/MainActivity.java', updatedAt: '2026-10-04T00:00:00.000Z',
     ...overrides,
   }
@@ -94,7 +94,7 @@ describe('WorkspaceCodeVisualizer', () => {
     const native = unit({
       id: 'native-main', name: 'main', address: '00401000', language: 'C', unitType: 'function',
       codeArtifactId: 'project-1/artifact-1/task-1/run-1/sources/functions/main.c',
-      disassemblyArtifactId: 'project-1/artifact-1/task-1/run-1/assembly/functions/main.asm',
+      disassemblyArtifactId: 'project-1/artifact-1/task-1/run-1/assembly/functions/main.asm', disassemblyLanguage: 'Assembly',
     })
     const fetchMock = vi.fn((input: string) => {
       if (input.includes('/decompiled/') && input.includes('/assembly/')) return Promise.resolve({ ok: true, text: async () => '00401000: PUSH RBP\n00401001: MOV RBP, RSP' })
@@ -107,9 +107,30 @@ describe('WorkspaceCodeVisualizer', () => {
     fireEvent.click(await screen.findByRole('button', { name: /main/ }))
     const comparison = await screen.findByRole('region', { name: 'Decompilation and disassembly comparison' })
     expect(within(comparison).getByText('Decompiled source')).toBeInTheDocument()
-    expect(within(comparison).getByText('Disassembly')).toBeInTheDocument()
+    expect(within(comparison).getByText('Assembly')).toBeInTheDocument()
     expect(await within(comparison).findByText(/MOV RBP, RSP/)).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/decompiled/project-1/artifact-1/task-1/run-1/assembly/functions/main.asm'), expect.any(Object))
+  })
+
+  test('labels the Android low-level pane as Smali', async () => {
+    const android = unit({
+      id: 'android-main', name: 'com.example.MainActivity', language: 'Java', unitType: 'class',
+      codeArtifactId: 'project-1/artifact-1/task-1/run-1/sources/com/example/MainActivity.java',
+      disassemblyArtifactId: 'project-1/artifact-1/task-1/run-1/disassembly/com/example/MainActivity.smali',
+      disassemblyLanguage: 'Smali',
+    })
+    const fetchMock = vi.fn((input: string) => {
+      if (input.includes('/disassembly/')) return Promise.resolve({ ok: true, text: async () => '.method public onCreate()V\n    return-void\n.end method' })
+      if (input.includes('/decompiled/')) return Promise.resolve({ ok: true, text: async () => 'public class MainActivity {}' })
+      return Promise.resolve({ ok: true, json: async () => ({ units: [android], total: 1, hasMore: false }) })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderVisualizer()
+
+    fireEvent.click(await screen.findByRole('button', { name: /com\.example\.MainActivity/ }))
+    const comparison = await screen.findByRole('region', { name: 'Decompilation and disassembly comparison' })
+    expect(within(comparison).getByText('Smali')).toBeInTheDocument()
+    expect(await within(comparison).findByText(/return-void/)).toBeInTheDocument()
   })
 
   test('labels WAT as disassembly and exposes its linked code', async () => {

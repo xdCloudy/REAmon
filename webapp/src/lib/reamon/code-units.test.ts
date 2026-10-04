@@ -12,7 +12,7 @@ function unit(overrides: Partial<CodeUnit> = {}): CodeUnit {
   return {
     id: 'unit-1', name: 'app.MainActivity.onCreate', address: '0x1000', sizeBytes: 1024,
     coveragePercent: 100, language: 'Java', unitType: 'method', artifactId: 'artifact-1',
-    artifactPath: 'classes.dex', source: 'jadx', codeArtifactId: null, disassemblyArtifactId: null, updatedAt: '2026-10-04T00:00:00.000Z',
+    artifactPath: 'classes.dex', source: 'jadx', codeArtifactId: null, disassemblyArtifactId: null, disassemblyLanguage: null, updatedAt: '2026-10-04T00:00:00.000Z',
     ...overrides,
   }
 }
@@ -23,12 +23,12 @@ describe('code visualizer unit normalization', () => {
       id: 'observation-1', stableKey: 'method:0x1000', label: 'onCreate', source: 'jadx-provider',
       artifactId: 'artifact-1', updatedAt: new Date('2026-10-04T00:00:00.000Z'),
       artifact: { relativePath: 'app.apk', originalName: 'app.apk' },
-      attributes: { qualifiedName: 'app.MainActivity.onCreate', startAddress: '0x1000', sizeBytes: 80, decompiledBytes: 60, language: 'Java', unitType: 'method' },
+      attributes: { qualifiedName: 'app.MainActivity.onCreate', startAddress: '0x1000', sizeBytes: 80, decompiledBytes: 60, language: 'Java', unitType: 'method', disassemblyArtifactId: 'project-1/artifact-1/task-1/run-1/smali/Main.smali', disassemblyLanguage: 'Smali' },
     })
 
     expect(normalized).toMatchObject({
       name: 'app.MainActivity.onCreate', address: '0x1000', sizeBytes: 80, coveragePercent: 75,
-      artifactPath: 'app.apk', source: 'jadx-provider',
+      artifactPath: 'app.apk', source: 'jadx-provider', disassemblyLanguage: 'Smali',
     })
     const row = {
       id: 'empty', stableKey: 'empty', label: null, source: 'provider', artifactId: null,

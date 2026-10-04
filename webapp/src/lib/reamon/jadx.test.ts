@@ -1,3 +1,4 @@
+/** @vitest-environment node */
 import { describe, expect, test, vi } from 'vitest'
 import { executeJadx } from './jadx'
 import { canonicalKeyForObservation } from './result-ingestion'
@@ -28,6 +29,26 @@ describe('JADX process provider', () => {
       attributes: expect.objectContaining({ unitType: 'class', language: 'Java', sizeBytes: 4096, decompiled: true }),
     })])
     expect(fetch).toHaveBeenCalledWith('http://jadx-analyzer:8010/analyze', expect.objectContaining({ method: 'POST' }))
+  })
+
+  test('links Smali DEX output to its Java class observation', async () => {
+    vi.stubEnv('REAMON_JADX_URL', 'http://jadx-analyzer:8010')
+    const body = resultBody()
+    body.units[0] = {
+      ...body.units[0],
+      disassemblyArtifactId: 'project-1/artifact-1/task-1/run-1/disassembly/com/example/MainActivity.smali',
+      disassemblyLanguage: 'Smali',
+    }
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(body), { status: 200 })))
+
+    const result = await executeJadx(input)
+
+    expect(result.data.observations?.[0].attributes).toMatchObject({
+      codeArtifactId: body.units[0].codeArtifactId,
+      disassemblyArtifactId: body.units[0].disassemblyArtifactId,
+      disassemblyLanguage: 'Smali',
+      language: 'Java',
+    })
   })
 
   test('retains separate run observations while preserving graph identity', async () => {

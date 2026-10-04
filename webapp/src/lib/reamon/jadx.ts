@@ -11,7 +11,7 @@ interface JadxResponse {
   codeBytes?: number
   returnedUnits: number
   truncated: boolean
-  units: Array<{ name: string; relativePath: string; codeArtifactId: string; sizeBytes: number }>
+  units: Array<{ name: string; relativePath: string; codeArtifactId: string; disassemblyArtifactId?: string; disassemblyLanguage?: string; unitType?: string; language?: string; sizeBytes: number }>
   warnings?: string
 }
 
@@ -23,7 +23,7 @@ export const jadxManifest: ToolPluginManifest = {
   acceptsTargetTypes: ['FILE'],
   acceptsFormats: ['apk', 'jar', 'dex', 'class'],
   capabilities: ['decompile'],
-  produces: ['CodeUnit', 'DecompiledSource'],
+  produces: ['CodeUnit', 'DecompiledSource', 'DexDisassembly'],
   requirements: [
     { key: 'service', value: 'JADX isolated analyzer container' },
     { key: 'artifactPath' },
@@ -85,7 +85,11 @@ export async function executeJadx(input: ToolExecutionInput): Promise<ToolResult
 
     const units = payload.units.slice(0, MAX_UNITS).filter((unit) =>
       unit && typeof unit.name === 'string' && typeof unit.relativePath === 'string'
-      && typeof unit.codeArtifactId === 'string' && Number.isFinite(unit.sizeBytes) && unit.sizeBytes > 0)
+      && typeof unit.codeArtifactId === 'string' && Number.isFinite(unit.sizeBytes) && unit.sizeBytes > 0
+      && (unit.disassemblyArtifactId === undefined || typeof unit.disassemblyArtifactId === 'string')
+      && (unit.disassemblyLanguage === undefined || typeof unit.disassemblyLanguage === 'string')
+      && (unit.unitType === undefined || typeof unit.unitType === 'string')
+      && (unit.language === undefined || typeof unit.language === 'string'))
     if (!units.length) throw new Error('JADX did not produce any viewable Java classes')
 
     const observations = units.map((unit) => ({
@@ -94,13 +98,15 @@ export async function executeJadx(input: ToolExecutionInput): Promise<ToolResult
       key: `jadx:class:${createHash('sha256').update(`${input.artifactId}:${input.taskId}:${unit.relativePath}`).digest('hex').slice(0, 32)}`,
       label: unit.name,
       attributes: {
-        unitType: 'class',
+        unitType: (unit.unitType || 'class').slice(0, 80),
         name: unit.name.slice(0, 500),
         qualifiedName: unit.name.slice(0, 500),
         sizeBytes: Math.floor(unit.sizeBytes),
-        language: 'Java',
+        language: (unit.language || 'Java').slice(0, 80),
         decompiled: true,
         codeArtifactId: unit.codeArtifactId.slice(0, 2000),
+        ...(unit.disassemblyArtifactId ? { disassemblyArtifactId: unit.disassemblyArtifactId.slice(0, 2000) } : {}),
+        ...(unit.disassemblyLanguage ? { disassemblyLanguage: unit.disassemblyLanguage.slice(0, 80) } : {}),
       },
     }))
     return {

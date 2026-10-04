@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Secret-free JADX adapter isolated from REAmon's database and network."""
 from __future__ import annotations
-import json, os, re, select, shutil, signal, socket, subprocess, tempfile, threading, time
+import json, os, re, select, shutil, signal, socket, subprocess, tempfile, threading, time, zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -12,6 +12,7 @@ TIMEOUT_SECONDS = min(1200, max(60, int(os.environ.get("JADX_TIMEOUT_SECONDS", "
 MAX_OUTPUT_BYTES = min(1024**3, max(1024**2, int(os.environ.get("JADX_MAX_OUTPUT_BYTES", str(512 * 1024**2)))))
 MAX_SOURCE_FILES = min(10000, max(1, int(os.environ.get("JADX_MAX_SOURCE_FILES", "5000"))))
 MAX_RETURNED_UNITS = min(5000, max(1, int(os.environ.get("JADX_MAX_RETURNED_UNITS", "5000"))))
+MAX_VIEWABLE_BYTES = 2 * 1024 * 1024
 SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
 PACKAGE_PATTERN = re.compile(r"^\s*package\s+([A-Za-z0-9_.$]+)\s*;", re.MULTILINE)
 TYPE_PATTERN = re.compile(r"\b(?:class|interface|enum|record)\s+([A-Za-z_$][A-Za-z0-9_$]*)")
@@ -62,6 +63,47 @@ def source_files(root):
                 return found, total, truncated
     return found, total, truncated
 
+def smali_files(root, existing_bytes=0):
+    found, total, truncated, oversized = [], 0, False, 0
+    for directory, dirs, filenames in os.walk(root, followlinks=False):
+        dirs[:] = sorted(name for name in dirs if not (Path(directory) / name).is_symlink())
+        for filename in sorted(filenames):
+            path = Path(directory) / filename
+            if path.is_symlink() or path.suffix.lower() != ".smali":
+                continue
+            try:
+                size = path.stat().st_size
+            except OSError:
+                continue
+            total += size
+            if size > MAX_OUTPUT_BYTES or existing_bytes + total > MAX_OUTPUT_BYTES:
+                raise AnalysisError("JADX source and DEX disassembly exceeded the configured storage limit")
+            if size > MAX_VIEWABLE_BYTES:
+                oversized += 1
+                truncated = True
+                continue
+            found.append(path)
+            if len(found) > MAX_SOURCE_FILES:
+                found.pop()
+                truncated = True
+                return found, total, truncated, oversized
+    return found, total, truncated, oversized
+
+
+def dex_inputs(path):
+    if path.suffix.lower() == ".dex":
+        return [str(path)]
+    if path.suffix.lower() != ".apk":
+        return []
+    try:
+        with zipfile.ZipFile(path) as archive:
+            entries = sorted({name for name in archive.namelist()
+                       if "/" not in name and re.fullmatch(r"classes(?:(?:[2-9]|[1-9][0-9]+))?\.dex", name)})
+    except (OSError, zipfile.BadZipFile):
+        return []
+    return [f"{path}/{entry}" for entry in sorted(entries, key=lambda name: (name != "classes.dex", len(name), name))]
+
+
 def client_disconnected(connection):
     readable, _, _ = select.select([connection], [], [], 0)
     if not readable:
@@ -73,19 +115,21 @@ def client_disconnected(connection):
     except OSError:
         return True
 
-def run_jadx(arguments, stderr_file, cancel_check):
+def run_analysis_tool(arguments, stderr_file, cancel_check, tool_name, deadline=None):
+    if deadline is None:
+        deadline = time.monotonic() + TIMEOUT_SECONDS
     process = subprocess.Popen(arguments, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                                stderr=stderr_file, start_new_session=True,
                                env={**os.environ, "JAVA_TOOL_OPTIONS": os.environ.get("JADX_JAVA_TOOL_OPTIONS", "-Xmx1536m")})
-    deadline = time.monotonic() + TIMEOUT_SECONDS
     try:
         while process.poll() is None:
             if cancel_check():
-                raise AnalysisError("JADX analysis was cancelled")
-            if time.monotonic() >= deadline:
-                raise AnalysisError(f"JADX exceeded {TIMEOUT_SECONDS} seconds")
+                raise AnalysisError(f"{tool_name} analysis was cancelled")
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise AnalysisError(f"Android analysis exceeded {TIMEOUT_SECONDS} seconds")
             try:
-                process.wait(timeout=0.25)
+                process.wait(timeout=min(0.25, remaining))
             except subprocess.TimeoutExpired:
                 pass
         return process.returncode
@@ -115,20 +159,22 @@ def analyse(body, cancel_check=lambda: False):
         raise AnalysisError("Derived output path is invalid") from error
     if run_root.exists():
         shutil.rmtree(run_root)
+    analysis_deadline = time.monotonic() + TIMEOUT_SECONDS
     with SLOTS:
         try:
             with tempfile.TemporaryDirectory(prefix="reamon-jadx-") as temporary:
                 output, stderr_path = Path(temporary) / "out", Path(temporary) / "jadx.stderr"
                 with stderr_path.open("wb") as stderr_file:
                     try:
-                        return_code = run_jadx([
+                        return_code = run_analysis_tool([
                             str(Path(os.environ.get("JADX_HOME", "/opt/jadx")) / "bin" / "jadx"),
                             "--no-res", "--output-format", "java", "--threads-count", "2",
                             "--log-level", "ERROR", "-d", str(output), str(input_path)
-                        ], stderr_file, cancel_check)
+                        ], stderr_file, cancel_check, "JADX", analysis_deadline)
                     except OSError as error:
                         raise AnalysisError("JADX could not be started") from error
                     stderr_file.flush()
+                jadx_return_code = return_code
                 log_text = stderr_path.read_bytes()[-4096:].decode("utf-8", errors="replace").strip()
                 raw_sources, total_source_bytes, source_scan_truncated = source_files(output) if output.exists() else ([], 0, False)
                 if not raw_sources:
@@ -140,6 +186,8 @@ def analyse(body, cancel_check=lambda: False):
                     relative = source.relative_to(output)
                     if relative.is_absolute() or ".." in relative.parts:
                         continue
+                    if relative.parts and relative.parts[0].lower() == "sources":
+                        relative = Path(*relative.parts[1:])
                     raw = source.read_bytes()
                     if not raw:
                         continue
@@ -151,21 +199,89 @@ def analyse(body, cancel_check=lambda: False):
                     destination.parent.mkdir(parents=True, exist_ok=True)
                     destination.write_bytes(raw)
                     units.append({"name": name[:500], "relativePath": relative.as_posix()[:1000],
-                                  "codeArtifactId": destination.relative_to(DERIVED_ROOT).as_posix(), "sizeBytes": len(raw)})
+                                  "codeArtifactId": destination.relative_to(DERIVED_ROOT).as_posix(), "sizeBytes": len(raw),
+                                  "unitType": "class", "language": "Java"})
+                units.sort(key=lambda unit: str(unit["relativePath"]).casefold())
+                warnings = []
+                dex_file_paths = dex_inputs(input_path)
+                smali_total_bytes = 0
+                disassembled_class_count = 0
+                if dex_file_paths:
+                    disassembly_output = Path(temporary) / "smali"
+                    disassembly_success = False
+                    for dex_path in dex_file_paths:
+                        disassembly_stderr = Path(temporary) / "baksmali.stderr"
+                        with disassembly_stderr.open("wb") as stderr_file:
+                            try:
+                                disassembly_code = run_analysis_tool([
+                                    "java", "-jar", os.environ.get("BAKSMALI_JAR", "/opt/baksmali/baksmali.jar"),
+                                    "disassemble", "--use-locals", "--code-offsets", "--jobs", "2",
+                                    dex_path, "-o", str(disassembly_output),
+                                ], stderr_file, cancel_check, "Baksmali", analysis_deadline)
+                            except AnalysisError as error:
+                                if any(word in str(error).lower() for word in ("cancelled", "exceeded")):
+                                    raise
+                                warnings.append(f"DEX disassembly was unavailable for {Path(dex_path).name}: {str(error)[:500]}")
+                                continue
+                            except OSError as error:
+                                warnings.append(f"DEX disassembly was unavailable for {Path(dex_path).name}: {str(error)[:500]}")
+                                continue
+                            stderr_file.flush()
+                        baksmali_log = disassembly_stderr.read_bytes()[-2000:].decode("utf-8", errors="replace").strip()
+                        if disassembly_code != 0:
+                            warnings.append(baksmali_log[:1000] or f"Baksmali could not disassemble {Path(dex_path).name}.")
+                            continue
+                        disassembly_success = True
+                    if disassembly_success:
+                        try:
+                            raw_smali, smali_total_bytes, smali_truncated, oversized_smali = smali_files(disassembly_output, total_source_bytes)
+                        except AnalysisError as error:
+                            raw_smali, smali_total_bytes, smali_truncated, oversized_smali = [], 0, True, 0
+                            warnings.append(str(error))
+                        disassembly_root = run_root / "disassembly"
+                        source_by_smali = {Path(unit["relativePath"]).with_suffix(".smali").as_posix(): unit for unit in units}
+                        for smali in raw_smali:
+                            relative = smali.relative_to(disassembly_output)
+                            if relative.is_absolute() or ".." in relative.parts:
+                                continue
+                            raw = smali.read_bytes()
+                            if not raw:
+                                continue
+                            destination = disassembly_root / relative
+                            destination.parent.mkdir(parents=True, exist_ok=True)
+                            destination.write_bytes(raw)
+                            disassembly_id = destination.relative_to(DERIVED_ROOT).as_posix()
+                            paired = source_by_smali.get(relative.as_posix())
+                            if paired is not None:
+                                paired["disassemblyArtifactId"] = disassembly_id
+                                paired["disassemblyLanguage"] = "Smali"
+                                paired["disassemblyBytes"] = len(raw)
+                            else:
+                                dotted_name = relative.with_suffix("").as_posix().replace("/", ".")
+                                units.append({"name": dotted_name[:500], "relativePath": relative.as_posix()[:1000],
+                                              "codeArtifactId": disassembly_id, "sizeBytes": len(raw),
+                                              "language": "Smali", "unitType": "class"})
+                            disassembled_class_count += 1
+                        if not raw_smali:
+                            warnings.append("Baksmali did not produce any viewable DEX listings.")
+                        if smali_truncated:
+                            warnings.append(f"Baksmali output was limited to {len(raw_smali)} viewable class listings.")
+                        if oversized_smali:
+                            warnings.append(f"{oversized_smali} Smali class listings exceeded the 2 MiB viewer limit and were not linked.")
                 units.sort(key=lambda unit: str(unit["relativePath"]).casefold())
                 returned = units[:MAX_RETURNED_UNITS]
-                warnings = []
                 if source_scan_truncated:
                     warnings.append(f"JADX produced more than {len(raw_sources)} Java source files; this run indexed the first {len(raw_sources)} in sorted path order.")
                 if total_files > len(returned):
                     warnings.append(f"Only the first {len(returned)} of {total_files} indexed Java source files are available as code units.")
                 if log_text:
                     warnings.append(log_text[:4000])
-                elif return_code:
-                    warnings.append(f"JADX exited with code {return_code}.")
-                return {"status": "completed", "toolVersion": "1.5.6", "classCount": total_files,
-                        "codeBytes": total_source_bytes,
-                        "returnedUnits": len(returned), "truncated": source_scan_truncated or total_files > len(returned),
+                elif jadx_return_code:
+                    warnings.append(f"JADX exited with code {jadx_return_code}.")
+                return {"status": "completed", "toolVersion": "1.5.6", "classCount": len(units),
+                        "javaClassCount": total_files, "disassembledClassCount": disassembled_class_count,
+                        "codeBytes": total_source_bytes + smali_total_bytes,
+                        "returnedUnits": len(returned), "truncated": source_scan_truncated or total_files > len(returned) or len(units) > len(returned),
                         "units": returned, "warnings": " ".join(warnings)}
         except AnalysisError:
             if run_root.exists():

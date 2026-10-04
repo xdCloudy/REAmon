@@ -65,8 +65,8 @@ async function fetchExplanationProviders(projectId: string): Promise<CodeExplana
   return Array.isArray(data.providers) ? data.providers : []
 }
 
-function isWatUnit(unit: CodeUnit | undefined): boolean {
-  return unit?.language === 'WebAssembly Text (WAT)'
+function isDisassemblyUnit(unit: CodeUnit | undefined): boolean {
+  return unit?.language === 'WebAssembly Text (WAT)' || unit?.language === 'Smali'
 }
 
 function formatBytes(size: number): string {
@@ -314,7 +314,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing }: { projectId:
               ><ExternalLink size={14} /> Open code separately</a>
             : <p className={styles.message}>This provider has not attached a viewable code artifact to the unit.</p>}
         </div>}
-        {selectedUnit && selectedSourceUrl && <section className={styles.sourcePanel} aria-label={selectedDisassemblyUrl ? 'Decompilation and disassembly comparison' : (isWatUnit(selectedUnit) ? 'WAT disassembly' : 'Decompiled source')}>
+        {selectedUnit && selectedSourceUrl && <section className={styles.sourcePanel} aria-label={selectedDisassemblyUrl ? 'Decompilation and disassembly comparison' : (selectedUnit.language === 'WebAssembly Text (WAT)' ? 'WAT disassembly' : isDisassemblyUnit(selectedUnit) ? 'Smali disassembly' : 'Decompiled source')}>
           {selectedDisassemblyUrl ? <div className={styles.comparison}>
             <div className={styles.listingPane}>
               <div className={styles.sourceHeader}>
@@ -327,7 +327,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing }: { projectId:
             </div>
             <div className={styles.listingPane}>
               <div className={styles.sourceHeader}>
-                <div><strong>Disassembly</strong><span>{selectedUnit.address || 'Function listing'} · {selectedUnit.disassemblyArtifactId?.split('/').pop()}</span></div>
+                <div><strong>{selectedUnit.disassemblyLanguage || 'Disassembly'}</strong><span>{selectedUnit.address || 'Function listing'} · {selectedUnit.disassemblyArtifactId?.split('/').pop()}</span></div>
                 <button type="button" className={styles.copyButton} onClick={() => void copySource(disassemblyQuery.data, true)} disabled={!disassemblyQuery.data}><Copy size={14} /> {assemblyCopyStatus || 'Copy assembly'}</button>
               </div>
               {disassemblyQuery.isLoading && <p className={styles.message}>Loading instruction listing…</p>}
