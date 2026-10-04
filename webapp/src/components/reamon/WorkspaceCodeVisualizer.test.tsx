@@ -124,7 +124,7 @@ describe('WorkspaceCodeVisualizer', () => {
   })
 
   test('filters, selects a code unit, and links to its stored code artifact', async () => {
-    const units = [unit(), unit({ id: 'unit-2', name: 'app.MainActivity.onPause', sizeBytes: 2048 })]
+    const units = [unit(), unit({ id: 'unit-2', name: 'app.MainActivity.onPause', sizeBytes: 2048, maintainedSource: true })]
     const fetchMock = vi.fn((input: string) => {
       if (input.includes('/visualizer/providers')) return Promise.resolve({ ok: true, json: async () => ({ providers: [{ id: 'provider-1', name: 'Local Qwen', modelIdentifier: 'Qwen3.5-0.8B' }] }) })
       if (input.includes('/decompiled/')) return Promise.resolve({ ok: true, text: async () => 'void onPause() {\n    saveState();\n}' })
@@ -138,8 +138,11 @@ describe('WorkspaceCodeVisualizer', () => {
     fireEvent.click(await screen.findByRole('button', { name: /app\.MainActivity\.onPause/ }))
 
     expect(await screen.findByText('Selected code unit')).toBeInTheDocument()
+    expect(within(screen.getByText('Code units in this map').parentElement!).getByText('1')).toBeInTheDocument()
+    expect(screen.getByText('Viewable source links in map (1/1)')).toBeInTheDocument()
+    expect(screen.getByText('Maintained source copies in map').previousSibling).toHaveTextContent('1')
     expect(screen.getByText(/Viewable source links/)).toBeInTheDocument()
-    expect(screen.getByText('Decompilation completeness of measured bytes')).toBeInTheDocument()
+    expect(screen.getByText('Decompilation completeness of measured bytes in map')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Open code separately' })).toHaveAttribute('href', '/api/projects/project-1/artifacts/artifact-1/decompiled/project-1/artifact-1/task-1/run-1/sources/app/MainActivity.java')
     await waitFor(() => expect(screen.getByRole('region', { name: 'Decompiled source' }).querySelector('code')?.textContent).toContain('saveState();'))
     expect(await screen.findByRole('button', { name: 'Explain selected code' })).toBeInTheDocument()

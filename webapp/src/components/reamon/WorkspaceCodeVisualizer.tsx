@@ -280,6 +280,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
   const treemapEntries = useMemo(() => buildCodeUnitTreemapEntries(visibleUnits, packagePath), [packagePath, visibleUnits])
   const rectangles = useMemo(() => layoutCodeUnitTreemap(treemapEntries, 1200, 560), [treemapEntries])
   const summary = useMemo(() => summarizeCodeUnits(packageUnits), [packageUnits])
+  const maintainedUnits = useMemo(() => packageUnits.filter((unit) => unit.maintainedSource).length, [packageUnits])
   const selectedUnit = visibleUnits.find((unit) => unit.id === selectedId)
     || (graphUnit?.id === selectedId ? graphUnit : undefined)
   const callGraphQuery = useQuery({
@@ -619,12 +620,12 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
 
       {!query.isLoading && !query.isError && query.data && units.length > 0 && <>
         <div className={styles.stats}>
-          <div><strong>{units.length.toLocaleString()}</strong><span>Mapped code units</span></div>
-          <div><strong>{summary.sourceLinkedPercent === null ? 'Unknown' : `${summary.sourceLinkedPercent}%`}</strong><span>Viewable source links ({summary.sourceLinkedUnits.toLocaleString()}/{units.length.toLocaleString()})</span></div>
-          <div><strong>{formatBytes(summary.totalBytes)}</strong><span>Mapped bytes in filter</span></div>
-          <div><strong>{summary.coveragePercent === null ? 'Unknown' : `${summary.coveragePercent}%`}</strong><span>Decompilation completeness of measured bytes</span></div>
-          <div><strong>{summary.decompiledUnits.toLocaleString()}</strong><span>Fully decompiled units</span></div>
-          <div><strong>{(query.data.maintainedCount || 0).toLocaleString()}</strong><span>Maintained copies in active workspace</span></div>
+          <div><strong>{packageUnits.length.toLocaleString()}</strong><span>Code units in this map</span></div>
+          <div><strong>{summary.sourceLinkedPercent === null ? 'Unknown' : `${summary.sourceLinkedPercent}%`}</strong><span>Viewable source links in map ({summary.sourceLinkedUnits.toLocaleString()}/{packageUnits.length.toLocaleString()})</span></div>
+          <div><strong>{formatBytes(summary.totalBytes)}</strong><span>Code bytes in this map</span></div>
+          <div><strong>{summary.coveragePercent === null ? 'Unknown' : `${summary.coveragePercent}%`}</strong><span>Decompilation completeness of measured bytes in map</span></div>
+          <div><strong>{summary.decompiledUnits.toLocaleString()}</strong><span>Fully decompiled units in map</span></div>
+          <div><strong>{maintainedUnits.toLocaleString()}</strong><span>Maintained source copies in map</span></div>
         </div>
         {summary.unmeasuredBytes > 0 && <p className={styles.message}>{formatBytes(summary.unmeasuredBytes)} of mapped code has no decompilation completeness value from its provider.</p>}
 
