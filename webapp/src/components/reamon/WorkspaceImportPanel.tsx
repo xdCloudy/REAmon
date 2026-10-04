@@ -227,11 +227,12 @@ export function WorkspaceImportPanel({ projectId, onImported }: WorkspaceImportP
       {selection && comparing && <p className={styles.limits}>Comparing with the latest completed snapshot…</p>}
       {selection && progress && (
         <div className={styles.progress} aria-live="polite">
-          <div className={styles.progressHeader}><span>{progress.phase === 'COMPLETED' ? 'Import complete' : progress.phase === 'FAILED' ? 'Import paused' : progress.phase === 'CANCELLED' ? 'Import cancelled' : progress.phase === 'FINALIZING' ? 'Finalizing workspace' : 'Uploading workspace'}</span><strong>{progressPercent(progress)}%</strong></div>
+          <div className={styles.progressHeader}><span>{progress.phase === 'COMPLETED' ? 'Upload complete' : progress.phase === 'FAILED' ? 'Upload paused' : progress.phase === 'CANCELLED' ? 'Upload cancelled' : progress.phase === 'FINALIZING' ? 'Saving inventory' : 'Uploading workspace'}</span><strong>{progressPercent(progress)}%</strong></div>
           <div className={styles.track}><div className={styles.fill} style={{ width: `${progressPercent(progress)}%` }} /></div>
           <div className={styles.progressMeta}><span>{progress.completedFiles.toLocaleString()} / {progress.totalFiles.toLocaleString()} files</span><span>{formatBytes(progress.uploadedBytes)} / {formatBytes(progress.totalBytes)}</span></div>
           {progress.currentPath && <code>{progress.currentPath}</code>}
           {progress.failedPaths.length > 0 && <span className={styles.failure}>{progress.failedPaths.length} failed</span>}
+          {progress.phase === 'COMPLETED' && <small>Upload progress covers file transfer and inventory only. Analysis runs separately from a provider proposal.</small>}
         </div>
       )}
       {selection && (

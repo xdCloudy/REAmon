@@ -36,7 +36,7 @@ interface WorkspaceSnapshot {
     createdAt: string
     updatedAt: string
   }>
-  tasks: Array<{ id: string; title: string; category: string; status: string; progress: number; error: string; leaseOwner: string | null; leaseHeartbeatAt: string | null; approval: { id: string; status: string } | null }>
+  tasks: Array<{ id: string; title: string; category: string; status: string; progress: number; error: string; providerId: string | null; capability: string | null; leaseOwner: string | null; leaseHeartbeatAt: string | null; approval: { id: string; status: string } | null }>
   findings: Array<{ id: string; title: string; severity: string; status: string }>
   hypotheses: Array<{ id: string; statement: string; status: string }>
   evidence: Array<{ id: string; summary: string; source: string; createdAt: string }>
@@ -88,8 +88,8 @@ function observationTitle(observation: WorkspaceObservation): string {
 function ProgressBar({ metric }: { metric: ProgressMetric }) {
   return (
     <div className={styles.metric}>
-      <div className={styles.metricHeader}><span>{metric.label}</span><span>{metric.percent}%</span></div>
-      <div className={styles.track} aria-label={`${metric.label}: ${metric.percent}%`}><div className={styles.fill} style={{ width: `${metric.percent}%` }} /></div>
+      <span>{metric.label}</span>
+      <strong className={styles.metricCount}>{metric.numerator.toLocaleString()} / {metric.denominator.toLocaleString()}</strong>
     </div>
   )
 }
@@ -200,6 +200,10 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
         void queryClient.invalidateQueries({ queryKey: ['reamon-code-units', projectId] })
       }} />
       <ImportStatus latestImport={latestImport} />
+      {data.artifacts.some((artifact) => artifact.profile.format === 'apk') && !data.tasks.some((task) => task.capability === 'decompile') && <aside className={styles.analysisNextStep}>
+        <div><strong>APK uploaded; decompilation has not started.</strong><p>Open analysis proposals to request JADX, then approve the task before running it.</p></div>
+        <a href="#analysis-proposals">Open analysis proposals</a>
+      </aside>}
       <WorkspaceCodeVisualizer
         projectId={projectId}
         hasApk={data.artifacts.some((artifact) => artifact.profile.format === 'apk')}
@@ -212,7 +216,7 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
       </section>
 
       <div className={styles.grid}>
-        <section className={styles.panel} aria-labelledby="progress-heading"><div className={styles.panelHeader}><h2 id="progress-heading">Lifecycle metrics</h2><span className={styles.muted}>Entity stages and recorded task status; no overall completion estimate</span></div>{data.progress.metrics.length ? data.progress.metrics.map((metric) => <ProgressBar key={metric.id} metric={metric} />) : <p className={styles.muted}>Lifecycle metrics appear as analysis entities and tasks are recorded.</p>}</section>
+        <section className={styles.panel} aria-labelledby="progress-heading"><div className={styles.panelHeader}><h2 id="progress-heading">Recorded work status</h2></div><p className={styles.muted}>Counts describe tasks and cases already recorded. They do not estimate how much of an artifact has been analyzed.</p>{data.progress.metrics.length ? data.progress.metrics.map((metric) => <ProgressBar key={metric.id} metric={metric} />) : <p className={styles.muted}>No analysis tasks, findings, or hypotheses have been recorded.</p>}</section>
         <section className={styles.panel} aria-labelledby="providers-heading"><div className={styles.panelHeader}><h2 id="providers-heading">Available capabilities</h2><span className={styles.muted}>{data.capabilities.length} provider{data.capabilities.length === 1 ? '' : 's'}</span></div>{data.capabilities.length ? data.capabilities.map((provider) => <div className={styles.providerRow} key={provider.pluginId}><span><strong>{provider.pluginName}</strong><small>{provider.capabilities.slice(0, 4).join(' · ')}</small><small>Accepts {provider.acceptsFormats.slice(0, 3).join(', ')} · produces {provider.produces.slice(0, 3).join(', ') || 'provider results'}</small></span><span className={styles.providerCount}>{provider.compatibleArtifactIds.length} compatible artifacts</span></div>) : <p className={styles.muted}>Capabilities will appear as providers are registered.</p>}</section>
       </div>
 
@@ -239,7 +243,7 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
 
       <div className={styles.bottomGrid}>
         <section className={styles.panel} aria-labelledby="workers-heading"><div className={styles.panelHeader}><h2 id="workers-heading">Analysis workers</h2><span className={styles.muted}>{data.workers.length} registered</span></div>{data.workers.length ? data.workers.map((worker) => <div className={styles.listRow} key={worker.workerId}><span className={styles.observationMain}><strong><Server size={13} aria-hidden="true" /> {worker.workerId}</strong><small>Last seen {new Date(worker.lastSeenAt).toLocaleString()} · {worker.lastSelected} selected · {worker.lastCompleted} completed</small>{worker.lastError && <small className={styles.uploadError}>{worker.lastError}</small>}</span><span className={styles.type}>{worker.status}</span></div>) : <p className={styles.muted}>No worker has reported a dispatch heartbeat yet.</p>}</section>
-        <section className={styles.panel} aria-labelledby="work-heading"><div className={styles.panelHeader}><h2 id="work-heading">Tasks and findings</h2></div>{!data.tasks.length && !data.findings.length ? <p className={styles.muted}>No analysis work has been scheduled.</p> : <>{data.tasks.length > 0 && <WorkspaceTaskList projectId={projectId} tasks={data.tasks} onChanged={() => {
+        <section id="analysis-tasks" className={styles.panel} aria-labelledby="work-heading"><div className={styles.panelHeader}><h2 id="work-heading">Tasks and findings</h2></div>{!data.tasks.length && !data.findings.length ? <p className={styles.muted}>No analysis work has been scheduled.</p> : <>{data.tasks.length > 0 && <WorkspaceTaskList projectId={projectId} tasks={data.tasks} onChanged={() => {
           void queryClient.invalidateQueries({ queryKey: ['reamon-workspace', projectId] })
           void queryClient.invalidateQueries({ queryKey: ['reamon-code-units', projectId] })
         }} />}{data.findings.length > 0 && <WorkspaceFindingList projectId={projectId} findings={data.findings} onChanged={() => {

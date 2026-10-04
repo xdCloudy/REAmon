@@ -44,7 +44,7 @@ export function WorkspaceAnalysisPlanPanel({ projectId, plan, isLoading, isError
       })
       const payload = await response.json().catch(() => ({})) as { error?: string; reused?: boolean; task?: { status?: string } }
       if (!response.ok) throw new Error(payload.error || 'Unable to queue analysis task')
-      setFeedback(payload.reused ? 'This analysis proposal is already queued or awaiting approval.' : `${step.capability} is awaiting operator approval for ${step.relativePath}.`)
+      setFeedback(payload.reused ? 'This proposal is already queued or awaiting approval.' : `${step.capability} is awaiting approval for ${step.relativePath}. Approve it under Tasks and findings, then choose Run.`)
       onScheduled?.()
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : 'Unable to queue analysis task')
@@ -54,7 +54,7 @@ export function WorkspaceAnalysisPlanPanel({ projectId, plan, isLoading, isError
   }
 
   return (
-    <section className={styles.panel} aria-labelledby="analysis-plan-heading">
+    <section id="analysis-proposals" className={styles.panel} aria-labelledby="analysis-plan-heading">
       <div className={styles.header}>
         <div>
           <h2 id="analysis-plan-heading"><ClipboardList size={17} /> Analysis proposals</h2>
@@ -64,7 +64,7 @@ export function WorkspaceAnalysisPlanPanel({ projectId, plan, isLoading, isError
       </div>
       {isLoading && <p className={styles.muted}>Preparing compatible analysis proposals…</p>}
       {isError && <p className={styles.error}>Analysis proposals are temporarily unavailable.</p>}
-      {feedback && <p className={styles.feedback} role="status">{feedback}</p>}
+      {feedback && <p className={styles.feedback} role="status">{feedback} {feedback.includes('awaiting approval') && <a href="#analysis-tasks">Go to task controls</a>}</p>}
       {!isLoading && !isError && plan && !plan.proposedSteps && <p className={styles.muted}>No compatible provider capabilities were found in the current inventory page.</p>}
       {!isLoading && !isError && plan && plan.proposedSteps > 0 && <>
         <p className={styles.summary}>

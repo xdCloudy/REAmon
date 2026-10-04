@@ -19,6 +19,7 @@
 .progress { display: flex; flex-direction: column; gap: var(--space-2); }
 .progressHeader, .progressMeta { display: flex; justify-content: space-between; gap: var(--space-3); font-size: var(--text-sm); }
 .progressHeader strong { font-variant-numeric: tabular-nums; }
+.progress small { color: var(--text-tertiary); font-size: var(--text-xs); line-height: 1.45; }
 .progressMeta { color: var(--text-secondary); font-size: var(--text-xs); }
 .track { height: 8px; border-radius: var(--radius-full); overflow: hidden; background: var(--bg-tertiary); }
 .fill { height: 100%; border-radius: inherit; background: var(--accent-secondary); transition: width 180ms ease; }

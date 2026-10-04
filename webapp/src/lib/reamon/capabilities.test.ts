@@ -17,6 +17,20 @@ const profile = (overrides: Partial<TargetProfile> = {}): TargetProfile => ({
 })
 
 describe('REAmon capability resolution', () => {
+  it('offers JADX decompilation for an identified Android APK', () => {
+    expect(resolveCapabilities(profile({
+      format: 'apk',
+      extension: 'apk',
+      mimeType: 'application/vnd.android.package-archive',
+      architecture: null,
+      platform: 'android',
+      runtimes: ['dalvik', 'art'],
+      embeddedArtifacts: ['dex', 'resources'],
+    }))).toEqual(expect.arrayContaining([
+      expect.objectContaining({ pluginId: 'reamon-jadx', capabilities: ['decompile'] }),
+    ]))
+  })
+
   it('offers the built-in ELF header inspector for ELF artifacts', () => {
     expect(resolveCapabilities(profile())).toEqual(expect.arrayContaining([
       expect.objectContaining({

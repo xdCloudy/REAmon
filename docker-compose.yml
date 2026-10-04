@@ -1171,6 +1171,7 @@ services:
       REAMON_ARTIFACTS_PATH: /data/reamon-artifacts
       REAMON_DERIVED_PATH: /data/reamon-derived
       REAMON_JADX_URL: http://jadx-analyzer:8010
+      REAMON_GHIDRA_URL: http://ghidra-analyzer:8011
       REAMON_MAX_ARTIFACT_BYTES: ${REAMON_MAX_ARTIFACT_BYTES:-536870912}
       REAMON_MAX_IMPORT_FILES: ${REAMON_MAX_IMPORT_FILES:-50000}
       REAMON_MAX_IMPORT_BYTES: ${REAMON_MAX_IMPORT_BYTES:-8589934592}
@@ -1220,7 +1221,7 @@ services:
       # Supply-chain SBOM/lockfile uploads: webapp writes, the scan reads (ro).
       - supply_chain_uploads:/data/supply-chain-uploads
       - reamon_artifacts:/data/reamon-artifacts
-      - reamon_derived:/data/reamon-derived:ro
+      - reamon_derived:/data/reamon-derived:rw
       - js_recon_custom:/data/js-recon-custom
       - ./VERSION:/app/VERSION:ro
       # HTTP traffic capture (Phase 1): read offloaded bodies for the /traffic
@@ -1283,6 +1284,49 @@ services:
       timeout: 5s
       retries: 3
       start_period: 60s
+    networks:
+      - reamon-analysis
+
+  # Ghidra headless analysis is isolated from application credentials and egress.
+  ghidra-analyzer:
+    build:
+      context: ./analyzers/ghidra
+    image: ${REAMON_GHIDRA_IMAGE:-reamon-ghidra:local}
+    container_name: reamon-ghidra
+    init: true
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+    mem_limit: ${REAMON_GHIDRA_MEM:-5g}
+    pids_limit: ${REAMON_GHIDRA_PIDS:-192}
+    cpus: ${REAMON_GHIDRA_CPUS:-2}
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=${REAMON_GHIDRA_TMP_SIZE:-4g},mode=1777
+    environment:
+      REAMON_ARTIFACTS_PATH: /data/reamon-artifacts
+      REAMON_DERIVED_PATH: /data/reamon-derived
+      GHIDRA_TIMEOUT_SECONDS: ${REAMON_GHIDRA_TIMEOUT_SECONDS:-900}
+      GHIDRA_FILE_TIMEOUT_SECONDS: ${REAMON_GHIDRA_FILE_TIMEOUT_SECONDS:-300}
+      GHIDRA_MAX_OUTPUT_BYTES: ${REAMON_GHIDRA_MAX_OUTPUT_BYTES:-268435456}
+      GHIDRA_MAX_FUNCTIONS: ${REAMON_GHIDRA_MAX_FUNCTIONS:-500}
+      GHIDRA_MAX_RETURNED_UNITS: ${REAMON_GHIDRA_MAX_RETURNED_UNITS:-500}
+      GHIDRA_JAVA_MAXMEM: ${REAMON_GHIDRA_JAVA_MAXMEM:-3G}
+    volumes:
+      - reamon_artifacts:/data/reamon-artifacts:ro
+      - reamon_derived:/data/reamon-derived:rw
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8011/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
     networks:
       - reamon-analysis
 

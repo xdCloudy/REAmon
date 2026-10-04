@@ -229,8 +229,6 @@ export async function getWorkspaceInventorySummary(projectId: string): Promise<W
     logicalTargetsTruncated: visibleTargets.length > MAX_SAMPLE_TARGETS,
     capabilities,
     progress: buildProgressModel({
-      targetStatuses: visibleTargets.map((target) => target.status as never),
-      artifactStatuses: artifacts.map((artifact) => artifact.status as never),
       taskStatuses: tasks.map((task) => task.status as never),
       findingStatuses: findings.map((finding) => finding.status as never),
       hypothesisStatuses: hypotheses.map((hypothesis) => hypothesis.status as never),

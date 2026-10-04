@@ -15,6 +15,7 @@
 .queueButton:hover:not(:disabled) { border-color: var(--accent-secondary); color: var(--accent-secondary); }
 .queueButton:disabled { cursor: wait; opacity: .6; }
 .feedback { color: var(--status-info-text); font-size: var(--text-sm); line-height: 1.45; margin: 0 0 var(--space-3); }
+.feedback a { display: inline-block; margin-left: var(--space-2); color: var(--accent-secondary); font-weight: var(--font-semibold); }
 .error { color: var(--status-error-text); font-size: var(--text-sm); margin: 0; }
 
 @media (max-width: 760px) {

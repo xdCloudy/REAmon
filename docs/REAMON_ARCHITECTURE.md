@@ -251,9 +251,18 @@ membership, and the matching provider observation before reading source.
 
 JADX is bounded by container CPU, memory, process count, temporary storage, output
 size, file count, and execution timeout. Cancelling the task closes the analyzer
-request and terminates its process group. This first engine does not yet cover native
-binaries or expose function-level navigation; the Ghidra headless integration is a
-separate provider milestone.
+request and terminates its process group.
+
+The built-in Ghidra provider accepts profiled ELF, PE, and Mach-O artifacts and runs
+Ghidra 12.1.4 headless in a separate container with no database or internet network
+access. It receives native binaries read-only, runs automatic analysis plus a
+bounded function decompilation script, then stores generated C-like output under the
+derived-source volume. Each function becomes an address-aware `code_unit`; up to 500
+functions are linked to the authenticated code route. Function body size defines
+treemap area. Byte-level coverage is not measured and stays unknown. Ghidra CPU,
+memory, temporary storage, process count, functions considered, output size, and
+analysis timeout are bounded. Cancelling the task terminates the Ghidra process
+group.
 
 The workspace no longer averages target lifecycle, artifact lifecycle, and task
 completion into one percentage. Those measures describe different states; code

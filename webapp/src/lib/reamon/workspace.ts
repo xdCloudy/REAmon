@@ -177,8 +177,6 @@ export async function getWorkspaceSnapshot(projectId: string) {
   })
 
   const progress = buildProgressModel({
-    targetStatuses: targets.map((target) => target.status as never),
-    artifactStatuses: artifactMetadata.map((artifact) => artifact.status as never),
     taskStatuses: taskStatuses.map((task) => task.status as never),
     findingStatuses: findingStatuses.map((finding) => finding.status as never),
     hypothesisStatuses: hypothesisStatuses.map((hypothesis) => hypothesis.status as never),

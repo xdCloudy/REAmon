@@ -28,9 +28,11 @@
 
 REAmon is intended to orchestrate reverse-engineering engines such as Ghidra and
 JADX on the backend, then present their output in one investigation workspace. The
-the current build now decompiles Android APKs through an isolated JADX backend and
-shows indexed classes in its code visualizer. Other binaries still need matching
-analysis engines. A workspace can contain multiple related targets and artifacts:
+current build decompiles Android APKs through an isolated JADX backend and native
+ELF, PE, and Mach-O files through isolated Ghidra headless analysis. Both publish
+bounded function or class indexes in the code visualizer. Other formats and dynamic
+analysis still need matching engines. A workspace can contain multiple related
+targets and artifacts:
 
 ```text
 Workspace
@@ -69,6 +71,9 @@ The first REAmon milestone is implemented and running on the `reamon/bootstrap` 
   hypotheses, evidence, and activity in a real data-backed dashboard.
 - Run JADX 1.5.6 in an isolated backend service for APK decompilation; store bounded
   Java source outputs separately and publish class-sized code-unit observations.
+- Run Ghidra 12.1.4 headless in an isolated backend service for ELF, PE, and Mach-O
+  decompilation; store bounded C-like function outputs separately and publish
+  address-aware code-unit observations.
 - Draw a searchable size/coverage treemap from provider code-unit observations and
   open source only through an authenticated, active-workspace artifact route.
 - Run bounded `strings` and `readelf` process providers against stored source and
@@ -89,9 +94,10 @@ The first REAmon milestone is implemented and running on the `reamon/bootstrap` 
   needed by the REAmon workspace.
 
 The current provider set covers profiling, source strings, ELF headers, generic file
-identification, bounded JSON inspection, and APK-to-Java decompilation through JADX.
-PE, ELF and Mach-O decompilation, Ghidra headless integration, runtime instrumentation,
-and broader language-specific workflows remain future work.
+identification, bounded JSON inspection, APK-to-Java decompilation through JADX, and
+native ELF, PE, and Mach-O decompilation through Ghidra. Runtime instrumentation,
+other executable formats, and broader language-specific workflows remain future
+work.
 
 ## Bootstrap release readiness
 
