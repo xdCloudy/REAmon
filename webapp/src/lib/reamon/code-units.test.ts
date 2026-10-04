@@ -44,6 +44,17 @@ describe('code visualizer unit normalization', () => {
     expect(filterCodeUnits(units, 'MainActivity >1kb <70%').map((item) => item.id)).toEqual(['unit-2'])
   })
 
+  it('packs equal-sized units into balanced treemap tiles while preserving byte proportions', () => {
+    const units = Array.from({ length: 8 }, (_, index) => unit({ id: 'unit-' + index, name: 'function' + index, sizeBytes: 100 }))
+    const rectangles = layoutCodeUnitTreemap(units, 1200, 560)
+    const areas = rectangles.map((rect) => rect.width * rect.height)
+
+    expect(rectangles).toHaveLength(8)
+    expect(Math.max(...areas) - Math.min(...areas)).toBeLessThan(0.01)
+    expect(Math.max(...rectangles.map((rect) => Math.max(rect.width / rect.height, rect.height / rect.width)))).toBeLessThan(3)
+    expect(rectangles.reduce((sum, rect) => sum + rect.width * rect.height, 0)).toBeCloseTo(1200 * 560, 5)
+  })
+
   it('keeps treemap areas bounded and reports coverage only for measured bytes', () => {
     const units = [unit(), unit({ id: 'unit-2', name: 'nativeInit', sizeBytes: 512, coveragePercent: null })]
     const rectangles = layoutCodeUnitTreemap(units, 1200, 560)

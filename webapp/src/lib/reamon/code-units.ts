@@ -152,35 +152,66 @@ export interface CodeUnitRect {
 export function layoutCodeUnitTreemap(units: CodeUnit[], width: number, height: number): CodeUnitRect[] {
   if (!units.length || width <= 0 || height <= 0) return []
   const sorted = [...units].sort((left, right) => right.sizeBytes - left.sizeBytes || left.name.localeCompare(right.name))
+  const totalSize = sorted.reduce((sum, unit) => sum + unit.sizeBytes, 0)
+  if (!Number.isFinite(totalSize) || totalSize <= 0) return []
   const rectangles: CodeUnitRect[] = []
+  let remainingIndex = 0
+  let x = 0, y = 0, remainingWidth = width, remainingHeight = height
+  const areaScale = width * height / totalSize
 
-  function place(items: CodeUnit[], x: number, y: number, w: number, h: number): void {
-    if (!items.length || w <= 0 || h <= 0) return
-    if (items.length === 1) {
-      rectangles.push({ unit: items[0], x, y, width: w, height: h })
-      return
-    }
-
-    const total = items.reduce((sum, item) => sum + item.sizeBytes, 0)
-    let splitAt = 1
-    let accumulated = items[0].sizeBytes
-    while (splitAt < items.length - 1 && accumulated < total / 2) {
-      accumulated += items[splitAt].sizeBytes
-      splitAt += 1
-    }
-    const ratio = accumulated / total
-    if (w >= h) {
-      const firstWidth = w * ratio
-      place(items.slice(0, splitAt), x, y, firstWidth, h)
-      place(items.slice(splitAt), x + firstWidth, y, w - firstWidth, h)
-    } else {
-      const firstHeight = h * ratio
-      place(items.slice(0, splitAt), x, y, w, firstHeight)
-      place(items.slice(splitAt), x, y + firstHeight, w, h - firstHeight)
-    }
+  function worstRowAspect(rowSize: number, smallestSize: number, largestSize: number, shortSide: number): number {
+    if (rowSize <= 0 || smallestSize <= 0 || shortSide <= 0) return Number.POSITIVE_INFINITY
+    const sideSquared = shortSide * shortSide
+    const rowArea = rowSize * areaScale
+    const smallestArea = smallestSize * areaScale
+    const largestArea = largestSize * areaScale
+    return Math.max(sideSquared * largestArea / (rowArea * rowArea), rowArea * rowArea / (sideSquared * smallestArea))
   }
 
-  place(sorted, 0, 0, width, height)
+  while (remainingIndex < sorted.length && remainingWidth > 0 && remainingHeight > 0) {
+    if (remainingIndex === sorted.length - 1) {
+      rectangles.push({ unit: sorted[remainingIndex], x, y, width: remainingWidth, height: remainingHeight })
+      break
+    }
+    const shortSide = Math.min(remainingWidth, remainingHeight)
+    const row: CodeUnit[] = []
+    let rowSize = 0, smallestSize = Number.POSITIVE_INFINITY, largestSize = 0
+    while (remainingIndex < sorted.length) {
+      const candidate = sorted[remainingIndex]
+      const nextSize = rowSize + candidate.sizeBytes
+      const nextSmallest = Math.min(smallestSize, candidate.sizeBytes)
+      const nextLargest = Math.max(largestSize, candidate.sizeBytes)
+      if (row.length && worstRowAspect(nextSize, nextSmallest, nextLargest, shortSide) > worstRowAspect(rowSize, smallestSize, largestSize, shortSide)) break
+      row.push(candidate)
+      rowSize = nextSize
+      smallestSize = nextSmallest
+      largestSize = nextLargest
+      remainingIndex += 1
+    }
+    if (!row.length) break
+    const rowArea = rowSize * areaScale
+    if (remainingWidth >= remainingHeight) {
+      const stripWidth = Math.min(remainingWidth, rowArea / remainingHeight)
+      let cellY = y
+      row.forEach((unit, index) => {
+        const cellHeight = index === row.length - 1 ? y + remainingHeight - cellY : remainingHeight * (unit.sizeBytes / rowSize)
+        rectangles.push({ unit, x, y: cellY, width: stripWidth, height: cellHeight })
+        cellY += cellHeight
+      })
+      x += stripWidth
+      remainingWidth -= stripWidth
+    } else {
+      const stripHeight = Math.min(remainingHeight, rowArea / remainingWidth)
+      let cellX = x
+      row.forEach((unit, index) => {
+        const cellWidth = index === row.length - 1 ? x + remainingWidth - cellX : remainingWidth * (unit.sizeBytes / rowSize)
+        rectangles.push({ unit, x: cellX, y, width: cellWidth, height: stripHeight })
+        cellX += cellWidth
+      })
+      y += stripHeight
+      remainingHeight -= stripHeight
+    }
+  }
   return rectangles
 }
 

@@ -228,11 +228,11 @@ export function WorkspaceImportPanel({ projectId, onImported }: WorkspaceImportP
       {selection && progress && (
         <div className={styles.progress} aria-live="polite">
           <div className={styles.progressHeader}><span>{progress.phase === 'COMPLETED' ? 'Upload complete' : progress.phase === 'FAILED' ? 'Upload paused' : progress.phase === 'CANCELLED' ? 'Upload cancelled' : progress.phase === 'FINALIZING' ? 'Saving inventory' : 'Uploading workspace'}</span><strong>{progressPercent(progress)}%</strong></div>
-          <div className={styles.track}><div className={styles.fill} style={{ width: `${progressPercent(progress)}%` }} /></div>
+          <div className={styles.track} role="progressbar" aria-label="Workspace file transfer" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progressPercent(progress)} aria-valuetext={`${progressPercent(progress)}% of selected files transferred; analysis is tracked separately`}><div className={styles.fill} style={{ width: `${progressPercent(progress)}%` }} /></div>
           <div className={styles.progressMeta}><span>{progress.completedFiles.toLocaleString()} / {progress.totalFiles.toLocaleString()} files</span><span>{formatBytes(progress.uploadedBytes)} / {formatBytes(progress.totalBytes)}</span></div>
           {progress.currentPath && <code>{progress.currentPath}</code>}
           {progress.failedPaths.length > 0 && <span className={styles.failure}>{progress.failedPaths.length} failed</span>}
-          {progress.phase === 'COMPLETED' && <small>Upload progress covers file transfer and inventory only. Analysis runs separately from a provider proposal.</small>}
+          {progress.phase === 'COMPLETED' && <div className={styles.nextStep} role="status"><strong>Import complete. Analysis is a separate step.</strong><span>This indicator tracks file transfer only; it does not measure reverse-engineering progress.</span><a href="#analysis-proposals">Review available analyses</a></div>}
         </div>
       )}
       {selection && (

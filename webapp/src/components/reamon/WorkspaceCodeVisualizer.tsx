@@ -53,7 +53,7 @@ async function fetchSource(url: string, signal: AbortSignal): Promise<string> {
   const response = await fetch(url, { signal, cache: 'no-store' })
   if (!response.ok) {
     const detail = await response.json().catch(() => null) as { error?: string } | null
-    throw new Error(detail?.error || 'Could not load decompiled source')
+    throw new Error(detail?.error || 'Could not load code output')
   }
   return response.text()
 }
@@ -63,6 +63,10 @@ async function fetchExplanationProviders(projectId: string): Promise<CodeExplana
   if (!response.ok) throw new Error('Unable to load saved AI providers')
   const data = await response.json() as { providers?: CodeExplanationProvider[] }
   return Array.isArray(data.providers) ? data.providers : []
+}
+
+function isWatUnit(unit: CodeUnit | undefined): boolean {
+  return unit?.language === 'WebAssembly Text (WAT)'
 }
 
 function formatBytes(size: number): string {
@@ -231,7 +235,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing }: { projectId:
           <div><strong>{units.length.toLocaleString()}</strong><span>Mapped code units</span></div>
           <div><strong>{formatBytes(summary.totalBytes)}</strong><span>Mapped bytes in filter</span></div>
           <div><strong>{summary.coveragePercent === null ? 'Unknown' : `${summary.coveragePercent}%`}</strong><span>Coverage of measured units</span></div>
-          <div><strong>{summary.decompiledUnits.toLocaleString()}</strong><span>Fully decompiled</span></div>
+          <div><strong>{summary.decompiledUnits.toLocaleString()}</strong><span>Fully covered units</span></div>
         </div>
         {summary.unmeasuredBytes > 0 && <p className={styles.message}>{formatBytes(summary.unmeasuredBytes)} of mapped code has no coverage value from its provider.</p>}
 
@@ -241,18 +245,18 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing }: { projectId:
           <input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Filter names, addresses, or paths · >10kb · <70%" />
         </label>
 
-        <div className={styles.legend} aria-label="Decompiler coverage legend">
-          <span><i className={styles.complete} /> Decompiled</span>
-          <span><i className={styles.partial} /> Partial</span>
-          <span><i className={styles.none} /> Not decompiled</span>
+        <div className={styles.legend} aria-label="Code coverage legend">
+          <span><i className={styles.complete} /> Full coverage</span>
+          <span><i className={styles.partial} /> Partial coverage</span>
+          <span><i className={styles.none} /> No coverage</span>
           <span><i className={styles.unknown} /> Unmeasured</span>
         </div>
 
         {visibleUnits.length ? <div className={styles.mapFrame}>
-          <svg className={styles.map} viewBox="0 0 1200 560" role="group" aria-label="Code units sized by bytes and colored by decompilation coverage">
+          <svg className={styles.map} viewBox="0 0 1200 560" role="group" aria-label="Code units sized by bytes and colored by measured coverage">
             {rectangles.map(({ unit, x, y, width, height }) => {
               const label = shortenLabel(unit.name, width)
-              const coverage = unit.coveragePercent === null ? 'coverage unmeasured' : `${unit.coveragePercent}% decompiled`
+              const coverage = unit.coveragePercent === null ? 'coverage unmeasured' : `${unit.coveragePercent}% coverage`
               return <g
                 key={unit.id}
                 className={`${styles.tile} ${unit.id === selectedId ? styles.selected : ''}`}
@@ -296,24 +300,24 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing }: { projectId:
                 href={selectedSourceUrl || undefined}
                 target="_blank"
                 rel="noreferrer"
-              ><ExternalLink size={14} /> Open source separately</a>
+              ><ExternalLink size={14} /> Open code separately</a>
             : <p className={styles.message}>This provider has not attached a viewable code artifact to the unit.</p>}
         </div>}
-        {selectedUnit && selectedSourceUrl && <section className={styles.sourcePanel} aria-label="Decompiled source">
+        {selectedUnit && selectedSourceUrl && <section className={styles.sourcePanel} aria-label={isWatUnit(selectedUnit) ? "WAT disassembly" : "Decompiled source"}>
           <div className={styles.sourceHeader}>
             <div><strong>{selectedUnit.name}</strong><span>{selectedUnit.language || 'Source'} · {selectedUnit.codeArtifactId?.split('/').pop()}</span></div>
             <button type="button" className={styles.copyButton} onClick={() => void copySource()} disabled={!sourceQuery.data}>
-              <Copy size={14} /> {copyStatus || 'Copy source'}
+              <Copy size={14} /> {copyStatus || 'Copy code'}
             </button>
           </div>
-          {sourceQuery.isLoading && <p className={styles.message}>Loading decompiled source…</p>}
-          {sourceQuery.isError && <p className={styles.error}>{sourceQuery.error instanceof Error ? sourceQuery.error.message : 'Could not load decompiled source'}</p>}
+          {sourceQuery.isLoading && <p className={styles.message}>Loading code output…</p>}
+          {sourceQuery.isError && <p className={styles.error}>{sourceQuery.error instanceof Error ? sourceQuery.error.message : 'Could not load code output'}</p>}
           {sourceQuery.data !== undefined && <pre className={styles.sourceCode}><code>{sourceQuery.data}</code></pre>}
         </section>}
         {selectedUnit && selectedSourceUrl && <section className={styles.explainPanel} aria-labelledby="code-explain-heading">
           <div>
             <h3 id="code-explain-heading">Explain this code with AI</h3>
-            <p>When you choose Explain, this source is sent to the selected saved provider. API keys stay on the server. Check the explanation against the source before relying on it.</p>
+            <p>When you choose Explain, this code is sent to the selected saved provider. API keys stay on the server. Check the explanation against the code before relying on it.</p>
           </div>
           {explanationProvidersQuery.isLoading && <p className={styles.message}>Loading saved providers…</p>}
           {explanationProvidersQuery.isError && <p className={styles.error}>Could not load saved AI providers.</p>}

@@ -83,11 +83,32 @@ describe('WorkspaceCodeVisualizer', () => {
     fireEvent.click(await screen.findByRole('button', { name: /app\.MainActivity\.onPause/ }))
 
     expect(await screen.findByText('Selected code unit')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Open source separately' })).toHaveAttribute('href', '/api/projects/project-1/artifacts/artifact-1/decompiled/project-1/artifact-1/task-1/run-1/sources/app/MainActivity.java')
+    expect(screen.getByRole('link', { name: 'Open code separately' })).toHaveAttribute('href', '/api/projects/project-1/artifacts/artifact-1/decompiled/project-1/artifact-1/task-1/run-1/sources/app/MainActivity.java')
     expect(await screen.findByText(/saveState\(\);/)).toBeInTheDocument()
     expect(await screen.findByRole('button', { name: 'Explain selected code' })).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledTimes(3)
     await waitFor(() => expect(screen.queryByRole('button', { name: /app\.MainActivity\.onCreate/ })).toBeNull())
+  })
+
+  test('labels WAT as disassembly and exposes its linked code', async () => {
+    const wat = unit({
+      id: 'wasm-function-0', name: 'function_0', address: '0', sizeBytes: 50,
+      coveragePercent: null, language: 'WebAssembly Text (WAT)', unitType: 'function',
+      artifactPath: 'module.wasm',
+      codeArtifactId: 'project-1/artifact-1/task-1/run-1/functions/f00000.wat',
+    })
+    const fetchMock = vi.fn((input: string) => {
+      if (input.includes('/visualizer/providers')) return Promise.resolve({ ok: true, json: async () => ({ providers: [] }) })
+      if (input.includes('/decompiled/')) return Promise.resolve({ ok: true, text: async () => '(func (result i32) i32.const 42)' })
+      return Promise.resolve({ ok: true, json: async () => ({ units: [wat], total: 1, hasMore: false }) })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderVisualizer()
+
+    fireEvent.click(await screen.findByRole('button', { name: /function_0/ }))
+    expect(await screen.findByRole('region', { name: 'WAT disassembly' })).toBeInTheDocument()
+    expect(await screen.findByText(/i32\.const 42/)).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Copy code' })).toBeInTheDocument()
   })
 
   test('sends selected source only after explicit AI explain request', async () => {
@@ -102,7 +123,7 @@ describe('WorkspaceCodeVisualizer', () => {
     renderVisualizer()
 
     fireEvent.click(await screen.findByRole('button', { name: /app\.MainActivity\.onCreate/ }))
-    expect(await screen.findByText('When you choose Explain, this source is sent to the selected saved provider. API keys stay on the server. Check the explanation against the source before relying on it.')).toBeInTheDocument()
+    expect(await screen.findByText('When you choose Explain, this code is sent to the selected saved provider. API keys stay on the server. Check the explanation against the code before relying on it.')).toBeInTheDocument()
     expect(fetchMock.mock.calls.some(([input]) => String(input).includes('/visualizer/explain'))).toBe(false)
 
     fireEvent.change(await screen.findByRole('textbox', { name: /Question about this code/ }), { target: { value: 'What state does it read?' } })
