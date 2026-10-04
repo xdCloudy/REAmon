@@ -11,6 +11,7 @@ import { WorkspaceDecompilationAction } from '@/components/reamon/WorkspaceDecom
 import { WorkspaceTaskList } from '@/components/reamon/WorkspaceTaskList'
 import { WorkspaceFindingList } from '@/components/reamon/WorkspaceFindingList'
 import { WorkspaceCodeVisualizer } from '@/components/reamon/WorkspaceCodeVisualizer'
+import { summarizeWorkerAttention } from '@/lib/reamon/worker-health'
 import type { CapabilityMatch, ProgressMetric, TargetProfile, WorkspaceCapabilitySummary, WorkspaceImportSnapshot, WorkspaceObservation, WorkspaceProfile } from '@/lib/reamon'
 import styles from './page.module.css'
 
@@ -131,19 +132,26 @@ function ImportStatus({ latestImport }: { latestImport: WorkspaceImportSnapshot 
 }
 
 function WorkerHealthAlert({ workers }: { workers: WorkerHealth[] }) {
-  const attention = workers.filter((worker) => worker.status === 'STALE' || worker.status === 'DEGRADED')
-  if (!attention.length) return null
+  const attention = summarizeWorkerAttention(workers)
+  if (!attention) return null
 
-  const degraded = attention.filter((worker) => worker.status === 'DEGRADED').length
-  const names = attention.slice(0, 3).map((worker) => worker.workerId).join(', ')
-  const remainder = attention.length > 3 ? ` and ${attention.length - 3} more` : ''
+  const names = attention.workers.slice(0, 3).map((worker) => worker.workerId).join(', ')
+  const remainder = attention.workers.length > 3 ? ` and ${attention.workers.length - 3} more` : ''
+  const message = attention.kind === 'degraded'
+    ? `${attention.workers.length} responsive worker${attention.workers.length === 1 ? '' : 's'} reported a failed dispatch. Affected: ${names}${remainder}.`
+    : attention.kind === 'stale'
+      ? `No worker has checked in recently. ${attention.workers.length} registered worker${attention.workers.length === 1 ? ' is' : 's are'} stale: ${names}${remainder}.`
+      : 'No worker has reported a heartbeat yet.'
+  const guidance = attention.kind === 'degraded'
+    ? 'Review the worker status details below before retrying failed tasks.'
+    : 'New analysis tasks may wait until a worker checks in.'
   return (
     <aside className={styles.workerAlert} role="alert" aria-labelledby="worker-alert-heading">
       <AlertTriangle size={19} aria-hidden="true" />
       <div>
         <strong id="worker-alert-heading">Analysis worker attention required</strong>
-        <p>{degraded ? `${degraded} worker${degraded === 1 ? '' : 's'} reported a failed dispatch. ` : ''}{attention.length - degraded ? `${attention.length - degraded} worker${attention.length - degraded === 1 ? '' : 's'} are stale. ` : ''}Affected: {names}{remainder}.</p>
-        <small>New analysis tasks may wait until the worker process recovers. Check the worker logs before retrying failed tasks.</small>
+        <p>{message}</p>
+        <small>{guidance}</small>
       </div>
     </aside>
   )

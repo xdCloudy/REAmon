@@ -19,6 +19,19 @@ export interface WorkerDispatchHealthInput {
   error?: string
 }
 
+export interface WorkerHealthStatusInput {
+  workerId: string
+  status: string
+}
+
+export function summarizeWorkerAttention(workers: WorkerHealthStatusInput[]) {
+  const responsive = workers.filter((worker) => worker.status !== 'STALE')
+  const degraded = responsive.filter((worker) => worker.status === 'DEGRADED')
+  if (responsive.length > 0) return degraded.length ? { kind: 'degraded' as const, workers: degraded } : null
+  if (workers.length > 0) return { kind: 'stale' as const, workers }
+  return { kind: 'unavailable' as const, workers: [] }
+}
+
 export async function recordWorkerDispatch(input: WorkerDispatchHealthInput) {
   const now = new Date()
   const status = input.failed > 0 || input.error ? 'DEGRADED' : 'IDLE'
