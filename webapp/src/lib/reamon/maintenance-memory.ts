@@ -112,8 +112,11 @@ export function buildProjectSymbolContext(
   relatedUnitIds: Set<string>,
   maxChars = 8_000,
   currentArtifactHash?: string,
+  calleeUnitIds: Set<string> = new Set(),
 ): string {
   const ranked = records.map((record, index) => ({ record, index })).sort((left, right) => {
+    const calleeRank = Number(calleeUnitIds.has(right.record.codeUnitId || '')) - Number(calleeUnitIds.has(left.record.codeUnitId || ''))
+    if (calleeRank) return calleeRank
     const relatedRank = Number(relatedUnitIds.has(right.record.codeUnitId || '')) - Number(relatedUnitIds.has(left.record.codeUnitId || ''))
     if (relatedRank) return relatedRank
     const currentArtifactRank = Number(Boolean(currentArtifactHash && right.record.artifactHash === currentArtifactHash))
@@ -151,11 +154,14 @@ export function buildProviderSymbolContext(
   maxBytes = 8_000,
   provenance: { provider: string; artifactName: string; artifactHash: string; taskId: string; inputTruncated?: boolean },
   selectedUnitId?: string,
+  calleeUnitIds: Set<string> = new Set(),
 ): string {
   const header = `Provider-recovered signatures, names, and types (provisional evidence; provider=${provenance.provider.slice(0, 120)}; artifact=${provenance.artifactName.slice(0, 160)}; sha256=${provenance.artifactHash.slice(0, 16)}; analysis=${provenance.taskId.slice(0, 128)}${provenance.inputTruncated ? '; related-unit selection capped' : ''}):`
   const ranked = records.map((record, index) => ({ record, index })).sort((left, right) => {
     const selectedRank = Number(right.record.codeUnitId === selectedUnitId) - Number(left.record.codeUnitId === selectedUnitId)
     if (selectedRank) return selectedRank
+    const calleeRank = Number(calleeUnitIds.has(right.record.codeUnitId)) - Number(calleeUnitIds.has(left.record.codeUnitId))
+    if (calleeRank) return calleeRank
     const relatedRank = Number(relatedUnitIds.has(right.record.codeUnitId)) - Number(relatedUnitIds.has(left.record.codeUnitId))
     return relatedRank || left.index - right.index
   })
@@ -189,7 +195,10 @@ export function buildProviderSymbolContext(
     const unitName = singleLine(record.unitName, 300)
     const identity = providerEvidence ? `provider metadata: ${providerEvidence}; ` : ''
     const signature = prototype ? `signature: ${prototype}; ` : ''
-    const line = `${unitName}${address} [${record.language.slice(0, 80)}]: ${identity}${signature}${symbolList.join('; ')}${omitted}`
+    const relation = record.codeUnitId === selectedUnitId
+      ? 'selected unit'
+      : calleeUnitIds.has(record.codeUnitId) ? 'direct callee' : 'related unit'
+    const line = `${unitName}${address} [${record.language.slice(0, 80)}; ${relation}]: ${identity}${signature}${symbolList.join('; ')}${omitted}`
     const lineBytes = Buffer.byteLength(line, 'utf8')
     if (length + lineBytes + 1 > maxBytes - 80) {
       omittedByContextLimit = true

@@ -555,6 +555,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     }) : []
     const relatedByName = new Map<string, Record<string, unknown>>()
     const relatedUnitIdByName = new Map<string, string>()
+    const calleeUnitIds = new Set<string>()
     for (const row of relatedRows) {
       const name = row.label || ''
       const relatedAttributes = plainObject(row.attributes)
@@ -581,8 +582,9 @@ export async function POST(request: Request, { params }: RouteParams) {
         orderBy: { stableKey: 'asc' },
         take: 401,
       })
-      const neighborKeys: string[] = []
-      const seenNeighborKeys = new Set<string>()
+      const calleeStableKeys = new Set<string>()
+      const calleeNeighborKeys: string[] = []
+      const callerNeighborKeys: string[] = []
       const requestedMemberName = body.scope === 'member' && typeof body.memberName === 'string'
         ? body.memberName.trim().slice(0, 500)
         : ''
@@ -601,9 +603,17 @@ export async function POST(request: Request, { params }: RouteParams) {
           || (toClassKey === observation.stableKey && (!selectedMethodName || methodNameFromSignature(edgeAttributes.toSignature) === selectedMethodName))
         if (!fromMatches && !toMatches) continue
         const neighborKey = fromMatches ? toClassKey || edge.toKey : fromClassKey || edge.fromKey
-        if (!neighborKey || neighborKey === observation.stableKey || seenNeighborKeys.has(neighborKey)) continue
-        seenNeighborKeys.add(neighborKey)
-        neighborKeys.push(neighborKey)
+        if (!neighborKey || neighborKey === observation.stableKey) continue
+        const candidates = fromMatches ? calleeNeighborKeys : callerNeighborKeys
+        if (fromMatches) calleeStableKeys.add(neighborKey)
+        if (!candidates.includes(neighborKey)) candidates.push(neighborKey)
+      }
+      const neighborKeys: string[] = []
+      const seenNeighborKeys = new Set<string>()
+      for (const key of [...calleeNeighborKeys, ...callerNeighborKeys]) {
+        if (seenNeighborKeys.has(key)) continue
+        seenNeighborKeys.add(key)
+        neighborKeys.push(key)
         if (neighborKeys.length >= MAX_CONTEXT_UNITS) break
       }
       const neighborRows = neighborKeys.length ? await prisma.reamonObservation.findMany({
@@ -616,7 +626,7 @@ export async function POST(request: Request, { params }: RouteParams) {
           type: 'code_unit',
           stableKey: { in: neighborKeys },
         },
-        select: { id: true, label: true, attributes: true },
+        select: { id: true, label: true, stableKey: true, attributes: true },
         take: MAX_CONTEXT_UNITS,
       }) : []
       for (const row of neighborRows) {
@@ -626,7 +636,9 @@ export async function POST(request: Request, { params }: RouteParams) {
           || (typeof relatedAttributes.name === 'string' && relatedAttributes.name)
           || row.label
           || ''
-        if (!name || name === unitName || !relatedArtifactId.startsWith(runPrefix) || relatedByName.has(name)) continue
+        if (!name || name === unitName || !relatedArtifactId.startsWith(runPrefix)) continue
+        if (calleeStableKeys.has(row.stableKey)) calleeUnitIds.add(row.id)
+        if (relatedByName.has(name)) continue
         relatedByName.set(name, relatedAttributes)
         relatedUnitIdByName.set(name, row.id)
       }
@@ -773,9 +785,12 @@ export async function POST(request: Request, { params }: RouteParams) {
       }
     }
     const references = [...new Set([...similarFunctionNames, ...relatedByName.keys()])]
-    const relatedUnitIds = [...relatedUnitIdByName.values()]
-    const providerRelatedUnitIds = [...relatedUnitIdByName.entries()].flatMap(([name, id]) =>
-      similarArtifactByName.has(name) && similarArtifactByName.get(name) !== artifact.id ? [] : [id])
+    const relatedUnitIds = [...new Set([...relatedUnitIdByName.values(), ...calleeUnitIds])]
+    const providerRelatedUnitIds = [...new Set([
+      ...calleeUnitIds,
+      ...[...relatedUnitIdByName.entries()].flatMap(([name, id]) =>
+        similarArtifactByName.has(name) && similarArtifactByName.get(name) !== artifact.id ? [] : [id]),
+    ])]
     const providerSymbolUnitIds = [...new Set([observation.id, ...providerRelatedUnitIds])]
     const providerSymbolInputTruncated = providerSymbolUnitIds.length > MAX_PROVIDER_SYMBOL_RECORDS
     const [maintainedRelatedRows, projectDraftRows, currentDraft, providerSymbolRows, providerGoMetadataRows] = await Promise.all([
@@ -872,7 +887,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       ...row,
       artifactName: artifactById.get(row.artifactId)?.originalName,
       artifactHash: artifactById.get(row.artifactId)?.sha256,
-    })), new Set(relatedUnitIds), undefined, artifact.sha256)
+    })), new Set(relatedUnitIds), undefined, artifact.sha256, calleeUnitIds)
     const selectedProviderRow = providerSymbolRows.find((row) => row.id === observation.id)
     const selectedProviderAttributes = selectedProviderRow ? plainObject(selectedProviderRow.attributes) : {}
     const selectedProviderVariables = selectedProviderRow
@@ -918,6 +933,7 @@ export async function POST(request: Request, { params }: RouteParams) {
         inputTruncated: providerSymbolInputTruncated,
       },
       observation.id,
+      calleeUnitIds,
     ) : ''
     const providerGoTypeContext = observation.taskId
       && selectedProviderAttributes.sourceLanguage === 'Go'
