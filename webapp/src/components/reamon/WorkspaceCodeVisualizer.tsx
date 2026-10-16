@@ -125,6 +125,62 @@ interface CodeMemberOutline { name: string; kind: 'function' | 'method' | 'const
 interface SafeRenameProposal { bindingId: string; oldName: string; newName: string; kind: string; referenceCount: number; rationale: string }
 interface SafeRenameSuggestions { sourceSha256: string; providerId: string; providerName: string; model: string; candidates: number; renames: SafeRenameProposal[] }
 
+interface ReviewDiffRow { kind: 'added' | 'removed'; text: string; beforeLine: number | null; afterLine: number | null }
+interface ReviewDiff { rows: ReviewDiffRow[]; added: number; removed: number; truncated: boolean; unavailable: boolean }
+
+function buildReviewDiff(before: string, after: string): ReviewDiff {
+  const beforeLines = before.replace(/\r\n?/g, '\n').split('\n')
+  const afterLines = after.replace(/\r\n?/g, '\n').split('\n')
+  const columns = afterLines.length + 1
+  const cells = (beforeLines.length + 1) * columns
+  if (cells > 1_000_000) return { rows: [], added: 0, removed: 0, truncated: false, unavailable: true }
+  const lengths = new Uint32Array(cells)
+  for (let beforeIndex = beforeLines.length - 1; beforeIndex >= 0; beforeIndex -= 1) {
+    for (let afterIndex = afterLines.length - 1; afterIndex >= 0; afterIndex -= 1) {
+      const index = beforeIndex * columns + afterIndex
+      lengths[index] = beforeLines[beforeIndex] === afterLines[afterIndex]
+        ? lengths[(beforeIndex + 1) * columns + afterIndex + 1] + 1
+        : Math.max(lengths[(beforeIndex + 1) * columns + afterIndex], lengths[beforeIndex * columns + afterIndex + 1])
+    }
+  }
+  const rows: ReviewDiffRow[] = []
+  const MAX_ROWS = 600
+  let beforeIndex = 0
+  let afterIndex = 0
+  let added = 0
+  let removed = 0
+  let truncated = false
+  const append = (row: ReviewDiffRow) => {
+    if (rows.length < MAX_ROWS) rows.push(row)
+    else truncated = true
+  }
+  while (beforeIndex < beforeLines.length && afterIndex < afterLines.length) {
+    if (beforeLines[beforeIndex] === afterLines[afterIndex]) {
+      beforeIndex += 1
+      afterIndex += 1
+    } else if (lengths[(beforeIndex + 1) * columns + afterIndex] >= lengths[beforeIndex * columns + afterIndex + 1]) {
+      append({ kind: 'removed', text: beforeLines[beforeIndex], beforeLine: beforeIndex + 1, afterLine: null })
+      removed += 1
+      beforeIndex += 1
+    } else {
+      append({ kind: 'added', text: afterLines[afterIndex], beforeLine: null, afterLine: afterIndex + 1 })
+      added += 1
+      afterIndex += 1
+    }
+  }
+  while (beforeIndex < beforeLines.length) {
+    append({ kind: 'removed', text: beforeLines[beforeIndex], beforeLine: beforeIndex + 1, afterLine: null })
+    removed += 1
+    beforeIndex += 1
+  }
+  while (afterIndex < afterLines.length) {
+    append({ kind: 'added', text: afterLines[afterIndex], beforeLine: null, afterLine: afterIndex + 1 })
+    added += 1
+    afterIndex += 1
+  }
+  return { rows, added, removed, truncated, unavailable: false }
+}
+
 function validationSummary(validation: Pick<CodeMaintenanceResponse, 'syntaxValidated' | 'validationStatus' | 'validationMethod' | 'validationMessage'>): string {
   const method = validation.validationMethod || 'Source parser'
   if (validation.validationStatus === 'PASSED') return `${method} passed${validation.validationMessage ? `: ${validation.validationMessage}` : '.'} Review reconstructed logic and behavior before saving.`
@@ -550,6 +606,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
   const [safeRenameStatus, setSafeRenameStatus] = useState('')
   const [reviewRationale, setReviewRationale] = useState('')
   const [reviewStatus, setReviewStatus] = useState('')
+  const [showReviewDiff, setShowReviewDiff] = useState(false)
   const [transforming, setTransforming] = useState(false)
   const [activeRewriteAttemptId, setActiveRewriteAttemptId] = useState<string | null>(null)
   const [cancellingRewrite, setCancellingRewrite] = useState(false)
@@ -839,6 +896,13 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
     staleTime: 0,
     gcTime: 60_000,
   })
+  const reviewBaselineSource = maintainedQuery.data?.exists && typeof maintainedQuery.data.sourceCode === 'string'
+    ? maintainedQuery.data.sourceCode
+    : sourceQuery.data || ''
+  const reviewBaselineLabel = maintainedQuery.data?.exists ? 'the current saved maintained version' : 'the original decompilation'
+  const normalizeReviewSource = (source: string) => source.replace(/\r\n?/g, '\n')
+  const hasReviewDiff = Boolean(maintainedDraft.trim()) && normalizeReviewSource(reviewBaselineSource) !== normalizeReviewSource(maintainedDraft)
+  const reviewDiff = showReviewDiff && hasReviewDiff ? buildReviewDiff(reviewBaselineSource, maintainedDraft) : null
   useEffect(() => {
     const unitId = selectedUnit?.id
     if (unitId) initializedMaintainedUnits.current.delete(unitId)
@@ -852,6 +916,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
     setApplyingSafeRenames(false)
     setReviewRationale('')
     setReviewStatus('')
+    setShowReviewDiff(false)
     setMaintainedDraft('')
     setSmaliDraft('')
     setSmaliSaved(false)
@@ -2181,6 +2246,16 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
               <textarea ref={maintainedEditorRef} aria-label="Editable maintained source" value={maintainedDraft} spellCheck={false} onChange={(event) => { setMaintainedDraft(event.target.value); setMaintainedSaved(false); setMaintenanceMeta((current) => current ? { ...current, syntaxValidated: null, validationStatus: null, validationMethod: null, validationMessage: null } : current) }} />
               </label>
             </div>
+            {hasReviewDiff && <details className={styles.reviewDiff} onToggle={(event) => setShowReviewDiff(event.currentTarget.open)}>
+              <summary>Review changes against {reviewBaselineLabel}</summary>
+              {reviewDiff?.unavailable && <p className={styles.message}>This source is too large for an inline diff. Compare the two source panes or open the files in your local editor.</p>}
+              {reviewDiff && !reviewDiff.unavailable && <>
+                <p className={styles.message}>{reviewDiff.added} lines added · {reviewDiff.removed} lines removed{reviewDiff.truncated ? ' · display limited to the first 600 diff lines' : ''}</p>
+                <pre className={styles.reviewDiffCode}><code>{reviewDiff.rows.map((row, index) => <span key={`${row.kind}:${row.beforeLine}:${row.afterLine}:${index}`} className={row.kind === 'added' ? styles.reviewDiffAdded : styles.reviewDiffRemoved}>
+                  <span className={styles.reviewDiffGutter}>{row.beforeLine ?? ''}\t{row.afterLine ?? ''}\t{row.kind === 'added' ? '+' : '−'}</span>{row.text || ' '}
+                </span>)}</code></pre>
+              </>}
+            </details>}
             <label className={styles.reviewRationale}>Review rationale (required to accept or reject this version)
               <textarea aria-label="Review rationale" value={reviewRationale} maxLength={1000} onChange={(event) => setReviewRationale(event.target.value)} placeholder="For acceptance, say what you checked. For rejection, explain what needs correction." />
             </label>

@@ -64,6 +64,10 @@ record success.
 Keep the original code unchanged and store a candidate as a separate draft. Record the
 prompt/context version, proposed names and types, source diff, explanation, and the
 evidence cited. The candidate should focus on a bounded change that can be reviewed.
+The visualizer can show added and removed lines against the saved maintained version
+before review; when no maintained version exists, it compares against the original
+decompilation. Large diffs are explicitly capped, and this view is review evidence
+rather than a behavior-equivalence check.
 The rewrite queue persists queued, running, failed, and successful attempts with the
 exact project, artifact, run, unit, source hash, provider, full request context,
 validation state, and returned source. The visualizer polls the authorized attempt

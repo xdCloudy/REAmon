@@ -267,6 +267,14 @@ button.flowNode:hover, button.flowNode:focus-visible { border-color: #86c8ff; ou
 .maintainedComparison > div, .maintainedComparison > label { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; color: var(--text-secondary); font-size: var(--text-xs); }
 .maintainedComparison .sourceCode { max-height: 560px; border: 1px solid var(--border-default); border-radius: var(--radius-sm); }
 .maintainedComparison textarea { width: 100%; min-height: 340px; max-height: 720px; resize: vertical; border: 1px solid var(--border-default); border-radius: var(--radius-sm); padding: var(--space-3); background: #111722; color: #d4deed; font: .76rem/1.55 var(--font-mono); tab-size: 4; white-space: pre; }
+.reviewDiff { width: 100%; border-top: 1px solid var(--border-default); padding-top: var(--space-2); color: var(--text-secondary); font-size: var(--text-xs); }
+.reviewDiff summary { width: fit-content; cursor: pointer; color: var(--text-primary); }
+.reviewDiffCode { max-height: 420px; margin: var(--space-2) 0 0; overflow: auto; border: 1px solid var(--border-default); border-radius: var(--radius-sm); padding: var(--space-2); background: #111722; color: #d4deed; font: .72rem/1.5 var(--font-mono); tab-size: 4; white-space: pre; }
+.reviewDiffCode > code { display: block; }
+.reviewDiffCode > code > span { display: block; min-height: 1.5em; }
+.reviewDiffAdded { background: rgb(45 140 91 / 20%); color: #b7f0cc; }
+.reviewDiffRemoved { background: rgb(181 69 72 / 20%); color: #ffc4c6; }
+.reviewDiffGutter { display: inline-block; min-width: 8.5em; margin-right: var(--space-2); color: var(--text-tertiary); user-select: none; }
 .maintainedActions { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); }
 .maintainedActions .copyButton { text-decoration: none; }
 .reviewRationale { display: flex; width: 100%; flex-direction: column; gap: var(--space-2); margin-top: var(--space-3); color: var(--text-secondary); font-size: var(--text-xs); }
