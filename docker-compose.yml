@@ -1178,6 +1178,7 @@ services:
       REAMON_WEBCRACK_URL: http://webcrack-analyzer:8015
       REAMON_LUAJIT_URL: http://luajit-analyzer:8016
       REAMON_UNLUAC_URL: http://unluac-analyzer:8017
+      REAMON_UNLUAC_RS_URL: http://unluac-rs-analyzer:8018
       REAMON_MAX_ARTIFACT_BYTES: ${REAMON_MAX_ARTIFACT_BYTES:-536870912}
       REAMON_MAX_IMPORT_FILES: ${REAMON_MAX_IMPORT_FILES:-50000}
       REAMON_MAX_IMPORT_BYTES: ${REAMON_MAX_IMPORT_BYTES:-8589934592}
@@ -1565,6 +1566,45 @@ services:
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8017/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - reamon-analysis
+
+  # unluac-rs adds strict Lua 5.5 reconstruction in a bounded WASM worker.
+  unluac-rs-analyzer:
+    build:
+      context: ./analyzers/unluac-rs
+    image: reamon-unluac-rs:local
+    container_name: reamon-unluac-rs
+    init: true
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+    mem_limit: ${REAMON_UNLUAC_RS_MEM:-512m}
+    pids_limit: ${REAMON_UNLUAC_RS_PIDS:-32}
+    cpus: ${REAMON_UNLUAC_RS_CPUS:-1}
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=${REAMON_UNLUAC_RS_TMP_SIZE:-128m},mode=1777
+    environment:
+      REAMON_ARTIFACTS_PATH: /data/reamon-artifacts
+      REAMON_DERIVED_PATH: /data/reamon-derived
+      UNLUAC_RS_TIMEOUT_MS: ${REAMON_UNLUAC_RS_TIMEOUT_MS:-180000}
+      UNLUAC_RS_MAX_INPUT_BYTES: ${REAMON_UNLUAC_RS_MAX_INPUT_BYTES:-16777216}
+      UNLUAC_RS_MAX_OUTPUT_BYTES: ${REAMON_UNLUAC_RS_MAX_OUTPUT_BYTES:-33554432}
+    volumes:
+      - reamon_artifacts:/data/reamon-artifacts:ro
+      - reamon_derived:/data/reamon-derived:rw
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8018/health').then(r => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))"]
       interval: 30s
       timeout: 5s
       retries: 3

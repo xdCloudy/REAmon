@@ -21,6 +21,7 @@ import { pycdcPlugin } from './pycdc'
 import { webcrackPlugin } from './webcrack'
 import { luajitPlugin } from './luajit'
 import { unluacPlugin } from './unluac'
+import { unluacRsPlugin } from './unluac-rs'
 
 export const CAPABILITIES: Capability[] = [
   { id: 'identify', label: 'Identify', description: 'Classify a target or artifact using observable metadata.', category: 'profiling' },
@@ -114,6 +115,9 @@ export const BUILTIN_TOOL_PLUGINS: ToolPlugin[] = [
   },
   {
     ...unluacPlugin,
+  },
+  {
+    ...unluacRsPlugin,
   },
 ]
 

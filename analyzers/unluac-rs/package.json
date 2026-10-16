@@ -1,0 +1,8 @@
+{
+  "name": "reamon-unluac-rs-analyzer",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "unluac-js": "1.3.1"
+  }
+}

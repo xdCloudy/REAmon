@@ -114,6 +114,18 @@ function detectFormat(bytes: Uint8Array, extension: string): {
   }
 
   if (bytes.length >= 5 && readAscii(bytes, 0, 4) === '\u001bLua'
+      && bytes[4] === 0x55) {
+    return {
+      format: 'lua-bytecode-5.5',
+      targetType: 'FILE',
+      architecture: null,
+      platform: 'lua',
+      runtimes: ['lua'],
+      embeddedArtifacts: ['lua-source'],
+    }
+  }
+
+  if (bytes.length >= 5 && readAscii(bytes, 0, 4) === '\u001bLua'
       && [0x50, 0x51, 0x52, 0x53, 0x54].includes(bytes[4])) {
     return {
       format: 'lua-bytecode',
@@ -263,7 +275,7 @@ function mimeTypeFor(format: string, extension: string, providedMimeType: string
   if (format === 'class') return 'application/java-vm'
   if (format === 'python-bytecode') return 'application/x-python-bytecode'
   if (format === 'luajit-bytecode') return 'application/x-luajit-bytecode'
-  if (format === 'lua-bytecode') return 'application/x-lua-bytecode'
+  if (format === 'lua-bytecode' || format === 'lua-bytecode-5.5') return 'application/x-lua-bytecode'
   if (format === 'pdf') return 'application/pdf'
   if (format === 'pcap') return 'application/vnd.tcpdump.pcap'
   if (format === 'sqlite') return 'application/vnd.sqlite3'
