@@ -1171,6 +1171,7 @@ services:
       REAMON_ARTIFACTS_PATH: /data/reamon-artifacts
       REAMON_DERIVED_PATH: /data/reamon-derived
       REAMON_JADX_URL: http://jadx-analyzer:8010
+      REAMON_VINEFLOWER_URL: http://vineflower-analyzer:8021
       REAMON_DEX_DECOMPILER_URL: http://dex-decompiler-analyzer:8019
       REAMON_ILSPY_URL: http://ilspy-analyzer:8013
       REAMON_GHIDRA_URL: http://ghidra-analyzer:8011
@@ -1289,6 +1290,47 @@ services:
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8010/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    networks:
+      - reamon-analysis
+
+  # Vineflower's Kotlin language plugin is experimental; keep it isolated as an alternate JVM source view.
+  vineflower-analyzer:
+    build:
+      context: ./analyzers/vineflower
+    image: ${REAMON_VINEFLOWER_IMAGE:-reamon-vineflower:local}
+    container_name: reamon-vineflower
+    init: true
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+    mem_limit: ${REAMON_VINEFLOWER_MEM:-4g}
+    pids_limit: ${REAMON_VINEFLOWER_PIDS:-128}
+    cpus: ${REAMON_VINEFLOWER_CPUS:-2}
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=${REAMON_VINEFLOWER_TMP_SIZE:-2g},mode=1777
+    environment:
+      REAMON_ARTIFACTS_PATH: /data/reamon-artifacts
+      REAMON_DERIVED_PATH: /data/reamon-derived
+      VINEFLOWER_TIMEOUT_SECONDS: ${REAMON_VINEFLOWER_TIMEOUT_SECONDS:-900}
+      VINEFLOWER_MAX_OUTPUT_BYTES: ${REAMON_VINEFLOWER_MAX_OUTPUT_BYTES:-536870912}
+      VINEFLOWER_MAX_SOURCE_FILES: ${REAMON_VINEFLOWER_MAX_SOURCE_FILES:-20000}
+      VINEFLOWER_JAVA_HEAP: ${REAMON_VINEFLOWER_JAVA_HEAP:-2g}
+    volumes:
+      - reamon_artifacts:/data/reamon-artifacts:ro
+      - reamon_derived:/data/reamon-derived:rw
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8021/health', timeout=3)"]
       interval: 30s
       timeout: 5s
       retries: 3

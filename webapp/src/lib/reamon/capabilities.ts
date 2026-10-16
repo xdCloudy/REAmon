@@ -14,6 +14,7 @@ import { elfDependenciesPlugin } from './elf-dependencies'
 import { fileInspectorPlugin } from './file-inspector'
 import { jsonInspectorPlugin } from './json-inspector'
 import { jadxPlugin } from './jadx'
+import { vineflowerPlugin } from './vineflower'
 import { dexDecompilerPlugin } from './dex-decompiler'
 import { ilspyPlugin } from './ilspy'
 import { ghidraPlugin } from './ghidra'
@@ -96,6 +97,9 @@ export const BUILTIN_TOOL_PLUGINS: ToolPlugin[] = [
   },
   {
     ...jadxPlugin,
+  },
+  {
+    ...vineflowerPlugin,
   },
   {
     ...dexDecompilerPlugin,
