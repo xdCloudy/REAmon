@@ -133,11 +133,12 @@ regressions; rollback a candidate when a guard check fails.
 
 Show separate counts for discovered, analyzed, decompiled, maintained, reviewed, and
 validated units. The current source bundle records the input artifact hash, provider
-ID/version, per-file hashes, and maintained-source hash/receipt pointers. Continue by
-verifying receipt, draft, and validation evidence against those hashes, then export a
-reproducible build or validation recipe where the selected toolchain supports one.
-Continue work from the saved project state rather than starting a fresh conversation
-with undocumented assumptions.
+ID/version, per-file hashes, and maintained-source hashes; it checks each review
+receipt against the project, artifact, unit, accepted decision, and exact exported
+source hash. Continue by linking drafts and validator evidence to those hashes, then
+export a reproducible build or validation recipe where the selected toolchain supports
+one. Continue work from the saved project state rather than starting a fresh
+conversation with undocumented assumptions.
 
 ## Universal completion states
 

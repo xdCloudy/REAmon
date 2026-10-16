@@ -127,6 +127,13 @@ export async function GET(request: Request, { params }: RouteParams) {
       select: { codeUnitId: true, artifactId: true, sourceCode: true, sourceHash: true, acceptedReviewId: true, updatedAt: true },
     })
     const maintainedSourceByUnit = new Map(maintainedSourceRows.map((row) => [row.codeUnitId, row]))
+    const reviewIds = [...new Set(maintainedSourceRows.flatMap((row) => row.acceptedReviewId ? [row.acceptedReviewId] : []))]
+    const reviewClient = (prisma as typeof prisma & { reamonCodeReview?: typeof prisma.reamonCodeReview }).reamonCodeReview
+    const reviews = reviewIds.length && reviewClient ? await reviewClient.findMany({
+      where: { projectId, id: { in: reviewIds } },
+      select: { id: true, artifactId: true, codeUnitId: true, reviewerId: true, decision: true, maintainedSourceHash: true, validationStatus: true, validationMethod: true, createdAt: true },
+    }) : []
+    const reviewById = new Map(reviews.map((review) => [review.id, review]))
     const storageRoot = await realpath(derivedArtifactRoot())
     const archive = archiver('zip', { zlib: { level: 6 } })
     const manifestEntries: Array<Record<string, unknown>> = []
@@ -231,6 +238,17 @@ export async function GET(request: Request, { params }: RouteParams) {
       const maintainedHashMatchesStored = Boolean(maintainedSha256
         && maintainedSource?.sourceHash
         && maintainedSource.sourceHash === maintainedSha256)
+      const maintainedReceipt = maintainedSource?.acceptedReviewId
+        ? reviewById.get(maintainedSource.acceptedReviewId)
+        : undefined
+      const maintainedReceiptVerified = Boolean(maintainedStatus === 'exported'
+        && maintainedSource?.artifactId === task.artifactId
+        && maintainedHashMatchesStored
+        && maintainedSha256
+        && maintainedReceipt?.artifactId === task.artifactId
+        && maintainedReceipt.codeUnitId === unit.id
+        && maintainedReceipt.decision === 'ACCEPTED'
+        && maintainedReceipt.maintainedSourceHash === maintainedSha256)
 
       manifestEntries.push({
         unitId: unit.id,
@@ -249,10 +267,21 @@ export async function GET(request: Request, { params }: RouteParams) {
         maintainedHashMatchesStored: maintainedSha256 && maintainedSource?.sourceHash ? maintainedHashMatchesStored : null,
         maintainedReviewId: maintainedSource?.acceptedReviewId || null,
         maintainedReviewStatus: maintainedStatus === 'exported'
-          ? maintainedSource?.acceptedReviewId
-            ? maintainedHashMatchesStored ? 'linked_hash_match' : 'linked_hash_mismatch'
-            : 'missing'
+          ? maintainedReceiptVerified
+            ? 'verified'
+            : maintainedReceipt
+              ? 'mismatch'
+              : maintainedSource?.acceptedReviewId && !reviewClient ? 'unavailable' : 'missing'
           : null,
+        ...(maintainedReceipt ? {
+          maintainedReview: {
+            reviewerId: maintainedReceipt.reviewerId,
+            decision: maintainedReceipt.decision,
+            createdAt: maintainedReceipt.createdAt.toISOString(),
+            validationStatus: maintainedReceipt.validationStatus,
+            validationMethod: maintainedReceipt.validationMethod,
+          },
+        } : {}),
         ...(maintainedReason ? { maintainedReason } : {}),
         updatedAt: maintainedSource?.updatedAt instanceof Date
           ? maintainedSource.updatedAt.toISOString()
@@ -271,7 +300,7 @@ export async function GET(request: Request, { params }: RouteParams) {
       '',
       'decompiled/ contains the analyzer output. maintained/ contains saved edited or AI-assisted copies when available.',
       'The two trees are kept separate; maintained source never overwrites the decompilation.',
-      'See manifest.json for artifact and file hashes, maintained-source receipt pointers and source-hash matches, missing files, and export status. Receipt pointers are not independently revalidated during export.',
+      'See manifest.json for artifact and file hashes, maintained-source receipt verification and validation metadata, missing files, and export status.',
       'This bundle does not include build scripts or dependencies. Review and build with the appropriate toolchain before relying on it.',
       '',
     ].join('\n')), { name: 'README.txt' })
