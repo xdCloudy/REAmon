@@ -1160,13 +1160,25 @@ TRANSFORMATION RULES
     if len(rewritten.encode("utf-8")) > 128 * 1024:
         return JSONResponse(content={"error": "The rewritten source exceeds the response limit", "model_used": requested_model}, status_code=502)
     syntax_validated = False
+    validation_status = "UNAVAILABLE"
+    validation_method = "tree-sitter" if parser is not None else None
+    validation_message = f"No Tree-sitter parser is registered for {body.language}." if parser is None else ""
     if parser is not None and body.scope != "member":
         try:
             syntax_validated = not parser.parse(rewritten.encode("utf-8")).root_node.has_error
         except Exception as exc:  # noqa: BLE001
             logger.debug(f"REAmon source validation failed for {body.language}: {exc}")
+            validation_message = "The configured source parser could not validate this draft."
+        else:
+            if syntax_validated:
+                validation_status = "PASSED"
+                validation_message = "The configured source parser found no syntax errors."
+            else:
+                validation_status = "FAILED"
+                validation_message = "The configured source parser found syntax errors."
     if parser is not None and body.scope != "member" and not syntax_validated:
-        return JSONResponse(content={"error": "The model draft does not parse as complete source. Try a stronger model or a more focused transformation.", "code": "invalid_source", "model_used": requested_model}, status_code=422)
+        if validation_status == "FAILED":
+            return JSONResponse(content={"error": "The model draft does not parse as complete source. Try a stronger model or a more focused transformation.", "code": "invalid_source", "validation_status": validation_status, "validation_method": validation_method, "validation_message": validation_message, "model_used": requested_model}, status_code=422)
     if body.scope == "member" and parser is not None:
         rewritten_contract = _java_member_contract(parser, rewritten) if body.language.strip().lower() == "java" else _reamon_callable_contract(parser, rewritten, body.language)
         if not rewritten_contract:
@@ -1183,6 +1195,9 @@ TRANSFORMATION RULES
         if body.language.strip().lower() == "java" and rewritten_contract["body_statement_count"] < original_member_contract["body_statement_count"] and original_member_contract["body_statement_count"] > 0:
             return JSONResponse(content={"error": "The model removed executable Java logic. Choose a stronger model or retry with a narrower transformation.", "code": "behavior_dropped", "model_used": requested_model}, status_code=422)
         syntax_validated = True
+        validation_status = "PASSED"
+        validation_method = "tree-sitter+member-contract"
+        validation_message = "The source parser accepted the member and its declaration contract was preserved."
     if body.scope != "member" and body.language.strip().lower() == "java" and parser is not None:
         selected_types = _java_top_level_types(parser, body.source_code)
         rewritten_types = _java_top_level_types(parser, rewritten)
@@ -1244,7 +1259,14 @@ TRANSFORMATION RULES
                 "error": "The model changed native function declarations, return types, parameter types, or calling shape. Review the source and retry with a stronger model.",
                 "code": "declaration_changed", "model_used": requested_model,
             }, status_code=422)
-    return {"source_code": rewritten, "syntax_validated": syntax_validated, "model_used": requested_model}
+    return {
+        "source_code": rewritten,
+        "syntax_validated": syntax_validated,
+        "validation_status": validation_status,
+        "validation_method": validation_method,
+        "validation_message": validation_message,
+        "model_used": requested_model,
+    }
 
 
 @app.post("/reamon/code/explain", tags=["REAmon"], dependencies=[Depends(require_internal_auth)])

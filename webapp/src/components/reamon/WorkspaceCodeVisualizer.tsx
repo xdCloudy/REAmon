@@ -91,11 +91,21 @@ interface SimilarFunctionsResponse {
 interface CodeExplanationProvider { id: string; name: string; modelIdentifier: string }
 interface CodeExplanationResponse { explanation: string; providerName: string; model: string; sourceTruncated: boolean }
 interface ApkBuildResponse { buildId: string; taskId: string; fileName: string; sizeBytes: number; sha256: string; signed: false; changedFileCount: number; warnings?: string; downloadUrl: string }
-interface CodeMaintenanceResponse { sourceCode: string; providerName: string; model: string; syntaxValidated?: boolean | null }
-interface CodeDraftRecord { id: string; sourceCode: string; providerName: string; modelIdentifier: string; question: string; scope: 'file' | 'member'; syntaxValidated: boolean | null; updatedAt: string }
-interface CodeAttemptRecord { id: string; providerName: string; modelIdentifier: string; question: string; scope: 'file' | 'member'; status: 'RUNNING' | 'SUCCEEDED' | 'FAILED'; errorCode: string | null; errorMessage: string | null; resultSource: string | null; syntaxValidated: boolean | null; createdAt: string; completedAt: string | null }
+interface CodeMaintenanceResponse { sourceCode: string; providerName: string; model: string; syntaxValidated?: boolean | null; validationStatus?: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod?: string | null; validationMessage?: string | null }
+interface CodeDraftRecord { id: string; sourceCode: string; providerName: string; modelIdentifier: string; question: string; scope: 'file' | 'member'; syntaxValidated: boolean | null; validationStatus: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod: string | null; validationMessage: string | null; updatedAt: string }
+interface CodeAttemptRecord { id: string; providerName: string; modelIdentifier: string; question: string; scope: 'file' | 'member'; status: 'RUNNING' | 'SUCCEEDED' | 'FAILED'; errorCode: string | null; errorMessage: string | null; resultSource: string | null; syntaxValidated: boolean | null; validationStatus: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod: string | null; validationMessage: string | null; createdAt: string; completedAt: string | null }
 interface CodeDraftResponse { exists: boolean; draft: CodeDraftRecord | null; attempts?: CodeAttemptRecord[] }
 interface CodeMemberOutline { name: string; kind: 'function' | 'method' | 'constructor'; start_byte: number; end_byte: number; line: number; source_bytes: number }
+
+function validationSummary(validation: Pick<CodeMaintenanceResponse, 'syntaxValidated' | 'validationStatus' | 'validationMethod' | 'validationMessage'>): string {
+  const method = validation.validationMethod || 'Source parser'
+  if (validation.validationStatus === 'PASSED') return `${method} passed${validation.validationMessage ? `: ${validation.validationMessage}` : '.'} Review reconstructed logic and behavior before saving.`
+  if (validation.validationStatus === 'FAILED') return `${method} rejected this source${validation.validationMessage ? `: ${validation.validationMessage}` : '.'}`
+  if (validation.validationStatus === 'UNAVAILABLE') return `Validation unavailable${validation.validationMethod ? ` (${validation.validationMethod})` : ''}${validation.validationMessage ? `: ${validation.validationMessage}` : ' for this language. Check syntax and behavior before saving.'}`
+  if (validation.syntaxValidated === true) return 'The source parser found no syntax errors. Review reconstructed logic and behavior before saving.'
+  if (validation.syntaxValidated === false) return 'Syntax validation was unavailable for this language. Check syntax and behavior before saving.'
+  return 'This draft has changed or predates saved validation metadata. Recheck its syntax and behavior before saving.'
+}
 
 const EMPTY_CODE_UNITS: CodeUnit[] = []
 const AUTO_LOAD_CODE_UNIT_LIMIT = 20_000
@@ -634,7 +644,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
       setDraftSource(savedDraft.sourceCode)
       setDraftScope(savedDraft.scope)
       setQuestion(savedDraft.question)
-      setMaintenanceMeta({ sourceCode: savedDraft.sourceCode, providerName: savedDraft.providerName, model: savedDraft.modelIdentifier, syntaxValidated: savedDraft.syntaxValidated ?? undefined })
+      setMaintenanceMeta({ sourceCode: savedDraft.sourceCode, providerName: savedDraft.providerName, model: savedDraft.modelIdentifier, syntaxValidated: savedDraft.syntaxValidated ?? undefined, validationStatus: savedDraft.validationStatus, validationMethod: savedDraft.validationMethod, validationMessage: savedDraft.validationMessage })
     } else if (savedMaintained) {
       setMaintainedDraft(savedMaintained.sourceCode as string)
       setMaintainedSaved(true)
@@ -753,11 +763,11 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
     const draftQuestion = question.trim()
     const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/drafts/${encodeURIComponent(selectedUnit.id)}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sourceCode, providerName: meta.providerName, model: meta.model, question: draftQuestion, scope, syntaxValidated: meta.syntaxValidated ?? null }),
+      body: JSON.stringify({ sourceCode, providerName: meta.providerName, model: meta.model, question: draftQuestion, scope, syntaxValidated: meta.syntaxValidated ?? null, validationStatus: meta.validationStatus ?? null, validationMethod: meta.validationMethod ?? null, validationMessage: meta.validationMessage ?? null }),
     })
     const result = await response.json().catch(() => ({})) as { error?: string; draftId?: string; updatedAt?: string }
     if (!response.ok || !result.draftId || !result.updatedAt) throw new Error(result.error || 'Could not save this AI draft to project memory')
-    const record: CodeDraftRecord = { id: result.draftId, sourceCode, providerName: meta.providerName, modelIdentifier: meta.model, question: draftQuestion, scope, syntaxValidated: meta.syntaxValidated ?? null, updatedAt: result.updatedAt }
+    const record: CodeDraftRecord = { id: result.draftId, sourceCode, providerName: meta.providerName, modelIdentifier: meta.model, question: draftQuestion, scope, syntaxValidated: meta.syntaxValidated ?? null, validationStatus: meta.validationStatus ?? null, validationMethod: meta.validationMethod ?? null, validationMessage: meta.validationMessage ?? null, updatedAt: result.updatedAt }
     setDraftId(record.id)
     setDraftSource(sourceCode)
     setDraftScope(scope)
@@ -782,7 +792,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
         method: existingDraftId ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(existingDraftId
           ? { draftId: existingDraftId, sourceCode: maintainedDraft }
-          : { sourceCode: maintainedDraft, providerName, model, question: question.trim(), scope: 'file', syntaxValidated: null }),
+          : { sourceCode: maintainedDraft, providerName, model, question: question.trim(), scope: 'file', syntaxValidated: null, validationStatus: null, validationMethod: null, validationMessage: null }),
       })
       const result = await response.json().catch(() => ({})) as { error?: string; draftId?: string; updatedAt?: string }
       if (!response.ok || (!existingDraftId && !result.draftId) || !result.updatedAt) throw new Error(result.error || 'Could not save this draft to project memory')
@@ -794,6 +804,9 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
         question: question.trim(),
         scope: existingDraftId ? draftScope || 'file' : 'file',
         syntaxValidated: null,
+        validationStatus: null,
+        validationMethod: null,
+        validationMessage: null,
         updatedAt: result.updatedAt,
       }
       setDraftId(record.id)
@@ -1614,7 +1627,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
             </>}
           </section>}
           {maintenanceError && <p className={styles.error} role="alert">{maintenanceError}</p>}
-          {maintenanceMeta && <p className={styles.message}>Reverse-engineered draft from {maintenanceMeta.providerName} · {maintenanceMeta.model}. {maintenanceMeta.syntaxValidated === true ? 'The source parser found no syntax errors. Review the reconstructed logic and behavior before saving.' : maintenanceMeta.syntaxValidated === false ? 'Syntax validation was unavailable for this language. Check the reconstructed code and its behavior before saving.' : 'This draft has changed or predates saved validation metadata. Recheck its syntax and behavior before saving.'}</p>}
+          {maintenanceMeta && <p className={styles.message}>Reverse-engineered draft from {maintenanceMeta.providerName} · {maintenanceMeta.model}. {validationSummary(maintenanceMeta)}</p>}
           {(codeDraftQuery.data?.attempts?.length ?? 0) > 0 && <section className={styles.attemptHistory} aria-label="Recent AI rewrite attempts">
             <h4>Recent AI attempts for this source version</h4>
             <ol>{codeDraftQuery.data?.attempts?.map((attempt) => <li key={attempt.id}>
@@ -1624,7 +1637,8 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
                   <span>{attempt.providerName} · {attempt.modelIdentifier} · {attempt.scope} · {new Date(attempt.createdAt).toLocaleString()}</span>
                 </summary>
                 {attempt.question && <p>Request: {attempt.question}</p>}
-                {attempt.status === 'SUCCEEDED' && <p>{attempt.syntaxValidated === true ? 'The source parser found no syntax errors.' : 'Syntax validation was unavailable for this language; review the source and behavior.'}</p>}
+                {attempt.validationStatus && <p>{validationSummary(attempt)}</p>}
+                {attempt.status === 'SUCCEEDED' && !attempt.validationStatus && <p>{validationSummary(attempt)}</p>}
                 {attempt.errorMessage && <p className={styles.error}>{attempt.errorMessage}{attempt.errorCode ? ` (${attempt.errorCode})` : ''}</p>}
                 {attempt.resultSource && <pre className={styles.attemptSource}><code>{attempt.resultSource}</code></pre>}
               </details>
@@ -1638,7 +1652,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
                 {sourceQuery.data !== undefined && <SourceListing source={sourceQuery.data} language={selectedUnit.language} fileName={selectedUnit.codeArtifactId?.split('/').pop()} fullSourceUrl={selectedSourceUrl} />}
               </div>
               <label>Editable maintained copy
-              <textarea ref={maintainedEditorRef} aria-label="Editable maintained source" value={maintainedDraft} spellCheck={false} onChange={(event) => { setMaintainedDraft(event.target.value); setMaintainedSaved(false); setMaintenanceMeta((current) => current ? { ...current, syntaxValidated: null } : current) }} />
+              <textarea ref={maintainedEditorRef} aria-label="Editable maintained source" value={maintainedDraft} spellCheck={false} onChange={(event) => { setMaintainedDraft(event.target.value); setMaintainedSaved(false); setMaintenanceMeta((current) => current ? { ...current, syntaxValidated: null, validationStatus: null, validationMethod: null, validationMessage: null } : current) }} />
               </label>
             </div>
             <div className={styles.maintainedActions}>

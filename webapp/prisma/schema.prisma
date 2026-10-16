@@ -2807,6 +2807,9 @@ model ReamonCodeDraft {
   question        String   @default("") @db.Text
   scope           String   @default("file")
   syntaxValidated Boolean? @map("syntax_validated")
+  validationStatus  String?  @map("validation_status")
+  validationMethod  String?  @map("validation_method")
+  validationMessage String?  @db.Text @map("validation_message")
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
 
@@ -2835,6 +2838,9 @@ model ReamonCodeAttempt {
   errorMessage    String?   @db.Text @map("error_message")
   resultSource    String?   @db.Text @map("result_source")
   syntaxValidated Boolean?  @map("syntax_validated")
+  validationStatus  String?  @map("validation_status")
+  validationMethod  String?  @map("validation_method")
+  validationMessage String?  @db.Text @map("validation_message")
   createdAt       DateTime  @default(now()) @map("created_at")
   completedAt     DateTime? @map("completed_at")
 

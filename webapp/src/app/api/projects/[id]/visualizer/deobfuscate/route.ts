@@ -683,7 +683,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       where: { projectId, artifactId: artifact.id, runKey: runPrefix.slice(0, -1), codeUnitId: observation.id, sourceHash },
       orderBy: { createdAt: 'desc' },
       take: 5,
-      select: { providerName: true, modelIdentifier: true, question: true, scope: true, status: true, errorCode: true, errorMessage: true, syntaxValidated: true, createdAt: true },
+      select: { providerName: true, modelIdentifier: true, question: true, scope: true, status: true, errorCode: true, errorMessage: true, syntaxValidated: true, validationStatus: true, validationMethod: true, validationMessage: true, createdAt: true },
     })
     const priorAttemptLines = priorAttempts.reverse().map((attempt, index) => {
       const outcome = attempt.status === 'SUCCEEDED'
@@ -691,7 +691,10 @@ export async function POST(request: Request, { params }: RouteParams) {
         : attempt.status === 'RUNNING'
           ? 'did not finish (the prior request may have been interrupted)'
           : `failed${attempt.errorCode ? ` (${attempt.errorCode})` : ''}${attempt.errorMessage ? `: ${attempt.errorMessage}` : ''}`
-      return `${index + 1}. ${attempt.providerName} / ${attempt.modelIdentifier}; scope=${attempt.scope}; request=${attempt.question || '(default)'}; outcome=${outcome}`
+      const validation = attempt.validationStatus
+        ? `; validation=${attempt.validationStatus.toLowerCase()}${attempt.validationMethod ? ` via ${attempt.validationMethod}` : ''}${attempt.validationMessage ? `: ${attempt.validationMessage}` : ''}`
+        : ''
+      return `${index + 1}. ${attempt.providerName} / ${attempt.modelIdentifier}; scope=${attempt.scope}; request=${attempt.question || '(default)'}; outcome=${outcome}${validation}`
     })
     const priorAttemptContext = utf8Prefix(priorAttemptLines.join('\n'), 4 * 1024)
     const contextSources: Array<{ unit_name: string; language: string; source_code: string }> = []
@@ -936,6 +939,11 @@ export async function POST(request: Request, { params }: RouteParams) {
           status: 'FAILED',
           errorCode: typeof result.code === 'string' ? result.code.slice(0, 128) : `http_${response.status}`,
           errorMessage: message,
+          validationStatus: typeof result.validation_status === 'string'
+            ? result.validation_status.slice(0, 32)
+            : result.code === 'invalid_source' ? 'FAILED' : null,
+          validationMethod: typeof result.validation_method === 'string' ? result.validation_method.slice(0, 80) : null,
+          validationMessage: typeof result.validation_message === 'string' ? result.validation_message.slice(0, 2000) : null,
           completedAt: new Date(),
         },
       })
@@ -960,9 +968,14 @@ export async function POST(request: Request, { params }: RouteParams) {
     }
 
     const syntaxValidated = result.syntax_validated === true
+    const validationStatus = ['PASSED', 'FAILED', 'UNAVAILABLE'].includes(String(result.validation_status))
+      ? String(result.validation_status)
+      : syntaxValidated ? 'PASSED' : 'UNAVAILABLE'
+    const validationMethod = typeof result.validation_method === 'string' ? result.validation_method.slice(0, 80) : null
+    const validationMessage = typeof result.validation_message === 'string' ? result.validation_message.slice(0, 2000) : null
     await prisma.reamonCodeAttempt.update({
       where: { id: attempt.id },
-      data: { status: 'SUCCEEDED', resultSource: result.source_code, syntaxValidated, completedAt: new Date() },
+      data: { status: 'SUCCEEDED', resultSource: result.source_code, syntaxValidated, validationStatus, validationMethod, validationMessage, completedAt: new Date() },
     })
     runningAttemptId = null
 
@@ -971,6 +984,9 @@ export async function POST(request: Request, { params }: RouteParams) {
       providerName: provider.name,
       model: provider.modelIdentifier,
       syntaxValidated,
+      validationStatus,
+      validationMethod,
+      validationMessage,
       attemptId: attempt.id,
     }, { headers: { 'Cache-Control': 'private, no-store' } })
   } catch (error) {

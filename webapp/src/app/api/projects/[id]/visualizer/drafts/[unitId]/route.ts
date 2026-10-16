@@ -76,13 +76,13 @@ export async function GET(_request: Request, { params }: RouteParams) {
     const draft = await prisma.reamonCodeDraft.findFirst({
       where: { projectId, codeUnitId: unitId, artifactId: resolved.artifactId, runKey: resolved.runKey, sourceHash: resolved.sourceHash },
       orderBy: { updatedAt: 'desc' },
-      select: { id: true, sourceCode: true, providerName: true, modelIdentifier: true, question: true, scope: true, syntaxValidated: true, updatedAt: true },
+      select: { id: true, sourceCode: true, providerName: true, modelIdentifier: true, question: true, scope: true, syntaxValidated: true, validationStatus: true, validationMethod: true, validationMessage: true, updatedAt: true },
     })
     const attempts = await prisma.reamonCodeAttempt.findMany({
       where: { projectId, codeUnitId: unitId, artifactId: resolved.artifactId, runKey: resolved.runKey, sourceHash: resolved.sourceHash },
       orderBy: { createdAt: 'desc' },
       take: 10,
-      select: { id: true, providerName: true, modelIdentifier: true, question: true, scope: true, status: true, errorCode: true, errorMessage: true, resultSource: true, syntaxValidated: true, createdAt: true, completedAt: true },
+      select: { id: true, providerName: true, modelIdentifier: true, question: true, scope: true, status: true, errorCode: true, errorMessage: true, resultSource: true, syntaxValidated: true, validationStatus: true, validationMethod: true, validationMessage: true, createdAt: true, completedAt: true },
     })
     return NextResponse.json({
       exists: Boolean(draft),
@@ -113,12 +113,24 @@ export async function POST(request: Request, { params }: RouteParams) {
     const syntaxValidated = body.syntaxValidated === undefined || body.syntaxValidated === null
       ? null
       : body.syntaxValidated
+    const validationStatus = body.validationStatus === undefined || body.validationStatus === null
+      ? null
+      : body.validationStatus
+    const validationMethod = body.validationMethod === undefined || body.validationMethod === null
+      ? null
+      : body.validationMethod
+    const validationMessage = body.validationMessage === undefined || body.validationMessage === null
+      ? null
+      : body.validationMessage
     if (typeof sourceCode !== 'string' || !sourceCode.trim()) return NextResponse.json({ error: 'Draft source cannot be empty' }, { status: 400 })
     if (Buffer.byteLength(sourceCode, 'utf8') > MAX_SOURCE_BYTES) return NextResponse.json({ error: 'Draft exceeds the save limit' }, { status: 413 })
     if (typeof providerName !== 'string' || !providerName.trim() || providerName.length > MAX_METADATA_CHARS
       || typeof modelIdentifier !== 'string' || !modelIdentifier.trim() || modelIdentifier.length > MAX_METADATA_CHARS
       || typeof question !== 'string' || question.length > MAX_QUESTION_CHARS
       || (syntaxValidated !== null && typeof syntaxValidated !== 'boolean')
+      || (validationStatus !== null && !['PASSED', 'FAILED', 'UNAVAILABLE'].includes(String(validationStatus)))
+      || (validationMethod !== null && (typeof validationMethod !== 'string' || validationMethod.length > 80))
+      || (validationMessage !== null && (typeof validationMessage !== 'string' || validationMessage.length > 2000))
       || (scope !== 'file' && scope !== 'member')) {
       return NextResponse.json({ error: 'Draft metadata is invalid' }, { status: 400 })
     }
@@ -137,6 +149,9 @@ export async function POST(request: Request, { params }: RouteParams) {
         question,
         scope,
         syntaxValidated,
+        validationStatus: validationStatus as string | null,
+        validationMethod: validationMethod as string | null,
+        validationMessage: validationMessage as string | null,
       },
       select: { id: true, updatedAt: true },
     })
@@ -167,7 +182,7 @@ export async function PATCH(request: Request, { params }: RouteParams) {
     if (draft.sourceHash !== resolved.sourceHash) return NextResponse.json({ error: 'The original source changed. Create a new draft from the current decompilation.' }, { status: 409 })
     const updated = await prisma.reamonCodeDraft.update({
       where: { id: draft.id },
-      data: { sourceCode, syntaxValidated: null },
+      data: { sourceCode, syntaxValidated: null, validationStatus: null, validationMethod: null, validationMessage: null },
       select: { id: true, updatedAt: true },
     })
     return NextResponse.json({ saved: true, draftId: updated.id, updatedAt: updated.updatedAt.toISOString() }, { headers: { 'Cache-Control': 'private, no-store' } })
