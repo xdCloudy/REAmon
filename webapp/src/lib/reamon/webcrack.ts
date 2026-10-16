@@ -48,6 +48,7 @@ export interface SafeRenameResult {
   sourceCode: string
   sourceSha256: string
   outputSha256: string
+  parserVersion: string
   renamedBindings: Array<{
     bindingId: string
     oldName: string
@@ -146,6 +147,7 @@ export async function applySafeRenameBindings(
   const result = await requestSafeRename<SafeRenameResult>('/rename/apply', { code: sourceCode, expectedSha256, renames })
   if (!result || result.sourceSha256 !== expectedSha256.toLowerCase()
       || !/^[a-f0-9]{64}$/i.test(result.outputSha256)
+      || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(result.parserVersion)
       || typeof result.sourceCode !== 'string'
       || Buffer.byteLength(result.sourceCode, 'utf8') > MAX_SAFE_RENAME_SOURCE_BYTES
       || !Array.isArray(result.renamedBindings) || result.renamedBindings.length !== renames.length) {

@@ -202,7 +202,8 @@ export async function POST(request: Request, { params }: RouteParams) {
       return { bindingId: String(item.bindingId), newName: String(item.newName) }
     }))
     const runKey = segments.slice(0, 4).join('/')
-    const validationMessage = 'Babel parsed the output after scope-aware renaming and rejected binding collisions. This confirms syntax only, not behavior equivalence.'
+    const validationMethod = `babel-parser-${transformed.parserVersion}+scope-safe-rename`
+    const validationMessage = `Babel ${transformed.parserVersion} parsed the output after scope-aware renaming and rejected binding collisions. This confirms syntax only, not behavior equivalence.`
     const attempt = await prisma.reamonCodeAttempt.create({
       data: {
         projectId,
@@ -220,7 +221,7 @@ export async function POST(request: Request, { params }: RouteParams) {
         status: 'SUCCEEDED',
         requestPayload: {
           operation: 'humanify-style-scope-safe-renames',
-          engine: 'Babel scope.rename (Humanify two-stage design)',
+          engine: `Babel ${transformed.parserVersion} scope.rename (Humanify two-stage design)`,
           inputSha256: workingSourceSha256,
           artifactSourceSha256,
           inputSource: workingSource,
@@ -233,7 +234,7 @@ export async function POST(request: Request, { params }: RouteParams) {
         resultSource: transformed.sourceCode,
         syntaxValidated: true,
         validationStatus: 'PASSED',
-        validationMethod: 'babel-parser+scope-safe-rename',
+        validationMethod,
         validationMessage,
         completedAt: new Date(),
       },
@@ -249,7 +250,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       model: provider.modelIdentifier,
       syntaxValidated: true,
       validationStatus: 'PASSED',
-      validationMethod: 'babel-parser+scope-safe-rename',
+      validationMethod,
       validationMessage,
     }, { headers: { 'Cache-Control': 'private, no-store' } })
   } catch (error) {

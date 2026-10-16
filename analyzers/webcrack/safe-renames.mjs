@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 import { parse } from '@babel/parser'
 import traverse from '@babel/traverse'
 import generate from '@babel/generator'
@@ -7,6 +8,7 @@ import * as t from '@babel/types'
 const MAX_SOURCE_BYTES = 512 * 1024
 const MAX_BINDINGS = 5_000
 const MAX_RENAMES = 200
+const BABEL_PARSER_VERSION = JSON.parse(readFileSync(new URL('./node_modules/@babel/parser/package.json', import.meta.url), 'utf8')).version
 
 function digest(value) {
   return createHash('sha256').update(value).digest('hex')
@@ -140,6 +142,7 @@ export function applySafeRenames(code, expectedSha256, renameRequests) {
     sourceCode: output,
     sourceSha256,
     outputSha256: digest(output),
+    parserVersion: BABEL_PARSER_VERSION,
     renamedBindings: accepted.map(({ target, newName }) => ({
       bindingId: target.id,
       oldName: target.name,
