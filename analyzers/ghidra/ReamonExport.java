@@ -112,7 +112,8 @@ public class ReamonExport extends GhidraScript {
                     failed++;
                     continue;
                 }
-                String code = result.getDecompiledFunction().getC();
+                ghidra.app.decompiler.DecompiledFunction decompiledFunction = result.getDecompiledFunction();
+                String code = decompiledFunction.getC();
                 if (code == null || code.isBlank()) {
                     failed++;
                     continue;
@@ -183,9 +184,12 @@ public class ReamonExport extends GhidraScript {
                 String encodedStrings = Base64.getEncoder().encodeToString(stringManifest.toString().getBytes(StandardCharsets.UTF_8));
                 String encodedMnemonics = Base64.getEncoder().encodeToString(mnemonicSequence.toString().getBytes(StandardCharsets.UTF_8));
                 String encodedSourceAddressMap = Base64.getEncoder().encodeToString(sourceAddressMap.toString().getBytes(StandardCharsets.UTF_8));
+                String prototype = decompiledFunction.getSignature();
+                String encodedPrototype = Base64.getEncoder().encodeToString(
+                    (prototype == null ? "" : prototype.substring(0, Math.min(2000, prototype.length()))).getBytes(StandardCharsets.UTF_8));
                 String relativePath = "functions/" + filename;
                 String assemblyRelativePath = "assembly/" + assemblyFilename;
-                String line = encodedName + "\t" + address + "\t" + sizeBytes + "\t" + relativePath + "\t" + assemblyRelativePath + "\t" + encodedStrings + "\t" + encodedMnemonics + "\t" + encodedSourceAddressMap + "\n";
+                String line = encodedName + "\t" + address + "\t" + sizeBytes + "\t" + relativePath + "\t" + assemblyRelativePath + "\t" + encodedStrings + "\t" + encodedMnemonics + "\t" + encodedSourceAddressMap + "\t" + encodedPrototype + "\n";
                 Files.writeString(manifest, line, StandardCharsets.UTF_8,
                     java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
                 decompiled++;

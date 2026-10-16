@@ -254,13 +254,14 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                 total_metadata_bytes = 0
                 for line in manifest.read_text(encoding="utf-8", errors="replace").splitlines():
                     fields = line.split("\t")
-                    if len(fields) not in (4, 5, 6, 7, 8):
+                    if len(fields) not in (4, 5, 6, 7, 8, 9):
                         continue
                     encoded_name, address, size_text, relative = fields[:4]
                     assembly_relative = fields[4] if len(fields) >= 5 else ""
                     encoded_references = fields[5] if len(fields) >= 6 else ""
                     encoded_mnemonics = fields[6] if len(fields) >= 7 else ""
-                    encoded_source_map = fields[7] if len(fields) == 8 else ""
+                    encoded_source_map = fields[7] if len(fields) >= 8 else ""
+                    encoded_prototype = fields[8] if len(fields) == 9 else ""
                     if not re.fullmatch(r"[A-Za-z0-9_./-]{1,500}", relative) or ".." in Path(relative).parts:
                         continue
                     source = within(export_root, export_root / relative)
@@ -325,9 +326,15 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                                     source_address_map.append(item)
                         except (ValueError, UnicodeDecodeError):
                             pass
+                    prototype = ""
+                    if encoded_prototype:
+                        try:
+                            prototype = base64.b64decode(encoded_prototype, validate=True).decode("utf-8", errors="replace").strip()[:2000]
+                        except (ValueError, UnicodeDecodeError):
+                            pass
                     if total_bytes + total_assembly_bytes + total_metadata_bytes > MAX_OUTPUT_BYTES:
                         raise AnalysisError("Ghidra sources and evidence exceeded the configured storage limit")
-                    rows.append((name[:500], address[:128], size_bytes, relative, source, assembly_relative, assembly, referenced_strings, instruction_mnemonics, source_address_map))
+                    rows.append((name[:500], address[:128], size_bytes, relative, source, assembly_relative, assembly, referenced_strings, instruction_mnemonics, source_address_map, prototype))
 
                 if not rows:
                     raise AnalysisError(log_text[-1200:] or "Ghidra found no functions it could decompile")
@@ -371,7 +378,7 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                 sources_root = run_root / "sources"
                 units = []
                 progress_stride = max(1, len(returned) // 25)
-                for unit_index, (name, address, size_bytes, relative, source, assembly_relative, assembly, referenced_strings, instruction_mnemonics, source_address_map) in enumerate(returned, start=1):
+                for unit_index, (name, address, size_bytes, relative, source, assembly_relative, assembly, referenced_strings, instruction_mnemonics, source_address_map, prototype) in enumerate(returned, start=1):
                     if unit_index == 1 or unit_index % progress_stride == 0 or unit_index == len(returned):
                         report_progress(f"Saving function {unit_index} of {len(returned)}")
                     destination = sources_root / relative
@@ -403,6 +410,8 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                         unit["instructionMnemonics"] = instruction_mnemonics
                     if source_address_map:
                         unit["sourceAddressMap"] = source_address_map
+                    if prototype:
+                        unit["prototype"] = prototype
                     units.append(unit)
 
                 warnings = []

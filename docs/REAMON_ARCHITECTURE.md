@@ -295,9 +295,11 @@ function names to Ghidra units and call edges by address. Go version, architectu
 types, and symbol provenance are saved with project observations; decompiled output
 remains Ghidra's C-like pseudocode. Where markup provides statement and line nodes,
 the analyzer persists bounded Ghidra line numbers paired with each statement's p-code
-target address in the database-backed function observation; MCP dossiers return a
-bounded subset with the mapping semantics. These links are navigation evidence, not
-proof that pseudocode is equivalent to the original program. The visualizer makes
+target address in the database-backed function observation, and stores Ghidra's
+function prototype separately from the generated source; MCP dossiers return the
+prototype and a bounded mapping subset with its semantics. The prototype and
+address mappings are provider evidence, not proof that pseudocode is equivalent to
+the original program. The visualizer makes
 one-based mapped source lines keyboard-accessible and navigates to the corresponding
 instruction address in the paired listing; multiple addresses on one line can be
 cycled. Ghidra CPU, memory, temporary storage, process

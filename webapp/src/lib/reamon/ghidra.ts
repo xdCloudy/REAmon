@@ -20,7 +20,7 @@ interface GhidraResponse {
   codeBytes?: number
   returnedUnits: number
   truncated: boolean
-  units: Array<{ name: string; address: string; relativePath: string; codeArtifactId: string; disassemblyArtifactId?: string; referencedStrings?: string[]; instructionMnemonics?: string[]; sourceAddressMap?: Array<{ ghidraLineNumber: number; address: string }>; sourceLanguage?: string; symbolSource?: string; goPackage?: string; sizeBytes: number }>
+  units: Array<{ name: string; address: string; relativePath: string; codeArtifactId: string; disassemblyArtifactId?: string; referencedStrings?: string[]; instructionMnemonics?: string[]; sourceAddressMap?: Array<{ ghidraLineNumber: number; address: string }>; prototype?: string; sourceLanguage?: string; symbolSource?: string; goPackage?: string; sizeBytes: number }>
   calls?: Array<{ fromAddress: string; toAddress: string; fromName: string; toName: string }>
   callCount?: number
   callGraphTruncated?: boolean
@@ -118,8 +118,9 @@ export async function executeGhidra(input: ToolExecutionInput): Promise<ToolResu
           || (unit.sourceAddressMap !== undefined && (!Array.isArray(unit.sourceAddressMap)
             || unit.sourceAddressMap.length > 5000
             || !unit.sourceAddressMap.every((mapping) => mapping && Number.isInteger(mapping.ghidraLineNumber)
-              && mapping.ghidraLineNumber >= 0 && mapping.ghidraLineNumber <= 1_000_000
+              && mapping.ghidraLineNumber > 0 && mapping.ghidraLineNumber <= 1_000_000
               && typeof mapping.address === 'string' && /^[A-Za-z0-9:_-]{1,128}$/.test(mapping.address))))
+          || (unit.prototype !== undefined && (typeof unit.prototype !== 'string' || unit.prototype.length > 2000))
           || (unit.sourceLanguage !== undefined && typeof unit.sourceLanguage !== 'string')
           || (unit.symbolSource !== undefined && typeof unit.symbolSource !== 'string')
           || (unit.goPackage !== undefined && typeof unit.goPackage !== 'string')) return false
@@ -154,6 +155,7 @@ export async function executeGhidra(input: ToolExecutionInput): Promise<ToolResu
         ...(unit.referencedStrings?.length ? { referencedStrings: JSON.stringify(unit.referencedStrings.slice(0, 12).map((value) => value.slice(0, 512))) } : {}),
         ...(unit.instructionMnemonics?.length ? { instructionMnemonics: JSON.stringify(unit.instructionMnemonics.slice(0, 800)) } : {}),
         ...(unit.sourceAddressMap?.length ? { sourceAddressMap: JSON.stringify(unit.sourceAddressMap.slice(0, 5000)) } : {}),
+        ...(unit.prototype ? { prototype: unit.prototype.slice(0, 2000) } : {}),
         ...(payload.sourceAddressMapTruncated ? { sourceAddressMapTruncated: true } : {}),
       },
     })) as ToolObservation[]
