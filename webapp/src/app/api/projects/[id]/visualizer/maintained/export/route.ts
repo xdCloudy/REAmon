@@ -1,5 +1,6 @@
 import archiver from 'archiver'
 import { createHash } from 'node:crypto'
+import { createReadStream } from 'node:fs'
 import { readFile, realpath, stat } from 'node:fs/promises'
 import { Readable } from 'node:stream'
 import path from 'node:path'
@@ -59,6 +60,12 @@ function uniqueArchivePath(value: string, unitId: string, used: Set<string>): st
   return candidate
 }
 
+async function fileSha256(filePath: string): Promise<string> {
+  const hash = createHash('sha256')
+  for await (const chunk of createReadStream(filePath)) hash.update(chunk)
+  return hash.digest('hex')
+}
+
 export async function GET(request: Request, { params }: RouteParams) {
   try {
     const { id: projectId } = await params
@@ -78,7 +85,13 @@ export async function GET(request: Request, { params }: RouteParams) {
         status: 'COMPLETED',
         artifact: { is: selection.artifactWhere },
       },
-      select: { id: true, title: true, artifactId: true, provider: { select: { pluginId: true } }, artifact: { select: { originalName: true } } },
+      select: {
+        id: true,
+        title: true,
+        artifactId: true,
+        provider: { select: { pluginId: true, version: true } },
+        artifact: { select: { originalName: true, sha256: true, sizeBytes: true, mimeType: true } },
+      },
     })
     if (!task?.artifactId) return NextResponse.json({ error: 'Completed analysis run not found in the active workspace import.' }, { status: 404 })
 
@@ -111,7 +124,7 @@ export async function GET(request: Request, { params }: RouteParams) {
     const maintainedByUnit = new Map(maintainedRows.map((row) => [row.stableKey, row]))
     const maintainedSourceRows = await prisma.reamonMaintainedSource.findMany({
       where: { projectId, codeUnitId: { in: codeUnits.map((unit) => unit.id) } },
-      select: { codeUnitId: true, artifactId: true, sourceCode: true, updatedAt: true },
+      select: { codeUnitId: true, artifactId: true, sourceCode: true, sourceHash: true, acceptedReviewId: true, updatedAt: true },
     })
     const maintainedSourceByUnit = new Map(maintainedSourceRows.map((row) => [row.codeUnitId, row]))
     const storageRoot = await realpath(derivedArtifactRoot())
@@ -151,12 +164,14 @@ export async function GET(request: Request, { params }: RouteParams) {
       let decompiledReason: string | undefined
       let safeOriginalPath: string | null = null
       let originalBytes = 0
+      let decompiledSha256: string | null = null
       try {
         safeOriginalPath = await realpath(resolveDerivedArtifactPath(originalPath))
         if (!isInside(storageRoot, safeOriginalPath)) throw new Error('Original decompilation path is outside storage.')
         const originalInfo = await stat(safeOriginalPath)
         if (!originalInfo.isFile() || originalInfo.size > MAX_SOURCE_BYTES) throw new Error('Original decompilation is missing or exceeds the 2 MiB per-file export limit.')
         originalBytes = originalInfo.size
+        decompiledSha256 = await fileSha256(safeOriginalPath)
         if (!decompiledArchivePaths.has(decompiledPath.toLowerCase())) {
           if (totalSourceBytes + originalBytes > MAX_ARCHIVE_SOURCE_BYTES) throw new Error('The 512 MiB archive source limit was reached.')
           archive.file(safeOriginalPath, { name: decompiledPath })
@@ -174,6 +189,7 @@ export async function GET(request: Request, { params }: RouteParams) {
       let maintainedReason: string | undefined
       let maintainedArchivePath: string | null = null
       let maintainedBytes = 0
+      let maintainedSha256: string | null = null
       const maintained = maintainedByUnit.get(unit.id)
       const maintainedSource = maintainedSourceByUnit.get(unit.id)
       if (maintained) {
@@ -197,6 +213,7 @@ export async function GET(request: Request, { params }: RouteParams) {
               maintainedContent = await readFile(safeMaintainedPath)
             }
             if (maintainedBytes > MAX_SOURCE_BYTES) throw new Error('Maintained source exceeds the 2 MiB per-file export limit.')
+            maintainedSha256 = createHash('sha256').update(maintainedContent).digest('hex')
             if (totalSourceBytes + maintainedBytes > MAX_ARCHIVE_SOURCE_BYTES) throw new Error('The 512 MiB archive source limit was reached.')
             maintainedArchivePath = uniqueArchivePath(maintainedPath, unit.id, maintainedArchivePaths)
             archive.append(maintainedContent, { name: maintainedArchivePath })
@@ -211,6 +228,10 @@ export async function GET(request: Request, { params }: RouteParams) {
         }
       }
 
+      const maintainedHashMatchesStored = Boolean(maintainedSha256
+        && maintainedSource?.sourceHash
+        && maintainedSource.sourceHash === maintainedSha256)
+
       manifestEntries.push({
         unitId: unit.id,
         name: attributes.qualifiedName || attributes.name || unit.label || unit.stableKey,
@@ -218,9 +239,19 @@ export async function GET(request: Request, { params }: RouteParams) {
         originalDecompiledPath: originalPath,
         decompiledPath: decompiledStatus === 'exported' ? decompiledPath : null,
         decompiledStatus,
+        decompiledSha256,
         ...(decompiledReason ? { decompiledReason } : {}),
         maintainedPath: maintainedStatus === 'exported' ? maintainedArchivePath : null,
         maintainedStatus,
+        maintainedSha256,
+        maintainedStoredSha256: maintainedSource?.sourceHash || null,
+        maintainedHashMatchesStored: maintainedSha256 && maintainedSource?.sourceHash ? maintainedHashMatchesStored : null,
+        maintainedReviewId: maintainedSource?.acceptedReviewId || null,
+        maintainedReviewStatus: maintainedStatus === 'exported'
+          ? maintainedSource?.acceptedReviewId
+            ? maintainedHashMatchesStored ? 'linked_hash_match' : 'linked_hash_mismatch'
+            : 'missing'
+          : null,
         ...(maintainedReason ? { maintainedReason } : {}),
         updatedAt: maintainedSource?.updatedAt instanceof Date
           ? maintainedSource.updatedAt.toISOString()
@@ -239,17 +270,22 @@ export async function GET(request: Request, { params }: RouteParams) {
       '',
       'decompiled/ contains the analyzer output. maintained/ contains saved edited or AI-assisted copies when available.',
       'The two trees are kept separate; maintained source never overwrites the decompilation.',
-      'See manifest.json for unit-level provenance, missing files, and export status.',
+      'See manifest.json for artifact and file hashes, maintained-source receipt pointers and source-hash matches, missing files, and export status. Receipt pointers are not independently revalidated during export.',
       'This bundle does not include build scripts or dependencies. Review and build with the appropriate toolchain before relying on it.',
       '',
     ].join('\n')), { name: 'README.txt' })
     archive.append(Buffer.from(JSON.stringify({
-      formatVersion: 2,
+      formatVersion: 3,
       projectId,
       taskId: task.id,
       taskTitle: task.title,
-      providerId: task.provider?.pluginId || null,
-      inputArtifact: task.artifact?.originalName || null,
+      provider: task.provider ? { id: task.provider.pluginId, version: task.provider.version } : null,
+      inputArtifact: task.artifact ? {
+        name: task.artifact.originalName,
+        sha256: task.artifact.sha256,
+        sizeBytes: task.artifact.sizeBytes,
+        mimeType: task.artifact.mimeType,
+      } : null,
       exportedAt: new Date().toISOString(),
       codeUnitCount: codeUnits.length,
       decompiledFiles,

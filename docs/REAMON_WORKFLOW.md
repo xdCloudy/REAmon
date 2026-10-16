@@ -132,10 +132,12 @@ regressions; rollback a candidate when a guard check fails.
 ### 9. Measure, export, and continue
 
 Show separate counts for discovered, analyzed, decompiled, maintained, reviewed, and
-validated units. Export the maintained source with a manifest connecting each output
-to input hashes, engine versions, accepted drafts, and validation. Continue work from
-the saved project state rather than starting a fresh conversation with undocumented
-assumptions.
+validated units. The current source bundle records the input artifact hash, provider
+ID/version, per-file hashes, and maintained-source hash/receipt pointers. Continue by
+verifying receipt, draft, and validation evidence against those hashes, then export a
+reproducible build or validation recipe where the selected toolchain supports one.
+Continue work from the saved project state rather than starting a fresh conversation
+with undocumented assumptions.
 
 ## Universal completion states
 
