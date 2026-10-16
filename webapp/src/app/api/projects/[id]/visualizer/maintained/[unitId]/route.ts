@@ -47,6 +47,43 @@ async function maintainedSymbolIndex(sourceCode: string, language: string): Prom
   return extractMaintainedSymbols(sourceCode, language)
 }
 
+async function acceptedSafeRenameAliases(
+  projectId: string,
+  artifactId: string,
+  runKey: string,
+  unitId: string,
+  sourceCode: string,
+  sourceHash: string,
+): Promise<Array<{ bindingId: string; oldName: string; newName: string; kind: string }>> {
+  try {
+    const attempts = await prisma.reamonCodeAttempt.findMany({
+      where: { projectId, artifactId, runKey, codeUnitId: unitId, status: 'SUCCEEDED', resultSource: sourceCode },
+      select: { resultSource: true, requestPayload: true, validationStatus: true },
+      take: 20,
+    })
+    for (const attempt of attempts) {
+      if (attempt.validationStatus !== 'PASSED' || attempt.resultSource !== sourceCode
+          || createHash('sha256').update(attempt.resultSource).digest('hex') !== sourceHash) continue
+      const payload = plainObject(attempt.requestPayload)
+      if (payload.operation !== 'humanify-style-scope-safe-renames' || payload.outputSha256 !== sourceHash || !Array.isArray(payload.renames)) continue
+      const aliases = payload.renames.flatMap((value) => {
+        const rename = plainObject(value)
+        if (typeof rename.oldName !== 'string' || typeof rename.newName !== 'string'
+            || typeof rename.bindingId !== 'string' || !/^[a-f0-9]{24}$/i.test(rename.bindingId)
+            || typeof rename.kind !== 'string' || rename.kind.length > 80
+            || !/^[A-Za-z_$][\w$]{0,127}$/.test(rename.oldName)
+            || !/^[A-Za-z_$][\w$]{0,127}$/.test(rename.newName)
+            || rename.oldName === rename.newName) return []
+        return [{ bindingId: rename.bindingId.toLowerCase(), oldName: rename.oldName, newName: rename.newName, kind: rename.kind }]
+      }).slice(0, 200)
+      return aliases
+    }
+  } catch (error) {
+    console.error('Could not load accepted scope-safe rename lineage:', error)
+  }
+  return []
+}
+
 function plainObject(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
 }
@@ -295,10 +332,14 @@ export async function PUT(request: Request, { params }: RouteParams) {
       || resolved.observation.label
       || resolved.unitId
     const language = typeof attributes.language === 'string' ? attributes.language.slice(0, 80) : 'unknown'
-    const symbolIndex = await maintainedSymbolIndex(sourceCode, language)
     const now = new Date().toISOString()
     const { rootRealPath, absolute } = await checkedPath(resolved.relativePath)
     const maintainedSourceHash = createHash('sha256').update(sourceCode).digest('hex')
+    const [symbols, aliases] = await Promise.all([
+      maintainedSymbolIndex(sourceCode, language),
+      acceptedSafeRenameAliases(projectId, resolved.artifactId, resolved.runKey, resolved.unitId, sourceCode, maintainedSourceHash),
+    ])
+    const symbolIndex = { symbols, aliases }
     const validation = await validateMaintainedSource(sourceCode, language)
     if (validation.validation_status === 'FAILED') {
       return NextResponse.json({

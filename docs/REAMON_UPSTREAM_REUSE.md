@@ -54,7 +54,9 @@ separate so a plausible name is never treated as proof of behavior.
   evidence-grounded mappings, rejects identifier/collision hazards, applies the
   AST rename, protects ES-module exports, reparses the result, and saves full input,
   mapping rationales, output, hashes, and the exact Babel parser version in its
-  attempt/draft database. The source hash is checked again when applying proposals.
+  attempt database. If that exact output is later accepted, REAmon carries its
+  old-to-new mappings forward as reviewed project-memory aliases. The source hash
+  is checked again when applying proposals.
   Babel is an initial adapter, not code copied
   from Humanify; compare it with OXC before deciding whether to build an OXC
   sidecar. The current [OXC Node parser binding](https://github.com/oxc-project/oxc/issues/22985)

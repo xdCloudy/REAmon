@@ -12,6 +12,36 @@ export interface MaintainedSymbolRecord {
   validationMethod?: string | null
 }
 
+interface MaintainedSymbolAlias {
+  bindingId: string
+  oldName: string
+  newName: string
+  kind: string
+}
+
+function maintainedIndex(value: unknown): { symbols: string[]; aliases: MaintainedSymbolAlias[] } {
+  if (Array.isArray(value)) {
+    return { symbols: value.filter((item): item is string => typeof item === 'string'), aliases: [] }
+  }
+  if (!value || typeof value !== 'object') return { symbols: [], aliases: [] }
+  const record = value as Record<string, unknown>
+  const symbols = Array.isArray(record.symbols)
+    ? record.symbols.filter((item): item is string => typeof item === 'string')
+    : []
+  const aliases = Array.isArray(record.aliases) ? record.aliases.flatMap((item) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return []
+    const alias = item as Record<string, unknown>
+    if (typeof alias.oldName !== 'string' || typeof alias.newName !== 'string'
+        || typeof alias.bindingId !== 'string' || !/^[a-f0-9]{24}$/i.test(alias.bindingId)
+        || typeof alias.kind !== 'string' || alias.kind.length > 80
+        || !/^[A-Za-z_$][\w$]{0,127}$/.test(alias.oldName)
+        || !/^[A-Za-z_$][\w$]{0,127}$/.test(alias.newName)
+        || alias.oldName === alias.newName) return []
+    return [{ bindingId: alias.bindingId.toLowerCase(), oldName: alias.oldName, newName: alias.newName, kind: alias.kind }]
+  }).slice(0, 200) : []
+  return { symbols, aliases }
+}
+
 export interface ProviderSymbolRecord {
   codeUnitId: string
   unitName: string
@@ -131,12 +161,12 @@ export function buildProjectSymbolContext(
   const includedUnits = new Set<string>()
   let length = lines.reduce((sum, line) => sum + line.length + 1, 0)
   for (const { record } of ranked) {
-    if (!Array.isArray(record.symbolIndex)) continue
-    const symbols = [...new Set(record.symbolIndex.filter((value): value is string => typeof value === 'string' && value.length <= 128))]
-    if (!symbols.length) continue
+    const index = maintainedIndex(record.symbolIndex)
+    const symbols = [...new Set(index.symbols.filter((value) => value.length <= 128))]
+    if (!symbols.length && !index.aliases.length) continue
     const identity = record.artifactHash
-      ? `${record.artifactHash}:${record.unitName}:${record.language}:${JSON.stringify([...symbols].sort())}`
-      : record.codeUnitId || `${record.artifactId || ''}:${record.unitName}:${record.language}:${JSON.stringify([...symbols].sort())}`
+      ? `${record.artifactHash}:${record.unitName}:${record.language}:${JSON.stringify([...symbols].sort())}:${JSON.stringify(index.aliases)}`
+      : record.codeUnitId || `${record.artifactId || ''}:${record.unitName}:${record.language}:${JSON.stringify([...symbols].sort())}:${JSON.stringify(index.aliases)}`
     if (includedUnits.has(identity)) continue
     const artifactName = record.artifactName || record.artifactId
     const artifactLabel = [artifactName, record.artifactHash?.slice(0, 12)].filter(Boolean).join(' #')
@@ -147,7 +177,11 @@ export function buildProjectSymbolContext(
     const validation = record.validationStatus === 'PASSED'
       ? `; syntax passed${record.validationMethod ? ` via ${record.validationMethod}` : ''} (structural evidence only)`
       : record.validationStatus === 'UNAVAILABLE' ? '; syntax validation unavailable' : ''
-    const line = `${record.unitName} (${record.language}${artifactVersion}${relationship}${validation}): ${symbols.join(', ')}`
+    const symbolText = symbols.length ? `symbols: ${symbols.join(', ')}` : ''
+    const aliasText = index.aliases.length
+      ? `reviewed rename history (binding-specific, not behavior proof): ${index.aliases.slice(0, 12).map(({ bindingId, oldName, newName, kind }) => `${oldName} → ${newName} [${kind}; binding ${bindingId.slice(0, 8)}]`).join(', ')}`
+      : ''
+    const line = `${record.unitName} (${record.language}${artifactVersion}${relationship}${validation}): ${[symbolText, aliasText].filter(Boolean).join('; ')}`
     if (length + line.length + 1 > maxChars) continue
     lines.push(line)
     includedUnits.add(identity)
