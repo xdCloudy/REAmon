@@ -16,6 +16,8 @@ export interface CodeUnitObservationAttributes {
   decompiled?: boolean
   language?: string
   sourceLanguage?: string
+  symbolSource?: string
+  goPackage?: string
   relativePath?: string
   bundlePath?: string
   codeArtifactId?: string
@@ -49,6 +51,8 @@ export interface CodeUnit {
   coveragePercent: number | null
   language: string | null
   sourceLanguage?: string | null
+  symbolSource?: string | null
+  packageName?: string | null
   unitType: string | null
   relativePath?: string | null
   bundlePath?: string | null
@@ -203,6 +207,8 @@ export function normalizeCodeUnit(row: CodeUnitObservationRow, options: { includ
     coveragePercent: coverageOf(attributes),
     language: text(attributes.language, 80),
     sourceLanguage: text(attributes.sourceLanguage, 80),
+    symbolSource: text(attributes.symbolSource, 80),
+    packageName: text(attributes.goPackage, 500),
     unitType: text(attributes.unitType, 80),
     relativePath: text(attributes.relativePath, 1000),
     ...(bundlePath ? { bundlePath } : {}),
@@ -268,7 +274,7 @@ export function filterCodeUnits(units: CodeUnit[], query: string): CodeUnit[] {
     if (filter.minimumBytes !== undefined && unit.sizeBytes < filter.minimumBytes) return false
     if (filter.maximumCoverage !== undefined && (unit.coveragePercent === null || unit.coveragePercent >= filter.maximumCoverage)) return false
     if (filter.text) {
-      const searchable = `${unit.name} ${unit.address || ''} ${unit.relativePath || ''} ${unit.bundlePath || ''} ${unit.artifactPath || ''} ${unit.language || ''} ${unit.sourceLanguage || ''} ${unit.referencedStrings?.join(' ') || ''}`.toLocaleLowerCase()
+      const searchable = `${unit.name} ${unit.address || ''} ${unit.relativePath || ''} ${unit.bundlePath || ''} ${unit.artifactPath || ''} ${unit.language || ''} ${unit.sourceLanguage || ''} ${unit.symbolSource || ''} ${unit.packageName || ''} ${unit.referencedStrings?.join(' ') || ''}`.toLocaleLowerCase()
       if (!searchable.includes(filter.text)) return false
     }
     return true

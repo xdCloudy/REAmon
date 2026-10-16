@@ -1872,6 +1872,8 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
             <div><dt>Size</dt><dd>{formatBytes(selectedUnit.sizeBytes)}</dd></div>
             <div><dt>Decompiler output</dt><dd>{selectedUnit.source === 'reamon-oxidizer' ? 'Rust-like pseudocode' : selectedUnit.sourceLanguage && selectedUnit.language === 'C' ? 'C-like pseudocode' : selectedUnit.language || 'Not identified'}</dd></div>
             {selectedUnit.sourceLanguage && <div><dt>Binary source language</dt><dd>{selectedUnit.sourceLanguage} (metadata)</dd></div>}
+            {selectedUnit.symbolSource && <div><dt>Recovered symbol source</dt><dd>{selectedUnit.symbolSource} (provider evidence)</dd></div>}
+            {selectedUnit.packageName && <div><dt>Recovered Go package</dt><dd>{selectedUnit.packageName} (address-matched metadata)</dd></div>}
             <div><dt>Unit type</dt><dd>{selectedUnit.unitType || 'Code unit'}</dd></div>
             {selectedUnit.bundlePath && <div><dt>Bundle module</dt><dd>{selectedUnit.bundlePath}</dd></div>}
             <div><dt>Artifact</dt><dd>{selectedUnit.artifactPath || 'Not linked'}</dd></div>
