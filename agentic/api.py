@@ -605,13 +605,16 @@ def _reamon_cli_syntax_validation(
     *,
     label: str,
     executable: str,
+    version_executable: str | None = None,
     version_args: list[str],
     lint_args: list[str],
     version_pattern: str,
     ignored_environment: set[str],
+    discard_lint_stdout: bool = False,
 ) -> dict[str, str]:
     binary = shutil.which(executable)
-    if not binary:
+    version_binary = shutil.which(version_executable or executable)
+    if not binary or not version_binary:
         return {
             "validation_status": "UNAVAILABLE",
             "validation_method": f"{label}-syntax-check",
@@ -622,7 +625,7 @@ def _reamon_cli_syntax_validation(
         environment.pop(variable, None)
     try:
         version_result = subprocess.run(
-            [binary, *version_args],
+            [version_binary, *version_args],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -637,8 +640,8 @@ def _reamon_cli_syntax_validation(
         result = subprocess.run(
             [binary, *lint_args],
             input=source_code.encode("utf-8"),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+            stdout=subprocess.DEVNULL if discard_lint_stdout else subprocess.PIPE,
+            stderr=subprocess.PIPE,
             timeout=10,
             check=False,
             env=environment,
@@ -656,7 +659,7 @@ def _reamon_cli_syntax_validation(
             "validation_method": f"{label}-syntax-check",
             "validation_message": f"The {label} syntax checker could not be started.",
         }
-    output = result.stdout.decode("utf-8", errors="replace").replace("\x00", " ").strip()
+    output = ((result.stderr or b"") + (result.stdout or b"")).decode("utf-8", errors="replace").replace("\x00", " ").strip()
     output = re.sub(r"[\r\n\t ]+", " ", output)[:1_000]
     if result.returncode == 0:
         detail = output or "syntax check passed"
@@ -746,6 +749,19 @@ async def validate_reamon_code(body: ReamonCodeValidateRequest):
             lint_args=["--disable-gems", "-c", "-"],
             version_pattern=r"^ruby\s+(\d+\.\d+(?:\.\d+)?)",
             ignored_environment={"RUBYOPT", "RUBYLIB"},
+        )
+        return {"source_sha256": source_sha256, **result}
+    if normalized_language in {"go", "golang"}:
+        result = _reamon_cli_syntax_validation(
+            body.source_code,
+            label="gofmt",
+            executable="gofmt",
+            version_executable="go",
+            version_args=["version"],
+            lint_args=["-e"],
+            version_pattern=r"^go version go(\d+\.\d+(?:\.\d+)?)",
+            ignored_environment={"GOFLAGS", "GOTOOLCHAIN"},
+            discard_lint_stdout=True,
         )
         return {"source_sha256": source_sha256, **result}
     parser = _reamon_source_parser(body.language)
