@@ -27,6 +27,8 @@ export interface CodeUnitObservationAttributes {
   referencedStrings?: string[]
   referencedStringsTruncated?: boolean
   importedCalls?: string[]
+  fieldReferences?: string[]
+  fieldReferencesTruncated?: boolean
   sourceAddressMap?: Array<{ ghidraLineNumber: number; address: string }>
   sourceAddressMapTruncated?: boolean
   prototype?: string
@@ -68,6 +70,8 @@ export interface CodeUnit {
   referencedStrings?: string[]
   referencedStringsTruncated?: boolean
   importedCalls?: string[]
+  fieldReferences?: string[]
+  fieldReferencesTruncated?: boolean
   sourceAddressMap?: Array<{ ghidraLineNumber: number; address: string }>
   sourceAddressMapTruncated?: boolean
   prototype?: string | null
@@ -226,6 +230,8 @@ export function normalizeCodeUnit(row: CodeUnitObservationRow, options: { includ
     referencedStrings: stringListOf(attributes.referencedStrings, 12, 512),
     referencedStringsTruncated: attributes.referencedStringsTruncated === true,
     importedCalls: stringListOf(attributes.importedCalls, 32, 256),
+    fieldReferences: stringListOf(attributes.fieldReferences, 32, 512),
+    fieldReferencesTruncated: attributes.fieldReferencesTruncated === true,
     ...(options.includeSourceAddressMap ? {
       sourceAddressMap: sourceAddressMapOf(attributes.sourceAddressMap),
       sourceAddressMapTruncated: attributes.sourceAddressMapTruncated === true,

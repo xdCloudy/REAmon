@@ -50,8 +50,13 @@ function text(value: unknown, max = 500): string | null {
 }
 
 function textList(value: unknown, limit: number, maxLength: number): string[] {
-  if (!Array.isArray(value)) return []
-  return [...new Set(value.flatMap((item) => {
+  let parsed = value
+  if (typeof value === 'string') {
+    if (value.length > 100_000) return []
+    try { parsed = JSON.parse(value) } catch { return [] }
+  }
+  if (!Array.isArray(parsed)) return []
+  return [...new Set(parsed.flatMap((item) => {
     const normalized = text(item, maxLength)
     return normalized ? [normalized] : []
   }))].slice(0, limit)
@@ -514,6 +519,10 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
       importedCalls: textList(attributes.importedCalls, 32, 256),
       importedCallsSemantics: unit.source === 'reamon-tocode-import'
         ? 'External symbols listed in this function row’s callees_imports field in ToCode functions.json; names remain provider-attributed.' : null,
+      fieldReferences: textList(attributes.fieldReferences, 32, 512),
+      fieldReferencesTruncated: attributes.fieldReferencesTruncated === true,
+      fieldReferencesSemantics: unit.source === 'reamon-tocode-import'
+        ? 'Field identities listed by this function row’s field_refs in ToCode functions.json. ToCode does not report read/write direction for these entries.' : null,
       classReferences: textList(attributes.classReferences, 100, 512),
     },
     analysis: task ? {

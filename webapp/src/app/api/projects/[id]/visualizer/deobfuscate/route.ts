@@ -1285,15 +1285,21 @@ export async function POST(request: Request, { params }: RouteParams) {
     const importedCalls = observation.source === 'reamon-tocode-import'
       ? classReferencesOf(attributes.importedCalls).slice(0, 32).map((value) => value.slice(0, 256))
       : []
+    const fieldReferences = observation.source === 'reamon-tocode-import'
+      ? classReferencesOf(attributes.fieldReferences).slice(0, 32).map((value) => value.slice(0, 512))
+      : []
     const binaryEvidence = observation.source === 'reamon-dex-decompiler' && (dexReferenceRows.length || dexReferencesTruncated)
       ? dexReferenceEvidence(dexReferenceRows, dexReferencesTruncated)
-      : referencedStrings.length || importedCalls.length
+      : referencedStrings.length || importedCalls.length || fieldReferences.length
       ? utf8Prefix([
         `Function address: ${typeof attributes.address === 'string' ? attributes.address.slice(0, 128) : 'unknown'}`,
         ...referencedStrings.map((value) => `Referenced text: ${value}`),
         ...importedCalls.map((value) => `Provider-reported imported call: ${value}`),
+        ...fieldReferences.map((value) => `Provider-reported field reference (access direction unavailable): ${value}`),
         ...(attributes.referencedStringsTruncated === true ? ['Additional string cross-references were omitted by a provider limit.'] : []),
+        ...(attributes.fieldReferencesTruncated === true ? ['Additional field references were omitted by a provider limit.'] : []),
         ...(importedCalls.length ? ['Imported-call evidence is bounded and may be incomplete.'] : []),
+        ...(fieldReferences.length ? ['Field-reference evidence does not establish whether the function reads or writes the field.'] : []),
         'These are address-associated provider observations, not proof of behavior or intent.',
       ].join('\n'), MAX_BINARY_EVIDENCE_BYTES)
       : ''

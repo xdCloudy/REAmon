@@ -253,6 +253,7 @@ export const ONBOARDING_PLAYBOOK: Record<string, PlaybookEntry> = {
       'GoReSym type names are artifact-wide and not assigned to the selected function. Match each one against its source or signature before relying on it.',
       'Use workspace_search_go_types with the same codeUnitId when you need to search or page through the full stored Go catalog.',
       'Use workspace_search_provider_types to search or page through the stored GoReSym or ToCode catalog. Match a candidate type name against the selected source or signature; catalog membership alone does not assign it to the function.',
+      'ToCode Android fieldReferences do not report read/write direction; do not describe them as reads or writes.',
       'When sourceAddressMap is present, use it to navigate from a Ghidra line to the associated instruction address; check sourceAddressMapTruncated and do not treat this association as proof of semantic equivalence.',
       'recoveredVariables are Ghidra symbol evidence, not reviewed canonical names. Preserve the provider attribution and check recoveredVariablesTruncated before relying on a complete inventory.',
       'nameLocked and typeLocked only indicate that Ghidra constrained its own decompiler model to use a name or type; they do not prove original-source provenance or correctness.',

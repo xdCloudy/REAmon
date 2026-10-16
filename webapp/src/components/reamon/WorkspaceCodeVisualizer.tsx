@@ -2090,6 +2090,11 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
             <div><strong>Imported calls</strong><span>ToCode reports these external symbols as called by this function</span></div>
             <ul>{selectedUnit.importedCalls?.slice(0, 32).map((value) => <li key={value}><code>{value}</code></li>)}</ul>
           </section>}
+          {(selectedUnit.fieldReferences?.length ?? 0) > 0 && <section className={styles.classReferences} aria-label="Fields referenced by this function">
+            <div><strong>Referenced fields</strong><span>ToCode field references; access direction is not reported</span></div>
+            <ul>{selectedUnit.fieldReferences?.slice(0, 32).map((value) => <li key={value}><code>{value}</code></li>)}</ul>
+            {selectedUnit.fieldReferencesTruncated && <small>Additional field references were omitted by an analysis limit.</small>}
+          </section>}
           {selectedUnit.artifactId && selectedUnit.codeArtifactId
             ? <a
                 className={styles.codeLink}

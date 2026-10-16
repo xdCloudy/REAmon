@@ -65,6 +65,8 @@ interface FunctionRecord {
   referencedStrings: string[]
   referencedStringsTruncated: boolean
   importedCalls: string[]
+  fieldReferences: string[]
+  fieldReferencesTruncated: boolean
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -112,6 +114,25 @@ function boundedImportedCalls(value: unknown): string[] {
     if (names.size >= 32) break
   }
   return [...names]
+}
+
+function boundedFieldReferences(value: unknown): { items: string[]; truncated: boolean } {
+  if (!Array.isArray(value)) return { items: [], truncated: value !== undefined && value !== null }
+  const items: string[] = []
+  let truncated = value.length > 32
+  for (const entry of value.slice(0, 64)) {
+    const reference = safeText(entry, 512)
+    if (!reference || /[\r\n\t]/.test(reference)) {
+      truncated = true
+      continue
+    }
+    if (!items.includes(reference)) items.push(reference)
+    if (items.length >= 32) {
+      if (value.length > items.length) truncated = true
+      break
+    }
+  }
+  return { items, truncated }
 }
 
 function toCodeTypeDeclaration(row: Record<string, unknown>): string {
@@ -281,6 +302,8 @@ function makeCodeUnit(record: FunctionRecord, metadata: Record<string, unknown>,
   if (record.referencedStrings.length) attrs.referencedStrings = JSON.stringify(record.referencedStrings)
   if (record.referencedStringsTruncated) attrs.referencedStringsTruncated = true
   if (record.importedCalls.length) attrs.importedCalls = JSON.stringify(record.importedCalls)
+  if (record.fieldReferences.length) attrs.fieldReferences = JSON.stringify(record.fieldReferences)
+  if (record.fieldReferencesTruncated) attrs.fieldReferencesTruncated = true
   if (params.truncated || locals.truncated) attrs.symbolEvidenceTruncated = true
   if (record.sourceFile) attrs.relativePath = record.sourceFile
   if (record.sourceLineStart !== null) attrs.sourceLineStart = record.sourceLineStart
@@ -421,6 +444,7 @@ export async function indexToCodeWorkspaceImport(projectId: string, importId: st
         const sourceLineStart = optionalLine(row.source_line_start)
         const sourceLineEnd = optionalLine(row.source_line_end)
         const assemblyFile = cleanExportPath(row.asm_file)
+        const fieldReferences = boundedFieldReferences(row.field_refs)
         const key = `tocode:function:${shortHash(`${importId}:${metadataArtifact.relativePath}:${address}`)}`
         const record: FunctionRecord = {
           address,
@@ -439,6 +463,8 @@ export async function indexToCodeWorkspaceImport(projectId: string, importId: st
           referencedStrings: [],
           referencedStringsTruncated: false,
           importedCalls: boundedImportedCalls(row.callees_imports),
+          fieldReferences: fieldReferences.items,
+          fieldReferencesTruncated: fieldReferences.truncated,
         }
         if (sourceFile) {
           const workspaceSourcePath = joinedExportPath(exportRoot, sourceFile)
@@ -641,6 +667,7 @@ export async function indexToCodeWorkspaceImport(projectId: string, importId: st
       crossBinaryCallEdges: crossBinaryCalls,
       functionsWithReferencedStrings: allFunctions.filter((record) => record.referencedStrings.length > 0).length,
       functionsWithImportedCalls: allFunctions.filter((record) => record.importedCalls.length > 0).length,
+      functionsWithFieldReferences: allFunctions.filter((record) => record.fieldReferences.length > 0).length,
       referencedStringEvidenceTruncated: stringXrefsTruncated || allFunctions.some((record) => record.referencedStringsTruncated),
       recoveredTypeCount,
       truncatedTypeCatalogs,
