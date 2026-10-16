@@ -231,6 +231,7 @@ export const ONBOARDING_PLAYBOOK: Record<string, PlaybookEntry> = {
       'This reads stored observations only. It does not run a decompiler, synthesize names, or make a new analysis claim.',
       'Results can include method-level function observations as well as class and native code-unit observations. Use the returned id with workspace_get_code_unit to inspect provider evidence.',
       'The returned artifact hash and provider identify where the decompilation evidence came from; keep names and prototypes attributed to that provider.',
+      'Go package names and symbol-source labels are included only when the provider stored them; use them as provisional identity metadata, not proof of behavior.',
     ],
     workflowRefs: ['inspect-workspace'],
   },
@@ -240,7 +241,8 @@ export const ONBOARDING_PLAYBOOK: Record<string, PlaybookEntry> = {
       'decompiled source, assembly, provider metadata, incoming/outgoing call edges, and any saved ' +
       'draft or reviewed maintained source for that exact code version. Ghidra dossiers may also ' +
       'include sourceAddressMap links from Ghidra source lines to p-code operation target addresses, ' +
-      'plus recoveredVariables with provider-recovered parameter/local names and types.',
+      'plus recoveredVariables with provider-recovered parameter/local names and types. GoReSym ' +
+      'package metadata includes a note that it was matched by function address.',
     gotchas: [
       'Returned code is bounded to 128 KiB per file and may be truncated; check each truncated flag before reasoning from the snippet.',
       'Only relationships already persisted for the same analysis task are included. Missing edges do not prove that no call exists.',

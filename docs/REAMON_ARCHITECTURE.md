@@ -173,9 +173,10 @@ that metadata so an operator or agent can understand why a provider matches befo
 
 The function-level MCP reads continue this same database boundary. `workspace_list_code_units`
 searches persisted code-unit observations for the active workspace and returns stable observation
-ids with artifact hashes and provider names. `workspace_get_code_unit` follows one id to its
-bounded derived pseudocode/disassembly, same-task call edges, task warnings, exact-version saved
-draft, and maintained source. A maintained source is marked reviewed only when its receipt still
+ids with artifact hashes, provider names, and available source-language or package metadata.
+`workspace_get_code_unit` follows one id to its bounded derived pseudocode/disassembly, same-task
+call edges, task warnings, recovered variables, address-matched GoReSym package identity,
+exact-version saved draft, and maintained source. A maintained source is marked reviewed only when its receipt still
 matches the stored source hash. These reads do not invoke a decompiler or synthesize missing
 relationships, and neither host storage paths nor generated project instructions are returned.
 

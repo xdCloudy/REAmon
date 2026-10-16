@@ -419,16 +419,16 @@ export function buildMcpServer(ctx: McpContext, instructions?: string): McpServe
     {
       title: 'List decompiled code units',
       description:
-        'Search the active reverse-engineering workspace for stored functions, classes, and other ' +
-        'decompiled functions/methods, classes, and other code units. Results come from REAmon observations already persisted for analysis ' +
+        'Search the active reverse-engineering workspace for stored functions, methods, classes, and other code units. ' +
+        'Results come from REAmon observations already persisted for analysis ' +
         'tasks; this tool does not decompile or invent symbols. Each result includes the database id ' +
         'to pass to workspace_get_code_unit, provider name, artifact digest, source path, and available ' +
-        'address/prototype metadata. Page through large results with limit and offset.',
+        'address/prototype metadata, source language, and GoReSym package identity where available. Page through large results with limit and offset.',
       annotations: READ_ONLY,
       _meta: scopesMeta({ required: ['recon:read'] }),
       inputSchema: {
         projectId: projectIdSchema,
-        search: z.string().max(200).optional().describe('Search function/class name, address, language, prototype, or source path.'),
+        search: z.string().max(200).optional().describe('Search function/class name, address, language, prototype, source path, provider symbol source, or Go package.'),
         taskId: entityIdSchema.optional().describe('Limit to one completed analysis task.'),
         limit: z.number().int().min(1).max(100).optional().describe('Default 50, maximum 100 rows.'),
         offset: z.number().int().min(0).max(100000).optional().describe('Number of matching code units to skip.'),
@@ -446,7 +446,7 @@ export function buildMcpServer(ctx: McpContext, instructions?: string): McpServe
         'database-backed names, prototype, language, artifact hash, bounded decompiled source and ' +
         'disassembly or bytecode text when present, its analysis task/provider and recorded warnings, ' +
         'persisted call/member relationships, bounded instruction and CFG evidence where available, and any saved AI draft or reviewed maintained source ' +
-        'for the exact function/source version. It only reads files inside REAmon derived storage and ' +
+        'for the exact function/source version. GoReSym package metadata is returned with its address-match provenance. It only reads files inside REAmon derived storage and ' +
         'returns at most 128 KiB per source. Treat decompiler output as provider evidence and drafts ' +
         'as unreviewed until their stored validation/review state says otherwise.',
       annotations: READ_ONLY,

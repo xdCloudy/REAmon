@@ -136,7 +136,7 @@ export async function listWorkspaceCodeUnits(ctx: McpContext, args: WorkspaceLis
       OR: [
         { label: { contains: search, mode: 'insensitive' as const } },
         { stableKey: { contains: search, mode: 'insensitive' as const } },
-        ...['name', 'qualifiedName', 'address', 'language', 'sourceLanguage', 'relativePath', 'prototype'].map((key) => ({
+        ...['name', 'qualifiedName', 'address', 'language', 'sourceLanguage', 'relativePath', 'prototype', 'symbolSource', 'goPackage'].map((key) => ({
           attributes: { path: [key], string_contains: search, mode: 'insensitive' as const },
         })),
       ],
@@ -168,8 +168,11 @@ export async function listWorkspaceCodeUnits(ctx: McpContext, args: WorkspaceLis
         name: text(attributes.qualifiedName) || text(attributes.name) || text(row.label) || row.stableKey,
         unitType: text(attributes.unitType, 80),
         language: text(attributes.language, 80),
+        sourceLanguage: text(attributes.sourceLanguage, 80),
         address: text(attributes.address ?? attributes.startAddress, 128),
         prototype: text(attributes.prototype, 1000),
+        symbolSource: text(attributes.symbolSource, 80),
+        packageName: text(attributes.goPackage, 500),
         parentCodeUnitKey: text(attributes.parentCodeUnitKey, 1000),
         externalOrUndecompiled: attributes.externalOrUndecompiled === true,
         relativePath: text(attributes.relativePath, 1000),
@@ -344,6 +347,11 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
       sizeBytes: typeof attributes.sizeBytes === 'number' ? attributes.sizeBytes : null,
       language: text(attributes.language, 80),
       sourceLanguage: text(attributes.sourceLanguage, 80),
+      symbolSource: text(attributes.symbolSource, 80),
+      packageName: text(attributes.goPackage, 500),
+      providerIdentitySemantics: attributes.symbolSource === 'GoReSym' && typeof attributes.goPackage === 'string'
+        ? 'GoReSym matched this function metadata by its address. The recovered package is provisional namespace evidence, not proof of source provenance or behavior.'
+        : null,
       prototype: text(attributes.prototype, 2000),
       recoveredVariables: recoveredVariableData.variables,
       recoveredVariablesTruncated: recoveredVariableData.truncated || attributes.recoveredVariablesTruncated === true,
