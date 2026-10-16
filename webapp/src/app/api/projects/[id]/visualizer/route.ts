@@ -108,7 +108,6 @@ export async function GET(request: Request, { params }: RouteParams) {
           visitedUnitCount: finiteCount(result.visitedFunctionCount),
         }
       })
-      .filter((run) => run.codeUnitCount > 0)
     const requestedTaskId = searchParams.get('taskId')?.trim() || null
     if (requestedTaskId && !runs.some((run) => run.id === requestedTaskId)) {
       return NextResponse.json({ error: 'Analysis run not found' }, { status: 404, headers: { 'Cache-Control': 'private, no-store' } })

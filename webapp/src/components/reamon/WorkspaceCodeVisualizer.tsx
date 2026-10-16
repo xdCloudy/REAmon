@@ -1731,8 +1731,10 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
             <p>Approve the task in the task controls before running it.</p>
             <a className={styles.emptyAction} href="#analysis-tasks">Open task controls</a>
           </> : decompilationTask?.status === 'COMPLETED' ? <>
-            <strong>The analyzer finished without viewable code units.</strong>
-            <p>Review the task output and warnings under task controls.</p>
+            <strong>{currentRun?.indexedUnitCount === 0 ? 'This run indexed no viewable code units.' : 'The analyzer finished without viewable code units.'}</strong>
+            <p>{currentRun && currentRun.discoveredUnitCount !== null
+              ? `The analyzer reported ${currentRun.discoveredUnitCount.toLocaleString()} analyzed ${currentRun.unitLabel}; ${currentRun.indexedUnitCount.toLocaleString()} were indexed. Review provider warnings and limits under task controls.`
+              : 'Review provider output and warnings under task controls to see why no units were indexed.'}</p>
             <a className={styles.emptyAction} href="#analysis-tasks">Review task</a>
           </> : decompilationTask?.status === 'FAILED' || decompilationTask?.status === 'CANCELLED' ? <>
             <strong>Decompilation did not finish.</strong>
