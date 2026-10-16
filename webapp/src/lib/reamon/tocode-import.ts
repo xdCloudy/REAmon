@@ -114,6 +114,37 @@ function boundedImportedCalls(value: unknown): string[] {
   return [...names]
 }
 
+function toCodeTypeDeclaration(row: Record<string, unknown>): string {
+  const namespace = safeText(row.namespace, 256)
+  const assembly = safeText(row.assembly, 256)
+  const baseType = safeText(row.base_type ?? row.superclass, 256)
+  const interfaces = Array.isArray(row.interfaces)
+    ? row.interfaces.flatMap((item) => safeText(item, 256) || []).slice(0, 16)
+    : []
+  const members = [
+    ...(Array.isArray(row.fields) ? row.fields : []),
+    ...(Array.isArray(row.members) ? row.members : []),
+    ...(Array.isArray(row.properties) ? row.properties : []),
+    ...(Array.isArray(row.events) ? row.events : []),
+    ...(Array.isArray(row.methods) ? row.methods : []),
+  ].slice(0, 32).flatMap((candidate) => {
+    const member = asRecord(candidate)
+    const name = safeText(member?.name, 128)
+    if (!name) return []
+    const prototype = safeText(member?.prototype, 256)
+    if (prototype) return [prototype]
+    const type = safeText(member?.type, 256)
+    return [type ? `${type} ${name}` : name]
+  })
+  return [
+    namespace ? `namespace ${namespace}` : '',
+    assembly ? `assembly ${assembly}` : '',
+    baseType ? `base ${baseType}` : '',
+    interfaces.length ? `interfaces ${interfaces.join(', ')}` : '',
+    members.length ? `members ${members.join('; ')}` : '',
+  ].filter(Boolean).join(' | ').slice(0, 2048)
+}
+
 function boundedToCodeTypeDetails(value: unknown): { json: string; count: number; truncated: boolean } {
   const rows = Array.isArray(value) ? value : []
   const details: Array<{ name: string; kind: string; reconstructed: string }> = []
@@ -123,7 +154,7 @@ function boundedToCodeTypeDetails(value: unknown): { json: string; count: number
     const name = safeText(row?.name, 256)
     const kind = safeText(row?.kind, 80)
     if (typeof row?.c_decl === 'string' && row.c_decl.length > 2048) truncated = true
-    const reconstructed = safeText(row?.c_decl, 2048) || ''
+    const reconstructed = safeText(row?.c_decl, 2048) || (row ? toCodeTypeDeclaration(row) : '')
     if (!name || !kind) {
       truncated = true
       continue
@@ -474,15 +505,27 @@ export async function indexToCodeWorkspaceImport(projectId: string, importId: st
 
     let recoveredTypeCount = 0
     let truncatedTypeCatalogs = 0
+    let skippedTypeCatalogs = 0
     for (const metadataArtifact of candidates) {
       const exportRoot = exportRootOf(metadataArtifact.relativePath)
-      const typeArtifact = artifactsByPath.get(exportRoot ? `${exportRoot}/types.json` : 'types.json')
+      const typesPath = exportRoot ? `${exportRoot}/types.json` : 'types.json'
+      const classesPath = exportRoot ? `${exportRoot}/classes.json` : 'classes.json'
+      const typeArtifact = artifactsByPath.get(typesPath) || artifactsByPath.get(classesPath)
       if (!typeArtifact) continue
       let typeCatalog: Record<string, unknown> | null
       try { typeCatalog = await readJsonArtifact(typeArtifact, MAX_METADATA_BYTES) } catch { typeCatalog = null }
-      if (!typeCatalog || !Array.isArray(typeCatalog.types)) continue
-      const bounded = boundedToCodeTypeDetails(typeCatalog.types)
-      if (!bounded.count) continue
+      const rawTypeRows = Array.isArray(typeCatalog?.types) ? typeCatalog.types : typeCatalog?.classes
+      if (!Array.isArray(rawTypeRows)) {
+        skippedTypeCatalogs += 1
+        warnings.push(`${typeArtifact.relativePath}: type catalog was invalid or exceeded the import size limit.`)
+        continue
+      }
+      const bounded = boundedToCodeTypeDetails(rawTypeRows)
+      if (!bounded.count) {
+        skippedTypeCatalogs += 1
+        warnings.push(`${typeArtifact.relativePath}: no usable type declarations were found.`)
+        continue
+      }
       recoveredTypeCount += bounded.count
       if (bounded.truncated) truncatedTypeCatalogs += 1
       observations.push({
@@ -499,6 +542,7 @@ export async function indexToCodeWorkspaceImport(projectId: string, importId: st
           typeDetailsTruncated: bounded.truncated,
           typeSourceArtifactId: typeArtifact.id,
           typeSourceArtifactSha256: typeArtifact.sha256,
+          typeSourceArtifactPath: typeArtifact.relativePath,
         },
       })
     }
@@ -600,6 +644,7 @@ export async function indexToCodeWorkspaceImport(projectId: string, importId: st
       referencedStringEvidenceTruncated: stringXrefsTruncated || allFunctions.some((record) => record.referencedStringsTruncated),
       recoveredTypeCount,
       truncatedTypeCatalogs,
+      skippedTypeCatalogs,
       copiedSourceAndAssemblyFiles: sourceFiles.size,
       copiedSourceAndAssemblyBytes: sourceBytes,
       warnings: warnings.slice(0, 100),

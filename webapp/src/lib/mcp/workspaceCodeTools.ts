@@ -443,7 +443,8 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
     typeDetailsTruncated: goTypeDetails.truncated || goMetadataAttributes.typeDetailsTruncated === true,
     typeSourceArtifactId: text(goMetadataAttributes.typeSourceArtifactId, 128),
     typeSourceArtifactSha256: text(goMetadataAttributes.typeSourceArtifactSha256, 64),
-    typesSemantics: 'Artifact-wide type declarations from the selected ToCode export’s exact types.json artifact. They are not assigned to this function; use a type only when the selected function source or signature supports the match.',
+    typeSourceArtifactPath: text(goMetadataAttributes.typeSourceArtifactPath, 1000),
+    typesSemantics: 'Artifact-wide type declarations from the selected ToCode export’s exact types.json or APK classes.json artifact. They are not assigned to this function; use a type only when the selected function source or signature supports the match.',
   } : null
   const recoveredVariableSemantics = unit.source === 'reamon-ghidra'
     ? 'Recovered names and types are provider evidence from Ghidra symbols, not reviewed canonical names. nameLocked/typeLocked describe constraints applied by Ghidra to its decompiler model; they do not prove original-source provenance or correctness.'
@@ -762,6 +763,7 @@ export async function searchWorkspaceProviderTypes(ctx: McpContext, args: Worksp
       artifactSha256: unit.artifact?.sha256 || null,
       typeSourceArtifactId: text(metadata.typeSourceArtifactId, 128),
       typeSourceArtifactSha256: text(metadata.typeSourceArtifactSha256, 64),
+      typeSourceArtifactPath: text(metadata.typeSourceArtifactPath, 1000),
     },
     search: search || null,
     types,

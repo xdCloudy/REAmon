@@ -235,7 +235,15 @@ export function buildProviderTypeContext(
   let length = Buffer.byteLength(header, 'utf8')
   let omitted = Boolean(provenance.truncated)
   const included = new Set<string>()
-  for (const candidate of parsed.slice(0, 1000)) {
+  const candidates = parsed.slice(0, 1000)
+  const simpleNameCounts = new Map<string, number>()
+  for (const candidate of candidates) {
+    const detail = candidate && typeof candidate === 'object' && !Array.isArray(candidate) ? candidate as Record<string, unknown> : {}
+    if (typeof detail.name !== 'string') continue
+    const simple = singleLine(detail.name, 256).replace(/^[*\[\]\s]+/, '').split(/[./+]/).at(-1) || ''
+    if (simple) simpleNameCounts.set(simple, (simpleNameCounts.get(simple) || 0) + 1)
+  }
+  for (const candidate of candidates) {
     const detail = candidate && typeof candidate === 'object' && !Array.isArray(candidate)
       ? candidate as Record<string, unknown>
       : {}
@@ -246,7 +254,10 @@ export function buildProviderTypeContext(
     }
     const name = singleLine(detail.name, 256)
     const normalizedName = name.replace(/^[*\[\]\s]+/, '')
-    if (!sourceIdentifiers.has(normalizedName)) continue
+    const simpleName = normalizedName.split(/[./+]/).at(-1) || normalizedName
+    const exactMatch = sourceIdentifiers.has(normalizedName)
+    const uniqueSimpleMatch = simpleNameCounts.get(simpleName) === 1 && sourceIdentifiers.has(simpleName)
+    if (!exactMatch && !uniqueSimpleMatch) continue
     const identity = `${name}\u0000${detail.kind}\u0000${detail.reconstructed}`
     if (included.has(identity)) continue
     const kind = singleLine(detail.kind, 80) || 'unknown kind'
