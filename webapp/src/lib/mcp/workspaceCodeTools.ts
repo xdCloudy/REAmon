@@ -618,7 +618,9 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
       sourceAddressMap: sourceAddressMap.mappings,
       sourceAddressMapTruncated: sourceAddressMap.truncated || attributes.sourceAddressMapTruncated === true,
       sourceAddressMapSemantics: sourceAddressMap.mappings.length
-        ? 'One-based Ghidra source line numbers are passed through unchanged; each mapped statement points to its associated p-code operation target address.'
+        ? attributes.decompiler === 'unwasm' && attributes.sourceLanguage === 'WebAssembly'
+          ? 'One-based lines in this Rust translation map to byte offsets in the original Wasm module. The linked listing contains bounded raw byte ranges; this mapping is provenance evidence, not proof of semantic equivalence.'
+          : 'One-based Ghidra source line numbers are passed through unchanged; each mapped statement points to its associated p-code operation target address.'
         : null,
       controlFlowGraph: text(attributes.controlFlowGraph, 4_000),
       cfgTruncated: attributes.cfgTruncated === true,
@@ -654,7 +656,7 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
       sourceHash: code.sourceHash,
       truncated: code.truncated,
     } : null,
-    disassembly: disassembly ? { relativePath: text(attributes.assemblyRelativePath ?? attributes.disassemblyRelativePath, 1000), text: disassembly.text, sizeBytes: disassembly.sizeBytes, truncated: disassembly.truncated } : null,
+    disassembly: disassembly ? { relativePath: text(attributes.assemblyRelativePath ?? attributes.disassemblyRelativePath, 1000), language: text(attributes.disassemblyLanguage, 80), text: disassembly.text, sizeBytes: disassembly.sizeBytes, truncated: disassembly.truncated } : null,
     bytecode: bytecode ? { text: bytecode.text, sizeBytes: bytecode.sizeBytes, truncated: bytecode.truncated || attributes.bytecodeRowsTruncated === true } : null,
     callRelationships: edges.slice(0, MAX_RELATIONSHIPS).map((edge) => ({
       stableKey: edge.stableKey,

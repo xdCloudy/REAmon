@@ -1,4 +1,4 @@
-"""Isolated WebAssembly-to-WAT analyzer used by REAmon."""
+"""Isolated WebAssembly analyzer with WAT and source-addressable Rust views."""
 from __future__ import annotations
 
 import json
@@ -22,6 +22,10 @@ PORT = int(os.getenv("PORT", "8012"))
 MAX_MODULE_BYTES = 256 * 1024 * 1024
 MAX_WAT_BYTES = 128 * 1024 * 1024
 MAX_RUST_BYTES = 64 * 1024 * 1024
+MAX_RUST_SOURCE_PART_BYTES = 16 * 1024 * 1024
+MAX_RUST_MAPPING_ROWS = 40_000
+MAX_RUST_MAPPINGS_PER_FUNCTION = 100
+MAX_WASM_BYTE_LISTING_BYTES = 8 * 1024 * 1024
 MAX_RETURNED_FUNCTIONS = 2_000
 MAX_RETURNED_CALLS = 400
 MAX_RESULT_CHUNK_BYTES = 1024 * 1024
@@ -258,6 +262,19 @@ def _terminate(process: subprocess.Popen) -> None:
         process.wait()
 
 
+def _directory_size(path: Path) -> int:
+    total = 0
+    try:
+        for child in path.rglob("*"):
+            if child.is_file():
+                total += child.stat().st_size
+                if total > MAX_RUST_BYTES:
+                    return total
+    except OSError:
+        return MAX_RUST_BYTES + 1
+    return total
+
+
 def _decompile_rust(artifact: Path, function_indices: list[str], temporary_path: Path,
                     run_root: Path, cancel_check) -> tuple[list[dict], str]:
     """Return bounded function-sized Rust views; WAT remains the primary output."""
@@ -269,9 +286,9 @@ def _decompile_rust(artifact: Path, function_indices: list[str], temporary_path:
     with error_log.open("wb") as log:
         try:
             process = subprocess.Popen(
-                ["/usr/bin/prlimit", "--cpu=90", "--as=805306368", f"--fsize={MAX_RUST_BYTES}", "--",
-                 "/opt/unwasm/bin/unwasm", "decompile", str(artifact), "--bare", "--level", "0",
-                 "--only", ",".join(function_indices), "-o", str(output_dir)],
+                ["/usr/bin/prlimit", "--cpu=90", "--as=536870912", f"--fsize={MAX_RUST_BYTES}", "--",
+                 "/opt/unwasm/bin/unwasm", "decompile", str(artifact), "--level", "0", "--offsets",
+                 "--split", "12000", "--only", ",".join(function_indices), "-o", str(output_dir)],
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
                 stderr=log,
@@ -285,6 +302,9 @@ def _decompile_rust(artifact: Path, function_indices: list[str], temporary_path:
                 if cancel_check():
                     _terminate(process)
                     raise AnalysisError("WebAssembly analysis was cancelled")
+                if _directory_size(output_dir) > MAX_RUST_BYTES:
+                    _terminate(process)
+                    return [], "Rust reconstruction stopped after reaching its 64 MiB output limit."
                 if time.monotonic() >= deadline:
                     _terminate(process)
                     return [], "Rust reconstruction stopped at its 100-second resource limit."
@@ -300,20 +320,46 @@ def _decompile_rust(artifact: Path, function_indices: list[str], temporary_path:
     if process.returncode:
         return [], ("Rust reconstruction exceeded its resource limit or the decompiler rejected the module. "
                     + detail).strip()[:2_500]
-    source_path = output_dir / "mod.rs"
+    if _directory_size(output_dir) > MAX_RUST_BYTES:
+        return [], "Rust reconstruction exceeded the 64 MiB output limit."
     index_path = output_dir / "names.json"
-    if not source_path.is_file() or not index_path.is_file():
+    offsets_path = output_dir / "offsets.json"
+    if not index_path.is_file():
         return [], "Rust reconstruction did not produce its source index."
-    if source_path.stat().st_size > MAX_RUST_BYTES or index_path.stat().st_size > 2 * 1024 * 1024:
+    if index_path.stat().st_size > 2 * 1024 * 1024:
         return [], "Rust reconstruction exceeded the 64 MiB storage limit."
     try:
         index = json.loads(index_path.read_text(encoding="utf-8"))
-        lines = source_path.read_text(encoding="utf-8").splitlines(keepends=True)
         records = index["functions"]
     except (OSError, UnicodeError, json.JSONDecodeError, KeyError, TypeError):
         return [], "Rust reconstruction produced an invalid source index."
+    if not isinstance(records, list):
+        return [], "Rust reconstruction produced an invalid source index."
+
+    offsets_by_address: dict[str, dict] = {}
+    offsets_warning = ""
+    if not offsets_path.is_file():
+        offsets_warning = "unwasm did not produce a byte-offset map."
+    elif offsets_path.stat().st_size > 8 * 1024 * 1024:
+        offsets_warning = "unwasm's byte-offset map exceeded its 8 MiB parsing limit."
+    else:
+        try:
+            offsets_index = json.loads(offsets_path.read_text(encoding="utf-8"))
+            offset_records = offsets_index.get("functions") if isinstance(offsets_index, dict) else None
+            if not isinstance(offset_records, list):
+                offsets_warning = "unwasm's byte-offset map had an invalid index format."
+                offset_records = []
+            for entry in offset_records:
+                if isinstance(entry, dict):
+                    try:
+                        offsets_by_address[str(int(entry["index"]))] = entry
+                    except (KeyError, TypeError, ValueError):
+                        continue
+        except (OSError, UnicodeError, json.JSONDecodeError, TypeError):
+            offsets_warning = "unwasm's byte-offset map could not be read."
 
     units = []
+    selected_records = []
     for record in records:
         if not isinstance(record, dict):
             continue
@@ -323,29 +369,121 @@ def _decompile_rust(artifact: Path, function_indices: list[str], temporary_path:
             last = int(record["last_line"])
         except (KeyError, TypeError, ValueError):
             continue
-        if address not in function_indices or first < 1 or last < first or last > len(lines):
-            continue
-        source = "".join(lines[first - 1:last])
-        if not source.strip():
-            continue
-        name = str(record.get("name", f"function_{address}"))[:500]
-        relative_path = f"rust-functions/f{int(address):05d}.rs"
-        destination = run_root / relative_path
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_text(source, encoding="utf-8")
-        units.append({
-            "name": name,
-            "address": address,
-            "relativePath": relative_path,
-            "codeArtifactId": destination.relative_to(DERIVED_ROOT).as_posix(),
-            "sizeBytes": len(source.encode("utf-8")),
-            "nameEvidence": str(record.get("named_by", "none"))[:80],
-        })
+        file_name = record.get("file")
+        if (address in function_indices and first >= 1 and last >= first
+                and isinstance(file_name, str) and Path(file_name).name == file_name):
+            selected_records.append(record)
+    selected_records.sort(key=lambda record: (record["file"], int(record["line"])))
+    source_record_counts: dict[str, int] = {}
+    for record in selected_records:
+        source_record_counts[record["file"]] = source_record_counts.get(record["file"], 0) + 1
+    source_warnings = ""
+    source_files: dict[str, list[str]] = {}
+    remaining_map_rows = MAX_RUST_MAPPING_ROWS
+    per_function_budget = min(MAX_RUST_MAPPINGS_PER_FUNCTION,
+                              max(1, MAX_RUST_MAPPING_ROWS // max(1, len(function_indices))))
+    wasm_size = artifact.stat().st_size
+    byte_listing_size = 0
+    with artifact.open("rb") as wasm_stream:
+        for record in selected_records:
+            try:
+                address = str(int(record["index"]))
+                first = int(record["line"])
+                last = int(record["last_line"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if address not in function_indices or first < 1 or last < first:
+                continue
+            file_name = record.get("file")
+            if not isinstance(file_name, str) or Path(file_name).name != file_name:
+                continue
+            if file_name not in source_files:
+                source_path = output_dir / file_name
+                if not source_path.is_file() or source_path.stat().st_size > MAX_RUST_SOURCE_PART_BYTES:
+                    source_warnings = "Large generated Rust source parts were omitted from function views."
+                    source_record_counts[file_name] = 0
+                    continue
+                try:
+                    source_files[file_name] = source_path.read_text(encoding="utf-8").splitlines(keepends=True)
+                except (OSError, UnicodeError):
+                    continue
+            lines = source_files[file_name]
+            if last > len(lines):
+                continue
+            source = "".join(lines[first - 1:last])
+            if not source.strip():
+                continue
+            name = str(record.get("name", f"function_{address}"))[:500]
+            relative_path = f"rust-functions/f{int(address):05d}.rs"
+            destination = run_root / relative_path
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_text(source, encoding="utf-8")
+            unit = {
+                "name": name,
+                "address": address,
+                "relativePath": relative_path,
+                "codeArtifactId": destination.relative_to(DERIVED_ROOT).as_posix(),
+                "sizeBytes": len(source.encode("utf-8")),
+                "nameEvidence": str(record.get("named_by", "none"))[:80],
+            }
+            offset_record = offsets_by_address.get(address)
+            offset_lines = offset_record.get("lines", []) if offset_record else []
+            offset_file = offset_record.get("file") if offset_record else None
+            if not isinstance(offset_lines, list):
+                offset_lines = []
+            mappings = []
+            byte_lines = []
+            if isinstance(offset_lines, list) and offset_file == file_name:
+                for offset_item in offset_lines:
+                    if remaining_map_rows <= 0 or len(mappings) >= per_function_budget:
+                        break
+                    if not isinstance(offset_item, list) or len(offset_item) != 3:
+                        continue
+                    try:
+                        source_line, byte_offset, byte_length = (int(value) for value in offset_item)
+                    except (TypeError, ValueError):
+                        continue
+                    if (source_line < first or source_line > last or byte_offset < 0 or byte_length < 1
+                            or byte_length > 4096 or byte_offset + byte_length > wasm_size):
+                        continue
+                    wasm_stream.seek(byte_offset)
+                    raw_bytes = wasm_stream.read(byte_length)
+                    if len(raw_bytes) != byte_length:
+                        continue
+                    address_text = f"0x{byte_offset:x}"
+                    shown_bytes = raw_bytes[:64]
+                    suffix = f" … ({byte_length} bytes total)" if len(raw_bytes) > len(shown_bytes) else ""
+                    byte_line = f"{address_text}: {shown_bytes.hex(' ')}{suffix}\n"
+                    byte_line_size = len(byte_line.encode("utf-8"))
+                    if byte_listing_size + byte_line_size > MAX_WASM_BYTE_LISTING_BYTES:
+                        break
+                    mappings.append({"ghidraLineNumber": source_line - first + 1, "address": address_text})
+                    byte_lines.append(byte_line)
+                    byte_listing_size += byte_line_size
+                    remaining_map_rows -= 1
+            if byte_lines:
+                bytes_relative_path = f"wasm-bytes/f{int(address):05d}.txt"
+                bytes_destination = run_root / bytes_relative_path
+                bytes_destination.parent.mkdir(parents=True, exist_ok=True)
+                bytes_destination.write_text("".join(byte_lines), encoding="utf-8")
+                unit["disassemblyArtifactId"] = bytes_destination.relative_to(DERIVED_ROOT).as_posix()
+                unit["disassemblyRelativePath"] = bytes_relative_path
+                unit["disassemblyLanguage"] = "WebAssembly bytes"
+                unit["sourceAddressMap"] = mappings
+            unit["sourceAddressMapTruncated"] = len(offset_lines) > len(mappings)
+            units.append(unit)
+            source_record_counts[file_name] -= 1
+            if source_record_counts[file_name] == 0:
+                source_files.pop(file_name, None)
     warnings = ""
     if len(units) < len(function_indices):
         warnings = f"Rust views were produced for {len(units)} of {len(function_indices)} selected functions."
     if detail:
         warnings = f"{warnings} {detail}".strip()[:2_500]
+    if offsets_warning:
+        warnings = f"{warnings} {offsets_warning}".strip()[:2_500]
+    if source_warnings:
+        warnings = f"{warnings} {source_warnings}".strip()[:2_500]
     return units, warnings
 
 
@@ -465,6 +603,12 @@ def go(body: object, report_progress=lambda _message: None, cancel_check=lambda:
             warnings = f"{warnings} Direct call edges were limited to {MAX_RETURNED_CALLS}.".strip()
         if detail:
             warnings = f"{warnings} {detail}".strip()
+        function_count = len(all_functions)
+        if selected_functions:
+            del function
+        del text, all_functions, selected_functions, function_names
+        if units:
+            report_progress("Generating bounded Rust translation views and Wasm byte mappings with unwasm")
         rust_units, rust_warnings = _decompile_rust(
             artifact,
             [unit["address"] for unit in units],
@@ -477,7 +621,7 @@ def go(body: object, report_progress=lambda _message: None, cancel_check=lambda:
         return {
             "status": "completed",
             "toolVersion": "1.0.42",
-            "functionCount": len(all_functions),
+            "functionCount": function_count,
             "returnedUnits": len(units),
             "codeBytes": output_size,
             "truncated": truncated,

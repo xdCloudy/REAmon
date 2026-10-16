@@ -1463,7 +1463,7 @@ services:
     networks:
       - reamon-analysis
 
-  # Isolated WABT WebAssembly to WAT analyzer.
+  # Isolated WABT and unwasm WebAssembly analysis provider.
   wasm-analyzer:
     build:
       context: ./analyzers/wasm

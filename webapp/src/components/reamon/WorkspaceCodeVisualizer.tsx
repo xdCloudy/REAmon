@@ -435,7 +435,7 @@ const MAX_SOURCE_PREVIEW_CHARS = 25_000
 const MAX_MEMBER_REWRITE_BYTES = 64 * 1024
 const MAX_MEMBER_OUTLINE_BYTES = 2 * 1024 * 1024
 
-function SourceListing({ source, language, fileName, fullSourceUrl, sourceAddressMap, onMappedAddressSelect, highlightAddress, lineIdPrefix }: {
+function SourceListing({ source, language, fileName, fullSourceUrl, sourceAddressMap, onMappedAddressSelect, highlightAddress, lineIdPrefix, mappingLabel = 'instruction address' }: {
   source: string
   language: string | null | undefined
   fileName: string | null | undefined
@@ -444,6 +444,7 @@ function SourceListing({ source, language, fileName, fullSourceUrl, sourceAddres
   onMappedAddressSelect?: (addresses: string[]) => void
   highlightAddress?: string | null
   lineIdPrefix?: string
+  mappingLabel?: string
 }) {
   const syntaxLanguage = sourceSyntaxLanguage(language, fileName)
   const preview = source.length > MAX_SOURCE_PREVIEW_CHARS
@@ -488,13 +489,16 @@ function SourceListing({ source, language, fileName, fullSourceUrl, sourceAddres
         const assemblyAddress = assemblyAddressByLine.get(lineNumber)
         const mappedLine = Boolean(mappedAddresses.length && onMappedAddressSelect)
         const selectedInstruction = Boolean(highlightAddress && assemblyAddress === highlightAddress)
+        const mappedAddressLabel = mappedAddresses.length === 1
+          ? mappingLabel
+          : mappingLabel === 'instruction address' ? 'instruction addresses' : `${mappingLabel}s`
         return {
           ...(lineIdPrefix && assemblyAddress ? { id: `${lineIdPrefix}-${encodeURIComponent(assemblyAddress)}` } : {}),
           ...(mappedLine ? {
             role: 'button',
             tabIndex: 0,
-            title: `Ghidra line ${lineNumber}: click to jump to ${mappedAddresses.length} associated instruction address${mappedAddresses.length === 1 ? '' : 'es'}`,
-            'aria-label': `Ghidra source line ${lineNumber}; click to navigate to associated instruction address`,
+            title: `Source line ${lineNumber}: click to jump to ${mappedAddresses.length} associated ${mappedAddressLabel}`,
+            'aria-label': `Source line ${lineNumber}; click to navigate to associated ${mappingLabel}`,
             onClick: () => onMappedAddressSelect?.(mappedAddresses),
             onKeyDown: (event) => {
               if (event.key === 'Enter' || event.key === ' ') {
@@ -2020,11 +2024,11 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
                 <button type="button" className={styles.copyButton} onClick={() => void copySource()} disabled={!sourceQuery.data}><Copy size={14} /> {copyStatus || 'Copy source'}</button>
               </div>
               {selectedUnit.representation && <p className={styles.sourcePreviewNote} role="status">{selectedUnit.representation}{selectedUnit.decompilerVersion ? ` · ${selectedUnit.decompilerVersion}` : ''}{selectedUnit.nameEvidence ? ` · Name evidence: ${selectedUnit.nameEvidence}` : ''}</p>}
-              {selectedUnit.sourceAddressMap?.length ? <p className={styles.sourcePreviewNote} role="status">Mapped lines are clickable. Click again to cycle through addresses mapped to that line.</p> : null}
+              {selectedUnit.sourceAddressMap?.length ? <p className={styles.sourcePreviewNote} role="status">Mapped source lines are clickable. Click again to cycle through associated {selectedUnit.disassemblyLanguage?.toLowerCase() === 'webassembly bytes' ? 'Wasm byte offsets' : 'instruction addresses'}.</p> : null}
               {selectedUnit.sourceAddressMapTruncated && <p className={styles.sourcePreviewNote} role="status">Some source-to-instruction mappings were omitted at the analyzer limit.</p>}
               {sourceQuery.isLoading && <p className={styles.message}>Loading decompiled source…</p>}
               {sourceQuery.isError && <p className={styles.error}>{sourceQuery.error instanceof Error ? sourceQuery.error.message : 'Could not load decompiled source'}</p>}
-              {sourceQuery.data !== undefined && <SourceListing source={sourceQuery.data} language={selectedUnit.language} fileName={selectedUnit.codeArtifactId?.split('/').pop()} fullSourceUrl={selectedSourceUrl} sourceAddressMap={selectedUnit.sourceAddressMap} onMappedAddressSelect={selectSourceAddress} />}
+              {sourceQuery.data !== undefined && <SourceListing source={sourceQuery.data} language={selectedUnit.language} fileName={selectedUnit.codeArtifactId?.split('/').pop()} fullSourceUrl={selectedSourceUrl} sourceAddressMap={selectedUnit.sourceAddressMap} onMappedAddressSelect={selectSourceAddress} mappingLabel={selectedUnit.disassemblyLanguage?.toLowerCase() === 'webassembly bytes' ? 'Wasm byte offset' : 'instruction address'} />}
             </div>
             <div className={styles.listingPane}>
               <div className={styles.sourceHeader}>
@@ -2033,7 +2037,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
               </div>
               {disassemblyQuery.isLoading && <p className={styles.message}>Loading instruction listing…</p>}
               {disassemblyQuery.isError && <p className={styles.error}>{disassemblyQuery.error instanceof Error ? disassemblyQuery.error.message : 'Could not load instruction listing'}</p>}
-              {disassemblyQuery.data !== undefined && <SourceListing source={disassemblyQuery.data} language={selectedUnit.disassemblyLanguage} fileName={selectedUnit.disassemblyArtifactId?.split('/').pop()} fullSourceUrl={selectedDisassemblyUrl} highlightAddress={selectedEvidenceAddress} lineIdPrefix={`ghidra-assembly-${selectedUnit.id}`} />}
+              {disassemblyQuery.data !== undefined && <SourceListing source={disassemblyQuery.data} language={selectedUnit.disassemblyLanguage} fileName={selectedUnit.disassemblyArtifactId?.split('/').pop()} fullSourceUrl={selectedDisassemblyUrl} highlightAddress={selectedEvidenceAddress} lineIdPrefix={`disassembly-${selectedUnit.id}`} />}
               {selectedUnit.disassemblyLanguage?.toLowerCase() === 'smali' && <div className={styles.smaliEditor}>
                 <label>Editable Smali source
                   <textarea aria-label="Editable Smali source" value={smaliDraft} spellCheck={false} onChange={(event) => { setSmaliDraft(event.target.value); setSmaliSaved(false); setSmaliError('') }} />

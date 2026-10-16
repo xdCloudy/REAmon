@@ -14,6 +14,11 @@ interface WasmUnit {
   sizeBytes: number
   instructionMnemonics?: string[]
   nameEvidence?: string
+  disassemblyArtifactId?: string
+  disassemblyRelativePath?: string
+  disassemblyLanguage?: string
+  sourceAddressMap?: Array<{ ghidraLineNumber: number; address: string }>
+  sourceAddressMapTruncated?: boolean
 }
 
 interface WasmCall {
@@ -41,7 +46,7 @@ interface WasmResponse {
 
 export const wasmManifest: ToolPluginManifest = {
   id: 'reamon-wabt',
-  name: 'WebAssembly Disassembler (WABT)',
+  name: 'WebAssembly Analysis (WABT + unwasm)',
   category: 'static_analysis',
   integration: 'process',
   acceptsTargetTypes: ['FILE'],
@@ -49,13 +54,13 @@ export const wasmManifest: ToolPluginManifest = {
   capabilities: ['disassemble', 'decompile'],
   produces: ['CodeUnit', 'WATFunction', 'RustFunction'],
   requirements: [
-    { key: 'service', value: 'Isolated WABT analyzer' },
+    { key: 'service', value: 'Isolated WABT and unwasm analyzer' },
     { key: 'artifactPath' },
   ],
 }
 
 function errorText(error: unknown): string {
-  return (error instanceof Error ? error.message : String(error)).trim().slice(0, 4_000) || 'WABT analysis failed'
+  return (error instanceof Error ? error.message : String(error)).trim().slice(0, 4_000) || 'WebAssembly analysis failed'
 }
 
 function boundedTimeoutMs(): number {
@@ -71,6 +76,13 @@ function isWasmUnit(value: unknown): value is WasmUnit {
     && typeof unit.relativePath === 'string' && unit.relativePath.length > 0 && unit.relativePath.length <= 1_000
     && typeof unit.codeArtifactId === 'string' && unit.codeArtifactId.length > 0 && unit.codeArtifactId.length <= 2_000
     && typeof unit.sizeBytes === 'number' && Number.isSafeInteger(unit.sizeBytes) && unit.sizeBytes > 0
+    && (unit.disassemblyArtifactId === undefined || (typeof unit.disassemblyArtifactId === 'string' && unit.disassemblyArtifactId.length <= 2_000))
+    && (unit.disassemblyRelativePath === undefined || (typeof unit.disassemblyRelativePath === 'string' && unit.disassemblyRelativePath.length <= 1_000))
+    && (unit.disassemblyLanguage === undefined || (typeof unit.disassemblyLanguage === 'string' && unit.disassemblyLanguage.length <= 80))
+    && (unit.sourceAddressMap === undefined || (Array.isArray(unit.sourceAddressMap) && unit.sourceAddressMap.length <= 100
+      && unit.sourceAddressMap.every((mapping) => mapping && Number.isInteger(mapping.ghidraLineNumber)
+        && mapping.ghidraLineNumber > 0 && typeof mapping.address === 'string' && /^0x[0-9a-f]{1,16}$/i.test(mapping.address))))
+    && (unit.sourceAddressMapTruncated === undefined || typeof unit.sourceAddressMapTruncated === 'boolean')
     && (unit.instructionMnemonics === undefined || (Array.isArray(unit.instructionMnemonics) && unit.instructionMnemonics.length <= 800
       && unit.instructionMnemonics.every((mnemonic) => typeof mnemonic === 'string' && /^[A-Za-z][A-Za-z0-9_.]{0,31}$/.test(mnemonic))))
 }
@@ -85,6 +97,8 @@ function isWasmResponse(value: unknown): value is WasmResponse {
     && (response.codeBytes === undefined || (Number.isSafeInteger(response.codeBytes) && (response.codeBytes as number) >= 0))
     && typeof response.truncated === 'boolean'
     && Array.isArray(response.units)
+    && (response.rustUnits === undefined || Array.isArray(response.rustUnits))
+    && (response.rustVersion === undefined || typeof response.rustVersion === 'string')
     && (response.calls === undefined || Array.isArray(response.calls))
     && (response.warnings === undefined || typeof response.warnings === 'string')
 }
@@ -144,6 +158,11 @@ export async function executeWasm(input: ToolExecutionInput): Promise<ToolResult
         language: 'WebAssembly Text (WAT)',
         decompiled: true,
         codeArtifactId: unit.codeArtifactId,
+        ...(unit.disassemblyArtifactId ? { disassemblyArtifactId: unit.disassemblyArtifactId } : {}),
+        ...(unit.disassemblyRelativePath ? { disassemblyRelativePath: unit.disassemblyRelativePath } : {}),
+        ...(unit.disassemblyLanguage ? { disassemblyLanguage: unit.disassemblyLanguage } : {}),
+        ...(unit.sourceAddressMap ? { sourceAddressMap: JSON.stringify(unit.sourceAddressMap) } : {}),
+        ...(unit.sourceAddressMapTruncated ? { sourceAddressMapTruncated: true } : {}),
         ...(unit.instructionMnemonics?.length ? { instructionMnemonics: JSON.stringify(unit.instructionMnemonics.slice(0, 800)) } : {}),
       },
     }))
@@ -171,6 +190,11 @@ export async function executeWasm(input: ToolExecutionInput): Promise<ToolResult
           nameEvidence: typeof unit.nameEvidence === 'string' ? unit.nameEvidence.slice(0, 80) : 'unavailable',
           decompiled: true,
           codeArtifactId: unit.codeArtifactId,
+          ...(unit.disassemblyArtifactId ? { disassemblyArtifactId: unit.disassemblyArtifactId } : {}),
+          ...(unit.disassemblyRelativePath ? { disassemblyRelativePath: unit.disassemblyRelativePath } : {}),
+          ...(unit.disassemblyLanguage ? { disassemblyLanguage: unit.disassemblyLanguage } : {}),
+          ...(unit.sourceAddressMap ? { sourceAddressMap: JSON.stringify(unit.sourceAddressMap) } : {}),
+          ...(unit.sourceAddressMapTruncated ? { sourceAddressMapTruncated: true } : {}),
         },
       })
       observations.push({
