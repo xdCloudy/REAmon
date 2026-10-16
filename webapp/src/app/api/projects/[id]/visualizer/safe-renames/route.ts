@@ -90,6 +90,56 @@ async function applyPythonRenameBindings(
   }
 }
 
+async function listGoRenameBindings(sourceCode: string): Promise<SafeRenameCatalog> {
+  const response = await agentFetch('/reamon/code/go/refactor', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ operation: 'bindings', source_code: sourceCode }),
+  }, { timeoutMs: 30_000 })
+  const payload = await response.json().catch(() => null) as Record<string, unknown> | null
+  const bindings = Array.isArray(payload?.bindings) ? payload.bindings : []
+  if (!response.ok || typeof payload?.source_sha256 !== 'string' || payload.source_sha256 !== digest(Buffer.from(sourceCode, 'utf8'))
+      || bindings.length > 5_000 || typeof payload.truncated !== 'boolean'
+      || typeof payload.parser_version !== 'string' || !/^go\d+\.\d+\.\d+(?:[.-][0-9A-Za-z.-]+)?$/.test(payload.parser_version)
+      || !bindings.every((value) => {
+        const binding = plainObject(value)
+        return /^[a-f0-9]{24}$/i.test(String(binding.id || ''))
+          && typeof binding.name === 'string' && binding.name.length > 0 && binding.name.length <= 256
+          && typeof binding.kind === 'string' && binding.kind.length <= 80
+          && typeof binding.scopeType === 'string' && binding.scopeType.length <= 80
+          && Number.isSafeInteger(binding.declarationStart) && Number(binding.declarationStart) >= 0
+          && Number.isSafeInteger(binding.referenceCount) && Number(binding.referenceCount) >= 0
+          && binding.exported === false
+      })) {
+    throw new Error(typeof payload?.error === 'string' ? payload.error : 'The Go refactoring service returned an invalid binding catalog')
+  }
+  return { sourceSha256: payload.source_sha256, bindings: bindings as SafeRenameBinding[], truncated: payload.truncated }
+}
+
+async function applyGoRenameBindings(
+  sourceCode: string,
+  expectedSha256: string,
+  renames: Array<{ bindingId: string; newName: string }>,
+): Promise<SafeRenameResult> {
+  const response = await agentFetch('/reamon/code/go/refactor', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      operation: 'rename', source_code: sourceCode, expected_sha256: expectedSha256,
+      renames: renames.map((rename) => ({ binding_id: rename.bindingId, new_name: rename.newName })),
+    }),
+  }, { timeoutMs: 30_000 })
+  const payload = await response.json().catch(() => null) as Record<string, unknown> | null
+  const output = typeof payload?.source_code === 'string' ? payload.source_code : ''
+  const renamed = Array.isArray(payload?.renamed_bindings) ? payload.renamed_bindings : []
+  const outputSha256 = typeof payload?.output_sha256 === 'string' ? payload.output_sha256 : ''
+  const parserVersion = typeof payload?.parser_version === 'string' ? payload.parser_version : ''
+  if (!response.ok || payload?.source_sha256 !== expectedSha256 || !/^[a-f0-9]{64}$/i.test(outputSha256)
+      || digest(Buffer.from(output, 'utf8')) !== outputSha256 || !/^go\d+\.\d+\.\d+(?:[.-][0-9A-Za-z.-]+)?$/.test(parserVersion)
+      || Buffer.byteLength(output, 'utf8') > MAX_SOURCE_BYTES || renamed.length !== renames.length) {
+    throw new Error(typeof payload?.error === 'string' ? payload.error : 'The Go refactoring service returned an invalid transformed source')
+  }
+  return { sourceCode: output, sourceSha256: expectedSha256, outputSha256, parserVersion, renamedBindings: renamed as SafeRenameResult['renamedBindings'] }
+}
+
 export async function POST(request: Request, { params }: RouteParams) {
   try {
     const { id: projectId } = await params
@@ -119,8 +169,9 @@ export async function POST(request: Request, { params }: RouteParams) {
     const language = typeof attributes.language === 'string' ? attributes.language.trim() : ''
     const normalizedLanguage = language.toLowerCase()
     const isPython = ['python', 'python 3', 'python3'].includes(normalizedLanguage)
-    if (!['javascript', 'typescript', 'jsx', 'tsx', 'python', 'python 3', 'python3'].includes(normalizedLanguage)) {
-      return NextResponse.json({ error: 'Scope-safe renaming currently supports JavaScript, TypeScript, and Python source' }, { status: 415 })
+    const isGo = ['go', 'golang'].includes(normalizedLanguage)
+    if (!['javascript', 'typescript', 'jsx', 'tsx', 'python', 'python 3', 'python3', 'go', 'golang'].includes(normalizedLanguage)) {
+      return NextResponse.json({ error: 'Scope-safe renaming currently supports JavaScript, TypeScript, Python, and Go source' }, { status: 415 })
     }
     const codeArtifactId = typeof attributes.codeArtifactId === 'string' ? attributes.codeArtifactId : ''
     const selection = await getActiveWorkspaceImportSelection(projectId)
@@ -139,17 +190,17 @@ export async function POST(request: Request, { params }: RouteParams) {
     const [rootRealPath, sourceRealPath] = await Promise.all([realpath(root), realpath(candidatePath).catch(() => null)])
     if (!sourceRealPath || !isInside(rootRealPath, sourceRealPath)) return NextResponse.json({ error: 'Linked source path is invalid' }, { status: 404 })
     const info = await stat(sourceRealPath)
-    if (!info.isFile() || info.size > MAX_SOURCE_BYTES) return NextResponse.json({ error: `Linked ${isPython ? 'Python' : 'JavaScript'} source exceeds the safe-rename limit` }, { status: 413 })
+    if (!info.isFile() || info.size > MAX_SOURCE_BYTES) return NextResponse.json({ error: `Linked ${isGo ? 'Go' : isPython ? 'Python' : 'JavaScript'} source exceeds the safe-rename limit` }, { status: 413 })
     const sourceBytes = await readFile(sourceRealPath)
     const sourceCode = new TextDecoder('utf-8', { fatal: true }).decode(sourceBytes)
     const artifactSourceSha256 = digest(sourceBytes)
     const workingSource = typeof body.sourceCode === 'string' ? body.sourceCode : sourceCode
     const workingBytes = Buffer.from(workingSource, 'utf8')
-    if (workingBytes.byteLength > MAX_SOURCE_BYTES) return NextResponse.json({ error: `Editable ${isPython ? 'Python' : 'JavaScript'} source exceeds the safe-rename limit` }, { status: 413 })
+    if (workingBytes.byteLength > MAX_SOURCE_BYTES) return NextResponse.json({ error: `Editable ${isGo ? 'Go' : isPython ? 'Python' : 'JavaScript'} source exceeds the safe-rename limit` }, { status: 413 })
     const workingSourceSha256 = digest(workingBytes)
     const unitName = (typeof attributes.qualifiedName === 'string' && attributes.qualifiedName)
       || (typeof attributes.name === 'string' && attributes.name)
-      || `Selected ${isPython ? 'Python' : 'JavaScript'} unit`
+      || `Selected ${isGo ? 'Go' : isPython ? 'Python' : 'JavaScript'} unit`
 
     if (operation === 'suggest') {
       if (!providerId || providerId.length > 128) return NextResponse.json({ error: 'Choose a saved AI provider' }, { status: 400 })
@@ -160,9 +211,9 @@ export async function POST(request: Request, { params }: RouteParams) {
       })
       if (!provider) return NextResponse.json({ error: 'Saved OpenAI-compatible provider not found' }, { status: 404 })
 
-      const catalog = isPython
-        ? await listPythonRenameBindings(workingSource)
-        : await listSafeRenameBindings(workingSource)
+      const catalog = isGo
+        ? await listGoRenameBindings(workingSource)
+        : isPython ? await listPythonRenameBindings(workingSource) : await listSafeRenameBindings(workingSource)
       const candidates = catalog.bindings
         .filter((binding) => !binding.exported && binding.kind !== 'module' && binding.referenceCount > 0
           && (binding.name.length <= 3 || /^_?(?:0x[\da-f]{4,}|[\da-f]{6,})$/i.test(binding.name)))
@@ -215,7 +266,7 @@ export async function POST(request: Request, { params }: RouteParams) {
           model: `custom/${provider.id}`,
           user_id: user.userId,
           unit_name: unitName,
-          language: isPython ? 'Python' : language,
+          language: isGo ? 'Go' : isPython ? 'Python' : language,
           source_code: workingSource,
           bindings: candidates,
           project_symbol_context: projectSymbolContext,
@@ -252,9 +303,9 @@ export async function POST(request: Request, { params }: RouteParams) {
     if (!provider) return NextResponse.json({ error: 'Saved OpenAI-compatible provider not found' }, { status: 404 })
     const requests = Array.isArray(body.renames) ? body.renames : []
     if (requests.length < 1 || requests.length > 80) return NextResponse.json({ error: 'Select between 1 and 80 rename suggestions' }, { status: 400 })
-    const catalog = isPython
-      ? await listPythonRenameBindings(workingSource)
-      : await listSafeRenameBindings(workingSource)
+    const catalog = isGo
+      ? await listGoRenameBindings(workingSource)
+      : isPython ? await listPythonRenameBindings(workingSource) : await listSafeRenameBindings(workingSource)
     const available = new Map(catalog.bindings.map((binding) => [binding.id, binding]))
     for (const rename of requests) {
       const item = plainObject(rename)
@@ -268,16 +319,20 @@ export async function POST(request: Request, { params }: RouteParams) {
       const item = plainObject(rename)
       return { bindingId: String(item.bindingId), newName: String(item.newName) }
     })
-    const transformed = isPython
-      ? await applyPythonRenameBindings(workingSource, workingSourceSha256, selectedRenames)
-      : await applySafeRenameBindings(workingSource, workingSourceSha256, selectedRenames)
+    const transformed = isGo
+      ? await applyGoRenameBindings(workingSource, workingSourceSha256, selectedRenames)
+      : isPython ? await applyPythonRenameBindings(workingSource, workingSourceSha256, selectedRenames)
+        : await applySafeRenameBindings(workingSource, workingSourceSha256, selectedRenames)
     const runKey = segments.slice(0, 4).join('/')
-    const validationMethod = isPython
-      ? `libcst-${transformed.parserVersion}+scope-safe-rename`
-      : `babel-parser-${transformed.parserVersion}+scope-safe-rename`
-    const validationMessage = isPython
-      ? `LibCST ${transformed.parserVersion} applied scope-aware local-binding renames and parsed the output. This confirms structure only, not module-level references or behavior equivalence.`
-      : `Babel ${transformed.parserVersion} parsed the output after scope-aware renaming and rejected binding collisions. This confirms syntax only, not behavior equivalence.`
+    const validationMethod = isGo
+      ? `${transformed.parserVersion}+go-ast-types-scope-safe-rename`
+      : isPython ? `libcst-${transformed.parserVersion}+scope-safe-rename`
+        : `babel-parser-${transformed.parserVersion}+scope-safe-rename`
+    const validationMessage = isGo
+      ? `Go ${transformed.parserVersion} parsed the output after object-identity-based local binding renames. This confirms syntax only; missing package dependencies, build behavior, and runtime equivalence are not validated.`
+      : isPython
+        ? `LibCST ${transformed.parserVersion} applied scope-aware local-binding renames and parsed the output. This confirms structure only, not module-level references or behavior equivalence.`
+        : `Babel ${transformed.parserVersion} parsed the output after scope-aware renaming and rejected binding collisions. This confirms syntax only, not behavior equivalence.`
     const attempt = await prisma.reamonCodeAttempt.create({
       data: {
         projectId,
@@ -294,8 +349,8 @@ export async function POST(request: Request, { params }: RouteParams) {
         scope: 'file',
         status: 'SUCCEEDED',
         requestPayload: {
-          operation: isPython ? 'libcst-scope-safe-renames' : 'humanify-style-scope-safe-renames',
-          engine: isPython ? `LibCST ${transformed.parserVersion} ScopeProvider/RenameCommand` : `Babel ${transformed.parserVersion} scope.rename (Humanify two-stage design)`,
+          operation: isGo ? 'go-types-scope-safe-renames' : isPython ? 'libcst-scope-safe-renames' : 'humanify-style-scope-safe-renames',
+          engine: isGo ? `Go ${transformed.parserVersion} AST and go/types object identity` : isPython ? `LibCST ${transformed.parserVersion} ScopeProvider/RenameCommand` : `Babel ${transformed.parserVersion} scope.rename (Humanify two-stage design)`,
           inputSha256: workingSourceSha256,
           artifactSourceSha256,
           inputSource: workingSource,

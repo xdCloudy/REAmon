@@ -65,15 +65,18 @@ async function acceptedSafeRenameAliases(
       if (attempt.validationStatus !== 'PASSED' || attempt.resultSource !== sourceCode
           || createHash('sha256').update(attempt.resultSource).digest('hex') !== sourceHash) continue
       const payload = plainObject(attempt.requestPayload)
-      if (!['humanify-style-scope-safe-renames', 'libcst-scope-safe-renames'].includes(String(payload.operation))
+      const goBindings = payload.operation === 'go-types-scope-safe-renames'
+      if (!['humanify-style-scope-safe-renames', 'libcst-scope-safe-renames', 'go-types-scope-safe-renames'].includes(String(payload.operation))
           || payload.outputSha256 !== sourceHash || !Array.isArray(payload.renames)) continue
       const aliases = payload.renames.flatMap((value) => {
         const rename = plainObject(value)
+        const validName = (name: string) => goBindings
+          ? /^[_\p{ID_Start}][\p{ID_Continue}]*$/u.test(name)
+          : /^[A-Za-z_$][\w$]{0,127}$/.test(name)
         if (typeof rename.oldName !== 'string' || typeof rename.newName !== 'string'
             || typeof rename.bindingId !== 'string' || !/^[a-f0-9]{24}$/i.test(rename.bindingId)
             || typeof rename.kind !== 'string' || rename.kind.length > 80
-            || !/^[A-Za-z_$][\w$]{0,127}$/.test(rename.oldName)
-            || !/^[A-Za-z_$][\w$]{0,127}$/.test(rename.newName)
+            || !validName(rename.oldName) || !validName(rename.newName)
             || rename.oldName === rename.newName) return []
         return [{ bindingId: rename.bindingId.toLowerCase(), oldName: rename.oldName, newName: rename.newName, kind: rename.kind }]
       }).slice(0, 200)

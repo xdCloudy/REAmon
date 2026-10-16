@@ -205,6 +205,8 @@ COPY services/knowledge_base/ ./knowledge_base/
 #   agent serves it to describe_recon_settings and reads it to validate a write.
 COPY recon_settings/ ./recon_settings/
 COPY agentic/ ./
+RUN GO111MODULE=off go build -trimpath -o /usr/local/bin/reamon-gorefactor ./reamon_gorefactor \
+    && chmod 0555 /usr/local/bin/reamon-gorefactor
 
 # Make knowledge_base and graph_db importable as top-level packages
 ENV PYTHONPATH="/app:${PYTHONPATH}"
