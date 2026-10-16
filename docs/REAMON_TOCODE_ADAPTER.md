@@ -80,4 +80,3 @@ results for the supported ToCode release and backend.
 - [Glaurung analysis scope and maturity](https://github.com/mjbommar/glaurung)
 - REAmon's current file-level execution path is in `webapp/src/lib/reamon/task-executor.ts`;
   project-scoped import inventory is in `webapp/src/lib/reamon/inventory-query.ts`.
-
