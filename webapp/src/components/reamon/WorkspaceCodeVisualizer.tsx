@@ -2111,7 +2111,15 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
             {sourceQuery.data !== undefined && <SourceListing source={sourceQuery.data} language={selectedUnit.language} fileName={selectedUnit.codeArtifactId?.split('/').pop()} fullSourceUrl={selectedSourceUrl} />}
           </>}
         </section>}
-        {selectedUnit && selectedSourceUrl && canCompareDecompilerOutputs && <section className={styles.alternateComparison} aria-label="Compare decompiler outputs">
+        {selectedUnit && selectedSourceUrl && canCompareDecompilerOutputs && <>
+          {compareAlternatesOpen && <div className={styles.alternateComparisonBackdrop} aria-hidden="true" onMouseDown={() => setCompareAlternatesOpen(false)} />}
+          <section
+            className={`${styles.alternateComparison} ${compareAlternatesOpen ? styles.alternateComparisonModal : ''}`}
+            aria-label="Compare decompiler outputs"
+            role={compareAlternatesOpen ? 'dialog' : undefined}
+            aria-modal={compareAlternatesOpen || undefined}
+            onKeyDown={(event) => { if (event.key === 'Escape') setCompareAlternatesOpen(false) }}
+          >
           <div className={styles.alternateComparisonHeader}>
             <div><strong>Compare decompiler outputs</strong><span>Only matching input artifact, source path, and language; alternate output hash checked before display.</span></div>
             <button type="button" className={styles.copyButton} onClick={() => setCompareAlternatesOpen((open) => !open)} aria-expanded={compareAlternatesOpen}>
@@ -2124,7 +2132,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
             {!alternateOutputsQuery.isLoading && !alternateOutputsQuery.isError && alternateOutputs.length === 0 && <p className={styles.message}>No hash-verified output from another compatible decompiler is stored for this source unit.</p>}
             {alternateOutputs.length > 0 && <>
               <label className={styles.alternateProviderSelect}>Compare against
-                <select aria-label="Alternate decompiler output" value={selectedAlternateOutput?.id || ''} onChange={(event) => setSelectedAlternateId(event.target.value)}>
+                <select aria-label="Alternate decompiler output" autoFocus={compareAlternatesOpen} value={selectedAlternateOutput?.id || ''} onChange={(event) => setSelectedAlternateId(event.target.value)}>
                   {alternateOutputs.map((output) => <option key={output.id} value={output.id}>{output.providerName}{output.version ? ` ${output.version}` : ''}</option>)}
                 </select>
               </label>
@@ -2143,7 +2151,8 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
               </div>}
             </>}
           </>}
-        </section>}
+          </section>
+        </>}
           <dl>
             <div><dt>Address</dt><dd>{selectedUnit.address || 'Not supplied'}</dd></div>
             <div><dt>Size</dt><dd>{formatBytes(selectedUnit.sizeBytes)}</dd></div>

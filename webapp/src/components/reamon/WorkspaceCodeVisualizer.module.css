@@ -353,3 +353,12 @@ button.flowNode:hover, button.flowNode:focus-visible { border-color: #86c8ff; ou
   .functionTile:hover { transform: none; }
   .spin { animation-duration: 4s; }
 }
+
+.alternateComparisonBackdrop { position: fixed; z-index: 1000; inset: 0; background: rgb(4 8 14 / 76%); }
+.alternateComparisonModal { position: fixed; z-index: 1001; inset: 3vh 3vw; max-height: 94vh; overflow: auto; border-color: var(--border-strong); background: var(--bg-secondary); box-shadow: 0 24px 80px rgb(0 0 0 / 55%); }
+.unitInspector .alternateComparisonModal .comparison { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.alternateComparisonModal .sourceCode { max-height: 68vh; }
+
+@media (max-width: 720px) {
+  .unitInspector .alternateComparisonModal .comparison { grid-template-columns: minmax(0, 1fr); }
+}
