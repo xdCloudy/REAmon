@@ -78,7 +78,7 @@ async function resolveUnit(projectId: string, unitId: string) {
   const extension = path.extname(originalPath).replace(/[^.a-zA-Z0-9]/g, '').slice(0, 16)
   const sourceName = path.basename(originalPath).replace(/[^a-zA-Z0-9._-]/g, '_').slice(-100) || `source${extension || '.txt'}`
   const relativePath = `${projectId}/maintained/${createHash('sha256').update(unitId).digest('hex')}-${sourceName}`
-  return { projectId, unitId, reviewerId: user.userId, observation, attributes, artifactId: artifact.id, originalPath, relativePath } as const
+  return { projectId, unitId, reviewerId: user.userId, observation, attributes, artifactId: artifact.id, runKey: segments.slice(0, 4).join('/'), originalPath, relativePath } as const
 }
 
 async function checkedPath(relativePath: string) {
@@ -139,6 +139,61 @@ export async function GET(request: Request, { params }: RouteParams) {
   } catch (error) {
     console.error('Failed to load maintained REAmon source:', error)
     return NextResponse.json({ error: 'Failed to load maintained source' }, { status: 500, headers: { 'Cache-Control': 'no-store' } })
+  }
+}
+
+export async function POST(request: Request, { params }: RouteParams) {
+  try {
+    const { id: projectId, unitId } = await params
+    const resolved = await resolveUnit(projectId, unitId)
+    if ('response' in resolved) return resolved.response
+    const body = plainObject(await request.json().catch(() => null))
+    const sourceCode = body.sourceCode
+    const reviewRationale = typeof body.reviewRationale === 'string' ? body.reviewRationale.trim() : ''
+    if (typeof sourceCode !== 'string' || !sourceCode.trim()) return NextResponse.json({ error: 'Rejected draft source cannot be empty' }, { status: 400 })
+    if (Buffer.byteLength(sourceCode, 'utf8') > MAX_SOURCE_BYTES) return NextResponse.json({ error: 'Rejected draft exceeds the save limit' }, { status: 413 })
+    if (reviewRationale.length < 12 || reviewRationale.length > 1000) {
+      return NextResponse.json({ error: 'Add a review rationale between 12 and 1000 characters before rejecting this draft.' }, { status: 400 })
+    }
+
+    const rejectedSourceHash = createHash('sha256').update(sourceCode).digest('hex')
+    const savedDraft = await prisma.reamonCodeDraft.findFirst({
+      where: {
+        projectId,
+        artifactId: resolved.artifactId,
+        runKey: resolved.runKey,
+        codeUnitId: unitId,
+        draftHash: rejectedSourceHash,
+      },
+      select: { id: true },
+    })
+    if (!savedDraft) return NextResponse.json({ error: 'Save this exact draft to project memory before recording its rejection.' }, { status: 409 })
+
+    const currentMaintainedSource = await prisma.reamonMaintainedSource.findUnique({
+      where: { projectId_codeUnitId: { projectId, codeUnitId: unitId } },
+      select: { sourceCode: true, acceptedReviewId: true },
+    })
+    if (currentMaintainedSource?.acceptedReviewId
+        && createHash('sha256').update(currentMaintainedSource.sourceCode).digest('hex') === rejectedSourceHash) {
+      return NextResponse.json({ error: 'This exact source version is already accepted. Edit it before recording a rejection.' }, { status: 409 })
+    }
+
+    const review = await prisma.reamonCodeReview.create({
+      data: {
+        projectId,
+        artifactId: resolved.artifactId,
+        codeUnitId: unitId,
+        reviewerId: resolved.reviewerId,
+        decision: 'REJECTED',
+        rationale: reviewRationale,
+        maintainedSourceHash: rejectedSourceHash,
+      },
+      select: { id: true, reviewerId: true, decision: true, rationale: true, maintainedSourceHash: true, createdAt: true },
+    })
+    return NextResponse.json({ saved: true, review: { ...review, createdAt: review.createdAt.toISOString() } }, { headers: { 'Cache-Control': 'private, no-store' } })
+  } catch (error) {
+    console.error('Failed to record rejected REAmon draft:', error)
+    return NextResponse.json({ error: 'Failed to record rejected draft' }, { status: 500, headers: { 'Cache-Control': 'no-store' } })
   }
 }
 

@@ -120,7 +120,7 @@ interface CodeMaintenanceResponse { sourceCode: string; providerName: string; mo
 interface CodeDraftRecord { id: string; sourceCode: string; sourceAttemptId: string | null; providerName: string; modelIdentifier: string; question: string; scope: 'file' | 'member'; syntaxValidated: boolean | null; validationStatus: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod: string | null; validationMessage: string | null; updatedAt: string }
 interface CodeAttemptRecord { id: string; providerName: string; modelIdentifier: string; question: string; scope: 'file' | 'member'; status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'; cancelRequested: boolean; errorCode: string | null; errorMessage: string | null; resultSource: string | null; syntaxValidated: boolean | null; validationStatus: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod: string | null; validationMessage: string | null; createdAt: string; completedAt: string | null }
 interface CodeDraftResponse { exists: boolean; draft: CodeDraftRecord | null; attempts?: CodeAttemptRecord[] }
-interface CodeReviewRecord { id: string; reviewerId: string; decision: 'ACCEPTED'; rationale: string; maintainedSourceHash: string; createdAt: string }
+interface CodeReviewRecord { id: string; reviewerId: string; decision: 'ACCEPTED' | 'REJECTED'; rationale: string; maintainedSourceHash: string; createdAt: string }
 interface CodeMemberOutline { name: string; kind: 'function' | 'method' | 'constructor'; start_byte: number; end_byte: number; line: number; source_bytes: number }
 interface SafeRenameProposal { bindingId: string; oldName: string; newName: string; kind: string; referenceCount: number; rationale: string }
 interface SafeRenameSuggestions { sourceSha256: string; providerId: string; providerName: string; model: string; candidates: number; renames: SafeRenameProposal[] }
@@ -549,6 +549,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
   const [applyingSafeRenames, setApplyingSafeRenames] = useState(false)
   const [safeRenameStatus, setSafeRenameStatus] = useState('')
   const [reviewRationale, setReviewRationale] = useState('')
+  const [reviewStatus, setReviewStatus] = useState('')
   const [transforming, setTransforming] = useState(false)
   const [activeRewriteAttemptId, setActiveRewriteAttemptId] = useState<string | null>(null)
   const [cancellingRewrite, setCancellingRewrite] = useState(false)
@@ -850,6 +851,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
     setSuggestingSafeRenames(false)
     setApplyingSafeRenames(false)
     setReviewRationale('')
+    setReviewStatus('')
     setMaintainedDraft('')
     setSmaliDraft('')
     setSmaliSaved(false)
@@ -1109,14 +1111,14 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
     }
   }
 
-  async function saveCodeDraft() {
-    if (!selectedUnit || !maintainedDraft.trim()) return
+  async function saveCodeDraft(): Promise<boolean> {
+    if (!selectedUnit || !maintainedDraft.trim()) return false
     const configuredProvider = explanationProviders.find((provider) => provider.id === selectedProviderId)
     const providerName = maintenanceMeta?.providerName || configuredProvider?.name
     const model = maintenanceMeta?.model || configuredProvider?.modelIdentifier
     if (!providerName || !model) {
       setMaintenanceError('Choose a saved AI provider before saving this draft to project memory.')
-      return
+      return false
     }
     setSavingDraft(true)
     setMaintenanceError('')
@@ -1157,8 +1159,10 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
       })
       await queryClient.invalidateQueries({ queryKey: ['reamon-code-units', projectId] })
       await queryClient.invalidateQueries({ queryKey: ['reamon-maintained-coverage', projectId, currentRunId] })
+      return true
     } catch (error) {
       setMaintenanceError(error instanceof Error ? error.message : 'Could not save this draft to project memory')
+      return false
     } finally {
       setSavingDraft(false)
     }
@@ -1352,11 +1356,40 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
       })
       setMaintainedSaved(true)
       setReviewRationale('')
+      setReviewStatus('')
       await queryClient.invalidateQueries({ queryKey: ['reamon-code-units', projectId] })
       await queryClient.invalidateQueries({ queryKey: ['reamon-maintained-coverage', projectId, currentRunId] })
       await queryClient.invalidateQueries({ queryKey: ['reamon-maintained-source', projectId, selectedUnit.id] })
     } catch (error) {
       setMaintenanceError(error instanceof Error ? error.message : 'Could not save the maintained source')
+    } finally {
+      setSavingMaintained(false)
+    }
+  }
+
+  async function rejectMaintainedDraft() {
+    if (!selectedUnit || !maintainedDraft.trim()) return
+    if (reviewRationale.trim().length < 12 || reviewRationale.trim().length > 1000) {
+      setMaintenanceError('Add between 12 and 1000 characters explaining why this draft was rejected.')
+      return
+    }
+    setSavingMaintained(true)
+    setMaintenanceError('')
+    setReviewStatus('')
+    try {
+      if (draftSource !== maintainedDraft && !await saveCodeDraft()) return
+      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/maintained/${encodeURIComponent(selectedUnit.id)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sourceCode: maintainedDraft, reviewRationale }),
+      })
+      const result = await response.json().catch(() => ({})) as { error?: string }
+      if (!response.ok) throw new Error(result.error || 'Could not record this rejection')
+      setReviewRationale('')
+      setReviewStatus('Rejection recorded. This reviewer feedback will guide future rewrites of this code unit.')
+      await queryClient.invalidateQueries({ queryKey: ['reamon-maintained-source', projectId, selectedUnit.id] })
+    } catch (error) {
+      setMaintenanceError(error instanceof Error ? error.message : 'Could not record this rejection')
     } finally {
       setSavingMaintained(false)
     }
@@ -2148,19 +2181,21 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
               <textarea ref={maintainedEditorRef} aria-label="Editable maintained source" value={maintainedDraft} spellCheck={false} onChange={(event) => { setMaintainedDraft(event.target.value); setMaintainedSaved(false); setMaintenanceMeta((current) => current ? { ...current, syntaxValidated: null, validationStatus: null, validationMethod: null, validationMessage: null } : current) }} />
               </label>
             </div>
-            <label className={styles.reviewRationale}>Review rationale (required to accept this version)
-              <textarea aria-label="Review rationale" value={reviewRationale} maxLength={1000} onChange={(event) => setReviewRationale(event.target.value)} placeholder="Summarize what you checked and why this source is ready to keep." />
+            <label className={styles.reviewRationale}>Review rationale (required to accept or reject this version)
+              <textarea aria-label="Review rationale" value={reviewRationale} maxLength={1000} onChange={(event) => setReviewRationale(event.target.value)} placeholder="For acceptance, say what you checked. For rejection, explain what needs correction." />
             </label>
             <div className={styles.maintainedActions}>
               <button type="button" className={styles.copyButton} onClick={() => void saveCodeDraft()} disabled={savingDraft || !maintainedDraft.trim() || !maintainedDraftDiffersFromSource || maintainedDraft === draftSource}>{savingDraft ? 'Saving draft…' : maintainedDraft === draftSource ? 'Draft saved to project memory' : 'Save draft'}</button>
               <button type="button" className={styles.explainButton} onClick={() => void saveMaintainedSource()} disabled={savingMaintained || !maintainedDraft.trim() || !maintainedDraftDiffersFromSource || reviewRationale.trim().length < 12}>{savingMaintained ? 'Saving…' : maintainedSaved ? 'Review and save changes' : 'Review and accept maintained copy'}</button>
+              <button type="button" className={styles.copyButton} onClick={() => void rejectMaintainedDraft()} disabled={savingMaintained || savingDraft || !maintainedDraft.trim() || !maintainedDraftDiffersFromSource || reviewRationale.trim().length < 12}>{savingMaintained ? 'Recording review…' : 'Reject this draft'}</button>
               {!maintainedDraftDiffersFromSource && <span className={styles.message}>Edit the decompilation or create a maintained version before saving.</span>}
               {reviewRationale.trim().length > 0 && reviewRationale.trim().length < 12 && <span className={styles.message}>Add at least 12 characters describing your review.</span>}
               {maintainedSaved && <a className={styles.copyButton} href={`/api/projects/${encodeURIComponent(projectId)}/visualizer/maintained/${encodeURIComponent(selectedUnit.id)}?download=1`}><Download size={14} /> Download source</a>}
               {maintainedSaved && <span className={styles.savedStatus} role="status">Accepted source and review receipt saved separately</span>}
+              {reviewStatus && <span className={styles.savedStatus} role="status">{reviewStatus}</span>}
             </div>
             {(maintainedQuery.data?.reviews?.length || 0) > 0 && <section className={styles.reviewHistory} aria-label="Review history">
-              <strong>Recent review receipts</strong>
+              <strong>Recent acceptance and rejection receipts</strong>
               <ol>{maintainedQuery.data?.reviews?.map((review) => <li key={review.id}>
                 <span>{review.decision.toLowerCase()} by {review.reviewerId} · {new Date(review.createdAt).toLocaleString()}</span>
                 <p>{review.rationale}</p>

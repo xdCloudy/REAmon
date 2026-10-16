@@ -104,13 +104,15 @@ Acceptance is an explicit decision. The visualizer requires a review rationale b
 it saves a maintained copy. That transaction records an immutable accepted-review
 receipt with reviewer ID, time, rationale, and the SHA-256 of the exact maintained
 source bytes, and stores the receipt ID and hash beside the current maintained source.
-Later edits create another receipt instead of rewriting the prior one. AI context
-checks that pointer, unit, artifact, decision, and hash before using maintained source
-or its symbol index as trusted project memory. Older maintained copies without a
+Later edits create another receipt instead of rewriting the prior one. A reviewer can
+also reject a saved draft with a rationale; this creates a separate receipt tied to
+that exact draft hash and makes the feedback available to future rewrites as untrusted
+guidance. Rejected drafts never become maintained source or trusted project symbols.
+AI context checks that pointer, unit, artifact, decision, and hash before using
+maintained source or its symbol index as trusted project memory. Older maintained copies without a
 receipt stay available to inspect, but must be saved through review before they can
 ground future AI names. A proposed rename cannot silently change the project's
-canonical symbol map. Rejection receipts and explicit rollback decisions remain
-future work.
+canonical symbol map. Explicit rollback decisions remain future work.
 
 The acceptance API uses a source-hash compare-and-swap guard for decompiled source and
 Smali. The visualizer submits the hash it loaded; if another reviewer promotes a newer

@@ -1028,12 +1028,20 @@ export async function POST(request: Request, { params }: RouteParams) {
     const projectDraftContext = draftSymbolLines.length
       ? `Unreviewed draft naming evidence from this imported artifact (consistency hints only; behavior is not accepted):\n${draftSymbolLines.join('\n')}`
       : ''
-    const priorAttempts = await prisma.reamonCodeAttempt.findMany({
-      where: { projectId, artifactId: artifact.id, runKey: runPrefix.slice(0, -1), codeUnitId: observation.id, sourceHash },
-      orderBy: { createdAt: 'desc' },
-      take: 5,
-      select: { providerName: true, modelIdentifier: true, question: true, scope: true, status: true, errorCode: true, errorMessage: true, syntaxValidated: true, validationStatus: true, validationMethod: true, validationMessage: true, createdAt: true },
-    })
+    const [priorAttempts, rejectedReviews] = await Promise.all([
+      prisma.reamonCodeAttempt.findMany({
+        where: { projectId, artifactId: artifact.id, runKey: runPrefix.slice(0, -1), codeUnitId: observation.id, sourceHash },
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+        select: { providerName: true, modelIdentifier: true, question: true, scope: true, status: true, errorCode: true, errorMessage: true, syntaxValidated: true, validationStatus: true, validationMethod: true, validationMessage: true, createdAt: true },
+      }),
+      prisma.reamonCodeReview.findMany({
+        where: { projectId, artifactId: artifact.id, codeUnitId: observation.id, decision: 'REJECTED' },
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+        select: { rationale: true, maintainedSourceHash: true, createdAt: true },
+      }),
+    ])
     const priorAttemptLines = priorAttempts.reverse().map((attempt, index) => {
       const outcome = attempt.status === 'SUCCEEDED'
         ? `succeeded; syntax validated: ${attempt.syntaxValidated === true ? 'yes' : attempt.syntaxValidated === false ? 'no' : 'unknown'}`
@@ -1045,7 +1053,14 @@ export async function POST(request: Request, { params }: RouteParams) {
         : ''
       return `${index + 1}. ${attempt.providerName} / ${attempt.modelIdentifier}; scope=${attempt.scope}; request=${attempt.question || '(default)'}; outcome=${outcome}${validation}`
     })
-    const priorAttemptContext = utf8Prefix(priorAttemptLines.join('\n'), 4 * 1024)
+    const rejectedReviewLines = rejectedReviews.map((review) => {
+      const rationale = review.rationale.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 600)
+      return `Reviewer rejected candidate sha256:${review.maintainedSourceHash.slice(0, 16)}: ${rationale}`
+    })
+    const priorAttemptContext = utf8Prefix([
+      ...rejectedReviewLines,
+      ...priorAttemptLines,
+    ].join('\n'), 4 * 1024)
     const contextSources: Array<{ unit_name: string; language: string; source_code: string }> = []
     let contextBytes = 0
     if (scope === 'member' && body.startByte !== undefined && body.endByte !== undefined && contextSources.length < MAX_CONTEXT_UNITS) {
