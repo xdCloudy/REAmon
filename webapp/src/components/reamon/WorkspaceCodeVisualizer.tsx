@@ -1654,8 +1654,10 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
               ? `${maintainedCoverageQuery.data.decompilationCoveragePercent}% of measured code decompiled`
               : currentRun.linkPercent === null ? `${currentRun.indexedUnitCount.toLocaleString()} ${currentRun.unitLabel} indexed` : `${currentRun.linkPercent}% of analyzed ${currentRun.unitLabel} indexed`}</strong>
             <span>{maintainedCoverageQuery.data
-              ? `${maintainedCoverageQuery.data.sourceLinkedPercent}% of code units have viewable source`
-              : `${currentRun.indexedUnitCount.toLocaleString()} code units indexed${currentRun.discoveredUnitCount !== null ? ` of ${currentRun.discoveredUnitCount.toLocaleString()} analyzed ${currentRun.unitLabel}` : ''}`}</span>
+              ? `${maintainedCoverageQuery.data.sourceLinkedPercent}% of code units have viewable source · `
+              : ''}{currentRun.indexedUnitCount.toLocaleString()} indexed{currentRun.discoveredUnitCount !== null
+                ? ` of ${currentRun.discoveredUnitCount.toLocaleString()} analyzed ${currentRun.unitLabel}`
+                : ' code units'}</span>
           </div>
           <span>Code {formatBytes(maintainedCoverageQuery.data?.codeBytes ?? currentRun.codeBytes ?? units.reduce((sum, unit) => sum + unit.sizeBytes, 0))}</span>
         </div>
