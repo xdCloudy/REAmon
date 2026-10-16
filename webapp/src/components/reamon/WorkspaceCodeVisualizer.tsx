@@ -91,8 +91,8 @@ interface SimilarFunctionsResponse {
 interface CodeExplanationProvider { id: string; name: string; modelIdentifier: string }
 interface CodeExplanationResponse { explanation: string; providerName: string; model: string; sourceTruncated: boolean }
 interface ApkBuildResponse { buildId: string; taskId: string; fileName: string; sizeBytes: number; sha256: string; signed: false; changedFileCount: number; warnings?: string; downloadUrl: string }
-interface CodeMaintenanceResponse { sourceCode: string; providerName: string; model: string; syntaxValidated?: boolean | null; validationStatus?: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod?: string | null; validationMessage?: string | null }
-interface CodeDraftRecord { id: string; sourceCode: string; providerName: string; modelIdentifier: string; question: string; scope: 'file' | 'member'; syntaxValidated: boolean | null; validationStatus: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod: string | null; validationMessage: string | null; updatedAt: string }
+interface CodeMaintenanceResponse { sourceCode: string; providerName: string; model: string; attemptId?: string | null; syntaxValidated?: boolean | null; validationStatus?: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod?: string | null; validationMessage?: string | null }
+interface CodeDraftRecord { id: string; sourceCode: string; sourceAttemptId: string | null; providerName: string; modelIdentifier: string; question: string; scope: 'file' | 'member'; syntaxValidated: boolean | null; validationStatus: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod: string | null; validationMessage: string | null; updatedAt: string }
 interface CodeAttemptRecord { id: string; providerName: string; modelIdentifier: string; question: string; scope: 'file' | 'member'; status: 'RUNNING' | 'SUCCEEDED' | 'FAILED'; errorCode: string | null; errorMessage: string | null; resultSource: string | null; syntaxValidated: boolean | null; validationStatus: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod: string | null; validationMessage: string | null; createdAt: string; completedAt: string | null }
 interface CodeDraftResponse { exists: boolean; draft: CodeDraftRecord | null; attempts?: CodeAttemptRecord[] }
 interface CodeReviewRecord { id: string; reviewerId: string; decision: 'ACCEPTED'; rationale: string; maintainedSourceHash: string; createdAt: string }
@@ -768,11 +768,11 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
     const draftQuestion = question.trim()
     const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/drafts/${encodeURIComponent(selectedUnit.id)}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sourceCode, providerName: meta.providerName, model: meta.model, question: draftQuestion, scope, syntaxValidated: meta.syntaxValidated ?? null, validationStatus: meta.validationStatus ?? null, validationMethod: meta.validationMethod ?? null, validationMessage: meta.validationMessage ?? null }),
+      body: JSON.stringify({ sourceCode, sourceAttemptId: meta.attemptId ?? null, providerName: meta.providerName, model: meta.model, question: draftQuestion, scope, syntaxValidated: meta.syntaxValidated ?? null, validationStatus: meta.validationStatus ?? null, validationMethod: meta.validationMethod ?? null, validationMessage: meta.validationMessage ?? null }),
     })
-    const result = await response.json().catch(() => ({})) as { error?: string; draftId?: string; updatedAt?: string }
+    const result = await response.json().catch(() => ({})) as { error?: string; draftId?: string; sourceAttemptId?: string | null; updatedAt?: string }
     if (!response.ok || !result.draftId || !result.updatedAt) throw new Error(result.error || 'Could not save this AI draft to project memory')
-    const record: CodeDraftRecord = { id: result.draftId, sourceCode, providerName: meta.providerName, modelIdentifier: meta.model, question: draftQuestion, scope, syntaxValidated: meta.syntaxValidated ?? null, validationStatus: meta.validationStatus ?? null, validationMethod: meta.validationMethod ?? null, validationMessage: meta.validationMessage ?? null, updatedAt: result.updatedAt }
+    const record: CodeDraftRecord = { id: result.draftId, sourceCode, sourceAttemptId: result.sourceAttemptId ?? meta.attemptId ?? null, providerName: meta.providerName, modelIdentifier: meta.model, question: draftQuestion, scope, syntaxValidated: meta.syntaxValidated ?? null, validationStatus: meta.validationStatus ?? null, validationMethod: meta.validationMethod ?? null, validationMessage: meta.validationMessage ?? null, updatedAt: result.updatedAt }
     setDraftId(record.id)
     setDraftSource(sourceCode)
     setDraftScope(scope)
@@ -797,13 +797,14 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
         method: existingDraftId ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(existingDraftId
           ? { draftId: existingDraftId, sourceCode: maintainedDraft }
-          : { sourceCode: maintainedDraft, providerName, model, question: question.trim(), scope: 'file', syntaxValidated: null, validationStatus: null, validationMethod: null, validationMessage: null }),
+          : { sourceCode: maintainedDraft, sourceAttemptId: maintenanceMeta?.attemptId ?? null, providerName, model, question: question.trim(), scope: 'file', syntaxValidated: null, validationStatus: null, validationMethod: null, validationMessage: null }),
       })
-      const result = await response.json().catch(() => ({})) as { error?: string; draftId?: string; updatedAt?: string }
+      const result = await response.json().catch(() => ({})) as { error?: string; draftId?: string; sourceAttemptId?: string | null; updatedAt?: string }
       if (!response.ok || (!existingDraftId && !result.draftId) || !result.updatedAt) throw new Error(result.error || 'Could not save this draft to project memory')
       const record: CodeDraftRecord = {
         id: result.draftId || existingDraftId as string,
         sourceCode: maintainedDraft,
+        sourceAttemptId: existingDraftId ? codeDraftQuery.data?.draft?.sourceAttemptId ?? null : result.sourceAttemptId ?? maintenanceMeta?.attemptId ?? null,
         providerName,
         modelIdentifier: model,
         question: question.trim(),
@@ -1655,6 +1656,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
                   <strong>{attempt.status === 'SUCCEEDED' ? 'Completed' : attempt.status === 'FAILED' ? 'Failed' : 'Interrupted or still running'}</strong>
                   <span>{attempt.providerName} · {attempt.modelIdentifier} · {attempt.scope} · {new Date(attempt.createdAt).toLocaleString()}</span>
                 </summary>
+                {codeDraftQuery.data?.draft?.sourceAttemptId === attempt.id && <p>This attempt produced the current saved draft.</p>}
                 {attempt.question && <p>Request: {attempt.question}</p>}
                 {attempt.validationStatus && <p>{validationSummary(attempt)}</p>}
                 {attempt.status === 'SUCCEEDED' && !attempt.validationStatus && <p>{validationSummary(attempt)}</p>}

@@ -76,7 +76,7 @@ export async function GET(_request: Request, { params }: RouteParams) {
     const draft = await prisma.reamonCodeDraft.findFirst({
       where: { projectId, codeUnitId: unitId, artifactId: resolved.artifactId, runKey: resolved.runKey, sourceHash: resolved.sourceHash },
       orderBy: { updatedAt: 'desc' },
-      select: { id: true, sourceCode: true, providerName: true, modelIdentifier: true, question: true, scope: true, syntaxValidated: true, validationStatus: true, validationMethod: true, validationMessage: true, updatedAt: true },
+      select: { id: true, sourceCode: true, sourceAttemptId: true, providerName: true, modelIdentifier: true, question: true, scope: true, syntaxValidated: true, validationStatus: true, validationMethod: true, validationMessage: true, updatedAt: true },
     })
     const attempts = await prisma.reamonCodeAttempt.findMany({
       where: { projectId, codeUnitId: unitId, artifactId: resolved.artifactId, runKey: resolved.runKey, sourceHash: resolved.sourceHash },
@@ -106,6 +106,9 @@ export async function POST(request: Request, { params }: RouteParams) {
     if ('response' in resolved) return resolved.response
     const body = plainObject(await request.json().catch(() => null))
     const sourceCode = body.sourceCode
+    const sourceAttemptId = body.sourceAttemptId === undefined || body.sourceAttemptId === null
+      ? null
+      : typeof body.sourceAttemptId === 'string' ? body.sourceAttemptId.trim() : ''
     const providerName = body.providerName
     const modelIdentifier = body.model
     const question = body.question === undefined ? '' : body.question
@@ -127,6 +130,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     if (typeof providerName !== 'string' || !providerName.trim() || providerName.length > MAX_METADATA_CHARS
       || typeof modelIdentifier !== 'string' || !modelIdentifier.trim() || modelIdentifier.length > MAX_METADATA_CHARS
       || typeof question !== 'string' || question.length > MAX_QUESTION_CHARS
+      || sourceAttemptId === '' || (sourceAttemptId !== null && sourceAttemptId.length > 128)
       || (syntaxValidated !== null && typeof syntaxValidated !== 'boolean')
       || (validationStatus !== null && !['PASSED', 'FAILED', 'UNAVAILABLE'].includes(String(validationStatus)))
       || (validationMethod !== null && (typeof validationMethod !== 'string' || validationMethod.length > 80))
@@ -134,12 +138,28 @@ export async function POST(request: Request, { params }: RouteParams) {
       || (scope !== 'file' && scope !== 'member')) {
       return NextResponse.json({ error: 'Draft metadata is invalid' }, { status: 400 })
     }
+    if (sourceAttemptId) {
+      const attempt = await prisma.reamonCodeAttempt.findFirst({
+        where: {
+          id: sourceAttemptId,
+          projectId,
+          artifactId: resolved.artifactId,
+          runKey: resolved.runKey,
+          codeUnitId: unitId,
+          sourceHash: resolved.sourceHash,
+          status: 'SUCCEEDED',
+        },
+        select: { id: true },
+      })
+      if (!attempt) return NextResponse.json({ error: 'The originating AI attempt does not match this unit and source version.' }, { status: 409 })
+    }
     const draft = await prisma.reamonCodeDraft.create({
       data: {
         projectId,
         artifactId: resolved.artifactId,
         runKey: resolved.runKey,
         codeUnitId: unitId,
+        sourceAttemptId,
         unitName: resolved.unitName,
         language: resolved.language,
         sourceHash: resolved.sourceHash,
@@ -153,9 +173,9 @@ export async function POST(request: Request, { params }: RouteParams) {
         validationMethod: validationMethod as string | null,
         validationMessage: validationMessage as string | null,
       },
-      select: { id: true, updatedAt: true },
+      select: { id: true, sourceAttemptId: true, updatedAt: true },
     })
-    return NextResponse.json({ saved: true, draftId: draft.id, updatedAt: draft.updatedAt.toISOString() }, { status: 201, headers: { 'Cache-Control': 'private, no-store' } })
+    return NextResponse.json({ saved: true, draftId: draft.id, sourceAttemptId: draft.sourceAttemptId, updatedAt: draft.updatedAt.toISOString() }, { status: 201, headers: { 'Cache-Control': 'private, no-store' } })
   } catch (error) {
     console.error('Failed to save REAmon code draft:', error)
     return NextResponse.json({ error: 'Failed to save code draft' }, { status: 500, headers: { 'Cache-Control': 'no-store' } })

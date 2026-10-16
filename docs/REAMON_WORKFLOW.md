@@ -61,7 +61,9 @@ the exact project, artifact, run, unit, source hash, provider, request, validati
 state, and returned source. It gives the next retry a small summary of outcomes for
 that same source hash; a changed binary or source hash gets a separate history. The
 visualizer shows the latest ten attempts for the selected source version, including
-failures, validation state, and prior successful output.
+failures, validation state, and prior successful output. When a successful attempt
+is saved as a draft, the draft stores a validated link to that exact attempt; manual
+edits preserve the originating attempt while clearing stale validation evidence.
 
 ### 7. Validate and return specific feedback
 
