@@ -211,8 +211,9 @@ The first provider contract is in `webapp/src/lib/reamon/types.ts`:
 - `ToolPlugin`: a manifest plus an execution function.
 
 The built-in registry includes profiling and inspection providers plus isolated
-decompilers for APK/JVM, managed .NET, native binaries, WebAssembly, Python bytecode,
-and JavaScript bundles. The generic file and bounded JSON providers remain available
+decompilers for APK/JVM (including independent Vineflower and CFR output providers),
+managed .NET, native binaries, WebAssembly, Python bytecode, and JavaScript bundles.
+The generic file and bounded JSON providers remain available
 for triage; JSON inputs over 512 KiB are refused. Process adapters receive only a
 confined server-side artifact path, never a user-controlled command or shell
 expression, and convert bounded results into stable observations. Providers connect

@@ -26,12 +26,12 @@
 
 ## What REAmon is becoming
 
-REAmon orchestrates reverse-engineering engines such as Ghidra, JADX, Vineflower,
+REAmon orchestrates reverse-engineering engines such as Ghidra, JADX, Vineflower, CFR,
 Androguard's Rust DEX decompiler, and ILSpy on the backend, then presents their output
 in one investigation workspace. Android APKs use isolated JADX and an alternate isolated
-Rust DEX decompiler; JVM `.class`/`.jar` artifacts can also use isolated Vineflower, whose
-Kotlin plugin is experimental. Managed .NET PE assemblies use isolated ILSpy, and native ELF, PE,
-and Mach-O files use isolated Ghidra headless analysis. These providers publish
+Rust DEX decompiler; JVM `.class`/`.jar` artifacts can also use isolated Vineflower and CFR.
+Vineflower's Kotlin plugin is experimental. Managed .NET PE assemblies use isolated ILSpy,
+and native ELF, PE, and Mach-O files use isolated Ghidra headless analysis. These providers publish
 bounded function or code-unit indexes in the code visualizer. Other formats and
 dynamic analysis still need matching engines. A workspace can contain multiple
 related targets and artifacts:
@@ -91,7 +91,7 @@ a starting point for review.
 
 | Language or input | Status | What works now | Main gaps |
 | --- | --- | --- | --- |
-| Java bytecode (`.class`, `.jar`) and Android (`.dex`, `.apk`) | **Usable (JADX); early alternates (Androguard Rust DEX decompiler, Vineflower JVM)** | JADX produces browsable Java source and class/method outlines. Vineflower 1.12.0 supplies a separate JVM `.class`/`.jar` output path, including experimental Kotlin output. The pinned Androguard Rust engine stores separately attributed Java output, bounded Dalvik method observations, linked instruction-row artifacts for AI context, CFG summaries, direct method-call relationships, and field/string references as typed project evidence. JDK `javac` semantic symbols, constrained with `--release 17`, support reviewer-selected local-variable, lambda-parameter, and private method/constructor-parameter renames in single-file source. | Obfuscation, missing debug metadata, reflection, and native libraries can hide behavior or names. Android Kotlin apps are still rendered as Java-like output; the Vineflower Kotlin plugin is experimental and does not accept DEX/APK. Public, protected, and package-private method parameters remain excluded; cross-file consistency and fixture-backed validation remain open. Instruction artifacts, CFGs, call edges, and references have explicit caps. |
+| Java bytecode (`.class`, `.jar`) and Android (`.dex`, `.apk`) | **Usable (JADX); early JVM alternates (Vineflower, CFR); early Android alternate (Androguard Rust DEX decompiler)** | JADX produces browsable Java source and class/method outlines. Vineflower 1.12.0 supplies a separate JVM output path, including experimental Kotlin output; CFR 0.152 supplies an independent Java reconstruction for comparing class and method interpretations. Both outputs retain separate provider identity and hashes. The pinned Androguard Rust engine stores separately attributed Java output, bounded Dalvik method observations, linked instruction-row artifacts for AI context, CFG summaries, direct method-call relationships, and field/string references as typed project evidence. JDK `javac` semantic symbols, constrained with `--release 17`, support reviewer-selected local-variable, lambda-parameter, and private method/constructor-parameter renames in single-file source. | Obfuscation, missing debug metadata, reflection, and native libraries can hide behavior or names. CFR is Java-only and neither JVM analyzer accepts DEX/APK. Android Kotlin apps are still rendered as Java-like output; Vineflower's Kotlin plugin is experimental. Public, protected, and package-private method parameters remain excluded; cross-file consistency and fixture-backed output comparison remain open. Instruction artifacts, CFGs, call edges, and references have explicit caps. |
 | C# / managed .NET (`.dll`, `.exe`) | **Usable decompilation; early safe renaming and parsing** | ILSpy decompiles supported managed PE assemblies to C#; CLR IL instruction sequences are retained as supporting function evidence. Roslyn identifies local symbols for reviewer-selected single-file renames and parses accepted C# source. | Output is reconstructed source. Original comments, formatting, and some compiler-level distinctions are lost. Roslyn support has not had fixture-corpus validation or project/build checks. Visual Basic and F# assemblies are not reconstructed in their original source syntax. |
 | Native binaries (ELF, PE, Mach-O; including C/C++ and other compiled languages) | **Partial** | Ghidra provides address-aware functions, disassembly evidence, C-like pseudocode, and persisted statement-to-instruction address mappings where its markup supplies them. In the visualizer, mapped source lines jump to their paired disassembly addresses. | Pseudocode is not recovered C/C++ or the original language. Types, class structure, templates, symbols, and control flow can be incomplete or misleading, especially in optimized or stripped binaries. Mapping availability is bounded and does not prove semantic equivalence. |
 | WebAssembly (`.wasm`) | **Early decompilation bridge** | WABT provides WAT evidence and function navigation; pinned unwasm also produces bounded, function-sized Rust translation views linked to the same function addresses, with source-line links to raw Wasm byte ranges. | Rust is a generated bridge representation, not recovered original source or idiomatic Rust. Semantic equivalence and fixture coverage remain to be independently validated. |
@@ -112,7 +112,8 @@ planned rows identify areas to evaluate; they do not promise a release date. Det
 per-language scope is in the [language matrix](docs/REAMON_LANGUAGE_MATRIX.md), and
 cross-workflow status is in the [feature matrix](docs/REAMON_FEATURE_MATRIX.md).
 Current engines include [JADX](https://github.com/skylot/jadx),
-[Vineflower](https://github.com/Vineflower/vineflower) for isolated JVM `.class`/`.jar` alternatives,
+[Vineflower](https://github.com/Vineflower/vineflower) and [CFR](https://github.com/leibnitz27/cfr)
+for isolated JVM `.class`/`.jar` alternatives,
 [Androguard's Rust DEX decompiler](https://github.com/androguard/dex-decompiler),
 [ILSpy](https://github.com/icsharpcode/ILSpy),
 [Oxidizer](https://github.com/sefcom/oxidizer) through an optional analyzer pinned to angr 10.0.4,
