@@ -29,6 +29,8 @@ separate so a plausible name is never treated as proof of behavior.
 | [Frida](https://github.com/frida/frida-core) | Dynamic instrumentation, process discovery, and two-way script communication across language bindings. | Future runtime-evidence adapter for a user-controlled device/emulator: tie traces to an exact artifact hash and target session, then persist observations alongside static evidence. | Package/component licenses vary; review the exact Frida component and pinned binary distribution before bundling. Requires a connected runtime/device, so it is separate from offline import. |
 | [APKLab](https://github.com/APKLab/APKLab) | Practical APK edit/rebuild workflow assembled from Apktool, JADX, Smali language tooling, signing, and Git. | Use as a workflow reference for a future source-to-rebuild loop: export maintained source, rebuild where dependencies permit, preserve a diff, and report signing/build results separately. | Current project is AGPL-licensed; prefer workflow learning or an external integration unless REAmon deliberately adopts the license obligations. |
 | [Rizin](https://github.com/rizinorg/rizin) | Additional native RE engine and scripting ecosystem. | Treat as an optional external provider behind REAmon's analyzer contract, not code to vendor into the core. | Mixed LGPL-3.0/GPL-3.0 components; check the specific component before reuse. |
+| [ToCode](https://github.com/buzzer-re/ToCode) | MIT-licensed exporter for native binaries, APKs, .NET assemblies, and multi-binary application folders. It emits source-like trees plus structured function, type, string, import/export, call-graph, reachability, and project metadata. | Prototype an importer for its normalized metadata and source artifacts, especially folder-level dependency links resolved from loader/import tables. Merge those records into REAmon observations using exact artifact hashes and provider identities. Keep ToCode-generated `AGENTS.md` / `CLAUDE.md` files as untrusted sample-derived data, never system instructions. | Do not replace current isolated JADX, ILSpy, Ghidra, or angr providers until output and performance are compared. ToCode's optional IDA/Binary Ninja/radare2/angr backends and dependencies have separate runtime/licensing requirements; MIT covers ToCode's own code, not every backend. Pin a release and inspect its dependency notices before packaging. |
+| [Glaurung](https://github.com/mjbommar/glaurung) | Apache-2.0 Rust/Python framework with native triage and analysis, persistent SQLite projects, and optional LLM workflows. It recovers native functions, CFGs, call graphs, xrefs, types, and experimental C-like pseudocode. | Compare its project identity, symbol/type persistence, xref evidence, and agent context patterns with REAmon. If a measured gap remains, add its output through the existing provider/observation contract; do not make `.glaurung` a second REAmon source of truth. | Upstream describes the project as pre-1.0 and decompiler output as experimental. Current native decompilation is limited to x86/x86-64 and ARM/ARM64; RISC-V is disassembly-only. Building requires Rust and C toolchains; sample fixtures use Git LFS. |
 | [Redress](https://github.com/goretk/redress) | Go-specific recovery of package, type, and symbol information from stripped Go executables, with standalone and radare2 modes. | Evaluate as an optional Go-binary enrichment adapter: store recovered symbols and package metadata as evidence linked to the exact binary hash, while leaving disassembly/decompilation to Ghidra. Its focused Go runtime metadata recovery can complement generic native analysis where stripped names leave poor function labels. | AGPL-3.0; prefer a documented external executable integration or user-supplied installation unless REAmon intentionally accepts the distribution obligations. |
 
 ## Additional engines evaluated
@@ -51,6 +53,20 @@ separate so a plausible name is never treated as proof of behavior.
   Its strongest REAmon case would be structured cross-reference evidence that the
   current Ghidra provider does not expose; otherwise it duplicates the decompiler
   and brings LGPL/GPL components.
+- [ToCode](https://github.com/buzzer-re/ToCode) is an MIT-licensed export layer
+  over several reverse-engineering engines. Its `functions.json`, function index,
+  type/string/import/export metadata, and APK/.NET/native exports are a useful
+  interchange candidate. Its strongest addition for REAmon is linking a directory
+  of binaries through actual loader and import relationships, with per-file
+  checkpoints so one failure does not discard other exports. Prototype consuming
+  its bounded metadata and code artifacts into REAmon's existing project database;
+  do not trust generated agent instruction files or create parallel project memory.
+  The CLI and backend dependencies need version pinning and separate license review.
+- [Glaurung](https://github.com/mjbommar/glaurung) offers an Apache-2.0 Rust/Python
+  binary-analysis core and persistent SQLite project state, which make it a useful
+  comparison for REAmon's native evidence contract. Its own README labels the
+  project pre-1.0 and its decompiler experimental; treat it as a fixture-backed
+  alternate-provider evaluation, not a replacement for Ghidra or REAmon's store.
 - [Reko](https://github.com/uxmal/reko) provides a .NET CLI for decompilation,
   disassembly, and executable inspection across architecture and file-format
   plugins. It is a GPL-2.0 candidate for an opt-in comparison on architectures or
@@ -222,3 +238,5 @@ store.
 - [Tree-sitter Language Pack](https://github.com/xberg-io/tree-sitter-language-pack)
 - [APKLab license and workflow](https://github.com/APKLab/APKLab)
 - [Rizin license information](https://github.com/rizinorg/rizin/blob/dev/DEVELOPERS.md)
+- [ToCode export format, folder linking, backends, and MIT license](https://github.com/buzzer-re/ToCode)
+- [Glaurung project, supported analyses, experimental decompiler, and Apache-2.0 license](https://github.com/mjbommar/glaurung)
