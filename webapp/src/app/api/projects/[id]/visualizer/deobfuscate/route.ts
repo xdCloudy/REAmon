@@ -495,7 +495,7 @@ export async function POST(request: Request, { params }: RouteParams) {
           orderBy: [{ updatedAt: 'desc' }, { stableKey: 'asc' }],
           take: MAX_FUNCTION_HISTORY + 1,
           select: {
-            id: true, stableKey: true, canonicalKey: true, label: true, attributes: true, artifactId: true,
+            id: true, taskId: true, stableKey: true, canonicalKey: true, label: true, attributes: true, artifactId: true,
             artifact: { select: { profile: true, originalName: true, sha256: true } },
           },
         })
@@ -554,6 +554,26 @@ export async function POST(request: Request, { params }: RouteParams) {
             return matches
           }, new Map<string, typeof candidateFeatures[number] & { similarity: number }>())
         const rankedMatches = [...similarFunctions.values()].sort((left, right) => right.similarity - left.similarity).slice(0, MAX_CONTEXT_UNITS)
+        const functionParentRefs = isMethodScopedRewrite ? rankedMatches.flatMap((match) => {
+          const row = rowByKey.get(match.key)
+          const candidateAttributes = row ? plainObject(row.attributes) : {}
+          const parentKey = candidateAttributes.parentCodeUnitKey
+          return row?.taskId && typeof parentKey === 'string' && parentKey
+            ? [{ taskId: row.taskId, stableKey: parentKey }]
+            : []
+        }) : []
+        const functionParentRows = functionParentRefs.length ? await prisma.reamonObservation.findMany({
+          where: {
+            projectId,
+            source: observation.source,
+            type: 'code_unit',
+            taskId: { in: [...new Set(functionParentRefs.map((reference) => reference.taskId))] },
+            stableKey: { in: [...new Set(functionParentRefs.map((reference) => reference.stableKey))] },
+            artifact: { is: selection.artifactWhere },
+          },
+          select: { id: true, taskId: true, stableKey: true },
+        }) : []
+        const functionParentByKey = new Map(functionParentRows.map((row) => [`${row.taskId}:${row.stableKey}`, row]))
         for (const match of rankedMatches) {
           const row = rowByKey.get(match.key)
           if (!row) continue
@@ -571,7 +591,11 @@ export async function POST(request: Request, { params }: RouteParams) {
             instructionArtifactName: row.artifact?.originalName,
             instructionArtifactHash: row.artifact?.sha256,
           })
-          relatedUnitIdByName.set(name, row.id)
+          const parentKey = relatedAttributes.parentCodeUnitKey
+          const parent = row.taskId && typeof parentKey === 'string'
+            ? functionParentByKey.get(`${row.taskId}:${parentKey}`)
+            : undefined
+          relatedUnitIdByName.set(name, parent?.id || row.id)
           similarArtifactByName.set(name, row.artifactId)
           similarFunctionNames.push(name)
         }

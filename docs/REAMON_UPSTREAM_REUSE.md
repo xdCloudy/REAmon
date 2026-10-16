@@ -163,8 +163,9 @@ store.
   matching instruction blocks across completed project runs for the same
   provider. Ghidra matches across artifacts require an exact processor-language
   ID. DEX matches retain their owning class and analysis task; method-level
-  Android rewrites can use prior matches as project context. Keep the score as a
-  navigation lead, never as behavioral validation.
+  Android rewrites map matched method observations back to class records before
+  loading reviewed-source and naming context. Keep the score as a navigation
+  lead, never as behavioral validation.
 - `compiler.py`, `scoring.py`, and the project adapters judge output with the
   target game's original compiler and byte comparison. That is excellent for
   reproducibly built targets but does not directly validate arbitrary Android
