@@ -950,6 +950,18 @@ export async function POST(request: Request, { params }: RouteParams) {
             ? `inventory claims input ${toCodeInputPath || '(path unavailable)'} sha256:${toCodeInputSha256.slice(0, 16)}${toCodeInputMatched ? '; digest matches imported artifact bytes' : '; matching bytes not found in this import'}`
             : '',
         ].filter(Boolean).join('; ') : ''
+        const unluacIdentity = observation.source === 'reamon-unluac-rs' ? [
+          typeof providerAttributes.dialect === 'string' ? `bytecode dialect ${providerAttributes.dialect.slice(0, 40)}` : '',
+          typeof providerAttributes.engineVersion === 'string' ? `engine ${providerAttributes.engineVersion.slice(0, 80)}` : '',
+          typeof providerAttributes.inputSha256 === 'string' && /^[a-f0-9]{64}$/i.test(providerAttributes.inputSha256)
+            ? `input sha256:${providerAttributes.inputSha256.slice(0, 16)}`
+            : '',
+          typeof providerAttributes.vectorConstructor === 'string'
+            && /^[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*$/.test(providerAttributes.vectorConstructor)
+            && (providerAttributes.vectorSize === 3 || providerAttributes.vectorSize === 4)
+            ? `vector constants rendered via ${providerAttributes.vectorConstructor} (${providerAttributes.vectorSize} components; target API assumption)`
+            : '',
+        ].filter(Boolean).join('; ') : ''
         return {
           codeUnitId: row.id,
           unitName: (typeof providerAttributes.qualifiedName === 'string' && providerAttributes.qualifiedName)
@@ -961,7 +973,7 @@ export async function POST(request: Request, { params }: RouteParams) {
             || 'unknown',
           address: typeof providerAttributes.address === 'string' ? providerAttributes.address : undefined,
           prototype: typeof providerAttributes.prototype === 'string' ? providerAttributes.prototype : undefined,
-          providerEvidence: [goIdentity, toCodeIdentity].filter(Boolean).join('; ') || undefined,
+          providerEvidence: [goIdentity, toCodeIdentity, unluacIdentity].filter(Boolean).join('; ') || undefined,
           recoveredVariables: providerVariables.variables,
           recoveredVariablesTruncated: providerVariables.truncated
             || providerAttributes.recoveredVariablesTruncated === true,

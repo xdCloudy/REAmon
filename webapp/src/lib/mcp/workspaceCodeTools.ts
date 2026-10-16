@@ -217,7 +217,7 @@ export async function listWorkspaceCodeUnits(ctx: McpContext, args: WorkspaceLis
       OR: [
         { label: { contains: search, mode: 'insensitive' as const } },
         { stableKey: { contains: search, mode: 'insensitive' as const } },
-        ...['name', 'qualifiedName', 'address', 'language', 'sourceLanguage', 'relativePath', 'prototype', 'symbolSource', 'goPackage'].map((key) => ({
+        ...['name', 'qualifiedName', 'address', 'language', 'sourceLanguage', 'dialect', 'engineVersion', 'relativePath', 'prototype', 'symbolSource', 'goPackage'].map((key) => ({
           attributes: { path: [key], string_contains: search, mode: 'insensitive' as const },
         })),
       ],
@@ -250,6 +250,11 @@ export async function listWorkspaceCodeUnits(ctx: McpContext, args: WorkspaceLis
         unitType: text(attributes.unitType, 80),
         language: text(attributes.language, 80),
         sourceLanguage: text(attributes.sourceLanguage, 80),
+        dialect: text(attributes.dialect, 40),
+        engineVersion: text(attributes.engineVersion, 80),
+        inputSha256: text(attributes.inputSha256, 64),
+        vectorConstructor: text(attributes.vectorConstructor, 120),
+        vectorSize: attributes.vectorSize === 3 || attributes.vectorSize === 4 ? attributes.vectorSize : null,
         address: text(attributes.address ?? attributes.startAddress, 128),
         prototype: text(attributes.prototype, 1000),
         symbolSource: text(attributes.symbolSource, 80),
@@ -498,6 +503,16 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
       sizeBytes: typeof attributes.sizeBytes === 'number' ? attributes.sizeBytes : null,
       language: text(attributes.language, 80),
       sourceLanguage: text(attributes.sourceLanguage, 80),
+      dialect: text(attributes.dialect, 40),
+      engineVersion: text(attributes.engineVersion, 80),
+      inputSha256: text(attributes.inputSha256, 64),
+      vectorGeneration: typeof attributes.vectorConstructor === 'string'
+        && /^[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*$/.test(attributes.vectorConstructor)
+        && (attributes.vectorSize === 3 || attributes.vectorSize === 4) ? {
+          constructor: attributes.vectorConstructor,
+          components: attributes.vectorSize,
+          semantics: 'Decompiler output assumption only. The target runtime must provide this constructor with the recorded vector width.',
+        } : null,
       symbolSource: text(attributes.symbolSource, 80),
       packageName: text(attributes.goPackage, 500),
       providerIdentitySemantics: attributes.symbolSource === 'GoReSym' && typeof attributes.goPackage === 'string'

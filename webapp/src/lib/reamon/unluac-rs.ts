@@ -253,6 +253,7 @@ export async function executeUnluacRs(input: ToolExecutionInput): Promise<ToolRe
           parentCodeUnitKey: key,
           codeArtifactId: unit.codeArtifactId,
           engineVersion: payload.toolVersion,
+          inputSha256: payload.input.sha256,
           ...(payload.vectorConstructor ? { vectorConstructor: payload.vectorConstructor, vectorSize: payload.vectorSize } : {}),
           debugSourceName: proto.name,
           debugLineStart: proto.lineStart,
