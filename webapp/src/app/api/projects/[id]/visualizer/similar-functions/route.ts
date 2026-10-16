@@ -109,6 +109,7 @@ export async function GET(request: Request, { params }: RouteParams) {
     if (!focus) return NextResponse.json({ error: 'Function is outside this project history' }, { status: 404, headers: MAX_NO_STORE })
 
     const target = functionFeatures(focus)
+    const sourceObservationRowsTruncated = rows.length > MAX_FUNCTION_OBSERVATIONS
     const uniqueRows = new Map<string, typeof rows[number]>()
     const compatibleRows = providerId === 'reamon-ghidra'
       ? rows.filter((row) => sameNativeArchitecture(focus, row))
@@ -118,7 +119,7 @@ export async function GET(request: Request, { params }: RouteParams) {
       if (!uniqueRows.has(identity)) uniqueRows.set(identity, row)
     }
     const distinctRows = [...uniqueRows.values()]
-    const truncated = compatibleRows.length > MAX_FUNCTION_OBSERVATIONS || distinctRows.length > MAX_FUNCTIONS
+    const truncated = sourceObservationRowsTruncated || compatibleRows.length > MAX_FUNCTION_OBSERVATIONS || distinctRows.length > MAX_FUNCTIONS
     const boundedRows = distinctRows.slice(0, MAX_FUNCTIONS)
       .filter((row) => row.artifactId !== focus.artifactId || row.canonicalKey !== focus.canonicalKey)
     const features = boundedRows.map(functionFeatures)
