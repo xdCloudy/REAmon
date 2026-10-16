@@ -63,7 +63,9 @@ that same source hash; a changed binary or source hash gets a separate history. 
 visualizer shows the latest ten attempts for the selected source version, including
 failures, validation state, and prior successful output. When a successful attempt
 is saved as a draft, the draft stores a validated link to that exact attempt; manual
-edits preserve the originating attempt while clearing stale validation evidence.
+edits preserve the originating attempt while clearing stale validation evidence. The
+draft endpoint derives provider and validator metadata from the linked attempt and
+does not accept client-supplied validation as evidence.
 
 ### 7. Validate and return specific feedback
 

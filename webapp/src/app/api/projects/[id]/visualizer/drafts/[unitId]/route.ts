@@ -84,9 +84,35 @@ export async function GET(_request: Request, { params }: RouteParams) {
       take: 10,
       select: { id: true, providerName: true, modelIdentifier: true, question: true, scope: true, status: true, errorCode: true, errorMessage: true, resultSource: true, syntaxValidated: true, validationStatus: true, validationMethod: true, validationMessage: true, createdAt: true, completedAt: true },
     })
+    let trustedDraftValidation = { syntaxValidated: null as boolean | null, validationStatus: null as string | null, validationMethod: null as string | null, validationMessage: null as string | null }
+    if (draft?.sourceAttemptId) {
+      const attempt = await prisma.reamonCodeAttempt.findFirst({
+        where: {
+          id: draft.sourceAttemptId,
+          projectId,
+          artifactId: resolved.artifactId,
+          runKey: resolved.runKey,
+          codeUnitId: unitId,
+          sourceHash: resolved.sourceHash,
+          status: 'SUCCEEDED',
+        },
+        select: { scope: true, resultSource: true, syntaxValidated: true, validationStatus: true, validationMethod: true, validationMessage: true },
+      })
+      const attemptMatchesDraft = attempt?.resultSource && (attempt.scope === 'file'
+        ? attempt.resultSource === draft.sourceCode
+        : attempt.scope === 'member' && draft.sourceCode.includes(attempt.resultSource))
+      if (attemptMatchesDraft && attempt.scope === draft.scope) {
+        trustedDraftValidation = {
+          syntaxValidated: attempt.syntaxValidated,
+          validationStatus: attempt.validationStatus,
+          validationMethod: attempt.validationMethod,
+          validationMessage: attempt.validationMessage,
+        }
+      }
+    }
     return NextResponse.json({
       exists: Boolean(draft),
-      draft: draft ? { ...draft, updatedAt: draft.updatedAt.toISOString() } : null,
+      draft: draft ? { ...draft, ...trustedDraftValidation, updatedAt: draft.updatedAt.toISOString() } : null,
       attempts: attempts.map((attempt) => ({
         ...attempt,
         createdAt: attempt.createdAt.toISOString(),
@@ -111,32 +137,24 @@ export async function POST(request: Request, { params }: RouteParams) {
       : typeof body.sourceAttemptId === 'string' ? body.sourceAttemptId.trim() : ''
     const providerName = body.providerName
     const modelIdentifier = body.model
-    const question = body.question === undefined ? '' : body.question
-    const scope = body.scope === undefined ? 'file' : body.scope
-    const syntaxValidated = body.syntaxValidated === undefined || body.syntaxValidated === null
-      ? null
-      : body.syntaxValidated
-    const validationStatus = body.validationStatus === undefined || body.validationStatus === null
-      ? null
-      : body.validationStatus
-    const validationMethod = body.validationMethod === undefined || body.validationMethod === null
-      ? null
-      : body.validationMethod
-    const validationMessage = body.validationMessage === undefined || body.validationMessage === null
-      ? null
-      : body.validationMessage
+    const requestedQuestion = body.question === undefined ? '' : body.question
+    const requestedScope = body.scope === undefined ? 'file' : body.scope
     if (typeof sourceCode !== 'string' || !sourceCode.trim()) return NextResponse.json({ error: 'Draft source cannot be empty' }, { status: 400 })
     if (Buffer.byteLength(sourceCode, 'utf8') > MAX_SOURCE_BYTES) return NextResponse.json({ error: 'Draft exceeds the save limit' }, { status: 413 })
-    if (typeof providerName !== 'string' || !providerName.trim() || providerName.length > MAX_METADATA_CHARS
-      || typeof modelIdentifier !== 'string' || !modelIdentifier.trim() || modelIdentifier.length > MAX_METADATA_CHARS
-      || typeof question !== 'string' || question.length > MAX_QUESTION_CHARS
-      || sourceAttemptId === '' || (sourceAttemptId !== null && sourceAttemptId.length > 128)
-      || (syntaxValidated !== null && typeof syntaxValidated !== 'boolean')
-      || (validationStatus !== null && !['PASSED', 'FAILED', 'UNAVAILABLE'].includes(String(validationStatus)))
-      || (validationMethod !== null && (typeof validationMethod !== 'string' || validationMethod.length > 80))
-      || (validationMessage !== null && (typeof validationMessage !== 'string' || validationMessage.length > 2000))
-      || (scope !== 'file' && scope !== 'member')) {
+    if (sourceAttemptId === '' || (sourceAttemptId !== null && sourceAttemptId.length > 128)
+      || typeof requestedQuestion !== 'string' || requestedQuestion.length > MAX_QUESTION_CHARS
+      || (requestedScope !== 'file' && requestedScope !== 'member')) {
       return NextResponse.json({ error: 'Draft metadata is invalid' }, { status: 400 })
+    }
+    let authoritative = {
+      providerName: typeof providerName === 'string' ? providerName.trim() : '',
+      modelIdentifier: typeof modelIdentifier === 'string' ? modelIdentifier.trim() : '',
+      question: requestedQuestion,
+      scope: requestedScope,
+      syntaxValidated: null as boolean | null,
+      validationStatus: null as string | null,
+      validationMethod: null as string | null,
+      validationMessage: null as string | null,
     }
     if (sourceAttemptId) {
       const attempt = await prisma.reamonCodeAttempt.findFirst({
@@ -149,9 +167,28 @@ export async function POST(request: Request, { params }: RouteParams) {
           sourceHash: resolved.sourceHash,
           status: 'SUCCEEDED',
         },
-        select: { id: true },
+        select: { id: true, providerName: true, modelIdentifier: true, question: true, scope: true, resultSource: true, syntaxValidated: true, validationStatus: true, validationMethod: true, validationMessage: true },
       })
       if (!attempt) return NextResponse.json({ error: 'The originating AI attempt does not match this unit and source version.' }, { status: 409 })
+      const attemptMatchesDraft = attempt.resultSource && (attempt.scope === 'file'
+        ? attempt.resultSource === sourceCode
+        : attempt.scope === 'member' && sourceCode.includes(attempt.resultSource))
+      if (!attemptMatchesDraft || attempt.scope !== requestedScope) {
+        return NextResponse.json({ error: 'The draft source does not contain the output from its originating attempt.' }, { status: 409 })
+      }
+      authoritative = {
+        providerName: attempt.providerName,
+        modelIdentifier: attempt.modelIdentifier,
+        question: attempt.question,
+        scope: attempt.scope,
+        syntaxValidated: attempt.syntaxValidated,
+        validationStatus: attempt.validationStatus,
+        validationMethod: attempt.validationMethod,
+        validationMessage: attempt.validationMessage,
+      }
+    } else if (!authoritative.providerName || authoritative.providerName.length > MAX_METADATA_CHARS
+      || !authoritative.modelIdentifier || authoritative.modelIdentifier.length > MAX_METADATA_CHARS) {
+      return NextResponse.json({ error: 'Draft provider metadata is invalid' }, { status: 400 })
     }
     const draft = await prisma.reamonCodeDraft.create({
       data: {
@@ -164,14 +201,14 @@ export async function POST(request: Request, { params }: RouteParams) {
         language: resolved.language,
         sourceHash: resolved.sourceHash,
         sourceCode,
-        providerName: providerName.trim(),
-        modelIdentifier: modelIdentifier.trim(),
-        question,
-        scope,
-        syntaxValidated,
-        validationStatus: validationStatus as string | null,
-        validationMethod: validationMethod as string | null,
-        validationMessage: validationMessage as string | null,
+        providerName: authoritative.providerName,
+        modelIdentifier: authoritative.modelIdentifier,
+        question: authoritative.question,
+        scope: authoritative.scope,
+        syntaxValidated: authoritative.syntaxValidated,
+        validationStatus: authoritative.validationStatus,
+        validationMethod: authoritative.validationMethod,
+        validationMessage: authoritative.validationMessage,
       },
       select: { id: true, sourceAttemptId: true, updatedAt: true },
     })
