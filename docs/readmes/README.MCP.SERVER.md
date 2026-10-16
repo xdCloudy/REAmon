@@ -22,6 +22,12 @@ set of recon tuning settings, and query the attack-surface graph.
 | Tool | What it does | Permission |
 | --- | --- | --- |
 | `list_projects` | The token owner's projects. Nothing else is visible. | `recon:read` |
+| `workspace_get_summary` | Deterministic summary of an REAmon reverse-engineering workspace and its active import. | `recon:read` |
+| `workspace_list_files` | Search and page through the active workspace's logical file inventory and compatible capabilities. | `recon:read` |
+| `workspace_get_artifact` | Read one active artifact's profile, hash, logical path, capabilities, and bounded related records. | `recon:read` |
+| `workspace_plan_analysis` | Propose compatible provider tasks from the active inventory; does not run them. | `recon:read` |
+| `workspace_list_code_units` | Search stored decompiler observations for functions/methods/classes, including provider and artifact identity. | `recon:read` |
+| `workspace_get_code_unit` | Read bounded source, assembly or bytecode, persisted calls/member references, instruction/CFG evidence, and exact-version draft/maintained-source state for one unit. | `recon:read` |
 | `get_recon_status` | Whether a scan is running, and its phase. | `recon:read` |
 | `get_recon_settings` | Every setting `update_recon_settings` can change, plus the (read-only) engagement scope and the `updatedAt` to pass back. Credentials are never returned. | `recon:read` |
 | `graph_summary` | Count per node type + relationships present. | `recon:read` |

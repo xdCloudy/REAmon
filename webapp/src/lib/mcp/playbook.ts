@@ -229,7 +229,7 @@ export const ONBOARDING_PLAYBOOK: Record<string, PlaybookEntry> = {
       'about code that has not been loaded into context.',
     gotchas: [
       'This reads stored observations only. It does not run a decompiler, synthesize names, or make a new analysis claim.',
-      'Use the returned code-unit id with workspace_get_code_unit to inspect its saved source, disassembly, and recorded call relationships.',
+      'Results can include method-level function observations as well as class and native code-unit observations. Use the returned id with workspace_get_code_unit to inspect provider evidence.',
       'The returned artifact hash and provider identify where the decompilation evidence came from; keep names and prototypes attributed to that provider.',
     ],
     workflowRefs: ['inspect-workspace'],
@@ -242,6 +242,7 @@ export const ONBOARDING_PLAYBOOK: Record<string, PlaybookEntry> = {
     gotchas: [
       'Returned code is bounded to 128 KiB per file and may be truncated; check each truncated flag before reasoning from the snippet.',
       'Only relationships already persisted for the same analysis task are included. Missing edges do not prove that no call exists.',
+      'Availability fields describe what REAmon persisted. “None recorded” does not establish that the binary has no calls or member references.',
       'Decompiler output is provider evidence, not original source or canonical truth. Use other stored evidence to corroborate names and types.',
       'Saved drafts and maintained source are separate from decompiler output. Check the draft validation and maintained-source review receipt before treating an edit as accepted.',
     ],

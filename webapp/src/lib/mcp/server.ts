@@ -420,7 +420,7 @@ export function buildMcpServer(ctx: McpContext, instructions?: string): McpServe
       title: 'List decompiled code units',
       description:
         'Search the active reverse-engineering workspace for stored functions, classes, and other ' +
-        'decompiled code units. Results come from REAmon observations already persisted for analysis ' +
+        'decompiled functions/methods, classes, and other code units. Results come from REAmon observations already persisted for analysis ' +
         'tasks; this tool does not decompile or invent symbols. Each result includes the database id ' +
         'to pass to workspace_get_code_unit, provider name, artifact digest, source path, and available ' +
         'address/prototype metadata. Page through large results with limit and offset.',
@@ -444,8 +444,8 @@ export function buildMcpServer(ctx: McpContext, instructions?: string): McpServe
       description:
         'Read one stored code unit by the id returned from workspace_list_code_units. Returns its ' +
         'database-backed names, prototype, language, artifact hash, bounded decompiled source and ' +
-        'disassembly text when present, its analysis task/provider and recorded warnings, and saved ' +
-        'incoming/outgoing call relationships, and any saved AI draft or reviewed maintained source ' +
+        'disassembly or bytecode text when present, its analysis task/provider and recorded warnings, ' +
+        'persisted call/member relationships, bounded instruction and CFG evidence where available, and any saved AI draft or reviewed maintained source ' +
         'for the exact function/source version. It only reads files inside REAmon derived storage and ' +
         'returns at most 128 KiB per source. Treat decompiler output as provider evidence and drafts ' +
         'as unreviewed until their stored validation/review state says otherwise.',
