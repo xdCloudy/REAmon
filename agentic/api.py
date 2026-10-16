@@ -1093,7 +1093,7 @@ TRANSFORMATION RULES
     if body.disassembly_source.strip():
         evidence.append(f"Selected unit bytecode listing:\n{wrap_untrusted(body.disassembly_source, 'BYTECODE_EVIDENCE')}")
     if body.binary_evidence.strip():
-        evidence.append("Ghidra data-reference evidence for the selected native function (referenced text is supporting evidence, not proof of control flow or intent):\n"
+        evidence.append("Stored binary-reference evidence for the selected unit (field accesses and string literals are supporting data, not proof of control flow or intent):\n"
                         + wrap_untrusted(body.binary_evidence, 'BINARY_DATA_REFERENCE_EVIDENCE'))
     supporting_evidence = "\n\n".join(evidence) or "No supporting evidence was available."
     output_kind = f"{body.language} function, method, or constructor" if body.scope == "member" else "source file"

@@ -26,6 +26,8 @@ const MAX_SAME_FILE_CONTEXT_MEMBERS = 3
 const MAX_SAME_FILE_CONTEXT_BYTES = 8 * 1024
 const MAX_DISASSEMBLY_BYTES = 8 * 1024
 const MAX_BINARY_EVIDENCE_BYTES = 8 * 1024
+const MAX_DEX_REFERENCE_METHODS = 64
+const MAX_DEX_REFERENCE_ROWS = 128
 const MAX_PROJECT_SYMBOL_RECORDS = 1_024
 const MAX_PROJECT_SYMBOL_SCAN = 4_096
 const MAX_PROJECT_DRAFT_RECORDS = 64
@@ -323,6 +325,44 @@ function classReferencesOf(value: unknown): string[] {
   if (!Array.isArray(parsed)) return []
   return [...new Set(parsed.filter((entry): entry is string => typeof entry === 'string')
     .map((entry) => entry.trim()).filter((entry) => entry && entry.length <= 500))].slice(0, 100)
+}
+
+function dexReferenceOffsets(value: unknown): number[] {
+  let parsed = value
+  if (typeof value === 'string') {
+    try { parsed = JSON.parse(value) as unknown } catch { return [] }
+  }
+  return Array.isArray(parsed)
+    ? parsed.filter((entry): entry is number => Number.isSafeInteger(entry) && entry >= 0).slice(0, 8)
+    : []
+}
+
+function dexReferenceEvidence(rows: Array<{ type: string; label: string | null; attributes: unknown }>, truncated: boolean): string {
+  const lines = ['Stored DEX references for this class or selected method (member-scoped entries may group overloads; each row retains its bytecode signature; names and literals are data, not proof of behavior):']
+  let omitted = truncated
+  for (const row of rows.slice(0, MAX_DEX_REFERENCE_ROWS)) {
+    const attributes = plainObject(row.attributes)
+    const signature = typeof attributes.fromSignature === 'string' ? attributes.fromSignature : 'unknown method'
+    const target = typeof attributes.targetName === 'string' && attributes.targetName
+      ? attributes.targetName
+      : typeof attributes.targetSignature === 'string' ? attributes.targetSignature : row.label || 'unknown target'
+    const relation = row.type === 'reads_field' ? 'reads field'
+      : row.type === 'writes_field' ? 'writes field'
+        : 'references string'
+    const count = typeof attributes.occurrenceCount === 'number' && Number.isSafeInteger(attributes.occurrenceCount)
+      ? `; ${attributes.occurrenceCount} site${attributes.occurrenceCount === 1 ? '' : 's'}`
+      : ''
+    const offsets = dexReferenceOffsets(attributes.referenceOffsets)
+    const offsetText = offsets.length ? `; bytecode offsets ${offsets.join(', ')}` : ''
+    const line = `${signature.replace(/[\r\n\t]/g, ' ').slice(0, 300)} ${relation}: ${target.replace(/[\r\n\t]/g, ' ').slice(0, 400)}${attributes.targetNameTruncated === true ? ' (target preview truncated)' : ''}${count}${offsetText}`
+    if (Buffer.byteLength([...lines, line].join('\n'), 'utf8') > MAX_BINARY_EVIDENCE_BYTES - 160) {
+      omitted = true
+      break
+    }
+    lines.push(line)
+  }
+  if (omitted) lines.push('Additional stored DEX references were omitted by the context limit.')
+  return utf8Prefix(lines.join('\n'), MAX_BINARY_EVIDENCE_BYTES)
 }
 
 export async function POST(request: Request, { params }: RouteParams) {
@@ -981,11 +1021,69 @@ export async function POST(request: Request, { params }: RouteParams) {
       }
     }
 
+    let dexReferenceRows: Array<{ type: string; label: string | null; attributes: unknown }> = []
+    let dexReferencesTruncated = false
+    if (observation.source === 'reamon-dex-decompiler' && observation.taskId && observation.stableKey) {
+      let methodSignatures: string[] = []
+      if (scope === 'member' && selectedMemberName) {
+        const simpleClassName = unitName.split(/[.$/]/).at(-1)?.replace(/^L|;$/g, '') || unitName
+        const constructorSelected = ['constructor', '<init>', '.ctor', simpleClassName, unitName].includes(selectedMemberName)
+        const methodNames = constructorSelected ? ['<init>'] : [selectedMemberName]
+        const methodRows = await prisma.reamonObservation.findMany({
+          where: {
+            projectId,
+            artifactId: artifact.id,
+            taskId: observation.taskId,
+            source: observation.source,
+            type: 'function',
+            AND: [
+              { attributes: { path: ['parentCodeUnitKey'], equals: observation.stableKey } },
+              { OR: methodNames.map((name) => ({ attributes: { path: ['name'], equals: name } })) },
+            ],
+          },
+          orderBy: { stableKey: 'asc' },
+          take: MAX_DEX_REFERENCE_METHODS + 1,
+          select: { attributes: true },
+        })
+        dexReferencesTruncated = methodRows.length > MAX_DEX_REFERENCE_METHODS
+        methodSignatures = [...new Set(methodRows.slice(0, MAX_DEX_REFERENCE_METHODS).flatMap((row) => {
+          const signature = plainObject(row.attributes).qualifiedName
+          return typeof signature === 'string' && signature ? [signature] : []
+        }))]
+      }
+      if (scope !== 'member' || methodSignatures.length) {
+        const signatureFilter = scope === 'member'
+          ? [{ OR: methodSignatures.map((signature) => ({ attributes: { path: ['fromSignature'], equals: signature } })) }]
+          : []
+        const references = await prisma.reamonObservation.findMany({
+          where: {
+            projectId,
+            artifactId: artifact.id,
+            taskId: observation.taskId,
+            source: observation.source,
+            kind: 'relationship',
+            type: { in: ['reads_field', 'writes_field', 'references_string'] },
+            AND: [
+              { attributes: { path: ['fromCodeUnitKey'], equals: observation.stableKey } },
+              ...signatureFilter,
+            ],
+          },
+          orderBy: { stableKey: 'asc' },
+          take: MAX_DEX_REFERENCE_ROWS + 1,
+          select: { type: true, label: true, attributes: true },
+        })
+        dexReferencesTruncated ||= references.length > MAX_DEX_REFERENCE_ROWS
+        dexReferenceRows = references.slice(0, MAX_DEX_REFERENCE_ROWS)
+      }
+    }
+
     const disassemblyArtifactId = typeof attributes.disassemblyArtifactId === 'string' ? attributes.disassemblyArtifactId : ''
     const referencedStrings = observation.source === 'reamon-ghidra'
       ? classReferencesOf(attributes.referencedStrings).slice(0, 12).map((value) => value.slice(0, 512))
       : []
-    const binaryEvidence = referencedStrings.length
+    const binaryEvidence = observation.source === 'reamon-dex-decompiler' && (dexReferenceRows.length || dexReferencesTruncated)
+      ? dexReferenceEvidence(dexReferenceRows, dexReferencesTruncated)
+      : referencedStrings.length
       ? utf8Prefix(`Function address: ${typeof attributes.address === 'string' ? attributes.address.slice(0, 128) : 'unknown'}\n` + referencedStrings.map((value) => `Referenced text: ${value}`).join('\n'), MAX_BINARY_EVIDENCE_BYTES)
       : ''
     let disassemblySource = ''
