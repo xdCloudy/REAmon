@@ -526,7 +526,9 @@ def go(body: object, report_progress=lambda _message: None, cancel_check=lambda:
         output = temporary_path / "module.wat"
         error_log = temporary_path / "wabt.stderr"
         report_progress("Converting the module to WebAssembly Text with WABT")
-        deadline = time.monotonic() + 180
+        started = time.monotonic()
+        deadline = started + 180
+        next_progress = started + 5
         with error_log.open("wb") as log:
             try:
                 process = subprocess.Popen(
@@ -543,8 +545,21 @@ def go(body: object, report_progress=lambda _message: None, cancel_check=lambda:
                 while process.poll() is None:
                     if cancel_check():
                         raise AnalysisError("WebAssembly analysis was cancelled")
-                    if time.monotonic() >= deadline:
+                    now = time.monotonic()
+                    try:
+                        output_size = output.stat().st_size
+                    except OSError:
+                        output_size = 0
+                    if output_size > MAX_WAT_BYTES:
+                        raise AnalysisError("WAT output exceeded the 128 MiB storage limit")
+                    if now >= deadline:
                         raise AnalysisError("Wasm disassembly timed out")
+                    if now >= next_progress:
+                        report_progress(
+                            "WABT conversion still running "
+                            f"({now - started:.0f}s elapsed; {output_size / (1024 * 1024):.1f} MiB generated)"
+                        )
+                        next_progress = now + 5
                     try:
                         process.wait(timeout=0.25)
                     except subprocess.TimeoutExpired:
