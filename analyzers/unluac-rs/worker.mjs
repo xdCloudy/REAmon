@@ -4,6 +4,7 @@ import { decompileRich } from 'unluac-js'
 const MAX_PROTOS = 100
 const MAX_BLOCKS_PER_CFG = 32
 const MAX_EDGES_PER_CFG = 48
+const MAX_INSTRUCTION_SAMPLE_BLOCKS = 6
 
 function boundedInteger(value) {
   return Number.isSafeInteger(value) && value >= 0 ? value : 0
@@ -36,11 +37,17 @@ function summarizeProto(proto, cfg) {
       blockCount: blocks.length,
       edgeCount: edges.length,
       blockOrder: blockOrder.slice(0, MAX_BLOCKS_PER_CFG).filter((id) => Number.isSafeInteger(id) && id >= 0),
-      blocks: blocks.slice(0, MAX_BLOCKS_PER_CFG).map((block) => ({
+      blocks: blocks.slice(0, MAX_BLOCKS_PER_CFG).map((block, index) => ({
         id: boundedInteger(block?.id),
         kind: typeof block?.kind === 'string' ? block.kind.slice(0, 40) : 'unknown',
         instructionCount: Array.isArray(block?.instructions) ? block.instructions.length : 0,
         rawInstructionCount: Array.isArray(block?.rawInstructions) ? block.rawInstructions.length : 0,
+        instructionSamples: index < MAX_INSTRUCTION_SAMPLE_BLOCKS && Array.isArray(block?.instructions)
+          ? block.instructions.slice(0, 1).filter((line) => typeof line === 'string').map((line) => line.slice(0, 100))
+          : [],
+        rawInstructionSamples: index < MAX_INSTRUCTION_SAMPLE_BLOCKS && Array.isArray(block?.rawInstructions)
+          ? block.rawInstructions.slice(0, 1).filter((line) => typeof line === 'string').map((line) => line.slice(0, 100))
+          : [],
       })),
       edges: edges.slice(0, MAX_EDGES_PER_CFG).map((edge) => ({
         from: boundedInteger(edge?.from),

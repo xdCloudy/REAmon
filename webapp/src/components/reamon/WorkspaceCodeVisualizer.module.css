@@ -152,6 +152,13 @@
 .cfgNode text + text { fill: var(--text-tertiary); font-size: 9px; }
 .cfgEntry rect { stroke: var(--status-success-text, #69c991); }
 .cfgExit rect { stroke: var(--accent-secondary); }
+.cfgEvidence { margin-top: var(--space-3); border-top: 1px solid var(--border-subtle); padding-top: var(--space-2); }
+.cfgEvidence summary { width: fit-content; color: var(--accent-secondary); cursor: pointer; font-size: var(--text-xs); font-weight: var(--font-semibold); }
+.cfgEvidence > div { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--space-2); margin-top: var(--space-2); }
+.cfgEvidence article { min-width: 0; padding: var(--space-2); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); background: var(--bg-primary); }
+.cfgEvidence h4 { margin: 0 0 var(--space-1); color: var(--text-primary); font: var(--text-xs) var(--font-mono); }
+.cfgEvidence p { display: grid; gap: var(--space-1); margin: var(--space-1) 0 0; color: var(--text-tertiary); font-size: .65rem; }
+.cfgEvidence code { overflow-wrap: anywhere; color: var(--text-secondary); font: .68rem/1.45 var(--font-mono); }
 .graphGroups { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); }
 .graphGroup { min-width: 0; padding: var(--space-3); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); background: var(--bg-secondary); }
 .graphGroup h4 { margin: 0 0 var(--space-2); color: var(--text-secondary); font-size: var(--text-xs); }

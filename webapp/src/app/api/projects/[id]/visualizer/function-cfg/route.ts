@@ -71,9 +71,24 @@ export async function GET(request: Request, { params }: RouteParams) {
     }
 
     const blocks = cfg.blocks.flatMap((value) => {
-      if (!Array.isArray(value) || value.length !== 4 || !nonNegativeInteger(value[0]) || typeof value[1] !== 'string'
+      if (!Array.isArray(value) || (value.length !== 4 && value.length !== 6) || !nonNegativeInteger(value[0]) || typeof value[1] !== 'string'
         || !nonNegativeInteger(value[2]) || !nonNegativeInteger(value[3])) return []
-      return [{ id: value[0], kind: value[1].slice(0, 40), instructionCount: value[2], rawInstructionCount: value[3] }]
+      const instructionSamples = value.length === 6 && Array.isArray(value[4])
+        ? value[4].filter((line): line is string => typeof line === 'string').slice(0, 1).map((line) => line.slice(0, 100))
+        : []
+      const rawInstructionSamples = value.length === 6 && Array.isArray(value[5])
+        ? value[5].filter((line): line is string => typeof line === 'string').slice(0, 1).map((line) => line.slice(0, 100))
+        : []
+      if (value.length === 6 && (!Array.isArray(value[4]) || !Array.isArray(value[5])
+        || value[4].some((line) => typeof line !== 'string') || value[5].some((line) => typeof line !== 'string'))) return []
+      return [{
+        id: value[0],
+        kind: value[1].slice(0, 40),
+        instructionCount: value[2],
+        rawInstructionCount: value[3],
+        instructionSamples,
+        rawInstructionSamples,
+      }]
     })
     const edges = cfg.edges.flatMap((value) => {
       if (!Array.isArray(value) || value.length !== 3 || !nonNegativeInteger(value[0]) || !nonNegativeInteger(value[1])
@@ -91,6 +106,8 @@ export async function GET(request: Request, { params }: RouteParams) {
       blockCount: cfg.blockCount,
       edgeCount: cfg.edgeCount,
       truncated: cfg.blockCount > blocks.length || cfg.edgeCount > edges.length,
+      instructionSamplesTruncated: blocks.some((block) => block.instructionCount > block.instructionSamples.length
+        || block.rawInstructionCount > block.rawInstructionSamples.length),
       blocks,
       edges,
     }, { headers: NO_STORE })

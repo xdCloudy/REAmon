@@ -64,7 +64,15 @@ interface FunctionControlFlowGraph {
   blockCount: number
   edgeCount: number
   truncated: boolean
-  blocks: Array<{ id: number; kind: string; instructionCount: number; rawInstructionCount: number }>
+  instructionSamplesTruncated: boolean
+  blocks: Array<{
+    id: number
+    kind: string
+    instructionCount: number
+    rawInstructionCount: number
+    instructionSamples: string[]
+    rawInstructionSamples: string[]
+  }>
   edges: Array<{ from: number; to: number; kind: string }>
 }
 
@@ -147,6 +155,7 @@ function FunctionControlFlowPanel({
         <p>{graph ? `${graph.blockCount} blocks · ${graph.edgeCount} edges` : 'Bounded CFG summary from the Lua bytecode analyzer.'}</p>
       </div>
       {graph?.truncated && <span className={styles.graphBadge}>Partial graph</span>}
+      {graph?.instructionSamplesTruncated && <span className={styles.graphBadge}>Instruction excerpts</span>}
     </div>
     {query.isLoading && <p className={styles.cfgMessage} role="status">Loading prototype graph…</p>}
     {Boolean(query.error) && <p className={styles.cfgMessage} role="alert">{query.error instanceof Error ? query.error.message : 'Could not load the prototype graph.'}</p>}
@@ -184,7 +193,17 @@ function FunctionControlFlowPanel({
           })}
         </svg>
       </div>
-      <p className={styles.cfgMessage}>This view shows control-flow structure and instruction counts. Decompiled source remains the editable module artifact.</p>
+      {graph.blocks.some((block) => block.instructionSamples.length || block.rawInstructionSamples.length) && <details className={styles.cfgEvidence} open>
+        <summary>Sampled Low-IR and bytecode instructions</summary>
+        <div>
+          {graph.blocks.filter((block) => block.instructionSamples.length || block.rawInstructionSamples.length).map((block) => <article key={block.id}>
+            <h4>Block {block.id}</h4>
+            {block.instructionSamples.map((line, index) => <p key={`ir:${index}`}><strong>Low-IR</strong><code>{line}</code></p>)}
+            {block.rawInstructionSamples.map((line, index) => <p key={`raw:${index}`}><strong>Bytecode</strong><code>{line}</code></p>)}
+          </article>)}
+        </div>
+      </details>}
+      <p className={styles.cfgMessage}>This view shows bounded graph topology and instruction excerpts. Decompiled source remains the editable module artifact.</p>
     </>}
     {graph && graph.blocks.length === 0 && <p className={styles.cfgMessage}>This prototype has no basic blocks to display.</p>}
   </section>

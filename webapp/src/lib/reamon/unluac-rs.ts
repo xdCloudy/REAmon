@@ -35,7 +35,14 @@ interface Lua55FunctionMetadata {
     blockCount: number
     edgeCount: number
     blockOrder: number[]
-    blocks: Array<{ id: number; kind: string; instructionCount: number; rawInstructionCount: number }>
+    blocks: Array<{
+      id: number
+      kind: string
+      instructionCount: number
+      rawInstructionCount: number
+      instructionSamples: string[]
+      rawInstructionSamples: string[]
+    }>
     edges: Array<{ from: number; to: number; kind: string }>
   }
 }
@@ -70,7 +77,13 @@ function isFunctionMetadata(value: unknown): value is Lua55FunctionMetadata {
       && isNonNegativeInteger((block as Record<string, unknown>).id)
       && typeof (block as Record<string, unknown>).kind === 'string'
       && isNonNegativeInteger((block as Record<string, unknown>).instructionCount)
-      && isNonNegativeInteger((block as Record<string, unknown>).rawInstructionCount))
+      && isNonNegativeInteger((block as Record<string, unknown>).rawInstructionCount)
+      && Array.isArray((block as Record<string, unknown>).instructionSamples)
+      && ((block as Record<string, unknown>).instructionSamples as unknown[]).length <= 1
+      && ((block as Record<string, unknown>).instructionSamples as unknown[]).every((line) => typeof line === 'string' && line.length <= 100)
+      && Array.isArray((block as Record<string, unknown>).rawInstructionSamples)
+      && ((block as Record<string, unknown>).rawInstructionSamples as unknown[]).length <= 1
+      && ((block as Record<string, unknown>).rawInstructionSamples as unknown[]).every((line) => typeof line === 'string' && line.length <= 100))
     && Array.isArray(graph.edges) && graph.edges.length <= 48
     && graph.edges.every((edge) => !!edge && typeof edge === 'object' && !Array.isArray(edge)
       && isNonNegativeInteger((edge as Record<string, unknown>).from)
@@ -198,7 +211,14 @@ export async function executeUnluacRs(input: ToolExecutionInput): Promise<ToolRe
         exitBlock: proto.cfg.exitBlock,
         blockCount: proto.cfg.blockCount,
         edgeCount: proto.cfg.edgeCount,
-        blocks: proto.cfg.blocks.map((block) => [block.id, block.kind, block.instructionCount, block.rawInstructionCount]),
+        blocks: proto.cfg.blocks.map((block) => [
+          block.id,
+          block.kind,
+          block.instructionCount,
+          block.rawInstructionCount,
+          block.instructionSamples,
+          block.rawInstructionSamples,
+        ]),
         edges: proto.cfg.edges.map((edge) => [edge.from, edge.to, edge.kind]),
       })
       observations.push({
