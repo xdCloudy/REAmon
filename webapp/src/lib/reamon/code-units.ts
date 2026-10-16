@@ -16,6 +16,10 @@ export interface CodeUnitObservationAttributes {
   decompiled?: boolean
   language?: string
   sourceLanguage?: string
+  representation?: string
+  decompiler?: string
+  decompilerVersion?: string
+  nameEvidence?: string
   symbolSource?: string
   goPackage?: string
   goUnstripSignature?: string | null
@@ -72,6 +76,10 @@ export interface CodeUnit {
   coveragePercent: number | null
   language: string | null
   sourceLanguage?: string | null
+  representation?: string | null
+  decompiler?: string | null
+  decompilerVersion?: string | null
+  nameEvidence?: string | null
   symbolSource?: string | null
   packageName?: string | null
   goUnstripSignature?: string | null
@@ -276,6 +284,10 @@ export function normalizeCodeUnit(row: CodeUnitObservationRow, options: { includ
     coveragePercent: coverageOf(attributes),
     language: text(attributes.language, 80),
     sourceLanguage: text(attributes.sourceLanguage, 80),
+    representation: text(attributes.representation, 500),
+    decompiler: text(attributes.decompiler, 80),
+    decompilerVersion: text(attributes.decompilerVersion, 120),
+    nameEvidence: text(attributes.nameEvidence, 80),
     symbolSource: text(attributes.symbolSource, 80),
     packageName: text(attributes.goPackage, 500),
     unitType: text(attributes.unitType, 80),

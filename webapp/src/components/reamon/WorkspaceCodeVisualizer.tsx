@@ -374,6 +374,7 @@ function artifactUrl(projectId: string, unit: CodeUnit, codeArtifactId: string |
 }
 
 function languageLabel(unit: CodeUnit): string {
+  if (unit.representation) return `${unit.language || 'Generated source'} · ${unit.decompiler || 'reconstruction'}`
   if (unit.source === 'reamon-oxidizer') return 'Rust-like pseudocode · Oxidizer'
   if (unit.sourceLanguage && unit.language === 'C') return `C-like pseudocode · ${unit.sourceLanguage} binary`
   return unit.language || 'Source'
@@ -2018,6 +2019,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
                 <div><strong>Decompiled source</strong><span>{languageLabel(selectedUnit)} · {selectedUnit.codeArtifactId?.split('/').pop()}</span></div>
                 <button type="button" className={styles.copyButton} onClick={() => void copySource()} disabled={!sourceQuery.data}><Copy size={14} /> {copyStatus || 'Copy source'}</button>
               </div>
+              {selectedUnit.representation && <p className={styles.sourcePreviewNote} role="status">{selectedUnit.representation}{selectedUnit.decompilerVersion ? ` · ${selectedUnit.decompilerVersion}` : ''}{selectedUnit.nameEvidence ? ` · Name evidence: ${selectedUnit.nameEvidence}` : ''}</p>}
               {selectedUnit.sourceAddressMap?.length ? <p className={styles.sourcePreviewNote} role="status">Mapped lines are clickable. Click again to cycle through addresses mapped to that line.</p> : null}
               {selectedUnit.sourceAddressMapTruncated && <p className={styles.sourcePreviewNote} role="status">Some source-to-instruction mappings were omitted at the analyzer limit.</p>}
               {sourceQuery.isLoading && <p className={styles.message}>Loading decompiled source…</p>}
