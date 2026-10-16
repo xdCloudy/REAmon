@@ -49,6 +49,28 @@ devices, services, remote hosts, captures, filesystems, debug sessions, custom
 targets, and unknown inputs. Platform-specific behavior belongs behind capabilities
 and plugins rather than in the workspace core.
 
+## Product direction and documentation
+
+REAmon's central job is to turn compiled or obfuscated artifacts into evidence-backed,
+decompiled code that can be understood, edited, reviewed, and maintained. Explanations
+support that work; they do not replace source recovery. The roadmap prioritizes
+decomp.wtf's bounded, evidence-led process—unit-sized work, shared project knowledge,
+recorded attempts, meaningful validation, and explicit acceptance—then extends it to
+languages and formats without a reliable byte-for-byte compiler loop.
+
+| Document | Purpose |
+| --- | --- |
+| [Product vision](docs/REAMON_PRODUCT_VISION.md) | Motivation, product promise, principles, and why decomp.wtf is a core process reference. |
+| [Goals and roadmap](docs/REAMON_GOALS.md) | Outcomes, priorities, and completion checks. |
+| [Feature matrix](docs/REAMON_FEATURE_MATRIX.md) | Current product capabilities and gaps across the workflow. |
+| [Reverse-engineering workflow](docs/REAMON_WORKFLOW.md) | Intended artifact-to-maintained-source lifecycle, including review and validation. |
+| [Language and format matrix](docs/REAMON_LANGUAGE_MATRIX.md) | Detailed WIP support levels, integrated providers, and known gaps. |
+| [Reference portfolio](docs/REAMON_REFERENCE_PORTFOLIO.md) | Reusable projects, why they matter, what REAmon should adapt, priorities, and constraints. |
+| [Architecture](docs/REAMON_ARCHITECTURE.md) | Workspace model, system boundaries, and persistence design. |
+| [Upstream reuse](docs/REAMON_UPSTREAM_REUSE.md) | Audited reuse candidates, licenses, and integration decisions. |
+| [Migration](docs/REAMON_MIGRATION.md) | Migration status and compatibility approach from RedAmon. |
+| [Release runbook](docs/REAMON_RELEASE_RUNBOOK.md) | Release and operational procedures. |
+
 ## WIP: language and format support
 
 Language support is still in development and depends on the input format and the
@@ -59,7 +81,7 @@ a starting point for review.
 
 | Language or input | Status | What works now | Main gaps |
 | --- | --- | --- | --- |
-| Java bytecode (`.class`, `.jar`) and Android (`.dex`, `.apk`) | **Usable** | JADX produces browsable Java source and class/method outlines. Android method and call relationships are also indexed where available. | Obfuscation, missing debug metadata, reflection, and native libraries can hide behavior or names. Kotlin-built apps are rendered as Java-like output, not restored Kotlin source. |
+| Java bytecode (`.class`, `.jar`) and Android (`.dex`, `.apk`) | **Usable (JADX)** | JADX produces browsable Java source and class/method outlines. Android method and call relationships are also indexed where available. | Obfuscation, missing debug metadata, reflection, and native libraries can hide behavior or names. Kotlin-built apps are rendered as Java-like output, not restored Kotlin source. Androguard's separate Rust decompiler and CFG/xref APIs are being evaluated as an alternate provider, not yet integrated. |
 | C# / managed .NET (`.dll`, `.exe`) | **Usable** | ILSpy decompiles supported managed PE assemblies to C#; CLR IL instruction sequences are retained as supporting function evidence. | Output is reconstructed source. Original comments, formatting, and some compiler-level distinctions are lost. Visual Basic and F# assemblies are not reconstructed in their original source syntax. |
 | Native binaries (ELF, PE, Mach-O; including C/C++ and other compiled languages) | **Partial** | Ghidra provides address-aware functions, disassembly evidence, and C-like pseudocode for supported architectures. | Pseudocode is not recovered C/C++ or the original language. Types, class structure, templates, symbols, and control flow can be incomplete or misleading, especially in optimized or stripped binaries. |
 | WebAssembly (`.wasm`) | **Low-level only** | WABT exposes WebAssembly text/disassembly (WAT) and function-level entries for navigation. | This is not a high-level source decompiler; names and original source structure may be absent. |
@@ -72,8 +94,10 @@ a starting point for review.
 | TypeScript bundles and JavaScript runtime bytecode | **Not integrated; planned evaluation** | TypeScript source can be browsed and outlined when a grammar is available. | webcrack does not currently accept TypeScript syntax as an input guarantee, and no JavaScript runtime-bytecode provider is integrated. |
 
 This is a work-in-progress capability matrix, not a compatibility guarantee. The
-planned rows identify areas to evaluate; they do not promise a release date. Current
-engines include [JADX](https://github.com/skylot/jadx),
+planned rows identify areas to evaluate; they do not promise a release date. Detailed
+per-language scope is in the [language matrix](docs/REAMON_LANGUAGE_MATRIX.md), and
+cross-workflow status is in the [feature matrix](docs/REAMON_FEATURE_MATRIX.md).
+Current engines include [JADX](https://github.com/skylot/jadx),
 [ILSpy](https://github.com/icsharpcode/ILSpy),
 [Ghidra](https://github.com/NationalSecurityAgency/ghidra), and
 [WABT](https://github.com/WebAssembly/wabt). Python bytecode uses the MIT-licensed

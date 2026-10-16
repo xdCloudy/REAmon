@@ -1,0 +1,109 @@
+# REAmon reverse-engineering workflow
+
+This is the intended end-to-end product loop. It adapts decomp.wtf's function-level
+claim, attempt, judge, feedback, and accepted-knowledge cycle to heterogeneous inputs
+and validators. The detailed inspiration and boundaries are recorded in
+[upstream reuse](REAMON_UPSTREAM_REUSE.md).
+
+## Lifecycle
+
+### 1. Import and identify
+
+Create a workspace target and immutable artifact record. Calculate the content hash,
+record the logical path and import source, profile the format, and preserve the
+original bytes. Related files remain related artifacts; equal names do not establish
+identity.
+
+### 2. Analyze with explicit provenance
+
+Select providers from format and capability contracts. Each output records the input
+artifact hash, engine name and version, options, warnings, timestamps, and derived
+artifact lineage. Keep provider output distinct: JADX Java, Smali, Ghidra pseudocode,
+WAT, and an AI-maintained source file are not interchangeable source truths.
+
+### 3. Build the unit map
+
+Index functions, methods, classes, modules, resources, types, strings, call edges, and
+other supported relationships. Link each unit to its exact provider output and source
+artifact. Store the denominator and truncation information used by coverage metrics.
+
+### 4. Prepare one bounded work item
+
+Select a function or another maintainable unit. Provide the AI with:
+
+- its current decompilation and lower-level evidence;
+- exact artifact, provider, and run provenance;
+- callers, callees, references, and relevant neighboring units;
+- project-approved names, aliases, types, and prior review decisions;
+- prior attempts for this unit and any validation feedback.
+
+Context is read from the project database and capped. A similar function can suggest a
+search path, but it is never treated as behavioral proof. The AI must distinguish
+provider syntax from the binary's likely original language.
+
+### 5. Claim and work without collisions
+
+Before concurrent agents are enabled, each unit needs an atomic lease with owner,
+expiry, attempt ID, and cancellation/recovery behavior. One active owner can write a
+candidate for a unit; other agents can inspect the work and claim different units.
+This is a prerequisite for safe parallelism, not merely a UI status badge.
+
+### 6. Record an attempt
+
+Keep the original code unchanged and store a candidate as a separate draft. Record the
+prompt/context version, proposed names and types, source diff, explanation, and the
+evidence cited. The candidate should focus on a bounded change that can be reviewed.
+The current rewrite route now persists started, failed, and successful attempts with
+the exact project, artifact, run, unit, source hash, provider, request, validation
+state, and returned source. It gives the next retry a small summary of outcomes for
+that same source hash; a changed binary or source hash gets a separate history. The
+visualizer shows the latest ten attempts for the selected source version, including
+failures, validation state, and prior successful output.
+
+### 7. Validate and return specific feedback
+
+Run the strongest applicable checks in order, without conflating their meanings:
+
+| Evidence level | Example | What it proves |
+| --- | --- | --- |
+| Parse / syntax | Tree-sitter or language parser accepts the candidate | The source is structurally parseable. |
+| Build / type check | Original or compatible compiler succeeds | The candidate satisfies that toolchain's compile-time constraints. |
+| Differential / binary match | Compile and compare at the original address or against a known output | The validated region matches under the specified toolchain and settings. |
+| Tests / runtime comparison | Run a supplied harness on controlled inputs | Tested behavior agrees for those inputs and conditions. |
+| Human review | Reviewer checks the evidence and semantic change | A person accepts the change; this is not a universal equivalence proof. |
+
+For a failed check, attach the diagnostic, source span, or instruction diff to the
+attempt and let the agent revise that same work item. For an unavailable check, record
+that validation was unavailable. Never turn a decompilation score or similarity score
+into a claim of behavioral equivalence.
+
+### 8. Review and promote
+
+Acceptance is an explicit decision. Persist reviewer, time, diff, and rationale. Only
+accepted candidates update approved project names and maintained source. A proposed
+rename cannot silently change the project's canonical symbol map.
+
+If an accepted update invalidates a previous validation, mark the affected result
+stale and rerun the relevant check. Protect already validated units from accidental
+regressions; rollback a candidate when a guard check fails.
+
+### 9. Measure, export, and continue
+
+Show separate counts for discovered, analyzed, decompiled, maintained, reviewed, and
+validated units. Export the maintained source with a manifest connecting each output
+to input hashes, engine versions, accepted drafts, and validation. Continue work from
+the saved project state rather than starting a fresh conversation with undocumented
+assumptions.
+
+## Universal completion states
+
+The UI and storage should preserve separate state dimensions, even if displayed as a
+single summary:
+
+- **Analysis:** not started, running, complete, partial, failed.
+- **Source recovery:** unavailable, disassembled, decompiled, maintained draft.
+- **Review:** unreviewed, accepted, rejected, superseded.
+- **Validation:** unavailable, pending, passed, failed, stale.
+
+Completing an analysis job does not mean the source is maintainable or validated. See
+the [feature matrix](REAMON_FEATURE_MATRIX.md) for current implementation status.

@@ -78,9 +78,20 @@ export async function GET(_request: Request, { params }: RouteParams) {
       orderBy: { updatedAt: 'desc' },
       select: { id: true, sourceCode: true, providerName: true, modelIdentifier: true, question: true, scope: true, syntaxValidated: true, updatedAt: true },
     })
+    const attempts = await prisma.reamonCodeAttempt.findMany({
+      where: { projectId, codeUnitId: unitId, artifactId: resolved.artifactId, runKey: resolved.runKey, sourceHash: resolved.sourceHash },
+      orderBy: { createdAt: 'desc' },
+      take: 10,
+      select: { id: true, providerName: true, modelIdentifier: true, question: true, scope: true, status: true, errorCode: true, errorMessage: true, resultSource: true, syntaxValidated: true, createdAt: true, completedAt: true },
+    })
     return NextResponse.json({
       exists: Boolean(draft),
       draft: draft ? { ...draft, updatedAt: draft.updatedAt.toISOString() } : null,
+      attempts: attempts.map((attempt) => ({
+        ...attempt,
+        createdAt: attempt.createdAt.toISOString(),
+        completedAt: attempt.completedAt?.toISOString() ?? null,
+      })),
     }, { headers: { 'Cache-Control': 'private, no-store' } })
   } catch (error) {
     console.error('Failed to load REAmon code draft:', error)

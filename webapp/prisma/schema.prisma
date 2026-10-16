@@ -447,6 +447,7 @@ model Project {
   observations                ReamonObservation[]
   maintainedSources           ReamonMaintainedSource[]
   codeDrafts                  ReamonCodeDraft[]
+  codeAttempts                ReamonCodeAttempt[]
   artifactProvenance          ArtifactProvenance[]
   projectionRuns              ReamonProjectionRun[]
   projectionLease             ReamonProjectionLease?
@@ -2812,6 +2813,33 @@ model ReamonCodeDraft {
   @@index([projectId, artifactId, sourceHash])
   @@index([projectId, runKey, updatedAt])
   @@map("reamon_code_drafts")
+}
+
+model ReamonCodeAttempt {
+  id              String    @id @default(cuid())
+  projectId       String    @map("project_id")
+  project         Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  artifactId      String    @map("artifact_id")
+  runKey          String    @map("run_key")
+  codeUnitId      String    @map("code_unit_id")
+  unitName        String    @map("unit_name")
+  language        String
+  sourceHash      String    @map("source_hash")
+  providerName    String    @map("provider_name")
+  modelIdentifier String    @map("model_identifier")
+  question        String    @default("") @db.Text
+  scope           String    @default("file")
+  status          String    @default("RUNNING")
+  errorCode       String?   @map("error_code")
+  errorMessage    String?   @db.Text @map("error_message")
+  resultSource    String?   @db.Text @map("result_source")
+  syntaxValidated Boolean?  @map("syntax_validated")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  completedAt     DateTime? @map("completed_at")
+
+  @@index([projectId, codeUnitId, sourceHash, createdAt])
+  @@index([projectId, artifactId, runKey, createdAt])
+  @@map("reamon_code_attempts")
 }
 
 model WorkspaceActivity {

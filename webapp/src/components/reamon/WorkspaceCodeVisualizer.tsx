@@ -93,7 +93,8 @@ interface CodeExplanationResponse { explanation: string; providerName: string; m
 interface ApkBuildResponse { buildId: string; taskId: string; fileName: string; sizeBytes: number; sha256: string; signed: false; changedFileCount: number; warnings?: string; downloadUrl: string }
 interface CodeMaintenanceResponse { sourceCode: string; providerName: string; model: string; syntaxValidated?: boolean | null }
 interface CodeDraftRecord { id: string; sourceCode: string; providerName: string; modelIdentifier: string; question: string; scope: 'file' | 'member'; syntaxValidated: boolean | null; updatedAt: string }
-interface CodeDraftResponse { exists: boolean; draft: CodeDraftRecord | null }
+interface CodeAttemptRecord { id: string; providerName: string; modelIdentifier: string; question: string; scope: 'file' | 'member'; status: 'RUNNING' | 'SUCCEEDED' | 'FAILED'; errorCode: string | null; errorMessage: string | null; resultSource: string | null; syntaxValidated: boolean | null; createdAt: string; completedAt: string | null }
+interface CodeDraftResponse { exists: boolean; draft: CodeDraftRecord | null; attempts?: CodeAttemptRecord[] }
 interface CodeMemberOutline { name: string; kind: 'function' | 'method' | 'constructor'; start_byte: number; end_byte: number; line: number; source_bytes: number }
 
 const EMPTY_CODE_UNITS: CodeUnit[] = []
@@ -760,7 +761,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
     setDraftId(record.id)
     setDraftSource(sourceCode)
     setDraftScope(scope)
-    queryClient.setQueryData<CodeDraftResponse>(['reamon-code-draft', projectId, selectedUnit.id], { exists: true, draft: record })
+    queryClient.setQueryData<CodeDraftResponse>(['reamon-code-draft', projectId, selectedUnit.id], (current) => ({ exists: true, draft: record, attempts: current?.attempts }))
     return record.id
   }
 
@@ -798,7 +799,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
       setDraftId(record.id)
       setDraftSource(maintainedDraft)
       setDraftScope(record.scope)
-      queryClient.setQueryData<CodeDraftResponse>(['reamon-code-draft', projectId, selectedUnit.id], { exists: true, draft: record })
+      queryClient.setQueryData<CodeDraftResponse>(['reamon-code-draft', projectId, selectedUnit.id], (current) => ({ exists: true, draft: record, attempts: current?.attempts }))
       setAdditionalPage((previous) => {
         if (!previous || previous.runId !== currentRunId || previous.search !== serverSearch) return previous
         return {
@@ -826,6 +827,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ unitId: selectedUnit.id, providerId: selectedProviderId, question: question.trim() }),
       })
+      await queryClient.invalidateQueries({ queryKey: ['reamon-code-draft', projectId, selectedUnit.id] })
       const result = await response.json().catch(() => ({})) as CodeMaintenanceResponse & { error?: string }
       if (!response.ok) throw new Error(result.error || 'Could not create a maintainable version')
       setMaintainedDraft(result.sourceCode)
@@ -895,6 +897,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ unitId: selectedUnit.id, providerId: selectedProviderId, question: question.trim(), scope: 'member', startByte: member.start_byte, endByte: member.end_byte, memberName: member.name }),
       })
+      await queryClient.invalidateQueries({ queryKey: ['reamon-code-draft', projectId, selectedUnit.id] })
       const result = await response.json().catch(() => ({})) as CodeMaintenanceResponse & { error?: string }
       if (!response.ok) throw new Error(result.error || 'Could not reverse engineer this method')
       const updatedBytes = new Uint8Array(draftBytes.byteLength - (draftMember.end_byte - draftMember.start_byte) + new TextEncoder().encode(result.sourceCode).byteLength)
@@ -1612,6 +1615,21 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
           </section>}
           {maintenanceError && <p className={styles.error} role="alert">{maintenanceError}</p>}
           {maintenanceMeta && <p className={styles.message}>Reverse-engineered draft from {maintenanceMeta.providerName} · {maintenanceMeta.model}. {maintenanceMeta.syntaxValidated === true ? 'The source parser found no syntax errors. Review the reconstructed logic and behavior before saving.' : maintenanceMeta.syntaxValidated === false ? 'Syntax validation was unavailable for this language. Check the reconstructed code and its behavior before saving.' : 'This draft has changed or predates saved validation metadata. Recheck its syntax and behavior before saving.'}</p>}
+          {(codeDraftQuery.data?.attempts?.length ?? 0) > 0 && <section className={styles.attemptHistory} aria-label="Recent AI rewrite attempts">
+            <h4>Recent AI attempts for this source version</h4>
+            <ol>{codeDraftQuery.data?.attempts?.map((attempt) => <li key={attempt.id}>
+              <details>
+                <summary>
+                  <strong>{attempt.status === 'SUCCEEDED' ? 'Completed' : attempt.status === 'FAILED' ? 'Failed' : 'Interrupted or still running'}</strong>
+                  <span>{attempt.providerName} · {attempt.modelIdentifier} · {attempt.scope} · {new Date(attempt.createdAt).toLocaleString()}</span>
+                </summary>
+                {attempt.question && <p>Request: {attempt.question}</p>}
+                {attempt.status === 'SUCCEEDED' && <p>{attempt.syntaxValidated === true ? 'The source parser found no syntax errors.' : 'Syntax validation was unavailable for this language; review the source and behavior.'}</p>}
+                {attempt.errorMessage && <p className={styles.error}>{attempt.errorMessage}{attempt.errorCode ? ` (${attempt.errorCode})` : ''}</p>}
+                {attempt.resultSource && <pre className={styles.attemptSource}><code>{attempt.resultSource}</code></pre>}
+              </details>
+            </li>)}</ol>
+          </section>}
           {maintainedQuery.isError && <p className={styles.error} role="alert">{maintainedQuery.error instanceof Error ? maintainedQuery.error.message : 'Could not load maintained source'}</p>}
           {codeDraftQuery.isError && <p className={styles.error} role="alert">{codeDraftQuery.error instanceof Error ? codeDraftQuery.error.message : 'Could not load the saved AI draft'}</p>}
           {maintainedDraft && <>

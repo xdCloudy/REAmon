@@ -249,6 +249,7 @@ function classReferencesOf(value: unknown): string[] {
 }
 
 export async function POST(request: Request, { params }: RouteParams) {
+  let runningAttemptId: string | null = null
   try {
     const { id: projectId } = await params
     const user = await requireEffectiveUser()
@@ -673,6 +674,21 @@ export async function POST(request: Request, { params }: RouteParams) {
     const projectDraftContext = draftSymbolLines.length
       ? `Unreviewed draft naming evidence from this imported artifact (consistency hints only; behavior is not accepted):\n${draftSymbolLines.join('\n')}`
       : ''
+    const priorAttempts = await prisma.reamonCodeAttempt.findMany({
+      where: { projectId, artifactId: artifact.id, runKey: runPrefix.slice(0, -1), codeUnitId: observation.id, sourceHash },
+      orderBy: { createdAt: 'desc' },
+      take: 5,
+      select: { providerName: true, modelIdentifier: true, question: true, scope: true, status: true, errorCode: true, errorMessage: true, syntaxValidated: true, createdAt: true },
+    })
+    const priorAttemptLines = priorAttempts.reverse().map((attempt, index) => {
+      const outcome = attempt.status === 'SUCCEEDED'
+        ? `succeeded; syntax validated: ${attempt.syntaxValidated === true ? 'yes' : attempt.syntaxValidated === false ? 'no' : 'unknown'}`
+        : attempt.status === 'RUNNING'
+          ? 'did not finish (the prior request may have been interrupted)'
+          : `failed${attempt.errorCode ? ` (${attempt.errorCode})` : ''}${attempt.errorMessage ? `: ${attempt.errorMessage}` : ''}`
+      return `${index + 1}. ${attempt.providerName} / ${attempt.modelIdentifier}; scope=${attempt.scope}; request=${attempt.question || '(default)'}; outcome=${outcome}`
+    })
+    const priorAttemptContext = utf8Prefix(priorAttemptLines.join('\n'), 4 * 1024)
     const contextSources: Array<{ unit_name: string; language: string; source_code: string }> = []
     let contextBytes = 0
     if (scope === 'member' && body.startByte !== undefined && body.endByte !== undefined && contextSources.length < MAX_CONTEXT_UNITS) {
@@ -826,6 +842,25 @@ export async function POST(request: Request, { params }: RouteParams) {
     const timeoutSeconds = typeof provider.timeout === 'number' && Number.isFinite(provider.timeout) ? provider.timeout : 120
     const timeoutMs = Math.max(10_000, Math.min(300_000, timeoutSeconds * 1000))
 
+    const attempt = await prisma.reamonCodeAttempt.create({
+      data: {
+        projectId,
+        artifactId: artifact.id,
+        runKey: runPrefix.slice(0, -1),
+        codeUnitId: observation.id,
+        unitName: String(unitName).slice(0, 500),
+        language: language.slice(0, 80),
+        sourceHash,
+        providerName: provider.name.slice(0, 128),
+        modelIdentifier: provider.modelIdentifier.slice(0, 128),
+        question: typeof body.question === 'string' ? body.question.trim() : '',
+        scope,
+        status: 'RUNNING',
+      },
+      select: { id: true },
+    })
+    runningAttemptId = attempt.id
+
     const response = await agentFetch('/reamon/code/deobfuscate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -843,6 +878,7 @@ export async function POST(request: Request, { params }: RouteParams) {
         binary_evidence: binaryEvidence,
         project_symbol_context: maintainedProjectContext,
         project_draft_context: projectDraftContext,
+        prior_attempt_context: priorAttemptContext,
         question: typeof body.question === 'string' ? body.question.trim() : '',
       }),
     }, { timeoutMs })
@@ -866,22 +902,61 @@ export async function POST(request: Request, { params }: RouteParams) {
               : result.code === 'context_exceeded'
                 ? 'This code unit exceeds the model context window even after related-code context was removed. Choose a larger-context model or a smaller code unit.'
                 : 'AI could not produce a maintainable version. Try again shortly.'
+      await prisma.reamonCodeAttempt.update({
+        where: { id: attempt.id },
+        data: {
+          status: 'FAILED',
+          errorCode: typeof result.code === 'string' ? result.code.slice(0, 128) : `http_${response.status}`,
+          errorMessage: message,
+          completedAt: new Date(),
+        },
+      })
+      runningAttemptId = null
       return NextResponse.json({ error: message }, { status: response.status, headers: { 'Cache-Control': 'no-store' } })
     }
     if (typeof result.source_code !== 'string' || !result.source_code.trim()) {
+      await prisma.reamonCodeAttempt.update({
+        where: { id: attempt.id },
+        data: { status: 'FAILED', errorCode: 'empty_result', errorMessage: 'The AI provider returned no rewritten source', completedAt: new Date() },
+      })
+      runningAttemptId = null
       return NextResponse.json({ error: 'The AI provider returned no rewritten source' }, { status: 502, headers: { 'Cache-Control': 'no-store' } })
     }
     if (Buffer.byteLength(result.source_code, 'utf8') > MAX_RESULT_BYTES) {
+      await prisma.reamonCodeAttempt.update({
+        where: { id: attempt.id },
+        data: { status: 'FAILED', errorCode: 'result_too_large', errorMessage: 'The rewritten source exceeds the save limit', completedAt: new Date() },
+      })
+      runningAttemptId = null
       return NextResponse.json({ error: 'The rewritten source exceeds the save limit' }, { status: 502, headers: { 'Cache-Control': 'no-store' } })
     }
+
+    const syntaxValidated = result.syntax_validated === true
+    await prisma.reamonCodeAttempt.update({
+      where: { id: attempt.id },
+      data: { status: 'SUCCEEDED', resultSource: result.source_code, syntaxValidated, completedAt: new Date() },
+    })
+    runningAttemptId = null
 
     return NextResponse.json({
       sourceCode: result.source_code,
       providerName: provider.name,
       model: provider.modelIdentifier,
-      syntaxValidated: result.syntax_validated === true,
+      syntaxValidated,
+      attemptId: attempt.id,
     }, { headers: { 'Cache-Control': 'private, no-store' } })
   } catch (error) {
+    if (runningAttemptId) {
+      await prisma.reamonCodeAttempt.updateMany({
+        where: { id: runningAttemptId, status: 'RUNNING' },
+        data: {
+          status: 'FAILED',
+          errorCode: error instanceof AgentUnreachableError ? 'agent_unreachable' : 'request_error',
+          errorMessage: error instanceof AgentUnreachableError ? 'The AI analysis service is unavailable.' : 'The rewrite request failed before completion.',
+          completedAt: new Date(),
+        },
+      }).catch(() => undefined)
+    }
     if (error instanceof AgentUnreachableError) {
       console.error('AI deobfuscation could not reach the agent:', error.message)
       return NextResponse.json({ error: 'The AI analysis service is unavailable. Try again shortly.' }, { status: 503, headers: { 'Cache-Control': 'no-store' } })
