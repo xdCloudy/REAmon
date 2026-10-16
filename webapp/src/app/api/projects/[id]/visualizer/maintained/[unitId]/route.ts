@@ -351,6 +351,10 @@ export async function PUT(request: Request, { params }: RouteParams) {
       || resolved.observation.label
       || resolved.unitId
     const language = typeof attributes.language === 'string' ? attributes.language.slice(0, 80) : 'unknown'
+    const dialect = typeof attributes.dialect === 'string' ? attributes.dialect.toLowerCase() : ''
+    const validationLanguage = language.trim().toLowerCase() === 'lua' && /^lua5\.[1-5]$/.test(dialect)
+      ? `Lua ${dialect.slice(3)}`
+      : language
     const now = new Date().toISOString()
     const { rootRealPath, absolute } = await checkedPath(resolved.relativePath)
     const maintainedSourceHash = createHash('sha256').update(sourceCode).digest('hex')
@@ -359,7 +363,7 @@ export async function PUT(request: Request, { params }: RouteParams) {
       acceptedSafeRenameAliases(projectId, resolved.artifactId, resolved.runKey, resolved.unitId, sourceCode, maintainedSourceHash),
     ])
     const symbolIndex = { symbols, aliases }
-    const validation = await validateMaintainedSource(sourceCode, language)
+    const validation = await validateMaintainedSource(sourceCode, validationLanguage)
     if (validation.validation_status === 'FAILED') {
       return NextResponse.json({
         error: 'The maintained source has syntax errors and was not accepted.',

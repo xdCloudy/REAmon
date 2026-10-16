@@ -27,6 +27,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     make \
     gcc \
     g++ \
+    libreadline-dev \
     openssh-client \
     unzip \
     wget \
@@ -69,6 +70,27 @@ RUN arch="${TARGETARCH:-$(dpkg --print-architecture)}" \
     && rm /tmp/go.tgz \
     && /usr/local/go/bin/go version
 ENV PATH="/usr/local/go/bin:/root/go/bin:${PATH}"
+
+# Pin official PUC-Lua compiler releases for exact-dialect syntax-only checks.
+# Each version gets its own binary so REAmon never validates recovered code
+# against a different Lua grammar by accident.
+RUN set -eu; \
+    build_luac() { \
+      version="$1"; sha256="$2"; \
+      curl -fsSL --retry 5 --retry-delay 5 --retry-all-errors \
+        -o "/tmp/lua-${version}.tar.gz" "https://www.lua.org/ftp/lua-${version}.tar.gz"; \
+      echo "${sha256}  /tmp/lua-${version}.tar.gz" | sha256sum -c -; \
+      mkdir -p "/tmp/lua-${version}"; \
+      tar -xzf "/tmp/lua-${version}.tar.gz" -C "/tmp/lua-${version}" --strip-components=1; \
+      make -C "/tmp/lua-${version}" linux; \
+      install -m 0755 "/tmp/lua-${version}/src/luac" "/usr/local/bin/luac${version%.*}"; \
+      rm -rf "/tmp/lua-${version}" "/tmp/lua-${version}.tar.gz"; \
+    }; \
+    build_luac 5.1.5 2640fc56a795f29d28ef15e13c34a47e223960b0240e8cb0a82d9b0738695333; \
+    build_luac 5.2.4 b9e2e4aad6789b3b63a056d442f7b39f0ecfca3ae0f1fc0ae4e9614401b69f4b; \
+    build_luac 5.3.6 fc5fd69bb8736323f026672b1b7235da613d7177e72558893a0bdcd320466d60; \
+    build_luac 5.4.9 2335b6c582a52654f94612bf10d2f4672805d05329aa6568b1d8cd9e5c6fb8e6; \
+    build_luac 5.5.1 1c4b4068d67061f2a2231ad2b5422e77acea1487ea9890f6320af614f4373dce
 
 # Pin the official Luau compiler for syntax-only validation of recovered Luau.
 # The upstream Ubuntu release asset is x86_64; other architectures retain the

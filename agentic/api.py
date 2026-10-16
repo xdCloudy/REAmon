@@ -845,6 +845,19 @@ async def validate_reamon_code(body: ReamonCodeValidateRequest):
         result = _reamon_luau_syntax_validation(body.source_code, source_sha256)
         if result is not None:
             return result
+    lua_version = re.fullmatch(r"lua(?: source)?\s+(5\.[1-5])", normalized_language)
+    if lua_version:
+        version = lua_version.group(1)
+        result = _reamon_cli_syntax_validation(
+            body.source_code,
+            label="luac",
+            executable=f"luac{version}",
+            version_args=["-v"],
+            lint_args=["-p", "-"],
+            version_pattern=rf"^Lua\s+({re.escape(version)}(?:\.\d+)?)",
+            ignored_environment={"LUA_INIT", "LUA_INIT_5_1", "LUA_INIT_5_2", "LUA_INIT_5_3", "LUA_INIT_5_4", "LUA_INIT_5_5"},
+        )
+        return {"source_sha256": source_sha256, **result}
     parser, grammar_name = _reamon_source_parser_details(body.language)
     if parser is None:
         return {
