@@ -245,6 +245,7 @@ export const ONBOARDING_PLAYBOOK: Record<string, PlaybookEntry> = {
       'Availability fields describe what REAmon persisted. “None recorded” does not establish that the binary has no calls or member references.',
       'Decompiler output is provider evidence, not original source or canonical truth. Use other stored evidence to corroborate names and types.',
       'Saved drafts and maintained source are separate from decompiler output. Check the draft validation and maintained-source review receipt before treating an edit as accepted.',
+      'The draft source hash identifies its base decompilation; the draft output hash identifies its exact saved bytes. Older drafts may not have an output hash.',
     ],
     workflowRefs: ['inspect-workspace'],
   },

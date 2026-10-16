@@ -281,7 +281,7 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
     },
     orderBy: { updatedAt: 'desc' },
     select: {
-      sourceCode: true, sourceHash: true, providerName: true, modelIdentifier: true,
+      sourceCode: true, sourceHash: true, draftHash: true, providerName: true, modelIdentifier: true,
       validationStatus: true, validationMethod: true, validationMessage: true,
       syntaxValidated: true, updatedAt: true,
     },
@@ -438,6 +438,7 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
       ...boundedSource(draft.sourceCode),
       scope: parentUnit ? 'containing_code_unit' : 'code_unit',
       sourceHash: draft.sourceHash,
+      draftHash: draft.draftHash,
       providerName: draft.providerName,
       modelIdentifier: draft.modelIdentifier,
       syntaxValidated: draft.syntaxValidated,
