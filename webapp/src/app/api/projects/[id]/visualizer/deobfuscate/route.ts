@@ -805,7 +805,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       }) : Promise.resolve([]),
       prisma.reamonCodeDraft.findMany({
         where: { projectId, artifactId: artifact.id, runKey: runPrefix.slice(0, -1) },
-        select: { codeUnitId: true, unitName: true, language: true, sourceHash: true, sourceCode: true, updatedAt: true },
+        select: { codeUnitId: true, unitName: true, language: true, sourceHash: true, draftHash: true, sourceCode: true, validationStatus: true, validationMethod: true, updatedAt: true },
         orderBy: { updatedAt: 'desc' },
         take: MAX_PROJECT_DRAFT_RECORDS,
       }),
@@ -1233,6 +1233,29 @@ export async function POST(request: Request, { params }: RouteParams) {
         })
         contextBytes += Buffer.byteLength(source, 'utf8')
         continue
+      }
+      const relatedDraft = isDirectCallee && relatedUnitId ? draftByUnitId.get(relatedUnitId) : undefined
+      const matchingDraftHash = relatedDraft?.draftHash
+        && /^[a-f0-9]{64}$/i.test(relatedDraft.draftHash)
+        && createHash('sha256').update(relatedDraft.sourceCode).digest('hex') === relatedDraft.draftHash.toLowerCase()
+      if (relatedDraft?.sourceCode.trim() && matchingDraftHash
+        && contextSources.length < MAX_CONTEXT_UNITS && contextBytes < MAX_CONTEXT_BYTES) {
+        const source = utf8Prefix(relatedDraft.sourceCode, MAX_CONTEXT_BYTES - contextBytes)
+        if (source.trim()) {
+          const excerptTruncated = Buffer.byteLength(source, 'utf8') < Buffer.byteLength(relatedDraft.sourceCode, 'utf8')
+          const validationEvidence = relatedDraft.validationStatus === 'PASSED'
+            ? `; syntax passed via ${relatedDraft.validationMethod || 'recorded validator'} (structural evidence only)`
+            : relatedDraft.validationStatus === 'FAILED'
+              ? `; syntax failed via ${relatedDraft.validationMethod || 'recorded validator'}`
+              : relatedDraft.validationStatus === 'UNAVAILABLE' ? '; syntax validation unavailable' : '; syntax validation not recorded'
+          contextSources.push({
+            unit_name: `${relatedDraft.unitName} (${relatedDraft.language}; direct callee from this analysis run; unreviewed saved draft sha256:${relatedDraft.draftHash!.slice(0, 16)}${excerptTruncated ? '; excerpt truncated' : ''}${validationEvidence}; provisional naming and behavior only)`,
+            language: relatedDraft.language.slice(0, 80),
+            source_code: source,
+          })
+          contextBytes += Buffer.byteLength(source, 'utf8')
+          continue
+        }
       }
       const relatedPath = resolveDerivedArtifactPath(relatedArtifactId)
       try {
