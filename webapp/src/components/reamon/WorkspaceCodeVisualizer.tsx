@@ -113,6 +113,22 @@ interface SimilarFunctionsResponse {
   truncated: boolean
 }
 
+interface AlternateDecompilerOutput {
+  id: string
+  providerId: string
+  providerName: string
+  version: string | null
+  name: string | null
+  language: string
+  relativePath: string
+  inputSha256: string
+  outputSha256: string
+  completedAt: string | null
+  source: string
+}
+
+interface AlternateDecompilerResponse { alternates: AlternateDecompilerOutput[] }
+
 interface CodeExplanationProvider { id: string; name: string; modelIdentifier: string }
 interface CodeExplanationResponse { explanation: string; providerName: string; model: string; sourceTruncated: boolean }
 interface ApkBuildResponse { buildId: string; taskId: string; fileName: string; sizeBytes: number; sha256: string; signed: false; changedFileCount: number; warnings?: string; downloadUrl: string }
@@ -389,6 +405,17 @@ async function fetchSource(url: string, signal: AbortSignal): Promise<string> {
   return response.text()
 }
 
+async function fetchAlternateDecompilerOutputs(projectId: string, unitId: string, signal?: AbortSignal): Promise<AlternateDecompilerResponse> {
+  const params = new URLSearchParams({ unitId })
+  const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/alternates?${params.toString()}`, { signal, cache: 'no-store' })
+  if (!response.ok) {
+    const detail = await response.json().catch(() => null) as { error?: string } | null
+    throw new Error(detail?.error || 'Unable to load alternate decompiler output')
+  }
+  const result = await response.json() as Partial<AlternateDecompilerResponse>
+  return { alternates: Array.isArray(result.alternates) ? result.alternates : [] }
+}
+
 async function fetchExplanationProviders(projectId: string): Promise<CodeExplanationProvider[]> {
   const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/providers`, { cache: 'no-store' })
   if (!response.ok) throw new Error('Unable to load saved AI providers')
@@ -602,6 +629,8 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
   const [urlInitialized, setUrlInitialized] = useState(false)
   const [graphUnit, setGraphUnit] = useState<CodeUnit | null>(null)
   const [copyStatus, setCopyStatus] = useState('')
+  const [compareAlternatesOpen, setCompareAlternatesOpen] = useState(false)
+  const [selectedAlternateId, setSelectedAlternateId] = useState('')
   const [assemblyCopyStatus, setAssemblyCopyStatus] = useState('')
   const [providerId, setProviderId] = useState('')
   const [question, setQuestion] = useState('')
@@ -841,6 +870,16 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
     staleTime: 5 * 60_000,
     gcTime: 60_000,
   })
+  const canCompareDecompilerOutputs = Boolean(selectedUnit && ['reamon-jadx', 'reamon-vineflower', 'reamon-cfr'].includes(selectedUnit.source))
+  const alternateOutputsQuery = useQuery({
+    queryKey: ['reamon-alternate-decompiler-outputs', projectId, selectedUnit?.id],
+    queryFn: ({ signal }) => fetchAlternateDecompilerOutputs(projectId, selectedUnit?.id as string, signal),
+    enabled: Boolean(compareAlternatesOpen && canCompareDecompilerOutputs && selectedUnit?.id),
+    staleTime: 5 * 60_000,
+    gcTime: 10 * 60_000,
+  })
+  const alternateOutputs = alternateOutputsQuery.data?.alternates || []
+  const selectedAlternateOutput = alternateOutputs.find((output) => output.id === selectedAlternateId) || alternateOutputs[0]
   const disassemblyQuery = useQuery({
     queryKey: ['reamon-disassembly', selectedUnit?.id, selectedUnit?.disassemblyArtifactId],
     queryFn: ({ signal }) => fetchSource(selectedDisassemblyUrl as string, signal),
@@ -2070,6 +2109,39 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
             {sourceQuery.isLoading && <p className={styles.message}>Loading code output…</p>}
             {sourceQuery.isError && <p className={styles.error}>{sourceQuery.error instanceof Error ? sourceQuery.error.message : 'Could not load code output'}</p>}
             {sourceQuery.data !== undefined && <SourceListing source={sourceQuery.data} language={selectedUnit.language} fileName={selectedUnit.codeArtifactId?.split('/').pop()} fullSourceUrl={selectedSourceUrl} />}
+          </>}
+        </section>}
+        {selectedUnit && selectedSourceUrl && canCompareDecompilerOutputs && <section className={styles.alternateComparison} aria-label="Compare decompiler outputs">
+          <div className={styles.alternateComparisonHeader}>
+            <div><strong>Compare decompiler outputs</strong><span>Only matching input artifact, source path, and language; alternate output hash checked before display.</span></div>
+            <button type="button" className={styles.copyButton} onClick={() => setCompareAlternatesOpen((open) => !open)} aria-expanded={compareAlternatesOpen}>
+              {compareAlternatesOpen ? 'Hide comparison' : 'Compare providers'}
+            </button>
+          </div>
+          {compareAlternatesOpen && <>
+            {alternateOutputsQuery.isLoading && <p className={styles.message} role="status">Finding verified alternate outputs…</p>}
+            {alternateOutputsQuery.isError && <p className={styles.error} role="alert">{alternateOutputsQuery.error instanceof Error ? alternateOutputsQuery.error.message : 'Could not load alternate outputs.'}</p>}
+            {!alternateOutputsQuery.isLoading && !alternateOutputsQuery.isError && alternateOutputs.length === 0 && <p className={styles.message}>No hash-verified output from another compatible decompiler is stored for this source unit.</p>}
+            {alternateOutputs.length > 0 && <>
+              <label className={styles.alternateProviderSelect}>Compare against
+                <select aria-label="Alternate decompiler output" value={selectedAlternateOutput?.id || ''} onChange={(event) => setSelectedAlternateId(event.target.value)}>
+                  {alternateOutputs.map((output) => <option key={output.id} value={output.id}>{output.providerName}{output.version ? ` ${output.version}` : ''}</option>)}
+                </select>
+              </label>
+              {selectedAlternateOutput && <div className={styles.comparison}>
+                <div className={styles.listingPane}>
+                  <div className={styles.sourceHeader}><div><strong>{selectedUnit.source.replace(/^reamon-/, '')} · selected output</strong><span>{selectedUnit.decompilerVersion || selectedUnit.language} · {selectedUnit.codeArtifactId?.split('/').pop()}</span></div></div>
+                  {sourceQuery.data !== undefined
+                    ? <SourceListing source={sourceQuery.data} language={selectedUnit.language} fileName={selectedUnit.codeArtifactId?.split('/').pop()} fullSourceUrl={selectedSourceUrl} lineIdPrefix={`decompiler-primary-${selectedUnit.id}`} />
+                    : <p className={styles.message}>Loading selected output…</p>}
+                </div>
+                <div className={styles.listingPane}>
+                  <div className={styles.sourceHeader}><div><strong>{selectedAlternateOutput.providerName} · alternate output</strong><span>{selectedAlternateOutput.version || selectedAlternateOutput.language} · sha256:{selectedAlternateOutput.outputSha256.slice(0, 16)}</span></div></div>
+                  <p className={styles.sourcePreviewNote} role="status">Independent reconstruction · input sha256:{selectedAlternateOutput.inputSha256.slice(0, 16)}. Review differences as evidence; neither output is ground truth.</p>
+                  <SourceListing source={selectedAlternateOutput.source} language={selectedAlternateOutput.language} fileName={selectedAlternateOutput.relativePath.split('/').pop()} lineIdPrefix={`decompiler-alternate-${selectedAlternateOutput.id}`} />
+                </div>
+              </div>}
+            </>}
           </>}
         </section>}
           <dl>

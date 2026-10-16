@@ -1,0 +1,153 @@
+import { createHash } from 'node:crypto'
+import { readFile, realpath, stat } from 'node:fs/promises'
+import path from 'node:path'
+import { NextResponse } from 'next/server'
+import prisma from '@/lib/prisma'
+import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
+import { getActiveWorkspaceImportSelection } from '@/lib/reamon/inventory-query'
+import { derivedArtifactRoot, resolveDerivedArtifactPath } from '@/lib/reamon/derived-storage'
+
+interface RouteParams { params: Promise<{ id: string }> }
+const PROVIDERS = ['reamon-jadx', 'reamon-vineflower', 'reamon-cfr']
+const MAX_SOURCE_BYTES = 2 * 1024 * 1024
+const MAX_ALTERNATES = 2
+const NO_STORE = { 'Cache-Control': 'private, no-store' }
+
+function record(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+}
+
+function inside(root: string, file: string): boolean {
+  const relative = path.relative(root, file)
+  return Boolean(relative) && relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)
+}
+
+export async function GET(request: Request, { params }: RouteParams) {
+  try {
+    const { id: projectId } = await params
+    const user = await requireEffectiveUser()
+    if (user instanceof NextResponse) return user
+    const access = await requireProjectAccess(user, projectId)
+    if (access instanceof NextResponse) return access
+
+    const unitId = new URL(request.url).searchParams.get('unitId')?.trim() || ''
+    if (!unitId || unitId.length > 128) {
+      return NextResponse.json({ error: 'A valid code unit is required' }, { status: 400, headers: NO_STORE })
+    }
+
+    const selection = await getActiveWorkspaceImportSelection(projectId)
+    const unit = await prisma.reamonObservation.findFirst({
+      where: {
+        id: unitId,
+        projectId,
+        type: 'code_unit',
+        artifact: { is: selection.artifactWhere },
+        task: { is: { projectId, status: 'COMPLETED', capability: 'decompile' } },
+      },
+      select: {
+        id: true,
+        taskId: true,
+        artifactId: true,
+        source: true,
+        attributes: true,
+        artifact: { select: { sha256: true } },
+      },
+    })
+    if (!unit?.taskId || !unit.artifactId || !unit.artifact?.sha256 || !PROVIDERS.includes(unit.source)) {
+      return NextResponse.json({ alternates: [] }, { headers: NO_STORE })
+    }
+
+    const attributes = record(unit.attributes)
+    const relativePath = typeof attributes.relativePath === 'string' ? attributes.relativePath : ''
+    const language = typeof attributes.language === 'string' ? attributes.language : ''
+    if (!relativePath || !language || relativePath.length > 1000 || relativePath.startsWith('/')
+      || relativePath.split('/').some((part) => !part || part === '.' || part === '..' || part.includes('\\'))
+      || attributes.inputArtifactSha256 !== unit.artifact.sha256) {
+      return NextResponse.json({ alternates: [] }, { headers: NO_STORE })
+    }
+
+    const tasks = await prisma.task.findMany({
+      where: {
+        projectId,
+        artifactId: unit.artifactId,
+        capability: 'decompile',
+        status: 'COMPLETED',
+        provider: { is: { pluginId: { in: PROVIDERS.filter((provider) => provider !== unit.source) } } },
+      },
+      orderBy: [{ completedAt: 'desc' }, { createdAt: 'desc' }],
+      take: 100,
+      select: { id: true, runToken: true, completedAt: true, provider: { select: { pluginId: true } } },
+    })
+    if (!tasks.length) return NextResponse.json({ alternates: [] }, { headers: NO_STORE })
+
+    const rows = await prisma.reamonObservation.findMany({
+      where: {
+        projectId,
+        artifactId: unit.artifactId,
+        taskId: { in: tasks.map((task) => task.id) },
+        type: 'code_unit',
+        source: { in: PROVIDERS.filter((provider) => provider !== unit.source) },
+        AND: [
+          { attributes: { path: ['relativePath'], equals: relativePath } },
+          { attributes: { path: ['language'], equals: language } },
+          { attributes: { path: ['inputArtifactSha256'], equals: unit.artifact.sha256 } },
+        ],
+      },
+      orderBy: [{ updatedAt: 'desc' }, { stableKey: 'asc' }],
+      take: 100,
+      select: { id: true, taskId: true, source: true, label: true, attributes: true },
+    })
+
+    const taskById = new Map(tasks.map((task) => [task.id, task]))
+    const seenProviders = new Set<string>()
+    const alternates = []
+    let rootPath: string
+    try {
+      rootPath = await realpath(derivedArtifactRoot())
+    } catch {
+      return NextResponse.json({ alternates: [] }, { headers: NO_STORE })
+    }
+    for (const row of rows) {
+      if (!row.taskId || seenProviders.has(row.source) || alternates.length >= MAX_ALTERNATES) continue
+      const task = taskById.get(row.taskId)
+      const candidate = record(row.attributes)
+      const codeArtifactId = typeof candidate.codeArtifactId === 'string' ? candidate.codeArtifactId : ''
+      const expectedHash = typeof candidate.decompiledSourceSha256 === 'string' ? candidate.decompiledSourceSha256.toLowerCase() : ''
+      const expectedPrefix = `${projectId}/${unit.artifactId}/${row.taskId}/${task?.runToken || ''}/sources/`
+      const sourceRelativePath = codeArtifactId.startsWith(expectedPrefix) ? codeArtifactId.slice(expectedPrefix.length) : ''
+      if (!task?.runToken || task.provider?.pluginId !== row.source || !codeArtifactId.startsWith(expectedPrefix)
+        || !sourceRelativePath || sourceRelativePath.split('/').some((part) => !part || part === '.' || part === '..' || part.includes('\\'))
+        || sourceRelativePath !== relativePath || !/^[a-f0-9]{64}$/.test(expectedHash)) continue
+      try {
+        const filePath = await realpath(resolveDerivedArtifactPath(codeArtifactId))
+        if (!inside(rootPath, filePath)) continue
+        const info = await stat(filePath)
+        if (!info.isFile() || info.size <= 0 || info.size > MAX_SOURCE_BYTES) continue
+        const bytes = await readFile(filePath)
+        const outputHash = createHash('sha256').update(bytes).digest('hex')
+        if (outputHash !== expectedHash) continue
+        seenProviders.add(row.source)
+        alternates.push({
+          id: row.id,
+          providerId: row.source,
+          providerName: row.source.replace(/^reamon-/, ''),
+          version: typeof candidate.decompilationEngineVersion === 'string' ? candidate.decompilationEngineVersion.slice(0, 120) : null,
+          name: typeof candidate.qualifiedName === 'string' ? candidate.qualifiedName.slice(0, 500) : row.label,
+          language,
+          relativePath,
+          inputSha256: unit.artifact.sha256,
+          outputSha256: outputHash,
+          completedAt: task.completedAt?.toISOString() || null,
+          source: bytes.toString('utf8'),
+        })
+      } catch {
+        // An unavailable alternate must not prevent reviewing the selected output.
+      }
+    }
+
+    return NextResponse.json({ alternates }, { headers: NO_STORE })
+  } catch (error) {
+    console.error('Failed to load alternate decompiler outputs:', error)
+    return NextResponse.json({ error: 'Failed to load alternate decompiler outputs' }, { status: 500, headers: NO_STORE })
+  }
+}
