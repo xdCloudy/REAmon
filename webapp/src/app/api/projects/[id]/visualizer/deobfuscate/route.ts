@@ -187,7 +187,7 @@ async function requestOutline(language: string, source: Buffer): Promise<{ membe
   return { members: normalizeOutlineMembers(payload.members), truncated: payload.truncated === true || tooManyMembers, parserVersion }
 }
 
-async function dexMethodSourceExcerpt(input: {
+async function outlinedMemberSourceExcerpt(input: {
   projectId: string
   taskId: string
   artifactId: string
@@ -247,13 +247,16 @@ async function dexMethodSourceExcerpt(input: {
     && member.end_byte <= input.source.byteLength)
   const candidates = matchingCandidates.slice(0, 3)
   if (!candidates.length) return null
+  const isLua = /^(lua|luau)$/i.test(input.language)
+  const commentPrefix = isLua ? '--' : '//'
+  const memberKind = isLua ? 'function' : 'method'
   const source = candidates.map((member, index) => {
     const ambiguity = candidates.length > 1 ? `; same-name candidate ${index + 1} of ${candidates.length}` : ''
-    return `// syntax-outlined method at line ${member.line}${ambiguity}\n${input.source.subarray(member.start_byte, member.end_byte).toString('utf8')}`
+    return `${commentPrefix} syntax-outlined ${memberKind} at line ${member.line}${ambiguity}\n${input.source.subarray(member.start_byte, member.end_byte).toString('utf8')}`
   }).join('\n\n')
   const truncated = outline.truncated || matchingCandidates.length > candidates.length
   return {
-    source: truncated ? `// syntax outline truncated; additional overloads may exist\n${source}` : source,
+    source: truncated ? `${commentPrefix} syntax outline truncated; additional same-name functions may exist\n${source}` : source,
     ambiguous: matchingCandidates.length > 1,
     truncated,
   }
@@ -647,17 +650,42 @@ export async function POST(request: Request, { params }: RouteParams) {
     const similarFunctionNames: string[] = []
     const similarArtifactByName = new Map<string, string>()
     const similarDexMethodByName = new Map<string, { taskId: string; parentCodeUnitKey: string; methodName: string }>()
+    const similarLuaFunctionByName = new Map<string, { taskId: string; parentCodeUnitKey: string; functionName: string }>()
     const dexOutlineCache = new Map<string, { members: OutlineMember[]; truncated: boolean }>()
     const selectedMemberName = typeof body.memberName === 'string' ? body.memberName.trim() : ''
     const isMethodScopedRewrite = (observation.source === 'reamon-jadx' || observation.source === 'reamon-ilspy' || observation.source === 'reamon-dex-decompiler')
       && scope === 'member' && Boolean(selectedMemberName)
-    if ((observation.source === 'reamon-ghidra' || observation.source === 'reamon-wabt' || isMethodScopedRewrite) && observation.taskId && observation.stableKey) {
+    const isLuaFunctionScopedRewrite = observation.source === 'reamon-unluac-rs'
+      && scope === 'member' && Boolean(selectedMemberName)
+    const isFunctionScopedRewrite = isMethodScopedRewrite || isLuaFunctionScopedRewrite
+    if ((observation.source === 'reamon-ghidra' || observation.source === 'reamon-wabt' || isFunctionScopedRewrite) && observation.taskId && observation.stableKey) {
       const targetMnemonics = boundedInstructionMnemonics(attributes.instructionMnemonics)
-      if (targetMnemonics.length >= 4 || isMethodScopedRewrite) {
+      if (targetMnemonics.length >= 4 || isFunctionScopedRewrite) {
+        const targetLuaDialect = typeof attributes.dialect === 'string' ? attributes.dialect : ''
+        const luaTargetRows = isLuaFunctionScopedRewrite && targetLuaDialect ? await prisma.reamonObservation.findMany({
+          where: {
+            projectId,
+            artifactId: artifact.id,
+            taskId: observation.taskId,
+            source: observation.source,
+            type: 'function',
+            AND: [
+              { attributes: { path: ['parentCodeUnitKey'], equals: observation.stableKey } },
+              { attributes: { path: ['dialect'], equals: targetLuaDialect } },
+              { OR: [
+                { attributes: { path: ['debugSourceName'], equals: selectedMemberName } },
+                { attributes: { path: ['name'], equals: selectedMemberName } },
+              ] },
+            ],
+          },
+          orderBy: { stableKey: 'asc' },
+          take: 2,
+          select: { id: true, label: true, attributes: true, artifactId: true, taskId: true },
+        }) : []
         const candidates = await prisma.reamonObservation.findMany({
           where: {
             projectId,
-            type: isMethodScopedRewrite ? 'function' : 'code_unit',
+            type: isFunctionScopedRewrite ? 'function' : 'code_unit',
             source: observation.source,
             artifact: { is: selection.artifactWhere },
             task: { is: {
@@ -678,6 +706,8 @@ export async function POST(request: Request, { params }: RouteParams) {
         for (const candidate of candidates.slice(0, MAX_FUNCTION_HISTORY)) {
           if (observation.source === 'reamon-ghidra' && candidate.artifactId !== artifact.id
             && !sameGhidraArchitecture(attributes, candidate.attributes)) continue
+          if (observation.source === 'reamon-unluac-rs'
+            && plainObject(candidate.attributes).dialect !== attributes.dialect) continue
           const identity = `${candidate.artifactId}:${candidate.canonicalKey}`
           if (!uniqueCandidates.has(identity)) uniqueCandidates.set(identity, candidate)
         }
@@ -689,7 +719,11 @@ export async function POST(request: Request, { params }: RouteParams) {
           const candidateAttributes = plainObject(row.attributes)
           return {
             key: row.id,
-            name: (typeof candidateAttributes.qualifiedName === 'string' && candidateAttributes.qualifiedName) || row.label || 'Unknown function',
+            name: observation.source === 'reamon-unluac-rs'
+              ? (typeof candidateAttributes.debugSourceName === 'string' && candidateAttributes.debugSourceName)
+                || (typeof candidateAttributes.name === 'string' && candidateAttributes.name)
+                || row.label || 'Unknown function'
+              : (typeof candidateAttributes.qualifiedName === 'string' && candidateAttributes.qualifiedName) || row.label || 'Unknown function',
             address: typeof candidateAttributes.address === 'string' ? candidateAttributes.address : null,
             mnemonics: boundedInstructionMnemonics(candidateAttributes.instructionMnemonics),
           }
@@ -721,7 +755,18 @@ export async function POST(request: Request, { params }: RouteParams) {
             const candidateAttributes = plainObject(row.attributes)
             return { key: row.id, name: row.label || selectedMemberName, address: typeof candidateAttributes.address === 'string' ? candidateAttributes.address : null, mnemonics: boundedInstructionMnemonics(candidateAttributes.instructionMnemonics) }
           }).filter((target) => target.mnemonics.length >= 4)
-          : targetMnemonics.length >= 4 ? [{ key: observation.id, name: unitName, address: typeof attributes.address === 'string' ? attributes.address : null, mnemonics: targetMnemonics }] : []
+          : isLuaFunctionScopedRewrite
+            ? luaTargetRows.length === 1 ? luaTargetRows.map((row) => {
+              const candidateAttributes = plainObject(row.attributes)
+              return {
+                key: row.id,
+                name: typeof candidateAttributes.debugSourceName === 'string' && candidateAttributes.debugSourceName
+                  ? candidateAttributes.debugSourceName : selectedMemberName,
+                address: typeof candidateAttributes.address === 'string' ? candidateAttributes.address : null,
+                mnemonics: boundedInstructionMnemonics(candidateAttributes.instructionMnemonics),
+              }
+            }).filter((target) => target.mnemonics.length >= 4) : []
+            : targetMnemonics.length >= 4 ? [{ key: observation.id, name: unitName, address: typeof attributes.address === 'string' ? attributes.address : null, mnemonics: targetMnemonics }] : []
         const similarFunctions = targets.flatMap((target) => rankSimilarInstructionFunctions(target, candidateFeatures, MAX_CONTEXT_UNITS))
           .reduce((matches, match) => {
             const prior = matches.get(match.key)
@@ -729,7 +774,7 @@ export async function POST(request: Request, { params }: RouteParams) {
             return matches
           }, new Map<string, typeof candidateFeatures[number] & { similarity: number }>())
         const rankedMatches = [...similarFunctions.values()].sort((left, right) => right.similarity - left.similarity).slice(0, MAX_CONTEXT_UNITS)
-        const functionParentRefs = isMethodScopedRewrite ? rankedMatches.flatMap((match) => {
+        const functionParentRefs = isFunctionScopedRewrite ? rankedMatches.flatMap((match) => {
           const row = rowByKey.get(match.key)
           const candidateAttributes = row ? plainObject(row.attributes) : {}
           const parentKey = candidateAttributes.parentCodeUnitKey
@@ -778,6 +823,16 @@ export async function POST(request: Request, { params }: RouteParams) {
               taskId: row.taskId,
               parentCodeUnitKey: parentKey,
               methodName: relatedAttributes.name,
+            })
+          }
+          if (observation.source === 'reamon-unluac-rs' && row.taskId && typeof parentKey === 'string') {
+            const functionName = typeof relatedAttributes.debugSourceName === 'string' && relatedAttributes.debugSourceName
+              ? relatedAttributes.debugSourceName
+              : typeof relatedAttributes.name === 'string' ? relatedAttributes.name : ''
+            if (functionName) similarLuaFunctionByName.set(name, {
+              taskId: row.taskId,
+              parentCodeUnitKey: parentKey,
+              functionName,
             })
           }
           similarFunctionNames.push(name)
@@ -1069,14 +1124,14 @@ export async function POST(request: Request, { params }: RouteParams) {
       )
       : ''
     const combinedProviderSymbolContext = [providerSymbolContext, providerGoTypeContext, providerUnstripTypeContext, providerToCodeTypeContext].filter(Boolean).join('\n')
-    const dexMethodExcerptCache = new Map<string, { members: OutlineMember[]; truncated: boolean }>()
-    const dexMethodExcerpt = async (name: string, source: Buffer, sourceLanguage: string, relatedArtifactId: string, persistOutline: boolean) => {
+    const memberExcerptCache = new Map<string, { members: OutlineMember[]; truncated: boolean }>()
+    const outlinedMethodExcerpt = async (name: string, source: Buffer, sourceLanguage: string, relatedArtifactId: string, persistOutline: boolean) => {
       const candidate = similarDexMethodByName.get(name)
       const relatedAttributes = relatedByName.get(name)
       if (!candidate || !relatedAttributes) return null
       const signature = typeof relatedAttributes.qualifiedName === 'string' ? relatedAttributes.qualifiedName : name
       const parentName = signature.includes('->') ? signature.slice(0, signature.indexOf('->')) : signature.split('#')[0]
-      return dexMethodSourceExcerpt({
+      return outlinedMemberSourceExcerpt({
         projectId,
         taskId: candidate.taskId,
         artifactId: similarArtifactByName.get(name) || artifact.id,
@@ -1087,7 +1142,7 @@ export async function POST(request: Request, { params }: RouteParams) {
         codeArtifactId: relatedArtifactId,
         methodName: candidate.methodName,
         source,
-        cache: dexMethodExcerptCache,
+        cache: memberExcerptCache,
         persistOutline,
       })
     }
@@ -1258,7 +1313,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       if (maintainedSource?.sourceCode.trim()) {
         let methodExcerpt: { source: string; ambiguous: boolean; truncated: boolean } | null = null
         try {
-          methodExcerpt = await dexMethodExcerpt(name, Buffer.from(maintainedSource.sourceCode, 'utf8'), maintainedSource.language, relatedArtifactId, false)
+          methodExcerpt = await outlinedMethodExcerpt(name, Buffer.from(maintainedSource.sourceCode, 'utf8'), maintainedSource.language, relatedArtifactId, false)
         } catch {
           // A syntax outline is optional; use the accepted source if it is unavailable.
         }
@@ -1310,8 +1365,27 @@ export async function POST(request: Request, { params }: RouteParams) {
           : relatedBytes.subarray(0, Math.min(remaining, MAX_CONTEXT_BYTES)).toString('utf8')
         if (!source.trim()) continue
         let relatedSource = source
+        if (similarityPercent !== null && observation.source === 'reamon-unluac-rs') {
+          const luaFunction = similarLuaFunctionByName.get(name)
+          if (!luaFunction) continue
+          const excerpt = await outlinedMemberSourceExcerpt({
+            projectId,
+            taskId: luaFunction.taskId,
+            artifactId: expectedArtifactId,
+            parentCodeUnitKey: luaFunction.parentCodeUnitKey,
+            parentName: name,
+            language: typeof relatedAttributes?.language === 'string' ? relatedAttributes.language : language,
+            relativePath: typeof relatedAttributes?.relativePath === 'string' ? relatedAttributes.relativePath : null,
+            codeArtifactId: relatedArtifactId,
+            methodName: luaFunction.functionName,
+            source: relatedBytes,
+            cache: memberExcerptCache,
+          })
+          if (!excerpt) continue
+          relatedSource = excerpt.source
+        }
         if (similarityPercent !== null && observation.source === 'reamon-dex-decompiler') {
-          const excerpt = await dexMethodExcerpt(name, relatedBytes, language, relatedArtifactId, true)
+          const excerpt = await outlinedMethodExcerpt(name, relatedBytes, language, relatedArtifactId, true)
           if (excerpt) relatedSource = excerpt.source
         }
         if (smaliSimilarity) {
@@ -1323,7 +1397,7 @@ export async function POST(request: Request, { params }: RouteParams) {
           if (start >= 0) relatedSource = lines.slice(start, end >= 0 ? end + 1 : Math.min(lines.length, start + 128)).join('\n')
         }
         contextSources.push({
-          unit_name: `${name}${similarityHint}${isDirectCallee ? ' (direct callee from this analysis run)' : ''}${similarityPercent !== null && observation.source === 'reamon-dex-decompiler' && relatedSource !== source ? ` (syntax-outlined Java method source${relatedSource.includes('same-name candidate') ? '; overload candidates may be ambiguous' : ''}${relatedSource.includes('syntax outline truncated') ? '; outline truncated' : ''})` : ''}`,
+          unit_name: `${name}${similarityHint}${isDirectCallee ? ' (direct callee from this analysis run)' : ''}${similarityPercent !== null && observation.source === 'reamon-dex-decompiler' && relatedSource !== source ? ` (syntax-outlined Java method source${relatedSource.includes('same-name candidate') ? '; overload candidates may be ambiguous' : ''}${relatedSource.includes('syntax outline truncated') ? '; outline truncated' : ''})` : ''}${similarityPercent !== null && observation.source === 'reamon-unluac-rs' && relatedSource !== source ? ' (syntax-outlined Lua function source)' : ''}`,
           language: smaliSimilarity ? 'Smali'
             : relatedAttributes?.language === 'IL' ? 'C#'
               : (typeof relatedAttributes?.language === 'string' ? relatedAttributes.language.slice(0, 80) : language),
