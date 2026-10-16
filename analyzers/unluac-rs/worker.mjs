@@ -105,6 +105,7 @@ try {
     dialect,
     generate: {
       mode: 'strict',
+      comment: true,
       ...(vectorConstructor ? { luauVectorConstructor: vectorConstructor } : {}),
     },
   })

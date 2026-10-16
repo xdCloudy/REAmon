@@ -60,6 +60,22 @@ function boundedInstructionMnemonics(value: unknown): string[] {
     typeof item === 'string' && /^[A-Za-z][A-Za-z0-9_./-]{0,31}$/.test(item))
 }
 
+function luaProtoIdFromSource(source: Buffer): number | null {
+  const value = source.toString('utf8').match(/--\s*proto#(\d+)\b/)?.[1]
+  if (!value) return null
+  const protoId = Number(value)
+  return Number.isSafeInteger(protoId) && protoId >= 0 ? protoId : null
+}
+
+function luaProtoIdFromAttributes(value: unknown): number | null {
+  const attributes = plainObject(value)
+  if (Number.isSafeInteger(attributes.protoId) && (attributes.protoId as number) >= 0) return attributes.protoId as number
+  const address = typeof attributes.address === 'string' ? attributes.address.match(/^proto:(\d+)$/)?.[1] : undefined
+  if (!address) return null
+  const protoId = Number(address)
+  return Number.isSafeInteger(protoId) && protoId >= 0 ? protoId : null
+}
+
 function sameGhidraArchitecture(left: unknown, right: unknown): boolean {
   const leftArchitecture = plainObject(left).instructionArchitecture
   const rightArchitecture = plainObject(right).instructionArchitecture
@@ -196,7 +212,8 @@ async function outlinedMemberSourceExcerpt(input: {
   language: string
   relativePath: string | null
   codeArtifactId: string
-  methodName: string
+  methodName?: string
+  protoId?: number
   source: Buffer
   cache: Map<string, { members: OutlineMember[]; truncated: boolean }>
   persistOutline?: boolean
@@ -243,8 +260,13 @@ async function outlinedMemberSourceExcerpt(input: {
     input.cache.set(cacheKey, outline)
   }
 
-  const matchingCandidates = outline.members.filter((member) => member.name === input.methodName
-    && member.end_byte <= input.source.byteLength)
+  const matchingCandidates = outline.members.filter((member) => {
+    if (member.end_byte > input.source.byteLength) return false
+    const memberSource = input.source.subarray(member.start_byte, member.end_byte)
+    return input.protoId !== undefined
+      ? luaProtoIdFromSource(memberSource) === input.protoId
+      : member.name === input.methodName
+  })
   const candidates = matchingCandidates.slice(0, 3)
   if (!candidates.length) return null
   const isLua = /^(lua|luau)$/i.test(input.language)
@@ -650,7 +672,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     const similarFunctionNames: string[] = []
     const similarArtifactByName = new Map<string, string>()
     const similarDexMethodByName = new Map<string, { taskId: string; parentCodeUnitKey: string; methodName: string }>()
-    const similarLuaFunctionByName = new Map<string, { taskId: string; parentCodeUnitKey: string; functionName: string }>()
+    const similarLuaFunctionByName = new Map<string, { taskId: string; parentCodeUnitKey: string; protoId: number }>()
     const dexOutlineCache = new Map<string, { members: OutlineMember[]; truncated: boolean }>()
     const selectedMemberName = typeof body.memberName === 'string' ? body.memberName.trim() : ''
     const isMethodScopedRewrite = (observation.source === 'reamon-jadx' || observation.source === 'reamon-ilspy' || observation.source === 'reamon-dex-decompiler')
@@ -662,7 +684,8 @@ export async function POST(request: Request, { params }: RouteParams) {
       const targetMnemonics = boundedInstructionMnemonics(attributes.instructionMnemonics)
       if (targetMnemonics.length >= 4 || isFunctionScopedRewrite) {
         const targetLuaDialect = typeof attributes.dialect === 'string' ? attributes.dialect : ''
-        const luaTargetRows = isLuaFunctionScopedRewrite && targetLuaDialect ? await prisma.reamonObservation.findMany({
+        const selectedLuaProtoId = isLuaFunctionScopedRewrite ? luaProtoIdFromSource(bytes) : null
+        const luaTargetRows = isLuaFunctionScopedRewrite && targetLuaDialect && selectedLuaProtoId !== null ? await prisma.reamonObservation.findMany({
           where: {
             projectId,
             artifactId: artifact.id,
@@ -673,8 +696,8 @@ export async function POST(request: Request, { params }: RouteParams) {
               { attributes: { path: ['parentCodeUnitKey'], equals: observation.stableKey } },
               { attributes: { path: ['dialect'], equals: targetLuaDialect } },
               { OR: [
-                { attributes: { path: ['debugSourceName'], equals: selectedMemberName } },
-                { attributes: { path: ['name'], equals: selectedMemberName } },
+                { attributes: { path: ['protoId'], equals: selectedLuaProtoId } },
+                { attributes: { path: ['address'], equals: `proto:${selectedLuaProtoId}` } },
               ] },
             ],
           },
@@ -720,8 +743,7 @@ export async function POST(request: Request, { params }: RouteParams) {
           return {
             key: row.id,
             name: observation.source === 'reamon-unluac-rs'
-              ? (typeof candidateAttributes.debugSourceName === 'string' && candidateAttributes.debugSourceName)
-                || (typeof candidateAttributes.name === 'string' && candidateAttributes.name)
+              ? (typeof candidateAttributes.name === 'string' && candidateAttributes.name)
                 || row.label || 'Unknown function'
               : (typeof candidateAttributes.qualifiedName === 'string' && candidateAttributes.qualifiedName) || row.label || 'Unknown function',
             address: typeof candidateAttributes.address === 'string' ? candidateAttributes.address : null,
@@ -760,8 +782,7 @@ export async function POST(request: Request, { params }: RouteParams) {
               const candidateAttributes = plainObject(row.attributes)
               return {
                 key: row.id,
-                name: typeof candidateAttributes.debugSourceName === 'string' && candidateAttributes.debugSourceName
-                  ? candidateAttributes.debugSourceName : selectedMemberName,
+                name: selectedMemberName,
                 address: typeof candidateAttributes.address === 'string' ? candidateAttributes.address : null,
                 mnemonics: boundedInstructionMnemonics(candidateAttributes.instructionMnemonics),
               }
@@ -826,13 +847,11 @@ export async function POST(request: Request, { params }: RouteParams) {
             })
           }
           if (observation.source === 'reamon-unluac-rs' && row.taskId && typeof parentKey === 'string') {
-            const functionName = typeof relatedAttributes.debugSourceName === 'string' && relatedAttributes.debugSourceName
-              ? relatedAttributes.debugSourceName
-              : typeof relatedAttributes.name === 'string' ? relatedAttributes.name : ''
-            if (functionName) similarLuaFunctionByName.set(name, {
+            const protoId = luaProtoIdFromAttributes(relatedAttributes)
+            if (protoId !== null) similarLuaFunctionByName.set(name, {
               taskId: row.taskId,
               parentCodeUnitKey: parentKey,
-              functionName,
+              protoId,
             })
           }
           similarFunctionNames.push(name)
@@ -1377,7 +1396,7 @@ export async function POST(request: Request, { params }: RouteParams) {
             language: typeof relatedAttributes?.language === 'string' ? relatedAttributes.language : language,
             relativePath: typeof relatedAttributes?.relativePath === 'string' ? relatedAttributes.relativePath : null,
             codeArtifactId: relatedArtifactId,
-            methodName: luaFunction.functionName,
+            protoId: luaFunction.protoId,
             source: relatedBytes,
             cache: memberExcerptCache,
           })
