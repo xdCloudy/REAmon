@@ -2072,6 +2072,8 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
             {selectedUnit.sourceLanguage && <div><dt>Binary source language</dt><dd>{selectedUnit.sourceLanguage} (metadata)</dd></div>}
             {selectedUnit.symbolSource && <div><dt>Recovered symbol source</dt><dd>{selectedUnit.symbolSource} (provider evidence)</dd></div>}
             {selectedUnit.packageName && <div><dt>Recovered Go package</dt><dd>{selectedUnit.packageName} (address-matched metadata)</dd></div>}
+            {selectedUnit.goUnstripSignature && <div><dt>unstrip method signature</dt><dd><code>{selectedUnit.goUnstripSignature}</code></dd></div>}
+            {selectedUnit.goUnstripSourceFile && <div><dt>unstrip source location</dt><dd><code>{selectedUnit.goUnstripSourceFile}{selectedUnit.goUnstripSourceLine ? `:${selectedUnit.goUnstripSourceLine}` : ''}</code> (metadata evidence)</dd></div>}
             {selectedUnit.source === 'reamon-tocode-import' && selectedUnit.toCodeInputProvenance && <div><dt>ToCode input provenance</dt><dd>
               <span>{selectedUnit.toCodeInputProvenance === 'HASH_MATCHED_IMPORTED_ARTIFACT'
                 ? `ToCode inventory's SHA-256 matches imported file ${selectedUnit.toCodeInputRelativePath || selectedUnit.toCodeClaimedInputPath || '(path unavailable)'}`
@@ -2104,6 +2106,13 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
               : `These names and types are provisional evidence reported by ${selectedUnit.source}; they are not reviewed canonical names.`}</p>
             {selectedUnit.recoveredVariablesTruncated && <p className={styles.sourcePreviewNote} role="status">The decompiler variable inventory was truncated by an analysis limit.</p>}
           </details>}
+          {(selectedUnit.goUnstripInterfaces?.length ?? 0) > 0 && <section className={styles.classReferences} aria-label="Go interface dispatch evidence">
+            <div><strong>Go interface dispatch</strong><span>Address-matched unstrip itab metadata</span></div>
+            <ul>{selectedUnit.goUnstripInterfaces?.slice(0, 16).map((item, index) => <li key={`${item.itabAddress}:${item.method}:${index}`}>
+              <code>{item.interfaceName}.{item.method} → {item.concreteType} at {item.concreteFunctionAddress}{item.incomplete ? ' (incomplete itab)' : ''}</code>
+            </li>)}</ul>
+            <small>Dispatch records are provider evidence; they do not prove a runtime call path. {selectedUnit.goUnstripInterfacesTruncated ? 'The inventory was truncated by an analysis limit.' : ''}</small>
+          </section>}
           {(selectedUnit.classReferences?.length ?? 0) > 0 && <section className={styles.classReferences} aria-label="Related classes">
             <div><strong>Related classes</strong><span>From Android bytecode references</span></div>
             <ul>{selectedUnit.classReferences?.slice(0, 24).map((name) => <li key={name}>

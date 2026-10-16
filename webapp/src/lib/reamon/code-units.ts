@@ -18,6 +18,18 @@ export interface CodeUnitObservationAttributes {
   sourceLanguage?: string
   symbolSource?: string
   goPackage?: string
+  goUnstripSignature?: string | null
+  goUnstripSourceFile?: string | null
+  goUnstripSourceLine?: number | null
+  goUnstripInterfaces?: Array<{
+    interfaceName: string
+    concreteType: string
+    method: string
+    itabAddress: string
+    concreteFunctionAddress: string
+    incomplete: boolean
+  }>
+  goUnstripInterfacesTruncated?: boolean
   relativePath?: string
   bundlePath?: string
   codeArtifactId?: string
@@ -62,6 +74,18 @@ export interface CodeUnit {
   sourceLanguage?: string | null
   symbolSource?: string | null
   packageName?: string | null
+  goUnstripSignature?: string | null
+  goUnstripSourceFile?: string | null
+  goUnstripSourceLine?: number | null
+  goUnstripInterfaces?: Array<{
+    interfaceName: string
+    concreteType: string
+    method: string
+    itabAddress: string
+    concreteFunctionAddress: string
+    incomplete: boolean
+  }>
+  goUnstripInterfacesTruncated?: boolean
   unitType: string | null
   relativePath?: string | null
   bundlePath?: string | null
@@ -132,6 +156,33 @@ function sourceAddressMapOf(value: unknown): Array<{ ghidraLineNumber: number; a
         && typeof mapping.address === 'string' && /^[A-Za-z0-9:_-]{1,128}$/.test(mapping.address)
         ? [{ ghidraLineNumber: Number(mapping.ghidraLineNumber), address: mapping.address }]
         : []
+    })
+  } catch {
+    return []
+  }
+}
+
+function goUnstripInterfacesOf(value: unknown): NonNullable<CodeUnit['goUnstripInterfaces']> {
+  if (typeof value !== 'string' || value.length > 64_000) return []
+  try {
+    const parsed: unknown = JSON.parse(value)
+    if (!Array.isArray(parsed)) return []
+    return parsed.slice(0, 32).flatMap((candidate) => {
+      const item = attributesOf(candidate)
+      if (typeof item.interfaceName !== 'string' || !item.interfaceName.trim() || item.interfaceName.length > 500
+          || typeof item.concreteType !== 'string' || !item.concreteType.trim() || item.concreteType.length > 500
+          || typeof item.method !== 'string' || !item.method.trim() || item.method.length > 256
+          || typeof item.itabAddress !== 'string' || item.itabAddress.length > 128
+          || typeof item.concreteFunctionAddress !== 'string' || item.concreteFunctionAddress.length > 128
+          || typeof item.incomplete !== 'boolean') return []
+      return [{
+        interfaceName: item.interfaceName,
+        concreteType: item.concreteType,
+        method: item.method,
+        itabAddress: item.itabAddress,
+        concreteFunctionAddress: item.concreteFunctionAddress,
+        incomplete: item.incomplete,
+      }]
     })
   } catch {
     return []
@@ -248,6 +299,12 @@ export function normalizeCodeUnit(row: CodeUnitObservationRow, options: { includ
       prototype: text(attributes.prototype, 2000),
       recoveredVariables: selectedEvidence?.variables || [],
       recoveredVariablesTruncated: Boolean(selectedEvidence?.truncated || attributes.recoveredVariablesTruncated === true),
+      goUnstripSignature: text(attributes.goUnstripSignature, 1000),
+      goUnstripSourceFile: text(attributes.goUnstripSourceFile, 500),
+      goUnstripSourceLine: Number.isInteger(attributes.goUnstripSourceLine) && Number(attributes.goUnstripSourceLine) > 0
+        ? Number(attributes.goUnstripSourceLine) : null,
+      goUnstripInterfaces: goUnstripInterfacesOf(attributes.goUnstripInterfaces),
+      goUnstripInterfacesTruncated: attributes.goUnstripInterfacesTruncated === true,
     } : {}),
     toCodeInputProvenance: text(attributes.toCodeInputProvenance, 80),
     toCodeClaimedInputPath: text(attributes.toCodeClaimedInputPath, 1000),

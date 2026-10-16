@@ -246,6 +246,9 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                 unstrip_type_details = []
                 unstrip_type_details_truncated = False
                 unstrip_functions = {}
+                unstrip_interfaces_by_function = {}
+                unstrip_interfaces_truncated_by_function = set()
+                unstrip_interfaces_truncated = False
                 if go_metadata:
                     unstrip_functions_path = temporary_root / "unstrip-functions.json"
                     unstrip_log_path = temporary_root / "unstrip-functions.log"
@@ -286,6 +289,82 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                         go_warnings.append("unstrip Go method signatures exceeded an output/time limit or could not start.")
                     except (OSError, ValueError, json.JSONDecodeError) as error:
                         go_warnings.append("unstrip Go method signatures could not be parsed.")
+
+                    unstrip_interfaces_path = temporary_root / "unstrip-interfaces.json"
+                    unstrip_interfaces_log_path = temporary_root / "unstrip-interfaces.log"
+                    report_progress("Recovering Go interface dispatch evidence")
+                    try:
+                        with unstrip_interfaces_path.open("wb") as output_file, unstrip_interfaces_log_path.open("wb") as log_file:
+                            unstrip_interfaces_code = run_ghidra(
+                                ["/usr/local/bin/unstrip", "--itabs", "--format", "json", str(input_path)],
+                                log_file, cancel_check, home, UNSTRIP_TIMEOUT_SECONDS, output_file,
+                                MAX_UNSTRIP_OUTPUT_BYTES,
+                            )
+                        if unstrip_interfaces_code == 0 and unstrip_interfaces_path.stat().st_size <= MAX_UNSTRIP_OUTPUT_BYTES:
+                            unstrip_interfaces = json.loads(unstrip_interfaces_path.read_text(encoding="utf-8"))
+                            if isinstance(unstrip_interfaces, list):
+                                total_methods = 0
+                                for itab in unstrip_interfaces[:10000]:
+                                    if not isinstance(itab, dict):
+                                        unstrip_interfaces_truncated = True
+                                        continue
+                                    interface_name = itab.get("interface_name")
+                                    concrete_name = itab.get("concrete_name")
+                                    methods = itab.get("methods", [])
+                                    if not isinstance(interface_name, str) or not interface_name.strip() \
+                                            or not isinstance(concrete_name, str) or not concrete_name.strip() \
+                                            or not isinstance(methods, list):
+                                        unstrip_interfaces_truncated = True
+                                        continue
+                                    for method in methods:
+                                        if total_methods >= 20000:
+                                            unstrip_interfaces_truncated = True
+                                            break
+                                        if not isinstance(method, dict):
+                                            unstrip_interfaces_truncated = True
+                                            continue
+                                        method_name = method.get("interface_method")
+                                        try:
+                                            concrete_address = format(int(method.get("concrete_fn")), "x")
+                                        except (TypeError, ValueError):
+                                            continue
+                                        if not isinstance(method_name, str) or not method_name.strip() or concrete_address == "0":
+                                            continue
+                                        rows = unstrip_interfaces_by_function.setdefault(concrete_address, [])
+                                        if len(rows) >= 32:
+                                            unstrip_interfaces_truncated = True
+                                            unstrip_interfaces_truncated_by_function.add(concrete_address)
+                                            continue
+                                        try:
+                                            itab_address = format(int(itab.get("addr", 0)), "x")[:128]
+                                        except (TypeError, ValueError, OverflowError):
+                                            itab_address = ""
+                                        rows.append({
+                                            "interfaceName": interface_name.strip()[:500],
+                                            "concreteType": concrete_name.strip()[:500],
+                                            "method": method_name.strip()[:256],
+                                            "itabAddress": itab_address,
+                                            "concreteFunctionAddress": concrete_address[:128],
+                                            "incomplete": itab.get("incomplete") is True,
+                                        })
+                                        total_methods += 1
+                                if len(unstrip_interfaces) > 10000:
+                                    unstrip_interfaces_truncated = True
+                            else:
+                                unstrip_interfaces_truncated = True
+                        elif unstrip_interfaces_path.stat().st_size > MAX_UNSTRIP_OUTPUT_BYTES:
+                            unstrip_interfaces_truncated = True
+                            go_warnings.append("unstrip Go interface metadata exceeded its configured output limit.")
+                        else:
+                            go_warnings.append("unstrip Go interface metadata was unavailable for this binary.")
+                    except AnalysisError as error:
+                        if "cancelled" in str(error).lower():
+                            raise
+                        unstrip_interfaces_truncated = True
+                        go_warnings.append("unstrip Go interface metadata exceeded an output/time limit or could not start.")
+                    except (OSError, ValueError, json.JSONDecodeError, OverflowError) as error:
+                        unstrip_interfaces_truncated = True
+                        go_warnings.append("unstrip Go interface metadata could not be parsed.")
 
                     unstrip_path = temporary_root / "unstrip-types.json"
                     unstrip_log_path = temporary_root / "unstrip.log"
@@ -547,6 +626,10 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                                 "goUnstripSourceFile": unstrip_function.get("sourceFile"),
                                 "goUnstripSourceLine": unstrip_function.get("sourceLine"),
                             })
+                        interface_methods = unstrip_interfaces_by_function.get(address_key)
+                        if interface_methods:
+                            unit["goUnstripInterfaces"] = interface_methods[:32]
+                            unit["goUnstripInterfacesTruncated"] = address_key in unstrip_interfaces_truncated_by_function
                     if assembly is not None:
                         assembly_destination = run_root / assembly_relative
                         assembly_destination.parent.mkdir(parents=True, exist_ok=True)
@@ -583,6 +666,8 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                 recovered_variables_truncated = summary.get("recoveredVariablesTruncated") == "true"
                 if recovered_variables_truncated:
                     warnings.append("Ghidra recovered variable evidence reached its configured analysis limit.")
+                if unstrip_interfaces_truncated:
+                    go_warnings.append("unstrip Go interface dispatch evidence was truncated by an analysis limit.")
                 go_type_rows = go_metadata.get("Types", []) if go_metadata and isinstance(go_metadata.get("Types"), list) else []
                 go_type_details = []
                 go_type_details_truncated = len(go_type_rows) > 1000
@@ -622,6 +707,7 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                     "goTypeDetailsTruncated": go_type_details_truncated,
                     "goUnstripTypeDetails": unstrip_type_details,
                     "goUnstripTypeDetailsTruncated": unstrip_type_details_truncated,
+                    "goUnstripInterfacesTruncated": unstrip_interfaces_truncated,
                     "functionCount": len(rows),
                     "visitedFunctionCount": int(summary.get("visited", "0")),
                     "failedFunctionCount": failures,

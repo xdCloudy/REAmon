@@ -40,6 +40,14 @@ export interface WorkspaceSearchGoTypesArgs {
 }
 
 type GoTypeDetail = { name: string; kind: string; reconstructed: string; provider?: string }
+type GoInterfaceMethod = {
+  interfaceName: string
+  concreteType: string
+  method: string
+  itabAddress: string
+  concreteFunctionAddress: string
+  incomplete: boolean
+}
 
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
@@ -125,6 +133,36 @@ function boundedGoTypeDetails(value: unknown): { items: GoTypeDetail[]; truncate
     }
     items.push(normalized)
     bytes += itemBytes
+  }
+  return { items, truncated }
+}
+
+function parseGoInterfaceMethods(value: unknown): { items: GoInterfaceMethod[]; truncated: boolean } {
+  if (typeof value !== 'string') return { items: [], truncated: false }
+  if (value.length > 64_000) return { items: [], truncated: true }
+  let parsed: unknown
+  try { parsed = JSON.parse(value) } catch { return { items: [], truncated: true } }
+  if (!Array.isArray(parsed)) return { items: [], truncated: true }
+  const items: GoInterfaceMethod[] = []
+  let truncated = parsed.length > 32
+  for (const candidate of parsed.slice(0, 32)) {
+    const item = record(candidate)
+    if (typeof item.interfaceName !== 'string' || !item.interfaceName.trim()
+        || typeof item.concreteType !== 'string' || !item.concreteType.trim()
+        || typeof item.method !== 'string' || !item.method.trim()
+        || typeof item.itabAddress !== 'string' || typeof item.concreteFunctionAddress !== 'string'
+        || typeof item.incomplete !== 'boolean') {
+      truncated = true
+      continue
+    }
+    items.push({
+      interfaceName: item.interfaceName.trim().slice(0, 500),
+      concreteType: item.concreteType.trim().slice(0, 500),
+      method: item.method.trim().slice(0, 256),
+      itabAddress: item.itabAddress.slice(0, 128),
+      concreteFunctionAddress: item.concreteFunctionAddress.slice(0, 128),
+      incomplete: item.incomplete,
+    })
   }
   return { items, truncated }
 }
@@ -435,6 +473,7 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
   const goTypeCatalog = boundedJsonTextList(goMetadataAttributes.types, 4_000, 64, 256)
   const goTypeDetails = boundedGoTypeDetails(goMetadataAttributes.typeDetails)
   const unstripGoTypeDetails = boundedGoTypeDetails(goMetadataAttributes.unstripTypeDetails)
+  const unstripGoInterfaceMethods = parseGoInterfaceMethods(attributes.goUnstripInterfaces)
   const goMetadata = providerTypeMetadataRow ? goMetadataAttributes.language === 'Go' ? {
     language: 'Go',
     goVersion: text(goMetadataAttributes.goVersion, 128),
@@ -449,9 +488,11 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
     unstripVersion: text(goMetadataAttributes.unstripVersion, 32),
     unstripTypeDetails: unstripGoTypeDetails.items,
     unstripTypeDetailsTruncated: unstripGoTypeDetails.truncated || goMetadataAttributes.unstripTypeDetailsTruncated === true,
+    unstripInterfacesTruncated: goMetadataAttributes.unstripInterfacesTruncated === true,
     typesSemantics: 'Artifact-wide GoReSym and unstrip type evidence from this exact analysis run. unstrip records are explicitly tagged with their provider. They are not assigned to this function; match each candidate against the selected function source or signature before relying on it.',
   } : {
     language: 'ToCode native export',
+    unstripInterfacesTruncated: false,
     exportPath: text(goMetadataAttributes.exportPath, 1000),
     typeCount: typeof goMetadataAttributes.typeCount === 'number' ? goMetadataAttributes.typeCount : null,
     typeDetails: goTypeDetails.items,
@@ -530,6 +571,13 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
         line: typeof attributes.goUnstripSourceLine === 'number' ? attributes.goUnstripSourceLine : null,
         semantics: 'unstrip matched this Go metadata by function address. A source path/line is provenance evidence, not proof that the original source file is available or that the reconstructed pseudocode matches it.',
       } : null,
+      unstripInterfaceImplementations: unstripGoInterfaceMethods.items,
+      unstripInterfaceImplementationsTruncated: unstripGoInterfaceMethods.truncated
+        || attributes.goUnstripInterfacesTruncated === true
+        || goMetadata?.unstripInterfacesTruncated === true,
+      unstripInterfaceSemantics: unstripGoInterfaceMethods.items.length
+        ? 'Address-matched unstrip itab method rows from this function. Each row names the interface, concrete type, method, and concrete function address. Incomplete itabs are explicitly flagged; these are provider dispatch records, not proof of behavior in every runtime path.'
+        : null,
       languageMetadata: goMetadata,
       prototype: text(attributes.prototype, 2000),
       recoveredVariables: recoveredVariableData.variables,

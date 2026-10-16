@@ -6,6 +6,15 @@ const MAX_UNITS = 2000
 const DEFAULT_TIMEOUT_MS = 15 * 60_000
 const MAX_CALL_EDGES = 400
 
+interface UnstripGoInterfaceMethod {
+  interfaceName: string
+  concreteType: string
+  method: string
+  itabAddress: string
+  concreteFunctionAddress: string
+  incomplete: boolean
+}
+
 interface GhidraResponse {
   status: 'completed'
   toolVersion: string
@@ -18,13 +27,14 @@ interface GhidraResponse {
   goTypeDetailsTruncated?: boolean
   goUnstripTypeDetails?: Array<{ name: string; kind: string; reconstructed: string; source: 'unstrip' }>
   goUnstripTypeDetailsTruncated?: boolean
+  goUnstripInterfacesTruncated?: boolean
   functionCount: number
   visitedFunctionCount?: number
   failedFunctionCount?: number
   codeBytes?: number
   returnedUnits: number
   truncated: boolean
-  units: Array<{ name: string; address: string; relativePath: string; codeArtifactId: string; disassemblyArtifactId?: string; referencedStrings?: string[]; instructionMnemonics?: string[]; sourceAddressMap?: Array<{ ghidraLineNumber: number; address: string }>; prototype?: string; recoveredVariables?: Array<{ kind: 'parameter' | 'local'; name: string; dataType: string; sizeBytes: number; parameterIndex?: number; storageStartAddress?: string; nameLocked?: boolean; typeLocked?: boolean }>; recoveredVariablesTruncated?: boolean; sourceLanguage?: string; symbolSource?: string; goPackage?: string; goUnstripSignature?: string; goUnstripSourceFile?: string; goUnstripSourceLine?: number; sizeBytes: number }>
+  units: Array<{ name: string; address: string; relativePath: string; codeArtifactId: string; disassemblyArtifactId?: string; referencedStrings?: string[]; instructionMnemonics?: string[]; sourceAddressMap?: Array<{ ghidraLineNumber: number; address: string }>; prototype?: string; recoveredVariables?: Array<{ kind: 'parameter' | 'local'; name: string; dataType: string; sizeBytes: number; parameterIndex?: number; storageStartAddress?: string; nameLocked?: boolean; typeLocked?: boolean }>; recoveredVariablesTruncated?: boolean; sourceLanguage?: string; symbolSource?: string; goPackage?: string; goUnstripSignature?: string; goUnstripSourceFile?: string; goUnstripSourceLine?: number; goUnstripInterfaces?: UnstripGoInterfaceMethod[]; goUnstripInterfacesTruncated?: boolean; sizeBytes: number }>
   calls?: Array<{ fromAddress: string; toAddress: string; fromName: string; toName: string }>
   callCount?: number
   callGraphTruncated?: boolean
@@ -65,6 +75,27 @@ function boundedEnvNumber(name: string, fallback: number, minimum: number, maxim
   return Number.isFinite(value) ? Math.min(maximum, Math.max(minimum, Math.floor(value))) : fallback
 }
 
+function boundedGoInterfaceMethods(methods: UnstripGoInterfaceMethod[] | undefined) {
+  const stored: UnstripGoInterfaceMethod[] = []
+  let truncated = (methods?.length || 0) > 32
+  for (const item of (methods || []).slice(0, 32)) {
+    const normalized = {
+      interfaceName: item.interfaceName.slice(0, 500),
+      concreteType: item.concreteType.slice(0, 500),
+      method: item.method.slice(0, 256),
+      itabAddress: item.itabAddress.slice(0, 128),
+      concreteFunctionAddress: item.concreteFunctionAddress.slice(0, 128),
+      incomplete: item.incomplete,
+    }
+    if (Buffer.byteLength(JSON.stringify([...stored, normalized]), 'utf8') > 16_000) {
+      truncated = true
+      break
+    }
+    stored.push(normalized)
+  }
+  return { serialized: stored.length ? JSON.stringify(stored) : '', truncated }
+}
+
 function isGhidraResponse(value: unknown): value is GhidraResponse {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const record = value as Record<string, unknown>
@@ -84,6 +115,7 @@ function isGhidraResponse(value: unknown): value is GhidraResponse {
         && typeof item.reconstructed === 'string' && item.reconstructed.length <= 4096
         && item.source === 'unstrip')))
     && (record.goUnstripTypeDetailsTruncated === undefined || typeof record.goUnstripTypeDetailsTruncated === 'boolean')
+    && (record.goUnstripInterfacesTruncated === undefined || typeof record.goUnstripInterfacesTruncated === 'boolean')
     && (record.sourceAddressMapTruncated === undefined || typeof record.sourceAddressMapTruncated === 'boolean')
     && (record.recoveredVariablesTruncated === undefined || typeof record.recoveredVariablesTruncated === 'boolean')
 }
@@ -158,11 +190,21 @@ export async function executeGhidra(input: ToolExecutionInput): Promise<ToolResu
           || (unit.goPackage !== undefined && typeof unit.goPackage !== 'string')
           || (unit.goUnstripSignature !== undefined && (typeof unit.goUnstripSignature !== 'string' || unit.goUnstripSignature.length > 1000))
           || (unit.goUnstripSourceFile !== undefined && (typeof unit.goUnstripSourceFile !== 'string' || unit.goUnstripSourceFile.length > 500))
-          || (unit.goUnstripSourceLine !== undefined && (!Number.isInteger(unit.goUnstripSourceLine) || unit.goUnstripSourceLine <= 0 || unit.goUnstripSourceLine > 10_000_000))) return false
+          || (unit.goUnstripSourceLine !== undefined && (!Number.isInteger(unit.goUnstripSourceLine) || unit.goUnstripSourceLine <= 0 || unit.goUnstripSourceLine > 10_000_000))
+          || (unit.goUnstripInterfaces !== undefined && (!Array.isArray(unit.goUnstripInterfaces) || unit.goUnstripInterfaces.length > 32
+            || !unit.goUnstripInterfaces.every((item) => item && typeof item === 'object' && !Array.isArray(item)
+              && typeof item.interfaceName === 'string' && item.interfaceName.length <= 500
+              && typeof item.concreteType === 'string' && item.concreteType.length <= 500
+              && typeof item.method === 'string' && item.method.length <= 256
+              && typeof item.itabAddress === 'string' && item.itabAddress.length <= 128
+              && typeof item.concreteFunctionAddress === 'string' && item.concreteFunctionAddress.length <= 128
+              && typeof item.incomplete === 'boolean')))
+          || (unit.goUnstripInterfacesTruncated !== undefined && typeof unit.goUnstripInterfacesTruncated !== 'boolean')) return false
       return true
     })
     if (!units.length) throw new Error('Ghidra did not produce any viewable function decompilations')
 
+    const boundedInterfaceMethods = new Map(units.map((unit) => [unit.address, boundedGoInterfaceMethods(unit.goUnstripInterfaces)]))
     const observations = units.map((unit) => ({
       kind: 'entity',
       type: 'code_unit',
@@ -183,6 +225,10 @@ export async function executeGhidra(input: ToolExecutionInput): Promise<ToolResu
         ...(unit.goUnstripSignature ? { goUnstripSignature: unit.goUnstripSignature.slice(0, 1000) } : {}),
         ...(unit.goUnstripSourceFile ? { goUnstripSourceFile: unit.goUnstripSourceFile.slice(0, 500) } : {}),
         ...(typeof unit.goUnstripSourceLine === 'number' ? { goUnstripSourceLine: unit.goUnstripSourceLine } : {}),
+        ...(boundedInterfaceMethods.get(unit.address)?.serialized
+          ? { goUnstripInterfaces: boundedInterfaceMethods.get(unit.address)!.serialized } : {}),
+        ...(unit.goUnstripInterfacesTruncated || boundedInterfaceMethods.get(unit.address)?.truncated
+          ? { goUnstripInterfacesTruncated: true } : {}),
         ...(typeof input.targetProfile.architecture === 'string' && input.targetProfile.architecture
           ? { architecture: input.targetProfile.architecture.slice(0, 128) } : {}),
         ...(typeof payload.instructionArchitecture === 'string' && payload.instructionArchitecture
@@ -238,6 +284,8 @@ export async function executeGhidra(input: ToolExecutionInput): Promise<ToolResu
           unstripTypeDetails: JSON.stringify(storedUnstripTypeDetails),
           unstripTypeDetailsTruncated: payload.goUnstripTypeDetailsTruncated === true
             || storedUnstripTypeDetails.length < unstripTypeDetails.length,
+          unstripInterfacesTruncated: payload.goUnstripInterfacesTruncated === true
+            || units.some((unit) => unit.goUnstripInterfacesTruncated === true),
           unstripVersion: '1.2.0',
         },
       } satisfies ToolObservation

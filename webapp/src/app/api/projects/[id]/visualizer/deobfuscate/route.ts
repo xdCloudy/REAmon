@@ -927,6 +927,23 @@ export async function POST(request: Request, { params }: RouteParams) {
       providerSymbolRows.map((row) => {
         const providerAttributes = plainObject(row.attributes)
         const providerVariables = providerVariablesOf(providerAttributes, observation.source)
+        let goInterfaceEvidence = ''
+        if (typeof providerAttributes.goUnstripInterfaces === 'string' && providerAttributes.goUnstripInterfaces.length <= 64_000) {
+          try {
+            const parsed: unknown = JSON.parse(providerAttributes.goUnstripInterfaces)
+            if (Array.isArray(parsed)) {
+              goInterfaceEvidence = parsed.slice(0, 8).flatMap((value) => {
+                const item = plainObject(value)
+                if (typeof item.interfaceName !== 'string' || typeof item.concreteType !== 'string'
+                    || typeof item.method !== 'string' || typeof item.concreteFunctionAddress !== 'string') return []
+                return [`unstrip itab ${item.interfaceName.slice(0, 200)}.${item.method.slice(0, 120)} -> ${item.concreteType.slice(0, 200)} at 0x${item.concreteFunctionAddress.slice(0, 64)}${item.incomplete === true ? ' (itab marked incomplete)' : ''}`]
+              }).join('; ')
+              if (providerAttributes.goUnstripInterfacesTruncated === true) {
+                goInterfaceEvidence = `${goInterfaceEvidence}${goInterfaceEvidence ? '; ' : ''}unstrip interface dispatch evidence was truncated by an analysis limit`
+              }
+            }
+          } catch { /* Keep malformed provider metadata out of model context. */ }
+        }
         const goIdentity = [
           providerAttributes.symbolSource === 'GoReSym' ? 'symbol recovered by GoReSym' : '',
           typeof providerAttributes.goPackage === 'string' ? `Go package ${providerAttributes.goPackage.slice(0, 200)}` : '',
@@ -934,6 +951,7 @@ export async function POST(request: Request, { params }: RouteParams) {
             ? `unstrip recovered Go method signature ${providerAttributes.goUnstripSignature.slice(0, 500)}` : '',
           typeof providerAttributes.goUnstripSourceFile === 'string'
             ? `unstrip source location ${providerAttributes.goUnstripSourceFile.slice(0, 300)}${typeof providerAttributes.goUnstripSourceLine === 'number' ? `:${providerAttributes.goUnstripSourceLine}` : ''}` : '',
+          goInterfaceEvidence,
         ].filter(Boolean).join('; ')
         const toCodeInputPath = typeof providerAttributes.toCodeClaimedInputPath === 'string'
           ? providerAttributes.toCodeClaimedInputPath.slice(0, 240)

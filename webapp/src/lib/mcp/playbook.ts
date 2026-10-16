@@ -243,7 +243,8 @@ export const ONBOARDING_PLAYBOOK: Record<string, PlaybookEntry> = {
       'include sourceAddressMap links from Ghidra source lines to p-code operation target addresses, ' +
       'plus recoveredVariables with provider-recovered parameter/local names and types. GoReSym ' +
       'package metadata includes a note that it was matched by function address; GoReSym and unstrip ' +
-      'type catalogs are artifact-wide, not function-specific, and must be matched against the selected source. ToCode ' +
+      'type catalogs are artifact-wide, not function-specific, and must be matched against the selected source. ' +
+      'Address-matched unstrip method signatures, source locations, and interface dispatch records may also be present. ToCode ' +
       'dossiers expose a bounded export-scoped type catalog and the source artifact identity.',
     gotchas: [
       'Returned code is bounded to 128 KiB per file and may be truncated; check each truncated flag before reasoning from the snippet.',
