@@ -6,6 +6,7 @@ import prisma from '@/lib/prisma'
 import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
 import { getActiveWorkspaceImportSelection } from '@/lib/reamon/inventory-query'
 import { derivedArtifactRoot, resolveDerivedArtifactPath } from '@/lib/reamon/derived-storage'
+import { failExpiredCodeAttemptsForHistory } from '@/lib/reamon/code-attempts'
 
 interface RouteParams { params: Promise<{ id: string; unitId: string }> }
 const MAX_SOURCE_BYTES = 2 * 1024 * 1024
@@ -73,6 +74,7 @@ export async function GET(_request: Request, { params }: RouteParams) {
     const { id: projectId, unitId } = await params
     const resolved = await resolveUnit(projectId, unitId)
     if ('response' in resolved) return resolved.response
+    await failExpiredCodeAttemptsForHistory({ projectId, codeUnitId: unitId, artifactId: resolved.artifactId, runKey: resolved.runKey, sourceHash: resolved.sourceHash })
     const draft = await prisma.reamonCodeDraft.findFirst({
       where: { projectId, codeUnitId: unitId, artifactId: resolved.artifactId, runKey: resolved.runKey, sourceHash: resolved.sourceHash },
       orderBy: { updatedAt: 'desc' },

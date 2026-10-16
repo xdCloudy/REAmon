@@ -47,9 +47,11 @@ The rewrite API now acquires a database lease keyed to the exact project, artifa
 analysis run, code unit, and source hash before it calls the model. A duplicate request
 for that same version receives a conflict; a retry after a server interruption can
 reclaim an expired lease. A different source hash gets its own lease and history.
-This fences concurrent rewrite requests, but it is not yet the full multi-agent claim
-contract: general task ownership, lease renewal, explicit cancellation, and conflict-
-safe promotion still need to join the worker lifecycle.
+The lease is bound to the exact source version and has a bounded expiry. If a worker
+crashes, the next claim marks its unfinished attempt failed before starting a new one;
+history reads also close attempts that exceed the maximum lease lifetime. A late response
+must still own the lease before it can record success. This keeps the request-based rewrite
+path recoverable, but attempts are not yet dispatched as durable, resumable worker jobs.
 
 ### 6. Record an attempt
 
@@ -61,9 +63,9 @@ the exact project, artifact, run, unit, source hash, provider, request, validati
 state, and returned source. It gives the next retry a small summary of outcomes for
 that same source hash; a changed binary or source hash gets a separate history. The
 visualizer shows the latest ten attempts for the selected source version, including
-failures, validation state, and prior successful output. When a successful attempt
-is saved as a draft, the draft stores a validated link to that exact attempt; manual
-edits preserve the originating attempt while clearing stale validation evidence. The
+failures, interrupted attempts, validation state, and prior successful output. When a
+successful attempt is saved as a draft, the draft stores a validated link to that exact
+attempt; manual edits preserve its origin while clearing stale validation evidence. The
 draft endpoint derives provider and validator metadata from the linked attempt and
 does not accept client-supplied validation as evidence.
 

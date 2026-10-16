@@ -9,6 +9,7 @@ import { getActiveWorkspaceImportSelection } from '@/lib/reamon/inventory-query'
 import { derivedArtifactRoot, resolveDerivedArtifactPath } from '@/lib/reamon/derived-storage'
 import { buildProjectSymbolContext, extractMaintainedSymbols } from '@/lib/reamon/maintenance-memory'
 import { rankSimilarInstructionFunctions } from '@/lib/reamon/instruction-similarity'
+import { codeRewriteLeaseGraceMs, failInterruptedCodeAttempts } from '@/lib/reamon/code-attempts'
 
 interface RouteParams { params: Promise<{ id: string }> }
 interface DeobfuscateBody { unitId?: unknown; providerId?: unknown; question?: unknown; scope?: unknown; startByte?: unknown; endByte?: unknown; memberName?: unknown; sourceCode?: unknown }
@@ -30,6 +31,8 @@ const MAX_PROJECT_SYMBOL_SCAN = 4_096
 const MAX_PROJECT_DRAFT_RECORDS = 64
 const MEMBER_OUTLINE_SOURCE = 'reamon-tree-sitter-outline@tree-sitter-language-pack-1.21.0'
 const MAX_PERSISTED_OUTLINE_MEMBERS = 10_000
+
+class RewriteAttemptSuperseded extends Error {}
 
 interface OutlineMember {
   name: string
@@ -880,7 +883,7 @@ export async function POST(request: Request, { params }: RouteParams) {
           runKey: runPrefix.slice(0, -1),
           codeUnitId: observation.id,
           sourceHash,
-          expiresAt: new Date(leaseNow.getTime() + timeoutMs + 60_000),
+          expiresAt: new Date(leaseNow.getTime() + timeoutMs + codeRewriteLeaseGraceMs),
         },
         select: { id: true },
       })
@@ -889,16 +892,17 @@ export async function POST(request: Request, { params }: RouteParams) {
       if (!isUniqueConstraintError(error)) throw error
       return NextResponse.json({ error: 'A rewrite is already running for this unit and source version. Wait for it to finish, then retry.' }, { status: 409, headers: { 'Cache-Control': 'no-store' } })
     }
+    const acquiredLeaseId = codeUnitLeaseId
+    if (!acquiredLeaseId) throw new Error('Could not acquire the code-unit rewrite lease')
+
+    const attemptScope = { projectId, artifactId: artifact.id, runKey: runPrefix.slice(0, -1), codeUnitId: observation.id, sourceHash }
+    await failInterruptedCodeAttempts(attemptScope, leaseNow)
 
     const attempt = await prisma.reamonCodeAttempt.create({
       data: {
-        projectId,
-        artifactId: artifact.id,
-        runKey: runPrefix.slice(0, -1),
-        codeUnitId: observation.id,
+        ...attemptScope,
         unitName: String(unitName).slice(0, 500),
         language: language.slice(0, 80),
-        sourceHash,
         providerName: provider.name.slice(0, 128),
         modelIdentifier: provider.modelIdentifier.slice(0, 128),
         question: typeof body.question === 'string' ? body.question.trim() : '',
@@ -950,8 +954,8 @@ export async function POST(request: Request, { params }: RouteParams) {
               : result.code === 'context_exceeded'
                 ? 'This code unit exceeds the model context window even after related-code context was removed. Choose a larger-context model or a smaller code unit.'
                 : 'AI could not produce a maintainable version. Try again shortly.'
-      await prisma.reamonCodeAttempt.update({
-        where: { id: attempt.id },
+      await prisma.reamonCodeAttempt.updateMany({
+        where: { id: attempt.id, status: 'RUNNING' },
         data: {
           status: 'FAILED',
           errorCode: typeof result.code === 'string' ? result.code.slice(0, 128) : `http_${response.status}`,
@@ -968,16 +972,16 @@ export async function POST(request: Request, { params }: RouteParams) {
       return NextResponse.json({ error: message }, { status: response.status, headers: { 'Cache-Control': 'no-store' } })
     }
     if (typeof result.source_code !== 'string' || !result.source_code.trim()) {
-      await prisma.reamonCodeAttempt.update({
-        where: { id: attempt.id },
+      await prisma.reamonCodeAttempt.updateMany({
+        where: { id: attempt.id, status: 'RUNNING' },
         data: { status: 'FAILED', errorCode: 'empty_result', errorMessage: 'The AI provider returned no rewritten source', completedAt: new Date() },
       })
       runningAttemptId = null
       return NextResponse.json({ error: 'The AI provider returned no rewritten source' }, { status: 502, headers: { 'Cache-Control': 'no-store' } })
     }
     if (Buffer.byteLength(result.source_code, 'utf8') > MAX_RESULT_BYTES) {
-      await prisma.reamonCodeAttempt.update({
-        where: { id: attempt.id },
+      await prisma.reamonCodeAttempt.updateMany({
+        where: { id: attempt.id, status: 'RUNNING' },
         data: { status: 'FAILED', errorCode: 'result_too_large', errorMessage: 'The rewritten source exceeds the save limit', completedAt: new Date() },
       })
       runningAttemptId = null
@@ -990,14 +994,50 @@ export async function POST(request: Request, { params }: RouteParams) {
       : syntaxValidated ? 'PASSED' : 'UNAVAILABLE'
     const validationMethod = typeof result.validation_method === 'string' ? result.validation_method.slice(0, 80) : null
     const validationMessage = typeof result.validation_message === 'string' ? result.validation_message.slice(0, 2000) : null
-    await prisma.reamonCodeAttempt.update({
-      where: { id: attempt.id },
-      data: { status: 'SUCCEEDED', resultSource: result.source_code, syntaxValidated, validationStatus, validationMethod, validationMessage, completedAt: new Date() },
-    })
+    const rewrittenSource = result.source_code as string
+    let finalization: 'completed' | 'lease_lost' | 'attempt_superseded' = 'lease_lost'
+    try {
+      finalization = await prisma.$transaction(async (tx) => {
+        const leaseExtended = await tx.reamonCodeUnitLease.updateMany({
+          where: { id: acquiredLeaseId, expiresAt: { gt: new Date() } },
+          data: { expiresAt: new Date(Date.now() + codeRewriteLeaseGraceMs) },
+        })
+        if (leaseExtended.count !== 1) return 'lease_lost'
+        const completed = await tx.reamonCodeAttempt.updateMany({
+          where: { id: attempt.id, status: 'RUNNING' },
+          data: { status: 'SUCCEEDED', resultSource: rewrittenSource, syntaxValidated, validationStatus, validationMethod, validationMessage, completedAt: new Date() },
+        })
+        if (completed.count !== 1) throw new RewriteAttemptSuperseded()
+        return 'completed'
+      })
+    } catch (error) {
+      if (!(error instanceof RewriteAttemptSuperseded)) throw error
+      finalization = 'attempt_superseded'
+    }
+    if (finalization !== 'completed') {
+      const lostLease = finalization === 'lease_lost'
+      await prisma.reamonCodeAttempt.updateMany({
+        where: { id: attempt.id, status: 'RUNNING' },
+        data: {
+          status: 'FAILED',
+          errorCode: lostLease ? 'lease_lost' : 'attempt_superseded',
+          errorMessage: lostLease
+            ? 'The rewrite lease expired before the result could be saved. Retry to start a new attempt.'
+            : 'A newer result superseded this rewrite before it could be saved.',
+          completedAt: new Date(),
+        },
+      })
+      runningAttemptId = null
+      return NextResponse.json({
+        error: lostLease
+          ? 'The rewrite lease expired before the result could be saved. Retry this code unit.'
+          : 'This rewrite attempt was superseded before it could be saved. Retry to start a new attempt.',
+      }, { status: 409, headers: { 'Cache-Control': 'no-store' } })
+    }
     runningAttemptId = null
 
     return NextResponse.json({
-      sourceCode: result.source_code,
+      sourceCode: rewrittenSource,
       providerName: provider.name,
       model: provider.modelIdentifier,
       syntaxValidated,
