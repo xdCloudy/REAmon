@@ -474,7 +474,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     const similarFunctionNames: string[] = []
     const similarArtifactByName = new Map<string, string>()
     const selectedMemberName = typeof body.memberName === 'string' ? body.memberName.trim() : ''
-    const isMethodScopedRewrite = (observation.source === 'reamon-jadx' || observation.source === 'reamon-ilspy')
+    const isMethodScopedRewrite = (observation.source === 'reamon-jadx' || observation.source === 'reamon-ilspy' || observation.source === 'reamon-dex-decompiler')
       && scope === 'member' && Boolean(selectedMemberName)
     if ((observation.source === 'reamon-ghidra' || observation.source === 'reamon-wabt' || isMethodScopedRewrite) && observation.taskId && observation.stableKey) {
       const targetMnemonics = boundedInstructionMnemonics(attributes.instructionMnemonics)
@@ -528,11 +528,14 @@ export async function POST(request: Request, { params }: RouteParams) {
         const methodTargets = isMethodScopedRewrite ? boundedCandidates.filter((row) => {
           if (row.artifactId !== artifact.id) return false
           const candidateAttributes = plainObject(row.attributes)
-          const candidateName = methodName(typeof candidateAttributes.address === 'string' ? candidateAttributes.address : '')
+          const candidateSignature = observation.source === 'reamon-dex-decompiler'
+            ? (typeof candidateAttributes.qualifiedName === 'string' ? candidateAttributes.qualifiedName : '')
+            : (typeof candidateAttributes.address === 'string' ? candidateAttributes.address : '')
+          const candidateName = methodName(candidateSignature)
           const className = unitName.split('.').at(-1)?.split('+').at(-1) || ''
           const isConstructor = ['constructor', '<init>', '.ctor', className].includes(selectedMemberName)
           const expectedName = isConstructor
-            ? (observation.source === 'reamon-jadx' ? '<init>' : '.ctor')
+            ? (observation.source === 'reamon-jadx' || observation.source === 'reamon-dex-decompiler' ? '<init>' : '.ctor')
             : selectedMemberName
           const sameSourceUnit = candidateAttributes.parentCodeUnitKey === observation.stableKey
             || (selectedRelativePath && candidateAttributes.relativePath === selectedRelativePath)

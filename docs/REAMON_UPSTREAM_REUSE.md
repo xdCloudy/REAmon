@@ -158,10 +158,13 @@ store.
 - `src/decompnet/similarity.py` ranks MIPS/Thumb code by normalized mnemonic
   frequency, then uses Python's `SequenceMatcher` to compare instruction order.
   REAmon stores bounded operand-free mnemonic signatures for Ghidra, WABT,
-  JADX, and ILSpy, prefilters by length and mnemonic frequency, then compares
+  JADX, ILSpy, and Androguard DEX methods, prefilters by length and mnemonic
+  frequency, then compares
   matching instruction blocks across completed project runs for the same
   provider. Ghidra matches across artifacts require an exact processor-language
-  ID. Keep the score as a navigation lead, never as behavioral validation.
+  ID. DEX matches retain their owning class and analysis task; method-level
+  Android rewrites can use prior matches as project context. Keep the score as a
+  navigation lead, never as behavioral validation.
 - `compiler.py`, `scoring.py`, and the project adapters judge output with the
   target game's original compiler and byte comparison. That is excellent for
   reproducibly built targets but does not directly validate arbitrary Android
