@@ -13,7 +13,6 @@ import ghidra.program.model.listing.Data;
 import ghidra.program.model.data.StringDataInstance;
 import ghidra.program.model.data.DataType;
 import ghidra.program.model.pcode.HighFunction;
-import ghidra.program.model.pcode.HighParam;
 import ghidra.program.model.pcode.HighSymbol;
 import ghidra.program.model.pcode.HighVariable;
 import ghidra.program.model.pcode.LocalSymbolMap;
@@ -58,8 +57,8 @@ public class ReamonExport extends GhidraScript {
             }
             HighVariable variable = symbol.getHighVariable();
             if (variable == null) continue;
-            boolean parameter = variable instanceof HighParam;
-            int parameterIndex = parameter ? ((HighParam) variable).getSlot() : -1;
+            boolean parameter = symbol.isParameter();
+            int parameterIndex = parameter ? symbol.getCategoryIndex() : -1;
             String name = symbol.getName() == null ? "" : symbol.getName().trim();
             DataType dataType = symbol.getDataType();
             String typeName = dataType == null ? "" : dataType.getDisplayName();

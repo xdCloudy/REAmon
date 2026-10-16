@@ -25,6 +25,9 @@ export interface CodeUnitObservationAttributes {
   referencedStrings?: string[]
   sourceAddressMap?: Array<{ ghidraLineNumber: number; address: string }>
   sourceAddressMapTruncated?: boolean
+  prototype?: string
+  recoveredVariables?: Array<{ kind: 'parameter' | 'local'; name: string; dataType: string; sizeBytes: number; parameterIndex?: number; storageStartAddress?: string }>
+  recoveredVariablesTruncated?: boolean
 }
 
 export interface CodeUnitObservationRow {
@@ -59,6 +62,9 @@ export interface CodeUnit {
   referencedStrings?: string[]
   sourceAddressMap?: Array<{ ghidraLineNumber: number; address: string }>
   sourceAddressMapTruncated?: boolean
+  prototype?: string | null
+  recoveredVariables?: Array<{ kind: 'parameter' | 'local'; name: string; dataType: string; sizeBytes: number; parameterIndex?: number; storageStartAddress?: string }>
+  recoveredVariablesTruncated?: boolean
   maintainedSource?: boolean
   draftSource?: boolean
   updatedAt: string
@@ -110,6 +116,38 @@ function sourceAddressMapOf(value: unknown): Array<{ ghidraLineNumber: number; a
   }
 }
 
+export function recoveredVariablesOf(value: unknown): { variables: NonNullable<CodeUnit['recoveredVariables']>; truncated: boolean } {
+  if (typeof value !== 'string' || value.length > 100_000) return { variables: [], truncated: false }
+  try {
+    const parsed: unknown = JSON.parse(value)
+    if (!Array.isArray(parsed)) return { variables: [], truncated: false }
+    const variables = parsed.flatMap((item) => {
+      const variable = attributesOf(item)
+      if ((variable.kind !== 'parameter' && variable.kind !== 'local')
+          || typeof variable.name !== 'string' || !variable.name.trim() || variable.name.length > 256
+          || typeof variable.dataType !== 'string' || variable.dataType.length > 256
+          || !Number.isInteger(variable.sizeBytes) || Number(variable.sizeBytes) < 0 || Number(variable.sizeBytes) > 65536) return []
+      const kind = variable.kind as 'parameter' | 'local'
+      const parameterIndex = variable.parameterIndex
+      if (kind === 'parameter' && (!Number.isInteger(parameterIndex) || Number(parameterIndex) < 0 || Number(parameterIndex) >= 100)) return []
+      if (kind === 'local' && parameterIndex !== undefined) return []
+      const storageStartAddress = variable.storageStartAddress
+      if (storageStartAddress !== undefined && (typeof storageStartAddress !== 'string' || !/^[A-Za-z0-9:_-]{1,128}$/.test(storageStartAddress))) return []
+      return [{
+        kind,
+        name: variable.name,
+        dataType: variable.dataType,
+        sizeBytes: Number(variable.sizeBytes),
+        ...(kind === 'parameter' ? { parameterIndex: Number(parameterIndex) } : {}),
+        ...(typeof storageStartAddress === 'string' ? { storageStartAddress } : {}),
+      }]
+    })
+    return { variables: variables.slice(0, 100), truncated: variables.length > 100 || variables.length !== parsed.length }
+  } catch {
+    return { variables: [], truncated: false }
+  }
+}
+
 export function normalizeCodeUnit(row: CodeUnitObservationRow, options: { includeSourceAddressMap?: boolean } = {}): CodeUnit | null {
   const attributes = attributesOf(row.attributes)
   const sizeBytes = finiteNumber(attributes.sizeBytes)
@@ -118,6 +156,7 @@ export function normalizeCodeUnit(row: CodeUnitObservationRow, options: { includ
   const updatedAt = row.updatedAt instanceof Date ? row.updatedAt.toISOString() : row.updatedAt
   const artifactPath = row.artifact?.relativePath || row.artifact?.originalName || null
   const bundlePath = text(attributes.bundlePath, 1000)
+  const selectedEvidence = options.includeSourceAddressMap ? recoveredVariablesOf(attributes.recoveredVariables) : null
   return {
     id: row.id,
     name: text(attributes.qualifiedName, 500) || text(attributes.name, 500) || text(row.label, 500) || text(row.stableKey, 500) || row.id,
@@ -140,6 +179,9 @@ export function normalizeCodeUnit(row: CodeUnitObservationRow, options: { includ
     ...(options.includeSourceAddressMap ? {
       sourceAddressMap: sourceAddressMapOf(attributes.sourceAddressMap),
       sourceAddressMapTruncated: attributes.sourceAddressMapTruncated === true,
+      prototype: text(attributes.prototype, 2000),
+      recoveredVariables: selectedEvidence?.variables || [],
+      recoveredVariablesTruncated: Boolean(selectedEvidence?.truncated || attributes.recoveredVariablesTruncated === true),
     } : {}),
     maintainedSource: false,
     draftSource: false,

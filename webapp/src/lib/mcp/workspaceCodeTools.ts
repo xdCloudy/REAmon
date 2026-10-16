@@ -6,7 +6,7 @@ import prisma from '@/lib/prisma'
 import { assertMcpProjectAccess, requireScope } from '@/lib/mcpAuth'
 import { McpToolError } from '@/lib/mcp/errors'
 import { getActiveWorkspaceImportSelection } from '@/lib/reamon/inventory-query'
-import { CODE_UNIT_OBSERVATION_TYPE } from '@/lib/reamon/code-units'
+import { CODE_UNIT_OBSERVATION_TYPE, recoveredVariablesOf } from '@/lib/reamon/code-units'
 import { derivedArtifactRoot, resolveDerivedArtifactPath } from '@/lib/reamon/derived-storage'
 import { enforceRate, type McpContext } from '@/lib/mcp/tools'
 
@@ -63,37 +63,6 @@ function sourceAddressMappings(value: unknown): { mappings: Array<{ ghidraLineNu
     return { mappings: mappings.slice(0, 500), truncated: mappings.length > 500 || mappings.length !== parsed.length }
   } catch {
     return { mappings: [], truncated: false }
-  }
-}
-
-function recoveredVariableEvidence(value: unknown): { variables: Array<Record<string, unknown>>; truncated: boolean } {
-  if (typeof value !== 'string' || value.length > 100_000) return { variables: [], truncated: false }
-  try {
-    const parsed: unknown = JSON.parse(value)
-    if (!Array.isArray(parsed)) return { variables: [], truncated: false }
-    const variables = parsed.flatMap((item) => {
-      const variable = record(item)
-      if ((variable.kind !== 'parameter' && variable.kind !== 'local')
-          || typeof variable.name !== 'string' || !variable.name.trim() || variable.name.length > 256
-          || typeof variable.dataType !== 'string' || variable.dataType.length > 256
-          || !Number.isInteger(variable.sizeBytes) || Number(variable.sizeBytes) < 0 || Number(variable.sizeBytes) > 65536) return []
-      const parameterIndex = variable.parameterIndex
-      if (variable.kind === 'parameter' && (!Number.isInteger(parameterIndex) || Number(parameterIndex) < 0 || Number(parameterIndex) >= 100)) return []
-      if (variable.kind === 'local' && parameterIndex !== undefined) return []
-      const firstUseAddress = variable.firstUseAddress
-      if (firstUseAddress !== undefined && (typeof firstUseAddress !== 'string' || !/^[A-Za-z0-9:_-]{1,128}$/.test(firstUseAddress))) return []
-      return [{
-        kind: variable.kind,
-        name: variable.name,
-        dataType: variable.dataType,
-        sizeBytes: Number(variable.sizeBytes),
-        ...(variable.kind === 'parameter' ? { parameterIndex: Number(parameterIndex) } : {}),
-        ...(typeof firstUseAddress === 'string' ? { firstUseAddress } : {}),
-      }]
-    })
-    return { variables: variables.slice(0, 100), truncated: variables.length > 100 || variables.length !== parsed.length }
-  } catch {
-    return { variables: [], truncated: false }
   }
 }
 
@@ -357,7 +326,7 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
     return [row.stableKey, text(endpoint.qualifiedName) || text(endpoint.name) || text(row.label) || row.stableKey]
   }))
   const result = record(task?.result)
-  const recoveredVariableData = recoveredVariableEvidence(attributes.recoveredVariables)
+  const recoveredVariableData = recoveredVariablesOf(attributes.recoveredVariables)
 
   return {
     projectId: args.projectId,

@@ -350,9 +350,9 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                                     size_bytes = int(variable_fields[2])
                                 except ValueError:
                                     continue
-                                first_use_address = variable_fields[3]
+                                storage_start_address = variable_fields[3]
                                 if (size_bytes < 0 or size_bytes > 65536
-                                        or (first_use_address and not re.fullmatch(r"[A-Za-z0-9:_-]{1,128}", first_use_address))
+                                        or (storage_start_address and not re.fullmatch(r"[A-Za-z0-9:_-]{1,128}", storage_start_address))
                                         or (variable_fields[0] == "parameter" and not 0 <= parameter_index < 100)
                                         or (variable_fields[0] == "local" and parameter_index != -1)):
                                     continue
@@ -371,8 +371,8 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                                 }
                                 if variable_fields[0] == "parameter":
                                     variable["parameterIndex"] = parameter_index
-                                if first_use_address:
-                                    variable["firstUseAddress"] = first_use_address
+                                if storage_start_address:
+                                    variable["storageStartAddress"] = storage_start_address
                                 recovered_variables.append(variable)
                         except (ValueError, UnicodeDecodeError):
                             pass

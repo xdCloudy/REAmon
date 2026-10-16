@@ -248,6 +248,7 @@ export const ONBOARDING_PLAYBOOK: Record<string, PlaybookEntry> = {
       'Decompiler output is provider evidence, not original source or canonical truth. Use other stored evidence to corroborate names and types.',
       'When sourceAddressMap is present, use it to navigate from a Ghidra line to the associated instruction address; check sourceAddressMapTruncated and do not treat this association as proof of semantic equivalence.',
       'recoveredVariables are Ghidra symbol evidence, not reviewed canonical names. Preserve the provider attribution and check recoveredVariablesTruncated before relying on a complete inventory.',
+      'storageStartAddress marks where a symbol storage mapping begins, not necessarily an instruction that reads or writes the value; null means Ghidra reports storage valid across the whole function.',
       'Saved drafts and maintained source are separate from decompiler output. Check the draft validation and maintained-source review receipt before treating an edit as accepted.',
       'The draft source hash identifies its base decompilation; the draft output hash identifies its exact saved bytes. Older drafts may not have an output hash.',
     ],
