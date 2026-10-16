@@ -66,13 +66,16 @@ async function acceptedSafeRenameAliases(
           || createHash('sha256').update(attempt.resultSource).digest('hex') !== sourceHash) continue
       const payload = plainObject(attempt.requestPayload)
       const goBindings = payload.operation === 'go-types-scope-safe-renames'
-      if (!['humanify-style-scope-safe-renames', 'libcst-scope-safe-renames', 'go-types-scope-safe-renames'].includes(String(payload.operation))
+      const luaBindings = payload.operation === 'luals-scope-safe-renames'
+      if (!['humanify-style-scope-safe-renames', 'libcst-scope-safe-renames', 'go-types-scope-safe-renames', 'luals-scope-safe-renames'].includes(String(payload.operation))
           || payload.outputSha256 !== sourceHash || !Array.isArray(payload.renames)) continue
       const aliases = payload.renames.flatMap((value) => {
         const rename = plainObject(value)
         const validName = (name: string) => goBindings
           ? /^[_\p{ID_Start}][\p{ID_Continue}]*$/u.test(name)
-          : /^[A-Za-z_$][\w$]{0,127}$/.test(name)
+          : luaBindings
+            ? /^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(name) && !new Set(['and', 'break', 'do', 'else', 'elseif', 'end', 'false', 'for', 'function', 'goto', 'if', 'in', 'local', 'nil', 'not', 'or', 'repeat', 'return', 'then', 'true', 'until', 'while']).has(name)
+            : /^[A-Za-z_$][\w$]{0,127}$/.test(name)
         if (typeof rename.oldName !== 'string' || typeof rename.newName !== 'string'
             || typeof rename.bindingId !== 'string' || !/^[a-f0-9]{24}$/i.test(rename.bindingId)
             || typeof rename.kind !== 'string' || rename.kind.length > 80

@@ -71,6 +71,28 @@ RUN arch="${TARGETARCH:-$(dpkg --print-architecture)}" \
     && /usr/local/go/bin/go version
 ENV PATH="/usr/local/go/bin:/root/go/bin:${PATH}"
 
+# LuaLS provides semantic binding identity and rename edits for standard Lua.
+# Keep it pinned and checksum verified; Luau remains on its own grammar/toolchain.
+ENV REAMON_LUALS_VERSION=3.19.2 \
+    REAMON_LUALS=/opt/lua-language-server/bin/lua-language-server
+RUN arch="${TARGETARCH:-$(dpkg --print-architecture)}" \
+    && case "$arch" in \
+         amd64) asset_arch=x64; sha=93ad326b10f6c00911dd8c450fa098332dbd8f9f45d1052f5636a2d54479b947 ;; \
+         arm64) asset_arch=arm64; sha=17b8e401a874440adeb649e5024c364f2bb9d15156c74a40e56d1ae9a1b2e4f2 ;; \
+         *) echo "unsupported LuaLS architecture: $arch" >&2; exit 1 ;; \
+       esac \
+    && retry curl -fsSL --retry 5 --retry-delay 5 --retry-all-errors \
+        -o /tmp/luals.tar.gz "https://github.com/LuaLS/lua-language-server/releases/download/${REAMON_LUALS_VERSION}/lua-language-server-${REAMON_LUALS_VERSION}-linux-${asset_arch}.tar.gz" \
+    && echo "${sha}  /tmp/luals.tar.gz" | sha256sum -c - \
+    && mkdir -p /opt/lua-language-server \
+    && tar -xzf /tmp/luals.tar.gz -C /opt/lua-language-server \
+    && rm /tmp/luals.tar.gz \
+    && test -x /opt/lua-language-server/bin/lua-language-server \
+    && mkdir -p /usr/share/licenses/lua-language-server \
+    && retry curl -fsSL --retry 5 --retry-delay 5 --retry-all-errors \
+        -o /usr/share/licenses/lua-language-server/LICENSE https://raw.githubusercontent.com/LuaLS/lua-language-server/3.19.2/LICENSE \
+    && echo "a0a65ffcdc8620548598ce8ac5ce1a7ec36edf3034a5df2d6593e49fcececa64  /usr/share/licenses/lua-language-server/LICENSE" | sha256sum -c -
+
 # Pin official PUC-Lua compiler releases for exact-dialect syntax-only checks.
 # Each version gets its own binary so REAmon never validates recovered code
 # against a different Lua grammar by accident.
