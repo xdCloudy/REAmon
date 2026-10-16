@@ -90,6 +90,22 @@ separate so a plausible name is never treated as proof of behavior.
   comparison for REAmon's native evidence contract. Its own README labels the
   project pre-1.0 and its decompiler experimental; treat it as a fixture-backed
   alternate-provider evaluation, not a replacement for Ghidra or REAmon's store.
+- [Kong](https://github.com/amruth-sn/kong) is an Apache-2.0 Ghidra/PyGhidra
+  agent pipeline that schedules functions bottom-up from the call graph, feeds
+  callers bounded cross-reference, string, data-flow, and resolved-callee context,
+  then runs a synthesis pass to reconcile names and types across the binary. This
+  is a strong reference for making REAmon's project-wide symbol consistency
+  operational: order work using persisted dependencies, keep each prompt grounded
+  in exact-run evidence, and save global consistency proposals as reviewable
+  attempts. Reuse the workflow pattern only; the provider and Ghidra project state
+  should remain separate from REAmon's database. Its C/C++ focus and recovery
+  claims still need fixture comparison.
+- [delamain](https://github.com/xjoker/delamain) is an Apache-2.0 headless MCP
+  layer around JADX. Its bounded graph traversals, explicit truncation and
+  decompilation-quality signals, xref/data-flow queries, and rename/ProGuard
+  workflows are useful comparisons for Android MCP ergonomics. REAmon already
+  integrates JADX, so compare these evidence contracts before considering another
+  service; avoid duplicate JADX execution without a measured gap.
 - [Reko](https://github.com/uxmal/reko) provides a .NET CLI for decompilation,
   disassembly, and executable inspection across architecture and file-format
   plugins. It is a GPL-2.0 candidate for an opt-in comparison on architectures or
