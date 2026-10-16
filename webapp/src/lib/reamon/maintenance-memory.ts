@@ -16,6 +16,7 @@ export interface ProviderSymbolRecord {
   language: string
   address?: string
   prototype?: string
+  providerEvidence?: string
   recoveredVariables: unknown
   recoveredVariablesTruncated?: boolean
 }
@@ -168,7 +169,10 @@ export function buildProviderSymbolContext(
     const prototype = typeof record.prototype === 'string'
       ? singleLine(record.prototype, 500)
       : ''
-    if (!variables.length && !prototype) continue
+    const providerEvidence = typeof record.providerEvidence === 'string'
+      ? singleLine(record.providerEvidence, 300)
+      : ''
+    if (!variables.length && !prototype && !providerEvidence) continue
     const address = record.address && /^[A-Za-z0-9:_-]{1,128}$/.test(record.address) ? ` @ ${record.address}` : ''
     const symbolList = variables.slice(0, 12).map((variable) => {
       const kind = variable.kind === 'parameter' ? `parameter ${variable.parameterIndex}` : 'local'
@@ -183,8 +187,9 @@ export function buildProviderSymbolContext(
       ? `; more symbols omitted${record.recoveredVariablesTruncated ? ' by analyzer limit' : ''}`
       : ''
     const unitName = singleLine(record.unitName, 300)
-    const signature = prototype ? `signature: ${prototype}${symbolList.length ? '; ' : ''}` : ''
-    const line = `${unitName}${address} [${record.language.slice(0, 80)}]: ${signature}${symbolList.join('; ')}${omitted}`
+    const identity = providerEvidence ? `provider metadata: ${providerEvidence}; ` : ''
+    const signature = prototype ? `signature: ${prototype}; ` : ''
+    const line = `${unitName}${address} [${record.language.slice(0, 80)}]: ${identity}${signature}${symbolList.join('; ')}${omitted}`
     const lineBytes = Buffer.byteLength(line, 'utf8')
     if (length + lineBytes + 1 > maxBytes - 80) {
       omittedByContextLimit = true

@@ -866,6 +866,10 @@ export async function POST(request: Request, { params }: RouteParams) {
       providerSymbolRows.map((row) => {
         const providerAttributes = plainObject(row.attributes)
         const providerVariables = providerVariablesOf(providerAttributes, observation.source)
+        const goIdentity = [
+          providerAttributes.symbolSource === 'GoReSym' ? 'symbol recovered by GoReSym' : '',
+          typeof providerAttributes.goPackage === 'string' ? `Go package ${providerAttributes.goPackage.slice(0, 200)}` : '',
+        ].filter(Boolean).join('; ')
         return {
           codeUnitId: row.id,
           unitName: (typeof providerAttributes.qualifiedName === 'string' && providerAttributes.qualifiedName)
@@ -877,6 +881,7 @@ export async function POST(request: Request, { params }: RouteParams) {
             || 'unknown',
           address: typeof providerAttributes.address === 'string' ? providerAttributes.address : undefined,
           prototype: typeof providerAttributes.prototype === 'string' ? providerAttributes.prototype : undefined,
+          providerEvidence: goIdentity || undefined,
           recoveredVariables: providerVariables.variables,
           recoveredVariablesTruncated: providerVariables.truncated
             || providerAttributes.recoveredVariablesTruncated === true,
