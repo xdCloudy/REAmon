@@ -170,7 +170,8 @@ public final class ReamonJavaRefactor {
         JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
         if (compiler == null) throw new IllegalStateException("A JDK compiler is unavailable");
         DiagnosticCollector<JavaFileObject> diagnostics = new DiagnosticCollector<>();
-        JavacTask task = (JavacTask) compiler.getTask(null, null, diagnostics, List.of("-proc:none", "-Xlint:none"), null, List.of(new SourceFile(source)));
+        JavacTask task = (JavacTask) compiler.getTask(null, null, diagnostics,
+            List.of("--release", "17", "-proc:none", "-Xlint:none"), null, List.of(new SourceFile(source)));
         List<com.sun.source.tree.CompilationUnitTree> units = new ArrayList<>();
         task.parse().forEach(units::add);
         List<String> errors = diagnostics.getDiagnostics().stream()

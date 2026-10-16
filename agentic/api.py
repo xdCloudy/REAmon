@@ -1628,7 +1628,7 @@ async def refactor_reamon_java_source(body: ReamonJavaRefactorRequest):
             return {
                 "source_sha256": source_sha256,
                 "validation_status": fields[1],
-                "validation_method": f"javac-{parser_version}-parse",
+                "validation_method": f"javac-{parser_version}-release17-parse",
                 "validation_message": base64.b64decode(fields[2], validate=True).decode("utf-8"),
             }
         output_hash = ""

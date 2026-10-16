@@ -481,7 +481,7 @@ export async function POST(request: Request, { params }: RouteParams) {
           : await applySafeRenameBindings(workingSource, workingSourceSha256, selectedRenames)
     const runKey = segments.slice(0, 4).join('/')
     const validationMethod = isJava
-      ? `javac-${transformed.parserVersion}+java-scope-safe-rename`
+      ? `javac-${transformed.parserVersion}-release17+java-scope-safe-rename`
       : isCSharp
       ? `roslyn-${transformed.parserVersion}+csharp-scope-safe-rename`
       : isGo
@@ -517,7 +517,7 @@ export async function POST(request: Request, { params }: RouteParams) {
         status: 'SUCCEEDED',
         requestPayload: {
           operation: isJava ? 'javac-java-scope-safe-renames' : isCSharp ? 'roslyn-csharp-scope-safe-renames' : isGo ? 'go-types-scope-safe-renames' : isPython ? 'libcst-scope-safe-renames' : isLua ? 'luals-scope-safe-renames' : 'humanify-style-scope-safe-renames',
-          engine: isJava ? `JDK javac ${transformed.parserVersion} Trees/Element symbol identity` : isCSharp ? `Roslyn ${transformed.parserVersion} semantic model and symbol identity` : isGo ? `Go ${transformed.parserVersion} AST and go/types object identity` : isPython ? `LibCST ${transformed.parserVersion} ScopeProvider/RenameCommand` : isLua ? `LuaLS ${transformed.parserVersion} LSP rename + Tree-sitter Lua parse` : `Babel ${transformed.parserVersion} scope.rename (Humanify two-stage design)`,
+          engine: isJava ? `JDK javac ${transformed.parserVersion} --release 17 Trees/Element symbol identity` : isCSharp ? `Roslyn ${transformed.parserVersion} semantic model and symbol identity` : isGo ? `Go ${transformed.parserVersion} AST and go/types object identity` : isPython ? `LibCST ${transformed.parserVersion} ScopeProvider/RenameCommand` : isLua ? `LuaLS ${transformed.parserVersion} LSP rename + Tree-sitter Lua parse` : `Babel ${transformed.parserVersion} scope.rename (Humanify two-stage design)`,
           inputSha256: workingSourceSha256,
           artifactSourceSha256,
           inputSource: workingSource,
