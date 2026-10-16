@@ -13,6 +13,7 @@ import { CODE_UNIT_OBSERVATION_TYPE, MAINTAINED_SOURCE_OBSERVATION_SOURCE, MAINT
 
 interface RouteParams { params: Promise<{ id: string }> }
 const MAX_CODE_UNITS = 25_000
+const MAX_DRAFT_ROWS = 50_000
 const MAX_SOURCE_BYTES = 2 * 1024 * 1024
 const MAX_ARCHIVE_SOURCE_BYTES = 512 * 1024 * 1024
 
@@ -134,6 +135,69 @@ export async function GET(request: Request, { params }: RouteParams) {
       select: { id: true, artifactId: true, codeUnitId: true, reviewerId: true, decision: true, maintainedSourceHash: true, validationStatus: true, validationMethod: true, createdAt: true },
     }) : []
     const reviewById = new Map(reviews.map((review) => [review.id, review]))
+    const exportableMaintainedSources = maintainedSourceRows.filter((source) => {
+      if (!source.sourceHash || source.artifactId !== task.artifactId || !source.acceptedReviewId) return false
+      const receipt = reviewById.get(source.acceptedReviewId)
+      return receipt?.artifactId === task.artifactId
+        && receipt.codeUnitId === source.codeUnitId
+        && receipt.decision === 'ACCEPTED'
+        && receipt.maintainedSourceHash === source.sourceHash
+    })
+    const runKeyByUnit = new Map(codeUnits.map((unit) => {
+      const codeArtifactId = plainObject(unit.attributes).codeArtifactId
+      const segments = typeof codeArtifactId === 'string' ? codeArtifactId.split('/') : []
+      return [unit.id, segments.length >= 4 ? segments.slice(0, 4).join('/') : ''] as const
+    }))
+    const exportableUnitIds = [...new Set(exportableMaintainedSources.map((source) => source.codeUnitId))]
+    const exportableSourceHashes = [...new Set(exportableMaintainedSources.flatMap((source) => source.sourceHash ? [source.sourceHash] : []))]
+    // Check run keys after fetch so the two bounded IN lists stay below PostgreSQL's bind-parameter limit.
+    const draftRows = exportableUnitIds.length && exportableSourceHashes.length
+      ? await prisma.reamonCodeDraft.findMany({
+        where: {
+          projectId,
+          artifactId: task.artifactId,
+          codeUnitId: { in: exportableUnitIds },
+          scope: 'file',
+          draftHash: { in: exportableSourceHashes },
+        },
+        orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+        take: MAX_DRAFT_ROWS + 1,
+        select: {
+          id: true,
+          codeUnitId: true,
+          runKey: true,
+          sourceAttemptId: true,
+          sourceHash: true,
+          draftHash: true,
+          providerName: true,
+          modelIdentifier: true,
+          validationStatus: true,
+          validationMethod: true,
+          updatedAt: true,
+          sourceAttempt: {
+            select: {
+              id: true,
+              status: true,
+              resultSource: true,
+              validationStatus: true,
+              validationMethod: true,
+              completedAt: true,
+            },
+          },
+        },
+      })
+      : []
+    const draftSearchTruncated = draftRows.length > MAX_DRAFT_ROWS
+    const drafts = draftRows.slice(0, MAX_DRAFT_ROWS)
+    const draftByUnit = new Map<string, typeof drafts[number]>()
+    for (const draft of drafts) {
+      const maintainedSource = maintainedSourceByUnit.get(draft.codeUnitId)
+      if (!maintainedSource?.sourceHash
+          || draft.runKey !== runKeyByUnit.get(draft.codeUnitId)
+          || draft.draftHash !== maintainedSource.sourceHash
+          || draftByUnit.has(draft.codeUnitId)) continue
+      draftByUnit.set(draft.codeUnitId, draft)
+    }
     const storageRoot = await realpath(derivedArtifactRoot())
     const archive = archiver('zip', { zlib: { level: 6 } })
     const manifestEntries: Array<Record<string, unknown>> = []
@@ -249,6 +313,15 @@ export async function GET(request: Request, { params }: RouteParams) {
         && maintainedReceipt.codeUnitId === unit.id
         && maintainedReceipt.decision === 'ACCEPTED'
         && maintainedReceipt.maintainedSourceHash === maintainedSha256)
+      const maintainedDraft = draftByUnit.get(unit.id)
+      const attemptOutputSha256 = maintainedDraft?.sourceAttempt?.resultSource
+        ? createHash('sha256').update(maintainedDraft.sourceAttempt.resultSource).digest('hex')
+        : null
+      const maintainedAttemptMatchesDraft = Boolean(maintainedDraft?.sourceAttemptId
+        && maintainedDraft.sourceAttempt?.id === maintainedDraft.sourceAttemptId
+        && maintainedDraft.sourceAttempt.status === 'SUCCEEDED'
+        && attemptOutputSha256
+        && attemptOutputSha256 === maintainedDraft.draftHash)
 
       manifestEntries.push({
         unitId: unit.id,
@@ -273,6 +346,30 @@ export async function GET(request: Request, { params }: RouteParams) {
               ? 'mismatch'
               : maintainedSource?.acceptedReviewId && !reviewClient ? 'unavailable' : 'missing'
           : null,
+        maintainedDraftId: maintainedDraft?.id || null,
+        maintainedDraftStatus: maintainedStatus === 'exported'
+          ? maintainedDraft
+            ? maintainedDraft.draftHash === maintainedSha256 ? 'matches_exported_source' : 'hash_mismatch'
+            : draftSearchTruncated ? 'search_truncated' : 'missing'
+          : null,
+        maintainedDraftHash: maintainedDraft?.draftHash || null,
+        maintainedDraftInputHash: maintainedDraft?.sourceHash || null,
+        maintainedDraftProvider: maintainedDraft ? {
+          name: maintainedDraft.providerName,
+          model: maintainedDraft.modelIdentifier,
+        } : null,
+        maintainedDraftValidation: maintainedDraft ? {
+          status: maintainedDraft.validationStatus,
+          method: maintainedDraft.validationMethod,
+        } : null,
+        maintainedAttemptId: maintainedDraft?.sourceAttemptId || null,
+        maintainedAttemptOutputSha256: attemptOutputSha256,
+        maintainedAttemptMatchesDraft: maintainedDraft ? maintainedAttemptMatchesDraft : null,
+        maintainedAttemptValidation: maintainedDraft?.sourceAttempt ? {
+          status: maintainedDraft.sourceAttempt.validationStatus,
+          method: maintainedDraft.sourceAttempt.validationMethod,
+          completedAt: maintainedDraft.sourceAttempt.completedAt?.toISOString() || null,
+        } : null,
         ...(maintainedReceipt ? {
           maintainedReview: {
             reviewerId: maintainedReceipt.reviewerId,
@@ -300,7 +397,7 @@ export async function GET(request: Request, { params }: RouteParams) {
       '',
       'decompiled/ contains the analyzer output. maintained/ contains saved edited or AI-assisted copies when available.',
       'The two trees are kept separate; maintained source never overwrites the decompilation.',
-      'See manifest.json for artifact and file hashes, maintained-source receipt verification and validation metadata, missing files, and export status.',
+      'See manifest.json for artifact and file hashes, maintained-source receipt verification, matching draft and attempt lineage, validation metadata, missing files, and export status.',
       'This bundle does not include build scripts or dependencies. Review and build with the appropriate toolchain before relying on it.',
       '',
     ].join('\n')), { name: 'README.txt' })
@@ -320,6 +417,7 @@ export async function GET(request: Request, { params }: RouteParams) {
       codeUnitCount: codeUnits.length,
       decompiledFiles,
       maintainedFiles,
+      draftSearchTruncated,
       skippedFiles,
       sourceBytes: totalSourceBytes,
       files: manifestEntries,

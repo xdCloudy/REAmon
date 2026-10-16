@@ -135,10 +135,11 @@ Show separate counts for discovered, analyzed, decompiled, maintained, reviewed,
 validated units. The current source bundle records the input artifact hash, provider
 ID/version, per-file hashes, and maintained-source hashes; it checks each review
 receipt against the project, artifact, unit, accepted decision, and exact exported
-source hash. Continue by linking drafts and validator evidence to those hashes, then
-export a reproducible build or validation recipe where the selected toolchain supports
-one. Continue work from the saved project state rather than starting a fresh
-conversation with undocumented assumptions.
+source hash. It also links a same-run whole-file draft only when its output hash
+matches the exported maintained source, and checks any originating attempt output
+against that draft hash. Next, export a reproducible build or validation recipe where
+the selected toolchain supports one. Continue work from the saved project state
+rather than starting a fresh conversation with undocumented assumptions.
 
 ## Universal completion states
 
