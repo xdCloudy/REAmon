@@ -94,7 +94,7 @@ a starting point for review.
 | WebAssembly (`.wasm`) | **Low-level only** | WABT exposes WebAssembly text/disassembly (WAT) and function-level entries for navigation. | This is not a high-level source decompiler; names and original source structure may be absent. |
 | Source files with an available Tree-sitter grammar | **Source navigation only** | REAmon can build function/method outlines for supported grammars and use them to scope edits to a member. | Parsing source is not decompilation. Grammar availability and language-specific validation vary. |
 | Python bytecode (`.pyc`, `.pyo`) | **Early integration** | An isolated pycdc 0.6.0 provider stores reconstructed Python source and exposes it to the source outline and member-edit workflow. | This is not a source-equivalence guarantee. The upstream release claims support through Python 3.15, while its published verification covers 2.6–3.14. PyInstaller extraction and bytecode rebuild are not integrated. |
-| Lua bytecode (`.luac`) | **Early integration** | An isolated unluac provider reconstructs standard Lua 5.0–5.4 chunks; a separate provider handles LuaJIT chunks. | Stripped chunks may lose local names; complex control flow and custom VM variants may need extra work. Reconstructed source is not guaranteed to match the original. |
+| Lua bytecode (`.luac`) | **Early integration** | An isolated unluac provider reconstructs standard Lua 5.0–5.4 chunks; a separate provider handles LuaJIT chunks. | Stripped chunks may lose local names; complex control flow and custom VM variants may need extra work. Lua 5.5 and Luau bytecode are not integrated; unluac-rs is under evaluation. Reconstructed source is not guaranteed to match the original. |
 | Go native binaries | **Early integration** | Ghidra supplies address-aware C-like pseudocode; GoReSym recovers Go function names, packages, runtime version, and type metadata where available. Recovered names are joined to the same address-keyed functions and call graph stored for the project. | This does not reconstruct maintainable Go source. Optimizations and stripped metadata can still obscure names and types; the pseudocode remains an approximation. |
 | Kotlin, Rust, Swift, Objective-C, and native C++ recovery | **Partial now; language-aware improvements planned** | Native binaries can go through Ghidra’s generic pseudocode path when their architecture is supported. Kotlin bytecode can go through JADX’s Java output. | REAmon does not yet reliably reconstruct these languages’ original source idioms, metadata, or project structure. |
 | JavaScript bundles (`.js`, `.jsx`, `.mjs`, `.cjs`) | **Early integration** | webcrack unminifies code, reverses some obfuscator.io patterns, and extracts webpack / Browserify modules into indexed source units. | Output is reconstructed source, not guaranteed original source or behavior. REAmon runs the string-array decoder in an isolated V8 runtime with resource limits; fixture validation is still needed. |
@@ -122,6 +122,11 @@ in an isolated JVM analyzer. LuaJIT bytecode uses the MIT-licensed
 built for Linux from its pinned [Linux port](https://github.com/PackageInstaller/luajit-decompiler).
 These providers handle distinct bytecode formats; their output needs review and has
 no source-equivalence guarantee.
+The MIT-licensed [unluac-rs](https://github.com/x3zvawq/unluac-rs) project also
+advertises Lua 5.5, LuaJIT 2.1, and Luau support and exposes prototype and CFG
+metadata through its JavaScript/WASM API. It remains an evaluation candidate: require
+strict source generation and reject its diagnostic pseudocode before treating output
+as decompiled source.
 
 ## Current bootstrap
 
