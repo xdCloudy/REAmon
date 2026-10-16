@@ -258,7 +258,7 @@ export const ONBOARDING_PLAYBOOK: Record<string, PlaybookEntry> = {
       'recoveredVariables are Ghidra symbol evidence, not reviewed canonical names. Preserve the provider attribution and check recoveredVariablesTruncated before relying on a complete inventory.',
       'nameLocked and typeLocked only indicate that Ghidra constrained its own decompiler model to use a name or type; they do not prove original-source provenance or correctness.',
       'storageStartAddress marks where a symbol storage mapping begins, not necessarily an instruction that reads or writes the value; null means Ghidra reports storage valid across the whole function.',
-      'Saved drafts and maintained source are separate from decompiler output. Check the draft validation and maintained-source review receipt before treating an edit as accepted.',
+      'Saved drafts and maintained source are separate from decompiler output. Check the draft validation and exact-hash maintained-source review receipt before treating an edit as accepted. A Tree-sitter pass is structural evidence only; unavailable validation is no syntax claim.',
       'The draft source hash identifies its base decompilation; the draft output hash identifies its exact saved bytes. Older drafts may not have an output hash.',
     ],
     workflowRefs: ['inspect-workspace'],

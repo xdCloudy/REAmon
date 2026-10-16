@@ -868,7 +868,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     const acceptedReviewIds = [...new Set(symbolRecords.flatMap((row) => row.acceptedReviewId ? [row.acceptedReviewId] : []))]
     const acceptedReviews = acceptedReviewIds.length ? await prisma.reamonCodeReview.findMany({
       where: { projectId, id: { in: acceptedReviewIds }, decision: 'ACCEPTED' },
-      select: { id: true, artifactId: true, codeUnitId: true, maintainedSourceHash: true },
+      select: { id: true, artifactId: true, codeUnitId: true, maintainedSourceHash: true, validationStatus: true, validationMethod: true },
     }) : []
     const acceptedReviewById = new Map(acceptedReviews.map((review) => [review.id, review]))
     const trustedSymbolRecords = symbolRecords.filter((row) => {
@@ -886,12 +886,24 @@ export async function POST(request: Request, { params }: RouteParams) {
       select: { id: true, originalName: true, sha256: true },
     }) : []
     const artifactById = new Map(symbolArtifacts.map((artifactRow) => [artifactRow.id, artifactRow]))
-    const maintainedByUnitId = new Map(trustedRelatedRows.map((row) => [row.codeUnitId, row]))
-    const maintainedProjectContext = buildProjectSymbolContext(trustedSymbolRecords.map((row) => ({
-      ...row,
-      artifactName: artifactById.get(row.artifactId)?.originalName,
-      artifactHash: artifactById.get(row.artifactId)?.sha256,
-    })), new Set(relatedUnitIds), undefined, artifact.sha256, calleeUnitIds)
+    const maintainedByUnitId = new Map(trustedRelatedRows.map((row) => {
+      const receipt = row.acceptedReviewId ? acceptedReviewById.get(row.acceptedReviewId) : undefined
+      return [row.codeUnitId, {
+        ...row,
+        validationStatus: receipt?.validationStatus ?? null,
+        validationMethod: receipt?.validationMethod ?? null,
+      }] as const
+    }))
+    const maintainedProjectContext = buildProjectSymbolContext(trustedSymbolRecords.map((row) => {
+      const receipt = row.acceptedReviewId ? acceptedReviewById.get(row.acceptedReviewId) : undefined
+      return {
+        ...row,
+        artifactName: artifactById.get(row.artifactId)?.originalName,
+        artifactHash: artifactById.get(row.artifactId)?.sha256,
+        validationStatus: receipt?.validationStatus,
+        validationMethod: receipt?.validationMethod,
+      }
+    }), new Set(relatedUnitIds), undefined, artifact.sha256, calleeUnitIds)
     const selectedProviderRow = providerSymbolRows.find((row) => row.id === observation.id)
     const selectedProviderAttributes = selectedProviderRow ? plainObject(selectedProviderRow.attributes) : {}
     const selectedProviderVariables = selectedProviderRow
@@ -1173,8 +1185,11 @@ export async function POST(request: Request, { params }: RouteParams) {
           // A syntax outline is optional; use the accepted source if it is unavailable.
         }
         const source = utf8Prefix(methodExcerpt?.source || maintainedSource.sourceCode, MAX_CONTEXT_BYTES - contextBytes)
+        const validationEvidence = maintainedSource.validationStatus === 'PASSED'
+          ? `; syntax passed${maintainedSource.validationMethod ? ` via ${maintainedSource.validationMethod}` : ''} (structural evidence only)`
+          : maintainedSource.validationStatus === 'UNAVAILABLE' ? '; syntax validation unavailable' : ''
         contextSources.push({
-          unit_name: `${name}${similarityHint} (${isDirectCallee ? 'direct callee from this analysis run; ' : ''}saved maintained version: ${maintainedSource.unitName}${methodExcerpt ? `; syntax-outlined method source${methodExcerpt.ambiguous ? '; same-name candidates may be ambiguous' : ''}${methodExcerpt.truncated ? '; outline truncated' : ''}` : ''})`,
+          unit_name: `${name}${similarityHint} (${isDirectCallee ? 'direct callee from this analysis run; ' : ''}saved maintained version: ${maintainedSource.unitName}${validationEvidence}${methodExcerpt ? `; syntax-outlined method source${methodExcerpt.ambiguous ? '; same-name candidates may be ambiguous' : ''}${methodExcerpt.truncated ? '; outline truncated' : ''}` : ''})`,
           language: maintainedSource.language.slice(0, 80),
           source_code: source,
         })

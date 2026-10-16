@@ -115,7 +115,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       const reviewIds = [...new Set(symbolRows.flatMap((row) => row.acceptedReviewId ? [row.acceptedReviewId] : []))]
       const reviews = reviewIds.length ? await prisma.reamonCodeReview.findMany({
         where: { projectId, id: { in: reviewIds }, decision: 'ACCEPTED' },
-        select: { id: true, artifactId: true, codeUnitId: true, maintainedSourceHash: true },
+        select: { id: true, artifactId: true, codeUnitId: true, maintainedSourceHash: true, validationStatus: true, validationMethod: true },
       }) : []
       const reviewById = new Map(reviews.map((review) => [review.id, review]))
       const trustedRows = symbolRows.filter((row) => {
@@ -131,11 +131,16 @@ export async function POST(request: Request, { params }: RouteParams) {
         select: { id: true, originalName: true, sha256: true },
       }) : []
       const artifactById = new Map(artifacts.map((row) => [row.id, row]))
-      const projectSymbolContext = buildProjectSymbolContext(trustedRows.map((row) => ({
-        ...row,
-        artifactName: artifactById.get(row.artifactId)?.originalName,
-        artifactHash: artifactById.get(row.artifactId)?.sha256,
-      })), new Set(), 6_000)
+      const projectSymbolContext = buildProjectSymbolContext(trustedRows.map((row) => {
+        const receipt = row.acceptedReviewId ? reviewById.get(row.acceptedReviewId) : undefined
+        return {
+          ...row,
+          artifactName: artifactById.get(row.artifactId)?.originalName,
+          artifactHash: artifactById.get(row.artifactId)?.sha256,
+          validationStatus: receipt?.validationStatus,
+          validationMethod: receipt?.validationMethod,
+        }
+      }), new Set(), 6_000)
       const response = await agentFetch('/reamon/code/suggest-renames', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

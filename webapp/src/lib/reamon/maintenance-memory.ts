@@ -8,6 +8,8 @@ export interface MaintainedSymbolRecord {
   artifactId?: string
   artifactName?: string
   artifactHash?: string
+  validationStatus?: string | null
+  validationMethod?: string | null
 }
 
 export interface ProviderSymbolRecord {
@@ -140,7 +142,10 @@ export function buildProjectSymbolContext(
       ? `; ${currentArtifactHash && record.artifactHash === currentArtifactHash ? 'current' : 'other'} artifact ${artifactLabel}`
       : ''
     const relationship = calleeUnitIds.has(record.codeUnitId || '') ? '; direct callee' : ''
-    const line = `${record.unitName} (${record.language}${artifactVersion}${relationship}): ${symbols.join(', ')}`
+    const validation = record.validationStatus === 'PASSED'
+      ? `; syntax passed${record.validationMethod ? ` via ${record.validationMethod}` : ''} (structural evidence only)`
+      : record.validationStatus === 'UNAVAILABLE' ? '; syntax validation unavailable' : ''
+    const line = `${record.unitName} (${record.language}${artifactVersion}${relationship}${validation}): ${symbols.join(', ')}`
     if (length + line.length + 1 > maxChars) continue
     lines.push(line)
     includedUnits.add(identity)
