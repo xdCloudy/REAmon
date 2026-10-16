@@ -876,6 +876,7 @@ export async function POST(request: Request, { params }: RouteParams) {
             || (typeof providerAttributes.sourceLanguage === 'string' && providerAttributes.sourceLanguage)
             || 'unknown',
           address: typeof providerAttributes.address === 'string' ? providerAttributes.address : undefined,
+          prototype: typeof providerAttributes.prototype === 'string' ? providerAttributes.prototype : undefined,
           recoveredVariables: providerVariables.variables,
           recoveredVariablesTruncated: providerVariables.truncated
             || providerAttributes.recoveredVariablesTruncated === true,

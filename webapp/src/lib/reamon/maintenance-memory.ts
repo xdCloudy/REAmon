@@ -15,8 +15,13 @@ export interface ProviderSymbolRecord {
   unitName: string
   language: string
   address?: string
+  prototype?: string
   recoveredVariables: unknown
   recoveredVariablesTruncated?: boolean
+}
+
+function singleLine(value: string, maxLength: number): string {
+  return value.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, maxLength)
 }
 
 const declarationPatterns = [
@@ -146,7 +151,7 @@ export function buildProviderSymbolContext(
   provenance: { provider: string; artifactName: string; artifactHash: string; taskId: string; inputTruncated?: boolean },
   selectedUnitId?: string,
 ): string {
-  const header = `Provider-recovered names and types (provisional evidence; provider=${provenance.provider.slice(0, 120)}; artifact=${provenance.artifactName.slice(0, 160)}; sha256=${provenance.artifactHash.slice(0, 16)}; analysis=${provenance.taskId.slice(0, 128)}${provenance.inputTruncated ? '; related-unit selection capped' : ''}):`
+  const header = `Provider-recovered signatures, names, and types (provisional evidence; provider=${provenance.provider.slice(0, 120)}; artifact=${provenance.artifactName.slice(0, 160)}; sha256=${provenance.artifactHash.slice(0, 16)}; analysis=${provenance.taskId.slice(0, 128)}${provenance.inputTruncated ? '; related-unit selection capped' : ''}):`
   const ranked = records.map((record, index) => ({ record, index })).sort((left, right) => {
     const selectedRank = Number(right.record.codeUnitId === selectedUnitId) - Number(left.record.codeUnitId === selectedUnitId)
     if (selectedRank) return selectedRank
@@ -160,7 +165,10 @@ export function buildProviderSymbolContext(
   for (const { record } of ranked) {
     if (includedUnits.has(record.codeUnitId)) continue
     const { variables, truncated } = recoveredVariablesOf(record.recoveredVariables)
-    if (!variables.length) continue
+    const prototype = typeof record.prototype === 'string'
+      ? singleLine(record.prototype, 500)
+      : ''
+    if (!variables.length && !prototype) continue
     const address = record.address && /^[A-Za-z0-9:_-]{1,128}$/.test(record.address) ? ` @ ${record.address}` : ''
     const symbolList = variables.slice(0, 12).map((variable) => {
       const kind = variable.kind === 'parameter' ? `parameter ${variable.parameterIndex}` : 'local'
@@ -169,12 +177,14 @@ export function buildProviderSymbolContext(
         variable.typeLocked === undefined ? '' : `type ${variable.typeLocked ? 'locked' : 'unlocked'}`,
       ].filter(Boolean).join(', ')
       const size = variable.sizeBytes === undefined ? '' : `; ${variable.sizeBytes} B`
-      return `${kind}: ${variable.name.slice(0, 128)}: ${(variable.dataType || 'unknown type').slice(0, 128)}${size}${locks ? `; ${locks}` : ''}`
+      return `${kind}: ${singleLine(variable.name, 128)}: ${singleLine(variable.dataType || 'unknown type', 128)}${size}${locks ? `; ${locks}` : ''}`
     })
     const omitted = variables.length > symbolList.length || truncated || record.recoveredVariablesTruncated
       ? `; more symbols omitted${record.recoveredVariablesTruncated ? ' by analyzer limit' : ''}`
       : ''
-    const line = `${record.unitName.slice(0, 300)}${address} [${record.language.slice(0, 80)}]: ${symbolList.join('; ')}${omitted}`
+    const unitName = singleLine(record.unitName, 300)
+    const signature = prototype ? `signature: ${prototype}${symbolList.length ? '; ' : ''}` : ''
+    const line = `${unitName}${address} [${record.language.slice(0, 80)}]: ${signature}${symbolList.join('; ')}${omitted}`
     const lineBytes = Buffer.byteLength(line, 'utf8')
     if (length + lineBytes + 1 > maxBytes - 80) {
       omittedByContextLimit = true
