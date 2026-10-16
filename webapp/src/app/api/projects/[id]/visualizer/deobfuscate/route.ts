@@ -784,7 +784,11 @@ export async function POST(request: Request, { params }: RouteParams) {
         }
       }
     }
-    const references = [...new Set([...similarFunctionNames, ...relatedByName.keys()])]
+    const references = [...new Set([...similarFunctionNames, ...relatedByName.keys()])].sort((left, right) => {
+      const leftIsCallee = calleeUnitIds.has(relatedUnitIdByName.get(left) || '')
+      const rightIsCallee = calleeUnitIds.has(relatedUnitIdByName.get(right) || '')
+      return Number(rightIsCallee) - Number(leftIsCallee)
+    })
     const relatedUnitIds = [...new Set([...relatedUnitIdByName.values(), ...calleeUnitIds])]
     const providerRelatedUnitIds = [...new Set([
       ...calleeUnitIds,
@@ -1122,6 +1126,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       const expectedArtifactId = similarityPercent !== null ? similarArtifactByName.get(name) || artifact.id : artifact.id
       if (!belongsToArtifactRun(relatedArtifactId, projectId, expectedArtifactId)) continue
       const relatedUnitId = relatedUnitIdByName.get(name)
+      const isDirectCallee = Boolean(relatedUnitId && calleeUnitIds.has(relatedUnitId))
       const maintainedSource = relatedUnitId ? maintainedByUnitId.get(relatedUnitId) : undefined
       if (maintainedSource?.sourceCode.trim()) {
         let methodExcerpt: { source: string; ambiguous: boolean; truncated: boolean } | null = null
@@ -1132,7 +1137,7 @@ export async function POST(request: Request, { params }: RouteParams) {
         }
         const source = utf8Prefix(methodExcerpt?.source || maintainedSource.sourceCode, MAX_CONTEXT_BYTES - contextBytes)
         contextSources.push({
-          unit_name: `${name}${similarityHint} (saved maintained version: ${maintainedSource.unitName}${methodExcerpt ? `; syntax-outlined method source${methodExcerpt.ambiguous ? '; same-name candidates may be ambiguous' : ''}${methodExcerpt.truncated ? '; outline truncated' : ''}` : ''})`,
+          unit_name: `${name}${similarityHint} (${isDirectCallee ? 'direct callee from this analysis run; ' : ''}saved maintained version: ${maintainedSource.unitName}${methodExcerpt ? `; syntax-outlined method source${methodExcerpt.ambiguous ? '; same-name candidates may be ambiguous' : ''}${methodExcerpt.truncated ? '; outline truncated' : ''}` : ''})`,
           language: maintainedSource.language.slice(0, 80),
           source_code: source,
         })
@@ -1165,7 +1170,7 @@ export async function POST(request: Request, { params }: RouteParams) {
           if (start >= 0) relatedSource = lines.slice(start, end >= 0 ? end + 1 : Math.min(lines.length, start + 128)).join('\n')
         }
         contextSources.push({
-          unit_name: `${name}${similarityHint}${similarityPercent !== null && observation.source === 'reamon-dex-decompiler' && relatedSource !== source ? ` (syntax-outlined Java method source${relatedSource.includes('same-name candidate') ? '; overload candidates may be ambiguous' : ''}${relatedSource.includes('syntax outline truncated') ? '; outline truncated' : ''})` : ''}`,
+          unit_name: `${name}${similarityHint}${isDirectCallee ? ' (direct callee from this analysis run)' : ''}${similarityPercent !== null && observation.source === 'reamon-dex-decompiler' && relatedSource !== source ? ` (syntax-outlined Java method source${relatedSource.includes('same-name candidate') ? '; overload candidates may be ambiguous' : ''}${relatedSource.includes('syntax outline truncated') ? '; outline truncated' : ''})` : ''}`,
           language: smaliSimilarity ? 'Smali'
             : relatedAttributes?.language === 'IL' ? 'C#'
               : (typeof relatedAttributes?.language === 'string' ? relatedAttributes.language.slice(0, 80) : language),

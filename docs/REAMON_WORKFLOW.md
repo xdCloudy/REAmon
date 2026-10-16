@@ -38,8 +38,10 @@ Select a function or another maintainable unit. Provide the AI with:
 - prior attempts for this unit and any validation feedback.
 
 Context is read from the project database and capped. A similar function can suggest a
-search path, but it is never treated as behavioral proof. The AI must distinguish
-provider syntax from the binary's likely original language.
+search path, but it is never treated as behavioral proof. Exact-run direct-callee
+source snippets and accepted symbols are prioritized and labeled ahead of weaker
+look-alike context. The AI must distinguish provider syntax from the binary's likely
+original language.
 
 ### 5. Queue, claim, and work without collisions
 
