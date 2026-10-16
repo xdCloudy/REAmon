@@ -8,7 +8,7 @@ import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
 import { getActiveWorkspaceImportSelection } from '@/lib/reamon/inventory-query'
 import { derivedArtifactRoot, resolveDerivedArtifactPath } from '@/lib/reamon/derived-storage'
 import { MAINTAINED_SOURCE_OBSERVATION_SOURCE, MAINTAINED_SOURCE_OBSERVATION_TYPE } from '@/lib/reamon/code-units'
-import { extractMaintainedSymbols } from '@/lib/reamon/maintenance-memory'
+import { extractAcceptedRenameAliases, extractMaintainedSymbols } from '@/lib/reamon/maintenance-memory'
 import { validateJavaScriptSource } from '@/lib/reamon/webcrack'
 
 interface RouteParams { params: Promise<{ id: string; unitId: string }> }
@@ -191,7 +191,7 @@ export async function GET(request: Request, { params }: RouteParams) {
     const [savedSource, reviews] = await Promise.all([
       prisma.reamonMaintainedSource.findUnique({
         where: { projectId_codeUnitId: { projectId, codeUnitId: unitId } },
-        select: { sourceCode: true, updatedAt: true },
+        select: { sourceCode: true, sourceHash: true, acceptedReviewId: true, symbolIndex: true, updatedAt: true },
       }),
       prisma.reamonCodeReview.findMany({
         where: { projectId, codeUnitId: unitId },
@@ -212,7 +212,22 @@ export async function GET(request: Request, { params }: RouteParams) {
           },
         })
       }
-      return NextResponse.json({ exists: true, sourceCode: savedSource.sourceCode, sourceHash: createHash('sha256').update(savedSource.sourceCode).digest('hex'), updatedAt: savedSource.updatedAt.toISOString(), reviews: reviewHistory }, { headers: { 'Cache-Control': 'private, no-store' } })
+      const sourceHash = createHash('sha256').update(savedSource.sourceCode).digest('hex')
+      const acceptedReceipt = savedSource.acceptedReviewId ? await prisma.reamonCodeReview.findFirst({
+        where: {
+          id: savedSource.acceptedReviewId,
+          projectId,
+          artifactId: resolved.artifactId,
+          codeUnitId: unitId,
+          decision: 'ACCEPTED',
+          maintainedSourceHash: sourceHash,
+        },
+        select: { id: true },
+      }) : null
+      const acceptedRenameAliases = acceptedReceipt && savedSource.sourceHash === sourceHash
+        ? extractAcceptedRenameAliases(savedSource.symbolIndex)
+        : []
+      return NextResponse.json({ exists: true, sourceCode: savedSource.sourceCode, sourceHash, updatedAt: savedSource.updatedAt.toISOString(), reviews: reviewHistory, acceptedRenameAliases }, { headers: { 'Cache-Control': 'private, no-store' } })
     }
     if (!fileRealPath) return NextResponse.json({ exists: false, sourceCode: null }, { headers: { 'Cache-Control': 'private, no-store' } })
     const info = await stat(fileRealPath)

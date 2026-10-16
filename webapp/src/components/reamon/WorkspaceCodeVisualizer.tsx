@@ -131,6 +131,7 @@ interface CodeReviewRecord {
   validationMessage?: string | null
   createdAt: string
 }
+interface AcceptedRenameAlias { bindingId: string; oldName: string; newName: string; kind: string }
 interface CodeMemberOutline { name: string; kind: 'function' | 'method' | 'constructor'; start_byte: number; end_byte: number; line: number; source_bytes: number }
 interface SafeRenameProposal { bindingId: string; oldName: string; newName: string; kind: string; referenceCount: number; rationale: string }
 interface SafeRenameSuggestions { sourceSha256: string; providerId: string; providerName: string; model: string; candidates: number; renames: SafeRenameProposal[] }
@@ -889,7 +890,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
     queryFn: async ({ signal }) => {
       const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/maintained/${encodeURIComponent(selectedUnit?.id || '')}`, { signal, cache: 'no-store' })
       if (!response.ok) throw new Error('Unable to load the maintained source copy')
-      return response.json() as Promise<{ exists: boolean; sourceCode: string | null; sourceHash?: string | null; updatedAt?: string; reviews?: CodeReviewRecord[] }>
+      return response.json() as Promise<{ exists: boolean; sourceCode: string | null; sourceHash?: string | null; updatedAt?: string; reviews?: CodeReviewRecord[]; acceptedRenameAliases?: AcceptedRenameAlias[] }>
     },
     enabled: Boolean(selectedUnit && selectedSourceUrl),
     staleTime: 30_000,
@@ -2301,6 +2302,13 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
               {maintainedSaved && <span className={styles.savedStatus} role="status">Accepted source and review receipt saved separately</span>}
               {reviewStatus && <span className={styles.savedStatus} role="status">{reviewStatus}</span>}
             </div>
+            {(maintainedQuery.data?.acceptedRenameAliases?.length || 0) > 0 && <section className={styles.reviewHistory} aria-label="Accepted rename history">
+              <strong>Accepted project rename history</strong>
+              <p className={styles.message}>These binding-specific mappings came from a scope-safe rename attempt whose exact output was accepted. They are naming context, not proof of behavior.</p>
+              <ul>{maintainedQuery.data?.acceptedRenameAliases?.map((alias) => <li key={alias.bindingId}>
+                <code>{alias.oldName} → {alias.newName}</code><small>{alias.kind} · binding {alias.bindingId.slice(0, 8)}</small>
+              </li>)}</ul>
+            </section>}
             {(maintainedQuery.data?.reviews?.length || 0) > 0 && <section className={styles.reviewHistory} aria-label="Review history">
               <strong>Recent acceptance and rejection receipts</strong>
               <ol>{maintainedQuery.data?.reviews?.map((review) => <li key={review.id}>

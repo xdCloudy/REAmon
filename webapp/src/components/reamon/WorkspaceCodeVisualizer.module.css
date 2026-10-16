@@ -280,7 +280,7 @@ button.flowNode:hover, button.flowNode:focus-visible { border-color: #86c8ff; ou
 .reviewRationale { display: flex; width: 100%; flex-direction: column; gap: var(--space-2); margin-top: var(--space-3); color: var(--text-secondary); font-size: var(--text-xs); }
 .reviewRationale textarea { width: 100%; min-height: 72px; resize: vertical; border: 1px solid var(--border-default); border-radius: var(--radius-sm); padding: var(--space-3); background: #111722; color: var(--text-primary); font: inherit; }
 .reviewHistory { margin-top: var(--space-3); border-top: 1px solid var(--border-default); padding-top: var(--space-3); color: var(--text-secondary); font-size: var(--text-xs); }
-.reviewHistory ol { display: grid; gap: var(--space-2); margin: var(--space-2) 0 0; padding-left: 1.25rem; }
+.reviewHistory ol, .reviewHistory ul { display: grid; gap: var(--space-2); margin: var(--space-2) 0 0; padding-left: 1.25rem; }
 .reviewHistory li p { margin: var(--space-1) 0; color: var(--text-primary); }
 .reviewHistory code { overflow-wrap: anywhere; color: var(--text-secondary); font: .68rem/1.4 var(--font-mono); }
 .smaliEditor { display: grid; gap: var(--space-2); padding: var(--space-3); border-top: 1px solid var(--border-default); }

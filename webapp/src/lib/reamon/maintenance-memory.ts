@@ -12,7 +12,7 @@ export interface MaintainedSymbolRecord {
   validationMethod?: string | null
 }
 
-interface MaintainedSymbolAlias {
+export interface MaintainedSymbolAlias {
   bindingId: string
   oldName: string
   newName: string
@@ -40,6 +40,10 @@ function maintainedIndex(value: unknown): { symbols: string[]; aliases: Maintain
     return [{ bindingId: alias.bindingId.toLowerCase(), oldName: alias.oldName, newName: alias.newName, kind: alias.kind }]
   }).slice(0, 200) : []
   return { symbols, aliases }
+}
+
+export function extractAcceptedRenameAliases(value: unknown): MaintainedSymbolAlias[] {
+  return maintainedIndex(value).aliases
 }
 
 export interface ProviderSymbolRecord {
