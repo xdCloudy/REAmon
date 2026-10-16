@@ -10,6 +10,7 @@ const DEFAULT_TIMEOUT_MS = 20 * 60_000
 interface JadxResponse {
   status: 'completed'
   toolVersion: string
+  artifactSha256?: string
   apktoolVersion?: string | null
   apktoolProjectPath?: string | null
   apktoolProjectBytes?: number
@@ -20,7 +21,7 @@ interface JadxResponse {
   codeBytes?: number
   returnedUnits: number
   truncated: boolean
-  units: Array<{ name: string; relativePath: string; codeArtifactId: string; disassemblyArtifactId?: string; disassemblyLanguage?: string; unitType?: string; language?: string; sizeBytes: number; classReferences?: string[] }>
+  units: Array<{ name: string; relativePath: string; codeArtifactId: string; disassemblyArtifactId?: string; disassemblyLanguage?: string; unitType?: string; language?: string; sizeBytes: number; outputSha256?: string; classReferences?: string[] }>
   calls?: Array<{ fromRelativePath: string; toRelativePath: string; fromSignature: string; toSignature: string }>
   callGraphTruncated?: boolean
   methods?: Array<{ signature: string; relativePath: string; instructionMnemonics: string[] }>
@@ -115,6 +116,7 @@ export async function executeJadx(input: ToolExecutionInput): Promise<ToolResult
       && (unit.disassemblyLanguage === undefined || typeof unit.disassemblyLanguage === 'string')
       && (unit.unitType === undefined || typeof unit.unitType === 'string')
       && (unit.language === undefined || typeof unit.language === 'string')
+      && (unit.outputSha256 === undefined || (typeof unit.outputSha256 === 'string' && /^[a-f0-9]{64}$/i.test(unit.outputSha256)))
       && (unit.classReferences === undefined || (Array.isArray(unit.classReferences) && unit.classReferences.length <= 100 && unit.classReferences.every((name) => typeof name === 'string' && name.length <= 500))))
     if (!units.length) throw new Error('JADX and Apktool did not produce any viewable code or Android resources')
 
@@ -132,6 +134,12 @@ export async function executeJadx(input: ToolExecutionInput): Promise<ToolResult
         relativePath: unit.relativePath.slice(0, 1000),
         decompiled: true,
         codeArtifactId: unit.codeArtifactId.slice(0, 2000),
+        ...(typeof payload.artifactSha256 === 'string' && /^[a-f0-9]{64}$/i.test(payload.artifactSha256)
+          ? { inputArtifactSha256: payload.artifactSha256.toLowerCase() }
+          : {}),
+        ...(typeof unit.outputSha256 === 'string' && /^[a-f0-9]{64}$/i.test(unit.outputSha256)
+          ? { decompiledSourceSha256: unit.outputSha256.toLowerCase() }
+          : {}),
         ...(unit.disassemblyArtifactId ? { disassemblyArtifactId: unit.disassemblyArtifactId.slice(0, 2000) } : {}),
         ...(unit.disassemblyLanguage ? { disassemblyLanguage: unit.disassemblyLanguage.slice(0, 80) } : {}),
         ...(unit.classReferences?.length ? { classReferences: JSON.stringify(unit.classReferences) } : {}),

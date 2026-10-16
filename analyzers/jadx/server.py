@@ -500,6 +500,11 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
     project_id, artifact_id = safe_id(body.get("projectId")), safe_id(body.get("artifactId"))
     task_id, run_id = safe_id(body.get("taskId")), safe_id(body.get("runId"))
     input_path = resolve_input(body.get("artifactPath"))
+    input_digest = hashlib.sha256()
+    with input_path.open("rb") as input_file:
+        for chunk in iter(lambda: input_file.read(1024 * 1024), b""):
+            input_digest.update(chunk)
+    input_sha256 = input_digest.hexdigest()
     run_root = (DERIVED_ROOT / project_id / artifact_id / task_id / run_id).resolve()
     try:
         run_root.relative_to(DERIVED_ROOT)
@@ -617,9 +622,10 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                     destination = sources_root / relative
                     destination.parent.mkdir(parents=True, exist_ok=True)
                     destination.write_bytes(raw)
+                    output_sha256 = hashlib.sha256(raw).hexdigest()
                     units.append({"name": name[:500], "relativePath": relative.as_posix()[:1000],
                                   "codeArtifactId": destination.relative_to(DERIVED_ROOT).as_posix(), "sizeBytes": len(raw),
-                                  "unitType": "class", "language": "Java"})
+                                  "unitType": "class", "language": "Java", "outputSha256": output_sha256})
                 units.sort(key=lambda unit: str(unit["relativePath"]).casefold())
                 dex_file_paths = dex_inputs(input_path)
                 smali_total_bytes = 0
@@ -752,7 +758,8 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                 resource_count = sum(unit.get("unitType") == "resource" for unit in units)
                 truncated = source_scan_truncated or resource_scan_truncated or len(units) > len(returned) or call_graph_truncated or method_features_truncated
                 class_count = sum(unit.get("unitType") != "resource" for unit in units)
-                return {"status": "completed", "toolVersion": "1.5.6", "apktoolVersion": "3.0.3" if input_path.suffix.lower() == ".apk" else None,
+                return {"status": "completed", "toolVersion": "1.5.6", "artifactSha256": input_sha256,
+                        "apktoolVersion": "3.0.3" if input_path.suffix.lower() == ".apk" else None,
                         "apktoolProjectPath": apktool_project_path, "apktoolProjectBytes": apktool_project_bytes,
                         "classCount": None if source_scan_truncated else class_count,
                         "resourceCount": None if resource_scan_truncated else resource_count,
