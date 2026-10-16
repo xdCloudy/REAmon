@@ -66,7 +66,7 @@ export async function GET(request: Request, { params }: RouteParams) {
         select: { id: true, stableKey: true, label: true, source: true, artifactId: true, updatedAt: true, attributes: true },
       })
       if (rows.length === 0) break
-      codeUnitCount += rows.length
+      const validRows: typeof rows = []
       for (const row of rows) {
         const unit = normalizeCodeUnit({
           id: row.id,
@@ -78,6 +78,7 @@ export async function GET(request: Request, { params }: RouteParams) {
           attributes: row.attributes || {},
         })
         if (!unit) continue
+        validRows.push(row)
         codeBytes += unit.sizeBytes
         if (unit.artifactId && unit.codeArtifactId) sourceLinkedUnitCount += 1
         if (unit.coveragePercent !== null) {
@@ -85,20 +86,21 @@ export async function GET(request: Request, { params }: RouteParams) {
           decompiledBytes += unit.sizeBytes * (unit.coveragePercent / 100)
         }
       }
+      codeUnitCount += validRows.length
       const maintained = await prisma.reamonObservation.findMany({
         where: {
           projectId,
           source: MAINTAINED_SOURCE_OBSERVATION_SOURCE,
           type: MAINTAINED_SOURCE_OBSERVATION_TYPE,
           artifact: { is: selection.artifactWhere },
-          stableKey: { in: rows.map((row) => row.id) },
+          stableKey: { in: validRows.map((row) => row.id) },
         },
         select: { stableKey: true },
       })
       maintainedUnitCount += maintained.length
 
-      const unitIds = rows.map((row) => row.id)
-      const artifactIds = [...new Set(rows.flatMap((row) => row.artifactId ? [row.artifactId] : []))]
+      const unitIds = validRows.map((row) => row.id)
+      const artifactIds = [...new Set(validRows.flatMap((row) => row.artifactId ? [row.artifactId] : []))]
       const maintainedSources = unitIds.length && artifactIds.length ? await prisma.reamonMaintainedSource.findMany({
         where: { projectId, codeUnitId: { in: unitIds }, artifactId: { in: artifactIds } },
         select: { codeUnitId: true, artifactId: true, sourceHash: true, acceptedReviewId: true },
@@ -109,7 +111,7 @@ export async function GET(request: Request, { params }: RouteParams) {
         select: { id: true, codeUnitId: true, artifactId: true, maintainedSourceHash: true },
       }) : []
       const reviewById = new Map(reviewRows.map((review) => [review.id, review]))
-      const runKeyByUnit = new Map(rows.map((row) => [row.id, runKeyFor(row.attributes)]))
+      const runKeyByUnit = new Map(validRows.map((row) => [row.id, runKeyFor(row.attributes)]))
       const reviewedSources = maintainedSources.filter((source) => {
         if (!source.sourceHash || !source.acceptedReviewId) return false
         const review = reviewById.get(source.acceptedReviewId)
