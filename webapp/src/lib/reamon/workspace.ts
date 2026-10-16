@@ -7,6 +7,7 @@ import { listWorkerHealth } from './worker-health'
 import type { TargetProfile, WorkspaceImportSnapshot, WorkspaceObservation } from './types'
 import type { WorkspaceImportComparison } from './imports'
 import { buildLegacyCompatibilityReport } from './legacy-compat'
+import { hasToCodeExport } from './tocode-import'
 
 export const WORKSPACE_ARTIFACT_PREVIEW_LIMIT = 500
 
@@ -265,6 +266,9 @@ export async function getWorkspaceSnapshot(projectId: string) {
           .filter((relativePath) => relativePath && !uploaded.has(relativePath))
           .slice(0, 200),
         profile: workspaceImport.rootTarget?.profile as WorkspaceImportSnapshot['profile'],
+        hasToCodeExport: hasToCodeExport(workspaceImport.artifacts.map((artifact) => artifact.relativePath)),
+        toCodeIndexed: Boolean(workspaceImport.metadata && typeof workspaceImport.metadata === 'object' && !Array.isArray(workspaceImport.metadata)
+          && (workspaceImport.metadata as { toCodeIndex?: { status?: unknown } }).toCodeIndex?.status === 'COMPLETED'),
         comparison: workspaceImport.metadata && typeof workspaceImport.metadata === 'object' && !Array.isArray(workspaceImport.metadata)
           ? (workspaceImport.metadata as { comparison?: WorkspaceImportComparison }).comparison || null
           : null,

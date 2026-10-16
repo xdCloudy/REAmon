@@ -76,7 +76,7 @@ license and integration constraints documented before adoption.
 | [Reference portfolio](docs/REAMON_REFERENCE_PORTFOLIO.md) | Reusable projects, why they matter, what REAmon should adapt, priorities, and constraints. |
 | [Architecture](docs/REAMON_ARCHITECTURE.md) | Workspace model, system boundaries, and persistence design. |
 | [Upstream reuse](docs/REAMON_UPSTREAM_REUSE.md) | Audited reuse candidates, licenses, and integration decisions. |
-| [ToCode adapter proposal](docs/REAMON_TOCODE_ADAPTER.md) | Source-audited design for importing ToCode's structured multi-binary exports into REAmon's database and visualizer. |
+| [ToCode export adapter](docs/REAMON_TOCODE_ADAPTER.md) | Source-audited design and current status for indexing ToCode exports into REAmon's database and visualizer. |
 | [Migration](docs/REAMON_MIGRATION.md) | Migration status and compatibility approach from RedAmon. |
 | [Release runbook](docs/REAMON_RELEASE_RUNBOOK.md) | Release and operational procedures. |
 

@@ -1,8 +1,8 @@
-# ToCode export adapter proposal
+# ToCode export adapter
 
-**Status:** design evaluated; not integrated.
+**Status:** first import-indexing slice integrated; broader validation remains open.
 
-This proposal adapts [ToCode](https://github.com/buzzer-re/ToCode)'s structured
+This adapter consumes [ToCode](https://github.com/buzzer-re/ToCode)'s structured
 binary export into REAmon's existing project database. ToCode's MIT-licensed CLI
 produces native C-like pseudocode and assembly, Java for APKs, C# and IL for .NET,
 per-unit summaries, and structured metadata. Its folder mode also links binaries
@@ -39,25 +39,25 @@ assuming every `functions.json` is the native shape.
 
 ## Integration shape
 
-1. Add a workspace-import capability, because ToCode's folder mode consumes a set of
-   binaries and emits cross-file relationships. A normal file provider receives one
-   artifact path; do not disguise a multi-binary export as a single-binary analysis.
-2. Scope the run to one completed `WorkspaceImport`. The worker receives only that
-   import's immutable artifact IDs, relative paths, hashes, and storage paths. The
-   analyzer validates every resolved path under the read-only artifact volume, builds
-   a bounded temporary directory, and runs the pinned ToCode release in isolation.
-3. Persist results through the existing task and observation ingestion lifecycle. Keep
-   ToCode and selected backend versions, input hashes, warnings, truncation, and
-   unresolved relationship counts with the task. Store source files as derived output
-   with provenance to the exact imported artifacts.
-4. Make backend choice explicit. Start with the permissive angr fallback; do not
-   silently discover or use IDA, Binary Ninja, or radare2 installations. Audit the
-   pinned ToCode dependency lock and each backend's license/availability before
-   packaging.
-5. Compare a native multi-binary fixture with Ghidra plus REAmon's ELF dependency
-   analysis. Confirm exact input-to-export hash mapping, call/import endpoint
-   resolution, code-unit navigation, cancellation, restart behavior, and output caps
-   before enabling it by default.
+The current workspace action detects completed ToCode exports, indexes functions,
+copies bounded referenced source files into REAmon's derived-artifact storage, and
+persists code-unit and call observations through REAmon's task/evidence lifecycle.
+Folder-level `mappings.json` links are resolved against the importer and target export
+directories represented in the same immutable workspace import. Repeated requests
+reuse the existing index task. This slice imports existing ToCode output; it does not
+install or run ToCode itself.
+
+Remaining integration work:
+
+1. Add input-hash-to-export provenance checks for original binaries and preserve the
+   ToCode/backend versions and unresolved-link counts at the right level.
+2. Expand mapping of APK and .NET specialized fields, types, imports, exports, and
+   reachability without flattening provider evidence into canonical facts.
+3. Add representative fixtures and verify cross-binary endpoint resolution, visualizer
+   navigation, repeated imports, partial exports, and output limits.
+4. If REAmon later runs ToCode, build that as a separately isolated workspace task with
+   explicit backend choice; do not silently discover or invoke local reverse-engineering
+   tools.
 
 ## Boundaries and acceptance
 
@@ -66,11 +66,9 @@ behavior. APK Java and .NET output overlap existing JADX and ILSpy integrations;
 those providers and their resource/rebuild workflows intact. Imported names, types,
 and call links remain provider-scoped until independently corroborated or reviewed.
 
-The adapter is ready for wider use only when it imports one complete ToCode folder
-export without relying on path names alone, records every resolved input hash and
-provider version, retains imported originals, exposes per-unit source and relationships
-in the visualizer, reports partial/truncated exports accurately, and has fixture
-results for the supported ToCode release and backend.
+The current feature is an early import path, not a claim of production-ready ToCode
+coverage. Wider use depends on hash-backed provenance, fixture results for supported
+export formats, and accurate partial/truncation reporting.
 
 ## Source audit
 

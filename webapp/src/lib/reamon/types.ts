@@ -240,6 +240,8 @@ export interface WorkspaceImportSnapshot {
   completedAt: string | null
   rootTargetId: string | null
   missingPaths: string[]
+  hasToCodeExport: boolean
+  toCodeIndexed: boolean
   profile: WorkspaceProfile | null
   comparison: WorkspaceImportComparison | null
 }

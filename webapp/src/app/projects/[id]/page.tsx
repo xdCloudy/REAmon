@@ -8,6 +8,7 @@ import { WorkspaceFileTree } from '@/components/reamon/WorkspaceFileTree'
 import { WorkspaceImportPanel } from '@/components/reamon/WorkspaceImportPanel'
 import { WorkspaceAnalysisPlanPanel, type WorkspaceAnalysisPlan } from '@/components/reamon/WorkspaceAnalysisPlan'
 import { WorkspaceDecompilationAction } from '@/components/reamon/WorkspaceDecompilationAction'
+import { ToCodeImportAction } from '@/components/reamon/ToCodeImportAction'
 import { WorkspaceTaskList } from '@/components/reamon/WorkspaceTaskList'
 import { WorkspaceFindingList } from '@/components/reamon/WorkspaceFindingList'
 import { WorkspaceCodeVisualizer } from '@/components/reamon/WorkspaceCodeVisualizer'
@@ -116,7 +117,7 @@ function WorkspaceProfileCard({ profile }: { profile: WorkspaceProfile | null })
   )
 }
 
-function ImportStatus({ latestImport }: { latestImport: WorkspaceImportSnapshot | undefined }) {
+function ImportStatus({ latestImport, projectId, onChanged }: { latestImport: WorkspaceImportSnapshot | undefined; projectId: string; onChanged?: () => void }) {
   if (!latestImport) return null
   const percent = latestImport.totalBytes ? Math.round((latestImport.uploadedBytes / latestImport.totalBytes) * 100) : latestImport.totalFiles ? Math.round((latestImport.completedFiles / latestImport.totalFiles) * 100) : 0
   return (
@@ -127,6 +128,10 @@ function ImportStatus({ latestImport }: { latestImport: WorkspaceImportSnapshot 
       {latestImport.comparison && <p className={styles.muted}>{latestImport.comparison.mode === 'HASH' ? 'Authoritative refresh' : 'Manifest refresh'}: +{latestImport.comparison.addedCount} added · {latestImport.comparison.changedCount} changed · {latestImport.comparison.removedCount} removed · {latestImport.comparison.unchangedCount} unchanged.</p>}
       {latestImport.missingPaths.length > 0 && <p className={styles.uploadError}>{latestImport.missingPaths.length} file paths still need upload. Retry the import to resume.</p>}
       {latestImport.errorSummary && <p className={styles.uploadError}>{latestImport.errorSummary}</p>}
+      {latestImport.status === 'COMPLETED' && latestImport.hasToCodeExport && <div className={styles.profileWide}>
+        <div><strong>ToCode export found</strong><p className={styles.muted}>Index recovered functions and call relationships into the project database and code visualizer.</p></div>
+        <ToCodeImportAction projectId={projectId} importId={latestImport.id} indexed={latestImport.toCodeIndexed} onChanged={onChanged} />
+      </div>}
     </div>
   )
 }
@@ -219,7 +224,10 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
         void queryClient.invalidateQueries({ queryKey: ['reamon-analysis-plan', projectId] })
         void queryClient.invalidateQueries({ queryKey: ['reamon-code-units', projectId] })
       }} />
-      <ImportStatus latestImport={latestImport} />
+      <ImportStatus latestImport={latestImport} projectId={projectId} onChanged={() => {
+        void queryClient.invalidateQueries({ queryKey: ['reamon-workspace', projectId] })
+        void queryClient.invalidateQueries({ queryKey: ['reamon-code-units', projectId] })
+      }} />
       {hasDecompilableArtifact && <aside className={styles.analysisNextStep} id="analysis-next-step">
         <div><strong>{hasPartialDecompilation && returnedClassCount !== null ? discoveredClassCount !== null && !sourceScanLimited ? `Previous run indexed ${returnedClassCount.toLocaleString()} of ${discoveredClassCount.toLocaleString()} Java classes.` : `At least ${returnedClassCount.toLocaleString()} Java classes indexed; the total is unknown.` : decompileTask?.status === 'AWAITING_APPROVAL' ? 'Decompilation is waiting for approval.' : decompileTask?.status === 'QUEUED' ? 'Decompilation is queued.' : decompileTask?.status === 'RUNNING' ? 'Decompilation is running.' : decompileTask?.status === 'COMPLETED' ? 'Decompilation run finished.' : decompileTask?.status === 'FAILED' ? 'Decompilation failed.' : decompileTask?.status === 'CANCELLED' ? 'Decompilation was cancelled.' : 'Import complete; decompilation has not started.'}</strong><p>{hasPartialDecompilation ? 'This run did not index every code unit. A new run uses current analyzer settings, up to 20,000 classes; larger targets can still be partial. This performs static decompilation; it does not launch the Android app.' : decompileTask?.status === 'AWAITING_APPROVAL' ? 'Approve this task under Tasks and findings, then choose Run.' : decompileTask?.status === 'QUEUED' ? 'The approved task is ready. Choose Run under Tasks and findings.' : decompileTask?.status === 'RUNNING' ? decompileTask.progressMessage || 'The isolated analyzer is processing the imported artifact.' : decompileTask?.status === 'COMPLETED' ? 'Review indexed coverage and any truncation warnings in the visualizer below. Start another run to refresh the results.' : decompileTask ? 'Review the task details below, or start a fresh analysis attempt.' : 'Choose Run decompilation to start the matching isolated analyzer for this imported artifact. This performs static analysis; it does not launch the Android app.'}</p></div>
         {!decompilationTaskActive && decompileProposal && <WorkspaceDecompilationAction projectId={projectId} artifactId={decompileProposal.artifactId} providerId={decompileProposal.provider.pluginId} hasPreviousRun={Boolean(decompileTask)} onPendingChange={setDecompilationActionPending} onChanged={() => {
