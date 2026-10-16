@@ -236,6 +236,7 @@ export async function GET(request: Request, { params }: RouteParams) {
         unitId: unit.id,
         name: attributes.qualifiedName || attributes.name || unit.label || unit.stableKey,
         language: attributes.language || 'unknown',
+        engineVersion: typeof attributes.engineVersion === 'string' ? attributes.engineVersion : null,
         originalDecompiledPath: originalPath,
         decompiledPath: decompiledStatus === 'exported' ? decompiledPath : null,
         decompiledStatus,
