@@ -10,8 +10,72 @@ interface Lua55Response {
   toolVersion: string
   input: { relativePath: string; sha256: string }
   unit: { name: string; relativePath: string; codeArtifactId: string; sizeBytes: number }
+  functions: Lua55FunctionMetadata[]
+  protoCount: number
+  metadataTruncated: boolean
   codeBytes: number
   warnings?: string
+}
+
+interface Lua55FunctionMetadata {
+  protoId: number
+  name: string | null
+  lineStart: number
+  lineEnd: number
+  numParams: number
+  isVararg: boolean
+  numUpvalues: number
+  numConstants: number
+  numInstructions: number
+  children: number[]
+  constants: Array<{ index: number; type: string; display: string }>
+  cfg: {
+    entryBlock: number
+    exitBlock: number
+    blockCount: number
+    edgeCount: number
+    blockOrder: number[]
+    blocks: Array<{ id: number; kind: string; instructionCount: number; rawInstructionCount: number }>
+    edges: Array<{ from: number; to: number; kind: string }>
+  }
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+}
+
+function isFunctionMetadata(value: unknown): value is Lua55FunctionMetadata {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const proto = value as Record<string, unknown>
+  const cfg = proto.cfg
+  if (!cfg || typeof cfg !== 'object' || Array.isArray(cfg)) return false
+  const graph = cfg as Record<string, unknown>
+  return isNonNegativeInteger(proto.protoId)
+    && (proto.name === null || (typeof proto.name === 'string' && proto.name.length <= 500))
+    && isNonNegativeInteger(proto.lineStart) && isNonNegativeInteger(proto.lineEnd)
+    && isNonNegativeInteger(proto.numParams) && typeof proto.isVararg === 'boolean'
+    && isNonNegativeInteger(proto.numUpvalues) && isNonNegativeInteger(proto.numConstants)
+    && isNonNegativeInteger(proto.numInstructions)
+    && Array.isArray(proto.children) && proto.children.length <= 100 && proto.children.every(isNonNegativeInteger)
+    && Array.isArray(proto.constants) && proto.constants.length <= 8
+    && proto.constants.every((constant) => !!constant && typeof constant === 'object' && !Array.isArray(constant)
+      && isNonNegativeInteger((constant as Record<string, unknown>).index)
+      && typeof (constant as Record<string, unknown>).type === 'string'
+      && typeof (constant as Record<string, unknown>).display === 'string')
+    && isNonNegativeInteger(graph.entryBlock) && isNonNegativeInteger(graph.exitBlock)
+    && isNonNegativeInteger(graph.blockCount) && isNonNegativeInteger(graph.edgeCount)
+    && Array.isArray(graph.blockOrder) && graph.blockOrder.length <= 32 && graph.blockOrder.every(isNonNegativeInteger)
+    && Array.isArray(graph.blocks) && graph.blocks.length <= 32
+    && graph.blocks.every((block) => !!block && typeof block === 'object' && !Array.isArray(block)
+      && isNonNegativeInteger((block as Record<string, unknown>).id)
+      && typeof (block as Record<string, unknown>).kind === 'string'
+      && isNonNegativeInteger((block as Record<string, unknown>).instructionCount)
+      && isNonNegativeInteger((block as Record<string, unknown>).rawInstructionCount))
+    && Array.isArray(graph.edges) && graph.edges.length <= 48
+    && graph.edges.every((edge) => !!edge && typeof edge === 'object' && !Array.isArray(edge)
+      && isNonNegativeInteger((edge as Record<string, unknown>).from)
+      && isNonNegativeInteger((edge as Record<string, unknown>).to)
+      && typeof (edge as Record<string, unknown>).kind === 'string')
 }
 
 export const unluacRsManifest: ToolPluginManifest = {
@@ -45,6 +109,7 @@ function isResponse(value: unknown): value is Lua55Response {
   const input = response.input as Record<string, unknown>
   if (!response.unit || typeof response.unit !== 'object' || Array.isArray(response.unit)) return false
   const unit = response.unit as Record<string, unknown>
+  const functions = response.functions
   return response.status === 'completed'
     && typeof response.toolVersion === 'string' && response.toolVersion.length <= 80
     && typeof input.relativePath === 'string' && input.relativePath.length > 0 && input.relativePath.length <= 1_000
@@ -54,6 +119,9 @@ function isResponse(value: unknown): value is Lua55Response {
     && typeof unit.relativePath === 'string' && unit.relativePath.length > 0 && unit.relativePath.length <= 1_000
     && typeof unit.codeArtifactId === 'string' && unit.codeArtifactId.length > 0 && unit.codeArtifactId.length <= 2_000
     && typeof unit.sizeBytes === 'number' && Number.isSafeInteger(unit.sizeBytes) && unit.sizeBytes > 0
+    && Array.isArray(functions) && functions.length <= 100 && functions.every(isFunctionMetadata)
+    && Number.isSafeInteger(response.protoCount) && (response.protoCount as number) >= functions.length
+    && typeof response.metadataTruncated === 'boolean'
     && (response.warnings === undefined || typeof response.warnings === 'string')
 }
 
@@ -118,6 +186,67 @@ export async function executeUnluacRs(input: ToolExecutionInput): Promise<ToolRe
         engineVersion: payload.toolVersion,
       },
     }]
+    const functions = payload.functions.filter((proto) => proto.protoId > 0)
+    const functionKeys = new Map<number, string>()
+    for (const proto of functions) {
+      const functionKey = `unluac-rs:function:${createHash('sha256').update(`${identity}:proto:${proto.protoId}`).digest('hex').slice(0, 32)}`
+      functionKeys.set(proto.protoId, functionKey)
+      const protoName = `proto_${proto.protoId}`
+      const constants = JSON.stringify(proto.constants)
+      const controlFlowGraph = JSON.stringify({
+        entryBlock: proto.cfg.entryBlock,
+        exitBlock: proto.cfg.exitBlock,
+        blockCount: proto.cfg.blockCount,
+        edgeCount: proto.cfg.edgeCount,
+        blocks: proto.cfg.blocks.map((block) => [block.id, block.kind, block.instructionCount, block.rawInstructionCount]),
+        edges: proto.cfg.edges.map((edge) => [edge.from, edge.to, edge.kind]),
+      })
+      observations.push({
+        kind: 'entity',
+        type: 'function',
+        key: functionKey,
+        label: `Lua prototype ${proto.protoId}`,
+        attributes: {
+          identity: `${identity}:proto:${proto.protoId}`,
+          name: protoName,
+          qualifiedName: `${unit.name}::${protoName}`,
+          address: `proto:${proto.protoId}`,
+          language: 'Lua',
+          memberKind: 'function',
+          parentCodeUnitKey: key,
+          codeArtifactId: unit.codeArtifactId,
+          engineVersion: payload.toolVersion,
+          debugSourceName: proto.name,
+          debugLineStart: proto.lineStart,
+          debugLineEnd: proto.lineEnd,
+          parameterCount: proto.numParams,
+          isVararg: proto.isVararg,
+          upvalueCount: proto.numUpvalues,
+          constantCount: proto.numConstants,
+          instructionCount: proto.numInstructions,
+          childProtoIds: JSON.stringify(proto.children),
+          constants,
+          controlFlowGraph,
+        },
+      })
+    }
+    for (const proto of functions) {
+      const parentKey = functionKeys.get(proto.protoId)
+      if (!parentKey) continue
+      for (const childProtoId of proto.children) {
+        const childKey = functionKeys.get(childProtoId)
+        if (!childKey) continue
+        observations.push({
+          kind: 'relationship',
+          type: 'contains',
+          key: `unluac-rs:contains:${createHash('sha256').update(identity).digest('hex').slice(0, 24)}:${proto.protoId}:${childProtoId}`,
+          relation: 'contains',
+          fromKey: parentKey,
+          toKey: childKey,
+          attributes: { engineVersion: payload.toolVersion, relationshipEvidence: 'Lua prototype child table' },
+        })
+      }
+    }
     return {
       status: 'completed',
       ...base,
@@ -125,6 +254,9 @@ export async function executeUnluacRs(input: ToolExecutionInput): Promise<ToolRe
         observations,
         decompiledModuleCount: 1,
         returnedModuleCount: 1,
+        discoveredPrototypeCount: payload.protoCount,
+        returnedFunctionCount: functions.length,
+        functionMetadataTruncated: payload.metadataTruncated || payload.protoCount > payload.functions.length,
         codeBytes: payload.codeBytes,
         truncated: false,
         toolVersion: payload.toolVersion,

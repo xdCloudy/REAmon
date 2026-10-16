@@ -103,7 +103,9 @@ function runDecompiler(bytes, signal) {
       finish(reject, new AnalysisError(`Lua decompilation exceeded the ${TIMEOUT_MS / 1000} second limit`))
     }, TIMEOUT_MS)
     worker.once('message', (message) => {
-      if (message?.ok && typeof message.source === 'string') finish(resolve, message.source)
+      if (message?.ok && typeof message.source === 'string' && Array.isArray(message.functions)
+        && message.functions.length <= 100 && Number.isSafeInteger(message.protoCount)
+        && message.protoCount >= message.functions.length && typeof message.metadataTruncated === 'boolean') finish(resolve, message)
       else finish(reject, new AnalysisError(typeof message?.error === 'string' ? message.error.slice(0, 1000) : 'Lua bytecode could not be decompiled'))
     })
     worker.once('error', (error) => finish(reject, error))
@@ -128,7 +130,8 @@ async function analyze(body, signal) {
   const relativePath = body.artifactRelativePath.replaceAll('\\', '/')
   const bytes = await readFile(input.candidate)
   if (bytes.length > MAX_INPUT_BYTES) throw new AnalysisError('Lua bytecode size is outside the configured limit')
-  const source = await runDecompiler(bytes, signal)
+  const decompilation = await runDecompiler(bytes, signal)
+  const source = decompilation.source
   const sourceBytes = Buffer.byteLength(source, 'utf8')
   if (sourceBytes <= 0 || sourceBytes > MAX_OUTPUT_BYTES) throw new AnalysisError('Decompiled Lua source exceeded the configured output limit')
 
@@ -159,6 +162,9 @@ async function analyze(body, signal) {
       codeArtifactId: relativeOutput,
       sizeBytes: sourceBytes,
     },
+    functions: decompilation.functions,
+    protoCount: decompilation.protoCount,
+    metadataTruncated: decompilation.metadataTruncated,
     codeBytes: sourceBytes,
     warnings: 'Lua 5.5 source was reconstructed by unluac-rs; original names and behavior are not guaranteed.',
   }
