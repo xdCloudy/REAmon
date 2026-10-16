@@ -64,7 +64,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     const selection = await getActiveWorkspaceImportSelection(projectId)
     const artifact = await prisma.artifact.findFirst({
       where: { AND: [{ id: observation.artifactId, projectId }, selection.artifactWhere] },
-      select: { id: true },
+      select: { id: true, sha256: true },
     })
     if (!artifact) return NextResponse.json({ error: 'Code unit is not part of the active workspace' }, { status: 404 })
     const prefix = `${projectId}/${artifact.id}/`
@@ -143,7 +143,7 @@ export async function POST(request: Request, { params }: RouteParams) {
           validationStatus: receipt?.validationStatus,
           validationMethod: receipt?.validationMethod,
         }
-      }), new Set(), 6_000, undefined, undefined, projectSymbolScanTruncated)
+      }), new Set(), 6_000, artifact.sha256 || undefined, undefined, projectSymbolScanTruncated)
       const response = await agentFetch('/reamon/code/suggest-renames', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
