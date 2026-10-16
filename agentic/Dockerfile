@@ -70,6 +70,20 @@ RUN arch="${TARGETARCH:-$(dpkg --print-architecture)}" \
     && /usr/local/go/bin/go version
 ENV PATH="/usr/local/go/bin:/root/go/bin:${PATH}"
 
+# Pin the official Luau compiler for syntax-only validation of recovered Luau.
+# The upstream Ubuntu release asset is x86_64; other architectures retain the
+# Tree-sitter fallback in the REAmon validation endpoint.
+ENV REAMON_LUAU_COMPILER_VERSION=0.742
+RUN if [ "${TARGETARCH:-amd64}" = "amd64" ]; then \
+      retry curl -fsSL --retry 5 --retry-delay 5 --retry-all-errors \
+        -o /tmp/luau-ubuntu.zip https://github.com/luau-lang/luau/releases/download/0.742/luau-ubuntu.zip \
+      && echo "152058b98c60ff1f5b5ec9bca0b8eb37793cae161dd3a05608cc3d8738ba1a4d  /tmp/luau-ubuntu.zip" | sha256sum -c - \
+      && mkdir -p /tmp/luau-release \
+      && unzip -q /tmp/luau-ubuntu.zip -d /tmp/luau-release \
+      && install -m 0755 /tmp/luau-release/luau-compile /usr/local/bin/luau-compile \
+      && rm -rf /tmp/luau-ubuntu.zip /tmp/luau-release; \
+    fi
+
 # Install Ruby + Bundler (for Ruby/Rails projects)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ruby ruby-dev \

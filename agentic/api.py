@@ -21,6 +21,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 from importlib.metadata import PackageNotFoundError, version as package_version
 from contextlib import asynccontextmanager
 from typing import Any, List, Literal, Optional
@@ -681,6 +682,60 @@ def _reamon_cli_syntax_validation(
     }
 
 
+def _reamon_luau_syntax_validation(source_code: str, source_sha256: str) -> dict[str, str] | None:
+    """Use the pinned Luau compiler for syntax-only validation when installed."""
+    binary = shutil.which("luau-compile")
+    if not binary:
+        return None
+    version = os.environ.get("REAMON_LUAU_COMPILER_VERSION", "unknown")
+    if not re.fullmatch(r"[0-9]+\.[0-9]+(?:\.[0-9]+)?", version):
+        version = "unknown"
+    validation_method = f"luau-compile-{version}-only-parse"[:80]
+    environment = os.environ.copy()
+    try:
+        with tempfile.TemporaryDirectory(prefix="reamon-luau-validate-") as temp_dir:
+            source_path = os.path.join(temp_dir, "source.luau")
+            with open(source_path, "wb") as source_file:
+                source_file.write(source_code.encode("utf-8"))
+            result = subprocess.run(
+                [binary, "--only-parse", source_path],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=10,
+                check=False,
+                env=environment,
+                cwd=temp_dir,
+            )
+    except subprocess.TimeoutExpired:
+        return {
+            "source_sha256": source_sha256,
+            "validation_status": "UNAVAILABLE",
+            "validation_method": validation_method,
+            "validation_message": "The Luau compiler did not complete syntax validation within its time limit.",
+        }
+    except OSError as exc:
+        logger.debug(f"REAmon Luau syntax validation unavailable: {exc}")
+        return {
+            "source_sha256": source_sha256,
+            "validation_status": "UNAVAILABLE",
+            "validation_method": validation_method,
+            "validation_message": "The Luau compiler could not be started for syntax validation.",
+        }
+    output = ((result.stderr or b"") + (result.stdout or b"")).decode("utf-8", errors="replace")
+    output = re.sub(r"[\r\n\t ]+", " ", output.replace("\x00", " ")).strip()[:1_000]
+    return {
+        "source_sha256": source_sha256,
+        "validation_status": "PASSED" if result.returncode == 0 else "FAILED",
+        "validation_method": validation_method,
+        "validation_message": (
+            f"Luau compiler {version} parsed the source without executing it. This is structural evidence, not a behavior or host-API check."
+            if result.returncode == 0 else
+            f"Luau compiler {version} rejected the source: {output or 'syntax check failed without diagnostic output'}"
+        ),
+    }
+
+
 @app.post("/reamon/code/validate", tags=["REAmon"], dependencies=[Depends(require_internal_auth)])
 async def validate_reamon_code(body: ReamonCodeValidateRequest):
     """Validate exact source syntax and return a hash-bound structural result."""
@@ -769,6 +824,10 @@ async def validate_reamon_code(body: ReamonCodeValidateRequest):
             discard_lint_stdout=True,
         )
         return {"source_sha256": source_sha256, **result}
+    if normalized_language in {"luau", "luau source"}:
+        result = _reamon_luau_syntax_validation(body.source_code, source_sha256)
+        if result is not None:
+            return result
     parser, grammar_name = _reamon_source_parser_details(body.language)
     if parser is None:
         return {
