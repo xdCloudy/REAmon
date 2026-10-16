@@ -50,7 +50,7 @@ separate so a plausible name is never treated as proof of behavior.
   history. REAmon's first slice follows this design with the analyzer's pinned
   Babel parser/traverse/generator: it lists scope bindings, accepts selected
   evidence-grounded mappings, rejects identifier/collision hazards, applies the
-  AST rename, reparses the result, and saves full input, mapping rationales,
+  AST rename, protects ES-module exports, reparses the result, and saves full input, mapping rationales,
   output, and hashes in its attempt/draft database. The source hash is checked
   again when applying proposals. Babel is an initial adapter, not code copied
   from Humanify; compare it with OXC before deciding whether to build an OXC

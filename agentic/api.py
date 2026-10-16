@@ -1041,7 +1041,8 @@ async def suggest_reamon_code_renames(body: ReamonCodeSuggestRenamesRequest):
                 or not isinstance(candidate.get("kind"), str) or len(candidate["kind"]) > 80
                 or not isinstance(candidate.get("scopeType"), str) or len(candidate["scopeType"]) > 80
                 or not isinstance(candidate.get("referenceCount"), int)
-                or candidate["referenceCount"] < 0):
+                or candidate["referenceCount"] < 0
+                or candidate.get("exported") is not False):
             return JSONResponse(content={"error": "The JavaScript binding catalog is invalid", "model_used": requested_model}, status_code=400)
         if candidate["id"] in candidate_ids:
             return JSONResponse(content={"error": "The JavaScript binding catalog contains duplicate IDs", "model_used": requested_model}, status_code=400)

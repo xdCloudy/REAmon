@@ -99,7 +99,7 @@ export async function POST(request: Request, { params }: RouteParams) {
 
       const catalog = await listSafeRenameBindings(workingSource)
       const candidates = catalog.bindings
-        .filter((binding) => binding.kind !== 'module' && binding.referenceCount > 0
+        .filter((binding) => !binding.exported && binding.kind !== 'module' && binding.referenceCount > 0
           && (binding.name.length <= 3 || /^_?(?:0x[\da-f]{4,}|[\da-f]{6,})$/i.test(binding.name)))
         .slice(0, MAX_CANDIDATES)
       if (!candidates.length) {
@@ -184,7 +184,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     for (const rename of requests) {
       const item = plainObject(rename)
       const binding = typeof item.bindingId === 'string' ? available.get(item.bindingId) : undefined
-      if (!binding || typeof item.newName !== 'string' || item.oldName !== binding.name
+      if (!binding || binding.exported || typeof item.newName !== 'string' || item.oldName !== binding.name
           || typeof item.rationale !== 'string' || item.rationale.length > 400) {
         return NextResponse.json({ error: 'A selected rename no longer matches the current source bindings' }, { status: 409 })
       }

@@ -35,6 +35,7 @@ export interface SafeRenameBinding {
   declarationStart: number
   referenceCount: number
   scopeType: string
+  exported: boolean
 }
 
 export interface SafeRenameCatalog {
@@ -121,7 +122,8 @@ export async function listSafeRenameBindings(sourceCode: string): Promise<SafeRe
         && typeof binding.kind === 'string' && binding.kind.length <= 80
         && Number.isSafeInteger(binding.declarationStart) && binding.declarationStart >= 0
         && Number.isSafeInteger(binding.referenceCount) && binding.referenceCount >= 0
-        && typeof binding.scopeType === 'string' && binding.scopeType.length <= 80)) {
+        && typeof binding.scopeType === 'string' && binding.scopeType.length <= 80
+        && typeof binding.exported === 'boolean')) {
     throw new Error('The JavaScript rename service returned an invalid binding catalog')
   }
   return result

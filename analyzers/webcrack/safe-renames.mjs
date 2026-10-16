@@ -29,7 +29,28 @@ function bindingId(binding) {
 function collectBindings(ast) {
   const bindings = new Map()
   const scopes = new Set()
+  const exportedBindings = new Set()
   traverse(ast, {
+    ExportNamedDeclaration(path) {
+      const declaration = path.node.declaration
+      if (declaration) {
+        for (const name of Object.keys(t.getBindingIdentifiers(declaration))) {
+          const binding = path.scope.getBinding(name)
+          if (binding?.identifier && Number.isInteger(binding.identifier.start)) exportedBindings.add(bindingId(binding))
+        }
+      }
+      for (const specifier of path.node.specifiers) {
+        if (!t.isExportSpecifier(specifier) || !t.isIdentifier(specifier.local)) continue
+        const binding = path.scope.getBinding(specifier.local.name)
+        if (binding?.identifier && Number.isInteger(binding.identifier.start)) exportedBindings.add(bindingId(binding))
+      }
+    },
+    ExportDefaultDeclaration(path) {
+      const declaration = path.node.declaration
+      if (!t.isIdentifier(declaration)) return
+      const binding = path.scope.getBinding(declaration.name)
+      if (binding?.identifier && Number.isInteger(binding.identifier.start)) exportedBindings.add(bindingId(binding))
+    },
     Scopable(path) {
       const scope = path.scope
       scopes.add(scope)
@@ -44,6 +65,7 @@ function collectBindings(ast) {
           declarationStart: binding.identifier.start,
           referenceCount: binding.referencePaths.length,
           scopeType: scope.path.type,
+          exported: exportedBindings.has(id),
           binding,
         })
       }
@@ -71,8 +93,8 @@ export function listRenameBindings(code) {
   const { bindings } = collectBindings(ast)
   return {
     sourceSha256: digest(code),
-    bindings: bindings.map(({ id, name, kind, declarationStart, referenceCount, scopeType }) => ({
-      id, name, kind, declarationStart, referenceCount, scopeType,
+    bindings: bindings.map(({ id, name, kind, declarationStart, referenceCount, scopeType, exported }) => ({
+      id, name, kind, declarationStart, referenceCount, scopeType, exported,
     })),
     truncated: false,
   }
@@ -100,6 +122,7 @@ export function applySafeRenames(code, expectedSha256, renameRequests) {
     const target = byId.get(request.bindingId)
     const newName = request.newName.trim()
     if (!target) throw new Error('A proposed binding is no longer present in this source version')
+    if (target.exported) throw new Error(`Exported binding “${target.name}” is protected to preserve the module API`)
     if (seen.has(target.id)) throw new Error('A binding can only be renamed once per operation')
     if (!t.isValidIdentifier(newName)) throw new Error(`“${newName.slice(0, 80)}” is not a valid JavaScript identifier`)
     if (newName === target.name) throw new Error(`The proposed name for “${target.name}” is unchanged`)
