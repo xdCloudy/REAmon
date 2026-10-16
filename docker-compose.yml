@@ -1656,7 +1656,7 @@ services:
     networks:
       - reamon-analysis
 
-  # unluac-rs adds strict Lua 5.5 reconstruction in a bounded WASM worker.
+  # unluac-rs adds strict alternate reconstructions across Lua, LuaJIT, and Luau dialects.
   unluac-rs-analyzer:
     build:
       context: ./analyzers/unluac-rs

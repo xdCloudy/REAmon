@@ -93,7 +93,8 @@ function runDecompiler(bytes, signal) {
       finish(reject, new AnalysisError(`Lua decompilation exceeded the ${TIMEOUT_MS / 1000} second limit`))
     }, TIMEOUT_MS)
     worker.once('message', (message) => {
-      if (message?.ok && (message.dialect === 'luau' || message.dialect === 'lua5.5')
+      const supportedDialects = ['luau', 'lua5.1', 'lua5.2', 'lua5.3', 'lua5.4', 'lua5.5', 'luajit']
+      if (message?.ok && supportedDialects.includes(message.dialect)
         && (message.dialect === 'luau'
           ? typeof message.vectorConstructor === 'string' && /^[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*$/.test(message.vectorConstructor) && (message.vectorSize === 3 || message.vectorSize === 4)
           : message.vectorConstructor === null && message.vectorSize === null)

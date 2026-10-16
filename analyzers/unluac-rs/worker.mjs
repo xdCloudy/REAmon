@@ -61,8 +61,8 @@ function summarizeProto(proto, cfg) {
 
 try {
   const dialect = await detectDialect(new Uint8Array(workerData.bytes))
-  if (dialect !== 'luau' && dialect !== 'lua5.5') {
-    throw new Error('Input is not supported Lua 5.5 or Luau bytecode')
+  if (!['luau', 'lua5.1', 'lua5.2', 'lua5.3', 'lua5.4', 'lua5.5', 'luajit'].includes(dialect)) {
+    throw new Error('Input is not supported Lua 5.1–5.5, LuaJIT, or Luau bytecode')
   }
   const configuredVectorSize = process.env.UNLUAC_RS_LUAU_VECTOR_SIZE || '3'
   const vectorLibrary = process.env.UNLUAC_RS_LUAU_VECTOR_LIBRARY || 'vector'

@@ -20,7 +20,7 @@ export const unluacManifest: ToolPluginManifest = {
   category: 'static_analysis',
   integration: 'process',
   acceptsTargetTypes: ['FILE'],
-  acceptsFormats: ['lua-bytecode'],
+  acceptsFormats: ['lua-bytecode-5.0', 'lua-bytecode'],
   capabilities: ['decompile'],
   produces: ['CodeUnit', 'DecompiledSource', 'LuaModule'],
   requirements: [

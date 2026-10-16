@@ -126,7 +126,19 @@ function detectFormat(bytes: Uint8Array, extension: string): {
   }
 
   if (bytes.length >= 5 && readAscii(bytes, 0, 4) === '\u001bLua'
-      && [0x50, 0x51, 0x52, 0x53, 0x54].includes(bytes[4])) {
+      && bytes[4] === 0x50) {
+    return {
+      format: 'lua-bytecode-5.0',
+      targetType: 'FILE',
+      architecture: null,
+      platform: 'lua',
+      runtimes: ['lua'],
+      embeddedArtifacts: ['lua-source'],
+    }
+  }
+
+  if (bytes.length >= 5 && readAscii(bytes, 0, 4) === '\u001bLua'
+      && [0x51, 0x52, 0x53, 0x54].includes(bytes[4])) {
     return {
       format: 'lua-bytecode',
       targetType: 'FILE',

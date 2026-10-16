@@ -8,7 +8,7 @@ const MAX_TIMEOUT_MS = 10 * 60_000
 interface LuaBytecodeResponse {
   status: 'completed'
   toolVersion: string
-  dialect: 'lua5.5' | 'luau'
+  dialect: 'lua5.1' | 'lua5.2' | 'lua5.3' | 'lua5.4' | 'lua5.5' | 'luajit' | 'luau'
   language: 'Lua' | 'Luau'
   vectorConstructor: string | null
   vectorSize: 3 | 4 | null
@@ -97,15 +97,15 @@ function isFunctionMetadata(value: unknown): value is LuaBytecodeFunctionMetadat
 
 export const unluacRsManifest: ToolPluginManifest = {
   id: 'reamon-unluac-rs',
-  name: 'Lua 5.5 / Luau Bytecode Decompiler (unluac-rs)',
+  name: 'Multi-Dialect Lua Bytecode Decompiler (unluac-rs)',
   category: 'static_analysis',
   integration: 'process',
   acceptsTargetTypes: ['FILE'],
-  acceptsFormats: ['lua-bytecode-5.5', 'luau-bytecode'],
+  acceptsFormats: ['lua-bytecode', 'lua-bytecode-5.5', 'luajit-bytecode', 'luau-bytecode'],
   capabilities: ['decompile'],
   produces: ['CodeUnit', 'DecompiledSource', 'LuaModule'],
   requirements: [
-    { key: 'service', value: 'Isolated unluac-rs analyzer container (Lua 5.5 and Luau)' },
+    { key: 'service', value: 'Isolated unluac-rs analyzer container (Lua 5.1–5.5, LuaJIT, and Luau)' },
     { key: 'artifactPath' },
   ],
 }
@@ -129,7 +129,7 @@ function isResponse(value: unknown): value is LuaBytecodeResponse {
   const functions = response.functions
   return response.status === 'completed'
     && typeof response.toolVersion === 'string' && response.toolVersion.length <= 80
-    && (response.dialect === 'lua5.5' || response.dialect === 'luau')
+    && ['lua5.1', 'lua5.2', 'lua5.3', 'lua5.4', 'lua5.5', 'luajit', 'luau'].includes(String(response.dialect))
     && (response.language === 'Lua' || response.language === 'Luau')
     && ((response.dialect === 'luau') === (response.language === 'Luau'))
     && (response.vectorConstructor === null || (typeof response.vectorConstructor === 'string'
