@@ -68,6 +68,41 @@ function boundedJsonTextList(value: unknown, maxBytes: number, maxItems: number,
   return { items, truncated: items.length < parsed.length }
 }
 
+function boundedGoTypeDetails(value: unknown): { items: Array<{ name: string; kind: string; reconstructed: string }>; truncated: boolean } {
+  if (typeof value !== 'string') return { items: [], truncated: false }
+  if (value.length > 16_000) return { items: [], truncated: true }
+  let parsed: unknown
+  try { parsed = JSON.parse(value) } catch { return { items: [], truncated: true } }
+  if (!Array.isArray(parsed)) return { items: [], truncated: true }
+  const items: Array<{ name: string; kind: string; reconstructed: string }> = []
+  let bytes = 0
+  let truncated = parsed.length > 32
+  for (const candidate of parsed) {
+    const detail = record(candidate)
+    if (typeof detail.name !== 'string' || !detail.name.trim()
+        || (typeof detail.kind !== 'string') || typeof detail.reconstructed !== 'string') {
+      truncated = true
+      continue
+    }
+    const normalized = {
+      name: detail.name.trim().slice(0, 256),
+      kind: detail.kind.trim().slice(0, 128),
+      reconstructed: detail.reconstructed.trim().slice(0, 1024),
+    }
+    const itemBytes = Buffer.byteLength(JSON.stringify(normalized), 'utf8') + 1
+    if (items.length >= 32 || bytes + itemBytes > 12_000) {
+      truncated = true
+      continue
+    }
+    items.push(normalized)
+    bytes += itemBytes
+    if (normalized.name.length !== detail.name.length
+        || normalized.kind.length !== detail.kind.length
+        || normalized.reconstructed.length !== detail.reconstructed.length) truncated = true
+  }
+  return { items, truncated }
+}
+
 function sourceAddressMappings(value: unknown): { mappings: Array<{ ghidraLineNumber: number; address: string }>; truncated: boolean } {
   if (typeof value !== 'string' || value.length > 1_000_000) return { mappings: [], truncated: false }
   try {
@@ -364,6 +399,7 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
   const recoveredVariableData = providerVariablesOf(attributes, unit.source)
   const goMetadataAttributes = record(goMetadataRow?.attributes)
   const goTypeCatalog = boundedJsonTextList(goMetadataAttributes.types, 4_000, 64, 256)
+  const goTypeDetails = boundedGoTypeDetails(goMetadataAttributes.typeDetails)
   const goMetadata = goMetadataRow ? {
     language: 'Go',
     goVersion: text(goMetadataAttributes.goVersion, 128),
@@ -373,7 +409,9 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
       : null,
     types: goTypeCatalog.items,
     typesTruncated: goTypeCatalog.truncated,
-    typesSemantics: 'Artifact-wide GoReSym type names from this exact analysis run. They are not assigned to this function; use a type only when the selected function source or signature supports the match.',
+    typeDetails: goTypeDetails.items,
+    typeDetailsTruncated: goTypeDetails.truncated || goMetadataAttributes.typeDetailsTruncated === true,
+    typesSemantics: 'Artifact-wide GoReSym type names and structured type details from this exact analysis run. They are not assigned to this function; use a type only when the selected function source or signature supports the match.',
   } : null
   const recoveredVariableSemantics = unit.source === 'reamon-ghidra'
     ? 'Recovered names and types are provider evidence from Ghidra symbols, not reviewed canonical names. nameLocked/typeLocked describe constraints applied by Ghidra to its decompiler model; they do not prove original-source provenance or correctness.'

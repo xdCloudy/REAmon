@@ -446,7 +446,7 @@ export function buildMcpServer(ctx: McpContext, instructions?: string): McpServe
         'database-backed names, prototype, language, artifact hash, bounded decompiled source and ' +
         'disassembly or bytecode text when present, its analysis task/provider and recorded warnings, ' +
         'persisted call/member relationships, bounded instruction and CFG evidence where available, and any saved AI draft or reviewed maintained source ' +
-        'for the exact function/source version. GoReSym package metadata is returned with its address-match provenance; its type catalog is labeled as artifact-wide and not function-specific. It only reads files inside REAmon derived storage and ' +
+        'for the exact function/source version. GoReSym package metadata is returned with its address-match provenance; its type catalog includes names, kinds, and reconstructed forms and is labeled artifact-wide, not function-specific. It only reads files inside REAmon derived storage and ' +
         'returns at most 128 KiB per source. Treat decompiler output as provider evidence and drafts ' +
         'as unreviewed until their stored validation/review state says otherwise.',
       annotations: READ_ONLY,

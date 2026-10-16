@@ -14,6 +14,8 @@ interface GhidraResponse {
   goVersion?: string | null
   goArchitecture?: string | null
   goTypes?: string[]
+  goTypeDetails?: Array<{ name: string; kind: string; reconstructed: string }>
+  goTypeDetailsTruncated?: boolean
   functionCount: number
   visitedFunctionCount?: number
   failedFunctionCount?: number
@@ -65,6 +67,13 @@ function isGhidraResponse(value: unknown): value is GhidraResponse {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const record = value as Record<string, unknown>
   return record.status === 'completed' && Array.isArray(record.units)
+    && (record.goTypeDetails === undefined || (Array.isArray(record.goTypeDetails)
+      && record.goTypeDetails.length <= 1000
+      && record.goTypeDetails.every((item) => item && typeof item === 'object' && !Array.isArray(item)
+        && typeof item.name === 'string' && item.name.length <= 500
+        && typeof item.kind === 'string' && item.kind.length <= 128
+        && typeof item.reconstructed === 'string' && item.reconstructed.length <= 4096)))
+    && (record.goTypeDetailsTruncated === undefined || typeof record.goTypeDetailsTruncated === 'boolean')
     && (record.sourceAddressMapTruncated === undefined || typeof record.sourceAddressMapTruncated === 'boolean')
     && (record.recoveredVariablesTruncated === undefined || typeof record.recoveredVariablesTruncated === 'boolean')
 }
@@ -183,6 +192,12 @@ export async function executeGhidra(input: ToolExecutionInput): Promise<ToolResu
         if (JSON.stringify([...storedGoTypes, name]).length > 3500) break
         storedGoTypes.push(name)
       }
+      const goTypeDetails = (payload.goTypeDetails || []).slice(0, 1000)
+      const storedGoTypeDetails: typeof goTypeDetails = []
+      for (const detail of goTypeDetails) {
+        if (Buffer.byteLength(JSON.stringify([...storedGoTypeDetails, detail]), 'utf8') > 16_000) break
+        storedGoTypeDetails.push(detail)
+      }
       const goMetadata = {
         kind: 'entity',
         type: 'language_metadata',
@@ -196,6 +211,8 @@ export async function executeGhidra(input: ToolExecutionInput): Promise<ToolResu
           ...(typeof payload.goArchitecture === 'string' ? { goArchitecture: payload.goArchitecture.slice(0, 128) } : {}),
           recoveredFunctionCount: units.filter((unit) => unit.symbolSource === 'GoReSym').length,
           types: JSON.stringify(storedGoTypes),
+          typeDetails: JSON.stringify(storedGoTypeDetails),
+          typeDetailsTruncated: payload.goTypeDetailsTruncated === true || storedGoTypeDetails.length < goTypeDetails.length,
         },
       } satisfies ToolObservation
       observations.push(goMetadata)

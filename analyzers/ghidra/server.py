@@ -483,6 +483,29 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                 recovered_variables_truncated = summary.get("recoveredVariablesTruncated") == "true"
                 if recovered_variables_truncated:
                     warnings.append("Ghidra recovered variable evidence reached its configured analysis limit.")
+                go_type_rows = go_metadata.get("Types", []) if go_metadata and isinstance(go_metadata.get("Types"), list) else []
+                go_type_details = []
+                go_type_details_truncated = len(go_type_rows) > 1000
+                for item in go_type_rows[:1000]:
+                    if not isinstance(item, dict) or not isinstance(item.get("Str"), str) or not item.get("Str"):
+                        go_type_details_truncated = True
+                        continue
+                    name = item["Str"]
+                    kind = item.get("Kind", "")
+                    reconstructed = item.get("Reconstructed", "")
+                    if not isinstance(kind, str):
+                        kind = ""
+                        go_type_details_truncated = True
+                    if not isinstance(reconstructed, str):
+                        reconstructed = ""
+                        go_type_details_truncated = True
+                    if len(name) > 500 or len(kind) > 128 or len(reconstructed) > 4096:
+                        go_type_details_truncated = True
+                    go_type_details.append({
+                        "name": name[:500],
+                        "kind": kind[:128],
+                        "reconstructed": reconstructed[:4096],
+                    })
                 return {
                     "status": "completed",
                     "toolVersion": "12.1.4",
@@ -492,9 +515,11 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                     "goArchitecture": str(go_metadata.get("Arch", ""))[:128] if go_metadata else None,
                     "goTypes": [
                         str(item.get("Str", ""))[:500]
-                        for item in (go_metadata.get("Types", [])[:1000] if go_metadata and isinstance(go_metadata.get("Types"), list) else [])
+                        for item in go_type_rows[:1000]
                         if isinstance(item, dict) and isinstance(item.get("Str"), str) and item.get("Str")
                     ],
+                    "goTypeDetails": go_type_details,
+                    "goTypeDetailsTruncated": go_type_details_truncated,
                     "functionCount": len(rows),
                     "visitedFunctionCount": int(summary.get("visited", "0")),
                     "failedFunctionCount": failures,
