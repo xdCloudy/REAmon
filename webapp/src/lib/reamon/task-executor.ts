@@ -140,6 +140,8 @@ function startTaskHeartbeat(
       return prisma.task.updateMany({
         where: { id: taskId, projectId, status: 'RUNNING', runToken },
         data: { leaseHeartbeatAt: new Date() },
+      }).then((updated) => {
+        if (updated.count !== 1) controller.abort()
       })
     }).catch(() => undefined).finally(() => {
       updateInFlight = false
