@@ -43,10 +43,13 @@ provider syntax from the binary's likely original language.
 
 ### 5. Claim and work without collisions
 
-Before concurrent agents are enabled, each unit needs an atomic lease with owner,
-expiry, attempt ID, and cancellation/recovery behavior. One active owner can write a
-candidate for a unit; other agents can inspect the work and claim different units.
-This is a prerequisite for safe parallelism, not merely a UI status badge.
+The rewrite API now acquires a database lease keyed to the exact project, artifact,
+analysis run, code unit, and source hash before it calls the model. A duplicate request
+for that same version receives a conflict; a retry after a server interruption can
+reclaim an expired lease. A different source hash gets its own lease and history.
+This fences concurrent rewrite requests, but it is not yet the full multi-agent claim
+contract: general task ownership, lease renewal, explicit cancellation, and conflict-
+safe promotion still need to join the worker lifecycle.
 
 ### 6. Record an attempt
 

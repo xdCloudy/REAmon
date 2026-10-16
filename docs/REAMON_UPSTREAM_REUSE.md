@@ -9,7 +9,7 @@ separate so a plausible name is never treated as proof of behavior.
 
 | Project | Useful contribution | REAmon direction | Constraints |
 | --- | --- | --- | --- |
-| [decomp.wtf](https://github.com/i12bp8/decomp.wtf) | Its MIT-licensed codebase is the primary process reference: atomic function claims, bounded agent tools, shared names and notes, attempt history, machine drafts, exact compiler/diff feedback, accepted-match protection, and progress derived from verified units. Its look-alike matcher prefilters by instruction-mnemonic frequency, then compares ordered instruction sequences. | **Highest product-workflow priority.** Adapt the full unit lifecycle—not only its function map—into REAmon's database-backed investigation: claim one unit, assemble evidence from project memory, record a source draft and attempt, run the strongest available validator, return specific diagnostics, review/promote accepted work, and guard prior validated units. Preserve the existing function map as one entry point: it merges analyzer functions and Tree-sitter member outlines, links entries to containing source units, and keeps coverage totals based on analyzer units. Ghidra, WABT, JADX Smali, and ILSpy persist bounded mnemonic sequences; similarity stays a navigation lead with provider/architecture constraints. Keep the database authoritative and adapt the lifecycle to Java, .NET, bytecode, native code, resources, and source projects. | The repository was archived on 2026-10-15, so its inspected snapshot is a fixed reference rather than an upstream expected to receive fixes. Exact-byte judging depends on the original compiler, linker, and layout; other formats need validators with clearly stated confidence. Similarity is not behavioral proof. |
+| [decomp.wtf](https://github.com/i12bp8/decomp.wtf) | Its MIT-licensed codebase is the primary process reference: atomic function claims, bounded agent tools, shared names and notes, attempt history, machine drafts, exact compiler/diff feedback, accepted-match protection, and progress derived from verified units. Its look-alike matcher prefilters by instruction-mnemonic frequency, then compares ordered instruction sequences. | **Highest product-workflow priority.** Adapt the full unit lifecycle—not only its function map—into REAmon's database-backed investigation: claim one unit, assemble evidence from project memory, record a source draft and attempt, run the strongest available validator, return specific diagnostics, review/promote accepted work, and guard prior validated units. Preserve the existing function map as one entry point: it merges analyzer functions and Tree-sitter member outlines, links entries to containing source units, and keeps coverage totals based on analyzer units. Ghidra, WABT, JADX Smali, and ILSpy persist bounded mnemonic sequences; similarity stays a navigation lead with provider/architecture constraints. Exact-source rewrite leases now prevent overlapping model calls for the same code unit/version. Keep the database authoritative and adapt the lifecycle to Java, .NET, bytecode, native code, resources, and source projects. | The repository was archived on 2026-10-15, so its inspected snapshot is a fixed reference rather than an upstream expected to receive fixes. Its maintainer cited community opposition to AI-assisted decompilation; respect each target project's contribution rules. Exact-byte judging depends on the original compiler, linker, and layout; other formats need validators with clearly stated confidence. Similarity is not behavioral proof. |
 | [JADX](https://github.com/skylot/jadx) | APK/DEX to Java, Smali-adjacent analysis, built-in short-name cleanup, and mapping support. | Continue using the pinned analyzer. The existing Baksmali output now supplies direct method-call edges with descriptor identities for REAmon's generic function graph; method nodes link back to the containing Java or Smali class. Keep the Smali as evidence and treat generated names as provisional. | Apache-2.0. `--deobf` is off by default in the CLI; the installed 1.5.6 CLI supports it. |
 | [ILSpy](https://github.com/icsharpcode/ILSpy) | .NET assembly decompilation and an IL disassembly mode (`--ilcode`) in the same pinned command-line engine. IL opcodes retain language-neutral method evidence when C# source is unavailable or misleading. | The isolated ILSpy analyzer now extracts bounded CLR opcode sequences and attaches function observations to their C# type. The project-wide matcher and same-artifact method-rewrite context use those persisted features, following the decomp.wtf frequency-plus-order approach. Keep decompiled C# as the editable source and IL as supporting evidence. | MIT. `ilspycmd` 11.1 exposes `--ilcode`; IL listing extraction is separately time- and size-bounded so it cannot invalidate successful C# decompilation. |
 | [jadx-headless-mcp](https://github.com/1013503897/jadx-headless-mcp) | Direct `jadx-core` access for one-method source/Smali, class summaries, and method/field cross-references through MCP. | Strong next candidate for method-scoped source retrieval and exact xref evidence. Compare its lazy per-method path with the existing whole-run export before adding it; REA already uses this engine adapter. | Apache-2.0; pin its release and track its own bundled dependency notices. |
@@ -55,6 +55,44 @@ separate so a plausible name is never treated as proof of behavior.
   plugins. It is a GPL-2.0 candidate for an opt-in comparison on architectures or
   formats where REAmon has weak Ghidra coverage; validate exact fixture support and
   distribution requirements before bundling it.
+- [decomp.me](https://github.com/decompme/decomp.me) is a collaborative exact-build
+  function-matching application. Its MIT-licensed code and compiler configuration
+  model are useful references for a future validator contract, but its web product is
+  not a universal binary-to-source engine. Target builds must run in a separate,
+  resource-limited worker with explicit user configuration.
+- [objdiff](https://github.com/encounter/objdiff) is a local object-file diff tool
+  with function/data views, project configuration, build-on-edit, and progress
+  reporting. Its Rust core exposes a possible comparison component for exact-build
+  workflows; evaluate its CLI/WASM boundary and dependencies before integration. It
+  supports selected console and desktop architectures, not arbitrary source recovery.
+- [ast-grep](https://github.com/ast-grep/ast-grep) offers structural search and
+  rewrite over Tree-sitter syntax trees, including visible diffs and interactive
+  application. It is a candidate for deterministic, grammar-backed source edits, not
+  a replacement for semantic symbol resolution or Humanify-style scope-aware rename
+  handling. Prototype only against exact source hashes and verify the resulting
+  references with language-specific tooling.
+- [Joern](https://github.com/joernio/joern) models code as a queryable Code Property
+  Graph across source, bytecode, and selected binary formats. Compare its graph schema
+  and query vocabulary with REAmon's observation contracts. Do not add a second
+  authoritative graph store; import evidence through an adapter, preserve provider
+  provenance, and independently validate exact language/format coverage and licenses.
+- [angr](https://github.com/angr/angr) is a BSD-2-Clause binary-analysis framework
+  for CFG recovery, symbolic execution, and data-dependency questions. It is a strong
+  optional analysis provider for bounded queries, not an always-on decompiler; path
+  explosion, dependency size, initial-state assumptions, and timeout limits must be
+  part of each stored result.
+- [Disrobe](https://github.com/1-3-7/disrobe) publishes a useful breadth catalog of
+  bytecode formats, packers, obfuscators, and static recovery passes, and exposes an
+  MCP investigation workflow. Its current source-available license requires a paid
+  license for company use, so REAmon must not copy, bundle, or depend on it. Use the
+  catalog only to discover gaps, then research and license each underlying engine
+  independently.
+
+The portfolio prioritizes upstream reuse by gap closure, not code volume. Prefer an
+isolated CLI/library adapter when its license and operational boundary fit. Copying
+source requires file-level license review, retained notices, and dependency checks;
+for large frameworks, evaluate maintenance, binary size, parser/decompiler fidelity,
+and fixture results before adoption.
 
 ## Reuse rules for REAmon
 
@@ -136,6 +174,18 @@ store.
 - [capa v9.4.0 installation and Ghidra backend requirements](https://github.com/mandiant/capa/blob/v9.4.0/doc/installation.md)
 - [capa v9.4.0 function-restricted analysis](https://github.com/mandiant/capa/blob/v9.4.0/doc/usage.md)
 - [capa license](https://github.com/mandiant/capa/blob/master/LICENSE.txt)
+- [decomp.wtf archive notice and maintainer explanation](https://github.com/i12bp8/decomp.wtf)
+- [decomp.me compiler matching application and MIT license](https://github.com/decompme/decomp.me)
+- [objdiff object comparison tool, supported architectures, and dual license](https://github.com/encounter/objdiff)
+- [ast-grep structural search/rewrite project](https://github.com/ast-grep/ast-grep)
+- [ast-grep rewrite documentation](https://github.com/ast-grep/ast-grep.github.io/blob/main/website/guide/rewrite-code.md)
+- [Joern code property graph project](https://github.com/joernio/joern)
+- [angr analysis framework and BSD-2-Clause license](https://github.com/angr/angr)
+- [Disrobe recovery catalog and current source-available license](https://github.com/1-3-7/disrobe)
+- [RetDec maintenance status](https://github.com/avast/retdec)
+- [Rizin-powered Cutter UI and GPL-3.0 license](https://github.com/rizinorg/cutter)
+- [rev.ng repository and component licenses](https://github.com/revng/revng)
+- [Reko repository and GPL-2.0 license](https://github.com/uxmal/reko)
 - [Tree-sitter Language Pack](https://github.com/xberg-io/tree-sitter-language-pack)
 - [APKLab license and workflow](https://github.com/APKLab/APKLab)
 - [Rizin license information](https://github.com/rizinorg/rizin/blob/dev/DEVELOPERS.md)

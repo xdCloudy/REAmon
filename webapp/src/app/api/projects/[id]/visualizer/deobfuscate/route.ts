@@ -226,6 +226,10 @@ function validId(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0 && value.length <= 128
 }
 
+function isUniqueConstraintError(error: unknown): boolean {
+  return Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'P2002')
+}
+
 function isInside(root: string, file: string): boolean {
   const relative = path.relative(root, file)
   return Boolean(relative) && relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)
@@ -250,6 +254,7 @@ function classReferencesOf(value: unknown): string[] {
 
 export async function POST(request: Request, { params }: RouteParams) {
   let runningAttemptId: string | null = null
+  let codeUnitLeaseId: string | null = null
   try {
     const { id: projectId } = await params
     const user = await requireEffectiveUser()
@@ -842,6 +847,29 @@ export async function POST(request: Request, { params }: RouteParams) {
     const timeoutSeconds = typeof provider.timeout === 'number' && Number.isFinite(provider.timeout) ? provider.timeout : 120
     const timeoutMs = Math.max(10_000, Math.min(300_000, timeoutSeconds * 1000))
 
+    const leaseIdentity = JSON.stringify([artifact.id, runPrefix.slice(0, -1), observation.id, sourceHash])
+    const leaseKey = createHash('sha256').update(leaseIdentity).digest('hex')
+    const leaseWhere = { projectId, leaseKey }
+    const leaseNow = new Date()
+    await prisma.reamonCodeUnitLease.deleteMany({ where: { ...leaseWhere, expiresAt: { lte: leaseNow } } })
+    try {
+      const lease = await prisma.reamonCodeUnitLease.create({
+        data: {
+          ...leaseWhere,
+          artifactId: artifact.id,
+          runKey: runPrefix.slice(0, -1),
+          codeUnitId: observation.id,
+          sourceHash,
+          expiresAt: new Date(leaseNow.getTime() + timeoutMs + 60_000),
+        },
+        select: { id: true },
+      })
+      codeUnitLeaseId = lease.id
+    } catch (error) {
+      if (!isUniqueConstraintError(error)) throw error
+      return NextResponse.json({ error: 'A rewrite is already running for this unit and source version. Wait for it to finish, then retry.' }, { status: 409, headers: { 'Cache-Control': 'no-store' } })
+    }
+
     const attempt = await prisma.reamonCodeAttempt.create({
       data: {
         projectId,
@@ -963,5 +991,9 @@ export async function POST(request: Request, { params }: RouteParams) {
     }
     console.error('Failed to deobfuscate REAmon code unit:', error)
     return NextResponse.json({ error: 'Failed to improve this code unit' }, { status: 500, headers: { 'Cache-Control': 'no-store' } })
+  } finally {
+    if (codeUnitLeaseId) {
+      await prisma.reamonCodeUnitLease.deleteMany({ where: { id: codeUnitLeaseId } }).catch(() => undefined)
+    }
   }
 }

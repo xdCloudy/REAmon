@@ -448,6 +448,7 @@ model Project {
   maintainedSources           ReamonMaintainedSource[]
   codeDrafts                  ReamonCodeDraft[]
   codeAttempts                ReamonCodeAttempt[]
+  codeUnitLeases               ReamonCodeUnitLease[]
   artifactProvenance          ArtifactProvenance[]
   projectionRuns              ReamonProjectionRun[]
   projectionLease             ReamonProjectionLease?
@@ -2840,6 +2841,26 @@ model ReamonCodeAttempt {
   @@index([projectId, codeUnitId, sourceHash, createdAt])
   @@index([projectId, artifactId, runKey, createdAt])
   @@map("reamon_code_attempts")
+}
+
+/// Prevents concurrent AI rewrites of the same artifact unit and source version.
+/// Expired rows are reclaimed by the next request after a worker interruption.
+model ReamonCodeUnitLease {
+  id          String   @id @default(cuid())
+  projectId   String   @map("project_id")
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  leaseKey    String   @map("lease_key")
+  artifactId  String   @map("artifact_id")
+  runKey      String   @map("run_key")
+  codeUnitId  String   @map("code_unit_id")
+  sourceHash  String   @map("source_hash")
+  expiresAt   DateTime @map("expires_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@unique([projectId, leaseKey])
+  @@index([expiresAt])
+  @@index([projectId, codeUnitId, sourceHash])
+  @@map("reamon_code_unit_leases")
 }
 
 model WorkspaceActivity {

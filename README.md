@@ -58,6 +58,13 @@ decomp.wtf's bounded, evidence-led process—unit-sized work, shared project kno
 recorded attempts, meaningful validation, and explicit acceptance—then extends it to
 languages and formats without a reliable byte-for-byte compiler loop.
 
+The decomp.wtf repository was archived on 2026-10-15 and is now a fixed workflow and
+code reference, not an active upstream. The maintainer cited community opposition to
+AI-assisted decompilation; REAmon must follow each target project's rules and never
+assume that generated contributions are welcome. The reference portfolio also tracks
+independent analysis, graph, validation, and syntax-aware editing projects, with
+license and integration constraints documented before adoption.
+
 | Document | Purpose |
 | --- | --- |
 | [Product vision](docs/REAMON_PRODUCT_VISION.md) | Motivation, product promise, principles, and why decomp.wtf is a core process reference. |
