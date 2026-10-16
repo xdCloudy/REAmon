@@ -18,6 +18,7 @@ import logging
 import os
 import re
 import shlex
+import sys
 from importlib.metadata import PackageNotFoundError, version as package_version
 from contextlib import asynccontextmanager
 from typing import Any, List, Literal, Optional
@@ -606,6 +607,43 @@ async def validate_reamon_code(body: ReamonCodeValidateRequest):
     if len(encoded) > 2 * 1024 * 1024:
         return JSONResponse(content={"error": "Source exceeds the 2 MiB validation limit"}, status_code=413)
     source_sha256 = hashlib.sha256(encoded).hexdigest()
+    normalized_language = body.language.strip().lower()
+    if normalized_language in {"python", "python 3", "python3"}:
+        python_version = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+        validation_method = f"cpython-{sys.version_info.major}.{sys.version_info.minor}-compile"
+        try:
+            compile(body.source_code, "<reamon-maintained-source>", "exec", dont_inherit=True)
+        except SyntaxError as exc:
+            location = f" at line {exc.lineno}, column {exc.offset}" if exc.lineno is not None else ""
+            detail = (exc.msg or "invalid Python syntax").replace("\n", " ")[:240]
+            return {
+                "source_sha256": source_sha256,
+                "validation_status": "FAILED",
+                "validation_method": validation_method,
+                "validation_message": f"CPython {python_version} rejected the source{location}: {detail}",
+            }
+        except (ValueError, OverflowError, RecursionError) as exc:
+            detail = str(exc).replace("\n", " ")[:240] or type(exc).__name__
+            return {
+                "source_sha256": source_sha256,
+                "validation_status": "FAILED",
+                "validation_method": validation_method,
+                "validation_message": f"CPython {python_version} could not compile the source: {detail}",
+            }
+        except Exception as exc:  # noqa: BLE001
+            logger.debug(f"REAmon CPython source validation unavailable: {exc}")
+            return {
+                "source_sha256": source_sha256,
+                "validation_status": "UNAVAILABLE",
+                "validation_method": validation_method,
+                "validation_message": f"CPython {python_version} could not complete source validation.",
+            }
+        return {
+            "source_sha256": source_sha256,
+            "validation_status": "PASSED",
+            "validation_method": validation_method,
+            "validation_message": f"CPython {python_version} compiled the module without executing it. This confirms syntax for this interpreter only, not behavior or target-version compatibility.",
+        }
     parser = _reamon_source_parser(body.language)
     if parser is None:
         return {
