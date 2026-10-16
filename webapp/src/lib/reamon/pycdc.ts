@@ -72,7 +72,7 @@ export async function executePycdc(input: ToolExecutionInput): Promise<ToolResul
   try {
     const response = await fetch(`${baseUrl}/analyze`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', accept: 'application/json' },
+      headers: { 'content-type': 'application/json', accept: 'application/x-ndjson, application/json' },
       body: JSON.stringify({
         projectId: input.projectId,
         artifactId: input.artifactId,

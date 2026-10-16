@@ -5,10 +5,14 @@ import json
 import os
 import re
 import shutil
+import signal
+import socket
+import select
 import subprocess
 import tempfile
 import threading
 import hashlib
+import time
 from pathlib import PurePosixPath
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -52,7 +56,24 @@ def resolve_input(value: object, extension: object) -> Path:
         raise AnalysisError("Input does not have a recognized Python bytecode header")
     return candidate
 
-def analyze(body: object) -> dict[str, object]:
+def terminate(process: subprocess.Popen) -> None:
+    if process.poll() is not None:
+        return
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+    try:
+        process.wait(timeout=2)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.wait()
+
+
+def analyze(body: object, report_progress=lambda _message: None, cancel_check=lambda: False) -> dict[str, object]:
     if not isinstance(body, dict):
         raise AnalysisError("Request must be an object")
     project_id = safe_id(body.get("projectId"))
@@ -86,19 +107,52 @@ def analyze(body: object) -> dict[str, object]:
         log_path = staging_directory / "pycdc.log"
         try:
             with log_path.open("wb") as log:
-                result = subprocess.run(
+                report_progress("Starting isolated pycdc decompilation")
+                started = time.monotonic()
+                deadline = started + TIMEOUT_SECONDS
+                next_progress = started + 5
+                process = subprocess.Popen(
                     ["/usr/local/bin/pycdc", str(source_path), "-o", str(output_path)],
                     stdin=subprocess.DEVNULL,
                     stdout=subprocess.DEVNULL,
                     stderr=log,
-                    timeout=TIMEOUT_SECONDS,
-                    check=False,
                     cwd=staging_directory,
                     env={"PATH": "/usr/local/bin:/usr/bin:/bin", "HOME": "/tmp"},
+                    start_new_session=True,
                 )
+                try:
+                    while process.poll() is None:
+                        if cancel_check():
+                            terminate(process)
+                            raise AnalysisError("Python bytecode analysis was cancelled")
+                        now = time.monotonic()
+                        try:
+                            generated_size = output_path.stat().st_size
+                        except OSError:
+                            generated_size = 0
+                        if generated_size > MAX_OUTPUT_BYTES:
+                            terminate(process)
+                            raise AnalysisError("Decompiled Python source exceeded the configured output limit")
+                        if now >= deadline:
+                            terminate(process)
+                            raise AnalysisError(f"pycdc exceeded the {TIMEOUT_SECONDS} second time limit")
+                        if now >= next_progress:
+                            report_progress(
+                                "pycdc decompilation still running "
+                                f"({now - started:.0f}s elapsed; {generated_size / (1024 * 1024):.1f} MiB generated)"
+                            )
+                            next_progress = now + 5
+                        try:
+                            process.wait(timeout=0.25)
+                        except subprocess.TimeoutExpired:
+                            pass
+                except BaseException:
+                    terminate(process)
+                    raise
+                returncode = process.returncode
             if not output_path.is_file():
                 detail = log_path.read_bytes()[-4096:].decode("utf-8", errors="replace").strip()
-                raise AnalysisError(detail or f"pycdc could not decompile this file (exit {result.returncode})")
+                raise AnalysisError(detail or f"pycdc could not decompile this file (exit {returncode})")
             output_size = output_path.stat().st_size
             if output_size <= 0 or output_size > MAX_OUTPUT_BYTES:
                 raise AnalysisError("Decompiled Python source exceeded the configured output limit")
@@ -110,8 +164,8 @@ def analyze(body: object) -> dict[str, object]:
             os.replace(output_path, destination)
             relative_output = destination.relative_to(DERIVED_ROOT).as_posix()
             warnings = log_path.read_bytes()[-4096:].decode("utf-8", errors="replace").strip()
-            if result.returncode != 0:
-                warning = f"pycdc exited with status {result.returncode}; inspect the output before using it."
+            if returncode != 0:
+                warning = f"pycdc exited with status {returncode}; inspect the output before using it."
                 warnings = f"{warnings}\n{warning}".strip()
             return {
                 "status": "completed",
@@ -143,6 +197,21 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(encoded)
 
+    def send_event(self, event: dict[str, object]) -> None:
+        self.wfile.write((json.dumps(event, separators=(",", ":")) + "\n").encode("utf-8"))
+        self.wfile.flush()
+
+    def client_disconnected(self) -> bool:
+        readable, _, _ = select.select([self.connection], [], [], 0)
+        if not readable:
+            return False
+        try:
+            return self.connection.recv(1, socket.MSG_PEEK | socket.MSG_DONTWAIT) == b""
+        except BlockingIOError:
+            return False
+        except OSError:
+            return True
+
     def do_GET(self) -> None:
         if self.path != "/health":
             self.send_json(404, {"error": "Not found"})
@@ -153,21 +222,46 @@ class Handler(BaseHTTPRequestHandler):
         if self.path != "/analyze":
             self.send_json(404, {"error": "Not found"})
             return
+        headers_sent = False
+        streaming = False
         try:
             length = int(self.headers.get("Content-Length", "0"))
             if length <= 0 or length > 32 * 1024:
                 raise AnalysisError("Request body size is invalid")
             body = json.loads(self.rfile.read(length))
-            self.send_json(200, analyze(body))
+            streaming = "application/x-ndjson" in self.headers.get("Accept", "")
+            if not streaming:
+                self.send_json(200, analyze(body))
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            headers_sent = True
+            try:
+                result = analyze(
+                    body,
+                    report_progress=lambda message: self.send_event({"type": "progress", "message": str(message)[:500]}),
+                    cancel_check=self.client_disconnected,
+                )
+                self.send_event({"type": "result", "data": result})
+            except AnalysisError as error:
+                self.send_event({"type": "error", "error": str(error)[:1_000]})
         except (ValueError, json.JSONDecodeError):
             self.send_json(400, {"error": "Invalid JSON"})
         except AnalysisError as error:
             self.send_json(422, {"error": str(error)[:1000]})
-        except BrokenPipeError:
+        except (BrokenPipeError, ConnectionResetError):
             pass
         except Exception:
             self.log_error("Unexpected Python bytecode analysis failure")
-            self.send_json(500, {"error": "Python bytecode analysis failed unexpectedly"})
+            if headers_sent and streaming:
+                try:
+                    self.send_event({"type": "error", "error": "Python bytecode analysis failed unexpectedly"})
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
+            else:
+                self.send_json(500, {"error": "Python bytecode analysis failed unexpectedly"})
 
     def log_message(self, format_string: str, *args: object) -> None:
         print("pycdc-analyzer: " + format_string % args, flush=True)
