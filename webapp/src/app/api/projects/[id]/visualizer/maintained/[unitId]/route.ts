@@ -9,6 +9,7 @@ import { getActiveWorkspaceImportSelection } from '@/lib/reamon/inventory-query'
 import { derivedArtifactRoot, resolveDerivedArtifactPath } from '@/lib/reamon/derived-storage'
 import { MAINTAINED_SOURCE_OBSERVATION_SOURCE, MAINTAINED_SOURCE_OBSERVATION_TYPE } from '@/lib/reamon/code-units'
 import { extractMaintainedSymbols } from '@/lib/reamon/maintenance-memory'
+import { validateJavaScriptSource } from '@/lib/reamon/webcrack'
 
 interface RouteParams { params: Promise<{ id: string; unitId: string }> }
 const MAX_SOURCE_BYTES = 2 * 1024 * 1024
@@ -105,6 +106,22 @@ async function validateMaintainedSource(sourceCode: string, language: string): P
     validation_method: null,
     validation_message: message,
   })
+  const normalizedLanguage = language.trim().toLowerCase()
+  const babelLanguages = new Set(['javascript', 'javascript source', 'ecmascript', 'js', 'jsx', 'mjs', 'cjs', 'typescript', 'typescript source', 'ts', 'tsx'])
+  if (babelLanguages.has(normalizedLanguage) && Buffer.byteLength(sourceCode, 'utf8') <= 512 * 1024) {
+    try {
+      const result = await validateJavaScriptSource(sourceCode)
+      if (result.sourceSha256 !== sourceHash) return unavailable('The JavaScript parser returned a result for a different source version.')
+      return {
+        source_sha256: sourceHash,
+        validation_status: result.validationStatus,
+        validation_method: `babel-parser-${result.parserVersion}`,
+        validation_message: result.validationMessage,
+      }
+    } catch {
+      // Preserve the broader Tree-sitter fallback when Babel is unavailable.
+    }
+  }
   try {
     const response = await agentFetch('/reamon/code/validate', {
       method: 'POST',

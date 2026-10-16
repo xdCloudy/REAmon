@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { mkdir, mkdtemp, readFile, realpath, rename, rm, stat } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { Worker } from 'node:worker_threads'
+import { babelParserVersion } from './safe-renames.mjs'
 
 const PORT = Number(process.env.PORT || 8015)
 const MAX_REQUEST_BYTES = 1024 * 1024
@@ -178,6 +179,8 @@ const server = createServer(async (request, response) => {
       ? 'list-rename-bindings'
       : request.url === '/rename/apply'
         ? 'apply-safe-renames'
+        : request.url === '/validate'
+          ? 'validate-javascript-source'
         : ''
   if (request.method !== 'POST' || !operation) {
     json(response, 404, { error: 'Not found' })
@@ -206,6 +209,7 @@ const server = createServer(async (request, response) => {
       operation,
       expectedSha256: body.expectedSha256,
       renames: body.renames,
+      parserVersion: babelParserVersion,
     })
     json(response, 200, result)
   } catch (error) {

@@ -58,6 +58,13 @@ export interface SafeRenameResult {
   }>
 }
 
+export interface SafeRenameValidation {
+  sourceSha256: string
+  parserVersion: string
+  validationStatus: 'PASSED' | 'FAILED'
+  validationMessage: string
+}
+
 export const webcrackManifest: ToolPluginManifest = {
   id: 'reamon-webcrack',
   name: 'JavaScript Deobfuscator (webcrack)',
@@ -152,6 +159,20 @@ export async function applySafeRenameBindings(
       || Buffer.byteLength(result.sourceCode, 'utf8') > MAX_SAFE_RENAME_SOURCE_BYTES
       || !Array.isArray(result.renamedBindings) || result.renamedBindings.length !== renames.length) {
     throw new Error('The JavaScript rename service returned an invalid transformed source')
+  }
+  return result
+}
+
+export async function validateJavaScriptSource(sourceCode: string): Promise<SafeRenameValidation> {
+  if (Buffer.byteLength(sourceCode, 'utf8') > MAX_SAFE_RENAME_SOURCE_BYTES) {
+    throw new Error('JavaScript source exceeds the Babel validation size limit')
+  }
+  const result = await requestSafeRename<SafeRenameValidation>('/validate', { code: sourceCode })
+  if (!result || !/^[a-f0-9]{64}$/i.test(result.sourceSha256)
+      || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(result.parserVersion)
+      || !['PASSED', 'FAILED'].includes(result.validationStatus)
+      || typeof result.validationMessage !== 'string' || result.validationMessage.length > 1_000) {
+    throw new Error('The JavaScript parser service returned an invalid validation result')
   }
   return result
 }

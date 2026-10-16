@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { parentPort, workerData } from 'node:worker_threads'
 import { createIsolate } from './sandbox.mjs'
-import { applySafeRenames, listRenameBindings } from './safe-renames.mjs'
+import { applySafeRenames, listRenameBindings, validateSource } from './safe-renames.mjs'
 import { analyzeJavaScript } from './webcrack-runner.mjs'
 
 function digest(value) {
@@ -37,6 +37,20 @@ try {
     parentPort.postMessage({ ok: true, result: listRenameBindings(workerData.code) })
   } else if (workerData.operation === 'apply-safe-renames') {
     parentPort.postMessage({ ok: true, result: applySafeRenames(workerData.code, workerData.expectedSha256, workerData.renames) })
+  } else if (workerData.operation === 'validate-javascript-source') {
+    const sourceSha256 = digest(workerData.code)
+    try {
+      parentPort.postMessage({
+        ok: true,
+        result: { ...validateSource(workerData.code), validationStatus: 'PASSED', validationMessage: `Babel ${workerData.parserVersion} parsed this source without executing it. This confirms syntax only, not behavior or target-version compatibility.` },
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message.replace(/[\r\n\t ]+/g, ' ').slice(0, 500) : 'Babel could not parse this source'
+      parentPort.postMessage({
+        ok: true,
+        result: { sourceSha256, parserVersion: workerData.parserVersion, validationStatus: 'FAILED', validationMessage: `Babel rejected the source: ${message}` },
+      })
+    }
   } else {
     const result = await analyzeJavaScript(workerData.code, { sandbox: createIsolate })
     const units = []
