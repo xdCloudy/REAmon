@@ -104,7 +104,7 @@ interface CallGraphResponse {
 }
 
 interface SimilarFunctionsResponse {
-  matches: Array<{ codeUnit: CodeUnit; similarity: number; artifact: { name: string; sha256: string | null } }>
+  matches: Array<{ codeUnit: CodeUnit; function?: { id: string; taskId?: string; name: string; address: string | null; hasControlFlowGraph: boolean }; similarity: number; artifact: { name: string; sha256: string | null } }>
   truncated: boolean
 }
 
@@ -449,7 +449,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
   const [dexGraphType, setDexGraphType] = useState<'function_calls' | 'member_references'>('function_calls')
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [selectedFunctionMapMember, setSelectedFunctionMapMember] = useState<{ id: string; parentUnitId: string; name: string; similarityAvailable: boolean; hasControlFlowGraph: boolean } | null>(null)
+  const [selectedFunctionMapMember, setSelectedFunctionMapMember] = useState<{ id: string; taskId?: string; parentUnitId: string; name: string; similarityAvailable: boolean; hasControlFlowGraph: boolean } | null>(null)
   const [urlInitialized, setUrlInitialized] = useState(false)
   const [graphUnit, setGraphUnit] = useState<CodeUnit | null>(null)
   const [copyStatus, setCopyStatus] = useState('')
@@ -645,9 +645,9 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
     ? selectedFunctionMapMember.id
     : ''
   const functionControlFlowQuery = useQuery({
-    queryKey: ['reamon-function-cfg', projectId, currentRunId, selectedLuaFunctionId],
-    queryFn: ({ signal }) => fetchFunctionControlFlowGraph(projectId, currentRunId as string, selectedLuaFunctionId, signal),
-    enabled: Boolean(currentRunId && selectedLuaFunctionId),
+    queryKey: ['reamon-function-cfg', projectId, selectedFunctionMapMember?.taskId || currentRunId, selectedLuaFunctionId],
+    queryFn: ({ signal }) => fetchFunctionControlFlowGraph(projectId, (selectedFunctionMapMember?.taskId || currentRunId) as string, selectedLuaFunctionId, signal),
+    enabled: Boolean((selectedFunctionMapMember?.taskId || currentRunId) && selectedLuaFunctionId),
     staleTime: 5 * 60_000,
     gcTime: 10 * 60_000,
   })
@@ -659,7 +659,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
     queryKey: ['reamon-similar-functions', projectId, currentRunId, selectedSimilarityTarget],
     queryFn: ({ signal }) => fetchSimilarFunctions(projectId, currentRunId as string, selectedSimilarityTarget, signal),
     enabled: Boolean(currentRunId && selectedSimilarityTarget
-      && (currentRun?.providerId === 'reamon-ghidra' || currentRun?.providerId === 'reamon-wabt' || currentRun?.providerId === 'reamon-jadx' || currentRun?.providerId === 'reamon-ilspy')
+      && (currentRun?.providerId === 'reamon-ghidra' || currentRun?.providerId === 'reamon-wabt' || currentRun?.providerId === 'reamon-jadx' || currentRun?.providerId === 'reamon-ilspy' || currentRun?.providerId === 'reamon-dex-decompiler')
       && selectedUnit?.source === currentRun?.providerId),
     staleTime: 5 * 60_000,
     gcTime: 60_000,
@@ -1809,22 +1809,29 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
             setExplainError('')
           }}
         />}
-        {(currentRun?.providerId === 'reamon-ghidra' || currentRun?.providerId === 'reamon-wabt' || currentRun?.providerId === 'reamon-jadx' || currentRun?.providerId === 'reamon-ilspy')
+        {(currentRun?.providerId === 'reamon-ghidra' || currentRun?.providerId === 'reamon-wabt' || currentRun?.providerId === 'reamon-jadx' || currentRun?.providerId === 'reamon-ilspy' || currentRun?.providerId === 'reamon-dex-decompiler')
           && selectedUnit?.source === currentRun.providerId && Boolean(selectedSimilarityTarget) && <section className={styles.similarFunctions} aria-labelledby="similar-functions-heading">
           <div className={styles.similarFunctionsHeading}><h3 id="similar-functions-heading">Similar instruction patterns</h3><span>Same project · compatible instruction set</span></div>
           {similarFunctionsQuery.isLoading && <p className={styles.message}>Comparing this function with stored instruction sequences from completed analyses…</p>}
           {similarFunctionsQuery.isError && <p className={styles.error}>{similarFunctionsQuery.error instanceof Error ? similarFunctionsQuery.error.message : 'Unable to find similar functions'}</p>}
           {!similarFunctionsQuery.isLoading && !similarFunctionsQuery.isError && similarFunctionsQuery.data?.matches.length === 0 && <p className={styles.message}>No close instruction-pattern matches were found in this project.</p>}
-          {similarFunctionsQuery.data?.matches.map(({ codeUnit, similarity, artifact }) => <button type="button" className={styles.similarFunction} key={codeUnit.id} onClick={() => {
+          {similarFunctionsQuery.data?.matches.map(({ codeUnit, function: matchedFunction, similarity, artifact }) => <button type="button" className={styles.similarFunction} key={matchedFunction?.id || codeUnit.id} onClick={() => {
             setGraphUnit(codeUnit)
             setSelectedId(codeUnit.id)
-            setSelectedFunctionMapMember(null)
+            setSelectedFunctionMapMember(matchedFunction ? {
+              id: matchedFunction.id,
+              ...(matchedFunction.taskId ? { taskId: matchedFunction.taskId } : {}),
+              parentUnitId: codeUnit.id,
+              name: matchedFunction.name.replace(/#\d+$/, ''),
+              similarityAvailable: true,
+              hasControlFlowGraph: matchedFunction.hasControlFlowGraph,
+            } : null)
             setCopyStatus('')
             setAssemblyCopyStatus('')
             setExplanation(null)
             setExplainError('')
           }}>
-            <span><strong>{codeUnit.name}</strong><small>{codeUnit.address || codeUnit.artifactPath || 'Function'}</small><small>{artifact.name}{artifact.sha256 ? ` · ${artifact.sha256.slice(0, 12)}` : ''}</small></span>
+            <span><strong>{matchedFunction?.name || codeUnit.name}</strong><small>{matchedFunction?.address || codeUnit.address || codeUnit.artifactPath || 'Function'}</small><small>{artifact.name}{artifact.sha256 ? ` · ${artifact.sha256.slice(0, 12)}` : ''}{matchedFunction ? ` · in ${codeUnit.name}` : ''}</small></span>
             <b>{similarity}%</b>
           </button>)}
           {similarFunctionsQuery.data?.truncated && <p className={styles.message}>The comparison reached its history limit; older stored function observations may not have been included.</p>}

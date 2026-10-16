@@ -140,7 +140,10 @@ samples, bounded CFG summaries for the function visualizer, and linked per-metho
 instruction artifacts that the AI can use as project evidence. This is an early
 comparison path, not a replacement for JADX; field reads/writes and direct string
 literal references are persisted as typed project evidence with capped previews.
-Fixture-backed accuracy comparisons remain open.
+The visualizer also compares stored Dalvik instruction sequences across completed
+analyses and opens a matching method in its containing Java source class; similarity
+is a navigation lead, not proof of equivalent behavior. Fixture-backed accuracy
+comparisons remain open.
 
 ## Current bootstrap
 

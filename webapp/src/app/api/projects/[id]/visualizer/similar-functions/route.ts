@@ -69,13 +69,13 @@ export async function GET(request: Request, { params }: RouteParams) {
       select: { id: true, artifactId: true, provider: { select: { pluginId: true } } },
     })
     const providerId = task?.provider?.pluginId
-    if (!task?.artifactId || (providerId !== 'reamon-ghidra' && providerId !== 'reamon-wabt' && providerId !== 'reamon-jadx' && providerId !== 'reamon-ilspy')) {
+    if (!task?.artifactId || (providerId !== 'reamon-ghidra' && providerId !== 'reamon-wabt' && providerId !== 'reamon-jadx' && providerId !== 'reamon-ilspy' && providerId !== 'reamon-dex-decompiler')) {
       return NextResponse.json({ error: 'Instruction-pattern matches are unavailable for this analysis run' }, { status: 404, headers: MAX_NO_STORE })
     }
 
     const observationWhere = {
       projectId,
-      type: providerId === 'reamon-jadx' || providerId === 'reamon-ilspy' ? 'function' : 'code_unit',
+      type: providerId === 'reamon-jadx' || providerId === 'reamon-ilspy' || providerId === 'reamon-dex-decompiler' ? 'function' : 'code_unit',
       source: providerId,
       artifact: { is: selection.artifactWhere },
       task: { is: {
@@ -89,7 +89,7 @@ export async function GET(request: Request, { params }: RouteParams) {
       prisma.reamonObservation.findFirst({
         where: { ...observationWhere, OR: [{ id: unitId }, { stableKey: unitId }] },
         select: {
-          id: true, stableKey: true, canonicalKey: true, label: true, attributes: true, artifactId: true,
+          id: true, taskId: true, stableKey: true, canonicalKey: true, label: true, attributes: true, artifactId: true,
           artifact: { select: { profile: true } },
         },
       }),
@@ -98,7 +98,7 @@ export async function GET(request: Request, { params }: RouteParams) {
         orderBy: [{ updatedAt: 'desc' }, { stableKey: 'asc' }],
         take: MAX_FUNCTION_OBSERVATIONS + 1,
         select: {
-          id: true, stableKey: true, canonicalKey: true, label: true, source: true, artifactId: true,
+          id: true, taskId: true, stableKey: true, canonicalKey: true, label: true, source: true, artifactId: true,
           updatedAt: true, attributes: true,
           artifact: { select: { relativePath: true, originalName: true, sha256: true, profile: true } },
         },
@@ -122,14 +122,59 @@ export async function GET(request: Request, { params }: RouteParams) {
     const features = boundedRows.map(functionFeatures)
     const ranked = rankSimilarInstructionFunctions(target, features)
     const byKey = new Map(boundedRows.map((row) => [row.id, row]))
-    const matches = ranked.flatMap((match) => {
+    const rankedRows = ranked.flatMap((match) => {
       const row = byKey.get(match.key)
-      const codeUnit = row ? normalizeCodeUnit(row) : null
-      return row && codeUnit ? [{
-        codeUnit,
-        similarity: match.similarity,
-        artifact: { name: row.artifact?.originalName || 'Unknown artifact', sha256: row.artifact?.sha256 || null },
-      }] : []
+      return row ? [{ row, similarity: match.similarity }] : []
+    })
+    const dexParentKeys = providerId === 'reamon-dex-decompiler'
+      ? [...new Set(rankedRows.flatMap(({ row }) => {
+        const key = attributesRecord(row.attributes).parentCodeUnitKey
+        return typeof key === 'string' && key ? [key] : []
+      }))]
+      : []
+    const dexTaskIds = providerId === 'reamon-dex-decompiler'
+      ? [...new Set(rankedRows.map(({ row }) => row.taskId).filter((value): value is string => Boolean(value)))]
+      : []
+    const dexParentRows = dexParentKeys.length && dexTaskIds.length
+      ? await prisma.reamonObservation.findMany({
+        where: {
+          projectId,
+          source: providerId,
+          type: 'code_unit',
+          taskId: { in: dexTaskIds },
+          stableKey: { in: dexParentKeys },
+          artifact: { is: selection.artifactWhere },
+        },
+        select: {
+          id: true, taskId: true, stableKey: true, label: true, source: true, artifactId: true,
+          updatedAt: true, attributes: true,
+          artifact: { select: { relativePath: true, originalName: true } },
+        },
+      })
+      : []
+    const dexParentsByKey = new Map(dexParentRows.map((row) => [`${row.taskId}:${row.stableKey}`, row]))
+    const matches = rankedRows.flatMap(({ row, similarity }) => {
+      const artifact = { name: row.artifact?.originalName || 'Unknown artifact', sha256: row.artifact?.sha256 || null }
+      if (providerId === 'reamon-dex-decompiler') {
+        const attributes = attributesRecord(row.attributes)
+        const parentKey = typeof attributes.parentCodeUnitKey === 'string' ? attributes.parentCodeUnitKey : ''
+        const parentRow = dexParentsByKey.get(`${row.taskId}:${parentKey}`)
+        const codeUnit = parentRow ? normalizeCodeUnit(parentRow) : null
+        return codeUnit ? [{
+          codeUnit,
+          function: {
+            id: row.id,
+            ...(row.taskId ? { taskId: row.taskId } : {}),
+            name: row.label || functionFeatures(row).name,
+            address: typeof attributes.address === 'string' ? attributes.address : null,
+            hasControlFlowGraph: typeof attributes.controlFlowGraph === 'string',
+          },
+          similarity,
+          artifact,
+        }] : []
+      }
+      const codeUnit = normalizeCodeUnit(row)
+      return codeUnit ? [{ codeUnit, similarity, artifact }] : []
     })
     return NextResponse.json({ focusId: focus.id, matches, truncated }, { headers: MAX_NO_STORE })
   } catch (error) {
