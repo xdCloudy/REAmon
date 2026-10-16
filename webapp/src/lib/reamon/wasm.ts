@@ -13,6 +13,7 @@ interface WasmUnit {
   codeArtifactId: string
   sizeBytes: number
   instructionMnemonics?: string[]
+  nameEvidence?: string
 }
 
 interface WasmCall {
@@ -30,6 +31,8 @@ interface WasmResponse {
   codeBytes?: number
   truncated: boolean
   units: WasmUnit[]
+  rustUnits?: Array<WasmUnit & { nameEvidence?: string }>
+  rustVersion?: string
   calls?: WasmCall[]
   callCount?: number
   callGraphTruncated?: boolean
@@ -43,8 +46,8 @@ export const wasmManifest: ToolPluginManifest = {
   integration: 'process',
   acceptsTargetTypes: ['FILE'],
   acceptsFormats: ['wasm'],
-  capabilities: ['disassemble'],
-  produces: ['CodeUnit', 'WATFunction'],
+  capabilities: ['disassemble', 'decompile'],
+  produces: ['CodeUnit', 'WATFunction', 'RustFunction'],
   requirements: [
     { key: 'service', value: 'Isolated WABT analyzer' },
     { key: 'artifactPath' },
@@ -144,6 +147,43 @@ export async function executeWasm(input: ToolExecutionInput): Promise<ToolResult
         ...(unit.instructionMnemonics?.length ? { instructionMnemonics: JSON.stringify(unit.instructionMnemonics.slice(0, 800)) } : {}),
       },
     }))
+    const rustUnits = (Array.isArray(payload.rustUnits) ? payload.rustUnits : []).slice(0, MAX_UNITS).filter(isWasmUnit)
+    for (const unit of rustUnits) {
+      const sourceKey = `wasm:function:${createHash('sha256').update(`${input.artifactId}:${input.taskId}:${unit.address}`).digest('hex').slice(0, 32)}`
+      const rustKey = `wasm:rust-function:${createHash('sha256').update(`${input.artifactId}:${input.taskId}:${unit.address}`).digest('hex').slice(0, 32)}`
+      observations.push({
+        kind: 'entity',
+        type: 'code_unit',
+        key: rustKey,
+        label: `${unit.name} (Rust reconstruction)`,
+        attributes: {
+          unitType: 'function',
+          name: unit.name,
+          qualifiedName: unit.name,
+          address: unit.address,
+          relativePath: unit.relativePath,
+          sizeBytes: unit.sizeBytes,
+          language: 'Rust',
+          sourceLanguage: 'WebAssembly',
+          representation: 'unwasm level 0 Rust translation; not recovered original Rust source',
+          decompiler: 'unwasm',
+          decompilerVersion: payload.rustVersion?.slice(0, 120) || 'unwasm (version unavailable)',
+          nameEvidence: typeof unit.nameEvidence === 'string' ? unit.nameEvidence.slice(0, 80) : 'unavailable',
+          decompiled: true,
+          codeArtifactId: unit.codeArtifactId,
+        },
+      })
+      observations.push({
+        kind: 'relationship',
+        type: 'has_translation',
+        relation: 'has_translation',
+        key: `wasm:translation:${createHash('sha256').update(`${input.artifactId}:${input.taskId}:${unit.address}`).digest('hex').slice(0, 32)}`,
+        fromKey: sourceKey,
+        toKey: rustKey,
+        label: `${unit.name} translated from WebAssembly to Rust`,
+        attributes: { sourceLanguage: 'WebAssembly', outputLanguage: 'Rust', provider: 'unwasm' },
+      })
+    }
     const unitAddresses = new Set(units.map((unit) => unit.address))
     const calls = (Array.isArray(payload.calls) ? payload.calls : []).slice(0, MAX_UNITS)
     const externalFunctions = new Set<string>()
@@ -202,6 +242,7 @@ export async function executeWasm(input: ToolExecutionInput): Promise<ToolResult
         observations,
         wasmFunctionCount: payload.functionCount,
         returnedFunctionCount: units.length,
+        rustFunctionCount: rustUnits.length,
         callCount: seenEdges.size,
         callGraphTruncated: payload.callGraphTruncated === true || (payload.calls?.length || 0) > MAX_UNITS,
         codeBytes: payload.codeBytes ?? units.reduce((sum, unit) => sum + unit.sizeBytes, 0),

@@ -21,6 +21,7 @@ DERIVED_ROOT = Path(os.getenv("REAMON_DERIVED_PATH", "/data/reamon-derived")).re
 PORT = int(os.getenv("PORT", "8012"))
 MAX_MODULE_BYTES = 256 * 1024 * 1024
 MAX_WAT_BYTES = 128 * 1024 * 1024
+MAX_RUST_BYTES = 64 * 1024 * 1024
 MAX_RETURNED_FUNCTIONS = 2_000
 MAX_RETURNED_CALLS = 400
 MAX_RESULT_CHUNK_BYTES = 1024 * 1024
@@ -257,6 +258,97 @@ def _terminate(process: subprocess.Popen) -> None:
         process.wait()
 
 
+def _decompile_rust(artifact: Path, function_indices: list[str], temporary_path: Path,
+                    run_root: Path, cancel_check) -> tuple[list[dict], str]:
+    """Return bounded function-sized Rust views; WAT remains the primary output."""
+    if not function_indices:
+        return [], ""
+    output_dir = temporary_path / "unwasm"
+    error_log = temporary_path / "unwasm.stderr"
+    deadline = time.monotonic() + 100
+    with error_log.open("wb") as log:
+        try:
+            process = subprocess.Popen(
+                ["/usr/bin/prlimit", "--cpu=90", "--as=805306368", f"--fsize={MAX_RUST_BYTES}", "--",
+                 "/opt/unwasm/bin/unwasm", "decompile", str(artifact), "--bare", "--level", "0",
+                 "--only", ",".join(function_indices), "-o", str(output_dir)],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=log,
+                start_new_session=True,
+                env={"PATH": "/usr/bin:/bin", "HOME": "/tmp"},
+            )
+        except OSError as error:
+            return [], f"Rust reconstruction unavailable: {error.__class__.__name__}."
+        try:
+            while process.poll() is None:
+                if cancel_check():
+                    _terminate(process)
+                    raise AnalysisError("WebAssembly analysis was cancelled")
+                if time.monotonic() >= deadline:
+                    _terminate(process)
+                    return [], "Rust reconstruction stopped at its 100-second resource limit."
+                try:
+                    process.wait(timeout=0.25)
+                except subprocess.TimeoutExpired:
+                    pass
+        except BaseException:
+            _terminate(process)
+            raise
+
+    detail = error_log.read_bytes()[-2_000:].decode(errors="replace").strip()
+    if process.returncode:
+        return [], ("Rust reconstruction exceeded its resource limit or the decompiler rejected the module. "
+                    + detail).strip()[:2_500]
+    source_path = output_dir / "mod.rs"
+    index_path = output_dir / "names.json"
+    if not source_path.is_file() or not index_path.is_file():
+        return [], "Rust reconstruction did not produce its source index."
+    if source_path.stat().st_size > MAX_RUST_BYTES or index_path.stat().st_size > 2 * 1024 * 1024:
+        return [], "Rust reconstruction exceeded the 64 MiB storage limit."
+    try:
+        index = json.loads(index_path.read_text(encoding="utf-8"))
+        lines = source_path.read_text(encoding="utf-8").splitlines(keepends=True)
+        records = index["functions"]
+    except (OSError, UnicodeError, json.JSONDecodeError, KeyError, TypeError):
+        return [], "Rust reconstruction produced an invalid source index."
+
+    units = []
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        try:
+            address = str(int(record["index"]))
+            first = int(record["line"])
+            last = int(record["last_line"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if address not in function_indices or first < 1 or last < first or last > len(lines):
+            continue
+        source = "".join(lines[first - 1:last])
+        if not source.strip():
+            continue
+        name = str(record.get("name", f"function_{address}"))[:500]
+        relative_path = f"rust-functions/f{int(address):05d}.rs"
+        destination = run_root / relative_path
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(source, encoding="utf-8")
+        units.append({
+            "name": name,
+            "address": address,
+            "relativePath": relative_path,
+            "codeArtifactId": destination.relative_to(DERIVED_ROOT).as_posix(),
+            "sizeBytes": len(source.encode("utf-8")),
+            "nameEvidence": str(record.get("named_by", "none"))[:80],
+        })
+    warnings = ""
+    if len(units) < len(function_indices):
+        warnings = f"Rust views were produced for {len(units)} of {len(function_indices)} selected functions."
+    if detail:
+        warnings = f"{warnings} {detail}".strip()[:2_500]
+    return units, warnings
+
+
 def go(body: object, report_progress=lambda _message: None, cancel_check=lambda: False) -> dict:
     if not isinstance(body, dict):
         raise AnalysisError("Invalid request")
@@ -373,6 +465,15 @@ def go(body: object, report_progress=lambda _message: None, cancel_check=lambda:
             warnings = f"{warnings} Direct call edges were limited to {MAX_RETURNED_CALLS}.".strip()
         if detail:
             warnings = f"{warnings} {detail}".strip()
+        rust_units, rust_warnings = _decompile_rust(
+            artifact,
+            [unit["address"] for unit in units],
+            temporary_path,
+            run_root,
+            cancel_check,
+        )
+        if rust_warnings:
+            warnings = f"{warnings} {rust_warnings}".strip()[:4_000]
         return {
             "status": "completed",
             "toolVersion": "1.0.42",
@@ -382,6 +483,8 @@ def go(body: object, report_progress=lambda _message: None, cancel_check=lambda:
             "truncated": truncated,
             "moduleCodeArtifactId": module_path.relative_to(DERIVED_ROOT).as_posix(),
             "units": units,
+            "rustUnits": rust_units,
+            "rustVersion": "unwasm@72844fd8848358e23abbeae232abf9b3d68817b2",
             "calls": calls,
             "callCount": len(calls),
             "callGraphTruncated": call_graph_truncated,

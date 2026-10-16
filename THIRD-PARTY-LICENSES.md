@@ -411,6 +411,7 @@ In compliance with the AGPL-3.0 license, the complete corresponding source code 
 
 | Tool | Purpose | License | Source Repository | How Used |
 |------|---------|---------|-------------------|----------|
+| **unwasm** | WebAssembly function to Rust translation | MIT / Apache-2.0 (dual) | https://github.com/oxidezap/unwasm | Built from pinned commit `72844fd8848358e23abbeae232abf9b3d68817b2` in the isolated `reamon-wasm` image; upstream license and notice files are copied into `/usr/share/licenses/unwasm/`. |
 | **pycdc** | Python bytecode disassembly and source reconstruction | MIT | https://github.com/ejfkdev/pycdc | Pinned to v0.6.0 and invoked as a separate process inside `reamon-pycdc`; Linux release binaries are checksum-verified in `analyzers/pycdc/Dockerfile`. |
 | **GoReSym** | Go symbol, package, runtime, and type metadata recovery | MIT | https://github.com/mandiant/GoReSym | Built from pinned v3.4.1 commit `722897e0a80da0a06c00c5e40591a253a551f04e` into the isolated Ghidra analyzer; upstream license is copied into the image. Go module dependencies keep their own licenses. |
 | **LuaJIT Decompiler v2** | LuaJIT bytecode to Lua source reconstruction | MIT | https://github.com/marsinator358/luajit-decompiler-v2 | Built from the MIT-licensed Linux port at commit `0ec63c05acec3173cab868aca1de1f230d6c7b31`; invoked inside the isolated `reamon-luajit` service. |
