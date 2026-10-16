@@ -137,6 +137,21 @@
 .callGraphHeader h3 { margin: 0; color: var(--text-primary); font-size: var(--text-sm); }
 .callGraphHeader p { margin: var(--space-1) 0 0; color: var(--text-tertiary); font-size: var(--text-xs); line-height: 1.45; }
 .graphBadge { flex: 0 0 auto; border-radius: var(--radius-sm); padding: .25rem .45rem; background: var(--accent-secondary-subtle); color: var(--status-info-text); font-size: var(--text-xs); }
+.cfgPanel { min-width: 0; margin-top: var(--space-3); padding: var(--space-3); border: 1px solid var(--border-default); border-radius: var(--radius-default); background: var(--bg-tertiary); }
+.cfgHeader { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-2); }
+.cfgHeader h3 { margin: 0; color: var(--text-primary); font-size: var(--text-sm); }
+.cfgHeader p, .cfgMessage { margin: var(--space-1) 0 0; color: var(--text-tertiary); font-size: var(--text-xs); line-height: 1.45; }
+.cfgLegend { display: flex; flex-wrap: wrap; gap: var(--space-3); margin: var(--space-2) 0; color: var(--text-secondary); font: .68rem var(--font-mono); }
+.cfgCanvas { max-width: 100%; overflow: auto; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); background: var(--bg-primary); }
+.cfgCanvas svg { display: block; min-width: 480px; width: 100%; height: auto; }
+.cfgEdge path { fill: none; stroke: var(--text-tertiary); stroke-width: 1.5; }
+.cfgEdge marker path { fill: var(--text-tertiary); stroke: none; }
+.cfgEdge text { fill: var(--text-tertiary); font: 9px var(--font-mono); }
+.cfgNode rect { fill: var(--bg-secondary); stroke: var(--border-default); stroke-width: 1.5; }
+.cfgNode text { fill: var(--text-secondary); font: 10px var(--font-mono); }
+.cfgNode text + text { fill: var(--text-tertiary); font-size: 9px; }
+.cfgEntry rect { stroke: var(--status-success-text, #69c991); }
+.cfgExit rect { stroke: var(--accent-secondary); }
 .graphGroups { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); }
 .graphGroup { min-width: 0; padding: var(--space-3); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); background: var(--bg-secondary); }
 .graphGroup h4 { margin: 0 0 var(--space-2); color: var(--text-secondary); font-size: var(--text-xs); }

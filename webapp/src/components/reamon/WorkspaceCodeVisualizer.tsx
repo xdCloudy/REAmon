@@ -53,7 +53,19 @@ interface FunctionMapMember {
   similarityAvailable: boolean
   memberKind: string
   line: number | null
+  hasControlFlowGraph: boolean
   parentCodeUnit: CodeUnit
+}
+
+interface FunctionControlFlowGraph {
+  label: string
+  entryBlock: number
+  exitBlock: number
+  blockCount: number
+  edgeCount: number
+  truncated: boolean
+  blocks: Array<{ id: number; kind: string; instructionCount: number; rawInstructionCount: number }>
+  edges: Array<{ from: number; to: number; kind: string }>
 }
 
 interface MaintainedCoverageResponse {
@@ -108,6 +120,76 @@ function validationSummary(validation: Pick<CodeMaintenanceResponse, 'syntaxVali
   return 'This draft has changed or predates saved validation metadata. Recheck its syntax and behavior before saving.'
 }
 
+function FunctionControlFlowPanel({
+  name,
+  query,
+}: {
+  name: string
+  query: { data?: FunctionControlFlowGraph; isLoading: boolean; error: unknown }
+}) {
+  const graph = query.data
+  const columns = Math.min(4, Math.max(1, graph?.blocks.length || 1))
+  const nodeWidth = 200
+  const columnGap = 30
+  const rowHeight = 92
+  const width = columns * (nodeWidth + columnGap) + 10
+  const rows = Math.ceil((graph?.blocks.length || 1) / columns)
+  const height = rows * rowHeight + 16
+  const positions = new Map((graph?.blocks || []).map((block, index) => [
+    block.id,
+    { x: 10 + (index % columns) * (nodeWidth + columnGap), y: 10 + Math.floor(index / columns) * rowHeight },
+  ]))
+
+  return <section className={styles.cfgPanel} aria-label={`Control-flow graph for ${name}`}>
+    <div className={styles.cfgHeader}>
+      <div>
+        <h3>Prototype control flow</h3>
+        <p>{graph ? `${graph.blockCount} blocks · ${graph.edgeCount} edges` : 'Bounded CFG summary from the Lua bytecode analyzer.'}</p>
+      </div>
+      {graph?.truncated && <span className={styles.graphBadge}>Partial graph</span>}
+    </div>
+    {query.isLoading && <p className={styles.cfgMessage} role="status">Loading prototype graph…</p>}
+    {Boolean(query.error) && <p className={styles.cfgMessage} role="alert">{query.error instanceof Error ? query.error.message : 'Could not load the prototype graph.'}</p>}
+    {graph && graph.blocks.length > 0 && <>
+      <div className={styles.cfgLegend}><span>Entry block {graph.entryBlock}</span><span>Exit block {graph.exitBlock}</span></div>
+      <div className={styles.cfgCanvas}>
+        <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${graph.blocks.length} displayed basic blocks and ${graph.edges.length} displayed control-flow edges`}>
+          <defs>
+            <marker id="reamon-cfg-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" />
+            </marker>
+          </defs>
+          {graph.edges.map((edge, index) => {
+            const from = positions.get(edge.from)
+            const to = positions.get(edge.to)
+            if (!from || !to) return null
+            const startX = from.x + nodeWidth / 2
+            const startY = from.y + 56
+            const endX = to.x + nodeWidth / 2
+            const endY = to.y
+            const middleY = (startY + endY) / 2
+            return <g key={`${edge.from}:${edge.to}:${edge.kind}:${index}`} className={styles.cfgEdge}>
+              <path d={`M ${startX} ${startY} C ${startX} ${middleY}, ${endX} ${middleY}, ${endX} ${endY}`} markerEnd="url(#reamon-cfg-arrow)" />
+              <text x={(startX + endX) / 2 + 4} y={middleY - 3}>{edge.kind}</text>
+            </g>
+          })}
+          {graph.blocks.map((block) => {
+            const position = positions.get(block.id)
+            if (!position) return null
+            return <g key={block.id} className={`${styles.cfgNode} ${block.id === graph.entryBlock ? styles.cfgEntry : ''} ${block.id === graph.exitBlock ? styles.cfgExit : ''}`}>
+              <rect x={position.x} y={position.y} width={nodeWidth} height={58} rx={8} />
+              <text x={position.x + 12} y={position.y + 21}>Block {block.id} · {block.kind}</text>
+              <text x={position.x + 12} y={position.y + 41}>{block.instructionCount} IR · {block.rawInstructionCount} bytecode instructions</text>
+            </g>
+          })}
+        </svg>
+      </div>
+      <p className={styles.cfgMessage}>This view shows control-flow structure and instruction counts. Decompiled source remains the editable module artifact.</p>
+    </>}
+    {graph && graph.blocks.length === 0 && <p className={styles.cfgMessage}>This prototype has no basic blocks to display.</p>}
+  </section>
+}
+
 const EMPTY_CODE_UNITS: CodeUnit[] = []
 const AUTO_LOAD_CODE_UNIT_LIMIT = 20_000
 const FOLDER_VIEW_CODE_UNIT_LIMIT = 2_000
@@ -144,6 +226,16 @@ async function fetchCallGraph(projectId: string, taskId: string, unitId: string,
   if (!response.ok) {
     const detail = await response.json().catch(() => null) as { error?: string } | null
     throw new Error(detail?.error || 'Unable to load this function call graph')
+  }
+  return response.json()
+}
+
+async function fetchFunctionControlFlowGraph(projectId: string, taskId: string, functionId: string, signal?: AbortSignal): Promise<FunctionControlFlowGraph> {
+  const params = new URLSearchParams({ taskId, functionId })
+  const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/function-cfg?${params.toString()}`, { signal, cache: 'no-store' })
+  if (!response.ok) {
+    const detail = await response.json().catch(() => null) as { error?: string } | null
+    throw new Error(detail?.error || 'Unable to load this function control-flow graph')
   }
   return response.json()
 }
@@ -337,7 +429,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
   const [jadxGraphType, setJadxGraphType] = useState<'function_calls' | 'class_dependencies'>('function_calls')
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [selectedFunctionMapMember, setSelectedFunctionMapMember] = useState<{ id: string; parentUnitId: string; name: string; similarityAvailable: boolean } | null>(null)
+  const [selectedFunctionMapMember, setSelectedFunctionMapMember] = useState<{ id: string; parentUnitId: string; name: string; similarityAvailable: boolean; hasControlFlowGraph: boolean } | null>(null)
   const [urlInitialized, setUrlInitialized] = useState(false)
   const [graphUnit, setGraphUnit] = useState<CodeUnit | null>(null)
   const [copyStatus, setCopyStatus] = useState('')
@@ -524,6 +616,17 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
     staleTime: 30_000,
     gcTime: 60_000,
   })
+  const selectedLuaFunctionId = selectedFunctionMapMember?.hasControlFlowGraph
+    && selectedFunctionMapMember.parentUnitId === selectedUnit?.id
+    ? selectedFunctionMapMember.id
+    : ''
+  const functionControlFlowQuery = useQuery({
+    queryKey: ['reamon-function-cfg', projectId, currentRunId, selectedLuaFunctionId],
+    queryFn: ({ signal }) => fetchFunctionControlFlowGraph(projectId, currentRunId as string, selectedLuaFunctionId, signal),
+    enabled: Boolean(currentRunId && selectedLuaFunctionId),
+    staleTime: 5 * 60_000,
+    gcTime: 10 * 60_000,
+  })
   const selectedFunctionMapTarget = selectedFunctionMapMember && selectedFunctionMapMember.parentUnitId === selectedUnit?.id && selectedFunctionMapMember.similarityAvailable
     ? selectedFunctionMapMember.id
     : ''
@@ -634,6 +737,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
   }, [selectedUnit?.id, smaliSourceQuery.data])
   useEffect(() => {
     const memberFilterTarget = selectedFunctionMapMember && selectedFunctionMapMember.parentUnitId === selectedUnit?.id
+      && !selectedFunctionMapMember.hasControlFlowGraph
       ? selectedFunctionMapMember.name
       : ''
     setMemberFilter(memberFilterTarget)
@@ -1476,7 +1580,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
                 title={`${member.fullName} · ${coverage} · ${work}`}
                 onClick={() => {
                   openTreemapEntry({ key: `unit:${parent.id}`, name: parent.name, sizeBytes: parent.sizeBytes, coveragePercent: parent.coveragePercent, codeUnit: parent, unitCount: 1, maintainedUnitCount: parent.maintainedSource ? 1 : 0, draftedUnitCount: parent.draftSource ? 1 : 0 })
-                  setSelectedFunctionMapMember({ id: member.id, parentUnitId: parent.id, name: member.name.replace(/#\d+$/, ''), similarityAvailable: member.similarityAvailable })
+                  setSelectedFunctionMapMember({ id: member.id, parentUnitId: parent.id, name: member.name.replace(/#\d+$/, ''), similarityAvailable: member.similarityAvailable, hasControlFlowGraph: member.hasControlFlowGraph })
                 }}
               >
                 <strong>{member.name}</strong>
@@ -1485,7 +1589,11 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
               </button>
             })}
           </div>
-          {visibleFunctionMapMembers.length > 0 && <p className={styles.functionMapNote} role="status">{visibleFunctionMapMembers.length.toLocaleString()} function or method entries from the loaded code units. Status reflects the containing source file; select an entry to open it and filter the member outline.</p>}
+          {selectedLuaFunctionId && <FunctionControlFlowPanel
+            query={functionControlFlowQuery}
+            name={selectedFunctionMapMember?.name || 'Lua prototype'}
+          />}
+          {visibleFunctionMapMembers.length > 0 && <p className={styles.functionMapNote} role="status">{visibleFunctionMapMembers.length.toLocaleString()} function or method entries from the loaded code units. Status reflects the containing source file; select an entry to open its source and any available function-level analysis.</p>}
           {functionMapTruncated && <p className={styles.functionMapNote} role="status">The function map reached its 20,000-entry display limit. Load or search a smaller code-unit page to explore more.</p>}
           </> : <svg className={styles.map} viewBox="0 0 1200 560" role="group" aria-label={`${mapContent === 'folders' ? 'Folder and code unit' : 'Code unit'} treemap sized by bytes and colored by ${mapLayer === 'decompilation' ? 'decompilation completeness' : mapLayer === 'maintenance' ? 'maintained source coverage' : 'reverse-engineering work status'}`}>
             {rectangles.map(({ unit, x, y, width, height }) => {
