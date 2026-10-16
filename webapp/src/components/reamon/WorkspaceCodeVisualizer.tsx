@@ -122,6 +122,8 @@ interface CodeAttemptRecord { id: string; providerName: string; modelIdentifier:
 interface CodeDraftResponse { exists: boolean; draft: CodeDraftRecord | null; attempts?: CodeAttemptRecord[] }
 interface CodeReviewRecord { id: string; reviewerId: string; decision: 'ACCEPTED'; rationale: string; maintainedSourceHash: string; createdAt: string }
 interface CodeMemberOutline { name: string; kind: 'function' | 'method' | 'constructor'; start_byte: number; end_byte: number; line: number; source_bytes: number }
+interface SafeRenameProposal { bindingId: string; oldName: string; newName: string; kind: string; referenceCount: number; rationale: string }
+interface SafeRenameSuggestions { sourceSha256: string; providerId: string; providerName: string; model: string; candidates: number; renames: SafeRenameProposal[] }
 
 function validationSummary(validation: Pick<CodeMaintenanceResponse, 'syntaxValidated' | 'validationStatus' | 'validationMethod' | 'validationMessage'>): string {
   const method = validation.validationMethod || 'Source parser'
@@ -541,6 +543,11 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
   const [savingDraft, setSavingDraft] = useState(false)
   const [maintenanceMeta, setMaintenanceMeta] = useState<CodeMaintenanceResponse | null>(null)
   const [maintenanceError, setMaintenanceError] = useState('')
+  const [safeRenameSuggestions, setSafeRenameSuggestions] = useState<SafeRenameSuggestions | null>(null)
+  const [selectedSafeRenameIds, setSelectedSafeRenameIds] = useState<Set<string>>(new Set())
+  const [suggestingSafeRenames, setSuggestingSafeRenames] = useState(false)
+  const [applyingSafeRenames, setApplyingSafeRenames] = useState(false)
+  const [safeRenameStatus, setSafeRenameStatus] = useState('')
   const [reviewRationale, setReviewRationale] = useState('')
   const [transforming, setTransforming] = useState(false)
   const [activeRewriteAttemptId, setActiveRewriteAttemptId] = useState<string | null>(null)
@@ -787,6 +794,8 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
   })
   const sourceByteLength = useMemo(() => sourceQuery.data === undefined ? null : new TextEncoder().encode(sourceQuery.data).byteLength, [sourceQuery.data])
   const largeSource = sourceByteLength !== null && sourceByteLength > MAX_MEMBER_REWRITE_BYTES
+  const safeRenameSupported = /^(javascript|typescript|jsx|tsx)$/i.test(selectedUnit?.language || '')
+  const safeRenameSourceByteLength = new TextEncoder().encode(maintainedDraft || sourceQuery.data || '').byteLength
   const memberOutlineEligible = Boolean(selectedUnit?.language?.trim() && selectedUnit.language.trim().toLowerCase() !== 'unknown' && selectedUnit.unitType !== 'resource')
   const memberOutlineAvailable = Boolean(memberOutlineEligible && sourceByteLength !== null && sourceByteLength <= MAX_MEMBER_OUTLINE_BYTES)
   const memberOutlineQuery = useQuery({
@@ -835,6 +844,11 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
     setMaintainedSaved(false)
     setMaintenanceMeta(null)
     setMaintenanceError('')
+    setSafeRenameSuggestions(null)
+    setSelectedSafeRenameIds(new Set())
+    setSafeRenameStatus('')
+    setSuggestingSafeRenames(false)
+    setApplyingSafeRenames(false)
     setReviewRationale('')
     setMaintainedDraft('')
     setSmaliDraft('')
@@ -1179,6 +1193,68 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
       setMaintenanceError(error instanceof Error ? error.message : 'Could not create a maintainable version')
     } finally {
       setTransforming(false)
+    }
+  }
+
+  async function suggestSafeRenames() {
+    const workingSource = maintainedDraft || sourceQuery.data
+    if (!selectedUnit || !selectedProviderId || !workingSource) return
+    setSuggestingSafeRenames(true)
+    setMaintenanceError('')
+    setSafeRenameStatus('')
+    setSafeRenameSuggestions(null)
+    setSelectedSafeRenameIds(new Set())
+    try {
+      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/safe-renames`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ operation: 'suggest', unitId: selectedUnit.id, providerId: selectedProviderId, sourceCode: workingSource, question: question.trim() }),
+      })
+      const result = await response.json().catch(() => ({})) as SafeRenameSuggestions & { error?: string }
+      if (!response.ok || typeof result.sourceSha256 !== 'string' || result.providerId !== selectedProviderId || !Array.isArray(result.renames)) {
+        throw new Error(result.error || 'Could not suggest scope-safe rename candidates')
+      }
+      setSafeRenameSuggestions(result)
+      setSelectedSafeRenameIds(new Set(result.renames.map((proposal) => proposal.bindingId)))
+      if (!result.renames.length) setSafeRenameStatus('No lexical binding names were clear enough to suggest from this source and reviewed project memory.')
+    } catch (error) {
+      setMaintenanceError(error instanceof Error ? error.message : 'Could not suggest scope-safe rename candidates')
+    } finally {
+      setSuggestingSafeRenames(false)
+    }
+  }
+
+  async function applySelectedSafeRenames() {
+    const workingSource = maintainedDraft || sourceQuery.data
+    if (!selectedUnit || !selectedProviderId || !safeRenameSuggestions || !workingSource) return
+    const renames = safeRenameSuggestions.renames.filter((proposal) => selectedSafeRenameIds.has(proposal.bindingId))
+    if (!renames.length) return
+    setApplyingSafeRenames(true)
+    setMaintenanceError('')
+    setSafeRenameStatus('')
+    try {
+      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/safe-renames`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ operation: 'apply', unitId: selectedUnit.id, providerId: selectedProviderId, sourceCode: workingSource, expectedSha256: safeRenameSuggestions.sourceSha256, renames }),
+      })
+      const result = await response.json().catch(() => ({})) as CodeMaintenanceResponse & { error?: string; outputSha256?: string; renamedBindings?: Array<{ oldName: string; newName: string }> }
+      if (!response.ok || typeof result.sourceCode !== 'string' || !result.attemptId) {
+        throw new Error(result.error || 'Could not apply the selected safe renames')
+      }
+      setMaintainedDraft(result.sourceCode)
+      setMaintenanceMeta(result)
+      setMaintainedSaved(false)
+      setDraftId(null)
+      setDraftSource(null)
+      setDraftScope('file')
+      const draftId = await persistCodeDraft(result.sourceCode, result, 'file')
+      await queryClient.invalidateQueries({ queryKey: ['reamon-code-draft', projectId, selectedUnit.id] })
+      setSafeRenameSuggestions(null)
+      setSelectedSafeRenameIds(new Set())
+      setSafeRenameStatus(`Applied ${result.renamedBindings?.length || renames.length} scope-safe rename${(result.renamedBindings?.length || renames.length) === 1 ? '' : 's'}; draft ${draftId} is saved for review.`)
+    } catch (error) {
+      setMaintenanceError(error instanceof Error ? error.message : 'Could not apply the selected safe renames')
+    } finally {
+      setApplyingSafeRenames(false)
     }
   }
 
@@ -1975,7 +2051,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
           {!explanationProvidersQuery.isLoading && !explanationProvidersQuery.isError && explanationProviders.length === 0 && <p className={styles.message}>No OpenAI-compatible provider is saved yet. <a href="/settings">Add one in Settings</a>.</p>}
           {explanationProviders.length > 0 && <>
             <label className={styles.explainField}>Saved provider
-              <select value={selectedProviderId} onChange={(event) => setProviderId(event.target.value)}>
+              <select value={selectedProviderId} onChange={(event) => { setProviderId(event.target.value); setSafeRenameSuggestions(null); setSelectedSafeRenameIds(new Set()) }}>
                 {explanationProviders.map((provider) => <option key={provider.id} value={provider.id}>{provider.name} · {provider.modelIdentifier}</option>)}
               </select>
             </label>
@@ -1983,6 +2059,32 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
               <textarea value={question} onChange={(event) => setQuestion(event.target.value)} maxLength={1000} rows={3} placeholder="For example: recover the purpose of short names and simplify generated control flow." />
             </label>
           </>}
+          {safeRenameSupported && <section className={styles.classReferences} aria-label="Scope-safe identifier renaming">
+            <div><strong>Suggest names, apply them through lexical scopes</strong><span>The configured model uses source and reviewed project names to suggest bindings. Babel applies only the selected renames and checks syntax and scope collisions; it does not verify behavior.</span></div>
+            <button type="button" className={styles.copyButton} onClick={() => void suggestSafeRenames()} disabled={!selectedProviderId || suggestingSafeRenames || applyingSafeRenames || transforming || sourceByteLength === null || safeRenameSourceByteLength > 64 * 1024 || sourceQuery.isError}>
+              {suggestingSafeRenames ? 'Checking source and suggesting names…' : 'Suggest scope-safe renames'}
+            </button>
+            {safeRenameSourceByteLength > 64 * 1024 && <p className={styles.message}>AI rename suggestions are limited to editable source of 64 KiB or less.</p>}
+            {safeRenameSuggestions && safeRenameSuggestions.renames.length > 0 && <div className={styles.attemptHistory}>
+              <p>{safeRenameSuggestions.renames.length} proposals from {safeRenameSuggestions.providerName} · {safeRenameSuggestions.model}. Source SHA-256: {safeRenameSuggestions.sourceSha256.slice(0, 16)}…</p>
+              <ul>{safeRenameSuggestions.renames.map((proposal) => <li key={proposal.bindingId}>
+                <label className={styles.explainField}>
+                  <input type="checkbox" checked={selectedSafeRenameIds.has(proposal.bindingId)} onChange={(event) => setSelectedSafeRenameIds((current) => {
+                    const next = new Set(current)
+                    if (event.target.checked) next.add(proposal.bindingId)
+                    else next.delete(proposal.bindingId)
+                    return next
+                  })} />
+                  <strong>{proposal.oldName} → {proposal.newName}</strong> · {proposal.kind} · {proposal.referenceCount} reference{proposal.referenceCount === 1 ? '' : 's'}
+                  <span>{proposal.rationale}</span>
+                </label>
+              </li>)}</ul>
+              <button type="button" className={styles.explainButton} onClick={() => void applySelectedSafeRenames()} disabled={selectedSafeRenameIds.size === 0 || applyingSafeRenames || suggestingSafeRenames || transforming}>
+                {applyingSafeRenames ? 'Applying and saving draft…' : `Apply ${selectedSafeRenameIds.size} selected rename${selectedSafeRenameIds.size === 1 ? '' : 's'}`}
+              </button>
+            </div>}
+            {safeRenameStatus && <p className={styles.message} role="status">{safeRenameStatus}</p>}
+          </section>}
           {largeSource && !memberOutlineEligible && <p className={styles.message}>This source exceeds the single request limit, and function-level rewriting is unavailable for this code unit.</p>}
           {memberOutlineEligible && sourceByteLength !== null && sourceByteLength > MAX_MEMBER_OUTLINE_BYTES && <p className={styles.message}>Function and method outlining is limited to source files of 2 MiB or less.</p>}
           {memberOutlineAvailable && <section className={styles.classReferences} aria-label="Function and method outline">
@@ -2077,7 +2179,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
           {!explanationProvidersQuery.isLoading && !explanationProvidersQuery.isError && explanationProviders.length === 0 && <p className={styles.message}>No OpenAI-compatible provider is saved yet. <a href="/settings">Add one in Settings</a>.</p>}
           {explanationProviders.length > 0 && <>
             <label className={styles.explainField}>Saved provider
-              <select value={selectedProviderId} onChange={(event) => setProviderId(event.target.value)}>
+              <select value={selectedProviderId} onChange={(event) => { setProviderId(event.target.value); setSafeRenameSuggestions(null); setSelectedSafeRenameIds(new Set()) }}>
                 {explanationProviders.map((provider) => <option key={provider.id} value={provider.id}>{provider.name} · {provider.modelIdentifier}</option>)}
               </select>
             </label>

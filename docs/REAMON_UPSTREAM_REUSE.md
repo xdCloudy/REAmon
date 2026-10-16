@@ -47,9 +47,17 @@ separate so a plausible name is never treated as proof of behavior.
   edit, and validation records in REAmon. Do not invoke Humanify's built-in
   per-identifier provider loop: its README describes one LLM request per
   identifier, and that flow does not use REAmon's database context or attempt
-  history. Its OXC-backed transform is language-specific and is not behavior
-  validation. See the upstream [README](https://github.com/jehna/humanify) and
-  [pinned dependency manifest](https://github.com/jehna/humanify/blob/main/Cargo.toml).
+  history. REAmon's first slice follows this design with the analyzer's pinned
+  Babel parser/traverse/generator: it lists scope bindings, accepts selected
+  evidence-grounded mappings, rejects identifier/collision hazards, applies the
+  AST rename, reparses the result, and saves full input, mapping rationales,
+  output, and hashes in its attempt/draft database. The source hash is checked
+  again when applying proposals. Babel is an initial adapter, not code copied
+  from Humanify; compare it with OXC before deciding whether to build an OXC
+  sidecar. The current [OXC Node parser binding](https://github.com/oxc-project/oxc/issues/22985)
+  does not yet return its semantic scope data, which Humanify uses in Rust. Both
+  approaches prove syntax/scope editability, not behavior. See the upstream
+  [README](https://github.com/jehna/humanify) and [dependency manifest](https://github.com/jehna/humanify/blob/main/Cargo.toml).
 - [webcrack](https://github.com/j4k0xb/webcrack) is MIT-licensed and targets
   JavaScript specifically: obfuscator.io transforms, unminification, JSX, and
   webpack/Browserify module extraction. REAmon now uses v2.16.0 in a Node 22

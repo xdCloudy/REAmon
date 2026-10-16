@@ -5,6 +5,8 @@ import { readAnalyzerResponse } from './analyzer-response'
 const DEFAULT_TIMEOUT_MS = 180_000
 const MAX_TIMEOUT_MS = 10 * 60_000
 const MAX_UNITS = 501
+const MAX_SAFE_RENAME_SOURCE_BYTES = 512 * 1024
+const MAX_SAFE_RENAME_ITEMS = 200
 
 interface WebcrackUnit {
   name: string
@@ -24,6 +26,34 @@ interface WebcrackResponse {
   codeBytes: number
   truncated: boolean
   warnings?: string
+}
+
+export interface SafeRenameBinding {
+  id: string
+  name: string
+  kind: string
+  declarationStart: number
+  referenceCount: number
+  scopeType: string
+}
+
+export interface SafeRenameCatalog {
+  sourceSha256: string
+  bindings: SafeRenameBinding[]
+  truncated: boolean
+}
+
+export interface SafeRenameResult {
+  sourceCode: string
+  sourceSha256: string
+  outputSha256: string
+  renamedBindings: Array<{
+    bindingId: string
+    oldName: string
+    newName: string
+    kind: string
+    referenceCount: number
+  }>
 }
 
 export const webcrackManifest: ToolPluginManifest = {
@@ -48,6 +78,78 @@ function errorText(error: unknown): string {
 function timeoutMs(): number {
   const value = Number(process.env.REAMON_WEBCRACK_REQUEST_TIMEOUT_MS)
   return Number.isFinite(value) ? Math.min(MAX_TIMEOUT_MS, Math.max(10_000, Math.floor(value))) : DEFAULT_TIMEOUT_MS
+}
+
+function safeRenameTimeoutMs(): number {
+  return Math.min(60_000, timeoutMs())
+}
+
+function webcrackBaseUrl(): string {
+  return process.env.REAMON_WEBCRACK_URL?.trim().replace(/\/$/, '') || ''
+}
+
+async function requestSafeRename<T>(path: string, body: Record<string, unknown>): Promise<T> {
+  const baseUrl = webcrackBaseUrl()
+  if (!baseUrl) throw new Error('The isolated JavaScript rename service is not configured')
+  const response = await fetch(`${baseUrl}${path}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(safeRenameTimeoutMs()),
+    cache: 'no-store',
+  })
+  const result = await readAnalyzerResponse<unknown>(response)
+  if (!response.ok) {
+    const message = result && typeof result === 'object' && 'error' in result && typeof result.error === 'string'
+      ? result.error.slice(0, 500)
+      : 'The isolated JavaScript rename service failed'
+    throw new Error(message)
+  }
+  return result as T
+}
+
+export async function listSafeRenameBindings(sourceCode: string): Promise<SafeRenameCatalog> {
+  if (Buffer.byteLength(sourceCode, 'utf8') > MAX_SAFE_RENAME_SOURCE_BYTES) {
+    throw new Error('JavaScript source exceeds the safe-rename size limit')
+  }
+  const result = await requestSafeRename<SafeRenameCatalog>('/rename/bindings', { code: sourceCode })
+  if (!result || !/^[a-f0-9]{64}$/i.test(result.sourceSha256) || !Array.isArray(result.bindings)
+      || result.bindings.length > 5_000 || typeof result.truncated !== 'boolean'
+      || !result.bindings.every((binding) => binding && typeof binding === 'object'
+        && /^[a-f0-9]{24}$/i.test(binding.id)
+        && typeof binding.name === 'string' && binding.name.length > 0 && binding.name.length <= 256
+        && typeof binding.kind === 'string' && binding.kind.length <= 80
+        && Number.isSafeInteger(binding.declarationStart) && binding.declarationStart >= 0
+        && Number.isSafeInteger(binding.referenceCount) && binding.referenceCount >= 0
+        && typeof binding.scopeType === 'string' && binding.scopeType.length <= 80)) {
+    throw new Error('The JavaScript rename service returned an invalid binding catalog')
+  }
+  return result
+}
+
+export async function applySafeRenameBindings(
+  sourceCode: string,
+  expectedSha256: string,
+  renames: Array<{ bindingId: string; newName: string }>,
+): Promise<SafeRenameResult> {
+  if (Buffer.byteLength(sourceCode, 'utf8') > MAX_SAFE_RENAME_SOURCE_BYTES) {
+    throw new Error('JavaScript source exceeds the safe-rename size limit')
+  }
+  if (!/^[a-f0-9]{64}$/i.test(expectedSha256) || !Array.isArray(renames)
+      || renames.length < 1 || renames.length > MAX_SAFE_RENAME_ITEMS
+      || !renames.every((rename) => rename && /^[a-f0-9]{24}$/i.test(rename.bindingId)
+        && typeof rename.newName === 'string' && rename.newName.length > 0 && rename.newName.length <= 128)) {
+    throw new Error('The selected JavaScript rename mapping is invalid')
+  }
+  const result = await requestSafeRename<SafeRenameResult>('/rename/apply', { code: sourceCode, expectedSha256, renames })
+  if (!result || result.sourceSha256 !== expectedSha256.toLowerCase()
+      || !/^[a-f0-9]{64}$/i.test(result.outputSha256)
+      || typeof result.sourceCode !== 'string'
+      || Buffer.byteLength(result.sourceCode, 'utf8') > MAX_SAFE_RENAME_SOURCE_BYTES
+      || !Array.isArray(result.renamedBindings) || result.renamedBindings.length !== renames.length) {
+    throw new Error('The JavaScript rename service returned an invalid transformed source')
+  }
+  return result
 }
 
 function isResponse(value: unknown): value is WebcrackResponse {

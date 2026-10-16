@@ -4,7 +4,7 @@ import { createServer } from 'node:http'
 import { Worker } from 'node:worker_threads'
 
 const PORT = Number(process.env.PORT || 8015)
-const MAX_REQUEST_BYTES = 32 * 1024
+const MAX_REQUEST_BYTES = 1024 * 1024
 const MAX_INPUT_BYTES = boundedNumber('WEBCRACK_MAX_INPUT_BYTES', 16 * 1024 * 1024, 1024, 64 * 1024 * 1024)
 const MAX_OUTPUT_BYTES = boundedNumber('WEBCRACK_MAX_OUTPUT_BYTES', 64 * 1024 * 1024, 1024, 256 * 1024 * 1024)
 const MAX_MODULES = boundedNumber('WEBCRACK_MAX_MODULES', 500, 1, 5000)
@@ -56,7 +56,7 @@ function digest(value) {
   return createHash('sha256').update(value).digest('hex')
 }
 
-function runWorker(code, stagingDirectory, signal) {
+function runWorker(code, stagingDirectory, signal, operation = {}) {
   return new Promise((resolve, reject) => {
     let settled = false
     const finish = (callback, value) => {
@@ -71,7 +71,7 @@ function runWorker(code, stagingDirectory, signal) {
       finish(reject, new AnalysisError('JavaScript analysis was cancelled'))
     }
     const worker = new Worker(new URL('./worker.mjs', import.meta.url), {
-      workerData: { code, stagingDirectory, maxOutputBytes: MAX_OUTPUT_BYTES, maxModules: MAX_MODULES },
+      workerData: { code, stagingDirectory, maxOutputBytes: MAX_OUTPUT_BYTES, maxModules: MAX_MODULES, ...operation },
       resourceLimits: { maxOldGenerationSizeMb: 512, stackSizeMb: 4 },
     })
     const timeout = setTimeout(() => {
@@ -172,7 +172,14 @@ const server = createServer(async (request, response) => {
     json(response, 200, { status: 'ok', toolVersion: '2.16.0' })
     return
   }
-  if (request.method !== 'POST' || request.url !== '/analyze') {
+  const operation = request.url === '/analyze'
+    ? 'analyze'
+    : request.url === '/rename/bindings'
+      ? 'list-rename-bindings'
+      : request.url === '/rename/apply'
+        ? 'apply-safe-renames'
+        : ''
+  if (request.method !== 'POST' || !operation) {
     json(response, 404, { error: 'Not found' })
     return
   }
@@ -186,7 +193,20 @@ const server = createServer(async (request, response) => {
     if (!response.writableEnded) controller.abort()
   })
   try {
-    const result = await analyze(await readBody(request), controller.signal)
+    const body = await readBody(request)
+    if (operation === 'analyze') {
+      const result = await analyze(body, controller.signal)
+      json(response, 200, result)
+      return
+    }
+    if (!body || typeof body !== 'object' || Array.isArray(body) || typeof body.code !== 'string') {
+      throw new AnalysisError('A JavaScript source string is required')
+    }
+    const result = await runWorker(body.code, '', controller.signal, {
+      operation,
+      expectedSha256: body.expectedSha256,
+      renames: body.renames,
+    })
     json(response, 200, result)
   } catch (error) {
     if (response.destroyed) return

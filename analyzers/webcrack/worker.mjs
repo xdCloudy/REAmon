@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { parentPort, workerData } from 'node:worker_threads'
 import { createIsolate } from './sandbox.mjs'
+import { applySafeRenames, listRenameBindings } from './safe-renames.mjs'
 import { analyzeJavaScript } from './webcrack-runner.mjs'
 
 function digest(value) {
@@ -32,31 +33,37 @@ async function store(units, relativeName, name, type, bundlePath, moduleId, code
 }
 
 try {
-  const result = await analyzeJavaScript(workerData.code, { sandbox: createIsolate })
-  const units = []
-  const budget = { value: 0 }
-  await store(units, 'deobfuscated.js', 'deobfuscated.js', 'file', '', '', result.code, budget)
-  const modules = result.bundle?.modules instanceof Map ? result.bundle.modules : new Map()
-  let indexedModules = 0
-  for (const [moduleId, module] of modules) {
-    if (indexedModules >= workerData.maxModules) break
-    const id = String(module?.id ?? moduleId)
-    const modulePath = typeof module?.path === 'string' ? module.path : ''
-    const fileName = `modules/${digest(id).slice(0, 12)}-${safeSlug(modulePath || id)}.js`
-    await store(units, fileName, modulePath || `module ${id}`, 'module', modulePath, id, module?.code, budget)
-    indexedModules += 1
+  if (workerData.operation === 'list-rename-bindings') {
+    parentPort.postMessage({ ok: true, result: listRenameBindings(workerData.code) })
+  } else if (workerData.operation === 'apply-safe-renames') {
+    parentPort.postMessage({ ok: true, result: applySafeRenames(workerData.code, workerData.expectedSha256, workerData.renames) })
+  } else {
+    const result = await analyzeJavaScript(workerData.code, { sandbox: createIsolate })
+    const units = []
+    const budget = { value: 0 }
+    await store(units, 'deobfuscated.js', 'deobfuscated.js', 'file', '', '', result.code, budget)
+    const modules = result.bundle?.modules instanceof Map ? result.bundle.modules : new Map()
+    let indexedModules = 0
+    for (const [moduleId, module] of modules) {
+      if (indexedModules >= workerData.maxModules) break
+      const id = String(module?.id ?? moduleId)
+      const modulePath = typeof module?.path === 'string' ? module.path : ''
+      const fileName = `modules/${digest(id).slice(0, 12)}-${safeSlug(modulePath || id)}.js`
+      await store(units, fileName, modulePath || `module ${id}`, 'module', modulePath, id, module?.code, budget)
+      indexedModules += 1
+    }
+    if (!units.length) throw new Error('Webcrack did not produce JavaScript source')
+    parentPort.postMessage({
+      ok: true,
+      result: {
+        bundleType: result.bundle?.type || null,
+        units,
+        codeBytes: budget.value,
+        truncated: modules.size > workerData.maxModules,
+        warnings: modules.size > workerData.maxModules ? `Only the first ${workerData.maxModules} bundle modules were indexed.` : '',
+      },
+    })
   }
-  if (!units.length) throw new Error('Webcrack did not produce JavaScript source')
-  parentPort.postMessage({
-    ok: true,
-    result: {
-      bundleType: result.bundle?.type || null,
-      units,
-      codeBytes: budget.value,
-      truncated: modules.size > workerData.maxModules,
-      warnings: modules.size > workerData.maxModules ? `Only the first ${workerData.maxModules} bundle modules were indexed.` : '',
-    },
-  })
 } catch (error) {
   parentPort.postMessage({ ok: false, error: error instanceof Error ? error.message.slice(0, 1000) : 'JavaScript analysis failed' })
 }
