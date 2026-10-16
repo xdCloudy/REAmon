@@ -71,13 +71,13 @@ export async function GET(request: Request, { params }: RouteParams) {
       select: { id: true, artifactId: true, provider: { select: { pluginId: true } } },
     })
     const providerId = task?.provider?.pluginId
-    if (!task?.artifactId || (providerId !== 'reamon-ghidra' && providerId !== 'reamon-wabt' && providerId !== 'reamon-jadx' && providerId !== 'reamon-ilspy' && providerId !== 'reamon-dex-decompiler')) {
+    if (!task?.artifactId || (providerId !== 'reamon-ghidra' && providerId !== 'reamon-wabt' && providerId !== 'reamon-jadx' && providerId !== 'reamon-ilspy' && providerId !== 'reamon-dex-decompiler' && providerId !== 'reamon-unluac-rs')) {
       return NextResponse.json({ error: 'Instruction-pattern matches are unavailable for this analysis run' }, { status: 404, headers: MAX_NO_STORE })
     }
 
     const observationWhere = {
       projectId,
-      type: providerId === 'reamon-jadx' || providerId === 'reamon-ilspy' || providerId === 'reamon-dex-decompiler' ? 'function' : 'code_unit',
+      type: providerId === 'reamon-jadx' || providerId === 'reamon-ilspy' || providerId === 'reamon-dex-decompiler' || providerId === 'reamon-unluac-rs' ? 'function' : 'code_unit',
       source: providerId,
       artifact: { is: selection.artifactWhere },
       task: { is: {
@@ -113,7 +113,9 @@ export async function GET(request: Request, { params }: RouteParams) {
     const uniqueRows = new Map<string, typeof rows[number]>()
     const compatibleRows = providerId === 'reamon-ghidra'
       ? rows.filter((row) => sameNativeArchitecture(focus, row))
-      : rows
+      : providerId === 'reamon-unluac-rs'
+        ? rows.filter((row) => attributesRecord(row.attributes).dialect === attributesRecord(focus.attributes).dialect)
+        : rows
     for (const row of compatibleRows.slice(0, MAX_FUNCTION_OBSERVATIONS)) {
       const identity = `${row.artifactId}:${row.canonicalKey}`
       if (!uniqueRows.has(identity)) uniqueRows.set(identity, row)
@@ -129,23 +131,23 @@ export async function GET(request: Request, { params }: RouteParams) {
       const row = byKey.get(match.key)
       return row ? [{ row, similarity: match.similarity }] : []
     })
-    const dexParentKeys = providerId === 'reamon-dex-decompiler'
+    const functionParentKeys = providerId === 'reamon-dex-decompiler' || providerId === 'reamon-unluac-rs'
       ? [...new Set(rankedRows.flatMap(({ row }) => {
         const key = attributesRecord(row.attributes).parentCodeUnitKey
         return typeof key === 'string' && key ? [key] : []
       }))]
       : []
-    const dexTaskIds = providerId === 'reamon-dex-decompiler'
+    const functionParentTaskIds = providerId === 'reamon-dex-decompiler' || providerId === 'reamon-unluac-rs'
       ? [...new Set(rankedRows.map(({ row }) => row.taskId).filter((value): value is string => Boolean(value)))]
       : []
-    const dexParentRows = dexParentKeys.length && dexTaskIds.length
+    const functionParentRows = functionParentKeys.length && functionParentTaskIds.length
       ? await prisma.reamonObservation.findMany({
         where: {
           projectId,
           source: providerId,
           type: 'code_unit',
-          taskId: { in: dexTaskIds },
-          stableKey: { in: dexParentKeys },
+          taskId: { in: functionParentTaskIds },
+          stableKey: { in: functionParentKeys },
           artifact: { is: selection.artifactWhere },
         },
         select: {
@@ -155,13 +157,13 @@ export async function GET(request: Request, { params }: RouteParams) {
         },
       })
       : []
-    const dexParentsByKey = new Map(dexParentRows.map((row) => [`${row.taskId}:${row.stableKey}`, row]))
+    const functionParentsByKey = new Map(functionParentRows.map((row) => [`${row.taskId}:${row.stableKey}`, row]))
     const matches = rankedRows.flatMap(({ row, similarity }) => {
       const artifact = { name: row.artifact?.originalName || 'Unknown artifact', sha256: row.artifact?.sha256 || null }
-      if (providerId === 'reamon-dex-decompiler') {
+      if (providerId === 'reamon-dex-decompiler' || providerId === 'reamon-unluac-rs') {
         const attributes = attributesRecord(row.attributes)
         const parentKey = typeof attributes.parentCodeUnitKey === 'string' ? attributes.parentCodeUnitKey : ''
-        const parentRow = dexParentsByKey.get(`${row.taskId}:${parentKey}`)
+        const parentRow = functionParentsByKey.get(`${row.taskId}:${parentKey}`)
         const codeUnit = parentRow ? normalizeCodeUnit(parentRow) : null
         return codeUnit ? [{
           codeUnit,

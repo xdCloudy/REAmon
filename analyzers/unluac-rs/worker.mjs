@@ -5,9 +5,32 @@ const MAX_PROTOS = 100
 const MAX_BLOCKS_PER_CFG = 32
 const MAX_EDGES_PER_CFG = 48
 const MAX_INSTRUCTION_SAMPLE_BLOCKS = 6
+const MAX_SIMILARITY_INSTRUCTIONS = 800
 
 function boundedInteger(value) {
   return Number.isSafeInteger(value) && value >= 0 ? value : 0
+}
+
+function instructionMnemonics(cfg, blockOrder) {
+  const blocks = Array.isArray(cfg?.blocks) ? cfg.blocks : []
+  const blocksById = new Map(blocks.map((block) => [boundedInteger(block?.id), block]))
+  const orderedBlocks = Array.isArray(blockOrder) && blockOrder.length
+    ? blockOrder.map((id) => blocksById.get(id)).filter(Boolean)
+    : blocks
+  const mnemonics = []
+  for (const block of orderedBlocks) {
+    if (!Array.isArray(block?.rawInstructions)) continue
+    for (const rawLine of block.rawInstructions) {
+      if (typeof rawLine !== 'string') continue
+      for (const rawInstruction of rawLine.split(';')) {
+        const mnemonic = /^\s*([A-Z][A-Z0-9_]*)\b/.exec(rawInstruction)?.[1]
+        if (!mnemonic) continue
+        mnemonics.push(mnemonic)
+        if (mnemonics.length >= MAX_SIMILARITY_INSTRUCTIONS) return mnemonics
+      }
+    }
+  }
+  return mnemonics
 }
 
 function summarizeProto(proto, cfg) {
@@ -26,6 +49,7 @@ function summarizeProto(proto, cfg) {
     numConstants: boundedInteger(proto?.numConstants),
     numInstructions: boundedInteger(proto?.numInstructions),
     children: Array.isArray(proto?.children) ? proto.children.filter((id) => Number.isSafeInteger(id) && id >= 0).slice(0, MAX_PROTOS) : [],
+    instructionMnemonics: instructionMnemonics(cfg, blockOrder),
     constants: constants.slice(0, 8).map((constant) => ({
       index: boundedInteger(constant?.index),
       type: typeof constant?.type === 'string' ? constant.type.slice(0, 40) : 'unknown',

@@ -827,7 +827,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
     queryKey: ['reamon-similar-functions', projectId, currentRunId, selectedSimilarityTarget],
     queryFn: ({ signal }) => fetchSimilarFunctions(projectId, currentRunId as string, selectedSimilarityTarget, signal),
     enabled: Boolean(currentRunId && selectedSimilarityTarget
-      && (currentRun?.providerId === 'reamon-ghidra' || currentRun?.providerId === 'reamon-wabt' || currentRun?.providerId === 'reamon-jadx' || currentRun?.providerId === 'reamon-ilspy' || currentRun?.providerId === 'reamon-dex-decompiler')
+      && (currentRun?.providerId === 'reamon-ghidra' || currentRun?.providerId === 'reamon-wabt' || currentRun?.providerId === 'reamon-jadx' || currentRun?.providerId === 'reamon-ilspy' || currentRun?.providerId === 'reamon-dex-decompiler' || currentRun?.providerId === 'reamon-unluac-rs')
       && selectedUnit?.source === currentRun?.providerId),
     staleTime: 5 * 60_000,
     gcTime: 60_000,
@@ -2165,7 +2165,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
             setExplainError('')
           }}
         />}
-        {(currentRun?.providerId === 'reamon-ghidra' || currentRun?.providerId === 'reamon-wabt' || currentRun?.providerId === 'reamon-jadx' || currentRun?.providerId === 'reamon-ilspy' || currentRun?.providerId === 'reamon-dex-decompiler')
+        {(currentRun?.providerId === 'reamon-ghidra' || currentRun?.providerId === 'reamon-wabt' || currentRun?.providerId === 'reamon-jadx' || currentRun?.providerId === 'reamon-ilspy' || currentRun?.providerId === 'reamon-dex-decompiler' || currentRun?.providerId === 'reamon-unluac-rs')
           && selectedUnit?.source === currentRun.providerId && Boolean(selectedSimilarityTarget) && <section className={styles.similarFunctions} aria-labelledby="similar-functions-heading">
           <div className={styles.similarFunctionsHeading}><h3 id="similar-functions-heading">Similar instruction patterns</h3><span>Same project · compatible instruction set</span></div>
           {similarFunctionsQuery.isLoading && <p className={styles.message}>Comparing this function with stored instruction sequences from completed analyses…</p>}

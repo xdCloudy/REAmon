@@ -31,6 +31,7 @@ interface LuaBytecodeFunctionMetadata {
   numUpvalues: number
   numConstants: number
   numInstructions: number
+  instructionMnemonics: string[]
   children: number[]
   constants: Array<{ index: number; type: string; display: string }>
   cfg: {
@@ -67,6 +68,8 @@ function isFunctionMetadata(value: unknown): value is LuaBytecodeFunctionMetadat
     && isNonNegativeInteger(proto.numParams) && typeof proto.isVararg === 'boolean'
     && isNonNegativeInteger(proto.numUpvalues) && isNonNegativeInteger(proto.numConstants)
     && isNonNegativeInteger(proto.numInstructions)
+    && Array.isArray(proto.instructionMnemonics) && proto.instructionMnemonics.length <= 800
+    && proto.instructionMnemonics.every((mnemonic) => typeof mnemonic === 'string' && /^[A-Z][A-Z0-9_]{0,31}$/.test(mnemonic))
     && Array.isArray(proto.children) && proto.children.length <= 100 && proto.children.every(isNonNegativeInteger)
     && Array.isArray(proto.constants) && proto.constants.length <= 8
     && proto.constants.every((constant) => !!constant && typeof constant === 'object' && !Array.isArray(constant)
@@ -263,6 +266,7 @@ export async function executeUnluacRs(input: ToolExecutionInput): Promise<ToolRe
           upvalueCount: proto.numUpvalues,
           constantCount: proto.numConstants,
           instructionCount: proto.numInstructions,
+          instructionMnemonics: JSON.stringify(proto.instructionMnemonics),
           childProtoIds: JSON.stringify(proto.children),
           constants,
           controlFlowGraph,
