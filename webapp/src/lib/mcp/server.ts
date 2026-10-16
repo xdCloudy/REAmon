@@ -111,7 +111,7 @@ import { startRecon, stopRecon, updateReconSettings } from '@/lib/mcp/writeTools
 import { getWorkspaceArtifact, listWorkspaceInventory } from '@/lib/mcp/workspaceTools'
 import { getWorkspaceSummary } from '@/lib/mcp/workspaceSummaryTools'
 import { planWorkspaceAnalysis } from '@/lib/mcp/workspacePlanTools'
-import { getWorkspaceCodeUnit, listWorkspaceCodeUnits } from '@/lib/mcp/workspaceCodeTools'
+import { getWorkspaceCodeUnit, listWorkspaceCodeUnits, searchWorkspaceGoTypes } from '@/lib/mcp/workspaceCodeTools'
 import {
   MAX_KEYS_PER_CALL,
   refusedFieldsSentence,
@@ -457,6 +457,28 @@ export function buildMcpServer(ctx: McpContext, instructions?: string): McpServe
       },
     },
     handler(ctx, 'workspace_get_code_unit', a => getWorkspaceCodeUnit(ctx, a), a => a.projectId)
+  )
+
+  server.registerTool(
+    'workspace_search_go_types',
+    {
+      title: 'Search recovered Go types',
+      description:
+        'Search or page through GoReSym type names, kinds, and reconstructed forms from the exact analysis run ' +
+        'that produced a code unit. The catalog is artifact-wide, not assigned to that function; match each result ' +
+        'against its source or signature before using it. Results retain the selected artifact hash and run identity. ' +
+        'This tool reads stored metadata only and does not infer types.',
+      annotations: READ_ONLY,
+      _meta: scopesMeta({ required: ['recon:read'] }),
+      inputSchema: {
+        projectId: projectIdSchema,
+        codeUnitId: entityIdSchema.describe('A Ghidra code-unit id returned by workspace_list_code_units.'),
+        search: z.string().max(200).optional().describe('Filter by Go type name, kind, or reconstructed form.'),
+        limit: z.number().int().min(1).max(100).optional().describe('Default 50, maximum 100 results.'),
+        offset: z.number().int().min(0).max(100000).optional().describe('Number of matching types to skip.'),
+      },
+    },
+    handler(ctx, 'workspace_search_go_types', a => searchWorkspaceGoTypes(ctx, a), a => a.projectId)
   )
 
   server.registerTool(

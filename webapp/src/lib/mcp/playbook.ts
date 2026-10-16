@@ -250,12 +250,24 @@ export const ONBOARDING_PLAYBOOK: Record<string, PlaybookEntry> = {
       'Availability fields describe what REAmon persisted. “None recorded” does not establish that the binary has no calls or member references.',
       'Decompiler output is provider evidence, not original source or canonical truth. Use other stored evidence to corroborate names and types.',
       'GoReSym type names are artifact-wide and not assigned to the selected function. Match each one against its source or signature before relying on it.',
+      'Use workspace_search_go_types with the same codeUnitId when you need to search or page through the full stored Go catalog.',
       'When sourceAddressMap is present, use it to navigate from a Ghidra line to the associated instruction address; check sourceAddressMapTruncated and do not treat this association as proof of semantic equivalence.',
       'recoveredVariables are Ghidra symbol evidence, not reviewed canonical names. Preserve the provider attribution and check recoveredVariablesTruncated before relying on a complete inventory.',
       'nameLocked and typeLocked only indicate that Ghidra constrained its own decompiler model to use a name or type; they do not prove original-source provenance or correctness.',
       'storageStartAddress marks where a symbol storage mapping begins, not necessarily an instruction that reads or writes the value; null means Ghidra reports storage valid across the whole function.',
       'Saved drafts and maintained source are separate from decompiler output. Check the draft validation and maintained-source review receipt before treating an edit as accepted.',
       'The draft source hash identifies its base decompilation; the draft output hash identifies its exact saved bytes. Older drafts may not have an output hash.',
+    ],
+    workflowRefs: ['inspect-workspace'],
+  },
+  workspace_search_go_types: {
+    whenToUse:
+      'Use this when a Ghidra code-unit dossier includes GoReSym metadata and you need a specific recovered type ' +
+      'or more catalog entries than fit in the dossier. Pass the codeUnitId so the search stays on that function’s exact artifact and analysis run.',
+    gotchas: [
+      'The catalog is artifact-wide, not function-specific. Match every candidate against the selected source or signature before treating it as this function’s type.',
+      'Results may be truncated by analysis or storage limits; inspect catalogTruncated and hasMore.',
+      'Older records may contain type names without kind or reconstructed-form details.',
     ],
     workflowRefs: ['inspect-workspace'],
   },
