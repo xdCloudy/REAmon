@@ -44,10 +44,12 @@ function utf8Prefix(value: string, maxBytes: number): string {
 function buildProjectContext(
   rows: Array<{ type: string; label: string | null; attributes: unknown }>,
   selectedAttributes: Record<string, unknown>,
+  selectedCodeUnitKey: string,
   maxBytes = MAX_PROJECT_CONTEXT_BYTES,
 ): string {
   const selectedAddress = typeof selectedAttributes.address === 'string' ? selectedAttributes.address : ''
   const functions = new Map<string, string>()
+  const methodEvidence = new Map<string, string>()
   const relatedCalls = new Set<string>()
   const lines: string[] = []
   for (const row of rows) {
@@ -57,6 +59,20 @@ function buildProjectContext(
         : typeof attributes.name === 'string' ? attributes.name : row.label
       const address = typeof attributes.address === 'string' ? attributes.address : ''
       if (name && name.length <= 500) functions.set(address || name, address ? `${name} @ ${address}` : name)
+    } else if (row.type === 'function' && attributes.parentCodeUnitKey === selectedCodeUnitKey) {
+      const signature = typeof attributes.qualifiedName === 'string' ? attributes.qualifiedName : row.label
+      if (!signature || signature.length > 1000) continue
+      const mnemonics = parseStringList(attributes.instructionMnemonics, 12)
+      let cfgSummary = ''
+      if (typeof attributes.controlFlowGraph === 'string' && attributes.controlFlowGraph.length <= 4_000) {
+        try {
+          const cfg = plainObject(JSON.parse(attributes.controlFlowGraph))
+          if (typeof cfg.blockCount === 'number' && typeof cfg.edgeCount === 'number') {
+            cfgSummary = `; CFG ${cfg.blockCount} blocks/${cfg.edgeCount} edges${attributes.cfgTruncated === true ? ' (summary truncated)' : ''}`
+          }
+        } catch { /* Ignore malformed derived metadata; source remains the authority. */ }
+      }
+      methodEvidence.set(signature, `${signature}${mnemonics.length ? ` [Dalvik: ${mnemonics.join(' ')}` : ''}${cfgSummary}${mnemonics.length ? ']' : ''}`)
     } else if (row.type === 'calls' && selectedAddress) {
       const fromAddress = typeof attributes.fromAddress === 'string' ? attributes.fromAddress : ''
       const toAddress = typeof attributes.toAddress === 'string' ? attributes.toAddress : ''
@@ -77,6 +93,7 @@ function buildProjectContext(
     : typeof selectedAttributes.name === 'string' ? selectedAttributes.name : ''
   const nearbyFunctions = [...functions.values()].filter((value) => !value.startsWith(`${selectedName} @`)).slice(0, 80)
   if (nearbyFunctions.length) lines.push(`Function names in this analysis run: ${nearbyFunctions.join(', ')}.`)
+  if (methodEvidence.size) lines.push(`Stored method evidence for this code unit (signatures and sampled Dalvik instructions are database observations): ${[...methodEvidence.values()].slice(0, 120).join('; ')}.`)
   if (relatedCalls.size) lines.push(`Stored call edges touching the selected address: ${[...relatedCalls].slice(0, 40).join('; ')}.`)
   return utf8Prefix(lines.join('\n'), maxBytes)
 }
@@ -114,7 +131,7 @@ export async function POST(request: Request, { params }: RouteParams) {
 
     const observation = await prisma.reamonObservation.findFirst({
       where: { id: body.unitId.trim(), projectId, type: 'code_unit' },
-      select: { id: true, artifactId: true, taskId: true, label: true, attributes: true },
+      select: { id: true, stableKey: true, artifactId: true, taskId: true, label: true, attributes: true },
     })
     if (!observation?.artifactId) return NextResponse.json({ error: 'Code unit not found' }, { status: 404 })
 
@@ -127,12 +144,12 @@ export async function POST(request: Request, { params }: RouteParams) {
 
     const attributes = plainObject(observation.attributes)
     const contextRows = observation.taskId ? await prisma.reamonObservation.findMany({
-      where: { projectId, artifactId: artifact.id, taskId: observation.taskId, type: { in: ['code_unit', 'calls', 'language_metadata'] } },
+      where: { projectId, artifactId: artifact.id, taskId: observation.taskId, type: { in: ['code_unit', 'function', 'calls', 'language_metadata'] } },
       select: { type: true, label: true, attributes: true },
       orderBy: { id: 'asc' },
       take: MAX_CONTEXT_OBSERVATIONS,
     }) : []
-    const projectContext = buildProjectContext(contextRows, attributes)
+    const projectContext = buildProjectContext(contextRows, attributes, observation.stableKey)
     const codeArtifactId = typeof attributes.codeArtifactId === 'string' ? attributes.codeArtifactId : ''
     const pathPrefix = `${projectId}/${artifact.id}/`
     const segments = codeArtifactId.split('/')

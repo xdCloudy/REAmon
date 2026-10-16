@@ -3,7 +3,22 @@ import type { ToolExecutionInput, ToolObservation, ToolPlugin, ToolPluginManifes
 import { readAnalyzerResponse } from './analyzer-response'
 
 const MAX_CLASSES = 500
+const MAX_METHODS = 10_000
 const DEFAULT_TIMEOUT_MS = 20 * 60_000
+
+interface DexMethod {
+  signature: string
+  className: string
+  methodName: string
+  relativePath: string
+  dexIndex: number
+  methodIndex: number
+  instructionCount: number
+  instructionMnemonics: string[]
+  controlFlowGraph: Record<string, unknown>
+  bytecodeRowsTruncated: boolean
+  cfgTruncated: boolean
+}
 
 interface DexDecompilerResponse {
   status: 'completed'
@@ -11,6 +26,10 @@ interface DexDecompilerResponse {
   input: { sha256: string; relativePath: string }
   discoveredClassCount: number
   returnedClassCount: number
+  discoveredMethodCount: number
+  returnedMethodCount: number
+  methodsTruncated: boolean
+  methods: DexMethod[]
   codeBytes: number
   truncated: boolean
   units: Array<{ name: string; relativePath: string; codeArtifactId: string; sizeBytes: number }>
@@ -55,6 +74,24 @@ function isResponse(value: unknown): value is DexDecompilerResponse {
     && ((input as Record<string, unknown>).relativePath as string).length <= 1_000
     && Number.isSafeInteger(response.discoveredClassCount) && (response.discoveredClassCount as number) >= 0
     && Number.isSafeInteger(response.returnedClassCount) && (response.returnedClassCount as number) >= 0
+    && Number.isSafeInteger(response.discoveredMethodCount) && (response.discoveredMethodCount as number) >= 0
+    && Number.isSafeInteger(response.returnedMethodCount) && (response.returnedMethodCount as number) >= 0
+    && typeof response.methodsTruncated === 'boolean'
+    && Array.isArray(response.methods) && response.methods.length <= MAX_METHODS
+    && response.returnedMethodCount === response.methods.length
+    && (response.discoveredMethodCount as number) >= response.methods.length
+    && response.methods.every((method: DexMethod) => !!method && typeof method === 'object' && !Array.isArray(method)
+      && typeof method.signature === 'string' && method.signature.length > 0 && method.signature.length <= 1_000
+      && typeof method.className === 'string' && method.className.length > 0 && method.className.length <= 500
+      && typeof method.methodName === 'string' && method.methodName.length > 0 && method.methodName.length <= 500
+      && typeof method.relativePath === 'string' && method.relativePath.length > 0 && method.relativePath.length <= 1_000
+      && Number.isSafeInteger(method.dexIndex) && method.dexIndex >= 0
+      && Number.isSafeInteger(method.methodIndex) && method.methodIndex >= 0
+      && Number.isSafeInteger(method.instructionCount) && method.instructionCount >= 0
+      && Array.isArray(method.instructionMnemonics) && method.instructionMnemonics.length <= 128
+      && method.instructionMnemonics.every((mnemonic) => typeof mnemonic === 'string' && /^[A-Za-z][A-Za-z0-9_./-]{0,31}$/.test(mnemonic))
+      && !!method.controlFlowGraph && typeof method.controlFlowGraph === 'object' && !Array.isArray(method.controlFlowGraph)
+      && typeof method.bytecodeRowsTruncated === 'boolean' && typeof method.cfgTruncated === 'boolean')
     && typeof response.codeBytes === 'number' && Number.isSafeInteger(response.codeBytes) && response.codeBytes >= 0
     && typeof response.truncated === 'boolean'
     && Array.isArray(response.units) && response.units.length <= MAX_CLASSES
@@ -132,6 +169,48 @@ export async function executeDexDecompiler(input: ToolExecutionInput): Promise<T
         },
       }
     })
+    const unitsByPath = new Map(payload.units.map((unit) => [unit.relativePath, unit]))
+    const classKeysByPath = new Map(payload.units.map((unit) => [unit.relativePath,
+      `dex-decompiler:class:${createHash('sha256').update(`${input.artifactId}:${unit.relativePath}`).digest('hex').slice(0, 32)}`,
+    ]))
+    let methodsAdded = 0
+    for (const method of payload.methods) {
+      const unit = unitsByPath.get(method.relativePath)
+      const parentCodeUnitKey = classKeysByPath.get(method.relativePath)
+      if (!unit || !parentCodeUnitKey || observations.length >= 20_000) continue
+      const cfg = JSON.stringify(method.controlFlowGraph)
+      const identity = `${input.artifactId}:${method.dexIndex}:${method.methodIndex}:${method.signature}`
+      const digest = createHash('sha256').update(identity).digest('hex').slice(0, 32)
+      const label = `${method.className}#${method.methodName}`.slice(0, 500)
+      observations.push({
+        kind: 'entity',
+        type: 'function',
+        key: `dex-decompiler:method:${digest}`,
+        label,
+        attributes: {
+          unitType: 'function',
+          identity,
+          identityKey: `${method.dexIndex}:${method.methodIndex}:${method.signature}`,
+          name: method.methodName.slice(0, 500),
+          qualifiedName: method.signature,
+          address: `dex${method.dexIndex}:method#${method.methodIndex}`,
+          language: 'Java',
+          instructionLanguage: 'Dalvik',
+          instructionCount: method.instructionCount,
+          instructionMnemonics: JSON.stringify(method.instructionMnemonics),
+          relativePath: method.relativePath,
+          parentCodeUnitKey,
+          codeArtifactId: unit.codeArtifactId,
+          decompilationEngine: 'androguard/dex-decompiler',
+          decompilationEngineVersion: payload.toolVersion,
+          sourceSha256: payload.input.sha256,
+          bytecodeRowsTruncated: method.bytecodeRowsTruncated,
+          cfgTruncated: method.cfgTruncated,
+          ...(cfg.length <= 3_800 ? { controlFlowGraph: cfg } : {}),
+        },
+      })
+      methodsAdded += 1
+    }
     return {
       status: 'completed',
       ...base,
@@ -139,8 +218,10 @@ export async function executeDexDecompiler(input: ToolExecutionInput): Promise<T
         observations,
         discoveredClassCount: payload.discoveredClassCount,
         returnedClassCount: payload.returnedClassCount,
+        discoveredMethodCount: payload.discoveredMethodCount,
+        returnedMethodCount: methodsAdded,
         codeBytes: payload.codeBytes,
-        truncated: payload.truncated || payload.discoveredClassCount > payload.returnedClassCount,
+        truncated: payload.truncated || payload.discoveredClassCount > payload.returnedClassCount || payload.methodsTruncated || methodsAdded < payload.returnedMethodCount,
         decompilationEngine: 'androguard/dex-decompiler',
         decompilationEngineVersion: payload.toolVersion,
         inputSha256: payload.input.sha256,

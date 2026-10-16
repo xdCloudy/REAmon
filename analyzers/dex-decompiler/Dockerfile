@@ -4,7 +4,8 @@ RUN git clone --filter=blob:none https://github.com/androguard/dex-decompiler.gi
  && git -C /src checkout --detach "${DEX_DECOMPILER_COMMIT}"
 WORKDIR /src
 COPY Cargo.lock /src/Cargo.lock
-RUN cargo build --release --locked --bin dex-decompile
+COPY structured-analysis.rs /src/src/bin/reamon-dex-structure.rs
+RUN cargo build --release --locked --bin dex-decompile --bin reamon-dex-structure
 
 FROM python:3.12-slim
 RUN apt-get update \
@@ -14,10 +15,11 @@ RUN apt-get update \
  && mkdir -p /usr/share/licenses/dex-decompiler \
  && chmod 0555 /usr/share/licenses/dex-decompiler
 COPY --from=build /src/target/release/dex-decompile /usr/local/bin/dex-decompile
+COPY --from=build /src/target/release/reamon-dex-structure /usr/local/bin/reamon-dex-structure
 COPY --from=build /src/LICENSE /usr/share/licenses/dex-decompiler/LICENSE
 WORKDIR /app
 COPY server.py entrypoint.sh ./
-RUN chmod 0555 /app/server.py /app/entrypoint.sh /usr/local/bin/dex-decompile
+RUN chmod 0555 /app/server.py /app/entrypoint.sh /usr/local/bin/dex-decompile /usr/local/bin/reamon-dex-structure
 ENV REAMON_ARTIFACTS_PATH=/data/reamon-artifacts \
     REAMON_DERIVED_PATH=/data/reamon-derived \
     DEX_DECOMPILER_TIMEOUT_SECONDS=900 \

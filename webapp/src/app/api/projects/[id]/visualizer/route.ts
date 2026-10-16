@@ -261,7 +261,8 @@ export async function GET(request: Request, { params }: RouteParams) {
         similarityAvailable: typeof attributes.instructionMnemonics === 'string' && attributes.instructionMnemonics.length > 2,
         memberKind: typeof attributes.memberKind === 'string' ? attributes.memberKind.slice(0, 80) : isConstructor ? 'constructor' : 'method',
         line: typeof attributes.line === 'number' && Number.isSafeInteger(attributes.line) ? attributes.line : null,
-        hasControlFlowGraph: row.source === 'reamon-unluac-rs' && typeof attributes.controlFlowGraph === 'string',
+        hasControlFlowGraph: (row.source === 'reamon-unluac-rs' || row.source === 'reamon-dex-decompiler')
+          && typeof attributes.controlFlowGraph === 'string',
         parentCodeUnit,
       }]
     })

@@ -22,6 +22,8 @@ MAX_OUTPUT_BYTES = min(1024**3, max(1024**2, int(os.environ.get("DEX_DECOMPILER_
 MAX_RETURNED_UNITS = min(500, max(1, int(os.environ.get("DEX_DECOMPILER_MAX_RETURNED_UNITS", "500"))))
 MAX_SOURCE_FILES = 50_000
 MAX_SOURCE_BYTES = 4 * 1024 * 1024
+MAX_STRUCTURED_METHODS = 10_000
+MAX_STRUCTURED_OUTPUT_BYTES = 64 * 1024 * 1024
 MAX_REQUEST_BYTES = 64 * 1024
 TOOL_VERSION = "d458efd15d74351e83f4e8968c75ef17c71f3c65"
 SAFE_ID_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")
@@ -133,6 +135,30 @@ def analyse(body: dict[str, object]) -> dict[str, object]:
             detail = stderr or stdout
             raise AnalysisError(("DEX decompiler produced no Java source" + (f": {detail[:1000]}" if detail else "")))
 
+        method_result: dict[str, object] = {"methods": [], "discoveredMethodCount": 0, "truncated": False}
+        method_warning = ""
+        try:
+            structured = subprocess.run(
+                ["/usr/local/bin/reamon-dex-structure", str(source)],
+                cwd=temporary_root,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=TIMEOUT_SECONDS,
+                check=False,
+                start_new_session=True,
+            )
+            if structured.returncode != 0:
+                raise AnalysisError((structured.stderr[-2000:].decode("utf-8", errors="replace").strip()
+                                     or f"Structured DEX analysis exited with code {structured.returncode}"))
+            if len(structured.stdout) > MAX_STRUCTURED_OUTPUT_BYTES:
+                raise AnalysisError("Structured method output exceeded the configured limit")
+            parsed_methods = json.loads(structured.stdout)
+            if not isinstance(parsed_methods, dict) or not isinstance(parsed_methods.get("methods"), list):
+                raise AnalysisError("Structured DEX analysis returned an invalid method list")
+            method_result = parsed_methods
+        except (AnalysisError, OSError, subprocess.TimeoutExpired, json.JSONDecodeError) as error:
+            method_warning = f"Structured DEX method and CFG analysis was unavailable: {str(error)[:1000]}"
+
         run_root = (DERIVED_ROOT / project_id / artifact_id / task_id / run_id).resolve()
         try:
             run_root.relative_to(DERIVED_ROOT)
@@ -166,17 +192,27 @@ def analyse(body: dict[str, object]) -> dict[str, object]:
             shutil.rmtree(staging, ignore_errors=True)
             raise
 
+    method_rows = method_result.get("methods", [])
+    methods = [row for row in method_rows[:MAX_STRUCTURED_METHODS] if isinstance(row, dict)] if isinstance(method_rows, list) else []
+    discovered_methods = method_result.get("discoveredMethodCount", len(method_rows) if isinstance(method_rows, list) else 0)
+    method_truncated = method_result.get("truncated") is True or (isinstance(discovered_methods, int) and discovered_methods > len(methods))
+
     return {
         "status": "completed",
         "toolVersion": TOOL_VERSION,
         "input": {"sha256": artifact_hash.hexdigest(), "relativePath": source.relative_to(ARTIFACT_ROOT).as_posix()},
         "discoveredClassCount": len(sources),
         "returnedClassCount": len(units),
+        "discoveredMethodCount": discovered_methods if isinstance(discovered_methods, int) and discovered_methods >= 0 else len(methods),
+        "returnedMethodCount": len(methods),
+        "methodsTruncated": method_truncated,
+        "methods": methods,
         "codeBytes": returned_bytes,
         "truncated": source_truncated or len(sources) > len(units),
         "units": units,
         "warnings": "\n".join(filter(None, [
             "This is an alternate DEX-to-Java reconstruction; review it against JADX and bytecode evidence.",
+            method_warning,
             stderr[:2000],
         ]))[:4000],
     }

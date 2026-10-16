@@ -38,9 +38,13 @@ export async function GET(request: Request, { params }: RouteParams) {
         status: 'COMPLETED',
         artifact: { is: selection.artifactWhere },
       },
-      select: { id: true, artifactId: true },
+      select: { id: true, artifactId: true, provider: { select: { pluginId: true } } },
     })
     if (!task?.artifactId) return NextResponse.json({ error: 'Decompilation run not found' }, { status: 404, headers: NO_STORE })
+    const cfgSource = task.provider?.pluginId === 'reamon-dex-decompiler'
+      ? 'reamon-dex-decompiler'
+      : task.provider?.pluginId === 'reamon-unluac-rs' ? 'reamon-unluac-rs' : null
+    if (!cfgSource) return NextResponse.json({ error: 'This run does not provide stored function control-flow data' }, { status: 422, headers: NO_STORE })
 
     const observation = await prisma.reamonObservation.findFirst({
       where: {
@@ -48,13 +52,13 @@ export async function GET(request: Request, { params }: RouteParams) {
         projectId,
         taskId: task.id,
         artifactId: task.artifactId,
-        source: 'reamon-unluac-rs',
+        source: cfgSource,
         type: 'function',
         artifact: { is: selection.artifactWhere },
       },
       select: { label: true, attributes: true },
     })
-    if (!observation) return NextResponse.json({ error: 'Lua prototype was not found in this run' }, { status: 404, headers: NO_STORE })
+    if (!observation) return NextResponse.json({ error: 'Function was not found in this run' }, { status: 404, headers: NO_STORE })
 
     const attributes = record(observation.attributes)
     let cfg: Record<string, unknown> | null = null
@@ -67,7 +71,7 @@ export async function GET(request: Request, { params }: RouteParams) {
       || !nonNegativeInteger(cfg.blockCount) || !nonNegativeInteger(cfg.edgeCount)
       || !Array.isArray(cfg.blocks) || cfg.blocks.length > 32
       || !Array.isArray(cfg.edges) || cfg.edges.length > 48) {
-      return NextResponse.json({ error: 'This prototype has no valid control-flow summary' }, { status: 422, headers: NO_STORE })
+      return NextResponse.json({ error: 'This function has no valid control-flow summary' }, { status: 422, headers: NO_STORE })
     }
 
     const blocks = cfg.blocks.flatMap((value) => {
@@ -96,11 +100,11 @@ export async function GET(request: Request, { params }: RouteParams) {
       return [{ from: value[0], to: value[1], kind: value[2].slice(0, 40) }]
     })
     if (blocks.length !== cfg.blocks.length || edges.length !== cfg.edges.length) {
-      return NextResponse.json({ error: 'This prototype has an incomplete control-flow summary' }, { status: 422, headers: NO_STORE })
+      return NextResponse.json({ error: 'This function has an incomplete control-flow summary' }, { status: 422, headers: NO_STORE })
     }
 
     return NextResponse.json({
-      label: observation.label || 'Lua prototype',
+      label: observation.label || 'Function',
       entryBlock: cfg.entryBlock,
       exitBlock: cfg.exitBlock,
       blockCount: cfg.blockCount,

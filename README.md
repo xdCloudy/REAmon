@@ -89,7 +89,7 @@ a starting point for review.
 
 | Language or input | Status | What works now | Main gaps |
 | --- | --- | --- | --- |
-| Java bytecode (`.class`, `.jar`) and Android (`.dex`, `.apk`) | **Usable (JADX); early alternate (Androguard Rust DEX decompiler)** | JADX produces browsable Java source and class/method outlines. The pinned Androguard Rust engine stores separately attributed, bytecode-annotated alternate Java source for APK/DEX inputs. Android method and call relationships are also indexed where available. | Obfuscation, missing debug metadata, reflection, and native libraries can hide behavior or names. Kotlin-built apps are rendered as Java-like output, not restored Kotlin source. Androguard method CFG and xref evidence is not yet wired into REAmon. |
+| Java bytecode (`.class`, `.jar`) and Android (`.dex`, `.apk`) | **Usable (JADX); early alternate (Androguard Rust DEX decompiler)** | JADX produces browsable Java source and class/method outlines. The pinned Androguard Rust engine stores separately attributed Java output plus bounded Dalvik method observations, instruction mnemonics, and CFG summaries in the project database; methods with stored CFG summaries can be opened in the function map. | Obfuscation, missing debug metadata, reflection, and native libraries can hide behavior or names. Kotlin-built apps are rendered as Java-like output, not restored Kotlin source. The alternate CFG is intentionally summarized; xrefs, full instruction rows, and fixture-backed output comparisons remain open. |
 | C# / managed .NET (`.dll`, `.exe`) | **Usable** | ILSpy decompiles supported managed PE assemblies to C#; CLR IL instruction sequences are retained as supporting function evidence. | Output is reconstructed source. Original comments, formatting, and some compiler-level distinctions are lost. Visual Basic and F# assemblies are not reconstructed in their original source syntax. |
 | Native binaries (ELF, PE, Mach-O; including C/C++ and other compiled languages) | **Partial** | Ghidra provides address-aware functions, disassembly evidence, and C-like pseudocode for supported architectures. | Pseudocode is not recovered C/C++ or the original language. Types, class structure, templates, symbols, and control flow can be incomplete or misleading, especially in optimized or stripped binaries. |
 | WebAssembly (`.wasm`) | **Low-level only** | WABT exposes WebAssembly text/disassembly (WAT) and function-level entries for navigation. | This is not a high-level source decompiler; names and original source structure may be absent. |
@@ -130,12 +130,15 @@ no source-equivalence guarantee.
 The unluac-rs API also advertises LuaJIT 2.1 and Luau and exposes prototype and CFG
 metadata. Luau and alternate LuaJIT output remain evaluation targets; keep the
 existing LuaJIT provider until dialect-specific comparisons justify a change.
-Android APK/DEX analysis also has an alternate Java reconstruction from the
+Android APK/DEX analysis also has an alternate Java reconstruction and bounded
+method-level evidence from the
 Apache-2.0 Androguard [dex-decompiler](https://github.com/androguard/dex-decompiler),
 pinned at commit [`d458efd`](https://github.com/androguard/dex-decompiler/tree/d458efd15d74351e83f4e8968c75ef17c71f3c65).
 It runs in a separate bounded container; source artifacts retain the engine commit
-and input hash. This is an early comparison path, not a replacement for JADX, and
-does not yet publish method-level CFGs or cross-references.
+and input hash. Structured Dalvik method observations retain instruction-mnemonic
+samples and bounded CFG summaries for the function visualizer. This is an early
+comparison path, not a replacement for JADX; cross-references and full instruction
+rows are not yet integrated.
 
 ## Current bootstrap
 
