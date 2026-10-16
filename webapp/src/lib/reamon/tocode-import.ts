@@ -129,10 +129,34 @@ function shortHash(value: string): string {
 
 function languageFor(filePath: string): string {
   const extension = path.posix.extname(filePath).toLowerCase()
-  if (extension === '.java') return 'Java'
-  if (extension === '.cs') return 'C#'
-  if (['.cc', '.cpp', '.cxx', '.hpp', '.hh'].includes(extension)) return 'C++'
-  return 'C'
+  const languages: Record<string, string> = {
+    '.c': 'C', '.h': 'C', '.i': 'C',
+    '.cc': 'C++', '.cpp': 'C++', '.cxx': 'C++', '.c++': 'C++', '.hh': 'C++', '.hpp': 'C++', '.hxx': 'C++',
+    '.java': 'Java',
+    '.kt': 'Kotlin', '.kts': 'Kotlin',
+    '.cs': 'C#', '.csx': 'C#',
+    '.vb': 'Visual Basic',
+    '.fs': 'F#', '.fsi': 'F#', '.fsx': 'F#',
+    '.go': 'Go',
+    '.rs': 'Rust',
+    '.py': 'Python', '.pyw': 'Python',
+    '.js': 'JavaScript', '.jsx': 'JavaScript', '.mjs': 'JavaScript', '.cjs': 'JavaScript',
+    '.ts': 'TypeScript', '.tsx': 'TypeScript', '.mts': 'TypeScript', '.cts': 'TypeScript',
+    '.swift': 'Swift',
+    '.m': 'Objective-C', '.mm': 'Objective-C++',
+    '.php': 'PHP',
+    '.rb': 'Ruby',
+    '.lua': 'Lua',
+    '.pl': 'Perl', '.pm': 'Perl',
+    '.scala': 'Scala', '.sc': 'Scala',
+    '.groovy': 'Groovy', '.gvy': 'Groovy',
+    '.dart': 'Dart',
+    '.sol': 'Solidity',
+    '.wat': 'WebAssembly Text', '.wasm': 'WebAssembly',
+    '.il': '.NET IL',
+    '.s': 'Assembly', '.asm': 'Assembly',
+  }
+  return languages[extension] || 'unknown'
 }
 
 async function readJsonArtifact(artifact: ImportArtifact, maximumBytes: number): Promise<Record<string, unknown> | null> {
