@@ -10,6 +10,8 @@ interface LuaBytecodeResponse {
   toolVersion: string
   dialect: 'lua5.5' | 'luau'
   language: 'Lua' | 'Luau'
+  vectorConstructor: string | null
+  vectorSize: 3 | 4 | null
   input: { relativePath: string; sha256: string }
   unit: { name: string; relativePath: string; codeArtifactId: string; sizeBytes: number }
   functions: LuaBytecodeFunctionMetadata[]
@@ -130,6 +132,11 @@ function isResponse(value: unknown): value is LuaBytecodeResponse {
     && (response.dialect === 'lua5.5' || response.dialect === 'luau')
     && (response.language === 'Lua' || response.language === 'Luau')
     && ((response.dialect === 'luau') === (response.language === 'Luau'))
+    && (response.vectorConstructor === null || (typeof response.vectorConstructor === 'string'
+      && /^[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*$/.test(response.vectorConstructor)))
+    && (response.vectorSize === 3 || response.vectorSize === 4 || response.vectorSize === null)
+    && ((response.dialect === 'luau') === (response.vectorConstructor !== null))
+    && ((response.dialect === 'luau') === (response.vectorSize !== null))
     && typeof input.relativePath === 'string' && input.relativePath.length > 0 && input.relativePath.length <= 1_000
     && typeof input.sha256 === 'string' && /^[a-f0-9]{64}$/i.test(input.sha256)
     && typeof response.codeBytes === 'number' && Number.isSafeInteger(response.codeBytes) && response.codeBytes > 0
@@ -203,6 +210,7 @@ export async function executeUnluacRs(input: ToolExecutionInput): Promise<ToolRe
         codeArtifactId: unit.codeArtifactId,
         inputSha256: payload.input.sha256,
         engineVersion: payload.toolVersion,
+        ...(payload.vectorConstructor ? { vectorConstructor: payload.vectorConstructor, vectorSize: payload.vectorSize } : {}),
       },
     }]
     const functions = payload.functions.filter((proto) => proto.protoId > 0)
@@ -242,6 +250,7 @@ export async function executeUnluacRs(input: ToolExecutionInput): Promise<ToolRe
           parentCodeUnitKey: key,
           codeArtifactId: unit.codeArtifactId,
           engineVersion: payload.toolVersion,
+          ...(payload.vectorConstructor ? { vectorConstructor: payload.vectorConstructor, vectorSize: payload.vectorSize } : {}),
           debugSourceName: proto.name,
           debugLineStart: proto.lineStart,
           debugLineEnd: proto.lineEnd,

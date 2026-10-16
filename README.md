@@ -128,7 +128,11 @@ in an isolated JVM analyzer. Lua 5.5 bytecode uses the MIT-licensed
 [unluac-rs](https://github.com/x3zvawq/unluac-rs) 1.3.1 JavaScript/WASM API in an
 isolated worker with strict source generation. The worker detects Lua 5.5 and raw
 Luau bytecode, returns `.lua` or `.luau` source with dialect-specific metadata, and
-retains bounded prototype/CFG evidence; versioned fixture validation remains open.
+retains bounded prototype/CFG evidence. Luau vector constants use `vector.create`
+with three components by default; set `REAMON_LUAU_VECTOR_SIZE=4` for four-wide
+targets, or set `REAMON_LUAU_VECTOR_LIBRARY` and
+`REAMON_LUAU_VECTOR_CONSTRUCTOR` for a host-specific constructor. The target host
+must expose that constructor, and versioned fixture validation remains open.
 LuaJIT bytecode uses the MIT-licensed
 [LuaJIT Decompiler v2](https://github.com/marsinator358/luajit-decompiler-v2),
 built for Linux from its pinned [Linux port](https://github.com/PackageInstaller/luajit-decompiler).

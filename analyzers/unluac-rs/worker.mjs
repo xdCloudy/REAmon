@@ -64,9 +64,25 @@ try {
   if (dialect !== 'luau' && dialect !== 'lua5.5') {
     throw new Error('Input is not supported Lua 5.5 or Luau bytecode')
   }
+  const configuredVectorSize = process.env.UNLUAC_RS_LUAU_VECTOR_SIZE || '3'
+  const vectorLibrary = process.env.UNLUAC_RS_LUAU_VECTOR_LIBRARY || 'vector'
+  const vectorConstructorName = process.env.UNLUAC_RS_LUAU_VECTOR_CONSTRUCTOR || 'create'
+  if (dialect === 'luau' && !['3', '4'].includes(configuredVectorSize)) {
+    throw new Error('UNLUAC_RS_LUAU_VECTOR_SIZE must be 3 or 4')
+  }
+  if (dialect === 'luau' && (![vectorLibrary, vectorConstructorName].every((name) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(name)))) {
+    throw new Error('Luau vector constructor names must be identifiers')
+  }
+  const vectorSize = dialect === 'luau' ? Number(configuredVectorSize) : null
+  const vectorConstructor = dialect === 'luau'
+    ? { library: vectorLibrary, constructor: vectorConstructorName, size: vectorSize }
+    : null
   const result = await decompileRich(new Uint8Array(workerData.bytes), {
     dialect,
-    generate: { mode: 'strict' },
+    generate: {
+      mode: 'strict',
+      ...(vectorConstructor ? { luauVectorConstructor: vectorConstructor } : {}),
+    },
   })
   if (result.kind !== 'source' || typeof result.source !== 'string' || !result.source.trim()) {
     throw new Error('unluac-rs returned diagnostic pseudocode instead of Lua source')
@@ -77,6 +93,8 @@ try {
   parentPort.postMessage({
     ok: true,
     dialect,
+    vectorConstructor: vectorConstructor ? `${vectorConstructor.library}.${vectorConstructor.constructor}` : null,
+    vectorSize: vectorConstructor?.size ?? null,
     source: result.source,
     functions,
     protoCount: protos.length,

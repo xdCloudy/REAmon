@@ -94,6 +94,9 @@ function runDecompiler(bytes, signal) {
     }, TIMEOUT_MS)
     worker.once('message', (message) => {
       if (message?.ok && (message.dialect === 'luau' || message.dialect === 'lua5.5')
+        && (message.dialect === 'luau'
+          ? typeof message.vectorConstructor === 'string' && /^[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*$/.test(message.vectorConstructor) && (message.vectorSize === 3 || message.vectorSize === 4)
+          : message.vectorConstructor === null && message.vectorSize === null)
         && typeof message.source === 'string' && Array.isArray(message.functions)
         && message.functions.length <= 100 && Number.isSafeInteger(message.protoCount)
         && message.protoCount >= message.functions.length && typeof message.metadataTruncated === 'boolean') finish(resolve, message)
@@ -151,6 +154,8 @@ async function analyze(body, signal) {
     toolVersion: TOOL_VERSION,
     dialect: decompilation.dialect,
     language,
+    vectorConstructor: decompilation.vectorConstructor,
+    vectorSize: decompilation.vectorSize,
     input: { relativePath, sha256: createHash('sha256').update(bytes).digest('hex') },
     unit: {
       name: `${basename}.${outputExtension}`,
@@ -162,7 +167,7 @@ async function analyze(body, signal) {
     protoCount: decompilation.protoCount,
     metadataTruncated: decompilation.metadataTruncated,
     codeBytes: sourceBytes,
-    warnings: `${language} source was reconstructed by unluac-rs; original names and behavior are not guaranteed.`,
+    warnings: `${language} source was reconstructed by unluac-rs; original names and behavior are not guaranteed.${isLuau ? ` Vector constants use ${decompilation.vectorConstructor} with ${decompilation.vectorSize} components; the target runtime must provide that constructor.` : ''}`,
   }
 }
 
