@@ -592,12 +592,17 @@ MAX_SOURCE_CONTINUATION_TAIL_CHARS = 1024
 
 
 def _reamon_source_parser(language: str):
+    parser, _ = _reamon_source_parser_details(language)
+    return parser
+
+
+def _reamon_source_parser_details(language: str):
     try:
-        from reamon_treesitter import get_reamon_parser
-        return get_reamon_parser(language)
+        from reamon_treesitter import get_reamon_parser_with_language
+        return get_reamon_parser_with_language(language)
     except Exception as exc:  # noqa: BLE001
         logger.debug(f"REAmon source validation unavailable for {language}: {exc}")
-        return None
+        return None, None
 
 
 def _reamon_cli_syntax_validation(
@@ -764,7 +769,7 @@ async def validate_reamon_code(body: ReamonCodeValidateRequest):
             discard_lint_stdout=True,
         )
         return {"source_sha256": source_sha256, **result}
-    parser = _reamon_source_parser(body.language)
+    parser, grammar_name = _reamon_source_parser_details(body.language)
     if parser is None:
         return {
             "source_sha256": source_sha256,
@@ -773,19 +778,24 @@ async def validate_reamon_code(body: ReamonCodeValidateRequest):
             "validation_message": f"No Tree-sitter grammar is registered for {body.language}.",
         }
     try:
+        parser_version = package_version("tree-sitter-language-pack")
+    except PackageNotFoundError:
+        parser_version = "unknown"
+    validation_method = f"tree-sitter-language-pack-{grammar_name}-{parser_version}"[:80]
+    try:
         has_error = parser.parse(encoded).root_node.has_error
     except Exception as exc:  # noqa: BLE001
         logger.debug(f"REAmon accepted-source validation failed for {body.language}: {exc}")
         return {
             "source_sha256": source_sha256,
             "validation_status": "UNAVAILABLE",
-            "validation_method": "tree-sitter",
+            "validation_method": validation_method,
             "validation_message": "The configured source parser could not validate this source.",
         }
     return {
         "source_sha256": source_sha256,
         "validation_status": "FAILED" if has_error else "PASSED",
-        "validation_method": "tree-sitter",
+        "validation_method": validation_method,
         "validation_message": "The configured source parser found syntax errors." if has_error
         else "The configured source parser found no syntax errors. This is structural evidence, not a behavior-equivalence check.",
     }

@@ -46,11 +46,11 @@ def _configure_language_cache(configure, pack_config) -> None:
         _configured = True
 
 
-def get_reamon_parser(language: str):
-    """Build a standard tree-sitter parser for a display or grammar name."""
+def get_reamon_parser_with_language(language: str):
+    """Build a parser and return the grammar identifier selected for it."""
     normalized = language.strip().lower()
     if not normalized or normalized == "unknown":
-        return None
+        return None, None
     try:
         from tree_sitter import Parser
         from tree_sitter_language_pack import PackConfig, configure, get_language
@@ -61,9 +61,15 @@ def get_reamon_parser(language: str):
         for candidate in dict.fromkeys(item for item in candidates if item):
             try:
                 grammar = get_language(candidate)
-                return Parser(grammar)
+                return Parser(grammar), candidate
             except Exception:  # noqa: BLE001
                 continue
     except Exception:  # noqa: BLE001
-        return None
-    return None
+        return None, None
+    return None, None
+
+
+def get_reamon_parser(language: str):
+    """Build a standard tree-sitter parser for a display or grammar name."""
+    parser, _ = get_reamon_parser_with_language(language)
+    return parser
