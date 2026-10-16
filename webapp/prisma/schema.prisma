@@ -2806,6 +2806,7 @@ model ReamonCodeDraft {
   unitName        String   @map("unit_name")
   language        String
   sourceHash      String   @map("source_hash")
+  draftHash       String?  @map("draft_hash")
   sourceCode      String   @db.Text @map("source_code")
   providerName    String   @map("provider_name")
   modelIdentifier String   @map("model_identifier")
@@ -2820,6 +2821,7 @@ model ReamonCodeDraft {
 
   @@index([projectId, codeUnitId, updatedAt])
   @@index([projectId, artifactId, sourceHash])
+  @@index([projectId, artifactId, draftHash, validationStatus], map: "reamon_code_drafts_hash_validation_idx")
   @@index([projectId, runKey, updatedAt])
   @@index([projectId, sourceAttemptId])
   @@map("reamon_code_drafts")

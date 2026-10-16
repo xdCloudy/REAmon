@@ -202,6 +202,7 @@ export async function POST(request: Request, { params }: RouteParams) {
         unitName: resolved.unitName,
         language: resolved.language,
         sourceHash: resolved.sourceHash,
+        draftHash: createHash('sha256').update(sourceCode).digest('hex'),
         sourceCode,
         providerName: authoritative.providerName,
         modelIdentifier: authoritative.modelIdentifier,
@@ -241,7 +242,14 @@ export async function PATCH(request: Request, { params }: RouteParams) {
     if (draft.sourceHash !== resolved.sourceHash) return NextResponse.json({ error: 'The original source changed. Create a new draft from the current decompilation.' }, { status: 409 })
     const updated = await prisma.reamonCodeDraft.update({
       where: { id: draft.id },
-      data: { sourceCode, syntaxValidated: null, validationStatus: null, validationMethod: null, validationMessage: null },
+      data: {
+        sourceCode,
+        draftHash: createHash('sha256').update(sourceCode).digest('hex'),
+        syntaxValidated: null,
+        validationStatus: null,
+        validationMethod: null,
+        validationMessage: null,
+      },
       select: { id: true, updatedAt: true },
     })
     return NextResponse.json({ saved: true, draftId: updated.id, updatedAt: updated.updatedAt.toISOString() }, { headers: { 'Cache-Control': 'private, no-store' } })

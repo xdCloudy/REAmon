@@ -4,6 +4,9 @@ import { NextResponse } from 'next/server'
 
 const mocks = vi.hoisted(() => ({
   findMany: vi.fn(),
+  maintainedSourceFindMany: vi.fn(),
+  codeReviewFindMany: vi.fn(),
+  codeDraftFindMany: vi.fn(),
   taskFindFirst: vi.fn(),
   getActiveWorkspaceImportSelection: vi.fn(),
   requireEffectiveUser: vi.fn(),
@@ -12,6 +15,9 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@/lib/prisma', () => ({ default: {
   reamonObservation: { findMany: mocks.findMany },
+  reamonMaintainedSource: { findMany: mocks.maintainedSourceFindMany },
+  reamonCodeReview: { findMany: mocks.codeReviewFindMany },
+  reamonCodeDraft: { findMany: mocks.codeDraftFindMany },
   task: { findFirst: mocks.taskFindFirst },
 } }))
 vi.mock('@/lib/reamon/inventory-query', () => ({ getActiveWorkspaceImportSelection: mocks.getActiveWorkspaceImportSelection }))
@@ -31,6 +37,9 @@ beforeEach(() => {
   mocks.getActiveWorkspaceImportSelection.mockResolvedValue({ artifactWhere: { projectId: 'project-1', importId: { in: ['active-import'] } } })
   mocks.taskFindFirst.mockResolvedValue({ id: 'run-1' })
   mocks.findMany.mockResolvedValue([])
+  mocks.maintainedSourceFindMany.mockResolvedValue([])
+  mocks.codeReviewFindMany.mockResolvedValue([])
+  mocks.codeDraftFindMany.mockResolvedValue([])
 })
 
 describe('GET /api/projects/[id]/visualizer/coverage', () => {
@@ -56,7 +65,9 @@ describe('GET /api/projects/[id]/visualizer/coverage', () => {
 
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({
-      taskId: 'run-1', codeUnitCount: 3, maintainedUnitCount: 1, coveragePercent: 33,
+      taskId: 'run-1', codeUnitCount: 3, maintainedUnitCount: 1, reviewedUnitCount: 0,
+      validatedUnitCount: 0, unmatchedLegacyValidationUnitCount: 0,
+      coveragePercent: 33, reviewedPercent: 0, validatedPercent: 0,
       decompilationCoveragePercent: 63, sourceLinkedPercent: 33, codeBytes: 500, measuredBytes: 400,
     })
     expect(mocks.taskFindFirst).toHaveBeenCalledWith(expect.objectContaining({

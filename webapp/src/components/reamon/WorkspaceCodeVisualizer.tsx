@@ -80,7 +80,12 @@ interface MaintainedCoverageResponse {
   taskId: string
   codeUnitCount: number
   maintainedUnitCount: number
+  reviewedUnitCount: number | null
+  validatedUnitCount: number | null
+  unmatchedLegacyValidationUnitCount: number | null
   coveragePercent: number
+  reviewedPercent: number | null
+  validatedPercent: number | null
   decompilationCoveragePercent: number | null
   sourceLinkedPercent: number
   codeBytes: number
@@ -232,11 +237,23 @@ async function fetchMaintainedCoverage(projectId: string, taskId: string, signal
   if (!response.ok) throw new Error('Unable to load maintained-source coverage')
   const result = await response.json() as Partial<MaintainedCoverageResponse>
   if (result.taskId !== taskId || !Number.isSafeInteger(result.codeUnitCount) || !Number.isSafeInteger(result.maintainedUnitCount) || !Number.isSafeInteger(result.coveragePercent)
+      || (result.reviewedUnitCount !== undefined && result.reviewedUnitCount !== null && !Number.isSafeInteger(result.reviewedUnitCount))
+      || (result.validatedUnitCount !== undefined && result.validatedUnitCount !== null && !Number.isSafeInteger(result.validatedUnitCount))
+      || (result.unmatchedLegacyValidationUnitCount !== undefined && result.unmatchedLegacyValidationUnitCount !== null && !Number.isSafeInteger(result.unmatchedLegacyValidationUnitCount))
+      || (result.reviewedPercent !== undefined && result.reviewedPercent !== null && !Number.isSafeInteger(result.reviewedPercent))
+      || (result.validatedPercent !== undefined && result.validatedPercent !== null && !Number.isSafeInteger(result.validatedPercent))
       || !(result.decompilationCoveragePercent === null || Number.isSafeInteger(result.decompilationCoveragePercent))
       || !Number.isSafeInteger(result.sourceLinkedPercent) || !Number.isSafeInteger(result.codeBytes) || !Number.isSafeInteger(result.measuredBytes)) {
     throw new Error('Maintained-source coverage response is incomplete')
   }
-  return result as MaintainedCoverageResponse
+  return {
+    ...result,
+    reviewedUnitCount: result.reviewedUnitCount ?? null,
+    validatedUnitCount: result.validatedUnitCount ?? null,
+    unmatchedLegacyValidationUnitCount: result.unmatchedLegacyValidationUnitCount ?? null,
+    reviewedPercent: result.reviewedPercent ?? null,
+    validatedPercent: result.validatedPercent ?? null,
+  } as MaintainedCoverageResponse
 }
 
 async function fetchCallGraph(projectId: string, taskId: string, unitId: string, signal?: AbortSignal): Promise<CallGraphResponse> {
@@ -1409,8 +1426,16 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
               <strong>{maintainedCoverageQuery.data.coveragePercent}% reverse engineered into maintainable source</strong>
               <span>{maintainedCoverageQuery.data.maintainedUnitCount.toLocaleString()} of {maintainedCoverageQuery.data.codeUnitCount.toLocaleString()} code units have a saved maintained copy</span>
             </div>
-            <span>AI drafts count after review and save</span>
+            <span>Only saved maintained copies count</span>
           </div>
+          <p className={styles.runSummaryMeta}>
+            {maintainedCoverageQuery.data.reviewedUnitCount !== null && maintainedCoverageQuery.data.validatedUnitCount !== null
+              ? `${maintainedCoverageQuery.data.reviewedUnitCount.toLocaleString()} copies have a current accepted review receipt; ${maintainedCoverageQuery.data.validatedUnitCount.toLocaleString()} match passed whole-file structural validation.`
+              : 'Review and validation breakdown is unavailable for this response.'}
+            {maintainedCoverageQuery.data.unmatchedLegacyValidationUnitCount !== null && maintainedCoverageQuery.data.unmatchedLegacyValidationUnitCount > 0
+              ? ` ${maintainedCoverageQuery.data.unmatchedLegacyValidationUnitCount.toLocaleString()} older validation record(s) lack an output hash, so they cannot be matched to the current source.`
+              : ''}
+          </p>
           <div className={`${styles.runProgress} ${styles.maintainedProgress}`} role="progressbar" aria-label="Maintained source coverage" aria-valuemin={0} aria-valuemax={100} aria-valuenow={maintainedCoverageQuery.data.coveragePercent} aria-valuetext={`${maintainedCoverageQuery.data.coveragePercent}% reverse engineered into maintainable source`}>
             <span style={{ width: `${maintainedCoverageQuery.data.coveragePercent}%` }} />
           </div>
