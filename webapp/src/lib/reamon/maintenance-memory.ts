@@ -168,9 +168,11 @@ export function buildProjectSymbolContext(
     const index = maintainedIndex(record.symbolIndex)
     const symbols = [...new Set(index.symbols.filter((value) => value.length <= 128))]
     if (!symbols.length && !index.aliases.length) continue
-    const identity = record.artifactHash
+    // Code-unit identity distinguishes overloads and duplicate names within one
+    // artifact. Fall back to content identity only for legacy records without it.
+    const identity = record.codeUnitId || (record.artifactHash
       ? `${record.artifactHash}:${record.unitName}:${record.language}:${JSON.stringify([...symbols].sort())}:${JSON.stringify(index.aliases)}`
-      : record.codeUnitId || `${record.artifactId || ''}:${record.unitName}:${record.language}:${JSON.stringify([...symbols].sort())}:${JSON.stringify(index.aliases)}`
+      : `${record.artifactId || ''}:${record.unitName}:${record.language}:${JSON.stringify([...symbols].sort())}:${JSON.stringify(index.aliases)}`)
     if (includedUnits.has(identity)) continue
     const artifactName = record.artifactName || record.artifactId
     const artifactLabel = [artifactName, record.artifactHash?.slice(0, 12)].filter(Boolean).join(' #')
