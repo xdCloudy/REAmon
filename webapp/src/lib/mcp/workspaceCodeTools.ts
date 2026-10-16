@@ -454,6 +454,36 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
   const recoveredVariableSemantics = unit.source === 'reamon-ghidra'
     ? 'Recovered names and types are provider evidence from Ghidra symbols, not reviewed canonical names. nameLocked/typeLocked describe constraints applied by Ghidra to its decompiler model; they do not prove original-source provenance or correctness.'
     : `Recovered names and types are provisional provider evidence from ${unit.source}; they are not reviewed canonical names.`
+  const claimedToCodeInputSha256 = text(attributes.toCodeClaimedInputSha256, 64)
+  const matchedToCodeInputSha256 = text(attributes.toCodeInputArtifactSha256, 64)
+  const toCodeInputHashMatched = unit.source === 'reamon-tocode-import'
+    && attributes.toCodeInputProvenance === 'HASH_MATCHED_IMPORTED_ARTIFACT'
+    && claimedToCodeInputSha256 !== null
+    && /^[a-f0-9]{64}$/i.test(claimedToCodeInputSha256)
+    && matchedToCodeInputSha256?.toLowerCase() === claimedToCodeInputSha256.toLowerCase()
+  const toCodeInputProvenance = unit.source === 'reamon-tocode-import'
+    && claimedToCodeInputSha256
+    && /^[a-f0-9]{64}$/i.test(claimedToCodeInputSha256) ? {
+        status: toCodeInputHashMatched ? 'HASH_MATCHED_IMPORTED_ARTIFACT' : 'HASH_NOT_IMPORTED',
+        claimedInput: {
+          path: text(attributes.toCodeClaimedInputPath, 1000),
+          sha256: claimedToCodeInputSha256.toLowerCase(),
+        },
+        matchedImportedArtifact: toCodeInputHashMatched ? {
+          id: text(attributes.toCodeInputArtifactId, 128),
+          path: text(attributes.toCodeInputRelativePath, 1000),
+          sha256: matchedToCodeInputSha256?.toLowerCase() || null,
+        } : null,
+        functionsManifest: {
+          artifactId: text(attributes.toCodeFunctionsArtifactId, 128),
+          sha256: text(attributes.toCodeFunctionsArtifactSha256, 64),
+        },
+        inventoryArtifact: {
+          artifactId: text(attributes.toCodeInventoryArtifactId, 128),
+          sha256: text(attributes.toCodeInventoryArtifactSha256, 64),
+        },
+        semantics: 'ToCode inventory claim. A matched SHA-256 identifies imported bytes with that digest; it does not attest that ToCode actually analyzed those bytes.',
+      } : null
 
   return {
     projectId: args.projectId,
@@ -494,6 +524,7 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
       exportPath: text(attributes.exportPath, 1000),
       sourceArtifactSha256: text(attributes.sourceArtifactSha256, 64),
       assemblyArtifactSha256: text(attributes.assemblyArtifactSha256, 64),
+      toCodeInputProvenance,
       artifact: unit.artifact ? { id: unit.artifactId, path: unit.artifact.relativePath || unit.artifact.originalName, sha256: unit.artifact.sha256 } : null,
       provider: unit.source,
       updatedAt: unit.updatedAt.toISOString(),

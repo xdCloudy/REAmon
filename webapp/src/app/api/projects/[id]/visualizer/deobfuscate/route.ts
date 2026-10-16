@@ -931,6 +931,25 @@ export async function POST(request: Request, { params }: RouteParams) {
           providerAttributes.symbolSource === 'GoReSym' ? 'symbol recovered by GoReSym' : '',
           typeof providerAttributes.goPackage === 'string' ? `Go package ${providerAttributes.goPackage.slice(0, 200)}` : '',
         ].filter(Boolean).join('; ')
+        const toCodeInputPath = typeof providerAttributes.toCodeClaimedInputPath === 'string'
+          ? providerAttributes.toCodeClaimedInputPath.slice(0, 240)
+          : ''
+        const toCodeInputSha256 = typeof providerAttributes.toCodeClaimedInputSha256 === 'string'
+          && /^[a-f0-9]{64}$/i.test(providerAttributes.toCodeClaimedInputSha256)
+          ? providerAttributes.toCodeClaimedInputSha256.toLowerCase()
+          : ''
+        const toCodeInputMatched = providerAttributes.toCodeInputProvenance === 'HASH_MATCHED_IMPORTED_ARTIFACT'
+          && toCodeInputSha256.length > 0
+          && providerAttributes.toCodeInputArtifactSha256 === toCodeInputSha256
+        const toCodeIdentity = observation.source === 'reamon-tocode-import' ? [
+          typeof providerAttributes.exportPath === 'string' ? `ToCode export ${providerAttributes.exportPath.slice(0, 120)}` : '',
+          typeof providerAttributes.toCodeFunctionsArtifactSha256 === 'string'
+            ? `functions.json sha256:${providerAttributes.toCodeFunctionsArtifactSha256.slice(0, 16)}`
+            : '',
+          toCodeInputSha256
+            ? `inventory claims input ${toCodeInputPath || '(path unavailable)'} sha256:${toCodeInputSha256.slice(0, 16)}${toCodeInputMatched ? '; digest matches imported artifact bytes' : '; matching bytes not found in this import'}`
+            : '',
+        ].filter(Boolean).join('; ') : ''
         return {
           codeUnitId: row.id,
           unitName: (typeof providerAttributes.qualifiedName === 'string' && providerAttributes.qualifiedName)
@@ -942,7 +961,7 @@ export async function POST(request: Request, { params }: RouteParams) {
             || 'unknown',
           address: typeof providerAttributes.address === 'string' ? providerAttributes.address : undefined,
           prototype: typeof providerAttributes.prototype === 'string' ? providerAttributes.prototype : undefined,
-          providerEvidence: goIdentity || undefined,
+          providerEvidence: [goIdentity, toCodeIdentity].filter(Boolean).join('; ') || undefined,
           recoveredVariables: providerVariables.variables,
           recoveredVariablesTruncated: providerVariables.truncated
             || providerAttributes.recoveredVariablesTruncated === true,
