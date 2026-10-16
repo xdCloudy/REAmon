@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto'
-import type { ToolExecutionInput, ToolPlugin, ToolPluginManifest, ToolResult } from './types'
+import type { ToolExecutionInput, ToolObservation, ToolPlugin, ToolPluginManifest, ToolResult } from './types'
 import { readAnalyzerResponse } from './analyzer-response'
 
 const MAX_UNITS = 20000
+const MAX_METHOD_FEATURES = 8_000
 const DEFAULT_TIMEOUT_MS = 20 * 60_000
 
 interface IlspyResponse {
@@ -13,6 +14,8 @@ interface IlspyResponse {
   returnedUnits: number
   truncated: boolean
   units: Array<{ name: string; relativePath: string; codeArtifactId: string; unitType?: string; language?: string; sizeBytes: number }>
+  methods?: Array<{ signature: string; relativePath: string; instructionMnemonics: string[] }>
+  methodFeaturesTruncated?: boolean
   warnings?: string
 }
 
@@ -91,7 +94,7 @@ export async function executeIlspy(input: ToolExecutionInput): Promise<ToolResul
       && (unit.language === undefined || typeof unit.language === 'string'))
     if (!units.length) throw new Error('ILSpy did not produce any viewable C# types')
 
-    const observations = units.map((unit) => ({
+    const observations: ToolObservation[] = units.map((unit) => ({
       kind: 'entity',
       type: 'code_unit',
       key: `ilspy:type:${createHash('sha256').update(`${input.artifactId}:${input.taskId}:${unit.relativePath}`).digest('hex').slice(0, 32)}`,
@@ -102,19 +105,62 @@ export async function executeIlspy(input: ToolExecutionInput): Promise<ToolResul
         qualifiedName: unit.name.slice(0, 500),
         sizeBytes: Math.floor(unit.sizeBytes),
         language: (unit.language || 'C#').slice(0, 80),
+        relativePath: unit.relativePath.slice(0, 1000),
         decompiled: true,
         codeArtifactId: unit.codeArtifactId.slice(0, 2000),
       },
     }))
+    const unitsByPath = new Map(units.map((unit) => [unit.relativePath, unit]))
+    const methods = (Array.isArray(payload.methods) ? payload.methods : []).slice(0, MAX_METHOD_FEATURES).filter((method) =>
+      method && typeof method.signature === 'string' && method.signature.length <= 1000
+      && typeof method.relativePath === 'string' && method.relativePath.length <= 1000
+      && Array.isArray(method.instructionMnemonics) && method.instructionMnemonics.length <= 128
+      && method.instructionMnemonics.every((mnemonic) => typeof mnemonic === 'string' && /^[A-Za-z][A-Za-z0-9_.]{0,31}$/.test(mnemonic)))
+    const methodKeys = new Set<string>()
+    let methodObservationsTruncated = (payload.methods?.length || 0) > MAX_METHOD_FEATURES
+    for (const method of methods) {
+      const unit = unitsByPath.get(method.relativePath)
+      if (!unit) {
+        methodObservationsTruncated = true
+        continue
+      }
+      if (observations.length >= MAX_UNITS) {
+        methodObservationsTruncated = true
+        break
+      }
+      const key = `ilspy:method:${createHash('sha256').update(`${input.artifactId}:${input.taskId}:${method.signature}`).digest('hex').slice(0, 32)}`
+      if (methodKeys.has(key)) continue
+      methodKeys.add(key)
+      const label = method.signature.slice(0, 500)
+      observations.push({
+        kind: 'entity',
+        type: 'function',
+        key,
+        label,
+        attributes: {
+          identity: `${input.artifactId}:${method.signature}`,
+          unitType: 'function',
+          name: label,
+          qualifiedName: label,
+          address: method.signature,
+          language: unit.language || 'C#',
+          instructionLanguage: 'IL',
+          parentCodeUnitKey: `ilspy:type:${createHash('sha256').update(`${input.artifactId}:${input.taskId}:${unit.relativePath}`).digest('hex').slice(0, 32)}`,
+          relativePath: unit.relativePath.slice(0, 1000),
+          codeArtifactId: unit.codeArtifactId.slice(0, 2000),
+          instructionMnemonics: JSON.stringify(method.instructionMnemonics),
+        },
+      })
+    }
     return {
       status: 'completed',
       ...base,
       data: {
         observations,
         decompiledClassCount: typeof payload.classCount === 'number' && Number.isSafeInteger(payload.classCount) && payload.classCount >= 0 ? payload.classCount : null,
-        returnedClassCount: observations.length,
+        returnedClassCount: units.length,
         codeBytes: typeof payload.codeBytes === 'number' && Number.isFinite(payload.codeBytes) ? Math.max(0, Math.floor(payload.codeBytes)) : observations.reduce((sum, observation) => sum + Number(observation.attributes.sizeBytes), 0),
-        truncated: payload.truncated || (typeof payload.classCount === 'number' && payload.classCount > observations.length),
+        truncated: payload.truncated || payload.methodFeaturesTruncated === true || methodObservationsTruncated || (typeof payload.classCount === 'number' && payload.classCount > units.length),
         ilspyVersion: typeof payload.toolVersion === 'string' ? payload.toolVersion.slice(0, 80) : 'unknown',
         warnings: typeof payload.warnings === 'string' ? payload.warnings.slice(0, 4000) : '',
       },

@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdir, readFile, realpath, rename, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { NextResponse } from 'next/server'
+import { agentFetch } from '@/lib/agentFetch'
 import prisma from '@/lib/prisma'
 import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
 import { getActiveWorkspaceImportSelection } from '@/lib/reamon/inventory-query'
@@ -10,7 +11,26 @@ import { MAINTAINED_SOURCE_OBSERVATION_SOURCE, MAINTAINED_SOURCE_OBSERVATION_TYP
 import { extractMaintainedSymbols } from '@/lib/reamon/maintenance-memory'
 
 interface RouteParams { params: Promise<{ id: string; unitId: string }> }
-const MAX_SOURCE_BYTES = 512 * 1024
+const MAX_SOURCE_BYTES = 2 * 1024 * 1024
+
+async function maintainedSymbolIndex(sourceCode: string, language: string): Promise<string[]> {
+  try {
+    const response = await agentFetch('/reamon/code/index-symbols', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source_code: sourceCode, language }),
+    }, { timeoutMs: 5_000 })
+    if (response.ok) {
+      const result = await response.json().catch(() => null) as { indexed?: boolean; symbols?: unknown } | null
+      if (result?.indexed === true && Array.isArray(result.symbols)) {
+        return [...new Set(result.symbols.filter((symbol): symbol is string => typeof symbol === 'string' && symbol.length > 1 && symbol.length <= 128))].slice(0, 512)
+      }
+    }
+  } catch {
+    // Saving maintained source stays available when the optional parser service is down.
+  }
+  return extractMaintainedSymbols(sourceCode, language)
+}
 
 function plainObject(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
@@ -132,69 +152,77 @@ export async function PUT(request: Request, { params }: RouteParams) {
       }
     }
 
-    const { rootRealPath, absolute } = await checkedPath(resolved.relativePath)
-    await mkdir(path.dirname(absolute), { recursive: true })
-    const parentPath = await realpath(path.dirname(absolute))
-    if (!isInside(rootRealPath, parentPath)) return NextResponse.json({ error: 'Maintained source path is invalid' }, { status: 404 })
-    const temporaryPath = `${absolute}.${randomUUID()}.tmp`
-    await writeFile(temporaryPath, sourceCode, { encoding: 'utf8', flag: 'wx', mode: 0o600 })
-    await rename(temporaryPath, absolute)
     const attributes = resolved.attributes
     const label = (typeof attributes.qualifiedName === 'string' && attributes.qualifiedName)
       || (typeof attributes.name === 'string' && attributes.name)
       || resolved.observation.label
       || resolved.unitId
+    const language = typeof attributes.language === 'string' ? attributes.language.slice(0, 80) : 'unknown'
+    const symbolIndex = await maintainedSymbolIndex(sourceCode, language)
     const now = new Date().toISOString()
-    await prisma.reamonObservation.upsert({
-      where: {
-        projectId_source_stableKey: {
+    const { rootRealPath, absolute } = await checkedPath(resolved.relativePath)
+    await prisma.$transaction([
+      prisma.reamonObservation.upsert({
+        where: {
+          projectId_source_stableKey: {
+            projectId,
+            source: MAINTAINED_SOURCE_OBSERVATION_SOURCE,
+            stableKey: resolved.unitId,
+          },
+        },
+        update: {
+          artifactId: resolved.artifactId,
+          kind: 'source',
+          type: MAINTAINED_SOURCE_OBSERVATION_TYPE,
+          canonicalKey: `maintained-source:${resolved.artifactId}:${resolved.unitId}`,
+          label,
+          attributes: { unitId: resolved.unitId, relativePath: resolved.relativePath, updatedAt: now },
+        },
+        create: {
           projectId,
+          artifactId: resolved.artifactId,
           source: MAINTAINED_SOURCE_OBSERVATION_SOURCE,
           stableKey: resolved.unitId,
+          kind: 'source',
+          type: MAINTAINED_SOURCE_OBSERVATION_TYPE,
+          canonicalKey: `maintained-source:${resolved.artifactId}:${resolved.unitId}`,
+          label,
+          attributes: { unitId: resolved.unitId, relativePath: resolved.relativePath, updatedAt: now },
         },
-      },
-      update: {
-        artifactId: resolved.artifactId,
-        kind: 'source',
-        type: MAINTAINED_SOURCE_OBSERVATION_TYPE,
-        canonicalKey: `maintained-source:${resolved.artifactId}:${resolved.unitId}`,
-        label,
-        attributes: { unitId: resolved.unitId, relativePath: resolved.relativePath, updatedAt: now },
-      },
-      create: {
-        projectId,
-        artifactId: resolved.artifactId,
-        source: MAINTAINED_SOURCE_OBSERVATION_SOURCE,
-        stableKey: resolved.unitId,
-        kind: 'source',
-        type: MAINTAINED_SOURCE_OBSERVATION_TYPE,
-        canonicalKey: `maintained-source:${resolved.artifactId}:${resolved.unitId}`,
-        label,
-        attributes: { unitId: resolved.unitId, relativePath: resolved.relativePath, updatedAt: now },
-      },
-    })
-    const language = typeof attributes.language === 'string' ? attributes.language.slice(0, 80) : 'unknown'
-    await prisma.reamonMaintainedSource.upsert({
-      where: { projectId_codeUnitId: { projectId, codeUnitId: resolved.unitId } },
-      update: {
-        artifactId: resolved.artifactId,
-        unitName: label,
-        language,
-        sourceCode,
-        symbolIndex: extractMaintainedSymbols(sourceCode),
-        relativePath: resolved.relativePath,
-      },
-      create: {
-        projectId,
-        artifactId: resolved.artifactId,
-        codeUnitId: resolved.unitId,
-        unitName: label,
-        language,
-        sourceCode,
-        symbolIndex: extractMaintainedSymbols(sourceCode),
-        relativePath: resolved.relativePath,
-      },
-    })
+      }),
+      prisma.reamonMaintainedSource.upsert({
+        where: { projectId_codeUnitId: { projectId, codeUnitId: resolved.unitId } },
+        update: {
+          artifactId: resolved.artifactId,
+          unitName: label,
+          language,
+          sourceCode,
+          symbolIndex,
+          relativePath: resolved.relativePath,
+        },
+        create: {
+          projectId,
+          artifactId: resolved.artifactId,
+          codeUnitId: resolved.unitId,
+          unitName: label,
+          language,
+          sourceCode,
+          symbolIndex,
+          relativePath: resolved.relativePath,
+        },
+      }),
+    ])
+    const temporaryPath = `${absolute}.${randomUUID()}.tmp`
+    try {
+      await mkdir(path.dirname(absolute), { recursive: true })
+      const parentPath = await realpath(path.dirname(absolute))
+      if (!isInside(rootRealPath, parentPath)) throw new Error('Maintained source path is invalid')
+      await writeFile(temporaryPath, sourceCode, { encoding: 'utf8', flag: 'wx', mode: 0o600 })
+      await rename(temporaryPath, absolute)
+    } catch (error) {
+      await rm(temporaryPath, { force: true }).catch(() => undefined)
+      console.error('Could not mirror the saved maintained source to derived storage:', error)
+    }
     return NextResponse.json({
       saved: true,
       fileName: safeFileName(path.basename(absolute)),

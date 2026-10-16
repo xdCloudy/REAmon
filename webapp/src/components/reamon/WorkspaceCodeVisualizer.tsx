@@ -1,11 +1,12 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import Link from 'next/link'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Code2, Copy, Download, ExternalLink, RefreshCw, Search, WandSparkles } from 'lucide-react'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
-import { buildCodeUnitTreemapEntries, filterCodeUnits, filterCodeUnitsByPackage, layoutCodeUnitTreemap, parseCodeUnitFilter, summarizeCodeUnits, type CodeUnit, type CodeUnitTreemapEntry } from '@/lib/reamon/code-units'
+import { buildCodeUnitTreemapEntries, filterCodeUnits, filterCodeUnitsByFolder, layoutCodeUnitTreemap, parseCodeUnitFilter, summarizeCodeUnits, type CodeUnit, type CodeUnitTreemapEntry } from '@/lib/reamon/code-units'
 import type { CallGraphRecord, CallGraphRelationship } from '@/lib/reamon/callgraph-layout'
 import { sourceSyntaxLanguage } from './source-language'
 import { WorkspaceCallGraphCanvas } from './WorkspaceCallGraphCanvas'
@@ -13,12 +14,15 @@ import styles from './WorkspaceCodeVisualizer.module.css'
 
 interface CodeUnitResponse {
   units: CodeUnit[]
+  functionMapMembers?: FunctionMapMember[]
+  functionMapTruncated?: boolean
   total: number
   maintainedCount: number
   hasMore: boolean
   nextCursor: string | null
   runs: Array<{
     id: string
+    apktoolProjectAvailable: boolean
     title: string
     createdAt: string
     completedAt: string | null
@@ -39,11 +43,28 @@ interface CodeUnitResponse {
   selectedRunId: string | null
 }
 
+interface FunctionMapMember {
+  id: string
+  key: string
+  name: string
+  fullName: string
+  address: string | null
+  language: string | null
+  similarityAvailable: boolean
+  memberKind: string
+  line: number | null
+  parentCodeUnit: CodeUnit
+}
+
 interface MaintainedCoverageResponse {
   taskId: string
   codeUnitCount: number
   maintainedUnitCount: number
   coveragePercent: number
+  decompilationCoveragePercent: number | null
+  sourceLinkedPercent: number
+  codeBytes: number
+  measuredBytes: number
 }
 
 interface CallGraphNode {
@@ -62,17 +83,30 @@ interface CallGraphResponse {
   truncated: boolean
 }
 
+interface SimilarFunctionsResponse {
+  matches: Array<{ codeUnit: CodeUnit; similarity: number; artifact: { name: string; sha256: string | null } }>
+  truncated: boolean
+}
+
 interface CodeExplanationProvider { id: string; name: string; modelIdentifier: string }
 interface CodeExplanationResponse { explanation: string; providerName: string; model: string; sourceTruncated: boolean }
-interface CodeMaintenanceResponse { sourceCode: string; providerName: string; model: string; syntaxValidated?: boolean }
+interface ApkBuildResponse { buildId: string; taskId: string; fileName: string; sizeBytes: number; sha256: string; signed: false; changedFileCount: number; warnings?: string; downloadUrl: string }
+interface CodeMaintenanceResponse { sourceCode: string; providerName: string; model: string; syntaxValidated?: boolean | null }
+interface CodeDraftRecord { id: string; sourceCode: string; providerName: string; modelIdentifier: string; question: string; scope: 'file' | 'member'; syntaxValidated: boolean | null; updatedAt: string }
+interface CodeDraftResponse { exists: boolean; draft: CodeDraftRecord | null }
+interface CodeMemberOutline { name: string; kind: 'function' | 'method' | 'constructor'; start_byte: number; end_byte: number; line: number; source_bytes: number }
 
 const EMPTY_CODE_UNITS: CodeUnit[] = []
+const AUTO_LOAD_CODE_UNIT_LIMIT = 20_000
+const FOLDER_VIEW_CODE_UNIT_LIMIT = 2_000
+const FUNCTION_MAP_CLIENT_LIMIT = 20_000
 
-async function fetchCodeUnits(projectId: string, taskId: string | null, cursor: string | null = null, signal?: AbortSignal, search = ''): Promise<CodeUnitResponse> {
+async function fetchCodeUnits(projectId: string, taskId: string | null, cursor: string | null = null, signal?: AbortSignal, search = '', unitId = ''): Promise<CodeUnitResponse> {
   const params = new URLSearchParams()
   if (taskId) params.set('taskId', taskId)
   if (cursor) params.set('cursor', cursor)
   if (search) params.set('q', search)
+  if (unitId) params.set('unitId', unitId)
   const query = params.size ? `?${params.toString()}` : ''
   const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer${query}`, { signal, cache: 'no-store' })
   if (!response.ok) throw new Error('Unable to load code units')
@@ -84,7 +118,9 @@ async function fetchMaintainedCoverage(projectId: string, taskId: string, signal
   const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/coverage?${params.toString()}`, { signal, cache: 'no-store' })
   if (!response.ok) throw new Error('Unable to load maintained-source coverage')
   const result = await response.json() as Partial<MaintainedCoverageResponse>
-  if (result.taskId !== taskId || !Number.isSafeInteger(result.codeUnitCount) || !Number.isSafeInteger(result.maintainedUnitCount) || !Number.isSafeInteger(result.coveragePercent)) {
+  if (result.taskId !== taskId || !Number.isSafeInteger(result.codeUnitCount) || !Number.isSafeInteger(result.maintainedUnitCount) || !Number.isSafeInteger(result.coveragePercent)
+      || !(result.decompilationCoveragePercent === null || Number.isSafeInteger(result.decompilationCoveragePercent))
+      || !Number.isSafeInteger(result.sourceLinkedPercent) || !Number.isSafeInteger(result.codeBytes) || !Number.isSafeInteger(result.measuredBytes)) {
     throw new Error('Maintained-source coverage response is incomplete')
   }
   return result as MaintainedCoverageResponse
@@ -100,9 +136,20 @@ async function fetchCallGraph(projectId: string, taskId: string, unitId: string,
   return response.json()
 }
 
-async function fetchRunCallGraph(projectId: string, taskId: string, unitId: string, signal?: AbortSignal): Promise<CallGraphResponse> {
+async function fetchSimilarFunctions(projectId: string, taskId: string, unitId: string, signal?: AbortSignal): Promise<SimilarFunctionsResponse> {
+  const params = new URLSearchParams({ taskId, unitId })
+  const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/similar-functions?${params.toString()}`, { signal, cache: 'no-store' })
+  if (!response.ok) {
+    const detail = await response.json().catch(() => null) as { error?: string } | null
+    throw new Error(detail?.error || 'Unable to find similar functions')
+  }
+  return response.json()
+}
+
+async function fetchRunCallGraph(projectId: string, taskId: string, unitId: string, graphType: 'function_calls' | 'class_dependencies', signal?: AbortSignal): Promise<CallGraphResponse> {
   const params = new URLSearchParams({ taskId, view: 'graph' })
   if (unitId) params.set('unitId', unitId)
+  params.set('graphType', graphType)
   const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/callgraph?${params.toString()}`, { signal, cache: 'no-store' })
   if (!response.ok) {
     const detail = await response.json().catch(() => null) as { error?: string } | null
@@ -157,23 +204,42 @@ function maintenanceColor(maintainedUnitCount: number, unitCount: number): strin
   return 'var(--status-warning, #b99a3b)'
 }
 
+function workStatusColor(draftedUnitCount: number, maintainedUnitCount: number, unitCount: number): string {
+  if (draftedUnitCount > 0) return 'var(--accent-secondary)'
+  return maintenanceColor(maintainedUnitCount, unitCount)
+}
+
 function shortenLabel(value: string, width: number): string {
   const maxCharacters = Math.max(0, Math.floor((width - 14) / 7.2))
   if (maxCharacters < 5) return ''
   return value.length > maxCharacters ? `${value.slice(0, maxCharacters - 1)}…` : value
 }
 
-function SourceListing({ source, language, fileName }: { source: string; language: string | null | undefined; fileName: string | null | undefined }) {
+const MAX_SOURCE_PREVIEW_CHARS = 25_000
+const MAX_MEMBER_REWRITE_BYTES = 64 * 1024
+const MAX_MEMBER_OUTLINE_BYTES = 2 * 1024 * 1024
+
+function SourceListing({ source, language, fileName, fullSourceUrl }: { source: string; language: string | null | undefined; fileName: string | null | undefined; fullSourceUrl?: string | null }) {
   const syntaxLanguage = sourceSyntaxLanguage(language, fileName)
-  return <SyntaxHighlighter
-    className={styles.sourceCode}
-    language={syntaxLanguage}
-    style={vscDarkPlus}
-    showLineNumbers
-    lineNumberStyle={{ color: '#68788f', minWidth: '3.25em', paddingRight: '1.25em', userSelect: 'none' }}
-    customStyle={{ margin: 0, borderRadius: 0, background: 'transparent', fontSize: 'inherit', lineHeight: 'inherit' }}
-    codeTagProps={{ className: styles.sourceCodeText }}
-  >{source}</SyntaxHighlighter>
+  const preview = source.length > MAX_SOURCE_PREVIEW_CHARS
+    ? source.slice(0, MAX_SOURCE_PREVIEW_CHARS).replace(/[\uD800-\uDBFF]$/, '')
+    : source
+  return <>
+    {source.length > MAX_SOURCE_PREVIEW_CHARS && <p className={styles.sourcePreviewNote} role="status">
+      Showing the first {MAX_SOURCE_PREVIEW_CHARS.toLocaleString()} characters of {source.length.toLocaleString()}. {fullSourceUrl
+        ? <a href={fullSourceUrl} target="_blank" rel="noreferrer">Open the full artifact</a>
+        : 'Open the full code artifact separately to inspect the rest.'}
+    </p>}
+    <SyntaxHighlighter
+      className={styles.sourceCode}
+      language={syntaxLanguage}
+      style={vscDarkPlus}
+      showLineNumbers
+      lineNumberStyle={{ color: '#68788f', minWidth: '3.25em', paddingRight: '1.25em', userSelect: 'none' }}
+      customStyle={{ margin: 0, borderRadius: 0, background: 'transparent', fontSize: 'inherit', lineHeight: 'inherit' }}
+      codeTagProps={{ className: styles.sourceCodeText }}
+    >{preview}</SyntaxHighlighter>
+  </>
 }
 
 function CallGraphPanel({ focusUnit, graph, isLoading, isError, error, onSelectUnit }: {
@@ -200,8 +266,8 @@ function CallGraphPanel({ focusUnit, graph, isLoading, isError, error, onSelectU
 
   return <section className={styles.callGraph} aria-labelledby="call-graph-heading">
     <div className={styles.callGraphHeader}>
-      <div><h3 id="call-graph-heading">Function call graph</h3><p>Direct callers and callees from this Ghidra run. Select a linked function to open its code.</p></div>
-      <span className={styles.graphBadge}>Ghidra</span>
+      <div><h3 id="call-graph-heading">Function call graph</h3><p>Direct callers and callees recorded for this analysis. Select a linked function to open its code.</p></div>
+      <span className={styles.graphBadge}>{focusUnit.source.replace(/^reamon-/, '').toUpperCase()}</span>
     </div>
     {isLoading && <p className={styles.message}>Loading function relationships…</p>}
     {isError && <p className={styles.error} role="alert">{error}</p>}
@@ -234,22 +300,28 @@ function CallGraphPanel({ focusUnit, graph, isLoading, isError, error, onSelectU
   </section>
 }
 
-export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationTask, decompilationHref }: {
+export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationTask, decompilationHref, standalone = false }: {
   projectId: string
   isAnalyzing: boolean
   decompilationTask?: { status: string; progressMessage?: string | null }
   decompilationHref?: string
+  standalone?: boolean
 }) {
   const [filter, setFilter] = useState('')
-  const [maintenanceFilter, setMaintenanceFilter] = useState<'all' | 'needs-work' | 'maintained'>('all')
+  const [maintenanceFilter, setMaintenanceFilter] = useState<'all' | 'needs-work' | 'drafted' | 'maintained'>('all')
   const [serverSearch, setServerSearch] = useState('')
-  const [visualizerView, setVisualizerView] = useState<'treemap' | 'callgraph'>('treemap')
-  const [mapLayer, setMapLayer] = useState<'decompilation' | 'maintenance'>('decompilation')
-  const [packagePath, setPackagePath] = useState('')
+  const [visualizerView, setVisualizerView] = useState<'function-map' | 'treemap' | 'callgraph'>('function-map')
+  const [mapContentPreference, setMapContentPreference] = useState<'auto' | 'units' | 'folders'>('auto')
+  const [mapLayer, setMapLayer] = useState<'decompilation' | 'maintenance' | 'work'>('work')
+  const [folderPath, setFolderPath] = useState<string[]>([])
+  const [languageFilter, setLanguageFilter] = useState('')
   const [graphSearch, setGraphSearch] = useState('')
   const [graphFocusKey, setGraphFocusKey] = useState<string | null>(null)
+  const [jadxGraphType, setJadxGraphType] = useState<'function_calls' | 'class_dependencies'>('function_calls')
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [selectedFunctionMapMember, setSelectedFunctionMapMember] = useState<{ id: string; parentUnitId: string; name: string; similarityAvailable: boolean } | null>(null)
+  const [urlInitialized, setUrlInitialized] = useState(false)
   const [graphUnit, setGraphUnit] = useState<CodeUnit | null>(null)
   const [copyStatus, setCopyStatus] = useState('')
   const [assemblyCopyStatus, setAssemblyCopyStatus] = useState('')
@@ -259,17 +331,40 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
   const [explainError, setExplainError] = useState('')
   const [explaining, setExplaining] = useState(false)
   const [maintainedDraft, setMaintainedDraft] = useState('')
+  const [draftId, setDraftId] = useState<string | null>(null)
+  const [draftSource, setDraftSource] = useState<string | null>(null)
+  const [draftScope, setDraftScope] = useState<'file' | 'member' | null>(null)
+  const [savingDraft, setSavingDraft] = useState(false)
   const [maintenanceMeta, setMaintenanceMeta] = useState<CodeMaintenanceResponse | null>(null)
   const [maintenanceError, setMaintenanceError] = useState('')
   const [transforming, setTransforming] = useState(false)
   const [savingMaintained, setSavingMaintained] = useState(false)
   const [maintainedSaved, setMaintainedSaved] = useState(false)
+  const [smaliDraft, setSmaliDraft] = useState('')
+  const [smaliSaved, setSmaliSaved] = useState(false)
+  const [savingSmali, setSavingSmali] = useState(false)
+  const [smaliError, setSmaliError] = useState('')
+  const [memberFilter, setMemberFilter] = useState('')
+  const [rewrittenMembers, setRewrittenMembers] = useState<Set<string>>(new Set())
   const queryClient = useQueryClient()
   const initializedMaintainedUnits = useRef(new Set<string>())
-  const [additionalPage, setAdditionalPage] = useState<{ runId: string | null; search: string; units: CodeUnit[]; nextCursor: string | null } | null>(null)
+  const unitInspectorRef = useRef<HTMLElement>(null)
+  const maintainedEditorRef = useRef<HTMLTextAreaElement>(null)
+  const [additionalPage, setAdditionalPage] = useState<{ runId: string | null; search: string; units: CodeUnit[]; functionMapMembers: FunctionMapMember[]; functionMapTruncated: boolean; nextCursor: string | null } | null>(null)
   const [loadingMore, setLoadingMore] = useState(false)
   const [loadMoreError, setLoadMoreError] = useState('')
+  const [apkBuild, setApkBuild] = useState<ApkBuildResponse | null>(null)
+  const [buildingApk, setBuildingApk] = useState(false)
+  const [apkBuildError, setApkBuildError] = useState('')
   const filterSearch = parseCodeUnitFilter(filter).text
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const taskId = params.get('taskId')?.trim()
+    const unitId = params.get('unitId')?.trim()
+    if (taskId) setSelectedRunId(taskId)
+    if (unitId) setSelectedId(unitId)
+    setUrlInitialized(true)
+  }, [])
   useEffect(() => {
     const timeout = window.setTimeout(() => setServerSearch(filterSearch), 250)
     return () => window.clearTimeout(timeout)
@@ -284,7 +379,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
   const baseUnits = query.data?.units || EMPTY_CODE_UNITS
   const runs = query.data?.runs || []
   const currentRunId = runs.some((run) => run.id === selectedRunId) ? selectedRunId : query.data?.selectedRunId || null
-  useEffect(() => { setPackagePath('') }, [currentRunId])
+  useEffect(() => { setFolderPath([]) }, [currentRunId])
   const pageState = additionalPage?.runId === currentRunId && additionalPage.search === serverSearch ? additionalPage : null
   const units = useMemo(() => {
     if (!pageState?.units.length) return baseUnits
@@ -292,9 +387,32 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
     for (const unit of pageState.units) byId.set(unit.id, unit)
     return [...byId.values()]
   }, [baseUnits, pageState])
+  const functionMapMembers = useMemo(() => {
+    const byId = new Map((query.data?.functionMapMembers || []).map((member) => [member.id, member]))
+    for (const member of pageState?.functionMapMembers || []) byId.set(member.id, member)
+    return [...byId.values()].slice(0, FUNCTION_MAP_CLIENT_LIMIT)
+  }, [pageState, query.data?.functionMapMembers])
+  const functionMapTruncated = Boolean(query.data?.functionMapTruncated || pageState?.functionMapTruncated)
+  const linkedUnitQuery = useQuery({
+    queryKey: ['reamon-code-unit-link', projectId, currentRunId, selectedId],
+    queryFn: ({ signal }) => fetchCodeUnits(projectId, currentRunId, null, signal, '', selectedId as string),
+    enabled: Boolean(selectedId && !units.some((unit) => unit.id === selectedId)),
+    staleTime: 30_000,
+    gcTime: 60_000,
+  })
+  useEffect(() => {
+    if (!urlInitialized) return
+    const url = new URL(window.location.href)
+    if (currentRunId) url.searchParams.set('taskId', currentRunId)
+    else url.searchParams.delete('taskId')
+    if (selectedId) url.searchParams.set('unitId', selectedId)
+    else url.searchParams.delete('unitId')
+    window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`)
+  }, [currentRunId, selectedId, urlInitialized])
   const nextCursor = pageState ? pageState.nextCursor : query.data?.nextCursor || null
   const currentRunIndex = runs.findIndex((run) => run.id === currentRunId)
   const currentRun = currentRunIndex >= 0 ? runs[currentRunIndex] : null
+  const displayRunWarnings = currentRun?.warnings.replace(/(?:^|\s)Picked up JAVA_TOOL_OPTIONS:(?:\s+-\S+)*/g, '').trim() || ''
   const maintainedCoverageQuery = useQuery({
     queryKey: ['reamon-maintained-coverage', projectId, currentRunId],
     queryFn: ({ signal }) => fetchMaintainedCoverage(projectId, currentRunId as string, signal),
@@ -303,30 +421,91 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
     refetchInterval: isAnalyzing ? 3000 : false,
     refetchIntervalInBackground: false,
   })
-  const canShowCallGraph = currentRun?.providerId === 'reamon-ghidra' || currentRun?.providerId === 'reamon-jadx'
-  const graphType = currentRun?.providerId === 'reamon-jadx' ? 'class_dependencies' : 'function_calls'
-  const visibleUnits = useMemo(() => filterCodeUnits(units, filter), [units, filter])
-  const mapScopeUnits = useMemo(() => filterCodeUnitsByPackage(visibleUnits, packagePath), [packagePath, visibleUnits])
-  const packageUnits = useMemo(() => mapScopeUnits.filter((unit) => maintenanceFilter === 'all'
-    || (maintenanceFilter === 'maintained' ? Boolean(unit.maintainedSource) : !unit.maintainedSource)), [maintenanceFilter, mapScopeUnits])
-  const treemapEntries = useMemo(() => buildCodeUnitTreemapEntries(packageUnits, packagePath), [packagePath, packageUnits])
+  const canShowCallGraph = Boolean(currentRun?.providerId)
+  const graphType = currentRun?.providerId === 'reamon-jadx' ? jadxGraphType : 'function_calls'
+  const visibleUnits = useMemo(() => {
+    const matchedUnits = filterCodeUnits(units, filter)
+    if (!filterSearch) return matchedUnits
+    const structuralTokens = filter.trim().split(/\s+/).filter((token) => /^>\d+(?:\.\d+)?(?:b|kb|mb)?$/i.test(token) || /^<\d+(?:\.\d+)?%$/.test(token))
+    const eligibleParentIds = new Set(filterCodeUnits(units, structuralTokens.join(' ')).map((unit) => unit.id))
+    const memberParentIds = new Set(functionMapMembers
+      .filter((member) => `${member.name} ${member.fullName}`.toLocaleLowerCase().includes(filterSearch))
+      .map((member) => member.parentCodeUnit.id))
+    const visibleById = new Map(matchedUnits.map((unit) => [unit.id, unit]))
+    for (const unit of units) {
+      if (eligibleParentIds.has(unit.id) && memberParentIds.has(unit.id)) visibleById.set(unit.id, unit)
+    }
+    return [...visibleById.values()]
+  }, [filter, filterSearch, functionMapMembers, units])
+  const availableLanguages = useMemo(() => [...new Set(units.flatMap((unit) => unit.language?.trim() ? [unit.language.trim()] : []))]
+    .sort((left, right) => left.localeCompare(right)), [units])
+  const activeLanguageFilter = availableLanguages.includes(languageFilter) ? languageFilter : ''
+  const languageFilteredUnits = useMemo(() => activeLanguageFilter
+    ? visibleUnits.filter((unit) => unit.language?.trim() === activeLanguageFilter)
+    : visibleUnits, [activeLanguageFilter, visibleUnits])
+  const mapContent = mapContentPreference === 'auto'
+    ? ((query.data?.total || 0) > FOLDER_VIEW_CODE_UNIT_LIMIT ? 'folders' : 'units')
+    : mapContentPreference
+  const mapScopeUnits = useMemo(() => filterCodeUnitsByFolder(languageFilteredUnits, folderPath), [folderPath, languageFilteredUnits])
+  const folderUnits = useMemo(() => mapScopeUnits.filter((unit) => maintenanceFilter === 'all'
+    || (maintenanceFilter === 'maintained'
+      ? Boolean(unit.maintainedSource)
+      : maintenanceFilter === 'drafted'
+        ? Boolean(unit.draftSource)
+        : !unit.maintainedSource)), [maintenanceFilter, mapScopeUnits])
+  const visibleFunctionMapMembers = useMemo(() => {
+    const nameFilter = filterSearch.toLocaleLowerCase()
+    const parentById = new Map(folderUnits.map((unit) => [unit.id, unit]))
+    return functionMapMembers.flatMap((member) => {
+      const parentCodeUnit = parentById.get(member.parentCodeUnit.id)
+      if (!parentCodeUnit || (nameFilter && !`${member.name} ${member.fullName}`.toLocaleLowerCase().includes(nameFilter))) return []
+      return [{ ...member, parentCodeUnit }]
+    })
+  }, [filterSearch, folderUnits, functionMapMembers])
+  const treemapEntries = useMemo(() => mapContent === 'folders'
+    ? buildCodeUnitTreemapEntries(folderUnits, folderPath)
+    : folderUnits.map((unit): CodeUnitTreemapEntry => ({
+      key: `unit:${unit.id}`,
+      name: unit.name,
+      sizeBytes: unit.sizeBytes,
+      coveragePercent: unit.coveragePercent,
+      codeUnit: unit,
+      unitCount: 1,
+      maintainedUnitCount: unit.maintainedSource ? 1 : 0,
+      draftedUnitCount: unit.draftSource ? 1 : 0,
+    })), [mapContent, folderPath, folderUnits])
   const rectangles = useMemo(() => layoutCodeUnitTreemap(treemapEntries, 1200, 560), [treemapEntries])
-  const summary = useMemo(() => summarizeCodeUnits(packageUnits), [packageUnits])
-  const maintainedUnits = useMemo(() => packageUnits.filter((unit) => unit.maintainedSource).length, [packageUnits])
-  const selectedUnit = packageUnits.find((unit) => unit.id === selectedId)
+  const summary = useMemo(() => summarizeCodeUnits(folderUnits), [folderUnits])
+  const maintainedUnits = useMemo(() => folderUnits.filter((unit) => unit.maintainedSource).length, [folderUnits])
+  const selectedUnit = folderUnits.find((unit) => unit.id === selectedId)
+    || linkedUnitQuery.data?.units.find((unit) => unit.id === selectedId)
     || (graphUnit?.id === selectedId ? graphUnit : undefined)
   const runCallGraphQuery = useQuery({
-    queryKey: ['reamon-callgraph-run', projectId, currentRunId, selectedUnit?.id],
-    queryFn: ({ signal }) => fetchRunCallGraph(projectId, currentRunId as string, selectedUnit?.id || '', signal),
-    enabled: Boolean(currentRunId && (currentRun?.providerId === 'reamon-ghidra' || currentRun?.providerId === 'reamon-jadx') && visualizerView === 'callgraph'),
+    queryKey: ['reamon-callgraph-run', projectId, currentRunId, selectedUnit?.id, graphFocusKey, graphType],
+    queryFn: ({ signal }) => fetchRunCallGraph(projectId, currentRunId as string,
+      graphFocusKey || (selectedUnit?.unitType === 'function' ? selectedUnit.id : ''), graphType, signal),
+    enabled: Boolean(currentRunId && currentRun?.providerId && visualizerView === 'callgraph'),
     staleTime: 30_000,
     gcTime: 60_000,
   })
   const callGraphQuery = useQuery({
     queryKey: ['reamon-callgraph', projectId, currentRunId, selectedUnit?.id],
     queryFn: ({ signal }) => fetchCallGraph(projectId, currentRunId as string, selectedUnit?.id as string, signal),
-    enabled: Boolean(currentRunId && selectedUnit?.source === 'reamon-ghidra' && selectedUnit.unitType === 'function'),
+    enabled: Boolean(currentRunId && currentRun?.providerId === selectedUnit?.source && selectedUnit?.unitType === 'function'),
     staleTime: 30_000,
+    gcTime: 60_000,
+  })
+  const selectedFunctionMapTarget = selectedFunctionMapMember && selectedFunctionMapMember.parentUnitId === selectedUnit?.id && selectedFunctionMapMember.similarityAvailable
+    ? selectedFunctionMapMember.id
+    : ''
+  const selectedSimilarityTarget = selectedFunctionMapTarget || (selectedUnit?.unitType === 'function' ? selectedUnit.id : '')
+  const similarFunctionsQuery = useQuery({
+    queryKey: ['reamon-similar-functions', projectId, currentRunId, selectedSimilarityTarget],
+    queryFn: ({ signal }) => fetchSimilarFunctions(projectId, currentRunId as string, selectedSimilarityTarget, signal),
+    enabled: Boolean(currentRunId && selectedSimilarityTarget
+      && (currentRun?.providerId === 'reamon-ghidra' || currentRun?.providerId === 'reamon-wabt' || currentRun?.providerId === 'reamon-jadx' || currentRun?.providerId === 'reamon-ilspy')
+      && selectedUnit?.source === currentRun?.providerId),
+    staleTime: 5 * 60_000,
     gcTime: 60_000,
   })
   const selectedSourceUrl = selectedUnit ? artifactUrl(projectId, selectedUnit, selectedUnit.codeArtifactId) : null
@@ -345,6 +524,38 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
     staleTime: 5 * 60_000,
     gcTime: 60_000,
   })
+  const smaliSourceQuery = useQuery({
+    queryKey: ['reamon-maintained-smali', projectId, selectedUnit?.id],
+    queryFn: async ({ signal }) => {
+      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/maintained/${encodeURIComponent(selectedUnit?.id || '')}/smali`, { signal, cache: 'no-store' })
+      const result = await response.json().catch(() => ({})) as { sourceCode?: string; exists?: boolean; error?: string }
+      if (!response.ok || typeof result.sourceCode !== 'string') throw new Error(result.error || 'Unable to load Smali source')
+      return result as { sourceCode: string; exists: boolean }
+    },
+    enabled: Boolean(selectedUnit?.disassemblyLanguage?.toLowerCase() === 'smali' && selectedUnit.disassemblyArtifactId),
+    staleTime: 0,
+    gcTime: 60_000,
+  })
+  const sourceByteLength = useMemo(() => sourceQuery.data === undefined ? null : new TextEncoder().encode(sourceQuery.data).byteLength, [sourceQuery.data])
+  const largeSource = sourceByteLength !== null && sourceByteLength > MAX_MEMBER_REWRITE_BYTES
+  const memberOutlineEligible = Boolean(selectedUnit?.language?.trim() && selectedUnit.language.trim().toLowerCase() !== 'unknown' && selectedUnit.unitType !== 'resource')
+  const memberOutlineAvailable = Boolean(memberOutlineEligible && sourceByteLength !== null && sourceByteLength <= MAX_MEMBER_OUTLINE_BYTES)
+  const memberOutlineQuery = useQuery({
+    queryKey: ['reamon-member-outline', projectId, selectedUnit?.id, selectedUnit?.codeArtifactId, selectedUnit?.language],
+    queryFn: async ({ signal }) => {
+      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/deobfuscate`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, signal,
+        body: JSON.stringify({ unitId: selectedUnit?.id, scope: 'outline' }),
+      })
+      const result = await response.json().catch(() => ({})) as { members?: CodeMemberOutline[]; truncated?: boolean; unsupported?: boolean; error?: string }
+      if (!response.ok) throw new Error(result.error || 'Could not build a function or method outline')
+      return { members: Array.isArray(result.members) ? result.members : [], truncated: result.truncated === true, unsupported: result.unsupported === true }
+    },
+    enabled: memberOutlineAvailable,
+    staleTime: 5 * 60_000,
+    gcTime: 60_000,
+  })
+  const filteredMembers = (memberOutlineQuery.data?.members || []).filter((member) => `${member.name} ${member.kind} ${member.line}`.toLocaleLowerCase().includes(memberFilter.trim().toLocaleLowerCase())).slice(0, 200)
   const maintainedDraftDiffersFromSource = sourceQuery.data === undefined
     || maintainedDraft.replace(/\r\n?/g, '\n').trim() !== sourceQuery.data.replace(/\r\n?/g, '\n').trim()
   const maintainedQuery = useQuery({
@@ -358,24 +569,79 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
     staleTime: 30_000,
     gcTime: 60_000,
   })
+  const codeDraftQuery = useQuery({
+    queryKey: ['reamon-code-draft', projectId, selectedUnit?.id],
+    queryFn: async ({ signal }) => {
+      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/drafts/${encodeURIComponent(selectedUnit?.id || '')}`, { signal, cache: 'no-store' })
+      if (!response.ok) throw new Error('Unable to load the saved AI draft')
+      return response.json() as Promise<CodeDraftResponse>
+    },
+    enabled: Boolean(selectedUnit && selectedSourceUrl),
+    staleTime: 0,
+    gcTime: 60_000,
+  })
   useEffect(() => {
+    const unitId = selectedUnit?.id
+    if (unitId) initializedMaintainedUnits.current.delete(unitId)
     setMaintainedSaved(false)
     setMaintenanceMeta(null)
     setMaintenanceError('')
     setMaintainedDraft('')
+    setSmaliDraft('')
+    setSmaliSaved(false)
+    setSmaliError('')
+    setDraftId(null)
+    setDraftSource(null)
+    setDraftScope(null)
+    setQuestion('')
+    setRewrittenMembers(new Set())
   }, [selectedUnit?.id])
   useEffect(() => {
+    if (!smaliSourceQuery.data) return
+    setSmaliDraft(smaliSourceQuery.data.sourceCode)
+    setSmaliSaved(smaliSourceQuery.data.exists)
+  }, [selectedUnit?.id, smaliSourceQuery.data])
+  useEffect(() => {
+    const memberFilterTarget = selectedFunctionMapMember && selectedFunctionMapMember.parentUnitId === selectedUnit?.id
+      ? selectedFunctionMapMember.name
+      : ''
+    setMemberFilter(memberFilterTarget)
+  }, [selectedFunctionMapMember, selectedUnit?.id])
+  useEffect(() => {
     const unitId = selectedUnit?.id
-    if (!unitId || initializedMaintainedUnits.current.has(unitId) || !maintainedQuery.isFetched) return
-    if (maintainedQuery.data?.exists && typeof maintainedQuery.data.sourceCode === 'string') {
-      setMaintainedDraft(maintainedQuery.data.sourceCode)
+    if (!unitId || initializedMaintainedUnits.current.has(unitId) || !maintainedQuery.isFetched || !codeDraftQuery.isFetched || sourceQuery.data === undefined) return
+    const savedDraft = codeDraftQuery.data?.draft
+    const savedMaintained = maintainedQuery.data?.exists && typeof maintainedQuery.data.sourceCode === 'string'
+      ? maintainedQuery.data
+      : null
+    const preferDraft = Boolean(savedDraft && (!savedMaintained || Date.parse(savedDraft.updatedAt) > Date.parse(savedMaintained.updatedAt || '')))
+    if (preferDraft && savedDraft) {
+      setMaintainedDraft(savedDraft.sourceCode)
+      setDraftId(savedDraft.id)
+      setDraftSource(savedDraft.sourceCode)
+      setDraftScope(savedDraft.scope)
+      setQuestion(savedDraft.question)
+      setMaintenanceMeta({ sourceCode: savedDraft.sourceCode, providerName: savedDraft.providerName, model: savedDraft.modelIdentifier, syntaxValidated: savedDraft.syntaxValidated ?? undefined })
+    } else if (savedMaintained) {
+      setMaintainedDraft(savedMaintained.sourceCode as string)
       setMaintainedSaved(true)
       initializedMaintainedUnits.current.add(unitId)
-    } else if (sourceQuery.data !== undefined) {
+    } else {
       setMaintainedDraft(sourceQuery.data)
       initializedMaintainedUnits.current.add(unitId)
     }
-  }, [selectedUnit?.id, maintainedQuery.data, maintainedQuery.isFetched, sourceQuery.data])
+    if (preferDraft) initializedMaintainedUnits.current.add(unitId)
+  }, [selectedUnit?.id, codeDraftQuery.data, codeDraftQuery.isFetched, maintainedQuery.data, maintainedQuery.isFetched, sourceQuery.data])
+  function revealMaintainedEditor() {
+    const focusEditor = () => {
+      const editor = maintainedEditorRef.current
+      if (!editor) return
+      editor.scrollIntoView?.({ block: 'center', behavior: 'smooth' })
+      editor.focus({ preventScroll: true })
+    }
+    if (typeof window.requestAnimationFrame === 'function') window.requestAnimationFrame(focusEditor)
+    else window.setTimeout(focusEditor, 0)
+  }
   const explanationProvidersQuery = useQuery({
     queryKey: ['reamon-code-explanation-providers', projectId],
     queryFn: () => fetchExplanationProviders(projectId),
@@ -403,6 +669,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
     if (!node.codeUnit) return
     setGraphUnit(node.codeUnit)
     setSelectedId(node.codeUnit.id)
+    revealUnitInspector()
     setCopyStatus('')
     setAssemblyCopyStatus('')
     setExplanation(null)
@@ -446,15 +713,94 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
     setAdditionalPage(null)
     setLoadMoreError('')
     setSelectedId(null)
+    setSelectedFunctionMapMember(null)
     setGraphUnit(null)
-    setVisualizerView('treemap')
-    setPackagePath('')
+    setVisualizerView('function-map')
+    setFolderPath([])
     setGraphFocusKey(null)
     setGraphSearch('')
     setCopyStatus('')
     setAssemblyCopyStatus('')
     setExplanation(null)
     setExplainError('')
+  }
+
+  function revealUnitInspector() {
+    const scrollToInspector = () => {
+      if (!unitInspectorRef.current) return
+      unitInspectorRef.current.scrollTop = 0
+      unitInspectorRef.current.scrollIntoView?.({ block: 'start', behavior: 'smooth' })
+    }
+    if (typeof window.requestAnimationFrame === 'function') window.requestAnimationFrame(scrollToInspector)
+    else window.setTimeout(scrollToInspector, 0)
+  }
+
+  async function persistCodeDraft(sourceCode: string, meta: CodeMaintenanceResponse, scope: 'file' | 'member'): Promise<string> {
+    if (!selectedUnit) throw new Error('Select a code unit before saving a draft')
+    const draftQuestion = question.trim()
+    const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/drafts/${encodeURIComponent(selectedUnit.id)}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sourceCode, providerName: meta.providerName, model: meta.model, question: draftQuestion, scope, syntaxValidated: meta.syntaxValidated ?? null }),
+    })
+    const result = await response.json().catch(() => ({})) as { error?: string; draftId?: string; updatedAt?: string }
+    if (!response.ok || !result.draftId || !result.updatedAt) throw new Error(result.error || 'Could not save this AI draft to project memory')
+    const record: CodeDraftRecord = { id: result.draftId, sourceCode, providerName: meta.providerName, modelIdentifier: meta.model, question: draftQuestion, scope, syntaxValidated: meta.syntaxValidated ?? null, updatedAt: result.updatedAt }
+    setDraftId(record.id)
+    setDraftSource(sourceCode)
+    setDraftScope(scope)
+    queryClient.setQueryData<CodeDraftResponse>(['reamon-code-draft', projectId, selectedUnit.id], { exists: true, draft: record })
+    return record.id
+  }
+
+  async function saveCodeDraft() {
+    if (!selectedUnit || !maintainedDraft.trim()) return
+    const configuredProvider = explanationProviders.find((provider) => provider.id === selectedProviderId)
+    const providerName = maintenanceMeta?.providerName || configuredProvider?.name
+    const model = maintenanceMeta?.model || configuredProvider?.modelIdentifier
+    if (!providerName || !model) {
+      setMaintenanceError('Choose a saved AI provider before saving this draft to project memory.')
+      return
+    }
+    setSavingDraft(true)
+    setMaintenanceError('')
+    try {
+      const existingDraftId = draftId
+      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/drafts/${encodeURIComponent(selectedUnit.id)}`, {
+        method: existingDraftId ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(existingDraftId
+          ? { draftId: existingDraftId, sourceCode: maintainedDraft }
+          : { sourceCode: maintainedDraft, providerName, model, question: question.trim(), scope: 'file', syntaxValidated: null }),
+      })
+      const result = await response.json().catch(() => ({})) as { error?: string; draftId?: string; updatedAt?: string }
+      if (!response.ok || (!existingDraftId && !result.draftId) || !result.updatedAt) throw new Error(result.error || 'Could not save this draft to project memory')
+      const record: CodeDraftRecord = {
+        id: result.draftId || existingDraftId as string,
+        sourceCode: maintainedDraft,
+        providerName,
+        modelIdentifier: model,
+        question: question.trim(),
+        scope: existingDraftId ? draftScope || 'file' : 'file',
+        syntaxValidated: null,
+        updatedAt: result.updatedAt,
+      }
+      setDraftId(record.id)
+      setDraftSource(maintainedDraft)
+      setDraftScope(record.scope)
+      queryClient.setQueryData<CodeDraftResponse>(['reamon-code-draft', projectId, selectedUnit.id], { exists: true, draft: record })
+      setAdditionalPage((previous) => {
+        if (!previous || previous.runId !== currentRunId || previous.search !== serverSearch) return previous
+        return {
+          ...previous,
+          units: previous.units.map((unit) => unit.id === selectedUnit.id ? { ...unit, draftSource: true } : unit),
+        }
+      })
+      await queryClient.invalidateQueries({ queryKey: ['reamon-code-units', projectId] })
+      await queryClient.invalidateQueries({ queryKey: ['reamon-maintained-coverage', projectId, currentRunId] })
+    } catch (error) {
+      setMaintenanceError(error instanceof Error ? error.message : 'Could not save this draft to project memory')
+    } finally {
+      setSavingDraft(false)
+    }
   }
 
   async function deobfuscateSelectedUnit() {
@@ -472,9 +818,91 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
       if (!response.ok) throw new Error(result.error || 'Could not create a maintainable version')
       setMaintainedDraft(result.sourceCode)
       setMaintenanceMeta(result)
+      revealMaintainedEditor()
       setMaintainedSaved(false)
+      setDraftId(null)
+      setDraftSource(null)
+      setDraftScope(null)
+      try {
+        await persistCodeDraft(result.sourceCode, result, 'file')
+      } catch (error) {
+        setMaintenanceError(`The AI draft is available here, but it could not be saved to project memory: ${error instanceof Error ? error.message : 'unknown error'}`)
+      }
     } catch (error) {
       setMaintenanceError(error instanceof Error ? error.message : 'Could not create a maintainable version')
+    } finally {
+      setTransforming(false)
+    }
+  }
+
+  async function deobfuscateMember(member: CodeMemberOutline) {
+    if (!selectedUnit || !selectedProviderId || !sourceQuery.data || member.source_bytes > MAX_MEMBER_REWRITE_BYTES) return
+    const currentSource = sourceQuery.data
+    const sourceBytes = new TextEncoder().encode(currentSource)
+    const originalMember = new TextDecoder().decode(sourceBytes.subarray(member.start_byte, member.end_byte))
+    if (!originalMember.trim()) {
+      setMaintenanceError('Could not read this method from the source. Reload the visualiser and try again.')
+      return
+    }
+    const originalPeers = (memberOutlineQuery.data?.members || []).filter((candidate) => candidate.kind === member.kind && candidate.name === member.name)
+    const peerIndex = originalPeers.indexOf(member)
+    if (peerIndex < 0) {
+      setMaintenanceError('Could not match this method to the current outline. Reload the visualiser and try again.')
+      return
+    }
+    const draft = maintainedDraft || currentSource
+    let draftMember: CodeMemberOutline | undefined
+    try {
+      const outlineResponse = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/deobfuscate`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ unitId: selectedUnit.id, scope: 'outline', sourceCode: draft }),
+      })
+      const outlineResult = await outlineResponse.json().catch(() => ({})) as { members?: CodeMemberOutline[]; error?: string }
+      if (!outlineResponse.ok) throw new Error(outlineResult.error || 'Could not locate this method in the editable copy')
+      draftMember = (outlineResult.members || []).filter((candidate) => candidate.kind === member.kind && candidate.name === member.name)[peerIndex]
+    } catch (error) {
+      setMaintenanceError(error instanceof Error ? error.message : 'Could not locate this method in the editable copy')
+      return
+    }
+    if (!draftMember) {
+      setMaintenanceError('This method is no longer present in the editable copy. Reload the maintained copy before replacing it.')
+      return
+    }
+    const draftBytes = new TextEncoder().encode(draft)
+    const draftMemberSource = new TextDecoder().decode(draftBytes.subarray(draftMember.start_byte, draftMember.end_byte))
+    if (!draftMemberSource.trim()) {
+      setMaintenanceError('Could not read this method from the editable copy. Reload the maintained copy before replacing it.')
+      return
+    }
+    const memberKey = `${member.start_byte}:${member.end_byte}`
+    setTransforming(true)
+    setMaintenanceError('')
+    setMaintenanceMeta(null)
+    try {
+      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/deobfuscate`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ unitId: selectedUnit.id, providerId: selectedProviderId, question: question.trim(), scope: 'member', startByte: member.start_byte, endByte: member.end_byte, memberName: member.name }),
+      })
+      const result = await response.json().catch(() => ({})) as CodeMaintenanceResponse & { error?: string }
+      if (!response.ok) throw new Error(result.error || 'Could not reverse engineer this method')
+      const updatedBytes = new Uint8Array(draftBytes.byteLength - (draftMember.end_byte - draftMember.start_byte) + new TextEncoder().encode(result.sourceCode).byteLength)
+      updatedBytes.set(draftBytes.subarray(0, draftMember.start_byte), 0)
+      const rewrittenBytes = new TextEncoder().encode(result.sourceCode)
+      updatedBytes.set(rewrittenBytes, draftMember.start_byte)
+      updatedBytes.set(draftBytes.subarray(draftMember.end_byte), draftMember.start_byte + rewrittenBytes.byteLength)
+      const updatedDraft = new TextDecoder().decode(updatedBytes)
+      setMaintainedDraft(updatedDraft)
+      setMaintenanceMeta(result)
+      revealMaintainedEditor()
+      setMaintainedSaved(false)
+      setRewrittenMembers((previous) => new Set(previous).add(memberKey))
+      try {
+        await persistCodeDraft(updatedDraft, result, 'member')
+      } catch (error) {
+        setMaintenanceError(`The rewritten method is available here, but it could not be saved to project memory: ${error instanceof Error ? error.message : 'unknown error'}`)
+      }
+    } catch (error) {
+      setMaintenanceError(error instanceof Error ? error.message : 'Could not reverse engineer this method')
     } finally {
       setTransforming(false)
     }
@@ -492,9 +920,17 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
       })
       const result = await response.json().catch(() => ({})) as { error?: string }
       if (!response.ok) throw new Error(result.error || 'Could not save the maintained source')
+      setAdditionalPage((previous) => {
+        if (!previous || previous.runId !== currentRunId || previous.search !== serverSearch) return previous
+        return {
+          ...previous,
+          units: previous.units.map((unit) => unit.id === selectedUnit.id ? { ...unit, maintainedSource: true } : unit),
+        }
+      })
       setMaintainedSaved(true)
       await queryClient.invalidateQueries({ queryKey: ['reamon-code-units', projectId] })
       await queryClient.invalidateQueries({ queryKey: ['reamon-maintained-coverage', projectId, currentRunId] })
+      await queryClient.invalidateQueries({ queryKey: ['reamon-maintained-source', projectId, selectedUnit.id] })
     } catch (error) {
       setMaintenanceError(error instanceof Error ? error.message : 'Could not save the maintained source')
     } finally {
@@ -502,11 +938,34 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
     }
   }
 
+  async function saveSmaliSource() {
+    if (!selectedUnit || !smaliDraft.trim()) return
+    setSavingSmali(true)
+    setSmaliError('')
+    try {
+      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/maintained/${encodeURIComponent(selectedUnit.id)}/smali`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sourceCode: smaliDraft }),
+      })
+      const result = await response.json().catch(() => ({})) as { error?: string }
+      if (!response.ok) throw new Error(result.error || 'Could not save Smali source')
+      setSmaliSaved(true)
+      await queryClient.invalidateQueries({ queryKey: ['reamon-maintained-smali', projectId, selectedUnit.id] })
+    } catch (error) {
+      setSmaliError(error instanceof Error ? error.message : 'Could not save Smali source')
+    } finally {
+      setSavingSmali(false)
+    }
+  }
+
   function openTreemapEntry(entry: CodeUnitTreemapEntry) {
-    if (entry.packagePath) {
-      setPackagePath(entry.packagePath)
+    setSelectedFunctionMapMember(null)
+    if (entry.folderPath) {
+      setFolderPath(entry.folderPath)
       setSelectedId(null)
       setGraphUnit(null)
+      setGraphFocusKey(null)
       setExplanation(null)
       setExplainError('')
       return
@@ -514,42 +973,56 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
     if (!entry.codeUnit) return
     setSelectedId(entry.codeUnit.id)
     setGraphUnit(null)
+    setGraphFocusKey(null)
+    revealUnitInspector()
     setCopyStatus('')
     setAssemblyCopyStatus('')
     setExplanation(null)
     setExplainError('')
   }
 
-  function showPackage(packageName: string) {
-    setPackagePath(packageName)
+  function showFolder(path: string[]) {
+    setFolderPath(path)
     setSelectedId(null)
     setGraphUnit(null)
+    setGraphFocusKey(null)
     setExplanation(null)
     setExplainError('')
   }
 
-  function showMaintenanceFilter(value: 'all' | 'needs-work' | 'maintained') {
+  function showMaintenanceFilter(value: 'all' | 'needs-work' | 'drafted' | 'maintained') {
     setMaintenanceFilter(value)
     setSelectedId(null)
+    setSelectedFunctionMapMember(null)
     setGraphUnit(null)
+    setGraphFocusKey(null)
   }
 
-  async function loadMoreUnits(loadAll = false) {
+  const loadMoreUnits = useCallback(async (loadAll = false) => {
     if (!nextCursor || loadingMore) return
     setLoadingMore(true)
     setLoadMoreError('')
     try {
       let cursor = nextCursor
       let loadedUnits = pageState?.units || []
+      let loadedFunctionMembers = pageState?.functionMapMembers || query.data?.functionMapMembers || []
+      let functionMembersTruncated = pageState?.functionMapTruncated || query.data?.functionMapTruncated || false
       let pagesLoaded = 0
       while (cursor) {
         const page = await fetchCodeUnits(projectId, currentRunId, cursor, undefined, serverSearch)
         loadedUnits = [...loadedUnits, ...page.units]
+        const byFunctionId = new Map(loadedFunctionMembers.map((member) => [member.id, member]))
+        for (const member of page.functionMapMembers || []) byFunctionId.set(member.id, member)
+        const allFunctionMembers = [...byFunctionId.values()]
+        loadedFunctionMembers = allFunctionMembers.slice(0, FUNCTION_MAP_CLIENT_LIMIT)
+        functionMembersTruncated ||= page.functionMapTruncated === true || allFunctionMembers.length > FUNCTION_MAP_CLIENT_LIMIT
         const nextPageCursor = page.nextCursor || null
         setAdditionalPage({
           runId: currentRunId,
           search: serverSearch,
           units: loadedUnits,
+          functionMapMembers: loadedFunctionMembers,
+          functionMapTruncated: functionMembersTruncated,
           nextCursor: nextPageCursor,
         })
         pagesLoaded += 1
@@ -562,7 +1035,15 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
     } finally {
       setLoadingMore(false)
     }
-  }
+  }, [currentRunId, loadingMore, nextCursor, pageState, projectId, query.data, serverSearch])
+
+  const autoLoadedMapKeys = useRef(new Set<string>())
+  useEffect(() => {
+    const mapKey = `${currentRunId || ''}:${serverSearch}`
+    if (!standalone || !query.data || query.data.total > AUTO_LOAD_CODE_UNIT_LIMIT || !nextCursor || autoLoadedMapKeys.current.has(mapKey)) return
+    autoLoadedMapKeys.current.add(mapKey)
+    void loadMoreUnits(true)
+  }, [currentRunId, loadMoreUnits, nextCursor, query.data, serverSearch, standalone])
 
   async function refreshMap() {
     await query.refetch()
@@ -570,21 +1051,52 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
     setLoadMoreError('')
   }
 
+  async function rebuildAndroidApk() {
+    if (!currentRun || !currentRun.apktoolProjectAvailable || buildingApk) return
+    setBuildingApk(true)
+    setApkBuildError('')
+    try {
+      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/apk/rebuild`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ taskId: currentRun.id }),
+      })
+      const result = await response.json().catch(() => ({})) as Partial<ApkBuildResponse> & { error?: string }
+      if (!response.ok || typeof result.downloadUrl !== 'string' || typeof result.sha256 !== 'string') {
+        throw new Error(result.error || 'Could not rebuild this APK')
+      }
+      setApkBuild(result as ApkBuildResponse)
+    } catch (error) {
+      setApkBuildError(error instanceof Error ? error.message : 'Could not rebuild this APK')
+    } finally {
+      setBuildingApk(false)
+    }
+  }
+
   return (
-    <section id="code-visualizer" className={styles.panel} aria-labelledby="code-visualizer-heading">
+    <section id="code-visualizer" className={`${styles.panel} ${standalone ? styles.standalone : ''}`} aria-labelledby="code-visualizer-heading">
       <div className={styles.header}>
         <div>
           <p className={styles.kicker}>Program structure</p>
           <h2 id="code-visualizer-heading"><Code2 size={18} /> Code visualizer</h2>
           <p className={styles.description}>Follow each code unit from analyzer decompilation through reverse engineering into a separate, maintainable source copy. Select a tile to inspect the original, create and review its maintained version, then save or export both outputs.</p>
         </div>
-        {query.data && <span className={styles.badge}>{nextCursor ? `${units.length.toLocaleString()} / ${query.data.total.toLocaleString()} code units` : `${units.length.toLocaleString()} code units`}</span>}
+        <div className={styles.headerActions}>
+          {query.data && <span className={styles.badge}>{nextCursor ? `${units.length.toLocaleString()} / ${query.data.total.toLocaleString()} code units` : `${units.length.toLocaleString()} code units`}</span>}
+          {currentRun && <div className={styles.viewSwitcher} role="group" aria-label="Code visualizer view">
+            <button type="button" className={visualizerView === 'function-map' ? styles.viewButtonActive : styles.viewButton} aria-pressed={visualizerView === 'function-map'} onClick={() => setVisualizerView('function-map')}>Function map</button>
+            <button type="button" className={visualizerView === 'treemap' ? styles.viewButtonActive : styles.viewButton} aria-pressed={visualizerView === 'treemap'} onClick={() => setVisualizerView('treemap')}>Treemap</button>
+            {canShowCallGraph && <button type="button" className={visualizerView === 'callgraph' ? styles.viewButtonActive : styles.viewButton} aria-pressed={visualizerView === 'callgraph'} onClick={() => setVisualizerView('callgraph')}>{graphType === 'class_dependencies' ? 'Class dependencies' : 'Call graph'}</button>}
+          </div>}
+          {currentRun?.providerId === 'reamon-jadx' && visualizerView === 'callgraph' && <div className={styles.viewSwitcher} role="group" aria-label="Android relationship graph">
+            <button type="button" className={graphType === 'function_calls' ? styles.viewButtonActive : styles.viewButton} aria-pressed={graphType === 'function_calls'} onClick={() => { setGraphFocusKey(null); setJadxGraphType('function_calls') }}>Method calls</button>
+            <button type="button" className={graphType === 'class_dependencies' ? styles.viewButtonActive : styles.viewButton} aria-pressed={graphType === 'class_dependencies'} onClick={() => { setGraphFocusKey(null); setJadxGraphType('class_dependencies') }}>Class dependencies</button>
+          </div>}
+          <Link className={styles.focusLink} href={standalone ? `/projects/${encodeURIComponent(projectId)}` : `/projects/${encodeURIComponent(projectId)}/visualizer`}>
+            {standalone ? 'Back to workspace' : 'Open full visualizer'}
+          </Link>
+        </div>
       </div>
-
-      {canShowCallGraph && <div className={styles.viewSwitcher} role="group" aria-label="Code visualizer view">
-        <button type="button" className={visualizerView === 'treemap' ? styles.viewButtonActive : styles.viewButton} aria-pressed={visualizerView === 'treemap'} onClick={() => setVisualizerView('treemap')}>Treemap</button>
-        <button type="button" className={visualizerView === 'callgraph' ? styles.viewButtonActive : styles.viewButton} aria-pressed={visualizerView === 'callgraph'} onClick={() => setVisualizerView('callgraph')}>{graphType === 'class_dependencies' ? 'Class dependencies' : 'Call graph'}</button>
-      </div>}
 
       {currentRun && <nav className={styles.runHistory} aria-label="Analysis run history">
         <button type="button" className={styles.runButton} aria-label="Previous run" disabled={currentRunIndex >= runs.length - 1} onClick={() => showRun(runs[currentRunIndex + 1]?.id || null)}>Previous</button>
@@ -597,23 +1109,35 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
         <button type="button" className={styles.runButton} aria-label="Latest run" disabled={currentRunIndex === 0} onClick={() => showRun(null)}>Latest</button>
       </nav>}
 
-      {currentRun && <div className={styles.runSummary} aria-label="Selected analysis summary">
+      {currentRun && <div className={styles.progressCards}>
+      <div className={styles.runSummary} aria-label="Selected analysis summary">
         <div className={styles.runSummaryHeading}>
           <div>
-            <strong>{currentRun.linkPercent === null ? `${currentRun.indexedUnitCount.toLocaleString()} ${currentRun.unitLabel} indexed` : `${currentRun.linkPercent}% of analyzed ${currentRun.unitLabel} indexed`}</strong>
-            <span>{currentRun.indexedUnitCount.toLocaleString()} code units indexed{currentRun.discoveredUnitCount !== null ? ` of ${currentRun.discoveredUnitCount.toLocaleString()} analyzed ${currentRun.unitLabel}` : ''}</span>
+            <strong>{maintainedCoverageQuery.data?.decompilationCoveragePercent !== null && maintainedCoverageQuery.data?.decompilationCoveragePercent !== undefined
+              ? `${maintainedCoverageQuery.data.decompilationCoveragePercent}% of measured code decompiled`
+              : currentRun.linkPercent === null ? `${currentRun.indexedUnitCount.toLocaleString()} ${currentRun.unitLabel} indexed` : `${currentRun.linkPercent}% of analyzed ${currentRun.unitLabel} indexed`}</strong>
+            <span>{maintainedCoverageQuery.data
+              ? `${maintainedCoverageQuery.data.sourceLinkedPercent}% of code units have viewable source`
+              : `${currentRun.indexedUnitCount.toLocaleString()} code units indexed${currentRun.discoveredUnitCount !== null ? ` of ${currentRun.discoveredUnitCount.toLocaleString()} analyzed ${currentRun.unitLabel}` : ''}`}</span>
           </div>
-          <span>Code {formatBytes(currentRun.codeBytes ?? units.reduce((sum, unit) => sum + unit.sizeBytes, 0))}</span>
+          <span>Code {formatBytes(maintainedCoverageQuery.data?.codeBytes ?? currentRun.codeBytes ?? units.reduce((sum, unit) => sum + unit.sizeBytes, 0))}</span>
         </div>
-        {currentRun.linkPercent !== null && <div className={styles.runProgress} role="progressbar" aria-label="Indexed code unit coverage" aria-valuemin={0} aria-valuemax={100} aria-valuenow={currentRun.linkPercent} aria-valuetext={`${currentRun.linkPercent}% of analyzed ${currentRun.unitLabel} indexed`}>
-          <span style={{ width: `${currentRun.linkPercent}%` }} />
+        {(maintainedCoverageQuery.data?.decompilationCoveragePercent ?? currentRun.linkPercent) !== null && <div className={styles.runProgress} role="progressbar"
+          aria-label={maintainedCoverageQuery.data?.decompilationCoveragePercent !== null && maintainedCoverageQuery.data?.decompilationCoveragePercent !== undefined ? 'Decompilation coverage' : 'Indexed code unit coverage'}
+          aria-valuemin={0} aria-valuemax={100}
+          aria-valuenow={maintainedCoverageQuery.data?.decompilationCoveragePercent ?? currentRun.linkPercent ?? 0}
+          aria-valuetext={maintainedCoverageQuery.data?.decompilationCoveragePercent !== null && maintainedCoverageQuery.data?.decompilationCoveragePercent !== undefined
+            ? `${maintainedCoverageQuery.data.decompilationCoveragePercent}% of measured code decompiled`
+            : `${currentRun.linkPercent}% of analyzed ${currentRun.unitLabel} indexed`}>
+          <span style={{ width: `${maintainedCoverageQuery.data?.decompilationCoveragePercent ?? currentRun.linkPercent ?? 0}%` }} />
         </div>}
-        <div className={styles.runSummaryMeta}>
-          <span>{currentRun.truncated ? currentRun.linkPercent === null ? 'Partial index; the analyzer could not determine the total class count.' : 'Partial index. This bar shows indexed coverage, not whether the task finished.' : `${currentRun.indexedUnitCount.toLocaleString()} indexed code units`}</span>{currentRun.truncated && decompilationHref && <a className={styles.runAgain} href={decompilationHref}>Run decompilation again</a>}
+        {(currentRun.truncated || (currentRun.failedUnitCount !== null && currentRun.failedUnitCount > 0)) && <div className={styles.runSummaryMeta}>
+          {currentRun.truncated && <span>{currentRun.linkPercent === null ? 'Partial index; the analyzer could not determine the total class count.' : 'Partial index. This bar shows indexed coverage, not whether the task finished.'}</span>}
+          {currentRun.truncated && decompilationHref && <a className={styles.runAgain} href={decompilationHref}>Run decompilation again</a>}
           {currentRun.failedUnitCount !== null && currentRun.failedUnitCount > 0 && <span>{currentRun.failedUnitCount.toLocaleString()} functions could not be decompiled{currentRun.visitedUnitCount !== null ? ` of ${currentRun.visitedUnitCount.toLocaleString()} visited` : ''}</span>}
-        </div>
-        {currentRun.warnings && <p className={styles.runWarning}>{currentRun.warnings}</p>}
-      </div>}
+        </div>}
+        {displayRunWarnings && <p className={styles.runWarning}>{displayRunWarnings}</p>}
+      </div>
 
       {currentRun && <div className={styles.runSummary} aria-label="Selected run maintainable-source progress">
         {maintainedCoverageQuery.isLoading && <p className={styles.message}>Checking reverse-engineered source coverage…</p>}
@@ -630,6 +1154,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
             <span style={{ width: `${maintainedCoverageQuery.data.coveragePercent}%` }} />
           </div>
         </>}
+      </div>}
       </div>}
 
       {query.isLoading && <p className={styles.message}>Loading code units…</p>}
@@ -678,29 +1203,66 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
         <label className={styles.filter}>
           <Search size={16} aria-hidden="true" />
           <span className={styles.srOnly}>Filter code units</span>
-          <input value={filter} maxLength={300} onChange={(event) => setFilter(event.target.value)} placeholder="Search this run by name, address, or path · >10kb · <70%" />
+          <input value={filter} maxLength={300} onChange={(event) => setFilter(event.target.value)} placeholder="Search by name, address, path, or referenced string · >10kb · <70%" />
         </label>
-        <p className={styles.message}>Name, address, and path search spans the full run. Size, decompilation, and maintained-source filters apply to code units loaded here.</p>
-        {visualizerView === 'treemap' && <div className={styles.maintenanceFilters} role="group" aria-label="Maintained source status">
-          <span>Maintained source</span>
-          <button type="button" className={maintenanceFilter === 'all' ? styles.viewButtonActive : styles.viewButton} aria-pressed={maintenanceFilter === 'all'} onClick={() => showMaintenanceFilter('all')}>All ({mapScopeUnits.length.toLocaleString()})</button>
-          <button type="button" className={maintenanceFilter === 'needs-work' ? styles.viewButtonActive : styles.viewButton} aria-pressed={maintenanceFilter === 'needs-work'} onClick={() => showMaintenanceFilter('needs-work')}>Needs work ({mapScopeUnits.filter((unit) => !unit.maintainedSource).length.toLocaleString()})</button>
-          <button type="button" className={maintenanceFilter === 'maintained' ? styles.viewButtonActive : styles.viewButton} aria-pressed={maintenanceFilter === 'maintained'} onClick={() => showMaintenanceFilter('maintained')}>Maintained ({mapScopeUnits.filter((unit) => unit.maintainedSource).length.toLocaleString()})</button>
+        <p className={styles.message}>Name, address, and path search spans the full run. Language, size, decompilation, and work-status filters apply to code units loaded here.</p>
+      {(visualizerView === 'function-map' || visualizerView === 'treemap') && <div className={styles.visualizerToolbar}>
+          {availableLanguages.length > 1 && <label className={styles.languageFilter}>Language
+            <select aria-label="Filter map by language" value={activeLanguageFilter} onChange={(event) => { setLanguageFilter(event.target.value); setFolderPath([]) }}>
+              <option value="">All languages</option>
+              {availableLanguages.map((language) => <option key={language} value={language}>{language}</option>)}
+            </select>
+          </label>}
+          {currentRun?.apktoolProjectAvailable && <>
+            <button type="button" className={styles.runButton} onClick={() => void rebuildAndroidApk()} disabled={buildingApk}>
+              <Download size={14} /> {buildingApk ? 'Building unsigned APK…' : 'Rebuild unsigned APK'}
+            </button>
+            {apkBuild?.taskId === currentRun.id && <a className={styles.runButton} href={apkBuild.downloadUrl}>
+              Download unsigned APK · {apkBuild.changedFileCount} saved resource / Smali {apkBuild.changedFileCount === 1 ? 'change' : 'changes'} · {formatBytes(apkBuild.sizeBytes)}
+            </a>}
+            {apkBuild?.taskId === currentRun.id && apkBuild.warnings && <p className={styles.message}>{apkBuild.warnings}</p>}
+            {apkBuildError && <p className={styles.error} role="alert">{apkBuildError}</p>}
+          </>}
+          <div className={styles.maintenanceFilters} role="group" aria-label="Maintained source status">
+            <span>Work status</span>
+            <button type="button" className={maintenanceFilter === 'all' ? styles.viewButtonActive : styles.viewButton} aria-pressed={maintenanceFilter === 'all'} onClick={() => showMaintenanceFilter('all')}>All ({mapScopeUnits.length.toLocaleString()})</button>
+            <button type="button" className={maintenanceFilter === 'needs-work' ? styles.viewButtonActive : styles.viewButton} aria-pressed={maintenanceFilter === 'needs-work'} onClick={() => showMaintenanceFilter('needs-work')}>Needs work ({mapScopeUnits.filter((unit) => !unit.maintainedSource).length.toLocaleString()})</button>
+            <button type="button" className={maintenanceFilter === 'drafted' ? styles.viewButtonActive : styles.viewButton} aria-pressed={maintenanceFilter === 'drafted'} onClick={() => showMaintenanceFilter('drafted')}>Draft saved ({mapScopeUnits.filter((unit) => unit.draftSource).length.toLocaleString()})</button>
+            <button type="button" className={maintenanceFilter === 'maintained' ? styles.viewButtonActive : styles.viewButton} aria-pressed={maintenanceFilter === 'maintained'} onClick={() => showMaintenanceFilter('maintained')}>Maintained ({mapScopeUnits.filter((unit) => unit.maintainedSource).length.toLocaleString()})</button>
+          </div>
+          <div className={styles.maintenanceFilters} role="group" aria-label="Treemap color layer">
+            <span>Color by</span>
+            <button type="button" className={mapLayer === 'decompilation' ? styles.viewButtonActive : styles.viewButton} aria-pressed={mapLayer === 'decompilation'} onClick={() => setMapLayer('decompilation')}>Decompilation</button>
+            <button type="button" className={mapLayer === 'maintenance' ? styles.viewButtonActive : styles.viewButton} aria-pressed={mapLayer === 'maintenance'} onClick={() => setMapLayer('maintenance')}>Maintained source</button>
+            <button type="button" className={mapLayer === 'work' ? styles.viewButtonActive : styles.viewButton} aria-pressed={mapLayer === 'work'} onClick={() => setMapLayer('work')}>Work status</button>
+          </div>
+          {visualizerView === 'treemap' && <div className={styles.mapContentSwitcher} role="group" aria-label="Treemap contents">
+            <button type="button" className={mapContent === 'units' ? styles.viewButtonActive : styles.viewButton} aria-pressed={mapContent === 'units'} onClick={() => setMapContentPreference('units')}>Code units</button>
+            <button type="button" className={mapContent === 'folders' ? styles.viewButtonActive : styles.viewButton} aria-pressed={mapContent === 'folders'} onClick={() => setMapContentPreference('folders')}>Folders</button>
+          </div>}
+          {currentRun && <a className={styles.runButton} href={`/api/projects/${encodeURIComponent(projectId)}/visualizer/maintained/export?taskId=${encodeURIComponent(currentRun.id)}`}>
+            Download source bundle · {currentRun.codeUnitCount.toLocaleString()} code {currentRun.codeUnitCount === 1 ? 'unit' : 'units'}
+          </a>}
         </div>}
-        {visualizerView === 'treemap' && <div className={styles.maintenanceFilters} role="group" aria-label="Treemap color layer">
-          <span>Color by</span>
-          <button type="button" className={mapLayer === 'decompilation' ? styles.viewButtonActive : styles.viewButton} aria-pressed={mapLayer === 'decompilation'} onClick={() => setMapLayer('decompilation')}>Decompilation</button>
-          <button type="button" className={mapLayer === 'maintenance' ? styles.viewButtonActive : styles.viewButton} aria-pressed={mapLayer === 'maintenance'} onClick={() => setMapLayer('maintenance')}>Maintained source</button>
+        {currentRun?.apktoolProjectAvailable && (visualizerView === 'function-map' || visualizerView === 'treemap') && <p className={styles.functionMapNote}>
+          APK rebuilds apply saved Android resource and Smali edits to the retained Apktool project. Maintained JADX Java stays separate because it is not compiled back into DEX; the rebuilt APK is unsigned.
+        </p>}
+        {(visualizerView === 'function-map' || visualizerView === 'treemap') && nextCursor && <div className={styles.loadMore} role="group" aria-label="Map code unit loading">
+          <span role="status">Loaded {units.length.toLocaleString()} of {query.data?.total.toLocaleString() || '0'} code units</span>
+          <button type="button" className={styles.runButton} onClick={() => void loadMoreUnits()} disabled={loadingMore}>
+            {loadingMore ? 'Loading code units…' : 'Load more code units'}
+          </button>
+          <button type="button" className={styles.runButton} onClick={() => void loadMoreUnits(true)} disabled={loadingMore}>
+            {loadingMore ? 'Loading full map…' : `Load all ${Math.max(0, (query.data?.total || 0) - units.length).toLocaleString()} remaining`}
+          </button>
+          {loadMoreError && <p className={styles.error} role="alert">{loadMoreError}</p>}
         </div>}
-        {currentRun && visualizerView === 'treemap' && <a className={styles.runButton} href={`/api/projects/${encodeURIComponent(projectId)}/visualizer/maintained/export?taskId=${encodeURIComponent(currentRun.id)}`}>
-          Download source bundle · {currentRun.codeUnitCount.toLocaleString()} code {currentRun.codeUnitCount === 1 ? 'unit' : 'units'}
-        </a>}
       </>}
 
       {!query.isLoading && !query.isError && query.data && units.length > 0 && <>
         <div className={styles.stats}>
-          <div><strong>{packageUnits.length.toLocaleString()}</strong><span>Code units in this map</span></div>
-          <div><strong>{summary.sourceLinkedPercent === null ? 'Unknown' : `${summary.sourceLinkedPercent}%`}</strong><span>Viewable source links in map ({summary.sourceLinkedUnits.toLocaleString()}/{packageUnits.length.toLocaleString()})</span></div>
+          <div><strong>{folderUnits.length.toLocaleString()}</strong><span>Code units in this map</span></div>
+          <div><strong>{summary.sourceLinkedPercent === null ? 'Unknown' : `${summary.sourceLinkedPercent}%`}</strong><span>Viewable source links in map ({summary.sourceLinkedUnits.toLocaleString()}/{folderUnits.length.toLocaleString()})</span></div>
           <div><strong>{formatBytes(summary.totalBytes)}</strong><span>Code bytes in this map</span></div>
           <div><strong>{summary.coveragePercent === null ? 'Unknown' : `${summary.coveragePercent}%`}</strong><span>Decompilation completeness of measured bytes in map</span></div>
           <div><strong>{summary.decompiledUnits.toLocaleString()}</strong><span>Fully decompiled units in map</span></div>
@@ -714,38 +1276,114 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
           <span><i className={styles.none} /> No decompilation</span>
           <span><i className={styles.unknown} /> Unmeasured</span>
           <span><i className={styles.maintainedLegend}>M</i> Maintained source saved</span>
-        </div> : <div className={styles.legend} role="group" aria-label="Maintained source legend">
+        </div> : mapLayer === 'maintenance' ? <div className={styles.legend} role="group" aria-label="Maintained source legend">
           <span><i className={styles.complete} /> Maintained source saved</span>
           <span><i className={styles.unknown} /> Not yet maintained</span>
-          <span><i className={styles.partial} /> Partly maintained package</span>
+          <span><i className={styles.partial} /> Folder with maintained source</span>
+        </div> : <div className={styles.legend} role="group" aria-label="Reverse-engineering work status legend">
+          <span><i className={styles.unknown} /> Needs work</span>
+          <span><i className={styles.draftLegend}>D</i> Draft saved for review</span>
+          <span><i className={styles.complete} /> Maintained source saved</span>
         </div>}
 
-        {visualizerView === 'treemap' && (treemapEntries.length ? <div className={styles.mapFrame}>
-          {packagePath && <nav className={styles.packagePath} aria-label="Code package path">
-            <button type="button" onClick={() => showPackage('')}>All packages</button>
-            {packagePath.split('.').map((part, index, parts) => {
-              const path = parts.slice(0, index + 1).join('.')
-              return <span key={path}><span aria-hidden="true">/</span><button type="button" aria-current={index === parts.length - 1 ? 'page' : undefined} onClick={() => showPackage(path)}>{part}</button></span>
+        <div className={`${styles.workbench} ${selectedUnit && visualizerView !== 'callgraph' ? '' : styles.workbenchMapOnly}`}>
+        <div className={styles.mapColumn} aria-label="Program map and relationships">
+        {(visualizerView === 'function-map' || visualizerView === 'treemap') && ((visualizerView === 'function-map' ? folderUnits.length : treemapEntries.length) ? <div className={styles.mapFrame}>
+          {visualizerView === 'treemap' && folderPath.length > 0 && <nav className={styles.folderPath} aria-label="Program source path">
+            <button type="button" onClick={() => showFolder([])}>All folders</button>
+            {folderPath.map((part, index, parts) => {
+              const path = parts.slice(0, index + 1)
+              const key = JSON.stringify(path)
+              return <span key={key}><span aria-hidden="true">/</span><button type="button" aria-current={index === parts.length - 1 ? 'page' : undefined} onClick={() => showFolder(path)}>{part}</button></span>
             })}
           </nav>}
-          <svg className={styles.map} viewBox="0 0 1200 560" role="group" aria-label={`Package and code unit treemap sized by bytes and colored by ${mapLayer === 'decompilation' ? 'decompilation completeness' : 'maintained source status'}`}>
+          {visualizerView === 'function-map' ? <>
+          <div className={styles.functionMap} role="group" aria-label="Language-neutral functions and code units map">
+            {folderUnits.map((unit) => {
+              const fill = mapLayer === 'decompilation'
+                ? unitColor(unit.coveragePercent)
+                : mapLayer === 'maintenance'
+                  ? maintenanceColor(unit.maintainedSource ? 1 : 0, 1)
+                  : workStatusColor(unit.draftSource ? 1 : 0, unit.maintainedSource ? 1 : 0, 1)
+              const coverage = unit.coveragePercent === null ? 'Unmeasured' : `${Math.round(unit.coveragePercent)}% decompiled`
+              const work = unit.maintainedSource ? 'Maintained source saved' : unit.draftSource ? 'Draft saved for review' : 'Needs reverse engineering'
+              const meta = [unit.language, unit.address, formatBytes(unit.sizeBytes)].filter(Boolean).join(' · ')
+              return <button
+                key={unit.id}
+                type="button"
+                className={styles.functionTile}
+                style={{ '--function-color': fill } as CSSProperties}
+                data-layer={mapLayer}
+                aria-pressed={unit.id === selectedId}
+                aria-label={`${unit.name}, ${coverage}, ${work}${meta ? `, ${meta}` : ''}`}
+                title={`${unit.name} · ${coverage} · ${work}${meta ? ` · ${meta}` : ''}`}
+                onClick={() => {
+                  setSelectedFunctionMapMember(null)
+                  openTreemapEntry({ key: `unit:${unit.id}`, name: unit.name, sizeBytes: unit.sizeBytes, coveragePercent: unit.coveragePercent, codeUnit: unit, unitCount: 1, maintainedUnitCount: unit.maintainedSource ? 1 : 0, draftedUnitCount: unit.draftSource ? 1 : 0 })
+                }}
+              >
+                <strong>{unit.name}</strong>
+                <span>{meta || unit.unitType}</span>
+                <small>{coverage} · {work}</small>
+              </button>
+            })}
+            {visibleFunctionMapMembers.map((member) => {
+              const parent = member.parentCodeUnit
+              const fill = mapLayer === 'decompilation'
+                ? unitColor(parent.coveragePercent)
+                : mapLayer === 'maintenance'
+                  ? maintenanceColor(parent.maintainedSource ? 1 : 0, 1)
+                  : workStatusColor(parent.draftSource ? 1 : 0, parent.maintainedSource ? 1 : 0, 1)
+              const coverage = parent.coveragePercent === null ? 'Unmeasured' : `${Math.round(parent.coveragePercent)}% parent coverage`
+              const work = parent.maintainedSource ? 'Maintained file' : parent.draftSource ? 'Draft saved for review' : 'Needs reverse engineering'
+              const meta = [parent.name, member.language, member.address || (member.line ? `line ${member.line}` : null)].filter(Boolean).join(' · ')
+              return <button
+                key={`function:${member.id}`}
+                type="button"
+                className={styles.functionTile}
+                style={{ '--function-color': fill } as CSSProperties}
+                data-layer={mapLayer}
+                aria-pressed={selectedFunctionMapMember?.id === member.id}
+                aria-label={`${member.name}, ${member.memberKind} in ${parent.name}, ${coverage}, ${work}${meta ? `, ${meta}` : ''}`}
+                title={`${member.fullName} · ${coverage} · ${work}`}
+                onClick={() => {
+                  openTreemapEntry({ key: `unit:${parent.id}`, name: parent.name, sizeBytes: parent.sizeBytes, coveragePercent: parent.coveragePercent, codeUnit: parent, unitCount: 1, maintainedUnitCount: parent.maintainedSource ? 1 : 0, draftedUnitCount: parent.draftSource ? 1 : 0 })
+                  setSelectedFunctionMapMember({ id: member.id, parentUnitId: parent.id, name: member.name.replace(/#\d+$/, ''), similarityAvailable: member.similarityAvailable })
+                }}
+              >
+                <strong>{member.name}</strong>
+                <span>{meta || member.memberKind}</span>
+                <small>{coverage} · {work} · {member.memberKind}</small>
+              </button>
+            })}
+          </div>
+          {visibleFunctionMapMembers.length > 0 && <p className={styles.functionMapNote} role="status">{visibleFunctionMapMembers.length.toLocaleString()} function or method entries from the loaded code units. Status reflects the containing source file; select an entry to open it and filter the member outline.</p>}
+          {functionMapTruncated && <p className={styles.functionMapNote} role="status">The function map reached its 20,000-entry display limit. Load or search a smaller code-unit page to explore more.</p>}
+          </> : <svg className={styles.map} viewBox="0 0 1200 560" role="group" aria-label={`${mapContent === 'folders' ? 'Folder and code unit' : 'Code unit'} treemap sized by bytes and colored by ${mapLayer === 'decompilation' ? 'decompilation completeness' : mapLayer === 'maintenance' ? 'maintained source coverage' : 'reverse-engineering work status'}`}>
             {rectangles.map(({ unit, x, y, width, height }) => {
               const label = shortenLabel(unit.name, width)
               const coverage = unit.coveragePercent === null ? 'decompilation completeness unmeasured' : `${Math.round(unit.coveragePercent)}% decompilation completeness`
-              const detail = unit.packagePath ? `${unit.unitCount.toLocaleString()} code units` : formatBytes(unit.sizeBytes)
+              const detail = unit.folderPath ? `${unit.unitCount.toLocaleString()} code units` : formatBytes(unit.sizeBytes)
               const maintained = unit.maintainedUnitCount > 0
-              const maintainedDetail = unit.packagePath
+              const drafted = unit.draftedUnitCount > 0
+              const maintainedDetail = unit.folderPath
                 ? `${unit.maintainedUnitCount} of ${unit.unitCount} units have maintained source`
                 : unit.codeUnit?.maintainedSource ? 'maintained source saved' : 'not yet reverse-engineered into maintained source'
+              const workDetail = unit.folderPath
+                ? `${unit.draftedUnitCount} drafts · ${unit.maintainedUnitCount} maintained of ${unit.unitCount} units`
+                : unit.codeUnit?.draftSource ? 'saved draft waiting for review' : unit.codeUnit?.maintainedSource ? 'maintained source saved' : 'no saved draft or maintained source'
               const fill = mapLayer === 'decompilation'
                 ? unitColor(unit.coveragePercent)
-                : maintenanceColor(unit.maintainedUnitCount, unit.unitCount)
+                : mapLayer === 'maintenance'
+                  ? maintenanceColor(unit.maintainedUnitCount, unit.unitCount)
+                  : workStatusColor(unit.draftedUnitCount, unit.maintainedUnitCount, unit.unitCount)
+              const showDraftBadge = mapLayer === 'work' && drafted && width >= 28 && height >= 24
               return <g
                 key={unit.key}
-                className={`${styles.tile} ${unit.codeUnit?.id === selectedId ? styles.selected : ''} ${unit.packagePath ? styles.packageTile : ''}`}
+                className={`${styles.tile} ${unit.codeUnit?.id === selectedId ? styles.selected : ''} ${unit.folderPath ? styles.folderTile : ''}`}
                 role="button"
                 tabIndex={0}
-                aria-label={`${unit.name}${unit.packagePath ? ' package' : ''}, ${formatBytes(unit.sizeBytes)}, ${coverage}${unit.packagePath ? `, ${unit.unitCount.toLocaleString()} code units` : unit.codeUnit?.address ? `, address ${unit.codeUnit.address}` : ''}, ${maintainedDetail}`}
+                aria-label={`${unit.name}${unit.folderPath ? ' folder' : ''}, ${formatBytes(unit.sizeBytes)}, ${coverage}${unit.folderPath ? `, ${unit.unitCount.toLocaleString()} code units` : unit.codeUnit?.address ? `, address ${unit.codeUnit.address}` : ''}, ${maintainedDetail}, ${workDetail}`}
                 onClick={() => openTreemapEntry(unit)}
                 onKeyDown={(event) => {
                   if (event.key === 'Enter' || event.key === ' ') {
@@ -754,19 +1392,20 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
                   }
                 }}
               >
-                <title>{`${unit.name}${unit.packagePath ? ' package' : ''} · ${formatBytes(unit.sizeBytes)} · ${coverage}${unit.packagePath ? ` · ${unit.unitCount.toLocaleString()} code units` : unit.codeUnit?.address ? ` · ${unit.codeUnit.address}` : ''} · ${maintainedDetail}`}</title>
+                <title>{`${unit.name}${unit.folderPath ? ' folder' : ''} · ${formatBytes(unit.sizeBytes)} · ${coverage}${unit.folderPath ? ` · ${unit.unitCount.toLocaleString()} code units` : unit.codeUnit?.address ? ` · ${unit.codeUnit.address}` : ''} · ${maintainedDetail} · ${workDetail}`}</title>
                 <rect x={x + 1} y={y + 1} width={Math.max(0, width - 2)} height={Math.max(0, height - 2)} fill={fill} rx="3" />
-                {maintained && width >= 28 && height >= 24 && <><circle className={styles.maintainedBadge} cx={x + width - 13} cy={y + 13} r="9" /><text className={styles.maintainedBadgeText} x={x + width - 13} y={y + 13}>M</text></>}
+                {maintained && width >= 28 && height >= 24 && <><circle className={styles.maintainedBadge} cx={x + width - (showDraftBadge ? 34 : 13)} cy={y + 13} r="9" /><text className={styles.maintainedBadgeText} x={x + width - (showDraftBadge ? 34 : 13)} y={y + 13}>M</text></>}
+                {showDraftBadge && <><circle className={styles.draftBadge} cx={x + width - 13} cy={y + 13} r="9" /><text className={styles.maintainedBadgeText} x={x + width - 13} y={y + 13}>D</text></>}
                 {label && <text x={x + 9} y={y + 20} className={styles.tileName}>{label}</text>}
                 {label && width > 115 && height > 48 && <text x={x + 9} y={y + 38} className={styles.tileMeta}>{detail}</text>}
               </g>
             })}
-          </svg>
-        </div> : <p className={styles.noMatches}>{maintenanceFilter === 'all' ? 'No code units match this filter.' : 'No code units match this maintained-source status in the current map.'}</p>)}
+          </svg>}
+        </div> : <p className={styles.noMatches}>{maintenanceFilter === 'all' ? 'No code units match this filter.' : maintenanceFilter === 'drafted' ? 'No code units have a saved draft in the current map.' : 'No code units match this work status in the current map.'}</p>)}
 
         {visualizerView === 'callgraph' && <section className={styles.callGraph} aria-labelledby="run-call-graph-heading">
           <div className={styles.callGraphHeader}>
-            <div><h3 id="run-call-graph-heading">{graphType === 'class_dependencies' ? 'Program class dependencies' : 'Program call graph'}</h3><p>{graphType === 'class_dependencies' ? 'Classes connected by references found in Android bytecode. Select a class to open its decompiled source.' : 'Functions and direct calls recorded by Ghidra. Drag to arrange, scroll to zoom, or select a function to open its code.'}</p></div>
+            <div><h3 id="run-call-graph-heading">{graphType === 'class_dependencies' ? 'Program class dependencies' : 'Program call graph'}</h3><p>{graphType === 'class_dependencies' ? 'Classes connected by references found in Android bytecode. Select a class to open its decompiled source.' : 'Functions and direct calls recorded by the analyzer. Drag to arrange, scroll to zoom, or select a function to open its code.'}</p></div>
             {runCallGraphQuery.data && <span className={styles.graphBadge}>{graphType === 'class_dependencies'
               ? `${runCallGraphQuery.data.nodes.length.toLocaleString()} classes · ${runCallGraphQuery.data.edges.length.toLocaleString()} dependencies`
               : `${runCallGraphQuery.data.nodes.length.toLocaleString()} functions · ${runCallGraphQuery.data.edges.length.toLocaleString()} calls`}</span>}
@@ -783,7 +1422,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
           </div>}
           {runCallGraphQuery.isLoading && <p className={styles.message}>Loading run relationships…</p>}
           {runCallGraphQuery.isError && <p className={styles.error} role="alert">{runCallGraphQuery.error instanceof Error ? runCallGraphQuery.error.message : 'Unable to load this run call graph'}</p>}
-          {!runCallGraphQuery.isLoading && !runCallGraphQuery.isError && runCallGraphQuery.data && runCallGraphQuery.data.nodes.length === 0 && <p className={styles.message}>{graphType === 'class_dependencies' ? 'This JADX run did not record any class references.' : 'This Ghidra run did not record any function calls.'}</p>}
+          {!runCallGraphQuery.isLoading && !runCallGraphQuery.isError && runCallGraphQuery.data && runCallGraphQuery.data.nodes.length === 0 && <p className={styles.message}>{graphType === 'class_dependencies' ? 'This JADX run did not record any class references.' : 'This run did not record any function calls.'}</p>}
           {!runCallGraphQuery.isLoading && !runCallGraphQuery.isError && runCallGraphQuery.data && runCallGraphQuery.data.nodes.length > 0 && <WorkspaceCallGraphCanvas
             nodes={runCallGraphQuery.data.nodes as CallGraphRecord[]}
             edges={runCallGraphQuery.data.edges as CallGraphRelationship[]}
@@ -791,12 +1430,62 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
             graphType={runCallGraphQuery.data.graphType || graphType}
             onSelectNode={selectGraphNode}
           />}
-          {runCallGraphQuery.data?.truncated && <p className={styles.message}>{graphType === 'class_dependencies' ? 'The graph has more class references than the display limit; refine the class filter to explore a smaller area.' : 'Showing the first 400 call relationships returned by the analyzer.'}</p>}
+          {runCallGraphQuery.data?.truncated && <p className={styles.message}>{graphType === 'class_dependencies' ? 'Showing up to 400 class dependencies. Select a class to inspect its direct relationships.' : 'Showing the first 400 call relationships returned by the analyzer.'}</p>}
         </section>}
 
-        {nextCursor && <p className={styles.message}>Showing {units.length.toLocaleString()} of {query.data.total.toLocaleString()} code units matching the name, address, or path search. Load more to include additional units in size and coverage filters.</p>}
+        {nextCursor && <p className={styles.message}>Showing {units.length.toLocaleString()} of {query.data.total.toLocaleString()} code units matching your search. Load more to include additional units in size and coverage filters.</p>}
+        </div>
+
+        <aside ref={unitInspectorRef} className={styles.unitInspector} aria-label="Selected code unit inspector">
+        {!selectedUnit && <div className={styles.inspectorEmpty}><strong>Select a code unit to inspect its source.</strong><span>Choose a tile from the map or search by class, function, address, path, or referenced string.</span></div>}
         {selectedUnit && <div className={styles.details}>
-          <div><span className={styles.detailLabel}>Selected code unit</span><strong>{selectedUnit.name}</strong>{selectedUnit.maintainedSource && <span className={styles.savedStatus}>Maintained source saved</span>}</div>
+          <div className={styles.detailsHeading}>
+            <div><span className={styles.detailLabel}>{selectedUnit.unitType === 'resource' ? 'Selected Android resource' : 'Selected code unit'}</span><strong>{selectedUnit.name}</strong>{selectedUnit.maintainedSource && <span className={styles.savedStatus}>Maintained source saved</span>}</div>
+          {explanationProviders.length > 0 && !largeSource && <button type="button" className={styles.explainButton} onClick={() => void deobfuscateSelectedUnit()} disabled={!selectedProviderId || transforming || sourceQuery.isError || sourceQuery.isLoading || maintainedQuery.isLoading}>
+              {transforming ? 'Reverse engineering…' : 'Create maintainable version'}
+            </button>}
+          </div>
+        {selectedUnit && selectedSourceUrl && <section className={styles.sourcePanel} aria-label={selectedUnit.unitType === 'resource' ? 'Decoded Android resource' : selectedDisassemblyUrl ? 'Decompilation and disassembly comparison' : (selectedUnit.language === 'WebAssembly Text (WAT)' ? 'WAT disassembly' : isDisassemblyUnit(selectedUnit) ? 'Smali disassembly' : 'Decompiled source')}>
+          {selectedDisassemblyUrl ? <div className={styles.comparison}>
+            <div className={styles.listingPane}>
+              <div className={styles.sourceHeader}>
+                <div><strong>Decompiled source</strong><span>{selectedUnit.language || 'Source'} · {selectedUnit.codeArtifactId?.split('/').pop()}</span></div>
+                <button type="button" className={styles.copyButton} onClick={() => void copySource()} disabled={!sourceQuery.data}><Copy size={14} /> {copyStatus || 'Copy source'}</button>
+              </div>
+              {sourceQuery.isLoading && <p className={styles.message}>Loading decompiled source…</p>}
+              {sourceQuery.isError && <p className={styles.error}>{sourceQuery.error instanceof Error ? sourceQuery.error.message : 'Could not load decompiled source'}</p>}
+              {sourceQuery.data !== undefined && <SourceListing source={sourceQuery.data} language={selectedUnit.language} fileName={selectedUnit.codeArtifactId?.split('/').pop()} fullSourceUrl={selectedSourceUrl} />}
+            </div>
+            <div className={styles.listingPane}>
+              <div className={styles.sourceHeader}>
+                <div><strong>{selectedUnit.disassemblyLanguage || 'Disassembly'}</strong><span>{selectedUnit.address || 'Function listing'} · {selectedUnit.disassemblyArtifactId?.split('/').pop()}</span></div>
+                <button type="button" className={styles.copyButton} onClick={() => void copySource(disassemblyQuery.data, true)} disabled={!disassemblyQuery.data}><Copy size={14} /> {assemblyCopyStatus || 'Copy assembly'}</button>
+              </div>
+              {disassemblyQuery.isLoading && <p className={styles.message}>Loading instruction listing…</p>}
+              {disassemblyQuery.isError && <p className={styles.error}>{disassemblyQuery.error instanceof Error ? disassemblyQuery.error.message : 'Could not load instruction listing'}</p>}
+              {disassemblyQuery.data !== undefined && <SourceListing source={disassemblyQuery.data} language={selectedUnit.disassemblyLanguage} fileName={selectedUnit.disassemblyArtifactId?.split('/').pop()} fullSourceUrl={selectedDisassemblyUrl} />}
+              {selectedUnit.disassemblyLanguage?.toLowerCase() === 'smali' && <div className={styles.smaliEditor}>
+                <label>Editable Smali source
+                  <textarea aria-label="Editable Smali source" value={smaliDraft} spellCheck={false} onChange={(event) => { setSmaliDraft(event.target.value); setSmaliSaved(false); setSmaliError('') }} />
+                </label>
+                <div className={styles.maintainedActions}>
+                  <button type="button" className={styles.explainButton} onClick={() => void saveSmaliSource()} disabled={savingSmali || !smaliDraft.trim() || (smaliSaved && smaliDraft === smaliSourceQuery.data?.sourceCode)}>{savingSmali ? 'Saving Smali…' : smaliSaved ? 'Save Smali changes' : 'Save Smali to project'}</button>
+                  {smaliSaved && <span className={styles.savedStatus} role="status">Smali saved to project memory and included in APK rebuilds</span>}
+                </div>
+                {smaliSourceQuery.isLoading && <p className={styles.message}>Loading saved Smali source…</p>}
+                {(smaliError || smaliSourceQuery.isError) && <p className={styles.error} role="alert">{smaliError || (smaliSourceQuery.error instanceof Error ? smaliSourceQuery.error.message : 'Could not load Smali source')}</p>}
+              </div>}
+            </div>
+          </div> : <>
+            <div className={styles.sourceHeader}>
+                <div><strong>{selectedUnit.unitType === 'resource' ? 'Decoded resource' : selectedUnit.name}</strong><span>{selectedUnit.language || 'Source'} · {selectedUnit.codeArtifactId?.split('/').pop()}</span></div>
+              <button type="button" className={styles.copyButton} onClick={() => void copySource()} disabled={!sourceQuery.data}><Copy size={14} /> {copyStatus || 'Copy code'}</button>
+            </div>
+            {sourceQuery.isLoading && <p className={styles.message}>Loading code output…</p>}
+            {sourceQuery.isError && <p className={styles.error}>{sourceQuery.error instanceof Error ? sourceQuery.error.message : 'Could not load code output'}</p>}
+            {sourceQuery.data !== undefined && <SourceListing source={sourceQuery.data} language={selectedUnit.language} fileName={selectedUnit.codeArtifactId?.split('/').pop()} fullSourceUrl={selectedSourceUrl} />}
+          </>}
+        </section>}
           <dl>
             <div><dt>Address</dt><dd>{selectedUnit.address || 'Not supplied'}</dd></div>
             <div><dt>Size</dt><dd>{formatBytes(selectedUnit.sizeBytes)}</dd></div>
@@ -808,9 +1497,13 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
           {(selectedUnit.classReferences?.length ?? 0) > 0 && <section className={styles.classReferences} aria-label="Related classes">
             <div><strong>Related classes</strong><span>From Android bytecode references</span></div>
             <ul>{selectedUnit.classReferences?.slice(0, 24).map((name) => <li key={name}>
-              <button type="button" onClick={() => { setFilter(name); setSelectedId(null); setGraphUnit(null); setPackagePath('') }} title={`Find ${name} in this run`}>{name}</button>
+              <button type="button" onClick={() => { setFilter(name); setSelectedId(null); setGraphUnit(null); setFolderPath([]) }} title={`Find ${name} in this run`}>{name}</button>
             </li>)}</ul>
             {(selectedUnit.classReferences?.length ?? 0) > 24 && <small>Showing 24 of {selectedUnit.classReferences?.length} references.</small>}
+          </section>}
+          {(selectedUnit.referencedStrings?.length ?? 0) > 0 && <section className={styles.classReferences} aria-label="Strings referenced by this function">
+            <div><strong>Referenced strings</strong><span>Data references recovered by Ghidra from this function</span></div>
+            <ul>{selectedUnit.referencedStrings?.slice(0, 12).map((value, index) => <li key={`${index}:${value}`}><code>{value}</code></li>)}</ul>
           </section>}
           {selectedUnit.artifactId && selectedUnit.codeArtifactId
             ? <a
@@ -821,7 +1514,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
               ><ExternalLink size={14} /> Open code separately</a>
             : <p className={styles.message}>This provider has not attached a viewable code artifact to the unit.</p>}
         </div>}
-        {visualizerView === 'treemap' && selectedUnit?.source === 'reamon-ghidra' && selectedUnit.unitType === 'function' && <CallGraphPanel
+        {(visualizerView === 'treemap' || visualizerView === 'function-map') && currentRun?.providerId === selectedUnit?.source && selectedUnit?.unitType === 'function' && <CallGraphPanel
           focusUnit={selectedUnit}
           graph={callGraphQuery.data}
           isLoading={callGraphQuery.isLoading}
@@ -836,40 +1529,33 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
             setExplainError('')
           }}
         />}
-        {selectedUnit && selectedSourceUrl && <section className={styles.sourcePanel} aria-label={selectedDisassemblyUrl ? 'Decompilation and disassembly comparison' : (selectedUnit.language === 'WebAssembly Text (WAT)' ? 'WAT disassembly' : isDisassemblyUnit(selectedUnit) ? 'Smali disassembly' : 'Decompiled source')}>
-          {selectedDisassemblyUrl ? <div className={styles.comparison}>
-            <div className={styles.listingPane}>
-              <div className={styles.sourceHeader}>
-                <div><strong>Decompiled source</strong><span>{selectedUnit.language || 'Source'} · {selectedUnit.codeArtifactId?.split('/').pop()}</span></div>
-                <button type="button" className={styles.copyButton} onClick={() => void copySource()} disabled={!sourceQuery.data}><Copy size={14} /> {copyStatus || 'Copy source'}</button>
-              </div>
-              {sourceQuery.isLoading && <p className={styles.message}>Loading decompiled source…</p>}
-              {sourceQuery.isError && <p className={styles.error}>{sourceQuery.error instanceof Error ? sourceQuery.error.message : 'Could not load decompiled source'}</p>}
-              {sourceQuery.data !== undefined && <SourceListing source={sourceQuery.data} language={selectedUnit.language} fileName={selectedUnit.codeArtifactId?.split('/').pop()} />}
-            </div>
-            <div className={styles.listingPane}>
-              <div className={styles.sourceHeader}>
-                <div><strong>{selectedUnit.disassemblyLanguage || 'Disassembly'}</strong><span>{selectedUnit.address || 'Function listing'} · {selectedUnit.disassemblyArtifactId?.split('/').pop()}</span></div>
-                <button type="button" className={styles.copyButton} onClick={() => void copySource(disassemblyQuery.data, true)} disabled={!disassemblyQuery.data}><Copy size={14} /> {assemblyCopyStatus || 'Copy assembly'}</button>
-              </div>
-              {disassemblyQuery.isLoading && <p className={styles.message}>Loading instruction listing…</p>}
-              {disassemblyQuery.isError && <p className={styles.error}>{disassemblyQuery.error instanceof Error ? disassemblyQuery.error.message : 'Could not load instruction listing'}</p>}
-              {disassemblyQuery.data !== undefined && <SourceListing source={disassemblyQuery.data} language={selectedUnit.disassemblyLanguage} fileName={selectedUnit.disassemblyArtifactId?.split('/').pop()} />}
-            </div>
-          </div> : <>
-            <div className={styles.sourceHeader}>
-              <div><strong>{selectedUnit.name}</strong><span>{selectedUnit.language || 'Source'} · {selectedUnit.codeArtifactId?.split('/').pop()}</span></div>
-              <button type="button" className={styles.copyButton} onClick={() => void copySource()} disabled={!sourceQuery.data}><Copy size={14} /> {copyStatus || 'Copy code'}</button>
-            </div>
-            {sourceQuery.isLoading && <p className={styles.message}>Loading code output…</p>}
-            {sourceQuery.isError && <p className={styles.error}>{sourceQuery.error instanceof Error ? sourceQuery.error.message : 'Could not load code output'}</p>}
-            {sourceQuery.data !== undefined && <SourceListing source={sourceQuery.data} language={selectedUnit.language} fileName={selectedUnit.codeArtifactId?.split('/').pop()} />}
-          </>}
+        {(currentRun?.providerId === 'reamon-ghidra' || currentRun?.providerId === 'reamon-wabt' || currentRun?.providerId === 'reamon-jadx' || currentRun?.providerId === 'reamon-ilspy')
+          && selectedUnit?.source === currentRun.providerId && Boolean(selectedSimilarityTarget) && <section className={styles.similarFunctions} aria-labelledby="similar-functions-heading">
+          <div className={styles.similarFunctionsHeading}><h3 id="similar-functions-heading">Similar instruction patterns</h3><span>Same project · compatible instruction set</span></div>
+          {similarFunctionsQuery.isLoading && <p className={styles.message}>Comparing this function with stored instruction sequences from completed analyses…</p>}
+          {similarFunctionsQuery.isError && <p className={styles.error}>{similarFunctionsQuery.error instanceof Error ? similarFunctionsQuery.error.message : 'Unable to find similar functions'}</p>}
+          {!similarFunctionsQuery.isLoading && !similarFunctionsQuery.isError && similarFunctionsQuery.data?.matches.length === 0 && <p className={styles.message}>No close instruction-pattern matches were found in this project.</p>}
+          {similarFunctionsQuery.data?.matches.map(({ codeUnit, similarity, artifact }) => <button type="button" className={styles.similarFunction} key={codeUnit.id} onClick={() => {
+            setGraphUnit(codeUnit)
+            setSelectedId(codeUnit.id)
+            setSelectedFunctionMapMember(null)
+            setCopyStatus('')
+            setAssemblyCopyStatus('')
+            setExplanation(null)
+            setExplainError('')
+          }}>
+            <span><strong>{codeUnit.name}</strong><small>{codeUnit.address || codeUnit.artifactPath || 'Function'}</small><small>{artifact.name}{artifact.sha256 ? ` · ${artifact.sha256.slice(0, 12)}` : ''}</small></span>
+            <b>{similarity}%</b>
+          </button>)}
+          {similarFunctionsQuery.data?.truncated && <p className={styles.message}>The comparison reached its history limit; older stored function observations may not have been included.</p>}
         </section>}
+        </aside>
+        </div>
+
         {selectedUnit && selectedSourceUrl && <section className={styles.maintainPanel} aria-labelledby="code-maintain-heading">
           <div>
             <h3 id="code-maintain-heading"><WandSparkles size={16} /> Reverse engineer into maintainable code</h3>
-            <p>Use the decompiled source, related classes, bytecode, and names from previously saved maintained code across this project to recover intent and build consistent, clearer source. Review and edit the reconstructed copy before saving; the original decompilation stays intact.</p>
+            <p>Use decompiled source, related classes, bytecode, and project memory to recover intent and keep names consistent. AI drafts are stored with this project for follow-up work; review and save a maintained copy before its names become trusted project-wide evidence. The original decompilation stays intact.</p>
           </div>
           {explanationProvidersQuery.isLoading && <p className={styles.message}>Loading saved providers…</p>}
           {explanationProvidersQuery.isError && <p className={styles.error}>Could not load saved AI providers.</p>}
@@ -883,23 +1569,48 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
             <label className={styles.explainField}>Reverse-engineering guidance (optional)
               <textarea value={question} onChange={(event) => setQuestion(event.target.value)} maxLength={1000} rows={3} placeholder="For example: recover the purpose of short names and simplify generated control flow." />
             </label>
-            <button type="button" className={styles.explainButton} onClick={() => void deobfuscateSelectedUnit()} disabled={!selectedProviderId || transforming || sourceQuery.isError || sourceQuery.isLoading || maintainedQuery.isLoading}>
-              {transforming ? 'Reverse engineering…' : 'Create maintainable version'}
-            </button>
           </>}
+          {largeSource && !memberOutlineEligible && <p className={styles.message}>This source exceeds the single request limit, and function-level rewriting is unavailable for this code unit.</p>}
+          {memberOutlineEligible && sourceByteLength !== null && sourceByteLength > MAX_MEMBER_OUTLINE_BYTES && <p className={styles.message}>Function and method outlining is limited to source files of 2 MiB or less.</p>}
+          {memberOutlineAvailable && <section className={styles.classReferences} aria-label="Function and method outline">
+            <div><strong>Reverse engineer one function or method at a time</strong><span>Each rewrite replaces only the selected function or method in the editable copy, so you can use a smaller change even when the full source fits in one request.</span></div>
+            {memberOutlineQuery.isLoading && <p className={styles.message}>Reading function and method outline…</p>}
+            {memberOutlineQuery.isError && <p className={styles.error} role="alert">{memberOutlineQuery.error instanceof Error ? memberOutlineQuery.error.message : 'Could not read the function and method outline'}</p>}
+            {memberOutlineQuery.data && <>
+              <label className={styles.explainField}>Find a function or method
+                <input value={memberFilter} onChange={(event) => setMemberFilter(event.target.value)} placeholder="Filter by function or method name" />
+              </label>
+              {memberOutlineQuery.data.unsupported && <p className={styles.message}>No Tree-sitter grammar is available for {selectedUnit?.language || 'this source'} yet. File-level reverse engineering is still available.</p>}
+              {!memberOutlineQuery.data.unsupported && memberOutlineQuery.data.members.length === 0 && <p className={styles.message}>No functions or methods with bodies were found in this source.</p>}
+              {memberOutlineQuery.data.members.length > 0 && filteredMembers.length === 0 && <p className={styles.message}>No functions or methods match this filter.</p>}
+              <ul>{filteredMembers.map((member) => {
+                const key = `${member.start_byte}:${member.end_byte}`
+                const tooLarge = member.source_bytes > MAX_MEMBER_REWRITE_BYTES
+                return <li key={key}>
+                  <button type="button" className={styles.copyButton} onClick={() => void deobfuscateMember(member)} disabled={!selectedProviderId || transforming || tooLarge || rewrittenMembers.has(key) || sourceQuery.isError} title={tooLarge ? 'This function or method exceeds the single request limit' : undefined}>
+                    {member.kind} {member.name} · line {member.line} · {formatBytes(member.source_bytes)}{rewrittenMembers.has(key) ? ' · rewritten' : tooLarge ? ' · too large' : ''}
+                  </button>
+                </li>
+              })}</ul>
+              {memberOutlineQuery.data.members.length > filteredMembers.length && <p className={styles.message}>Showing {filteredMembers.length} functions or methods. Filter the list to find others.</p>}
+              {memberOutlineQuery.data.truncated && <p className={styles.message}>The outline reached its 10,000 member limit; some functions or methods may not be listed.</p>}
+            </>}
+          </section>}
           {maintenanceError && <p className={styles.error} role="alert">{maintenanceError}</p>}
-          {maintenanceMeta && <p className={styles.message}>Reverse-engineered draft from {maintenanceMeta.providerName} · {maintenanceMeta.model}. {maintenanceMeta.syntaxValidated ? 'The source parser found no syntax errors. Review the reconstructed logic and behavior before saving.' : 'Syntax validation was unavailable for this language. Check the reconstructed code and its behavior before saving.'}</p>}
+          {maintenanceMeta && <p className={styles.message}>Reverse-engineered draft from {maintenanceMeta.providerName} · {maintenanceMeta.model}. {maintenanceMeta.syntaxValidated === true ? 'The source parser found no syntax errors. Review the reconstructed logic and behavior before saving.' : maintenanceMeta.syntaxValidated === false ? 'Syntax validation was unavailable for this language. Check the reconstructed code and its behavior before saving.' : 'This draft has changed or predates saved validation metadata. Recheck its syntax and behavior before saving.'}</p>}
           {maintainedQuery.isError && <p className={styles.error} role="alert">{maintainedQuery.error instanceof Error ? maintainedQuery.error.message : 'Could not load maintained source'}</p>}
+          {codeDraftQuery.isError && <p className={styles.error} role="alert">{codeDraftQuery.error instanceof Error ? codeDraftQuery.error.message : 'Could not load the saved AI draft'}</p>}
           {maintainedDraft && <>
             <div className={styles.maintainedComparison}>
               <div><strong>Original decompilation</strong>
-                {sourceQuery.data !== undefined && <SourceListing source={sourceQuery.data} language={selectedUnit.language} fileName={selectedUnit.codeArtifactId?.split('/').pop()} />}
+                {sourceQuery.data !== undefined && <SourceListing source={sourceQuery.data} language={selectedUnit.language} fileName={selectedUnit.codeArtifactId?.split('/').pop()} fullSourceUrl={selectedSourceUrl} />}
               </div>
               <label>Editable maintained copy
-                <textarea aria-label="Editable maintained source" value={maintainedDraft} spellCheck={false} onChange={(event) => { setMaintainedDraft(event.target.value); setMaintainedSaved(false) }} />
+              <textarea ref={maintainedEditorRef} aria-label="Editable maintained source" value={maintainedDraft} spellCheck={false} onChange={(event) => { setMaintainedDraft(event.target.value); setMaintainedSaved(false); setMaintenanceMeta((current) => current ? { ...current, syntaxValidated: null } : current) }} />
               </label>
             </div>
             <div className={styles.maintainedActions}>
+              <button type="button" className={styles.copyButton} onClick={() => void saveCodeDraft()} disabled={savingDraft || !maintainedDraft.trim() || !maintainedDraftDiffersFromSource || maintainedDraft === draftSource}>{savingDraft ? 'Saving draft…' : maintainedDraft === draftSource ? 'Draft saved to project memory' : 'Save draft'}</button>
               <button type="button" className={styles.explainButton} onClick={() => void saveMaintainedSource()} disabled={savingMaintained || !maintainedDraft.trim() || !maintainedDraftDiffersFromSource}>{savingMaintained ? 'Saving…' : maintainedSaved ? 'Save changes' : 'Save maintained copy'}</button>
               {!maintainedDraftDiffersFromSource && <span className={styles.message}>Edit the decompilation or create a maintained version before saving.</span>}
               {maintainedSaved && <a className={styles.copyButton} href={`/api/projects/${encodeURIComponent(projectId)}/visualizer/maintained/${encodeURIComponent(selectedUnit.id)}?download=1`}><Download size={14} /> Download source</a>}
@@ -935,16 +1646,6 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
           </div>}
         </section>}
       </>}
-      {nextCursor && <div className={styles.loadMore}>
-        <span role="status">Loaded {units.length.toLocaleString()} of {query.data?.total.toLocaleString() || '0'} code units</span>
-        <button type="button" className={styles.runButton} onClick={() => void loadMoreUnits()} disabled={loadingMore}>
-          {loadingMore ? 'Loading code units…' : 'Load more code units'}
-        </button>
-        <button type="button" className={styles.runButton} onClick={() => void loadMoreUnits(true)} disabled={loadingMore}>
-          {loadingMore ? 'Loading full map…' : `Load all ${Math.max(0, (query.data?.total || 0) - units.length).toLocaleString()} remaining`}
-        </button>
-        {loadMoreError && <p className={styles.error} role="alert">{loadMoreError}</p>}
-      </div>}
       <button type="button" className={styles.refresh} onClick={() => void refreshMap()} disabled={query.isFetching}>
         <RefreshCw size={14} className={query.isFetching ? styles.spin : undefined} /> {query.isFetching ? 'Refreshing…' : 'Refresh map'}
       </button>

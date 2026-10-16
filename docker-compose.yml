@@ -1248,7 +1248,7 @@ services:
       - orchestrator-net
       - reamon-analysis
 
-  # JADX runs in a dedicated, secret-free container with no database or internet route.
+  # JADX, Baksmali, and Apktool run in a dedicated, secret-free container with no database or internet route.
   jadx-analyzer:
     build:
       context: ./analyzers/jadx

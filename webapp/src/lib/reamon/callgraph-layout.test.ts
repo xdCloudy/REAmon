@@ -34,6 +34,15 @@ describe('layoutCallGraph', () => {
     expect(layout.hiddenNodeCount).toBe(1)
   })
 
+  test('shows the complete dependency graph when requested', () => {
+    const layout = layoutCallGraph(records, relationships, 'main', true)
+
+    expect(layout.nodes.map((node) => node.id).sort()).toEqual(['caller', 'helper', 'main', 'orphan'])
+    expect(layout.edges).toHaveLength(2)
+    expect(layout.hiddenNodeCount).toBe(0)
+    expect(layout.nodes.find((node) => node.id === 'main')?.data.isFocus).toBe(true)
+  })
+
   test('returns an empty layout for a run without relationships', () => {
     expect(layoutCallGraph([], [])).toEqual({ nodes: [], edges: [], focusKey: null, hiddenNodeCount: 0 })
   })

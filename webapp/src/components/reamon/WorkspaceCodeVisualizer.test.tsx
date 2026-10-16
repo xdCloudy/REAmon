@@ -14,30 +14,41 @@ function unit(overrides: Partial<CodeUnit> = {}): CodeUnit {
   }
 }
 
-function renderVisualizer(props: { isAnalyzing?: boolean; decompilationTask?: { status: string; progressMessage?: string | null }; decompilationHref?: string } = {}) {
+function renderVisualizer(props: { isAnalyzing?: boolean; decompilationTask?: { status: string; progressMessage?: string | null }; decompilationHref?: string; standalone?: boolean } = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } })
   return render(
     <QueryClientProvider client={client}>
-      <WorkspaceCodeVisualizer projectId="project-1" isAnalyzing={props.isAnalyzing ?? false} decompilationTask={props.decompilationTask} decompilationHref={props.decompilationHref} />
+      <WorkspaceCodeVisualizer projectId="project-1" isAnalyzing={props.isAnalyzing ?? false} decompilationTask={props.decompilationTask} decompilationHref={props.decompilationHref} standalone={props.standalone} />
     </QueryClientProvider>,
   )
 }
 
 afterEach(() => {
   cleanup()
+  window.history.replaceState({}, '', '/')
+  Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView')
   vi.unstubAllGlobals()
 })
 
 describe('WorkspaceCodeVisualizer', () => {
+  test('links into the focused visualizer and back to the project workspace', () => {
+    const workspace = renderVisualizer()
+    expect(screen.getByRole('link', { name: 'Open full visualizer' })).toHaveAttribute('href', '/projects/project-1/visualizer')
+    workspace.unmount()
+
+    renderVisualizer({ standalone: true })
+    expect(screen.getByRole('link', { name: 'Back to workspace' })).toHaveAttribute('href', '/projects/project-1')
+  })
+
   test('shows separate decompilation and maintainable-source progress for the selected run', async () => {
     const run = { id: 'run-1', title: 'JADX run', createdAt: '2026-10-04T00:00:00.000Z', completedAt: '2026-10-04T00:01:00.000Z', artifactName: 'app.apk', providerId: 'reamon-jadx', codeUnitCount: 2, unitLabel: 'classes', discoveredUnitCount: 2, returnedUnitCount: 2, indexedUnitCount: 2, linkPercent: 100, codeBytes: 100, truncated: false, warnings: '', failedUnitCount: null, visitedUnitCount: null }
     const fetchMock = vi.fn((input: string) => input.includes('/visualizer/coverage')
-      ? Promise.resolve({ ok: true, json: async () => ({ taskId: 'run-1', codeUnitCount: 2, maintainedUnitCount: 1, coveragePercent: 50 }) })
+      ? Promise.resolve({ ok: true, json: async () => ({ taskId: 'run-1', codeUnitCount: 2, maintainedUnitCount: 1, coveragePercent: 50, decompilationCoveragePercent: 70, sourceLinkedPercent: 100, codeBytes: 100, measuredBytes: 100 }) })
       : Promise.resolve({ ok: true, json: async () => ({ units: [unit()], total: 2, hasMore: false, selectedRunId: 'run-1', runs: [run] }) }))
     vi.stubGlobal('fetch', fetchMock)
     renderVisualizer()
 
-    expect(await screen.findByRole('progressbar', { name: 'Indexed code unit coverage' })).toHaveAttribute('aria-valuenow', '100')
+    expect(await screen.findByRole('progressbar', { name: 'Decompilation coverage' })).toHaveAttribute('aria-valuenow', '70')
     expect(await screen.findByRole('progressbar', { name: 'Maintained source coverage' })).toHaveAttribute('aria-valuenow', '50')
     expect(screen.getByText('1 of 2 code units have a saved maintained copy')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith('/api/projects/project-1/visualizer/coverage?taskId=run-1', expect.objectContaining({ cache: 'no-store' }))
@@ -152,6 +163,7 @@ describe('WorkspaceCodeVisualizer', () => {
     fireEvent.click(await screen.findByRole('button', { name: /app\.MainActivity\.onPause/ }))
 
     expect(await screen.findByText('Selected code unit')).toBeInTheDocument()
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get('unitId')).toBe('unit-2'))
     expect(within(screen.getByText('Code units in this map').parentElement!).getByText('1')).toBeInTheDocument()
     expect(screen.getByText('Viewable source links in map (1/1)')).toBeInTheDocument()
     expect(screen.getByText('Maintained source copies in map').previousSibling).toHaveTextContent('1')
@@ -160,8 +172,132 @@ describe('WorkspaceCodeVisualizer', () => {
     expect(screen.getByRole('link', { name: 'Open code separately' })).toHaveAttribute('href', '/api/projects/project-1/artifacts/artifact-1/decompiled/project-1/artifact-1/task-1/run-1/sources/app/MainActivity.java')
     await waitFor(() => expect(screen.getByRole('region', { name: 'Decompiled source' }).querySelector('code')?.textContent).toContain('saveState();'))
     expect(await screen.findByRole('button', { name: 'Explain selected code' })).toBeInTheDocument()
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4))
+    expect(fetchMock.mock.calls.some(([input]) => String(input).includes('/decompiled/'))).toBe(true)
     await waitFor(() => expect(screen.queryByRole('button', { name: /app\.MainActivity\.onCreate/ })).toBeNull())
+  })
+
+  test('restores a selected code unit from a deep link outside the first map page', async () => {
+    window.history.replaceState({}, '', '/projects/project-1/visualizer?taskId=run-1&unitId=unit-2')
+    const deepUnit = unit({ id: 'unit-2', name: 'app.MainActivity.onPause' })
+    vi.stubGlobal('fetch', vi.fn((input: string) => {
+      const url = new URL(input, window.location.origin)
+      if (url.pathname.endsWith('/visualizer/providers')) return Promise.resolve({ ok: true, json: async () => ({ providers: [] }) })
+      if (url.pathname.endsWith('/visualizer') && url.searchParams.has('unitId')) {
+        return Promise.resolve({ ok: true, json: async () => ({ units: [deepUnit], total: 1, hasMore: false, selectedRunId: 'run-1', runs: [] }) })
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ units: [unit()], total: 1200, hasMore: true, nextCursor: 'cursor-1', selectedRunId: 'run-1', runs: [] }) })
+    }))
+    renderVisualizer()
+
+    expect(await screen.findByText('Selected code unit')).toBeInTheDocument()
+    expect(screen.getAllByText('app.MainActivity.onPause').length).toBeGreaterThan(1)
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get('unitId')).toBe('unit-2'))
+  })
+
+  test('opens on individual code units and keeps package drill-down available', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ units: [unit({ unitType: 'class' })], total: 1, hasMore: false }) }))
+    renderVisualizer()
+
+    expect(await screen.findByRole('button', { name: /app\.MainActivity\.onCreate/ })).toBeInTheDocument()
+    const contents = screen.getByRole('group', { name: 'Treemap contents' })
+    expect(within(contents).getByRole('button', { name: 'Code units' })).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.click(within(contents).getByRole('button', { name: 'Packages' }))
+
+    expect(await screen.findByRole('button', { name: /app package/ })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /app\.MainActivity\.onCreate/ })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /app package/ }))
+    expect(await screen.findByRole('button', { name: /app\.MainActivity\.onCreate/ })).toBeInTheDocument()
+  })
+
+  test('keeps very large decompiled files responsive by limiting syntax highlighting to a preview', async () => {
+    const largeSource = `class LargeSource {\n${'  int value = 1;\n'.repeat(4000)}}`
+    vi.stubGlobal('fetch', vi.fn((input: string) => {
+      if (input.includes('/decompiled/')) return Promise.resolve({ ok: true, text: async () => largeSource })
+      if (input.includes('/visualizer/providers')) return Promise.resolve({ ok: true, json: async () => ({ providers: [] }) })
+      if (input.includes('/visualizer/maintained/')) return Promise.resolve({ ok: true, json: async () => ({ exists: false, sourceCode: null }) })
+      return Promise.resolve({ ok: true, json: async () => ({ units: [unit()], total: 1, hasMore: false }) })
+    }))
+    renderVisualizer()
+
+    fireEvent.click(await screen.findByRole('button', { name: /app\.MainActivity\.onCreate/ }))
+
+    const sourceRegion = await screen.findByRole('region', { name: 'Decompiled source' })
+    await waitFor(() => expect(sourceRegion.querySelector('code')?.textContent).toContain('int value = 1;'))
+    expect(sourceRegion.querySelector('code')?.textContent?.length).toBeLessThan(32_000)
+    expect(within(sourceRegion).getByRole('status')).toHaveTextContent('Showing the first 25,000 characters')
+    expect(within(sourceRegion).getByRole('link', { name: 'Open the full artifact' })).toHaveAttribute('href', '/api/projects/project-1/artifacts/artifact-1/decompiled/project-1/artifact-1/task-1/run-1/sources/app/MainActivity.java')
+  })
+
+  test('rewrites one method at a time for a Java class above the single request limit', async () => {
+    const method = 'public String a() { return "x"; }'
+    const source = `class BigSource { ${method} /*${'large source '.repeat(7000)}*/ }`
+    const startByte = new TextEncoder().encode('class BigSource { ').byteLength
+    const endByte = startByte + new TextEncoder().encode(method).byteLength
+    const fetchMock = vi.fn((input: string, init?: RequestInit) => {
+      if (input.includes('/decompiled/')) return Promise.resolve({ ok: true, text: async () => source })
+      if (input.includes('/visualizer/providers')) return Promise.resolve({ ok: true, json: async () => ({ providers: [{ id: 'provider-1', name: 'Local Qwen', modelIdentifier: 'Qwen3.5-0.8B' }] }) })
+      if (input.includes('/visualizer/maintained/')) return Promise.resolve({ ok: true, json: async () => ({ exists: false, sourceCode: null }) })
+      if (input.includes('/visualizer/deobfuscate')) {
+        const body = JSON.parse(String(init?.body))
+        if (body.scope === 'outline') return Promise.resolve({ ok: true, json: async () => ({ members: [{ name: 'a', kind: 'method', start_byte: startByte, end_byte: endByte, line: 1, source_bytes: method.length }], truncated: false }) })
+        return Promise.resolve({ ok: true, json: async () => ({ sourceCode: 'public String a() { return "x".trim(); }', providerName: 'Local Qwen', model: 'Qwen3.5-0.8B', syntaxValidated: true }) })
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ units: [unit({ unitType: 'class' })], total: 1, hasMore: false }) })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderVisualizer()
+
+    fireEvent.click(await screen.findByRole('button', { name: /app\.MainActivity\.onCreate/ }))
+    expect(await screen.findByText('Reverse engineer one method at a time')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Create maintainable version' })).not.toBeInTheDocument()
+    fireEvent.click(await screen.findByRole('button', { name: /method a · line 1/ }))
+
+    expect(await screen.findByRole('textbox', { name: 'Editable maintained source' })).toHaveValue(source.replace(method, 'public String a() { return "x".trim(); }'))
+    expect(fetchMock).toHaveBeenCalledWith('/api/projects/project-1/visualizer/deobfuscate', expect.objectContaining({
+      method: 'POST', body: expect.stringContaining('"scope":"member"'),
+    }))
+  })
+
+  test('replaces a method in a saved draft after its formatting has changed', async () => {
+    const method = 'public String a() { return "x"; }'
+    const source = `class BigSource { ${method} /*${'large source '.repeat(7000)}*/ }`
+    const draftMethod = 'public String a() {\n    return "existing";\n  }'
+    const draftSource = source.replace(method, draftMethod)
+    const outlineFor = (outlineSource: string, memberSource: string) => {
+      const start = new TextEncoder().encode(outlineSource.slice(0, outlineSource.indexOf(memberSource))).byteLength
+      const end = start + new TextEncoder().encode(memberSource).byteLength
+      return { members: [{ name: 'a', kind: 'method', start_byte: start, end_byte: end, line: 1, source_bytes: end - start }], truncated: false }
+    }
+    const fetchMock = vi.fn((input: string, init?: RequestInit) => {
+      if (input.includes('/decompiled/')) return Promise.resolve({ ok: true, text: async () => source })
+      if (input.includes('/visualizer/providers')) return Promise.resolve({ ok: true, json: async () => ({ providers: [{ id: 'provider-1', name: 'Local Qwen', modelIdentifier: 'Qwen3.5-0.8B' }] }) })
+      if (input.includes('/visualizer/maintained/')) return Promise.resolve({ ok: true, json: async () => ({ exists: false, sourceCode: null }) })
+      if (input.includes('/visualizer/drafts/')) {
+        return Promise.resolve({ ok: true, json: async () => init?.method === 'POST'
+          ? { saved: true, draftId: 'draft-next', updatedAt: '2026-10-05T12:00:00.000Z' }
+          : { exists: true, draft: { id: 'draft-prior', sourceCode: draftSource, providerName: 'Local Qwen', modelIdentifier: 'Qwen3.5-0.8B', question: '', scope: 'member', syntaxValidated: true, updatedAt: '2026-10-05T11:00:00.000Z' } } })
+      }
+      if (input.includes('/visualizer/deobfuscate')) {
+        const body = JSON.parse(String(init?.body))
+        if (body.scope === 'outline') return Promise.resolve({ ok: true, json: async () => outlineFor(body.sourceCode || source, body.sourceCode ? draftMethod : method) })
+        return Promise.resolve({ ok: true, json: async () => ({ sourceCode: 'public String a() { return "x".trim(); }', providerName: 'Local Qwen', model: 'Qwen3.5-0.8B', syntaxValidated: true }) })
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ units: [unit({ unitType: 'class' })], total: 1, hasMore: false }) })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderVisualizer()
+
+    fireEvent.click(await screen.findByRole('button', { name: /app\.MainActivity\.onCreate/ }))
+    const editable = await screen.findByRole('textbox', { name: 'Editable maintained source' })
+    await waitFor(() => expect(editable).toHaveValue(draftSource))
+    fireEvent.click(await screen.findByRole('button', { name: /method a · line 1/ }))
+
+    const expected = draftSource.replace(draftMethod, 'public String a() { return "x".trim(); }')
+    await waitFor(() => expect(editable).toHaveValue(expected))
+    expect(screen.queryByText(/method has changed in the editable copy/)).not.toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith('/api/projects/project-1/visualizer/deobfuscate', expect.objectContaining({
+      method: 'POST', body: expect.stringContaining('"sourceCode"'),
+    }))
   })
 
   test('filters the map between units needing work and saved maintained copies', async () => {
@@ -177,7 +313,6 @@ describe('WorkspaceCodeVisualizer', () => {
     fireEvent.click(within(status).getByRole('button', { name: 'Maintained (1)' }))
     expect(within(status).getByRole('button', { name: 'Maintained (1)' })).toHaveAttribute('aria-pressed', 'true')
     expect(within(screen.getByText('Code units in this map').parentElement!).getByText('1')).toBeInTheDocument()
-    fireEvent.click(await screen.findByRole('button', { name: /app package/ }))
     expect(await screen.findByRole('button', { name: /app\.Maintained/ })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /app\.NeedsWork/ })).not.toBeInTheDocument()
 
@@ -195,7 +330,6 @@ describe('WorkspaceCodeVisualizer', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ units, total: 2, hasMore: false }) }))
     renderVisualizer()
 
-    fireEvent.click(await screen.findByRole('button', { name: /app package/ }))
     const maintainedTile = await screen.findByRole('button', { name: /app\.Ready/ })
     const pendingTile = await screen.findByRole('button', { name: /app\.Pending/ })
     expect(maintainedTile.querySelector('rect')).toHaveAttribute('fill', 'var(--status-success, #00a876)')
@@ -300,7 +434,7 @@ describe('WorkspaceCodeVisualizer', () => {
         ],
         edges: [{ id: 'main-helper', fromKey: 'key-main', toKey: 'key-helper', label: 'depends on' }],
       }) })
-      if (input.includes('/visualizer/coverage')) return Promise.resolve({ ok: true, json: async () => ({ taskId: 'android-run', codeUnitCount: 2, maintainedUnitCount: 0, coveragePercent: 0 }) })
+      if (input.includes('/visualizer/coverage')) return Promise.resolve({ ok: true, json: async () => ({ taskId: 'android-run', codeUnitCount: 2, maintainedUnitCount: 0, coveragePercent: 0, decompilationCoveragePercent: 100, sourceLinkedPercent: 100, codeBytes: 2048, measuredBytes: 2048 }) })
       return Promise.resolve({ ok: true, json: async () => ({ units: [main], total: 2, hasMore: false, runs: [run], selectedRunId: 'android-run' }) })
     })
     vi.stubGlobal('fetch', fetchMock)
@@ -355,6 +489,74 @@ describe('WorkspaceCodeVisualizer', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/projects/project-1/visualizer?cursor=cursor-two', expect.objectContaining({ cache: 'no-store' }))
   })
 
+  test('automatically completes a reference-sized map in the focused visualizer', async () => {
+    const first = unit({ id: 'unit-first', name: 'app.First' })
+    const second = unit({ id: 'unit-second', name: 'app.Second' })
+    const run = { id: 'run-small', title: 'Latest analysis', createdAt: '2026-10-04T00:00:00.000Z', completedAt: '2026-10-04T00:01:00.000Z', artifactName: 'app.apk', codeUnitCount: 2, unitLabel: 'classes', discoveredUnitCount: 2, returnedUnitCount: 2, indexedUnitCount: 2, linkPercent: 100, codeBytes: 2048, truncated: false, warnings: '', failedUnitCount: null, visitedUnitCount: null }
+    const fetchMock = vi.fn((input: string) => input.includes('cursor=')
+      ? Promise.resolve({ ok: true, json: async () => ({ units: [second], total: 11_469, hasMore: false, nextCursor: null, runs: [run], selectedRunId: 'run-small' }) })
+      : Promise.resolve({ ok: true, json: async () => ({ units: [first], total: 11_469, hasMore: true, nextCursor: 'unit-first', runs: [run], selectedRunId: 'run-small' }) }))
+    vi.stubGlobal('fetch', fetchMock)
+    const { container } = renderVisualizer({ standalone: true })
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/projects/project-1/visualizer?taskId=run-small&cursor=unit-first', expect.objectContaining({ cache: 'no-store' })))
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Load more code units' })).not.toBeInTheDocument())
+    expect(container.querySelector('.badge')).toHaveTextContent('2 code units')
+  })
+
+  test('updates maintained status for a code unit loaded from a later map page', async () => {
+    const first = unit({ id: 'unit-first', name: 'app.First' })
+    const second = unit({ id: 'unit-second', name: 'app.Second' })
+    const fetchMock = vi.fn((input: string, init?: RequestInit) => {
+      if (input.includes('cursor=')) return Promise.resolve({ ok: true, json: async () => ({ units: [second], total: 2, hasMore: false, nextCursor: null }) })
+      if (input.includes('/visualizer/maintained/') && init?.method === 'PUT') return Promise.resolve({ ok: true, json: async () => ({ saved: true }) })
+      if (input.includes('/visualizer/maintained/')) return Promise.resolve({ ok: true, json: async () => ({ exists: false, sourceCode: null }) })
+      if (input.includes('/decompiled/')) return Promise.resolve({ ok: true, text: async () => 'private String b;' })
+      return Promise.resolve({ ok: true, json: async () => ({ units: [first], total: 2, hasMore: true, nextCursor: 'unit-first' }) })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderVisualizer()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Load more code units' }))
+    fireEvent.click(await screen.findByRole('button', { name: /app\.Second/ }))
+    const editable = await screen.findByRole('textbox', { name: 'Editable maintained source' })
+    fireEvent.change(editable, { target: { value: 'private String accountName;' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save maintained copy' }))
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Maintained (1)' })).toBeInTheDocument())
+    expect(screen.getByRole('button', { name: /app\.Second.*maintained source saved/ })).toBeInTheDocument()
+  })
+
+  test('keeps maps above the automatic loading limit paged', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({
+      units: [unit()], total: 20_001, hasMore: true, nextCursor: 'unit-first',
+    }) })
+    vi.stubGlobal('fetch', fetchMock)
+    const { container } = renderVisualizer({ standalone: true })
+
+    await waitFor(() => expect(container.querySelector('.badge')).toHaveTextContent('1 / 20,001 code units'))
+    const loadingControls = await screen.findByRole('group', { name: 'Map code unit loading' })
+    const treemap = container.querySelector('svg[role="group"]')
+    expect(screen.getByRole('button', { name: 'Load all 20,000 remaining' })).toBeInTheDocument()
+    expect(treemap).not.toBeNull()
+    expect(loadingControls.compareDocumentPosition(treemap as Node) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(fetchMock.mock.calls.filter(([input]) => String(input) === '/api/projects/project-1/visualizer')).toHaveLength(1)
+  })
+
+  test('scrolls the selected code unit inspector into view', async () => {
+    const original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollIntoView')
+    const scrollIntoView = vi.fn()
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: scrollIntoView })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ units: [unit()], total: 1, hasMore: false }) }))
+    renderVisualizer()
+
+    fireEvent.click(await screen.findByRole('button', { name: /app\.MainActivity\.onCreate/ }))
+    await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({ block: 'start', behavior: 'smooth' }))
+
+    if (original) Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', original)
+    else delete (HTMLElement.prototype as HTMLElement & { scrollIntoView?: () => void }).scrollIntoView
+  })
+
   test('compares Ghidra decompiled source with its linked disassembly', async () => {
     const native = unit({
       id: 'native-main', name: 'main', address: '00401000', language: 'C', unitType: 'function',
@@ -392,6 +594,7 @@ describe('WorkspaceCodeVisualizer', () => {
     vi.stubGlobal('fetch', fetchMock)
     renderVisualizer()
 
+    fireEvent.click(await screen.findByRole('button', { name: 'Packages' }))
     fireEvent.click(await screen.findByRole('button', { name: /com package/ }))
     fireEvent.click(await screen.findByRole('button', { name: /example package/ }))
     fireEvent.click(await screen.findByRole('button', { name: /com\.example\.MainActivity/ }))
@@ -446,12 +649,19 @@ describe('WorkspaceCodeVisualizer', () => {
   })
 
   test('creates an editable AI reverse-engineered copy and saves it separately', async () => {
+    const scrollIntoView = vi.fn()
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: scrollIntoView })
     const units = [unit()]
     const fetchMock = vi.fn((input: string, init?: RequestInit) => {
       if (input.includes('/visualizer/providers')) return Promise.resolve({ ok: true, json: async () => ({ providers: [{ id: 'provider-local', name: 'Local Qwen', modelIdentifier: 'Qwen3.5-0.8B' }] }) })
+      if (input.includes('/visualizer/drafts/')) {
+        if (init?.method === 'POST') return Promise.resolve({ ok: true, json: async () => ({ saved: true, draftId: 'draft-1', updatedAt: '2026-10-04T12:00:00.000Z' }) })
+        if (init?.method === 'PATCH') return Promise.resolve({ ok: true, json: async () => ({ saved: true, updatedAt: '2026-10-04T12:01:00.000Z' }) })
+        return Promise.resolve({ ok: true, json: async () => ({ exists: false, draft: null }) })
+      }
       if (input.includes('/visualizer/maintained/') && init?.method !== 'PUT') return Promise.resolve({ ok: true, json: async () => ({ exists: false, sourceCode: null }) })
       if (input.includes('/decompiled/')) return Promise.resolve({ ok: true, text: async () => 'private String a;' })
-      if (input.includes('/visualizer/deobfuscate')) return Promise.resolve({ ok: true, json: async () => ({ sourceCode: 'private String accountName;', providerName: 'Local Qwen', model: 'Qwen3.5-0.8B' }) })
+      if (input.includes('/visualizer/deobfuscate')) return Promise.resolve({ ok: true, json: async () => ({ sourceCode: 'private String accountName;', providerName: 'Local Qwen', model: 'Qwen3.5-0.8B', syntaxValidated: true }) })
       if (input.includes('/visualizer/maintained/') && init?.method === 'PUT') return Promise.resolve({ ok: true, json: async () => ({ saved: true }) })
       return Promise.resolve({ ok: true, json: async () => ({ units, total: 1, hasMore: false }) })
     })
@@ -465,12 +675,23 @@ describe('WorkspaceCodeVisualizer', () => {
     expect(screen.getByText('Edit the decompilation or create a maintained version before saving.')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Create maintainable version' }))
     await waitFor(() => expect(editable).toHaveValue('private String accountName;'))
+    await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({ block: 'center', behavior: 'smooth' }))
+    expect(editable).toHaveFocus()
+    expect(await screen.findByText(/The source parser found no syntax errors/)).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Draft saved to project memory' })).toBeDisabled()
     fireEvent.change(editable, { target: { value: 'private String accountName;\n' } })
+    expect(await screen.findByText(/This draft has changed or predates saved validation metadata/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Save draft' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Draft saved to project memory' })).toBeDisabled())
     fireEvent.click(screen.getByRole('button', { name: 'Save maintained copy' }))
 
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Maintained copy saved separately'))
     const transformCall = fetchMock.mock.calls.find(([input]) => String(input).includes('/visualizer/deobfuscate'))
     expect(JSON.parse(String(transformCall?.[1]?.body))).toMatchObject({ unitId: 'unit-1', providerId: 'provider-local' })
+    const draftCreate = fetchMock.mock.calls.find(([input, init]) => String(input).includes('/visualizer/drafts/') && init?.method === 'POST')
+    expect(JSON.parse(String(draftCreate?.[1]?.body))).toMatchObject({ sourceCode: 'private String accountName;', providerName: 'Local Qwen', model: 'Qwen3.5-0.8B', scope: 'file', syntaxValidated: true })
+    const draftUpdate = fetchMock.mock.calls.find(([input, init]) => String(input).includes('/visualizer/drafts/') && init?.method === 'PATCH')
+    expect(JSON.parse(String(draftUpdate?.[1]?.body))).toEqual({ draftId: 'draft-1', sourceCode: 'private String accountName;\n' })
     const saveCall = fetchMock.mock.calls.find(([input, init]) => String(input).includes('/visualizer/maintained/') && init?.method === 'PUT')
     expect(JSON.parse(String(saveCall?.[1]?.body))).toEqual({ sourceCode: 'private String accountName;\n' })
   })

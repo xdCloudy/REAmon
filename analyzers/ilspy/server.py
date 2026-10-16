@@ -25,11 +25,17 @@ MAX_OUTPUT_BYTES = min(1024**3, max(1024**2, int(os.environ.get("ILSPY_MAX_OUTPU
 MAX_SOURCE_FILES = min(50000, max(1, int(os.environ.get("ILSPY_MAX_SOURCE_FILES", "20000"))))
 MAX_RETURNED_UNITS = min(20000, max(1, int(os.environ.get("ILSPY_MAX_RETURNED_UNITS", "20000"))))
 MAX_VIEWABLE_BYTES = 2 * 1024 * 1024
+MAX_METHOD_FEATURES = 8_000
+MAX_METHOD_FEATURE_INSTRUCTIONS = 128
+MAX_METHOD_FEATURE_BYTES = 8 * 1024 * 1024
 STREAM_RESULT_CHUNK_SIZE = 100
 STREAM_RESULT_CHUNK_BYTES = 1024 * 1024
 SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
 NAMESPACE_PATTERN = re.compile(r"^\s*namespace\s+([A-Za-z_][A-Za-z0-9_.]*)\s*(?:;|\{)", re.MULTILINE)
 TYPE_PATTERN = re.compile(r"\b(?:class|interface|struct|enum|record|delegate)\s+([A-Za-z_][A-Za-z0-9_]*)")
+IL_METHOD_START = re.compile(r"^\s*\.method\b")
+IL_METHOD_END = re.compile(r"^\s*\}\s*//\s*end of method\s+(.+?)\s*$")
+IL_INSTRUCTION = re.compile(r"^\s*IL_[0-9A-Fa-f]+:\s+([A-Za-z][A-Za-z0-9_.]*)\b")
 SLOTS = threading.BoundedSemaphore(1)
 
 
@@ -121,6 +127,62 @@ def source_files(root):
     return found, total_bytes, scan_truncated
 
 
+def il_method_features(path, units):
+    """Index bounded CLR IL opcodes and link each method back to its C# unit."""
+    features, total_bytes, truncated = [], 0, False
+    current_method = False
+    mnemonics = []
+    identity_counts = {}
+    with path.open("r", encoding="utf-8", errors="replace") as listing:
+        for line in listing:
+            if IL_METHOD_START.match(line):
+                current_method = True
+                mnemonics = []
+                continue
+            if current_method:
+                instruction = IL_INSTRUCTION.match(line)
+                if instruction and len(mnemonics) < MAX_METHOD_FEATURE_INSTRUCTIONS:
+                    mnemonics.append(instruction.group(1).lower())
+                method_end = IL_METHOD_END.match(line)
+                if not method_end:
+                    continue
+                identity = method_end.group(1).strip()
+                current_method = False
+                if len(mnemonics) < 4:
+                    continue
+                identity_counts[identity] = identity_counts.get(identity, 0) + 1
+                if identity_counts[identity] > 1:
+                    identity = f"{identity}#{identity_counts[identity]}"
+                owner = identity.rsplit("::", 1)[0].split("]")[-1].strip()
+                owner_types = {
+                    part.split("`", 1)[0]
+                    for part in re.split(r"[+.]+", owner)
+                    if part
+                }
+                unit = next((candidate for candidate in units
+                    if candidate["name"] == owner
+                    or candidate["name"].endswith("." + owner)
+                    or bool(owner_types & {
+                        part.split("`", 1)[0]
+                        for part in re.split(r"[+.]+", Path(candidate["relativePath"]).stem)
+                        if part
+                    })), None)
+                if unit is None:
+                    continue
+                feature = {
+                    "signature": identity,
+                    "relativePath": unit["relativePath"],
+                    "instructionMnemonics": mnemonics,
+                }
+                feature_bytes = len(json.dumps(feature, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
+                if len(features) >= MAX_METHOD_FEATURES or total_bytes + feature_bytes > MAX_METHOD_FEATURE_BYTES:
+                    truncated = True
+                    break
+                features.append(feature)
+                total_bytes += feature_bytes
+    return features, truncated
+
+
 def client_disconnected(connection):
     readable, _, _ = select.select([connection], [], [], 0)
     if not readable:
@@ -133,7 +195,7 @@ def client_disconnected(connection):
         return True
 
 
-def run_analysis_tool(arguments, stderr_file, cancel_check, deadline):
+def run_analysis_tool(arguments, stderr_file, cancel_check, deadline, output_limit_path=None):
     process = subprocess.Popen(
         arguments,
         stdin=subprocess.DEVNULL,
@@ -146,6 +208,12 @@ def run_analysis_tool(arguments, stderr_file, cancel_check, deadline):
         while process.poll() is None:
             if cancel_check():
                 raise AnalysisError("ILSpy analysis was cancelled")
+            if output_limit_path is not None:
+                try:
+                    if output_limit_path.stat().st_size > MAX_OUTPUT_BYTES:
+                        raise AnalysisError("ILSpy instruction output exceeded the configured storage limit")
+                except FileNotFoundError:
+                    pass
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise AnalysisError(f"ILSpy analysis exceeded {TIMEOUT_SECONDS} seconds")
@@ -240,6 +308,44 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
 
                 units.sort(key=lambda unit: str(unit["relativePath"]).casefold())
                 warnings = []
+                method_features = []
+                method_features_truncated = False
+                if units:
+                    report_progress("Extracting CLR instruction signatures with ILSpy")
+                    il_output = Path(temporary) / "il"
+                    il_stderr_path = Path(temporary) / "ilspy-il.stderr"
+                    il_return_code = 1
+                    il_deadline = min(deadline, time.monotonic() + min(120, max(15, TIMEOUT_SECONDS // 4)))
+                    expected_il_listing = il_output / f"{input_path.stem}.il"
+                    try:
+                        with il_stderr_path.open("wb") as il_stderr:
+                            il_return_code = run_analysis_tool([
+                                os.environ.get("ILSPYCMD", "/opt/ilspycmd/ilspycmd"),
+                                "--disable-updatecheck", "--ilcode", "-o", str(il_output), str(input_path),
+                            ], il_stderr, cancel_check, il_deadline, expected_il_listing)
+                        il_listing = next((candidate for candidate in il_output.glob("*.il") if candidate.is_file() and not candidate.is_symlink()), None)
+                        if il_return_code == 0 and il_listing is not None:
+                            if il_listing.stat().st_size > MAX_OUTPUT_BYTES:
+                                method_features_truncated = True
+                                warnings.append("ILSpy instruction output exceeded the configured storage limit; CLR method matching is unavailable.")
+                            else:
+                                method_features, method_features_truncated = il_method_features(il_listing, units)
+                        elif il_return_code == 0:
+                            method_features_truncated = True
+                            warnings.append("ILSpy completed without producing a CLR instruction listing.")
+                    except AnalysisError as error:
+                        if "cancelled" in str(error).lower():
+                            raise
+                        method_features_truncated = True
+                        warnings.append(f"ILSpy instruction extraction was unavailable: {str(error)[:500]}")
+                    except OSError as error:
+                        method_features_truncated = True
+                        warnings.append(f"ILSpy instruction extraction was unavailable: {str(error)[:500]}")
+                    if il_return_code != 0:
+                        method_features_truncated = True
+                        warnings.append("ILSpy could not produce CLR instruction output for this assembly.")
+                    if method_features_truncated:
+                        warnings.append(f"The CLR instruction index was limited to {len(method_features)} methods.")
                 if scan_truncated:
                     warnings.append(f"ILSpy produced more than {len(raw_sources)} C# source files; the source scan stopped at its configured limit.")
                 if len(raw_sources) > MAX_RETURNED_UNITS:
@@ -260,8 +366,10 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                     "classCount": None if scan_truncated else len(raw_sources),
                     "codeBytes": total_source_bytes,
                     "returnedUnits": len(units),
-                    "truncated": scan_truncated or len(raw_sources) > len(units),
+                    "truncated": scan_truncated or len(raw_sources) > len(units) or method_features_truncated,
                     "units": units,
+                    "methods": method_features,
+                    "methodFeaturesTruncated": method_features_truncated,
                     "warnings": " ".join(warnings),
                 }
         except AnalysisError:

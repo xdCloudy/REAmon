@@ -29,9 +29,10 @@ export async function GET(request: Request, { params }: RouteParams) {
     const search = new URL(request.url).searchParams
     const taskId = search.get('taskId')?.trim() || ''
     const unitId = search.get('unitId')?.trim() || ''
+    const requestedGraphType = search.get('graphType')
     const runGraph = search.get('view') === 'graph'
     if (!taskId || taskId.length > 128 || (unitId.length > 128) || (!unitId && !runGraph)) {
-      return NextResponse.json({ error: 'A valid Ghidra or JADX run is required' }, { status: 400, headers: NO_STORE })
+      return NextResponse.json({ error: 'A valid code analysis run is required' }, { status: 400, headers: NO_STORE })
     }
 
     const selection = await getActiveWorkspaceImportSelection(projectId)
@@ -39,16 +40,15 @@ export async function GET(request: Request, { params }: RouteParams) {
       where: {
         id: taskId,
         projectId,
-        capability: 'decompile',
+        capability: { in: ['decompile', 'disassemble'] },
         status: 'COMPLETED',
-        provider: { is: { pluginId: { in: ['reamon-ghidra', 'reamon-jadx'] } } },
         artifact: { is: selection.artifactWhere },
       },
       select: { id: true, artifactId: true, provider: { select: { pluginId: true } } },
     })
     if (!task?.artifactId) return NextResponse.json({ error: 'Decompilation run not found' }, { status: 404, headers: NO_STORE })
 
-    if (task.provider?.pluginId === 'reamon-jadx') {
+    if (task.provider?.pluginId === 'reamon-jadx' && (requestedGraphType === 'class_dependencies' || requestedGraphType === null)) {
       const classRows = await prisma.reamonObservation.findMany({
         where: {
           projectId,
@@ -71,7 +71,7 @@ export async function GET(request: Request, { params }: RouteParams) {
         return codeUnit?.unitType === 'class' ? [{ row, codeUnit }] : []
       }).sort((left, right) => left.codeUnit.name.localeCompare(right.codeUnit.name) || left.row.stableKey.localeCompare(right.row.stableKey))
       const byName = new Map(classes.map((entry) => [entry.codeUnit.name, entry]))
-      const focus = unitId ? classes.find(({ codeUnit }) => codeUnit.id === unitId) : undefined
+      const focus = unitId ? classes.find(({ row, codeUnit }) => codeUnit.id === unitId || row.stableKey === unitId) : undefined
       if (unitId && !focus) {
         return NextResponse.json({ error: 'Class is outside this JADX analysis run' }, { status: 404, headers: NO_STORE })
       }
@@ -82,7 +82,8 @@ export async function GET(request: Request, { params }: RouteParams) {
         const references = Array.isArray(codeUnit.classReferences) ? codeUnit.classReferences : []
         for (const reference of references) {
           const target = byName.get(reference)
-          if (!target || target.codeUnit.id === codeUnit.id || (focus && focus.codeUnit.id !== codeUnit.id && focus.codeUnit.id !== target.codeUnit.id)) continue
+          if (!target || target.codeUnit.id === codeUnit.id) continue
+          if (focus && focus.codeUnit.id !== codeUnit.id && focus.codeUnit.id !== target.codeUnit.id) continue
           const edge = { id: `dependency:${row.stableKey}:${target.row.stableKey}`, fromKey: row.stableKey, toKey: target.row.stableKey, label: 'depends on' }
           for (const [key, unit] of [[edge.fromKey, codeUnit], [edge.toKey, target.codeUnit]] as const) {
             if (!nodes.has(key)) nodes.set(key, {
@@ -101,19 +102,21 @@ export async function GET(request: Request, { params }: RouteParams) {
       return NextResponse.json({ graphType: 'class_dependencies', focusKey: focus?.row.stableKey || null, nodes: [...nodes.values()], edges, truncated: truncated || edgeLimitReached }, { headers: NO_STORE })
     }
 
+    const observationSource = task.provider?.pluginId || 'reamon-ghidra'
     const focusRow = unitId ? await prisma.reamonObservation.findFirst({
       where: {
-        id: unitId,
+        OR: [{ id: unitId }, { stableKey: unitId }],
         projectId,
         taskId: task.id,
         artifactId: task.artifactId,
-        type: 'code_unit',
-        source: 'reamon-ghidra',
+        type: { in: ['code_unit', 'function'] },
+        source: observationSource,
         artifact: { is: selection.artifactWhere },
       },
       select: {
         id: true,
         stableKey: true,
+        type: true,
         label: true,
         source: true,
         artifactId: true,
@@ -122,9 +125,9 @@ export async function GET(request: Request, { params }: RouteParams) {
         artifact: { select: { relativePath: true, originalName: true } },
       },
     }) : null
-    const focusUnit = focusRow && normalizeCodeUnit(focusRow)
-    if (unitId && (!focusRow || !focusUnit || focusUnit.unitType !== 'function')) {
-      return NextResponse.json({ error: 'Function is outside this Ghidra analysis run' }, { status: 404, headers: NO_STORE })
+    const focusUnit = focusRow?.type === 'code_unit' ? normalizeCodeUnit(focusRow) : null
+    if (unitId && (!focusRow || (focusRow.type !== 'function' && focusUnit?.unitType !== 'function'))) {
+      return NextResponse.json({ error: 'Function is outside this analysis run' }, { status: 404, headers: NO_STORE })
     }
 
     const edgeRows = await prisma.reamonObservation.findMany({
@@ -134,7 +137,7 @@ export async function GET(request: Request, { params }: RouteParams) {
         artifactId: task.artifactId,
         kind: 'relationship',
         type: 'calls',
-        source: 'reamon-ghidra',
+        source: observationSource,
         ...(focusRow ? { OR: [{ fromKey: focusRow.stableKey }, { toKey: focusRow.stableKey }] } : {}),
       },
       orderBy: [{ stableKey: 'asc' }, { id: 'asc' }],
@@ -150,7 +153,7 @@ export async function GET(request: Request, { params }: RouteParams) {
           projectId,
           taskId: task.id,
           artifactId: task.artifactId,
-          source: 'reamon-ghidra',
+          source: observationSource,
           stableKey: { in: endpointKeys },
           type: { in: ['code_unit', 'function'] },
         },
@@ -167,12 +170,36 @@ export async function GET(request: Request, { params }: RouteParams) {
         },
       })
       : []
+    const parentUnitKeys = [...new Set(nodeRows.flatMap((node) => {
+      if (node.type !== 'function') return []
+      const parentKey = attributesRecord(node.attributes).parentCodeUnitKey
+      return typeof parentKey === 'string' ? [parentKey] : []
+    }))]
+    const parentUnitRows = parentUnitKeys.length ? await prisma.reamonObservation.findMany({
+      where: {
+        projectId,
+        taskId: task.id,
+        artifactId: task.artifactId,
+        source: observationSource,
+        type: 'code_unit',
+        stableKey: { in: parentUnitKeys },
+      },
+      select: {
+        id: true, stableKey: true, label: true, source: true, artifactId: true, updatedAt: true, attributes: true,
+        artifact: { select: { relativePath: true, originalName: true } },
+      },
+    }) : []
+    const parentByKey = new Map(parentUnitRows.map((node) => [node.stableKey, node]))
     const byKey = new Map(nodeRows.map((node) => [node.stableKey, node]))
     const nodes = endpointKeys.flatMap((key) => {
       const row = byKey.get(key)
       if (!row) return []
       const attributes = attributesRecord(row.attributes)
-      const codeUnit = row.type === 'code_unit' ? normalizeCodeUnit(row) : null
+      const parentKey = typeof attributes.parentCodeUnitKey === 'string' ? attributes.parentCodeUnitKey : ''
+      const parentRow = parentKey ? parentByKey.get(parentKey) : undefined
+      const codeUnit = row.type === 'code_unit'
+        ? normalizeCodeUnit(row)
+        : parentRow ? normalizeCodeUnit(parentRow) : null
       return [{
         key,
         label: text(attributes.qualifiedName ?? attributes.name ?? row.label, key === focusRow?.stableKey ? focusUnit?.name || 'Selected function' : 'Unknown function'),
@@ -186,9 +213,9 @@ export async function GET(request: Request, { params }: RouteParams) {
       .filter((edge) => nodeKeys.has(edge.fromKey!) && nodeKeys.has(edge.toKey!))
       .map((edge) => ({ id: edge.id, fromKey: edge.fromKey!, toKey: edge.toKey!, label: edge.label || 'calls' }))
 
-    return NextResponse.json({ focusKey: focusRow?.stableKey || null, nodes, edges: visibleEdges, truncated }, { headers: NO_STORE })
+    return NextResponse.json({ graphType: 'function_calls', focusKey: focusRow?.stableKey || null, nodes, edges: visibleEdges, truncated }, { headers: NO_STORE })
   } catch (error) {
-    console.error('Failed to load Ghidra call graph:', error)
+    console.error('Failed to load analysis call graph:', error)
     return NextResponse.json({ error: 'Failed to load call graph' }, { status: 500, headers: NO_STORE })
   }
 }

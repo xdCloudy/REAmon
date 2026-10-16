@@ -321,7 +321,7 @@ These are libraries and frameworks used to build RedAmon's own web application, 
 | **PyJWT** | JSON Web Token implementation | MIT | https://github.com/jpadilla/pyjwt | `mcp/requirements.txt` |
 | **NetworkX** | Graph/network analysis library | BSD-3-Clause | https://github.com/networkx/networkx | `agentic/requirements.txt` |
 | **tree-sitter** | Incremental parsing system | MIT | https://github.com/tree-sitter/tree-sitter | `agentic/requirements.txt` |
-| **tree-sitter-languages** | Pre-built Tree-sitter language grammars | MIT | https://github.com/grantjenks/py-tree-sitter-languages | `agentic/requirements.txt` |
+| **tree-sitter-language-pack** | On-demand Tree-sitter grammar access for REAmon source analysis and repo navigation | MIT | https://github.com/xberg-io/tree-sitter-language-pack | `agentic/requirements.txt`; downloaded grammar libraries retain their upstream notices |
 | **mmh3** | MurmurHash3 bindings (favicon hashing for AI-frontend product detection) | MIT | https://github.com/hajimes/mmh3 | `recon/requirements.txt` (used by `recon/helpers/ai_signal_catalog.py`) |
 | **yara-python** | YARA bindings — static MCP tool-poisoning rules (deterministic, no LLM) in AI Surface Recon | Apache-2.0 | https://github.com/VirusTotal/yara-python | `recon/requirements.txt` (lazy-imported by `recon/main_recon_modules/ai_surface_recon.py`) |
 | **prance** | OpenAPI/Swagger `$ref`-resolving parser for AI Surface Recon OpenAPI discovery | MIT | https://github.com/RonnyPfannschmidt/prance | `recon/requirements.txt` (lazy-imported) |

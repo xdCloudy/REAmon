@@ -1,0 +1,95 @@
+import { NextResponse } from 'next/server'
+import { readFile, realpath, stat } from 'node:fs/promises'
+import path from 'node:path'
+import prisma from '@/lib/prisma'
+import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
+import { getActiveWorkspaceImportSelection } from '@/lib/reamon/inventory-query'
+import { resolveDerivedArtifactPath, derivedArtifactRoot } from '@/lib/reamon/derived-storage'
+
+interface RouteParams { params: Promise<{ id: string; unitId: string }> }
+const MAX_SOURCE_BYTES = 2 * 1024 * 1024
+const SMALI_CODE_UNIT_PREFIX = 'smali:'
+
+function object(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+}
+
+function isInside(root: string, file: string): boolean {
+  const relative = path.relative(root, file)
+  return Boolean(relative) && relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)
+}
+
+async function resolveSmali(projectId: string, unitId: string) {
+  const user = await requireEffectiveUser()
+  if (user instanceof NextResponse) return { response: user } as const
+  const access = await requireProjectAccess(user, projectId)
+  if (access instanceof NextResponse) return { response: access } as const
+  const selection = await getActiveWorkspaceImportSelection(projectId)
+  const unit = await prisma.reamonObservation.findFirst({
+    where: { id: unitId, projectId, type: 'code_unit', task: { provider: { is: { pluginId: 'reamon-jadx' } } }, artifact: { is: selection.artifactWhere } },
+    select: { id: true, taskId: true, artifactId: true, label: true, attributes: true, task: { select: { runToken: true, status: true, capability: true } } },
+  })
+  if (!unit?.taskId || !unit.artifactId || unit.task?.status !== 'COMPLETED' || unit.task.capability !== 'decompile' || !unit.task.runToken) {
+    return { response: NextResponse.json({ error: 'Completed Android code unit not found' }, { status: 404 }) } as const
+  }
+  const attributes = object(unit.attributes)
+  const relativePath = attributes.disassemblyArtifactId
+  const expectedPrefix = `${projectId}/${unit.artifactId}/${unit.taskId}/${unit.task.runToken}/disassembly/`
+  if (typeof relativePath !== 'string' || !relativePath.startsWith(expectedPrefix) || !relativePath.endsWith('.smali') || relativePath.includes('\\') || relativePath.split('/').some((part) => !part || part === '.' || part === '..')) {
+    return { response: NextResponse.json({ error: 'This code unit has no linked Smali source' }, { status: 404 }) } as const
+  }
+  const absolute = resolveDerivedArtifactPath(relativePath)
+  const [root, file] = await Promise.all([realpath(derivedArtifactRoot()), realpath(absolute).catch(() => null)])
+  if (!file || !isInside(root, file)) return { response: NextResponse.json({ error: 'Linked Smali source is unavailable' }, { status: 404 }) } as const
+  const info = await stat(file)
+  if (!info.isFile() || info.size > MAX_SOURCE_BYTES) return { response: NextResponse.json({ error: 'Smali source exceeds the 2 MiB edit limit' }, { status: 413 }) } as const
+  return { unit, relativePath, file } as const
+}
+
+function classDescriptor(sourceCode: string): string | null {
+  const declarations = [...sourceCode.matchAll(/^\s*\.class\s+(?:(?:public|private|protected|static|final|abstract|interface|enum|synthetic|annotation|constructor|declared-synchronized)\s+)*(L[^\s;]+;)\s*$/gm)]
+  return declarations.length === 1 ? declarations[0][1] : null
+}
+
+export async function GET(_request: Request, { params }: RouteParams) {
+  try {
+    const { id: projectId, unitId } = await params
+    const resolved = await resolveSmali(projectId, unitId)
+    if ('response' in resolved) return resolved.response
+    const saved = await prisma.reamonMaintainedSource.findUnique({ where: { projectId_codeUnitId: { projectId, codeUnitId: `${SMALI_CODE_UNIT_PREFIX}${unitId}` } }, select: { sourceCode: true, updatedAt: true } })
+    const sourceCode = saved?.sourceCode ?? await readFile(resolved.file, 'utf8')
+    return NextResponse.json({ exists: Boolean(saved), sourceCode, updatedAt: saved?.updatedAt.toISOString() ?? null }, { headers: { 'Cache-Control': 'private, no-store' } })
+  } catch (error) {
+    console.error('Failed to load editable Smali source:', error)
+    return NextResponse.json({ error: 'Failed to load Smali source' }, { status: 500, headers: { 'Cache-Control': 'no-store' } })
+  }
+}
+
+export async function PUT(request: Request, { params }: RouteParams) {
+  try {
+    const { id: projectId, unitId } = await params
+    const resolved = await resolveSmali(projectId, unitId)
+    if ('response' in resolved) return resolved.response
+    let body: unknown
+    try { body = await request.json() } catch { return NextResponse.json({ error: 'Request body must be valid JSON' }, { status: 400 }) }
+    const sourceCode = object(body).sourceCode
+    if (typeof sourceCode !== 'string' || !sourceCode.trim()) return NextResponse.json({ error: 'Smali source cannot be empty' }, { status: 400 })
+    if (Buffer.byteLength(sourceCode, 'utf8') > MAX_SOURCE_BYTES) return NextResponse.json({ error: 'Smali source exceeds the 2 MiB save limit' }, { status: 413 })
+    const editedDescriptor = classDescriptor(sourceCode)
+    const originalSource = await readFile(resolved.file, 'utf8')
+    const originalDescriptor = classDescriptor(originalSource)
+    if (!editedDescriptor) return NextResponse.json({ error: 'Smali must contain one valid .class descriptor declaration' }, { status: 422 })
+    if (!originalDescriptor || editedDescriptor !== originalDescriptor) return NextResponse.json({ error: 'The .class descriptor must match the selected code unit' }, { status: 422 })
+    const attributes = object(resolved.unit.attributes)
+    const name = typeof attributes.qualifiedName === 'string' ? attributes.qualifiedName : resolved.unit.label || unitId
+    await prisma.reamonMaintainedSource.upsert({
+      where: { projectId_codeUnitId: { projectId, codeUnitId: `${SMALI_CODE_UNIT_PREFIX}${unitId}` } },
+      update: { artifactId: resolved.unit.artifactId!, unitName: `${name} (Smali)`, language: 'Smali', sourceCode, symbolIndex: [], relativePath: resolved.relativePath },
+      create: { projectId, artifactId: resolved.unit.artifactId!, codeUnitId: `${SMALI_CODE_UNIT_PREFIX}${unitId}`, unitName: `${name} (Smali)`, language: 'Smali', sourceCode, symbolIndex: [], relativePath: resolved.relativePath },
+    })
+    return NextResponse.json({ saved: true, updatedAt: new Date().toISOString() }, { headers: { 'Cache-Control': 'private, no-store' } })
+  } catch (error) {
+    console.error('Failed to save editable Smali source:', error)
+    return NextResponse.json({ error: 'Failed to save Smali source' }, { status: 500, headers: { 'Cache-Control': 'no-store' } })
+  }
+}

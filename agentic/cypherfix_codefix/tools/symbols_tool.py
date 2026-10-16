@@ -37,8 +37,8 @@ DEFINITION_TYPES = {
 def _get_parser(lang: str):
     """Get a tree-sitter parser for the given language."""
     try:
-        from tree_sitter_languages import get_parser
-        return get_parser(lang)
+        from reamon_treesitter import get_reamon_parser
+        return get_reamon_parser(lang)
     except Exception as e:
         logger.debug(f"tree-sitter not available for {lang}: {e}")
         return None

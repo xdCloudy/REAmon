@@ -9,13 +9,14 @@ const MAX_CALL_EDGES = 400
 interface GhidraResponse {
   status: 'completed'
   toolVersion: string
+  instructionArchitecture?: string
   functionCount: number
   visitedFunctionCount?: number
   failedFunctionCount?: number
   codeBytes?: number
   returnedUnits: number
   truncated: boolean
-  units: Array<{ name: string; address: string; relativePath: string; codeArtifactId: string; disassemblyArtifactId?: string; sizeBytes: number }>
+  units: Array<{ name: string; address: string; relativePath: string; codeArtifactId: string; disassemblyArtifactId?: string; referencedStrings?: string[]; instructionMnemonics?: string[]; sizeBytes: number }>
   calls?: Array<{ fromAddress: string; toAddress: string; fromName: string; toName: string }>
   callCount?: number
   callGraphTruncated?: boolean
@@ -102,7 +103,11 @@ export async function executeGhidra(input: ToolExecutionInput): Promise<ToolResu
       unit && typeof unit.name === 'string' && typeof unit.address === 'string'
       && typeof unit.relativePath === 'string' && typeof unit.codeArtifactId === 'string'
       && Number.isFinite(unit.sizeBytes) && unit.sizeBytes > 0
-      && (unit.disassemblyArtifactId === undefined || typeof unit.disassemblyArtifactId === 'string'))
+      && (unit.disassemblyArtifactId === undefined || typeof unit.disassemblyArtifactId === 'string')
+      && (unit.referencedStrings === undefined || (Array.isArray(unit.referencedStrings)
+        && unit.referencedStrings.every((value) => typeof value === 'string' && value.length <= 512)))
+      && (unit.instructionMnemonics === undefined || (Array.isArray(unit.instructionMnemonics) && unit.instructionMnemonics.length <= 800
+        && unit.instructionMnemonics.every((value) => typeof value === 'string' && /^[A-Za-z][A-Za-z0-9_.]{0,31}$/.test(value)))))
     if (!units.length) throw new Error('Ghidra did not produce any viewable function decompilations')
 
     const observations = units.map((unit) => ({
@@ -116,11 +121,18 @@ export async function executeGhidra(input: ToolExecutionInput): Promise<ToolResu
         name: unit.name.slice(0, 500),
         qualifiedName: unit.name.slice(0, 500),
         address: unit.address.slice(0, 128),
+        relativePath: unit.relativePath.slice(0, 1000),
         sizeBytes: Math.floor(unit.sizeBytes),
         language: 'C',
+        ...(typeof input.targetProfile.architecture === 'string' && input.targetProfile.architecture
+          ? { architecture: input.targetProfile.architecture.slice(0, 128) } : {}),
+        ...(typeof payload.instructionArchitecture === 'string' && payload.instructionArchitecture
+          ? { instructionArchitecture: payload.instructionArchitecture.slice(0, 128) } : {}),
         decompiled: true,
         codeArtifactId: unit.codeArtifactId.slice(0, 2000),
         ...(unit.disassemblyArtifactId ? { disassemblyArtifactId: unit.disassemblyArtifactId.slice(0, 2000) } : {}),
+        ...(unit.referencedStrings?.length ? { referencedStrings: JSON.stringify(unit.referencedStrings.slice(0, 12).map((value) => value.slice(0, 512))) } : {}),
+        ...(unit.instructionMnemonics?.length ? { instructionMnemonics: JSON.stringify(unit.instructionMnemonics.slice(0, 800)) } : {}),
       },
     })) as ToolObservation[]
     const unitAddresses = new Set(units.map((unit) => unit.address))

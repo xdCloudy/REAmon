@@ -436,9 +436,9 @@ class TestSearchNavigate(WorkspaceFSTestBase):
 
     async def test_fs_symbols_python(self):
         try:
-            import tree_sitter_languages  # noqa: F401
+            import tree_sitter_language_pack  # noqa: F401
         except ImportError:
-            self.skipTest("tree_sitter_languages not installed on host")
+            self.skipTest("tree_sitter_language_pack not installed on host")
         src = (
             "def alpha():\n"
             "    pass\n"

@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
 import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
 import { getActiveWorkspaceImportSelection } from '@/lib/reamon/inventory-query'
-import { CODE_UNIT_OBSERVATION_TYPE, MAINTAINED_SOURCE_OBSERVATION_SOURCE, MAINTAINED_SOURCE_OBSERVATION_TYPE } from '@/lib/reamon/code-units'
+import { CODE_UNIT_OBSERVATION_TYPE, MAINTAINED_SOURCE_OBSERVATION_SOURCE, MAINTAINED_SOURCE_OBSERVATION_TYPE, normalizeCodeUnit } from '@/lib/reamon/code-units'
 
 interface RouteParams { params: Promise<{ id: string }> }
 
@@ -43,15 +43,37 @@ export async function GET(request: Request, { params }: RouteParams) {
     let cursor: string | undefined
     let codeUnitCount = 0
     let maintainedUnitCount = 0
+    let sourceLinkedUnitCount = 0
+    let codeBytes = 0
+    let measuredBytes = 0
+    let decompiledBytes = 0
     while (true) {
       const rows = await prisma.reamonObservation.findMany({
         where: { ...codeUnitWhere, ...(cursor ? { id: { gt: cursor } } : {}) },
         orderBy: { id: 'asc' },
         take: PAGE_SIZE,
-        select: { id: true },
+        select: { id: true, stableKey: true, label: true, source: true, artifactId: true, updatedAt: true, attributes: true },
       })
       if (rows.length === 0) break
       codeUnitCount += rows.length
+      for (const row of rows) {
+        const unit = normalizeCodeUnit({
+          id: row.id,
+          stableKey: row.stableKey || '',
+          label: row.label,
+          source: row.source || '',
+          artifactId: row.artifactId,
+          updatedAt: row.updatedAt || new Date(0),
+          attributes: row.attributes || {},
+        })
+        if (!unit) continue
+        codeBytes += unit.sizeBytes
+        if (unit.artifactId && unit.codeArtifactId) sourceLinkedUnitCount += 1
+        if (unit.coveragePercent !== null) {
+          measuredBytes += unit.sizeBytes
+          decompiledBytes += unit.sizeBytes * (unit.coveragePercent / 100)
+        }
+      }
       const maintained = await prisma.reamonObservation.findMany({
         where: {
           projectId,
@@ -72,6 +94,10 @@ export async function GET(request: Request, { params }: RouteParams) {
       codeUnitCount,
       maintainedUnitCount,
       coveragePercent: codeUnitCount > 0 ? Math.round((maintainedUnitCount / codeUnitCount) * 100) : 0,
+      decompilationCoveragePercent: measuredBytes > 0 ? Math.round((decompiledBytes / measuredBytes) * 100) : null,
+      sourceLinkedPercent: codeUnitCount > 0 ? Math.round((sourceLinkedUnitCount / codeUnitCount) * 100) : 0,
+      codeBytes,
+      measuredBytes,
     }, { headers: { 'Cache-Control': 'private, no-store' } })
   } catch (error) {
     console.error('Failed to load REAmon maintained-source coverage:', error)

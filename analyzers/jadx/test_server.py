@@ -41,6 +41,10 @@ class JadxServiceTests(unittest.TestCase):
     def tearDown(self):
         self.temporary.cleanup()
 
+    def test_hides_jvm_heap_banner_but_preserves_jadx_diagnostics(self):
+        stderr = b"Picked up JAVA_TOOL_OPTIONS: -Xmx1536m\nWARN: invalid class metadata\n"
+        self.assertEqual(server.analysis_log(stderr), "WARN: invalid class metadata")
+
     def test_rejects_input_outside_artifact_volume(self):
         outside = self.root / "outside.apk"
         outside.write_bytes(b"not an imported artifact")

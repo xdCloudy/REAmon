@@ -446,6 +446,7 @@ model Project {
   evidence                    Evidence[]
   observations                ReamonObservation[]
   maintainedSources           ReamonMaintainedSource[]
+  codeDrafts                  ReamonCodeDraft[]
   artifactProvenance          ArtifactProvenance[]
   projectionRuns              ReamonProjectionRun[]
   projectionLease             ReamonProjectionLease?
@@ -2786,6 +2787,31 @@ model ReamonMaintainedSource {
   @@index([projectId, updatedAt])
   @@index([projectId, artifactId])
   @@map("reamon_maintained_sources")
+}
+
+model ReamonCodeDraft {
+  id              String   @id @default(cuid())
+  projectId       String   @map("project_id")
+  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  artifactId      String   @map("artifact_id")
+  runKey          String   @map("run_key")
+  codeUnitId      String   @map("code_unit_id")
+  unitName        String   @map("unit_name")
+  language        String
+  sourceHash      String   @map("source_hash")
+  sourceCode      String   @db.Text @map("source_code")
+  providerName    String   @map("provider_name")
+  modelIdentifier String   @map("model_identifier")
+  question        String   @default("") @db.Text
+  scope           String   @default("file")
+  syntaxValidated Boolean? @map("syntax_validated")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@index([projectId, codeUnitId, updatedAt])
+  @@index([projectId, artifactId, sourceHash])
+  @@index([projectId, runKey, updatedAt])
+  @@map("reamon_code_drafts")
 }
 
 model WorkspaceActivity {

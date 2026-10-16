@@ -201,10 +201,12 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                 total_assembly_bytes = 0
                 for line in manifest.read_text(encoding="utf-8", errors="replace").splitlines():
                     fields = line.split("\t")
-                    if len(fields) not in (4, 5):
+                    if len(fields) not in (4, 5, 6, 7):
                         continue
                     encoded_name, address, size_text, relative = fields[:4]
-                    assembly_relative = fields[4] if len(fields) == 5 else ""
+                    assembly_relative = fields[4] if len(fields) >= 5 else ""
+                    encoded_references = fields[5] if len(fields) >= 6 else ""
+                    encoded_mnemonics = fields[6] if len(fields) == 7 else ""
                     if not re.fullmatch(r"[A-Za-z0-9_./-]{1,500}", relative) or ".." in Path(relative).parts:
                         continue
                     source = within(export_root, export_root / relative)
@@ -225,7 +227,27 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                         continue
                     if not name or size_bytes < 1:
                         continue
-                    rows.append((name[:500], address[:128], size_bytes, relative, source, assembly_relative, assembly))
+                    referenced_strings = []
+                    if encoded_references:
+                        try:
+                            encoded_values = base64.b64decode(encoded_references, validate=True).decode("ascii").split(",")
+                            for encoded_value in encoded_values[:12]:
+                                value = base64.b64decode(encoded_value, validate=True).decode("utf-8", errors="replace").strip()
+                                if value and value not in referenced_strings:
+                                    referenced_strings.append(value[:512])
+                        except (ValueError, UnicodeDecodeError):
+                            pass
+                    instruction_mnemonics = []
+                    if encoded_mnemonics:
+                        try:
+                            decoded = base64.b64decode(encoded_mnemonics, validate=True).decode("utf-8", errors="replace")
+                            instruction_mnemonics = [
+                                item for item in decoded.splitlines()[:800]
+                                if re.fullmatch(r"[A-Za-z][A-Za-z0-9_.]{0,31}", item)
+                            ]
+                        except (ValueError, UnicodeDecodeError):
+                            pass
+                    rows.append((name[:500], address[:128], size_bytes, relative, source, assembly_relative, assembly, referenced_strings, instruction_mnemonics))
 
                 if not rows:
                     raise AnalysisError(log_text[-1200:] or "Ghidra found no functions it could decompile")
@@ -269,7 +291,7 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                 sources_root = run_root / "sources"
                 units = []
                 progress_stride = max(1, len(returned) // 25)
-                for unit_index, (name, address, size_bytes, relative, source, assembly_relative, assembly) in enumerate(returned, start=1):
+                for unit_index, (name, address, size_bytes, relative, source, assembly_relative, assembly, referenced_strings, instruction_mnemonics) in enumerate(returned, start=1):
                     if unit_index == 1 or unit_index % progress_stride == 0 or unit_index == len(returned):
                         report_progress(f"Saving function {unit_index} of {len(returned)}")
                     destination = sources_root / relative
@@ -288,6 +310,10 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                         shutil.copyfile(assembly, assembly_destination)
                         unit["disassemblyArtifactId"] = assembly_destination.relative_to(DERIVED_ROOT).as_posix()
                         unit["disassemblyBytes"] = assembly.stat().st_size
+                    if referenced_strings:
+                        unit["referencedStrings"] = referenced_strings
+                    if len(instruction_mnemonics) >= 4:
+                        unit["instructionMnemonics"] = instruction_mnemonics
                     units.append(unit)
 
                 warnings = []
@@ -303,6 +329,7 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                 return {
                     "status": "completed",
                     "toolVersion": "12.1.4",
+                    "instructionArchitecture": summary.get("instructionArchitecture", "")[:128],
                     "functionCount": len(rows),
                     "visitedFunctionCount": int(summary.get("visited", "0")),
                     "failedFunctionCount": failures,

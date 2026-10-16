@@ -15,10 +15,12 @@ export interface CodeUnitObservationAttributes {
   decompiledBytes?: number
   decompiled?: boolean
   language?: string
+  relativePath?: string
   codeArtifactId?: string
   disassemblyArtifactId?: string
   disassemblyLanguage?: string
   classReferences?: string[]
+  referencedStrings?: string[]
 }
 
 export interface CodeUnitObservationRow {
@@ -40,6 +42,7 @@ export interface CodeUnit {
   coveragePercent: number | null
   language: string | null
   unitType: string | null
+  relativePath?: string | null
   artifactId: string | null
   artifactPath: string | null
   source: string
@@ -47,7 +50,9 @@ export interface CodeUnit {
   disassemblyArtifactId: string | null
   disassemblyLanguage: string | null
   classReferences?: string[]
+  referencedStrings?: string[]
   maintainedSource?: boolean
+  draftSource?: boolean
   updatedAt: string
 }
 
@@ -94,6 +99,7 @@ export function normalizeCodeUnit(row: CodeUnitObservationRow): CodeUnit | null 
     coveragePercent: coverageOf(attributes),
     language: text(attributes.language, 80),
     unitType: text(attributes.unitType, 80),
+    relativePath: text(attributes.relativePath, 1000),
     artifactId: row.artifactId,
     artifactPath,
     source: row.source.slice(0, 120),
@@ -101,7 +107,9 @@ export function normalizeCodeUnit(row: CodeUnitObservationRow): CodeUnit | null 
     disassemblyArtifactId: text(attributes.disassemblyArtifactId, 2000),
     disassemblyLanguage: text(attributes.disassemblyLanguage, 80),
     classReferences: classReferencesOf(attributes.classReferences),
+    referencedStrings: stringListOf(attributes.referencedStrings, 12, 512),
     maintainedSource: false,
+    draftSource: false,
     updatedAt,
   }
 }
@@ -147,7 +155,7 @@ export function filterCodeUnits(units: CodeUnit[], query: string): CodeUnit[] {
     if (filter.minimumBytes !== undefined && unit.sizeBytes < filter.minimumBytes) return false
     if (filter.maximumCoverage !== undefined && (unit.coveragePercent === null || unit.coveragePercent >= filter.maximumCoverage)) return false
     if (filter.text) {
-      const searchable = `${unit.name} ${unit.address || ''} ${unit.artifactPath || ''} ${unit.language || ''}`.toLocaleLowerCase()
+      const searchable = `${unit.name} ${unit.address || ''} ${unit.relativePath || ''} ${unit.artifactPath || ''} ${unit.language || ''} ${unit.referencedStrings?.join(' ') || ''}`.toLocaleLowerCase()
       if (!searchable.includes(filter.text)) return false
     }
     return true
@@ -171,26 +179,46 @@ function classReferencesOf(value: unknown): string[] {
   return [...new Set(parsed.filter((entry): entry is string => typeof entry === 'string').map((entry) => entry.trim()).filter(Boolean))].slice(0, 100)
 }
 
+function stringListOf(value: unknown, limit: number, maxLength: number): string[] {
+  let parsed = value
+  if (typeof value === 'string') {
+    try { parsed = JSON.parse(value) } catch { return [] }
+  }
+  if (!Array.isArray(parsed)) return []
+  return [...new Set(parsed.filter((entry): entry is string => typeof entry === 'string')
+    .map((entry) => entry.trim().slice(0, maxLength)).filter(Boolean))].slice(0, limit)
+}
+
 export interface CodeUnitTreemapEntry {
   key: string
   name: string
   sizeBytes: number
   coveragePercent: number | null
   codeUnit?: CodeUnit
-  packagePath?: string
+  folderPath?: string[]
   unitCount: number
   maintainedUnitCount: number
+  draftedUnitCount: number
 }
 
+const GENERATED_CONTENT_ROOTS = new Set(['sources', 'functions', 'smali', 'resources'])
+
 function codeUnitPath(unit: CodeUnit): string[] {
+  const relativeParts = unit.relativePath?.replace(/\\/g, '/').split('/').filter(Boolean)
+  if (relativeParts?.length) {
+    return GENERATED_CONTENT_ROOTS.has(relativeParts[0]) ? relativeParts.slice(1, -1) : relativeParts.slice(0, -1)
+  }
+
   const artifactPath = unit.codeArtifactId?.replace(/\\/g, '/')
   if (artifactPath) {
     const parts = artifactPath.split('/').filter(Boolean)
-    const isJvmClass = (unit.language === 'Java' || unit.language === 'Smali') && unit.unitType === 'class'
-    const sourceRoot = isJvmClass
-      ? Math.max(parts.lastIndexOf('sources'), parts.lastIndexOf('smali'))
-      : parts.lastIndexOf('functions')
-    if (sourceRoot >= 0) return parts.slice(sourceRoot + 1, -1)
+    const storageRoot = Math.max(
+      parts.lastIndexOf('sources'),
+      parts.lastIndexOf('functions'),
+      parts.lastIndexOf('smali'),
+      parts.lastIndexOf('resources'),
+    )
+    if (storageRoot >= 0) return parts.slice(storageRoot + 1, -1)
   }
 
   if ((unit.language === 'Java' || unit.language === 'Smali') && unit.unitType === 'class') {
@@ -200,9 +228,8 @@ function codeUnitPath(unit: CodeUnit): string[] {
   return []
 }
 
-export function buildCodeUnitTreemapEntries(units: CodeUnit[], packagePath = ''): CodeUnitTreemapEntry[] {
-  const selectedPath = packagePath.split('.').filter(Boolean)
-  const groups = new Map<string, { sizeBytes: number; weightedCoverage: number; measuredBytes: number; unitCount: number; maintainedUnitCount: number }>()
+export function buildCodeUnitTreemapEntries(units: CodeUnit[], selectedPath: string[] = []): CodeUnitTreemapEntry[] {
+  const groups = new Map<string, { sizeBytes: number; weightedCoverage: number; measuredBytes: number; unitCount: number; maintainedUnitCount: number; draftedUnitCount: number }>()
   const entries: CodeUnitTreemapEntry[] = []
 
   for (const unit of units) {
@@ -210,10 +237,11 @@ export function buildCodeUnitTreemapEntries(units: CodeUnit[], packagePath = '')
     if (selectedPath.some((part, index) => path[index] !== part)) continue
     if (path.length > selectedPath.length) {
       const segment = path[selectedPath.length]
-      const group = groups.get(segment) || { sizeBytes: 0, weightedCoverage: 0, measuredBytes: 0, unitCount: 0, maintainedUnitCount: 0 }
+      const group = groups.get(segment) || { sizeBytes: 0, weightedCoverage: 0, measuredBytes: 0, unitCount: 0, maintainedUnitCount: 0, draftedUnitCount: 0 }
       group.sizeBytes += unit.sizeBytes
       group.unitCount += 1
       if (unit.maintainedSource) group.maintainedUnitCount += 1
+      if (unit.draftSource) group.draftedUnitCount += 1
       if (unit.coveragePercent !== null) {
         group.weightedCoverage += unit.sizeBytes * unit.coveragePercent
         group.measuredBytes += unit.sizeBytes
@@ -230,27 +258,28 @@ export function buildCodeUnitTreemapEntries(units: CodeUnit[], packagePath = '')
       codeUnit: unit,
       unitCount: 1,
       maintainedUnitCount: unit.maintainedSource ? 1 : 0,
+      draftedUnitCount: unit.draftSource ? 1 : 0,
     })
   }
 
   for (const [segment, group] of groups) {
-    const childPath = [...selectedPath, segment].join('.')
+    const childPath = [...selectedPath, segment]
     entries.push({
-      key: `package:${childPath}`,
+      key: `folder:${JSON.stringify(childPath)}`,
       name: segment,
       sizeBytes: group.sizeBytes,
       coveragePercent: group.measuredBytes > 0 ? group.weightedCoverage / group.measuredBytes : null,
-      packagePath: childPath,
+      folderPath: childPath,
       unitCount: group.unitCount,
       maintainedUnitCount: group.maintainedUnitCount,
+      draftedUnitCount: group.draftedUnitCount,
     })
   }
 
   return entries.sort((left, right) => right.sizeBytes - left.sizeBytes || left.name.localeCompare(right.name))
 }
 
-export function filterCodeUnitsByPackage(units: CodeUnit[], packagePath: string): CodeUnit[] {
-  const selectedPath = packagePath.split('.').filter(Boolean)
+export function filterCodeUnitsByFolder(units: CodeUnit[], selectedPath: string[]): CodeUnit[] {
   if (!selectedPath.length) return units
   return units.filter((unit) => {
     const path = codeUnitPath(unit)

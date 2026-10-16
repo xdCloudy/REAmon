@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   buildCodeUnitTreemapEntries,
   filterCodeUnits,
-  filterCodeUnitsByPackage,
+  filterCodeUnitsByFolder,
   layoutCodeUnitTreemap,
   normalizeCodeUnit,
   parseCodeUnitFilter,
@@ -65,21 +65,21 @@ describe('code visualizer unit normalization', () => {
     expect(rectangles.reduce((sum, rect) => sum + rect.width * rect.height, 0)).toBeCloseTo(1200 * 560, 5)
   })
 
-  it('groups code artifacts by package with size-weighted coverage and drills down to code units', () => {
+  it('groups code artifacts by folder with size-weighted coverage and drills down to code units', () => {
     const units = [
-      unit({ id: 'main', name: 'com.example.MainActivity', unitType: 'class', codeArtifactId: 'p/a/t/r/sources/com/example/MainActivity.java', sizeBytes: 100, coveragePercent: 100, maintainedSource: true }),
-      unit({ id: 'util', name: 'com.example.Util', unitType: 'class', codeArtifactId: 'p/a/t/r/sources/com/example/Util.java', sizeBytes: 300, coveragePercent: 50 }),
-      unit({ id: 'other', name: 'org.sample.Other', unitType: 'class', codeArtifactId: 'p/a/t/r/sources/org/sample/Other.java', sizeBytes: 100, coveragePercent: null }),
+      unit({ id: 'main', name: 'com.example.MainActivity', unitType: 'class', codeArtifactId: 'p/a/t/r/sources/com.example/MainActivity.java', sizeBytes: 100, coveragePercent: 100, maintainedSource: true }),
+      unit({ id: 'util', name: 'com.example.Util', unitType: 'class', codeArtifactId: 'p/a/t/r/sources/com.example/Util.java', sizeBytes: 300, coveragePercent: 50 }),
+      unit({ id: 'other', name: 'org.sample.Other', unitType: 'class', codeArtifactId: 'p/a/t/r/sources/org.sample/Other.java', sizeBytes: 100, coveragePercent: null }),
     ]
 
     const roots = buildCodeUnitTreemapEntries(units)
-    expect(roots.map(({ name, packagePath, sizeBytes, unitCount, coveragePercent, maintainedUnitCount }) => ({ name, packagePath, sizeBytes, unitCount, coveragePercent, maintainedUnitCount }))).toEqual([
-      { name: 'com', packagePath: 'com', sizeBytes: 400, unitCount: 2, coveragePercent: 62.5, maintainedUnitCount: 1 },
-      { name: 'org', packagePath: 'org', sizeBytes: 100, unitCount: 1, coveragePercent: null, maintainedUnitCount: 0 },
+    expect(roots.map(({ name, folderPath, sizeBytes, unitCount, coveragePercent, maintainedUnitCount }) => ({ name, folderPath, sizeBytes, unitCount, coveragePercent, maintainedUnitCount }))).toEqual([
+      { name: 'com.example', folderPath: ['com.example'], sizeBytes: 400, unitCount: 2, coveragePercent: 62.5, maintainedUnitCount: 1 },
+      { name: 'org.sample', folderPath: ['org.sample'], sizeBytes: 100, unitCount: 1, coveragePercent: null, maintainedUnitCount: 0 },
     ])
-    const packages = buildCodeUnitTreemapEntries(units, 'com.example')
-    expect(packages.map(({ codeUnit }) => codeUnit?.id)).toEqual(['util', 'main'])
-    expect(filterCodeUnitsByPackage(units, 'com.example').map(({ id }) => id)).toEqual(['main', 'util'])
+    const folderEntries = buildCodeUnitTreemapEntries(units, ['com.example'])
+    expect(folderEntries.map(({ codeUnit }) => codeUnit?.id)).toEqual(['util', 'main'])
+    expect(filterCodeUnitsByFolder(units, ['com.example']).map(({ id }) => id)).toEqual(['main', 'util'])
   })
 
   it('keeps treemap areas bounded and reports coverage only for measured bytes', () => {

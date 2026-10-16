@@ -12,6 +12,7 @@ import {
 } from '@/lib/reamon/code-units'
 
 interface RouteParams { params: Promise<{ id: string }> }
+const MAX_FUNCTION_MAP_MEMBERS = 20_000
 
 function resultRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
@@ -31,8 +32,12 @@ export async function GET(request: Request, { params }: RouteParams) {
 
     const searchParams = new URL(request.url).searchParams
     const search = searchParams.get('q')?.trim() || ''
+    const requestedUnitId = searchParams.get('unitId')?.trim() || ''
     if (search.length > 300) {
       return NextResponse.json({ error: 'Code unit search is too long' }, { status: 400, headers: { 'Cache-Control': 'private, no-store' } })
+    }
+    if (requestedUnitId.length > 128) {
+      return NextResponse.json({ error: 'Invalid code unit id' }, { status: 400, headers: { 'Cache-Control': 'private, no-store' } })
     }
     const selection = await getActiveWorkspaceImportSelection(projectId)
     const decompileTasks = await prisma.task.findMany({
@@ -46,10 +51,12 @@ export async function GET(request: Request, { params }: RouteParams) {
       take: 100,
       select: {
         id: true,
+        artifactId: true,
         title: true,
         createdAt: true,
         completedAt: true,
         result: true,
+        runToken: true,
         provider: { select: { pluginId: true } },
         artifact: { select: { originalName: true, relativePath: true } },
       },
@@ -73,10 +80,10 @@ export async function GET(request: Request, { params }: RouteParams) {
         const result = resultRecord(task.result)
         const codeUnitCount = countByTaskId.get(task.id) || 0
         const isWasm = task.provider?.pluginId === 'reamon-wabt'
-        const discoveredUnitCount = finiteCount(isWasm ? result.wasmFunctionCount : result.decompiledClassCount ?? result.decompiledFunctionCount)
-        const returnedUnitCount = finiteCount(result.returnedClassCount ?? result.returnedFunctionCount) ?? codeUnitCount
+        const discoveredUnitCount = finiteCount(isWasm ? result.wasmFunctionCount : result.decompiledCodeUnitCount ?? result.decompiledClassCount ?? result.decompiledFunctionCount)
+        const returnedUnitCount = finiteCount(result.returnedCodeUnitCount ?? result.returnedClassCount ?? result.returnedFunctionCount) ?? codeUnitCount
         const indexedUnitCount = Math.min(codeUnitCount, returnedUnitCount)
-        const unitLabel = task.provider?.pluginId === 'reamon-jadx' ? 'classes' : task.provider?.pluginId === 'reamon-ghidra' || isWasm ? 'functions' : 'code units'
+        const unitLabel = task.provider?.pluginId === 'reamon-ghidra' || isWasm ? 'functions' : 'code units'
         return {
           id: task.id,
           title: task.title,
@@ -84,6 +91,10 @@ export async function GET(request: Request, { params }: RouteParams) {
           completedAt: task.completedAt?.toISOString() || null,
           artifactName: task.artifact?.relativePath || task.artifact?.originalName || 'Unknown artifact',
           providerId: task.provider?.pluginId || null,
+          apktoolProjectAvailable: task.provider?.pluginId === 'reamon-jadx'
+            && typeof result.apktoolProjectPath === 'string'
+            && Boolean(task.runToken)
+            && result.apktoolProjectPath === `${projectId}/${task.artifactId}/${task.id}/${task.runToken}/apktool-project`,
           codeUnitCount,
           unitLabel,
           discoveredUnitCount,
@@ -103,16 +114,38 @@ export async function GET(request: Request, { params }: RouteParams) {
       return NextResponse.json({ error: 'Analysis run not found' }, { status: 404, headers: { 'Cache-Control': 'private, no-store' } })
     }
     const selectedRunId = requestedTaskId || runs[0]?.id || null
+    const matchingFunctionRows = search && selectedRunId ? await prisma.reamonObservation.findMany({
+      where: {
+        projectId,
+        taskId: selectedRunId,
+        artifact: { is: selection.artifactWhere },
+        kind: 'entity',
+        type: 'function',
+        OR: [
+          { label: { contains: search, mode: 'insensitive' } },
+          ...['name', 'qualifiedName', 'address'].map((key) => ({
+            attributes: { path: [key], string_contains: search, mode: 'insensitive' as const },
+          })),
+        ],
+      },
+      select: { attributes: true },
+      take: 2_000,
+    }) : []
+    const matchingFunctionParentKeys = [...new Set(matchingFunctionRows.flatMap((row) => {
+      const parentKey = resultRecord(row.attributes).parentCodeUnitKey
+      return typeof parentKey === 'string' ? [parentKey] : []
+    }))]
     const where = {
       projectId,
       type: CODE_UNIT_OBSERVATION_TYPE,
       artifact: { is: selection.artifactWhere },
       ...(selectedRunId ? { taskId: selectedRunId } : {}),
+      ...(requestedUnitId ? { id: requestedUnitId } : {}),
       ...(search ? {
         OR: [
           { label: { contains: search, mode: 'insensitive' as const } },
           { stableKey: { contains: search, mode: 'insensitive' as const } },
-          ...['name', 'qualifiedName', 'address', 'startAddress', 'language'].map((key) => ({
+          ...['name', 'qualifiedName', 'address', 'startAddress', 'language', 'referencedStrings'].map((key) => ({
             attributes: { path: [key], string_contains: search, mode: 'insensitive' as const },
           })),
           { artifact: { is: {
@@ -121,6 +154,7 @@ export async function GET(request: Request, { params }: RouteParams) {
               { originalName: { contains: search, mode: 'insensitive' as const } },
             ],
           } } },
+          ...(matchingFunctionParentKeys.length ? [{ stableKey: { in: matchingFunctionParentKeys } }] : []),
         ],
       } : {}),
     }
@@ -160,20 +194,88 @@ export async function GET(request: Request, { params }: RouteParams) {
     ])
 
     const pageRows = rows.slice(0, CODE_UNIT_QUERY_LIMIT)
-    const maintainedRows = pageRows.length
-      ? await prisma.reamonObservation.findMany({
+    const [maintainedRows, draftRows] = pageRows.length
+      ? await Promise.all([prisma.reamonObservation.findMany({
         where: { ...maintainedWhere, stableKey: { in: pageRows.map((row) => row.id) } },
         select: { stableKey: true },
-      })
-      : []
+      }), pageRows[0].artifactId ? prisma.reamonCodeDraft.findMany({
+        where: { projectId, artifactId: pageRows[0].artifactId, codeUnitId: { in: pageRows.map((row) => row.id) } },
+        select: { codeUnitId: true },
+        distinct: ['codeUnitId'],
+      }) : Promise.resolve([])])
+      : [[], []]
     const maintainedUnitIds = new Set(maintainedRows.map((row) => row.stableKey))
+    const draftedUnitIds = new Set(draftRows.map((row) => row.codeUnitId))
     const units = pageRows
       .map(normalizeCodeUnit)
       .filter((unit) => unit !== null)
-      .map((unit) => ({ ...unit, maintainedSource: maintainedUnitIds.has(unit.id) }))
+      .map((unit) => ({
+        ...unit,
+        maintainedSource: maintainedUnitIds.has(unit.id),
+        draftSource: draftedUnitIds.has(unit.id),
+      }))
+    const parentByStableKey = new Map(pageRows.flatMap((row) => {
+      const unit = units.find((candidate) => candidate.id === row.id)
+      return unit ? [[row.stableKey, unit] as const] : []
+    }))
+    const parentKeys = [...parentByStableKey.keys()]
+    const functionRows = parentKeys.length && selectedRunId ? await prisma.reamonObservation.findMany({
+      where: {
+        projectId,
+        taskId: selectedRunId,
+        artifact: { is: selection.artifactWhere },
+        kind: 'entity',
+        type: 'function',
+        OR: parentKeys.map((parentCodeUnitKey) => ({
+          attributes: { path: ['parentCodeUnitKey'], equals: parentCodeUnitKey },
+        })),
+      },
+      orderBy: [{ stableKey: 'asc' }, { id: 'asc' }],
+      take: MAX_FUNCTION_MAP_MEMBERS + 1,
+      select: { id: true, stableKey: true, label: true, source: true, attributes: true },
+    }) : []
+    const functionMapTruncated = functionRows.length > MAX_FUNCTION_MAP_MEMBERS
+    const functionMapEntries = functionRows.slice(0, MAX_FUNCTION_MAP_MEMBERS).flatMap((row) => {
+      const attributes = resultRecord(row.attributes)
+      const parentKey = typeof attributes.parentCodeUnitKey === 'string' ? attributes.parentCodeUnitKey : ''
+      const parentCodeUnit = parentByStableKey.get(parentKey)
+      if (!parentCodeUnit) return []
+      const fullName = (typeof attributes.qualifiedName === 'string' && attributes.qualifiedName)
+        || (typeof attributes.name === 'string' && attributes.name)
+        || row.label
+        || ''
+      if (!fullName) return []
+      const afterOwner = fullName.includes('->') ? fullName.slice(fullName.lastIndexOf('->') + 2) : fullName
+      let memberName = afterOwner.split('(')[0].split(/::|\./).at(-1)?.trim() || afterOwner
+      const parentTypeName = parentCodeUnit.name.split('.').at(-1)?.split('$').at(-1) || parentCodeUnit.name
+      const isConstructor = memberName === '<init>' || memberName === '.ctor' || memberName === 'constructor' || memberName === parentTypeName
+      if (isConstructor) memberName = parentTypeName
+      return [{
+        id: row.id,
+        key: row.stableKey,
+        source: row.source,
+        name: memberName.slice(0, 500),
+        fullName: fullName.slice(0, 1000),
+        address: typeof attributes.address === 'string' ? attributes.address.slice(0, 128) : null,
+        language: typeof attributes.language === 'string' ? attributes.language.slice(0, 80) : parentCodeUnit.language,
+        similarityAvailable: typeof attributes.instructionMnemonics === 'string' && attributes.instructionMnemonics.length > 2,
+        memberKind: typeof attributes.memberKind === 'string' ? attributes.memberKind.slice(0, 80) : isConstructor ? 'constructor' : 'method',
+        line: typeof attributes.line === 'number' && Number.isSafeInteger(attributes.line) ? attributes.line : null,
+        parentCodeUnit,
+      }]
+    })
+    const outlinedMemberNames = new Set(functionMapEntries
+      .filter((entry) => entry.source === 'reamon-tree-sitter-outline')
+      .map((entry) => `${entry.parentCodeUnit.id}:${entry.name.toLocaleLowerCase()}`))
+    const functionMapMembers = functionMapEntries
+      .filter((entry) => entry.source === 'reamon-tree-sitter-outline'
+        || !outlinedMemberNames.has(`${entry.parentCodeUnit.id}:${entry.name.toLocaleLowerCase()}`))
+      .map(({ source: _source, ...entry }) => entry)
     const nextCursor = rows.length > CODE_UNIT_QUERY_LIMIT ? pageRows.at(-1)?.id || null : null
     return NextResponse.json({
       units,
+      functionMapMembers,
+      functionMapTruncated,
       total,
       maintainedCount,
       hasMore: nextCursor !== null,

@@ -49,6 +49,34 @@ devices, services, remote hosts, captures, filesystems, debug sessions, custom
 targets, and unknown inputs. Platform-specific behavior belongs behind capabilities
 and plugins rather than in the workspace core.
 
+## WIP: language and format support
+
+Language support is still in development and depends on the input format and the
+available analysis engine. A generated C-like listing or assembly representation is
+not the original source language, and “supported” does not mean that names, types,
+control flow, or behavior have been recovered exactly. Treat every decompilation as
+a starting point for review.
+
+| Language or input | Status | What works now | Main gaps |
+| --- | --- | --- | --- |
+| Java bytecode (`.class`, `.jar`) and Android (`.dex`, `.apk`) | **Usable** | JADX produces browsable Java source and class/method outlines. Android method and call relationships are also indexed where available. | Obfuscation, missing debug metadata, reflection, and native libraries can hide behavior or names. Kotlin-built apps are rendered as Java-like output, not restored Kotlin source. |
+| C# / managed .NET (`.dll`, `.exe`) | **Usable** | ILSpy decompiles supported managed PE assemblies to C#; CLR IL instruction sequences are retained as supporting function evidence. | Output is reconstructed source. Original comments, formatting, and some compiler-level distinctions are lost. Visual Basic and F# assemblies are not reconstructed in their original source syntax. |
+| Native binaries (ELF, PE, Mach-O; including C/C++ and other compiled languages) | **Partial** | Ghidra provides address-aware functions, disassembly evidence, and C-like pseudocode for supported architectures. | Pseudocode is not recovered C/C++ or the original language. Types, class structure, templates, symbols, and control flow can be incomplete or misleading, especially in optimized or stripped binaries. |
+| WebAssembly (`.wasm`) | **Low-level only** | WABT exposes WebAssembly text/disassembly (WAT) and function-level entries for navigation. | This is not a high-level source decompiler; names and original source structure may be absent. |
+| Source files with an available Tree-sitter grammar | **Source navigation only** | REAmon can build function/method outlines for supported grammars and use them to scope edits to a member. | Parsing source is not decompilation. Grammar availability and language-specific validation vary. |
+| Python bytecode (`.pyc`) | **Not integrated; planned evaluation** | PyLingual is a candidate for CPython bytecode-to-source recovery. | No Python bytecode decompiler is wired into REAmon yet. PyLingual’s local CLI documents possible control-flow accuracy regressions; its runtime and model requirements also need evaluation. |
+| Kotlin, Go, Rust, Swift, Objective-C, and native C++ recovery | **Partial now; language-aware improvements planned** | Native binaries can go through Ghidra’s generic pseudocode path when their architecture is supported. Kotlin bytecode can go through JADX’s Java output. | REAmon does not yet reliably reconstruct these languages’ original source idioms, metadata, or project structure. |
+| JavaScript / TypeScript bundles and bytecode | **Not integrated; planned evaluation** | Source files can be browsed; member outlines depend on an available grammar. | No bundled-code or runtime-bytecode deobfuscation workflow is integrated yet. |
+
+This is a work-in-progress capability matrix, not a compatibility guarantee. The
+planned rows identify areas to evaluate; they do not promise a release date. Current
+engines include [JADX](https://github.com/skylot/jadx),
+[ILSpy](https://github.com/icsharpcode/ILSpy),
+[Ghidra](https://github.com/NationalSecurityAgency/ghidra), and
+[WABT](https://github.com/WebAssembly/wabt). Python bytecode support will first
+evaluate [PyLingual](https://github.com/syssec-utd/pylingual), whose project reports
+support for CPython bytecode from 3.6 through 3.15.
+
 ## Current bootstrap
 
 The first REAmon milestone is implemented and running on the `reamon/bootstrap` branch:
@@ -114,8 +142,8 @@ of code.
 This rating covers the bootstrap release scope only. It does not measure readiness
 for REAmon's broader product goal of reverse-engineering arbitrary programs from
 import through decompilation, navigation, AI-assisted analysis, and runtime work.
-That broader goal remains in progress; native decompiler integrations and populated
-code-unit visualizations are not available in this bootstrap.
+That broader goal remains in progress. The WIP support matrix above describes
+capability additions that are outside this historical bootstrap release score.
 
 The 100% score is justified for the current production release scope. The product
 boundary is release-gated independently: no native workspace depends on a retired

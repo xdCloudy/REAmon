@@ -1,19 +1,218 @@
 import { createHash } from 'node:crypto'
-import type { ToolExecutionInput, ToolPlugin, ToolPluginManifest, ToolResult } from './types'
-export const wasmManifest:ToolPluginManifest={id:'reamon-wabt',name:'WebAssembly Disassembler (WABT)',category:'static_analysis',integration:'process',acceptsTargetTypes:['FILE'],acceptsFormats:['wasm'],capabilities:['disassemble'],produces:['CodeUnit','WATFunction'],requirements:[{key:'service',value:'Isolated WABT analyzer'},{key:'artifactPath'}]}
-export async function executeWasm(input:ToolExecutionInput):Promise<ToolResult>{
- const base={toolId:wasmManifest.id,capabilities:wasmManifest.capabilities,produced:wasmManifest.produces}
- if(!input.artifactPath||!input.artifactId||!input.projectId||!input.taskId||!input.runToken)return {status:'failed',...base,data:{},error:'WABT requires a stored WebAssembly module and task context'}
- const url=process.env.REAMON_WASM_URL?.trim().replace(/\/$/,'')
- if(!url)return {status:'failed',...base,data:{},error:'The isolated WebAssembly analyzer is not configured'}
- try{
-  const response=await fetch(url+'/analyze',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({projectId:input.projectId,artifactId:input.artifactId,taskId:input.taskId,runId:input.runToken,artifactPath:input.artifactPath}),signal:AbortSignal.timeout(240000),cache:'no-store'})
-  const payload:any=await response.json().catch(()=>null)
-  if(!response.ok)throw new Error(payload?.error||'WABT analyzer returned HTTP '+response.status)
-  if(payload?.status!=='completed'||!Array.isArray(payload.units))throw new Error('Invalid WABT result')
-  const units=payload.units.slice(0,2000).filter((u:any)=>u&&typeof u.name==='string'&&typeof u.address==='string'&&typeof u.codeArtifactId==='string'&&u.sizeBytes>0)
-  const observations=units.map((u:any)=>({kind:'entity',type:'code_unit',key:'wasm:function:'+createHash('sha256').update(input.artifactId+':'+input.taskId+':'+u.address).digest('hex').slice(0,32),label:u.name.slice(0,500),attributes:{unitType:'function',name:u.name.slice(0,500),qualifiedName:u.name.slice(0,500),address:u.address.slice(0,128),sizeBytes:Math.floor(u.sizeBytes),language:'WebAssembly Text (WAT)',codeArtifactId:u.codeArtifactId.slice(0,2000)}}))
-  return {status:'completed',...base,data:{wasmFunctionCount:payload.functionCount,returnedFunctionCount:observations.length,codeBytes:payload.codeBytes,truncated:payload.truncated,wabtVersion:payload.toolVersion,warnings:payload.warnings||'',observations}}
- }catch(e){return {status:'failed',...base,data:{},error:(e instanceof Error?e.message:String(e)).slice(0,4000)}}
+import type { ToolExecutionInput, ToolObservation, ToolPlugin, ToolPluginManifest, ToolResult } from './types'
+import { readAnalyzerResponse } from './analyzer-response'
+
+const MAX_UNITS = 2_000
+const DEFAULT_TIMEOUT_MS = 240_000
+const MAX_TIMEOUT_MS = 10 * 60_000
+
+interface WasmUnit {
+  name: string
+  address: string
+  relativePath: string
+  codeArtifactId: string
+  sizeBytes: number
+  instructionMnemonics?: string[]
 }
-export const wasmPlugin:ToolPlugin={manifest:wasmManifest,analyze:executeWasm}
+
+interface WasmCall {
+  fromAddress: string
+  toAddress: string
+  fromName: string
+  toName: string
+}
+
+interface WasmResponse {
+  status: 'completed'
+  toolVersion: string
+  functionCount: number
+  returnedUnits: number
+  codeBytes?: number
+  truncated: boolean
+  units: WasmUnit[]
+  calls?: WasmCall[]
+  callCount?: number
+  callGraphTruncated?: boolean
+  warnings?: string
+}
+
+export const wasmManifest: ToolPluginManifest = {
+  id: 'reamon-wabt',
+  name: 'WebAssembly Disassembler (WABT)',
+  category: 'static_analysis',
+  integration: 'process',
+  acceptsTargetTypes: ['FILE'],
+  acceptsFormats: ['wasm'],
+  capabilities: ['disassemble'],
+  produces: ['CodeUnit', 'WATFunction'],
+  requirements: [
+    { key: 'service', value: 'Isolated WABT analyzer' },
+    { key: 'artifactPath' },
+  ],
+}
+
+function errorText(error: unknown): string {
+  return (error instanceof Error ? error.message : String(error)).trim().slice(0, 4_000) || 'WABT analysis failed'
+}
+
+function boundedTimeoutMs(): number {
+  const value = Number(process.env.REAMON_WASM_REQUEST_TIMEOUT_MS)
+  return Number.isFinite(value) ? Math.min(MAX_TIMEOUT_MS, Math.max(10_000, Math.floor(value))) : DEFAULT_TIMEOUT_MS
+}
+
+function isWasmUnit(value: unknown): value is WasmUnit {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const unit = value as Record<string, unknown>
+  return typeof unit.name === 'string' && unit.name.length > 0 && unit.name.length <= 500
+    && typeof unit.address === 'string' && unit.address.length > 0 && unit.address.length <= 128
+    && typeof unit.relativePath === 'string' && unit.relativePath.length > 0 && unit.relativePath.length <= 1_000
+    && typeof unit.codeArtifactId === 'string' && unit.codeArtifactId.length > 0 && unit.codeArtifactId.length <= 2_000
+    && typeof unit.sizeBytes === 'number' && Number.isSafeInteger(unit.sizeBytes) && unit.sizeBytes > 0
+    && (unit.instructionMnemonics === undefined || (Array.isArray(unit.instructionMnemonics) && unit.instructionMnemonics.length <= 800
+      && unit.instructionMnemonics.every((mnemonic) => typeof mnemonic === 'string' && /^[A-Za-z][A-Za-z0-9_.]{0,31}$/.test(mnemonic))))
+}
+
+function isWasmResponse(value: unknown): value is WasmResponse {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const response = value as Record<string, unknown>
+  return response.status === 'completed'
+    && typeof response.toolVersion === 'string'
+    && Number.isSafeInteger(response.functionCount) && (response.functionCount as number) >= 0
+    && Number.isSafeInteger(response.returnedUnits) && (response.returnedUnits as number) >= 0
+    && (response.codeBytes === undefined || (Number.isSafeInteger(response.codeBytes) && (response.codeBytes as number) >= 0))
+    && typeof response.truncated === 'boolean'
+    && Array.isArray(response.units)
+    && (response.calls === undefined || Array.isArray(response.calls))
+    && (response.warnings === undefined || typeof response.warnings === 'string')
+}
+
+export async function executeWasm(input: ToolExecutionInput): Promise<ToolResult> {
+  const base = {
+    toolId: wasmManifest.id,
+    capabilities: wasmManifest.capabilities,
+    produced: wasmManifest.produces,
+  }
+  if (!input.artifactPath || !input.artifactId || !input.projectId || !input.taskId || !input.runToken) {
+    return { status: 'failed', ...base, data: {}, error: 'WABT requires a stored WebAssembly module and task context' }
+  }
+
+  const baseUrl = process.env.REAMON_WASM_URL?.trim().replace(/\/$/, '')
+  if (!baseUrl) return { status: 'failed', ...base, data: {}, error: 'The isolated WebAssembly analyzer is not configured' }
+
+  const timeout = AbortSignal.timeout(boundedTimeoutMs())
+  const signal = input.signal ? AbortSignal.any([input.signal, timeout]) : timeout
+  try {
+    const response = await fetch(`${baseUrl}/analyze`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/x-ndjson, application/json' },
+      body: JSON.stringify({
+        projectId: input.projectId,
+        artifactId: input.artifactId,
+        taskId: input.taskId,
+        runId: input.runToken,
+        artifactPath: input.artifactPath,
+      }),
+      signal,
+      cache: 'no-store',
+    })
+    const payload: unknown = await readAnalyzerResponse<unknown>(response, input.reportProgress)
+    if (!response.ok) {
+      const detail = payload && typeof payload === 'object' && 'error' in payload && typeof payload.error === 'string'
+        ? payload.error.slice(0, 1_000)
+        : `WABT analyzer returned HTTP ${response.status}`
+      throw new Error(detail)
+    }
+    if (!isWasmResponse(payload)) throw new Error('WABT analyzer returned an invalid result')
+
+    const units = payload.units.slice(0, MAX_UNITS).filter(isWasmUnit)
+    if (!units.length) throw new Error('WABT did not produce any viewable WebAssembly functions')
+    const observations: ToolObservation[] = units.map((unit) => ({
+      kind: 'entity',
+      type: 'code_unit',
+      key: `wasm:function:${createHash('sha256').update(`${input.artifactId}:${input.taskId}:${unit.address}`).digest('hex').slice(0, 32)}`,
+      label: unit.name,
+      attributes: {
+        unitType: 'function',
+        name: unit.name,
+        qualifiedName: unit.name,
+        address: unit.address,
+        relativePath: unit.relativePath,
+        sizeBytes: unit.sizeBytes,
+        language: 'WebAssembly Text (WAT)',
+        decompiled: true,
+        codeArtifactId: unit.codeArtifactId,
+        ...(unit.instructionMnemonics?.length ? { instructionMnemonics: JSON.stringify(unit.instructionMnemonics.slice(0, 800)) } : {}),
+      },
+    }))
+    const unitAddresses = new Set(units.map((unit) => unit.address))
+    const calls = (Array.isArray(payload.calls) ? payload.calls : []).slice(0, MAX_UNITS)
+    const externalFunctions = new Set<string>()
+    const seenEdges = new Set<string>()
+    for (const call of calls) {
+      if (!call || typeof call.fromAddress !== 'string' || typeof call.toAddress !== 'string'
+          || typeof call.fromName !== 'string' || typeof call.toName !== 'string'
+          || call.fromAddress.length > 128 || call.toAddress.length > 128
+          || call.fromName.length > 500 || call.toName.length > 500
+          || !unitAddresses.has(call.fromAddress)) continue
+      const edgeIdentity = `${call.fromAddress}->${call.toAddress}`
+      if (seenEdges.has(edgeIdentity)) continue
+      seenEdges.add(edgeIdentity)
+      const fromKey = `wasm:function:${createHash('sha256').update(`${input.artifactId}:${input.taskId}:${call.fromAddress}`).digest('hex').slice(0, 32)}`
+      let toKey = `wasm:function:${createHash('sha256').update(`${input.artifactId}:${input.taskId}:${call.toAddress}`).digest('hex').slice(0, 32)}`
+      if (!unitAddresses.has(call.toAddress)) {
+        if (!externalFunctions.has(toKey)) {
+          externalFunctions.add(toKey)
+          observations.push({
+            kind: 'entity',
+            type: 'function',
+            key: toKey,
+            label: call.toName,
+            attributes: {
+              identity: `${input.artifactId}:${call.toAddress}`,
+              qualifiedName: call.toName,
+              name: call.toName,
+              address: call.toAddress,
+              language: 'WebAssembly',
+              externalOrUndecompiled: true,
+            },
+          })
+        }
+      }
+      const digest = createHash('sha256').update(`${input.artifactId}:${call.fromAddress}:${call.toAddress}`).digest('hex').slice(0, 32)
+      observations.push({
+        kind: 'relationship',
+        type: 'calls',
+        relation: 'calls',
+        key: `wasm:call:${digest}`,
+        fromKey,
+        toKey,
+        label: `${call.fromName} calls ${call.toName}`.slice(0, 500),
+        attributes: { fromAddress: call.fromAddress, toAddress: call.toAddress },
+      })
+    }
+    const omittedUnits = payload.units.length - units.length
+    const truncated = payload.truncated || payload.functionCount > units.length || omittedUnits > 0 || payload.callGraphTruncated === true || (payload.calls?.length || 0) > MAX_UNITS
+    const warnings = [payload.warnings?.trim(), omittedUnits > 0 ? `${omittedUnits} invalid or excess function records were omitted.` : '']
+      .filter(Boolean).join(' ').slice(0, 4_000)
+
+    return {
+      status: 'completed',
+      ...base,
+      data: {
+        observations,
+        wasmFunctionCount: payload.functionCount,
+        returnedFunctionCount: units.length,
+        callCount: seenEdges.size,
+        callGraphTruncated: payload.callGraphTruncated === true || (payload.calls?.length || 0) > MAX_UNITS,
+        codeBytes: payload.codeBytes ?? units.reduce((sum, unit) => sum + unit.sizeBytes, 0),
+        truncated,
+        wabtVersion: payload.toolVersion.slice(0, 80),
+        warnings,
+      },
+    }
+  } catch (error) {
+    return { status: 'failed', ...base, data: {}, error: errorText(error) }
+  }
+}
+
+export const wasmPlugin: ToolPlugin = { manifest: wasmManifest, analyze: executeWasm }

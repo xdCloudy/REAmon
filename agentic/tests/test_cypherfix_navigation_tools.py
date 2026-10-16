@@ -1,7 +1,7 @@
 """Unit tests for CypherFix tree-sitter navigation tools (D1):
 github_symbols, github_find_definition, github_find_references, github_repo_map.
 
-Real-parser paths run on a small .py fixture (tree_sitter_languages is in the
+Real-parser paths run on a small .py fixture (tree_sitter_language_pack is in the
 agent image); graceful degradation paths are covered by monkeypatching
 _get_parser -> None and using an unsupported extension.
 

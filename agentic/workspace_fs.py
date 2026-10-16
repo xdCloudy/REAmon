@@ -910,10 +910,12 @@ async def fs_symbols(file_path: str) -> str:
         supported = ", ".join(list(_EXT_TO_LANG) + list(_MARKDOWN_EXTS))
         return f"Error: unsupported language for {full.suffix}. Supported: {supported}"
     try:
-        from tree_sitter_languages import get_parser
-        parser = get_parser(lang)
+        from reamon_treesitter import get_reamon_parser
+        parser = get_reamon_parser(lang)
     except Exception as e:
         return f"Error: tree-sitter parser unavailable for {lang}: {e}"
+    if parser is None:
+        return f"Error: tree-sitter parser unavailable for {lang}."
 
     def _extract_name(node):
         for child in node.children:

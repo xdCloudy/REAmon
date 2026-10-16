@@ -45,19 +45,29 @@ describe('GET /api/projects/[id]/visualizer/coverage', () => {
 
   test('counts maintained copies only for code units in the selected active run', async () => {
     mocks.findMany
-      .mockResolvedValueOnce([{ id: 'unit-1' }, { id: 'unit-2' }, { id: 'unit-3' }])
+      .mockResolvedValueOnce([
+        { id: 'unit-1', stableKey: 'class:main', label: 'Main', source: 'jadx', artifactId: 'artifact-1', updatedAt: new Date(), attributes: { sizeBytes: 100, decompiled: true, codeArtifactId: 'sources/Main.java' } },
+        { id: 'unit-2', stableKey: 'class:helper', label: 'Helper', source: 'jadx', artifactId: 'artifact-1', updatedAt: new Date(), attributes: { sizeBytes: 300, coveragePercent: 50 } },
+        { id: 'unit-3', stableKey: 'class:unknown', label: 'Unknown', source: 'jadx', artifactId: 'artifact-1', updatedAt: new Date(), attributes: { sizeBytes: 100 } },
+      ])
       .mockResolvedValueOnce([{ stableKey: 'unit-2' }])
 
     const response = await GET(new Request('http://localhost/api/projects/project-1/visualizer/coverage?taskId=run-1'), params)
 
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ taskId: 'run-1', codeUnitCount: 3, maintainedUnitCount: 1, coveragePercent: 33 })
+    expect(await response.json()).toEqual({
+      taskId: 'run-1', codeUnitCount: 3, maintainedUnitCount: 1, coveragePercent: 33,
+      decompilationCoveragePercent: 63, sourceLinkedPercent: 33, codeBytes: 500, measuredBytes: 400,
+    })
     expect(mocks.taskFindFirst).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ id: 'run-1', projectId: 'project-1', status: 'COMPLETED' }),
     }))
     expect(mocks.findMany).toHaveBeenNthCalledWith(2, expect.objectContaining({
       where: expect.objectContaining({ source: 'reamon-maintained-source', type: 'maintained_source', stableKey: { in: ['unit-1', 'unit-2', 'unit-3'] } }),
       select: { stableKey: true },
+    }))
+    expect(mocks.findMany).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      select: { id: true, stableKey: true, label: true, source: true, artifactId: true, updatedAt: true, attributes: true },
     }))
   })
 

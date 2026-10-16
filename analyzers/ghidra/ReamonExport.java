@@ -6,8 +6,11 @@ import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.FunctionIterator;
 import ghidra.program.model.listing.Instruction;
 import ghidra.program.model.listing.InstructionIterator;
+import ghidra.program.model.listing.Data;
+import ghidra.program.model.data.StringDataInstance;
 import ghidra.program.model.symbol.Reference;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.Set;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -25,6 +28,7 @@ public class ReamonExport extends GhidraScript {
         Path exportRoot = Path.of(args[0]).toAbsolutePath().normalize();
         int maxFunctions = Integer.parseInt(args[1]);
         int maxCallEdges = Integer.parseInt(args[2]);
+        int maxSignatureInstructions = 800;
         Files.createDirectories(exportRoot.resolve("functions"));
         Files.createDirectories(exportRoot.resolve("assembly"));
         Path manifest = exportRoot.resolve("manifest.tsv");
@@ -82,13 +86,27 @@ public class ReamonExport extends GhidraScript {
                     throw new IllegalStateException("Function assembly path escaped export directory");
                 }
                 StringBuilder listing = new StringBuilder();
+                StringBuilder mnemonicSequence = new StringBuilder();
+                int mnemonicCount = 0;
+                Set<String> referencedStrings = new LinkedHashSet<>();
                 InstructionIterator instructions = currentProgram.getListing().getInstructions(function.getBody(), true);
                 while (instructions.hasNext()) {
                     monitor.checkCancelled();
                     Instruction instruction = instructions.next();
                     listing.append(instruction.getAddress()).append(": ").append(instruction).append('\n');
+                    if (mnemonicCount < maxSignatureInstructions) {
+                        mnemonicSequence.append(instruction.getMnemonicString().toLowerCase(java.util.Locale.ROOT)).append('\n');
+                        mnemonicCount++;
+                    }
                     Reference[] references = currentProgram.getReferenceManager().getReferencesFrom(instruction.getAddress());
                     for (Reference reference : references) {
+                        Data targetData = currentProgram.getListing().getDataContaining(reference.getToAddress());
+                        if (targetData != null && targetData.hasStringValue()) {
+                            String value = StringDataInstance.getStringDataInstance(targetData).getStringValue();
+                            if (value != null && !value.isBlank() && value.length() <= 512 && referencedStrings.size() < 12) {
+                                referencedStrings.add(value);
+                            }
+                        }
                         if (!reference.getReferenceType().isCall()) continue;
                         String targetAddress = reference.getToAddress().toString();
                         String edgeKey = address + "\t" + targetAddress;
@@ -109,9 +127,16 @@ public class ReamonExport extends GhidraScript {
                 Files.writeString(assembly, listing, StandardCharsets.UTF_8);
                 long sizeBytes = Math.max(1L, function.getBody().getNumAddresses());
                 String encodedName = Base64.getEncoder().encodeToString(function.getName().getBytes(StandardCharsets.UTF_8));
+                StringBuilder stringManifest = new StringBuilder();
+                for (String value : referencedStrings) {
+                    if (stringManifest.length() > 0) stringManifest.append(',');
+                    stringManifest.append(Base64.getEncoder().encodeToString(value.getBytes(StandardCharsets.UTF_8)));
+                }
+                String encodedStrings = Base64.getEncoder().encodeToString(stringManifest.toString().getBytes(StandardCharsets.UTF_8));
+                String encodedMnemonics = Base64.getEncoder().encodeToString(mnemonicSequence.toString().getBytes(StandardCharsets.UTF_8));
                 String relativePath = "functions/" + filename;
                 String assemblyRelativePath = "assembly/" + assemblyFilename;
-                String line = encodedName + "\t" + address + "\t" + sizeBytes + "\t" + relativePath + "\t" + assemblyRelativePath + "\n";
+                String line = encodedName + "\t" + address + "\t" + sizeBytes + "\t" + relativePath + "\t" + assemblyRelativePath + "\t" + encodedStrings + "\t" + encodedMnemonics + "\n";
                 Files.writeString(manifest, line, StandardCharsets.UTF_8,
                     java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
                 decompiled++;
@@ -122,6 +147,7 @@ public class ReamonExport extends GhidraScript {
 
         Files.writeString(calls, callManifest.toString(), StandardCharsets.UTF_8);
         Files.writeString(summary,
+            "instructionArchitecture=" + currentProgram.getLanguageID().toString() + "\n" +
             "visited=" + visited + "\n" +
             "decompiled=" + decompiled + "\n" +
             "failed=" + failed + "\n" +

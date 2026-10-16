@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   Background,
   Controls,
@@ -18,13 +18,13 @@ import { layoutCallGraph, type CallGraphRecord, type CallGraphRelationship, type
 import styles from './WorkspaceCodeVisualizer.module.css'
 
 interface GraphNodeData extends FunctionGraphNodeData {
-  onOpen?: (unit: CodeUnit) => void
+  onOpen?: (unit: CodeUnit, graphKey: string) => void
   graphType?: 'function_calls' | 'class_dependencies'
 }
 
 type GraphFlowNode = FunctionGraphNode & { data: GraphNodeData }
 
-function FunctionNode({ data, selected }: NodeProps<GraphFlowNode>) {
+function FunctionNode({ data, selected, id }: NodeProps<GraphFlowNode>) {
   const label = <>
     <strong>{data.label}</strong>
     {data.address && <small>{data.address}</small>}
@@ -35,7 +35,7 @@ function FunctionNode({ data, selected }: NodeProps<GraphFlowNode>) {
   return <>
     <Handle type="target" position={Position.Left} />
     {data.codeUnit
-      ? <button type="button" className={className} onClick={() => data.onOpen?.(data.codeUnit as CodeUnit)} aria-label={`Open ${data.graphType === 'class_dependencies' ? 'class' : 'function'} ${data.label}`} title={data.address || data.label}>{label}</button>
+      ? <button type="button" className={className} onClick={() => data.onOpen?.(data.codeUnit as CodeUnit, id)} aria-label={`Open ${data.graphType === 'class_dependencies' ? 'class' : 'function'} ${data.label}`} title={data.address || data.label}>{label}</button>
       : <div className={className} role="img" aria-label={`${data.label}, external or not decompiled`} title={data.address || data.label}>{label}</div>}
     <Handle type="source" position={Position.Right} />
   </>
@@ -43,19 +43,35 @@ function FunctionNode({ data, selected }: NodeProps<GraphFlowNode>) {
 
 const nodeTypes = { functionGraphNode: FunctionNode }
 
-function FitGraphWhenReady({ layoutKey }: { layoutKey: string }) {
+function FitGraphWhenReady({ layoutKey, fitNodes, nodeCount }: { layoutKey: string; fitNodes: GraphFlowNode[]; nodeCount: number }) {
   const { fitView } = useReactFlow()
 
   useEffect(() => {
-    // React Flow's initial fit can run before a below-the-fold canvas has its final
-    // dimensions. Refitting after the browser has laid out the canvas makes the
-    // first view useful and also follows later focus changes.
+    if (nodeCount === 0) return
+
+    // Wait for React Flow to measure both nodes and the below-the-fold canvas.
+    // Fitting before either measurement completes can leave the graph tiny.
+    let frame = 0
+    let settledFrame = 0
     const timer = window.setTimeout(() => {
-      void fitView({ padding: 0.2, maxZoom: 1.15 })
+      frame = window.requestAnimationFrame(() => {
+        settledFrame = window.requestAnimationFrame(() => {
+          void fitView({
+            nodes: fitNodes.length ? fitNodes : undefined,
+            padding: fitNodes.length ? 0.3 : 0.2,
+            minZoom: fitNodes.length ? (fitNodes.length > 32 ? 0.16 : 0.4) : (nodeCount > 32 ? 0.08 : 0.5),
+            maxZoom: 1.15,
+          })
+        })
+      })
     }, 180)
 
-    return () => window.clearTimeout(timer)
-  }, [fitView, layoutKey])
+    return () => {
+      window.clearTimeout(timer)
+      window.cancelAnimationFrame(frame)
+      window.cancelAnimationFrame(settledFrame)
+    }
+  }, [fitView, fitNodes, layoutKey, nodeCount])
 
   return null
 }
@@ -67,38 +83,58 @@ export function WorkspaceCallGraphCanvas({ nodes, edges, focusKey, graphType = '
   graphType?: 'function_calls' | 'class_dependencies'
   onSelectNode: (node: CallGraphRecord) => void
 }) {
-  const graph = useMemo(() => layoutCallGraph(nodes, edges, focusKey), [nodes, edges, focusKey])
+  const [showEntireGraph, setShowEntireGraph] = useState(false)
+  const graph = useMemo(() => layoutCallGraph(nodes, edges, focusKey, showEntireGraph), [nodes, edges, focusKey, showEntireGraph])
   const flowNodes = useMemo(() => graph.nodes.map((node): GraphFlowNode => ({
     ...node,
     data: {
       ...node.data,
       graphType,
-      onOpen: (unit) => {
-        const record = nodes.find((candidate) => candidate.codeUnit?.id === unit.id)
+      onOpen: (unit, graphKey) => {
+        const record = nodes.find((candidate) => candidate.key === graphKey)
+          || nodes.find((candidate) => candidate.codeUnit?.id === unit.id)
         if (record) onSelectNode(record)
       },
     },
   })), [graph.nodes, nodes, onSelectNode, graphType])
   const flowEdges = useMemo(() => graph.edges.map((edge) => ({
     ...edge,
-    markerEnd: { type: MarkerType.ArrowClosed, color: '#61aeea' },
+    zIndex: 1,
+    markerEnd: { type: MarkerType.ArrowClosed, color: '#82caff' },
+    style: { ...edge.style, stroke: '#82caff', strokeWidth: 2.5 },
   })), [graph.edges])
+  const fitNodes = useMemo(() => {
+    if (!focusKey || showEntireGraph) return []
+    const related = new Set([focusKey])
+    for (const edge of graph.edges) {
+      if (edge.source === focusKey) related.add(edge.target)
+      if (edge.target === focusKey) related.add(edge.source)
+    }
+    return flowNodes.filter((node) => related.has(node.id))
+  }, [flowNodes, focusKey, graph.edges, showEntireGraph])
 
   const graphLabel = graphType === 'class_dependencies' ? 'Program class dependency graph' : 'Program function call graph'
   return <div className={styles.graphCanvas} role="region" aria-label={graphLabel}>
+    <button
+      type="button"
+      className={styles.graphViewToggle}
+      aria-pressed={showEntireGraph}
+      onClick={() => setShowEntireGraph((show) => !show)}
+    >
+      {showEntireGraph ? 'Focus on one item' : `Show all ${nodes.length.toLocaleString()}`}
+    </button>
     <ReactFlow
+      colorMode="dark"
       nodes={flowNodes}
       edges={flowEdges}
       nodeTypes={nodeTypes}
-      fitView
-      fitViewOptions={{ padding: 0.2, minZoom: 0.5, maxZoom: 1.15 }}
       minZoom={0.08}
       maxZoom={1.75}
       nodesConnectable={false}
       nodesDraggable
       elementsSelectable
       defaultEdgeOptions={{ type: 'smoothstep', markerEnd: { type: MarkerType.ArrowClosed } }}
-      aria-label={`Interactive ${graphType === 'class_dependencies' ? 'JADX class dependency graph' : 'Ghidra function call graph'}`}
+      aria-label={`Interactive ${graphType === 'class_dependencies' ? 'class dependency graph' : 'function call graph'}`}
     >
       <Background color="#304057" gap={20} size={1} />
       <Controls showInteractive={false} />
@@ -106,7 +142,7 @@ export function WorkspaceCallGraphCanvas({ nodes, edges, focusKey, graphType = '
         const data = node.data as GraphNodeData
         return data.isFocus ? '#41b88b' : data.codeUnit ? '#61aeea' : '#667085'
       }} />
-      <FitGraphWhenReady layoutKey={`${graph.focusKey || ''}:${flowNodes.map((node) => node.id).join('|')}`} />
+      <FitGraphWhenReady fitNodes={fitNodes} nodeCount={flowNodes.length} layoutKey={`${graph.focusKey || ''}:${showEntireGraph}:${flowNodes.map((node) => node.id).join('|')}`} />
     </ReactFlow>
     {graph.hiddenNodeCount > 0 && <p className={styles.graphCanvasNote} aria-live="polite">
       Showing this item and its direct relationships. {graph.hiddenNodeCount.toLocaleString()} other items are outside this view; choose another code unit above to explore them.

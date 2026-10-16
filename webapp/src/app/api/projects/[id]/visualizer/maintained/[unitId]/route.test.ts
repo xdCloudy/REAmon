@@ -1,14 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 
 const h = vi.hoisted(() => ({
   user: vi.fn(), access: vi.fn(), selection: vi.fn(), observation: vi.fn(), upsert: vi.fn(), artifact: vi.fn(), root: vi.fn(), resolvePath: vi.fn(),
-  maintainedFindUnique: vi.fn(), maintainedUpsert: vi.fn(),
+  maintainedFindUnique: vi.fn(), maintainedUpsert: vi.fn(), transaction: vi.fn(),
 }))
 
 vi.mock('@/lib/prisma', () => ({ default: {
+  $transaction: h.transaction,
   reamonObservation: { findFirst: h.observation, upsert: h.upsert },
   reamonMaintainedSource: { findUnique: h.maintainedFindUnique, upsert: h.maintainedUpsert },
   artifact: { findFirst: h.artifact },
@@ -34,6 +35,7 @@ beforeEach(async () => {
   h.upsert.mockResolvedValue({})
   h.maintainedFindUnique.mockResolvedValue(null)
   h.maintainedUpsert.mockResolvedValue({})
+  h.transaction.mockImplementation((operations: Promise<unknown>[]) => Promise.all(operations))
   h.artifact.mockResolvedValue({ id: 'artifact-1' })
   testRoot = await mkdtemp(path.join(os.tmpdir(), 'reamon-maintained-'))
   h.root.mockReturnValue(testRoot)
@@ -77,12 +79,38 @@ describe('/api/projects/[id]/visualizer/maintained/[unitId]', () => {
         symbolIndex: ['Main'],
       }),
     }))
+    expect(h.transaction).toHaveBeenCalledOnce()
+    expect(h.transaction.mock.calls[0][0]).toHaveLength(2)
 
     const view = await GET(new Request('http://localhost'), routeParams)
     expect(await view.json()).toMatchObject({ exists: true, sourceCode: 'class Main { String name; }' })
     const download = await GET(new Request('http://localhost?download=1'), routeParams)
     expect(await download.text()).toBe('class Main { String name; }')
     expect(download.headers.get('Content-Disposition')).toMatch(/attachment; filename=/)
+  })
+
+  it('saves and stores large maintained source files up to the per-file export limit', async () => {
+    const sourceCode = `class Main {\n${' '.repeat(900 * 1024)}\n}`
+    const response = await PUT(new Request('http://localhost', {
+      method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sourceCode }),
+    }), routeParams)
+
+    expect(response.status).toBe(200)
+    expect(h.maintainedUpsert).toHaveBeenCalledWith(expect.objectContaining({
+      create: expect.objectContaining({ sourceCode }),
+    }))
+  })
+
+  it('does not publish a file when the database transaction fails', async () => {
+    h.transaction.mockRejectedValueOnce(new Error('database unavailable'))
+
+    const response = await PUT(new Request('http://localhost', {
+      method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sourceCode: 'class Main { void run() {} }' }),
+    }), routeParams)
+
+    expect(response.status).toBe(500)
+    expect(h.transaction).toHaveBeenCalledOnce()
+    await expect(readdir(path.join(testRoot, 'project-1', 'maintained'))).rejects.toThrow()
   })
 
   it('serves the database copy as the saved source of truth', async () => {

@@ -109,6 +109,28 @@ describe('GET /api/projects/[id]/visualizer', () => {
     expect(mocks.findMany).toHaveBeenCalledWith(expect.objectContaining({ cursor: { id: 'observation-999' }, skip: 1, take: 1001 }))
   })
 
+  test('loads one code unit by id for shareable links outside the first page', async () => {
+    const row = {
+      id: 'observation-deep', stableKey: 'class:deep', label: 'DeepClass', source: 'jadx', artifactId: 'artifact-1',
+      updatedAt: new Date('2026-10-04T00:00:00.000Z'),
+      attributes: { unitType: 'class', qualifiedName: 'app.DeepClass', sizeBytes: 128, language: 'Java' },
+      artifact: { relativePath: 'app.apk', originalName: 'app.apk' },
+    }
+    mocks.taskFindMany.mockResolvedValue([{ id: 'run-1', title: 'Run', createdAt: new Date(), completedAt: new Date(), artifact: { originalName: 'app.apk', relativePath: 'app.apk' } }])
+    mocks.groupBy.mockResolvedValue([{ taskId: 'run-1', _count: { _all: 1200 } }])
+    mocks.findMany.mockResolvedValueOnce([row])
+    mocks.count.mockResolvedValue(1)
+
+    const response = await GET(new Request('http://localhost/api/projects/project-1/visualizer?taskId=run-1&unitId=observation-deep'), params)
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ units: [{ id: 'observation-deep', name: 'app.DeepClass' }], total: 1, selectedRunId: 'run-1' })
+    expect(mocks.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: 'observation-deep', taskId: 'run-1' }),
+      take: 1001,
+    }))
+  })
+
   test('marks saved maintained copies on their code units and reports workspace coverage', async () => {
     mocks.taskFindMany.mockResolvedValue([{ id: 'run-1', title: 'Run', createdAt: new Date(), completedAt: new Date(), artifact: { originalName: 'app.apk', relativePath: 'app.apk' } }])
     mocks.groupBy.mockResolvedValue([{ taskId: 'run-1', _count: { _all: 1 } }])
