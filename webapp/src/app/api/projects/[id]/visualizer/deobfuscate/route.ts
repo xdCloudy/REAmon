@@ -851,18 +851,25 @@ export async function POST(request: Request, { params }: RouteParams) {
       symbolIndex: unknown
     }> = []
     let symbolCursor: string | undefined
-    while (projectSymbolRows.length < MAX_PROJECT_SYMBOL_SCAN) {
+    let projectSymbolScanTruncated = false
+    while (projectSymbolRows.length <= MAX_PROJECT_SYMBOL_SCAN) {
+      const take = Math.min(MAX_PROJECT_SYMBOL_RECORDS, MAX_PROJECT_SYMBOL_SCAN + 1 - projectSymbolRows.length)
       const page = await prisma.reamonMaintainedSource.findMany({
         where: { projectId },
         select: { codeUnitId: true, artifactId: true, unitName: true, language: true, sourceHash: true, acceptedReviewId: true, symbolIndex: true, id: true },
         orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
         ...(symbolCursor ? { cursor: { id: symbolCursor }, skip: 1 } : {}),
-        take: Math.min(MAX_PROJECT_SYMBOL_RECORDS, MAX_PROJECT_SYMBOL_SCAN - projectSymbolRows.length),
+        take,
       })
       if (!page.length) break
       projectSymbolRows.push(...page.map(({ id: _id, ...row }) => row))
+      if (projectSymbolRows.length > MAX_PROJECT_SYMBOL_SCAN) {
+        projectSymbolRows.length = MAX_PROJECT_SYMBOL_SCAN
+        projectSymbolScanTruncated = true
+        break
+      }
       symbolCursor = page.at(-1)?.id
-      if (page.length < MAX_PROJECT_SYMBOL_RECORDS) break
+      if (page.length < take) break
     }
     const symbolRecords = [...maintainedRelatedRows, ...projectSymbolRows]
     const acceptedReviewIds = [...new Set(symbolRecords.flatMap((row) => row.acceptedReviewId ? [row.acceptedReviewId] : []))]
@@ -903,7 +910,7 @@ export async function POST(request: Request, { params }: RouteParams) {
         validationStatus: receipt?.validationStatus,
         validationMethod: receipt?.validationMethod,
       }
-    }), new Set(relatedUnitIds), undefined, artifact.sha256, calleeUnitIds)
+    }), new Set(relatedUnitIds), undefined, artifact.sha256, calleeUnitIds, projectSymbolScanTruncated)
     const selectedProviderRow = providerSymbolRows.find((row) => row.id === observation.id)
     const selectedProviderAttributes = selectedProviderRow ? plainObject(selectedProviderRow.attributes) : {}
     const selectedProviderVariables = selectedProviderRow

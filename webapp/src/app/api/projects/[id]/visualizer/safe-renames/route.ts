@@ -15,6 +15,7 @@ interface RouteParams { params: Promise<{ id: string }> }
 const MAX_SOURCE_BYTES = 512 * 1024
 const MAX_SUGGESTION_SOURCE_BYTES = 64 * 1024
 const MAX_CANDIDATES = 200
+const MAX_PROJECT_SYMBOL_SCAN = 4_096
 
 function plainObject(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
@@ -106,12 +107,14 @@ export async function POST(request: Request, { params }: RouteParams) {
         return NextResponse.json({ sourceSha256: workingSourceSha256, providerId: provider.id, providerName: 'REAmon scope-safe renames', model: provider.modelIdentifier, candidates: 0, renames: [] }, { headers: { 'Cache-Control': 'private, no-store' } })
       }
 
-      const symbolRows = await prisma.reamonMaintainedSource.findMany({
+      const scannedSymbolRows = await prisma.reamonMaintainedSource.findMany({
         where: { projectId },
         select: { codeUnitId: true, artifactId: true, unitName: true, language: true, sourceHash: true, acceptedReviewId: true, symbolIndex: true },
         orderBy: { updatedAt: 'desc' },
-        take: 500,
+        take: MAX_PROJECT_SYMBOL_SCAN + 1,
       })
+      const projectSymbolScanTruncated = scannedSymbolRows.length > MAX_PROJECT_SYMBOL_SCAN
+      const symbolRows = scannedSymbolRows.slice(0, MAX_PROJECT_SYMBOL_SCAN)
       const reviewIds = [...new Set(symbolRows.flatMap((row) => row.acceptedReviewId ? [row.acceptedReviewId] : []))]
       const reviews = reviewIds.length ? await prisma.reamonCodeReview.findMany({
         where: { projectId, id: { in: reviewIds }, decision: 'ACCEPTED' },
@@ -140,7 +143,7 @@ export async function POST(request: Request, { params }: RouteParams) {
           validationStatus: receipt?.validationStatus,
           validationMethod: receipt?.validationMethod,
         }
-      }), new Set(), 6_000)
+      }), new Set(), 6_000, undefined, undefined, projectSymbolScanTruncated)
       const response = await agentFetch('/reamon/code/suggest-renames', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

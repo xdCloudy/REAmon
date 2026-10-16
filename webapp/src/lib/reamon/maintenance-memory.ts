@@ -115,6 +115,7 @@ export function buildProjectSymbolContext(
   maxChars = 8_000,
   currentArtifactHash?: string,
   calleeUnitIds: Set<string> = new Set(),
+  inputTruncated = false,
 ): string {
   const ranked = records.map((record, index) => ({ record, index })).sort((left, right) => {
     const calleeRank = Number(calleeUnitIds.has(right.record.codeUnitId || '')) - Number(calleeUnitIds.has(left.record.codeUnitId || ''))
@@ -125,9 +126,10 @@ export function buildProjectSymbolContext(
       - Number(Boolean(currentArtifactHash && left.record.artifactHash === currentArtifactHash))
     return currentArtifactRank || left.index - right.index
   })
-  const lines: string[] = []
+  const warning = 'Project symbol memory is partial; older accepted units may be missing. Do not treat absent names as unused.'
+  const lines: string[] = inputTruncated ? [warning.slice(0, maxChars)] : []
   const includedUnits = new Set<string>()
-  let length = 0
+  let length = lines.reduce((sum, line) => sum + line.length + 1, 0)
   for (const { record } of ranked) {
     if (!Array.isArray(record.symbolIndex)) continue
     const symbols = [...new Set(record.symbolIndex.filter((value): value is string => typeof value === 'string' && value.length <= 128))]
