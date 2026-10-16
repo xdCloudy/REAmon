@@ -83,13 +83,21 @@ separate so a plausible name is never treated as proof of behavior.
   explosion, dependency size, initial-state assumptions, and timeout limits must be
   part of each stored result.
 - [Oxidizer](https://github.com/sefcom/oxidizer) is a Rust-aware decompiler built on
-  angr; its README says the work has merged into angr's master branch. It targets
-  Rust-specific cleanup, type inference, enums, `Option`/`Result`, macros, and
-  structured Rust pseudocode. This is the leading Rust-specific comparison candidate,
-  not an integrated REAmon capability. Prototype it behind the existing native
-  analyzer boundary and compare compiler-versioned, stripped and debug Rust fixtures
-  with Ghidra. Persist which constructs were recovered and retain the raw binary and
+  angr; its README says the work has merged into angr. The documented pipeline runs
+  CFG and calling-convention recovery, Rust compiler/library recovery, versioned type
+  database loading, type-aware simplification, then structured Rust pseudocode
+  generation. It targets Rust cleanup, type inference, enums, `Option`/`Result`,
+  macros, and `match` / `if let` / `?` structure. This is the leading Rust-specific
+  comparison candidate, not an integrated REAmon capability. A reproducible research
+  reference is angr master `ae9f5786fd94410ca400063bf21719aa8b564d3e`; keep it in a
+  separately pinned analyzer because the upstream setup has a pinned Python
+  environment and Rust build toolchain. Compare with Ghidra on compiler-versioned,
+  optimization-level, architecture, stripped/debug, and real-world Rust fixtures.
+  Persist recovered constructs and run provenance, and retain the raw binary and
   alternate output because pseudocode is not proof of compilable or equivalent Rust.
+  The upstream [Oxidizer evaluation framework](https://github.com/sefcom/oxidizer-eval)
+  is a useful source of comparison metrics for conciseness, fidelity, and type
+  recovery; REAmon still needs its own reproducible fixture results.
 - [unluac-rs](https://github.com/x3zvawq/unluac-rs) is an MIT-licensed Rust
   library/CLI that advertises Lua 5.1–5.5, LuaJIT 2.1, and Luau support. Evaluate it
   against REAmon's existing standard-Lua and LuaJIT providers on per-dialect fixtures;
