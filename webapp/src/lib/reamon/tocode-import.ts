@@ -19,6 +19,8 @@ const MAX_SOURCE_FILE_BYTES = 2 * 1024 * 1024
 const MAX_TOTAL_SOURCE_BYTES = 128 * 1024 * 1024
 const MAX_REFERENCED_STRINGS_PER_FUNCTION = 12
 const MAX_STRING_XREF_ROWS = 100_000
+const MAX_TYPE_DETAILS = 1_000
+const MAX_TYPE_DETAILS_JSON_BYTES = 64_000
 
 export const toCodeImportManifest: ToolPluginManifest = {
   id: SOURCE,
@@ -110,6 +112,31 @@ function boundedImportedCalls(value: unknown): string[] {
     if (names.size >= 32) break
   }
   return [...names]
+}
+
+function boundedToCodeTypeDetails(value: unknown): { json: string; count: number; truncated: boolean } {
+  const rows = Array.isArray(value) ? value : []
+  const details: Array<{ name: string; kind: string; reconstructed: string }> = []
+  let truncated = !Array.isArray(value) || rows.length > MAX_TYPE_DETAILS
+  for (const entry of rows.slice(0, MAX_TYPE_DETAILS)) {
+    const row = asRecord(entry)
+    const name = safeText(row?.name, 256)
+    const kind = safeText(row?.kind, 80)
+    if (typeof row?.c_decl === 'string' && row.c_decl.length > 2048) truncated = true
+    const reconstructed = safeText(row?.c_decl, 2048) || ''
+    if (!name || !kind) {
+      truncated = true
+      continue
+    }
+    const detail = { name, kind, reconstructed }
+    const serialized = JSON.stringify([...details, detail])
+    if (Buffer.byteLength(serialized, 'utf8') > MAX_TYPE_DETAILS_JSON_BYTES) {
+      truncated = true
+      break
+    }
+    details.push(detail)
+  }
+  return { json: JSON.stringify(details), count: details.length, truncated }
 }
 
 function optionalLine(value: unknown): number | null {
@@ -445,6 +472,37 @@ export async function indexToCodeWorkspaceImport(projectId: string, importId: st
       }
     }
 
+    let recoveredTypeCount = 0
+    let truncatedTypeCatalogs = 0
+    for (const metadataArtifact of candidates) {
+      const exportRoot = exportRootOf(metadataArtifact.relativePath)
+      const typeArtifact = artifactsByPath.get(exportRoot ? `${exportRoot}/types.json` : 'types.json')
+      if (!typeArtifact) continue
+      let typeCatalog: Record<string, unknown> | null
+      try { typeCatalog = await readJsonArtifact(typeArtifact, MAX_METADATA_BYTES) } catch { typeCatalog = null }
+      if (!typeCatalog || !Array.isArray(typeCatalog.types)) continue
+      const bounded = boundedToCodeTypeDetails(typeCatalog.types)
+      if (!bounded.count) continue
+      recoveredTypeCount += bounded.count
+      if (bounded.truncated) truncatedTypeCatalogs += 1
+      observations.push({
+        kind: 'entity',
+        type: 'language_metadata',
+        key: `tocode:type-catalog:${shortHash(`${importId}:${exportRoot}`)}`,
+        label: `ToCode type catalog · ${exportRoot || 'root export'}`.slice(0, 500),
+        attributes: {
+          language: 'ToCode',
+          exportPath: exportRoot || '.',
+          providerRevision: exportVersion,
+          typeDetails: bounded.json,
+          typeCount: bounded.count,
+          typeDetailsTruncated: bounded.truncated,
+          typeSourceArtifactId: typeArtifact.id,
+          typeSourceArtifactSha256: typeArtifact.sha256,
+        },
+      })
+    }
+
     if (allFunctions.length === 0) throw new Error('No valid ToCode functions were found in this workspace import')
 
     for (const record of allFunctions) {
@@ -540,6 +598,8 @@ export async function indexToCodeWorkspaceImport(projectId: string, importId: st
       functionsWithReferencedStrings: allFunctions.filter((record) => record.referencedStrings.length > 0).length,
       functionsWithImportedCalls: allFunctions.filter((record) => record.importedCalls.length > 0).length,
       referencedStringEvidenceTruncated: stringXrefsTruncated || allFunctions.some((record) => record.referencedStringsTruncated),
+      recoveredTypeCount,
+      truncatedTypeCatalogs,
       copiedSourceAndAssemblyFiles: sourceFiles.size,
       copiedSourceAndAssemblyBytes: sourceBytes,
       warnings: warnings.slice(0, 100),

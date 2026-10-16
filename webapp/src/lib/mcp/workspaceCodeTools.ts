@@ -80,7 +80,7 @@ function boundedJsonTextList(value: unknown, maxBytes: number, maxItems: number,
 
 function parseStoredGoTypeDetails(value: unknown): { items: GoTypeDetail[]; truncated: boolean } {
   if (typeof value !== 'string') return { items: [], truncated: false }
-  if (value.length > 16_000) return { items: [], truncated: true }
+  if (value.length > 128_000) return { items: [], truncated: true }
   let parsed: unknown
   try { parsed = JSON.parse(value) } catch { return { items: [], truncated: true } }
   if (!Array.isArray(parsed)) return { items: [], truncated: true }
@@ -310,7 +310,7 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
   const classReferenceFilters = unit.type === CODE_UNIT_OBSERVATION_TYPE
     ? [{ attributes: { path: ['fromCodeUnitKey'], equals: unit.stableKey } }]
     : []
-  const [code, disassembly, bytecode, task, edges, referenceEdges, maintained, goMetadataRow] = await Promise.all([
+  const [code, disassembly, bytecode, task, edges, referenceEdges, maintained, providerTypeMetadataRow] = await Promise.all([
     readDerivedText(codeArtifactId, args.projectId, unit.artifactId),
     readDerivedText(disassemblyArtifactId, args.projectId, unit.artifactId),
     readDerivedText(bytecodeArtifactId, args.projectId, unit.artifactId),
@@ -357,14 +357,17 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
       where: { projectId: args.projectId, codeUnitId: maintenanceCodeUnitId, artifactId: unit.artifactId || '' },
       select: { sourceCode: true, sourceHash: true, acceptedReviewId: true, language: true, updatedAt: true },
     }),
-    unit.source === 'reamon-ghidra' && unit.taskId ? prisma.reamonObservation.findFirst({
+    (unit.source === 'reamon-ghidra' || unit.source === 'reamon-tocode-import') && unit.taskId ? prisma.reamonObservation.findFirst({
       where: {
         projectId: args.projectId,
         taskId: unit.taskId,
         artifactId: unit.artifactId,
         source: unit.source,
         type: 'language_metadata',
-        attributes: { path: ['language'], equals: 'Go' },
+        AND: [
+          { attributes: { path: ['language'], equals: unit.source === 'reamon-ghidra' ? 'Go' : 'ToCode' } },
+          ...(unit.source === 'reamon-tocode-import' ? [{ attributes: { path: ['exportPath'], equals: text(attributes.exportPath, 1000) || '.' } }] : []),
+        ],
       },
       select: { attributes: true },
     }) : null,
@@ -417,10 +420,10 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
   }))
   const result = record(task?.result)
   const recoveredVariableData = providerVariablesOf(attributes, unit.source)
-  const goMetadataAttributes = record(goMetadataRow?.attributes)
+  const goMetadataAttributes = record(providerTypeMetadataRow?.attributes)
   const goTypeCatalog = boundedJsonTextList(goMetadataAttributes.types, 4_000, 64, 256)
   const goTypeDetails = boundedGoTypeDetails(goMetadataAttributes.typeDetails)
-  const goMetadata = goMetadataRow ? {
+  const goMetadata = providerTypeMetadataRow ? goMetadataAttributes.language === 'Go' ? {
     language: 'Go',
     goVersion: text(goMetadataAttributes.goVersion, 128),
     architecture: text(goMetadataAttributes.goArchitecture, 128),
@@ -432,6 +435,15 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
     typeDetails: goTypeDetails.items,
     typeDetailsTruncated: goTypeDetails.truncated || goMetadataAttributes.typeDetailsTruncated === true,
     typesSemantics: 'Artifact-wide GoReSym type names and structured type details from this exact analysis run. They are not assigned to this function; use a type only when the selected function source or signature supports the match.',
+  } : {
+    language: 'ToCode native export',
+    exportPath: text(goMetadataAttributes.exportPath, 1000),
+    typeCount: typeof goMetadataAttributes.typeCount === 'number' ? goMetadataAttributes.typeCount : null,
+    typeDetails: goTypeDetails.items,
+    typeDetailsTruncated: goTypeDetails.truncated || goMetadataAttributes.typeDetailsTruncated === true,
+    typeSourceArtifactId: text(goMetadataAttributes.typeSourceArtifactId, 128),
+    typeSourceArtifactSha256: text(goMetadataAttributes.typeSourceArtifactSha256, 64),
+    typesSemantics: 'Artifact-wide type declarations from the selected ToCode export’s exact types.json artifact. They are not assigned to this function; use a type only when the selected function source or signature supports the match.',
   } : null
   const recoveredVariableSemantics = unit.source === 'reamon-ghidra'
     ? 'Recovered names and types are provider evidence from Ghidra symbols, not reviewed canonical names. nameLocked/typeLocked describe constraints applied by Ghidra to its decompiler model; they do not prove original-source provenance or correctness.'
@@ -679,5 +691,85 @@ export async function searchWorkspaceGoTypes(ctx: McpContext, args: WorkspaceSea
     hasMore: offset + types.length < matches.length,
     catalogTruncated,
     semantics: 'These GoReSym types come from the selected function’s exact analysis run but are artifact-wide, not assigned to the function. Names from legacy records may not include kind or reconstructed form. Match each type against selected source/signature before relying on it.',
+  }
+}
+
+export async function searchWorkspaceProviderTypes(ctx: McpContext, args: WorkspaceSearchGoTypesArgs) {
+  const selection = await prepareRead(ctx, args.projectId)
+  if (!args.codeUnitId || args.codeUnitId.length > 64) throw new McpToolError('Invalid code unit id.', 'invalid_input')
+  const search = args.search?.trim() || ''
+  if (search.length > 200) throw new McpToolError('Type search is limited to 200 characters.', 'invalid_input')
+  const limit = Math.max(1, Math.min(100, Math.floor(args.limit ?? 50)))
+  const offset = Math.max(0, Math.min(100_000, Math.floor(args.offset ?? 0)))
+  const unit = await prisma.reamonObservation.findFirst({
+    where: {
+      id: args.codeUnitId,
+      projectId: args.projectId,
+      type: { in: CODE_UNIT_TYPES },
+      artifact: { is: selection.artifactWhere },
+    },
+    select: { id: true, label: true, source: true, taskId: true, artifactId: true, attributes: true, artifact: { select: { sha256: true } } },
+  })
+  if (!unit) throw new McpToolError('Code unit not found in the active workspace import.', 'not_found')
+  if ((unit.source !== 'reamon-ghidra' && unit.source !== 'reamon-tocode-import') || !unit.taskId || !unit.artifactId) {
+    return { available: false, reason: 'No searchable provider type catalog is associated with this code unit.', types: [], totalMatches: 0 }
+  }
+  const attributes = record(unit.attributes)
+  const metadataRow = await prisma.reamonObservation.findFirst({
+    where: {
+      projectId: args.projectId,
+      taskId: unit.taskId,
+      artifactId: unit.artifactId,
+      source: unit.source,
+      type: 'language_metadata',
+      AND: [
+        { attributes: { path: ['language'], equals: unit.source === 'reamon-ghidra' ? 'Go' : 'ToCode' } },
+        ...(unit.source === 'reamon-tocode-import' ? [{ attributes: { path: ['exportPath'], equals: text(attributes.exportPath, 1000) || '.' } }] : []),
+      ],
+    },
+    select: { attributes: true },
+  })
+  if (!metadataRow) {
+    return { available: false, reason: 'No provider type catalog was stored for this function’s exact analysis run and export.', types: [], totalMatches: 0 }
+  }
+  const metadata = record(metadataRow.attributes)
+  const parsed = parseStoredGoTypeDetails(metadata.typeDetails)
+  const normalizedSearch = search.toLocaleLowerCase()
+  const matches = parsed.items.filter((item) => !normalizedSearch
+    || `${item.name} ${item.kind} ${item.reconstructed}`.toLocaleLowerCase().includes(normalizedSearch))
+  const page = matches.slice(offset, offset + limit)
+  const types: GoTypeDetail[] = []
+  let responseBytes = 0
+  for (const item of page) {
+    const bounded = { ...item, reconstructed: item.reconstructed.slice(0, 1024) }
+    const itemBytes = Buffer.byteLength(JSON.stringify(bounded), 'utf8') + 1
+    if (responseBytes + itemBytes > 12_000) break
+    types.push(bounded)
+    responseBytes += itemBytes
+  }
+  return {
+    available: true,
+    codeUnit: {
+      id: unit.id,
+      name: text(attributes.qualifiedName) || text(attributes.name) || text(unit.label) || unit.id,
+      address: text(attributes.address, 128),
+      exportPath: text(attributes.exportPath, 1000),
+    },
+    analysis: {
+      taskId: unit.taskId,
+      provider: unit.source,
+      artifactId: unit.artifactId,
+      artifactSha256: unit.artifact?.sha256 || null,
+      typeSourceArtifactId: text(metadata.typeSourceArtifactId, 128),
+      typeSourceArtifactSha256: text(metadata.typeSourceArtifactSha256, 64),
+    },
+    search: search || null,
+    types,
+    totalMatches: matches.length,
+    limit,
+    offset,
+    hasMore: offset + types.length < matches.length,
+    catalogTruncated: parsed.truncated || metadata.typeDetailsTruncated === true,
+    semantics: 'These provider types come from the selected code unit’s exact analysis run; the catalog is export-wide, not assigned to that function. Match each name against its source or signature before relying on it.',
   }
 }

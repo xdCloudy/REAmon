@@ -9,6 +9,8 @@ interface IndexResult {
   callEdges?: number
   functionsWithReferencedStrings?: number
   functionsWithImportedCalls?: number
+  recoveredTypeCount?: number
+  truncatedTypeCatalogs?: number
   alreadyIndexed?: boolean
 }
 
@@ -29,7 +31,7 @@ export function ToCodeImportAction({ projectId, importId, indexed, onChanged }: 
       const response = await fetch(`/api/projects/${projectId}/imports/${importId}/tocode`, { method: 'POST' })
       const result = await response.json().catch(() => ({})) as IndexResult
       if (!response.ok) throw new Error(result.error || 'Unable to index ToCode export')
-      setFeedback(`Indexed ${(result.indexedFunctions || 0).toLocaleString()} functions, ${(result.callEdges || 0).toLocaleString()} call relationships, ${(result.functionsWithReferencedStrings || 0).toLocaleString()} functions with referenced strings, and ${(result.functionsWithImportedCalls || 0).toLocaleString()} functions with imported calls${result.alreadyIndexed ? ' (already indexed)' : ''}.`)
+      setFeedback(`Indexed ${(result.indexedFunctions || 0).toLocaleString()} functions, ${(result.callEdges || 0).toLocaleString()} call relationships, ${(result.functionsWithReferencedStrings || 0).toLocaleString()} functions with referenced strings, ${(result.functionsWithImportedCalls || 0).toLocaleString()} functions with imported calls, and ${(result.recoveredTypeCount || 0).toLocaleString()} recovered type declarations${result.truncatedTypeCatalogs ? ` (${result.truncatedTypeCatalogs} catalog${result.truncatedTypeCatalogs === 1 ? '' : 's'} truncated)` : ''}${result.alreadyIndexed ? ' (already indexed)' : ''}.`)
       onChanged?.()
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : 'Unable to index ToCode export')

@@ -213,15 +213,15 @@ export function buildProviderSymbolContext(
   return lines.length > 1 ? lines.join('\n') : ''
 }
 
-export function buildProviderGoTypeContext(
+export function buildProviderTypeContext(
   serializedDetails: unknown,
   selectedSource: string,
   selectedPrototype: string | undefined,
   recoveredVariableTypes: string[],
-  provenance: { artifactName: string; artifactHash: string; taskId: string; functionAddress?: string; truncated?: boolean },
+  provenance: { provider: string; artifactName: string; artifactHash: string; taskId: string; functionAddress?: string; truncated?: boolean },
   maxBytes = 2_800,
 ): string {
-  if (typeof serializedDetails !== 'string' || serializedDetails.length > 16_000) return ''
+  if (typeof serializedDetails !== 'string' || serializedDetails.length > 128_000) return ''
   let parsed: unknown
   try { parsed = JSON.parse(serializedDetails) } catch { return '' }
   if (!Array.isArray(parsed)) return ''
@@ -229,7 +229,8 @@ export function buildProviderGoTypeContext(
   for (const text of [selectedSource, selectedPrototype || '', ...recoveredVariableTypes]) {
     for (const match of text.matchAll(/[A-Za-z_$][\w$]*(?:[./][A-Za-z_$][\w$]*)*/g)) sourceIdentifiers.add(match[0])
   }
-  const header = `GoReSym reconstructed type evidence (provisional; names matched in selected function text only; artifact=${singleLine(provenance.artifactName, 120)}; sha256=${provenance.artifactHash.slice(0, 16)}; analysis=${provenance.taskId.slice(0, 128)}${provenance.functionAddress ? `; function=${provenance.functionAddress.slice(0, 128)}` : ''}):`
+  const evidenceLabel = provenance.provider === 'GoReSym' ? 'GoReSym reconstructed type evidence' : `${singleLine(provenance.provider, 80)} recovered type evidence`
+  const header = `${evidenceLabel} (provisional; names matched in selected function text only; artifact=${singleLine(provenance.artifactName, 120)}; sha256=${provenance.artifactHash.slice(0, 16)}; analysis=${provenance.taskId.slice(0, 128)}${provenance.functionAddress ? `; function=${provenance.functionAddress.slice(0, 128)}` : ''}):`
   const lines = [header]
   let length = Buffer.byteLength(header, 'utf8')
   let omitted = Boolean(provenance.truncated)
@@ -260,6 +261,22 @@ export function buildProviderGoTypeContext(
     included.add(identity)
     length += lineBytes + 1
   }
-  if (omitted && lines.length > 1) lines.push('Additional Go type records were omitted by analyzer or context limits.')
+  if (omitted && lines.length > 1) lines.push(provenance.provider === 'GoReSym'
+    ? 'Additional Go type records were omitted by analyzer or context limits.'
+    : 'Additional provider type records were omitted by analyzer or context limits.')
   return lines.length > 1 ? lines.join('\n') : ''
+}
+
+export function buildProviderGoTypeContext(
+  serializedDetails: unknown,
+  selectedSource: string,
+  selectedPrototype: string | undefined,
+  recoveredVariableTypes: string[],
+  provenance: { artifactName: string; artifactHash: string; taskId: string; functionAddress?: string; truncated?: boolean },
+  maxBytes = 2_800,
+): string {
+  return buildProviderTypeContext(serializedDetails, selectedSource, selectedPrototype, recoveredVariableTypes, {
+    ...provenance,
+    provider: 'GoReSym',
+  }, maxBytes)
 }

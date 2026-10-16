@@ -243,7 +243,8 @@ export const ONBOARDING_PLAYBOOK: Record<string, PlaybookEntry> = {
       'include sourceAddressMap links from Ghidra source lines to p-code operation target addresses, ' +
       'plus recoveredVariables with provider-recovered parameter/local names and types. GoReSym ' +
       'package metadata includes a note that it was matched by function address; its type catalog ' +
-      'is artifact-wide, not function-specific, and must be matched against the selected source.',
+      'is artifact-wide, not function-specific, and must be matched against the selected source. ToCode ' +
+      'dossiers expose a bounded export-scoped type catalog and the source artifact identity.',
     gotchas: [
       'Returned code is bounded to 128 KiB per file and may be truncated; check each truncated flag before reasoning from the snippet.',
       'Only relationships already persisted for the same analysis task are included. Missing edges do not prove that no call exists.',
@@ -251,6 +252,7 @@ export const ONBOARDING_PLAYBOOK: Record<string, PlaybookEntry> = {
       'Decompiler output is provider evidence, not original source or canonical truth. Use other stored evidence to corroborate names and types.',
       'GoReSym type names are artifact-wide and not assigned to the selected function. Match each one against its source or signature before relying on it.',
       'Use workspace_search_go_types with the same codeUnitId when you need to search or page through the full stored Go catalog.',
+      'Use workspace_search_provider_types to search or page through the stored GoReSym or ToCode catalog. Match a candidate type name against the selected source or signature; catalog membership alone does not assign it to the function.',
       'When sourceAddressMap is present, use it to navigate from a Ghidra line to the associated instruction address; check sourceAddressMapTruncated and do not treat this association as proof of semantic equivalence.',
       'recoveredVariables are Ghidra symbol evidence, not reviewed canonical names. Preserve the provider attribution and check recoveredVariablesTruncated before relying on a complete inventory.',
       'nameLocked and typeLocked only indicate that Ghidra constrained its own decompiler model to use a name or type; they do not prove original-source provenance or correctness.',
@@ -268,6 +270,17 @@ export const ONBOARDING_PLAYBOOK: Record<string, PlaybookEntry> = {
       'The catalog is artifact-wide, not function-specific. Match every candidate against the selected source or signature before treating it as this function’s type.',
       'Results may be truncated by analysis or storage limits; inspect catalogTruncated and hasMore.',
       'Older records may contain type names without kind or reconstructed-form details.',
+    ],
+    workflowRefs: ['inspect-workspace'],
+  },
+  workspace_search_provider_types: {
+    whenToUse:
+      'Use this for a searchable, paged type catalog attached to a Ghidra GoReSym or ToCode code-unit dossier. ' +
+      'Pass the codeUnitId to keep the lookup within the exact analysis run and export.',
+    gotchas: [
+      'The catalog is export-wide, not function-specific. Match each type name against the selected function source or signature.',
+      'Results may be truncated by analysis or response limits; inspect catalogTruncated and hasMore.',
+      'Provider-recovered type declarations are evidence, not proof of runtime layout or behavior.',
     ],
     workflowRefs: ['inspect-workspace'],
   },

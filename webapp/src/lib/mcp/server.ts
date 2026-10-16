@@ -111,7 +111,7 @@ import { startRecon, stopRecon, updateReconSettings } from '@/lib/mcp/writeTools
 import { getWorkspaceArtifact, listWorkspaceInventory } from '@/lib/mcp/workspaceTools'
 import { getWorkspaceSummary } from '@/lib/mcp/workspaceSummaryTools'
 import { planWorkspaceAnalysis } from '@/lib/mcp/workspacePlanTools'
-import { getWorkspaceCodeUnit, listWorkspaceCodeUnits, searchWorkspaceGoTypes } from '@/lib/mcp/workspaceCodeTools'
+import { getWorkspaceCodeUnit, listWorkspaceCodeUnits, searchWorkspaceGoTypes, searchWorkspaceProviderTypes } from '@/lib/mcp/workspaceCodeTools'
 import {
   MAX_KEYS_PER_CALL,
   refusedFieldsSentence,
@@ -446,7 +446,7 @@ export function buildMcpServer(ctx: McpContext, instructions?: string): McpServe
         'database-backed names, prototype, language, artifact hash, bounded decompiled source and ' +
         'disassembly or bytecode text when present, its analysis task/provider and recorded warnings, ' +
         'persisted call/member relationships, bounded instruction and CFG evidence where available, and any saved AI draft or reviewed maintained source ' +
-        'for the exact function/source version. GoReSym package metadata is returned with its address-match provenance; its type catalog includes names, kinds, and reconstructed forms and is labeled artifact-wide, not function-specific. It only reads files inside REAmon derived storage and ' +
+        'for the exact function/source version. GoReSym package metadata is returned with its address-match provenance; GoReSym and ToCode type catalogs include names, kinds, reconstructed forms, and source provenance and are labeled artifact-wide, not function-specific. Use workspace_search_provider_types to search/page through either catalog. It only reads files inside REAmon derived storage and ' +
         'returns at most 128 KiB per source. Treat decompiler output as provider evidence and drafts ' +
         'as unreviewed until their stored validation/review state says otherwise.',
       annotations: READ_ONLY,
@@ -479,6 +479,28 @@ export function buildMcpServer(ctx: McpContext, instructions?: string): McpServe
       },
     },
     handler(ctx, 'workspace_search_go_types', a => searchWorkspaceGoTypes(ctx, a), a => a.projectId)
+  )
+
+  server.registerTool(
+    'workspace_search_provider_types',
+    {
+      title: 'Search recovered provider types',
+      description:
+        'Search or page through the stored GoReSym or ToCode type catalog associated with a code unit’s exact analysis run. ' +
+        'Catalogs are artifact/export-wide, not assigned to the selected function; match each candidate against its source or ' +
+        'signature before relying on it. Results retain provider, run, and type-source artifact provenance. This reads stored ' +
+        'metadata only and does not infer types.',
+      annotations: READ_ONLY,
+      _meta: scopesMeta({ required: ['recon:read'] }),
+      inputSchema: {
+        projectId: projectIdSchema,
+        codeUnitId: entityIdSchema.describe('A code-unit id returned by workspace_list_code_units.'),
+        search: z.string().max(200).optional().describe('Filter by type name, kind, or reconstructed declaration.'),
+        limit: z.number().int().min(1).max(100).optional().describe('Default 50, maximum 100 results.'),
+        offset: z.number().int().min(0).max(100000).optional().describe('Number of matching types to skip.'),
+      },
+    },
+    handler(ctx, 'workspace_search_provider_types', a => searchWorkspaceProviderTypes(ctx, a), a => a.projectId)
   )
 
   server.registerTool(

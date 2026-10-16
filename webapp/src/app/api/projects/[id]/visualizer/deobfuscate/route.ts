@@ -7,7 +7,7 @@ import { AgentUnreachableError, agentFetch } from '@/lib/agentFetch'
 import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
 import { getActiveWorkspaceImportSelection } from '@/lib/reamon/inventory-query'
 import { derivedArtifactRoot, resolveDerivedArtifactPath } from '@/lib/reamon/derived-storage'
-import { buildProjectSymbolContext, buildProviderGoTypeContext, buildProviderSymbolContext, extractMaintainedSymbols } from '@/lib/reamon/maintenance-memory'
+import { buildProjectSymbolContext, buildProviderGoTypeContext, buildProviderTypeContext, buildProviderSymbolContext, extractMaintainedSymbols } from '@/lib/reamon/maintenance-memory'
 import { providerVariablesOf } from '@/lib/reamon/code-units'
 import { rankSimilarInstructionFunctions } from '@/lib/reamon/instruction-similarity'
 import { codeRewriteLeaseGraceMs, failInterruptedCodeAttempts } from '@/lib/reamon/code-attempts'
@@ -826,12 +826,12 @@ export async function POST(request: Request, { params }: RouteParams) {
         select: { id: true, label: true, attributes: true },
         orderBy: [{ stableKey: 'asc' }, { id: 'asc' }],
       }) : Promise.resolve([]),
-      observation.taskId && observation.source === 'reamon-ghidra' ? prisma.reamonObservation.findMany({
+      observation.taskId && (observation.source === 'reamon-ghidra' || observation.source === 'reamon-tocode-import') ? prisma.reamonObservation.findMany({
         where: {
           projectId,
           artifactId: artifact.id,
           taskId: observation.taskId,
-          source: observation.source,
+          source: { in: ['reamon-ghidra', 'reamon-tocode-import'] },
           type: 'language_metadata',
         },
         select: { attributes: true },
@@ -900,6 +900,10 @@ export async function POST(request: Request, { params }: RouteParams) {
     const providerGoMetadata = providerGoMetadataRows
       .map((row) => plainObject(row.attributes))
       .find((attributes) => attributes.language === 'Go')
+    const providerToCodeMetadata = providerGoMetadataRows
+      .map((row) => plainObject(row.attributes))
+      .find((attributes) => attributes.language === 'ToCode'
+        && attributes.exportPath === selectedProviderAttributes.exportPath)
     const providerSymbolContext = observation.taskId ? buildProviderSymbolContext(
       providerSymbolRows.map((row) => {
         const providerAttributes = plainObject(row.attributes)
@@ -956,7 +960,25 @@ export async function POST(request: Request, { params }: RouteParams) {
         },
       )
       : ''
-    const combinedProviderSymbolContext = [providerSymbolContext, providerGoTypeContext].filter(Boolean).join('\n')
+    const providerToCodeTypeContext = observation.taskId && providerToCodeMetadata
+      ? buildProviderTypeContext(
+        providerToCodeMetadata.typeDetails,
+        bytes.toString('utf8'),
+        typeof selectedProviderAttributes.prototype === 'string' ? selectedProviderAttributes.prototype : undefined,
+        selectedProviderVariables.map((variable) => variable.dataType),
+        {
+          provider: 'ToCode',
+          artifactName: artifact.originalName,
+          artifactHash: typeof providerToCodeMetadata.typeSourceArtifactSha256 === 'string'
+            ? providerToCodeMetadata.typeSourceArtifactSha256
+            : artifact.sha256,
+          taskId: observation.taskId,
+          functionAddress: typeof selectedProviderAttributes.address === 'string' ? selectedProviderAttributes.address : undefined,
+          truncated: providerToCodeMetadata.typeDetailsTruncated === true,
+        },
+      )
+      : ''
+    const combinedProviderSymbolContext = [providerSymbolContext, providerGoTypeContext, providerToCodeTypeContext].filter(Boolean).join('\n')
     const dexMethodExcerptCache = new Map<string, { members: OutlineMember[]; truncated: boolean }>()
     const dexMethodExcerpt = async (name: string, source: Buffer, sourceLanguage: string, relatedArtifactId: string, persistOutline: boolean) => {
       const candidate = similarDexMethodByName.get(name)
