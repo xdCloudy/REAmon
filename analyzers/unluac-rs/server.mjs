@@ -11,7 +11,7 @@ const TIMEOUT_MS = boundedNumber('UNLUAC_RS_TIMEOUT_MS', 180_000, 10_000, 600_00
 const MAX_INPUT_BYTES = boundedNumber('UNLUAC_RS_MAX_INPUT_BYTES', 16 * 1024 * 1024, 1024, 128 * 1024 * 1024)
 const MAX_OUTPUT_BYTES = boundedNumber('UNLUAC_RS_MAX_OUTPUT_BYTES', 32 * 1024 * 1024, 1024, 64 * 1024 * 1024)
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/
-const TOOL_VERSION = 'unluac-rs@1.3.1'
+const TOOL_VERSION = 'unluac-rs@1.4.4'
 
 function boundedNumber(name, fallback, minimum, maximum) {
   const parsed = Number(process.env[name])

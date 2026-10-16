@@ -125,7 +125,7 @@ bundle extraction are a starting point for project-level source recovery, not a
 claim that original names or behavior have been restored.
 Standard Lua 5.0–5.4 bytecode uses the MIT-licensed [unluac fork](https://github.com/Jeong-Min-Cho/unluac)
 in an isolated JVM analyzer. The MIT-licensed [unluac-rs](https://github.com/x3zvawq/unluac-rs)
-1.3.1 JavaScript/WASM API runs in an isolated worker and adds strict alternate output
+1.4.4 JavaScript/WASM API runs in an isolated worker and adds strict alternate output
 for Lua 5.1–5.5, LuaJIT, and raw Luau. It returns `.lua` or `.luau` source with
 dialect-specific metadata and bounded prototype/CFG evidence. Luau vector constants use `vector.create`
 with three components by default; set `REAMON_LUAU_VECTOR_SIZE=4` for four-wide
