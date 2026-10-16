@@ -276,13 +276,15 @@ def _directory_size(path: Path) -> int:
 
 
 def _decompile_rust(artifact: Path, function_indices: list[str], temporary_path: Path,
-                    run_root: Path, cancel_check) -> tuple[list[dict], str]:
+                    run_root: Path, report_progress, cancel_check) -> tuple[list[dict], str]:
     """Return bounded function-sized Rust views; WAT remains the primary output."""
     if not function_indices:
         return [], ""
     output_dir = temporary_path / "unwasm"
     error_log = temporary_path / "unwasm.stderr"
     deadline = time.monotonic() + 100
+    started = time.monotonic()
+    next_progress = started + 5
     with error_log.open("wb") as log:
         try:
             process = subprocess.Popen(
@@ -302,12 +304,20 @@ def _decompile_rust(artifact: Path, function_indices: list[str], temporary_path:
                 if cancel_check():
                     _terminate(process)
                     raise AnalysisError("WebAssembly analysis was cancelled")
-                if _directory_size(output_dir) > MAX_RUST_BYTES:
+                now = time.monotonic()
+                output_size = _directory_size(output_dir)
+                if output_size > MAX_RUST_BYTES:
                     _terminate(process)
                     return [], "Rust reconstruction stopped after reaching its 64 MiB output limit."
-                if time.monotonic() >= deadline:
+                if now >= deadline:
                     _terminate(process)
                     return [], "Rust reconstruction stopped at its 100-second resource limit."
+                if now >= next_progress:
+                    report_progress(
+                        "unwasm translation still running "
+                        f"({now - started:.0f}s elapsed; {output_size / (1024 * 1024):.1f} MiB generated)"
+                    )
+                    next_progress = now + 5
                 try:
                     process.wait(timeout=0.25)
                 except subprocess.TimeoutExpired:
@@ -614,6 +624,7 @@ def go(body: object, report_progress=lambda _message: None, cancel_check=lambda:
             [unit["address"] for unit in units],
             temporary_path,
             run_root,
+            report_progress,
             cancel_check,
         )
         if rust_warnings:
