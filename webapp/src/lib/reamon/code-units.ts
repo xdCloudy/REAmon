@@ -15,6 +15,7 @@ export interface CodeUnitObservationAttributes {
   decompiledBytes?: number
   decompiled?: boolean
   language?: string
+  sourceLanguage?: string
   relativePath?: string
   bundlePath?: string
   codeArtifactId?: string
@@ -42,6 +43,7 @@ export interface CodeUnit {
   sizeBytes: number
   coveragePercent: number | null
   language: string | null
+  sourceLanguage?: string | null
   unitType: string | null
   relativePath?: string | null
   bundlePath?: string | null
@@ -101,6 +103,7 @@ export function normalizeCodeUnit(row: CodeUnitObservationRow): CodeUnit | null 
     sizeBytes: Math.floor(sizeBytes),
     coveragePercent: coverageOf(attributes),
     language: text(attributes.language, 80),
+    sourceLanguage: text(attributes.sourceLanguage, 80),
     unitType: text(attributes.unitType, 80),
     relativePath: text(attributes.relativePath, 1000),
     ...(bundlePath ? { bundlePath } : {}),
@@ -159,7 +162,7 @@ export function filterCodeUnits(units: CodeUnit[], query: string): CodeUnit[] {
     if (filter.minimumBytes !== undefined && unit.sizeBytes < filter.minimumBytes) return false
     if (filter.maximumCoverage !== undefined && (unit.coveragePercent === null || unit.coveragePercent >= filter.maximumCoverage)) return false
     if (filter.text) {
-      const searchable = `${unit.name} ${unit.address || ''} ${unit.relativePath || ''} ${unit.bundlePath || ''} ${unit.artifactPath || ''} ${unit.language || ''} ${unit.referencedStrings?.join(' ') || ''}`.toLocaleLowerCase()
+      const searchable = `${unit.name} ${unit.address || ''} ${unit.relativePath || ''} ${unit.bundlePath || ''} ${unit.artifactPath || ''} ${unit.language || ''} ${unit.sourceLanguage || ''} ${unit.referencedStrings?.join(' ') || ''}`.toLocaleLowerCase()
       if (!searchable.includes(filter.text)) return false
     }
     return true

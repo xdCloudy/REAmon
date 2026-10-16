@@ -13,6 +13,8 @@ MAX_OUTPUT_BYTES = min(536870912, max(1048576, int(os.environ.get("GHIDRA_MAX_OU
 MAX_FUNCTIONS = min(2000, max(1, int(os.environ.get("GHIDRA_MAX_FUNCTIONS", "2000"))))
 MAX_RETURNED_UNITS = min(2000, max(1, int(os.environ.get("GHIDRA_MAX_RETURNED_UNITS", "2000"))))
 MAX_CALL_EDGES = min(400, max(0, int(os.environ.get("GHIDRA_MAX_CALL_EDGES", "400"))))
+MAX_GORESYM_OUTPUT_BYTES = min(134217728, max(1048576, int(os.environ.get("GORESYM_MAX_OUTPUT_BYTES", "67108864"))))
+GORESYM_TIMEOUT_SECONDS = min(300, max(15, int(os.environ.get("GORESYM_TIMEOUT_SECONDS", "120"))))
 STREAM_RESULT_CHUNK_SIZE = 100
 STREAM_RESULT_CHUNK_BYTES = 1024 * 1024
 GHIDRA_HOME = Path(os.environ.get("GHIDRA_HOME", "/opt/ghidra/current")).resolve()
@@ -108,7 +110,7 @@ def client_disconnected(connection):
     except OSError:
         return True
 
-def run_ghidra(arguments, log_file, cancel_check, home):
+def run_ghidra(arguments, log_file, cancel_check, home, timeout_seconds=TIMEOUT_SECONDS, stdout_file=None):
     environment = {
         **os.environ,
         "HOME": str(home),
@@ -118,15 +120,16 @@ def run_ghidra(arguments, log_file, cancel_check, home):
         "JAVA_HOME": os.environ.get("JAVA_HOME", "/usr/lib/jvm/java-21-openjdk-amd64"),
         "TMPDIR": str(home / "tmp"),
     }
-    process = subprocess.Popen(arguments, stdin=subprocess.DEVNULL, stdout=log_file,
-                               stderr=subprocess.STDOUT, start_new_session=True, env=environment)
-    deadline = time.monotonic() + TIMEOUT_SECONDS
+    process = subprocess.Popen(arguments, stdin=subprocess.DEVNULL, stdout=stdout_file or log_file,
+                               stderr=log_file if stdout_file else subprocess.STDOUT,
+                               start_new_session=True, env=environment)
+    deadline = time.monotonic() + timeout_seconds
     try:
         while process.poll() is None:
             if cancel_check():
                 raise AnalysisError("Ghidra analysis was cancelled")
             if time.monotonic() >= deadline:
-                raise AnalysisError(f"Ghidra exceeded {TIMEOUT_SECONDS} seconds")
+                raise AnalysisError(f"Analyzer exceeded {timeout_seconds} seconds")
             try:
                 process.wait(timeout=0.25)
             except subprocess.TimeoutExpired:
@@ -188,6 +191,55 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                         return_code = run_ghidra(command, log_file, cancel_check, home)
                     except OSError as error:
                         raise AnalysisError("Ghidra headless analyzer could not be started") from error
+                goresym_path = temporary_root / "goresym.json"
+                goresym_log_path = temporary_root / "goresym.log"
+                go_metadata = None
+                go_warnings = []
+                report_progress("Checking for recoverable Go symbols")
+                try:
+                    with goresym_path.open("wb") as output_file, goresym_log_path.open("wb") as log_file:
+                        goresym_code = run_ghidra(
+                            ["/usr/local/bin/goresym", "-d", "-p", "-t", str(input_path)],
+                            log_file, cancel_check, home, GORESYM_TIMEOUT_SECONDS, output_file,
+                        )
+                    if goresym_code == 0 and goresym_path.stat().st_size <= MAX_GORESYM_OUTPUT_BYTES:
+                        go_metadata = json.loads(goresym_path.read_text(encoding="utf-8"))
+                    elif goresym_path.stat().st_size > MAX_GORESYM_OUTPUT_BYTES:
+                        go_warnings.append("Go symbol metadata exceeded its configured output limit.")
+                except AnalysisError as error:
+                    if "cancelled" in str(error).lower():
+                        raise
+                    go_warnings.append("Go symbol recovery exceeded its limit or could not start.")
+                except (OSError, ValueError, json.JSONDecodeError) as error:
+                    go_warnings.append("Go symbol recovery was unavailable for this binary.")
+                if go_metadata is not None and not isinstance(go_metadata, dict):
+                    go_metadata = None
+                go_functions = {}
+                if go_metadata:
+                    for category in ("UserFunctions", "StdFunctions"):
+                        records = go_metadata.get(category, [])
+                        if not isinstance(records, list):
+                            continue
+                        for record in records:
+                            if not isinstance(record, dict):
+                                continue
+                            try:
+                                address = int(record.get("Start"))
+                            except (TypeError, ValueError):
+                                continue
+                            full_name = record.get("FullName")
+                            if not isinstance(full_name, str) or not full_name.strip() or len(full_name) > 1000:
+                                continue
+                            go_functions[format(address, "x")] = {
+                                "name": full_name.strip(),
+                                "package": str(record.get("PackageName", ""))[:500],
+                            }
+                    if not go_functions:
+                        go_metadata = None
+                def recovered_go_name(value, fallback):
+                    normalized = value.lower().removeprefix("0x").lstrip("0") or "0"
+                    recovered = go_functions.get(normalized)
+                    return recovered["name"] if recovered else fallback
                 log_text = log_path.read_bytes()[-6000:].decode("utf-8", errors="replace").strip()
                 manifest = export_root / "manifest.tsv"
                 summary_path = export_root / "summary.txt"
@@ -227,6 +279,10 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                         continue
                     if not name or size_bytes < 1:
                         continue
+                    address_key = address.lower().removeprefix("0x").lstrip("0") or "0"
+                    go_function = go_functions.get(address_key)
+                    if go_function and re.fullmatch(r"(?:FUN|thunk|sub|undefined)_[0-9a-fA-F]+", name):
+                        name = go_function["name"]
                     referenced_strings = []
                     if encoded_references:
                         try:
@@ -283,8 +339,8 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                         calls.append({
                             "fromAddress": from_address,
                             "toAddress": to_address,
-                            "fromName": from_name[:500],
-                            "toName": to_name[:500],
+                            "fromName": recovered_go_name(from_address, from_name)[:500],
+                            "toName": recovered_go_name(to_address, to_name)[:500],
                         })
                 if summary.get("callsTruncated") == "true" and not call_edges_truncated:
                     call_edges_truncated = True
@@ -297,6 +353,8 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                     destination = sources_root / relative
                     destination.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copyfile(source, destination)
+                    address_key = address.lower().removeprefix("0x").lstrip("0") or "0"
+                    go_function = go_functions.get(address_key)
                     unit = {
                         "name": name,
                         "address": address,
@@ -304,6 +362,11 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                         "codeArtifactId": destination.relative_to(DERIVED_ROOT).as_posix(),
                         "sizeBytes": size_bytes,
                     }
+                    if go_function:
+                        unit["sourceLanguage"] = "Go"
+                        unit["symbolSource"] = "GoReSym"
+                        if go_function["package"]:
+                            unit["goPackage"] = go_function["package"]
                     if assembly is not None:
                         assembly_destination = run_root / assembly_relative
                         assembly_destination.parent.mkdir(parents=True, exist_ok=True)
@@ -330,6 +393,14 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                     "status": "completed",
                     "toolVersion": "12.1.4",
                     "instructionArchitecture": summary.get("instructionArchitecture", "")[:128],
+                    "recoveredLanguage": "Go" if go_metadata else None,
+                    "goVersion": str(go_metadata.get("Version", ""))[:128] if go_metadata else None,
+                    "goArchitecture": str(go_metadata.get("Arch", ""))[:128] if go_metadata else None,
+                    "goTypes": [
+                        str(item.get("Str", ""))[:500]
+                        for item in (go_metadata.get("Types", [])[:1000] if go_metadata and isinstance(go_metadata.get("Types"), list) else [])
+                        if isinstance(item, dict) and isinstance(item.get("Str"), str) and item.get("Str")
+                    ],
                     "functionCount": len(rows),
                     "visitedFunctionCount": int(summary.get("visited", "0")),
                     "failedFunctionCount": failures,
@@ -340,7 +411,7 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                     "calls": calls,
                     "truncated": summary.get("truncated") == "true" or len(rows) > len(units) or call_edges_truncated,
                     "units": units,
-                    "warnings": " ".join(warnings),
+                    "warnings": " ".join(warnings + go_warnings),
                 }
         except AnalysisError:
             if run_root.exists():

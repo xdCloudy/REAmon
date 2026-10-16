@@ -164,6 +164,11 @@ function artifactUrl(projectId: string, unit: CodeUnit, codeArtifactId: string |
   return '/api/projects/' + encodeURIComponent(projectId) + '/artifacts/' + encodeURIComponent(unit.artifactId) + '/decompiled/' + sourcePath
 }
 
+function languageLabel(unit: CodeUnit): string {
+  if (unit.sourceLanguage && unit.language === 'C') return `C-like pseudocode · ${unit.sourceLanguage} binary`
+  return unit.language || 'Source'
+}
+
 async function fetchSource(url: string, signal: AbortSignal): Promise<string> {
   const response = await fetch(url, { signal, cache: 'no-store' })
   if (!response.ok) {
@@ -437,11 +442,18 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
     }
     return [...visibleById.values()]
   }, [filter, filterSearch, functionMapMembers, units])
-  const availableLanguages = useMemo(() => [...new Set(units.flatMap((unit) => unit.language?.trim() ? [unit.language.trim()] : []))]
-    .sort((left, right) => left.localeCompare(right)), [units])
+  const availableLanguages = useMemo(() => {
+    const languages: string[] = []
+    for (const unit of units) {
+      for (const language of [unit.language, unit.sourceLanguage]) {
+        if (language?.trim()) languages.push(language.trim())
+      }
+    }
+    return [...new Set(languages)].sort((left, right) => left.localeCompare(right))
+  }, [units])
   const activeLanguageFilter = availableLanguages.includes(languageFilter) ? languageFilter : ''
   const languageFilteredUnits = useMemo(() => activeLanguageFilter
-    ? visibleUnits.filter((unit) => unit.language?.trim() === activeLanguageFilter)
+    ? visibleUnits.filter((unit) => unit.language?.trim() === activeLanguageFilter || unit.sourceLanguage?.trim() === activeLanguageFilter)
     : visibleUnits, [activeLanguageFilter, visibleUnits])
   const mapContent = mapContentPreference === 'auto'
     ? ((query.data?.total || 0) > FOLDER_VIEW_CODE_UNIT_LIMIT ? 'folders' : 'units')
@@ -1307,7 +1319,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
                   : workStatusColor(unit.draftSource ? 1 : 0, unit.maintainedSource ? 1 : 0, 1)
               const coverage = unit.coveragePercent === null ? 'Unmeasured' : `${Math.round(unit.coveragePercent)}% decompiled`
               const work = unit.maintainedSource ? 'Maintained source saved' : unit.draftSource ? 'Draft saved for review' : 'Needs reverse engineering'
-              const meta = [unit.language, unit.address, formatBytes(unit.sizeBytes)].filter(Boolean).join(' · ')
+              const meta = [languageLabel(unit), unit.address, formatBytes(unit.sizeBytes)].filter(Boolean).join(' · ')
               return <button
                 key={unit.id}
                 type="button"
@@ -1449,7 +1461,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
           {selectedDisassemblyUrl ? <div className={styles.comparison}>
             <div className={styles.listingPane}>
               <div className={styles.sourceHeader}>
-                <div><strong>Decompiled source</strong><span>{selectedUnit.language || 'Source'} · {selectedUnit.codeArtifactId?.split('/').pop()}</span></div>
+                <div><strong>Decompiled source</strong><span>{languageLabel(selectedUnit)} · {selectedUnit.codeArtifactId?.split('/').pop()}</span></div>
                 <button type="button" className={styles.copyButton} onClick={() => void copySource()} disabled={!sourceQuery.data}><Copy size={14} /> {copyStatus || 'Copy source'}</button>
               </div>
               {sourceQuery.isLoading && <p className={styles.message}>Loading decompiled source…</p>}
@@ -1478,7 +1490,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
             </div>
           </div> : <>
             <div className={styles.sourceHeader}>
-              <div><strong>{selectedUnit.unitType === 'resource' ? 'Decoded resource' : selectedUnit.name}</strong><span>{selectedUnit.language || 'Source'} · {selectedUnit.bundlePath || selectedUnit.codeArtifactId?.split('/').pop()}</span></div>
+              <div><strong>{selectedUnit.unitType === 'resource' ? 'Decoded resource' : selectedUnit.name}</strong><span>{languageLabel(selectedUnit)} · {selectedUnit.bundlePath || selectedUnit.codeArtifactId?.split('/').pop()}</span></div>
               <button type="button" className={styles.copyButton} onClick={() => void copySource()} disabled={!sourceQuery.data}><Copy size={14} /> {copyStatus || 'Copy code'}</button>
             </div>
             {sourceQuery.isLoading && <p className={styles.message}>Loading code output…</p>}
@@ -1489,7 +1501,8 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
           <dl>
             <div><dt>Address</dt><dd>{selectedUnit.address || 'Not supplied'}</dd></div>
             <div><dt>Size</dt><dd>{formatBytes(selectedUnit.sizeBytes)}</dd></div>
-            <div><dt>Language</dt><dd>{selectedUnit.language || 'Not identified'}</dd></div>
+            <div><dt>Decompiler output</dt><dd>{selectedUnit.sourceLanguage && selectedUnit.language === 'C' ? 'C-like pseudocode' : selectedUnit.language || 'Not identified'}</dd></div>
+            {selectedUnit.sourceLanguage && <div><dt>Binary source language</dt><dd>{selectedUnit.sourceLanguage} (metadata)</dd></div>}
             <div><dt>Unit type</dt><dd>{selectedUnit.unitType || 'Code unit'}</dd></div>
             {selectedUnit.bundlePath && <div><dt>Bundle module</dt><dd>{selectedUnit.bundlePath}</dd></div>}
             <div><dt>Artifact</dt><dd>{selectedUnit.artifactPath || 'Not linked'}</dd></div>

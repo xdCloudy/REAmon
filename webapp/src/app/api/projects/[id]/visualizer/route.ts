@@ -145,7 +145,7 @@ export async function GET(request: Request, { params }: RouteParams) {
         OR: [
           { label: { contains: search, mode: 'insensitive' as const } },
           { stableKey: { contains: search, mode: 'insensitive' as const } },
-          ...['name', 'qualifiedName', 'address', 'startAddress', 'language', 'referencedStrings'].map((key) => ({
+          ...['name', 'qualifiedName', 'address', 'startAddress', 'language', 'sourceLanguage', 'referencedStrings', 'bundlePath'].map((key) => ({
             attributes: { path: [key], string_contains: search, mode: 'insensitive' as const },
           })),
           { artifact: { is: {

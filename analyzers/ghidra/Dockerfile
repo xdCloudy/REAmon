@@ -1,3 +1,12 @@
+FROM golang:1.25-bookworm AS goresym-build
+ARG GORESYM_COMMIT=722897e0a80da0a06c00c5e40591a253a551f04e
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
+ && rm -rf /var/lib/apt/lists/* \
+ && git clone --filter=blob:none https://github.com/mandiant/GoReSym.git /src/GoReSym \
+ && git -C /src/GoReSym checkout --detach "${GORESYM_COMMIT}" \
+ && cd /src/GoReSym \
+ && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /goresym .
+
 FROM python:3.12-slim
 ARG GHIDRA_VERSION=12.1.4
 ARG GHIDRA_BUILD=20260921
@@ -13,6 +22,8 @@ WORKDIR /app
 COPY server.py ./server.py
 COPY entrypoint.sh ./entrypoint.sh
 COPY ReamonExport.java ./scripts/ReamonExport.java
+COPY --from=goresym-build /goresym /usr/local/bin/goresym
+COPY --from=goresym-build /src/GoReSym/LICENSE /usr/share/licenses/goresym/LICENSE
 RUN chmod 0555 /app/server.py /app/entrypoint.sh /app/scripts/ReamonExport.java
 ENV GHIDRA_HOME=/opt/ghidra/current GHIDRA_INSTALL_DIR=/opt/ghidra/current JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
 EXPOSE 8011

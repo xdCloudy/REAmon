@@ -1176,6 +1176,8 @@ services:
       REAMON_WASM_URL: http://wasm-analyzer:8012
       REAMON_PYCDC_URL: http://pycdc-analyzer:8014
       REAMON_WEBCRACK_URL: http://webcrack-analyzer:8015
+      REAMON_LUAJIT_URL: http://luajit-analyzer:8016
+      REAMON_UNLUAC_URL: http://unluac-analyzer:8017
       REAMON_MAX_ARTIFACT_BYTES: ${REAMON_MAX_ARTIFACT_BYTES:-536870912}
       REAMON_MAX_IMPORT_FILES: ${REAMON_MAX_IMPORT_FILES:-50000}
       REAMON_MAX_IMPORT_BYTES: ${REAMON_MAX_IMPORT_BYTES:-8589934592}
@@ -1485,6 +1487,84 @@ services:
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8015/health').then(r => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - reamon-analysis
+
+  # LuaJIT bytecode decompilation uses the pinned MIT-licensed Linux port.
+  luajit-analyzer:
+    build:
+      context: ./analyzers/luajit
+    image: reamon-luajit:local
+    container_name: reamon-luajit
+    init: true
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+    mem_limit: ${REAMON_LUAJIT_MEM:-512m}
+    pids_limit: ${REAMON_LUAJIT_PIDS:-32}
+    cpus: ${REAMON_LUAJIT_CPUS:-1}
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=${REAMON_LUAJIT_TMP_SIZE:-256m},mode=1777
+    environment:
+      REAMON_ARTIFACTS_PATH: /data/reamon-artifacts
+      REAMON_DERIVED_PATH: /data/reamon-derived
+      LUAJIT_TIMEOUT_SECONDS: ${REAMON_LUAJIT_TIMEOUT_SECONDS:-180}
+      LUAJIT_MAX_INPUT_BYTES: ${REAMON_LUAJIT_MAX_INPUT_BYTES:-134217728}
+      LUAJIT_MAX_OUTPUT_BYTES: ${REAMON_LUAJIT_MAX_OUTPUT_BYTES:-33554432}
+    volumes:
+      - reamon_artifacts:/data/reamon-artifacts:ro
+      - reamon_derived:/data/reamon-derived:rw
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8016/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - reamon-analysis
+
+  # unluac reconstructs standard Lua 5.0–5.4 bytecode in a bounded JVM.
+  unluac-analyzer:
+    build:
+      context: ./analyzers/unluac
+    image: reamon-unluac:local
+    container_name: reamon-unluac
+    init: true
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+    mem_limit: ${REAMON_UNLUAC_MEM:-512m}
+    pids_limit: ${REAMON_UNLUAC_PIDS:-32}
+    cpus: ${REAMON_UNLUAC_CPUS:-1}
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=${REAMON_UNLUAC_TMP_SIZE:-128m},mode=1777
+    environment:
+      REAMON_ARTIFACTS_PATH: /data/reamon-artifacts
+      REAMON_DERIVED_PATH: /data/reamon-derived
+      UNLUAC_TIMEOUT_SECONDS: ${REAMON_UNLUAC_TIMEOUT_SECONDS:-180}
+      UNLUAC_MAX_INPUT_BYTES: ${REAMON_UNLUAC_MAX_INPUT_BYTES:-16777216}
+      UNLUAC_MAX_OUTPUT_BYTES: ${REAMON_UNLUAC_MAX_OUTPUT_BYTES:-33554432}
+    volumes:
+      - reamon_artifacts:/data/reamon-artifacts:ro
+      - reamon_derived:/data/reamon-derived:rw
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8017/health', timeout=3)"]
       interval: 30s
       timeout: 5s
       retries: 3

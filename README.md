@@ -65,7 +65,9 @@ a starting point for review.
 | WebAssembly (`.wasm`) | **Low-level only** | WABT exposes WebAssembly text/disassembly (WAT) and function-level entries for navigation. | This is not a high-level source decompiler; names and original source structure may be absent. |
 | Source files with an available Tree-sitter grammar | **Source navigation only** | REAmon can build function/method outlines for supported grammars and use them to scope edits to a member. | Parsing source is not decompilation. Grammar availability and language-specific validation vary. |
 | Python bytecode (`.pyc`, `.pyo`) | **Early integration** | An isolated pycdc 0.6.0 provider stores reconstructed Python source and exposes it to the source outline and member-edit workflow. | This is not a source-equivalence guarantee. The upstream release claims support through Python 3.15, while its published verification covers 2.6–3.14. PyInstaller extraction and bytecode rebuild are not integrated. |
-| Kotlin, Go, Rust, Swift, Objective-C, and native C++ recovery | **Partial now; language-aware improvements planned** | Native binaries can go through Ghidra’s generic pseudocode path when their architecture is supported. Kotlin bytecode can go through JADX’s Java output. | REAmon does not yet reliably reconstruct these languages’ original source idioms, metadata, or project structure. |
+| Lua bytecode (`.luac`) | **Early integration** | An isolated unluac provider reconstructs standard Lua 5.0–5.4 chunks; a separate provider handles LuaJIT chunks. | Stripped chunks may lose local names; complex control flow and custom VM variants may need extra work. Reconstructed source is not guaranteed to match the original. |
+| Go native binaries | **Early integration** | Ghidra supplies address-aware C-like pseudocode; GoReSym recovers Go function names, packages, runtime version, and type metadata where available. Recovered names are joined to the same address-keyed functions and call graph stored for the project. | This does not reconstruct maintainable Go source. Optimizations and stripped metadata can still obscure names and types; the pseudocode remains an approximation. |
+| Kotlin, Rust, Swift, Objective-C, and native C++ recovery | **Partial now; language-aware improvements planned** | Native binaries can go through Ghidra’s generic pseudocode path when their architecture is supported. Kotlin bytecode can go through JADX’s Java output. | REAmon does not yet reliably reconstruct these languages’ original source idioms, metadata, or project structure. |
 | JavaScript bundles (`.js`, `.jsx`, `.mjs`, `.cjs`) | **Early integration** | webcrack unminifies code, reverses some obfuscator.io patterns, and extracts webpack / Browserify modules into indexed source units. | Output is reconstructed source, not guaranteed original source or behavior. REAmon runs the string-array decoder in an isolated V8 runtime with resource limits; fixture validation is still needed. |
 | TypeScript bundles and JavaScript runtime bytecode | **Not integrated; planned evaluation** | TypeScript source can be browsed and outlined when a grammar is available. | webcrack does not currently accept TypeScript syntax as an input guarantee, and no JavaScript runtime-bytecode provider is integrated. |
 
@@ -83,6 +85,12 @@ JavaScript bundles use the MIT-licensed [webcrack](https://github.com/j4k0xb/web
 2.16.0 package in an isolated Node.js analyzer. Its AST-based transforms and
 bundle extraction are a starting point for project-level source recovery, not a
 claim that original names or behavior have been restored.
+Standard Lua 5.0–5.4 bytecode uses the MIT-licensed [unluac fork](https://github.com/Jeong-Min-Cho/unluac)
+in an isolated JVM analyzer. LuaJIT bytecode uses the MIT-licensed
+[LuaJIT Decompiler v2](https://github.com/marsinator358/luajit-decompiler-v2),
+built for Linux from its pinned [Linux port](https://github.com/PackageInstaller/luajit-decompiler).
+These providers handle distinct bytecode formats; their output needs review and has
+no source-equivalence guarantee.
 
 ## Current bootstrap
 

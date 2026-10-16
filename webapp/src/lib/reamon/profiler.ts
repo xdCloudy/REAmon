@@ -1,7 +1,7 @@
 import type { TargetProfile, TargetType } from './types'
 
 const TEXT_EXTENSIONS = new Set([
-  'c', 'cc', 'cpp', 'h', 'hpp', 'java', 'js', 'jsx', 'mjs', 'cjs', 'ts', 'tsx', 'py', 'rb',
+  'c', 'cc', 'cpp', 'h', 'hpp', 'java', 'js', 'jsx', 'mjs', 'cjs', 'ts', 'tsx', 'py', 'rb', 'lua',
   'go', 'rs', 'swift', 'kt', 'kts', 'cs', 'php', 'html', 'css', 'json', 'xml',
   'yaml', 'yml', 'toml', 'md', 'sql', 'sh', 'bash', 'ps1', 'txt',
 ])
@@ -99,6 +99,29 @@ function detectFormat(bytes: Uint8Array, extension: string): {
       platform: 'python',
       runtimes: ['python'],
       embeddedArtifacts: ['python-source'],
+    }
+  }
+
+  if (bytes.length >= 4 && bytes[0] === 0x1b && readAscii(bytes, 1, 2) === 'LJ') {
+    return {
+      format: 'luajit-bytecode',
+      targetType: 'FILE',
+      architecture: null,
+      platform: 'luajit',
+      runtimes: ['luajit'],
+      embeddedArtifacts: ['lua-source'],
+    }
+  }
+
+  if (bytes.length >= 5 && readAscii(bytes, 0, 4) === '\u001bLua'
+      && [0x50, 0x51, 0x52, 0x53, 0x54].includes(bytes[4])) {
+    return {
+      format: 'lua-bytecode',
+      targetType: 'FILE',
+      architecture: null,
+      platform: 'lua',
+      runtimes: ['lua'],
+      embeddedArtifacts: ['lua-source'],
     }
   }
 
@@ -239,6 +262,8 @@ function mimeTypeFor(format: string, extension: string, providedMimeType: string
   if (format === 'dex') return 'application/vnd.android.dex'
   if (format === 'class') return 'application/java-vm'
   if (format === 'python-bytecode') return 'application/x-python-bytecode'
+  if (format === 'luajit-bytecode') return 'application/x-luajit-bytecode'
+  if (format === 'lua-bytecode') return 'application/x-lua-bytecode'
   if (format === 'pdf') return 'application/pdf'
   if (format === 'pcap') return 'application/vnd.tcpdump.pcap'
   if (format === 'sqlite') return 'application/vnd.sqlite3'

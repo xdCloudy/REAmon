@@ -302,6 +302,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     const sourceHash = createHash('sha256').update(fullBytes).digest('hex')
     const scope = body.scope === 'member' ? 'member' : body.scope === 'outline' ? 'outline' : 'file'
     const language = typeof attributes.language === 'string' ? attributes.language : 'unknown'
+    const sourceLanguage = typeof attributes.sourceLanguage === 'string' ? attributes.sourceLanguage : ''
     const unitName = (typeof attributes.qualifiedName === 'string' && attributes.qualifiedName)
       || (typeof attributes.name === 'string' && attributes.name)
       || observation.label
@@ -833,6 +834,7 @@ export async function POST(request: Request, { params }: RouteParams) {
         user_id: user.userId,
         unit_name: String(unitName).slice(0, 500),
         language: language.slice(0, 80),
+        source_language: sourceLanguage.slice(0, 80),
         source_code: bytes.toString('utf8'),
         scope,
         member_name: scope === 'member' ? String(body.memberName).slice(0, 500) : '',

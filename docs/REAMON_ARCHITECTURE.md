@@ -269,10 +269,13 @@ access. It receives native binaries read-only, runs automatic analysis plus a
 bounded function decompilation script, then stores generated C-like output under the
 derived-source volume. Each function becomes an address-aware `code_unit`; up to 500
 functions are linked to the authenticated code route. Function body size defines
-treemap area. Byte-level coverage is not measured and stays unknown. Ghidra CPU,
-memory, temporary storage, process count, functions considered, output size, and
-analysis timeout are bounded. Cancelling the task terminates the Ghidra process
-group.
+treemap area. Byte-level coverage is not measured and stays unknown. A pinned
+GoReSym build checks native inputs for Go runtime metadata, then joins recovered
+function names to Ghidra units and call edges by address. Go version, architecture,
+types, and symbol provenance are saved with project observations; decompiled output
+remains Ghidra's C-like pseudocode. Ghidra CPU, memory, temporary storage, process
+count, functions considered, output size, and analysis timeout are bounded. Cancelling
+the task terminates the active analyzer process group.
 
 The Python bytecode provider accepts `.pyc` and `.pyo` artifacts and invokes the
 MIT-licensed pycdc v0.6.0 binary in a separate container. It stores reconstructed
@@ -289,6 +292,15 @@ limit and evaluation timeout; AST processing runs in a terminable, memory-limite
 worker. The original artifact remains the evidence source, and generated names or
 module paths remain tentative. TypeScript and runtime bytecode are not included in
 this provider's support claim.
+
+The Lua providers distinguish LuaJIT chunks (`\x1bLJ`) from standard Lua chunks
+(`\x1bLua`). LuaJIT uses a pinned MIT-licensed Linux build of LuaJIT Decompiler v2;
+standard Lua 5.0–5.4 uses a pinned MIT-licensed unluac fork. Each runs in a separate
+isolated container and stores reconstructed `.lua` source under the derived-source
+volume. Stripped debug information may remove local names; complex control flow or
+custom VM formats may not decompile correctly. Generated source is indexed for
+browsing and member-scoped maintenance, but is not treated as equivalent to the
+original.
 
 The workspace no longer averages target lifecycle, artifact lifecycle, and task
 completion into one percentage. Those measures describe different states; code

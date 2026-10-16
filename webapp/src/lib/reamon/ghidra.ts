@@ -10,13 +10,17 @@ interface GhidraResponse {
   status: 'completed'
   toolVersion: string
   instructionArchitecture?: string
+  recoveredLanguage?: string | null
+  goVersion?: string | null
+  goArchitecture?: string | null
+  goTypes?: string[]
   functionCount: number
   visitedFunctionCount?: number
   failedFunctionCount?: number
   codeBytes?: number
   returnedUnits: number
   truncated: boolean
-  units: Array<{ name: string; address: string; relativePath: string; codeArtifactId: string; disassemblyArtifactId?: string; referencedStrings?: string[]; instructionMnemonics?: string[]; sizeBytes: number }>
+  units: Array<{ name: string; address: string; relativePath: string; codeArtifactId: string; disassemblyArtifactId?: string; referencedStrings?: string[]; instructionMnemonics?: string[]; sourceLanguage?: string; symbolSource?: string; goPackage?: string; sizeBytes: number }>
   calls?: Array<{ fromAddress: string; toAddress: string; fromName: string; toName: string }>
   callCount?: number
   callGraphTruncated?: boolean
@@ -99,15 +103,21 @@ export async function executeGhidra(input: ToolExecutionInput): Promise<ToolResu
     }
     if (!isGhidraResponse(payload)) throw new Error('Ghidra analyzer returned an invalid result')
 
-    const units = payload.units.slice(0, MAX_UNITS).filter((unit) =>
-      unit && typeof unit.name === 'string' && typeof unit.address === 'string'
-      && typeof unit.relativePath === 'string' && typeof unit.codeArtifactId === 'string'
-      && Number.isFinite(unit.sizeBytes) && unit.sizeBytes > 0
-      && (unit.disassemblyArtifactId === undefined || typeof unit.disassemblyArtifactId === 'string')
-      && (unit.referencedStrings === undefined || (Array.isArray(unit.referencedStrings)
-        && unit.referencedStrings.every((value) => typeof value === 'string' && value.length <= 512)))
-      && (unit.instructionMnemonics === undefined || (Array.isArray(unit.instructionMnemonics) && unit.instructionMnemonics.length <= 800
-        && unit.instructionMnemonics.every((value) => typeof value === 'string' && /^[A-Za-z][A-Za-z0-9_.]{0,31}$/.test(value)))))
+    const units = payload.units.slice(0, MAX_UNITS).filter((unit) => {
+      if (!unit || typeof unit.name !== 'string' || typeof unit.address !== 'string'
+          || typeof unit.relativePath !== 'string' || typeof unit.codeArtifactId !== 'string'
+          || !Number.isFinite(unit.sizeBytes) || unit.sizeBytes <= 0
+          || (unit.disassemblyArtifactId !== undefined && typeof unit.disassemblyArtifactId !== 'string')
+          || (unit.referencedStrings !== undefined && (!Array.isArray(unit.referencedStrings)
+            || !unit.referencedStrings.every((value) => typeof value === 'string' && value.length <= 512)))
+          || (unit.instructionMnemonics !== undefined && (!Array.isArray(unit.instructionMnemonics)
+            || unit.instructionMnemonics.length > 800
+            || !unit.instructionMnemonics.every((value) => typeof value === 'string' && /^[A-Za-z][A-Za-z0-9_.]{0,31}$/.test(value))))
+          || (unit.sourceLanguage !== undefined && typeof unit.sourceLanguage !== 'string')
+          || (unit.symbolSource !== undefined && typeof unit.symbolSource !== 'string')
+          || (unit.goPackage !== undefined && typeof unit.goPackage !== 'string')) return false
+      return true
+    })
     if (!units.length) throw new Error('Ghidra did not produce any viewable function decompilations')
 
     const observations = units.map((unit) => ({
@@ -124,6 +134,9 @@ export async function executeGhidra(input: ToolExecutionInput): Promise<ToolResu
         relativePath: unit.relativePath.slice(0, 1000),
         sizeBytes: Math.floor(unit.sizeBytes),
         language: 'C',
+        ...(unit.sourceLanguage ? { sourceLanguage: unit.sourceLanguage.slice(0, 80) } : {}),
+        ...(unit.symbolSource ? { symbolSource: unit.symbolSource.slice(0, 64) } : {}),
+        ...(unit.goPackage ? { goPackage: unit.goPackage.slice(0, 500) } : {}),
         ...(typeof input.targetProfile.architecture === 'string' && input.targetProfile.architecture
           ? { architecture: input.targetProfile.architecture.slice(0, 128) } : {}),
         ...(typeof payload.instructionArchitecture === 'string' && payload.instructionArchitecture
@@ -135,6 +148,32 @@ export async function executeGhidra(input: ToolExecutionInput): Promise<ToolResu
         ...(unit.instructionMnemonics?.length ? { instructionMnemonics: JSON.stringify(unit.instructionMnemonics.slice(0, 800)) } : {}),
       },
     })) as ToolObservation[]
+    const goTypes = Array.isArray(payload.goTypes)
+      ? payload.goTypes.slice(0, 1000).filter((value) => typeof value === 'string').map((value) => value.slice(0, 500))
+      : []
+    if (payload.recoveredLanguage === 'Go') {
+      const storedGoTypes: string[] = []
+      for (const name of goTypes) {
+        if (JSON.stringify([...storedGoTypes, name]).length > 3500) break
+        storedGoTypes.push(name)
+      }
+      const goMetadata = {
+        kind: 'entity',
+        type: 'language_metadata',
+        key: `ghidra:go-metadata:${createHash('sha256').update(input.artifactId!).digest('hex').slice(0, 32)}`,
+        label: `Go ${payload.goVersion || 'binary metadata'}`,
+        attributes: {
+          identity: `${input.artifactId}:go-metadata`,
+          language: 'Go',
+          symbolSource: 'GoReSym',
+          ...(typeof payload.goVersion === 'string' ? { goVersion: payload.goVersion.slice(0, 128) } : {}),
+          ...(typeof payload.goArchitecture === 'string' ? { goArchitecture: payload.goArchitecture.slice(0, 128) } : {}),
+          recoveredFunctionCount: units.filter((unit) => unit.symbolSource === 'GoReSym').length,
+          types: JSON.stringify(storedGoTypes),
+        },
+      } satisfies ToolObservation
+      observations.push(goMetadata)
+    }
     const unitAddresses = new Set(units.map((unit) => unit.address))
     const functionNodes = new Set<string>()
     const seenEdges = new Set<string>()
@@ -167,6 +206,7 @@ export async function executeGhidra(input: ToolExecutionInput): Promise<ToolResu
               name: call.toName.slice(0, 500),
               address: call.toAddress,
               language: 'C',
+              ...(payload.recoveredLanguage === 'Go' ? { sourceLanguage: 'Go' } : {}),
               externalOrUndecompiled: true,
             },
           })
@@ -200,6 +240,11 @@ export async function executeGhidra(input: ToolExecutionInput): Promise<ToolResu
         codeBytes: typeof payload.codeBytes === 'number' && Number.isFinite(payload.codeBytes) ? Math.max(0, Math.floor(payload.codeBytes)) : units.reduce((sum, unit) => sum + Math.floor(unit.sizeBytes), 0),
         truncated: payload.truncated || payload.functionCount > units.length || callGraphTruncated,
         ghidraVersion: payload.toolVersion,
+        recoveredLanguage: payload.recoveredLanguage === 'Go' ? 'Go' : null,
+        goVersion: typeof payload.goVersion === 'string' ? payload.goVersion.slice(0, 128) : null,
+        goArchitecture: typeof payload.goArchitecture === 'string' ? payload.goArchitecture.slice(0, 128) : null,
+        goTypes,
+        goRecoveredFunctionCount: units.filter((unit) => unit.symbolSource === 'GoReSym').length,
         warnings: payload.warnings?.slice(0, 4000) || '',
         observations,
       },

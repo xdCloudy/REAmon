@@ -14,6 +14,8 @@ const MAX_SOURCE_BYTES = 64 * 1024
 const MAX_ARTIFACT_BYTES = 2 * 1024 * 1024
 const MAX_QUESTION_CHARS = 1000
 const MAX_EXPLANATION_CHARS = 20_000
+const MAX_PROJECT_CONTEXT_BYTES = 8 * 1024
+const MAX_CONTEXT_OBSERVATIONS = 2_500
 
 function isInside(root: string, file: string): boolean {
   const relative = path.relative(root, file)
@@ -22,6 +24,61 @@ function isInside(root: string, file: string): boolean {
 
 function plainObject(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+}
+
+function parseStringList(value: unknown, limit: number): string[] {
+  let parsed = value
+  if (typeof value === 'string') {
+    try { parsed = JSON.parse(value) } catch { return [] }
+  }
+  return Array.isArray(parsed)
+    ? [...new Set(parsed.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0).map((entry) => entry.trim().slice(0, 300)))].slice(0, limit)
+    : []
+}
+
+function utf8Prefix(value: string, maxBytes: number): string {
+  const bytes = Buffer.from(value, 'utf8')
+  return bytes.length <= maxBytes ? value : bytes.subarray(0, maxBytes).toString('utf8').replace(/\uFFFD$/, '')
+}
+
+function buildProjectContext(
+  rows: Array<{ type: string; label: string | null; attributes: unknown }>,
+  selectedAttributes: Record<string, unknown>,
+  maxBytes = MAX_PROJECT_CONTEXT_BYTES,
+): string {
+  const selectedAddress = typeof selectedAttributes.address === 'string' ? selectedAttributes.address : ''
+  const functions = new Map<string, string>()
+  const relatedCalls = new Set<string>()
+  const lines: string[] = []
+  for (const row of rows) {
+    const attributes = plainObject(row.attributes)
+    if (row.type === 'code_unit') {
+      const name = typeof attributes.qualifiedName === 'string' ? attributes.qualifiedName
+        : typeof attributes.name === 'string' ? attributes.name : row.label
+      const address = typeof attributes.address === 'string' ? attributes.address : ''
+      if (name && name.length <= 500) functions.set(address || name, address ? `${name} @ ${address}` : name)
+    } else if (row.type === 'calls' && selectedAddress) {
+      const fromAddress = typeof attributes.fromAddress === 'string' ? attributes.fromAddress : ''
+      const toAddress = typeof attributes.toAddress === 'string' ? attributes.toAddress : ''
+      if (fromAddress !== selectedAddress && toAddress !== selectedAddress) continue
+      if (row.label && row.label.length <= 1000) relatedCalls.add(row.label)
+    } else if (row.type === 'language_metadata' && attributes.language === 'Go') {
+      const version = typeof attributes.goVersion === 'string' ? attributes.goVersion : ''
+      const architecture = typeof attributes.goArchitecture === 'string' ? attributes.goArchitecture : ''
+      const types = parseStringList(attributes.types, 100)
+      const metadata = [
+        `Recovered binary metadata: Go${version ? ` ${version}` : ''}${architecture ? ` (${architecture})` : ''}.`,
+        ...(types.length ? [`Recovered type names: ${types.join(', ')}.`] : []),
+      ]
+      lines.push(...metadata)
+    }
+  }
+  const selectedName = typeof selectedAttributes.qualifiedName === 'string' ? selectedAttributes.qualifiedName
+    : typeof selectedAttributes.name === 'string' ? selectedAttributes.name : ''
+  const nearbyFunctions = [...functions.values()].filter((value) => !value.startsWith(`${selectedName} @`)).slice(0, 80)
+  if (nearbyFunctions.length) lines.push(`Function names in this analysis run: ${nearbyFunctions.join(', ')}.`)
+  if (relatedCalls.size) lines.push(`Stored call edges touching the selected address: ${[...relatedCalls].slice(0, 40).join('; ')}.`)
+  return utf8Prefix(lines.join('\n'), maxBytes)
 }
 
 function validId(value: unknown): value is string {
@@ -57,7 +114,7 @@ export async function POST(request: Request, { params }: RouteParams) {
 
     const observation = await prisma.reamonObservation.findFirst({
       where: { id: body.unitId.trim(), projectId, type: 'code_unit' },
-      select: { id: true, artifactId: true, label: true, attributes: true },
+      select: { id: true, artifactId: true, taskId: true, label: true, attributes: true },
     })
     if (!observation?.artifactId) return NextResponse.json({ error: 'Code unit not found' }, { status: 404 })
 
@@ -69,6 +126,13 @@ export async function POST(request: Request, { params }: RouteParams) {
     if (!artifact) return NextResponse.json({ error: 'Code unit is not part of the active workspace' }, { status: 404 })
 
     const attributes = plainObject(observation.attributes)
+    const contextRows = observation.taskId ? await prisma.reamonObservation.findMany({
+      where: { projectId, artifactId: artifact.id, taskId: observation.taskId, type: { in: ['code_unit', 'calls', 'language_metadata'] } },
+      select: { type: true, label: true, attributes: true },
+      orderBy: { id: 'asc' },
+      take: MAX_CONTEXT_OBSERVATIONS,
+    }) : []
+    const projectContext = buildProjectContext(contextRows, attributes)
     const codeArtifactId = typeof attributes.codeArtifactId === 'string' ? attributes.codeArtifactId : ''
     const pathPrefix = `${projectId}/${artifact.id}/`
     const segments = codeArtifactId.split('/')
@@ -92,6 +156,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       || observation.label
       || 'Selected code unit'
     const language = typeof attributes.language === 'string' ? attributes.language : 'unknown'
+    const sourceLanguage = typeof attributes.sourceLanguage === 'string' ? attributes.sourceLanguage : ''
     const timeoutSeconds = typeof provider.timeout === 'number' && Number.isFinite(provider.timeout) ? provider.timeout : 120
     const timeoutMs = Math.max(10_000, Math.min(300_000, timeoutSeconds * 1000))
 
@@ -103,8 +168,10 @@ export async function POST(request: Request, { params }: RouteParams) {
         user_id: user.userId,
         unit_name: String(unitName).slice(0, 500),
         language: language.slice(0, 80),
+        source_language: sourceLanguage.slice(0, 80),
         source_code: sourceCode,
         source_truncated: sourceTruncated,
+        project_context: projectContext,
         question: typeof body.question === 'string' ? body.question.trim() : '',
       }),
     }, { timeoutMs })
