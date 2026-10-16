@@ -523,6 +523,13 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
       providerIdentitySemantics: attributes.symbolSource === 'GoReSym' && typeof attributes.goPackage === 'string'
         ? 'GoReSym matched this function metadata by its address. The recovered package is provisional namespace evidence, not proof of source provenance or behavior.'
         : null,
+      unstripMethodSignature: text(attributes.goUnstripSignature, 1000),
+      unstripSignatureSemantics: attributes.goUnstripSignature ? 'Address-matched unstrip method signature; it may only be available when the Go linker retained the associated type record. Parameter placeholders are not recovered source names.' : null,
+      unstripSourceLocation: typeof attributes.goUnstripSourceFile === 'string' ? {
+        file: text(attributes.goUnstripSourceFile, 500),
+        line: typeof attributes.goUnstripSourceLine === 'number' ? attributes.goUnstripSourceLine : null,
+        semantics: 'unstrip matched this Go metadata by function address. A source path/line is provenance evidence, not proof that the original source file is available or that the reconstructed pseudocode matches it.',
+      } : null,
       languageMetadata: goMetadata,
       prototype: text(attributes.prototype, 2000),
       recoveredVariables: recoveredVariableData.variables,

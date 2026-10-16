@@ -24,7 +24,7 @@ interface GhidraResponse {
   codeBytes?: number
   returnedUnits: number
   truncated: boolean
-  units: Array<{ name: string; address: string; relativePath: string; codeArtifactId: string; disassemblyArtifactId?: string; referencedStrings?: string[]; instructionMnemonics?: string[]; sourceAddressMap?: Array<{ ghidraLineNumber: number; address: string }>; prototype?: string; recoveredVariables?: Array<{ kind: 'parameter' | 'local'; name: string; dataType: string; sizeBytes: number; parameterIndex?: number; storageStartAddress?: string; nameLocked?: boolean; typeLocked?: boolean }>; recoveredVariablesTruncated?: boolean; sourceLanguage?: string; symbolSource?: string; goPackage?: string; sizeBytes: number }>
+  units: Array<{ name: string; address: string; relativePath: string; codeArtifactId: string; disassemblyArtifactId?: string; referencedStrings?: string[]; instructionMnemonics?: string[]; sourceAddressMap?: Array<{ ghidraLineNumber: number; address: string }>; prototype?: string; recoveredVariables?: Array<{ kind: 'parameter' | 'local'; name: string; dataType: string; sizeBytes: number; parameterIndex?: number; storageStartAddress?: string; nameLocked?: boolean; typeLocked?: boolean }>; recoveredVariablesTruncated?: boolean; sourceLanguage?: string; symbolSource?: string; goPackage?: string; goUnstripSignature?: string; goUnstripSourceFile?: string; goUnstripSourceLine?: number; sizeBytes: number }>
   calls?: Array<{ fromAddress: string; toAddress: string; fromName: string; toName: string }>
   callCount?: number
   callGraphTruncated?: boolean
@@ -155,7 +155,10 @@ export async function executeGhidra(input: ToolExecutionInput): Promise<ToolResu
           || (unit.recoveredVariablesTruncated !== undefined && typeof unit.recoveredVariablesTruncated !== 'boolean')
           || (unit.sourceLanguage !== undefined && typeof unit.sourceLanguage !== 'string')
           || (unit.symbolSource !== undefined && typeof unit.symbolSource !== 'string')
-          || (unit.goPackage !== undefined && typeof unit.goPackage !== 'string')) return false
+          || (unit.goPackage !== undefined && typeof unit.goPackage !== 'string')
+          || (unit.goUnstripSignature !== undefined && (typeof unit.goUnstripSignature !== 'string' || unit.goUnstripSignature.length > 1000))
+          || (unit.goUnstripSourceFile !== undefined && (typeof unit.goUnstripSourceFile !== 'string' || unit.goUnstripSourceFile.length > 500))
+          || (unit.goUnstripSourceLine !== undefined && (!Number.isInteger(unit.goUnstripSourceLine) || unit.goUnstripSourceLine <= 0 || unit.goUnstripSourceLine > 10_000_000))) return false
       return true
     })
     if (!units.length) throw new Error('Ghidra did not produce any viewable function decompilations')
@@ -177,6 +180,9 @@ export async function executeGhidra(input: ToolExecutionInput): Promise<ToolResu
         ...(unit.sourceLanguage ? { sourceLanguage: unit.sourceLanguage.slice(0, 80) } : {}),
         ...(unit.symbolSource ? { symbolSource: unit.symbolSource.slice(0, 64) } : {}),
         ...(unit.goPackage ? { goPackage: unit.goPackage.slice(0, 500) } : {}),
+        ...(unit.goUnstripSignature ? { goUnstripSignature: unit.goUnstripSignature.slice(0, 1000) } : {}),
+        ...(unit.goUnstripSourceFile ? { goUnstripSourceFile: unit.goUnstripSourceFile.slice(0, 500) } : {}),
+        ...(typeof unit.goUnstripSourceLine === 'number' ? { goUnstripSourceLine: unit.goUnstripSourceLine } : {}),
         ...(typeof input.targetProfile.architecture === 'string' && input.targetProfile.architecture
           ? { architecture: input.targetProfile.architecture.slice(0, 128) } : {}),
         ...(typeof payload.instructionArchitecture === 'string' && payload.instructionArchitecture

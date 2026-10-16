@@ -930,6 +930,10 @@ export async function POST(request: Request, { params }: RouteParams) {
         const goIdentity = [
           providerAttributes.symbolSource === 'GoReSym' ? 'symbol recovered by GoReSym' : '',
           typeof providerAttributes.goPackage === 'string' ? `Go package ${providerAttributes.goPackage.slice(0, 200)}` : '',
+          typeof providerAttributes.goUnstripSignature === 'string'
+            ? `unstrip recovered Go method signature ${providerAttributes.goUnstripSignature.slice(0, 500)}` : '',
+          typeof providerAttributes.goUnstripSourceFile === 'string'
+            ? `unstrip source location ${providerAttributes.goUnstripSourceFile.slice(0, 300)}${typeof providerAttributes.goUnstripSourceLine === 'number' ? `:${providerAttributes.goUnstripSourceLine}` : ''}` : '',
         ].filter(Boolean).join('; ')
         const toCodeInputPath = typeof providerAttributes.toCodeClaimedInputPath === 'string'
           ? providerAttributes.toCodeClaimedInputPath.slice(0, 240)

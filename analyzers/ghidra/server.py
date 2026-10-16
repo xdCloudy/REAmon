@@ -245,7 +245,48 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                         go_metadata = None
                 unstrip_type_details = []
                 unstrip_type_details_truncated = False
+                unstrip_functions = {}
                 if go_metadata:
+                    unstrip_functions_path = temporary_root / "unstrip-functions.json"
+                    unstrip_log_path = temporary_root / "unstrip-functions.log"
+                    report_progress("Recovering Go method signatures and source locations")
+                    try:
+                        with unstrip_functions_path.open("wb") as output_file, unstrip_log_path.open("wb") as log_file:
+                            unstrip_functions_code = run_ghidra(
+                                ["/usr/local/bin/unstrip", "--format", "json", str(input_path)],
+                                log_file, cancel_check, home, UNSTRIP_TIMEOUT_SECONDS, output_file,
+                                MAX_UNSTRIP_OUTPUT_BYTES,
+                            )
+                        if unstrip_functions_code == 0 and unstrip_functions_path.stat().st_size <= MAX_UNSTRIP_OUTPUT_BYTES:
+                            unstrip_function_report = json.loads(unstrip_functions_path.read_text(encoding="utf-8"))
+                            records = unstrip_function_report.get("functions", []) if isinstance(unstrip_function_report, dict) else []
+                            if isinstance(records, list):
+                                for record in records:
+                                    if not isinstance(record, dict):
+                                        continue
+                                    try:
+                                        address = format(int(record.get("address")), "x")
+                                    except (TypeError, ValueError):
+                                        continue
+                                    details = {}
+                                    signature = record.get("signature")
+                                    source_file = record.get("file")
+                                    source_line = record.get("start_line")
+                                    if isinstance(signature, str) and signature.strip():
+                                        details["signature"] = signature.strip()[:1000]
+                                    if isinstance(source_file, str) and source_file.strip():
+                                        details["sourceFile"] = source_file.strip()[:500]
+                                    if isinstance(source_line, int) and not isinstance(source_line, bool) and 0 < source_line <= 10_000_000:
+                                        details["sourceLine"] = source_line
+                                    if details:
+                                        unstrip_functions[address] = details
+                    except AnalysisError as error:
+                        if "cancelled" in str(error).lower():
+                            raise
+                        go_warnings.append("unstrip Go method signatures exceeded an output/time limit or could not start.")
+                    except (OSError, ValueError, json.JSONDecodeError) as error:
+                        go_warnings.append("unstrip Go method signatures could not be parsed.")
+
                     unstrip_path = temporary_root / "unstrip-types.json"
                     unstrip_log_path = temporary_root / "unstrip.log"
                     report_progress("Recovering additional Go type evidence")
@@ -499,6 +540,13 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                         unit["symbolSource"] = "GoReSym"
                         if go_function["package"]:
                             unit["goPackage"] = go_function["package"]
+                        unstrip_function = unstrip_functions.get(address_key)
+                        if unstrip_function:
+                            unit.update({
+                                "goUnstripSignature": unstrip_function.get("signature"),
+                                "goUnstripSourceFile": unstrip_function.get("sourceFile"),
+                                "goUnstripSourceLine": unstrip_function.get("sourceLine"),
+                            })
                     if assembly is not None:
                         assembly_destination = run_root / assembly_relative
                         assembly_destination.parent.mkdir(parents=True, exist_ok=True)
