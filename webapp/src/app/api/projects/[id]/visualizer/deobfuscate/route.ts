@@ -7,7 +7,7 @@ import { AgentUnreachableError, agentFetch } from '@/lib/agentFetch'
 import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
 import { getActiveWorkspaceImportSelection } from '@/lib/reamon/inventory-query'
 import { derivedArtifactRoot, resolveDerivedArtifactPath } from '@/lib/reamon/derived-storage'
-import { buildProjectSymbolContext, extractMaintainedSymbols } from '@/lib/reamon/maintenance-memory'
+import { buildProjectSymbolContext, buildProviderSymbolContext, extractMaintainedSymbols } from '@/lib/reamon/maintenance-memory'
 import { rankSimilarInstructionFunctions } from '@/lib/reamon/instruction-similarity'
 import { codeRewriteLeaseGraceMs, failInterruptedCodeAttempts } from '@/lib/reamon/code-attempts'
 
@@ -31,6 +31,7 @@ const MAX_DEX_REFERENCE_ROWS = 128
 const MAX_DEX_BYTECODE_METHODS = 8
 const MAX_PROJECT_SYMBOL_RECORDS = 1_024
 const MAX_PROJECT_SYMBOL_SCAN = 4_096
+const MAX_PROVIDER_SYMBOL_RECORDS = 128
 const MAX_PROJECT_DRAFT_RECORDS = 64
 const MEMBER_OUTLINE_SOURCE = 'reamon-tree-sitter-outline@tree-sitter-language-pack-1.21.0'
 const MAX_PERSISTED_OUTLINE_MEMBERS = 10_000
@@ -772,7 +773,11 @@ export async function POST(request: Request, { params }: RouteParams) {
     }
     const references = [...new Set([...similarFunctionNames, ...relatedByName.keys()])]
     const relatedUnitIds = [...relatedUnitIdByName.values()]
-    const [maintainedRelatedRows, projectDraftRows, currentDraft] = await Promise.all([
+    const providerRelatedUnitIds = [...relatedUnitIdByName.entries()].flatMap(([name, id]) =>
+      similarArtifactByName.has(name) && similarArtifactByName.get(name) !== artifact.id ? [] : [id])
+    const providerSymbolUnitIds = [...new Set([observation.id, ...providerRelatedUnitIds])]
+    const providerSymbolInputTruncated = providerSymbolUnitIds.length > MAX_PROVIDER_SYMBOL_RECORDS
+    const [maintainedRelatedRows, projectDraftRows, currentDraft, providerSymbolRows] = await Promise.all([
       relatedUnitIds.length ? prisma.reamonMaintainedSource.findMany({
         where: { projectId, codeUnitId: { in: relatedUnitIds } },
         select: { codeUnitId: true, artifactId: true, unitName: true, language: true, sourceCode: true, sourceHash: true, acceptedReviewId: true, symbolIndex: true, updatedAt: true },
@@ -789,6 +794,18 @@ export async function POST(request: Request, { params }: RouteParams) {
         select: { sourceCode: true, unitName: true, language: true },
         orderBy: { updatedAt: 'desc' },
       }),
+      observation.taskId && observation.source === 'reamon-ghidra' ? prisma.reamonObservation.findMany({
+        where: {
+          projectId,
+          artifactId: artifact.id,
+          taskId: observation.taskId,
+          source: observation.source,
+          id: { in: providerSymbolUnitIds.slice(0, MAX_PROVIDER_SYMBOL_RECORDS) },
+          type: 'code_unit',
+        },
+        select: { id: true, label: true, attributes: true },
+        orderBy: [{ stableKey: 'asc' }, { id: 'asc' }],
+      }) : Promise.resolve([]),
     ])
     // Read project memory in bounded pages so older maintained units are not
     // permanently hidden behind only the newest page in large APK projects.
@@ -844,6 +861,34 @@ export async function POST(request: Request, { params }: RouteParams) {
       artifactName: artifactById.get(row.artifactId)?.originalName,
       artifactHash: artifactById.get(row.artifactId)?.sha256,
     })), new Set(relatedUnitIds), undefined, artifact.sha256)
+    const providerSymbolContext = observation.taskId ? buildProviderSymbolContext(
+      providerSymbolRows.map((row) => {
+        const providerAttributes = plainObject(row.attributes)
+        return {
+          codeUnitId: row.id,
+          unitName: (typeof providerAttributes.qualifiedName === 'string' && providerAttributes.qualifiedName)
+            || (typeof providerAttributes.name === 'string' && providerAttributes.name)
+            || row.label
+            || 'Unnamed code unit',
+          language: (typeof providerAttributes.language === 'string' && providerAttributes.language)
+            || (typeof providerAttributes.sourceLanguage === 'string' && providerAttributes.sourceLanguage)
+            || 'unknown',
+          address: typeof providerAttributes.address === 'string' ? providerAttributes.address : undefined,
+          recoveredVariables: providerAttributes.recoveredVariables,
+          recoveredVariablesTruncated: providerAttributes.recoveredVariablesTruncated === true,
+        }
+      }),
+      new Set(providerRelatedUnitIds),
+      8_000,
+      {
+        provider: observation.source,
+        artifactName: artifact.originalName,
+        artifactHash: artifact.sha256,
+        taskId: observation.taskId,
+        inputTruncated: providerSymbolInputTruncated,
+      },
+      observation.id,
+    ) : ''
     const dexMethodExcerptCache = new Map<string, { members: OutlineMember[]; truncated: boolean }>()
     const dexMethodExcerpt = async (name: string, source: Buffer, sourceLanguage: string, relatedArtifactId: string, persistOutline: boolean) => {
       const candidate = similarDexMethodByName.get(name)
@@ -1199,6 +1244,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       disassembly_source: disassemblySource,
       binary_evidence: binaryEvidence,
       project_symbol_context: maintainedProjectContext,
+      provider_symbol_context: providerSymbolContext,
       project_draft_context: projectDraftContext,
       prior_attempt_context: priorAttemptContext,
       question: typeof body.question === 'string' ? body.question.trim() : '',

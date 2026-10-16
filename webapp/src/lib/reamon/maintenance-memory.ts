@@ -1,3 +1,5 @@
+import { recoveredVariablesOf } from './code-units'
+
 export interface MaintainedSymbolRecord {
   unitName: string
   language: string
@@ -6,6 +8,15 @@ export interface MaintainedSymbolRecord {
   artifactId?: string
   artifactName?: string
   artifactHash?: string
+}
+
+export interface ProviderSymbolRecord {
+  codeUnitId: string
+  unitName: string
+  language: string
+  address?: string
+  recoveredVariables: unknown
+  recoveredVariablesTruncated?: boolean
 }
 
 const declarationPatterns = [
@@ -126,4 +137,47 @@ export function buildProjectSymbolContext(
     length += line.length + 1
   }
   return lines.join('\n')
+}
+
+export function buildProviderSymbolContext(
+  records: ProviderSymbolRecord[],
+  relatedUnitIds: Set<string>,
+  maxBytes = 8_000,
+  provenance: { provider: string; artifactName: string; artifactHash: string; taskId: string; inputTruncated?: boolean },
+  selectedUnitId?: string,
+): string {
+  const header = `Provider-recovered names and types (provisional evidence; provider=${provenance.provider.slice(0, 120)}; artifact=${provenance.artifactName.slice(0, 160)}; sha256=${provenance.artifactHash.slice(0, 16)}; analysis=${provenance.taskId.slice(0, 128)}${provenance.inputTruncated ? '; related-unit selection capped' : ''}):`
+  const ranked = records.map((record, index) => ({ record, index })).sort((left, right) => {
+    const selectedRank = Number(right.record.codeUnitId === selectedUnitId) - Number(left.record.codeUnitId === selectedUnitId)
+    if (selectedRank) return selectedRank
+    const relatedRank = Number(relatedUnitIds.has(right.record.codeUnitId)) - Number(relatedUnitIds.has(left.record.codeUnitId))
+    return relatedRank || left.index - right.index
+  })
+  const lines = [header]
+  let length = Buffer.byteLength(header, 'utf8')
+  let omittedByContextLimit = false
+  const includedUnits = new Set<string>()
+  for (const { record } of ranked) {
+    if (includedUnits.has(record.codeUnitId)) continue
+    const { variables, truncated } = recoveredVariablesOf(record.recoveredVariables)
+    if (!variables.length) continue
+    const address = record.address && /^[A-Za-z0-9:_-]{1,128}$/.test(record.address) ? ` @ ${record.address}` : ''
+    const symbolList = variables.slice(0, 12).map((variable) => variable.kind === 'parameter'
+      ? `parameter ${variable.parameterIndex}: ${variable.name.slice(0, 128)}: ${(variable.dataType || 'unknown type').slice(0, 128)} (${variable.sizeBytes} B)`
+      : `local ${variable.name.slice(0, 128)}: ${(variable.dataType || 'unknown type').slice(0, 128)} (${variable.sizeBytes} B)`)
+    const omitted = variables.length > symbolList.length || truncated || record.recoveredVariablesTruncated
+      ? `; more symbols omitted${record.recoveredVariablesTruncated ? ' by analyzer limit' : ''}`
+      : ''
+    const line = `${record.unitName.slice(0, 300)}${address} [${record.language.slice(0, 80)}]: ${symbolList.join('; ')}${omitted}`
+    const lineBytes = Buffer.byteLength(line, 'utf8')
+    if (length + lineBytes + 1 > maxBytes - 80) {
+      omittedByContextLimit = true
+      break
+    }
+    lines.push(line)
+    includedUnits.add(record.codeUnitId)
+    length += lineBytes + 1
+  }
+  if (omittedByContextLimit) lines.push('Additional recovered-symbol rows were omitted to fit the context budget.')
+  return lines.length > 1 ? lines.join('\n') : ''
 }
