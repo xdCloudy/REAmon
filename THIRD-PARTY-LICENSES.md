@@ -407,6 +407,14 @@ The agent container (`agentic/Dockerfile`) bundles multiple language runtimes fo
 
 In compliance with the AGPL-3.0 license, the complete corresponding source code for all AGPL-licensed components is available at the repositories listed above. If you have received a RedAmon Docker image containing any of these tools and cannot access their source code at the listed repositories, please contact the maintainers at devergo.sam@gmail.com and we will provide the source code.
 
+## REAmon Analysis Providers
+
+| Tool | Purpose | License | Source Repository | How Used |
+|------|---------|---------|-------------------|----------|
+| **pycdc** | Python bytecode disassembly and source reconstruction | MIT | https://github.com/ejfkdev/pycdc | Pinned to v0.6.0 and invoked as a separate process inside `reamon-pycdc`; Linux release binaries are checksum-verified in `analyzers/pycdc/Dockerfile`. |
+| **webcrack** | JavaScript deobfuscation, unminification, and bundle module extraction | MIT | https://github.com/j4k0xb/webcrack | Pinned to v2.16.0 in `analyzers/webcrack/package-lock.json`; executed in the isolated `reamon-webcrack` service. Its bounded string-array evaluation runs in `isolated-vm` 6.2.0. |
+| **isolated-vm** | Memory-limited V8 isolate for webcrack's string-array decoder | MIT | https://github.com/laverdet/isolated-vm | Pinned to 6.2.0 in `analyzers/webcrack/package-lock.json`; only recovered decoder snippets run in the isolate. |
+
 ## License Compatibility Note
 
 RedAmon's own source code is released under the **MIT License**.

@@ -314,6 +314,7 @@ export async function executeAnalysisTask(projectId: string, taskId: string, lea
       taskId: task.id,
       runToken,
       artifactPath,
+      artifactRelativePath: task.artifact.relativePath,
       options: asOptions(task.options),
       signal: controller.signal,
       reportProgress,

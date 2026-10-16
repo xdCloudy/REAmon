@@ -1,7 +1,7 @@
 import type { TargetProfile, TargetType } from './types'
 
 const TEXT_EXTENSIONS = new Set([
-  'c', 'cc', 'cpp', 'h', 'hpp', 'java', 'js', 'jsx', 'ts', 'tsx', 'py', 'rb',
+  'c', 'cc', 'cpp', 'h', 'hpp', 'java', 'js', 'jsx', 'mjs', 'cjs', 'ts', 'tsx', 'py', 'rb',
   'go', 'rs', 'swift', 'kt', 'kts', 'cs', 'php', 'html', 'css', 'json', 'xml',
   'yaml', 'yml', 'toml', 'md', 'sql', 'sh', 'bash', 'ps1', 'txt',
 ])
@@ -90,6 +90,18 @@ function detectFormat(bytes: Uint8Array, extension: string): {
     }
   }
 
+  if (bytes.length >= 16 && (extension === 'pyc' || extension === 'pyo')
+      && bytes[2] === 0x0d && bytes[3] === 0x0a) {
+    return {
+      format: 'python-bytecode',
+      targetType: 'FILE',
+      architecture: null,
+      platform: 'python',
+      runtimes: ['python'],
+      embeddedArtifacts: ['python-source'],
+    }
+  }
+
   if (bytes.length >= 8 && extension === 'class'
       && bytes[0] === 0xca && bytes[1] === 0xfe && bytes[2] === 0xba && bytes[3] === 0xbe) {
     return {
@@ -173,6 +185,17 @@ function detectFormat(bytes: Uint8Array, extension: string): {
     }
   }
 
+  if (['js', 'jsx', 'mjs', 'cjs'].includes(extension)) {
+    return {
+      format: 'javascript-source',
+      targetType: 'FILE',
+      architecture: null,
+      platform: 'javascript',
+      runtimes: ['javascript'],
+      embeddedArtifacts: ['deobfuscated-source', 'bundle-modules'],
+    }
+  }
+
   if (bytes.length >= 4 && [0xa1b2c3d4, 0xd4c3b2a1, 0x0a0d0d0a].includes(magic)) {
     return {
       format: 'pcap',
@@ -208,12 +231,14 @@ function detectFormat(bytes: Uint8Array, extension: string): {
 function mimeTypeFor(format: string, extension: string, providedMimeType: string): string {
   if (providedMimeType && providedMimeType !== 'application/octet-stream') return providedMimeType
   if (format === 'source') return 'text/plain'
+  if (format === 'javascript-source') return 'text/javascript'
   if (format === 'elf') return 'application/x-executable'
   if (format === 'wasm') return 'application/wasm'
   if (format === 'pe' || format === 'pe-dll' || format === 'pe-dotnet') return 'application/vnd.microsoft.portable-executable'
   if (format === 'apk' || format === 'jar' || format === 'zip') return 'application/zip'
   if (format === 'dex') return 'application/vnd.android.dex'
   if (format === 'class') return 'application/java-vm'
+  if (format === 'python-bytecode') return 'application/x-python-bytecode'
   if (format === 'pdf') return 'application/pdf'
   if (format === 'pcap') return 'application/vnd.tcpdump.pcap'
   if (format === 'sqlite') return 'application/vnd.sqlite3'

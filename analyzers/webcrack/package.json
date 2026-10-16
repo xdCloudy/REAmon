@@ -1,0 +1,9 @@
+{
+  "name": "reamon-webcrack-analyzer",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "isolated-vm-6": "npm:isolated-vm@6.2.0",
+    "webcrack": "2.16.0"
+  }
+}

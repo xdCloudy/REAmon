@@ -64,18 +64,25 @@ a starting point for review.
 | Native binaries (ELF, PE, Mach-O; including C/C++ and other compiled languages) | **Partial** | Ghidra provides address-aware functions, disassembly evidence, and C-like pseudocode for supported architectures. | Pseudocode is not recovered C/C++ or the original language. Types, class structure, templates, symbols, and control flow can be incomplete or misleading, especially in optimized or stripped binaries. |
 | WebAssembly (`.wasm`) | **Low-level only** | WABT exposes WebAssembly text/disassembly (WAT) and function-level entries for navigation. | This is not a high-level source decompiler; names and original source structure may be absent. |
 | Source files with an available Tree-sitter grammar | **Source navigation only** | REAmon can build function/method outlines for supported grammars and use them to scope edits to a member. | Parsing source is not decompilation. Grammar availability and language-specific validation vary. |
-| Python bytecode (`.pyc`) | **Not integrated; planned evaluation** | PyLingual is a candidate for CPython bytecode-to-source recovery. | No Python bytecode decompiler is wired into REAmon yet. PyLingual’s local CLI documents possible control-flow accuracy regressions; its runtime and model requirements also need evaluation. |
+| Python bytecode (`.pyc`, `.pyo`) | **Early integration** | An isolated pycdc 0.6.0 provider stores reconstructed Python source and exposes it to the source outline and member-edit workflow. | This is not a source-equivalence guarantee. The upstream release claims support through Python 3.15, while its published verification covers 2.6–3.14. PyInstaller extraction and bytecode rebuild are not integrated. |
 | Kotlin, Go, Rust, Swift, Objective-C, and native C++ recovery | **Partial now; language-aware improvements planned** | Native binaries can go through Ghidra’s generic pseudocode path when their architecture is supported. Kotlin bytecode can go through JADX’s Java output. | REAmon does not yet reliably reconstruct these languages’ original source idioms, metadata, or project structure. |
-| JavaScript / TypeScript bundles and bytecode | **Not integrated; planned evaluation** | Source files can be browsed; member outlines depend on an available grammar. | No bundled-code or runtime-bytecode deobfuscation workflow is integrated yet. |
+| JavaScript bundles (`.js`, `.jsx`, `.mjs`, `.cjs`) | **Early integration** | webcrack unminifies code, reverses some obfuscator.io patterns, and extracts webpack / Browserify modules into indexed source units. | Output is reconstructed source, not guaranteed original source or behavior. REAmon runs the string-array decoder in an isolated V8 runtime with resource limits; fixture validation is still needed. |
+| TypeScript bundles and JavaScript runtime bytecode | **Not integrated; planned evaluation** | TypeScript source can be browsed and outlined when a grammar is available. | webcrack does not currently accept TypeScript syntax as an input guarantee, and no JavaScript runtime-bytecode provider is integrated. |
 
 This is a work-in-progress capability matrix, not a compatibility guarantee. The
 planned rows identify areas to evaluate; they do not promise a release date. Current
 engines include [JADX](https://github.com/skylot/jadx),
 [ILSpy](https://github.com/icsharpcode/ILSpy),
 [Ghidra](https://github.com/NationalSecurityAgency/ghidra), and
-[WABT](https://github.com/WebAssembly/wabt). Python bytecode support will first
-evaluate [PyLingual](https://github.com/syssec-utd/pylingual), whose project reports
-support for CPython bytecode from 3.6 through 3.15.
+[WABT](https://github.com/WebAssembly/wabt). Python bytecode uses the MIT-licensed
+[pycdc](https://github.com/ejfkdev/pycdc) 0.6.0 CLI in an isolated analyzer;
+its broad version support and reconstruction quality still need REAmon fixture
+validation. [PyLingual](https://github.com/syssec-utd/pylingual) remains an
+alternative for comparison, with a GPL-3.0 license and a larger local ML runtime.
+JavaScript bundles use the MIT-licensed [webcrack](https://github.com/j4k0xb/webcrack)
+2.16.0 package in an isolated Node.js analyzer. Its AST-based transforms and
+bundle extraction are a starting point for project-level source recovery, not a
+claim that original names or behavior have been restored.
 
 ## Current bootstrap
 
@@ -105,6 +112,8 @@ The first REAmon milestone is implemented and running on the `reamon/bootstrap` 
 - Run Ghidra 12.1.4 headless in an isolated backend service for ELF, PE, and Mach-O
   decompilation; store bounded C-like function outputs separately and publish
   address-aware code-unit observations.
+- Run pycdc for Python bytecode and webcrack for JavaScript bundles in isolated
+  analyzers; store reconstructed source as derived artifacts and index module units.
 - Draw a searchable size/coverage treemap from provider code-unit observations and
   open source only through an authenticated, active-workspace artifact route.
 - Run bounded `strings` and `readelf` process providers against stored source and

@@ -657,7 +657,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
     const search = graphSearch.trim().toLocaleLowerCase()
     if (!search) return []
     return (runCallGraphQuery.data?.nodes || [])
-      .filter((node) => `${node.label} ${node.address || ''} ${node.codeUnit?.artifactPath || ''}`.toLocaleLowerCase().includes(search))
+      .filter((node) => `${node.label} ${node.address || ''} ${node.codeUnit?.bundlePath || ''} ${node.codeUnit?.artifactPath || ''}`.toLocaleLowerCase().includes(search))
       .slice(0, 8)
   }, [runCallGraphQuery.data, graphSearch])
   const graphFocus = runCallGraphQuery.data?.nodes.find((node) => node.key === graphFocusKey)
@@ -1478,7 +1478,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
             </div>
           </div> : <>
             <div className={styles.sourceHeader}>
-                <div><strong>{selectedUnit.unitType === 'resource' ? 'Decoded resource' : selectedUnit.name}</strong><span>{selectedUnit.language || 'Source'} · {selectedUnit.codeArtifactId?.split('/').pop()}</span></div>
+              <div><strong>{selectedUnit.unitType === 'resource' ? 'Decoded resource' : selectedUnit.name}</strong><span>{selectedUnit.language || 'Source'} · {selectedUnit.bundlePath || selectedUnit.codeArtifactId?.split('/').pop()}</span></div>
               <button type="button" className={styles.copyButton} onClick={() => void copySource()} disabled={!sourceQuery.data}><Copy size={14} /> {copyStatus || 'Copy code'}</button>
             </div>
             {sourceQuery.isLoading && <p className={styles.message}>Loading code output…</p>}
@@ -1491,6 +1491,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
             <div><dt>Size</dt><dd>{formatBytes(selectedUnit.sizeBytes)}</dd></div>
             <div><dt>Language</dt><dd>{selectedUnit.language || 'Not identified'}</dd></div>
             <div><dt>Unit type</dt><dd>{selectedUnit.unitType || 'Code unit'}</dd></div>
+            {selectedUnit.bundlePath && <div><dt>Bundle module</dt><dd>{selectedUnit.bundlePath}</dd></div>}
             <div><dt>Artifact</dt><dd>{selectedUnit.artifactPath || 'Not linked'}</dd></div>
             <div><dt>Provider</dt><dd>{selectedUnit.source}</dd></div>
           </dl>

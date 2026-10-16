@@ -104,6 +104,7 @@ export interface ToolExecutionInput {
   taskId?: string
   runToken?: string
   artifactPath?: string
+  artifactRelativePath?: string
   options?: Record<string, unknown>
   signal?: AbortSignal
   reportProgress?: (message: string) => Promise<void> | void

@@ -1174,6 +1174,8 @@ services:
       REAMON_ILSPY_URL: http://ilspy-analyzer:8013
       REAMON_GHIDRA_URL: http://ghidra-analyzer:8011
       REAMON_WASM_URL: http://wasm-analyzer:8012
+      REAMON_PYCDC_URL: http://pycdc-analyzer:8014
+      REAMON_WEBCRACK_URL: http://webcrack-analyzer:8015
       REAMON_MAX_ARTIFACT_BYTES: ${REAMON_MAX_ARTIFACT_BYTES:-536870912}
       REAMON_MAX_IMPORT_FILES: ${REAMON_MAX_IMPORT_FILES:-50000}
       REAMON_MAX_IMPORT_BYTES: ${REAMON_MAX_IMPORT_BYTES:-8589934592}
@@ -1404,6 +1406,85 @@ services:
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8012/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - reamon-analysis
+
+  # pycdc converts versioned Python bytecode to editable source in isolation.
+  pycdc-analyzer:
+    build:
+      context: ./analyzers/pycdc
+    image: reamon-pycdc:local
+    container_name: reamon-pycdc
+    init: true
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+    mem_limit: ${REAMON_PYCDC_MEM:-512m}
+    pids_limit: ${REAMON_PYCDC_PIDS:-32}
+    cpus: ${REAMON_PYCDC_CPUS:-1}
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=${REAMON_PYCDC_TMP_SIZE:-256m},mode=1777
+    environment:
+      REAMON_ARTIFACTS_PATH: /data/reamon-artifacts
+      REAMON_DERIVED_PATH: /data/reamon-derived
+      PYCDC_TIMEOUT_SECONDS: ${REAMON_PYCDC_TIMEOUT_SECONDS:-180}
+      PYCDC_MAX_INPUT_BYTES: ${REAMON_PYCDC_MAX_INPUT_BYTES:-134217728}
+      PYCDC_MAX_OUTPUT_BYTES: ${REAMON_PYCDC_MAX_OUTPUT_BYTES:-33554432}
+    volumes:
+      - reamon_artifacts:/data/reamon-artifacts:ro
+      - reamon_derived:/data/reamon-derived:rw
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8014/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - reamon-analysis
+
+  # webcrack normalizes and splits JavaScript bundles in an isolated runtime.
+  webcrack-analyzer:
+    build:
+      context: ./analyzers/webcrack
+    image: reamon-webcrack:local
+    container_name: reamon-webcrack
+    init: true
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+    mem_limit: ${REAMON_WEBCRACK_MEM:-768m}
+    pids_limit: ${REAMON_WEBCRACK_PIDS:-32}
+    cpus: ${REAMON_WEBCRACK_CPUS:-1}
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=${REAMON_WEBCRACK_TMP_SIZE:-256m},mode=1777
+    environment:
+      REAMON_ARTIFACTS_PATH: /data/reamon-artifacts
+      REAMON_DERIVED_PATH: /data/reamon-derived
+      WEBCRACK_TIMEOUT_MS: ${REAMON_WEBCRACK_TIMEOUT_MS:-120000}
+      WEBCRACK_MAX_INPUT_BYTES: ${REAMON_WEBCRACK_MAX_INPUT_BYTES:-16777216}
+      WEBCRACK_MAX_OUTPUT_BYTES: ${REAMON_WEBCRACK_MAX_OUTPUT_BYTES:-67108864}
+      WEBCRACK_MAX_MODULES: ${REAMON_WEBCRACK_MAX_MODULES:-500}
+    volumes:
+      - reamon_artifacts:/data/reamon-artifacts:ro
+      - reamon_derived:/data/reamon-derived:rw
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8015/health').then(r => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))"]
       interval: 30s
       timeout: 5s
       retries: 3

@@ -488,7 +488,7 @@ export async function POST(request: Request, { params }: RouteParams) {
           take: MAX_FUNCTION_HISTORY + 1,
           select: {
             id: true, stableKey: true, canonicalKey: true, label: true, attributes: true, artifactId: true,
-            artifact: { select: { profile: true } },
+            artifact: { select: { profile: true, originalName: true, sha256: true } },
           },
         })
         const uniqueCandidates = new Map<string, typeof candidates[number]>()
@@ -554,7 +554,12 @@ export async function POST(request: Request, { params }: RouteParams) {
             || row.label
             || ''
           if (!name || name === unitName || relatedByName.has(name)) continue
-          relatedByName.set(name, { ...relatedAttributes, instructionSimilarityPercent: match.similarity })
+          relatedByName.set(name, {
+            ...relatedAttributes,
+            instructionSimilarityPercent: match.similarity,
+            instructionArtifactName: row.artifact?.originalName,
+            instructionArtifactHash: row.artifact?.sha256,
+          })
           relatedUnitIdByName.set(name, row.id)
           similarArtifactByName.set(name, row.artifactId)
           similarFunctionNames.push(name)
@@ -730,9 +735,16 @@ export async function POST(request: Request, { params }: RouteParams) {
       const similarityPercent = typeof relatedAttributes?.instructionSimilarityPercent === 'number'
         ? relatedAttributes.instructionSimilarityPercent
         : null
+      const similarityArtifactName = typeof relatedAttributes?.instructionArtifactName === 'string'
+        ? relatedAttributes.instructionArtifactName.slice(0, 160)
+        : ''
+      const similarityArtifactHash = typeof relatedAttributes?.instructionArtifactHash === 'string'
+        ? relatedAttributes.instructionArtifactHash.slice(0, 12)
+        : ''
+      const similarityArtifact = [similarityArtifactName, similarityArtifactHash].filter(Boolean).join(' #')
       const similarityHint = similarityPercent === null
         ? ''
-        : ` (instruction-pattern look-alike, ${similarityPercent}% sequence similarity; candidate only)`
+        : ` (instruction-pattern look-alike, ${similarityPercent}% sequence similarity; candidate only${similarityArtifact ? `, from artifact ${similarityArtifact}` : ''})`
       const smaliSimilarity = similarityPercent !== null && observation.source === 'reamon-jadx'
       const relatedArtifactId = typeof (smaliSimilarity ? relatedAttributes?.disassemblyArtifactId : relatedAttributes?.codeArtifactId) === 'string'
         ? (smaliSimilarity ? relatedAttributes?.disassemblyArtifactId : relatedAttributes?.codeArtifactId) as string

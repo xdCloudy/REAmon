@@ -17,6 +17,8 @@ import { jadxPlugin } from './jadx'
 import { ilspyPlugin } from './ilspy'
 import { ghidraPlugin } from './ghidra'
 import { wasmPlugin } from './wasm'
+import { pycdcPlugin } from './pycdc'
+import { webcrackPlugin } from './webcrack'
 
 export const CAPABILITIES: Capability[] = [
   { id: 'identify', label: 'Identify', description: 'Classify a target or artifact using observable metadata.', category: 'profiling' },
@@ -98,6 +100,12 @@ export const BUILTIN_TOOL_PLUGINS: ToolPlugin[] = [
   },
   {
     ...wasmPlugin,
+  },
+  {
+    ...pycdcPlugin,
+  },
+  {
+    ...webcrackPlugin,
   },
 ]
 

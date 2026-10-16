@@ -16,6 +16,7 @@ export interface CodeUnitObservationAttributes {
   decompiled?: boolean
   language?: string
   relativePath?: string
+  bundlePath?: string
   codeArtifactId?: string
   disassemblyArtifactId?: string
   disassemblyLanguage?: string
@@ -43,6 +44,7 @@ export interface CodeUnit {
   language: string | null
   unitType: string | null
   relativePath?: string | null
+  bundlePath?: string | null
   artifactId: string | null
   artifactPath: string | null
   source: string
@@ -91,6 +93,7 @@ export function normalizeCodeUnit(row: CodeUnitObservationRow): CodeUnit | null 
 
   const updatedAt = row.updatedAt instanceof Date ? row.updatedAt.toISOString() : row.updatedAt
   const artifactPath = row.artifact?.relativePath || row.artifact?.originalName || null
+  const bundlePath = text(attributes.bundlePath, 1000)
   return {
     id: row.id,
     name: text(attributes.qualifiedName, 500) || text(attributes.name, 500) || text(row.label, 500) || text(row.stableKey, 500) || row.id,
@@ -100,6 +103,7 @@ export function normalizeCodeUnit(row: CodeUnitObservationRow): CodeUnit | null 
     language: text(attributes.language, 80),
     unitType: text(attributes.unitType, 80),
     relativePath: text(attributes.relativePath, 1000),
+    ...(bundlePath ? { bundlePath } : {}),
     artifactId: row.artifactId,
     artifactPath,
     source: row.source.slice(0, 120),
@@ -155,7 +159,7 @@ export function filterCodeUnits(units: CodeUnit[], query: string): CodeUnit[] {
     if (filter.minimumBytes !== undefined && unit.sizeBytes < filter.minimumBytes) return false
     if (filter.maximumCoverage !== undefined && (unit.coveragePercent === null || unit.coveragePercent >= filter.maximumCoverage)) return false
     if (filter.text) {
-      const searchable = `${unit.name} ${unit.address || ''} ${unit.relativePath || ''} ${unit.artifactPath || ''} ${unit.language || ''} ${unit.referencedStrings?.join(' ') || ''}`.toLocaleLowerCase()
+      const searchable = `${unit.name} ${unit.address || ''} ${unit.relativePath || ''} ${unit.bundlePath || ''} ${unit.artifactPath || ''} ${unit.language || ''} ${unit.referencedStrings?.join(' ') || ''}`.toLocaleLowerCase()
       if (!searchable.includes(filter.text)) return false
     }
     return true
@@ -204,6 +208,9 @@ export interface CodeUnitTreemapEntry {
 const GENERATED_CONTENT_ROOTS = new Set(['sources', 'functions', 'smali', 'resources'])
 
 function codeUnitPath(unit: CodeUnit): string[] {
+  const bundleParts = unit.bundlePath?.replace(/\\/g, '/').split('/').filter((part) => part && part !== '.' && part !== '..')
+  if (bundleParts?.length) return bundleParts.slice(0, -1)
+
   const relativeParts = unit.relativePath?.replace(/\\/g, '/').split('/').filter(Boolean)
   if (relativeParts?.length) {
     return GENERATED_CONTENT_ROOTS.has(relativeParts[0]) ? relativeParts.slice(1, -1) : relativeParts.slice(0, -1)

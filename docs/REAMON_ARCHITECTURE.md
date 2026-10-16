@@ -198,15 +198,13 @@ The first provider contract is in `webapp/src/lib/reamon/types.ts`:
 - `ToolObservation`: a stable-keyed `entity`, `relationship`, or `fact` that can be upserted into the project knowledge layer.
 - `ToolPlugin`: a manifest plus an execution function.
 
-The resolver currently registers five built-in providers: the profiler provider, a
-source inspector backed by a bounded `strings` process adapter, an ELF header
-inspector backed by `readelf`, a generic file inspector backed by `file`, and a
-bounded JSON configuration inspector. The JSON provider reads only a controlled
-artifact path, refuses files over 512 KiB, and emits a stable document observation.
-Process adapters receive only a confined server-side artifact path, never a
-user-controlled command or shell expression, and convert bounded stdout into stable
-observations. Future
-providers can connect through three equivalent boundaries:
+The built-in registry includes profiling and inspection providers plus isolated
+decompilers for APK/JVM, managed .NET, native binaries, WebAssembly, Python bytecode,
+and JavaScript bundles. The generic file and bounded JSON providers remain available
+for triage; JSON inputs over 512 KiB are refused. Process adapters receive only a
+confined server-side artifact path, never a user-controlled command or shell
+expression, and convert bounded results into stable observations. Providers connect
+through three equivalent boundaries:
 
 1. Native REAmon plugins for deep integrations.
 2. MCP clients for external RE tools and agent servers.
@@ -275,6 +273,22 @@ treemap area. Byte-level coverage is not measured and stays unknown. Ghidra CPU,
 memory, temporary storage, process count, functions considered, output size, and
 analysis timeout are bounded. Cancelling the task terminates the Ghidra process
 group.
+
+The Python bytecode provider accepts `.pyc` and `.pyo` artifacts and invokes the
+MIT-licensed pycdc v0.6.0 binary in a separate container. It stores reconstructed
+source in the run's derived artifacts and publishes a module observation for the
+source outline and member-edit workflow. Input and output size, runtime, concurrency,
+and writable storage are bounded. The upstream version claims remain unverified by
+REAmon fixtures; reconstructed source is not treated as equivalent to the original.
+
+The JavaScript provider accepts `.js`, `.jsx`, `.mjs`, and `.cjs` source artifacts.
+It runs webcrack 2.16.0 in a Node.js 22 container to unminify and deobfuscate code,
+and to split recognized webpack or Browserify modules into indexed source units.
+String-array decoder snippets run inside an `isolated-vm` V8 isolate with a memory
+limit and evaluation timeout; AST processing runs in a terminable, memory-limited
+worker. The original artifact remains the evidence source, and generated names or
+module paths remain tentative. TypeScript and runtime bytecode are not included in
+this provider's support claim.
 
 The workspace no longer averages target lifecycle, artifact lifecycle, and task
 completion into one percentage. Those measures describe different states; code
