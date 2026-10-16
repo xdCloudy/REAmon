@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { readFile, realpath, stat } from 'node:fs/promises'
 import path from 'node:path'
@@ -43,7 +44,7 @@ async function resolveSmali(projectId: string, unitId: string) {
   if (!file || !isInside(root, file)) return { response: NextResponse.json({ error: 'Linked Smali source is unavailable' }, { status: 404 }) } as const
   const info = await stat(file)
   if (!info.isFile() || info.size > MAX_SOURCE_BYTES) return { response: NextResponse.json({ error: 'Smali source exceeds the 2 MiB edit limit' }, { status: 413 }) } as const
-  return { unit, relativePath, file } as const
+  return { unit, reviewerId: user.userId, relativePath, file } as const
 }
 
 function classDescriptor(sourceCode: string): string | null {
@@ -56,9 +57,16 @@ export async function GET(_request: Request, { params }: RouteParams) {
     const { id: projectId, unitId } = await params
     const resolved = await resolveSmali(projectId, unitId)
     if ('response' in resolved) return resolved.response
-    const saved = await prisma.reamonMaintainedSource.findUnique({ where: { projectId_codeUnitId: { projectId, codeUnitId: `${SMALI_CODE_UNIT_PREFIX}${unitId}` } }, select: { sourceCode: true, updatedAt: true } })
+    const codeUnitId = `${SMALI_CODE_UNIT_PREFIX}${unitId}`
+    const [saved, reviews] = await Promise.all([
+      prisma.reamonMaintainedSource.findUnique({ where: { projectId_codeUnitId: { projectId, codeUnitId } }, select: { sourceCode: true, updatedAt: true } }),
+      prisma.reamonCodeReview.findMany({
+        where: { projectId, codeUnitId }, orderBy: { createdAt: 'desc' }, take: 10,
+        select: { id: true, reviewerId: true, decision: true, rationale: true, maintainedSourceHash: true, createdAt: true },
+      }),
+    ])
     const sourceCode = saved?.sourceCode ?? await readFile(resolved.file, 'utf8')
-    return NextResponse.json({ exists: Boolean(saved), sourceCode, updatedAt: saved?.updatedAt.toISOString() ?? null }, { headers: { 'Cache-Control': 'private, no-store' } })
+    return NextResponse.json({ exists: Boolean(saved), sourceCode, updatedAt: saved?.updatedAt.toISOString() ?? null, reviews: reviews.map((review) => ({ ...review, createdAt: review.createdAt.toISOString() })) }, { headers: { 'Cache-Control': 'private, no-store' } })
   } catch (error) {
     console.error('Failed to load editable Smali source:', error)
     return NextResponse.json({ error: 'Failed to load Smali source' }, { status: 500, headers: { 'Cache-Control': 'no-store' } })
@@ -72,9 +80,12 @@ export async function PUT(request: Request, { params }: RouteParams) {
     if ('response' in resolved) return resolved.response
     let body: unknown
     try { body = await request.json() } catch { return NextResponse.json({ error: 'Request body must be valid JSON' }, { status: 400 }) }
-    const sourceCode = object(body).sourceCode
+    const requestBody = object(body)
+    const sourceCode = requestBody.sourceCode
+    const reviewRationale = typeof requestBody.reviewRationale === 'string' ? requestBody.reviewRationale.trim() : ''
     if (typeof sourceCode !== 'string' || !sourceCode.trim()) return NextResponse.json({ error: 'Smali source cannot be empty' }, { status: 400 })
     if (Buffer.byteLength(sourceCode, 'utf8') > MAX_SOURCE_BYTES) return NextResponse.json({ error: 'Smali source exceeds the 2 MiB save limit' }, { status: 413 })
+    if (reviewRationale.length < 12 || reviewRationale.length > 1000) return NextResponse.json({ error: 'Add a review rationale between 12 and 1000 characters before accepting this source.' }, { status: 400 })
     const editedDescriptor = classDescriptor(sourceCode)
     const originalSource = await readFile(resolved.file, 'utf8')
     const originalDescriptor = classDescriptor(originalSource)
@@ -82,12 +93,21 @@ export async function PUT(request: Request, { params }: RouteParams) {
     if (!originalDescriptor || editedDescriptor !== originalDescriptor) return NextResponse.json({ error: 'The .class descriptor must match the selected code unit' }, { status: 422 })
     const attributes = object(resolved.unit.attributes)
     const name = typeof attributes.qualifiedName === 'string' ? attributes.qualifiedName : resolved.unit.label || unitId
-    await prisma.reamonMaintainedSource.upsert({
-      where: { projectId_codeUnitId: { projectId, codeUnitId: `${SMALI_CODE_UNIT_PREFIX}${unitId}` } },
-      update: { artifactId: resolved.unit.artifactId!, unitName: `${name} (Smali)`, language: 'Smali', sourceCode, symbolIndex: [], relativePath: resolved.relativePath },
-      create: { projectId, artifactId: resolved.unit.artifactId!, codeUnitId: `${SMALI_CODE_UNIT_PREFIX}${unitId}`, unitName: `${name} (Smali)`, language: 'Smali', sourceCode, symbolIndex: [], relativePath: resolved.relativePath },
+    const codeUnitId = `${SMALI_CODE_UNIT_PREFIX}${unitId}`
+    const maintainedSourceHash = createHash('sha256').update(sourceCode).digest('hex')
+    const review = await prisma.$transaction(async (tx) => {
+      const receipt = await tx.reamonCodeReview.create({
+        data: { projectId, artifactId: resolved.unit.artifactId!, codeUnitId, reviewerId: resolved.reviewerId, decision: 'ACCEPTED', rationale: reviewRationale, maintainedSourceHash },
+        select: { id: true, createdAt: true },
+      })
+      await tx.reamonMaintainedSource.upsert({
+        where: { projectId_codeUnitId: { projectId, codeUnitId } },
+        update: { artifactId: resolved.unit.artifactId!, unitName: `${name} (Smali)`, language: 'Smali', sourceCode, sourceHash: maintainedSourceHash, acceptedReviewId: receipt.id, symbolIndex: [], relativePath: resolved.relativePath },
+        create: { projectId, artifactId: resolved.unit.artifactId!, codeUnitId, unitName: `${name} (Smali)`, language: 'Smali', sourceCode, sourceHash: maintainedSourceHash, acceptedReviewId: receipt.id, symbolIndex: [], relativePath: resolved.relativePath },
+      })
+      return receipt
     })
-    return NextResponse.json({ saved: true, updatedAt: new Date().toISOString() }, { headers: { 'Cache-Control': 'private, no-store' } })
+    return NextResponse.json({ saved: true, review: { id: review.id, createdAt: review.createdAt.toISOString() } }, { headers: { 'Cache-Control': 'private, no-store' } })
   } catch (error) {
     console.error('Failed to save editable Smali source:', error)
     return NextResponse.json({ error: 'Failed to save Smali source' }, { status: 500, headers: { 'Cache-Control': 'no-store' } })

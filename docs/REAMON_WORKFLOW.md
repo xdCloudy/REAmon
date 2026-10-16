@@ -88,9 +88,17 @@ into a claim of behavioral equivalence.
 
 ### 8. Review and promote
 
-Acceptance is an explicit decision. Persist reviewer, time, diff, and rationale. Only
-accepted candidates update approved project names and maintained source. A proposed
-rename cannot silently change the project's canonical symbol map.
+Acceptance is an explicit decision. The visualizer requires a review rationale before
+it saves a maintained copy. That transaction records an immutable accepted-review
+receipt with reviewer ID, time, rationale, and the SHA-256 of the exact maintained
+source bytes, and stores the receipt ID and hash beside the current maintained source.
+Later edits create another receipt instead of rewriting the prior one. AI context
+checks that pointer, unit, artifact, decision, and hash before using maintained source
+or its symbol index as trusted project memory. Older maintained copies without a
+receipt stay available to inspect, but must be saved through review before they can
+ground future AI names. A proposed rename cannot silently change the project's
+canonical symbol map. Rejection receipts and explicit rollback decisions remain
+future work.
 
 If an accepted update invalidates a previous validation, mark the affected result
 stale and rerun the relevant check. Protect already validated units from accidental

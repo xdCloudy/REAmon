@@ -95,6 +95,7 @@ interface CodeMaintenanceResponse { sourceCode: string; providerName: string; mo
 interface CodeDraftRecord { id: string; sourceCode: string; providerName: string; modelIdentifier: string; question: string; scope: 'file' | 'member'; syntaxValidated: boolean | null; validationStatus: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod: string | null; validationMessage: string | null; updatedAt: string }
 interface CodeAttemptRecord { id: string; providerName: string; modelIdentifier: string; question: string; scope: 'file' | 'member'; status: 'RUNNING' | 'SUCCEEDED' | 'FAILED'; errorCode: string | null; errorMessage: string | null; resultSource: string | null; syntaxValidated: boolean | null; validationStatus: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod: string | null; validationMessage: string | null; createdAt: string; completedAt: string | null }
 interface CodeDraftResponse { exists: boolean; draft: CodeDraftRecord | null; attempts?: CodeAttemptRecord[] }
+interface CodeReviewRecord { id: string; reviewerId: string; decision: 'ACCEPTED'; rationale: string; maintainedSourceHash: string; createdAt: string }
 interface CodeMemberOutline { name: string; kind: 'function' | 'method' | 'constructor'; start_byte: number; end_byte: number; line: number; source_bytes: number }
 
 function validationSummary(validation: Pick<CodeMaintenanceResponse, 'syntaxValidated' | 'validationStatus' | 'validationMethod' | 'validationMessage'>): string {
@@ -353,11 +354,13 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
   const [savingDraft, setSavingDraft] = useState(false)
   const [maintenanceMeta, setMaintenanceMeta] = useState<CodeMaintenanceResponse | null>(null)
   const [maintenanceError, setMaintenanceError] = useState('')
+  const [reviewRationale, setReviewRationale] = useState('')
   const [transforming, setTransforming] = useState(false)
   const [savingMaintained, setSavingMaintained] = useState(false)
   const [maintainedSaved, setMaintainedSaved] = useState(false)
   const [smaliDraft, setSmaliDraft] = useState('')
   const [smaliSaved, setSmaliSaved] = useState(false)
+  const [smaliReviewRationale, setSmaliReviewRationale] = useState('')
   const [savingSmali, setSavingSmali] = useState(false)
   const [smaliError, setSmaliError] = useState('')
   const [memberFilter, setMemberFilter] = useState('')
@@ -551,9 +554,9 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
     queryKey: ['reamon-maintained-smali', projectId, selectedUnit?.id],
     queryFn: async ({ signal }) => {
       const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/maintained/${encodeURIComponent(selectedUnit?.id || '')}/smali`, { signal, cache: 'no-store' })
-      const result = await response.json().catch(() => ({})) as { sourceCode?: string; exists?: boolean; error?: string }
+      const result = await response.json().catch(() => ({})) as { sourceCode?: string; exists?: boolean; error?: string; reviews?: CodeReviewRecord[] }
       if (!response.ok || typeof result.sourceCode !== 'string') throw new Error(result.error || 'Unable to load Smali source')
-      return result as { sourceCode: string; exists: boolean }
+      return result as { sourceCode: string; exists: boolean; reviews?: CodeReviewRecord[] }
     },
     enabled: Boolean(selectedUnit?.disassemblyLanguage?.toLowerCase() === 'smali' && selectedUnit.disassemblyArtifactId),
     staleTime: 0,
@@ -586,7 +589,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
     queryFn: async ({ signal }) => {
       const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/maintained/${encodeURIComponent(selectedUnit?.id || '')}`, { signal, cache: 'no-store' })
       if (!response.ok) throw new Error('Unable to load the maintained source copy')
-      return response.json() as Promise<{ exists: boolean; sourceCode: string | null; updatedAt?: string }>
+      return response.json() as Promise<{ exists: boolean; sourceCode: string | null; updatedAt?: string; reviews?: CodeReviewRecord[] }>
     },
     enabled: Boolean(selectedUnit && selectedSourceUrl),
     staleTime: 30_000,
@@ -609,9 +612,11 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
     setMaintainedSaved(false)
     setMaintenanceMeta(null)
     setMaintenanceError('')
+    setReviewRationale('')
     setMaintainedDraft('')
     setSmaliDraft('')
     setSmaliSaved(false)
+    setSmaliReviewRationale('')
     setSmaliError('')
     setDraftId(null)
     setDraftSource(null)
@@ -944,7 +949,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
       const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/maintained/${encodeURIComponent(selectedUnit.id)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sourceCode: maintainedDraft }),
+        body: JSON.stringify({ sourceCode: maintainedDraft, reviewRationale }),
       })
       const result = await response.json().catch(() => ({})) as { error?: string }
       if (!response.ok) throw new Error(result.error || 'Could not save the maintained source')
@@ -956,6 +961,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
         }
       })
       setMaintainedSaved(true)
+      setReviewRationale('')
       await queryClient.invalidateQueries({ queryKey: ['reamon-code-units', projectId] })
       await queryClient.invalidateQueries({ queryKey: ['reamon-maintained-coverage', projectId, currentRunId] })
       await queryClient.invalidateQueries({ queryKey: ['reamon-maintained-source', projectId, selectedUnit.id] })
@@ -974,11 +980,12 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
       const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/maintained/${encodeURIComponent(selectedUnit.id)}/smali`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sourceCode: smaliDraft }),
+        body: JSON.stringify({ sourceCode: smaliDraft, reviewRationale: smaliReviewRationale }),
       })
       const result = await response.json().catch(() => ({})) as { error?: string }
       if (!response.ok) throw new Error(result.error || 'Could not save Smali source')
       setSmaliSaved(true)
+      setSmaliReviewRationale('')
       await queryClient.invalidateQueries({ queryKey: ['reamon-maintained-smali', projectId, selectedUnit.id] })
     } catch (error) {
       setSmaliError(error instanceof Error ? error.message : 'Could not save Smali source')
@@ -1496,10 +1503,22 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
                 <label>Editable Smali source
                   <textarea aria-label="Editable Smali source" value={smaliDraft} spellCheck={false} onChange={(event) => { setSmaliDraft(event.target.value); setSmaliSaved(false); setSmaliError('') }} />
                 </label>
+                <label className={styles.reviewRationale}>Review rationale (required to accept this Smali version)
+                  <textarea aria-label="Smali review rationale" value={smaliReviewRationale} maxLength={1000} onChange={(event) => setSmaliReviewRationale(event.target.value)} placeholder="Summarize what you checked before saving this Smali source." />
+                </label>
                 <div className={styles.maintainedActions}>
-                  <button type="button" className={styles.explainButton} onClick={() => void saveSmaliSource()} disabled={savingSmali || !smaliDraft.trim() || (smaliSaved && smaliDraft === smaliSourceQuery.data?.sourceCode)}>{savingSmali ? 'Saving Smali…' : smaliSaved ? 'Save Smali changes' : 'Save Smali to project'}</button>
-                  {smaliSaved && <span className={styles.savedStatus} role="status">Smali saved to project memory and included in APK rebuilds</span>}
+                  <button type="button" className={styles.explainButton} onClick={() => void saveSmaliSource()} disabled={savingSmali || !smaliDraft.trim() || smaliReviewRationale.trim().length < 12 || (smaliSaved && smaliDraft === smaliSourceQuery.data?.sourceCode)}>{savingSmali ? 'Saving Smali…' : smaliSaved ? 'Review and save Smali changes' : 'Review and accept Smali source'}</button>
+                  {smaliReviewRationale.trim().length > 0 && smaliReviewRationale.trim().length < 12 && <span className={styles.message}>Add at least 12 characters describing your review.</span>}
+                  {smaliSaved && <span className={styles.savedStatus} role="status">Accepted Smali source and review receipt saved; included in APK rebuilds</span>}
                 </div>
+                {(smaliSourceQuery.data?.reviews?.length || 0) > 0 && <section className={styles.reviewHistory} aria-label="Smali review history">
+                  <strong>Recent Smali review receipts</strong>
+                  <ol>{smaliSourceQuery.data?.reviews?.map((review) => <li key={review.id}>
+                    <span>{review.decision.toLowerCase()} by {review.reviewerId} · {new Date(review.createdAt).toLocaleString()}</span>
+                    <p>{review.rationale}</p>
+                    <code>sha256:{review.maintainedSourceHash}</code>
+                  </li>)}</ol>
+                </section>}
                 {smaliSourceQuery.isLoading && <p className={styles.message}>Loading saved Smali source…</p>}
                 {(smaliError || smaliSourceQuery.isError) && <p className={styles.error} role="alert">{smaliError || (smaliSourceQuery.error instanceof Error ? smaliSourceQuery.error.message : 'Could not load Smali source')}</p>}
               </div>}
@@ -1646,6 +1665,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
           </section>}
           {maintainedQuery.isError && <p className={styles.error} role="alert">{maintainedQuery.error instanceof Error ? maintainedQuery.error.message : 'Could not load maintained source'}</p>}
           {codeDraftQuery.isError && <p className={styles.error} role="alert">{codeDraftQuery.error instanceof Error ? codeDraftQuery.error.message : 'Could not load the saved AI draft'}</p>}
+          {maintainedQuery.data?.exists && !maintainedQuery.data.reviews?.length && <p className={styles.message}>This saved copy predates review receipts, so AI project memory will not treat it as an approved naming reference until you review and accept it here.</p>}
           {maintainedDraft && <>
             <div className={styles.maintainedComparison}>
               <div><strong>Original decompilation</strong>
@@ -1655,13 +1675,25 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
               <textarea ref={maintainedEditorRef} aria-label="Editable maintained source" value={maintainedDraft} spellCheck={false} onChange={(event) => { setMaintainedDraft(event.target.value); setMaintainedSaved(false); setMaintenanceMeta((current) => current ? { ...current, syntaxValidated: null, validationStatus: null, validationMethod: null, validationMessage: null } : current) }} />
               </label>
             </div>
+            <label className={styles.reviewRationale}>Review rationale (required to accept this version)
+              <textarea aria-label="Review rationale" value={reviewRationale} maxLength={1000} onChange={(event) => setReviewRationale(event.target.value)} placeholder="Summarize what you checked and why this source is ready to keep." />
+            </label>
             <div className={styles.maintainedActions}>
               <button type="button" className={styles.copyButton} onClick={() => void saveCodeDraft()} disabled={savingDraft || !maintainedDraft.trim() || !maintainedDraftDiffersFromSource || maintainedDraft === draftSource}>{savingDraft ? 'Saving draft…' : maintainedDraft === draftSource ? 'Draft saved to project memory' : 'Save draft'}</button>
-              <button type="button" className={styles.explainButton} onClick={() => void saveMaintainedSource()} disabled={savingMaintained || !maintainedDraft.trim() || !maintainedDraftDiffersFromSource}>{savingMaintained ? 'Saving…' : maintainedSaved ? 'Save changes' : 'Save maintained copy'}</button>
+              <button type="button" className={styles.explainButton} onClick={() => void saveMaintainedSource()} disabled={savingMaintained || !maintainedDraft.trim() || !maintainedDraftDiffersFromSource || reviewRationale.trim().length < 12}>{savingMaintained ? 'Saving…' : maintainedSaved ? 'Review and save changes' : 'Review and accept maintained copy'}</button>
               {!maintainedDraftDiffersFromSource && <span className={styles.message}>Edit the decompilation or create a maintained version before saving.</span>}
+              {reviewRationale.trim().length > 0 && reviewRationale.trim().length < 12 && <span className={styles.message}>Add at least 12 characters describing your review.</span>}
               {maintainedSaved && <a className={styles.copyButton} href={`/api/projects/${encodeURIComponent(projectId)}/visualizer/maintained/${encodeURIComponent(selectedUnit.id)}?download=1`}><Download size={14} /> Download source</a>}
-              {maintainedSaved && <span className={styles.savedStatus} role="status">Maintained copy saved separately</span>}
+              {maintainedSaved && <span className={styles.savedStatus} role="status">Accepted source and review receipt saved separately</span>}
             </div>
+            {(maintainedQuery.data?.reviews?.length || 0) > 0 && <section className={styles.reviewHistory} aria-label="Review history">
+              <strong>Recent review receipts</strong>
+              <ol>{maintainedQuery.data?.reviews?.map((review) => <li key={review.id}>
+                <span>{review.decision.toLowerCase()} by {review.reviewerId} · {new Date(review.createdAt).toLocaleString()}</span>
+                <p>{review.rationale}</p>
+                <code>sha256:{review.maintainedSourceHash}</code>
+              </li>)}</ol>
+            </section>}
           </>}
         </section>}
         {selectedUnit && selectedSourceUrl && <section className={styles.explainPanel} aria-labelledby="code-explain-heading">

@@ -72,7 +72,7 @@ async function resolveUnit(projectId: string, unitId: string) {
   const extension = path.extname(originalPath).replace(/[^.a-zA-Z0-9]/g, '').slice(0, 16)
   const sourceName = path.basename(originalPath).replace(/[^a-zA-Z0-9._-]/g, '_').slice(-100) || `source${extension || '.txt'}`
   const relativePath = `${projectId}/maintained/${createHash('sha256').update(unitId).digest('hex')}-${sourceName}`
-  return { projectId, unitId, observation, attributes, artifactId: artifact.id, originalPath, relativePath } as const
+  return { projectId, unitId, reviewerId: user.userId, observation, attributes, artifactId: artifact.id, originalPath, relativePath } as const
 }
 
 async function checkedPath(relativePath: string) {
@@ -89,10 +89,19 @@ export async function GET(request: Request, { params }: RouteParams) {
     const resolved = await resolveUnit(projectId, unitId)
     if ('response' in resolved) return resolved.response
     const { absolute, fileRealPath } = await checkedPath(resolved.relativePath)
-    const savedSource = await prisma.reamonMaintainedSource.findUnique({
-      where: { projectId_codeUnitId: { projectId, codeUnitId: unitId } },
-      select: { sourceCode: true, updatedAt: true },
-    })
+    const [savedSource, reviews] = await Promise.all([
+      prisma.reamonMaintainedSource.findUnique({
+        where: { projectId_codeUnitId: { projectId, codeUnitId: unitId } },
+        select: { sourceCode: true, updatedAt: true },
+      }),
+      prisma.reamonCodeReview.findMany({
+        where: { projectId, codeUnitId: unitId },
+        orderBy: { createdAt: 'desc' },
+        take: 10,
+        select: { id: true, reviewerId: true, decision: true, rationale: true, maintainedSourceHash: true, createdAt: true },
+      }),
+    ])
+    const reviewHistory = reviews.map((review) => ({ ...review, createdAt: review.createdAt.toISOString() }))
     if (savedSource) {
       if (new URL(request.url).searchParams.get('download') === '1') {
         return new NextResponse(savedSource.sourceCode, {
@@ -104,7 +113,7 @@ export async function GET(request: Request, { params }: RouteParams) {
           },
         })
       }
-      return NextResponse.json({ exists: true, sourceCode: savedSource.sourceCode, updatedAt: savedSource.updatedAt.toISOString() }, { headers: { 'Cache-Control': 'private, no-store' } })
+      return NextResponse.json({ exists: true, sourceCode: savedSource.sourceCode, updatedAt: savedSource.updatedAt.toISOString(), reviews: reviewHistory }, { headers: { 'Cache-Control': 'private, no-store' } })
     }
     if (!fileRealPath) return NextResponse.json({ exists: false, sourceCode: null }, { headers: { 'Cache-Control': 'private, no-store' } })
     const info = await stat(fileRealPath)
@@ -120,7 +129,7 @@ export async function GET(request: Request, { params }: RouteParams) {
         },
       })
     }
-    return NextResponse.json({ exists: true, sourceCode, updatedAt: info.mtime.toISOString() }, { headers: { 'Cache-Control': 'private, no-store' } })
+    return NextResponse.json({ exists: true, sourceCode, updatedAt: info.mtime.toISOString(), reviews: reviewHistory }, { headers: { 'Cache-Control': 'private, no-store' } })
   } catch (error) {
     console.error('Failed to load maintained REAmon source:', error)
     return NextResponse.json({ error: 'Failed to load maintained source' }, { status: 500, headers: { 'Cache-Control': 'no-store' } })
@@ -136,9 +145,14 @@ export async function PUT(request: Request, { params }: RouteParams) {
     try { body = await request.json() } catch {
       return NextResponse.json({ error: 'Request body must be valid JSON' }, { status: 400 })
     }
-    const sourceCode = plainObject(body).sourceCode
+    const requestBody = plainObject(body)
+    const sourceCode = requestBody.sourceCode
+    const reviewRationale = typeof requestBody.reviewRationale === 'string' ? requestBody.reviewRationale.trim() : ''
     if (typeof sourceCode !== 'string' || !sourceCode.trim()) return NextResponse.json({ error: 'Maintained source cannot be empty' }, { status: 400 })
     if (Buffer.byteLength(sourceCode, 'utf8') > MAX_SOURCE_BYTES) return NextResponse.json({ error: 'Maintained source exceeds the save limit' }, { status: 413 })
+    if (reviewRationale.length < 12 || reviewRationale.length > 1000) {
+      return NextResponse.json({ error: 'Add a review rationale between 12 and 1000 characters before accepting this source.' }, { status: 400 })
+    }
 
     const original = await checkedPath(resolved.originalPath)
     if (original.fileRealPath) {
@@ -161,8 +175,9 @@ export async function PUT(request: Request, { params }: RouteParams) {
     const symbolIndex = await maintainedSymbolIndex(sourceCode, language)
     const now = new Date().toISOString()
     const { rootRealPath, absolute } = await checkedPath(resolved.relativePath)
-    await prisma.$transaction([
-      prisma.reamonObservation.upsert({
+    const maintainedSourceHash = createHash('sha256').update(sourceCode).digest('hex')
+    const review = await prisma.$transaction(async (tx) => {
+      await tx.reamonObservation.upsert({
         where: {
           projectId_source_stableKey: {
             projectId,
@@ -189,14 +204,28 @@ export async function PUT(request: Request, { params }: RouteParams) {
           label,
           attributes: { unitId: resolved.unitId, relativePath: resolved.relativePath, updatedAt: now },
         },
-      }),
-      prisma.reamonMaintainedSource.upsert({
+      })
+      const review = await tx.reamonCodeReview.create({
+        data: {
+          projectId,
+          artifactId: resolved.artifactId,
+          codeUnitId: resolved.unitId,
+          reviewerId: resolved.reviewerId,
+          decision: 'ACCEPTED',
+          rationale: reviewRationale,
+          maintainedSourceHash,
+        },
+        select: { id: true, reviewerId: true, decision: true, rationale: true, maintainedSourceHash: true, createdAt: true },
+      })
+      await tx.reamonMaintainedSource.upsert({
         where: { projectId_codeUnitId: { projectId, codeUnitId: resolved.unitId } },
         update: {
           artifactId: resolved.artifactId,
           unitName: label,
           language,
           sourceCode,
+          sourceHash: maintainedSourceHash,
+          acceptedReviewId: review.id,
           symbolIndex,
           relativePath: resolved.relativePath,
         },
@@ -207,11 +236,14 @@ export async function PUT(request: Request, { params }: RouteParams) {
           unitName: label,
           language,
           sourceCode,
+          sourceHash: maintainedSourceHash,
+          acceptedReviewId: review.id,
           symbolIndex,
           relativePath: resolved.relativePath,
         },
-      }),
-    ])
+      })
+      return review
+    })
     const temporaryPath = `${absolute}.${randomUUID()}.tmp`
     try {
       await mkdir(path.dirname(absolute), { recursive: true })
@@ -225,6 +257,7 @@ export async function PUT(request: Request, { params }: RouteParams) {
     }
     return NextResponse.json({
       saved: true,
+      review: { ...review, createdAt: review.createdAt.toISOString() },
       fileName: safeFileName(path.basename(absolute)),
       downloadUrl: `/api/projects/${encodeURIComponent(projectId)}/visualizer/maintained/${encodeURIComponent(unitId)}?download=1`,
     }, { headers: { 'Cache-Control': 'private, no-store' } })

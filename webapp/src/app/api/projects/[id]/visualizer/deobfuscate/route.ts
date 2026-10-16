@@ -578,7 +578,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     const [maintainedRelatedRows, projectDraftRows, currentDraft] = await Promise.all([
       relatedUnitIds.length ? prisma.reamonMaintainedSource.findMany({
         where: { projectId, codeUnitId: { in: relatedUnitIds } },
-        select: { codeUnitId: true, artifactId: true, unitName: true, language: true, sourceCode: true, symbolIndex: true, updatedAt: true },
+        select: { codeUnitId: true, artifactId: true, unitName: true, language: true, sourceCode: true, sourceHash: true, acceptedReviewId: true, symbolIndex: true, updatedAt: true },
         orderBy: { updatedAt: 'desc' },
       }) : Promise.resolve([]),
       prisma.reamonCodeDraft.findMany({
@@ -601,13 +601,15 @@ export async function POST(request: Request, { params }: RouteParams) {
       artifactId: string
       unitName: string
       language: string
+      sourceHash: string | null
+      acceptedReviewId: string | null
       symbolIndex: unknown
     }> = []
     let symbolCursor: string | undefined
     while (projectSymbolRows.length < MAX_PROJECT_SYMBOL_SCAN) {
       const page = await prisma.reamonMaintainedSource.findMany({
         where: { projectId },
-        select: { codeUnitId: true, artifactId: true, unitName: true, language: true, symbolIndex: true, id: true },
+        select: { codeUnitId: true, artifactId: true, unitName: true, language: true, sourceHash: true, acceptedReviewId: true, symbolIndex: true, id: true },
         orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
         ...(symbolCursor ? { cursor: { id: symbolCursor }, skip: 1 } : {}),
         take: Math.min(MAX_PROJECT_SYMBOL_RECORDS, MAX_PROJECT_SYMBOL_SCAN - projectSymbolRows.length),
@@ -618,14 +620,29 @@ export async function POST(request: Request, { params }: RouteParams) {
       if (page.length < MAX_PROJECT_SYMBOL_RECORDS) break
     }
     const symbolRecords = [...maintainedRelatedRows, ...projectSymbolRows]
-    const symbolArtifactIds = [...new Set(symbolRecords.map((row) => row.artifactId))]
+    const acceptedReviewIds = [...new Set(symbolRecords.flatMap((row) => row.acceptedReviewId ? [row.acceptedReviewId] : []))]
+    const acceptedReviews = acceptedReviewIds.length ? await prisma.reamonCodeReview.findMany({
+      where: { projectId, id: { in: acceptedReviewIds }, decision: 'ACCEPTED' },
+      select: { id: true, artifactId: true, codeUnitId: true, maintainedSourceHash: true },
+    }) : []
+    const acceptedReviewById = new Map(acceptedReviews.map((review) => [review.id, review]))
+    const trustedSymbolRecords = symbolRecords.filter((row) => {
+      if (!row.sourceHash || !row.acceptedReviewId) return false
+      const receipt = acceptedReviewById.get(row.acceptedReviewId)
+      return receipt?.artifactId === row.artifactId
+        && receipt.codeUnitId === row.codeUnitId
+        && receipt.maintainedSourceHash === row.sourceHash
+    })
+    const trustedRecordKeys = new Set(trustedSymbolRecords.map((row) => JSON.stringify([row.codeUnitId, row.artifactId, row.sourceHash, row.acceptedReviewId])))
+    const trustedRelatedRows = maintainedRelatedRows.filter((row) => trustedRecordKeys.has(JSON.stringify([row.codeUnitId, row.artifactId, row.sourceHash, row.acceptedReviewId])))
+    const symbolArtifactIds = [...new Set(trustedSymbolRecords.map((row) => row.artifactId))]
     const symbolArtifacts = symbolArtifactIds.length ? await prisma.artifact.findMany({
       where: { projectId, id: { in: symbolArtifactIds } },
       select: { id: true, originalName: true, sha256: true },
     }) : []
     const artifactById = new Map(symbolArtifacts.map((artifactRow) => [artifactRow.id, artifactRow]))
-    const maintainedByUnitId = new Map(maintainedRelatedRows.map((row) => [row.codeUnitId, row]))
-    const maintainedProjectContext = buildProjectSymbolContext(symbolRecords.map((row) => ({
+    const maintainedByUnitId = new Map(trustedRelatedRows.map((row) => [row.codeUnitId, row]))
+    const maintainedProjectContext = buildProjectSymbolContext(trustedSymbolRecords.map((row) => ({
       ...row,
       artifactName: artifactById.get(row.artifactId)?.originalName,
       artifactHash: artifactById.get(row.artifactId)?.sha256,
