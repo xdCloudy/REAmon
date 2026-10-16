@@ -20,10 +20,11 @@ interface GhidraResponse {
   codeBytes?: number
   returnedUnits: number
   truncated: boolean
-  units: Array<{ name: string; address: string; relativePath: string; codeArtifactId: string; disassemblyArtifactId?: string; referencedStrings?: string[]; instructionMnemonics?: string[]; sourceLanguage?: string; symbolSource?: string; goPackage?: string; sizeBytes: number }>
+  units: Array<{ name: string; address: string; relativePath: string; codeArtifactId: string; disassemblyArtifactId?: string; referencedStrings?: string[]; instructionMnemonics?: string[]; sourceAddressMap?: Array<{ ghidraLineNumber: number; address: string }>; sourceLanguage?: string; symbolSource?: string; goPackage?: string; sizeBytes: number }>
   calls?: Array<{ fromAddress: string; toAddress: string; fromName: string; toName: string }>
   callCount?: number
   callGraphTruncated?: boolean
+  sourceAddressMapTruncated?: boolean
   warnings?: string
 }
 
@@ -63,6 +64,7 @@ function isGhidraResponse(value: unknown): value is GhidraResponse {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const record = value as Record<string, unknown>
   return record.status === 'completed' && Array.isArray(record.units)
+    && (record.sourceAddressMapTruncated === undefined || typeof record.sourceAddressMapTruncated === 'boolean')
 }
 
 export async function executeGhidra(input: ToolExecutionInput): Promise<ToolResult> {
@@ -113,6 +115,11 @@ export async function executeGhidra(input: ToolExecutionInput): Promise<ToolResu
           || (unit.instructionMnemonics !== undefined && (!Array.isArray(unit.instructionMnemonics)
             || unit.instructionMnemonics.length > 800
             || !unit.instructionMnemonics.every((value) => typeof value === 'string' && /^[A-Za-z][A-Za-z0-9_.]{0,31}$/.test(value))))
+          || (unit.sourceAddressMap !== undefined && (!Array.isArray(unit.sourceAddressMap)
+            || unit.sourceAddressMap.length > 5000
+            || !unit.sourceAddressMap.every((mapping) => mapping && Number.isInteger(mapping.ghidraLineNumber)
+              && mapping.ghidraLineNumber >= 0 && mapping.ghidraLineNumber <= 1_000_000
+              && typeof mapping.address === 'string' && /^[A-Za-z0-9:_-]{1,128}$/.test(mapping.address))))
           || (unit.sourceLanguage !== undefined && typeof unit.sourceLanguage !== 'string')
           || (unit.symbolSource !== undefined && typeof unit.symbolSource !== 'string')
           || (unit.goPackage !== undefined && typeof unit.goPackage !== 'string')) return false
@@ -146,6 +153,8 @@ export async function executeGhidra(input: ToolExecutionInput): Promise<ToolResu
         ...(unit.disassemblyArtifactId ? { disassemblyArtifactId: unit.disassemblyArtifactId.slice(0, 2000) } : {}),
         ...(unit.referencedStrings?.length ? { referencedStrings: JSON.stringify(unit.referencedStrings.slice(0, 12).map((value) => value.slice(0, 512))) } : {}),
         ...(unit.instructionMnemonics?.length ? { instructionMnemonics: JSON.stringify(unit.instructionMnemonics.slice(0, 800)) } : {}),
+        ...(unit.sourceAddressMap?.length ? { sourceAddressMap: JSON.stringify(unit.sourceAddressMap.slice(0, 5000)) } : {}),
+        ...(payload.sourceAddressMapTruncated ? { sourceAddressMapTruncated: true } : {}),
       },
     })) as ToolObservation[]
     const goTypes = Array.isArray(payload.goTypes)

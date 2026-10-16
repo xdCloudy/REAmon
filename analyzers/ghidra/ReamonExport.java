@@ -1,6 +1,9 @@
 import ghidra.app.decompiler.DecompInterface;
 import ghidra.app.decompiler.DecompileResults;
 import ghidra.app.decompiler.DecompileOptions;
+import ghidra.app.decompiler.ClangNode;
+import ghidra.app.decompiler.ClangStatement;
+import ghidra.app.decompiler.ClangToken;
 import ghidra.app.script.GhidraScript;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.FunctionIterator;
@@ -9,6 +12,7 @@ import ghidra.program.model.listing.InstructionIterator;
 import ghidra.program.model.listing.Data;
 import ghidra.program.model.data.StringDataInstance;
 import ghidra.program.model.symbol.Reference;
+import ghidra.program.model.pcode.PcodeOp;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.Set;
@@ -18,6 +22,48 @@ import java.nio.file.Path;
 import java.util.Base64;
 
 public class ReamonExport extends GhidraScript {
+    private static final int MAX_SOURCE_ADDRESS_MAPPINGS = 5000;
+    private int sourceAddressMappingCount = 0;
+    private boolean sourceAddressMapTruncated = false;
+
+    private void collectLineNumbers(ClangNode node, ClangStatement owner, Set<Integer> lines) {
+        if (node != owner && node instanceof ClangStatement) return;
+        if (node instanceof ClangToken) {
+            ClangToken token = (ClangToken) node;
+            if (token.getLineParent() != null) lines.add(token.getLineParent().getLineNumber());
+        }
+        for (int index = 0; index < node.numChildren(); index++) {
+            collectLineNumbers(node.Child(index), owner, lines);
+        }
+    }
+
+    private void collectStatementMappings(ClangNode node, StringBuilder output, Set<String> seen) {
+        if (node == null) return;
+        if (sourceAddressMappingCount >= MAX_SOURCE_ADDRESS_MAPPINGS) {
+            sourceAddressMapTruncated = true;
+            return;
+        }
+        if (node instanceof ClangStatement) {
+            ClangStatement statement = (ClangStatement) node;
+            PcodeOp operation = statement.getPcodeOp();
+            if (operation != null) {
+                String address = operation.getSeqnum().getTarget().toString();
+                Set<Integer> lines = new LinkedHashSet<>();
+                collectLineNumbers(statement, statement, lines);
+                for (Integer lineNumber : lines) {
+                    String mapping = lineNumber + "\t" + address;
+                    if (seen.add(mapping) && sourceAddressMappingCount < MAX_SOURCE_ADDRESS_MAPPINGS) {
+                        output.append(mapping).append('\n');
+                        sourceAddressMappingCount++;
+                    }
+                }
+            }
+        }
+        for (int index = 0; index < node.numChildren(); index++) {
+            collectStatementMappings(node.Child(index), output, seen);
+        }
+    }
+
     @Override
     protected void run() throws Exception {
         String[] args = getScriptArgs();
@@ -80,6 +126,8 @@ public class ReamonExport extends GhidraScript {
                     throw new IllegalStateException("Function source path escaped export directory");
                 }
                 Files.writeString(source, code, StandardCharsets.UTF_8);
+                StringBuilder sourceAddressMap = new StringBuilder();
+                collectStatementMappings(result.getCCodeMarkup(), sourceAddressMap, new HashSet<>());
                 String assemblyFilename = String.format("%06d_%s.asm", decompiled, safeAddress);
                 Path assembly = exportRoot.resolve("assembly").resolve(assemblyFilename).normalize();
                 if (!assembly.startsWith(exportRoot.resolve("assembly").normalize())) {
@@ -134,9 +182,10 @@ public class ReamonExport extends GhidraScript {
                 }
                 String encodedStrings = Base64.getEncoder().encodeToString(stringManifest.toString().getBytes(StandardCharsets.UTF_8));
                 String encodedMnemonics = Base64.getEncoder().encodeToString(mnemonicSequence.toString().getBytes(StandardCharsets.UTF_8));
+                String encodedSourceAddressMap = Base64.getEncoder().encodeToString(sourceAddressMap.toString().getBytes(StandardCharsets.UTF_8));
                 String relativePath = "functions/" + filename;
                 String assemblyRelativePath = "assembly/" + assemblyFilename;
-                String line = encodedName + "\t" + address + "\t" + sizeBytes + "\t" + relativePath + "\t" + assemblyRelativePath + "\t" + encodedStrings + "\t" + encodedMnemonics + "\n";
+                String line = encodedName + "\t" + address + "\t" + sizeBytes + "\t" + relativePath + "\t" + assemblyRelativePath + "\t" + encodedStrings + "\t" + encodedMnemonics + "\t" + encodedSourceAddressMap + "\n";
                 Files.writeString(manifest, line, StandardCharsets.UTF_8,
                     java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
                 decompiled++;
@@ -153,7 +202,8 @@ public class ReamonExport extends GhidraScript {
             "failed=" + failed + "\n" +
             "truncated=" + truncated + "\n" +
             "callCount=" + callCount + "\n" +
-            "callsTruncated=" + callsTruncated + "\n",
+            "callsTruncated=" + callsTruncated + "\n" +
+            "sourceAddressMapTruncated=" + sourceAddressMapTruncated + "\n",
             StandardCharsets.UTF_8);
     }
 }

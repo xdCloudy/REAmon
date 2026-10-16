@@ -47,6 +47,25 @@ function textList(value: unknown, limit: number, maxLength: number): string[] {
   }))].slice(0, limit)
 }
 
+function sourceAddressMappings(value: unknown): { mappings: Array<{ ghidraLineNumber: number; address: string }>; truncated: boolean } {
+  if (typeof value !== 'string' || value.length > 1_000_000) return { mappings: [], truncated: false }
+  try {
+    const parsed: unknown = JSON.parse(value)
+    if (!Array.isArray(parsed)) return { mappings: [], truncated: false }
+    const mappings = parsed.flatMap((item) => {
+      const mapping = record(item)
+      return Number.isInteger(mapping.ghidraLineNumber) && Number(mapping.ghidraLineNumber) >= 0
+        && Number(mapping.ghidraLineNumber) <= 1_000_000
+        && typeof mapping.address === 'string' && /^[A-Za-z0-9:_-]{1,128}$/.test(mapping.address)
+        ? [{ ghidraLineNumber: Number(mapping.ghidraLineNumber), address: mapping.address }]
+        : []
+    })
+    return { mappings: mappings.slice(0, 500), truncated: mappings.length > 500 || mappings.length !== parsed.length }
+  } catch {
+    return { mappings: [], truncated: false }
+  }
+}
+
 function boundedSource(value: string): { sourceCode: string; truncated: boolean } {
   const bytes = Buffer.from(value, 'utf8')
   const truncated = bytes.byteLength > MAX_CODE_BYTES
@@ -187,6 +206,7 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
   if (!unit) throw new McpToolError('Code unit not found in the active workspace import.', 'not_found')
 
   const attributes = record(unit.attributes)
+  const sourceAddressMap = sourceAddressMappings(attributes.sourceAddressMap)
   const parentCodeUnitKey = text(attributes.parentCodeUnitKey, 1000)
   const parentUnit = unit.type === 'function' && parentCodeUnitKey ? await prisma.reamonObservation.findFirst({
     where: {
@@ -345,6 +365,11 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
       instructionLanguage: text(attributes.instructionLanguage, 80),
       instructionCount: typeof attributes.instructionCount === 'number' ? attributes.instructionCount : null,
       instructionMnemonics: text(attributes.instructionMnemonics, 16_000),
+      sourceAddressMap: sourceAddressMap.mappings,
+      sourceAddressMapTruncated: sourceAddressMap.truncated || attributes.sourceAddressMapTruncated === true,
+      sourceAddressMapSemantics: sourceAddressMap.mappings.length
+        ? 'Ghidra line numbers are passed through unchanged; each mapped statement points to its associated p-code operation target address.'
+        : null,
       controlFlowGraph: text(attributes.controlFlowGraph, 4_000),
       cfgTruncated: attributes.cfgTruncated === true,
       bytecodeRowsTruncated: attributes.bytecodeRowsTruncated === true,

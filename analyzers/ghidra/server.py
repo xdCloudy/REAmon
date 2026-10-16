@@ -251,14 +251,16 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                 rows = []
                 total_bytes = 0
                 total_assembly_bytes = 0
+                total_metadata_bytes = 0
                 for line in manifest.read_text(encoding="utf-8", errors="replace").splitlines():
                     fields = line.split("\t")
-                    if len(fields) not in (4, 5, 6, 7):
+                    if len(fields) not in (4, 5, 6, 7, 8):
                         continue
                     encoded_name, address, size_text, relative = fields[:4]
                     assembly_relative = fields[4] if len(fields) >= 5 else ""
                     encoded_references = fields[5] if len(fields) >= 6 else ""
-                    encoded_mnemonics = fields[6] if len(fields) == 7 else ""
+                    encoded_mnemonics = fields[6] if len(fields) >= 7 else ""
+                    encoded_source_map = fields[7] if len(fields) == 8 else ""
                     if not re.fullmatch(r"[A-Za-z0-9_./-]{1,500}", relative) or ".." in Path(relative).parts:
                         continue
                     source = within(export_root, export_root / relative)
@@ -303,7 +305,29 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                             ]
                         except (ValueError, UnicodeDecodeError):
                             pass
-                    rows.append((name[:500], address[:128], size_bytes, relative, source, assembly_relative, assembly, referenced_strings, instruction_mnemonics))
+                    source_address_map = []
+                    if encoded_source_map:
+                        try:
+                            decoded_source_map = base64.b64decode(encoded_source_map, validate=True).decode("utf-8", errors="replace")
+                            total_metadata_bytes += len(decoded_source_map.encode("utf-8"))
+                            for mapping in decoded_source_map.splitlines()[:5000]:
+                                line_number_text, separator, instruction_address = mapping.partition("\t")
+                                if not separator or not re.fullmatch(r"[A-Za-z0-9:_-]{1,128}", instruction_address):
+                                    continue
+                                try:
+                                    line_number = int(line_number_text)
+                                except ValueError:
+                                    continue
+                                if line_number < 0 or line_number > 1_000_000:
+                                    continue
+                                item = {"ghidraLineNumber": line_number, "address": instruction_address}
+                                if item not in source_address_map:
+                                    source_address_map.append(item)
+                        except (ValueError, UnicodeDecodeError):
+                            pass
+                    if total_bytes + total_assembly_bytes + total_metadata_bytes > MAX_OUTPUT_BYTES:
+                        raise AnalysisError("Ghidra sources and evidence exceeded the configured storage limit")
+                    rows.append((name[:500], address[:128], size_bytes, relative, source, assembly_relative, assembly, referenced_strings, instruction_mnemonics, source_address_map))
 
                 if not rows:
                     raise AnalysisError(log_text[-1200:] or "Ghidra found no functions it could decompile")
@@ -347,7 +371,7 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                 sources_root = run_root / "sources"
                 units = []
                 progress_stride = max(1, len(returned) // 25)
-                for unit_index, (name, address, size_bytes, relative, source, assembly_relative, assembly, referenced_strings, instruction_mnemonics) in enumerate(returned, start=1):
+                for unit_index, (name, address, size_bytes, relative, source, assembly_relative, assembly, referenced_strings, instruction_mnemonics, source_address_map) in enumerate(returned, start=1):
                     if unit_index == 1 or unit_index % progress_stride == 0 or unit_index == len(returned):
                         report_progress(f"Saving function {unit_index} of {len(returned)}")
                     destination = sources_root / relative
@@ -377,6 +401,8 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                         unit["referencedStrings"] = referenced_strings
                     if len(instruction_mnemonics) >= 4:
                         unit["instructionMnemonics"] = instruction_mnemonics
+                    if source_address_map:
+                        unit["sourceAddressMap"] = source_address_map
                     units.append(unit)
 
                 warnings = []
@@ -389,6 +415,9 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                     warnings.append(f"Only the first {len(returned)} of {len(rows)} decompiled functions are available as code units.")
                 if call_edges_truncated:
                     warnings.append(f"Ghidra call graph output was limited to {MAX_CALL_EDGES} edges.")
+                source_address_map_truncated = summary.get("sourceAddressMapTruncated") == "true"
+                if source_address_map_truncated:
+                    warnings.append("Ghidra source-to-address mappings reached the 5000-entry analysis limit.")
                 return {
                     "status": "completed",
                     "toolVersion": "12.1.4",
@@ -408,8 +437,9 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                     "returnedUnits": len(units),
                     "callCount": len(calls),
                     "callGraphTruncated": call_edges_truncated,
+                    "sourceAddressMapTruncated": source_address_map_truncated,
                     "calls": calls,
-                    "truncated": summary.get("truncated") == "true" or len(rows) > len(units) or call_edges_truncated,
+                    "truncated": summary.get("truncated") == "true" or len(rows) > len(units) or call_edges_truncated or source_address_map_truncated,
                     "units": units,
                     "warnings": " ".join(warnings + go_warnings),
                 }

@@ -293,7 +293,11 @@ treemap area. Byte-level coverage is not measured and stays unknown. A pinned
 GoReSym build checks native inputs for Go runtime metadata, then joins recovered
 function names to Ghidra units and call edges by address. Go version, architecture,
 types, and symbol provenance are saved with project observations; decompiled output
-remains Ghidra's C-like pseudocode. Ghidra CPU, memory, temporary storage, process
+remains Ghidra's C-like pseudocode. Where markup provides statement and line nodes,
+the analyzer persists bounded Ghidra line numbers paired with each statement's p-code
+target address in the database-backed function observation; MCP dossiers return a
+bounded subset with the mapping semantics. These links are navigation evidence, not
+proof that pseudocode is equivalent to the original program. Ghidra CPU, memory, temporary storage, process
 count, functions considered, output size, and analysis timeout are bounded. Cancelling
 the task terminates the active analyzer process group.
 
