@@ -44,6 +44,13 @@ interface ImportArtifact {
   sizeBytes: number
 }
 
+interface ToCodeInputProvenance {
+  inputPath: string
+  inputSha256: string
+  inputArtifact: ImportArtifact | null
+  inventoryArtifact: ImportArtifact
+}
+
 interface FunctionRecord {
   address: string
   name: string
@@ -68,6 +75,8 @@ interface FunctionRecord {
   importedCalls: string[]
   fieldReferences: string[]
   fieldReferencesTruncated: boolean
+  inputProvenance?: ToCodeInputProvenance
+  functionsArtifact?: ImportArtifact
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -319,6 +328,20 @@ function makeCodeUnit(record: FunctionRecord, metadata: Record<string, unknown>,
   if (record.assemblyLineEnd !== null) attrs.assemblyLineEnd = record.assemblyLineEnd
   if (record.sourceArtifact) attrs.sourceArtifactId = record.sourceArtifact.id
   if (record.sourceArtifact) attrs.sourceArtifactSha256 = record.sourceArtifact.sha256
+  if (record.functionsArtifact) attrs.toCodeFunctionsArtifactId = record.functionsArtifact.id
+  if (record.functionsArtifact) attrs.toCodeFunctionsArtifactSha256 = record.functionsArtifact.sha256
+  if (record.inputProvenance) {
+    attrs.toCodeInputProvenance = record.inputProvenance.inputArtifact ? 'HASH_MATCHED_IMPORTED_ARTIFACT' : 'HASH_NOT_IMPORTED'
+    attrs.toCodeClaimedInputPath = record.inputProvenance.inputPath
+    attrs.toCodeClaimedInputSha256 = record.inputProvenance.inputSha256
+    attrs.toCodeInventoryArtifactId = record.inputProvenance.inventoryArtifact.id
+    attrs.toCodeInventoryArtifactSha256 = record.inputProvenance.inventoryArtifact.sha256
+    if (record.inputProvenance.inputArtifact) {
+      attrs.toCodeInputArtifactId = record.inputProvenance.inputArtifact.id
+      attrs.toCodeInputArtifactSha256 = record.inputProvenance.inputArtifact.sha256
+      attrs.toCodeInputRelativePath = record.inputProvenance.inputArtifact.relativePath
+    }
+  }
   if (codeArtifactId) attrs.codeArtifactId = codeArtifactId
   if (record.assemblyArtifact) attrs.assemblyArtifactId = record.assemblyArtifact.id
   if (record.assemblyArtifact) attrs.assemblyArtifactSha256 = record.assemblyArtifact.sha256
@@ -376,9 +399,68 @@ export async function indexToCodeWorkspaceImport(projectId: string, importId: st
   }))
   const artifactsByPath = new Map(artifacts.map((artifact) => [artifact.relativePath, artifact]))
   const pathSet = new Set(artifactsByPath.keys())
+  const artifactsBySha256 = new Map<string, ImportArtifact[]>()
+  for (const artifact of artifacts) {
+    const digest = artifact.sha256.toLowerCase()
+    const digestArtifacts = artifactsBySha256.get(digest)
+    if (digestArtifacts) digestArtifacts.push(artifact)
+    else artifactsBySha256.set(digest, [artifact])
+  }
   const candidates = artifacts.filter((artifact) => path.posix.basename(artifact.relativePath) === 'functions.json'
     && exportLooksLikeToCode(artifact.relativePath, pathSet)).slice(0, MAX_EXPORTS)
   if (!candidates.length) throw new Error('This workspace import does not contain a ToCode export')
+
+  const inputProvenanceByExport = new Map<string, ToCodeInputProvenance>()
+  const folderProjects = artifacts.filter((artifact) => {
+    if (path.posix.basename(artifact.relativePath) !== 'project.json') return false
+    const inventoryPath = joinedExportPath(exportRootOf(artifact.relativePath), 'inventory.json')
+    return Boolean(inventoryPath && artifactsByPath.has(inventoryPath))
+  })
+  for (const projectArtifact of folderProjects) {
+    let projectMetadata: Record<string, unknown> | null
+    try { projectMetadata = await readJsonArtifact(projectArtifact, MAX_METADATA_BYTES) } catch { projectMetadata = null }
+    if (!projectMetadata || !Array.isArray(projectMetadata.binaries) || typeof projectMetadata.inventory !== 'string') continue
+    const projectRoot = exportRootOf(projectArtifact.relativePath)
+    const inventoryPath = joinedExportPath(projectRoot, projectMetadata.inventory)
+    const inventoryArtifact = inventoryPath ? artifactsByPath.get(inventoryPath) : undefined
+    if (!inventoryArtifact) continue
+    let inventory: Record<string, unknown> | null
+    try { inventory = await readJsonArtifact(inventoryArtifact, MAX_METADATA_BYTES) } catch { inventory = null }
+    if (!Array.isArray(inventory?.files)) continue
+    const inventoryFiles = new Map<string, Record<string, unknown>>()
+    const duplicateInventoryPaths = new Set<string>()
+    for (const rawFile of inventory.files) {
+      const file = asRecord(rawFile)
+      const inputPath = cleanExportPath(file?.path)
+      if (!inputPath) continue
+      if (inventoryFiles.has(inputPath)) duplicateInventoryPaths.add(inputPath)
+      else inventoryFiles.set(inputPath, file!)
+    }
+    for (const rawBinary of projectMetadata.binaries) {
+      const binary = asRecord(rawBinary)
+      const exportDirectory = cleanExportPath(binary?.export_dir)
+      const inputPath = cleanExportPath(binary?.path)
+      if (!exportDirectory || !inputPath) continue
+      const exportRoot = joinedExportPath(projectRoot, exportDirectory)
+      const inventoryRow = duplicateInventoryPaths.has(inputPath) ? undefined : inventoryFiles.get(inputPath)
+      const inputSha256 = typeof inventoryRow?.sha256 === 'string' && /^[a-f0-9]{64}$/i.test(inventoryRow.sha256)
+        ? inventoryRow.sha256.toLowerCase()
+        : null
+      if (!exportRoot || !inputSha256) continue
+      const matchingArtifacts = artifactsBySha256.get(inputSha256) || []
+      const sourceSize = inventoryRow?.size
+      const validSourceSize = typeof sourceSize === 'number' && Number.isSafeInteger(sourceSize) && sourceSize >= 0
+      const inputArtifact = sourceSize === undefined
+        ? matchingArtifacts[0] || null
+        : validSourceSize ? matchingArtifacts.find((artifact) => artifact.sizeBytes === sourceSize) || null : null
+      inputProvenanceByExport.set(exportRoot, {
+        inputPath,
+        inputSha256,
+        inputArtifact,
+        inventoryArtifact,
+      })
+    }
+  }
 
   const anchor = candidates[0]
   let exportVersion = 'ToCode export (version not recorded)'
@@ -471,6 +553,8 @@ export async function indexToCodeWorkspaceImport(projectId: string, importId: st
           importedCalls: boundedImportedCalls(row.callees_imports),
           fieldReferences: fieldReferences.items,
           fieldReferencesTruncated: fieldReferences.truncated,
+          functionsArtifact: metadataArtifact,
+          inputProvenance: inputProvenanceByExport.get(exportRoot),
         }
         if (sourceFile) {
           const workspaceSourcePath = joinedExportPath(exportRoot, sourceFile)
@@ -738,6 +822,11 @@ export async function indexToCodeWorkspaceImport(projectId: string, importId: st
     if (inputFunctions > allFunctions.length + skippedFunctions) warnings.push('Some function rows were omitted by the indexer limits.')
     if (sourceFilesSkipped) warnings.push(`${sourceFilesSkipped} source or assembly links were omitted because files were missing, oversized, or exceeded the copy limit.`)
 
+    const candidateExportRoots = [...new Set(candidates.map((artifact) => exportRootOf(artifact.relativePath)))]
+    const candidateInputProvenance = candidateExportRoots.flatMap((exportRoot) => {
+      const provenance = inputProvenanceByExport.get(exportRoot)
+      return provenance ? [provenance] : []
+    })
     const summary = {
       provider: 'ToCode export importer',
       importId,
@@ -758,6 +847,10 @@ export async function indexToCodeWorkspaceImport(projectId: string, importId: st
       truncatedTypeCatalogs,
       skippedTypeCatalogs,
       callEdgesTruncated,
+      toCodeExportsWithInputHash: candidateInputProvenance.length,
+      toCodeInputHashesMatchedToImportedArtifacts: candidateInputProvenance.filter((item) => item.inputArtifact).length,
+      toCodeInputHashesNotFoundInImport: candidateInputProvenance.filter((item) => !item.inputArtifact).length,
+      toCodeExportsWithoutInputHash: Math.max(0, candidateExportRoots.length - candidateInputProvenance.length),
       copiedSourceAndAssemblyFiles: sourceFiles.size,
       copiedSourceAndAssemblyBytes: sourceBytes,
       warnings: warnings.slice(0, 100),

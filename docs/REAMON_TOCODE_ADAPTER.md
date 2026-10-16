@@ -52,6 +52,16 @@ directories represented in the same immutable workspace import. Repeated request
 reuse the existing index task. This slice imports existing ToCode output; it does not
 install or run ToCode itself.
 
+Folder exports now use ToCode's `project.json` binary-to-export mapping and
+`inventory.json` SHA-256 claims to connect a decompiled export to an original binary
+when that exact digest and size are also present in the REAmon workspace import. The
+visualizer shows the claimed input path, digest, and whether matching imported bytes
+were found. REAmon also records the exact imported `functions.json` and inventory
+artifact digests on each indexed function. This proves the inventory's digest matches
+an imported artifact's recorded bytes; it does not attest that ToCode actually analyzed
+those bytes or that the inventory is authentic. Standalone exports without a folder
+inventory remain unlinked until they provide verifiable input identity.
+
 For native function rows, the documented exporter contract supplies `params` and
 `locals` as arrays of `{name, type}` records. REAmon reads those bounded fields into
 the same provider-evidence context used by Ghidra; they remain ToCode-attributed and
@@ -60,8 +70,10 @@ claim that the Android or .NET ToCode exports use this native schema.
 
 Remaining integration work:
 
-1. Add input-hash-to-export provenance checks for original binaries and preserve the
-   ToCode/backend versions and unresolved-link counts at the right level.
+1. Extend verifiable input provenance to standalone exports if ToCode publishes an
+   input digest; keep provider claims distinct from independently matched imported
+   bytes, and preserve ToCode/backend versions and unresolved-link counts at the right
+   level.
 2. Expand mapping of APK and .NET specialized fields, types, imports, exports, and
    reachability without flattening provider evidence into canonical facts.
 3. Add representative fixtures and verify cross-binary endpoint resolution, visualizer
@@ -85,6 +97,8 @@ export formats, and accurate partial/truncation reporting.
 
 - [ToCode README and export layout](https://github.com/buzzer-re/ToCode)
 - [ToCode `functions.json` producer](https://github.com/buzzer-re/ToCode/blob/main/src/tocode/metadata.py)
+- [ToCode folder inventory and binary/export mapping](https://github.com/buzzer-re/ToCode/blob/main/src/tocode/folder_docs.py)
+- [ToCode inventory SHA-256 producer](https://github.com/buzzer-re/ToCode/blob/main/src/tocode/links/inventory.py)
 - [ToCode package metadata and MIT license](https://github.com/buzzer-re/ToCode/blob/main/pyproject.toml)
 - [Glaurung analysis scope and maturity](https://github.com/mjbommar/glaurung)
 - REAmon's current file-level execution path is in `webapp/src/lib/reamon/task-executor.ts`;

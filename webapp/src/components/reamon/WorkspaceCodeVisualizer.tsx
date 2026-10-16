@@ -2071,6 +2071,12 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
             {selectedUnit.sourceLanguage && <div><dt>Binary source language</dt><dd>{selectedUnit.sourceLanguage} (metadata)</dd></div>}
             {selectedUnit.symbolSource && <div><dt>Recovered symbol source</dt><dd>{selectedUnit.symbolSource} (provider evidence)</dd></div>}
             {selectedUnit.packageName && <div><dt>Recovered Go package</dt><dd>{selectedUnit.packageName} (address-matched metadata)</dd></div>}
+            {selectedUnit.source === 'reamon-tocode-import' && selectedUnit.toCodeInputProvenance && <div><dt>ToCode input provenance</dt><dd>
+              <span>{selectedUnit.toCodeInputProvenance === 'HASH_MATCHED_IMPORTED_ARTIFACT'
+                ? `ToCode inventory's SHA-256 matches imported file ${selectedUnit.toCodeInputRelativePath || selectedUnit.toCodeClaimedInputPath || '(path unavailable)'}`
+                : `ToCode inventory claims ${selectedUnit.toCodeClaimedInputPath || 'an input file'}, but matching bytes are not in this workspace import`}</span>
+              {selectedUnit.toCodeClaimedInputSha256 && <code>sha256:{selectedUnit.toCodeClaimedInputSha256}</code>}
+            </dd></div>}
             <div><dt>Unit type</dt><dd>{selectedUnit.unitType || 'Code unit'}</dd></div>
             {selectedUnit.bundlePath && <div><dt>Bundle module</dt><dd>{selectedUnit.bundlePath}</dd></div>}
             <div><dt>Artifact</dt><dd>{selectedUnit.artifactPath || 'Not linked'}</dd></div>

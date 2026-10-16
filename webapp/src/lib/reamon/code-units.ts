@@ -34,6 +34,11 @@ export interface CodeUnitObservationAttributes {
   prototype?: string
   recoveredVariables?: Array<{ kind: 'parameter' | 'local'; name: string; dataType: string; sizeBytes?: number; parameterIndex?: number; storageStartAddress?: string; nameLocked?: boolean; typeLocked?: boolean }>
   recoveredVariablesTruncated?: boolean
+  toCodeInputProvenance?: string
+  toCodeClaimedInputPath?: string
+  toCodeClaimedInputSha256?: string
+  toCodeInputRelativePath?: string
+  toCodeInputArtifactSha256?: string
 }
 
 export interface CodeUnitObservationRow {
@@ -77,6 +82,11 @@ export interface CodeUnit {
   prototype?: string | null
   recoveredVariables?: Array<{ kind: 'parameter' | 'local'; name: string; dataType: string; sizeBytes?: number; parameterIndex?: number; storageStartAddress?: string; nameLocked?: boolean; typeLocked?: boolean }>
   recoveredVariablesTruncated?: boolean
+  toCodeInputProvenance?: string | null
+  toCodeClaimedInputPath?: string | null
+  toCodeClaimedInputSha256?: string | null
+  toCodeInputRelativePath?: string | null
+  toCodeInputArtifactSha256?: string | null
   maintainedSource?: boolean
   draftSource?: boolean
   updatedAt: string
@@ -239,6 +249,11 @@ export function normalizeCodeUnit(row: CodeUnitObservationRow, options: { includ
       recoveredVariables: selectedEvidence?.variables || [],
       recoveredVariablesTruncated: Boolean(selectedEvidence?.truncated || attributes.recoveredVariablesTruncated === true),
     } : {}),
+    toCodeInputProvenance: text(attributes.toCodeInputProvenance, 80),
+    toCodeClaimedInputPath: text(attributes.toCodeClaimedInputPath, 1000),
+    toCodeClaimedInputSha256: text(attributes.toCodeClaimedInputSha256, 64),
+    toCodeInputRelativePath: text(attributes.toCodeInputRelativePath, 1000),
+    toCodeInputArtifactSha256: text(attributes.toCodeInputArtifactSha256, 64),
     maintainedSource: false,
     draftSource: false,
     updatedAt,
