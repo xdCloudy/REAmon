@@ -7,6 +7,7 @@ const MAX_RESULT_BYTES = 128 * 1024
 const REWRITE_LEASE_GRACE_MS = 60_000
 const MAX_REWRITE_TIMEOUT_MS = 5 * 60_000
 const STALE_JOB_GRACE_MS = 60_000
+const LEASE_HEARTBEAT_INTERVAL_MS = 15_000
 
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
@@ -37,8 +38,8 @@ async function settleFailure(input: {
   method?: string | null
   validationMessage?: string | null
 }) {
-  await prisma.reamonCodeAttempt.updateMany({
-    where: { id: input.attemptId, status: 'RUNNING', runToken: input.runToken },
+  const failed = await prisma.reamonCodeAttempt.updateMany({
+    where: { id: input.attemptId, status: 'RUNNING', runToken: input.runToken, cancelRequested: false },
     data: {
       status: 'FAILED',
       errorCode: input.code.slice(0, 128),
@@ -46,6 +47,35 @@ async function settleFailure(input: {
       validationStatus: input.status?.slice(0, 32) ?? null,
       validationMethod: input.method?.slice(0, 80) ?? null,
       validationMessage: input.validationMessage?.slice(0, 2000) ?? null,
+      completedAt: new Date(),
+      runToken: null,
+      leaseOwner: null,
+      leaseHeartbeatAt: null,
+    },
+  })
+  if (failed.count === 0) {
+    await prisma.reamonCodeAttempt.updateMany({
+      where: { id: input.attemptId, status: 'RUNNING', runToken: input.runToken, cancelRequested: true },
+      data: {
+        status: 'CANCELLED',
+        errorCode: 'cancelled',
+        errorMessage: 'The rewrite was cancelled by the operator.',
+        completedAt: new Date(),
+        runToken: null,
+        leaseOwner: null,
+        leaseHeartbeatAt: null,
+      },
+    })
+  }
+}
+
+async function settleCancelled(attemptId: string, runToken: string) {
+  return prisma.reamonCodeAttempt.updateMany({
+    where: { id: attemptId, status: 'RUNNING', runToken, cancelRequested: true },
+    data: {
+      status: 'CANCELLED',
+      errorCode: 'cancelled',
+      errorMessage: 'The rewrite was cancelled by the operator.',
       completedAt: new Date(),
       runToken: null,
       leaseOwner: null,
@@ -66,7 +96,7 @@ async function executeAttempt(attemptId: string, workerId: string) {
   const runToken = randomUUID()
   const claim = await prisma.$transaction(async (tx) => {
     const updated = await tx.reamonCodeAttempt.updateMany({
-      where: { id: attempt.id, projectId: attempt.projectId, status: 'QUEUED' },
+      where: { id: attempt.id, projectId: attempt.projectId, status: 'QUEUED', cancelRequested: false },
       data: { status: 'RUNNING', runToken, leaseOwner: workerId, leaseHeartbeatAt: now },
     })
     if (updated.count !== 1) return 'lost' as const
@@ -93,6 +123,52 @@ async function executeAttempt(attemptId: string, workerId: string) {
   })
   if (claim !== 'claimed') return false
 
+  const controller = new AbortController()
+  let abortReason: 'cancelled' | 'lease_lost' | 'heartbeat_error' | 'timeout' | null = null
+  let heartbeatRunning = false
+  const renewLease = async () => {
+    if (heartbeatRunning || abortReason) return
+    heartbeatRunning = true
+    try {
+      const now = new Date()
+      const outcome = await prisma.$transaction(async (tx) => {
+        const heartbeat = await tx.reamonCodeAttempt.updateMany({
+          where: { id: attempt.id, status: 'RUNNING', runToken, cancelRequested: false },
+          data: { leaseHeartbeatAt: now },
+        })
+        if (heartbeat.count !== 1) {
+          const current = await tx.reamonCodeAttempt.findUnique({ where: { id: attempt.id }, select: { cancelRequested: true } })
+          return current?.cancelRequested ? 'cancelled' as const : 'lease_lost' as const
+        }
+        const lease = attempt.unitLeaseId
+          ? await tx.reamonCodeUnitLease.updateMany({
+            where: { id: attempt.unitLeaseId, projectId: attempt.projectId, expiresAt: { gt: now } },
+            data: { expiresAt: new Date(now.getTime() + timeoutMs + REWRITE_LEASE_GRACE_MS) },
+          })
+          : { count: 0 }
+        return lease.count === 1 ? null : 'lease_lost' as const
+      })
+      if (outcome) {
+        abortReason = outcome
+        controller.abort()
+      }
+    } catch {
+      abortReason = 'heartbeat_error'
+      controller.abort()
+    } finally {
+      heartbeatRunning = false
+    }
+  }
+  const heartbeatTimer = setInterval(() => { void renewLease() }, LEASE_HEARTBEAT_INTERVAL_MS)
+  heartbeatTimer.unref?.()
+  const timeoutTimer = setTimeout(() => {
+    if (!controller.signal.aborted) {
+      abortReason = 'timeout'
+      controller.abort()
+    }
+  }, timeoutMs)
+  timeoutTimer.unref?.()
+
   try {
     const payload = record(attempt.requestPayload)
     if (!Object.keys(payload).length) {
@@ -104,6 +180,7 @@ async function executeAttempt(attemptId: string, workerId: string) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
+      signal: controller.signal,
     }, { timeoutMs })
     const result = record(await response.json().catch(() => null))
     if (!response.ok) {
@@ -143,7 +220,7 @@ async function executeAttempt(attemptId: string, workerId: string) {
         : { count: 0 }
       if (lease.count !== 1) return false
       const updated = await tx.reamonCodeAttempt.updateMany({
-        where: { id: attempt.id, projectId: attempt.projectId, status: 'RUNNING', runToken },
+        where: { id: attempt.id, projectId: attempt.projectId, status: 'RUNNING', runToken, cancelRequested: false },
         data: {
           status: 'SUCCEEDED', resultSource: rewrittenSource,
           syntaxValidated: result.syntax_validated === true,
@@ -159,16 +236,30 @@ async function executeAttempt(attemptId: string, workerId: string) {
       return updated.count === 1
     })
     if (!finalized) {
-      await settleFailure({ attemptId: attempt.id, runToken, code: 'lease_lost', message: 'The rewrite lease expired before the result could be saved. Retry to start a new attempt.' })
+      const current = await prisma.reamonCodeAttempt.findUnique({ where: { id: attempt.id }, select: { cancelRequested: true } })
+      if (current?.cancelRequested) await settleCancelled(attempt.id, runToken)
+      else await settleFailure({ attemptId: attempt.id, runToken, code: 'lease_lost', message: 'The rewrite lease expired before the result could be saved. Retry to start a new attempt.' })
     }
   } catch (error) {
-    await settleFailure({
-      attemptId: attempt.id,
-      runToken,
-      code: error instanceof AgentUnreachableError ? 'agent_unreachable' : 'request_error',
-      message: error instanceof AgentUnreachableError ? 'The AI analysis service is unavailable.' : 'The rewrite request failed before completion.',
-    }).catch(() => undefined)
+    if (abortReason === 'cancelled') await settleCancelled(attempt.id, runToken).catch(() => undefined)
+    else await settleFailure({
+        attemptId: attempt.id,
+        runToken,
+        code: abortReason === 'lease_lost' || abortReason === 'heartbeat_error'
+          ? 'lease_lost'
+          : abortReason === 'timeout' ? 'provider_timeout'
+          : error instanceof AgentUnreachableError ? 'agent_unreachable' : 'request_error',
+        message: abortReason === 'cancelled'
+          ? 'The rewrite was cancelled by the operator.'
+          : abortReason === 'lease_lost' || abortReason === 'heartbeat_error'
+            ? 'The rewrite worker lost its lease heartbeat before the result could be saved.'
+            : abortReason === 'timeout'
+              ? 'The AI provider did not finish the rewrite before its configured time limit.'
+            : error instanceof AgentUnreachableError ? 'The AI analysis service is unavailable.' : 'The rewrite request failed before completion.',
+      }).catch(() => undefined)
   } finally {
+    clearInterval(heartbeatTimer)
+    clearTimeout(timeoutTimer)
     if (attempt.unitLeaseId) {
       await prisma.reamonCodeUnitLease.deleteMany({ where: { id: attempt.unitLeaseId } }).catch(() => undefined)
     }
@@ -191,9 +282,9 @@ export async function dispatchQueuedCodeRewrites(input: { limit?: number; worker
     take: 100,
     select: { id: true, runToken: true, unitLeaseId: true },
   })
+  let recovered = 0
   for (const attempt of stale) {
-    await prisma.reamonCodeAttempt.updateMany({
-      where: {
+    const staleWhere = {
         id: attempt.id,
         status: 'RUNNING',
         runToken: attempt.runToken,
@@ -201,14 +292,27 @@ export async function dispatchQueuedCodeRewrites(input: { limit?: number; worker
           { leaseHeartbeatAt: { lt: staleBefore } },
           { leaseHeartbeatAt: null, createdAt: { lt: staleBefore } },
         ],
+      }
+    const cancelled = await prisma.reamonCodeAttempt.updateMany({
+      where: { ...staleWhere, cancelRequested: true },
+      data: {
+        status: 'CANCELLED', errorCode: 'cancelled',
+        errorMessage: 'The rewrite was cancelled by the operator while its worker was unavailable.',
+        completedAt: new Date(), runToken: null, leaseOwner: null, leaseHeartbeatAt: null,
       },
+    })
+    const interrupted = await prisma.reamonCodeAttempt.updateMany({
+      where: { ...staleWhere, cancelRequested: false },
       data: {
         status: 'FAILED', errorCode: 'interrupted',
         errorMessage: 'The rewrite worker stopped before saving a result. Retry to start a new attempt.',
         completedAt: new Date(), runToken: null, leaseOwner: null, leaseHeartbeatAt: null,
       },
     })
-    if (attempt.unitLeaseId) await prisma.reamonCodeUnitLease.deleteMany({ where: { id: attempt.unitLeaseId, expiresAt: { lte: new Date() } } })
+    recovered += cancelled.count + interrupted.count
+    if (cancelled.count + interrupted.count > 0 && attempt.unitLeaseId) {
+      await prisma.reamonCodeUnitLease.deleteMany({ where: { id: attempt.unitLeaseId } })
+    }
   }
 
   const queued = await prisma.reamonCodeAttempt.findMany({
@@ -221,5 +325,5 @@ export async function dispatchQueuedCodeRewrites(input: { limit?: number; worker
   for (const attempt of queued) {
     results.push({ attemptId: attempt.id, claimed: await executeAttempt(attempt.id, workerId) })
   }
-  return { recovered: stale.length, selected: queued.length, workerId, results }
+  return { recovered, selected: queued.length, workerId, results }
 }

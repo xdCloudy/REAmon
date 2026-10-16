@@ -93,7 +93,7 @@ interface CodeExplanationResponse { explanation: string; providerName: string; m
 interface ApkBuildResponse { buildId: string; taskId: string; fileName: string; sizeBytes: number; sha256: string; signed: false; changedFileCount: number; warnings?: string; downloadUrl: string }
 interface CodeMaintenanceResponse { sourceCode: string; providerName: string; model: string; attemptId?: string | null; syntaxValidated?: boolean | null; validationStatus?: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod?: string | null; validationMessage?: string | null }
 interface CodeDraftRecord { id: string; sourceCode: string; sourceAttemptId: string | null; providerName: string; modelIdentifier: string; question: string; scope: 'file' | 'member'; syntaxValidated: boolean | null; validationStatus: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod: string | null; validationMessage: string | null; updatedAt: string }
-interface CodeAttemptRecord { id: string; providerName: string; modelIdentifier: string; question: string; scope: 'file' | 'member'; status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED'; errorCode: string | null; errorMessage: string | null; resultSource: string | null; syntaxValidated: boolean | null; validationStatus: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod: string | null; validationMessage: string | null; createdAt: string; completedAt: string | null }
+interface CodeAttemptRecord { id: string; providerName: string; modelIdentifier: string; question: string; scope: 'file' | 'member'; status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'; cancelRequested: boolean; errorCode: string | null; errorMessage: string | null; resultSource: string | null; syntaxValidated: boolean | null; validationStatus: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod: string | null; validationMessage: string | null; createdAt: string; completedAt: string | null }
 interface CodeDraftResponse { exists: boolean; draft: CodeDraftRecord | null; attempts?: CodeAttemptRecord[] }
 interface CodeReviewRecord { id: string; reviewerId: string; decision: 'ACCEPTED'; rationale: string; maintainedSourceHash: string; createdAt: string }
 interface CodeMemberOutline { name: string; kind: 'function' | 'method' | 'constructor'; start_byte: number; end_byte: number; line: number; source_bytes: number }
@@ -356,6 +356,8 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
   const [maintenanceError, setMaintenanceError] = useState('')
   const [reviewRationale, setReviewRationale] = useState('')
   const [transforming, setTransforming] = useState(false)
+  const [activeRewriteAttemptId, setActiveRewriteAttemptId] = useState<string | null>(null)
+  const [cancellingRewrite, setCancellingRewrite] = useState(false)
   const [savingMaintained, setSavingMaintained] = useState(false)
   const [maintainedSaved, setMaintainedSaved] = useState(false)
   const [smaliDraft, setSmaliDraft] = useState('')
@@ -786,19 +788,37 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
     if (response.status !== 202) return initial
     if (!initial.attemptId) throw new Error('The rewrite job was queued without an attempt ID')
 
+    setActiveRewriteAttemptId(initial.attemptId)
     const deadline = Date.now() + 10 * 60_000
     try {
       while (Date.now() < deadline) {
         await new Promise((resolve) => window.setTimeout(resolve, 1500))
         const statusResponse = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/deobfuscate/attempts/${encodeURIComponent(initial.attemptId)}`, { cache: 'no-store' })
-        const status = await statusResponse.json().catch(() => ({})) as CodeMaintenanceResponse & { status?: string; error?: string }
+        const status = await statusResponse.json().catch(() => ({})) as CodeMaintenanceResponse & { status?: string; cancelRequested?: boolean; error?: string }
         if (!statusResponse.ok) throw new Error(status.error || 'Could not load the rewrite job status')
         if (status.status === 'FAILED') throw new Error(status.error || 'The rewrite attempt failed')
+        if (status.status === 'CANCELLED') throw new Error(status.error || 'The rewrite was cancelled')
         if (status.status === 'SUCCEEDED' && typeof status.sourceCode === 'string') return status
       }
       throw new Error(`Rewrite attempt ${initial.attemptId} is still queued or running. It remains saved in this unit's attempt history.`)
     } finally {
+      setActiveRewriteAttemptId((current) => current === initial.attemptId ? null : current)
       await queryClient.invalidateQueries({ queryKey: ['reamon-code-draft', projectId, unitId] })
+    }
+  }
+
+  async function cancelActiveCodeRewrite() {
+    if (!selectedUnit || !activeRewriteAttemptId) return
+    setCancellingRewrite(true)
+    setMaintenanceError('')
+    try {
+      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/deobfuscate/attempts/${encodeURIComponent(activeRewriteAttemptId)}/cancel`, { method: 'POST' })
+      const result = await response.json().catch(() => ({})) as { error?: string }
+      if (!response.ok) throw new Error(result.error || 'Could not cancel the rewrite')
+    } catch (error) {
+      setMaintenanceError(error instanceof Error ? error.message : 'Could not cancel the rewrite')
+    } finally {
+      setCancellingRewrite(false)
     }
   }
 
@@ -1667,13 +1687,16 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
             </>}
           </section>}
           {maintenanceError && <p className={styles.error} role="alert">{maintenanceError}</p>}
+          {transforming && activeRewriteAttemptId && <button type="button" className={styles.copyButton} onClick={() => void cancelActiveCodeRewrite()} disabled={cancellingRewrite}>
+            {cancellingRewrite ? 'Cancelling rewrite…' : 'Cancel rewrite'}
+          </button>}
           {maintenanceMeta && <p className={styles.message}>Reverse-engineered draft from {maintenanceMeta.providerName} · {maintenanceMeta.model}. {validationSummary(maintenanceMeta)}</p>}
           {(codeDraftQuery.data?.attempts?.length ?? 0) > 0 && <section className={styles.attemptHistory} aria-label="Recent AI rewrite attempts">
             <h4>Recent AI attempts for this source version</h4>
             <ol>{codeDraftQuery.data?.attempts?.map((attempt) => <li key={attempt.id}>
               <details>
                 <summary>
-                  <strong>{attempt.status === 'SUCCEEDED' ? 'Completed' : attempt.status === 'FAILED' ? 'Failed' : attempt.status === 'QUEUED' ? 'Queued' : attempt.status === 'RUNNING' ? 'Running' : 'Interrupted'}</strong>
+                  <strong>{attempt.status === 'SUCCEEDED' ? 'Completed' : attempt.status === 'FAILED' ? 'Failed' : attempt.status === 'CANCELLED' ? 'Cancelled' : attempt.status === 'QUEUED' ? 'Queued' : attempt.cancelRequested ? 'Cancelling' : attempt.status === 'RUNNING' ? 'Running' : 'Interrupted'}</strong>
                   <span>{attempt.providerName} · {attempt.modelIdentifier} · {attempt.scope} · {new Date(attempt.createdAt).toLocaleString()}</span>
                 </summary>
                 {codeDraftQuery.data?.draft?.sourceAttemptId === attempt.id && <p>This attempt produced the current saved draft.</p>}

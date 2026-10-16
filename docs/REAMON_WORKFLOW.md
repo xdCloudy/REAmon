@@ -51,8 +51,11 @@ for the same project, artifact, analysis run, code unit, and source hash receive
 conflict; a different source hash gets its own lease and history. A queued attempt
 survives webapp or worker restarts and remains eligible for dispatch. If a worker stops
 after claiming an attempt, the stale-run recovery marks it interrupted; the operator
-can start a new attempt from the saved source. A late response must still own its run
-token and code-unit lease before it can record success.
+can start a new attempt from the saved source. During an active provider call the worker
+renews both its heartbeat and source lease; the visualizer can cancel queued work
+immediately or request cancellation of a running call. A late response must still own
+its run token, have no cancellation request, and hold the code-unit lease before it can
+record success.
 
 ### 6. Record an attempt
 

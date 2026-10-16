@@ -84,7 +84,7 @@ export async function GET(_request: Request, { params }: RouteParams) {
       where: { projectId, codeUnitId: unitId, artifactId: resolved.artifactId, runKey: resolved.runKey, sourceHash: resolved.sourceHash },
       orderBy: { createdAt: 'desc' },
       take: 10,
-      select: { id: true, providerName: true, modelIdentifier: true, question: true, scope: true, status: true, errorCode: true, errorMessage: true, resultSource: true, syntaxValidated: true, validationStatus: true, validationMethod: true, validationMessage: true, createdAt: true, completedAt: true },
+      select: { id: true, providerName: true, modelIdentifier: true, question: true, scope: true, status: true, cancelRequested: true, errorCode: true, errorMessage: true, resultSource: true, syntaxValidated: true, validationStatus: true, validationMethod: true, validationMessage: true, createdAt: true, completedAt: true },
     })
     let trustedDraftValidation = { syntaxValidated: null as boolean | null, validationStatus: null as string | null, validationMethod: null as string | null, validationMessage: null as string | null }
     if (draft?.sourceAttemptId) {

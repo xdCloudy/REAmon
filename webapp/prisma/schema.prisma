@@ -2842,6 +2842,7 @@ model ReamonCodeAttempt {
   question        String    @default("") @db.Text
   scope           String    @default("file")
   status          String    @default("QUEUED")
+  cancelRequested Boolean   @default(false) @map("cancel_requested")
   requestPayload  Json?     @map("request_payload")
   timeoutMs       Int       @default(120000) @map("timeout_ms")
   unitLeaseId     String?   @map("unit_lease_id")

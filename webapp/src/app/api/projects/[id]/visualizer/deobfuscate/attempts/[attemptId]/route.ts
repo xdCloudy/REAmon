@@ -16,6 +16,7 @@ export async function GET(_request: Request, { params }: RouteParams) {
     select: {
       id: true,
       status: true,
+      cancelRequested: true,
       resultSource: true,
       providerName: true,
       modelIdentifier: true,
@@ -33,6 +34,7 @@ export async function GET(_request: Request, { params }: RouteParams) {
   return NextResponse.json({
     attemptId: attempt.id,
     status: attempt.status,
+    cancelRequested: attempt.cancelRequested,
     ...(attempt.status === 'SUCCEEDED' ? {
       sourceCode: attempt.resultSource,
       providerName: attempt.providerName,
@@ -43,6 +45,7 @@ export async function GET(_request: Request, { params }: RouteParams) {
       validationMessage: attempt.validationMessage,
     } : {}),
     ...(attempt.status === 'FAILED' ? { error: attempt.errorMessage || 'The rewrite attempt failed' } : {}),
+    ...(attempt.status === 'CANCELLED' ? { error: attempt.errorMessage || 'The rewrite was cancelled' } : {}),
     createdAt: attempt.createdAt,
     completedAt: attempt.completedAt,
   }, { headers: { 'Cache-Control': 'private, no-store' } })
