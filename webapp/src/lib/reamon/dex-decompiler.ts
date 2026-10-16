@@ -4,6 +4,7 @@ import { readAnalyzerResponse } from './analyzer-response'
 
 const MAX_CLASSES = 500
 const MAX_METHODS = 10_000
+const MAX_CALL_EDGES = 4_000
 const DEFAULT_TIMEOUT_MS = 20 * 60_000
 
 interface DexMethod {
@@ -32,10 +33,27 @@ interface DexDecompilerResponse {
   returnedMethodCount: number
   methodsTruncated: boolean
   methods: DexMethod[]
+  calls: DexCall[]
+  callGraphTruncated: boolean
   codeBytes: number
   truncated: boolean
   units: Array<{ name: string; relativePath: string; codeArtifactId: string; sizeBytes: number }>
   warnings?: string
+}
+
+interface DexCall {
+  fromSignature: string
+  toSignature: string
+  fromRelativePath: string
+  toRelativePath: string
+  fromAddress: string
+  toAddress: string
+  fromDexIndex: number
+  toDexIndex: number
+  fromMethodIndex: number
+  toMethodIndex: number
+  callSiteCount: number
+  offsets: number[]
 }
 
 export const dexDecompilerManifest: ToolPluginManifest = {
@@ -46,7 +64,7 @@ export const dexDecompilerManifest: ToolPluginManifest = {
   acceptsTargetTypes: ['FILE'],
   acceptsFormats: ['apk', 'dex'],
   capabilities: ['decompile'],
-  produces: ['CodeUnit', 'DecompiledSource'],
+  produces: ['CodeUnit', 'DecompiledSource', 'CallGraph', 'Relationship'],
   requirements: [
     { key: 'service', value: 'Isolated dex-decompiler analyzer container' },
     { key: 'artifactPath' },
@@ -60,6 +78,11 @@ function errorText(error: unknown): string {
 function timeoutMs(): number {
   const value = Number(process.env.REAMON_DEX_DECOMPILER_REQUEST_TIMEOUT_MS)
   return Number.isFinite(value) ? Math.min(30 * 60_000, Math.max(60_000, Math.floor(value))) : DEFAULT_TIMEOUT_MS
+}
+
+function methodObservationKey(input: ToolExecutionInput, dexIndex: number, methodIndex: number, signature: string): string {
+  const identity = `${input.artifactId}:${dexIndex}:${methodIndex}:${signature}`
+  return `dex-decompiler:method:${createHash('sha256').update(identity).digest('hex').slice(0, 32)}`
 }
 
 function isResponse(value: unknown): value is DexDecompilerResponse {
@@ -97,6 +120,22 @@ function isResponse(value: unknown): value is DexDecompilerResponse {
         || (typeof method.bytecodeArtifactId === 'string' && method.bytecodeArtifactId.length > 0 && method.bytecodeArtifactId.length <= 2_000
           && Number.isSafeInteger(method.bytecodeArtifactSizeBytes) && (method.bytecodeArtifactSizeBytes as number) > 0))
       && typeof method.bytecodeRowsTruncated === 'boolean' && typeof method.cfgTruncated === 'boolean')
+    && Array.isArray(response.calls) && response.calls.length <= MAX_CALL_EDGES
+    && typeof response.callGraphTruncated === 'boolean'
+    && response.calls.every((call: DexCall) => !!call && typeof call === 'object' && !Array.isArray(call)
+      && typeof call.fromSignature === 'string' && call.fromSignature.length > 0 && call.fromSignature.length <= 1_000
+      && typeof call.toSignature === 'string' && call.toSignature.length > 0 && call.toSignature.length <= 1_000
+      && typeof call.fromRelativePath === 'string' && call.fromRelativePath.length > 0 && call.fromRelativePath.length <= 1_000
+      && typeof call.toRelativePath === 'string' && call.toRelativePath.length > 0 && call.toRelativePath.length <= 1_000
+      && typeof call.fromAddress === 'string' && call.fromAddress.length <= 128
+      && typeof call.toAddress === 'string' && call.toAddress.length <= 128
+      && Number.isSafeInteger(call.fromDexIndex) && call.fromDexIndex >= 0
+      && Number.isSafeInteger(call.toDexIndex) && call.toDexIndex >= 0
+      && Number.isSafeInteger(call.fromMethodIndex) && call.fromMethodIndex >= 0
+      && Number.isSafeInteger(call.toMethodIndex) && call.toMethodIndex >= 0
+      && Number.isSafeInteger(call.callSiteCount) && call.callSiteCount >= 1
+      && Array.isArray(call.offsets) && call.offsets.length <= 3
+      && call.offsets.every((offset) => Number.isSafeInteger(offset) && offset >= 0))
     && typeof response.codeBytes === 'number' && Number.isSafeInteger(response.codeBytes) && response.codeBytes >= 0
     && typeof response.truncated === 'boolean'
     && Array.isArray(response.units) && response.units.length <= MAX_CLASSES
@@ -178,6 +217,7 @@ export async function executeDexDecompiler(input: ToolExecutionInput): Promise<T
     const classKeysByPath = new Map(payload.units.map((unit) => [unit.relativePath,
       `dex-decompiler:class:${createHash('sha256').update(`${input.artifactId}:${unit.relativePath}`).digest('hex').slice(0, 32)}`,
     ]))
+    const methodNodeKeys = new Set<string>()
     let methodsAdded = 0
     for (const method of payload.methods) {
       const unit = unitsByPath.get(method.relativePath)
@@ -185,12 +225,12 @@ export async function executeDexDecompiler(input: ToolExecutionInput): Promise<T
       if (!unit || !parentCodeUnitKey || observations.length >= 20_000) continue
       const cfg = JSON.stringify(method.controlFlowGraph)
       const identity = `${input.artifactId}:${method.dexIndex}:${method.methodIndex}:${method.signature}`
-      const digest = createHash('sha256').update(identity).digest('hex').slice(0, 32)
+      const key = methodObservationKey(input, method.dexIndex, method.methodIndex, method.signature)
       const label = `${method.className}#${method.methodName}`.slice(0, 500)
       observations.push({
         kind: 'entity',
         type: 'function',
-        key: `dex-decompiler:method:${digest}`,
+        key,
         label,
         attributes: {
           unitType: 'function',
@@ -218,7 +258,85 @@ export async function executeDexDecompiler(input: ToolExecutionInput): Promise<T
           ...(cfg.length <= 3_800 ? { controlFlowGraph: cfg } : {}),
         },
       })
+      methodNodeKeys.add(key)
       methodsAdded += 1
+    }
+    const seenCalls = new Set<string>()
+    let callGraphTruncated = payload.callGraphTruncated
+    const addCallEndpoint = (
+      signature: string,
+      relativePath: string,
+      dexIndex: number,
+      methodIndex: number,
+      address: string,
+    ): string | null => {
+      const key = methodObservationKey(input, dexIndex, methodIndex, signature)
+      if (methodNodeKeys.has(key)) return key
+      if (observations.length >= 20_000) return null
+      const unit = unitsByPath.get(relativePath)
+      const parentCodeUnitKey = classKeysByPath.get(relativePath)
+      const owner = signature.split('#')[0] || signature
+      const methodName = signature.includes('#') ? signature.slice(signature.indexOf('#') + 1).split('(')[0] : signature
+      observations.push({
+        kind: 'entity',
+        type: 'function',
+        key,
+        label: `${owner}#${methodName}`.slice(0, 500),
+        attributes: {
+          unitType: 'function',
+          identity: `${input.artifactId}:${dexIndex}:${methodIndex}:${signature}`,
+          identityKey: `${dexIndex}:${methodIndex}:${signature}`,
+          name: methodName.slice(0, 500),
+          qualifiedName: signature,
+          address,
+          language: 'Java',
+          instructionLanguage: 'Dalvik',
+          ...(unit && parentCodeUnitKey ? { relativePath, parentCodeUnitKey, codeArtifactId: unit.codeArtifactId } : {}),
+          externalOrUndecompiled: true,
+          decompilationEngine: 'androguard/dex-decompiler',
+          decompilationEngineVersion: payload.toolVersion,
+          sourceSha256: payload.input.sha256,
+        },
+      })
+      methodNodeKeys.add(key)
+      return key
+    }
+    for (const call of payload.calls) {
+      if (!unitsByPath.has(call.fromRelativePath)) {
+        callGraphTruncated = true
+        continue
+      }
+      const edgeIdentity = `${call.fromDexIndex}:${call.fromMethodIndex}->${call.toDexIndex}:${call.toMethodIndex}`
+      if (seenCalls.has(edgeIdentity)) continue
+      const fromKey = addCallEndpoint(call.fromSignature, call.fromRelativePath, call.fromDexIndex, call.fromMethodIndex, call.fromAddress)
+      const toKey = addCallEndpoint(call.toSignature, call.toRelativePath, call.toDexIndex, call.toMethodIndex, call.toAddress)
+      if (!fromKey || !toKey || observations.length >= 20_000) {
+        callGraphTruncated = true
+        break
+      }
+      seenCalls.add(edgeIdentity)
+      const fromCodeUnitKey = classKeysByPath.get(call.fromRelativePath)
+      const toCodeUnitKey = classKeysByPath.get(call.toRelativePath)
+      const edgeDigest = createHash('sha256').update(`${input.artifactId}:${edgeIdentity}`).digest('hex').slice(0, 32)
+      observations.push({
+        kind: 'relationship',
+        type: 'calls',
+        relation: 'calls',
+        key: `dex-decompiler:call:${edgeDigest}`,
+        fromKey,
+        toKey,
+        label: `${call.fromSignature} calls ${call.toSignature}`.slice(0, 500),
+        attributes: {
+          fromSignature: call.fromSignature,
+          toSignature: call.toSignature,
+          fromAddress: call.fromAddress,
+          toAddress: call.toAddress,
+          callSiteCount: call.callSiteCount,
+          callOffsets: JSON.stringify(call.offsets),
+          ...(fromCodeUnitKey ? { fromCodeUnitKey } : {}),
+          ...(toCodeUnitKey ? { toCodeUnitKey } : {}),
+        },
+      })
     }
     return {
       status: 'completed',
@@ -229,8 +347,11 @@ export async function executeDexDecompiler(input: ToolExecutionInput): Promise<T
         returnedClassCount: payload.returnedClassCount,
         discoveredMethodCount: payload.discoveredMethodCount,
         returnedMethodCount: methodsAdded,
+        callCount: seenCalls.size,
+        returnedCallCount: seenCalls.size,
+        callGraphTruncated,
         codeBytes: payload.codeBytes,
-        truncated: payload.truncated || payload.discoveredClassCount > payload.returnedClassCount || payload.methodsTruncated || methodsAdded < payload.returnedMethodCount,
+        truncated: payload.truncated || payload.discoveredClassCount > payload.returnedClassCount || payload.methodsTruncated || methodsAdded < payload.returnedMethodCount || callGraphTruncated,
         decompilationEngine: 'androguard/dex-decompiler',
         decompilationEngineVersion: payload.toolVersion,
         inputSha256: payload.input.sha256,

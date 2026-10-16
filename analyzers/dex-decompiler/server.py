@@ -23,6 +23,7 @@ MAX_RETURNED_UNITS = min(500, max(1, int(os.environ.get("DEX_DECOMPILER_MAX_RETU
 MAX_SOURCE_FILES = 50_000
 MAX_SOURCE_BYTES = 4 * 1024 * 1024
 MAX_STRUCTURED_METHODS = 10_000
+MAX_STRUCTURED_CALLS = 4_000
 MAX_STRUCTURED_OUTPUT_BYTES = 64 * 1024 * 1024
 MAX_REQUEST_BYTES = 64 * 1024
 TOOL_VERSION = "d458efd15d74351e83f4e8968c75ef17c71f3c65"
@@ -222,6 +223,9 @@ def analyse(body: dict[str, object]) -> dict[str, object]:
     methods = [row for row in method_rows[:MAX_STRUCTURED_METHODS] if isinstance(row, dict)] if isinstance(method_rows, list) else []
     discovered_methods = method_result.get("discoveredMethodCount", len(method_rows) if isinstance(method_rows, list) else 0)
     method_truncated = method_result.get("truncated") is True or (isinstance(discovered_methods, int) and discovered_methods > len(methods))
+    call_rows = method_result.get("calls", [])
+    calls = [row for row in call_rows[:MAX_STRUCTURED_CALLS] if isinstance(row, dict)] if isinstance(call_rows, list) else []
+    call_graph_truncated = method_result.get("callGraphTruncated") is True or (isinstance(call_rows, list) and len(call_rows) > len(calls))
 
     return {
         "status": "completed",
@@ -233,6 +237,8 @@ def analyse(body: dict[str, object]) -> dict[str, object]:
         "returnedMethodCount": len(methods),
         "methodsTruncated": method_truncated,
         "methods": methods,
+        "calls": calls,
+        "callGraphTruncated": call_graph_truncated,
         "codeBytes": returned_bytes,
         "truncated": source_truncated or len(sources) > len(units),
         "units": units,
