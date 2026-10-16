@@ -36,6 +36,20 @@ separate so a plausible name is never treated as proof of behavior.
 
 ## Additional engines evaluated
 
+- [Humanify](https://github.com/jehna/humanify) v3.1.1 is MIT-licensed and uses
+  OXC's JavaScript AST and semantic model to apply model-suggested renames across
+  lexical scopes, with identifier validity and collision checks. Its important
+  design is the separation between uncertain name proposals and deterministic
+  source edits. REAmon should adapt that contract for its JavaScript/TypeScript
+  maintenance path: request evidence-linked mappings through the user's saved
+  provider, keep the exact project/run symbol index in context, apply mappings
+  against an exact source hash, show the resulting diff, and persist proposal,
+  edit, and validation records in REAmon. Do not invoke Humanify's built-in
+  per-identifier provider loop: its README describes one LLM request per
+  identifier, and that flow does not use REAmon's database context or attempt
+  history. Its OXC-backed transform is language-specific and is not behavior
+  validation. See the upstream [README](https://github.com/jehna/humanify) and
+  [pinned dependency manifest](https://github.com/jehna/humanify/blob/main/Cargo.toml).
 - [webcrack](https://github.com/j4k0xb/webcrack) is MIT-licensed and targets
   JavaScript specifically: obfuscator.io transforms, unminification, JSX, and
   webpack/Browserify module extraction. REAmon now uses v2.16.0 in a Node 22
