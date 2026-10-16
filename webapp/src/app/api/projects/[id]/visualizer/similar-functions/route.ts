@@ -15,11 +15,13 @@ function attributesRecord(value: unknown): Record<string, unknown> {
 }
 
 function sameNativeArchitecture(left: { attributes: unknown; artifact: { profile: unknown } | null; artifactId: string | null }, right: { attributes: unknown; artifact: { profile: unknown } | null; artifactId: string | null }): boolean {
-  if (left.artifactId && left.artifactId === right.artifactId) return true
   const leftArchitecture = attributesRecord(left.attributes).instructionArchitecture
   const rightArchitecture = attributesRecord(right.attributes).instructionArchitecture
-  return typeof leftArchitecture === 'string' && leftArchitecture.length > 0
-    && typeof rightArchitecture === 'string' && leftArchitecture === rightArchitecture
+  if (typeof leftArchitecture === 'string' && leftArchitecture.length > 0
+      && typeof rightArchitecture === 'string' && rightArchitecture.length > 0) {
+    return leftArchitecture === rightArchitecture
+  }
+  return Boolean(left.artifactId && left.artifactId === right.artifactId)
 }
 
 function instructionMnemonics(value: unknown): string[] {
