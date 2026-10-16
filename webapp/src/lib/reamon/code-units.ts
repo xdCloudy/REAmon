@@ -23,6 +23,8 @@ export interface CodeUnitObservationAttributes {
   disassemblyLanguage?: string
   classReferences?: string[]
   referencedStrings?: string[]
+  sourceAddressMap?: Array<{ ghidraLineNumber: number; address: string }>
+  sourceAddressMapTruncated?: boolean
 }
 
 export interface CodeUnitObservationRow {
@@ -55,6 +57,8 @@ export interface CodeUnit {
   disassemblyLanguage: string | null
   classReferences?: string[]
   referencedStrings?: string[]
+  sourceAddressMap?: Array<{ ghidraLineNumber: number; address: string }>
+  sourceAddressMapTruncated?: boolean
   maintainedSource?: boolean
   draftSource?: boolean
   updatedAt: string
@@ -88,7 +92,25 @@ function coverageOf(attributes: Record<string, unknown>): number | null {
   return attributes.decompiled === true ? 100 : null
 }
 
-export function normalizeCodeUnit(row: CodeUnitObservationRow): CodeUnit | null {
+function sourceAddressMapOf(value: unknown): Array<{ ghidraLineNumber: number; address: string }> {
+  if (typeof value !== 'string' || value.length > 1_000_000) return []
+  try {
+    const parsed: unknown = JSON.parse(value)
+    if (!Array.isArray(parsed)) return []
+    return parsed.slice(0, 5000).flatMap((item) => {
+      const mapping = attributesOf(item)
+      return Number.isInteger(mapping.ghidraLineNumber) && Number(mapping.ghidraLineNumber) > 0
+        && Number(mapping.ghidraLineNumber) <= 1_000_000
+        && typeof mapping.address === 'string' && /^[A-Za-z0-9:_-]{1,128}$/.test(mapping.address)
+        ? [{ ghidraLineNumber: Number(mapping.ghidraLineNumber), address: mapping.address }]
+        : []
+    })
+  } catch {
+    return []
+  }
+}
+
+export function normalizeCodeUnit(row: CodeUnitObservationRow, options: { includeSourceAddressMap?: boolean } = {}): CodeUnit | null {
   const attributes = attributesOf(row.attributes)
   const sizeBytes = finiteNumber(attributes.sizeBytes)
   if (sizeBytes === null || sizeBytes <= 0 || sizeBytes > Number.MAX_SAFE_INTEGER) return null
@@ -115,6 +137,10 @@ export function normalizeCodeUnit(row: CodeUnitObservationRow): CodeUnit | null 
     disassemblyLanguage: text(attributes.disassemblyLanguage, 80),
     classReferences: classReferencesOf(attributes.classReferences),
     referencedStrings: stringListOf(attributes.referencedStrings, 12, 512),
+    ...(options.includeSourceAddressMap ? {
+      sourceAddressMap: sourceAddressMapOf(attributes.sourceAddressMap),
+      sourceAddressMapTruncated: attributes.sourceAddressMapTruncated === true,
+    } : {}),
     maintainedSource: false,
     draftSource: false,
     updatedAt,

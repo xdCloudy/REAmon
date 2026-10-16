@@ -365,11 +365,41 @@ const MAX_SOURCE_PREVIEW_CHARS = 25_000
 const MAX_MEMBER_REWRITE_BYTES = 64 * 1024
 const MAX_MEMBER_OUTLINE_BYTES = 2 * 1024 * 1024
 
-function SourceListing({ source, language, fileName, fullSourceUrl }: { source: string; language: string | null | undefined; fileName: string | null | undefined; fullSourceUrl?: string | null }) {
+function SourceListing({ source, language, fileName, fullSourceUrl, sourceAddressMap, onMappedAddressSelect, highlightAddress, lineIdPrefix }: {
+  source: string
+  language: string | null | undefined
+  fileName: string | null | undefined
+  fullSourceUrl?: string | null
+  sourceAddressMap?: Array<{ ghidraLineNumber: number; address: string }>
+  onMappedAddressSelect?: (addresses: string[]) => void
+  highlightAddress?: string | null
+  lineIdPrefix?: string
+}) {
   const syntaxLanguage = sourceSyntaxLanguage(language, fileName)
   const preview = source.length > MAX_SOURCE_PREVIEW_CHARS
     ? source.slice(0, MAX_SOURCE_PREVIEW_CHARS).replace(/[\uD800-\uDBFF]$/, '')
     : source
+  const addressesByLine = useMemo(() => {
+    const result = new Map<number, string[]>()
+    for (const mapping of sourceAddressMap || []) {
+      const addresses = result.get(mapping.ghidraLineNumber) || []
+      if (!addresses.includes(mapping.address)) addresses.push(mapping.address)
+      result.set(mapping.ghidraLineNumber, addresses)
+    }
+    return result
+  }, [sourceAddressMap])
+  const assemblyAddressByLine = useMemo(() => {
+    const result = new Map<number, string>()
+    preview.split(/\r?\n/).forEach((line, index) => {
+      const address = line.match(/^\s*([A-Za-z0-9:_-]{1,128}):\s/)?.[1]
+      if (address) result.set(index + 1, address)
+    })
+    return result
+  }, [preview])
+  useEffect(() => {
+    if (!highlightAddress || !lineIdPrefix) return
+    document.getElementById(`${lineIdPrefix}-${encodeURIComponent(highlightAddress)}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  }, [highlightAddress, lineIdPrefix, preview])
   return <>
     {source.length > MAX_SOURCE_PREVIEW_CHARS && <p className={styles.sourcePreviewNote} role="status">
       Showing the first {MAX_SOURCE_PREVIEW_CHARS.toLocaleString()} characters of {source.length.toLocaleString()}. {fullSourceUrl
@@ -381,6 +411,32 @@ function SourceListing({ source, language, fileName, fullSourceUrl }: { source: 
       language={syntaxLanguage}
       style={vscDarkPlus}
       showLineNumbers
+      wrapLines
+      lineProps={(lineNumber) => {
+        const addresses = addressesByLine.get(lineNumber)
+        const mappedAddresses = addresses || []
+        const assemblyAddress = assemblyAddressByLine.get(lineNumber)
+        const mappedLine = Boolean(mappedAddresses.length && onMappedAddressSelect)
+        const selectedInstruction = Boolean(highlightAddress && assemblyAddress === highlightAddress)
+        return {
+          ...(lineIdPrefix && assemblyAddress ? { id: `${lineIdPrefix}-${encodeURIComponent(assemblyAddress)}` } : {}),
+          ...(mappedLine ? {
+            role: 'button',
+            tabIndex: 0,
+            title: `Ghidra line ${lineNumber}: click to jump to ${mappedAddresses.length} associated instruction address${mappedAddresses.length === 1 ? '' : 'es'}`,
+            'aria-label': `Ghidra source line ${lineNumber}; click to navigate to associated instruction address`,
+            onClick: () => onMappedAddressSelect?.(mappedAddresses),
+            onKeyDown: (event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault()
+                onMappedAddressSelect?.(mappedAddresses)
+              }
+            },
+            className: styles.mappedSourceLine,
+          } : {}),
+          ...(selectedInstruction ? { className: styles.selectedInstructionLine } : {}),
+        }
+      }}
       lineNumberStyle={{ color: '#68788f', minWidth: '3.25em', paddingRight: '1.25em', userSelect: 'none' }}
       customStyle={{ margin: 0, borderRadius: 0, background: 'transparent', fontSize: 'inherit', lineHeight: 'inherit' }}
       codeTagProps={{ className: styles.sourceCodeText }}
@@ -467,6 +523,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
   const [dexGraphType, setDexGraphType] = useState<'function_calls' | 'member_references'>('function_calls')
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [selectedEvidenceAddress, setSelectedEvidenceAddress] = useState<string | null>(null)
   const [selectedFunctionMapMember, setSelectedFunctionMapMember] = useState<{ id: string; taskId?: string; parentUnitId: string; name: string; similarityAvailable: boolean; hasControlFlowGraph: boolean } | null>(null)
   const [urlInitialized, setUrlInitialized] = useState(false)
   const [graphUnit, setGraphUnit] = useState<CodeUnit | null>(null)
@@ -548,7 +605,8 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
   const linkedUnitQuery = useQuery({
     queryKey: ['reamon-code-unit-link', projectId, currentRunId, selectedId],
     queryFn: ({ signal }) => fetchCodeUnits(projectId, currentRunId, null, signal, '', selectedId as string),
-    enabled: Boolean(selectedId && !units.some((unit) => unit.id === selectedId)),
+    enabled: Boolean(selectedId && currentRunId
+      && (!units.some((unit) => unit.id === selectedId) || units.find((unit) => unit.id === selectedId)?.source === 'reamon-ghidra')),
     staleTime: 30_000,
     gcTime: 60_000,
   })
@@ -638,9 +696,17 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
   const rectangles = useMemo(() => layoutCodeUnitTreemap(treemapEntries, 1200, 560), [treemapEntries])
   const summary = useMemo(() => summarizeCodeUnits(folderUnits), [folderUnits])
   const maintainedUnits = useMemo(() => folderUnits.filter((unit) => unit.maintainedSource).length, [folderUnits])
-  const selectedUnit = folderUnits.find((unit) => unit.id === selectedId)
-    || linkedUnitQuery.data?.units.find((unit) => unit.id === selectedId)
-    || (graphUnit?.id === selectedId ? graphUnit : undefined)
+  const listedSelectedUnit = folderUnits.find((unit) => unit.id === selectedId)
+  const linkedSelectedUnit = linkedUnitQuery.data?.units.find((unit) => unit.id === selectedId)
+  const selectedUnit = listedSelectedUnit
+    ? {
+      ...listedSelectedUnit,
+      ...(linkedSelectedUnit ? {
+        sourceAddressMap: linkedSelectedUnit.sourceAddressMap,
+        sourceAddressMapTruncated: linkedSelectedUnit.sourceAddressMapTruncated,
+      } : {}),
+    }
+    : linkedSelectedUnit || (graphUnit?.id === selectedId ? graphUnit : undefined)
   const runCallGraphQuery = useQuery({
     queryKey: ['reamon-callgraph-run', projectId, currentRunId, selectedUnit?.id, graphFocusKey, graphType],
     queryFn: ({ signal }) => fetchRunCallGraph(projectId, currentRunId as string,
@@ -698,6 +764,12 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
     staleTime: 5 * 60_000,
     gcTime: 60_000,
   })
+  useEffect(() => { setSelectedEvidenceAddress(null) }, [selectedUnit?.id])
+  const selectSourceAddress = useCallback((addresses: string[]) => {
+    if (!addresses.length) return
+    const currentIndex = selectedEvidenceAddress ? addresses.indexOf(selectedEvidenceAddress) : -1
+    setSelectedEvidenceAddress(addresses[(currentIndex + 1) % addresses.length])
+  }, [selectedEvidenceAddress])
   const smaliSourceQuery = useQuery({
     queryKey: ['reamon-maintained-smali', projectId, selectedUnit?.id],
     queryFn: async ({ signal }) => {
@@ -1744,9 +1816,11 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
                 <div><strong>Decompiled source</strong><span>{languageLabel(selectedUnit)} · {selectedUnit.codeArtifactId?.split('/').pop()}</span></div>
                 <button type="button" className={styles.copyButton} onClick={() => void copySource()} disabled={!sourceQuery.data}><Copy size={14} /> {copyStatus || 'Copy source'}</button>
               </div>
+              {selectedUnit.sourceAddressMap?.length ? <p className={styles.sourcePreviewNote} role="status">Mapped lines are clickable. Click again to cycle through addresses mapped to that line.</p> : null}
+              {selectedUnit.sourceAddressMapTruncated && <p className={styles.sourcePreviewNote} role="status">Some source-to-instruction mappings were omitted at the analyzer limit.</p>}
               {sourceQuery.isLoading && <p className={styles.message}>Loading decompiled source…</p>}
               {sourceQuery.isError && <p className={styles.error}>{sourceQuery.error instanceof Error ? sourceQuery.error.message : 'Could not load decompiled source'}</p>}
-              {sourceQuery.data !== undefined && <SourceListing source={sourceQuery.data} language={selectedUnit.language} fileName={selectedUnit.codeArtifactId?.split('/').pop()} fullSourceUrl={selectedSourceUrl} />}
+              {sourceQuery.data !== undefined && <SourceListing source={sourceQuery.data} language={selectedUnit.language} fileName={selectedUnit.codeArtifactId?.split('/').pop()} fullSourceUrl={selectedSourceUrl} sourceAddressMap={selectedUnit.sourceAddressMap} onMappedAddressSelect={selectSourceAddress} />}
             </div>
             <div className={styles.listingPane}>
               <div className={styles.sourceHeader}>
@@ -1755,7 +1829,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
               </div>
               {disassemblyQuery.isLoading && <p className={styles.message}>Loading instruction listing…</p>}
               {disassemblyQuery.isError && <p className={styles.error}>{disassemblyQuery.error instanceof Error ? disassemblyQuery.error.message : 'Could not load instruction listing'}</p>}
-              {disassemblyQuery.data !== undefined && <SourceListing source={disassemblyQuery.data} language={selectedUnit.disassemblyLanguage} fileName={selectedUnit.disassemblyArtifactId?.split('/').pop()} fullSourceUrl={selectedDisassemblyUrl} />}
+              {disassemblyQuery.data !== undefined && <SourceListing source={disassemblyQuery.data} language={selectedUnit.disassemblyLanguage} fileName={selectedUnit.disassemblyArtifactId?.split('/').pop()} fullSourceUrl={selectedDisassemblyUrl} highlightAddress={selectedEvidenceAddress} lineIdPrefix={`ghidra-assembly-${selectedUnit.id}`} />}
               {selectedUnit.disassemblyLanguage?.toLowerCase() === 'smali' && <div className={styles.smaliEditor}>
                 <label>Editable Smali source
                   <textarea aria-label="Editable Smali source" value={smaliDraft} spellCheck={false} onChange={(event) => { setSmaliDraft(event.target.value); setSmaliSaved(false); setSmaliError('') }} />

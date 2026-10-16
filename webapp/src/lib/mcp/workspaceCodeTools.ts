@@ -54,7 +54,7 @@ function sourceAddressMappings(value: unknown): { mappings: Array<{ ghidraLineNu
     if (!Array.isArray(parsed)) return { mappings: [], truncated: false }
     const mappings = parsed.flatMap((item) => {
       const mapping = record(item)
-      return Number.isInteger(mapping.ghidraLineNumber) && Number(mapping.ghidraLineNumber) >= 0
+      return Number.isInteger(mapping.ghidraLineNumber) && Number(mapping.ghidraLineNumber) > 0
         && Number(mapping.ghidraLineNumber) <= 1_000_000
         && typeof mapping.address === 'string' && /^[A-Za-z0-9:_-]{1,128}$/.test(mapping.address)
         ? [{ ghidraLineNumber: Number(mapping.ghidraLineNumber), address: mapping.address }]
@@ -368,7 +368,7 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
       sourceAddressMap: sourceAddressMap.mappings,
       sourceAddressMapTruncated: sourceAddressMap.truncated || attributes.sourceAddressMapTruncated === true,
       sourceAddressMapSemantics: sourceAddressMap.mappings.length
-        ? 'Ghidra line numbers are passed through unchanged; each mapped statement points to its associated p-code operation target address.'
+        ? 'One-based Ghidra source line numbers are passed through unchanged; each mapped statement points to its associated p-code operation target address.'
         : null,
       controlFlowGraph: text(attributes.controlFlowGraph, 4_000),
       cfgTruncated: attributes.cfgTruncated === true,

@@ -318,7 +318,7 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                                     line_number = int(line_number_text)
                                 except ValueError:
                                     continue
-                                if line_number < 0 or line_number > 1_000_000:
+                                if line_number < 1 or line_number > 1_000_000:
                                     continue
                                 item = {"ghidraLineNumber": line_number, "address": instruction_address}
                                 if item not in source_address_map:

@@ -207,7 +207,7 @@ export async function GET(request: Request, { params }: RouteParams) {
     const maintainedUnitIds = new Set(maintainedRows.map((row) => row.stableKey))
     const draftedUnitIds = new Set(draftRows.map((row) => row.codeUnitId))
     const units = pageRows
-      .map(normalizeCodeUnit)
+      .map((row) => normalizeCodeUnit(row, { includeSourceAddressMap: Boolean(requestedUnitId) }))
       .filter((unit) => unit !== null)
       .map((unit) => ({
         ...unit,
