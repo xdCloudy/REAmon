@@ -82,10 +82,10 @@ Run the strongest applicable checks in order, without conflating their meanings:
 | Human review | Reviewer checks the evidence and semantic change | A person accepts the change; this is not a universal equivalence proof. |
 
 Each rewrite attempt now retains a validator status (`PASSED`, `FAILED`, or
-`UNAVAILABLE`), the check name, and a bounded message. For example, Tree-sitter syntax
-acceptance and a preserved member declaration contract are labeled as parser checks;
-neither is reported as a behavior-equivalence result. Editing a saved draft clears its
-prior validation metadata.
+`UNAVAILABLE`), the check name, and a bounded message. Tree-sitter syntax checks also
+preserve recognized callable counts across supported grammars. Java and C/C++ also
+retain declaration-form checks. These are structural evidence, not proof of behavioral
+equivalence. Editing a saved draft clears its prior validation metadata.
 
 For a failed check, attach the diagnostic, source span, or instruction diff to the
 attempt and let the agent revise that same work item. For an unavailable check, record
