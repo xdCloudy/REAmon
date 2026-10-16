@@ -56,6 +56,8 @@ interface FunctionRecord {
   sourceArtifact?: ImportArtifact
   sourceRelativePath?: string
   codeArtifactId?: string
+  assemblyArtifact?: ImportArtifact
+  assemblyCodeArtifactId?: string
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -163,6 +165,10 @@ function makeCodeUnit(record: FunctionRecord, metadata: Record<string, unknown>,
   if (record.sourceArtifact) attrs.sourceArtifactId = record.sourceArtifact.id
   if (record.sourceArtifact) attrs.sourceArtifactSha256 = record.sourceArtifact.sha256
   if (codeArtifactId) attrs.codeArtifactId = codeArtifactId
+  if (record.assemblyArtifact) attrs.assemblyArtifactId = record.assemblyArtifact.id
+  if (record.assemblyArtifact) attrs.assemblyArtifactSha256 = record.assemblyArtifact.sha256
+  if (record.assemblyCodeArtifactId) attrs.disassemblyArtifactId = record.assemblyCodeArtifactId
+  if (record.assemblyCodeArtifactId) attrs.disassemblyLanguage = 'assembly'
   return {
     kind: 'entity',
     type: 'code_unit',
@@ -246,6 +252,26 @@ export async function indexToCodeWorkspaceImport(projectId: string, importId: st
   let failedExports = 0
   const warnings: string[] = []
 
+  async function copyImportedText(workspacePath: string) {
+    const artifact = artifactsByPath.get(workspacePath)
+    if (!artifact || artifact.sizeBytes <= 0 || artifact.sizeBytes > MAX_SOURCE_FILE_BYTES) return null
+    let sourceEntry = sourceFiles.get(workspacePath)
+    if (!sourceEntry && sourceBytes + artifact.sizeBytes <= MAX_TOTAL_SOURCE_BYTES) {
+      const sourceData = await readFile(resolveArtifactStoragePath(artifact.storagePath))
+      const digest = createHash('sha256').update(sourceData).digest('hex')
+      if (sourceData.byteLength !== artifact.sizeBytes || digest !== artifact.sha256.toLowerCase()) return null
+      const suffix = path.posix.extname(workspacePath) || '.txt'
+      const derivedRelative = `${projectId}/${anchor.id}/${taskId}/tocode/${shortHash(workspacePath)}${suffix}`
+      const destination = resolveDerivedArtifactPath(derivedRelative)
+      await mkdir(path.dirname(destination), { recursive: true })
+      await writeFile(destination, sourceData, { flag: 'wx' })
+      sourceBytes += sourceData.byteLength
+      sourceEntry = { artifact, derivedPath: derivedRelative }
+      sourceFiles.set(workspacePath, sourceEntry)
+    }
+    return sourceEntry ? { artifact: sourceEntry.artifact, derivedPath: sourceEntry.derivedPath } : null
+  }
+
   try {
     await mkdir(outputRoot, { recursive: true })
     for (const metadataArtifact of candidates) {
@@ -287,30 +313,21 @@ export async function indexToCodeWorkspaceImport(projectId: string, importId: st
         }
         if (sourceFile) {
           const workspaceSourcePath = joinedExportPath(exportRoot, sourceFile)
-          const sourceArtifact = workspaceSourcePath ? artifactsByPath.get(workspaceSourcePath) : undefined
-          if (sourceArtifact && sourceArtifact.sizeBytes > 0 && sourceArtifact.sizeBytes <= MAX_SOURCE_FILE_BYTES) {
-            let sourceEntry = sourceFiles.get(workspaceSourcePath!)
-            if (!sourceEntry && sourceBytes + sourceArtifact.sizeBytes <= MAX_TOTAL_SOURCE_BYTES) {
-              const sourceData = await readFile(resolveArtifactStoragePath(sourceArtifact.storagePath))
-              const digest = createHash('sha256').update(sourceData).digest('hex')
-              if (sourceData.byteLength === sourceArtifact.sizeBytes && digest === sourceArtifact.sha256.toLowerCase()) {
-                const suffix = path.posix.extname(workspaceSourcePath!) || '.txt'
-                const derivedRelative = `${projectId}/${anchor.id}/${taskId}/tocode/${shortHash(workspaceSourcePath!)}${suffix}`
-                const destination = resolveDerivedArtifactPath(derivedRelative)
-                await mkdir(path.dirname(destination), { recursive: true })
-                await writeFile(destination, sourceData, { flag: 'wx' })
-                sourceBytes += sourceData.byteLength
-                sourceEntry = { artifact: sourceArtifact, derivedPath: derivedRelative }
-                sourceFiles.set(workspaceSourcePath!, sourceEntry)
-              }
-            }
-            if (sourceEntry) {
-              record.sourceArtifact = sourceArtifact
-              record.sourceRelativePath = workspaceSourcePath!
-              record.codeArtifactId = sourceEntry.derivedPath
-            } else {
-              sourceFilesSkipped += 1
-            }
+          const copiedSource = workspaceSourcePath ? await copyImportedText(workspaceSourcePath) : null
+          if (copiedSource && workspaceSourcePath) {
+            record.sourceArtifact = copiedSource.artifact
+            record.sourceRelativePath = workspaceSourcePath
+            record.codeArtifactId = copiedSource.derivedPath
+          } else {
+            sourceFilesSkipped += 1
+          }
+        }
+        if (assemblyFile) {
+          const workspaceAssemblyPath = joinedExportPath(exportRoot, assemblyFile)
+          const copiedAssembly = workspaceAssemblyPath ? await copyImportedText(workspaceAssemblyPath) : null
+          if (copiedAssembly) {
+            record.assemblyArtifact = copiedAssembly.artifact
+            record.assemblyCodeArtifactId = copiedAssembly.derivedPath
           } else {
             sourceFilesSkipped += 1
           }
@@ -403,7 +420,7 @@ export async function indexToCodeWorkspaceImport(projectId: string, importId: st
     }
     if (candidates.length === MAX_EXPORTS) warnings.push(`Only the first ${MAX_EXPORTS} ToCode exports were indexed.`)
     if (inputFunctions > allFunctions.length + skippedFunctions) warnings.push('Some function rows were omitted by the indexer limits.')
-    if (sourceFilesSkipped) warnings.push(`${sourceFilesSkipped} source-file links were omitted because files were missing, oversized, or exceeded the copy limit.`)
+    if (sourceFilesSkipped) warnings.push(`${sourceFilesSkipped} source or assembly links were omitted because files were missing, oversized, or exceeded the copy limit.`)
 
     const summary = {
       provider: 'ToCode export importer',
@@ -415,8 +432,8 @@ export async function indexToCodeWorkspaceImport(projectId: string, importId: st
       skippedFunctions,
       callEdges: seenCalls.size,
       crossBinaryCallEdges: crossBinaryCalls,
-      copiedSourceFiles: sourceFiles.size,
-      copiedSourceBytes: sourceBytes,
+      copiedSourceAndAssemblyFiles: sourceFiles.size,
+      copiedSourceAndAssemblyBytes: sourceBytes,
       warnings: warnings.slice(0, 100),
     }
 

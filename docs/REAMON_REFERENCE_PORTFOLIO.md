@@ -41,8 +41,10 @@ product and engineering planning.
    guards are implemented. Queued work survives restarts; active jobs renew source
    leases and can be cancelled; a claimed attempt interrupted by worker loss is
    recorded and can be retried. Completed results can be restored into the editor,
-   with exact-input matching before member-level merging. Next add language-specific
-   validators and validation regression protection.
+   with exact-input matching before member-level merging. MCP now exposes saved code
+   units and bounded function dossiers from project memory so agents can inspect the
+   exact function, provider, artifact, and same-task call edges before editing. Next
+   add language-specific validators and validation regression protection.
 2. Build the provider fixture and validator contract. Use decomp.me/objdiff as a
    reference for exact-build feedback, but isolate any target compiler/build process.
    Include a language-specific parser/build check and persist what each check proves.
@@ -54,11 +56,12 @@ product and engineering planning.
 5. Compare alternate language/native engines where a measured gap exists, then add
    targeted symbolic or dynamic analysis only when a concrete investigation question
    needs it.
-6. Prototype ToCode export ingestion for multi-binary projects. Import only bounded,
-   schema-checked evidence and source artifacts; resolve references against REAmon's
-   artifact identities and retain the ToCode/backend revision and source hashes. This
-   fills a project-linking gap without making ToCode's export tree or agent files a
-   second database of record.
+6. ToCode export indexing now has an early workspace-import slice: bounded function
+   metadata, copied decompiled source, same-export calls, and explicit folder mapping
+   call edges are stored in REAmon's task/observation database and visualizer. Complete
+   hash-backed input-to-export provenance, more APK/.NET metadata, and representative
+   fixture validation before calling the adapter broadly supported. Never make ToCode's
+   export tree or generated agent files a second database of record.
 
 Do not prioritize a reference because it is popular alone. A proposed reuse should
 close a named language, workflow, validation, or usability gap and pass a fixture-based

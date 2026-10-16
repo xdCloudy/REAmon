@@ -111,6 +111,7 @@ import { startRecon, stopRecon, updateReconSettings } from '@/lib/mcp/writeTools
 import { getWorkspaceArtifact, listWorkspaceInventory } from '@/lib/mcp/workspaceTools'
 import { getWorkspaceSummary } from '@/lib/mcp/workspaceSummaryTools'
 import { planWorkspaceAnalysis } from '@/lib/mcp/workspacePlanTools'
+import { getWorkspaceCodeUnit, listWorkspaceCodeUnits } from '@/lib/mcp/workspaceCodeTools'
 import {
   MAX_KEYS_PER_CALL,
   refusedFieldsSentence,
@@ -411,6 +412,51 @@ export function buildMcpServer(ctx: McpContext, instructions?: string): McpServe
       a => getWorkspaceArtifact(ctx, a),
       a => a.projectId,
     )
+  )
+
+  server.registerTool(
+    'workspace_list_code_units',
+    {
+      title: 'List decompiled code units',
+      description:
+        'Search the active reverse-engineering workspace for stored functions, classes, and other ' +
+        'decompiled code units. Results come from REAmon observations already persisted for analysis ' +
+        'tasks; this tool does not decompile or invent symbols. Each result includes the database id ' +
+        'to pass to workspace_get_code_unit, provider name, artifact digest, source path, and available ' +
+        'address/prototype metadata. Page through large results with limit and offset.',
+      annotations: READ_ONLY,
+      _meta: scopesMeta({ required: ['recon:read'] }),
+      inputSchema: {
+        projectId: projectIdSchema,
+        search: z.string().max(200).optional().describe('Search function/class name, address, language, prototype, or source path.'),
+        taskId: entityIdSchema.optional().describe('Limit to one completed analysis task.'),
+        limit: z.number().int().min(1).max(100).optional().describe('Default 50, maximum 100 rows.'),
+        offset: z.number().int().min(0).max(100000).optional().describe('Number of matching code units to skip.'),
+      },
+    },
+    handler(ctx, 'workspace_list_code_units', a => listWorkspaceCodeUnits(ctx, a), a => a.projectId)
+  )
+
+  server.registerTool(
+    'workspace_get_code_unit',
+    {
+      title: 'Get decompiled function context',
+      description:
+        'Read one stored code unit by the id returned from workspace_list_code_units. Returns its ' +
+        'database-backed names, prototype, language, artifact hash, bounded decompiled source and ' +
+        'disassembly text when present, its analysis task/provider and recorded warnings, and saved ' +
+        'incoming/outgoing call relationships, and any saved AI draft or reviewed maintained source ' +
+        'for the exact function/source version. It only reads files inside REAmon derived storage and ' +
+        'returns at most 128 KiB per source. Treat decompiler output as provider evidence and drafts ' +
+        'as unreviewed until their stored validation/review state says otherwise.',
+      annotations: READ_ONLY,
+      _meta: scopesMeta({ required: ['recon:read'] }),
+      inputSchema: {
+        projectId: projectIdSchema,
+        codeUnitId: entityIdSchema.describe('A code-unit id returned from workspace_list_code_units.'),
+      },
+    },
+    handler(ctx, 'workspace_get_code_unit', a => getWorkspaceCodeUnit(ctx, a), a => a.projectId)
   )
 
   server.registerTool(

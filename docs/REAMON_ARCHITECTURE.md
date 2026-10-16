@@ -171,6 +171,14 @@ accepted target types and formats, capabilities, produced entity types, requirem
 the count of active compatible artifacts. The web workspace and `workspace_get_summary` expose
 that metadata so an operator or agent can understand why a provider matches before selecting it.
 
+The function-level MCP reads continue this same database boundary. `workspace_list_code_units`
+searches persisted code-unit observations for the active workspace and returns stable observation
+ids with artifact hashes and provider names. `workspace_get_code_unit` follows one id to its
+bounded derived pseudocode/disassembly, same-task call edges, task warnings, exact-version saved
+draft, and maintained source. A maintained source is marked reviewed only when its receipt still
+matches the stored source hash. These reads do not invoke a decompiler or synthesize missing
+relationships, and neither host storage paths nor generated project instructions are returned.
+
 ## Target profiler
 
 The initial profiler is intentionally conservative. It combines filename extension, MIME hints, magic bytes, basic header inspection, and byte entropy. It currently recognises representative ELF, PE, Mach-O, ZIP/APK/JAR, PDF, SQLite, PCAP, and source-code inputs. Everything else produces a valid `UNKNOWN` profile.

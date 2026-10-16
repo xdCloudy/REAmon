@@ -40,8 +40,8 @@ assuming every `functions.json` is the native shape.
 ## Integration shape
 
 The current workspace action detects completed ToCode exports, indexes functions,
-copies bounded referenced source files into REAmon's derived-artifact storage, and
-persists code-unit and call observations through REAmon's task/evidence lifecycle.
+copies bounded referenced pseudocode and assembly files into REAmon's derived-artifact
+storage, and persists code-unit and call observations through REAmon's task/evidence lifecycle.
 Folder-level `mappings.json` links are resolved against the importer and target export
 directories represented in the same immutable workspace import. Repeated requests
 reuse the existing index task. This slice imports existing ToCode output; it does not
