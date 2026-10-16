@@ -7,7 +7,7 @@ import { AgentUnreachableError, agentFetch } from '@/lib/agentFetch'
 import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
 import { getActiveWorkspaceImportSelection } from '@/lib/reamon/inventory-query'
 import { derivedArtifactRoot, resolveDerivedArtifactPath } from '@/lib/reamon/derived-storage'
-import { buildProjectSymbolContext, buildProviderSymbolContext, extractMaintainedSymbols } from '@/lib/reamon/maintenance-memory'
+import { buildProjectSymbolContext, buildProviderGoTypeContext, buildProviderSymbolContext, extractMaintainedSymbols } from '@/lib/reamon/maintenance-memory'
 import { providerVariablesOf } from '@/lib/reamon/code-units'
 import { rankSimilarInstructionFunctions } from '@/lib/reamon/instruction-similarity'
 import { codeRewriteLeaseGraceMs, failInterruptedCodeAttempts } from '@/lib/reamon/code-attempts'
@@ -778,7 +778,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       similarArtifactByName.has(name) && similarArtifactByName.get(name) !== artifact.id ? [] : [id])
     const providerSymbolUnitIds = [...new Set([observation.id, ...providerRelatedUnitIds])]
     const providerSymbolInputTruncated = providerSymbolUnitIds.length > MAX_PROVIDER_SYMBOL_RECORDS
-    const [maintainedRelatedRows, projectDraftRows, currentDraft, providerSymbolRows] = await Promise.all([
+    const [maintainedRelatedRows, projectDraftRows, currentDraft, providerSymbolRows, providerGoMetadataRows] = await Promise.all([
       relatedUnitIds.length ? prisma.reamonMaintainedSource.findMany({
         where: { projectId, codeUnitId: { in: relatedUnitIds } },
         select: { codeUnitId: true, artifactId: true, unitName: true, language: true, sourceCode: true, sourceHash: true, acceptedReviewId: true, symbolIndex: true, updatedAt: true },
@@ -805,6 +805,17 @@ export async function POST(request: Request, { params }: RouteParams) {
           type: 'code_unit',
         },
         select: { id: true, label: true, attributes: true },
+        orderBy: [{ stableKey: 'asc' }, { id: 'asc' }],
+      }) : Promise.resolve([]),
+      observation.taskId && observation.source === 'reamon-ghidra' ? prisma.reamonObservation.findMany({
+        where: {
+          projectId,
+          artifactId: artifact.id,
+          taskId: observation.taskId,
+          source: observation.source,
+          type: 'language_metadata',
+        },
+        select: { attributes: true },
         orderBy: [{ stableKey: 'asc' }, { id: 'asc' }],
       }) : Promise.resolve([]),
     ])
@@ -862,6 +873,14 @@ export async function POST(request: Request, { params }: RouteParams) {
       artifactName: artifactById.get(row.artifactId)?.originalName,
       artifactHash: artifactById.get(row.artifactId)?.sha256,
     })), new Set(relatedUnitIds), undefined, artifact.sha256)
+    const selectedProviderRow = providerSymbolRows.find((row) => row.id === observation.id)
+    const selectedProviderAttributes = selectedProviderRow ? plainObject(selectedProviderRow.attributes) : {}
+    const selectedProviderVariables = selectedProviderRow
+      ? providerVariablesOf(selectedProviderAttributes, observation.source).variables
+      : []
+    const providerGoMetadata = providerGoMetadataRows
+      .map((row) => plainObject(row.attributes))
+      .find((attributes) => attributes.language === 'Go')
     const providerSymbolContext = observation.taskId ? buildProviderSymbolContext(
       providerSymbolRows.map((row) => {
         const providerAttributes = plainObject(row.attributes)
@@ -888,7 +907,9 @@ export async function POST(request: Request, { params }: RouteParams) {
         }
       }),
       new Set(providerRelatedUnitIds),
-      8_000,
+      selectedProviderAttributes.sourceLanguage === 'Go' && selectedProviderAttributes.symbolSource === 'GoReSym'
+        ? 5_000
+        : 8_000,
       {
         provider: observation.source,
         artifactName: artifact.originalName,
@@ -898,6 +919,24 @@ export async function POST(request: Request, { params }: RouteParams) {
       },
       observation.id,
     ) : ''
+    const providerGoTypeContext = observation.taskId
+      && selectedProviderAttributes.sourceLanguage === 'Go'
+      && selectedProviderAttributes.symbolSource === 'GoReSym'
+      ? buildProviderGoTypeContext(
+        providerGoMetadata?.typeDetails,
+        bytes.toString('utf8'),
+        typeof selectedProviderAttributes.prototype === 'string' ? selectedProviderAttributes.prototype : undefined,
+        selectedProviderVariables.map((variable) => variable.dataType),
+        {
+          artifactName: artifact.originalName,
+          artifactHash: artifact.sha256,
+          taskId: observation.taskId,
+          functionAddress: typeof selectedProviderAttributes.address === 'string' ? selectedProviderAttributes.address : undefined,
+          truncated: providerGoMetadata?.typeDetailsTruncated === true,
+        },
+      )
+      : ''
+    const combinedProviderSymbolContext = [providerSymbolContext, providerGoTypeContext].filter(Boolean).join('\n')
     const dexMethodExcerptCache = new Map<string, { members: OutlineMember[]; truncated: boolean }>()
     const dexMethodExcerpt = async (name: string, source: Buffer, sourceLanguage: string, relatedArtifactId: string, persistOutline: boolean) => {
       const candidate = similarDexMethodByName.get(name)
@@ -1253,7 +1292,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       disassembly_source: disassemblySource,
       binary_evidence: binaryEvidence,
       project_symbol_context: maintainedProjectContext,
-      provider_symbol_context: providerSymbolContext,
+      provider_symbol_context: combinedProviderSymbolContext,
       project_draft_context: projectDraftContext,
       prior_attempt_context: priorAttemptContext,
       question: typeof body.question === 'string' ? body.question.trim() : '',

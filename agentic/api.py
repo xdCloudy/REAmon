@@ -1088,7 +1088,7 @@ TRANSFORMATION RULES
         evidence.append("Saved project-wide symbol index (reuse only where the source evidence identifies the same symbol):\n"
                         + wrap_untrusted(body.project_symbol_context, 'PROJECT_SYMBOL_INDEX'))
     if body.provider_symbol_context.strip():
-        evidence.append("Provider-recovered names and types for functions in the exact analysis run (provisional evidence only; do not reuse a different function's local names):\n"
+        evidence.append("Provider-recovered names and types for functions in the exact analysis run (provisional evidence only; do not reuse a different function's local names. Go reconstructed type details are included only when their exact type name appears in the selected function source/signature; treat them as structural evidence, not behavior facts):\n"
                         + wrap_untrusted(body.provider_symbol_context, 'PROVIDER_RECOVERED_SYMBOL_EVIDENCE'))
     if body.project_draft_context.strip():
         evidence.append("Unreviewed project draft names (tentative consistency hints only; do not infer behavior or meaning from them):\n"

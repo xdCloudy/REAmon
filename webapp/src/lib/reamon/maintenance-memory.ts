@@ -202,3 +202,54 @@ export function buildProviderSymbolContext(
   if (omittedByContextLimit) lines.push('Additional recovered-symbol rows were omitted to fit the context budget.')
   return lines.length > 1 ? lines.join('\n') : ''
 }
+
+export function buildProviderGoTypeContext(
+  serializedDetails: unknown,
+  selectedSource: string,
+  selectedPrototype: string | undefined,
+  recoveredVariableTypes: string[],
+  provenance: { artifactName: string; artifactHash: string; taskId: string; functionAddress?: string; truncated?: boolean },
+  maxBytes = 2_800,
+): string {
+  if (typeof serializedDetails !== 'string' || serializedDetails.length > 16_000) return ''
+  let parsed: unknown
+  try { parsed = JSON.parse(serializedDetails) } catch { return '' }
+  if (!Array.isArray(parsed)) return ''
+  const sourceIdentifiers = new Set<string>()
+  for (const text of [selectedSource, selectedPrototype || '', ...recoveredVariableTypes]) {
+    for (const match of text.matchAll(/[A-Za-z_$][\w$]*(?:[./][A-Za-z_$][\w$]*)*/g)) sourceIdentifiers.add(match[0])
+  }
+  const header = `GoReSym reconstructed type evidence (provisional; names matched in selected function text only; artifact=${singleLine(provenance.artifactName, 120)}; sha256=${provenance.artifactHash.slice(0, 16)}; analysis=${provenance.taskId.slice(0, 128)}${provenance.functionAddress ? `; function=${provenance.functionAddress.slice(0, 128)}` : ''}):`
+  const lines = [header]
+  let length = Buffer.byteLength(header, 'utf8')
+  let omitted = Boolean(provenance.truncated)
+  const included = new Set<string>()
+  for (const candidate of parsed.slice(0, 1000)) {
+    const detail = candidate && typeof candidate === 'object' && !Array.isArray(candidate)
+      ? candidate as Record<string, unknown>
+      : {}
+    if (typeof detail.name !== 'string' || !detail.name.trim()
+        || typeof detail.kind !== 'string' || typeof detail.reconstructed !== 'string') {
+      omitted = true
+      continue
+    }
+    const name = singleLine(detail.name, 256)
+    const normalizedName = name.replace(/^[*\[\]\s]+/, '')
+    if (!sourceIdentifiers.has(normalizedName)) continue
+    const identity = `${name}\u0000${detail.kind}\u0000${detail.reconstructed}`
+    if (included.has(identity)) continue
+    const kind = singleLine(detail.kind, 80) || 'unknown kind'
+    const reconstructed = singleLine(detail.reconstructed, 900)
+    const line = `${name} [${kind}]: ${reconstructed || 'reconstructed form unavailable'}`
+    const lineBytes = Buffer.byteLength(line, 'utf8')
+    if (length + lineBytes + 1 > maxBytes - 80 || lines.length >= 9) {
+      omitted = true
+      continue
+    }
+    lines.push(line)
+    included.add(identity)
+    length += lineBytes + 1
+  }
+  if (omitted && lines.length > 1) lines.push('Additional Go type records were omitted by analyzer or context limits.')
+  return lines.length > 1 ? lines.join('\n') : ''
+}
