@@ -1,7 +1,7 @@
 import type { TargetProfile, TargetType } from './types'
 
 const TEXT_EXTENSIONS = new Set([
-  'c', 'cc', 'cpp', 'h', 'hpp', 'java', 'js', 'jsx', 'mjs', 'cjs', 'ts', 'tsx', 'py', 'rb', 'lua',
+  'c', 'cc', 'cpp', 'h', 'hpp', 'java', 'js', 'jsx', 'mjs', 'cjs', 'ts', 'tsx', 'py', 'rb', 'lua', 'luau',
   'go', 'rs', 'swift', 'kt', 'kts', 'cs', 'php', 'html', 'css', 'json', 'xml',
   'yaml', 'yml', 'toml', 'md', 'sql', 'sh', 'bash', 'ps1', 'txt',
 ])
@@ -134,6 +134,20 @@ function detectFormat(bytes: Uint8Array, extension: string): {
       platform: 'lua',
       runtimes: ['lua'],
       embeddedArtifacts: ['lua-source'],
+    }
+  }
+
+  // Luau chunks start with a version byte instead of Lua's ESC-Lua signature.
+  // Require a bytecode-oriented extension, then validate through unluac-rs.
+  if (bytes.length >= 8 && ['luac', 'luauc', 'lbc', 'luau', 'luau-bytecode'].includes(extension)
+      && bytes[0] >= 3 && bytes[0] <= 14) {
+    return {
+      format: 'luau-bytecode',
+      targetType: 'FILE',
+      architecture: null,
+      platform: 'luau',
+      runtimes: ['luau'],
+      embeddedArtifacts: ['luau-source'],
     }
   }
 
@@ -276,6 +290,7 @@ function mimeTypeFor(format: string, extension: string, providedMimeType: string
   if (format === 'python-bytecode') return 'application/x-python-bytecode'
   if (format === 'luajit-bytecode') return 'application/x-luajit-bytecode'
   if (format === 'lua-bytecode' || format === 'lua-bytecode-5.5') return 'application/x-lua-bytecode'
+  if (format === 'luau-bytecode') return 'application/x-luau-bytecode'
   if (format === 'pdf') return 'application/pdf'
   if (format === 'pcap') return 'application/vnd.tcpdump.pcap'
   if (format === 'sqlite') return 'application/vnd.sqlite3'

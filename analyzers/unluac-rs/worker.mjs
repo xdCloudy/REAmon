@@ -1,5 +1,5 @@
 import { parentPort, workerData } from 'node:worker_threads'
-import { decompileRich } from 'unluac-js'
+import { decompileRich, detectDialect } from 'unluac-js'
 
 const MAX_PROTOS = 100
 const MAX_BLOCKS_PER_CFG = 32
@@ -60,8 +60,12 @@ function summarizeProto(proto, cfg) {
 }
 
 try {
+  const dialect = await detectDialect(new Uint8Array(workerData.bytes))
+  if (dialect !== 'luau' && dialect !== 'lua5.5') {
+    throw new Error('Input is not supported Lua 5.5 or Luau bytecode')
+  }
   const result = await decompileRich(new Uint8Array(workerData.bytes), {
-    dialect: 'lua5.5',
+    dialect,
     generate: { mode: 'strict' },
   })
   if (result.kind !== 'source' || typeof result.source !== 'string' || !result.source.trim()) {
@@ -72,6 +76,7 @@ try {
   const functions = protos.slice(0, MAX_PROTOS).map((proto, index) => summarizeProto(proto, cfgs[index]))
   parentPort.postMessage({
     ok: true,
+    dialect,
     source: result.source,
     functions,
     protoCount: protos.length,
@@ -83,5 +88,5 @@ try {
         || (Array.isArray(cfgs[index]?.blockOrder) && cfgs[index].blockOrder.length > cfg.blockOrder.length)),
   })
 } catch (error) {
-  parentPort.postMessage({ ok: false, error: error instanceof Error ? error.message : 'Lua 5.5 decompilation failed' })
+  parentPort.postMessage({ ok: false, error: error instanceof Error ? error.message : 'Lua bytecode decompilation failed' })
 }

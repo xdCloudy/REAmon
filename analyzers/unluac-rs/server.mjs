@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { mkdir, open, readFile, realpath, rename, stat, unlink, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, realpath, rename, stat, unlink, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import path from 'node:path'
 import { Worker } from 'node:worker_threads'
@@ -66,17 +66,7 @@ async function resolveInput(value) {
   }
   if (!isWithin(ARTIFACT_ROOT, candidate)) throw new AnalysisError('Input is outside the read-only artifact volume')
   const info = await stat(candidate)
-  if (!info.isFile() || info.size < 5 || info.size > MAX_INPUT_BYTES) throw new AnalysisError('Lua bytecode size is outside the configured limit')
-  const prefix = Buffer.alloc(5)
-  const file = await open(candidate, 'r')
-  try {
-    const { bytesRead } = await file.read(prefix, 0, prefix.length, 0)
-    if (bytesRead !== prefix.length || prefix[0] !== 0x1b || prefix.toString('ascii', 1, 4) !== 'Lua' || prefix[4] !== 0x55) {
-      throw new AnalysisError('Input is not Lua 5.5 bytecode')
-    }
-  } finally {
-    await file.close()
-  }
+  if (!info.isFile() || info.size < 2 || info.size > MAX_INPUT_BYTES) throw new AnalysisError('Lua bytecode size is outside the configured limit')
   return { candidate, size: info.size }
 }
 
@@ -103,7 +93,8 @@ function runDecompiler(bytes, signal) {
       finish(reject, new AnalysisError(`Lua decompilation exceeded the ${TIMEOUT_MS / 1000} second limit`))
     }, TIMEOUT_MS)
     worker.once('message', (message) => {
-      if (message?.ok && typeof message.source === 'string' && Array.isArray(message.functions)
+      if (message?.ok && (message.dialect === 'luau' || message.dialect === 'lua5.5')
+        && typeof message.source === 'string' && Array.isArray(message.functions)
         && message.functions.length <= 100 && Number.isSafeInteger(message.protoCount)
         && message.protoCount >= message.functions.length && typeof message.metadataTruncated === 'boolean') finish(resolve, message)
       else finish(reject, new AnalysisError(typeof message?.error === 'string' ? message.error.slice(0, 1000) : 'Lua bytecode could not be decompiled'))
@@ -137,7 +128,10 @@ async function analyze(body, signal) {
 
   const sourceKey = createHash('sha256').update(relativePath).digest('hex').slice(0, 16)
   const basename = path.posix.basename(relativePath, path.posix.extname(relativePath)).replace(/[^A-Za-z0-9_.-]/g, '_').slice(0, 120) || 'module'
-  const relativeOutput = `${projectId}/${artifactId}/${taskId}/${runId}/unluac-rs/${sourceKey}/${basename}.lua`
+  const isLuau = decompilation.dialect === 'luau'
+  const language = isLuau ? 'Luau' : 'Lua'
+  const outputExtension = isLuau ? 'luau' : 'lua'
+  const relativeOutput = `${projectId}/${artifactId}/${taskId}/${runId}/unluac-rs/${sourceKey}/${basename}.${outputExtension}`
   const outputPath = path.join(DERIVED_ROOT, ...relativeOutput.split('/'))
   await mkdir(path.dirname(outputPath), { recursive: true })
   const resolvedOutputDirectory = await realpath(path.dirname(outputPath))
@@ -155,9 +149,11 @@ async function analyze(body, signal) {
   return {
     status: 'completed',
     toolVersion: TOOL_VERSION,
+    dialect: decompilation.dialect,
+    language,
     input: { relativePath, sha256: createHash('sha256').update(bytes).digest('hex') },
     unit: {
-      name: `${basename}.lua`,
+      name: `${basename}.${outputExtension}`,
       relativePath,
       codeArtifactId: relativeOutput,
       sizeBytes: sourceBytes,
@@ -166,7 +162,7 @@ async function analyze(body, signal) {
     protoCount: decompilation.protoCount,
     metadataTruncated: decompilation.metadataTruncated,
     codeBytes: sourceBytes,
-    warnings: 'Lua 5.5 source was reconstructed by unluac-rs; original names and behavior are not guaranteed.',
+    warnings: `${language} source was reconstructed by unluac-rs; original names and behavior are not guaranteed.`,
   }
 }
 
@@ -181,7 +177,7 @@ const server = createServer(async (request, response) => {
     return
   }
   if (busy) {
-    json(response, 429, { error: 'The Lua 5.5 analyzer is busy' })
+    json(response, 429, { error: 'The Lua bytecode analyzer is busy' })
     return
   }
   busy = true
@@ -193,7 +189,7 @@ const server = createServer(async (request, response) => {
     json(response, 200, await analyze(await readBody(request), controller.signal))
   } catch (error) {
     if (response.destroyed) return
-    const message = error instanceof AnalysisError ? error.message : 'Lua 5.5 decompilation failed unexpectedly'
+    const message = error instanceof AnalysisError ? error.message : 'Lua bytecode decompilation failed unexpectedly'
     json(response, error instanceof AnalysisError ? 422 : 500, { error: message.slice(0, 1000) })
   } finally {
     busy = false

@@ -5,19 +5,21 @@ import { readAnalyzerResponse } from './analyzer-response'
 const DEFAULT_TIMEOUT_MS = 180_000
 const MAX_TIMEOUT_MS = 10 * 60_000
 
-interface Lua55Response {
+interface LuaBytecodeResponse {
   status: 'completed'
   toolVersion: string
+  dialect: 'lua5.5' | 'luau'
+  language: 'Lua' | 'Luau'
   input: { relativePath: string; sha256: string }
   unit: { name: string; relativePath: string; codeArtifactId: string; sizeBytes: number }
-  functions: Lua55FunctionMetadata[]
+  functions: LuaBytecodeFunctionMetadata[]
   protoCount: number
   metadataTruncated: boolean
   codeBytes: number
   warnings?: string
 }
 
-interface Lua55FunctionMetadata {
+interface LuaBytecodeFunctionMetadata {
   protoId: number
   name: string | null
   lineStart: number
@@ -51,7 +53,7 @@ function isNonNegativeInteger(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
 }
 
-function isFunctionMetadata(value: unknown): value is Lua55FunctionMetadata {
+function isFunctionMetadata(value: unknown): value is LuaBytecodeFunctionMetadata {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const proto = value as Record<string, unknown>
   const cfg = proto.cfg
@@ -93,21 +95,21 @@ function isFunctionMetadata(value: unknown): value is Lua55FunctionMetadata {
 
 export const unluacRsManifest: ToolPluginManifest = {
   id: 'reamon-unluac-rs',
-  name: 'Lua 5.5 Bytecode Decompiler (unluac-rs)',
+  name: 'Lua 5.5 / Luau Bytecode Decompiler (unluac-rs)',
   category: 'static_analysis',
   integration: 'process',
   acceptsTargetTypes: ['FILE'],
-  acceptsFormats: ['lua-bytecode-5.5'],
+  acceptsFormats: ['lua-bytecode-5.5', 'luau-bytecode'],
   capabilities: ['decompile'],
   produces: ['CodeUnit', 'DecompiledSource', 'LuaModule'],
   requirements: [
-    { key: 'service', value: 'Isolated unluac-rs analyzer container' },
+    { key: 'service', value: 'Isolated unluac-rs analyzer container (Lua 5.5 and Luau)' },
     { key: 'artifactPath' },
   ],
 }
 
 function errorText(error: unknown): string {
-  return (error instanceof Error ? error.message : String(error)).trim().slice(0, 4_000) || 'Lua 5.5 decompilation failed'
+  return (error instanceof Error ? error.message : String(error)).trim().slice(0, 4_000) || 'Lua bytecode decompilation failed'
 }
 
 function timeoutMs(): number {
@@ -115,7 +117,7 @@ function timeoutMs(): number {
   return Number.isFinite(value) ? Math.min(MAX_TIMEOUT_MS, Math.max(10_000, Math.floor(value))) : DEFAULT_TIMEOUT_MS
 }
 
-function isResponse(value: unknown): value is Lua55Response {
+function isResponse(value: unknown): value is LuaBytecodeResponse {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const response = value as Record<string, unknown>
   if (!response.input || typeof response.input !== 'object' || Array.isArray(response.input)) return false
@@ -125,6 +127,9 @@ function isResponse(value: unknown): value is Lua55Response {
   const functions = response.functions
   return response.status === 'completed'
     && typeof response.toolVersion === 'string' && response.toolVersion.length <= 80
+    && (response.dialect === 'lua5.5' || response.dialect === 'luau')
+    && (response.language === 'Lua' || response.language === 'Luau')
+    && ((response.dialect === 'luau') === (response.language === 'Luau'))
     && typeof input.relativePath === 'string' && input.relativePath.length > 0 && input.relativePath.length <= 1_000
     && typeof input.sha256 === 'string' && /^[a-f0-9]{64}$/i.test(input.sha256)
     && typeof response.codeBytes === 'number' && Number.isSafeInteger(response.codeBytes) && response.codeBytes > 0
@@ -145,7 +150,7 @@ export async function executeUnluacRs(input: ToolExecutionInput): Promise<ToolRe
     produced: unluacRsManifest.produces,
   }
   if (!input.artifactPath || !input.artifactId || !input.projectId || !input.taskId || !input.runToken) {
-    return { status: 'failed', ...base, data: {}, error: 'Lua 5.5 decompilation requires a stored bytecode artifact and task context' }
+    return { status: 'failed', ...base, data: {}, error: 'Lua bytecode decompilation requires a stored bytecode artifact and task context' }
   }
 
   const baseUrl = process.env.REAMON_UNLUAC_RS_URL?.trim().replace(/\/$/, '')
@@ -192,7 +197,8 @@ export async function executeUnluacRs(input: ToolExecutionInput): Promise<ToolRe
         qualifiedName: unit.name,
         relativePath: unit.relativePath,
         sizeBytes: unit.sizeBytes,
-        language: 'Lua',
+        language: payload.language,
+        sourceLanguage: payload.language,
         decompiled: true,
         codeArtifactId: unit.codeArtifactId,
         inputSha256: payload.input.sha256,
@@ -231,7 +237,7 @@ export async function executeUnluacRs(input: ToolExecutionInput): Promise<ToolRe
           name: protoName,
           qualifiedName: `${unit.name}::${protoName}`,
           address: `proto:${proto.protoId}`,
-          language: 'Lua',
+          language: payload.language,
           memberKind: 'function',
           parentCodeUnitKey: key,
           codeArtifactId: unit.codeArtifactId,

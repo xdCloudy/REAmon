@@ -98,7 +98,7 @@ a starting point for review.
 | Python bytecode (`.pyc`, `.pyo`) | **Early integration** | An isolated pycdc 0.6.0 provider stores reconstructed Python source and exposes it to the source outline and member-edit workflow. Accepted Python source receives a non-executing CPython compile check with the interpreter version and exact source hash recorded. | This is not a source-equivalence guarantee, and the check may use a different Python version than the bytecode target. The upstream release claims support through Python 3.15, while its published verification covers 2.6–3.14. PyInstaller extraction and bytecode rebuild are not integrated. |
 | PHP source files | **Source navigation and early syntax validation** | Tree-sitter outlines and a versioned `php -l` lint check that does not execute source. | No PHP bytecode decompiler is integrated. Lint requires a PHP opening tag; the checker version may differ from the target runtime. |
 | Ruby source files | **Source navigation and early syntax validation** | Tree-sitter outlines and a versioned `ruby -c` syntax check that does not execute source. | No Ruby bytecode decompiler is integrated; syntax acceptance does not establish behavior or target-version compatibility. |
-| Lua bytecode (`.luac`) | **Early integration** | Isolated providers reconstruct standard Lua 5.0–5.4, Lua 5.5, and LuaJIT chunks. Lua 5.5 stores prototype metadata and lexical parent/child links; selecting a prototype loads its bounded CFG diagram and sampled Low-IR / bytecode instructions alongside the editable module source. | Stripped chunks may lose local names; complex control flow and custom VM variants may need extra work. Lua 5.5 has no fixture-backed fidelity claim yet; Luau bytecode is not integrated. Reconstructed source is not guaranteed to match the original. |
+| Lua and Luau bytecode (`.luac`, `.luau`, `.lbc`) | **Early integration** | Isolated providers reconstruct standard Lua 5.0–5.4, Lua 5.5, LuaJIT, and raw Luau chunks. The unluac-rs adapter detects Lua 5.5 or Luau, keeps the output language/dialect explicit, and stores prototype metadata and bounded CFGs for both. | Stripped chunks may lose local names; complex control flow, newer Roblox containers, and custom VM variants may need extra work. Lua 5.5 and Luau have no fixture-backed fidelity claim yet. Reconstructed source is not guaranteed to match the original. |
 | Go native binaries and source | **Early metadata and source validation** | Ghidra supplies address-aware C-like pseudocode; GoReSym recovers Go function names, packages, runtime version, and type metadata where available. Recovered names are joined to the same address-keyed functions and call graph stored for the project. Maintained Go source receives a versioned `gofmt -e` syntax check with formatter output discarded. | This does not reconstruct maintainable Go source from binaries or compile its dependencies. The pinned Go 1.22.10 parser may differ from the target version. Optimizations and stripped metadata can still obscure names and types; the pseudocode remains an approximation. |
 | Kotlin, Swift, Objective-C, and native C++ recovery | **Partial now; language-aware improvements planned** | Native binaries can go through Ghidra’s generic pseudocode path when their architecture is supported. Kotlin bytecode can go through JADX’s Java output. | REAmon does not yet reliably reconstruct these languages’ original source idioms, metadata, or project structure. |
 | Rust native binaries | **Early optional integration (Oxidizer)** | The isolated Oxidizer/angr provider stores per-function Rust-like pseudocode, address identities, same-run call edges, source hashes, and provider revision alongside Ghidra’s output. | Fixture comparisons with Ghidra have not been run. Oxidizer output is pseudocode, not guaranteed compilable or equivalent to the original Rust source. |
@@ -126,15 +126,18 @@ claim that original names or behavior have been restored.
 Standard Lua 5.0–5.4 bytecode uses the MIT-licensed [unluac fork](https://github.com/Jeong-Min-Cho/unluac)
 in an isolated JVM analyzer. Lua 5.5 bytecode uses the MIT-licensed
 [unluac-rs](https://github.com/x3zvawq/unluac-rs) 1.3.1 JavaScript/WASM API in an
-isolated worker with strict source generation; versioned fixture validation remains
-open. LuaJIT bytecode uses the MIT-licensed
+isolated worker with strict source generation. The worker detects Lua 5.5 and raw
+Luau bytecode, returns `.lua` or `.luau` source with dialect-specific metadata, and
+retains bounded prototype/CFG evidence; versioned fixture validation remains open.
+LuaJIT bytecode uses the MIT-licensed
 [LuaJIT Decompiler v2](https://github.com/marsinator358/luajit-decompiler-v2),
 built for Linux from its pinned [Linux port](https://github.com/PackageInstaller/luajit-decompiler).
 These providers handle distinct bytecode formats; their output needs review and has
 no source-equivalence guarantee.
-The unluac-rs API also advertises LuaJIT 2.1 and Luau and exposes prototype and CFG
-metadata. Luau and alternate LuaJIT output remain evaluation targets; keep the
-existing LuaJIT provider until dialect-specific comparisons justify a change.
+The unluac-rs API also advertises LuaJIT 2.1. REAmon keeps its existing LuaJIT
+provider until dialect-specific comparisons justify a change. Luau integration is
+early and only covers raw chunks identified by the profiler; Roblox-wrapped
+containers and fixture-backed fidelity validation remain future work.
 Android APK/DEX analysis also has an alternate Java reconstruction and bounded
 method-level evidence from the
 Apache-2.0 Androguard [dex-decompiler](https://github.com/androguard/dex-decompiler),
