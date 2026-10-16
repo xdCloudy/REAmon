@@ -88,14 +88,10 @@ separate so a plausible name is never treated as proof of behavior.
   database loading, type-aware simplification, then structured Rust pseudocode
   generation. It targets Rust cleanup, type inference, enums, `Option`/`Result`,
   macros, and `match` / `if let` / `?` structure. This is the leading Rust-specific
-  comparison candidate, not an integrated REAmon capability. For a reproducible
-  prototype, start from Oxidizer revision
-  `fc18d0a3b03270c00aed03cd1e23952ee2fad141` and its frozen `uv.lock`, which pins
-  compatible angr component revisions. The upstream container uses Python 3.12 and a
-  Rust build toolchain for its PyO3 library. Treat angr master
-  `ae9f5786fd94410ca400063bf21719aa8b564d3e` as a separate comparison target; its
-  current `pyproject.toml` does not supply the same frozen environment. Keep the
-  prototype in a separately pinned analyzer. Compare with Ghidra on compiler-versioned,
+  comparison candidate. REAmon wires it as an optional isolated provider that
+  stores per-function output separately from Ghidra. The analyzer pins the maintained
+  angr release at `10.0.4` in its own `uv.lock` and uses the published binary wheels,
+  avoiding the archived snapshot's source build of PyVEX. Compare with Ghidra on compiler-versioned,
   optimization-level, architecture, stripped/debug, and real-world Rust fixtures.
   Persist recovered constructs and run provenance, and retain the raw binary and
   alternate output because pseudocode is not proof of compilable or equivalent Rust.

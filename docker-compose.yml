@@ -1174,6 +1174,7 @@ services:
       REAMON_DEX_DECOMPILER_URL: http://dex-decompiler-analyzer:8019
       REAMON_ILSPY_URL: http://ilspy-analyzer:8013
       REAMON_GHIDRA_URL: http://ghidra-analyzer:8011
+      REAMON_OXIDIZER_URL: http://oxidizer-analyzer:8020
       REAMON_WASM_URL: http://wasm-analyzer:8012
       REAMON_PYCDC_URL: http://pycdc-analyzer:8014
       REAMON_WEBCRACK_URL: http://webcrack-analyzer:8015
@@ -1417,6 +1418,48 @@ services:
       timeout: 5s
       retries: 3
       start_period: 120s
+    networks:
+      - reamon-analysis
+
+  # Optional Rust-aware pseudocode from Oxidizer/angr. Kept in its own
+  # network-isolated container because the angr analysis runtime is separate
+  # from the general Ghidra analyzer.
+  oxidizer-analyzer:
+    build:
+      context: ./analyzers/oxidizer
+    image: ${REAMON_OXIDIZER_IMAGE:-reamon-oxidizer:local}
+    container_name: reamon-oxidizer
+    init: true
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+    mem_limit: ${REAMON_OXIDIZER_MEM:-6g}
+    pids_limit: ${REAMON_OXIDIZER_PIDS:-128}
+    cpus: ${REAMON_OXIDIZER_CPUS:-2}
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=${REAMON_OXIDIZER_TMP_SIZE:-2g},mode=1777
+    environment:
+      REAMON_ARTIFACTS_PATH: /data/reamon-artifacts
+      REAMON_DERIVED_PATH: /data/reamon-derived
+      OXIDIZER_TIMEOUT_SECONDS: ${REAMON_OXIDIZER_TIMEOUT_SECONDS:-900}
+      OXIDIZER_MAX_FUNCTIONS: ${REAMON_OXIDIZER_MAX_FUNCTIONS:-300}
+      OXIDIZER_MAX_OUTPUT_BYTES: ${REAMON_OXIDIZER_MAX_OUTPUT_BYTES:-134217728}
+    volumes:
+      - reamon_artifacts:/data/reamon-artifacts:ro
+      - reamon_derived:/data/reamon-derived:rw
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8020/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 180s
     networks:
       - reamon-analysis
 

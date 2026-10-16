@@ -17,6 +17,7 @@ import { jadxPlugin } from './jadx'
 import { dexDecompilerPlugin } from './dex-decompiler'
 import { ilspyPlugin } from './ilspy'
 import { ghidraPlugin } from './ghidra'
+import { oxidizerPlugin } from './oxidizer'
 import { wasmPlugin } from './wasm'
 import { pycdcPlugin } from './pycdc'
 import { webcrackPlugin } from './webcrack'
@@ -104,6 +105,9 @@ export const BUILTIN_TOOL_PLUGINS: ToolPlugin[] = [
   },
   {
     ...ghidraPlugin,
+  },
+  {
+    ...oxidizerPlugin,
   },
   {
     ...wasmPlugin,

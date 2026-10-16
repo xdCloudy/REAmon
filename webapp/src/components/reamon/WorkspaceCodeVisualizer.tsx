@@ -288,6 +288,7 @@ function artifactUrl(projectId: string, unit: CodeUnit, codeArtifactId: string |
 }
 
 function languageLabel(unit: CodeUnit): string {
+  if (unit.source === 'reamon-oxidizer') return 'Rust-like pseudocode · Oxidizer'
   if (unit.sourceLanguage && unit.language === 'C') return `C-like pseudocode · ${unit.sourceLanguage} binary`
   return unit.language || 'Source'
 }
@@ -1767,7 +1768,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
           <dl>
             <div><dt>Address</dt><dd>{selectedUnit.address || 'Not supplied'}</dd></div>
             <div><dt>Size</dt><dd>{formatBytes(selectedUnit.sizeBytes)}</dd></div>
-            <div><dt>Decompiler output</dt><dd>{selectedUnit.sourceLanguage && selectedUnit.language === 'C' ? 'C-like pseudocode' : selectedUnit.language || 'Not identified'}</dd></div>
+            <div><dt>Decompiler output</dt><dd>{selectedUnit.source === 'reamon-oxidizer' ? 'Rust-like pseudocode' : selectedUnit.sourceLanguage && selectedUnit.language === 'C' ? 'C-like pseudocode' : selectedUnit.language || 'Not identified'}</dd></div>
             {selectedUnit.sourceLanguage && <div><dt>Binary source language</dt><dd>{selectedUnit.sourceLanguage} (metadata)</dd></div>}
             <div><dt>Unit type</dt><dd>{selectedUnit.unitType || 'Code unit'}</dd></div>
             {selectedUnit.bundlePath && <div><dt>Bundle module</dt><dd>{selectedUnit.bundlePath}</dd></div>}
