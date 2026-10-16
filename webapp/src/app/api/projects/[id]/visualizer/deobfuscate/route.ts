@@ -28,6 +28,7 @@ const MAX_DISASSEMBLY_BYTES = 8 * 1024
 const MAX_BINARY_EVIDENCE_BYTES = 8 * 1024
 const MAX_DEX_REFERENCE_METHODS = 64
 const MAX_DEX_REFERENCE_ROWS = 128
+const MAX_DEX_BYTECODE_METHODS = 8
 const MAX_PROJECT_SYMBOL_RECORDS = 1_024
 const MAX_PROJECT_SYMBOL_SCAN = 4_096
 const MAX_PROJECT_DRAFT_RECORDS = 64
@@ -363,6 +364,52 @@ function dexReferenceEvidence(rows: Array<{ type: string; label: string | null; 
   }
   if (omitted) lines.push('Additional stored DEX references were omitted by the context limit.')
   return utf8Prefix(lines.join('\n'), MAX_BINARY_EVIDENCE_BYTES)
+}
+
+async function dexBytecodeEvidence(
+  rows: Array<{ label: string | null; attributes: unknown }>,
+  projectId: string,
+  artifactId: string,
+  rootPath: string,
+): Promise<string> {
+  const evidence: string[] = []
+  let usedBytes = 0
+  let omitted = rows.length > MAX_DEX_BYTECODE_METHODS
+  for (const row of rows.slice(0, MAX_DEX_BYTECODE_METHODS)) {
+    const attributes = plainObject(row.attributes)
+    const artifactPath = typeof attributes.bytecodeArtifactId === 'string' ? attributes.bytecodeArtifactId : ''
+    if (!belongsToArtifactRun(artifactPath, projectId, artifactId)) continue
+    try {
+      const filePath = resolveDerivedArtifactPath(artifactPath)
+      const fileRealPath = await realpath(filePath)
+      if (!isInside(rootPath, fileRealPath)) continue
+      const fileInfo = await stat(fileRealPath)
+      if (!fileInfo.isFile() || fileInfo.size > 1024 * 1024) continue
+      const payload = plainObject(JSON.parse((await readFile(fileRealPath)).toString('utf8')))
+      if (!Array.isArray(payload.instructions)) continue
+      const instructions = payload.instructions.slice(0, 160).flatMap((item) => {
+        const instruction = plainObject(item)
+        if (typeof instruction.offset !== 'number' || !Number.isSafeInteger(instruction.offset) || typeof instruction.mnemonic !== 'string') return []
+        const operands = typeof instruction.operands === 'string' ? ` ${instruction.operands.replace(/[\r\n\t]/g, ' ').slice(0, 180)}` : ''
+        return [`${instruction.offset.toString(16)}: ${instruction.mnemonic.replace(/[\r\n\t]/g, ' ').slice(0, 40)}${operands}`]
+      })
+      if (!instructions.length) continue
+      const signature = typeof payload.signature === 'string' ? payload.signature : row.label || 'method'
+      const instructionListTruncated = payload.truncated === true || payload.instructions.length > 160
+      const line = `${signature.replace(/[\r\n\t]/g, ' ').slice(0, 300)}${instructionListTruncated ? ' (instruction list truncated)' : ''}: ${instructions.join('; ')}`
+      const remaining = MAX_DISASSEMBLY_BYTES - usedBytes
+      if (remaining <= 0) { omitted = true; break }
+      const bounded = utf8Prefix(line, remaining)
+      if (Buffer.byteLength(line, 'utf8') > remaining) omitted = true
+      if (!bounded) break
+      evidence.push(bounded)
+      usedBytes += Buffer.byteLength(bounded, 'utf8')
+    } catch {
+      continue
+    }
+  }
+  if (omitted && usedBytes < MAX_DISASSEMBLY_BYTES) evidence.push('Additional selected-method bytecode rows were omitted by the evidence limit.')
+  return utf8Prefix(evidence.join('\n'), MAX_DISASSEMBLY_BYTES)
 }
 
 export async function POST(request: Request, { params }: RouteParams) {
@@ -1022,6 +1069,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     }
 
     let dexReferenceRows: Array<{ type: string; label: string | null; attributes: unknown }> = []
+    let selectedDexMethods: Array<{ label: string | null; attributes: unknown }> = []
     let dexReferencesTruncated = false
     if (observation.source === 'reamon-dex-decompiler' && observation.taskId && observation.stableKey) {
       let methodSignatures: string[] = []
@@ -1043,9 +1091,10 @@ export async function POST(request: Request, { params }: RouteParams) {
           },
           orderBy: { stableKey: 'asc' },
           take: MAX_DEX_REFERENCE_METHODS + 1,
-          select: { attributes: true },
+          select: { label: true, attributes: true },
         })
         dexReferencesTruncated = methodRows.length > MAX_DEX_REFERENCE_METHODS
+        selectedDexMethods = methodRows.slice(0, MAX_DEX_REFERENCE_METHODS)
         methodSignatures = [...new Set(methodRows.slice(0, MAX_DEX_REFERENCE_METHODS).flatMap((row) => {
           const signature = plainObject(row.attributes).qualifiedName
           return typeof signature === 'string' && signature ? [signature] : []
@@ -1086,8 +1135,10 @@ export async function POST(request: Request, { params }: RouteParams) {
       : referencedStrings.length
       ? utf8Prefix(`Function address: ${typeof attributes.address === 'string' ? attributes.address.slice(0, 128) : 'unknown'}\n` + referencedStrings.map((value) => `Referenced text: ${value}`).join('\n'), MAX_BINARY_EVIDENCE_BYTES)
       : ''
-    let disassemblySource = ''
-    if (disassemblyArtifactId.startsWith(runPrefix)) {
+    let disassemblySource = observation.source === 'reamon-dex-decompiler' && scope === 'member' && selectedDexMethods.length
+      ? await dexBytecodeEvidence(selectedDexMethods, projectId, artifact.id, rootPath)
+      : ''
+    if (!disassemblySource && disassemblyArtifactId.startsWith(runPrefix)) {
       try {
         const safeDisassemblyPath = await realpath(resolveDerivedArtifactPath(disassemblyArtifactId))
         if (isInside(rootPath, safeDisassemblyPath)) {

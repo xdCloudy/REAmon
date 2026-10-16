@@ -247,7 +247,9 @@ counts and instruction offsets retained in the database. AI explanations query t
 same stored references for the selected class instead of inferring accesses from
 neighboring source text. Android rewrite prompts also include bounded references
 from the selected method (or class for file-scoped rewrites) as untrusted evidence,
-with method names, target previews, occurrence counts, and bytecode offsets.
+with method names, target previews, occurrence counts, and bytecode offsets. A
+member rewrite also loads that method's linked, bounded Dalvik instruction artifact
+and supplies the signature and instruction rows as bytecode evidence.
 
 The built-in JADX provider accepts APK, JVM JAR, standalone DEX, and JVM class
 artifacts and runs JADX 1.5.6 in a
