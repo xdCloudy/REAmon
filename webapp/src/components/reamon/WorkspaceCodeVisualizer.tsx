@@ -93,7 +93,7 @@ interface CodeExplanationResponse { explanation: string; providerName: string; m
 interface ApkBuildResponse { buildId: string; taskId: string; fileName: string; sizeBytes: number; sha256: string; signed: false; changedFileCount: number; warnings?: string; downloadUrl: string }
 interface CodeMaintenanceResponse { sourceCode: string; providerName: string; model: string; attemptId?: string | null; syntaxValidated?: boolean | null; validationStatus?: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod?: string | null; validationMessage?: string | null }
 interface CodeDraftRecord { id: string; sourceCode: string; sourceAttemptId: string | null; providerName: string; modelIdentifier: string; question: string; scope: 'file' | 'member'; syntaxValidated: boolean | null; validationStatus: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod: string | null; validationMessage: string | null; updatedAt: string }
-interface CodeAttemptRecord { id: string; providerName: string; modelIdentifier: string; question: string; scope: 'file' | 'member'; status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'; cancelRequested: boolean; errorCode: string | null; errorMessage: string | null; inputSource?: string; resultSource: string | null; syntaxValidated: boolean | null; validationStatus: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod: string | null; validationMessage: string | null; createdAt: string; completedAt: string | null }
+interface CodeAttemptRecord { id: string; providerName: string; modelIdentifier: string; question: string; scope: 'file' | 'member'; status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'; cancelRequested: boolean; errorCode: string | null; errorMessage: string | null; resultSource: string | null; syntaxValidated: boolean | null; validationStatus: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod: string | null; validationMessage: string | null; createdAt: string; completedAt: string | null }
 interface CodeDraftResponse { exists: boolean; draft: CodeDraftRecord | null; attempts?: CodeAttemptRecord[] }
 interface CodeReviewRecord { id: string; reviewerId: string; decision: 'ACCEPTED'; rationale: string; maintainedSourceHash: string; createdAt: string }
 interface CodeMemberOutline { name: string; kind: 'function' | 'method' | 'constructor'; start_byte: number; end_byte: number; line: number; source_bytes: number }
@@ -831,14 +831,19 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
       let sourceCode = attempt.resultSource
       if (attempt.scope === 'member') {
         const baseSource = maintainedDraft || sourceQuery.data
-        if (!baseSource || !attempt.inputSource) {
+        if (!baseSource) {
           throw new Error('This member result is missing its exact input. Reload the source before restoring it.')
         }
-        const firstMatch = baseSource.indexOf(attempt.inputSource)
-        if (firstMatch < 0 || baseSource.indexOf(attempt.inputSource, firstMatch + 1) >= 0) {
+        const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/deobfuscate/attempts/${encodeURIComponent(attempt.id)}`, { cache: 'no-store' })
+        const result = await response.json().catch(() => ({})) as { status?: string; inputSource?: string; error?: string }
+        if (!response.ok || result.status !== 'SUCCEEDED' || !result.inputSource) {
+          throw new Error(result.error || 'This member result is missing its exact input. Reload the source before restoring it.')
+        }
+        const firstMatch = baseSource.indexOf(result.inputSource)
+        if (firstMatch < 0 || baseSource.indexOf(result.inputSource, firstMatch + 1) >= 0) {
           throw new Error('The original member is no longer uniquely present in the editable source. Review the result and merge it manually.')
         }
-        sourceCode = `${baseSource.slice(0, firstMatch)}${attempt.resultSource}${baseSource.slice(firstMatch + attempt.inputSource.length)}`
+        sourceCode = `${baseSource.slice(0, firstMatch)}${attempt.resultSource}${baseSource.slice(firstMatch + result.inputSource.length)}`
       }
       const meta: CodeMaintenanceResponse = {
         sourceCode,

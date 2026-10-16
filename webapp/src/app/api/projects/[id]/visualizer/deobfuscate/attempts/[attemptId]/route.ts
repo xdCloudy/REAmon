@@ -16,6 +16,7 @@ export async function GET(_request: Request, { params }: RouteParams) {
     select: {
       id: true,
       status: true,
+      scope: true,
       cancelRequested: true,
       resultSource: true,
       providerName: true,
@@ -30,6 +31,18 @@ export async function GET(_request: Request, { params }: RouteParams) {
     },
   })
   if (!attempt) return NextResponse.json({ error: 'Rewrite attempt not found' }, { status: 404, headers: { 'Cache-Control': 'no-store' } })
+  let inputSource: string | undefined
+  if (attempt.status === 'SUCCEEDED' && attempt.scope === 'member') {
+    const storedRequest = await prisma.reamonCodeAttempt.findFirst({
+      where: { id: attempt.id, projectId },
+      select: { requestPayload: true },
+    })
+    const payload = storedRequest?.requestPayload
+    if (payload && typeof payload === 'object' && !Array.isArray(payload)
+      && 'source_code' in payload && typeof payload.source_code === 'string') {
+      inputSource = payload.source_code
+    }
+  }
 
   return NextResponse.json({
     attemptId: attempt.id,
@@ -37,6 +50,7 @@ export async function GET(_request: Request, { params }: RouteParams) {
     cancelRequested: attempt.cancelRequested,
     ...(attempt.status === 'SUCCEEDED' ? {
       sourceCode: attempt.resultSource,
+      ...(inputSource ? { inputSource } : {}),
       providerName: attempt.providerName,
       model: attempt.modelIdentifier,
       syntaxValidated: attempt.syntaxValidated,
