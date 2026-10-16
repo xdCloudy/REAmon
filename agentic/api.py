@@ -622,7 +622,7 @@ class ReamonCSharpRefactorRequest(BaseModel):
 
 
 class ReamonJavaRefactorRequest(BaseModel):
-    operation: Literal["bindings", "rename"]
+    operation: Literal["bindings", "rename", "validate"]
     source_code: str
     expected_sha256: str = ""
     renames: list[dict[str, Any]] = Field(default_factory=list)
@@ -786,6 +786,19 @@ async def validate_reamon_code(body: ReamonCodeValidateRequest):
         return JSONResponse(content={"error": "Source exceeds the 2 MiB validation limit"}, status_code=413)
     source_sha256 = hashlib.sha256(encoded).hexdigest()
     normalized_language = body.language.strip().lower()
+    if normalized_language in {"java", "java source"}:
+        result = await refactor_reamon_java_source(ReamonJavaRefactorRequest(
+            operation="validate", source_code=body.source_code,
+        ))
+        if (isinstance(result, dict) and result.get("source_sha256") == source_sha256
+                and result.get("validation_status") in {"PASSED", "FAILED"}):
+            return result
+        return {
+            "source_sha256": source_sha256,
+            "validation_status": "UNAVAILABLE",
+            "validation_method": "javac-parse",
+            "validation_message": "The javac service could not validate this Java source; syntax validation was not recorded.",
+        }
     if normalized_language in {"python", "python 3", "python3"}:
         python_version = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
         validation_method = f"cpython-{sys.version_info.major}.{sys.version_info.minor}-compile"
@@ -1606,6 +1619,18 @@ async def refactor_reamon_java_source(body: ReamonJavaRefactorRequest):
                     "exported": False,
                 })
             return {"source_sha256": source_sha256, "parser_version": parser_version, "bindings": bindings, "truncated": header[3] == "true"}
+        if body.operation == "validate":
+            if len(lines) != 2:
+                raise ValueError("Invalid javac validation result")
+            fields = lines[1].split("\t")
+            if len(fields) != 3 or fields[0] != "V" or fields[1] not in {"PASSED", "FAILED"}:
+                raise ValueError("Invalid javac validation status")
+            return {
+                "source_sha256": source_sha256,
+                "validation_status": fields[1],
+                "validation_method": f"javac-{parser_version}-parse",
+                "validation_message": base64.b64decode(fields[2], validate=True).decode("utf-8"),
+            }
         output_hash = ""
         source_code = ""
         renamed_bindings = []

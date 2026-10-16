@@ -136,12 +136,22 @@ public final class ReamonJavaRefactor {
     private static void process(String operation, String expectedSha256, String source, List<Rename> renames) throws Exception {
         byte[] bytes = source.getBytes(StandardCharsets.UTF_8);
         if (bytes.length > MAX_SOURCE_BYTES) throw new IllegalArgumentException("Java source exceeds the 512 KiB safe-refactor limit");
-        if (!(operation.equals("bindings") || operation.equals("rename"))) throw new IllegalArgumentException("A Java bindings or rename operation is required");
+        if (!(operation.equals("bindings") || operation.equals("rename") || operation.equals("validate")))
+            throw new IllegalArgumentException("A Java bindings, rename, or validate operation is required");
         if (renames.size() > MAX_RENAMES) throw new IllegalArgumentException("The Java rename request exceeds its 80-binding limit");
         String sourceHash = sha256(bytes);
         if (operation.equals("rename") && (!expectedSha256.matches("(?i)[0-9a-f]{64}") || !expectedSha256.equalsIgnoreCase(sourceHash)))
             throw new IllegalArgumentException("The Java source changed after rename suggestions were generated");
         Analysis analysis = analyze(source, sourceHash);
+        if (operation.equals("validate")) {
+            emit("H\t" + sourceHash + "\t" + version() + "\tfalse");
+            String status = analysis.errors.isEmpty() ? "PASSED" : "FAILED";
+            String message = analysis.errors.isEmpty()
+                ? "javac parsed this Java source without executing it. This is structural evidence; project dependencies and runtime behavior were not checked."
+                : "javac rejected the Java syntax: " + String.join("; ", analysis.errors);
+            emit("V\t" + status + "\t" + b64(message));
+            return;
+        }
         if (!analysis.errors.isEmpty()) throw new IllegalArgumentException("javac found Java syntax errors: " + String.join("; ", analysis.errors));
         if (operation.equals("bindings")) {
             boolean truncated = analysis.bindings.size() > MAX_BINDINGS;
