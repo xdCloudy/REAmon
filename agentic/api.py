@@ -18,6 +18,8 @@ import logging
 import os
 import re
 import shlex
+import shutil
+import subprocess
 import sys
 from importlib.metadata import PackageNotFoundError, version as package_version
 from contextlib import asynccontextmanager
@@ -598,6 +600,79 @@ def _reamon_source_parser(language: str):
         return None
 
 
+def _reamon_cli_syntax_validation(
+    source_code: str,
+    *,
+    label: str,
+    executable: str,
+    version_args: list[str],
+    lint_args: list[str],
+    version_pattern: str,
+    ignored_environment: set[str],
+) -> dict[str, str]:
+    binary = shutil.which(executable)
+    if not binary:
+        return {
+            "validation_status": "UNAVAILABLE",
+            "validation_method": f"{label}-syntax-check",
+            "validation_message": f"The {label} syntax checker is not installed in the analysis service.",
+        }
+    environment = os.environ.copy()
+    for variable in ignored_environment:
+        environment.pop(variable, None)
+    try:
+        version_result = subprocess.run(
+            [binary, *version_args],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=5,
+            check=False,
+            env=environment,
+        )
+        version_text = version_result.stdout.decode("utf-8", errors="replace").splitlines()
+        version_match = re.search(version_pattern, version_text[0] if version_text else "")
+        tool_version = version_match.group(1) if version_match else "unknown"
+        validation_method = f"{label}-{tool_version}-syntax-check"
+        result = subprocess.run(
+            [binary, *lint_args],
+            input=source_code.encode("utf-8"),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=10,
+            check=False,
+            env=environment,
+        )
+    except subprocess.TimeoutExpired:
+        return {
+            "validation_status": "UNAVAILABLE",
+            "validation_method": f"{label}-syntax-check",
+            "validation_message": f"The {label} syntax checker did not complete within its time limit.",
+        }
+    except OSError as exc:
+        logger.debug(f"REAmon {label} syntax validation unavailable: {exc}")
+        return {
+            "validation_status": "UNAVAILABLE",
+            "validation_method": f"{label}-syntax-check",
+            "validation_message": f"The {label} syntax checker could not be started.",
+        }
+    output = result.stdout.decode("utf-8", errors="replace").replace("\x00", " ").strip()
+    output = re.sub(r"[\r\n\t ]+", " ", output)[:1_000]
+    if result.returncode == 0:
+        detail = output or "syntax check passed"
+        return {
+            "validation_status": "PASSED",
+            "validation_method": validation_method,
+            "validation_message": f"{label} {tool_version} accepted the source without executing it: {detail}",
+        }
+    detail = output or "syntax check failed without diagnostic output"
+    return {
+        "validation_status": "FAILED",
+        "validation_method": validation_method,
+        "validation_message": f"{label} {tool_version} rejected the source: {detail}",
+    }
+
+
 @app.post("/reamon/code/validate", tags=["REAmon"], dependencies=[Depends(require_internal_auth)])
 async def validate_reamon_code(body: ReamonCodeValidateRequest):
     """Validate exact source syntax and return a hash-bound structural result."""
@@ -644,6 +719,35 @@ async def validate_reamon_code(body: ReamonCodeValidateRequest):
             "validation_method": validation_method,
             "validation_message": f"CPython {python_version} compiled the module without executing it. This confirms syntax for this interpreter only, not behavior or target-version compatibility.",
         }
+    if normalized_language in {"php", "php source"}:
+        if not re.search(r"<\?(?:php\b|=)", body.source_code, re.IGNORECASE):
+            return {
+                "source_sha256": source_sha256,
+                "validation_status": "UNAVAILABLE",
+                "validation_method": "php-lint",
+                "validation_message": "PHP lint cannot validate this source because it contains no PHP opening tag; without one, the PHP CLI treats the input as plain text.",
+            }
+        result = _reamon_cli_syntax_validation(
+            body.source_code,
+            label="php",
+            executable="php",
+            version_args=["-n", "--version"],
+            lint_args=["-n", "-l"],
+            version_pattern=r"^PHP\s+(\d+\.\d+(?:\.\d+)?)",
+            ignored_environment={"PHPRC", "PHP_INI_SCAN_DIR"},
+        )
+        return {"source_sha256": source_sha256, **result}
+    if normalized_language in {"ruby", "ruby source", "rb"}:
+        result = _reamon_cli_syntax_validation(
+            body.source_code,
+            label="ruby",
+            executable="ruby",
+            version_args=["--disable-gems", "--version"],
+            lint_args=["--disable-gems", "-c", "-"],
+            version_pattern=r"^ruby\s+(\d+\.\d+(?:\.\d+)?)",
+            ignored_environment={"RUBYOPT", "RUBYLIB"},
+        )
+        return {"source_sha256": source_sha256, **result}
     parser = _reamon_source_parser(body.language)
     if parser is None:
         return {
