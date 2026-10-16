@@ -9,18 +9,26 @@ const MAX_METHODS: usize = 10_000;
 const MAX_ROWS_PER_METHOD: usize = 4_000;
 const MAX_CFG_BLOCKS: usize = 12;
 const MAX_CFG_EDGES: usize = 16;
+const MAX_METHOD_ARTIFACT_BYTES: usize = 1024 * 1024;
+const MAX_TOTAL_ARTIFACT_BYTES: usize = 128 * 1024 * 1024;
 
 fn run() -> Result<()> {
     let input = env::args_os()
         .nth(1)
         .context("usage: reamon-dex-structure <apk-or-dex>")?;
+    let evidence_root = env::args_os()
+        .nth(2)
+        .context("usage: reamon-dex-structure <apk-or-dex> <evidence-output-dir>")?;
     let input = PathBuf::from(input);
+    let evidence_root = PathBuf::from(evidence_root);
+    fs::create_dir_all(&evidence_root).context("create evidence output directory")?;
     let bytes = fs::read(&input).context("read input")?;
     let dexes = load_dexes_from_bytes(&bytes, &input)
         .map_err(|error| anyhow::anyhow!(error.to_string()))?;
     let mut methods = Vec::new();
     let mut discovered = 0usize;
     let mut truncated = false;
+    let mut total_evidence_bytes = 0usize;
 
     'dexes: for (dex_index, dex) in dexes.iter().enumerate() {
         let decompiler = Decompiler::new(dex);
@@ -59,6 +67,36 @@ fn run() -> Result<()> {
                 let rows: Vec<Value> = rows.into_iter().take(MAX_ROWS_PER_METHOD).map(|row| {
                     json!({"offset": row.offset, "mnemonic": row.mnemonic, "operands": row.operands})
                 }).collect();
+                let rows_truncated = rows.len() >= MAX_ROWS_PER_METHOD;
+                let signature = format!(
+                    "{}#{}({}):{}",
+                    class_name,
+                    info.name,
+                    info.params.join(","),
+                    info.return_type
+                );
+                let evidence = serde_json::to_vec(&json!({
+                    "signature": signature,
+                    "dexIndex": dex_index,
+                    "methodIndex": method.method_idx,
+                    "instructions": &rows,
+                    "truncated": rows_truncated,
+                }))?;
+                let evidence_path = evidence_root
+                    .join(format!("dex-{dex_index}"))
+                    .join(format!("method-{}.json", method.method_idx));
+                let evidence_relative_path = if evidence.len() <= MAX_METHOD_ARTIFACT_BYTES
+                    && total_evidence_bytes.saturating_add(evidence.len()) <= MAX_TOTAL_ARTIFACT_BYTES
+                {
+                    if let Some(parent) = evidence_path.parent() {
+                        fs::create_dir_all(parent).context("create method evidence directory")?;
+                    }
+                    fs::write(&evidence_path, &evidence).context("write method evidence")?;
+                    total_evidence_bytes += evidence.len();
+                    Some(format!("dex-{dex_index}/method-{}.json", method.method_idx))
+                } else {
+                    None
+                };
                 let mnemonics: Vec<String> = rows
                     .iter()
                     .take(128)
@@ -122,13 +160,6 @@ fn run() -> Result<()> {
                     .take(MAX_CFG_EDGES)
                     .map(|edge| json!([edge.from_id, edge.to_id, "flow"]))
                     .collect();
-                let signature = format!(
-                    "{}#{}({}):{}",
-                    class_name,
-                    info.name,
-                    info.params.join(","),
-                    info.return_type
-                );
                 methods.push(json!({
                     "signature": signature,
                     "className": class_name,
@@ -146,7 +177,8 @@ fn run() -> Result<()> {
                         "blocks": blocks,
                         "edges": cfg_edges,
                     },
-                    "bytecodeRowsTruncated": rows.len() >= MAX_ROWS_PER_METHOD,
+                    "bytecodeRowsTruncated": rows_truncated || evidence_relative_path.is_none(),
+                    "bytecodeArtifactPath": evidence_relative_path,
                     "cfgTruncated": nodes.len() > MAX_CFG_BLOCKS || edges.len() > MAX_CFG_EDGES,
                 }));
             }
@@ -154,7 +186,7 @@ fn run() -> Result<()> {
     }
     println!(
         "{}",
-        json!({"methods": methods, "discoveredMethodCount": discovered, "truncated": truncated})
+        json!({"methods": methods, "discoveredMethodCount": discovered, "truncated": truncated, "evidenceBytes": total_evidence_bytes})
     );
     Ok(())
 }

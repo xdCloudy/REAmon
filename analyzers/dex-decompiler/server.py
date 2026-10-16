@@ -137,9 +137,10 @@ def analyse(body: dict[str, object]) -> dict[str, object]:
 
         method_result: dict[str, object] = {"methods": [], "discoveredMethodCount": 0, "truncated": False}
         method_warning = ""
+        method_evidence_root = temporary_root / "method-evidence"
         try:
             structured = subprocess.run(
-                ["/usr/local/bin/reamon-dex-structure", str(source)],
+                ["/usr/local/bin/reamon-dex-structure", str(source), str(method_evidence_root)],
                 cwd=temporary_root,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -187,6 +188,31 @@ def analyse(body: dict[str, object]) -> dict[str, object]:
                     "sizeBytes": size,
                 })
                 returned_bytes += size
+            method_rows = method_result.get("methods", [])
+            if isinstance(method_rows, list):
+                for method in method_rows[:MAX_STRUCTURED_METHODS]:
+                    if not isinstance(method, dict):
+                        continue
+                    relative_evidence = method.get("bytecodeArtifactPath")
+                    if not isinstance(relative_evidence, str) or not relative_evidence:
+                        continue
+                    relative = PurePosixPath(relative_evidence)
+                    if relative.is_absolute() or ".." in relative.parts or "\\" in relative_evidence:
+                        continue
+                    try:
+                        evidence_source = (method_evidence_root.joinpath(*relative.parts)).resolve(strict=True)
+                        evidence_source.relative_to(method_evidence_root.resolve())
+                        evidence_size = evidence_source.stat().st_size
+                    except (OSError, RuntimeError, ValueError):
+                        continue
+                    if not evidence_source.is_file() or evidence_size <= 0 or evidence_size > 1024 * 1024:
+                        continue
+                    target_relative = PurePosixPath("method-evidence") / relative
+                    target = staging.joinpath(*target_relative.parts)
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(evidence_source, target)
+                    method["bytecodeArtifactId"] = destination.joinpath(*target_relative.parts).relative_to(DERIVED_ROOT).as_posix()
+                    method["bytecodeArtifactSizeBytes"] = evidence_size
             staging.replace(destination)
         except Exception:
             shutil.rmtree(staging, ignore_errors=True)

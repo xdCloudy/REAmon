@@ -16,6 +16,8 @@ const MAX_QUESTION_CHARS = 1000
 const MAX_EXPLANATION_CHARS = 20_000
 const MAX_PROJECT_CONTEXT_BYTES = 8 * 1024
 const MAX_CONTEXT_OBSERVATIONS = 2_500
+const MAX_METHOD_EVIDENCE_ROWS = 12
+const MAX_METHOD_EVIDENCE_BYTES = 4 * 1024
 
 function isInside(root: string, file: string): boolean {
   const relative = path.relative(root, file)
@@ -45,6 +47,7 @@ function buildProjectContext(
   rows: Array<{ type: string; label: string | null; attributes: unknown }>,
   selectedAttributes: Record<string, unknown>,
   selectedCodeUnitKey: string,
+  methodInstructionEvidence: string[],
   maxBytes = MAX_PROJECT_CONTEXT_BYTES,
 ): string {
   const selectedAddress = typeof selectedAttributes.address === 'string' ? selectedAttributes.address : ''
@@ -91,11 +94,67 @@ function buildProjectContext(
   }
   const selectedName = typeof selectedAttributes.qualifiedName === 'string' ? selectedAttributes.qualifiedName
     : typeof selectedAttributes.name === 'string' ? selectedAttributes.name : ''
-  const nearbyFunctions = [...functions.values()].filter((value) => !value.startsWith(`${selectedName} @`)).slice(0, 80)
+  if (methodInstructionEvidence.length) lines.push(`Stored Dalvik instruction rows from this code unit's linked method artifacts: ${methodInstructionEvidence.join('\n')}`)
+  if (methodEvidence.size) {
+    const names = [...methodEvidence.values()].slice(0, 30).map((value) => value.slice(0, 180)).join('; ')
+    lines.push(`Stored method evidence for this code unit (database signatures and mnemonic samples): ${utf8Prefix(names, 1_800)}.`)
+  }
+  const nearbyFunctions = [...functions.values()].filter((value) => !value.startsWith(`${selectedName} @`)).slice(0, 40)
   if (nearbyFunctions.length) lines.push(`Function names in this analysis run: ${nearbyFunctions.join(', ')}.`)
-  if (methodEvidence.size) lines.push(`Stored method evidence for this code unit (signatures and sampled Dalvik instructions are database observations): ${[...methodEvidence.values()].slice(0, 120).join('; ')}.`)
   if (relatedCalls.size) lines.push(`Stored call edges touching the selected address: ${[...relatedCalls].slice(0, 40).join('; ')}.`)
   return utf8Prefix(lines.join('\n'), maxBytes)
+}
+
+async function loadMethodInstructionEvidence(
+  rows: Array<{ type: string; label: string | null; attributes: unknown }>,
+  selectedCodeUnitKey: string,
+  projectId: string,
+  artifactId: string,
+): Promise<string[]> {
+  const linkedMethods = rows.filter((row) => {
+    if (row.type !== 'function') return false
+    const attributes = plainObject(row.attributes)
+    return attributes.parentCodeUnitKey === selectedCodeUnitKey && typeof attributes.bytecodeArtifactId === 'string'
+  }).slice(0, MAX_METHOD_EVIDENCE_ROWS)
+  if (!linkedMethods.length) return []
+
+  const rootPath = await realpath(derivedArtifactRoot())
+  const prefix = `${projectId}/${artifactId}/`
+  const evidence: string[] = []
+  let usedBytes = 0
+  for (const row of linkedMethods) {
+    const attributes = plainObject(row.attributes)
+    const artifactPath = typeof attributes.bytecodeArtifactId === 'string' ? attributes.bytecodeArtifactId : ''
+    const segments = artifactPath.split('/')
+    if (!artifactPath.startsWith(prefix) || segments.some((part) => !part || part === '.' || part === '..' || part.includes('\\'))) continue
+    try {
+      const filePath = resolveDerivedArtifactPath(artifactPath)
+      const fileRealPath = await realpath(filePath)
+      if (!isInside(rootPath, fileRealPath)) continue
+      const fileInfo = await stat(fileRealPath)
+      if (!fileInfo.isFile() || fileInfo.size > 1024 * 1024) continue
+      const value = plainObject(JSON.parse((await readFile(fileRealPath)).toString('utf8')))
+      if (!Array.isArray(value.instructions)) continue
+      const instructions = value.instructions.flatMap((instruction) => {
+        const row = plainObject(instruction)
+        if (typeof row.offset !== 'number' || !Number.isSafeInteger(row.offset) || typeof row.mnemonic !== 'string') return []
+        const operands = typeof row.operands === 'string' ? ` ${row.operands.slice(0, 180)}` : ''
+        return [`${row.offset.toString(16)}: ${row.mnemonic.slice(0, 40)}${operands}`]
+      }).slice(0, 160)
+      if (!instructions.length) continue
+      const name = typeof value.signature === 'string' ? value.signature.slice(0, 300) : row.label || 'method'
+      const line = `${name}${value.truncated === true ? ' (instruction list truncated)' : ''}: ${instructions.join('; ')}`
+      const remaining = MAX_METHOD_EVIDENCE_BYTES - usedBytes
+      if (remaining <= 0) break
+      const bounded = utf8Prefix(line, remaining)
+      if (!bounded) break
+      evidence.push(bounded)
+      usedBytes += Buffer.byteLength(bounded, 'utf8')
+    } catch {
+      continue
+    }
+  }
+  return evidence
 }
 
 function validId(value: unknown): value is string {
@@ -149,7 +208,8 @@ export async function POST(request: Request, { params }: RouteParams) {
       orderBy: { id: 'asc' },
       take: MAX_CONTEXT_OBSERVATIONS,
     }) : []
-    const projectContext = buildProjectContext(contextRows, attributes, observation.stableKey)
+    const methodInstructionEvidence = await loadMethodInstructionEvidence(contextRows, observation.stableKey, projectId, artifact.id)
+    const projectContext = buildProjectContext(contextRows, attributes, observation.stableKey, methodInstructionEvidence)
     const codeArtifactId = typeof attributes.codeArtifactId === 'string' ? attributes.codeArtifactId : ''
     const pathPrefix = `${projectId}/${artifact.id}/`
     const segments = codeArtifactId.split('/')

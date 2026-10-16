@@ -16,6 +16,8 @@ interface DexMethod {
   instructionCount: number
   instructionMnemonics: string[]
   controlFlowGraph: Record<string, unknown>
+  bytecodeArtifactId?: string
+  bytecodeArtifactSizeBytes?: number
   bytecodeRowsTruncated: boolean
   cfgTruncated: boolean
 }
@@ -91,6 +93,9 @@ function isResponse(value: unknown): value is DexDecompilerResponse {
       && Array.isArray(method.instructionMnemonics) && method.instructionMnemonics.length <= 128
       && method.instructionMnemonics.every((mnemonic) => typeof mnemonic === 'string' && /^[A-Za-z][A-Za-z0-9_./-]{0,31}$/.test(mnemonic))
       && !!method.controlFlowGraph && typeof method.controlFlowGraph === 'object' && !Array.isArray(method.controlFlowGraph)
+      && ((method.bytecodeArtifactId === undefined && method.bytecodeArtifactSizeBytes === undefined)
+        || (typeof method.bytecodeArtifactId === 'string' && method.bytecodeArtifactId.length > 0 && method.bytecodeArtifactId.length <= 2_000
+          && Number.isSafeInteger(method.bytecodeArtifactSizeBytes) && (method.bytecodeArtifactSizeBytes as number) > 0))
       && typeof method.bytecodeRowsTruncated === 'boolean' && typeof method.cfgTruncated === 'boolean')
     && typeof response.codeBytes === 'number' && Number.isSafeInteger(response.codeBytes) && response.codeBytes >= 0
     && typeof response.truncated === 'boolean'
@@ -198,6 +203,10 @@ export async function executeDexDecompiler(input: ToolExecutionInput): Promise<T
           instructionLanguage: 'Dalvik',
           instructionCount: method.instructionCount,
           instructionMnemonics: JSON.stringify(method.instructionMnemonics),
+          ...(method.bytecodeArtifactId ? {
+            bytecodeArtifactId: method.bytecodeArtifactId,
+            bytecodeArtifactSizeBytes: method.bytecodeArtifactSizeBytes as number,
+          } : {}),
           relativePath: method.relativePath,
           parentCodeUnitKey,
           codeArtifactId: unit.codeArtifactId,
