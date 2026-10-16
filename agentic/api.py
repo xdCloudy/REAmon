@@ -621,6 +621,13 @@ class ReamonCSharpRefactorRequest(BaseModel):
     renames: list[dict[str, Any]] = Field(default_factory=list)
 
 
+class ReamonJavaRefactorRequest(BaseModel):
+    operation: Literal["bindings", "rename"]
+    source_code: str
+    expected_sha256: str = ""
+    renames: list[dict[str, Any]] = Field(default_factory=list)
+
+
 MAX_SOURCE_CONTINUATION_ROUNDS = 4
 MAX_SOURCE_CONTINUATION_TAIL_CHARS = 1024
 
@@ -1542,6 +1549,88 @@ async def refactor_reamon_csharp_source(body: ReamonCSharpRefactorRequest):
     return payload
 
 
+@app.post("/reamon/code/java/refactor", tags=["REAmon"], dependencies=[Depends(require_internal_auth)])
+async def refactor_reamon_java_source(body: ReamonJavaRefactorRequest):
+    source_bytes = body.source_code.encode("utf-8")
+    if len(source_bytes) > 512 * 1024 or len(body.renames) > 80:
+        return JSONResponse(content={"error": "The Java refactor request exceeds its size or candidate limit"}, status_code=413)
+    if body.operation == "rename" and not re.fullmatch(r"[a-f0-9]{64}", body.expected_sha256, re.IGNORECASE):
+        return JSONResponse(content={"error": "A valid source SHA-256 is required"}, status_code=400)
+    encoded_source = base64.b64encode(source_bytes).decode("ascii")
+    protocol = [body.operation, body.expected_sha256, encoded_source]
+    for rename in body.renames:
+        binding_id = str(rename.get("binding_id", ""))
+        new_name = str(rename.get("new_name", ""))
+        protocol.append(f"{binding_id}\t{base64.b64encode(new_name.encode('utf-8')).decode('ascii')}")
+    executable = os.environ.get("REAMON_JAVA_REFACTOR", "/usr/local/bin/reamon-javarefactor")
+    try:
+        process = await asyncio.create_subprocess_exec(
+            executable, stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(process.communicate(("\n".join(protocol) + "\n").encode("utf-8")), timeout=30)
+    except FileNotFoundError:
+        return JSONResponse(content={"error": "The javac scope-refactor service is unavailable"}, status_code=503)
+    except asyncio.TimeoutError:
+        process.kill()
+        await process.communicate()
+        return JSONResponse(content={"error": "Java semantic analysis exceeded its time limit"}, status_code=504)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug(f"REAmon Java scope-safe refactor failed: {exc}")
+        return JSONResponse(content={"error": "The javac scope-refactor service could not run"}, status_code=503)
+    try:
+        lines = stdout.decode("utf-8").splitlines()
+        if process.returncode != 0 or not lines:
+            raise ValueError(stderr[-500:].decode("utf-8", "replace"))
+        if lines[0].startswith("E\t"):
+            message = base64.b64decode(lines[0].split("\t", 1)[1], validate=True).decode("utf-8")
+            return JSONResponse(content={"error": message[:300]}, status_code=409 if body.operation == "rename" else 422)
+        header = lines[0].split("\t")
+        if len(header) != 4 or header[0] != "H":
+            raise ValueError("Invalid Java refactor response header")
+        source_sha256, parser_version = header[1], header[2]
+        if source_sha256 != hashlib.sha256(source_bytes).hexdigest() or not re.fullmatch(r"\d+\.\d+\.\d+", parser_version):
+            raise ValueError("Java refactor response source hash or parser version is invalid")
+        if body.operation == "bindings":
+            bindings = []
+            for row in lines[1:]:
+                fields = row.split("\t")
+                if len(fields) != 7 or fields[0] != "B": raise ValueError("Invalid Java binding row")
+                bindings.append({
+                    "id": fields[1],
+                    "name": base64.b64decode(fields[2], validate=True).decode("utf-8"),
+                    "kind": base64.b64decode(fields[3], validate=True).decode("utf-8"),
+                    "scopeType": base64.b64decode(fields[4], validate=True).decode("utf-8"),
+                    "declarationStart": int(fields[5]),
+                    "referenceCount": int(fields[6]),
+                    "exported": False,
+                })
+            return {"source_sha256": source_sha256, "parser_version": parser_version, "bindings": bindings, "truncated": header[3] == "true"}
+        output_hash = ""
+        source_code = ""
+        renamed_bindings = []
+        for row in lines[1:]:
+            fields = row.split("\t")
+            if fields[0] == "O" and len(fields) == 3:
+                output_hash = fields[1]
+                source_code = base64.b64decode(fields[2], validate=True).decode("utf-8")
+            elif fields[0] == "R" and len(fields) == 6:
+                renamed_bindings.append({
+                    "bindingId": fields[1],
+                    "oldName": base64.b64decode(fields[2], validate=True).decode("utf-8"),
+                    "newName": base64.b64decode(fields[3], validate=True).decode("utf-8"),
+                    "kind": base64.b64decode(fields[4], validate=True).decode("utf-8"),
+                    "referenceCount": int(fields[5]),
+                })
+        if hashlib.sha256(source_code.encode("utf-8")).hexdigest() != output_hash or len(renamed_bindings) != len(body.renames):
+            raise ValueError("Java refactor output hash or rename count is invalid")
+        return {"source_sha256": source_sha256, "output_sha256": output_hash, "source_code": source_code,
+                "parser_version": parser_version, "renamed_bindings": renamed_bindings}
+    except Exception as exc:  # noqa: BLE001
+        logger.debug(f"REAmon javac refactor returned invalid output: {exc}")
+        return JSONResponse(content={"error": "The Java scope-refactor service returned invalid output"}, status_code=502)
+
+
 @app.post("/reamon/code/suggest-renames", tags=["REAmon"], dependencies=[Depends(require_internal_auth)])
 async def suggest_reamon_code_renames(body: ReamonCodeSuggestRenamesRequest):
     """Suggest evidence-grounded binding names; a separate CST/AST pass applies approved mappings."""
@@ -1552,11 +1641,12 @@ async def suggest_reamon_code_renames(body: ReamonCodeSuggestRenamesRequest):
     if not requested_model.startswith("custom/"):
         return JSONResponse(content={"error": "A saved OpenAI-compatible provider is required", "model_used": requested_model}, status_code=400)
     normalized_language = body.language.strip().lower()
+    is_java = normalized_language in {"java", "java source"}
     is_python = normalized_language in {"python", "python 3", "python3"}
     is_csharp = normalized_language in {"c#", "csharp", "cs"}
     is_go = normalized_language in {"go", "golang"}
     is_lua = normalized_language in {"lua", "lua source"} or bool(re.fullmatch(r"lua(?: source)?\s+5\.[1-5]", normalized_language))
-    language_supported = normalized_language in {"javascript", "typescript", "jsx", "tsx", "python", "python 3", "python3", "go", "golang", "lua", "lua source", "c#", "csharp", "cs"} or is_lua
+    language_supported = normalized_language in {"javascript", "typescript", "jsx", "tsx", "python", "python 3", "python3", "go", "golang", "lua", "lua source", "c#", "csharp", "cs", "java", "java source"} or is_lua
     if (not language_supported
             or not body.unit_name.strip() or len(body.unit_name) > 500 or len(body.language) > 80 or len(body.question) > 1000
             or len(body.source_code.encode("utf-8")) > 64 * 1024 or not body.bindings
@@ -1584,7 +1674,7 @@ async def suggest_reamon_code_renames(body: ReamonCodeSuggestRenamesRequest):
     llm, failure = await _build_feature_llm("REAmon scope-safe rename proposals", requested_model, body.user_id)
     if failure:
         return failure
-    language_label = "C#" if is_csharp else "Go" if is_go else "Python" if is_python else "Lua" if is_lua else "JavaScript or TypeScript"
+    language_label = "Java" if is_java else "C#" if is_csharp else "Go" if is_go else "Python" if is_python else "Lua" if is_lua else "JavaScript or TypeScript"
     identifier_rule = (
         "Use a valid Python identifier and avoid Python keywords."
         if is_python else
@@ -1592,6 +1682,8 @@ async def suggest_reamon_code_renames(body: ReamonCodeSuggestRenamesRequest):
         if is_go else
         "Use one valid C# identifier per binding; avoid C# reserved keywords."
         if is_csharp else
+        "Use one valid Java identifier per binding; avoid Java reserved and restricted keywords."
+        if is_java else
         "Use one valid Lua identifier per binding; avoid Lua keywords. Use ASCII letters, digits, and underscores only."
         if is_lua else
         "Use one unique valid JavaScript identifier per binding; avoid reserved words."
@@ -1639,6 +1731,9 @@ Return only JSON with this shape: {{"renames":[{{"bindingId":"candidate id","new
             else bool(re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,127}", new_name)) and new_name not in {
                 "abstract", "as", "base", "bool", "break", "byte", "case", "catch", "char", "checked", "class", "const", "continue", "decimal", "default", "delegate", "do", "double", "else", "enum", "event", "explicit", "extern", "false", "finally", "fixed", "float", "for", "foreach", "goto", "if", "implicit", "in", "int", "interface", "internal", "is", "lock", "long", "namespace", "new", "null", "object", "operator", "out", "override", "params", "private", "protected", "public", "readonly", "ref", "return", "sbyte", "sealed", "short", "sizeof", "stackalloc", "static", "string", "struct", "switch", "this", "throw", "true", "try", "typeof", "uint", "ulong", "unchecked", "unsafe", "ushort", "using", "virtual", "void", "volatile", "while",
             } if is_csharp
+            else bool(re.fullmatch(r"[A-Za-z_$][A-Za-z0-9_$]{0,127}", new_name)) and new_name not in {
+                "abstract", "assert", "boolean", "break", "byte", "case", "catch", "char", "class", "const", "continue", "default", "do", "double", "else", "enum", "exports", "extends", "final", "finally", "float", "for", "goto", "if", "implements", "import", "instanceof", "int", "interface", "long", "module", "native", "new", "open", "opens", "package", "permits", "private", "protected", "provides", "public", "record", "requires", "return", "sealed", "short", "static", "strictfp", "super", "switch", "synchronized", "this", "throw", "throws", "to", "transient", "transitive", "try", "uses", "var", "void", "volatile", "while", "with", "yield", "true", "false", "null",
+            } if is_java
             else bool(re.fullmatch(r"[A-Za-z_$][A-Za-z0-9_$]{0,127}", new_name))
         )
         if (binding_id not in by_id or binding_id in seen or not valid_name

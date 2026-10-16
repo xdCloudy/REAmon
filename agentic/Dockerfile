@@ -254,6 +254,10 @@ RUN GO111MODULE=off go build -trimpath -o /usr/local/bin/reamon-gorefactor ./rea
 RUN dotnet publish ./reamon_csharp_refactor/Reamon.CSharpRefactor.csproj -c Release -o /opt/reamon-csharprefactor \
     && printf '#!/bin/sh\nexec /usr/share/dotnet/dotnet /opt/reamon-csharprefactor/Reamon.CSharpRefactor.dll "$@"\n' > /usr/local/bin/reamon-csharprefactor \
     && chmod 0555 /usr/local/bin/reamon-csharprefactor
+RUN mkdir -p /opt/reamon-javarefactor \
+    && javac --release 17 -d /opt/reamon-javarefactor ./reamon_java_refactor/ReamonJavaRefactor.java \
+    && printf '#!/bin/sh\nexec java -cp /opt/reamon-javarefactor ReamonJavaRefactor "$@"\n' > /usr/local/bin/reamon-javarefactor \
+    && chmod 0555 /usr/local/bin/reamon-javarefactor
 
 # Make knowledge_base and graph_db importable as top-level packages
 ENV PYTHONPATH="/app:${PYTHONPATH}"

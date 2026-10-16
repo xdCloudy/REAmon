@@ -393,7 +393,7 @@ The agent container (`agentic/Dockerfile`) bundles multiple language runtimes fo
 | **Node.js** | 20 LTS | MIT | Installed in `agentic/Dockerfile` |
 | **Go** | 1.22.10 | BSD-3-Clause | Installed in `agentic/Dockerfile` |
 | **Ruby** + Bundler | System | BSD-2-Clause / MIT | Installed via `apt-get` in `agentic/Dockerfile` |
-| **OpenJDK** + Maven | Headless | GPL-2.0 (w/ Classpath Exception) / Apache-2.0 | Installed via `apt-get` in `agentic/Dockerfile` |
+| **OpenJDK `javac`** + Maven | Java parsing and semantic local-symbol binding for reviewer-selected safe renames, plus Java analysis tooling | GPL-2.0 (w/ Classpath Exception) / Apache-2.0 | The headless JDK and Maven are installed via `apt-get` in `agentic/Dockerfile`; REAmon invokes the public `com.sun.source` Trees API and does not copy OpenJDK implementation source. |
 | **PHP** + Composer | CLI | PHP-3.01 / MIT | Installed via `apt-get` in `agentic/Dockerfile` |
 | **.NET SDK** | 8 | MIT | Installed in `agentic/Dockerfile` |
 | **ripgrep** | System | MIT / Unlicense (dual) | Installed via `apt-get` in `agentic/Dockerfile` |
