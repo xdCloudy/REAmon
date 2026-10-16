@@ -72,7 +72,9 @@ public class ReamonExport extends GhidraScript {
                 .append(Math.max(0, symbol.getSize())).append('\t')
                 .append(firstUse == null ? "" : firstUse.toString()).append('\t')
                 .append(encodeValue(name)).append('\t')
-                .append(encodeValue(typeName)).append('\n');
+                .append(encodeValue(typeName)).append('\t')
+                .append(symbol.isNameLocked()).append('\t')
+                .append(symbol.isTypeLocked()).append('\n');
             functionVariableCount++;
             recoveredVariableCount++;
         }

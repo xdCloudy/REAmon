@@ -345,7 +345,7 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
       recoveredVariables: recoveredVariableData.variables,
       recoveredVariablesTruncated: recoveredVariableData.truncated || attributes.recoveredVariablesTruncated === true,
       recoveredVariablesSemantics: recoveredVariableData.variables.length
-        ? 'Recovered names and types are provider evidence from Ghidra symbols; they are not reviewed canonical names or proof that the pseudocode matches original source.'
+        ? 'Recovered names and types are provider evidence from Ghidra symbols, not reviewed canonical names. nameLocked/typeLocked describe constraints applied by Ghidra to its decompiler model; they do not prove original-source provenance or correctness.'
         : null,
       parentCodeUnit: parentUnit ? {
         id: parentUnit.id,

@@ -20,7 +20,7 @@ interface GhidraResponse {
   codeBytes?: number
   returnedUnits: number
   truncated: boolean
-  units: Array<{ name: string; address: string; relativePath: string; codeArtifactId: string; disassemblyArtifactId?: string; referencedStrings?: string[]; instructionMnemonics?: string[]; sourceAddressMap?: Array<{ ghidraLineNumber: number; address: string }>; prototype?: string; recoveredVariables?: Array<{ kind: 'parameter' | 'local'; name: string; dataType: string; sizeBytes: number; parameterIndex?: number; storageStartAddress?: string }>; recoveredVariablesTruncated?: boolean; sourceLanguage?: string; symbolSource?: string; goPackage?: string; sizeBytes: number }>
+  units: Array<{ name: string; address: string; relativePath: string; codeArtifactId: string; disassemblyArtifactId?: string; referencedStrings?: string[]; instructionMnemonics?: string[]; sourceAddressMap?: Array<{ ghidraLineNumber: number; address: string }>; prototype?: string; recoveredVariables?: Array<{ kind: 'parameter' | 'local'; name: string; dataType: string; sizeBytes: number; parameterIndex?: number; storageStartAddress?: string; nameLocked?: boolean; typeLocked?: boolean }>; recoveredVariablesTruncated?: boolean; sourceLanguage?: string; symbolSource?: string; goPackage?: string; sizeBytes: number }>
   calls?: Array<{ fromAddress: string; toAddress: string; fromName: string; toName: string }>
   callCount?: number
   callGraphTruncated?: boolean
@@ -130,7 +130,9 @@ export async function executeGhidra(input: ToolExecutionInput): Promise<ToolResu
               && typeof variable.dataType === 'string' && variable.dataType.length <= 256
               && Number.isInteger(variable.sizeBytes) && variable.sizeBytes >= 0 && variable.sizeBytes <= 65536
               && (variable.parameterIndex === undefined || (variable.kind === 'parameter' && Number.isInteger(variable.parameterIndex) && variable.parameterIndex >= 0 && variable.parameterIndex < 100))
-              && (variable.storageStartAddress === undefined || (typeof variable.storageStartAddress === 'string' && /^[A-Za-z0-9:_-]{1,128}$/.test(variable.storageStartAddress))))))
+              && (variable.storageStartAddress === undefined || (typeof variable.storageStartAddress === 'string' && /^[A-Za-z0-9:_-]{1,128}$/.test(variable.storageStartAddress)))
+              && (variable.nameLocked === undefined || typeof variable.nameLocked === 'boolean')
+              && (variable.typeLocked === undefined || typeof variable.typeLocked === 'boolean'))))
           || (unit.recoveredVariablesTruncated !== undefined && typeof unit.recoveredVariablesTruncated !== 'boolean')
           || (unit.sourceLanguage !== undefined && typeof unit.sourceLanguage !== 'string')
           || (unit.symbolSource !== undefined && typeof unit.symbolSource !== 'string')

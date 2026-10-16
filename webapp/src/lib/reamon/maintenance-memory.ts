@@ -162,9 +162,14 @@ export function buildProviderSymbolContext(
     const { variables, truncated } = recoveredVariablesOf(record.recoveredVariables)
     if (!variables.length) continue
     const address = record.address && /^[A-Za-z0-9:_-]{1,128}$/.test(record.address) ? ` @ ${record.address}` : ''
-    const symbolList = variables.slice(0, 12).map((variable) => variable.kind === 'parameter'
-      ? `parameter ${variable.parameterIndex}: ${variable.name.slice(0, 128)}: ${(variable.dataType || 'unknown type').slice(0, 128)} (${variable.sizeBytes} B)`
-      : `local ${variable.name.slice(0, 128)}: ${(variable.dataType || 'unknown type').slice(0, 128)} (${variable.sizeBytes} B)`)
+    const symbolList = variables.slice(0, 12).map((variable) => {
+      const kind = variable.kind === 'parameter' ? `parameter ${variable.parameterIndex}` : 'local'
+      const locks = [
+        variable.nameLocked === undefined ? '' : `name ${variable.nameLocked ? 'locked' : 'unlocked'}`,
+        variable.typeLocked === undefined ? '' : `type ${variable.typeLocked ? 'locked' : 'unlocked'}`,
+      ].filter(Boolean).join(', ')
+      return `${kind}: ${variable.name.slice(0, 128)}: ${(variable.dataType || 'unknown type').slice(0, 128)} (${variable.sizeBytes} B${locks ? `; ${locks}` : ''})`
+    })
     const omitted = variables.length > symbolList.length || truncated || record.recoveredVariablesTruncated
       ? `; more symbols omitted${record.recoveredVariablesTruncated ? ' by analyzer limit' : ''}`
       : ''

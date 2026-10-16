@@ -343,7 +343,7 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                             total_metadata_bytes += len(decoded_variables.encode("utf-8"))
                             for encoded_variable in decoded_variables.splitlines()[:100]:
                                 variable_fields = encoded_variable.split("\t")
-                                if len(variable_fields) != 6 or variable_fields[0] not in ("parameter", "local"):
+                                if len(variable_fields) not in (6, 8) or variable_fields[0] not in ("parameter", "local"):
                                     continue
                                 try:
                                     parameter_index = int(variable_fields[1])
@@ -351,6 +351,8 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                                 except ValueError:
                                     continue
                                 storage_start_address = variable_fields[3]
+                                if len(variable_fields) == 8 and any(value not in ("true", "false") for value in variable_fields[6:8]):
+                                    continue
                                 if (size_bytes < 0 or size_bytes > 65536
                                         or (storage_start_address and not re.fullmatch(r"[A-Za-z0-9:_-]{1,128}", storage_start_address))
                                         or (variable_fields[0] == "parameter" and not 0 <= parameter_index < 100)
@@ -373,6 +375,9 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                                     variable["parameterIndex"] = parameter_index
                                 if storage_start_address:
                                     variable["storageStartAddress"] = storage_start_address
+                                if len(variable_fields) == 8:
+                                    variable["nameLocked"] = variable_fields[6] == "true"
+                                    variable["typeLocked"] = variable_fields[7] == "true"
                                 recovered_variables.append(variable)
                         except (ValueError, UnicodeDecodeError):
                             pass

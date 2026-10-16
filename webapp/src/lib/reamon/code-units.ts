@@ -26,7 +26,7 @@ export interface CodeUnitObservationAttributes {
   sourceAddressMap?: Array<{ ghidraLineNumber: number; address: string }>
   sourceAddressMapTruncated?: boolean
   prototype?: string
-  recoveredVariables?: Array<{ kind: 'parameter' | 'local'; name: string; dataType: string; sizeBytes: number; parameterIndex?: number; storageStartAddress?: string }>
+  recoveredVariables?: Array<{ kind: 'parameter' | 'local'; name: string; dataType: string; sizeBytes: number; parameterIndex?: number; storageStartAddress?: string; nameLocked?: boolean; typeLocked?: boolean }>
   recoveredVariablesTruncated?: boolean
 }
 
@@ -63,7 +63,7 @@ export interface CodeUnit {
   sourceAddressMap?: Array<{ ghidraLineNumber: number; address: string }>
   sourceAddressMapTruncated?: boolean
   prototype?: string | null
-  recoveredVariables?: Array<{ kind: 'parameter' | 'local'; name: string; dataType: string; sizeBytes: number; parameterIndex?: number; storageStartAddress?: string }>
+  recoveredVariables?: Array<{ kind: 'parameter' | 'local'; name: string; dataType: string; sizeBytes: number; parameterIndex?: number; storageStartAddress?: string; nameLocked?: boolean; typeLocked?: boolean }>
   recoveredVariablesTruncated?: boolean
   maintainedSource?: boolean
   draftSource?: boolean
@@ -133,6 +133,8 @@ export function recoveredVariablesOf(value: unknown): { variables: NonNullable<C
       if (kind === 'local' && parameterIndex !== undefined) return []
       const storageStartAddress = variable.storageStartAddress
       if (storageStartAddress !== undefined && (typeof storageStartAddress !== 'string' || !/^[A-Za-z0-9:_-]{1,128}$/.test(storageStartAddress))) return []
+      if ((variable.nameLocked !== undefined && typeof variable.nameLocked !== 'boolean')
+          || (variable.typeLocked !== undefined && typeof variable.typeLocked !== 'boolean')) return []
       return [{
         kind,
         name: variable.name,
@@ -140,6 +142,8 @@ export function recoveredVariablesOf(value: unknown): { variables: NonNullable<C
         sizeBytes: Number(variable.sizeBytes),
         ...(kind === 'parameter' ? { parameterIndex: Number(parameterIndex) } : {}),
         ...(typeof storageStartAddress === 'string' ? { storageStartAddress } : {}),
+        ...(typeof variable.nameLocked === 'boolean' ? { nameLocked: variable.nameLocked } : {}),
+        ...(typeof variable.typeLocked === 'boolean' ? { typeLocked: variable.typeLocked } : {}),
       }]
     })
     return { variables: variables.slice(0, 100), truncated: variables.length > 100 || variables.length !== parsed.length }

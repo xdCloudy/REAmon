@@ -1882,17 +1882,18 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
             {selectedUnit.prototype && <p><strong>Provider signature</strong><code>{selectedUnit.prototype}</code></p>}
             {(selectedUnit.recoveredVariables?.length ?? 0) > 0 && <div className={styles.recoveredVariablesTableWrap}>
               <table>
-                <thead><tr><th>Kind</th><th>Name</th><th>Recovered type</th><th>Size</th><th>Storage starts</th></tr></thead>
+                <thead><tr><th>Kind</th><th>Name</th><th>Recovered type</th><th>Ghidra locks</th><th>Size</th><th>Storage starts</th></tr></thead>
                 <tbody>{selectedUnit.recoveredVariables?.map((variable, index) => <tr key={`${variable.kind}:${variable.parameterIndex ?? index}:${variable.name}`}>
                   <td>{variable.kind === 'parameter' ? `Parameter ${variable.parameterIndex ?? ''}` : 'Local'}</td>
                   <td><code>{variable.name}</code></td>
                   <td><code>{variable.dataType || 'Unknown'}</code></td>
+                  <td>{variable.nameLocked === undefined ? 'Name: not reported' : `Name: ${variable.nameLocked ? 'locked' : 'unlocked'}`}<br />{variable.typeLocked === undefined ? 'Type: not reported' : `Type: ${variable.typeLocked ? 'locked' : 'unlocked'}`}</td>
                   <td>{variable.sizeBytes} B</td>
                   <td><code>{variable.storageStartAddress || 'Whole function'}</code></td>
                 </tr>)}</tbody>
               </table>
             </div>}
-            <p className={styles.recoveredVariablesNote}>These names and types are decompiler evidence. Review them against the binary before treating them as canonical.</p>
+            <p className={styles.recoveredVariablesNote}>These names and types are decompiler evidence. Ghidra lock flags describe constraints on its decompiler model, not proof of original-source provenance or correctness.</p>
             {selectedUnit.recoveredVariablesTruncated && <p className={styles.sourcePreviewNote} role="status">The decompiler variable inventory was truncated by an analysis limit.</p>}
           </details>}
           {(selectedUnit.classReferences?.length ?? 0) > 0 && <section className={styles.classReferences} aria-label="Related classes">
