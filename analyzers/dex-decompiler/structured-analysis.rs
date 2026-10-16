@@ -11,6 +11,7 @@ const MAX_ROWS_PER_METHOD: usize = 4_000;
 const MAX_CFG_BLOCKS: usize = 12;
 const MAX_CFG_EDGES: usize = 16;
 const MAX_CALL_EDGES: usize = 4_000;
+const MAX_REFERENCE_EDGES: usize = 4_000;
 const MAX_METHOD_ARTIFACT_BYTES: usize = 1024 * 1024;
 const MAX_TOTAL_ARTIFACT_BYTES: usize = 128 * 1024 * 1024;
 
@@ -89,6 +90,8 @@ fn run() -> Result<()> {
     let mut total_evidence_bytes = 0usize;
     let mut calls = Vec::new();
     let mut call_graph_truncated = false;
+    let mut references = Vec::new();
+    let mut references_truncated = false;
 
     'dexes: for (dex_index, dex) in dexes.iter().enumerate() {
         let decompiler = Decompiler::new(dex);
@@ -158,39 +161,76 @@ fn run() -> Result<()> {
                     None
                 };
                 let mut targets: HashMap<u32, (String, String, String, usize, Vec<u32>)> = HashMap::new();
+                let mut reference_targets: HashMap<(u8, u32), (String, String, usize, Vec<u32>, bool)> = HashMap::new();
                 if let Ok(code) = dex.get_code_item(method.code_off) {
                     let insns = code.insns_slice(&dex.data);
                     if let Ok(instructions) = dex_bytecode::decode_all(insns, 0) {
                         for instruction in instructions {
-                            let Some(callee_idx) = resolved_invoke_method_index(
-                                dex,
-                                insns,
-                                instruction.offset,
-                                instruction.opcode,
-                            ) else {
-                                continue;
-                            };
-                            let Ok(target_info) = dex.get_method_info(callee_idx) else {
-                                continue;
-                            };
-                            let target_class = java::descriptor_to_java(&target_info.class);
-                            let target_signature = format!(
-                                "{}#{}({}):{}",
-                                target_class,
-                                target_info.name,
-                                target_info.params.join(","),
-                                target_info.return_type
-                            );
-                            let target = targets.entry(callee_idx).or_insert_with(|| (
-                                target_class.clone(),
-                                target_info.name,
-                                target_signature,
-                                0,
-                                Vec::new(),
-                            ));
-                            target.3 += 1;
-                            if target.4.len() < 3 {
-                                target.4.push(instruction.offset);
+                            if let Some(callee_idx) = resolved_invoke_method_index(
+                                dex, insns, instruction.offset, instruction.opcode,
+                            ) {
+                                if let Ok(target_info) = dex.get_method_info(callee_idx) {
+                                    let target_class = java::descriptor_to_java(&target_info.class);
+                                    let target_signature = format!(
+                                        "{}#{}({}):{}",
+                                        target_class,
+                                        target_info.name,
+                                        target_info.params.join(","),
+                                        target_info.return_type
+                                    );
+                                    let target = targets.entry(callee_idx).or_insert_with(|| (
+                                        target_class.clone(),
+                                        target_info.name,
+                                        target_signature,
+                                        0,
+                                        Vec::new(),
+                                    ));
+                                    target.3 += 1;
+                                    if target.4.len() < 3 {
+                                        target.4.push(instruction.offset);
+                                    }
+                                }
+                            }
+
+                            let offset = instruction.offset as usize;
+                            let opcode = instruction.opcode;
+                            if matches!(opcode, 0x52..=0x6d) && offset + 4 <= insns.len() {
+                                let reference_idx = u16::from_le_bytes([insns[offset + 2], insns[offset + 3]]) as u32;
+                                if let Ok(field) = dex.get_field_info(reference_idx) {
+                                    let owner = java::descriptor_to_java(&field.class);
+                                    let target_signature = format!("{}#{}", owner, field.name);
+                                    let access_kind = if matches!(opcode, 0x59..=0x5f | 0x67..=0x6d) { 2 } else { 1 };
+                                    let target = reference_targets.entry((access_kind, reference_idx)).or_insert_with(|| (
+                                        target_signature.clone(),
+                                        target_signature,
+                                        0,
+                                        Vec::new(),
+                                        false,
+                                    ));
+                                    target.2 += 1;
+                                    if target.3.len() < 3 { target.3.push(instruction.offset); }
+                                }
+                            } else if matches!(opcode, 0x1a | 0x1b) {
+                                let string_idx = if opcode == 0x1a {
+                                    if offset + 4 > insns.len() { continue; }
+                                    u16::from_le_bytes([insns[offset + 2], insns[offset + 3]]) as u32
+                                } else {
+                                    if offset + 6 > insns.len() { continue; }
+                                    u32::from_le_bytes([insns[offset + 2], insns[offset + 3], insns[offset + 4], insns[offset + 5]])
+                                };
+                                if let Ok(value) = dex.get_string(string_idx) {
+                                    let preview: String = value.chars().take(256).collect();
+                                    let target_signature = format!("string@{string_idx}");
+                                    let target = reference_targets.entry((3, string_idx)).or_insert_with(|| (
+                                        target_signature,
+                                        preview,
+                                        0,
+                                        Vec::new(),
+                                        value.chars().count() > 256,
+                                    ));
+                                    target.2 += 1;
+                                    if target.3.len() < 3 { target.3.push(instruction.offset); }
+                                }
                             }
                         }
                     }
@@ -221,6 +261,29 @@ fn run() -> Result<()> {
                         "callSiteCount": call_site_count,
                         "offsets": offsets,
                         "targetName": target_name,
+                    }));
+                }
+                let mut ordered_references: Vec<_> = reference_targets.into_iter().collect();
+                ordered_references.sort_by_key(|((kind, index), _)| (*kind, *index));
+                for ((kind, target_index), (target_signature, target_name, occurrence_count, offsets, target_name_truncated)) in ordered_references {
+                    if references.len() >= MAX_REFERENCE_EDGES {
+                        references_truncated = true;
+                        break;
+                    }
+                    references.push(json!({
+                        "kind": match kind { 1 => "field_read", 2 => "field_write", _ => "string_literal" },
+                        "fromSignature": signature,
+                        "fromRelativePath": format!("{}.java", class_name.replace('.', "/")),
+                        "fromDexIndex": dex_index,
+                        "fromMethodIndex": method.method_idx,
+                        "fromAddress": format!("dex{dex_index}:method#{}", method.method_idx),
+                        "targetSignature": target_signature,
+                        "targetName": target_name,
+                        "targetNameTruncated": target_name_truncated,
+                        "targetDexIndex": dex_index,
+                        "targetIndex": target_index,
+                        "occurrenceCount": occurrence_count,
+                        "offsets": offsets,
                     }));
                 }
                 let mnemonics: Vec<String> = rows
@@ -319,6 +382,8 @@ fn run() -> Result<()> {
             "evidenceBytes": total_evidence_bytes,
             "calls": calls,
             "callGraphTruncated": call_graph_truncated,
+            "references": references,
+            "referencesTruncated": references_truncated,
         })
     );
     Ok(())

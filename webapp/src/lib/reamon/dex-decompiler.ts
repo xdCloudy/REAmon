@@ -5,6 +5,7 @@ import { readAnalyzerResponse } from './analyzer-response'
 const MAX_CLASSES = 500
 const MAX_METHODS = 10_000
 const MAX_CALL_EDGES = 4_000
+const MAX_REFERENCES = 4_000
 const DEFAULT_TIMEOUT_MS = 20 * 60_000
 
 interface DexMethod {
@@ -35,6 +36,8 @@ interface DexDecompilerResponse {
   methods: DexMethod[]
   calls: DexCall[]
   callGraphTruncated: boolean
+  references: DexReference[]
+  referencesTruncated: boolean
   codeBytes: number
   truncated: boolean
   units: Array<{ name: string; relativePath: string; codeArtifactId: string; sizeBytes: number }>
@@ -56,6 +59,22 @@ interface DexCall {
   offsets: number[]
 }
 
+interface DexReference {
+  kind: 'field_read' | 'field_write' | 'string_literal'
+  fromSignature: string
+  fromRelativePath: string
+  fromDexIndex: number
+  fromMethodIndex: number
+  fromAddress: string
+  targetSignature: string
+  targetName: string
+  targetNameTruncated: boolean
+  targetDexIndex: number
+  targetIndex: number
+  occurrenceCount: number
+  offsets: number[]
+}
+
 export const dexDecompilerManifest: ToolPluginManifest = {
   id: 'reamon-dex-decompiler',
   name: 'Rust DEX-to-Java Decompiler',
@@ -64,7 +83,7 @@ export const dexDecompilerManifest: ToolPluginManifest = {
   acceptsTargetTypes: ['FILE'],
   acceptsFormats: ['apk', 'dex'],
   capabilities: ['decompile'],
-  produces: ['CodeUnit', 'DecompiledSource', 'CallGraph', 'Relationship'],
+  produces: ['CodeUnit', 'DecompiledSource', 'CallGraph', 'Relationship', 'SymbolReference'],
   requirements: [
     { key: 'service', value: 'Isolated dex-decompiler analyzer container' },
     { key: 'artifactPath' },
@@ -136,6 +155,23 @@ function isResponse(value: unknown): value is DexDecompilerResponse {
       && Number.isSafeInteger(call.callSiteCount) && call.callSiteCount >= 1
       && Array.isArray(call.offsets) && call.offsets.length <= 3
       && call.offsets.every((offset) => Number.isSafeInteger(offset) && offset >= 0))
+    && Array.isArray(response.references) && response.references.length <= MAX_REFERENCES
+    && typeof response.referencesTruncated === 'boolean'
+    && response.references.every((reference: DexReference) => !!reference && typeof reference === 'object' && !Array.isArray(reference)
+      && ['field_read', 'field_write', 'string_literal'].includes(reference.kind)
+      && typeof reference.fromSignature === 'string' && reference.fromSignature.length > 0 && reference.fromSignature.length <= 1_000
+      && typeof reference.fromRelativePath === 'string' && reference.fromRelativePath.length > 0 && reference.fromRelativePath.length <= 1_000
+      && Number.isSafeInteger(reference.fromDexIndex) && reference.fromDexIndex >= 0
+      && Number.isSafeInteger(reference.fromMethodIndex) && reference.fromMethodIndex >= 0
+      && typeof reference.fromAddress === 'string' && reference.fromAddress.length <= 128
+      && typeof reference.targetSignature === 'string' && reference.targetSignature.length > 0 && reference.targetSignature.length <= 1_000
+      && typeof reference.targetName === 'string' && reference.targetName.length <= 512
+      && typeof reference.targetNameTruncated === 'boolean'
+      && Number.isSafeInteger(reference.targetDexIndex) && reference.targetDexIndex >= 0
+      && Number.isSafeInteger(reference.targetIndex) && reference.targetIndex >= 0
+      && Number.isSafeInteger(reference.occurrenceCount) && reference.occurrenceCount >= 1
+      && Array.isArray(reference.offsets) && reference.offsets.length <= 3
+      && reference.offsets.every((offset) => Number.isSafeInteger(offset) && offset >= 0))
     && typeof response.codeBytes === 'number' && Number.isSafeInteger(response.codeBytes) && response.codeBytes >= 0
     && typeof response.truncated === 'boolean'
     && Array.isArray(response.units) && response.units.length <= MAX_CLASSES
@@ -338,6 +374,77 @@ export async function executeDexDecompiler(input: ToolExecutionInput): Promise<T
         },
       })
     }
+    let referencesTruncated = payload.referencesTruncated
+    const seenReferenceTargets = new Set<string>()
+    const seenReferenceEdges = new Set<string>()
+    for (const reference of payload.references) {
+      if (!unitsByPath.has(reference.fromRelativePath)) {
+        referencesTruncated = true
+        continue
+      }
+      const fromKey = addCallEndpoint(reference.fromSignature, reference.fromRelativePath, reference.fromDexIndex, reference.fromMethodIndex, reference.fromAddress)
+      if (!fromKey || observations.length + 2 > 20_000) {
+        referencesTruncated = true
+        break
+      }
+      const targetKind = reference.kind === 'string_literal' ? 'string_literal' : 'field'
+      const targetIdentity = `${input.artifactId}:${reference.targetDexIndex}:${reference.targetIndex}:${targetKind}:${reference.targetSignature}`
+      const targetDigest = createHash('sha256').update(targetIdentity).digest('hex').slice(0, 32)
+      const targetKey = `dex-decompiler:symbol:${targetDigest}`
+      if (!seenReferenceTargets.has(targetKey)) {
+        observations.push({
+          kind: 'entity',
+          type: 'symbol',
+          key: targetKey,
+          label: reference.targetName.slice(0, 500) || reference.targetSignature.slice(0, 500),
+          attributes: {
+            unitType: targetKind,
+            symbolKind: targetKind,
+            identity: targetIdentity,
+            identityKey: targetKind === 'field'
+              ? `field:${reference.targetSignature}`
+              : `string:${reference.targetDexIndex}:${reference.targetIndex}`,
+            name: reference.targetName.slice(0, 500) || reference.targetSignature.slice(0, 500),
+            qualifiedName: reference.targetSignature,
+            dexIndex: reference.targetDexIndex,
+            referenceIndex: reference.targetIndex,
+            decompilationEngine: 'androguard/dex-decompiler',
+            decompilationEngineVersion: payload.toolVersion,
+            sourceSha256: payload.input.sha256,
+          },
+        })
+        seenReferenceTargets.add(targetKey)
+      }
+      const relation = reference.kind === 'field_read'
+        ? 'reads_field'
+        : reference.kind === 'field_write' ? 'writes_field' : 'references_string'
+      const edgeIdentity = `${reference.fromDexIndex}:${reference.fromMethodIndex}:${relation}:${targetIdentity}`
+      if (seenReferenceEdges.has(edgeIdentity)) continue
+      const edgeDigest = createHash('sha256').update(`${input.artifactId}:${edgeIdentity}`).digest('hex').slice(0, 32)
+      observations.push({
+        kind: 'relationship',
+        type: relation,
+        relation,
+        key: `dex-decompiler:reference:${edgeDigest}`,
+        fromKey,
+        toKey: targetKey,
+        label: `${reference.fromSignature} ${relation.replace('_', ' ')} ${reference.targetName || reference.targetSignature}`.slice(0, 500),
+        attributes: {
+          fromSignature: reference.fromSignature,
+          fromAddress: reference.fromAddress,
+          targetSignature: reference.targetSignature,
+          targetName: reference.targetName,
+          targetNameTruncated: reference.targetNameTruncated,
+          referenceKind: reference.kind,
+          occurrenceCount: reference.occurrenceCount,
+          referenceOffsets: JSON.stringify(reference.offsets),
+          ...(classKeysByPath.get(reference.fromRelativePath)
+            ? { fromCodeUnitKey: classKeysByPath.get(reference.fromRelativePath) as string }
+            : {}),
+        },
+      })
+      seenReferenceEdges.add(edgeIdentity)
+    }
     return {
       status: 'completed',
       ...base,
@@ -350,8 +457,10 @@ export async function executeDexDecompiler(input: ToolExecutionInput): Promise<T
         callCount: seenCalls.size,
         returnedCallCount: seenCalls.size,
         callGraphTruncated,
+        referenceCount: seenReferenceEdges.size,
+        referencesTruncated,
         codeBytes: payload.codeBytes,
-        truncated: payload.truncated || payload.discoveredClassCount > payload.returnedClassCount || payload.methodsTruncated || methodsAdded < payload.returnedMethodCount || callGraphTruncated,
+        truncated: payload.truncated || payload.discoveredClassCount > payload.returnedClassCount || payload.methodsTruncated || methodsAdded < payload.returnedMethodCount || callGraphTruncated || referencesTruncated,
         decompilationEngine: 'androguard/dex-decompiler',
         decompilationEngineVersion: payload.toolVersion,
         inputSha256: payload.input.sha256,
