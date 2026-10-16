@@ -83,10 +83,28 @@ internal static class Program
             (!Regex.IsMatch(request.ExpectedSha256, "^[a-fA-F0-9]{64}$", RegexOptions.CultureInvariant) ||
              !string.Equals(request.ExpectedSha256, sourceHash, StringComparison.OrdinalIgnoreCase)))
             throw new RefactorException("The C# source changed after rename suggestions were generated");
-        if (request.Operation is not ("bindings" or "rename"))
-            throw new RefactorException("A C# bindings or rename operation is required");
+        if (request.Operation is not ("bindings" or "rename" or "validate"))
+            throw new RefactorException("A C# bindings, rename, or validate operation is required");
         if (request.Renames.Length > MaxRenames)
             throw new RefactorException("The C# rename request exceeds its 80-binding limit");
+
+        if (request.Operation == "validate")
+        {
+            var tree = CSharpSyntaxTree.ParseText(request.SourceCode,
+                new CSharpParseOptions(languageVersion: LanguageVersion.Latest), path: "unit.cs");
+            var errors = tree.GetDiagnostics().Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error).Take(5).ToArray();
+            var version = RoslynVersion();
+            var detail = string.Join("; ", errors.Select(error => error.GetMessage()).Select(message => message.Replace('\n', ' '))).Trim();
+            return new
+            {
+                source_sha256 = sourceHash,
+                validation_status = errors.Length == 0 ? "PASSED" : "FAILED",
+                validation_method = $"roslyn-csharp-{version}-parse",
+                validation_message = errors.Length == 0
+                    ? $"Roslyn {version} parsed this C# source without executing it. This is structural evidence; project references, compilation, and runtime behavior were not checked."
+                    : $"Roslyn {version} rejected the C# source: {detail}",
+            };
+        }
 
         var analysis = Analyze(request.SourceCode, sourceHash);
         if (request.Operation == "bindings")
@@ -104,7 +122,7 @@ internal static class Program
 
     private static Analysis Analyze(string source, string sourceHash)
     {
-        var parseOptions = new CSharpParseOptions(languageVersion: LanguageVersion.Preview, documentationMode: DocumentationMode.Parse);
+        var parseOptions = new CSharpParseOptions(languageVersion: LanguageVersion.Latest, documentationMode: DocumentationMode.Parse);
         var tree = CSharpSyntaxTree.ParseText(SourceText.From(source, Encoding.UTF8), parseOptions, path: "unit.cs");
         var root = tree.GetCompilationUnitRoot();
         if (tree.GetDiagnostics().Any(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error))

@@ -615,7 +615,7 @@ class ReamonLuaRefactorRequest(BaseModel):
 
 
 class ReamonCSharpRefactorRequest(BaseModel):
-    operation: Literal["bindings", "rename"]
+    operation: Literal["bindings", "rename", "validate"]
     source_code: str
     expected_sha256: str = ""
     renames: list[dict[str, Any]] = Field(default_factory=list)
@@ -857,6 +857,44 @@ async def validate_reamon_code(body: ReamonCodeValidateRequest):
             discard_lint_stdout=True,
         )
         return {"source_sha256": source_sha256, **result}
+    if normalized_language in {"c#", "csharp", "cs"}:
+        validation_method = "roslyn-csharp-parse"
+        if len(encoded) > 512 * 1024:
+            return {
+                "source_sha256": source_sha256,
+                "validation_status": "UNAVAILABLE",
+                "validation_method": validation_method,
+                "validation_message": "The Roslyn C# parser has a 512 KiB per-source limit; the source was not validated.",
+            }
+        try:
+            process = await asyncio.create_subprocess_exec(
+                os.environ.get("REAMON_CSHARP_REFACTOR", "/usr/local/bin/reamon-csharprefactor"),
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await asyncio.wait_for(process.communicate(json.dumps({
+                "operation": "validate", "source_code": body.source_code,
+            }).encode("utf-8")), timeout=25)
+            payload = json.loads(stdout)
+            if process.returncode != 0 or not isinstance(payload, dict) or payload.get("source_sha256") != source_sha256:
+                raise ValueError("Roslyn returned a mismatched validation result")
+            return payload
+        except FileNotFoundError:
+            detail = "The Roslyn C# parser is unavailable; syntax validation was not recorded."
+        except asyncio.TimeoutError:
+            process.kill()
+            await process.communicate()
+            detail = "Roslyn C# parsing exceeded its time limit; syntax validation was not recorded."
+        except Exception as exc:  # noqa: BLE001
+            logger.debug(f"REAmon C# source validation unavailable: {exc}")
+            detail = "Roslyn could not complete C# source validation; syntax validation was not recorded."
+        return {
+            "source_sha256": source_sha256,
+            "validation_status": "UNAVAILABLE",
+            "validation_method": validation_method,
+            "validation_message": detail,
+        }
     if normalized_language in {"luau", "luau source"}:
         result = _reamon_luau_syntax_validation(body.source_code, source_sha256)
         if result is not None:
