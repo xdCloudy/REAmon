@@ -13,6 +13,7 @@ Endpoints:
 
 import asyncio
 import base64
+import hashlib
 import logging
 import os
 import re
@@ -538,6 +539,11 @@ class ReamonCodeExplainRequest(BaseModel):
     question: str = ""
 
 
+class ReamonCodeValidateRequest(BaseModel):
+    language: str = "unknown"
+    source_code: str
+
+
 class ReamonCodeDeobfuscateRequest(BaseModel):
     model: str | None = None
     user_id: str | None = None
@@ -589,6 +595,42 @@ def _reamon_source_parser(language: str):
     except Exception as exc:  # noqa: BLE001
         logger.debug(f"REAmon source validation unavailable for {language}: {exc}")
         return None
+
+
+@app.post("/reamon/code/validate", tags=["REAmon"], dependencies=[Depends(require_internal_auth)])
+async def validate_reamon_code(body: ReamonCodeValidateRequest):
+    """Validate exact source syntax and return a hash-bound structural result."""
+    if not body.language.strip() or len(body.language) > 80:
+        return JSONResponse(content={"error": "A source language of at most 80 characters is required"}, status_code=400)
+    encoded = body.source_code.encode("utf-8")
+    if len(encoded) > 2 * 1024 * 1024:
+        return JSONResponse(content={"error": "Source exceeds the 2 MiB validation limit"}, status_code=413)
+    source_sha256 = hashlib.sha256(encoded).hexdigest()
+    parser = _reamon_source_parser(body.language)
+    if parser is None:
+        return {
+            "source_sha256": source_sha256,
+            "validation_status": "UNAVAILABLE",
+            "validation_method": None,
+            "validation_message": f"No Tree-sitter grammar is registered for {body.language}.",
+        }
+    try:
+        has_error = parser.parse(encoded).root_node.has_error
+    except Exception as exc:  # noqa: BLE001
+        logger.debug(f"REAmon accepted-source validation failed for {body.language}: {exc}")
+        return {
+            "source_sha256": source_sha256,
+            "validation_status": "UNAVAILABLE",
+            "validation_method": "tree-sitter",
+            "validation_message": "The configured source parser could not validate this source.",
+        }
+    return {
+        "source_sha256": source_sha256,
+        "validation_status": "FAILED" if has_error else "PASSED",
+        "validation_method": "tree-sitter",
+        "validation_message": "The configured source parser found syntax errors." if has_error
+        else "The configured source parser found no syntax errors. This is structural evidence, not a behavior-equivalence check.",
+    }
 
 
 def _reamon_declared_name(node) -> str | None:

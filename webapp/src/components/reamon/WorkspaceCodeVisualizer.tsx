@@ -120,7 +120,17 @@ interface CodeMaintenanceResponse { sourceCode: string; providerName: string; mo
 interface CodeDraftRecord { id: string; sourceCode: string; sourceAttemptId: string | null; providerName: string; modelIdentifier: string; question: string; scope: 'file' | 'member'; syntaxValidated: boolean | null; validationStatus: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod: string | null; validationMessage: string | null; updatedAt: string }
 interface CodeAttemptRecord { id: string; providerName: string; modelIdentifier: string; question: string; scope: 'file' | 'member'; status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'; cancelRequested: boolean; errorCode: string | null; errorMessage: string | null; resultSource: string | null; syntaxValidated: boolean | null; validationStatus: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod: string | null; validationMessage: string | null; createdAt: string; completedAt: string | null }
 interface CodeDraftResponse { exists: boolean; draft: CodeDraftRecord | null; attempts?: CodeAttemptRecord[] }
-interface CodeReviewRecord { id: string; reviewerId: string; decision: 'ACCEPTED' | 'REJECTED'; rationale: string; maintainedSourceHash: string; createdAt: string }
+interface CodeReviewRecord {
+  id: string
+  reviewerId: string
+  decision: 'ACCEPTED' | 'REJECTED'
+  rationale: string
+  maintainedSourceHash: string
+  validationStatus?: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null
+  validationMethod?: string | null
+  validationMessage?: string | null
+  createdAt: string
+}
 interface CodeMemberOutline { name: string; kind: 'function' | 'method' | 'constructor'; start_byte: number; end_byte: number; line: number; source_bytes: number }
 interface SafeRenameProposal { bindingId: string; oldName: string; newName: string; kind: string; referenceCount: number; rationale: string }
 interface SafeRenameSuggestions { sourceSha256: string; providerId: string; providerName: string; model: string; candidates: number; renames: SafeRenameProposal[] }
@@ -2283,6 +2293,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
               <strong>Recent acceptance and rejection receipts</strong>
               <ol>{maintainedQuery.data?.reviews?.map((review) => <li key={review.id}>
                 <span>{review.decision.toLowerCase()} by {review.reviewerId} · {new Date(review.createdAt).toLocaleString()}</span>
+                {review.validationStatus && <small>Syntax validation: {review.validationStatus.toLowerCase()}{review.validationMethod ? ` · ${review.validationMethod}` : ''}{review.validationMessage ? ` · ${review.validationMessage}` : ''}</small>}
                 <p>{review.rationale}</p>
                 <code>sha256:{review.maintainedSourceHash}</code>
               </li>)}</ol>

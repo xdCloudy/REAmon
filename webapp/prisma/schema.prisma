@@ -2879,6 +2879,9 @@ model ReamonCodeReview {
   decision             String
   rationale            String   @db.Text
   maintainedSourceHash String   @map("maintained_source_hash")
+  validationStatus     String?  @map("validation_status")
+  validationMethod     String?  @map("validation_method")
+  validationMessage    String?  @db.Text @map("validation_message")
   createdAt            DateTime @default(now()) @map("created_at")
 
   @@index([projectId, codeUnitId, createdAt])

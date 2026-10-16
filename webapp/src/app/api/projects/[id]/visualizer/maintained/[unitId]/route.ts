@@ -14,6 +14,14 @@ interface RouteParams { params: Promise<{ id: string; unitId: string }> }
 const MAX_SOURCE_BYTES = 2 * 1024 * 1024
 
 class MaintainedSourceConflict extends Error {}
+class MaintainedSourceValidationRegression extends Error {}
+
+interface MaintainedSourceValidation {
+  source_sha256: string
+  validation_status: 'PASSED' | 'FAILED' | 'UNAVAILABLE'
+  validation_method: string | null
+  validation_message: string
+}
 
 function isUniqueConflict(error: unknown): boolean {
   return Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'P2002')
@@ -89,6 +97,37 @@ async function checkedPath(relativePath: string) {
   return { rootRealPath, absolute, fileRealPath }
 }
 
+async function validateMaintainedSource(sourceCode: string, language: string): Promise<MaintainedSourceValidation> {
+  const sourceHash = createHash('sha256').update(sourceCode).digest('hex')
+  const unavailable = (message: string): MaintainedSourceValidation => ({
+    source_sha256: sourceHash,
+    validation_status: 'UNAVAILABLE',
+    validation_method: null,
+    validation_message: message,
+  })
+  try {
+    const response = await agentFetch('/reamon/code/validate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source_code: sourceCode, language }),
+    }, { timeoutMs: 20_000 })
+    if (!response.ok) return unavailable('The source validation service could not validate this accepted source.')
+    const result = await response.json().catch(() => null) as Partial<MaintainedSourceValidation> | null
+    if (!result || result.source_sha256 !== sourceHash
+        || !['PASSED', 'FAILED', 'UNAVAILABLE'].includes(String(result.validation_status))) {
+      return unavailable('The source validation service returned an incomplete or mismatched result.')
+    }
+    return {
+      source_sha256: sourceHash,
+      validation_status: result.validation_status as MaintainedSourceValidation['validation_status'],
+      validation_method: typeof result.validation_method === 'string' ? result.validation_method.slice(0, 80) : null,
+      validation_message: typeof result.validation_message === 'string' ? result.validation_message.slice(0, 2000) : 'No validation message was returned.',
+    }
+  } catch {
+    return unavailable('The source validation service is unavailable; syntax validation was not recorded.')
+  }
+}
+
 export async function GET(request: Request, { params }: RouteParams) {
   try {
     const { id: projectId, unitId } = await params
@@ -104,7 +143,7 @@ export async function GET(request: Request, { params }: RouteParams) {
         where: { projectId, codeUnitId: unitId },
         orderBy: { createdAt: 'desc' },
         take: 10,
-        select: { id: true, reviewerId: true, decision: true, rationale: true, maintainedSourceHash: true, createdAt: true },
+        select: { id: true, reviewerId: true, decision: true, rationale: true, maintainedSourceHash: true, validationStatus: true, validationMethod: true, validationMessage: true, createdAt: true },
       }),
     ])
     const reviewHistory = reviews.map((review) => ({ ...review, createdAt: review.createdAt.toISOString() }))
@@ -243,15 +282,40 @@ export async function PUT(request: Request, { params }: RouteParams) {
     const now = new Date().toISOString()
     const { rootRealPath, absolute } = await checkedPath(resolved.relativePath)
     const maintainedSourceHash = createHash('sha256').update(sourceCode).digest('hex')
+    const validation = await validateMaintainedSource(sourceCode, language)
+    if (validation.validation_status === 'FAILED') {
+      return NextResponse.json({
+        error: 'The maintained source has syntax errors and was not accepted.',
+        validationStatus: validation.validation_status,
+        validationMethod: validation.validation_method,
+        validationMessage: validation.validation_message,
+      }, { status: 422 })
+    }
     const review = await prisma.$transaction(async (tx) => {
       const currentSource = await tx.reamonMaintainedSource.findUnique({
         where: { projectId_codeUnitId: { projectId, codeUnitId: resolved.unitId } },
-        select: { sourceCode: true, sourceHash: true },
+        select: { sourceCode: true, sourceHash: true, acceptedReviewId: true },
       })
       const currentSourceHash = currentSource
         ? createHash('sha256').update(currentSource.sourceCode).digest('hex')
         : null
       if (currentSourceHash !== expectedSourceHash) throw new MaintainedSourceConflict()
+      if (currentSource?.acceptedReviewId && currentSourceHash) {
+        const currentReceipt = await tx.reamonCodeReview.findFirst({
+          where: {
+            id: currentSource.acceptedReviewId,
+            projectId,
+            artifactId: resolved.artifactId,
+            codeUnitId: resolved.unitId,
+            decision: 'ACCEPTED',
+            maintainedSourceHash: currentSourceHash,
+          },
+          select: { validationStatus: true },
+        })
+        if (currentReceipt?.validationStatus === 'PASSED' && validation.validation_status !== 'PASSED') {
+          throw new MaintainedSourceValidationRegression()
+        }
+      }
       await tx.reamonObservation.upsert({
         where: {
           projectId_source_stableKey: {
@@ -289,8 +353,11 @@ export async function PUT(request: Request, { params }: RouteParams) {
           decision: 'ACCEPTED',
           rationale: reviewRationale,
           maintainedSourceHash,
+          validationStatus: validation.validation_status,
+          validationMethod: validation.validation_method,
+          validationMessage: validation.validation_message,
         },
-        select: { id: true, reviewerId: true, decision: true, rationale: true, maintainedSourceHash: true, createdAt: true },
+        select: { id: true, reviewerId: true, decision: true, rationale: true, maintainedSourceHash: true, validationStatus: true, validationMethod: true, validationMessage: true, createdAt: true },
       })
       const sourceData = {
         artifactId: resolved.artifactId,
@@ -333,6 +400,9 @@ export async function PUT(request: Request, { params }: RouteParams) {
       downloadUrl: `/api/projects/${encodeURIComponent(projectId)}/visualizer/maintained/${encodeURIComponent(unitId)}?download=1`,
     }, { headers: { 'Cache-Control': 'private, no-store' } })
   } catch (error) {
+    if (error instanceof MaintainedSourceValidationRegression) {
+      return NextResponse.json({ error: 'This code unit has a syntax-validated accepted version. The validator could not confirm the new source, so the accepted source was kept unchanged.' }, { status: 503 })
+    }
     if (error instanceof MaintainedSourceConflict || isUniqueConflict(error)) {
       return NextResponse.json({ error: 'The maintained source changed after you opened it. Reload the current version and review it before saving again.' }, { status: 409 })
     }

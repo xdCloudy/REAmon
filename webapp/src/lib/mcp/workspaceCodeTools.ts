@@ -385,7 +385,7 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
       codeUnitId: maintenanceCodeUnitId,
       maintainedSourceHash: maintained.sourceHash,
     },
-    select: { decision: true, rationale: true, createdAt: true },
+    select: { decision: true, rationale: true, validationStatus: true, validationMethod: true, validationMessage: true, createdAt: true },
   }) : null
 
   const runKey = codeArtifactId?.split('/').slice(0, 4).join('/') || ''
@@ -604,6 +604,9 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
       reviewReceipt: reviewReceipt ? {
         decision: reviewReceipt.decision,
         rationale: text(reviewReceipt.rationale, 1000),
+        validationStatus: reviewReceipt.validationStatus,
+        validationMethod: reviewReceipt.validationMethod,
+        validationMessage: text(reviewReceipt.validationMessage, 1000),
         createdAt: reviewReceipt.createdAt.toISOString(),
       } : null,
       language: maintained.language,
