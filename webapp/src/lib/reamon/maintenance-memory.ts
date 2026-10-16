@@ -19,6 +19,12 @@ export interface MaintainedSymbolAlias {
   kind: string
 }
 
+export interface RenameContextCandidate {
+  language: string
+  name: string
+  kind: string
+}
+
 function maintainedIndex(value: unknown): { symbols: string[]; aliases: MaintainedSymbolAlias[] } {
   if (Array.isArray(value)) {
     return { symbols: value.filter((item): item is string => typeof item === 'string'), aliases: [] }
@@ -150,6 +156,7 @@ export function buildProjectSymbolContext(
   currentArtifactHash?: string,
   calleeUnitIds: Set<string> = new Set(),
   inputTruncated = false,
+  renameCandidates?: RenameContextCandidate[],
 ): string {
   const ranked = records.map((record, index) => ({ record, index })).sort((left, right) => {
     const calleeRank = Number(calleeUnitIds.has(right.record.codeUnitId || '')) - Number(calleeUnitIds.has(left.record.codeUnitId || ''))
@@ -161,6 +168,9 @@ export function buildProjectSymbolContext(
     return currentArtifactRank || left.index - right.index
   })
   const warning = 'Project symbol memory is partial; older accepted units may be missing. Do not treat absent names as unused.'
+  const renameCandidateKeys = renameCandidates
+    ? new Set(renameCandidates.map((candidate) => `${candidate.language.trim().toLowerCase()}\u0000${candidate.kind}\u0000${candidate.name}`))
+    : null
   const lines: string[] = inputTruncated ? [warning.slice(0, maxChars)] : []
   const includedUnits = new Set<string>()
   let length = lines.reduce((sum, line) => sum + line.length + 1, 0)
@@ -184,8 +194,11 @@ export function buildProjectSymbolContext(
       ? `; syntax passed${record.validationMethod ? ` via ${record.validationMethod}` : ''} (structural evidence only)`
       : record.validationStatus === 'UNAVAILABLE' ? '; syntax validation unavailable' : ''
     const symbolText = symbols.length ? `symbols: ${symbols.join(', ')}` : ''
-    const aliasText = index.aliases.length
-      ? `reviewed rename history (binding-specific, not behavior proof): ${index.aliases.slice(0, 12).map(({ bindingId, oldName, newName, kind }) => `${oldName} → ${newName} [${kind}; binding ${bindingId.slice(0, 8)}]`).join(', ')}`
+    const relevantAliases = renameCandidateKeys
+      ? index.aliases.filter((alias) => renameCandidateKeys.has(`${record.language.trim().toLowerCase()}\u0000${alias.kind}\u0000${alias.oldName}`))
+      : index.aliases
+    const aliasText = relevantAliases.length
+      ? `reviewed rename history for matching language/name/kind only (binding ids are local to their original files; matching spelling/kind does not prove symbol identity, meaning, or behavior): ${relevantAliases.slice(0, 12).map(({ bindingId, oldName, newName, kind }) => `${oldName} → ${newName} [${kind}; binding ${bindingId.slice(0, 8)}]`).join(', ')}`
       : ''
     const line = `${record.unitName} (${record.language}${artifactVersion}${relationship}${validation}): ${[symbolText, aliasText].filter(Boolean).join('; ')}`
     if (length + line.length + 1 > maxChars) continue

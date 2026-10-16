@@ -403,7 +403,8 @@ export async function POST(request: Request, { params }: RouteParams) {
           validationStatus: receipt?.validationStatus,
           validationMethod: receipt?.validationMethod,
         }
-      }), new Set(), 6_000, artifact.sha256 || undefined, undefined, projectSymbolScanTruncated)
+      }), new Set(), 6_000, artifact.sha256 || undefined, undefined, projectSymbolScanTruncated,
+      candidates.map(({ name, kind }) => ({ language, name, kind })))
       const response = await agentFetch('/reamon/code/suggest-renames', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
