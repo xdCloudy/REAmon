@@ -8,7 +8,7 @@ import { getActiveWorkspaceImportSelection } from '@/lib/reamon/inventory-query'
 import { derivedArtifactRoot, resolveDerivedArtifactPath } from '@/lib/reamon/derived-storage'
 
 interface RouteParams { params: Promise<{ id: string }> }
-const PROVIDERS = ['reamon-jadx', 'reamon-vineflower', 'reamon-cfr']
+const PROVIDERS = ['reamon-jadx', 'reamon-dex-decompiler', 'reamon-vineflower', 'reamon-cfr']
 const MAX_SOURCE_BYTES = 2 * 1024 * 1024
 const MAX_ALTERNATES = 2
 const NO_STORE = { 'Cache-Control': 'private, no-store' }
@@ -113,7 +113,8 @@ export async function GET(request: Request, { params }: RouteParams) {
       const candidate = record(row.attributes)
       const codeArtifactId = typeof candidate.codeArtifactId === 'string' ? candidate.codeArtifactId : ''
       const expectedHash = typeof candidate.decompiledSourceSha256 === 'string' ? candidate.decompiledSourceSha256.toLowerCase() : ''
-      const expectedPrefix = `${projectId}/${unit.artifactId}/${row.taskId}/${task?.runToken || ''}/sources/`
+      const outputDirectory = row.source === 'reamon-dex-decompiler' ? 'dex-decompiler' : 'sources'
+      const expectedPrefix = `${projectId}/${unit.artifactId}/${row.taskId}/${task?.runToken || ''}/${outputDirectory}/`
       const sourceRelativePath = codeArtifactId.startsWith(expectedPrefix) ? codeArtifactId.slice(expectedPrefix.length) : ''
       if (!task?.runToken || task.provider?.pluginId !== row.source || !codeArtifactId.startsWith(expectedPrefix)
         || !sourceRelativePath || sourceRelativePath.split('/').some((part) => !part || part === '.' || part === '..' || part.includes('\\'))

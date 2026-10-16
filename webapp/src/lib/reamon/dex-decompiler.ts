@@ -40,7 +40,7 @@ interface DexDecompilerResponse {
   referencesTruncated: boolean
   codeBytes: number
   truncated: boolean
-  units: Array<{ name: string; relativePath: string; codeArtifactId: string; sizeBytes: number }>
+  units: Array<{ name: string; relativePath: string; codeArtifactId: string; sizeBytes: number; outputSha256?: string }>
   warnings?: string
 }
 
@@ -181,7 +181,8 @@ function isResponse(value: unknown): value is DexDecompilerResponse {
       && typeof unit.name === 'string' && unit.name.length > 0 && unit.name.length <= 500
       && typeof unit.relativePath === 'string' && unit.relativePath.length > 0 && unit.relativePath.length <= 1_000
       && typeof unit.codeArtifactId === 'string' && unit.codeArtifactId.length > 0 && unit.codeArtifactId.length <= 2_000
-      && Number.isSafeInteger(unit.sizeBytes) && unit.sizeBytes > 0)
+      && Number.isSafeInteger(unit.sizeBytes) && unit.sizeBytes > 0
+      && (unit.outputSha256 === undefined || (typeof unit.outputSha256 === 'string' && /^[a-f0-9]{64}$/i.test(unit.outputSha256))))
     && (response.warnings === undefined || typeof response.warnings === 'string')
 }
 
@@ -245,6 +246,9 @@ export async function executeDexDecompiler(input: ToolExecutionInput): Promise<T
           decompilationEngine: 'androguard/dex-decompiler',
           decompilationEngineVersion: payload.toolVersion,
           sourceSha256: payload.input.sha256,
+          inputArtifactSha256: payload.input.sha256.toLowerCase(),
+          ...(typeof unit.outputSha256 === 'string' && /^[a-f0-9]{64}$/i.test(unit.outputSha256)
+            ? { decompiledSourceSha256: unit.outputSha256.toLowerCase() } : {}),
           alternateDecompiler: true,
         },
       }

@@ -180,6 +180,7 @@ def analyse(body: dict[str, object]) -> dict[str, object]:
                 target = staging.joinpath(*relative.parts)
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(source_path, target)
+                output_sha256 = hashlib.sha256(target.read_bytes()).hexdigest()
                 artifact_path = destination.joinpath(*relative.parts)
                 code_artifact_id = artifact_path.relative_to(DERIVED_ROOT).as_posix()
                 name = ".".join(relative.with_suffix("").parts)
@@ -188,6 +189,7 @@ def analyse(body: dict[str, object]) -> dict[str, object]:
                     "relativePath": relative.as_posix()[:1000],
                     "codeArtifactId": code_artifact_id[:2000],
                     "sizeBytes": size,
+                    "outputSha256": output_sha256,
                 })
                 returned_bytes += size
             method_rows = method_result.get("methods", [])
