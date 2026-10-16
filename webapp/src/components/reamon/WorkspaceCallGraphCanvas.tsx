@@ -19,16 +19,20 @@ import styles from './WorkspaceCodeVisualizer.module.css'
 
 interface GraphNodeData extends FunctionGraphNodeData {
   onOpen?: (unit: CodeUnit, graphKey: string) => void
-  graphType?: 'function_calls' | 'class_dependencies'
+  onFocus?: (graphKey: string) => void
+  graphType?: 'function_calls' | 'class_dependencies' | 'member_references'
 }
 
 type GraphFlowNode = FunctionGraphNode & { data: GraphNodeData }
 
 function FunctionNode({ data, selected, id }: NodeProps<GraphFlowNode>) {
+  const nodeCaption = data.nodeType === 'field'
+    ? 'Referenced field'
+    : data.nodeType === 'string_literal' ? 'String literal' : 'External or not decompiled'
   const label = <>
     <strong>{data.label}</strong>
     {data.address && <small>{data.address}</small>}
-    {!data.codeUnit && <small>External or not decompiled</small>}
+    {!data.codeUnit && <small>{nodeCaption}</small>}
   </>
   const className = `${styles.flowNode} ${data.isFocus ? styles.flowNodeFocus : ''} ${selected ? styles.flowNodeSelected : ''} ${!data.codeUnit ? styles.flowNodeExternal : ''}`
 
@@ -36,7 +40,9 @@ function FunctionNode({ data, selected, id }: NodeProps<GraphFlowNode>) {
     <Handle type="target" position={Position.Left} />
     {data.codeUnit
       ? <button type="button" className={className} onClick={() => data.onOpen?.(data.codeUnit as CodeUnit, id)} aria-label={`Open ${data.graphType === 'class_dependencies' ? 'class' : 'function'} ${data.label}`} title={data.address || data.label}>{label}</button>
-      : <div className={className} role="img" aria-label={`${data.label}, external or not decompiled`} title={data.address || data.label}>{label}</div>}
+      : data.graphType === 'member_references'
+        ? <button type="button" className={className} onClick={() => data.onFocus?.(id)} aria-label={`Focus references for ${nodeCaption.toLowerCase()} ${data.label}`} title={data.label}>{label}</button>
+        : <div className={className} role="img" aria-label={`${data.label}, ${nodeCaption.toLowerCase()}`} title={data.address || data.label}>{label}</div>}
     <Handle type="source" position={Position.Right} />
   </>
 }
@@ -80,7 +86,7 @@ export function WorkspaceCallGraphCanvas({ nodes, edges, focusKey, graphType = '
   nodes: CallGraphRecord[]
   edges: CallGraphRelationship[]
   focusKey: string | null
-  graphType?: 'function_calls' | 'class_dependencies'
+  graphType?: 'function_calls' | 'class_dependencies' | 'member_references'
   onSelectNode: (node: CallGraphRecord) => void
 }) {
   const [showEntireGraph, setShowEntireGraph] = useState(false)
@@ -93,6 +99,10 @@ export function WorkspaceCallGraphCanvas({ nodes, edges, focusKey, graphType = '
       onOpen: (unit, graphKey) => {
         const record = nodes.find((candidate) => candidate.key === graphKey)
           || nodes.find((candidate) => candidate.codeUnit?.id === unit.id)
+        if (record) onSelectNode(record)
+      },
+      onFocus: (graphKey) => {
+        const record = nodes.find((candidate) => candidate.key === graphKey)
         if (record) onSelectNode(record)
       },
     },
@@ -113,7 +123,9 @@ export function WorkspaceCallGraphCanvas({ nodes, edges, focusKey, graphType = '
     return flowNodes.filter((node) => related.has(node.id))
   }, [flowNodes, focusKey, graph.edges, showEntireGraph])
 
-  const graphLabel = graphType === 'class_dependencies' ? 'Program class dependency graph' : 'Program function call graph'
+  const graphLabel = graphType === 'class_dependencies'
+    ? 'Program class dependency graph'
+    : graphType === 'member_references' ? 'Program member reference graph' : 'Program function call graph'
   return <div className={styles.graphCanvas} role="region" aria-label={graphLabel}>
     <button
       type="button"
@@ -134,7 +146,7 @@ export function WorkspaceCallGraphCanvas({ nodes, edges, focusKey, graphType = '
       nodesDraggable
       elementsSelectable
       defaultEdgeOptions={{ type: 'smoothstep', markerEnd: { type: MarkerType.ArrowClosed } }}
-      aria-label={`Interactive ${graphType === 'class_dependencies' ? 'class dependency graph' : 'function call graph'}`}
+      aria-label={`Interactive ${graphLabel.toLowerCase()}`}
     >
       <Background color="#304057" gap={20} size={1} />
       <Controls showInteractive={false} />

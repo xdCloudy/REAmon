@@ -31,6 +31,7 @@ export async function GET(request: Request, { params }: RouteParams) {
     const unitId = search.get('unitId')?.trim() || ''
     const requestedGraphType = search.get('graphType')
     const runGraph = search.get('view') === 'graph'
+    const referenceGraph = requestedGraphType === 'member_references'
     if (!taskId || taskId.length > 128 || (unitId.length > 128) || (!unitId && !runGraph)) {
       return NextResponse.json({ error: 'A valid code analysis run is required' }, { status: 400, headers: NO_STORE })
     }
@@ -47,6 +48,12 @@ export async function GET(request: Request, { params }: RouteParams) {
       select: { id: true, artifactId: true, provider: { select: { pluginId: true } } },
     })
     if (!task?.artifactId) return NextResponse.json({ error: 'Decompilation run not found' }, { status: 404, headers: NO_STORE })
+    if (referenceGraph && task.provider?.pluginId !== 'reamon-dex-decompiler') {
+      return NextResponse.json({ error: 'Member references are available for Rust DEX analysis runs' }, { status: 400, headers: NO_STORE })
+    }
+    if (requestedGraphType && !['function_calls', 'class_dependencies', 'member_references'].includes(requestedGraphType)) {
+      return NextResponse.json({ error: 'Unsupported relationship graph type' }, { status: 400, headers: NO_STORE })
+    }
 
     if (task.provider?.pluginId === 'reamon-jadx' && (requestedGraphType === 'class_dependencies' || requestedGraphType === null)) {
       const classRows = await prisma.reamonObservation.findMany({
@@ -109,7 +116,7 @@ export async function GET(request: Request, { params }: RouteParams) {
         projectId,
         taskId: task.id,
         artifactId: task.artifactId,
-        type: { in: ['code_unit', 'function'] },
+        type: { in: referenceGraph ? ['code_unit', 'function', 'symbol'] : ['code_unit', 'function'] },
         source: observationSource,
         artifact: { is: selection.artifactWhere },
       },
@@ -126,27 +133,37 @@ export async function GET(request: Request, { params }: RouteParams) {
       },
     }) : null
     const focusUnit = focusRow?.type === 'code_unit' ? normalizeCodeUnit(focusRow) : null
-    if (unitId && (!focusRow || (focusRow.type !== 'function' && focusUnit?.unitType !== 'function'))) {
-      return NextResponse.json({ error: 'Function is outside this analysis run' }, { status: 404, headers: NO_STORE })
+    const validReferenceFocus = focusRow?.type === 'function'
+      || focusRow?.type === 'symbol'
+      || (focusRow?.type === 'code_unit' && focusUnit?.unitType === 'class')
+    if (unitId && (!focusRow || (referenceGraph ? !validReferenceFocus : (focusRow.type !== 'function' && focusUnit?.unitType !== 'function')))) {
+      return NextResponse.json({ error: referenceGraph ? 'Selected item is outside this DEX analysis run' : 'Function is outside this analysis run' }, { status: 404, headers: NO_STORE })
     }
 
+    const referenceTypes = ['reads_field', 'writes_field', 'references_string']
+    const focusEdgeWhere = focusRow
+      ? referenceGraph && focusRow.type === 'code_unit'
+        ? { attributes: { path: ['fromCodeUnitKey'], equals: focusRow.stableKey } }
+        : { OR: [{ fromKey: focusRow.stableKey }, { toKey: focusRow.stableKey }] }
+      : {}
     const edgeRows = await prisma.reamonObservation.findMany({
       where: {
         projectId,
         taskId: task.id,
         artifactId: task.artifactId,
         kind: 'relationship',
-        type: 'calls',
+        type: referenceGraph ? { in: referenceTypes } : 'calls',
         source: observationSource,
-        ...(focusRow ? { OR: [{ fromKey: focusRow.stableKey }, { toKey: focusRow.stableKey }] } : {}),
+        ...focusEdgeWhere,
       },
       orderBy: [{ stableKey: 'asc' }, { id: 'asc' }],
       take: MAX_EDGES + 1,
-      select: { id: true, stableKey: true, label: true, fromKey: true, toKey: true },
+      select: { id: true, stableKey: true, label: true, fromKey: true, toKey: true, type: true, attributes: true },
     })
     const truncated = edgeRows.length > MAX_EDGES
     const edges = edgeRows.slice(0, MAX_EDGES).filter((edge) => edge.fromKey && edge.toKey)
-    const endpointKeys = [...new Set([...(focusRow ? [focusRow.stableKey] : []), ...edges.flatMap((edge) => [edge.fromKey!, edge.toKey!])])]
+    const includeFocusNode = !(referenceGraph && focusRow?.type === 'code_unit' && focusUnit?.unitType === 'class')
+    const endpointKeys = [...new Set([...(focusRow && includeFocusNode ? [focusRow.stableKey] : []), ...edges.flatMap((edge) => [edge.fromKey!, edge.toKey!])])]
     const nodeRows = endpointKeys.length > 0
       ? await prisma.reamonObservation.findMany({
         where: {
@@ -155,7 +172,7 @@ export async function GET(request: Request, { params }: RouteParams) {
           artifactId: task.artifactId,
           source: observationSource,
           stableKey: { in: endpointKeys },
-          type: { in: ['code_unit', 'function'] },
+          type: { in: referenceGraph ? ['code_unit', 'function', 'symbol'] : ['code_unit', 'function'] },
         },
         select: {
           id: true,
@@ -199,21 +216,34 @@ export async function GET(request: Request, { params }: RouteParams) {
       const parentRow = parentKey ? parentByKey.get(parentKey) : undefined
       const codeUnit = row.type === 'code_unit'
         ? normalizeCodeUnit(row)
-        : parentRow ? normalizeCodeUnit(parentRow) : null
+        : row.type === 'function' && parentRow ? normalizeCodeUnit(parentRow) : null
+      const nodeType = row.type === 'symbol'
+        ? (attributes.unitType === 'field' ? 'field' : attributes.unitType === 'string_literal' ? 'string_literal' : 'symbol')
+        : attributes.externalOrUndecompiled === true ? 'external' : 'function'
+      const nodeLabel = row.type === 'symbol'
+        ? attributes.name ?? attributes.qualifiedName
+        : attributes.qualifiedName ?? attributes.name
       return [{
         key,
-        label: text(attributes.qualifiedName ?? attributes.name ?? row.label, key === focusRow?.stableKey ? focusUnit?.name || 'Selected function' : 'Unknown function'),
-        address: text(attributes.address, '', 128) || null,
+        label: text(nodeLabel ?? row.label, key === focusRow?.stableKey ? focusUnit?.name || 'Selected function' : 'Unknown function').replace(/[\r\n\t]/g, ' '),
+        address: row.type === 'symbol' ? null : text(attributes.address, '', 128) || null,
         codeUnit,
+        nodeType,
         isFocus: key === focusRow?.stableKey,
       }]
     })
     const nodeKeys = new Set(nodes.map((node) => node.key))
     const visibleEdges = edges
       .filter((edge) => nodeKeys.has(edge.fromKey!) && nodeKeys.has(edge.toKey!))
-      .map((edge) => ({ id: edge.id, fromKey: edge.fromKey!, toKey: edge.toKey!, label: edge.label || 'calls' }))
+      .map((edge) => {
+        if (!referenceGraph) return { id: edge.id, fromKey: edge.fromKey!, toKey: edge.toKey!, label: edge.label || 'calls' }
+        const attributes = attributesRecord(edge.attributes)
+        const target = text(attributes.targetName ?? attributes.targetSignature, 'symbol', 256).replace(/[\r\n\t]/g, ' ')
+        const count = typeof attributes.occurrenceCount === 'number' ? ` · ${attributes.occurrenceCount} site${attributes.occurrenceCount === 1 ? '' : 's'}` : ''
+        return { id: edge.id, fromKey: edge.fromKey!, toKey: edge.toKey!, label: `${edge.type.replace('_', ' ')} · ${target}${count}`.slice(0, 400) }
+      })
 
-    return NextResponse.json({ graphType: 'function_calls', focusKey: focusRow?.stableKey || null, nodes, edges: visibleEdges, truncated }, { headers: NO_STORE })
+    return NextResponse.json({ graphType: referenceGraph ? 'member_references' : 'function_calls', focusKey: focusRow?.type === 'code_unit' && focusUnit?.unitType === 'class' ? null : focusRow?.stableKey || null, nodes, edges: visibleEdges, truncated }, { headers: NO_STORE })
   } catch (error) {
     console.error('Failed to load analysis call graph:', error)
     return NextResponse.json({ error: 'Failed to load call graph' }, { status: 500, headers: NO_STORE })

@@ -239,6 +239,14 @@ maximum-coverage filters operate on the returned units. Missing coverage remains
 unknown instead of being counted as zero. The visualizer links a selected unit to
 its derived code artifact when the provider supplies one.
 
+Run relationship views read provider observations from the selected analysis
+task: function calls remain distinct from DEX field reads, field writes, and
+string-literal references. The DEX member-reference view can be scoped to a class,
+method, or symbol; its API returns bounded graph nodes and edges, with relationship
+counts and instruction offsets retained in the database. AI explanations query the
+same stored references for the selected class instead of inferring accesses from
+neighboring source text.
+
 The built-in JADX provider accepts APK, JVM JAR, standalone DEX, and JVM class
 artifacts and runs JADX 1.5.6 in a
 dedicated container with no database or internet network access. It receives the

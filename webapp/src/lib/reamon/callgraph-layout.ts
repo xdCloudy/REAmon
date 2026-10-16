@@ -6,6 +6,7 @@ export interface CallGraphRecord {
   label: string
   address: string | null
   codeUnit: CodeUnit | null
+  nodeType?: string
   isFocus: boolean
 }
 
@@ -20,6 +21,7 @@ export interface FunctionGraphNodeData extends Record<string, unknown> {
   label: string
   address: string | null
   codeUnit: CodeUnit | null
+  nodeType?: string
   isFocus: boolean
 }
 
@@ -92,7 +94,7 @@ function layoutCompleteGraph(records: CallGraphRecord[], relationships: CallGrap
         position: { x: layerX + column * GRAPH_COLUMN_GAP, y: (row - (rowsInColumn - 1) / 2) * GRAPH_ROW_GAP },
         width: 210,
         height: 76,
-        data: { label: record.label, address: record.address, codeUnit: record.codeUnit, isFocus: record.key === focusKey },
+        data: { label: record.label, address: record.address, codeUnit: record.codeUnit, nodeType: record.nodeType, isFocus: record.key === focusKey },
       }
     })
     layerX += columnCount * GRAPH_COLUMN_GAP + 96
@@ -155,6 +157,7 @@ export function layoutCallGraph(
         label: record.label,
         address: record.address,
         codeUnit: record.codeUnit,
+        nodeType: record.nodeType,
         isFocus: record.key === focusKey,
       },
       })
@@ -171,6 +174,7 @@ export function layoutCallGraph(
       label: focusRecord.label,
       address: focusRecord.address,
       codeUnit: focusRecord.codeUnit,
+      nodeType: focusRecord.nodeType,
       isFocus: true,
     },
   })
