@@ -164,8 +164,10 @@ store.
   provider. Ghidra matches across artifacts require an exact processor-language
   ID. DEX matches retain their owning class and analysis task; method-level
   Android rewrites map matched method observations back to class records before
-  loading reviewed-source and naming context. Keep the score as a navigation
-  lead, never as behavioral validation.
+  loading reviewed-source and naming context. Syntax-aware method outlines are
+  cached against the exact source hash so matching excerpts can be supplied
+  without repeating whole class files. Keep the score as a navigation lead,
+  never as behavioral validation.
 - `compiler.py`, `scoring.py`, and the project adapters judge output with the
   target game's original compiler and byte comparison. That is excellent for
   reproducibly built targets but does not directly validate arbitrary Android

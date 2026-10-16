@@ -182,6 +182,78 @@ async function requestOutline(language: string, source: Buffer): Promise<{ membe
   return { members: normalizeOutlineMembers(payload.members), truncated: payload.truncated === true || tooManyMembers, parserVersion }
 }
 
+async function dexMethodSourceExcerpt(input: {
+  projectId: string
+  taskId: string
+  artifactId: string
+  parentCodeUnitKey: string
+  parentName: string
+  language: string
+  relativePath: string | null
+  codeArtifactId: string
+  methodName: string
+  source: Buffer
+  cache: Map<string, { members: OutlineMember[]; truncated: boolean }>
+  persistOutline?: boolean
+}): Promise<{ source: string; ambiguous: boolean; truncated: boolean } | null> {
+  if (!input.source.length || input.source.byteLength > MAX_ARTIFACT_BYTES) return null
+  const sourceHash = createHash('sha256').update(input.source).digest('hex')
+  const cacheKey = JSON.stringify([input.projectId, input.taskId, input.artifactId, input.parentCodeUnitKey, sourceHash, input.persistOutline !== false])
+  let outline = input.cache.get(cacheKey)
+  if (!outline) {
+    const stored = await cachedOutlineMembers({
+      projectId: input.projectId,
+      taskId: input.taskId,
+      artifactId: input.artifactId,
+      parentCodeUnitKey: input.parentCodeUnitKey,
+      sourceHash,
+    })
+    outline = stored.members.length ? stored : undefined
+    if (!outline) {
+      const parsed = await requestOutline(input.language, input.source)
+      if (!parsed) {
+        input.cache.set(cacheKey, { members: [], truncated: false })
+        return null
+      }
+      outline = { members: parsed.members, truncated: parsed.truncated }
+      try {
+        if (parsed.members.length && input.persistOutline !== false) await persistOutlineMembers({
+          projectId: input.projectId,
+          taskId: input.taskId,
+          artifactId: input.artifactId,
+          sourceHash,
+          parentCodeUnitKey: input.parentCodeUnitKey,
+          parentName: input.parentName,
+          language: input.language,
+          relativePath: input.relativePath,
+          codeArtifactId: input.codeArtifactId,
+          members: parsed.members,
+          truncated: parsed.truncated,
+          parserVersion: parsed.parserVersion,
+        })
+      } catch {
+        // The source excerpt remains useful if optional outline persistence fails.
+      }
+    }
+    input.cache.set(cacheKey, outline)
+  }
+
+  const matchingCandidates = outline.members.filter((member) => member.name === input.methodName
+    && member.end_byte <= input.source.byteLength)
+  const candidates = matchingCandidates.slice(0, 3)
+  if (!candidates.length) return null
+  const source = candidates.map((member, index) => {
+    const ambiguity = candidates.length > 1 ? `; same-name candidate ${index + 1} of ${candidates.length}` : ''
+    return `// syntax-outlined method at line ${member.line}${ambiguity}\n${input.source.subarray(member.start_byte, member.end_byte).toString('utf8')}`
+  }).join('\n\n')
+  const truncated = outline.truncated || matchingCandidates.length > candidates.length
+  return {
+    source: truncated ? `// syntax outline truncated; additional overloads may exist\n${source}` : source,
+    ambiguous: matchingCandidates.length > 1,
+    truncated,
+  }
+}
+
 function smaliMethodEvidence(source: string, memberName: string, unitName: string): string {
   const simpleClassName = unitName.split('.').at(-1)?.split('$').at(-1) || unitName
   const targetName = memberName === simpleClassName ? '<init>' : memberName
@@ -473,6 +545,8 @@ export async function POST(request: Request, { params }: RouteParams) {
 
     const similarFunctionNames: string[] = []
     const similarArtifactByName = new Map<string, string>()
+    const similarDexMethodByName = new Map<string, { taskId: string; parentCodeUnitKey: string; methodName: string }>()
+    const dexOutlineCache = new Map<string, { members: OutlineMember[]; truncated: boolean }>()
     const selectedMemberName = typeof body.memberName === 'string' ? body.memberName.trim() : ''
     const isMethodScopedRewrite = (observation.source === 'reamon-jadx' || observation.source === 'reamon-ilspy' || observation.source === 'reamon-dex-decompiler')
       && scope === 'member' && Boolean(selectedMemberName)
@@ -597,6 +671,14 @@ export async function POST(request: Request, { params }: RouteParams) {
             : undefined
           relatedUnitIdByName.set(name, parent?.id || row.id)
           similarArtifactByName.set(name, row.artifactId)
+          if (observation.source === 'reamon-dex-decompiler' && row.taskId
+            && typeof parentKey === 'string' && typeof relatedAttributes.name === 'string') {
+            similarDexMethodByName.set(name, {
+              taskId: row.taskId,
+              parentCodeUnitKey: parentKey,
+              methodName: relatedAttributes.name,
+            })
+          }
           similarFunctionNames.push(name)
         }
       }
@@ -675,6 +757,28 @@ export async function POST(request: Request, { params }: RouteParams) {
       artifactName: artifactById.get(row.artifactId)?.originalName,
       artifactHash: artifactById.get(row.artifactId)?.sha256,
     })), new Set(relatedUnitIds), undefined, artifact.sha256)
+    const dexMethodExcerptCache = new Map<string, { members: OutlineMember[]; truncated: boolean }>()
+    const dexMethodExcerpt = async (name: string, source: Buffer, sourceLanguage: string, relatedArtifactId: string, persistOutline: boolean) => {
+      const candidate = similarDexMethodByName.get(name)
+      const relatedAttributes = relatedByName.get(name)
+      if (!candidate || !relatedAttributes) return null
+      const signature = typeof relatedAttributes.qualifiedName === 'string' ? relatedAttributes.qualifiedName : name
+      const parentName = signature.includes('->') ? signature.slice(0, signature.indexOf('->')) : signature.split('#')[0]
+      return dexMethodSourceExcerpt({
+        projectId,
+        taskId: candidate.taskId,
+        artifactId: similarArtifactByName.get(name) || artifact.id,
+        parentCodeUnitKey: candidate.parentCodeUnitKey,
+        parentName: parentName || unitName,
+        language: sourceLanguage || 'Java',
+        relativePath: typeof relatedAttributes.relativePath === 'string' ? relatedAttributes.relativePath : null,
+        codeArtifactId: relatedArtifactId,
+        methodName: candidate.methodName,
+        source,
+        cache: dexMethodExcerptCache,
+        persistOutline,
+      })
+    }
     const draftByUnitId = new Map<string, typeof projectDraftRows[number]>()
     for (const draft of projectDraftRows) if (!draftByUnitId.has(draft.codeUnitId)) draftByUnitId.set(draft.codeUnitId, draft)
     const rankedDrafts = [...draftByUnitId.values()].sort((left, right) => Number(relatedUnitIds.includes(right.codeUnitId)) - Number(relatedUnitIds.includes(left.codeUnitId)))
@@ -824,9 +928,15 @@ export async function POST(request: Request, { params }: RouteParams) {
       const relatedUnitId = relatedUnitIdByName.get(name)
       const maintainedSource = relatedUnitId ? maintainedByUnitId.get(relatedUnitId) : undefined
       if (maintainedSource?.sourceCode.trim()) {
-        const source = utf8Prefix(maintainedSource.sourceCode, MAX_CONTEXT_BYTES - contextBytes)
+        let methodExcerpt: { source: string; ambiguous: boolean; truncated: boolean } | null = null
+        try {
+          methodExcerpt = await dexMethodExcerpt(name, Buffer.from(maintainedSource.sourceCode, 'utf8'), maintainedSource.language, relatedArtifactId, false)
+        } catch {
+          // A syntax outline is optional; use the accepted source if it is unavailable.
+        }
+        const source = utf8Prefix(methodExcerpt?.source || maintainedSource.sourceCode, MAX_CONTEXT_BYTES - contextBytes)
         contextSources.push({
-          unit_name: `${name}${similarityHint} (saved maintained version: ${maintainedSource.unitName})`,
+          unit_name: `${name}${similarityHint} (saved maintained version: ${maintainedSource.unitName}${methodExcerpt ? `; syntax-outlined method source${methodExcerpt.ambiguous ? '; same-name candidates may be ambiguous' : ''}${methodExcerpt.truncated ? '; outline truncated' : ''}` : ''})`,
           language: maintainedSource.language.slice(0, 80),
           source_code: source,
         })
@@ -846,6 +956,10 @@ export async function POST(request: Request, { params }: RouteParams) {
           : relatedBytes.subarray(0, Math.min(remaining, MAX_CONTEXT_BYTES)).toString('utf8')
         if (!source.trim()) continue
         let relatedSource = source
+        if (similarityPercent !== null && observation.source === 'reamon-dex-decompiler') {
+          const excerpt = await dexMethodExcerpt(name, relatedBytes, language, relatedArtifactId, true)
+          if (excerpt) relatedSource = excerpt.source
+        }
         if (smaliSimilarity) {
           const fullSignature = typeof relatedAttributes?.address === 'string' ? relatedAttributes.address : ''
           const methodSignature = fullSignature.includes('->') ? fullSignature.slice(fullSignature.indexOf('->') + 2) : ''
@@ -855,7 +969,7 @@ export async function POST(request: Request, { params }: RouteParams) {
           if (start >= 0) relatedSource = lines.slice(start, end >= 0 ? end + 1 : Math.min(lines.length, start + 128)).join('\n')
         }
         contextSources.push({
-          unit_name: `${name}${similarityHint}`,
+          unit_name: `${name}${similarityHint}${similarityPercent !== null && observation.source === 'reamon-dex-decompiler' && relatedSource !== source ? ` (syntax-outlined Java method source${relatedSource.includes('same-name candidate') ? '; overload candidates may be ambiguous' : ''}${relatedSource.includes('syntax outline truncated') ? '; outline truncated' : ''})` : ''}`,
           language: smaliSimilarity ? 'Smali'
             : relatedAttributes?.language === 'IL' ? 'C#'
               : (typeof relatedAttributes?.language === 'string' ? relatedAttributes.language.slice(0, 80) : language),
