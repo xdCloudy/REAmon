@@ -9,7 +9,8 @@ import com.sun.source.tree.Scope;
 import com.sun.source.util.Trees;
 import javax.lang.model.element.Element;
 import javax.lang.model.element.ElementKind;
-import javax.lang.model.util.Elements;
+import javax.lang.model.element.ExecutableElement;
+import javax.lang.model.element.Modifier;
 import javax.tools.Diagnostic;
 import javax.tools.DiagnosticCollector;
 import javax.tools.JavaCompiler;
@@ -81,10 +82,11 @@ public final class ReamonJavaRefactor {
         final Map<Integer, TreePath> identifiers;
         final List<IdentifierRef> allIdentifiers;
         final List<String> errors;
+        final List<String> bindingConflicts;
 
         Analysis(String source, String sourceHash, com.sun.source.tree.CompilationUnitTree unit, Trees trees,
                  List<Binding> bindings, Map<Element, Binding> bySymbol, Map<Integer, TreePath> identifiers,
-                 List<IdentifierRef> allIdentifiers, List<String> errors) {
+                 List<IdentifierRef> allIdentifiers, List<String> errors, List<String> bindingConflicts) {
             this.source = source;
             this.sourceHash = sourceHash;
             this.unit = unit;
@@ -94,6 +96,7 @@ public final class ReamonJavaRefactor {
             this.identifiers = identifiers;
             this.allIdentifiers = allIdentifiers;
             this.errors = errors;
+            this.bindingConflicts = bindingConflicts;
         }
     }
 
@@ -179,6 +182,9 @@ public final class ReamonJavaRefactor {
             .limit(5).map(diagnostic -> diagnostic.getMessage(null).replace('\n', ' ')).toList();
         if (units.size() != 1) throw new IllegalArgumentException("javac could not parse one Java source unit");
         try { task.analyze(); } catch (RuntimeException ignored) { /* Keep any partial symbol information from isolated source. */ }
+        List<String> bindingConflicts = diagnostics.getDiagnostics().stream()
+            .filter(diagnostic -> diagnostic.getKind() == Diagnostic.Kind.ERROR && diagnostic.getCode().contains("already.defined"))
+            .limit(5).map(diagnostic -> diagnostic.getMessage(null).replace('\n', ' ')).toList();
         Trees trees = Trees.instance(task);
         var unit = units.get(0);
         var sourcePositions = trees.getSourcePositions();
@@ -189,7 +195,7 @@ public final class ReamonJavaRefactor {
             @Override public Void visitVariable(VariableTree node, Void unused) {
                 TreePath path = getCurrentPath();
                 Element symbol = trees.getElement(path);
-                if (symbol != null && isSafeBinding(node, path, symbol, unit, sourcePositions)) {
+                if (symbol != null && isSafeBinding(path, symbol)) {
                     int start = declarationNameStart(source, node, unit, sourcePositions);
                     if (start >= 0 && IDENTIFIER.matcher(symbol.getSimpleName().toString()).matches()) {
                         String name = symbol.getSimpleName().toString();
@@ -218,19 +224,20 @@ public final class ReamonJavaRefactor {
         List<Binding> bindings = bySymbol.values().stream()
             .filter(binding -> !binding.references.isEmpty())
             .sorted(Comparator.comparingInt(binding -> binding.declarationStart)).toList();
-        return new Analysis(source, sourceHash, unit, trees, bindings, bySymbol, identifiers, allIdentifiers, errors);
+        return new Analysis(source, sourceHash, unit, trees, bindings, bySymbol, identifiers, allIdentifiers, errors, bindingConflicts);
     }
 
-    private static boolean isSafeBinding(VariableTree node, TreePath path, Element symbol,
-                                         com.sun.source.tree.CompilationUnitTree unit,
-                                         com.sun.source.util.SourcePositions positions) {
+    private static boolean isSafeBinding(TreePath path, Element symbol) {
         ElementKind kind = symbol.getKind();
         if (!(kind == ElementKind.LOCAL_VARIABLE || kind == ElementKind.PARAMETER || kind == ElementKind.EXCEPTION_PARAMETER
                 || kind == ElementKind.RESOURCE_VARIABLE || kind.name().equals("BINDING_VARIABLE"))) return false;
         if (kind != ElementKind.PARAMETER) return true;
         for (TreePath parent = path.getParentPath(); parent != null; parent = parent.getParentPath()) {
             if (parent.getLeaf() instanceof LambdaExpressionTree) return true;
-            if (parent.getLeaf() instanceof com.sun.source.tree.MethodTree) return false;
+            if (parent.getLeaf() instanceof com.sun.source.tree.MethodTree) {
+                return symbol.getEnclosingElement() instanceof ExecutableElement executable
+                    && executable.getModifiers().contains(Modifier.PRIVATE);
+            }
         }
         return false;
     }
@@ -288,9 +295,9 @@ public final class ReamonJavaRefactor {
         String outputHash = sha256(outputSource.getBytes(StandardCharsets.UTF_8));
         Analysis outputAnalysis = analyze(outputSource, outputHash);
         if (!outputAnalysis.errors.isEmpty()) throw new IllegalArgumentException("javac found syntax errors in the renamed Java source");
+        if (!outputAnalysis.bindingConflicts.isEmpty()) throw new IllegalArgumentException("The Java rename would create a duplicate local binding");
         Map<Integer, Binding> outputByDeclaration = new HashMap<>();
         for (Binding binding : outputAnalysis.bindings) outputByDeclaration.put(binding.declarationStart, binding);
-        int[] outputBindingStarts = new int[analysis.bindings.size()];
         Map<String, Binding> outputByOriginalId = new HashMap<>();
         for (int index = 0; index < analysis.bindings.size(); index++) {
             Binding original = analysis.bindings.get(index);
@@ -298,7 +305,6 @@ public final class ReamonJavaRefactor {
             Binding changed = outputByDeclaration.get(newStart);
             String wantedName = namesById.getOrDefault(original.id, original.name);
             if (changed == null || !changed.name.equals(wantedName)) throw new IllegalArgumentException("javac could not resolve a Java binding after the rename");
-            outputBindingStarts[index] = newStart;
             outputByOriginalId.put(original.id, changed);
             for (int reference : original.references) {
                 TreePath outputPath = outputAnalysis.identifiers.get(translate(reference, edits));
