@@ -66,6 +66,37 @@ function sourceAddressMappings(value: unknown): { mappings: Array<{ ghidraLineNu
   }
 }
 
+function recoveredVariableEvidence(value: unknown): { variables: Array<Record<string, unknown>>; truncated: boolean } {
+  if (typeof value !== 'string' || value.length > 100_000) return { variables: [], truncated: false }
+  try {
+    const parsed: unknown = JSON.parse(value)
+    if (!Array.isArray(parsed)) return { variables: [], truncated: false }
+    const variables = parsed.flatMap((item) => {
+      const variable = record(item)
+      if ((variable.kind !== 'parameter' && variable.kind !== 'local')
+          || typeof variable.name !== 'string' || !variable.name.trim() || variable.name.length > 256
+          || typeof variable.dataType !== 'string' || variable.dataType.length > 256
+          || !Number.isInteger(variable.sizeBytes) || Number(variable.sizeBytes) < 0 || Number(variable.sizeBytes) > 65536) return []
+      const parameterIndex = variable.parameterIndex
+      if (variable.kind === 'parameter' && (!Number.isInteger(parameterIndex) || Number(parameterIndex) < 0 || Number(parameterIndex) >= 100)) return []
+      if (variable.kind === 'local' && parameterIndex !== undefined) return []
+      const firstUseAddress = variable.firstUseAddress
+      if (firstUseAddress !== undefined && (typeof firstUseAddress !== 'string' || !/^[A-Za-z0-9:_-]{1,128}$/.test(firstUseAddress))) return []
+      return [{
+        kind: variable.kind,
+        name: variable.name,
+        dataType: variable.dataType,
+        sizeBytes: Number(variable.sizeBytes),
+        ...(variable.kind === 'parameter' ? { parameterIndex: Number(parameterIndex) } : {}),
+        ...(typeof firstUseAddress === 'string' ? { firstUseAddress } : {}),
+      }]
+    })
+    return { variables: variables.slice(0, 100), truncated: variables.length > 100 || variables.length !== parsed.length }
+  } catch {
+    return { variables: [], truncated: false }
+  }
+}
+
 function boundedSource(value: string): { sourceCode: string; truncated: boolean } {
   const bytes = Buffer.from(value, 'utf8')
   const truncated = bytes.byteLength > MAX_CODE_BYTES
@@ -326,6 +357,7 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
     return [row.stableKey, text(endpoint.qualifiedName) || text(endpoint.name) || text(row.label) || row.stableKey]
   }))
   const result = record(task?.result)
+  const recoveredVariableData = recoveredVariableEvidence(attributes.recoveredVariables)
 
   return {
     projectId: args.projectId,
@@ -341,6 +373,11 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
       language: text(attributes.language, 80),
       sourceLanguage: text(attributes.sourceLanguage, 80),
       prototype: text(attributes.prototype, 2000),
+      recoveredVariables: recoveredVariableData.variables,
+      recoveredVariablesTruncated: recoveredVariableData.truncated || attributes.recoveredVariablesTruncated === true,
+      recoveredVariablesSemantics: recoveredVariableData.variables.length
+        ? 'Recovered names and types are provider evidence from Ghidra symbols; they are not reviewed canonical names or proof that the pseudocode matches original source.'
+        : null,
       parentCodeUnit: parentUnit ? {
         id: parentUnit.id,
         stableKey: parentUnit.stableKey,

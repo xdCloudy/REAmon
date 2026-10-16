@@ -20,11 +20,12 @@ interface GhidraResponse {
   codeBytes?: number
   returnedUnits: number
   truncated: boolean
-  units: Array<{ name: string; address: string; relativePath: string; codeArtifactId: string; disassemblyArtifactId?: string; referencedStrings?: string[]; instructionMnemonics?: string[]; sourceAddressMap?: Array<{ ghidraLineNumber: number; address: string }>; prototype?: string; sourceLanguage?: string; symbolSource?: string; goPackage?: string; sizeBytes: number }>
+  units: Array<{ name: string; address: string; relativePath: string; codeArtifactId: string; disassemblyArtifactId?: string; referencedStrings?: string[]; instructionMnemonics?: string[]; sourceAddressMap?: Array<{ ghidraLineNumber: number; address: string }>; prototype?: string; recoveredVariables?: Array<{ kind: 'parameter' | 'local'; name: string; dataType: string; sizeBytes: number; parameterIndex?: number; firstUseAddress?: string }>; recoveredVariablesTruncated?: boolean; sourceLanguage?: string; symbolSource?: string; goPackage?: string; sizeBytes: number }>
   calls?: Array<{ fromAddress: string; toAddress: string; fromName: string; toName: string }>
   callCount?: number
   callGraphTruncated?: boolean
   sourceAddressMapTruncated?: boolean
+  recoveredVariablesTruncated?: boolean
   warnings?: string
 }
 
@@ -65,6 +66,7 @@ function isGhidraResponse(value: unknown): value is GhidraResponse {
   const record = value as Record<string, unknown>
   return record.status === 'completed' && Array.isArray(record.units)
     && (record.sourceAddressMapTruncated === undefined || typeof record.sourceAddressMapTruncated === 'boolean')
+    && (record.recoveredVariablesTruncated === undefined || typeof record.recoveredVariablesTruncated === 'boolean')
 }
 
 export async function executeGhidra(input: ToolExecutionInput): Promise<ToolResult> {
@@ -121,6 +123,15 @@ export async function executeGhidra(input: ToolExecutionInput): Promise<ToolResu
               && mapping.ghidraLineNumber > 0 && mapping.ghidraLineNumber <= 1_000_000
               && typeof mapping.address === 'string' && /^[A-Za-z0-9:_-]{1,128}$/.test(mapping.address))))
           || (unit.prototype !== undefined && (typeof unit.prototype !== 'string' || unit.prototype.length > 2000))
+          || (unit.recoveredVariables !== undefined && (!Array.isArray(unit.recoveredVariables)
+            || unit.recoveredVariables.length > 100
+            || !unit.recoveredVariables.every((variable) => variable && (variable.kind === 'parameter' || variable.kind === 'local')
+              && typeof variable.name === 'string' && variable.name.length > 0 && variable.name.length <= 256
+              && typeof variable.dataType === 'string' && variable.dataType.length <= 256
+              && Number.isInteger(variable.sizeBytes) && variable.sizeBytes >= 0 && variable.sizeBytes <= 65536
+              && (variable.parameterIndex === undefined || (variable.kind === 'parameter' && Number.isInteger(variable.parameterIndex) && variable.parameterIndex >= 0 && variable.parameterIndex < 100))
+              && (variable.firstUseAddress === undefined || (typeof variable.firstUseAddress === 'string' && /^[A-Za-z0-9:_-]{1,128}$/.test(variable.firstUseAddress))))))
+          || (unit.recoveredVariablesTruncated !== undefined && typeof unit.recoveredVariablesTruncated !== 'boolean')
           || (unit.sourceLanguage !== undefined && typeof unit.sourceLanguage !== 'string')
           || (unit.symbolSource !== undefined && typeof unit.symbolSource !== 'string')
           || (unit.goPackage !== undefined && typeof unit.goPackage !== 'string')) return false
@@ -156,6 +167,8 @@ export async function executeGhidra(input: ToolExecutionInput): Promise<ToolResu
         ...(unit.instructionMnemonics?.length ? { instructionMnemonics: JSON.stringify(unit.instructionMnemonics.slice(0, 800)) } : {}),
         ...(unit.sourceAddressMap?.length ? { sourceAddressMap: JSON.stringify(unit.sourceAddressMap.slice(0, 5000)) } : {}),
         ...(unit.prototype ? { prototype: unit.prototype.slice(0, 2000) } : {}),
+        ...(unit.recoveredVariables?.length ? { recoveredVariables: JSON.stringify(unit.recoveredVariables.slice(0, 100)) } : {}),
+        ...(unit.recoveredVariablesTruncated ? { recoveredVariablesTruncated: true } : {}),
         ...(payload.sourceAddressMapTruncated ? { sourceAddressMapTruncated: true } : {}),
       },
     })) as ToolObservation[]

@@ -254,7 +254,7 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                 total_metadata_bytes = 0
                 for line in manifest.read_text(encoding="utf-8", errors="replace").splitlines():
                     fields = line.split("\t")
-                    if len(fields) not in (4, 5, 6, 7, 8, 9):
+                    if len(fields) not in (4, 5, 6, 7, 8, 9, 10, 11):
                         continue
                     encoded_name, address, size_text, relative = fields[:4]
                     assembly_relative = fields[4] if len(fields) >= 5 else ""
@@ -262,6 +262,10 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                     encoded_mnemonics = fields[6] if len(fields) >= 7 else ""
                     encoded_source_map = fields[7] if len(fields) >= 8 else ""
                     encoded_prototype = fields[8] if len(fields) == 9 else ""
+                    if len(fields) >= 9:
+                        encoded_prototype = fields[8]
+                    encoded_variables = fields[9] if len(fields) >= 10 else ""
+                    variables_truncated = len(fields) >= 11 and fields[10] == "true"
                     if not re.fullmatch(r"[A-Za-z0-9_./-]{1,500}", relative) or ".." in Path(relative).parts:
                         continue
                     source = within(export_root, export_root / relative)
@@ -332,9 +336,49 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                             prototype = base64.b64decode(encoded_prototype, validate=True).decode("utf-8", errors="replace").strip()[:2000]
                         except (ValueError, UnicodeDecodeError):
                             pass
+                    recovered_variables = []
+                    if encoded_variables:
+                        try:
+                            decoded_variables = base64.b64decode(encoded_variables, validate=True).decode("utf-8", errors="replace")
+                            total_metadata_bytes += len(decoded_variables.encode("utf-8"))
+                            for encoded_variable in decoded_variables.splitlines()[:100]:
+                                variable_fields = encoded_variable.split("\t")
+                                if len(variable_fields) != 6 or variable_fields[0] not in ("parameter", "local"):
+                                    continue
+                                try:
+                                    parameter_index = int(variable_fields[1])
+                                    size_bytes = int(variable_fields[2])
+                                except ValueError:
+                                    continue
+                                first_use_address = variable_fields[3]
+                                if (size_bytes < 0 or size_bytes > 65536
+                                        or (first_use_address and not re.fullmatch(r"[A-Za-z0-9:_-]{1,128}", first_use_address))
+                                        or (variable_fields[0] == "parameter" and not 0 <= parameter_index < 100)
+                                        or (variable_fields[0] == "local" and parameter_index != -1)):
+                                    continue
+                                try:
+                                    variable_name = base64.b64decode(variable_fields[4], validate=True).decode("utf-8", errors="replace")[:256]
+                                    variable_type = base64.b64decode(variable_fields[5], validate=True).decode("utf-8", errors="replace")[:256]
+                                except (ValueError, UnicodeDecodeError):
+                                    continue
+                                if not variable_name.strip():
+                                    continue
+                                variable = {
+                                    "kind": variable_fields[0],
+                                    "name": variable_name,
+                                    "dataType": variable_type,
+                                    "sizeBytes": size_bytes,
+                                }
+                                if variable_fields[0] == "parameter":
+                                    variable["parameterIndex"] = parameter_index
+                                if first_use_address:
+                                    variable["firstUseAddress"] = first_use_address
+                                recovered_variables.append(variable)
+                        except (ValueError, UnicodeDecodeError):
+                            pass
                     if total_bytes + total_assembly_bytes + total_metadata_bytes > MAX_OUTPUT_BYTES:
                         raise AnalysisError("Ghidra sources and evidence exceeded the configured storage limit")
-                    rows.append((name[:500], address[:128], size_bytes, relative, source, assembly_relative, assembly, referenced_strings, instruction_mnemonics, source_address_map, prototype))
+                    rows.append((name[:500], address[:128], size_bytes, relative, source, assembly_relative, assembly, referenced_strings, instruction_mnemonics, source_address_map, prototype, recovered_variables, variables_truncated))
 
                 if not rows:
                     raise AnalysisError(log_text[-1200:] or "Ghidra found no functions it could decompile")
@@ -378,7 +422,7 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                 sources_root = run_root / "sources"
                 units = []
                 progress_stride = max(1, len(returned) // 25)
-                for unit_index, (name, address, size_bytes, relative, source, assembly_relative, assembly, referenced_strings, instruction_mnemonics, source_address_map, prototype) in enumerate(returned, start=1):
+                for unit_index, (name, address, size_bytes, relative, source, assembly_relative, assembly, referenced_strings, instruction_mnemonics, source_address_map, prototype, recovered_variables, variables_truncated) in enumerate(returned, start=1):
                     if unit_index == 1 or unit_index % progress_stride == 0 or unit_index == len(returned):
                         report_progress(f"Saving function {unit_index} of {len(returned)}")
                     destination = sources_root / relative
@@ -412,6 +456,10 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                         unit["sourceAddressMap"] = source_address_map
                     if prototype:
                         unit["prototype"] = prototype
+                    if recovered_variables:
+                        unit["recoveredVariables"] = recovered_variables
+                    if variables_truncated:
+                        unit["recoveredVariablesTruncated"] = True
                     units.append(unit)
 
                 warnings = []
@@ -427,6 +475,9 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                 source_address_map_truncated = summary.get("sourceAddressMapTruncated") == "true"
                 if source_address_map_truncated:
                     warnings.append("Ghidra source-to-address mappings reached the 5000-entry analysis limit.")
+                recovered_variables_truncated = summary.get("recoveredVariablesTruncated") == "true"
+                if recovered_variables_truncated:
+                    warnings.append("Ghidra recovered variable evidence reached its configured analysis limit.")
                 return {
                     "status": "completed",
                     "toolVersion": "12.1.4",
@@ -447,8 +498,9 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                     "callCount": len(calls),
                     "callGraphTruncated": call_edges_truncated,
                     "sourceAddressMapTruncated": source_address_map_truncated,
+                    "recoveredVariablesTruncated": recovered_variables_truncated,
                     "calls": calls,
-                    "truncated": summary.get("truncated") == "true" or len(rows) > len(units) or call_edges_truncated or source_address_map_truncated,
+                    "truncated": summary.get("truncated") == "true" or len(rows) > len(units) or call_edges_truncated or source_address_map_truncated or recovered_variables_truncated,
                     "units": units,
                     "warnings": " ".join(warnings + go_warnings),
                 }

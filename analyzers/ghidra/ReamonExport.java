@@ -11,6 +11,12 @@ import ghidra.program.model.listing.Instruction;
 import ghidra.program.model.listing.InstructionIterator;
 import ghidra.program.model.listing.Data;
 import ghidra.program.model.data.StringDataInstance;
+import ghidra.program.model.data.DataType;
+import ghidra.program.model.pcode.HighFunction;
+import ghidra.program.model.pcode.HighParam;
+import ghidra.program.model.pcode.HighSymbol;
+import ghidra.program.model.pcode.HighVariable;
+import ghidra.program.model.pcode.LocalSymbolMap;
 import ghidra.program.model.symbol.Reference;
 import ghidra.program.model.pcode.PcodeOp;
 import java.util.HashSet;
@@ -23,8 +29,60 @@ import java.util.Base64;
 
 public class ReamonExport extends GhidraScript {
     private static final int MAX_SOURCE_ADDRESS_MAPPINGS = 5000;
+    private static final int MAX_RECOVERED_VARIABLES = 10000;
+    private static final int MAX_VARIABLES_PER_FUNCTION = 100;
     private int sourceAddressMappingCount = 0;
+    private int recoveredVariableCount = 0;
     private boolean sourceAddressMapTruncated = false;
+    private boolean recoveredVariablesTruncated = false;
+    private boolean currentVariablesTruncated = false;
+
+    private String encodeValue(String value) {
+        return Base64.getEncoder().encodeToString(value.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private String collectRecoveredVariables(HighFunction function) {
+        currentVariablesTruncated = false;
+        if (function == null) return "";
+        LocalSymbolMap symbols = function.getLocalSymbolMap();
+        if (symbols == null) return "";
+        java.util.Iterator<HighSymbol> iterator = symbols.getSymbols();
+        StringBuilder output = new StringBuilder();
+        int functionVariableCount = 0;
+        while (iterator.hasNext()) {
+            HighSymbol symbol = iterator.next();
+            if (functionVariableCount >= MAX_VARIABLES_PER_FUNCTION || recoveredVariableCount >= MAX_RECOVERED_VARIABLES) {
+                currentVariablesTruncated = true;
+                recoveredVariablesTruncated = true;
+                break;
+            }
+            HighVariable variable = symbol.getHighVariable();
+            if (variable == null) continue;
+            boolean parameter = variable instanceof HighParam;
+            int parameterIndex = parameter ? ((HighParam) variable).getSlot() : -1;
+            String name = symbol.getName() == null ? "" : symbol.getName().trim();
+            DataType dataType = symbol.getDataType();
+            String typeName = dataType == null ? "" : dataType.getDisplayName();
+            if (name.isEmpty()) continue;
+            if (name.length() > 256) name = name.substring(0, 256);
+            if (typeName != null && typeName.length() > 256) typeName = typeName.substring(0, 256);
+            if (typeName == null) typeName = "";
+            ghidra.program.model.address.Address firstUse = symbol.getPCAddress();
+            output.append(parameter ? "parameter" : "local").append('\t')
+                .append(parameterIndex).append('\t')
+                .append(Math.max(0, symbol.getSize())).append('\t')
+                .append(firstUse == null ? "" : firstUse.toString()).append('\t')
+                .append(encodeValue(name)).append('\t')
+                .append(encodeValue(typeName)).append('\n');
+            functionVariableCount++;
+            recoveredVariableCount++;
+        }
+        if (iterator.hasNext()) {
+            currentVariablesTruncated = true;
+            recoveredVariablesTruncated = true;
+        }
+        return Base64.getEncoder().encodeToString(output.toString().getBytes(StandardCharsets.UTF_8));
+    }
 
     private void collectLineNumbers(ClangNode node, ClangStatement owner, Set<Integer> lines) {
         if (node != owner && node instanceof ClangStatement) return;
@@ -187,9 +245,10 @@ public class ReamonExport extends GhidraScript {
                 String prototype = decompiledFunction.getSignature();
                 String encodedPrototype = Base64.getEncoder().encodeToString(
                     (prototype == null ? "" : prototype.substring(0, Math.min(2000, prototype.length()))).getBytes(StandardCharsets.UTF_8));
+                String encodedVariables = collectRecoveredVariables(result.getHighFunction());
                 String relativePath = "functions/" + filename;
                 String assemblyRelativePath = "assembly/" + assemblyFilename;
-                String line = encodedName + "\t" + address + "\t" + sizeBytes + "\t" + relativePath + "\t" + assemblyRelativePath + "\t" + encodedStrings + "\t" + encodedMnemonics + "\t" + encodedSourceAddressMap + "\t" + encodedPrototype + "\n";
+                String line = encodedName + "\t" + address + "\t" + sizeBytes + "\t" + relativePath + "\t" + assemblyRelativePath + "\t" + encodedStrings + "\t" + encodedMnemonics + "\t" + encodedSourceAddressMap + "\t" + encodedPrototype + "\t" + encodedVariables + "\t" + currentVariablesTruncated + "\n";
                 Files.writeString(manifest, line, StandardCharsets.UTF_8,
                     java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
                 decompiled++;
@@ -207,7 +266,8 @@ public class ReamonExport extends GhidraScript {
             "truncated=" + truncated + "\n" +
             "callCount=" + callCount + "\n" +
             "callsTruncated=" + callsTruncated + "\n" +
-            "sourceAddressMapTruncated=" + sourceAddressMapTruncated + "\n",
+            "sourceAddressMapTruncated=" + sourceAddressMapTruncated + "\n" +
+            "recoveredVariablesTruncated=" + recoveredVariablesTruncated + "\n",
             StandardCharsets.UTF_8);
     }
 }
