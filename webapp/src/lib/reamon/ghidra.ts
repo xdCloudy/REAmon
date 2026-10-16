@@ -16,6 +16,8 @@ interface GhidraResponse {
   goTypes?: string[]
   goTypeDetails?: Array<{ name: string; kind: string; reconstructed: string }>
   goTypeDetailsTruncated?: boolean
+  goUnstripTypeDetails?: Array<{ name: string; kind: string; reconstructed: string; source: 'unstrip' }>
+  goUnstripTypeDetailsTruncated?: boolean
   functionCount: number
   visitedFunctionCount?: number
   failedFunctionCount?: number
@@ -74,6 +76,14 @@ function isGhidraResponse(value: unknown): value is GhidraResponse {
         && typeof item.kind === 'string' && item.kind.length <= 128
         && typeof item.reconstructed === 'string' && item.reconstructed.length <= 4096)))
     && (record.goTypeDetailsTruncated === undefined || typeof record.goTypeDetailsTruncated === 'boolean')
+    && (record.goUnstripTypeDetails === undefined || (Array.isArray(record.goUnstripTypeDetails)
+      && record.goUnstripTypeDetails.length <= 1000
+      && record.goUnstripTypeDetails.every((item) => item && typeof item === 'object' && !Array.isArray(item)
+        && typeof item.name === 'string' && item.name.length <= 500
+        && typeof item.kind === 'string' && item.kind.length <= 128
+        && typeof item.reconstructed === 'string' && item.reconstructed.length <= 4096
+        && item.source === 'unstrip')))
+    && (record.goUnstripTypeDetailsTruncated === undefined || typeof record.goUnstripTypeDetailsTruncated === 'boolean')
     && (record.sourceAddressMapTruncated === undefined || typeof record.sourceAddressMapTruncated === 'boolean')
     && (record.recoveredVariablesTruncated === undefined || typeof record.recoveredVariablesTruncated === 'boolean')
 }
@@ -198,6 +208,12 @@ export async function executeGhidra(input: ToolExecutionInput): Promise<ToolResu
         if (Buffer.byteLength(JSON.stringify([...storedGoTypeDetails, detail]), 'utf8') > 16_000) break
         storedGoTypeDetails.push(detail)
       }
+      const unstripTypeDetails = (payload.goUnstripTypeDetails || []).slice(0, 1000)
+      const storedUnstripTypeDetails: typeof unstripTypeDetails = []
+      for (const detail of unstripTypeDetails) {
+        if (Buffer.byteLength(JSON.stringify([...storedUnstripTypeDetails, detail]), 'utf8') > 16_000) break
+        storedUnstripTypeDetails.push(detail)
+      }
       const goMetadata = {
         kind: 'entity',
         type: 'language_metadata',
@@ -213,6 +229,10 @@ export async function executeGhidra(input: ToolExecutionInput): Promise<ToolResu
           types: JSON.stringify(storedGoTypes),
           typeDetails: JSON.stringify(storedGoTypeDetails),
           typeDetailsTruncated: payload.goTypeDetailsTruncated === true || storedGoTypeDetails.length < goTypeDetails.length,
+          unstripTypeDetails: JSON.stringify(storedUnstripTypeDetails),
+          unstripTypeDetailsTruncated: payload.goUnstripTypeDetailsTruncated === true
+            || storedUnstripTypeDetails.length < unstripTypeDetails.length,
+          unstripVersion: '1.2.0',
         },
       } satisfies ToolObservation
       observations.push(goMetadata)

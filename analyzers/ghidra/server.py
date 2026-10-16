@@ -15,6 +15,8 @@ MAX_RETURNED_UNITS = min(2000, max(1, int(os.environ.get("GHIDRA_MAX_RETURNED_UN
 MAX_CALL_EDGES = min(400, max(0, int(os.environ.get("GHIDRA_MAX_CALL_EDGES", "400"))))
 MAX_GORESYM_OUTPUT_BYTES = min(134217728, max(1048576, int(os.environ.get("GORESYM_MAX_OUTPUT_BYTES", "67108864"))))
 GORESYM_TIMEOUT_SECONDS = min(300, max(15, int(os.environ.get("GORESYM_TIMEOUT_SECONDS", "120"))))
+MAX_UNSTRIP_OUTPUT_BYTES = min(67108864, max(1048576, int(os.environ.get("UNSTRIP_MAX_OUTPUT_BYTES", "33554432"))))
+UNSTRIP_TIMEOUT_SECONDS = min(300, max(15, int(os.environ.get("UNSTRIP_TIMEOUT_SECONDS", "120"))))
 STREAM_RESULT_CHUNK_SIZE = 100
 STREAM_RESULT_CHUNK_BYTES = 1024 * 1024
 GHIDRA_HOME = Path(os.environ.get("GHIDRA_HOME", "/opt/ghidra/current")).resolve()
@@ -110,7 +112,8 @@ def client_disconnected(connection):
     except OSError:
         return True
 
-def run_ghidra(arguments, log_file, cancel_check, home, timeout_seconds=TIMEOUT_SECONDS, stdout_file=None):
+def run_ghidra(arguments, log_file, cancel_check, home, timeout_seconds=TIMEOUT_SECONDS, stdout_file=None,
+               max_stdout_bytes=None):
     environment = {
         **os.environ,
         "HOME": str(home),
@@ -128,6 +131,9 @@ def run_ghidra(arguments, log_file, cancel_check, home, timeout_seconds=TIMEOUT_
         while process.poll() is None:
             if cancel_check():
                 raise AnalysisError("Ghidra analysis was cancelled")
+            if stdout_file is not None and max_stdout_bytes is not None \
+                    and os.fstat(stdout_file.fileno()).st_size > max_stdout_bytes:
+                raise AnalysisError("Analyzer exceeded its configured output limit")
             if time.monotonic() >= deadline:
                 raise AnalysisError(f"Analyzer exceeded {timeout_seconds} seconds")
             try:
@@ -201,6 +207,7 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                         goresym_code = run_ghidra(
                             ["/usr/local/bin/goresym", "-d", "-p", "-t", str(input_path)],
                             log_file, cancel_check, home, GORESYM_TIMEOUT_SECONDS, output_file,
+                            MAX_GORESYM_OUTPUT_BYTES,
                         )
                     if goresym_code == 0 and goresym_path.stat().st_size <= MAX_GORESYM_OUTPUT_BYTES:
                         go_metadata = json.loads(goresym_path.read_text(encoding="utf-8"))
@@ -236,6 +243,51 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                             }
                     if not go_functions:
                         go_metadata = None
+                unstrip_type_details = []
+                unstrip_type_details_truncated = False
+                if go_metadata:
+                    unstrip_path = temporary_root / "unstrip-types.json"
+                    unstrip_log_path = temporary_root / "unstrip.log"
+                    report_progress("Recovering additional Go type evidence")
+                    try:
+                        with unstrip_path.open("wb") as output_file, unstrip_log_path.open("wb") as log_file:
+                            unstrip_code = run_ghidra(
+                                ["/usr/local/bin/unstrip", "--types", "--format", "json", str(input_path)],
+                                log_file, cancel_check, home, UNSTRIP_TIMEOUT_SECONDS, output_file,
+                                MAX_UNSTRIP_OUTPUT_BYTES,
+                            )
+                        if unstrip_code == 0 and unstrip_path.stat().st_size <= MAX_UNSTRIP_OUTPUT_BYTES:
+                            unstrip_rows = json.loads(unstrip_path.read_text(encoding="utf-8"))
+                            if isinstance(unstrip_rows, list):
+                                unstrip_type_details_truncated = len(unstrip_rows) > 1000
+                                for item in unstrip_rows[:1000]:
+                                    if not isinstance(item, dict) or not isinstance(item.get("name"), str) or not item["name"].strip():
+                                        unstrip_type_details_truncated = True
+                                        continue
+                                    encoded_item = json.dumps(item, ensure_ascii=False, separators=(",", ":"))
+                                    if len(item["name"]) > 500 or len(encoded_item) > 4096:
+                                        unstrip_type_details_truncated = True
+                                    unstrip_type_details.append({
+                                        "name": item["name"][:500],
+                                        "kind": str(item.get("kind", "unknown"))[:128],
+                                        "reconstructed": encoded_item[:4096],
+                                        "source": "unstrip",
+                                    })
+                            else:
+                                unstrip_type_details_truncated = True
+                        elif unstrip_path.stat().st_size > MAX_UNSTRIP_OUTPUT_BYTES:
+                            unstrip_type_details_truncated = True
+                            go_warnings.append("unstrip Go type metadata exceeded its configured output limit.")
+                        else:
+                            go_warnings.append("unstrip Go type metadata was unavailable for this binary.")
+                    except AnalysisError as error:
+                        if "cancelled" in str(error).lower():
+                            raise
+                        unstrip_type_details_truncated = True
+                        go_warnings.append("unstrip Go type metadata exceeded an output/time limit or could not start.")
+                    except (OSError, ValueError, json.JSONDecodeError) as error:
+                        unstrip_type_details_truncated = True
+                        go_warnings.append("unstrip Go type metadata could not be parsed.")
                 def recovered_go_name(value, fallback):
                     normalized = value.lower().removeprefix("0x").lstrip("0") or "0"
                     recovered = go_functions.get(normalized)
@@ -520,6 +572,8 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                     ],
                     "goTypeDetails": go_type_details,
                     "goTypeDetailsTruncated": go_type_details_truncated,
+                    "goUnstripTypeDetails": unstrip_type_details,
+                    "goUnstripTypeDetailsTruncated": unstrip_type_details_truncated,
                     "functionCount": len(rows),
                     "visitedFunctionCount": int(summary.get("visited", "0")),
                     "failedFunctionCount": failures,

@@ -464,7 +464,7 @@ export function buildMcpServer(ctx: McpContext, instructions?: string): McpServe
     {
       title: 'Search recovered Go types',
       description:
-        'Search or page through GoReSym type names, kinds, and reconstructed forms from the exact analysis run ' +
+        'Search or page through GoReSym and unstrip Go type names, kinds, and reconstructed forms from the exact analysis run ' +
         'that produced a code unit. The catalog is artifact-wide, not assigned to that function; match each result ' +
         'against its source or signature before using it. Results retain the selected artifact hash and run identity. ' +
         'This tool reads stored metadata only and does not infer types.',

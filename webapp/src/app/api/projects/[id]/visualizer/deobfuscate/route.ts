@@ -1010,6 +1010,24 @@ export async function POST(request: Request, { params }: RouteParams) {
         },
       )
       : ''
+    const providerUnstripTypeContext = observation.taskId
+      && selectedProviderAttributes.sourceLanguage === 'Go'
+      && selectedProviderAttributes.symbolSource === 'GoReSym'
+      ? buildProviderTypeContext(
+        providerGoMetadata?.unstripTypeDetails,
+        bytes.toString('utf8'),
+        typeof selectedProviderAttributes.prototype === 'string' ? selectedProviderAttributes.prototype : undefined,
+        selectedProviderVariables.map((variable) => variable.dataType),
+        {
+          provider: 'unstrip',
+          artifactName: artifact.originalName,
+          artifactHash: artifact.sha256,
+          taskId: observation.taskId,
+          functionAddress: typeof selectedProviderAttributes.address === 'string' ? selectedProviderAttributes.address : undefined,
+          truncated: providerGoMetadata?.unstripTypeDetailsTruncated === true,
+        },
+      )
+      : ''
     const providerToCodeTypeContext = observation.taskId && providerToCodeMetadata
       ? buildProviderTypeContext(
         providerToCodeMetadata.typeDetails,
@@ -1028,7 +1046,7 @@ export async function POST(request: Request, { params }: RouteParams) {
         },
       )
       : ''
-    const combinedProviderSymbolContext = [providerSymbolContext, providerGoTypeContext, providerToCodeTypeContext].filter(Boolean).join('\n')
+    const combinedProviderSymbolContext = [providerSymbolContext, providerGoTypeContext, providerUnstripTypeContext, providerToCodeTypeContext].filter(Boolean).join('\n')
     const dexMethodExcerptCache = new Map<string, { members: OutlineMember[]; truncated: boolean }>()
     const dexMethodExcerpt = async (name: string, source: Buffer, sourceLanguage: string, relatedArtifactId: string, persistOutline: boolean) => {
       const candidate = similarDexMethodByName.get(name)

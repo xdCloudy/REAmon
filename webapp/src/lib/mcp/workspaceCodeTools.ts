@@ -39,7 +39,7 @@ export interface WorkspaceSearchGoTypesArgs {
   offset?: number
 }
 
-type GoTypeDetail = { name: string; kind: string; reconstructed: string }
+type GoTypeDetail = { name: string; kind: string; reconstructed: string; provider?: string }
 
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
@@ -102,6 +102,7 @@ function parseStoredGoTypeDetails(value: unknown): { items: GoTypeDetail[]; trun
       name: detail.name.trim().slice(0, 256),
       kind: detail.kind.trim().slice(0, 128),
       reconstructed: detail.reconstructed.trim().slice(0, 4096),
+      ...(detail.source === 'unstrip' ? { provider: 'unstrip' } : {}),
     }
     items.push(normalized)
     if (normalized.name.length !== detail.name.length
@@ -433,6 +434,7 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
   const goMetadataAttributes = record(providerTypeMetadataRow?.attributes)
   const goTypeCatalog = boundedJsonTextList(goMetadataAttributes.types, 4_000, 64, 256)
   const goTypeDetails = boundedGoTypeDetails(goMetadataAttributes.typeDetails)
+  const unstripGoTypeDetails = boundedGoTypeDetails(goMetadataAttributes.unstripTypeDetails)
   const goMetadata = providerTypeMetadataRow ? goMetadataAttributes.language === 'Go' ? {
     language: 'Go',
     goVersion: text(goMetadataAttributes.goVersion, 128),
@@ -444,7 +446,10 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
     typesTruncated: goTypeCatalog.truncated,
     typeDetails: goTypeDetails.items,
     typeDetailsTruncated: goTypeDetails.truncated || goMetadataAttributes.typeDetailsTruncated === true,
-    typesSemantics: 'Artifact-wide GoReSym type names and structured type details from this exact analysis run. They are not assigned to this function; use a type only when the selected function source or signature supports the match.',
+    unstripVersion: text(goMetadataAttributes.unstripVersion, 32),
+    unstripTypeDetails: unstripGoTypeDetails.items,
+    unstripTypeDetailsTruncated: unstripGoTypeDetails.truncated || goMetadataAttributes.unstripTypeDetailsTruncated === true,
+    typesSemantics: 'Artifact-wide GoReSym and unstrip type evidence from this exact analysis run. unstrip records are explicitly tagged with their provider. They are not assigned to this function; match each candidate against the selected function source or signature before relying on it.',
   } : {
     language: 'ToCode native export',
     exportPath: text(goMetadataAttributes.exportPath, 1000),
@@ -696,7 +701,7 @@ export async function searchWorkspaceGoTypes(ctx: McpContext, args: WorkspaceSea
   })
   if (!unit) throw new McpToolError('Code unit not found in the active workspace import.', 'not_found')
   if (unit.source !== 'reamon-ghidra' || !unit.taskId || !unit.artifactId) {
-    return { available: false, reason: 'No GoReSym type catalog is associated with this code unit.', types: [], totalMatches: 0 }
+    return { available: false, reason: 'No Go binary type catalog is associated with this code unit.', types: [], totalMatches: 0 }
   }
   const metadataRow = await prisma.reamonObservation.findFirst({
     where: {
@@ -710,14 +715,15 @@ export async function searchWorkspaceGoTypes(ctx: McpContext, args: WorkspaceSea
     select: { attributes: true },
   })
   if (!metadataRow) {
-    return { available: false, reason: 'No GoReSym type catalog was recorded for this function’s exact analysis run.', types: [], totalMatches: 0 }
+    return { available: false, reason: 'No Go binary type catalog was recorded for this function’s exact analysis run.', types: [], totalMatches: 0 }
   }
 
   const metadata = record(metadataRow.attributes)
   const structured = parseStoredGoTypeDetails(metadata.typeDetails)
+  const unstripStructured = parseStoredGoTypeDetails(metadata.unstripTypeDetails)
   const typeNames = boundedJsonTextList(metadata.types, 4_000, 1000, 500)
-  const detailsByName = new Map(structured.items.map((item) => [item.name, item]))
-  const catalog = [...structured.items]
+  const catalog = [...structured.items, ...unstripStructured.items]
+  const detailsByName = new Set(catalog.map((item) => item.name))
   for (const name of typeNames.items) {
     if (!detailsByName.has(name)) catalog.push({ name, kind: 'unknown', reconstructed: '' })
   }
@@ -734,7 +740,8 @@ export async function searchWorkspaceGoTypes(ctx: McpContext, args: WorkspaceSea
     types.push(bounded)
     responseBytes += itemBytes
   }
-  const catalogTruncated = structured.truncated || typeNames.truncated || metadata.typeDetailsTruncated === true
+  const catalogTruncated = structured.truncated || unstripStructured.truncated || typeNames.truncated
+    || metadata.typeDetailsTruncated === true || metadata.unstripTypeDetailsTruncated === true
   return {
     available: true,
     codeUnit: {
@@ -751,7 +758,7 @@ export async function searchWorkspaceGoTypes(ctx: McpContext, args: WorkspaceSea
     offset,
     hasMore: offset + types.length < matches.length,
     catalogTruncated,
-    semantics: 'These GoReSym types come from the selected function’s exact analysis run but are artifact-wide, not assigned to the function. Names from legacy records may not include kind or reconstructed form. Match each type against selected source/signature before relying on it.',
+    semantics: 'These GoReSym and unstrip type records come from the selected function’s exact analysis run but are artifact-wide, not assigned to it. Each record carries its provider. Match each type against the selected source or signature before relying on it. Names and kinds are provider evidence, not reviewed canonical symbols.',
   }
 }
 

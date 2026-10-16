@@ -242,15 +242,15 @@ export const ONBOARDING_PLAYBOOK: Record<string, PlaybookEntry> = {
       'draft or reviewed maintained source for that exact code version. Ghidra dossiers may also ' +
       'include sourceAddressMap links from Ghidra source lines to p-code operation target addresses, ' +
       'plus recoveredVariables with provider-recovered parameter/local names and types. GoReSym ' +
-      'package metadata includes a note that it was matched by function address; its type catalog ' +
-      'is artifact-wide, not function-specific, and must be matched against the selected source. ToCode ' +
+      'package metadata includes a note that it was matched by function address; GoReSym and unstrip ' +
+      'type catalogs are artifact-wide, not function-specific, and must be matched against the selected source. ToCode ' +
       'dossiers expose a bounded export-scoped type catalog and the source artifact identity.',
     gotchas: [
       'Returned code is bounded to 128 KiB per file and may be truncated; check each truncated flag before reasoning from the snippet.',
       'Only relationships already persisted for the same analysis task are included. Missing edges do not prove that no call exists.',
       'Availability fields describe what REAmon persisted. “None recorded” does not establish that the binary has no calls or member references.',
       'Decompiler output is provider evidence, not original source or canonical truth. Use other stored evidence to corroborate names and types.',
-      'GoReSym type names are artifact-wide and not assigned to the selected function. Match each one against its source or signature before relying on it.',
+      'GoReSym and unstrip type names are artifact-wide and not assigned to the selected function. Match each one against its source or signature before relying on it; dossier/search records retain provider identity.',
       'Use workspace_search_go_types with the same codeUnitId when you need to search or page through the full stored Go catalog.',
       'Use workspace_search_provider_types to search or page through the stored GoReSym or ToCode catalog. Match a candidate type name against the selected source or signature; catalog membership alone does not assign it to the function.',
       'ToCode Android fieldReferences are linked to field symbols as references_field relationships. They do not report read/write direction; do not describe them as reads or writes.',
@@ -265,7 +265,7 @@ export const ONBOARDING_PLAYBOOK: Record<string, PlaybookEntry> = {
   },
   workspace_search_go_types: {
     whenToUse:
-      'Use this when a Ghidra code-unit dossier includes GoReSym metadata and you need a specific recovered type ' +
+      'Use this when a Ghidra code-unit dossier includes GoReSym or unstrip metadata and you need a specific recovered type ' +
       'or more catalog entries than fit in the dossier. Pass the codeUnitId so the search stays on that function’s exact artifact and analysis run.',
     gotchas: [
       'The catalog is artifact-wide, not function-specific. Match every candidate against the selected source or signature before treating it as this function’s type.',
