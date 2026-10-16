@@ -19,6 +19,7 @@ const MAX_SOURCE_FILE_BYTES = 2 * 1024 * 1024
 const MAX_TOTAL_SOURCE_BYTES = 128 * 1024 * 1024
 const MAX_REFERENCED_STRINGS_PER_FUNCTION = 12
 const MAX_STRING_XREF_ROWS = 100_000
+const MAX_FIELD_REFERENCE_EDGES = 1_000
 const MAX_TYPE_DETAILS = 1_000
 const MAX_TYPE_DETAILS_JSON_BYTES = 64_000
 
@@ -133,6 +134,11 @@ function boundedFieldReferences(value: unknown): { items: string[]; truncated: b
     }
   }
   return { items, truncated }
+}
+
+function parseDexFieldSignature(value: string): { owner: string; name: string; fieldType: string } | null {
+  const match = /^(L[^;\s]+;)->([^:\s]+):(\[*[ZBSCIJFD]|\[*L[^;\s]+;)$/.exec(value)
+  return match ? { owner: match[1], name: match[2], fieldType: match[3] } : null
 }
 
 function toCodeTypeDeclaration(row: Record<string, unknown>): string {
@@ -580,10 +586,75 @@ export async function indexToCodeWorkspaceImport(projectId: string, importId: st
       observations.push(makeCodeUnit(record, metadata, record.codeArtifactId))
     }
 
+    const seenFieldSymbols = new Set<string>()
+    const seenFieldEdges = new Set<string>()
+    let fieldReferenceEdgesTruncated = false
+    for (const record of allFunctions) {
+      for (const signature of record.fieldReferences) {
+        const parsed = parseDexFieldSignature(signature)
+        if (!parsed) continue
+        const edgeIdentity = `${record.key}\u0000${signature}`
+        if (seenFieldEdges.has(edgeIdentity)) continue
+        if (seenFieldEdges.size >= MAX_FIELD_REFERENCE_EDGES) {
+          fieldReferenceEdgesTruncated = true
+          break
+        }
+        const fieldIdentity = `${importId}:${record.exportRoot}:${signature}`
+        const fieldKey = `tocode:field:${shortHash(fieldIdentity)}`
+        if (!seenFieldSymbols.has(fieldKey)) {
+          observations.push({
+            kind: 'entity',
+            type: 'symbol',
+            key: fieldKey,
+            label: signature,
+            attributes: {
+              unitType: 'field',
+              symbolKind: 'field',
+              identity: fieldIdentity,
+              identityKey: `field:${record.exportRoot}:${signature}`,
+              name: parsed.name,
+              qualifiedName: signature,
+              owner: parsed.owner,
+              fieldType: parsed.fieldType,
+              exportPath: record.exportRoot || '.',
+              decompilationEngine: 'ToCode APK metadata',
+            },
+          })
+          seenFieldSymbols.add(fieldKey)
+        }
+        observations.push({
+          kind: 'relationship',
+          type: 'references_field',
+          relation: 'references_field',
+          key: `tocode:field-reference:${shortHash(`${importId}:${edgeIdentity}`)}`,
+          fromKey: record.key,
+          toKey: fieldKey,
+          label: `${record.name} references field ${signature}`.slice(0, 500),
+          attributes: {
+            fromSignature: record.name,
+            fromAddress: record.address,
+            targetName: parsed.name,
+            targetSignature: signature,
+            referenceKind: 'field_reference',
+            accessDirection: 'unknown',
+            referenceSemantics: 'ToCode field_refs does not distinguish reads from writes.',
+            exportPath: record.exportRoot || '.',
+          },
+        })
+        seenFieldEdges.add(edgeIdentity)
+      }
+      if (fieldReferenceEdgesTruncated) break
+    }
+
     const seenCalls = new Set<string>()
+    let callEdgesTruncated = false
     for (const record of allFunctions) {
       const callees = Array.isArray(record.raw.callees) ? record.raw.callees.slice(0, 256) : []
       for (const rawCallee of callees) {
+        if (observations.length >= MAX_CODE_UNITS_PER_RESULT) {
+          callEdgesTruncated = true
+          break
+        }
         const targetAddress = addressKey(rawCallee)
         const target = targetAddress ? recordsByAddress.get(`${record.exportRoot}\u0000${targetAddress}`) : undefined
         if (!target || target.key === record.key) continue
@@ -601,6 +672,7 @@ export async function indexToCodeWorkspaceImport(projectId: string, importId: st
           attributes: { source: 'ToCode functions.json', exportPath: record.exportRoot || '.' },
         })
       }
+      if (callEdgesTruncated) break
     }
 
     const mappingsArtifact = artifactsByPath.get('mappings.json')
@@ -610,6 +682,10 @@ export async function indexToCodeWorkspaceImport(projectId: string, importId: st
         const mappings = await readJsonArtifact(mappingsArtifact, MAX_MAPPING_BYTES)
         const links = Array.isArray(mappings?.links) ? mappings.links.slice(0, 100_000) : []
         for (const rawLink of links) {
+          if (observations.length >= MAX_CODE_UNITS_PER_RESULT) {
+            callEdgesTruncated = true
+            break
+          }
           const link = asRecord(rawLink)
           if (!link || link.status !== 'bound' || !safeText(link.target, 1000)) continue
           const importerRoot = cleanExportPath(link.importer)
@@ -621,6 +697,10 @@ export async function indexToCodeWorkspaceImport(projectId: string, importId: st
           if (!destination) continue
           const sites = Array.isArray(link.call_sites) ? link.call_sites.slice(0, 16) : []
           for (const rawSite of sites) {
+            if (observations.length >= MAX_CODE_UNITS_PER_RESULT) {
+              callEdgesTruncated = true
+              break
+            }
             const site = asRecord(rawSite)
             if (!site) continue
             const caller = functionAtLocation(importerRoot, site.address ?? site.token, site.source_file, site.line_start, recordsByAddress, allFunctions)
@@ -646,11 +726,14 @@ export async function indexToCodeWorkspaceImport(projectId: string, importId: st
             })
             crossBinaryCalls += 1
           }
+          if (callEdgesTruncated) break
         }
       } catch {
         warnings.push('mappings.json could not be parsed; cross-binary call links were skipped.')
       }
     }
+    if (fieldReferenceEdgesTruncated) warnings.push(`Field-reference relationships were capped at ${MAX_FIELD_REFERENCE_EDGES}; method-level field-reference signatures remain stored where their function rows were indexed.`)
+    if (callEdgesTruncated) warnings.push('Call relationships were capped by the ToCode observation limit; indexed method rows remain available.')
     if (candidates.length === MAX_EXPORTS) warnings.push(`Only the first ${MAX_EXPORTS} ToCode exports were indexed.`)
     if (inputFunctions > allFunctions.length + skippedFunctions) warnings.push('Some function rows were omitted by the indexer limits.')
     if (sourceFilesSkipped) warnings.push(`${sourceFilesSkipped} source or assembly links were omitted because files were missing, oversized, or exceeded the copy limit.`)
@@ -665,6 +748,8 @@ export async function indexToCodeWorkspaceImport(projectId: string, importId: st
       skippedFunctions,
       callEdges: seenCalls.size,
       crossBinaryCallEdges: crossBinaryCalls,
+      fieldReferenceEdges: seenFieldEdges.size,
+      fieldReferenceEdgesTruncated,
       functionsWithReferencedStrings: allFunctions.filter((record) => record.referencedStrings.length > 0).length,
       functionsWithImportedCalls: allFunctions.filter((record) => record.importedCalls.length > 0).length,
       functionsWithFieldReferences: allFunctions.filter((record) => record.fieldReferences.length > 0).length,
@@ -672,6 +757,7 @@ export async function indexToCodeWorkspaceImport(projectId: string, importId: st
       recoveredTypeCount,
       truncatedTypeCatalogs,
       skippedTypeCatalogs,
+      callEdgesTruncated,
       copiedSourceAndAssemblyFiles: sourceFiles.size,
       copiedSourceAndAssemblyBytes: sourceBytes,
       warnings: warnings.slice(0, 100),

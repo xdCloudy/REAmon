@@ -16,7 +16,7 @@ const MAX_CODE_BYTES = 128 * 1024
 const MAX_HASH_SOURCE_BYTES = 2 * 1024 * 1024
 const MAX_RELATIONSHIPS = 100
 const CODE_UNIT_TYPES = [CODE_UNIT_OBSERVATION_TYPE, 'function']
-const REFERENCE_RELATIONSHIP_TYPES = ['reads_field', 'writes_field', 'references_string']
+const REFERENCE_RELATIONSHIP_TYPES = ['reads_field', 'writes_field', 'references_field', 'references_string']
 
 export interface WorkspaceListCodeUnitsArgs {
   projectId: string
@@ -574,6 +574,8 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
         label: text(edge.label, 500),
         evidence: {
           referenceKind: text(evidence.referenceKind, 80),
+          accessDirection: text(evidence.accessDirection, 80),
+          referenceSemantics: text(evidence.referenceSemantics, 500),
           targetName: text(evidence.targetName, 500),
           targetSignature: text(evidence.targetSignature, 1000),
           occurrenceCount: typeof evidence.occurrenceCount === 'number' ? evidence.occurrenceCount : null,

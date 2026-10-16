@@ -48,8 +48,8 @@ export async function GET(request: Request, { params }: RouteParams) {
       select: { id: true, artifactId: true, provider: { select: { pluginId: true } } },
     })
     if (!task?.artifactId) return NextResponse.json({ error: 'Decompilation run not found' }, { status: 404, headers: NO_STORE })
-    if (referenceGraph && task.provider?.pluginId !== 'reamon-dex-decompiler') {
-      return NextResponse.json({ error: 'Member references are available for Rust DEX analysis runs' }, { status: 400, headers: NO_STORE })
+    if (referenceGraph && task.provider?.pluginId !== 'reamon-dex-decompiler' && task.provider?.pluginId !== 'reamon-tocode-import') {
+      return NextResponse.json({ error: 'Member references are unavailable for this analysis run' }, { status: 400, headers: NO_STORE })
     }
     if (requestedGraphType && !['function_calls', 'class_dependencies', 'member_references'].includes(requestedGraphType)) {
       return NextResponse.json({ error: 'Unsupported relationship graph type' }, { status: 400, headers: NO_STORE })
@@ -135,14 +135,14 @@ export async function GET(request: Request, { params }: RouteParams) {
     const focusUnit = focusRow?.type === 'code_unit' ? normalizeCodeUnit(focusRow) : null
     const validReferenceFocus = focusRow?.type === 'function'
       || focusRow?.type === 'symbol'
-      || (focusRow?.type === 'code_unit' && focusUnit?.unitType === 'class')
+      || (focusRow?.type === 'code_unit' && (focusUnit?.unitType === 'class' || focusUnit?.unitType === 'function'))
     if (unitId && (!focusRow || (referenceGraph ? !validReferenceFocus : (focusRow.type !== 'function' && focusUnit?.unitType !== 'function')))) {
-      return NextResponse.json({ error: referenceGraph ? 'Selected item is outside this DEX analysis run' : 'Function is outside this analysis run' }, { status: 404, headers: NO_STORE })
+      return NextResponse.json({ error: referenceGraph ? 'Selected item is outside this analysis run' : 'Function is outside this analysis run' }, { status: 404, headers: NO_STORE })
     }
 
-    const referenceTypes = ['reads_field', 'writes_field', 'references_string']
+    const referenceTypes = ['reads_field', 'writes_field', 'references_field', 'references_string']
     const focusEdgeWhere = focusRow
-      ? referenceGraph && focusRow.type === 'code_unit'
+      ? referenceGraph && focusRow.type === 'code_unit' && focusUnit?.unitType === 'class'
         ? { attributes: { path: ['fromCodeUnitKey'], equals: focusRow.stableKey } }
         : { OR: [{ fromKey: focusRow.stableKey }, { toKey: focusRow.stableKey }] }
       : {}

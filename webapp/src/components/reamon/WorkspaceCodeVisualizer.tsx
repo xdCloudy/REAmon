@@ -578,7 +578,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
   const [graphSearch, setGraphSearch] = useState('')
   const [graphFocusKey, setGraphFocusKey] = useState<string | null>(null)
   const [jadxGraphType, setJadxGraphType] = useState<'function_calls' | 'class_dependencies'>('function_calls')
-  const [dexGraphType, setDexGraphType] = useState<'function_calls' | 'member_references'>('function_calls')
+  const [androidGraphType, setAndroidGraphType] = useState<'function_calls' | 'member_references'>('function_calls')
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [selectedEvidenceAddress, setSelectedEvidenceAddress] = useState<string | null>(null)
@@ -699,7 +699,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
   const canShowCallGraph = Boolean(currentRun?.providerId)
   const graphType = currentRun?.providerId === 'reamon-jadx'
     ? jadxGraphType
-    : currentRun?.providerId === 'reamon-dex-decompiler' ? dexGraphType : 'function_calls'
+    : currentRun?.providerId === 'reamon-dex-decompiler' || currentRun?.providerId === 'reamon-tocode-import' ? androidGraphType : 'function_calls'
   const visibleUnits = useMemo(() => {
     const matchedUnits = filterCodeUnits(units, filter)
     if (!filterSearch) return matchedUnits
@@ -1615,9 +1615,9 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
             <button type="button" className={graphType === 'function_calls' ? styles.viewButtonActive : styles.viewButton} aria-pressed={graphType === 'function_calls'} onClick={() => { setGraphFocusKey(null); setJadxGraphType('function_calls') }}>Method calls</button>
             <button type="button" className={graphType === 'class_dependencies' ? styles.viewButtonActive : styles.viewButton} aria-pressed={graphType === 'class_dependencies'} onClick={() => { setGraphFocusKey(null); setJadxGraphType('class_dependencies') }}>Class dependencies</button>
           </div>}
-          {currentRun?.providerId === 'reamon-dex-decompiler' && visualizerView === 'callgraph' && <div className={styles.viewSwitcher} role="group" aria-label="DEX relationship graph">
-            <button type="button" className={graphType === 'function_calls' ? styles.viewButtonActive : styles.viewButton} aria-pressed={graphType === 'function_calls'} onClick={() => { setGraphFocusKey(null); setDexGraphType('function_calls') }}>Method calls</button>
-            <button type="button" className={graphType === 'member_references' ? styles.viewButtonActive : styles.viewButton} aria-pressed={graphType === 'member_references'} onClick={() => { setGraphFocusKey(null); setDexGraphType('member_references') }}>Field and string references</button>
+          {(currentRun?.providerId === 'reamon-dex-decompiler' || currentRun?.providerId === 'reamon-tocode-import') && visualizerView === 'callgraph' && <div className={styles.viewSwitcher} role="group" aria-label="Android relationship graph">
+            <button type="button" className={graphType === 'function_calls' ? styles.viewButtonActive : styles.viewButton} aria-pressed={graphType === 'function_calls'} onClick={() => { setGraphFocusKey(null); setAndroidGraphType('function_calls') }}>Method calls</button>
+            {(currentRun?.providerId === 'reamon-dex-decompiler' || currentRun?.providerId === 'reamon-tocode-import') && <button type="button" className={graphType === 'member_references' ? styles.viewButtonActive : styles.viewButton} aria-pressed={graphType === 'member_references'} onClick={() => { setGraphFocusKey(null); setAndroidGraphType('member_references') }}>Field and string references</button>}
           </div>}
           <Link className={styles.focusLink} href={standalone ? `/projects/${encodeURIComponent(projectId)}` : `/projects/${encodeURIComponent(projectId)}/visualizer`}>
             {standalone ? 'Back to workspace' : 'Open full visualizer'}
@@ -1944,7 +1944,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
 
         {visualizerView === 'callgraph' && <section className={styles.callGraph} aria-labelledby="run-call-graph-heading">
           <div className={styles.callGraphHeader}>
-            <div><h3 id="run-call-graph-heading">{graphType === 'class_dependencies' ? 'Program class dependencies' : graphType === 'member_references' ? 'Program field and string references' : 'Program call graph'}</h3><p>{graphType === 'class_dependencies' ? 'Classes connected by references found in Android bytecode. Select a class to open its decompiled source.' : graphType === 'member_references' ? 'Methods linked to the fields they read or write and string literals they reference. Select a method to inspect its source, or a symbol to focus its related methods.' : 'Functions and direct calls recorded by the analyzer. Drag to arrange, scroll to zoom, or select a function to open its code.'}</p></div>
+            <div><h3 id="run-call-graph-heading">{graphType === 'class_dependencies' ? 'Program class dependencies' : graphType === 'member_references' ? 'Program field and string references' : 'Program call graph'}</h3><p>{graphType === 'class_dependencies' ? 'Classes connected by references found in Android bytecode. Select a class to open its decompiled source.' : graphType === 'member_references' ? 'Methods linked to referenced fields and string literals. Access direction is shown only when the analyzer reports it. Select a method to inspect its source, or a symbol to focus its related methods.' : 'Functions and direct calls recorded by the analyzer. Drag to arrange, scroll to zoom, or select a function to open its code.'}</p></div>
             {runCallGraphQuery.data && <span className={styles.graphBadge}>{graphType === 'class_dependencies'
               ? `${runCallGraphQuery.data.nodes.length.toLocaleString()} classes · ${runCallGraphQuery.data.edges.length.toLocaleString()} dependencies`
               : graphType === 'member_references'
@@ -1963,7 +1963,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
           </div>}
           {runCallGraphQuery.isLoading && <p className={styles.message}>Loading run relationships…</p>}
           {runCallGraphQuery.isError && <p className={styles.error} role="alert">{runCallGraphQuery.error instanceof Error ? runCallGraphQuery.error.message : 'Unable to load this run call graph'}</p>}
-          {!runCallGraphQuery.isLoading && !runCallGraphQuery.isError && runCallGraphQuery.data && runCallGraphQuery.data.nodes.length === 0 && <p className={styles.message}>{graphType === 'class_dependencies' ? 'This JADX run did not record any class references.' : graphType === 'member_references' ? 'This Rust DEX run did not record field or string references.' : 'This run did not record any function calls.'}</p>}
+          {!runCallGraphQuery.isLoading && !runCallGraphQuery.isError && runCallGraphQuery.data && runCallGraphQuery.data.nodes.length === 0 && <p className={styles.message}>{graphType === 'class_dependencies' ? 'This JADX run did not record any class references.' : graphType === 'member_references' ? 'This run did not record field or string references.' : 'This run did not record any function calls.'}</p>}
           {!runCallGraphQuery.isLoading && !runCallGraphQuery.isError && runCallGraphQuery.data && runCallGraphQuery.data.nodes.length > 0 && <WorkspaceCallGraphCanvas
             nodes={runCallGraphQuery.data.nodes as CallGraphRecord[]}
             edges={runCallGraphQuery.data.edges as CallGraphRelationship[]}

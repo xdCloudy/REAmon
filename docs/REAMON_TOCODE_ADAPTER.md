@@ -25,6 +25,11 @@ The current source tree contains specialized metadata formats for APK and .NET e
 so REAmon must select and validate the schema using export type/version instead of
 assuming every `functions.json` is the native shape.
 
+For APK methods, `field_refs` contains DEX field descriptors but does not preserve the
+instruction that referenced each field. REAmon stores the descriptor on the method and
+adds a bounded `references_field` relationship to a field-symbol observation. That edge
+means only that ToCode reported a reference; read/write direction remains unknown.
+
 ## REAmon mapping
 
 | ToCode evidence | REAmon record | Mapping rule |
@@ -34,7 +39,7 @@ assuming every `functions.json` is the native shape.
 | Name, prototype, parameters, locals, recovered types | Unit attributes and symbol/type observations | Preserve as provider evidence with confidence/source fields; do not promote to canonical names or types automatically. Native function prototypes and `params`/`locals` entries with `{name, type}` are passed as bounded provisional symbol context to AI rewrites only from the selected ToCode artifact and analysis run. Missing variable sizes remain unknown rather than being inferred. |
 | Callee/caller addresses and import links | `calls` or dependency relationship observations | Resolve endpoints within the same export first. Resolve cross-binary links only from ToCode's explicit loader/import mappings and exact target artifact identity. Drop unresolved endpoints with a count in task metadata. |
 | Source/assembly paths and line ranges | Derived source artifact and code-unit attributes | Resolve normalized paths against the imported export manifest, verify the file is a regular artifact inside that import, then copy bounded output into REAmon's derived-artifact namespace. Keep assembly as supporting evidence. |
-| Export, strings, sections, relocations, reachability, triage | Typed observations and bounded task summary | Persist only fields with a defined REAmon interpretation; cap counts and field sizes and retain the raw export as an imported artifact. |
+| Export, strings, sections, relocations, reachability, triage | Typed observations and bounded task summary | Persist only fields with a defined REAmon interpretation; cap counts and field sizes and retain the raw export as an imported artifact. APK field signatures are linked as `references_field`, never guessed as reads or writes. |
 | ToCode-generated `AGENTS.md` / `CLAUDE.md` | Untrusted imported text | Never execute or treat it as system/developer instructions. It may be shown as ordinary artifact content only. |
 
 ## Integration shape
