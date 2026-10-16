@@ -176,7 +176,8 @@ searches persisted code-unit observations for the active workspace and returns s
 ids with artifact hashes, provider names, and available source-language or package metadata.
 `workspace_get_code_unit` follows one id to its bounded derived pseudocode/disassembly, same-task
 call edges, task warnings, recovered variables, address-matched GoReSym package identity,
-exact-version saved draft, and maintained source. A maintained source is marked reviewed only when its receipt still
+the exact-run artifact-wide Go type catalog, exact-version saved draft, and maintained source.
+A maintained source is marked reviewed only when its receipt still
 matches the stored source hash. These reads do not invoke a decompiler or synthesize missing
 relationships, and neither host storage paths nor generated project instructions are returned.
 

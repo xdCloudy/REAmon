@@ -47,6 +47,27 @@ function textList(value: unknown, limit: number, maxLength: number): string[] {
   }))].slice(0, limit)
 }
 
+function boundedJsonTextList(value: unknown, maxBytes: number, maxItems: number, maxLength: number): { items: string[]; truncated: boolean } {
+  if (typeof value !== 'string') return { items: [], truncated: false }
+  if (value.length > maxBytes) return { items: [], truncated: true }
+  let parsed: unknown
+  try { parsed = JSON.parse(value) } catch { return { items: [], truncated: true } }
+  if (!Array.isArray(parsed)) return { items: [], truncated: true }
+  const items: string[] = []
+  let bytes = 0
+  for (const candidate of parsed) {
+    const normalized = text(candidate, maxLength)
+    if (!normalized || items.includes(normalized)) continue
+    const itemBytes = Buffer.byteLength(normalized, 'utf8') + 1
+    if (items.length >= maxItems || bytes + itemBytes > maxBytes) {
+      return { items, truncated: true }
+    }
+    items.push(normalized)
+    bytes += itemBytes
+  }
+  return { items, truncated: items.length < parsed.length }
+}
+
 function sourceAddressMappings(value: unknown): { mappings: Array<{ ghidraLineNumber: number; address: string }>; truncated: boolean } {
   if (typeof value !== 'string' || value.length > 1_000_000) return { mappings: [], truncated: false }
   try {
@@ -234,7 +255,7 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
   const classReferenceFilters = unit.type === CODE_UNIT_OBSERVATION_TYPE
     ? [{ attributes: { path: ['fromCodeUnitKey'], equals: unit.stableKey } }]
     : []
-  const [code, disassembly, bytecode, task, edges, referenceEdges, maintained] = await Promise.all([
+  const [code, disassembly, bytecode, task, edges, referenceEdges, maintained, goMetadataRow] = await Promise.all([
     readDerivedText(codeArtifactId, args.projectId, unit.artifactId),
     readDerivedText(disassemblyArtifactId, args.projectId, unit.artifactId),
     readDerivedText(bytecodeArtifactId, args.projectId, unit.artifactId),
@@ -281,6 +302,17 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
       where: { projectId: args.projectId, codeUnitId: maintenanceCodeUnitId, artifactId: unit.artifactId || '' },
       select: { sourceCode: true, sourceHash: true, acceptedReviewId: true, language: true, updatedAt: true },
     }),
+    unit.source === 'reamon-ghidra' && unit.taskId ? prisma.reamonObservation.findFirst({
+      where: {
+        projectId: args.projectId,
+        taskId: unit.taskId,
+        artifactId: unit.artifactId,
+        source: unit.source,
+        type: 'language_metadata',
+        attributes: { path: ['language'], equals: 'Go' },
+      },
+      select: { attributes: true },
+    }) : null,
   ])
   const reviewReceipt = maintained?.acceptedReviewId && maintained.sourceHash ? await prisma.reamonCodeReview.findFirst({
     where: {
@@ -330,6 +362,19 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
   }))
   const result = record(task?.result)
   const recoveredVariableData = providerVariablesOf(attributes, unit.source)
+  const goMetadataAttributes = record(goMetadataRow?.attributes)
+  const goTypeCatalog = boundedJsonTextList(goMetadataAttributes.types, 4_000, 64, 256)
+  const goMetadata = goMetadataRow ? {
+    language: 'Go',
+    goVersion: text(goMetadataAttributes.goVersion, 128),
+    architecture: text(goMetadataAttributes.goArchitecture, 128),
+    recoveredFunctionCount: typeof goMetadataAttributes.recoveredFunctionCount === 'number'
+      ? goMetadataAttributes.recoveredFunctionCount
+      : null,
+    types: goTypeCatalog.items,
+    typesTruncated: goTypeCatalog.truncated,
+    typesSemantics: 'Artifact-wide GoReSym type names from this exact analysis run. They are not assigned to this function; use a type only when the selected function source or signature supports the match.',
+  } : null
   const recoveredVariableSemantics = unit.source === 'reamon-ghidra'
     ? 'Recovered names and types are provider evidence from Ghidra symbols, not reviewed canonical names. nameLocked/typeLocked describe constraints applied by Ghidra to its decompiler model; they do not prove original-source provenance or correctness.'
     : `Recovered names and types are provisional provider evidence from ${unit.source}; they are not reviewed canonical names.`
@@ -352,6 +397,7 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
       providerIdentitySemantics: attributes.symbolSource === 'GoReSym' && typeof attributes.goPackage === 'string'
         ? 'GoReSym matched this function metadata by its address. The recovered package is provisional namespace evidence, not proof of source provenance or behavior.'
         : null,
+      languageMetadata: goMetadata,
       prototype: text(attributes.prototype, 2000),
       recoveredVariables: recoveredVariableData.variables,
       recoveredVariablesTruncated: recoveredVariableData.truncated || attributes.recoveredVariablesTruncated === true,

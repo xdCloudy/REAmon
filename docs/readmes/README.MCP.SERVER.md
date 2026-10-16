@@ -27,7 +27,7 @@ set of recon tuning settings, and query the attack-surface graph.
 | `workspace_get_artifact` | Read one active artifact's profile, hash, logical path, capabilities, and bounded related records. | `recon:read` |
 | `workspace_plan_analysis` | Propose compatible provider tasks from the active inventory; does not run them. | `recon:read` |
 | `workspace_list_code_units` | Search stored decompiler observations for functions/methods/classes, including provider/artifact identity, language, prototype, and GoReSym package metadata where available. | `recon:read` |
-| `workspace_get_code_unit` | Read bounded source, assembly or bytecode, persisted calls/member references, instruction/CFG evidence, provider-recovered variables, address-matched GoReSym package metadata, and exact-version draft/maintained-source state for one unit. | `recon:read` |
+| `workspace_get_code_unit` | Read bounded source, assembly or bytecode, persisted calls/member references, instruction/CFG evidence, provider-recovered variables, address-matched GoReSym package metadata, and the exact-run Go type catalog (labeled artifact-wide), plus exact-version draft/maintained-source state for one unit. | `recon:read` |
 | `get_recon_status` | Whether a scan is running, and its phase. | `recon:read` |
 | `get_recon_settings` | Every setting `update_recon_settings` can change, plus the (read-only) engagement scope and the `updatedAt` to pass back. Credentials are never returned. | `recon:read` |
 | `graph_summary` | Count per node type + relationships present. | `recon:read` |
