@@ -9,6 +9,8 @@ agentic/agent-workspace/*
 **/resource_profile.json
 
 # Byte-compiled / optimized / DLL files
+agentic/reamon_csharp_refactor/bin/
+agentic/reamon_csharp_refactor/obj/
 __pycache__/
 *.py[cod]
 *$py.class

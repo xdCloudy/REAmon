@@ -614,6 +614,13 @@ class ReamonLuaRefactorRequest(BaseModel):
     runtime: str = "Lua 5.5"
 
 
+class ReamonCSharpRefactorRequest(BaseModel):
+    operation: Literal["bindings", "rename"]
+    source_code: str
+    expected_sha256: str = ""
+    renames: list[dict[str, Any]] = Field(default_factory=list)
+
+
 MAX_SOURCE_CONTINUATION_ROUNDS = 4
 MAX_SOURCE_CONTINUATION_TAIL_CHARS = 1024
 
@@ -1458,6 +1465,45 @@ async def refactor_reamon_lua_source(body: ReamonLuaRefactorRequest):
         return JSONResponse(content={"error": "LuaLS could not safely analyze this Lua source"}, status_code=503)
 
 
+@app.post("/reamon/code/csharp/refactor", tags=["REAmon"], dependencies=[Depends(require_internal_auth)])
+async def refactor_reamon_csharp_source(body: ReamonCSharpRefactorRequest):
+    if len(body.source_code.encode("utf-8")) > 512 * 1024 or len(body.renames) > 80:
+        return JSONResponse(content={"error": "The C# refactor request exceeds its size or candidate limit"}, status_code=413)
+    if body.operation == "rename" and not re.fullmatch(r"[a-f0-9]{64}", body.expected_sha256, re.IGNORECASE):
+        return JSONResponse(content={"error": "A valid source SHA-256 is required"}, status_code=400)
+    executable = os.environ.get("REAMON_CSHARP_REFACTOR", "/usr/local/bin/reamon-csharprefactor")
+    try:
+        process = await asyncio.create_subprocess_exec(
+            executable, stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(process.communicate(json.dumps({
+            "operation": body.operation,
+            "source_code": body.source_code,
+            "expected_sha256": body.expected_sha256,
+            "renames": body.renames,
+        }).encode("utf-8")), timeout=25)
+    except FileNotFoundError:
+        return JSONResponse(content={"error": "The Roslyn C# scope-refactor service is unavailable"}, status_code=503)
+    except asyncio.TimeoutError:
+        process.kill()
+        await process.communicate()
+        return JSONResponse(content={"error": "C# semantic analysis exceeded its time limit"}, status_code=504)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug(f"REAmon C# scope-safe refactor failed: {exc}")
+        return JSONResponse(content={"error": "The C# scope-refactor service could not run"}, status_code=503)
+    try:
+        payload = json.loads(stdout)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        logger.debug(f"REAmon C# refactor returned invalid output: {stderr[-500:].decode('utf-8', 'replace')}")
+        return JSONResponse(content={"error": "The C# scope-refactor service returned invalid output"}, status_code=502)
+    if process.returncode != 0 or not isinstance(payload, dict):
+        return JSONResponse(content={"error": "The C# scope-refactor service failed"}, status_code=502)
+    if "error" in payload:
+        return JSONResponse(content={"error": str(payload["error"])[:300]}, status_code=409 if body.operation == "rename" else 422)
+    return payload
+
+
 @app.post("/reamon/code/suggest-renames", tags=["REAmon"], dependencies=[Depends(require_internal_auth)])
 async def suggest_reamon_code_renames(body: ReamonCodeSuggestRenamesRequest):
     """Suggest evidence-grounded binding names; a separate CST/AST pass applies approved mappings."""
@@ -1469,9 +1515,10 @@ async def suggest_reamon_code_renames(body: ReamonCodeSuggestRenamesRequest):
         return JSONResponse(content={"error": "A saved OpenAI-compatible provider is required", "model_used": requested_model}, status_code=400)
     normalized_language = body.language.strip().lower()
     is_python = normalized_language in {"python", "python 3", "python3"}
+    is_csharp = normalized_language in {"c#", "csharp", "cs"}
     is_go = normalized_language in {"go", "golang"}
     is_lua = normalized_language in {"lua", "lua source"} or bool(re.fullmatch(r"lua(?: source)?\s+5\.[1-5]", normalized_language))
-    language_supported = normalized_language in {"javascript", "typescript", "jsx", "tsx", "python", "python 3", "python3", "go", "golang", "lua", "lua source"} or is_lua
+    language_supported = normalized_language in {"javascript", "typescript", "jsx", "tsx", "python", "python 3", "python3", "go", "golang", "lua", "lua source", "c#", "csharp", "cs"} or is_lua
     if (not language_supported
             or not body.unit_name.strip() or len(body.unit_name) > 500 or len(body.language) > 80 or len(body.question) > 1000
             or len(body.source_code.encode("utf-8")) > 64 * 1024 or not body.bindings
@@ -1499,12 +1546,14 @@ async def suggest_reamon_code_renames(body: ReamonCodeSuggestRenamesRequest):
     llm, failure = await _build_feature_llm("REAmon scope-safe rename proposals", requested_model, body.user_id)
     if failure:
         return failure
-    language_label = "Go" if is_go else "Python" if is_python else "Lua" if is_lua else "JavaScript or TypeScript"
+    language_label = "C#" if is_csharp else "Go" if is_go else "Python" if is_python else "Lua" if is_lua else "JavaScript or TypeScript"
     identifier_rule = (
         "Use a valid Python identifier and avoid Python keywords."
         if is_python else
         "Use one valid Go identifier per binding; avoid Go keywords and predeclared identifiers."
         if is_go else
+        "Use one valid C# identifier per binding; avoid C# reserved keywords."
+        if is_csharp else
         "Use one valid Lua identifier per binding; avoid Lua keywords. Use ASCII letters, digits, and underscores only."
         if is_lua else
         "Use one unique valid JavaScript identifier per binding; avoid reserved words."
@@ -1549,6 +1598,9 @@ Return only JSON with this shape: {{"renames":[{{"bindingId":"candidate id","new
                 "and", "break", "do", "else", "elseif", "end", "false", "for", "function", "goto",
                 "if", "in", "local", "nil", "not", "or", "repeat", "return", "then", "true", "until", "while",
             } if is_lua
+            else bool(re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,127}", new_name)) and new_name not in {
+                "abstract", "as", "base", "bool", "break", "byte", "case", "catch", "char", "checked", "class", "const", "continue", "decimal", "default", "delegate", "do", "double", "else", "enum", "event", "explicit", "extern", "false", "finally", "fixed", "float", "for", "foreach", "goto", "if", "implicit", "in", "int", "interface", "internal", "is", "lock", "long", "namespace", "new", "null", "object", "operator", "out", "override", "params", "private", "protected", "public", "readonly", "ref", "return", "sbyte", "sealed", "short", "sizeof", "stackalloc", "static", "string", "struct", "switch", "this", "throw", "true", "try", "typeof", "uint", "ulong", "unchecked", "unsafe", "ushort", "using", "virtual", "void", "volatile", "while",
+            } if is_csharp
             else bool(re.fullmatch(r"[A-Za-z_$][A-Za-z0-9_$]{0,127}", new_name))
         )
         if (binding_id not in by_id or binding_id in seen or not valid_name

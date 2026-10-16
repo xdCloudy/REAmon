@@ -251,6 +251,9 @@ COPY recon_settings/ ./recon_settings/
 COPY agentic/ ./
 RUN GO111MODULE=off go build -trimpath -o /usr/local/bin/reamon-gorefactor ./reamon_gorefactor \
     && chmod 0555 /usr/local/bin/reamon-gorefactor
+RUN dotnet publish ./reamon_csharp_refactor/Reamon.CSharpRefactor.csproj -c Release -o /opt/reamon-csharprefactor \
+    && printf '#!/bin/sh\nexec /usr/share/dotnet/dotnet /opt/reamon-csharprefactor/Reamon.CSharpRefactor.dll "$@"\n' > /usr/local/bin/reamon-csharprefactor \
+    && chmod 0555 /usr/local/bin/reamon-csharprefactor
 
 # Make knowledge_base and graph_db importable as top-level packages
 ENV PYTHONPATH="/app:${PYTHONPATH}"
