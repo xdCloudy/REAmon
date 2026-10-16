@@ -65,7 +65,8 @@ async function acceptedSafeRenameAliases(
       if (attempt.validationStatus !== 'PASSED' || attempt.resultSource !== sourceCode
           || createHash('sha256').update(attempt.resultSource).digest('hex') !== sourceHash) continue
       const payload = plainObject(attempt.requestPayload)
-      if (payload.operation !== 'humanify-style-scope-safe-renames' || payload.outputSha256 !== sourceHash || !Array.isArray(payload.renames)) continue
+      if (!['humanify-style-scope-safe-renames', 'libcst-scope-safe-renames'].includes(String(payload.operation))
+          || payload.outputSha256 !== sourceHash || !Array.isArray(payload.renames)) continue
       const aliases = payload.renames.flatMap((value) => {
         const rename = plainObject(value)
         if (typeof rename.oldName !== 'string' || typeof rename.newName !== 'string'

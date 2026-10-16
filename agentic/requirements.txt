@@ -58,6 +58,7 @@ gitpython>=3.1.0
 # Tree-sitter parser bindings and on-demand grammars for REAmon and repo navigation.
 tree-sitter==0.25.2
 tree-sitter-language-pack==1.21.0
+libcst==1.9.0
 networkx>=3.0
 
 # Persistent LangGraph checkpointer (Fireteam gate: PERSISTENT_CHECKPOINTER=true)

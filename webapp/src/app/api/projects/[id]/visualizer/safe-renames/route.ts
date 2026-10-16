@@ -7,7 +7,7 @@ import { agentFetch } from '@/lib/agentFetch'
 import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
 import { getActiveWorkspaceImportSelection } from '@/lib/reamon/inventory-query'
 import { derivedArtifactRoot, resolveDerivedArtifactPath } from '@/lib/reamon/derived-storage'
-import { applySafeRenameBindings, listSafeRenameBindings } from '@/lib/reamon/webcrack'
+import { applySafeRenameBindings, listSafeRenameBindings, type SafeRenameBinding, type SafeRenameCatalog, type SafeRenameResult } from '@/lib/reamon/webcrack'
 import { buildProjectSymbolContext } from '@/lib/reamon/maintenance-memory'
 
 interface RouteParams { params: Promise<{ id: string }> }
@@ -28,6 +28,66 @@ function isInside(root: string, file: string): boolean {
 
 function digest(source: Buffer): string {
   return createHash('sha256').update(source).digest('hex')
+}
+
+async function listPythonRenameBindings(sourceCode: string): Promise<SafeRenameCatalog> {
+  const response = await agentFetch('/reamon/code/python/bindings', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ source_code: sourceCode }),
+  }, { timeoutMs: 30_000 })
+  const payload = await response.json().catch(() => null) as Record<string, unknown> | null
+  const bindings = Array.isArray(payload?.bindings) ? payload.bindings : []
+  if (!response.ok || typeof payload?.source_sha256 !== 'string' || payload.source_sha256 !== digest(Buffer.from(sourceCode, 'utf8'))
+      || bindings.length > 5_000 || typeof payload.truncated !== 'boolean'
+      || !bindings.every((value) => {
+        const binding = plainObject(value)
+        return /^[a-f0-9]{24}$/i.test(String(binding.id || ''))
+          && typeof binding.name === 'string' && binding.name.length > 0 && binding.name.length <= 256
+          && typeof binding.kind === 'string' && binding.kind.length <= 80
+          && typeof binding.scopeType === 'string' && binding.scopeType.length <= 80
+          && Number.isSafeInteger(binding.declarationStart) && Number(binding.declarationStart) >= 0
+          && Number.isSafeInteger(binding.referenceCount) && Number(binding.referenceCount) >= 0
+          && binding.exported === false
+      })) {
+    throw new Error(typeof payload?.error === 'string' ? payload.error : 'The Python refactoring service returned an invalid binding catalog')
+  }
+  return {
+    sourceSha256: payload.source_sha256,
+    bindings: bindings as SafeRenameBinding[],
+    truncated: payload.truncated,
+  }
+}
+
+async function applyPythonRenameBindings(
+  sourceCode: string,
+  expectedSha256: string,
+  renames: Array<{ bindingId: string; newName: string }>,
+): Promise<SafeRenameResult> {
+  const response = await agentFetch('/reamon/code/python/rename', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      source_code: sourceCode,
+      expected_sha256: expectedSha256,
+      renames: renames.map((rename) => ({ binding_id: rename.bindingId, new_name: rename.newName })),
+    }),
+  }, { timeoutMs: 30_000 })
+  const payload = await response.json().catch(() => null) as Record<string, unknown> | null
+  const sourceCodeResult = typeof payload?.source_code === 'string' ? payload.source_code : ''
+  const renamedBindings = Array.isArray(payload?.renamed_bindings) ? payload.renamed_bindings : []
+  const outputSha256 = typeof payload?.output_sha256 === 'string' ? payload.output_sha256 : ''
+  const parserVersion = typeof payload?.parser_version === 'string' ? payload.parser_version : ''
+  if (!response.ok || payload?.source_sha256 !== expectedSha256 || !/^[a-f0-9]{64}$/i.test(outputSha256)
+      || digest(Buffer.from(sourceCodeResult, 'utf8')) !== outputSha256 || !/^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$/.test(parserVersion)
+      || Buffer.byteLength(sourceCodeResult, 'utf8') > MAX_SOURCE_BYTES || renamedBindings.length !== renames.length) {
+    throw new Error(typeof payload?.error === 'string' ? payload.error : 'The Python refactoring service returned an invalid transformed source')
+  }
+  return {
+    sourceCode: sourceCodeResult,
+    sourceSha256: expectedSha256,
+    outputSha256,
+    parserVersion,
+    renamedBindings: renamedBindings as SafeRenameResult['renamedBindings'],
+  }
 }
 
 export async function POST(request: Request, { params }: RouteParams) {
@@ -57,8 +117,10 @@ export async function POST(request: Request, { params }: RouteParams) {
     if (!observation?.artifactId) return NextResponse.json({ error: 'Code unit not found' }, { status: 404 })
     const attributes = plainObject(observation.attributes)
     const language = typeof attributes.language === 'string' ? attributes.language.trim() : ''
-    if (!['javascript', 'typescript', 'jsx', 'tsx'].includes(language.toLowerCase())) {
-      return NextResponse.json({ error: 'Scope-safe renaming currently supports JavaScript and TypeScript source only' }, { status: 415 })
+    const normalizedLanguage = language.toLowerCase()
+    const isPython = ['python', 'python 3', 'python3'].includes(normalizedLanguage)
+    if (!['javascript', 'typescript', 'jsx', 'tsx', 'python', 'python 3', 'python3'].includes(normalizedLanguage)) {
+      return NextResponse.json({ error: 'Scope-safe renaming currently supports JavaScript, TypeScript, and Python source' }, { status: 415 })
     }
     const codeArtifactId = typeof attributes.codeArtifactId === 'string' ? attributes.codeArtifactId : ''
     const selection = await getActiveWorkspaceImportSelection(projectId)
@@ -77,17 +139,17 @@ export async function POST(request: Request, { params }: RouteParams) {
     const [rootRealPath, sourceRealPath] = await Promise.all([realpath(root), realpath(candidatePath).catch(() => null)])
     if (!sourceRealPath || !isInside(rootRealPath, sourceRealPath)) return NextResponse.json({ error: 'Linked source path is invalid' }, { status: 404 })
     const info = await stat(sourceRealPath)
-    if (!info.isFile() || info.size > MAX_SOURCE_BYTES) return NextResponse.json({ error: 'Linked JavaScript source exceeds the safe-rename limit' }, { status: 413 })
+    if (!info.isFile() || info.size > MAX_SOURCE_BYTES) return NextResponse.json({ error: `Linked ${isPython ? 'Python' : 'JavaScript'} source exceeds the safe-rename limit` }, { status: 413 })
     const sourceBytes = await readFile(sourceRealPath)
     const sourceCode = new TextDecoder('utf-8', { fatal: true }).decode(sourceBytes)
     const artifactSourceSha256 = digest(sourceBytes)
     const workingSource = typeof body.sourceCode === 'string' ? body.sourceCode : sourceCode
     const workingBytes = Buffer.from(workingSource, 'utf8')
-    if (workingBytes.byteLength > MAX_SOURCE_BYTES) return NextResponse.json({ error: 'Editable JavaScript source exceeds the safe-rename limit' }, { status: 413 })
+    if (workingBytes.byteLength > MAX_SOURCE_BYTES) return NextResponse.json({ error: `Editable ${isPython ? 'Python' : 'JavaScript'} source exceeds the safe-rename limit` }, { status: 413 })
     const workingSourceSha256 = digest(workingBytes)
     const unitName = (typeof attributes.qualifiedName === 'string' && attributes.qualifiedName)
       || (typeof attributes.name === 'string' && attributes.name)
-      || observation.label || 'Selected JavaScript unit'
+      || `Selected ${isPython ? 'Python' : 'JavaScript'} unit`
 
     if (operation === 'suggest') {
       if (!providerId || providerId.length > 128) return NextResponse.json({ error: 'Choose a saved AI provider' }, { status: 400 })
@@ -98,7 +160,9 @@ export async function POST(request: Request, { params }: RouteParams) {
       })
       if (!provider) return NextResponse.json({ error: 'Saved OpenAI-compatible provider not found' }, { status: 404 })
 
-      const catalog = await listSafeRenameBindings(workingSource)
+      const catalog = isPython
+        ? await listPythonRenameBindings(workingSource)
+        : await listSafeRenameBindings(workingSource)
       const candidates = catalog.bindings
         .filter((binding) => !binding.exported && binding.kind !== 'module' && binding.referenceCount > 0
           && (binding.name.length <= 3 || /^_?(?:0x[\da-f]{4,}|[\da-f]{6,})$/i.test(binding.name)))
@@ -151,6 +215,7 @@ export async function POST(request: Request, { params }: RouteParams) {
           model: `custom/${provider.id}`,
           user_id: user.userId,
           unit_name: unitName,
+          language: isPython ? 'Python' : language,
           source_code: workingSource,
           bindings: candidates,
           project_symbol_context: projectSymbolContext,
@@ -187,7 +252,9 @@ export async function POST(request: Request, { params }: RouteParams) {
     if (!provider) return NextResponse.json({ error: 'Saved OpenAI-compatible provider not found' }, { status: 404 })
     const requests = Array.isArray(body.renames) ? body.renames : []
     if (requests.length < 1 || requests.length > 80) return NextResponse.json({ error: 'Select between 1 and 80 rename suggestions' }, { status: 400 })
-    const catalog = await listSafeRenameBindings(workingSource)
+    const catalog = isPython
+      ? await listPythonRenameBindings(workingSource)
+      : await listSafeRenameBindings(workingSource)
     const available = new Map(catalog.bindings.map((binding) => [binding.id, binding]))
     for (const rename of requests) {
       const item = plainObject(rename)
@@ -197,13 +264,20 @@ export async function POST(request: Request, { params }: RouteParams) {
         return NextResponse.json({ error: 'A selected rename no longer matches the current source bindings' }, { status: 409 })
       }
     }
-    const transformed = await applySafeRenameBindings(workingSource, workingSourceSha256, requests.map((rename) => {
+    const selectedRenames = requests.map((rename) => {
       const item = plainObject(rename)
       return { bindingId: String(item.bindingId), newName: String(item.newName) }
-    }))
+    })
+    const transformed = isPython
+      ? await applyPythonRenameBindings(workingSource, workingSourceSha256, selectedRenames)
+      : await applySafeRenameBindings(workingSource, workingSourceSha256, selectedRenames)
     const runKey = segments.slice(0, 4).join('/')
-    const validationMethod = `babel-parser-${transformed.parserVersion}+scope-safe-rename`
-    const validationMessage = `Babel ${transformed.parserVersion} parsed the output after scope-aware renaming and rejected binding collisions. This confirms syntax only, not behavior equivalence.`
+    const validationMethod = isPython
+      ? `libcst-${transformed.parserVersion}+scope-safe-rename`
+      : `babel-parser-${transformed.parserVersion}+scope-safe-rename`
+    const validationMessage = isPython
+      ? `LibCST ${transformed.parserVersion} applied scope-aware local-binding renames and parsed the output. This confirms structure only, not module-level references or behavior equivalence.`
+      : `Babel ${transformed.parserVersion} parsed the output after scope-aware renaming and rejected binding collisions. This confirms syntax only, not behavior equivalence.`
     const attempt = await prisma.reamonCodeAttempt.create({
       data: {
         projectId,
@@ -220,8 +294,8 @@ export async function POST(request: Request, { params }: RouteParams) {
         scope: 'file',
         status: 'SUCCEEDED',
         requestPayload: {
-          operation: 'humanify-style-scope-safe-renames',
-          engine: `Babel ${transformed.parserVersion} scope.rename (Humanify two-stage design)`,
+          operation: isPython ? 'libcst-scope-safe-renames' : 'humanify-style-scope-safe-renames',
+          engine: isPython ? `LibCST ${transformed.parserVersion} ScopeProvider/RenameCommand` : `Babel ${transformed.parserVersion} scope.rename (Humanify two-stage design)`,
           inputSha256: workingSourceSha256,
           artifactSourceSha256,
           inputSource: workingSource,

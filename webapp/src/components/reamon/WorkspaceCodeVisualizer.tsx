@@ -863,7 +863,8 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
   })
   const sourceByteLength = useMemo(() => sourceQuery.data === undefined ? null : new TextEncoder().encode(sourceQuery.data).byteLength, [sourceQuery.data])
   const largeSource = sourceByteLength !== null && sourceByteLength > MAX_MEMBER_REWRITE_BYTES
-  const safeRenameSupported = /^(javascript|typescript|jsx|tsx)$/i.test(selectedUnit?.language || '')
+  const safeRenamePython = /^(python|python 3|python3)$/i.test(selectedUnit?.language || '')
+  const safeRenameSupported = safeRenamePython || /^(javascript|typescript|jsx|tsx)$/i.test(selectedUnit?.language || '')
   const safeRenameSourceByteLength = new TextEncoder().encode(maintainedDraft || sourceQuery.data || '').byteLength
   const memberOutlineEligible = Boolean(selectedUnit?.language?.trim() && selectedUnit.language.trim().toLowerCase() !== 'unknown' && selectedUnit.unitType !== 'resource')
   const memberOutlineAvailable = Boolean(memberOutlineEligible && sourceByteLength !== null && sourceByteLength <= MAX_MEMBER_OUTLINE_BYTES)
@@ -2197,7 +2198,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
             </label>
           </>}
           {safeRenameSupported && <section className={styles.classReferences} aria-label="Scope-safe identifier renaming">
-            <div><strong>Suggest names, apply them through lexical scopes</strong><span>The configured model uses source and reviewed project names to suggest bindings. Babel applies only the selected renames and checks syntax and scope collisions; it does not verify behavior.</span></div>
+            <div><strong>Suggest names, apply them through lexical scopes</strong><span>The configured model uses source and reviewed project names to suggest bindings. {safeRenamePython ? 'LibCST renames selected function-local variables and parameters; module-level names and imports are excluded.' : 'Babel applies only selected JavaScript or TypeScript renames and checks syntax and scope collisions.'} Structural validation does not verify behavior.</span></div>
             <button type="button" className={styles.copyButton} onClick={() => void suggestSafeRenames()} disabled={!selectedProviderId || suggestingSafeRenames || applyingSafeRenames || transforming || sourceByteLength === null || safeRenameSourceByteLength > 64 * 1024 || sourceQuery.isError}>
               {suggestingSafeRenames ? 'Checking source and suggesting names…' : 'Suggest scope-safe renames'}
             </button>
