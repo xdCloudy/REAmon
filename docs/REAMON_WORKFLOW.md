@@ -41,33 +41,34 @@ Context is read from the project database and capped. A similar function can sug
 search path, but it is never treated as behavioral proof. The AI must distinguish
 provider syntax from the binary's likely original language.
 
-### 5. Claim and work without collisions
+### 5. Queue, claim, and work without collisions
 
-The rewrite API now acquires a database lease keyed to the exact project, artifact,
-analysis run, code unit, and source hash before it calls the model. A duplicate request
-for that same version receives a conflict; a retry after a server interruption can
-reclaim an expired lease. A different source hash gets its own lease and history.
-The lease is bound to the exact source version and has a bounded expiry. If a worker
-crashes, the next claim marks its unfinished attempt failed before starting a new one;
-history reads also close attempts that exceed the maximum lease lifetime. A late response
-must still own the lease before it can record success. This keeps the request-based rewrite
-path recoverable, but attempts are not yet dispatched as durable, resumable worker jobs.
+The rewrite API stores the exact source, project evidence context, selected provider,
+request, timeout, and code-unit lease in a queued database attempt, then returns its
+attempt ID. The existing REAmon worker claims queued attempts with a compare-and-swap
+status update and a unique run token before calling the AI service. Duplicate requests
+for the same project, artifact, analysis run, code unit, and source hash receive a
+conflict; a different source hash gets its own lease and history. A queued attempt
+survives webapp or worker restarts and remains eligible for dispatch. If a worker stops
+after claiming an attempt, the stale-run recovery marks it interrupted; the operator
+can start a new attempt from the saved source. A late response must still own its run
+token and code-unit lease before it can record success.
 
 ### 6. Record an attempt
 
 Keep the original code unchanged and store a candidate as a separate draft. Record the
 prompt/context version, proposed names and types, source diff, explanation, and the
 evidence cited. The candidate should focus on a bounded change that can be reviewed.
-The current rewrite route now persists started, failed, and successful attempts with
-the exact project, artifact, run, unit, source hash, provider, request, validation
-state, and returned source. It gives the next retry a small summary of outcomes for
-that same source hash; a changed binary or source hash gets a separate history. The
-visualizer shows the latest ten attempts for the selected source version, including
-failures, interrupted attempts, validation state, and prior successful output. When a
-successful attempt is saved as a draft, the draft stores a validated link to that exact
-attempt; manual edits preserve its origin while clearing stale validation evidence. The
-draft endpoint derives provider and validator metadata from the linked attempt and
-does not accept client-supplied validation as evidence.
+The rewrite queue persists queued, running, failed, and successful attempts with the
+exact project, artifact, run, unit, source hash, provider, full request context,
+validation state, and returned source. The visualizer polls the authorized attempt
+status endpoint while a worker runs and continues to show the latest ten attempts for
+the selected source version, including queued work, failures, interrupted attempts,
+validation state, and prior successful output. A successful attempt is then saved as a
+draft with a validated link to that exact attempt; manual edits preserve its origin
+while clearing stale validation evidence. The draft endpoint derives provider and
+validator metadata from the linked attempt and does not accept client-supplied
+validation as evidence.
 
 ### 7. Validate and return specific feedback
 

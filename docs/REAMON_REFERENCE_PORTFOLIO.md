@@ -34,11 +34,12 @@ product and engineering planning.
 ## Adoption order
 
 1. Continue the decomp.wtf-inspired lifecycle in REAmon's project database. Attempt
-   history, exact-source rewrite leases, explicit review receipts, and source-hash
-   compare-and-swap promotion guards are implemented. The general analysis worker also
-   has owner IDs, run-token fencing, heartbeats, operator cancellation, and stale-task
-   recovery. Next connect AI rewrite attempts to a durable worker lifecycle, then add
-   language-specific validators and validation regression protection.
+   history, exact-source rewrite leases, durable queued rewrite requests, run-token
+   worker claims, explicit review receipts, and source-hash compare-and-swap promotion
+   guards are implemented. Queued work survives restarts; a claimed attempt interrupted
+   by worker loss is recorded and can be retried. Next add rewrite cancellation and
+   active lease renewal, then language-specific validators and validation regression
+   protection.
 2. Build the provider fixture and validator contract. Use decomp.me/objdiff as a
    reference for exact-build feedback, but isolate any target compiler/build process.
    Include a language-specific parser/build check and persist what each check proves.

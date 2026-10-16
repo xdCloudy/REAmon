@@ -93,7 +93,7 @@ interface CodeExplanationResponse { explanation: string; providerName: string; m
 interface ApkBuildResponse { buildId: string; taskId: string; fileName: string; sizeBytes: number; sha256: string; signed: false; changedFileCount: number; warnings?: string; downloadUrl: string }
 interface CodeMaintenanceResponse { sourceCode: string; providerName: string; model: string; attemptId?: string | null; syntaxValidated?: boolean | null; validationStatus?: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod?: string | null; validationMessage?: string | null }
 interface CodeDraftRecord { id: string; sourceCode: string; sourceAttemptId: string | null; providerName: string; modelIdentifier: string; question: string; scope: 'file' | 'member'; syntaxValidated: boolean | null; validationStatus: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod: string | null; validationMessage: string | null; updatedAt: string }
-interface CodeAttemptRecord { id: string; providerName: string; modelIdentifier: string; question: string; scope: 'file' | 'member'; status: 'RUNNING' | 'SUCCEEDED' | 'FAILED'; errorCode: string | null; errorMessage: string | null; resultSource: string | null; syntaxValidated: boolean | null; validationStatus: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod: string | null; validationMessage: string | null; createdAt: string; completedAt: string | null }
+interface CodeAttemptRecord { id: string; providerName: string; modelIdentifier: string; question: string; scope: 'file' | 'member'; status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED'; errorCode: string | null; errorMessage: string | null; resultSource: string | null; syntaxValidated: boolean | null; validationStatus: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod: string | null; validationMessage: string | null; createdAt: string; completedAt: string | null }
 interface CodeDraftResponse { exists: boolean; draft: CodeDraftRecord | null; attempts?: CodeAttemptRecord[] }
 interface CodeReviewRecord { id: string; reviewerId: string; decision: 'ACCEPTED'; rationale: string; maintainedSourceHash: string; createdAt: string }
 interface CodeMemberOutline { name: string; kind: 'function' | 'method' | 'constructor'; start_byte: number; end_byte: number; line: number; source_bytes: number }
@@ -780,6 +780,28 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
     return record.id
   }
 
+  async function waitForCodeRewrite(response: Response, unitId: string): Promise<CodeMaintenanceResponse> {
+    const initial = await response.json().catch(() => ({})) as CodeMaintenanceResponse & { status?: string; error?: string }
+    if (!response.ok) throw new Error(initial.error || 'Could not create a maintainable version')
+    if (response.status !== 202) return initial
+    if (!initial.attemptId) throw new Error('The rewrite job was queued without an attempt ID')
+
+    const deadline = Date.now() + 10 * 60_000
+    try {
+      while (Date.now() < deadline) {
+        await new Promise((resolve) => window.setTimeout(resolve, 1500))
+        const statusResponse = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/deobfuscate/attempts/${encodeURIComponent(initial.attemptId)}`, { cache: 'no-store' })
+        const status = await statusResponse.json().catch(() => ({})) as CodeMaintenanceResponse & { status?: string; error?: string }
+        if (!statusResponse.ok) throw new Error(status.error || 'Could not load the rewrite job status')
+        if (status.status === 'FAILED') throw new Error(status.error || 'The rewrite attempt failed')
+        if (status.status === 'SUCCEEDED' && typeof status.sourceCode === 'string') return status
+      }
+      throw new Error(`Rewrite attempt ${initial.attemptId} is still queued or running. It remains saved in this unit's attempt history.`)
+    } finally {
+      await queryClient.invalidateQueries({ queryKey: ['reamon-code-draft', projectId, unitId] })
+    }
+  }
+
   async function saveCodeDraft() {
     if (!selectedUnit || !maintainedDraft.trim()) return
     const configuredProvider = explanationProviders.find((provider) => provider.id === selectedProviderId)
@@ -847,8 +869,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
         body: JSON.stringify({ unitId: selectedUnit.id, providerId: selectedProviderId, question: question.trim() }),
       })
       await queryClient.invalidateQueries({ queryKey: ['reamon-code-draft', projectId, selectedUnit.id] })
-      const result = await response.json().catch(() => ({})) as CodeMaintenanceResponse & { error?: string }
-      if (!response.ok) throw new Error(result.error || 'Could not create a maintainable version')
+      const result = await waitForCodeRewrite(response, selectedUnit.id)
       setMaintainedDraft(result.sourceCode)
       setMaintenanceMeta(result)
       revealMaintainedEditor()
@@ -917,8 +938,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
         body: JSON.stringify({ unitId: selectedUnit.id, providerId: selectedProviderId, question: question.trim(), scope: 'member', startByte: member.start_byte, endByte: member.end_byte, memberName: member.name }),
       })
       await queryClient.invalidateQueries({ queryKey: ['reamon-code-draft', projectId, selectedUnit.id] })
-      const result = await response.json().catch(() => ({})) as CodeMaintenanceResponse & { error?: string }
-      if (!response.ok) throw new Error(result.error || 'Could not reverse engineer this method')
+      const result = await waitForCodeRewrite(response, selectedUnit.id)
       const updatedBytes = new Uint8Array(draftBytes.byteLength - (draftMember.end_byte - draftMember.start_byte) + new TextEncoder().encode(result.sourceCode).byteLength)
       updatedBytes.set(draftBytes.subarray(0, draftMember.start_byte), 0)
       const rewrittenBytes = new TextEncoder().encode(result.sourceCode)
@@ -1653,7 +1673,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
             <ol>{codeDraftQuery.data?.attempts?.map((attempt) => <li key={attempt.id}>
               <details>
                 <summary>
-                  <strong>{attempt.status === 'SUCCEEDED' ? 'Completed' : attempt.status === 'FAILED' ? 'Failed' : 'Interrupted or still running'}</strong>
+                  <strong>{attempt.status === 'SUCCEEDED' ? 'Completed' : attempt.status === 'FAILED' ? 'Failed' : attempt.status === 'QUEUED' ? 'Queued' : attempt.status === 'RUNNING' ? 'Running' : 'Interrupted'}</strong>
                   <span>{attempt.providerName} · {attempt.modelIdentifier} · {attempt.scope} · {new Date(attempt.createdAt).toLocaleString()}</span>
                 </summary>
                 {codeDraftQuery.data?.draft?.sourceAttemptId === attempt.id && <p>This attempt produced the current saved draft.</p>}

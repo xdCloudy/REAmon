@@ -17,7 +17,7 @@ interface DeobfuscateBody { unitId?: unknown; providerId?: unknown; question?: u
 const MAX_SOURCE_BYTES = 64 * 1024
 const MAX_ARTIFACT_BYTES = 2 * 1024 * 1024
 const MAX_QUESTION_CHARS = 1000
-const MAX_RESULT_BYTES = 128 * 1024
+const MAX_QUEUED_REWRITE_MS = 30 * 60_000
 const MAX_CONTEXT_UNITS = 8
 const MAX_CONTEXT_BYTES = 16 * 1024
 const MAX_FUNCTION_HISTORY = 8_000
@@ -31,8 +31,6 @@ const MAX_PROJECT_SYMBOL_SCAN = 4_096
 const MAX_PROJECT_DRAFT_RECORDS = 64
 const MEMBER_OUTLINE_SOURCE = 'reamon-tree-sitter-outline@tree-sitter-language-pack-1.21.0'
 const MAX_PERSISTED_OUTLINE_MEMBERS = 10_000
-
-class RewriteAttemptSuperseded extends Error {}
 
 interface OutlineMember {
   name: string
@@ -883,7 +881,7 @@ export async function POST(request: Request, { params }: RouteParams) {
           runKey: runPrefix.slice(0, -1),
           codeUnitId: observation.id,
           sourceHash,
-          expiresAt: new Date(leaseNow.getTime() + timeoutMs + codeRewriteLeaseGraceMs),
+          expiresAt: new Date(leaseNow.getTime() + Math.max(timeoutMs + codeRewriteLeaseGraceMs, MAX_QUEUED_REWRITE_MS)),
         },
         select: { id: true },
       })
@@ -898,167 +896,55 @@ export async function POST(request: Request, { params }: RouteParams) {
     const attemptScope = { projectId, artifactId: artifact.id, runKey: runPrefix.slice(0, -1), codeUnitId: observation.id, sourceHash }
     await failInterruptedCodeAttempts(attemptScope, leaseNow)
 
+    const requestPayload = {
+      model: `custom/${provider.id}`,
+      user_id: user.userId,
+      unit_name: String(unitName).slice(0, 500),
+      language: language.slice(0, 80),
+      source_language: sourceLanguage.slice(0, 80),
+      source_code: bytes.toString('utf8'),
+      scope,
+      member_name: scope === 'member' ? String(body.memberName).slice(0, 500) : '',
+      context_sources: contextSources,
+      disassembly_source: disassemblySource,
+      binary_evidence: binaryEvidence,
+      project_symbol_context: maintainedProjectContext,
+      project_draft_context: projectDraftContext,
+      prior_attempt_context: priorAttemptContext,
+      question: typeof body.question === 'string' ? body.question.trim() : '',
+    }
     const attempt = await prisma.reamonCodeAttempt.create({
       data: {
         ...attemptScope,
+        ownerUserId: user.userId,
         unitName: String(unitName).slice(0, 500),
         language: language.slice(0, 80),
         providerName: provider.name.slice(0, 128),
         modelIdentifier: provider.modelIdentifier.slice(0, 128),
         question: typeof body.question === 'string' ? body.question.trim() : '',
         scope,
-        status: 'RUNNING',
+        status: 'QUEUED',
+        requestPayload,
+        timeoutMs,
+        unitLeaseId: acquiredLeaseId,
       },
       select: { id: true },
     })
-    runningAttemptId = attempt.id
-
-    const response = await agentFetch('/reamon/code/deobfuscate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: `custom/${provider.id}`,
-        user_id: user.userId,
-        unit_name: String(unitName).slice(0, 500),
-        language: language.slice(0, 80),
-        source_language: sourceLanguage.slice(0, 80),
-        source_code: bytes.toString('utf8'),
-        scope,
-        member_name: scope === 'member' ? String(body.memberName).slice(0, 500) : '',
-        context_sources: contextSources,
-        disassembly_source: disassemblySource,
-        binary_evidence: binaryEvidence,
-        project_symbol_context: maintainedProjectContext,
-        project_draft_context: projectDraftContext,
-        prior_attempt_context: priorAttemptContext,
-        question: typeof body.question === 'string' ? body.question.trim() : '',
-      }),
-    }, { timeoutMs })
-
-    const result = plainObject(await response.json().catch(() => null))
-    if (!response.ok) {
-      const message = result.code === 'providers_unreachable'
-        ? 'Could not load your saved AI provider. Try again shortly.'
-        : result.code === 'model_unavailable'
-          ? 'The selected AI provider could not answer. Check its settings and try again.'
-          : result.code === 'incomplete_source'
-            ? 'The model stopped before returning the complete file. Increase its output token limit or choose a model with a larger context window, then retry.'
-            : result.code === 'invalid_source'
-              ? 'The model draft did not parse as complete source. Try a stronger model or a more focused transformation.'
-            : result.code === 'declaration_changed'
-              ? 'This rewrite changed declarations or the function interface, including access or type information, so it was rejected and no new draft was saved. Review any earlier draft separately, then retry with a stronger model.'
-            : result.code === 'declaration_removed'
-              ? 'This rewrite removed one or more functions or methods from the selected source, so it was rejected and no new draft was saved. Retry with a narrower request and preserve every callable.'
-            : result.code === 'signature_changed'
-              ? 'This rewrite changed the selected function or method signature, so it was rejected and no new draft was saved. Retry with a focused request and preserve its declaration.'
-            : result.code === 'behavior_dropped'
-              ? 'The model removed executable Java logic. Choose a stronger model or retry with a narrower transformation.'
-            : result.code === 'wrong_target'
-              ? 'The model still returned a different Java type after retrying with the selected file only. Choose a stronger model.'
-              : result.code === 'context_exceeded'
-                ? 'This code unit exceeds the model context window even after related-code context was removed. Choose a larger-context model or a smaller code unit.'
-                : 'AI could not produce a maintainable version. Try again shortly.'
-      await prisma.reamonCodeAttempt.updateMany({
-        where: { id: attempt.id, status: 'RUNNING' },
-        data: {
-          status: 'FAILED',
-          errorCode: typeof result.code === 'string' ? result.code.slice(0, 128) : `http_${response.status}`,
-          errorMessage: message,
-          validationStatus: typeof result.validation_status === 'string'
-            ? result.validation_status.slice(0, 32)
-            : result.code === 'invalid_source' ? 'FAILED' : null,
-          validationMethod: typeof result.validation_method === 'string' ? result.validation_method.slice(0, 80) : null,
-          validationMessage: typeof result.validation_message === 'string' ? result.validation_message.slice(0, 2000) : null,
-          completedAt: new Date(),
-        },
-      })
-      runningAttemptId = null
-      return NextResponse.json({ error: message }, { status: response.status, headers: { 'Cache-Control': 'no-store' } })
-    }
-    if (typeof result.source_code !== 'string' || !result.source_code.trim()) {
-      await prisma.reamonCodeAttempt.updateMany({
-        where: { id: attempt.id, status: 'RUNNING' },
-        data: { status: 'FAILED', errorCode: 'empty_result', errorMessage: 'The AI provider returned no rewritten source', completedAt: new Date() },
-      })
-      runningAttemptId = null
-      return NextResponse.json({ error: 'The AI provider returned no rewritten source' }, { status: 502, headers: { 'Cache-Control': 'no-store' } })
-    }
-    if (Buffer.byteLength(result.source_code, 'utf8') > MAX_RESULT_BYTES) {
-      await prisma.reamonCodeAttempt.updateMany({
-        where: { id: attempt.id, status: 'RUNNING' },
-        data: { status: 'FAILED', errorCode: 'result_too_large', errorMessage: 'The rewritten source exceeds the save limit', completedAt: new Date() },
-      })
-      runningAttemptId = null
-      return NextResponse.json({ error: 'The rewritten source exceeds the save limit' }, { status: 502, headers: { 'Cache-Control': 'no-store' } })
-    }
-
-    const syntaxValidated = result.syntax_validated === true
-    const validationStatus = ['PASSED', 'FAILED', 'UNAVAILABLE'].includes(String(result.validation_status))
-      ? String(result.validation_status)
-      : syntaxValidated ? 'PASSED' : 'UNAVAILABLE'
-    const validationMethod = typeof result.validation_method === 'string' ? result.validation_method.slice(0, 80) : null
-    const validationMessage = typeof result.validation_message === 'string' ? result.validation_message.slice(0, 2000) : null
-    const rewrittenSource = result.source_code as string
-    let finalization: 'completed' | 'lease_lost' | 'attempt_superseded' = 'lease_lost'
-    try {
-      finalization = await prisma.$transaction(async (tx) => {
-        const leaseExtended = await tx.reamonCodeUnitLease.updateMany({
-          where: { id: acquiredLeaseId, expiresAt: { gt: new Date() } },
-          data: { expiresAt: new Date(Date.now() + codeRewriteLeaseGraceMs) },
-        })
-        if (leaseExtended.count !== 1) return 'lease_lost'
-        const completed = await tx.reamonCodeAttempt.updateMany({
-          where: { id: attempt.id, status: 'RUNNING' },
-          data: { status: 'SUCCEEDED', resultSource: rewrittenSource, syntaxValidated, validationStatus, validationMethod, validationMessage, completedAt: new Date() },
-        })
-        if (completed.count !== 1) throw new RewriteAttemptSuperseded()
-        return 'completed'
-      })
-    } catch (error) {
-      if (!(error instanceof RewriteAttemptSuperseded)) throw error
-      finalization = 'attempt_superseded'
-    }
-    if (finalization !== 'completed') {
-      const lostLease = finalization === 'lease_lost'
-      await prisma.reamonCodeAttempt.updateMany({
-        where: { id: attempt.id, status: 'RUNNING' },
-        data: {
-          status: 'FAILED',
-          errorCode: lostLease ? 'lease_lost' : 'attempt_superseded',
-          errorMessage: lostLease
-            ? 'The rewrite lease expired before the result could be saved. Retry to start a new attempt.'
-            : 'A newer result superseded this rewrite before it could be saved.',
-          completedAt: new Date(),
-        },
-      })
-      runningAttemptId = null
-      return NextResponse.json({
-        error: lostLease
-          ? 'The rewrite lease expired before the result could be saved. Retry this code unit.'
-          : 'This rewrite attempt was superseded before it could be saved. Retry to start a new attempt.',
-      }, { status: 409, headers: { 'Cache-Control': 'no-store' } })
-    }
     runningAttemptId = null
-
-    return NextResponse.json({
-      sourceCode: rewrittenSource,
-      providerName: provider.name,
-      model: provider.modelIdentifier,
-      syntaxValidated,
-      validationStatus,
-      validationMethod,
-      validationMessage,
-      attemptId: attempt.id,
-    }, { headers: { 'Cache-Control': 'private, no-store' } })
+    codeUnitLeaseId = null
+    return NextResponse.json({ attemptId: attempt.id, status: 'QUEUED' }, { status: 202, headers: { 'Cache-Control': 'private, no-store' } })
   } catch (error) {
     if (runningAttemptId) {
       await prisma.reamonCodeAttempt.updateMany({
-        where: { id: runningAttemptId, status: 'RUNNING' },
+          where: { id: runningAttemptId, status: { in: ['QUEUED', 'RUNNING'] } },
         data: {
           status: 'FAILED',
           errorCode: error instanceof AgentUnreachableError ? 'agent_unreachable' : 'request_error',
           errorMessage: error instanceof AgentUnreachableError ? 'The AI analysis service is unavailable.' : 'The rewrite request failed before completion.',
           completedAt: new Date(),
+          runToken: null,
+          leaseOwner: null,
+          leaseHeartbeatAt: null,
         },
       }).catch(() => undefined)
     }

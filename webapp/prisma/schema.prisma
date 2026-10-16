@@ -2830,6 +2830,7 @@ model ReamonCodeAttempt {
   projectId       String    @map("project_id")
   project         Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
   derivedDrafts   ReamonCodeDraft[]
+  ownerUserId     String    @default("") @map("owner_user_id")
   artifactId      String    @map("artifact_id")
   runKey          String    @map("run_key")
   codeUnitId      String    @map("code_unit_id")
@@ -2840,7 +2841,13 @@ model ReamonCodeAttempt {
   modelIdentifier String    @map("model_identifier")
   question        String    @default("") @db.Text
   scope           String    @default("file")
-  status          String    @default("RUNNING")
+  status          String    @default("QUEUED")
+  requestPayload  Json?     @map("request_payload")
+  timeoutMs       Int       @default(120000) @map("timeout_ms")
+  unitLeaseId     String?   @map("unit_lease_id")
+  runToken        String?   @map("run_token")
+  leaseOwner      String?   @map("lease_owner")
+  leaseHeartbeatAt DateTime? @map("lease_heartbeat_at")
   errorCode       String?   @map("error_code")
   errorMessage    String?   @db.Text @map("error_message")
   resultSource    String?   @db.Text @map("result_source")
@@ -2853,6 +2860,8 @@ model ReamonCodeAttempt {
 
   @@index([projectId, codeUnitId, sourceHash, createdAt])
   @@index([projectId, artifactId, runKey, createdAt])
+  @@index([status, createdAt])
+  @@index([status, leaseHeartbeatAt])
   @@map("reamon_code_attempts")
 }
 

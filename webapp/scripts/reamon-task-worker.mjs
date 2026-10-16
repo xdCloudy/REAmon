@@ -62,6 +62,7 @@ export function readWorkerConfig(env = process.env) {
     backfillBatchSize: boundedNumber(env.REAMON_WORKER_BACKFILL_BATCH_SIZE, DEFAULT_BACKFILL_BATCH_SIZE, 1, MAX_BACKFILL_BATCH_SIZE),
     retentionIntervalSeconds: boundedNumber(env.REAMON_WORKER_RETENTION_INTERVAL_SECONDS, DEFAULT_RETENTION_INTERVAL_SECONDS, 0, MAX_RETENTION_INTERVAL_SECONDS),
     retentionApply: booleanValue(env.REAMON_WORKER_RETENTION_APPLY),
+    codeRewriteJobsEnabled: booleanValue(env.REAMON_WORKER_CODE_REWRITE_JOBS, true),
     // Some Compose/CI environments expose HOSTNAME as a service address
     // (for example 0.0.0.0) instead of the container identity. Fall back to
     // the runtime hostname so scaled replicas always register distinctly.
@@ -93,6 +94,28 @@ export async function dispatchOnce(config, fetchImpl = fetch, logger = console) 
   const result = await response.json()
   if (result.recovered || result.selected) {
     logger.info(`[reamon-worker:${config.workerId || 'reamon-worker'}] recovered=${result.recovered || 0} selected=${result.selected || 0} completed=${(result.results || []).length}`)
+  }
+  return result
+}
+
+export async function dispatchCodeRewritesOnce(config, fetchImpl = fetch, logger = console) {
+  const response = await fetchImpl(`${config.webappUrl}/api/internal/reamon/code-rewrites/dispatch`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-internal-key': config.internalKey },
+    body: JSON.stringify({ limit: 1, workerId: config.workerId || 'reamon-worker' }),
+    signal: AbortSignal.timeout(6 * 60_000),
+  })
+
+  if (response.status === 401 || response.status === 403) {
+    throw new WorkerConfigurationError(`Code rewrite dispatch authentication rejected with HTTP ${response.status}`)
+  }
+  if (!response.ok) {
+    logger.warn(`[reamon-worker] code rewrite dispatch returned HTTP ${response.status}`)
+    return null
+  }
+  const result = await response.json()
+  if (result.recovered || result.selected) {
+    logger.info(`[reamon-worker:${config.workerId || 'reamon-worker'}] rewrite_recovered=${result.recovered || 0} rewrite_selected=${result.selected || 0}`)
   }
   return result
 }
@@ -180,7 +203,9 @@ export async function runWorker(config, { fetchImpl = fetch, sleepImpl = sleep, 
   let nextRetentionAt = 0
   while (!shouldStop()) {
     try {
-      const result = await dispatchOnce(config, fetchImpl, logger)
+      const dispatches = [dispatchOnce(config, fetchImpl, logger)]
+      if (config.codeRewriteJobsEnabled) dispatches.push(dispatchCodeRewritesOnce(config, fetchImpl, logger))
+      const [result] = await Promise.all(dispatches)
       const completedProjectIds = new Set((result?.results || [])
         .filter((entry) => entry?.outcome === 'COMPLETED' && typeof entry.task?.projectId === 'string')
         .map((entry) => entry.task.projectId))
