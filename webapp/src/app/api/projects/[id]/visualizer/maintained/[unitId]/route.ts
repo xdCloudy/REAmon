@@ -13,6 +13,12 @@ import { extractMaintainedSymbols } from '@/lib/reamon/maintenance-memory'
 interface RouteParams { params: Promise<{ id: string; unitId: string }> }
 const MAX_SOURCE_BYTES = 2 * 1024 * 1024
 
+class MaintainedSourceConflict extends Error {}
+
+function isUniqueConflict(error: unknown): boolean {
+  return Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'P2002')
+}
+
 async function maintainedSymbolIndex(sourceCode: string, language: string): Promise<string[]> {
   try {
     const response = await agentFetch('/reamon/code/index-symbols', {
@@ -113,7 +119,7 @@ export async function GET(request: Request, { params }: RouteParams) {
           },
         })
       }
-      return NextResponse.json({ exists: true, sourceCode: savedSource.sourceCode, updatedAt: savedSource.updatedAt.toISOString(), reviews: reviewHistory }, { headers: { 'Cache-Control': 'private, no-store' } })
+      return NextResponse.json({ exists: true, sourceCode: savedSource.sourceCode, sourceHash: createHash('sha256').update(savedSource.sourceCode).digest('hex'), updatedAt: savedSource.updatedAt.toISOString(), reviews: reviewHistory }, { headers: { 'Cache-Control': 'private, no-store' } })
     }
     if (!fileRealPath) return NextResponse.json({ exists: false, sourceCode: null }, { headers: { 'Cache-Control': 'private, no-store' } })
     const info = await stat(fileRealPath)
@@ -129,7 +135,7 @@ export async function GET(request: Request, { params }: RouteParams) {
         },
       })
     }
-    return NextResponse.json({ exists: true, sourceCode, updatedAt: info.mtime.toISOString(), reviews: reviewHistory }, { headers: { 'Cache-Control': 'private, no-store' } })
+    return NextResponse.json({ exists: true, sourceCode, sourceHash: null, updatedAt: info.mtime.toISOString(), reviews: reviewHistory }, { headers: { 'Cache-Control': 'private, no-store' } })
   } catch (error) {
     console.error('Failed to load maintained REAmon source:', error)
     return NextResponse.json({ error: 'Failed to load maintained source' }, { status: 500, headers: { 'Cache-Control': 'no-store' } })
@@ -147,12 +153,18 @@ export async function PUT(request: Request, { params }: RouteParams) {
     }
     const requestBody = plainObject(body)
     const sourceCode = requestBody.sourceCode
+    const expectedSourceHash = requestBody.expectedSourceHash === undefined || requestBody.expectedSourceHash === null
+      ? null
+      : typeof requestBody.expectedSourceHash === 'string' && /^[a-f0-9]{64}$/i.test(requestBody.expectedSourceHash)
+        ? requestBody.expectedSourceHash.toLowerCase()
+        : ''
     const reviewRationale = typeof requestBody.reviewRationale === 'string' ? requestBody.reviewRationale.trim() : ''
     if (typeof sourceCode !== 'string' || !sourceCode.trim()) return NextResponse.json({ error: 'Maintained source cannot be empty' }, { status: 400 })
     if (Buffer.byteLength(sourceCode, 'utf8') > MAX_SOURCE_BYTES) return NextResponse.json({ error: 'Maintained source exceeds the save limit' }, { status: 413 })
     if (reviewRationale.length < 12 || reviewRationale.length > 1000) {
       return NextResponse.json({ error: 'Add a review rationale between 12 and 1000 characters before accepting this source.' }, { status: 400 })
     }
+    if (expectedSourceHash === '') return NextResponse.json({ error: 'The maintained source version is invalid. Reload it before accepting changes.' }, { status: 400 })
 
     const original = await checkedPath(resolved.originalPath)
     if (original.fileRealPath) {
@@ -177,6 +189,14 @@ export async function PUT(request: Request, { params }: RouteParams) {
     const { rootRealPath, absolute } = await checkedPath(resolved.relativePath)
     const maintainedSourceHash = createHash('sha256').update(sourceCode).digest('hex')
     const review = await prisma.$transaction(async (tx) => {
+      const currentSource = await tx.reamonMaintainedSource.findUnique({
+        where: { projectId_codeUnitId: { projectId, codeUnitId: resolved.unitId } },
+        select: { sourceCode: true, sourceHash: true },
+      })
+      const currentSourceHash = currentSource
+        ? createHash('sha256').update(currentSource.sourceCode).digest('hex')
+        : null
+      if (currentSourceHash !== expectedSourceHash) throw new MaintainedSourceConflict()
       await tx.reamonObservation.upsert({
         where: {
           projectId_source_stableKey: {
@@ -217,31 +237,27 @@ export async function PUT(request: Request, { params }: RouteParams) {
         },
         select: { id: true, reviewerId: true, decision: true, rationale: true, maintainedSourceHash: true, createdAt: true },
       })
-      await tx.reamonMaintainedSource.upsert({
-        where: { projectId_codeUnitId: { projectId, codeUnitId: resolved.unitId } },
-        update: {
-          artifactId: resolved.artifactId,
-          unitName: label,
-          language,
-          sourceCode,
-          sourceHash: maintainedSourceHash,
-          acceptedReviewId: review.id,
-          symbolIndex,
-          relativePath: resolved.relativePath,
-        },
-        create: {
-          projectId,
-          artifactId: resolved.artifactId,
-          codeUnitId: resolved.unitId,
-          unitName: label,
-          language,
-          sourceCode,
-          sourceHash: maintainedSourceHash,
-          acceptedReviewId: review.id,
-          symbolIndex,
-          relativePath: resolved.relativePath,
-        },
-      })
+      const sourceData = {
+        artifactId: resolved.artifactId,
+        unitName: label,
+        language,
+        sourceCode,
+        sourceHash: maintainedSourceHash,
+        acceptedReviewId: review.id,
+        symbolIndex,
+        relativePath: resolved.relativePath,
+      }
+      if (currentSource) {
+        const updated = await tx.reamonMaintainedSource.updateMany({
+          where: { projectId, codeUnitId: resolved.unitId, sourceHash: currentSource.sourceHash },
+          data: sourceData,
+        })
+        if (updated.count !== 1) throw new MaintainedSourceConflict()
+      } else {
+        await tx.reamonMaintainedSource.create({
+          data: { projectId, codeUnitId: resolved.unitId, ...sourceData },
+        })
+      }
       return review
     })
     const temporaryPath = `${absolute}.${randomUUID()}.tmp`
@@ -262,6 +278,9 @@ export async function PUT(request: Request, { params }: RouteParams) {
       downloadUrl: `/api/projects/${encodeURIComponent(projectId)}/visualizer/maintained/${encodeURIComponent(unitId)}?download=1`,
     }, { headers: { 'Cache-Control': 'private, no-store' } })
   } catch (error) {
+    if (error instanceof MaintainedSourceConflict || isUniqueConflict(error)) {
+      return NextResponse.json({ error: 'The maintained source changed after you opened it. Reload the current version and review it before saving again.' }, { status: 409 })
+    }
     console.error('Failed to save maintained REAmon source:', error)
     return NextResponse.json({ error: 'Failed to save maintained source' }, { status: 500, headers: { 'Cache-Control': 'no-store' } })
   }

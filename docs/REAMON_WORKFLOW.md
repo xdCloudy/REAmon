@@ -104,6 +104,13 @@ ground future AI names. A proposed rename cannot silently change the project's
 canonical symbol map. Rejection receipts and explicit rollback decisions remain
 future work.
 
+The acceptance API uses a source-hash compare-and-swap guard for decompiled source and
+Smali. The visualizer submits the hash it loaded; if another reviewer promotes a newer
+version first, the stale save returns a conflict and cannot replace the current source
+or create an acceptance receipt. Reload and review the current version before retrying.
+This guards concurrent promotion; it does not yet detect external edits to derived
+files or automatically rerun validations.
+
 If an accepted update invalidates a previous validation, mark the affected result
 stale and rerun the relevant check. Protect already validated units from accidental
 regressions; rollback a candidate when a guard check fails.

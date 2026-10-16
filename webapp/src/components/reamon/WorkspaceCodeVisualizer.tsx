@@ -554,9 +554,9 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
     queryKey: ['reamon-maintained-smali', projectId, selectedUnit?.id],
     queryFn: async ({ signal }) => {
       const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/maintained/${encodeURIComponent(selectedUnit?.id || '')}/smali`, { signal, cache: 'no-store' })
-      const result = await response.json().catch(() => ({})) as { sourceCode?: string; exists?: boolean; error?: string; reviews?: CodeReviewRecord[] }
+      const result = await response.json().catch(() => ({})) as { sourceCode?: string; sourceHash?: string | null; exists?: boolean; error?: string; reviews?: CodeReviewRecord[] }
       if (!response.ok || typeof result.sourceCode !== 'string') throw new Error(result.error || 'Unable to load Smali source')
-      return result as { sourceCode: string; exists: boolean; reviews?: CodeReviewRecord[] }
+      return result as { sourceCode: string; sourceHash: string | null; exists: boolean; reviews?: CodeReviewRecord[] }
     },
     enabled: Boolean(selectedUnit?.disassemblyLanguage?.toLowerCase() === 'smali' && selectedUnit.disassemblyArtifactId),
     staleTime: 0,
@@ -589,7 +589,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
     queryFn: async ({ signal }) => {
       const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/maintained/${encodeURIComponent(selectedUnit?.id || '')}`, { signal, cache: 'no-store' })
       if (!response.ok) throw new Error('Unable to load the maintained source copy')
-      return response.json() as Promise<{ exists: boolean; sourceCode: string | null; updatedAt?: string; reviews?: CodeReviewRecord[] }>
+      return response.json() as Promise<{ exists: boolean; sourceCode: string | null; sourceHash?: string | null; updatedAt?: string; reviews?: CodeReviewRecord[] }>
     },
     enabled: Boolean(selectedUnit && selectedSourceUrl),
     staleTime: 30_000,
@@ -950,7 +950,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
       const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/maintained/${encodeURIComponent(selectedUnit.id)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sourceCode: maintainedDraft, reviewRationale }),
+        body: JSON.stringify({ sourceCode: maintainedDraft, reviewRationale, expectedSourceHash: maintainedQuery.data?.sourceHash ?? null }),
       })
       const result = await response.json().catch(() => ({})) as { error?: string }
       if (!response.ok) throw new Error(result.error || 'Could not save the maintained source')
@@ -981,7 +981,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
       const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/maintained/${encodeURIComponent(selectedUnit.id)}/smali`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sourceCode: smaliDraft, reviewRationale: smaliReviewRationale }),
+        body: JSON.stringify({ sourceCode: smaliDraft, reviewRationale: smaliReviewRationale, expectedSourceHash: smaliSourceQuery.data?.sourceHash ?? null }),
       })
       const result = await response.json().catch(() => ({})) as { error?: string }
       if (!response.ok) throw new Error(result.error || 'Could not save Smali source')
