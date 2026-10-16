@@ -139,7 +139,8 @@ export function buildProjectSymbolContext(
     const artifactVersion = artifactLabel
       ? `; ${currentArtifactHash && record.artifactHash === currentArtifactHash ? 'current' : 'other'} artifact ${artifactLabel}`
       : ''
-    const line = `${record.unitName} (${record.language}${artifactVersion}): ${symbols.join(', ')}`
+    const relationship = calleeUnitIds.has(record.codeUnitId || '') ? '; direct callee' : ''
+    const line = `${record.unitName} (${record.language}${artifactVersion}${relationship}): ${symbols.join(', ')}`
     if (length + line.length + 1 > maxChars) continue
     lines.push(line)
     includedUnits.add(identity)
