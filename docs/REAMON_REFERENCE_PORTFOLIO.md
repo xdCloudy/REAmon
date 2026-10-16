@@ -38,8 +38,9 @@ product and engineering planning.
    worker claims, explicit review receipts, and source-hash compare-and-swap promotion
    guards are implemented. Queued work survives restarts; active jobs renew source
    leases and can be cancelled; a claimed attempt interrupted by worker loss is
-   recorded and can be retried. Next add a direct resume action for completed results,
-   then language-specific validators and validation regression protection.
+   recorded and can be retried. Completed results can be restored into the editor,
+   with exact-input matching before member-level merging. Next add language-specific
+   validators and validation regression protection.
 2. Build the provider fixture and validator contract. Use decomp.me/objdiff as a
    reference for exact-build feedback, but isolate any target compiler/build process.
    Include a language-specific parser/build check and persist what each check proves.

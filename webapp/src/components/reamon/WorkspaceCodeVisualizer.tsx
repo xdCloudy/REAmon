@@ -93,7 +93,7 @@ interface CodeExplanationResponse { explanation: string; providerName: string; m
 interface ApkBuildResponse { buildId: string; taskId: string; fileName: string; sizeBytes: number; sha256: string; signed: false; changedFileCount: number; warnings?: string; downloadUrl: string }
 interface CodeMaintenanceResponse { sourceCode: string; providerName: string; model: string; attemptId?: string | null; syntaxValidated?: boolean | null; validationStatus?: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod?: string | null; validationMessage?: string | null }
 interface CodeDraftRecord { id: string; sourceCode: string; sourceAttemptId: string | null; providerName: string; modelIdentifier: string; question: string; scope: 'file' | 'member'; syntaxValidated: boolean | null; validationStatus: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod: string | null; validationMessage: string | null; updatedAt: string }
-interface CodeAttemptRecord { id: string; providerName: string; modelIdentifier: string; question: string; scope: 'file' | 'member'; status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'; cancelRequested: boolean; errorCode: string | null; errorMessage: string | null; resultSource: string | null; syntaxValidated: boolean | null; validationStatus: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod: string | null; validationMessage: string | null; createdAt: string; completedAt: string | null }
+interface CodeAttemptRecord { id: string; providerName: string; modelIdentifier: string; question: string; scope: 'file' | 'member'; status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'; cancelRequested: boolean; errorCode: string | null; errorMessage: string | null; inputSource?: string; resultSource: string | null; syntaxValidated: boolean | null; validationStatus: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod: string | null; validationMessage: string | null; createdAt: string; completedAt: string | null }
 interface CodeDraftResponse { exists: boolean; draft: CodeDraftRecord | null; attempts?: CodeAttemptRecord[] }
 interface CodeReviewRecord { id: string; reviewerId: string; decision: 'ACCEPTED'; rationale: string; maintainedSourceHash: string; createdAt: string }
 interface CodeMemberOutline { name: string; kind: 'function' | 'method' | 'constructor'; start_byte: number; end_byte: number; line: number; source_bytes: number }
@@ -358,6 +358,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
   const [transforming, setTransforming] = useState(false)
   const [activeRewriteAttemptId, setActiveRewriteAttemptId] = useState<string | null>(null)
   const [cancellingRewrite, setCancellingRewrite] = useState(false)
+  const [restoringAttemptId, setRestoringAttemptId] = useState<string | null>(null)
   const [savingMaintained, setSavingMaintained] = useState(false)
   const [maintainedSaved, setMaintainedSaved] = useState(false)
   const [smaliDraft, setSmaliDraft] = useState('')
@@ -819,6 +820,52 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
       setMaintenanceError(error instanceof Error ? error.message : 'Could not cancel the rewrite')
     } finally {
       setCancellingRewrite(false)
+    }
+  }
+
+  async function restoreCodeAttempt(attempt: CodeAttemptRecord) {
+    if (!selectedUnit || attempt.status !== 'SUCCEEDED' || !attempt.resultSource) return
+    setRestoringAttemptId(attempt.id)
+    setMaintenanceError('')
+    try {
+      let sourceCode = attempt.resultSource
+      if (attempt.scope === 'member') {
+        const baseSource = maintainedDraft || sourceQuery.data
+        if (!baseSource || !attempt.inputSource) {
+          throw new Error('This member result is missing its exact input. Reload the source before restoring it.')
+        }
+        const firstMatch = baseSource.indexOf(attempt.inputSource)
+        if (firstMatch < 0 || baseSource.indexOf(attempt.inputSource, firstMatch + 1) >= 0) {
+          throw new Error('The original member is no longer uniquely present in the editable source. Review the result and merge it manually.')
+        }
+        sourceCode = `${baseSource.slice(0, firstMatch)}${attempt.resultSource}${baseSource.slice(firstMatch + attempt.inputSource.length)}`
+      }
+      const meta: CodeMaintenanceResponse = {
+        sourceCode,
+        providerName: attempt.providerName,
+        model: attempt.modelIdentifier,
+        attemptId: attempt.id,
+        syntaxValidated: attempt.syntaxValidated,
+        validationStatus: attempt.validationStatus,
+        validationMethod: attempt.validationMethod,
+        validationMessage: attempt.validationMessage,
+      }
+      setMaintainedDraft(sourceCode)
+      setMaintenanceMeta(meta)
+      revealMaintainedEditor()
+      setMaintainedSaved(false)
+      setDraftId(null)
+      setDraftSource(null)
+      setDraftScope(null)
+      try {
+        await persistCodeDraft(sourceCode, meta, attempt.scope)
+      } catch (error) {
+        setMaintenanceError(`The completed result is loaded in the editor, but could not be saved to project memory: ${error instanceof Error ? error.message : 'unknown error'}`)
+      }
+    } catch (error) {
+      setMaintenanceError(error instanceof Error ? error.message : 'Could not restore this completed result')
+    } finally {
+      setRestoringAttemptId(null)
     }
   }
 
@@ -1704,6 +1751,9 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
                 {attempt.validationStatus && <p>{validationSummary(attempt)}</p>}
                 {attempt.status === 'SUCCEEDED' && !attempt.validationStatus && <p>{validationSummary(attempt)}</p>}
                 {attempt.errorMessage && <p className={styles.error}>{attempt.errorMessage}{attempt.errorCode ? ` (${attempt.errorCode})` : ''}</p>}
+                {attempt.status === 'SUCCEEDED' && attempt.resultSource && <button type="button" className={styles.copyButton} onClick={() => void restoreCodeAttempt(attempt)} disabled={transforming || restoringAttemptId !== null || (attempt.scope === 'member' && !sourceQuery.data)}>
+                  {restoringAttemptId === attempt.id ? 'Restoring result…' : 'Load result into editor'}
+                </button>}
                 {attempt.resultSource && <pre className={styles.attemptSource}><code>{attempt.resultSource}</code></pre>}
               </details>
             </li>)}</ol>
