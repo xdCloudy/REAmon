@@ -8,6 +8,7 @@ import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
 import { getActiveWorkspaceImportSelection } from '@/lib/reamon/inventory-query'
 import { derivedArtifactRoot, resolveDerivedArtifactPath } from '@/lib/reamon/derived-storage'
 import { buildProjectSymbolContext, buildProviderSymbolContext, extractMaintainedSymbols } from '@/lib/reamon/maintenance-memory'
+import { providerVariablesOf } from '@/lib/reamon/code-units'
 import { rankSimilarInstructionFunctions } from '@/lib/reamon/instruction-similarity'
 import { codeRewriteLeaseGraceMs, failInterruptedCodeAttempts } from '@/lib/reamon/code-attempts'
 
@@ -794,7 +795,7 @@ export async function POST(request: Request, { params }: RouteParams) {
         select: { sourceCode: true, unitName: true, language: true },
         orderBy: { updatedAt: 'desc' },
       }),
-      observation.taskId && observation.source === 'reamon-ghidra' ? prisma.reamonObservation.findMany({
+      observation.taskId ? prisma.reamonObservation.findMany({
         where: {
           projectId,
           artifactId: artifact.id,
@@ -864,6 +865,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     const providerSymbolContext = observation.taskId ? buildProviderSymbolContext(
       providerSymbolRows.map((row) => {
         const providerAttributes = plainObject(row.attributes)
+        const providerVariables = providerVariablesOf(providerAttributes, observation.source)
         return {
           codeUnitId: row.id,
           unitName: (typeof providerAttributes.qualifiedName === 'string' && providerAttributes.qualifiedName)
@@ -874,8 +876,9 @@ export async function POST(request: Request, { params }: RouteParams) {
             || (typeof providerAttributes.sourceLanguage === 'string' && providerAttributes.sourceLanguage)
             || 'unknown',
           address: typeof providerAttributes.address === 'string' ? providerAttributes.address : undefined,
-          recoveredVariables: providerAttributes.recoveredVariables,
-          recoveredVariablesTruncated: providerAttributes.recoveredVariablesTruncated === true,
+          recoveredVariables: providerVariables.variables,
+          recoveredVariablesTruncated: providerVariables.truncated
+            || providerAttributes.recoveredVariablesTruncated === true,
         }
       }),
       new Set(providerRelatedUnitIds),

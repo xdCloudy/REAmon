@@ -31,7 +31,7 @@ assuming every `functions.json` is the native shape.
 | --- | --- | --- |
 | Binary inventory and input hash | Artifact / artifact provenance | Match only by verified SHA-256. Use a project-scoped synthetic artifact when the original input is absent; never guess from filename. |
 | Function address and backend identity | `code_unit` observation | Stable key includes export identity, binary hash, and normalized address/token. Keep provider name/version and language/representation in attributes. |
-| Name, prototype, parameters, locals, recovered types | Unit attributes and symbol/type observations | Preserve as provider evidence with confidence/source fields; do not promote to canonical names or types automatically. |
+| Name, prototype, parameters, locals, recovered types | Unit attributes and symbol/type observations | Preserve as provider evidence with confidence/source fields; do not promote to canonical names or types automatically. Native `params`/`locals` entries with `{name, type}` are passed as bounded provisional symbol context to AI rewrites only from the selected ToCode artifact and analysis run. Missing variable sizes remain unknown rather than being inferred. |
 | Callee/caller addresses and import links | `calls` or dependency relationship observations | Resolve endpoints within the same export first. Resolve cross-binary links only from ToCode's explicit loader/import mappings and exact target artifact identity. Drop unresolved endpoints with a count in task metadata. |
 | Source/assembly paths and line ranges | Derived source artifact and code-unit attributes | Resolve normalized paths against the imported export manifest, verify the file is a regular artifact inside that import, then copy bounded output into REAmon's derived-artifact namespace. Keep assembly as supporting evidence. |
 | Export, strings, sections, relocations, reachability, triage | Typed observations and bounded task summary | Persist only fields with a defined REAmon interpretation; cap counts and field sizes and retain the raw export as an imported artifact. |
@@ -46,6 +46,12 @@ Folder-level `mappings.json` links are resolved against the importer and target 
 directories represented in the same immutable workspace import. Repeated requests
 reuse the existing index task. This slice imports existing ToCode output; it does not
 install or run ToCode itself.
+
+For native function rows, the documented exporter contract supplies `params` and
+`locals` as arrays of `{name, type}` records. REAmon reads those bounded fields into
+the same provider-evidence context used by Ghidra; they remain ToCode-attributed and
+provisional, with no inferred size, storage location, or lock state. This does not
+claim that the Android or .NET ToCode exports use this native schema.
 
 Remaining integration work:
 

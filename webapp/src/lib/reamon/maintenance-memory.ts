@@ -168,7 +168,8 @@ export function buildProviderSymbolContext(
         variable.nameLocked === undefined ? '' : `name ${variable.nameLocked ? 'locked' : 'unlocked'}`,
         variable.typeLocked === undefined ? '' : `type ${variable.typeLocked ? 'locked' : 'unlocked'}`,
       ].filter(Boolean).join(', ')
-      return `${kind}: ${variable.name.slice(0, 128)}: ${(variable.dataType || 'unknown type').slice(0, 128)} (${variable.sizeBytes} B${locks ? `; ${locks}` : ''})`
+      const size = variable.sizeBytes === undefined ? '' : `; ${variable.sizeBytes} B`
+      return `${kind}: ${variable.name.slice(0, 128)}: ${(variable.dataType || 'unknown type').slice(0, 128)}${size}${locks ? `; ${locks}` : ''}`
     })
     const omitted = variables.length > symbolList.length || truncated || record.recoveredVariablesTruncated
       ? `; more symbols omitted${record.recoveredVariablesTruncated ? ' by analyzer limit' : ''}`

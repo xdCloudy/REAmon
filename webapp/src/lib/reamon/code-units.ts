@@ -26,7 +26,7 @@ export interface CodeUnitObservationAttributes {
   sourceAddressMap?: Array<{ ghidraLineNumber: number; address: string }>
   sourceAddressMapTruncated?: boolean
   prototype?: string
-  recoveredVariables?: Array<{ kind: 'parameter' | 'local'; name: string; dataType: string; sizeBytes: number; parameterIndex?: number; storageStartAddress?: string; nameLocked?: boolean; typeLocked?: boolean }>
+  recoveredVariables?: Array<{ kind: 'parameter' | 'local'; name: string; dataType: string; sizeBytes?: number; parameterIndex?: number; storageStartAddress?: string; nameLocked?: boolean; typeLocked?: boolean }>
   recoveredVariablesTruncated?: boolean
 }
 
@@ -63,7 +63,7 @@ export interface CodeUnit {
   sourceAddressMap?: Array<{ ghidraLineNumber: number; address: string }>
   sourceAddressMapTruncated?: boolean
   prototype?: string | null
-  recoveredVariables?: Array<{ kind: 'parameter' | 'local'; name: string; dataType: string; sizeBytes: number; parameterIndex?: number; storageStartAddress?: string; nameLocked?: boolean; typeLocked?: boolean }>
+  recoveredVariables?: Array<{ kind: 'parameter' | 'local'; name: string; dataType: string; sizeBytes?: number; parameterIndex?: number; storageStartAddress?: string; nameLocked?: boolean; typeLocked?: boolean }>
   recoveredVariablesTruncated?: boolean
   maintainedSource?: boolean
   draftSource?: boolean
@@ -126,7 +126,7 @@ export function recoveredVariablesOf(value: unknown): { variables: NonNullable<C
       if ((variable.kind !== 'parameter' && variable.kind !== 'local')
           || typeof variable.name !== 'string' || !variable.name.trim() || variable.name.length > 256
           || typeof variable.dataType !== 'string' || variable.dataType.length > 256
-          || !Number.isInteger(variable.sizeBytes) || Number(variable.sizeBytes) < 0 || Number(variable.sizeBytes) > 65536) return []
+          || (variable.sizeBytes !== undefined && (!Number.isInteger(variable.sizeBytes) || Number(variable.sizeBytes) < 0 || Number(variable.sizeBytes) > 65536))) return []
       const kind = variable.kind as 'parameter' | 'local'
       const parameterIndex = variable.parameterIndex
       if (kind === 'parameter' && (!Number.isInteger(parameterIndex) || Number(parameterIndex) < 0 || Number(parameterIndex) >= 100)) return []
@@ -139,7 +139,7 @@ export function recoveredVariablesOf(value: unknown): { variables: NonNullable<C
         kind,
         name: variable.name,
         dataType: variable.dataType,
-        sizeBytes: Number(variable.sizeBytes),
+        ...(Number.isInteger(variable.sizeBytes) ? { sizeBytes: Number(variable.sizeBytes) } : {}),
         ...(kind === 'parameter' ? { parameterIndex: Number(parameterIndex) } : {}),
         ...(typeof storageStartAddress === 'string' ? { storageStartAddress } : {}),
         ...(typeof variable.nameLocked === 'boolean' ? { nameLocked: variable.nameLocked } : {}),
@@ -152,6 +152,40 @@ export function recoveredVariablesOf(value: unknown): { variables: NonNullable<C
   }
 }
 
+/** Read only provider schemas with known contracts; keep their evidence provisional. */
+export function providerVariablesOf(
+  value: unknown,
+  provider: string,
+): { variables: NonNullable<CodeUnit['recoveredVariables']>; truncated: boolean } {
+  const attributes = attributesOf(value)
+  const normalized = recoveredVariablesOf(attributes.recoveredVariables)
+  if (normalized.variables.length || provider !== 'reamon-tocode-import') return normalized
+
+  const variables: NonNullable<CodeUnit['recoveredVariables']> = []
+  let truncated = attributes.symbolEvidenceTruncated === true
+  const readRows = (json: unknown, kind: 'parameter' | 'local') => {
+    if (typeof json !== 'string' || json.length > 4_000) return
+    let parsed: unknown
+    try { parsed = JSON.parse(json) } catch { return }
+    if (!Array.isArray(parsed)) return
+    if (parsed.length > 100) truncated = true
+    for (const [index, row] of parsed.slice(0, 100).entries()) {
+      const item = attributesOf(row)
+      if (typeof item.name !== 'string' || !item.name.trim() || item.name.length > 256
+          || (item.type !== undefined && (typeof item.type !== 'string' || item.type.length > 256))) continue
+      variables.push({
+        kind,
+        name: item.name.trim(),
+        dataType: typeof item.type === 'string' ? item.type : '',
+        ...(kind === 'parameter' ? { parameterIndex: index } : {}),
+      })
+    }
+  }
+  readRows(attributes.parametersJson, 'parameter')
+  readRows(attributes.localsJson, 'local')
+  return { variables: variables.slice(0, 100), truncated: truncated || variables.length > 100 }
+}
+
 export function normalizeCodeUnit(row: CodeUnitObservationRow, options: { includeSourceAddressMap?: boolean } = {}): CodeUnit | null {
   const attributes = attributesOf(row.attributes)
   const sizeBytes = finiteNumber(attributes.sizeBytes)
@@ -160,7 +194,7 @@ export function normalizeCodeUnit(row: CodeUnitObservationRow, options: { includ
   const updatedAt = row.updatedAt instanceof Date ? row.updatedAt.toISOString() : row.updatedAt
   const artifactPath = row.artifact?.relativePath || row.artifact?.originalName || null
   const bundlePath = text(attributes.bundlePath, 1000)
-  const selectedEvidence = options.includeSourceAddressMap ? recoveredVariablesOf(attributes.recoveredVariables) : null
+  const selectedEvidence = options.includeSourceAddressMap ? providerVariablesOf(attributes, row.source) : null
   return {
     id: row.id,
     name: text(attributes.qualifiedName, 500) || text(attributes.name, 500) || text(row.label, 500) || text(row.stableKey, 500) || row.id,

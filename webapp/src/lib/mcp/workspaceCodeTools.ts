@@ -6,7 +6,7 @@ import prisma from '@/lib/prisma'
 import { assertMcpProjectAccess, requireScope } from '@/lib/mcpAuth'
 import { McpToolError } from '@/lib/mcp/errors'
 import { getActiveWorkspaceImportSelection } from '@/lib/reamon/inventory-query'
-import { CODE_UNIT_OBSERVATION_TYPE, recoveredVariablesOf } from '@/lib/reamon/code-units'
+import { CODE_UNIT_OBSERVATION_TYPE, providerVariablesOf } from '@/lib/reamon/code-units'
 import { derivedArtifactRoot, resolveDerivedArtifactPath } from '@/lib/reamon/derived-storage'
 import { enforceRate, type McpContext } from '@/lib/mcp/tools'
 
@@ -326,7 +326,10 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
     return [row.stableKey, text(endpoint.qualifiedName) || text(endpoint.name) || text(row.label) || row.stableKey]
   }))
   const result = record(task?.result)
-  const recoveredVariableData = recoveredVariablesOf(attributes.recoveredVariables)
+  const recoveredVariableData = providerVariablesOf(attributes, unit.source)
+  const recoveredVariableSemantics = unit.source === 'reamon-ghidra'
+    ? 'Recovered names and types are provider evidence from Ghidra symbols, not reviewed canonical names. nameLocked/typeLocked describe constraints applied by Ghidra to its decompiler model; they do not prove original-source provenance or correctness.'
+    : `Recovered names and types are provisional provider evidence from ${unit.source}; they are not reviewed canonical names.`
 
   return {
     projectId: args.projectId,
@@ -344,9 +347,7 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
       prototype: text(attributes.prototype, 2000),
       recoveredVariables: recoveredVariableData.variables,
       recoveredVariablesTruncated: recoveredVariableData.truncated || attributes.recoveredVariablesTruncated === true,
-      recoveredVariablesSemantics: recoveredVariableData.variables.length
-        ? 'Recovered names and types are provider evidence from Ghidra symbols, not reviewed canonical names. nameLocked/typeLocked describe constraints applied by Ghidra to its decompiler model; they do not prove original-source provenance or correctness.'
-        : null,
+      recoveredVariablesSemantics: recoveredVariableData.variables.length ? recoveredVariableSemantics : null,
       parentCodeUnit: parentUnit ? {
         id: parentUnit.id,
         stableKey: parentUnit.stableKey,

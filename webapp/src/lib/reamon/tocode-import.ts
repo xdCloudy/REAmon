@@ -72,6 +72,27 @@ function positiveInteger(value: unknown, fallback = 1): number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : fallback
 }
 
+function boundedVariableRows(value: unknown): { json?: string; truncated: boolean } {
+  if (!Array.isArray(value)) return { truncated: false }
+  const rows: Array<{ name: string; type?: string }> = []
+  let truncated = value.length > 100
+  for (const entry of value.slice(0, 100)) {
+    const row = asRecord(entry)
+    if (!row || typeof row.name !== 'string' || !row.name.trim() || row.name.length > 256
+        || (row.type !== undefined && row.type !== null && (typeof row.type !== 'string' || row.type.length > 256))) {
+      truncated = true
+      continue
+    }
+    const normalized = { name: row.name.trim(), ...(typeof row.type === 'string' ? { type: row.type } : {}) }
+    if (JSON.stringify([...rows, normalized]).length > 4_000) {
+      truncated = true
+      break
+    }
+    rows.push(normalized)
+  }
+  return { ...(rows.length ? { json: JSON.stringify(rows) } : {}), truncated }
+}
+
 function optionalLine(value: unknown): number | null {
   return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : null
 }
@@ -135,8 +156,8 @@ export function hasToCodeExport(paths: string[]): boolean {
 }
 
 function makeCodeUnit(record: FunctionRecord, metadata: Record<string, unknown>, codeArtifactId?: string): ToolObservation {
-  const params = Array.isArray(record.raw.params) ? JSON.stringify(record.raw.params).slice(0, 4000) : undefined
-  const locals = Array.isArray(record.raw.locals) ? JSON.stringify(record.raw.locals).slice(0, 4000) : undefined
+  const params = boundedVariableRows(record.raw.params)
+  const locals = boundedVariableRows(record.raw.locals)
   const attrs: Record<string, string | number | boolean | null> = {
     unitType: 'function',
     identity: `${record.exportRoot}:${record.address}`,
@@ -154,8 +175,9 @@ function makeCodeUnit(record: FunctionRecord, metadata: Record<string, unknown>,
     reachable: record.raw.dead_code === true ? false : true,
   }
   if (record.prototype) attrs.prototype = record.prototype
-  if (params) attrs.parametersJson = params
-  if (locals) attrs.localsJson = locals
+  if (params.json) attrs.parametersJson = params.json
+  if (locals.json) attrs.localsJson = locals.json
+  if (params.truncated || locals.truncated) attrs.symbolEvidenceTruncated = true
   if (record.sourceFile) attrs.relativePath = record.sourceFile
   if (record.sourceLineStart !== null) attrs.sourceLineStart = record.sourceLineStart
   if (record.sourceLineEnd !== null) attrs.sourceLineEnd = record.sourceLineEnd
