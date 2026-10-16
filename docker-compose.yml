@@ -1171,6 +1171,7 @@ services:
       REAMON_ARTIFACTS_PATH: /data/reamon-artifacts
       REAMON_DERIVED_PATH: /data/reamon-derived
       REAMON_JADX_URL: http://jadx-analyzer:8010
+      REAMON_DEX_DECOMPILER_URL: http://dex-decompiler-analyzer:8019
       REAMON_ILSPY_URL: http://ilspy-analyzer:8013
       REAMON_GHIDRA_URL: http://ghidra-analyzer:8011
       REAMON_WASM_URL: http://wasm-analyzer:8012
@@ -1291,6 +1292,46 @@ services:
       timeout: 5s
       retries: 3
       start_period: 60s
+    networks:
+      - reamon-analysis
+
+  # Alternate Rust DEX-to-Java output stays separate from JADX's source artifacts.
+  dex-decompiler-analyzer:
+    build:
+      context: ./analyzers/dex-decompiler
+    image: ${REAMON_DEX_DECOMPILER_IMAGE:-reamon-dex-decompiler:local}
+    container_name: reamon-dex-decompiler
+    init: true
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+    mem_limit: ${REAMON_DEX_DECOMPILER_MEM:-2g}
+    pids_limit: ${REAMON_DEX_DECOMPILER_PIDS:-64}
+    cpus: ${REAMON_DEX_DECOMPILER_CPUS:-2}
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=${REAMON_DEX_DECOMPILER_TMP_SIZE:-1g},mode=1777
+    environment:
+      REAMON_ARTIFACTS_PATH: /data/reamon-artifacts
+      REAMON_DERIVED_PATH: /data/reamon-derived
+      DEX_DECOMPILER_TIMEOUT_SECONDS: ${REAMON_DEX_DECOMPILER_TIMEOUT_SECONDS:-900}
+      DEX_DECOMPILER_MAX_OUTPUT_BYTES: ${REAMON_DEX_DECOMPILER_MAX_OUTPUT_BYTES:-536870912}
+      DEX_DECOMPILER_MAX_RETURNED_UNITS: ${REAMON_DEX_DECOMPILER_MAX_RETURNED_UNITS:-500}
+    volumes:
+      - reamon_artifacts:/data/reamon-artifacts:ro
+      - reamon_derived:/data/reamon-derived:rw
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8019/health', timeout=3)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
     networks:
       - reamon-analysis
 

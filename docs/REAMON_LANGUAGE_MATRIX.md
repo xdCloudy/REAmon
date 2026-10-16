@@ -36,7 +36,7 @@ and the [upstream reuse audit](REAMON_UPSTREAM_REUSE.md) for integration status.
 | Language / input | Status | Integrated path | Missing or uncertain |
 | --- | --- | --- | --- |
 | Java bytecode (`.class`, `.jar`) | Usable | JADX decompilation, class/method outlines, and source browsing. | Obfuscation, reflection, missing debug data, exact original formatting and comments. |
-| Android DEX / APK, including Kotlin bytecode | Usable through JADX | Java-like output, Smali evidence, method/call relationships, resources, and selected APK rebuild paths. | Kotlin idioms are not reconstructed as Kotlin. Android CFG/xref alternate providers are under evaluation. |
+| Android DEX / APK, including Kotlin bytecode | Usable through JADX; early alternate through Androguard dex-decompiler | JADX supplies Java-like output, Smali evidence, method/call relationships, resources, and selected APK rebuild paths. The pinned Rust DEX decompiler supplies separately stored, bytecode-annotated alternate Java output. | Kotlin idioms are not reconstructed as Kotlin. The alternate does not yet expose method CFG/xref evidence in REAmon; output quality and coverage still need fixture comparison. |
 | C# / managed .NET (`.dll`, `.exe`) | Usable | ILSpy C# output and IL-derived method evidence. | Original comments/formatting; original Visual Basic or F# syntax; full behavioral equivalence. |
 | Native ELF / PE / Mach-O | Partial | Ghidra functions, disassembly, call relationships, and C-like pseudocode for supported architectures. GoReSym adds Go metadata where found. | Pseudocode is not recovered original source. Optimized/stripped code, type recovery, templates, and language idioms remain difficult. |
 | WebAssembly (`.wasm`) | Low-level | WABT WAT/disassembly and function navigation. | High-level source reconstruction and original names may be unavailable. |
@@ -72,6 +72,6 @@ Do not upgrade a language from “partial” because a generic decompiler emits 
 that resembles that language.
 
 See [the feature matrix](REAMON_FEATURE_MATRIX.md) for cross-language product status
-and [upstream reuse](REAMON_UPSTREAM_REUSE.md) for engine decisions. The current
-Rust and Lua projects linked above are evaluation candidates, not integrated REAmon
-providers; their upstream feature claims require fixture-backed validation here.
+and [upstream reuse](REAMON_UPSTREAM_REUSE.md) for engine decisions. The Rust DEX
+engine is integrated as an early alternate provider; its upstream CFG/xref features
+remain evaluation targets and all accuracy claims require fixture-backed validation.

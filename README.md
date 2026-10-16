@@ -26,9 +26,10 @@
 
 ## What REAmon is becoming
 
-REAmon orchestrates reverse-engineering engines such as Ghidra, JADX, and ILSpy on
-the backend, then presents their output in one investigation workspace. Android APKs
-use isolated JADX, managed .NET PE assemblies use isolated ILSpy, and native ELF, PE,
+REAmon orchestrates reverse-engineering engines such as Ghidra, JADX, Androguard's
+Rust DEX decompiler, and ILSpy on the backend, then presents their output in one
+investigation workspace. Android APKs use isolated JADX and an alternate isolated
+Rust DEX decompiler, managed .NET PE assemblies use isolated ILSpy, and native ELF, PE,
 and Mach-O files use isolated Ghidra headless analysis. These providers publish
 bounded function or code-unit indexes in the code visualizer. Other formats and
 dynamic analysis still need matching engines. A workspace can contain multiple
@@ -88,7 +89,7 @@ a starting point for review.
 
 | Language or input | Status | What works now | Main gaps |
 | --- | --- | --- | --- |
-| Java bytecode (`.class`, `.jar`) and Android (`.dex`, `.apk`) | **Usable (JADX)** | JADX produces browsable Java source and class/method outlines. Android method and call relationships are also indexed where available. | Obfuscation, missing debug metadata, reflection, and native libraries can hide behavior or names. Kotlin-built apps are rendered as Java-like output, not restored Kotlin source. Androguard's separate Rust decompiler and CFG/xref APIs are being evaluated as an alternate provider, not yet integrated. |
+| Java bytecode (`.class`, `.jar`) and Android (`.dex`, `.apk`) | **Usable (JADX); early alternate (Androguard Rust DEX decompiler)** | JADX produces browsable Java source and class/method outlines. The pinned Androguard Rust engine stores separately attributed, bytecode-annotated alternate Java source for APK/DEX inputs. Android method and call relationships are also indexed where available. | Obfuscation, missing debug metadata, reflection, and native libraries can hide behavior or names. Kotlin-built apps are rendered as Java-like output, not restored Kotlin source. Androguard method CFG and xref evidence is not yet wired into REAmon. |
 | C# / managed .NET (`.dll`, `.exe`) | **Usable** | ILSpy decompiles supported managed PE assemblies to C#; CLR IL instruction sequences are retained as supporting function evidence. | Output is reconstructed source. Original comments, formatting, and some compiler-level distinctions are lost. Visual Basic and F# assemblies are not reconstructed in their original source syntax. |
 | Native binaries (ELF, PE, Mach-O; including C/C++ and other compiled languages) | **Partial** | Ghidra provides address-aware functions, disassembly evidence, and C-like pseudocode for supported architectures. | Pseudocode is not recovered C/C++ or the original language. Types, class structure, templates, symbols, and control flow can be incomplete or misleading, especially in optimized or stripped binaries. |
 | WebAssembly (`.wasm`) | **Low-level only** | WABT exposes WebAssembly text/disassembly (WAT) and function-level entries for navigation. | This is not a high-level source decompiler; names and original source structure may be absent. |
@@ -105,6 +106,7 @@ planned rows identify areas to evaluate; they do not promise a release date. Det
 per-language scope is in the [language matrix](docs/REAMON_LANGUAGE_MATRIX.md), and
 cross-workflow status is in the [feature matrix](docs/REAMON_FEATURE_MATRIX.md).
 Current engines include [JADX](https://github.com/skylot/jadx),
+[Androguard's Rust DEX decompiler](https://github.com/androguard/dex-decompiler),
 [ILSpy](https://github.com/icsharpcode/ILSpy),
 [Ghidra](https://github.com/NationalSecurityAgency/ghidra), and
 [WABT](https://github.com/WebAssembly/wabt). Python bytecode uses the MIT-licensed
@@ -128,10 +130,16 @@ no source-equivalence guarantee.
 The unluac-rs API also advertises LuaJIT 2.1 and Luau and exposes prototype and CFG
 metadata. Luau and alternate LuaJIT output remain evaluation targets; keep the
 existing LuaJIT provider until dialect-specific comparisons justify a change.
+Android APK/DEX analysis also has an alternate Java reconstruction from the
+Apache-2.0 Androguard [dex-decompiler](https://github.com/androguard/dex-decompiler),
+pinned at commit [`d458efd`](https://github.com/androguard/dex-decompiler/tree/d458efd15d74351e83f4e8968c75ef17c71f3c65).
+It runs in a separate bounded container; source artifacts retain the engine commit
+and input hash. This is an early comparison path, not a replacement for JADX, and
+does not yet publish method-level CFGs or cross-references.
 
 ## Current bootstrap
 
-The first REAmon milestone is implemented and running on the `reamon/bootstrap` branch:
+The REAmon workspace foundation is implemented and running:
 
 - Create a reverse-engineering workspace without inventing a domain or network scope.
 - Import a complete browser-selected folder in bounded batches, preserving its relative
