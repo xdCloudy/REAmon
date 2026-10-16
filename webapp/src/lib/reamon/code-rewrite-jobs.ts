@@ -3,6 +3,8 @@ import prisma from '@/lib/prisma'
 import { AgentUnreachableError, agentFetch } from '@/lib/agentFetch'
 
 const MAX_BATCH_SIZE = 5
+const MAX_DEPENDENCY_CANDIDATES = 100
+const MAX_DEPENDENCY_EDGES = 20_000
 const MAX_RESULT_BYTES = 128 * 1024
 const REWRITE_LEASE_GRACE_MS = 60_000
 const MAX_REWRITE_TIMEOUT_MS = 5 * 60_000
@@ -13,6 +15,255 @@ function record(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
     : {}
+}
+
+function dependencyGroup(row: { projectId: string; artifactId: string; taskId: string | null; source: string }): string {
+  return JSON.stringify([row.projectId, row.artifactId, row.taskId, row.source])
+}
+
+async function hasPendingCalleeAttempt(input: {
+  id: string
+  projectId: string
+  artifactId: string
+  codeUnitId: string
+  scope: string
+}): Promise<boolean> {
+  if (input.scope === 'member') return false
+  try {
+    const unit = await prisma.reamonObservation.findFirst({
+      where: { id: input.codeUnitId, projectId: input.projectId, artifactId: input.artifactId, kind: 'entity', type: 'code_unit' },
+      select: { taskId: true, source: true, stableKey: true },
+    })
+    if (!unit?.taskId || !unit.stableKey) return false
+    const edges = await prisma.reamonObservation.findMany({
+      where: {
+        projectId: input.projectId,
+        artifactId: input.artifactId,
+        taskId: unit.taskId,
+        source: unit.source,
+        kind: 'relationship',
+        type: 'calls',
+        OR: [
+          { fromKey: unit.stableKey },
+          { attributes: { path: ['fromCodeUnitKey'], equals: unit.stableKey } },
+        ],
+      },
+      select: { fromKey: true, toKey: true, attributes: true },
+      take: MAX_DEPENDENCY_EDGES + 1,
+    })
+    if (edges.length > MAX_DEPENDENCY_EDGES) return false
+    const calleeKeys = new Set<string>()
+    for (const edge of edges) {
+      const attributes = record(edge.attributes)
+      const isUnitEdge = edge.fromKey === unit.stableKey
+      const targetKey = isUnitEdge
+        ? edge.toKey
+        : typeof attributes.toCodeUnitKey === 'string' ? attributes.toCodeUnitKey : edge.toKey
+      if (targetKey && targetKey !== unit.stableKey) calleeKeys.add(targetKey)
+    }
+    if (!calleeKeys.size) return false
+    const callees = await prisma.reamonObservation.findMany({
+      where: {
+        projectId: input.projectId,
+        artifactId: input.artifactId,
+        taskId: unit.taskId,
+        source: unit.source,
+        kind: 'entity',
+        type: 'code_unit',
+        stableKey: { in: [...calleeKeys] },
+      },
+      select: { id: true },
+    })
+    const calleeIds = callees.map((callee) => callee.id).filter((id) => id !== input.codeUnitId)
+    if (!calleeIds.length) return false
+    return Boolean(await prisma.reamonCodeAttempt.findFirst({
+      where: {
+        projectId: input.projectId,
+        artifactId: input.artifactId,
+        codeUnitId: { in: calleeIds },
+        status: { in: ['QUEUED', 'RUNNING'] },
+      },
+      select: { id: true },
+    }))
+  } catch {
+    // If the persisted graph cannot be read, leave FIFO dispatch available.
+    return false
+  }
+}
+
+async function orderQueuedAttempts<T extends {
+  id: string
+  projectId: string
+  artifactId: string
+  codeUnitId: string
+  scope: string
+  createdAt: Date
+}>(queued: T[]): Promise<{ ordered: T[]; blockedAttemptIds: Set<string>; complete: boolean }> {
+  const unchanged = { ordered: queued, blockedAttemptIds: new Set<string>(), complete: true }
+  if (!queued.length) return unchanged
+  if (queued.length > MAX_DEPENDENCY_CANDIDATES) return { ...unchanged, complete: false }
+  const wholeUnit = queued.filter((attempt) => attempt.scope !== 'member')
+  if (!wholeUnit.length) return unchanged
+  const observations = await prisma.reamonObservation.findMany({
+    where: { id: { in: [...new Set(queued.map((attempt) => attempt.codeUnitId))] }, type: 'code_unit' },
+    select: { id: true, projectId: true, artifactId: true, taskId: true, stableKey: true, source: true },
+  })
+  const observationById = new Map(observations.map((observation) => [observation.id, observation]))
+  const groups = new Map<string, { projectId: string; artifactId: string; taskId: string; source: string }>()
+  const attemptIdsByGroupAndKey = new Map<string, string[]>()
+  const stableKeysByGroup = new Map<string, Set<string>>()
+  for (const attempt of wholeUnit) {
+    const observation = observationById.get(attempt.codeUnitId)
+    if (!observation?.taskId || observation.artifactId !== attempt.artifactId || observation.projectId !== attempt.projectId) continue
+    const group = dependencyGroup({ projectId: observation.projectId, artifactId: attempt.artifactId, taskId: observation.taskId, source: observation.source })
+    groups.set(group, {
+      projectId: observation.projectId,
+      artifactId: observation.artifactId || attempt.artifactId,
+      taskId: observation.taskId,
+      source: observation.source,
+    })
+    const stableKeys = stableKeysByGroup.get(group) || new Set<string>()
+    stableKeys.add(observation.stableKey)
+    stableKeysByGroup.set(group, stableKeys)
+  }
+  for (const attempt of queued) {
+    const observation = observationById.get(attempt.codeUnitId)
+    if (!observation?.taskId || observation.artifactId !== attempt.artifactId || observation.projectId !== attempt.projectId) continue
+    const group = dependencyGroup({ projectId: observation.projectId, artifactId: attempt.artifactId, taskId: observation.taskId, source: observation.source })
+    const key = `${group}\u0000${observation.stableKey}`
+    const ids = attemptIdsByGroupAndKey.get(key) || []
+    ids.push(attempt.id)
+    attemptIdsByGroupAndKey.set(key, ids)
+    const stableKeys = stableKeysByGroup.get(group) || new Set<string>()
+    stableKeys.add(observation.stableKey)
+    stableKeysByGroup.set(group, stableKeys)
+  }
+  if (!groups.size) return unchanged
+
+  const edges = await prisma.reamonObservation.findMany({
+    where: {
+      kind: 'relationship',
+      type: 'calls',
+      OR: [...groups.entries()].map(([group, identity]) => {
+        const stableKeys = [...(stableKeysByGroup.get(group) || [])]
+        return {
+          ...identity,
+          OR: [
+            { fromKey: { in: stableKeys } },
+            { toKey: { in: stableKeys } },
+            ...stableKeys.flatMap((key) => [
+              { attributes: { path: ['fromCodeUnitKey'], equals: key } },
+              { attributes: { path: ['toCodeUnitKey'], equals: key } },
+            ]),
+          ],
+        }
+      }),
+    },
+    select: { projectId: true, artifactId: true, taskId: true, source: true, fromKey: true, toKey: true, attributes: true },
+    orderBy: { stableKey: 'asc' },
+    take: MAX_DEPENDENCY_EDGES + 1,
+  })
+  // An incomplete graph cannot safely establish that a caller is ready.
+  if (edges.length > MAX_DEPENDENCY_EDGES) return { ...unchanged, complete: false }
+
+  const dependencies = new Map(queued.map((attempt) => [attempt.id, new Set<string>()]))
+  const outgoing: Array<{ group: string; callerIds: string[]; calleeKeys: string[] }> = []
+  const extraCalleeKeysByGroup = new Map<string, Set<string>>()
+  for (const edge of edges) {
+    if (!edge.taskId || !edge.artifactId) continue
+    const group = dependencyGroup({ ...edge, taskId: edge.taskId, artifactId: edge.artifactId })
+    const attributes = record(edge.attributes)
+    const fromKeys = new Set([edge.fromKey, attributes.fromCodeUnitKey].filter((key): key is string => typeof key === 'string'))
+    const toKeys = new Set([edge.toKey, attributes.toCodeUnitKey].filter((key): key is string => typeof key === 'string'))
+    const callerIds = [...new Set([...fromKeys].flatMap((key) => attemptIdsByGroupAndKey.get(`${group}\u0000${key}`) || []))]
+      .filter((id) => queued.find((attempt) => attempt.id === id)?.scope !== 'member')
+    if (!callerIds.length) continue
+    const calleeKeys = [...toKeys]
+    const extraKeys = extraCalleeKeysByGroup.get(group) || new Set<string>()
+    for (const key of calleeKeys) extraKeys.add(key)
+    extraCalleeKeysByGroup.set(group, extraKeys)
+    outgoing.push({ group, callerIds, calleeKeys })
+  }
+
+  const calleeObservationConditions = [...extraCalleeKeysByGroup.entries()].map(([group, stableKeys]) => ({
+    ...(groups.get(group) || {}),
+    stableKey: { in: [...stableKeys] },
+    kind: 'entity',
+    type: 'code_unit',
+  }))
+  const additionalCallees = calleeObservationConditions.length ? await prisma.reamonObservation.findMany({
+    where: { OR: calleeObservationConditions },
+    select: { id: true, projectId: true, artifactId: true, taskId: true, stableKey: true, source: true },
+    take: MAX_DEPENDENCY_CANDIDATES * 20 + 1,
+  }) : []
+  if (additionalCallees.length > MAX_DEPENDENCY_CANDIDATES * 20) return { ...unchanged, complete: false }
+  const calleeObservationByGroupAndKey = new Map<string, string>()
+  for (const observation of [...observations, ...additionalCallees]) {
+    if (!observation.taskId || !observation.artifactId) continue
+    const group = dependencyGroup({ ...observation, taskId: observation.taskId, artifactId: observation.artifactId })
+    calleeObservationByGroupAndKey.set(`${group}\u0000${observation.stableKey}`, observation.id)
+  }
+  const calleeUnitIds = [...new Set(outgoing.flatMap(({ group, calleeKeys }) => calleeKeys.flatMap((key) => {
+    const id = calleeObservationByGroupAndKey.get(`${group}\u0000${key}`)
+    return id ? [id] : []
+  })))]
+  const pendingCalleeAttempts = calleeUnitIds.length ? await prisma.reamonCodeAttempt.findMany({
+    where: { codeUnitId: { in: calleeUnitIds }, status: { in: ['QUEUED', 'RUNNING'] } },
+    select: { id: true, codeUnitId: true, status: true },
+  }) : []
+  const attemptById = new Map(queued.map((attempt) => [attempt.id, attempt]))
+  const pendingByUnitId = new Map<string, typeof pendingCalleeAttempts>()
+  for (const pending of pendingCalleeAttempts) {
+    const rows = pendingByUnitId.get(pending.codeUnitId) || []
+    rows.push(pending)
+    pendingByUnitId.set(pending.codeUnitId, rows)
+  }
+  const blockedAttemptIds = new Set<string>()
+  for (const { group, callerIds, calleeKeys } of outgoing) {
+    for (const key of calleeKeys) {
+      const calleeId = calleeObservationByGroupAndKey.get(`${group}\u0000${key}`)
+      if (!calleeId) continue
+      const pending = pendingByUnitId.get(calleeId) || []
+      for (const callee of pending) {
+        const queuedCallee = attemptById.get(callee.id)
+        for (const callerId of callerIds) {
+          if (callerId === callee.id) continue
+          if (queuedCallee && queuedCallee.scope !== 'member') dependencies.get(callerId)?.add(callee.id)
+          else blockedAttemptIds.add(callerId)
+        }
+      }
+    }
+  }
+  let propagatedBlock = true
+  while (propagatedBlock) {
+    propagatedBlock = false
+    for (const [attemptId, dependencyIds] of dependencies) {
+      if (!blockedAttemptIds.has(attemptId) && [...dependencyIds].some((dependencyId) => blockedAttemptIds.has(dependencyId))) {
+        blockedAttemptIds.add(attemptId)
+        propagatedBlock = true
+      }
+    }
+  }
+
+  const remaining = new Set(queued.map((attempt) => attempt.id))
+  const byId = attemptById
+  const ordered: T[] = []
+  while (remaining.size) {
+    const ready = [...remaining]
+      .filter((attemptId) => [...(dependencies.get(attemptId) || [])].every((dependencyId) => !remaining.has(dependencyId)))
+      .map((attemptId) => byId.get(attemptId)!)
+      .sort((left, right) => left.createdAt.getTime() - right.createdAt.getTime())
+    if (!ready.length) {
+      // Recursive call cycles have no leaf. Keep their original FIFO order.
+      ordered.push(...queued.filter((attempt) => remaining.has(attempt.id)))
+      break
+    }
+    for (const attempt of ready) {
+      ordered.push(attempt)
+      remaining.delete(attempt.id)
+    }
+  }
+  return { ordered, blockedAttemptIds, complete: true }
 }
 
 function messageForCode(code: string): string {
@@ -87,9 +338,10 @@ async function settleCancelled(attemptId: string, runToken: string) {
 async function executeAttempt(attemptId: string, workerId: string) {
   const attempt = await prisma.reamonCodeAttempt.findUnique({
     where: { id: attemptId },
-    select: { id: true, projectId: true, status: true, requestPayload: true, timeoutMs: true, unitLeaseId: true },
+    select: { id: true, projectId: true, artifactId: true, codeUnitId: true, scope: true, status: true, requestPayload: true, timeoutMs: true, unitLeaseId: true },
   })
   if (!attempt || attempt.status !== 'QUEUED') return false
+  if (await hasPendingCalleeAttempt(attempt)) return false
 
   const now = new Date()
   const timeoutMs = Math.max(10_000, Math.min(MAX_REWRITE_TIMEOUT_MS, attempt.timeoutMs))
@@ -315,15 +567,25 @@ export async function dispatchQueuedCodeRewrites(input: { limit?: number; worker
     }
   }
 
-  const queued = await prisma.reamonCodeAttempt.findMany({
+  const queuedCandidates = await prisma.reamonCodeAttempt.findMany({
     where: { status: 'QUEUED' },
     orderBy: { createdAt: 'asc' },
-    take: limit,
-    select: { id: true },
+    take: MAX_DEPENDENCY_CANDIDATES + 1,
+    select: { id: true, projectId: true, artifactId: true, codeUnitId: true, scope: true, createdAt: true },
   })
+  const dependencyPlan = await orderQueuedAttempts(queuedCandidates)
+  const queued = dependencyPlan.complete
+    ? dependencyPlan.ordered
+      .filter((attempt) => !dependencyPlan.blockedAttemptIds.has(attempt.id))
+      .slice(0, limit)
+    : queuedCandidates
   const results = []
+  let claimedCount = 0
   for (const attempt of queued) {
-    results.push({ attemptId: attempt.id, claimed: await executeAttempt(attempt.id, workerId) })
+    const claimed = await executeAttempt(attempt.id, workerId)
+    results.push({ attemptId: attempt.id, claimed })
+    if (claimed) claimedCount += 1
+    if (!dependencyPlan.complete && claimedCount >= limit) break
   }
-  return { recovered, selected: queued.length, workerId, results }
+  return { recovered, selected: dependencyPlan.complete ? queued.length : results.length, workerId, results }
 }
