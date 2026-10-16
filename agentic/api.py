@@ -912,6 +912,44 @@ def _reamon_declared_name(node) -> str | None:
     return None
 
 
+def _reamon_member_name(node, language: str) -> str | None:
+    """Resolve Lua callable names, including methods and single-target closures."""
+    name = _reamon_declared_name(node)
+    if name:
+        return name
+    if language.strip().lower() not in {"lua", "luau"}:
+        return None
+
+    qualified_name = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(?:[.:][A-Za-z_][A-Za-z0-9_]*)*$")
+    if node.type == "function_declaration":
+        target = node.child_by_field_name("name")
+        candidate = target.text.decode("utf-8", errors="ignore").strip() if target is not None else ""
+        return candidate if qualified_name.fullmatch(candidate) else None
+    if node.type != "function_definition":
+        return None
+
+    # Infer a binding only when one right-hand function corresponds to one
+    # assignment target. Multiple assignment and destructuring-like patterns
+    # are ambiguous, so leave them out of project-wide identity hints.
+    expression_list = node.parent
+    assignment = expression_list.parent if expression_list is not None else None
+    if expression_list is None or expression_list.type != "expression_list" or assignment is None or assignment.type != "assignment_statement":
+        return None
+    right_values = expression_list.named_children
+    if len(right_values) != 1 or right_values[0] != node:
+        return None
+    targets = assignment.child_by_field_name("name")
+    if targets is None:
+        return None
+    if targets.type == "variable_list":
+        target_values = targets.named_children
+        if len(target_values) != 1:
+            return None
+        targets = target_values[0]
+    candidate = targets.text.decode("utf-8", errors="ignore").strip()
+    return candidate if qualified_name.fullmatch(candidate) else None
+
+
 def _reamon_tree_sitter_symbols(source_code: str, language: str) -> list[str] | None:
     """Index declared names from a supported grammar, returning None if absent."""
     parser = _reamon_source_parser(language)
@@ -931,7 +969,7 @@ def _reamon_tree_sitter_symbols(source_code: str, language: str) -> list[str] | 
             node = stack.pop()
             node_type = node.type.lower()
             if any(marker in node_type for marker in declaration_markers) and not any(marker in node_type for marker in excluded_markers):
-                name = _reamon_declared_name(node)
+                name = _reamon_member_name(node, language) or _reamon_declared_name(node)
                 if name and len(name) <= 128:
                     symbols.add(name)
             stack.extend(reversed(node.named_children))
@@ -1174,6 +1212,10 @@ def _reamon_member_kind(node, language: str) -> str | None:
     kind = _reamon_member_node_types(language).get(node.type)
     if kind:
         return kind
+    if language.strip().lower() in {"lua", "luau"} and node.type == "function_declaration":
+        target = node.child_by_field_name("name")
+        if target is not None and target.type == "method_index_expression":
+            return "method"
     node_type = node.type.lower()
     if any(marker in node_type for marker in ("expression", "statement", "parameter", "reference", "call", "pattern")):
         return None
@@ -1194,7 +1236,7 @@ def _reamon_callable_count(parser, source: str, language: str) -> int | None:
             node = stack.pop()
             kind = _reamon_member_kind(node, language)
             body = node.child_by_field_name("body") if kind else None
-            if kind and body is not None and _reamon_declared_name(node):
+            if kind and body is not None and _reamon_member_name(node, language):
                 count += 1
             stack.extend(reversed(node.named_children))
         return count
@@ -1226,7 +1268,7 @@ def _reamon_callable_contract(parser, source: str, language: str) -> dict[str, A
             kind = _reamon_member_kind(node, language)
             body = node.child_by_field_name("body") if kind else None
             if kind and body is not None and node.start_byte == 0 and node.end_byte == len(encoded):
-                name = _reamon_declared_name(node)
+                name = _reamon_member_name(node, language)
                 if not name:
                     return None
                 signature = " ".join(encoded[node.start_byte:body.start_byte].decode("utf-8").split())
@@ -1248,7 +1290,7 @@ def _reamon_member_outline(parser, source: str, language: str, limit: int = 10_0
             kind = _reamon_member_kind(node, language)
             body = node.child_by_field_name("body") if kind else None
             if kind and body is not None:
-                name = _reamon_declared_name(node)
+                name = _reamon_member_name(node, language)
                 if name:
                     members.append({
                         "name": name,
