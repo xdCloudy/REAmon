@@ -358,10 +358,42 @@ internal static class Program
                 throw new RefactorException("A C# binding edit no longer matches the original source");
             output = output[..edit.Span.Start] + edit.NewName + output[edit.Span.End..];
         }
-        var outputTree = CSharpSyntaxTree.ParseText(SourceText.From(output, Encoding.UTF8), (CSharpParseOptions)analysis.Tree.Options, path: "unit.cs");
-        if (outputTree.GetDiagnostics().Any(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error))
-            throw new RefactorException("Roslyn found syntax errors in the renamed C# source");
         var outputHash = Hash(Encoding.UTF8.GetBytes(output));
+        var outputAnalysis = Analyze(output, outputHash);
+        int TranslateStart(int originalStart) => originalStart + sorted
+            .Where(edit => edit.Span.End <= originalStart)
+            .Sum(edit => edit.NewName.Length - edit.OldName.Length);
+        var outputBindings = outputAnalysis.Bindings.ToDictionary(binding => binding.DeclarationStart);
+        var outputIdentifiers = outputAnalysis.Root.DescendantNodesAndSelf()
+            .OfType<IdentifierNameSyntax>().ToDictionary(node => node.Identifier.SpanStart);
+        var outputBindingByOriginal = new Dictionary<string, Binding>(StringComparer.Ordinal);
+        foreach (var binding in analysis.Bindings)
+        {
+            if (!outputBindings.TryGetValue(TranslateStart(binding.DeclarationStart), out var outputBinding))
+                throw new RefactorException("Roslyn could not resolve a C# binding after the rename");
+            var expectedName = selected.FirstOrDefault(item => item.Binding.Id == binding.Id).NewName ?? binding.Name;
+            if (!string.Equals(outputBinding.Name, expectedName, StringComparison.Ordinal))
+                throw new RefactorException("The C# rename changed a binding's resolved declaration");
+            outputBindingByOriginal[binding.Id] = outputBinding;
+            foreach (var reference in binding.References)
+            {
+                if (!outputIdentifiers.TryGetValue(TranslateStart(reference.Start), out var outputReference)
+                    || !SymbolEqualityComparer.Default.Equals(outputAnalysis.Model.GetSymbolInfo(outputReference).Symbol, outputBinding.Symbol))
+                    throw new RefactorException("The C# rename would redirect a local reference to a different binding");
+            }
+        }
+
+        var catalogSymbols = new HashSet<ISymbol>(analysis.Bindings.Select(binding => binding.Symbol), SymbolEqualityComparer.Default);
+        var renamedOutputSymbols = new HashSet<ISymbol>(selected.Select(item => outputBindingByOriginal[item.Binding.Id].Symbol), SymbolEqualityComparer.Default);
+        foreach (var originalIdentifier in analysis.Root.DescendantNodesAndSelf().OfType<IdentifierNameSyntax>())
+        {
+            var originalSymbol = analysis.Model.GetSymbolInfo(originalIdentifier).Symbol;
+            if (originalSymbol is not null && catalogSymbols.Contains(originalSymbol)) continue;
+            if (!outputIdentifiers.TryGetValue(TranslateStart(originalIdentifier.Identifier.SpanStart), out var outputIdentifier)) continue;
+            var outputSymbol = outputAnalysis.Model.GetSymbolInfo(outputIdentifier).Symbol;
+            if (outputSymbol is not null && renamedOutputSymbols.Contains(outputSymbol))
+                throw new RefactorException("The C# rename would capture an existing or unresolved identifier");
+        }
         return new
         {
             source_sha256 = sourceHash,
