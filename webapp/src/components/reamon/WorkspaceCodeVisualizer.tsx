@@ -1673,6 +1673,11 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
           {currentRun.truncated && decompilationHref && <a className={styles.runAgain} href={decompilationHref}>Run decompilation again</a>}
           {currentRun.failedUnitCount !== null && currentRun.failedUnitCount > 0 && <span>{currentRun.failedUnitCount.toLocaleString()} functions could not be decompiled{currentRun.visitedUnitCount !== null ? ` of ${currentRun.visitedUnitCount.toLocaleString()} visited` : ''}</span>}
         </div>}
+        {maintainedCoverageQuery.data && <p className={styles.runSummaryMeta}>
+          {maintainedCoverageQuery.data.codeBytes > 0
+            ? `Decompilation measurements cover ${Math.round((maintainedCoverageQuery.data.measuredBytes / maintainedCoverageQuery.data.codeBytes) * 100)}% of indexed code size (${formatBytes(maintainedCoverageQuery.data.measuredBytes)} measured, ${formatBytes(Math.max(0, maintainedCoverageQuery.data.codeBytes - maintainedCoverageQuery.data.measuredBytes))} unmeasured).`
+            : 'No indexed code size is available for decompilation measurement.'}
+        </p>}
         {displayRunWarnings && <p className={styles.runWarning}>{displayRunWarnings}</p>}
       </div>
 
