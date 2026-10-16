@@ -33,11 +33,11 @@ product and engineering planning.
 
 ## Adoption order
 
-1. Finish the decomp.wtf-inspired lifecycle in REAmon's project database: atomic
-   unit claims, bounded evidence context, attempt history, validator outcomes,
-   explicit review receipts, and guarded promotion. Attempt history and exact-source
-   rewrite leases are implemented; worker ownership, review receipts, validator breadth,
-   and promotion guards remain open.
+1. Continue the decomp.wtf-inspired lifecycle in REAmon's project database. Attempt
+   history, exact-source rewrite leases, explicit review receipts, and source-hash
+   compare-and-swap promotion guards are implemented. Next add durable worker ownership,
+   lease renewal and cancellation, language-specific validators, and validation
+   regression protection.
 2. Build the provider fixture and validator contract. Use decomp.me/objdiff as a
    reference for exact-build feedback, but isolate any target compiler/build process.
    Include a language-specific parser/build check and persist what each check proves.
