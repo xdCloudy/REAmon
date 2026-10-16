@@ -42,11 +42,11 @@ and the [upstream reuse audit](REAMON_UPSTREAM_REUSE.md) for integration status.
 | WebAssembly (`.wasm`) | Low-level | WABT WAT/disassembly and function navigation. | High-level source reconstruction and original names may be unavailable. |
 | Python bytecode (`.pyc`, `.pyo`) | Early | Isolated pycdc output indexed for source browsing and member-scoped maintenance. | Version and control-flow fidelity need fixture validation; PyInstaller extraction and bytecode rebuild are not integrated. |
 | Standard Lua bytecode (`.luac`) | Early | Isolated unluac provider for Lua 5.0–5.4. | Local names can be stripped; custom VMs and complex control flow need validation. |
-| LuaJIT bytecode | Early | Separate isolated LuaJIT decompiler provider. | Version/variant coverage and recovered-name fidelity need representative fixtures. |
+| LuaJIT bytecode | Early | Separate isolated LuaJIT decompiler provider. | Version/variant coverage and recovered-name fidelity need representative fixtures. [unluac-rs](https://github.com/x3zvawq/unluac-rs) is an MIT-licensed comparison candidate advertising LuaJIT 2.1 alongside several Lua dialects; REAmon has not validated those claims. |
 | JavaScript bundles (`.js`, `.jsx`, `.mjs`, `.cjs`) | Early | webcrack unminification, selected obfuscator reversal, and bundle-module extraction. | Not guaranteed original source/behavior; fixture coverage and edge-case sandbox validation remain. |
 | TypeScript bundles / JavaScript runtime bytecode | Planned evaluation | Existing source navigation can outline TypeScript when a grammar is available. | No dedicated TypeScript bundle deobfuscator or JavaScript bytecode decompiler is integrated. |
 | Go source reconstruction | Planned | Go binaries can receive generic Ghidra pseudocode and GoReSym names, package/version/type metadata. | GoReSym metadata does not reconstruct maintainable Go source. |
-| Rust | Planned / partial native pseudocode | Ghidra can process supported native targets. | Rust demangling, metadata, type/ownership recovery, and Rust-idiomatic source reconstruction. |
+| Rust | Planned / partial native pseudocode | Ghidra can process supported native targets. | Rust demangling, metadata, type/ownership recovery, and Rust-idiomatic source reconstruction. [Oxidizer](https://github.com/sefcom/oxidizer) reports Rust-aware pseudocode techniques and says it has merged into angr; evaluate it against pinned Rust fixtures before treating it as support. |
 | Swift / Objective-C | Planned / partial native pseudocode | Ghidra can process supported native targets. | Runtime metadata, class/protocol recovery, idiomatic source, and framework-specific analysis. |
 | Native C and C++ | Partial native pseudocode | Ghidra decompilation and address-aware function evidence. | Original project structure, macros, templates, types, and source-level semantics; toolchain matching is format/project-specific. |
 | Other source languages | Source navigation only where grammar support exists | Tree-sitter outlines and bounded member-scoped source edits. | Parsing an existing source file is not decompiling its compiled form; validators vary by language. |
@@ -70,4 +70,6 @@ Do not upgrade a language from “partial” because a generic decompiler emits 
 that resembles that language.
 
 See [the feature matrix](REAMON_FEATURE_MATRIX.md) for cross-language product status
-and [upstream reuse](REAMON_UPSTREAM_REUSE.md) for engine decisions.
+and [upstream reuse](REAMON_UPSTREAM_REUSE.md) for engine decisions. The current
+Rust and Lua projects linked above are evaluation candidates, not integrated REAmon
+providers; their upstream feature claims require fixture-backed validation here.

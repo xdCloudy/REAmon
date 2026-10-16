@@ -81,6 +81,20 @@ separate so a plausible name is never treated as proof of behavior.
   optional analysis provider for bounded queries, not an always-on decompiler; path
   explosion, dependency size, initial-state assumptions, and timeout limits must be
   part of each stored result.
+- [Oxidizer](https://github.com/sefcom/oxidizer) is a Rust-aware decompiler built on
+  angr; its README says the work has merged into angr's master branch. It targets
+  Rust-specific cleanup, type inference, enums, `Option`/`Result`, macros, and
+  structured Rust pseudocode. This is the leading Rust-specific comparison candidate,
+  not an integrated REAmon capability. Prototype it behind the existing native
+  analyzer boundary and compare compiler-versioned, stripped and debug Rust fixtures
+  with Ghidra. Persist which constructs were recovered and retain the raw binary and
+  alternate output because pseudocode is not proof of compilable or equivalent Rust.
+- [unluac-rs](https://github.com/x3zvawq/unluac-rs) is an MIT-licensed Rust
+  library/CLI that advertises Lua 5.1–5.5, LuaJIT 2.1, and Luau support. Evaluate it
+  against REAmon's existing standard-Lua and LuaJIT providers on per-dialect fixtures;
+  the broad advertised matrix is not yet independently verified by REAmon. Keep the
+  dialect and provider identity explicit, and compare parse/runtime recovery and
+  malformed-input behavior before replacing or adding a default provider.
 - [Disrobe](https://github.com/1-3-7/disrobe) publishes a useful breadth catalog of
   bytecode formats, packers, obfuscators, and static recovery passes, and exposes an
   MCP investigation workflow. Its current source-available license requires a paid
@@ -181,6 +195,9 @@ store.
 - [ast-grep rewrite documentation](https://github.com/ast-grep/ast-grep.github.io/blob/main/website/guide/rewrite-code.md)
 - [Joern code property graph project](https://github.com/joernio/joern)
 - [angr analysis framework and BSD-2-Clause license](https://github.com/angr/angr)
+- [Oxidizer Rust decompilation project, angr merge notice, and BSD-2-Clause license](https://github.com/sefcom/oxidizer)
+- [angr repository where Oxidizer is maintained](https://github.com/angr/angr)
+- [unluac-rs multi-dialect Lua decompiler and MIT license](https://github.com/x3zvawq/unluac-rs)
 - [Disrobe recovery catalog and current source-available license](https://github.com/1-3-7/disrobe)
 - [RetDec maintenance status](https://github.com/avast/retdec)
 - [Rizin-powered Cutter UI and GPL-3.0 license](https://github.com/rizinorg/cutter)
