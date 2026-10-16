@@ -494,6 +494,13 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
       bytecodeRowsTruncated: attributes.bytecodeRowsTruncated === true,
       locals: text(attributes.localsJson, 4000),
       referencedStrings: textList(attributes.referencedStrings, 50, 512),
+      referencedStringsTruncated: attributes.referencedStringsTruncated === true,
+      referencedStringsSemantics: unit.source === 'reamon-tocode-import'
+        ? 'ToCode strings.json entries whose xrefs include this function address. This is address-linked provider evidence, not proof of behavior or intent.'
+        : unit.source === 'reamon-ghidra' ? 'Strings referenced by this function according to Ghidra data references; this is provider evidence, not proof of behavior or intent.' : null,
+      importedCalls: textList(attributes.importedCalls, 32, 256),
+      importedCallsSemantics: unit.source === 'reamon-tocode-import'
+        ? 'External symbols listed in this function row’s callees_imports field in ToCode functions.json; names remain provider-attributed.' : null,
       classReferences: textList(attributes.classReferences, 100, 512),
     },
     analysis: task ? {

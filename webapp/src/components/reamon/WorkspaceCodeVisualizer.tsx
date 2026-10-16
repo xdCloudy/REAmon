@@ -2082,8 +2082,13 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
             {(selectedUnit.classReferences?.length ?? 0) > 24 && <small>Showing 24 of {selectedUnit.classReferences?.length} references.</small>}
           </section>}
           {(selectedUnit.referencedStrings?.length ?? 0) > 0 && <section className={styles.classReferences} aria-label="Strings referenced by this function">
-            <div><strong>Referenced strings</strong><span>Data references recovered by Ghidra from this function</span></div>
+            <div><strong>Referenced strings</strong><span>{selectedUnit.source === 'reamon-tocode-import' ? 'Address-linked ToCode string cross-references' : 'Data references recovered by Ghidra from this function'}</span></div>
             <ul>{selectedUnit.referencedStrings?.slice(0, 12).map((value, index) => <li key={`${index}:${value}`}><code>{value}</code></li>)}</ul>
+            {selectedUnit.referencedStringsTruncated && <small>Additional references were omitted by an analysis limit.</small>}
+          </section>}
+          {(selectedUnit.importedCalls?.length ?? 0) > 0 && <section className={styles.classReferences} aria-label="Imported calls from this function">
+            <div><strong>Imported calls</strong><span>ToCode reports these external symbols as called by this function</span></div>
+            <ul>{selectedUnit.importedCalls?.slice(0, 32).map((value) => <li key={value}><code>{value}</code></li>)}</ul>
           </section>}
           {selectedUnit.artifactId && selectedUnit.codeArtifactId
             ? <a

@@ -1256,13 +1256,24 @@ export async function POST(request: Request, { params }: RouteParams) {
     }
 
     const disassemblyArtifactId = typeof attributes.disassemblyArtifactId === 'string' ? attributes.disassemblyArtifactId : ''
-    const referencedStrings = observation.source === 'reamon-ghidra'
+    const hasNativeReferenceEvidence = observation.source === 'reamon-ghidra' || observation.source === 'reamon-tocode-import'
+    const referencedStrings = hasNativeReferenceEvidence
       ? classReferencesOf(attributes.referencedStrings).slice(0, 12).map((value) => value.slice(0, 512))
+      : []
+    const importedCalls = observation.source === 'reamon-tocode-import'
+      ? classReferencesOf(attributes.importedCalls).slice(0, 32).map((value) => value.slice(0, 256))
       : []
     const binaryEvidence = observation.source === 'reamon-dex-decompiler' && (dexReferenceRows.length || dexReferencesTruncated)
       ? dexReferenceEvidence(dexReferenceRows, dexReferencesTruncated)
-      : referencedStrings.length
-      ? utf8Prefix(`Function address: ${typeof attributes.address === 'string' ? attributes.address.slice(0, 128) : 'unknown'}\n` + referencedStrings.map((value) => `Referenced text: ${value}`).join('\n'), MAX_BINARY_EVIDENCE_BYTES)
+      : referencedStrings.length || importedCalls.length
+      ? utf8Prefix([
+        `Function address: ${typeof attributes.address === 'string' ? attributes.address.slice(0, 128) : 'unknown'}`,
+        ...referencedStrings.map((value) => `Referenced text: ${value}`),
+        ...importedCalls.map((value) => `Provider-reported imported call: ${value}`),
+        ...(attributes.referencedStringsTruncated === true ? ['Additional string cross-references were omitted by a provider limit.'] : []),
+        ...(importedCalls.length ? ['Imported-call evidence is bounded and may be incomplete.'] : []),
+        'These are address-associated provider observations, not proof of behavior or intent.',
+      ].join('\n'), MAX_BINARY_EVIDENCE_BYTES)
       : ''
     let disassemblySource = observation.source === 'reamon-dex-decompiler' && scope === 'member' && selectedDexMethods.length
       ? await dexBytecodeEvidence(selectedDexMethods, projectId, artifact.id, rootPath)

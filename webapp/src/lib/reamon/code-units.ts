@@ -25,6 +25,8 @@ export interface CodeUnitObservationAttributes {
   disassemblyLanguage?: string
   classReferences?: string[]
   referencedStrings?: string[]
+  referencedStringsTruncated?: boolean
+  importedCalls?: string[]
   sourceAddressMap?: Array<{ ghidraLineNumber: number; address: string }>
   sourceAddressMapTruncated?: boolean
   prototype?: string
@@ -64,6 +66,8 @@ export interface CodeUnit {
   disassemblyLanguage: string | null
   classReferences?: string[]
   referencedStrings?: string[]
+  referencedStringsTruncated?: boolean
+  importedCalls?: string[]
   sourceAddressMap?: Array<{ ghidraLineNumber: number; address: string }>
   sourceAddressMapTruncated?: boolean
   prototype?: string | null
@@ -220,6 +224,8 @@ export function normalizeCodeUnit(row: CodeUnitObservationRow, options: { includ
     disassemblyLanguage: text(attributes.disassemblyLanguage, 80),
     classReferences: classReferencesOf(attributes.classReferences),
     referencedStrings: stringListOf(attributes.referencedStrings, 12, 512),
+    referencedStringsTruncated: attributes.referencedStringsTruncated === true,
+    importedCalls: stringListOf(attributes.importedCalls, 32, 256),
     ...(options.includeSourceAddressMap ? {
       sourceAddressMap: sourceAddressMapOf(attributes.sourceAddressMap),
       sourceAddressMapTruncated: attributes.sourceAddressMapTruncated === true,

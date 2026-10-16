@@ -17,6 +17,8 @@ const MAX_EXPORTS = 200
 const MAX_FUNCTIONS = 10_000
 const MAX_SOURCE_FILE_BYTES = 2 * 1024 * 1024
 const MAX_TOTAL_SOURCE_BYTES = 128 * 1024 * 1024
+const MAX_REFERENCED_STRINGS_PER_FUNCTION = 12
+const MAX_STRING_XREF_ROWS = 100_000
 
 export const toCodeImportManifest: ToolPluginManifest = {
   id: SOURCE,
@@ -58,6 +60,9 @@ interface FunctionRecord {
   codeArtifactId?: string
   assemblyArtifact?: ImportArtifact
   assemblyCodeArtifactId?: string
+  referencedStrings: string[]
+  referencedStringsTruncated: boolean
+  importedCalls: string[]
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -91,6 +96,20 @@ function boundedVariableRows(value: unknown): { json?: string; truncated: boolea
     rows.push(normalized)
   }
   return { ...(rows.length ? { json: JSON.stringify(rows) } : {}), truncated }
+}
+
+function boundedImportedCalls(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  const names = new Set<string>()
+  for (const entry of value.slice(0, 64)) {
+    const name = typeof entry === 'string'
+      ? entry
+      : safeText(asRecord(entry)?.name ?? asRecord(entry)?.symbol, 256)
+    if (!name || /[\r\n\t]/.test(name)) continue
+    names.add(name)
+    if (names.size >= 32) break
+  }
+  return [...names]
 }
 
 function optionalLine(value: unknown): number | null {
@@ -201,6 +220,9 @@ function makeCodeUnit(record: FunctionRecord, metadata: Record<string, unknown>,
   if (record.prototype) attrs.prototype = record.prototype
   if (params.json) attrs.parametersJson = params.json
   if (locals.json) attrs.localsJson = locals.json
+  if (record.referencedStrings.length) attrs.referencedStrings = JSON.stringify(record.referencedStrings)
+  if (record.referencedStringsTruncated) attrs.referencedStringsTruncated = true
+  if (record.importedCalls.length) attrs.importedCalls = JSON.stringify(record.importedCalls)
   if (params.truncated || locals.truncated) attrs.symbolEvidenceTruncated = true
   if (record.sourceFile) attrs.relativePath = record.sourceFile
   if (record.sourceLineStart !== null) attrs.sourceLineStart = record.sourceLineStart
@@ -356,6 +378,9 @@ export async function indexToCodeWorkspaceImport(projectId: string, importId: st
           raw: row,
           exportRoot,
           key,
+          referencedStrings: [],
+          referencedStringsTruncated: false,
+          importedCalls: boundedImportedCalls(row.callees_imports),
         }
         if (sourceFile) {
           const workspaceSourcePath = joinedExportPath(exportRoot, sourceFile)
@@ -384,6 +409,40 @@ export async function indexToCodeWorkspaceImport(projectId: string, importId: st
       }
       inputFunctions += rawFunctions.length
       skippedFunctions += Math.max(0, rawFunctions.length - acceptedInExport)
+    }
+
+    let referencedStringRows = 0
+    let stringXrefsTruncated = false
+    for (const metadataArtifact of candidates) {
+      if (stringXrefsTruncated) break
+      const exportRoot = exportRootOf(metadataArtifact.relativePath)
+      const stringsArtifact = artifactsByPath.get(exportRoot ? `${exportRoot}/strings.json` : 'strings.json')
+      if (!stringsArtifact) continue
+      let strings: Record<string, unknown> | null
+      try { strings = await readJsonArtifact(stringsArtifact, MAX_METADATA_BYTES) } catch { strings = null }
+      if (!Array.isArray(strings?.strings)) continue
+      for (const rawString of strings.strings.slice(0, MAX_STRING_XREF_ROWS)) {
+        const string = asRecord(rawString)
+        const value = safeText(string?.value, 512)
+        if (!value || !Array.isArray(string?.xrefs)) continue
+        for (const rawXref of string.xrefs.slice(0, 64)) {
+          referencedStringRows += 1
+          if (referencedStringRows > MAX_STRING_XREF_ROWS) {
+            stringXrefsTruncated = true
+            break
+          }
+          const xref = asRecord(rawXref)
+          const address = addressKey(xref?.address)
+          const functionRecord = address ? recordsByAddress.get(`${exportRoot}\u0000${address}`) : undefined
+          if (!functionRecord || functionRecord.referencedStrings.includes(value)) continue
+          if (functionRecord.referencedStrings.length < MAX_REFERENCED_STRINGS_PER_FUNCTION) {
+            functionRecord.referencedStrings.push(value)
+          } else {
+            functionRecord.referencedStringsTruncated = true
+          }
+        }
+        if (stringXrefsTruncated) break
+      }
     }
 
     if (allFunctions.length === 0) throw new Error('No valid ToCode functions were found in this workspace import')
@@ -478,6 +537,9 @@ export async function indexToCodeWorkspaceImport(projectId: string, importId: st
       skippedFunctions,
       callEdges: seenCalls.size,
       crossBinaryCallEdges: crossBinaryCalls,
+      functionsWithReferencedStrings: allFunctions.filter((record) => record.referencedStrings.length > 0).length,
+      functionsWithImportedCalls: allFunctions.filter((record) => record.importedCalls.length > 0).length,
+      referencedStringEvidenceTruncated: stringXrefsTruncated || allFunctions.some((record) => record.referencedStringsTruncated),
       copiedSourceAndAssemblyFiles: sourceFiles.size,
       copiedSourceAndAssemblyBytes: sourceBytes,
       warnings: warnings.slice(0, 100),
