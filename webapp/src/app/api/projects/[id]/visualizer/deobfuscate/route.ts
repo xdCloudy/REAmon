@@ -21,6 +21,7 @@ const MAX_QUESTION_CHARS = 1000
 const MAX_QUEUED_REWRITE_MS = 30 * 60_000
 const MAX_CONTEXT_UNITS = 8
 const MAX_CONTEXT_BYTES = 16 * 1024
+const MAX_ALTERNATE_DECOMPILER_BYTES = 3 * 1024
 const MAX_FUNCTION_HISTORY = 8_000
 const MAX_FUNCTION_CANDIDATES = 2_000
 const MAX_SAME_FILE_CONTEXT_MEMBERS = 3
@@ -1249,6 +1250,122 @@ export async function POST(request: Request, { params }: RouteParams) {
     ].join('\n'), 4 * 1024)
     const contextSources: Array<{ unit_name: string; language: string; source_code: string }> = []
     let contextBytes = 0
+    const relativePath = typeof attributes.relativePath === 'string' ? attributes.relativePath : ''
+    const alternateDecompilerProviders = ['reamon-cfr', 'reamon-vineflower', 'reamon-jadx']
+      .filter((providerId) => providerId !== observation.source)
+    if (relativePath && alternateDecompilerProviders.length && contextSources.length < MAX_CONTEXT_UNITS) {
+      try {
+        const alternateRowsByProvider = await Promise.all(alternateDecompilerProviders.map((providerId) =>
+          prisma.reamonObservation.findMany({
+            where: {
+              projectId,
+              artifactId: artifact.id,
+              source: providerId,
+              kind: 'entity',
+              type: 'code_unit',
+              task: { is: {
+                projectId,
+                status: 'COMPLETED',
+                capability: 'decompile',
+                provider: { is: { pluginId: providerId } },
+              } },
+              AND: [
+                { attributes: { path: ['relativePath'], equals: relativePath } },
+                { attributes: { path: ['inputArtifactSha256'], equals: artifact.sha256 } },
+              ],
+            },
+            select: { id: true, taskId: true, stableKey: true, source: true, label: true, attributes: true, updatedAt: true },
+            orderBy: [{ updatedAt: 'desc' }, { stableKey: 'asc' }],
+            take: 4,
+          })))
+        const alternateRows = alternateRowsByProvider.flat()
+      const providerPriority = observation.source === 'reamon-cfr'
+        ? ['reamon-vineflower', 'reamon-jadx']
+        : observation.source === 'reamon-vineflower'
+          ? ['reamon-cfr', 'reamon-jadx']
+          : ['reamon-cfr', 'reamon-vineflower']
+      const candidatesByProvider = new Map<string, typeof alternateRows[number]>()
+      for (const candidate of alternateRows) {
+        if (!candidate.taskId || !alternateDecompilerProviders.includes(candidate.source) || candidatesByProvider.has(candidate.source)) continue
+        candidatesByProvider.set(candidate.source, candidate)
+      }
+      const orderedCandidates = providerPriority.flatMap((providerId) => {
+        const candidate = candidatesByProvider.get(providerId)
+        return candidate ? [candidate] : []
+      })
+      const usedProviders = new Set<string>()
+      for (const candidate of orderedCandidates) {
+        const candidateTaskId = candidate.taskId
+        if (!candidateTaskId) continue
+        if (usedProviders.has(candidate.source) || contextSources.length >= MAX_CONTEXT_UNITS
+            || contextBytes >= MAX_CONTEXT_BYTES || usedProviders.size >= 2) break
+        const candidateAttributes = plainObject(candidate.attributes)
+        const candidateLanguage = typeof candidateAttributes.language === 'string' ? candidateAttributes.language : ''
+        const candidatePath = typeof candidateAttributes.codeArtifactId === 'string' ? candidateAttributes.codeArtifactId : ''
+        const expectedOutputHash = typeof candidateAttributes.decompiledSourceSha256 === 'string'
+          ? candidateAttributes.decompiledSourceSha256.toLowerCase()
+          : ''
+        if (candidateLanguage.toLowerCase() !== language.toLowerCase()
+            || candidateAttributes.relativePath !== relativePath
+            || candidateAttributes.inputArtifactSha256 !== artifact.sha256
+            || !/^[a-f0-9]{64}$/.test(expectedOutputHash)
+            || !belongsToArtifactRun(candidatePath, projectId, artifact.id)) continue
+        try {
+          const candidateRealPath = await realpath(resolveDerivedArtifactPath(candidatePath))
+          if (!isInside(rootPath, candidateRealPath)) continue
+          const candidateInfo = await stat(candidateRealPath)
+          if (!candidateInfo.isFile() || candidateInfo.size <= 0 || candidateInfo.size > MAX_ARTIFACT_BYTES) continue
+          const candidateBytes = await readFile(candidateRealPath)
+          if (createHash('sha256').update(candidateBytes).digest('hex') !== expectedOutputHash) continue
+
+          let alternateSource = candidateBytes.toString('utf8')
+          let excerptLabel = 'same-file alternate decompiler output'
+          if (scope === 'member') {
+            const className = unitName.split(/[.$/]/).at(-1) || unitName
+            const memberNames = selectedMemberName === className ? [selectedMemberName, '<init>'] : [selectedMemberName]
+            let excerpt: { source: string; ambiguous: boolean; truncated: boolean } | null = null
+            for (const memberName of memberNames) {
+              excerpt = await outlinedMemberSourceExcerpt({
+                projectId,
+                taskId: candidateTaskId,
+                artifactId: artifact.id,
+                parentCodeUnitKey: candidate.stableKey,
+                parentName: (typeof candidateAttributes.qualifiedName === 'string' && candidateAttributes.qualifiedName) || candidate.label || unitName,
+                language: candidateLanguage,
+                relativePath,
+                codeArtifactId: candidatePath,
+                methodName: memberName,
+                source: candidateBytes,
+                cache: memberExcerptCache,
+              })
+              if (excerpt) break
+            }
+            if (!excerpt) continue
+            alternateSource = excerpt.source
+            excerptLabel = `same-name alternate method${excerpt.ambiguous ? '; overloads are ambiguous' : ''}${excerpt.truncated ? '; outline truncated' : ''}`
+          }
+          const remaining = Math.min(MAX_ALTERNATE_DECOMPILER_BYTES, MAX_CONTEXT_BYTES - contextBytes)
+          const source = utf8Prefix(alternateSource, remaining)
+          if (!source.trim()) continue
+          const sourceTruncated = Buffer.byteLength(source, 'utf8') < Buffer.byteLength(alternateSource, 'utf8')
+          if (sourceTruncated) excerptLabel += '; excerpt byte-limited'
+          const engine = candidate.source.slice('reamon-'.length)
+          const outputHash = expectedOutputHash.slice(0, 16)
+          contextSources.push({
+            unit_name: `${unitName} (${engine} ${String(candidateAttributes.decompilationEngineVersion || 'unknown').slice(0, 80)} ${excerptLabel}; same input sha256:${artifact.sha256.slice(0, 16)}; output sha256:${outputHash}; independent provisional reconstruction, not ground truth)`.slice(0, 500),
+            language: candidateLanguage.slice(0, 80),
+            source_code: source,
+          })
+          usedProviders.add(candidate.source)
+          contextBytes += Buffer.byteLength(source, 'utf8')
+        } catch {
+          // Cross-provider source is optional; the selected source remains authoritative.
+        }
+      }
+      } catch {
+        // A failed alternate-provider lookup must not block the selected-source rewrite.
+      }
+    }
     if (scope === 'member' && body.startByte !== undefined && body.endByte !== undefined && contextSources.length < MAX_CONTEXT_UNITS) {
       try {
         const cached = await cachedOutlineMembers({ projectId, taskId: observation.taskId, artifactId: artifact.id, parentCodeUnitKey: observation.stableKey, sourceHash })
