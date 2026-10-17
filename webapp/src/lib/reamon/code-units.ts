@@ -105,6 +105,8 @@ export interface CodeUnitObservationAttributes {
   sourceMapSourceContentSha256?: string
   disassemblyArtifactId?: string
   disassemblyLanguage?: string
+  disassemblyArtifactSha256?: string
+  bytecodeMagicHex?: string
   classReferences?: string[]
   referencedStrings?: string[]
   referencedStringsTruncated?: boolean
@@ -197,6 +199,8 @@ export interface CodeUnit {
   deobfuscationDisabledPasses?: string[]
   disassemblyArtifactId: string | null
   disassemblyLanguage: string | null
+  disassemblyArtifactSha256?: string | null
+  bytecodeMagicHex?: string | null
   classReferences?: string[]
   referencedStrings?: string[]
   referencedStringsTruncated?: boolean
@@ -549,6 +553,8 @@ export function normalizeCodeUnit(row: CodeUnitObservationRow, options: { includ
     deobfuscationDisabledPasses: stringListOf(attributes.deobfuscationDisabledPasses, 12, 80),
     disassemblyArtifactId: text(attributes.disassemblyArtifactId, 2000),
     disassemblyLanguage: text(attributes.disassemblyLanguage, 80),
+    disassemblyArtifactSha256: sha256(attributes.disassemblyArtifactSha256),
+    bytecodeMagicHex: /^[a-f0-9]{8}$/i.test(String(attributes.bytecodeMagicHex || '')) ? String(attributes.bytecodeMagicHex).toLowerCase() : null,
     classReferences: classReferencesOf(attributes.classReferences),
     referencedStrings: stringListOf(attributes.referencedStrings, 12, 512),
     referencedStringsTruncated: attributes.referencedStringsTruncated === true,

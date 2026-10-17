@@ -24,6 +24,7 @@ PORT = int(os.environ.get("PORT", "8014"))
 TIMEOUT_SECONDS = min(600, max(10, int(os.environ.get("PYCDC_TIMEOUT_SECONDS", "180"))))
 MAX_INPUT_BYTES = min(512 * 1024 * 1024, max(1024, int(os.environ.get("PYCDC_MAX_INPUT_BYTES", str(128 * 1024 * 1024)))))
 MAX_OUTPUT_BYTES = min(128 * 1024 * 1024, max(1024, int(os.environ.get("PYCDC_MAX_OUTPUT_BYTES", str(32 * 1024 * 1024)))))
+MAX_DISASSEMBLY_BYTES = 2 * 1024 * 1024
 SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
 SLOTS = threading.BoundedSemaphore(2)
 
@@ -72,6 +73,54 @@ def terminate(process: subprocess.Popen) -> None:
             pass
         process.wait()
 
+def disassemble(source_path: Path, output_path: Path, log_path: Path, report_progress, cancel_check) -> str:
+    started = time.monotonic()
+    next_progress = started + 5
+    with output_path.open("wb") as output, log_path.open("wb") as log:
+        try:
+            process = subprocess.Popen(
+                ["/usr/local/bin/pycdc", "dis", str(source_path)],
+                stdin=subprocess.DEVNULL,
+                stdout=output,
+                stderr=log,
+                cwd=output_path.parent,
+                env={"PATH": "/usr/local/bin:/usr/bin:/bin", "HOME": "/tmp"},
+                start_new_session=True,
+            )
+        except OSError as error:
+            return f"pycdc disassembler could not start: {type(error).__name__}"
+        try:
+            while process.poll() is None:
+                if cancel_check():
+                    terminate(process)
+                    raise AnalysisError("Python bytecode analysis was cancelled")
+                if output_path.stat().st_size > MAX_DISASSEMBLY_BYTES:
+                    terminate(process)
+                    return "pycdc disassembly exceeded the 2 MiB evidence limit"
+                if time.monotonic() - started > TIMEOUT_SECONDS:
+                    terminate(process)
+                    return f"pycdc disassembly exceeded the {TIMEOUT_SECONDS} second time limit"
+                now = time.monotonic()
+                if now >= next_progress:
+                    report_progress("Saving bounded Python bytecode disassembly")
+                    next_progress = now + 5
+                try:
+                    process.wait(timeout=0.25)
+                except subprocess.TimeoutExpired:
+                    pass
+        except BaseException:
+            terminate(process)
+            raise
+    if process.returncode != 0:
+        detail = log_path.read_bytes()[-2048:].decode("utf-8", errors="replace").strip()
+        return detail or f"pycdc disassembly exited with status {process.returncode}"
+    size = output_path.stat().st_size
+    if size <= 0:
+        return "pycdc produced no disassembly output"
+    if size > MAX_DISASSEMBLY_BYTES:
+        return "pycdc disassembly exceeded the 2 MiB evidence limit"
+    return ""
+
 
 def analyze(body: object, report_progress=lambda _message: None, cancel_check=lambda: False) -> dict[str, object]:
     if not isinstance(body, dict):
@@ -95,6 +144,7 @@ def analyze(body: object, report_progress=lambda _message: None, cancel_check=la
         source_stem = Path(logical_name).stem
         safe_stem = re.sub(r"[^A-Za-z0-9_.-]", "_", source_stem).strip(".-")[:160] or "module"
         output_name = f"{source_key}-{safe_stem}.py"
+        disassembly_name = f"{source_key}-{safe_stem}.dis"
         run_root = DERIVED_ROOT / project_id / artifact_id / task_id / run_id
         output_directory = run_root / "pycdc"
         output_directory.mkdir(parents=True, exist_ok=True)
@@ -104,6 +154,7 @@ def analyze(body: object, report_progress=lambda _message: None, cancel_check=la
             raise AnalysisError("Output directory is outside the derived-data volume") from error
         staging_directory = Path(tempfile.mkdtemp(prefix=".pycdc-", dir=output_directory))
         output_path = staging_directory / output_name
+        disassembly_path = staging_directory / disassembly_name
         log_path = staging_directory / "pycdc.log"
         try:
             with log_path.open("wb") as log:
@@ -167,6 +218,22 @@ def analyze(body: object, report_progress=lambda _message: None, cancel_check=la
             if returncode != 0:
                 warning = f"pycdc exited with status {returncode}; inspect the output before using it."
                 warnings = f"{warnings}\n{warning}".strip()
+            disassembly_log_path = staging_directory / "pycdc-dis.log"
+            disassembly_warning = disassemble(source_path, disassembly_path, disassembly_log_path, report_progress, cancel_check)
+            disassembly_artifact = None
+            if disassembly_warning:
+                warnings = f"{warnings}\nBytecode evidence unavailable: {disassembly_warning}".strip()
+            elif disassembly_path.is_file():
+                disassembly_destination = output_directory / disassembly_name
+                os.replace(disassembly_path, disassembly_destination)
+                disassembly_bytes = disassembly_destination.read_bytes()
+                disassembly_artifact = {
+                    "artifactId": disassembly_destination.relative_to(DERIVED_ROOT).as_posix(),
+                    "sizeBytes": len(disassembly_bytes),
+                    "sha256": hashlib.sha256(disassembly_bytes).hexdigest(),
+                }
+            with source_path.open("rb") as source:
+                bytecode_magic_hex = source.read(4).hex()
             return {
                 "status": "completed",
                 "toolVersion": "0.6.0",
@@ -175,6 +242,12 @@ def analyze(body: object, report_progress=lambda _message: None, cancel_check=la
                     "relativePath": source_relative_path,
                     "codeArtifactId": relative_output[:2000],
                     "sizeBytes": output_size,
+                    **({
+                        "disassemblyArtifactId": disassembly_artifact["artifactId"],
+                        "disassemblySizeBytes": disassembly_artifact["sizeBytes"],
+                        "disassemblySha256": disassembly_artifact["sha256"],
+                    } if disassembly_artifact else {}),
+                    "bytecodeMagicHex": bytecode_magic_hex,
                 },
                 "codeBytes": output_size,
                 "truncated": False,

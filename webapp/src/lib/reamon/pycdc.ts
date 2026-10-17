@@ -8,7 +8,16 @@ const MAX_TIMEOUT_MS = 10 * 60_000
 interface PycdcResponse {
   status: 'completed'
   toolVersion: string
-  unit: { name: string; relativePath: string; codeArtifactId: string; sizeBytes: number }
+  unit: {
+    name: string
+    relativePath: string
+    codeArtifactId: string
+    sizeBytes: number
+    disassemblyArtifactId?: string
+    disassemblySizeBytes?: number
+    disassemblySha256?: string
+    bytecodeMagicHex?: string
+  }
   codeBytes: number
   truncated: boolean
   warnings?: string
@@ -51,6 +60,11 @@ function isResponse(value: unknown): value is PycdcResponse {
     && typeof unit.relativePath === 'string' && unit.relativePath.length > 0 && unit.relativePath.length <= 1_000
     && typeof unit.codeArtifactId === 'string' && unit.codeArtifactId.length > 0 && unit.codeArtifactId.length <= 2_000
     && Number.isSafeInteger(unit.sizeBytes) && (unit.sizeBytes as number) > 0
+    && ((unit.disassemblyArtifactId === undefined && unit.disassemblySizeBytes === undefined && unit.disassemblySha256 === undefined)
+      || (typeof unit.disassemblyArtifactId === 'string' && unit.disassemblyArtifactId.length > 0 && unit.disassemblyArtifactId.length <= 2_000
+        && Number.isSafeInteger(unit.disassemblySizeBytes) && (unit.disassemblySizeBytes as number) > 0 && (unit.disassemblySizeBytes as number) <= 2 * 1024 * 1024
+        && typeof unit.disassemblySha256 === 'string' && /^[a-f0-9]{64}$/.test(unit.disassemblySha256)))
+    && (unit.bytecodeMagicHex === undefined || (typeof unit.bytecodeMagicHex === 'string' && /^[a-f0-9]{8}$/.test(unit.bytecodeMagicHex)))
     && (response.warnings === undefined || typeof response.warnings === 'string')
 }
 
@@ -115,6 +129,12 @@ export async function executePycdc(input: ToolExecutionInput): Promise<ToolResul
         representationSemantics: 'Recovered from Python bytecode by pycdc; source equivalence is not established.',
         decompiled: true,
         codeArtifactId: unit.codeArtifactId,
+        ...(unit.disassemblyArtifactId && unit.disassemblySha256 ? {
+          disassemblyArtifactId: unit.disassemblyArtifactId,
+          disassemblyLanguage: 'Python bytecode',
+          disassemblyArtifactSha256: unit.disassemblySha256,
+        } : {}),
+        ...(unit.bytecodeMagicHex ? { bytecodeMagicHex: unit.bytecodeMagicHex } : {}),
       },
     }]
     return {
