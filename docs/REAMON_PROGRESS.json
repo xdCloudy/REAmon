@@ -12,8 +12,8 @@
     {
       "name": "Database-grounded project memory and provenance",
       "weight": 20,
-      "completion": 46,
-      "basis": "Project-scoped observations, symbols, relationships, drafts, and review records ground AI context. Exact-address ReIPA pseudocode alternatives for matched Swift/Objective-C methods now enter rewrite context only after same-run path and output-hash verification; cross-provider identity and completeness still need broader validation."
+      "completion": 47,
+      "basis": "Project-scoped observations, symbols, relationships, drafts, and review records ground AI context. Exact-address ReIPA pseudocode alternatives for matched Swift/Objective-C methods now enter both rewrite context and the MCP code-unit dossier only after same-run task, run-token, path, provider, address, input, and output-hash checks; cross-provider identity and completeness still need broader validation."
     },
     {
       "name": "Major-language and format decompilation fluency",

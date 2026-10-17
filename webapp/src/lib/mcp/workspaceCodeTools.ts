@@ -14,9 +14,11 @@ const DEFAULT_LIMIT = 50
 const MAX_LIMIT = 100
 const MAX_CODE_BYTES = 128 * 1024
 const MAX_HASH_SOURCE_BYTES = 2 * 1024 * 1024
+const MAX_REIPA_BYTES = 128 * 1024
 const MAX_RELATIONSHIPS = 100
 const CODE_UNIT_TYPES = [CODE_UNIT_OBSERVATION_TYPE, 'function']
 const REFERENCE_RELATIONSHIP_TYPES = ['reads_field', 'writes_field', 'references_field', 'references_string']
+const REIPA_PROVIDER_VERSION = 'ReIPA@b0d4759451ed20796892a059fa53d9dbb130af61'
 
 export interface WorkspaceListCodeUnitsArgs {
   projectId: string
@@ -233,6 +235,71 @@ async function readDerivedText(relativePath: unknown, projectId: string, artifac
   }
 }
 
+async function readVerifiedReipaAlternate(input: {
+  projectId: string
+  artifactId: string | null
+  taskId: string | null
+  runToken: string | null
+  providerId: string | null
+  unitSource: string
+  unitAttributes: Record<string, unknown>
+  inputSha256: string | null
+}) {
+  const attributes = input.unitAttributes
+  const sourceLanguage = text(attributes.sourceLanguage, 80)
+  const addressValue = text(attributes.address ?? attributes.startAddress, 128)?.trim() || ''
+  const address = addressValue.replace(/^0x/i, '').replace(/^0+/, '').toLowerCase() || '0'
+  const relativePath = text(attributes.reipaAlternateCodeArtifactId, 2000) || ''
+  const outputSha256 = (text(attributes.reipaAlternateOutputSha256, 64) || '').toLowerCase()
+  if (input.unitSource !== 'reamon-ghidra' || input.providerId !== 'reamon-ghidra'
+    || !input.taskId || !input.artifactId || !input.runToken
+    || attributes.symbolSource !== 'ReIPA'
+    || (sourceLanguage !== 'Swift' && sourceLanguage !== 'Objective-C')
+    || attributes.reipaAlternateProviderVersion !== REIPA_PROVIDER_VERSION
+    || !/^[a-f0-9]+$/.test(address) || !/^[a-f0-9]{64}$/.test(outputSha256)
+    || !input.inputSha256 || attributes.inputArtifactSha256 !== input.inputSha256) return null
+
+  const expectedPrefix = `${input.projectId}/${input.artifactId}/${input.taskId}/${input.runToken}/`
+  if (!relativePath.startsWith(expectedPrefix) || relativePath.slice(expectedPrefix.length) !== `alternates/reipa/${address}.c`) return null
+  const filePath = safeDerivedPath(relativePath, input.projectId, input.artifactId)
+  if (!filePath) return null
+
+  let handle: Awaited<ReturnType<typeof open>> | null = null
+  try {
+    const root = await realpath(derivedArtifactRoot())
+    const runRoot = await realpath(resolveDerivedArtifactPath(expectedPrefix.slice(0, -1)))
+    const resolved = await realpath(filePath)
+    const relativeToRoot = path.relative(root, runRoot)
+    const relativeToRun = path.relative(runRoot, resolved)
+    const isInside = (relative: string) => Boolean(relative) && relative !== '..'
+      && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)
+    if (!isInside(relativeToRoot) || !isInside(relativeToRun)) return null
+    handle = await open(resolved, 'r')
+    const info = await handle.stat()
+    if (!info.isFile() || info.size <= 0 || info.size > MAX_REIPA_BYTES) return null
+    const bytes = Buffer.alloc(info.size)
+    const { bytesRead } = await handle.read(bytes, 0, bytes.length, 0)
+    if (bytesRead !== info.size) return null
+    const actualSha256 = createHash('sha256').update(bytes).digest('hex')
+    if (actualSha256 !== outputSha256) return null
+    return {
+      provider: 'ReIPA',
+      providerVersion: REIPA_PROVIDER_VERSION,
+      language: 'C-like pseudocode',
+      sourceLanguage,
+      address: `0x${address}`,
+      artifactId: relativePath,
+      outputSha256: actualSha256,
+      source: bytes.toString('utf8'),
+      semantics: `Experimental ReIPA pseudocode for the exact ${sourceLanguage} function address. This is same-run analysis evidence, not recovered ${sourceLanguage} source or reviewed maintained code.`,
+    }
+  } catch {
+    return null
+  } finally {
+    await handle?.close().catch(() => {})
+  }
+}
+
 async function prepareRead(ctx: McpContext, projectId: string) {
   requireScope(ctx.token, 'recon:read')
   enforceRate(ctx, 'read')
@@ -368,7 +435,7 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
     readDerivedText(rawEvidenceArtifactId, args.projectId, unit.artifactId),
     unit.taskId ? prisma.task.findFirst({
       where: { id: unit.taskId, projectId: args.projectId, artifactId: unit.artifactId },
-      select: { id: true, title: true, status: true, completedAt: true, provider: { select: { pluginId: true } }, result: true },
+      select: { id: true, title: true, status: true, completedAt: true, runToken: true, provider: { select: { pluginId: true } }, result: true },
     }) : null,
     unit.taskId ? prisma.reamonObservation.findMany({
       where: {
@@ -472,6 +539,16 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
   }))
   const result = record(task?.result)
   const recoveredVariableData = providerVariablesOf(attributes, unit.source)
+  const reipaPseudocode = task?.status === 'COMPLETED' ? await readVerifiedReipaAlternate({
+    projectId: args.projectId,
+    artifactId: unit.artifactId,
+    taskId: unit.taskId,
+    runToken: task.runToken,
+    providerId: task.provider?.pluginId || null,
+    unitSource: unit.source,
+    unitAttributes: attributes,
+    inputSha256: unit.artifact?.sha256 || null,
+  }) : null
   const goMetadataAttributes = record(providerTypeMetadataRow?.attributes)
   const goTypeCatalog = boundedJsonTextList(goMetadataAttributes.types, 4_000, 64, 256)
   const goTypeDetails = boundedGoTypeDetails(goMetadataAttributes.typeDetails)
@@ -672,6 +749,7 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
       sourceHash: code.sourceHash,
       truncated: code.truncated,
     } : null,
+    alternateDecompilerOutputs: reipaPseudocode ? [reipaPseudocode] : [],
     disassembly: disassembly ? { relativePath: text(attributes.assemblyRelativePath ?? attributes.disassemblyRelativePath, 1000), language: text(attributes.disassemblyLanguage, 80), text: disassembly.text, sizeBytes: disassembly.sizeBytes, truncated: disassembly.truncated } : null,
     bytecode: bytecode ? { text: bytecode.text, sizeBytes: bytecode.sizeBytes, truncated: bytecode.truncated || attributes.bytecodeRowsTruncated === true } : null,
     callRelationships: edges.slice(0, MAX_RELATIONSHIPS).map((edge) => ({
