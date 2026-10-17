@@ -955,8 +955,10 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                                     and parsed_cfg_graph.get("version") == "ghidra-basic-block-graph-v1"
                                     and isinstance(parsed_cfg_graph.get("blocks"), list)
                                     and isinstance(parsed_cfg_graph.get("edges"), list)
+                                    and isinstance(parsed_cfg_graph.get("exitBlocks"), list)
                                     and len(parsed_cfg_graph["blocks"]) <= 32
                                     and len(parsed_cfg_graph["edges"]) <= 48
+                                    and len(parsed_cfg_graph["exitBlocks"]) <= 32
                                     and isinstance(parsed_cfg_graph.get("truncated"), bool)
                                     and parsed_cfg_graph.get("instructionLabel") == "instructions"):
                                 blocks = parsed_cfg_graph["blocks"]
@@ -980,11 +982,19 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                                     and isinstance(edge[2], str) and re.fullmatch(r"[A-Za-z0-9_]{1,40}", edge[2])
                                     for edge in edges
                                 )
+                                valid_exit_blocks = all(
+                                    isinstance(exit_block, int) and not isinstance(exit_block, bool)
+                                    and 0 <= exit_block < len(blocks)
+                                    for exit_block in parsed_cfg_graph["exitBlocks"]
+                                )
                                 if (valid_blocks and valid_edges
+                                        and valid_exit_blocks
                                         and isinstance(parsed_cfg_graph.get("entryBlock"), int)
                                         and 0 <= parsed_cfg_graph["entryBlock"] < max(1, len(blocks))
                                         and isinstance(parsed_cfg_graph.get("exitBlock"), int)
                                         and 0 <= parsed_cfg_graph["exitBlock"] < max(1, len(blocks))
+                                        and (not parsed_cfg_graph["exitBlocks"]
+                                             or parsed_cfg_graph["exitBlock"] == parsed_cfg_graph["exitBlocks"][0])
                                         and parsed_cfg_graph.get("blockCount") == len(blocks)
                                         and parsed_cfg_graph.get("edgeCount") == len(edges)):
                                     cfg_graph = parsed_cfg_graph

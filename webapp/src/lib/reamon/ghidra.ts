@@ -37,6 +37,7 @@ interface GhidraControlFlowGraph {
   version: 'ghidra-basic-block-graph-v1'
   entryBlock: number
   exitBlock: number
+  exitBlocks: number[]
   blockCount: number
   edgeCount: number
   truncated: boolean
@@ -244,6 +245,9 @@ export async function executeGhidra(input: ToolExecutionInput): Promise<ToolResu
           || (unit.cfgGraph !== undefined && (!unit.cfgGraph || unit.cfgGraph.version !== 'ghidra-basic-block-graph-v1'
             || !Number.isInteger(unit.cfgGraph.entryBlock) || unit.cfgGraph.entryBlock < 0
             || !Number.isInteger(unit.cfgGraph.exitBlock) || unit.cfgGraph.exitBlock < 0
+            || !Array.isArray(unit.cfgGraph.exitBlocks) || unit.cfgGraph.exitBlocks.length > 32
+            || !unit.cfgGraph.exitBlocks.every((block) => Number.isInteger(block) && block >= 0 && block < unit.cfgGraph!.blocks.length)
+            || (unit.cfgGraph.exitBlocks.length > 0 && unit.cfgGraph.exitBlock !== unit.cfgGraph.exitBlocks[0])
             || !Number.isSafeInteger(unit.cfgGraph.blockCount) || !Number.isSafeInteger(unit.cfgGraph.edgeCount)
             || !Array.isArray(unit.cfgGraph.blocks) || unit.cfgGraph.blocks.length > 32
             || !Array.isArray(unit.cfgGraph.edges) || unit.cfgGraph.edges.length > 48

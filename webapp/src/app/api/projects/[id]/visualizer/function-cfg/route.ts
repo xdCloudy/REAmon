@@ -112,12 +112,18 @@ export async function GET(request: Request, { params }: RouteParams) {
     if (blocks.length !== cfg.blocks.length || edges.length !== cfg.edges.length) {
       return NextResponse.json({ error: 'This function has an incomplete control-flow summary' }, { status: 422, headers: NO_STORE })
     }
+    const exitBlocks = Array.isArray(cfg.exitBlocks) ? cfg.exitBlocks : (blocks.length > 0 ? [cfg.exitBlock] : [])
+    if (exitBlocks.length > 32 || !exitBlocks.every((block) => nonNegativeInteger(block) && block < blocks.length)
+      || (exitBlocks.length > 0 && exitBlocks[0] !== cfg.exitBlock)) {
+      return NextResponse.json({ error: 'This function has an invalid exit-block summary' }, { status: 422, headers: NO_STORE })
+    }
 
     return NextResponse.json({
       label: observation.label || 'Function',
       instructionLabel: graphVersion === 'ghidra-basic-block-graph-v1' ? 'instructions' : 'IR and bytecode instructions',
       entryBlock: cfg.entryBlock,
       exitBlock: cfg.exitBlock,
+      exitBlocks,
       blockCount: cfg.blockCount,
       edgeCount: cfg.edgeCount,
       truncated: cfg.truncated === true || cfg.blockCount > blocks.length || cfg.edgeCount > edges.length,

@@ -138,6 +138,7 @@ public class ReamonExport extends GhidraScript {
         }
 
         StringBuilder edgeJson = new StringBuilder();
+        ArrayList<Integer> exitBlocks = new ArrayList<>();
         int edgeCount = 0;
         for (int index = 0; index < blocks.size(); index++) {
             CodeBlockReferenceIterator destinations = blockModel.getDestinations(blocks.get(index), monitor);
@@ -163,16 +164,24 @@ public class ReamonExport extends GhidraScript {
                 edgeJson.append('[').append(index).append(',').append(target).append(",\"").append(kind).append("\"]");
                 edgeCount++;
             }
-            if (!hasInternalSuccessor && !foundExit) {
-                exitBlock = index;
-                foundExit = true;
+            if (!hasInternalSuccessor) {
+                exitBlocks.add(index);
+                if (!foundExit) {
+                    exitBlock = index;
+                    foundExit = true;
+                }
             }
             if (edgeCount >= MAX_CFG_DISPLAY_EDGES) break;
+        }
+        StringBuilder exitBlockJson = new StringBuilder();
+        for (int index = 0; index < exitBlocks.size(); index++) {
+            if (index > 0) exitBlockJson.append(',');
+            exitBlockJson.append(exitBlocks.get(index));
         }
         return "{\"version\":\"ghidra-basic-block-graph-v1\",\"entryBlock\":" + entryBlock
             + ",\"exitBlock\":" + exitBlock + ",\"blockCount\":" + blocks.size()
             + ",\"edgeCount\":" + edgeCount + ",\"truncated\":" + truncated
-            + ",\"instructionLabel\":\"instructions\",\"blocks\":[" + blockJson
+            + ",\"exitBlocks\":[" + exitBlockJson + "],\"instructionLabel\":\"instructions\",\"blocks\":[" + blockJson
             + "],\"edges\":[" + edgeJson + "]}";
     }
 

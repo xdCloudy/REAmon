@@ -62,6 +62,7 @@ interface FunctionControlFlowGraph {
   instructionLabel: string
   entryBlock: number
   exitBlock: number
+  exitBlocks?: number[]
   blockCount: number
   edgeCount: number
   truncated: boolean
@@ -244,6 +245,7 @@ function FunctionControlFlowPanel({
   onAddressSelect?: (address: string) => void
 }) {
   const graph = query.data
+  const exitBlocks = graph?.exitBlocks?.length ? graph.exitBlocks : (graph ? [graph.exitBlock] : [])
   const columns = Math.min(4, Math.max(1, graph?.blocks.length || 1))
   const nodeWidth = 220
   const columnGap = 30
@@ -268,7 +270,7 @@ function FunctionControlFlowPanel({
     {query.isLoading && <p className={styles.cfgMessage} role="status">Loading control-flow graph…</p>}
     {Boolean(query.error) && <p className={styles.cfgMessage} role="alert">{query.error instanceof Error ? query.error.message : 'Could not load the control-flow graph.'}</p>}
     {graph && graph.blocks.length > 0 && <>
-      <div className={styles.cfgLegend}><span>Entry block {graph.entryBlock}</span><span>Exit block {graph.exitBlock}</span></div>
+      <div className={styles.cfgLegend}><span>Entry block {graph.entryBlock}</span><span>Exit blocks {exitBlocks.join(', ')}</span></div>
       <div className={styles.cfgCanvas}>
         <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${graph.blocks.length} displayed basic blocks and ${graph.edges.length} displayed control-flow edges`}>
           <defs>
@@ -295,7 +297,7 @@ function FunctionControlFlowPanel({
             if (!position) return null
             return <g
               key={block.id}
-              className={`${styles.cfgNode} ${block.id === graph.entryBlock ? styles.cfgEntry : ''} ${block.id === graph.exitBlock ? styles.cfgExit : ''}`}
+              className={`${styles.cfgNode} ${block.id === graph.entryBlock ? styles.cfgEntry : ''} ${exitBlocks.includes(block.id) ? styles.cfgExit : ''}`}
               role={block.address && onAddressSelect ? 'button' : undefined}
               tabIndex={block.address && onAddressSelect ? 0 : undefined}
               aria-label={block.address && onAddressSelect ? `Basic block ${block.id} at ${block.address}; navigate to disassembly` : undefined}
