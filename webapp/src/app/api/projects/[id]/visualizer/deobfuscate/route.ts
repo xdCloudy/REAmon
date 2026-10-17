@@ -12,6 +12,7 @@ import { nativeAddressAliases, nativeFunctionIdentity } from '@/lib/reamon/nativ
 import { flossRecoveredStringsOf, providerVariablesOf } from '@/lib/reamon/code-units'
 import { rankSimilarInstructionFunctions } from '@/lib/reamon/instruction-similarity'
 import { codeRewriteLeaseGraceMs, failInterruptedCodeAttempts } from '@/lib/reamon/code-attempts'
+import { codeNoteText, REAMON_CODE_NOTE_SOURCE } from '@/lib/reamon/code-notes'
 
 interface RouteParams { params: Promise<{ id: string }> }
 interface DeobfuscateBody { unitId?: unknown; providerId?: unknown; question?: unknown; scope?: unknown; startByte?: unknown; endByte?: unknown; memberName?: unknown; sourceCode?: unknown }
@@ -532,6 +533,11 @@ export async function POST(request: Request, { params }: RouteParams) {
     }
     const fullBytes = await readFile(sourcePath)
     const sourceHash = createHash('sha256').update(fullBytes).digest('hex')
+    const savedCodeNote = await prisma.reamonObservation.findFirst({
+      where: { projectId, artifactId: artifact.id, source: REAMON_CODE_NOTE_SOURCE, stableKey: observation.id },
+      select: { attributes: true },
+    })
+    const projectNoteContext = codeNoteText(savedCodeNote?.attributes, sourceHash)
     const scope = body.scope === 'member' ? 'member' : body.scope === 'outline' ? 'outline' : 'file'
     const language = typeof attributes.language === 'string' ? attributes.language : 'unknown'
     const sourceLanguage = typeof attributes.sourceLanguage === 'string' ? attributes.sourceLanguage : ''
@@ -1905,6 +1911,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       project_symbol_context: maintainedProjectContext,
       provider_symbol_context: combinedProviderSymbolContext,
       project_draft_context: projectDraftContext,
+      project_note_context: projectNoteContext,
       prior_attempt_context: priorAttemptContext,
       question: typeof body.question === 'string' ? body.question.trim() : '',
     }

@@ -139,6 +139,7 @@ interface CodeMaintenanceResponse { sourceCode: string; providerName: string; mo
 interface CodeDraftRecord { id: string; sourceCode: string; sourceAttemptId: string | null; providerName: string; modelIdentifier: string; question: string; scope: 'file' | 'member'; syntaxValidated: boolean | null; validationStatus: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod: string | null; validationMessage: string | null; updatedAt: string }
 interface CodeAttemptRecord { id: string; providerName: string; modelIdentifier: string; question: string; scope: 'file' | 'member'; status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'; cancelRequested: boolean; errorCode: string | null; errorMessage: string | null; resultSource: string | null; syntaxValidated: boolean | null; validationStatus: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod: string | null; validationMessage: string | null; createdAt: string; completedAt: string | null }
 interface CodeDraftResponse { exists: boolean; draft: CodeDraftRecord | null; attempts?: CodeAttemptRecord[] }
+interface CodeUnitNoteResponse { unitId: string; note: string; stale: boolean; updatedAt: string | null }
 interface CodeReviewRecord {
   id: string
   reviewerId: string
@@ -753,6 +754,10 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
   const [assemblyCopyStatus, setAssemblyCopyStatus] = useState('')
   const [providerId, setProviderId] = useState('')
   const [question, setQuestion] = useState('')
+  const [projectNoteDraft, setProjectNoteDraft] = useState<{ unitId: string; note: string } | null>(null)
+  const [savingProjectNote, setSavingProjectNote] = useState(false)
+  const [projectNoteStatus, setProjectNoteStatus] = useState('')
+  const [projectNoteError, setProjectNoteError] = useState('')
   const [explanation, setExplanation] = useState<CodeExplanationResponse | null>(null)
   const [explainError, setExplainError] = useState('')
   const [explaining, setExplaining] = useState(false)
@@ -1081,6 +1086,26 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
     staleTime: 0,
     gcTime: 60_000,
   })
+  const projectNoteQuery = useQuery({
+    queryKey: ['reamon-code-note', projectId, selectedUnit?.id],
+    queryFn: async ({ signal }) => {
+      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/notes/${encodeURIComponent(selectedUnit?.id || '')}`, { signal, cache: 'no-store' })
+      if (!response.ok) throw new Error('Unable to load the saved code-unit note')
+      return response.json() as Promise<CodeUnitNoteResponse>
+    },
+    enabled: Boolean(selectedUnit && selectedSourceUrl),
+    staleTime: 0,
+    gcTime: 60_000,
+  })
+  const noteResponse = projectNoteQuery.data
+  const selectedNoteUnitId = selectedUnit?.id
+  const visibleProjectNote = projectNoteDraft && projectNoteDraft.unitId === selectedNoteUnitId
+    ? projectNoteDraft.note
+    : noteResponse && noteResponse.unitId === selectedNoteUnitId ? noteResponse.note : ''
+  useEffect(() => {
+    if (!selectedNoteUnitId || !noteResponse || noteResponse.unitId !== selectedNoteUnitId) return
+    setProjectNoteDraft({ unitId: selectedNoteUnitId, note: noteResponse.note })
+  }, [noteResponse, selectedNoteUnitId])
   const reviewBaselineSource = maintainedQuery.data?.exists && typeof maintainedQuery.data.sourceCode === 'string'
     ? maintainedQuery.data.sourceCode
     : sourceQuery.data || ''
@@ -1223,6 +1248,29 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
       setExplainError(error instanceof Error ? error.message : 'Could not explain this code unit')
     } finally {
       setExplaining(false)
+    }
+  }
+
+  async function saveProjectNote() {
+    if (!selectedUnit) return
+    setSavingProjectNote(true)
+    setProjectNoteError('')
+    setProjectNoteStatus('')
+    try {
+      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/notes/${encodeURIComponent(selectedUnit.id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ note: visibleProjectNote }),
+      })
+      const result = await response.json().catch(() => ({})) as CodeUnitNoteResponse & { error?: string }
+      if (!response.ok || result.unitId !== selectedUnit.id) throw new Error(result.error || 'Could not save the project note')
+      setProjectNoteDraft({ unitId: selectedUnit.id, note: result.note })
+      queryClient.setQueryData(['reamon-code-note', projectId, selectedUnit.id], result)
+      setProjectNoteStatus(result.note ? 'Saved in project memory for this code unit.' : 'Project note cleared.')
+    } catch (error) {
+      setProjectNoteError(error instanceof Error ? error.message : 'Could not save the project note')
+    } finally {
+      setSavingProjectNote(false)
     }
   }
 
@@ -2469,6 +2517,24 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
             <h3 id="code-maintain-heading"><WandSparkles size={16} /> Reverse engineer into maintainable code</h3>
             <p>Use decompiled source, related classes, bytecode, and project memory to recover intent and keep names consistent. AI drafts are stored with this project for follow-up work; review and save a maintained copy before its names become trusted project-wide evidence. The original decompilation stays intact.</p>
           </div>
+          <section className={styles.classReferences} aria-label="Persistent code-unit project note">
+            <div><strong>Project note for this code unit</strong><span>Saved in the database and supplied to future rewrites of this exact unit as untrusted background context. Keep evidence and naming hints specific.</span></div>
+            {projectNoteQuery.isLoading && <p className={styles.message}>Loading saved project note…</p>}
+            {projectNoteQuery.isError && <p className={styles.error} role="alert">{projectNoteQuery.error instanceof Error ? projectNoteQuery.error.message : 'Could not load the saved project note'}</p>}
+            {projectNoteQuery.data?.unitId === selectedUnit.id && projectNoteQuery.data.stale && <p className={styles.message}>This note was saved against a different source hash, so it is withheld from AI context. Review and save it again for the current source.</p>}
+            <label className={styles.explainField}>Shared code-unit note
+              <textarea value={visibleProjectNote} maxLength={3000} rows={3} onChange={(event) => {
+                setProjectNoteDraft({ unitId: selectedUnit.id, note: event.target.value })
+                setProjectNoteStatus('')
+                setProjectNoteError('')
+              }} placeholder="Record evidence-backed facts, unresolved questions, or naming conventions for this unit." />
+            </label>
+            <button type="button" className={styles.copyButton} onClick={() => void saveProjectNote()} disabled={savingProjectNote || projectNoteQuery.isLoading || projectNoteQuery.isError || visibleProjectNote.length > 3000}>
+              {savingProjectNote ? 'Saving project note…' : 'Save project note'}
+            </button>
+            {projectNoteStatus && <p className={styles.message} role="status">{projectNoteStatus}</p>}
+            {projectNoteError && <p className={styles.error} role="alert">{projectNoteError}</p>}
+          </section>
           {explanationProvidersQuery.isLoading && <p className={styles.message}>Loading saved providers…</p>}
           {explanationProvidersQuery.isError && <p className={styles.error}>Could not load saved AI providers.</p>}
           {!explanationProvidersQuery.isLoading && !explanationProvidersQuery.isError && explanationProviders.length === 0 && <p className={styles.message}>No OpenAI-compatible provider is saved yet. <a href="/settings">Add one in Settings</a>.</p>}

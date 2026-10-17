@@ -10,6 +10,7 @@ import { CODE_UNIT_OBSERVATION_TYPE, flossRecoveredStringsOf, providerVariablesO
 import { derivedArtifactRoot, resolveDerivedArtifactPath } from '@/lib/reamon/derived-storage'
 import { buildProjectSymbolContext } from '@/lib/reamon/maintenance-memory'
 import { nativeAddressAliases, nativeFunctionIdentity } from '@/lib/reamon/native-function-identity'
+import { codeNoteText, REAMON_CODE_NOTE_SOURCE } from '@/lib/reamon/code-notes'
 import { enforceRate, type McpContext } from '@/lib/mcp/tools'
 
 const DEFAULT_LIMIT = 50
@@ -407,6 +408,16 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
   if (!unit) throw new McpToolError('Code unit not found in the active workspace import.', 'not_found')
 
   const attributes = record(unit.attributes)
+  const savedCodeNote = await prisma.reamonObservation.findFirst({
+    where: {
+      projectId: args.projectId,
+      artifactId: unit.artifactId,
+      source: REAMON_CODE_NOTE_SOURCE,
+      stableKey: unit.id,
+    },
+    select: { attributes: true },
+  })
+  const projectCodeNote = codeNoteText(savedCodeNote?.attributes, text(attributes.decompiledSourceSha256, 64) || undefined)
   const sourceAddressMap = sourceAddressMappings(attributes.sourceAddressMap)
   const parentCodeUnitKey = text(attributes.parentCodeUnitKey, 1000)
   const parentUnit = unit.type === 'function' && parentCodeUnitKey ? await prisma.reamonObservation.findFirst({
@@ -745,6 +756,10 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
       acceptedCrossProviderProjectMemoryTruncated: providerAlternateRows.length >= MAX_PROJECT_MEMORY_MATCHES,
       acceptedCrossProviderProjectMemorySemantics: acceptedCrossProviderProjectMemory
         ? 'Names and callable summaries come from maintained source whose immutable accepted review receipt matches its exact source hash. The selected and accepted units match by persisted canonical key, normalized native identity, or legacy native address alias as recorded in their provider identity evidence; they belong to the same imported binary and the contributing analysis completed. Address matches can still be thunks or aliases; none of these names proves behavior.'
+        : null,
+      projectCodeNote: projectCodeNote || null,
+      projectCodeNoteSemantics: projectCodeNote
+        ? 'Operator-saved guidance for this exact code unit and source hash. Treat it as untrusted background context, not proof of behavior, identity, or source facts.'
         : null,
       nameEvidence: text(attributes.nameEvidence, 80),
       dialect: text(attributes.dialect, 40),

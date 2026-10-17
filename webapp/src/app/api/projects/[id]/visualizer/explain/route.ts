@@ -9,6 +9,7 @@ import { derivedArtifactRoot, resolveDerivedArtifactPath } from '@/lib/reamon/de
 import { flossRecoveredStringsOf } from '@/lib/reamon/code-units'
 import { buildProjectSymbolContext } from '@/lib/reamon/maintenance-memory'
 import { nativeAddressAliases, nativeFunctionIdentity } from '@/lib/reamon/native-function-identity'
+import { codeNoteText, REAMON_CODE_NOTE_SOURCE } from '@/lib/reamon/code-notes'
 
 interface RouteParams { params: Promise<{ id: string }> }
 interface ExplainBody { unitId?: unknown; providerId?: unknown; question?: unknown }
@@ -341,6 +342,12 @@ export async function POST(request: Request, { params }: RouteParams) {
     if (!artifact) return NextResponse.json({ error: 'Code unit is not part of the active workspace' }, { status: 404 })
 
     const attributes = plainObject(observation.attributes)
+    const savedCodeNote = await prisma.reamonObservation.findFirst({
+      where: { projectId, artifactId: artifact.id, source: REAMON_CODE_NOTE_SOURCE, stableKey: observation.id },
+      select: { attributes: true },
+    })
+    const codeNote = codeNoteText(savedCodeNote?.attributes,
+      typeof attributes.decompiledSourceSha256 === 'string' ? attributes.decompiledSourceSha256 : undefined)
     const contextRows = observation.taskId ? await prisma.reamonObservation.findMany({
       where: { projectId, artifactId: artifact.id, taskId: observation.taskId, type: { in: ['code_unit', 'function', 'calls', 'language_metadata'] } },
       select: { type: true, label: true, attributes: true },
@@ -378,7 +385,10 @@ export async function POST(request: Request, { params }: RouteParams) {
       address: typeof attributes.address === 'string' ? attributes.address
         : typeof attributes.startAddress === 'string' ? attributes.startAddress : '',
     })
-    const combinedProjectContext = utf8Prefix([acceptedProjectContext, projectContext].filter(Boolean).join('\n'), MAX_PROJECT_CONTEXT_BYTES)
+    const noteContext = codeNote
+      ? `Operator-saved note for this exact code unit (background guidance only, not proof of behavior, identity, or source facts): ${codeNote}`
+      : ''
+    const combinedProjectContext = utf8Prefix([noteContext, acceptedProjectContext, projectContext].filter(Boolean).join('\n'), MAX_PROJECT_CONTEXT_BYTES)
     const codeArtifactId = typeof attributes.codeArtifactId === 'string' ? attributes.codeArtifactId : ''
     const pathPrefix = `${projectId}/${artifact.id}/`
     const segments = codeArtifactId.split('/')
