@@ -7,7 +7,9 @@ const MAX_UNITS = 2000
 const DEFAULT_TIMEOUT_MS = 15 * 60_000
 const MAX_CALL_EDGES = 400
 const REIPA_COMMIT = 'b0d4759451ed20796892a059fa53d9dbb130af61'
-const BCF_CLEAN_COMMIT = 'f457afaa801b30f7bb98c28d419a36d5c9fd7115'
+const GHIDRA_DEOBFUSCATION_LAB_COMMIT = 'f457afaa801b30f7bb98c28d419a36d5c9fd7115'
+const BCF_CLEAN_COMMIT = GHIDRA_DEOBFUSCATION_LAB_COMMIT
+const CFF_DEFLATTEN_COMMIT = GHIDRA_DEOBFUSCATION_LAB_COMMIT
 
 interface UnstripGoInterfaceMethod {
   interfaceName: string
@@ -101,7 +103,7 @@ interface GhidraResponse {
   codeBytes?: number
   returnedUnits: number
   truncated: boolean
-  units: Array<{ name: string; address: string; relativePath: string; codeArtifactId: string; disassemblyArtifactId?: string; reipaAlternateCodeArtifactId?: string; reipaAlternateOutputSha256?: string; reipaAlternateSizeBytes?: number; bcfCleanAlternateCodeArtifactId?: string; bcfCleanAlternateOutputSha256?: string; bcfCleanAlternateSizeBytes?: number; bcfCleanAuditArtifactId?: string; bcfCleanAuditSha256?: string; bcfCleanCommit?: string; referencedStrings?: string[]; instructionMnemonics?: string[]; cfgMetrics?: GhidraControlFlowMetrics; cfgGraph?: GhidraControlFlowGraph; cffRecovery?: GhidraCffRecovery; sourceAddressMap?: Array<{ ghidraLineNumber: number; address: string }>; prototype?: string; recoveredVariables?: Array<{ kind: 'parameter' | 'local'; name: string; dataType: string; sizeBytes: number; parameterIndex?: number; storageStartAddress?: string; nameLocked?: boolean; typeLocked?: boolean }>; recoveredVariablesTruncated?: boolean; flossVersion?: string; flossRecoveredStrings?: FlossRecoveredString[]; flossRecoveredStringsTruncated?: boolean; sourceLanguage?: string; symbolSource?: string; recoveredNativeSymbolName?: string; goPackage?: string; goUnstripSignature?: string; goUnstripSourceFile?: string; goUnstripSourceLine?: number; goUnstripInterfaces?: UnstripGoInterfaceMethod[]; goUnstripInterfacesTruncated?: boolean; sizeBytes: number }>
+  units: Array<{ name: string; address: string; relativePath: string; codeArtifactId: string; disassemblyArtifactId?: string; reipaAlternateCodeArtifactId?: string; reipaAlternateOutputSha256?: string; reipaAlternateSizeBytes?: number; bcfCleanAlternateCodeArtifactId?: string; bcfCleanAlternateOutputSha256?: string; bcfCleanAlternateSizeBytes?: number; bcfCleanAuditArtifactId?: string; bcfCleanAuditSha256?: string; bcfCleanCommit?: string; cffDeflattenAlternateCodeArtifactId?: string; cffDeflattenAlternateOutputSha256?: string; cffDeflattenAlternateSizeBytes?: number; cffDeflattenAuditArtifactId?: string; cffDeflattenAuditSha256?: string; cffDeflattenCommit?: string; referencedStrings?: string[]; instructionMnemonics?: string[]; cfgMetrics?: GhidraControlFlowMetrics; cfgGraph?: GhidraControlFlowGraph; cffRecovery?: GhidraCffRecovery; sourceAddressMap?: Array<{ ghidraLineNumber: number; address: string }>; prototype?: string; recoveredVariables?: Array<{ kind: 'parameter' | 'local'; name: string; dataType: string; sizeBytes: number; parameterIndex?: number; storageStartAddress?: string; nameLocked?: boolean; typeLocked?: boolean }>; recoveredVariablesTruncated?: boolean; flossVersion?: string; flossRecoveredStrings?: FlossRecoveredString[]; flossRecoveredStringsTruncated?: boolean; sourceLanguage?: string; symbolSource?: string; recoveredNativeSymbolName?: string; goPackage?: string; goUnstripSignature?: string; goUnstripSourceFile?: string; goUnstripSourceLine?: number; goUnstripInterfaces?: UnstripGoInterfaceMethod[]; goUnstripInterfacesTruncated?: boolean; sizeBytes: number }>
   calls?: Array<{ fromAddress: string; toAddress: string; fromName: string; toName: string }>
   callCount?: number
   callGraphTruncated?: boolean
@@ -240,6 +242,7 @@ export async function executeGhidra(input: ToolExecutionInput): Promise<ToolResu
         runId: input.runToken,
         artifactPath: input.artifactPath,
         nativeBcfCleanup: input.options?.nativeBcfCleanup === true,
+        nativeCffDeflatten: input.options?.nativeCffDeflatten === true,
       }),
       signal,
       cache: 'no-store',
@@ -333,6 +336,12 @@ export async function executeGhidra(input: ToolExecutionInput): Promise<ToolResu
           || (unit.bcfCleanAuditArtifactId !== undefined && (typeof unit.bcfCleanAuditArtifactId !== 'string' || unit.bcfCleanAuditArtifactId.length > 2000))
           || (unit.bcfCleanAuditSha256 !== undefined && (typeof unit.bcfCleanAuditSha256 !== 'string' || !/^[a-f0-9]{64}$/.test(unit.bcfCleanAuditSha256)))
           || (unit.bcfCleanCommit !== undefined && unit.bcfCleanCommit !== BCF_CLEAN_COMMIT)
+          || (unit.cffDeflattenAlternateCodeArtifactId !== undefined && (typeof unit.cffDeflattenAlternateCodeArtifactId !== 'string' || unit.cffDeflattenAlternateCodeArtifactId.length > 2000))
+          || (unit.cffDeflattenAlternateOutputSha256 !== undefined && (typeof unit.cffDeflattenAlternateOutputSha256 !== 'string' || !/^[a-f0-9]{64}$/.test(unit.cffDeflattenAlternateOutputSha256)))
+          || (unit.cffDeflattenAlternateSizeBytes !== undefined && (!Number.isInteger(unit.cffDeflattenAlternateSizeBytes) || unit.cffDeflattenAlternateSizeBytes <= 0 || unit.cffDeflattenAlternateSizeBytes > 131072))
+          || (unit.cffDeflattenAuditArtifactId !== undefined && (typeof unit.cffDeflattenAuditArtifactId !== 'string' || unit.cffDeflattenAuditArtifactId.length > 2000))
+          || (unit.cffDeflattenAuditSha256 !== undefined && (typeof unit.cffDeflattenAuditSha256 !== 'string' || !/^[a-f0-9]{64}$/.test(unit.cffDeflattenAuditSha256)))
+          || (unit.cffDeflattenCommit !== undefined && unit.cffDeflattenCommit !== CFF_DEFLATTEN_COMMIT)
           || (unit.sourceLanguage !== undefined && typeof unit.sourceLanguage !== 'string')
           || (unit.symbolSource !== undefined && typeof unit.symbolSource !== 'string')
           || (unit.recoveredNativeSymbolName !== undefined && (typeof unit.recoveredNativeSymbolName !== 'string' || unit.recoveredNativeSymbolName.length > 500))
@@ -403,6 +412,17 @@ export async function executeGhidra(input: ToolExecutionInput): Promise<ToolResu
             bcfCleanAuditArtifactId: unit.bcfCleanAuditArtifactId.slice(0, 2000),
             bcfCleanAuditSha256: unit.bcfCleanAuditSha256,
             bcfCleanProviderVersion: `BcfClean@${unit.bcfCleanCommit}`,
+          }
+          : {}),
+        ...(unit.cffDeflattenAlternateCodeArtifactId && unit.cffDeflattenAlternateOutputSha256 && unit.cffDeflattenAlternateSizeBytes
+          && unit.cffDeflattenAuditArtifactId && unit.cffDeflattenAuditSha256 && unit.cffDeflattenCommit === CFF_DEFLATTEN_COMMIT
+          ? {
+            cffDeflattenAlternateCodeArtifactId: unit.cffDeflattenAlternateCodeArtifactId.slice(0, 2000),
+            cffDeflattenAlternateOutputSha256: unit.cffDeflattenAlternateOutputSha256,
+            cffDeflattenAlternateSizeBytes: unit.cffDeflattenAlternateSizeBytes,
+            cffDeflattenAuditArtifactId: unit.cffDeflattenAuditArtifactId.slice(0, 2000),
+            cffDeflattenAuditSha256: unit.cffDeflattenAuditSha256,
+            cffDeflattenProviderVersion: `CffDeflatten@${unit.cffDeflattenCommit}`,
           }
           : {}),
         ...(unit.disassemblyArtifactId ? { disassemblyArtifactId: unit.disassemblyArtifactId.slice(0, 2000) } : {}),

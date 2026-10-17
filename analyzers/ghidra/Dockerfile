@@ -53,6 +53,7 @@ COPY ReamonExport.java ./scripts/ReamonExport.java
 COPY ReamonCffRecovery.java ./scripts/ReamonCffRecovery.java
 COPY CffCore.java ./scripts/CffCore.java
 COPY BcfClean.java ./scripts/BcfClean.java
+COPY CffDeflatten.java ./scripts/CffDeflatten.java
 COPY CFFLAB-LICENSE /usr/share/licenses/ghidra-deobfuscation-lab/LICENSE
 COPY --from=goresym-build /goresym /usr/local/bin/goresym
 COPY --from=goresym-build /src/GoReSym/LICENSE /usr/share/licenses/goresym/LICENSE
@@ -60,7 +61,7 @@ COPY --from=unstrip-build /usr/local/cargo/bin/unstrip /usr/local/bin/unstrip
 COPY --from=unstrip-build /unstrip-licenses/ /usr/share/licenses/unstrip/
 COPY --from=reipa-build /src/reipa/reipa/target/release/reipa /usr/local/bin/reipa
 COPY --from=reipa-build /src/reipa/LICENSE /usr/share/licenses/reipa/LICENSE
-RUN chmod 0555 /app/server.py /app/entrypoint.sh /app/scripts/ReamonExport.java /app/scripts/ReamonCffRecovery.java /app/scripts/CffCore.java /app/scripts/BcfClean.java
+RUN chmod 0555 /app/server.py /app/entrypoint.sh /app/scripts/ReamonExport.java /app/scripts/ReamonCffRecovery.java /app/scripts/CffCore.java /app/scripts/BcfClean.java /app/scripts/CffDeflatten.java
 ENV GHIDRA_HOME=/opt/ghidra/current GHIDRA_INSTALL_DIR=/opt/ghidra/current JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
 EXPOSE 8011
 ENTRYPOINT ["/app/entrypoint.sh"]

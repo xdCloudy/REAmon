@@ -12,6 +12,7 @@ interface RouteParams { params: Promise<{ id: string }> }
 const MAX_SOURCE_BYTES = 2 * 1024 * 1024
 const MAX_ALTERNATES = 4
 const BCF_CLEAN_COMMIT = 'f457afaa801b30f7bb98c28d419a36d5c9fd7115'
+const CFF_DEFLATTEN_COMMIT = 'f457afaa801b30f7bb98c28d419a36d5c9fd7115'
 const NO_STORE = { 'Cache-Control': 'private, no-store' }
 
 function record(value: unknown): Record<string, unknown> {
@@ -244,6 +245,71 @@ export async function GET(request: Request, { params }: RouteParams) {
           }
         } catch {
           // An invalid BcfClean artifact or audit must not prevent reviewing Ghidra output.
+        }
+      }
+    }
+    const cffArtifactId = typeof attributes.cffDeflattenAlternateCodeArtifactId === 'string'
+      ? attributes.cffDeflattenAlternateCodeArtifactId : ''
+    const cffHash = typeof attributes.cffDeflattenAlternateOutputSha256 === 'string'
+      ? attributes.cffDeflattenAlternateOutputSha256.toLowerCase() : ''
+    const cffVersion = typeof attributes.cffDeflattenProviderVersion === 'string'
+      ? attributes.cffDeflattenProviderVersion : ''
+    const cffAuditArtifactId = typeof attributes.cffDeflattenAuditArtifactId === 'string'
+      ? attributes.cffDeflattenAuditArtifactId : ''
+    const cffAuditHash = typeof attributes.cffDeflattenAuditSha256 === 'string'
+      ? attributes.cffDeflattenAuditSha256.toLowerCase() : ''
+    if (alternates.length < MAX_ALTERNATES && unit.source === 'reamon-ghidra'
+      && currentTask?.provider?.pluginId === 'reamon-ghidra' && currentTask.runToken
+      && cffVersion === `CffDeflatten@${CFF_DEFLATTEN_COMMIT}`
+      && /^[a-f0-9]{64}$/.test(cffHash) && /^[a-f0-9]{64}$/.test(cffAuditHash)
+      && cffArtifactId.startsWith(reipaPrefix) && cffAuditArtifactId.startsWith(reipaPrefix)) {
+      const cffRelativePath = cffArtifactId.slice(reipaPrefix.length)
+      const cffAuditRelativePath = cffAuditArtifactId.slice(reipaPrefix.length)
+      if (/^alternates\/cffdeflatten\/[a-f0-9]{1,16}\.c$/.test(cffRelativePath)
+        && cffAuditRelativePath === 'audit/cff-deflatten-patch.json') {
+        try {
+          const runRoot = await realpath(resolveDerivedArtifactPath(reipaPrefix.slice(0, -1)))
+          const filePath = await realpath(resolveDerivedArtifactPath(cffArtifactId))
+          const auditPath = await realpath(resolveDerivedArtifactPath(cffAuditArtifactId))
+          if (inside(rootPath, runRoot) && inside(runRoot, filePath) && inside(runRoot, auditPath)) {
+            const [info, auditInfo] = await Promise.all([stat(filePath), stat(auditPath)])
+            if (info.isFile() && info.size > 0 && info.size <= MAX_SOURCE_BYTES
+              && auditInfo.isFile() && auditInfo.size > 0 && auditInfo.size <= 8 * 1024 * 1024) {
+              const [bytes, auditBytes] = await Promise.all([readFile(filePath), readFile(auditPath)])
+              const outputHash = createHash('sha256').update(bytes).digest('hex')
+              const auditHash = createHash('sha256').update(auditBytes).digest('hex')
+              const audit = JSON.parse(auditBytes.toString('utf8')) as Record<string, unknown>
+              const functions = Array.isArray(audit.functions) ? audit.functions : []
+              const selectedVerifiedFunction = functions.some((value) => {
+                const candidate = record(value)
+                const entry = typeof candidate.entry === 'string' ? candidate.entry : ''
+                const sameFunction = nativeIdentity
+                  ? nativeFunctionIdentity(unit.artifactId!, entry) === nativeIdentity
+                  : entry === selectedAddress || addressAliases.includes(entry)
+                return sameFunction && typeof candidate.verify === 'string'
+                  && candidate.verify.startsWith('OK (') && Number.isInteger(candidate.patches)
+                  && Number(candidate.patches) > 0
+              })
+              if (outputHash === cffHash && auditHash === cffAuditHash
+                && audit.tool === 'CffDeflatten' && selectedVerifiedFunction) {
+                alternates.push({
+                  id: `${unit.id}:cff-deflatten`,
+                  providerId: 'reamon-ghidra-cff-deflatten',
+                  providerName: 'CffDeflatten · emulation-verified control-flow cleanup',
+                  version: cffVersion,
+                  name: typeof attributes.qualifiedName === 'string' ? attributes.qualifiedName.slice(0, 500) : unitId,
+                  language: 'C',
+                  relativePath,
+                  inputSha256: unit.artifact.sha256,
+                  outputSha256: outputHash,
+                  completedAt: currentTask.completedAt?.toISOString() || null,
+                  source: bytes.toString('utf8'),
+                })
+              }
+            }
+          }
+        } catch {
+          // An invalid CffDeflatten artifact or audit must not prevent reviewing Ghidra output.
         }
       }
     }

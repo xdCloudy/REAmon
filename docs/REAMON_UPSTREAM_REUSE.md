@@ -84,15 +84,17 @@ separate so a plausible name is never treated as proof of behavior.
 
   The same pinned source includes `BcfClean` for constant bogus-control-flow
   predicates and `CffDeflatten` for restoring recovered CFF successors. REAmon
-  now exposes `BcfClean` as an opt-in Ghidra decompilation option. It caps the
-  scan at 32 functions, retains upstream's default per-function emulation check
-  and mismatch reversion, stores the patch audit and exact-hash cleaned output
-  under the analysis run, and exposes only audited functions as a separate
-  visualizer comparison. The imported artifact and baseline Ghidra output remain
-  unchanged. `CffDeflatten` is not integrated. This adapter has not yet been
-  compared against the upstream fixture corpus inside REAmon's pinned Ghidra
-  image, so it remains experimental and does not raise native-language fidelity
-  claims.
+  now exposes `BcfClean` and `CffDeflatten` as separate opt-in Ghidra
+  decompilation options. Each pass caps its scan at 32 function candidates,
+  retains upstream's default per-function emulation check and mismatch
+  reversion, stores its own patch audit and exact-hash cleaned output under the
+  analysis run, and exposes only audited functions as a separate visualizer
+  comparison. Exact-address output can ground an AI rewrite only after the
+  provider pin, binary hash, saved source hash, and audit all match. The
+  imported artifact and baseline Ghidra output remain unchanged. These adapters
+  have not yet been compared against the upstream fixture corpus inside
+  REAmon's pinned Ghidra image, so they remain experimental and do not raise
+  native-language fidelity claims.
 
 - [Humanify](https://github.com/jehna/humanify) v3.1.1 is MIT-licensed and uses
   OXC's JavaScript AST and semantic model to apply model-suggested renames across

@@ -15,6 +15,7 @@ interface ScheduleBody {
   capability?: unknown
   approvalRequired?: unknown
   nativeBcfCleanup?: unknown
+  nativeCffDeflatten?: unknown
   runAttemptId?: unknown
 }
 
@@ -95,9 +96,11 @@ export async function POST(request: Request, { params }: RouteParams) {
     const requestedCapability = readString(body, 'capability', 64)?.toLowerCase() || null
     const requiresApproval = readBoolean(body, 'approvalRequired', true)
     const nativeBcfCleanup = readBoolean(body, 'nativeBcfCleanup', false)
+    const nativeCffDeflatten = readBoolean(body, 'nativeCffDeflatten', false)
     const runAttemptId = readRunAttemptId(body)
     if (requiresApproval === null) return badRequest('approvalRequired must be a boolean')
     if (nativeBcfCleanup === null) return badRequest('nativeBcfCleanup must be a boolean')
+    if (nativeCffDeflatten === null) return badRequest('nativeCffDeflatten must be a boolean')
     if (runAttemptId === false) return badRequest('runAttemptId must be a 32-character hexadecimal value')
     if (!artifactId || !providerId || !requestedCapability) {
       return badRequest('artifactId, providerId, and capability are required')
@@ -113,8 +116,9 @@ export async function POST(request: Request, { params }: RouteParams) {
     if (!match || !capability) {
       return NextResponse.json({ error: 'Provider is not compatible with this artifact capability' }, { status: 409, headers: NO_STORE })
     }
-    if (nativeBcfCleanup && (plugin.manifest.id !== 'reamon-ghidra' || capability.toLowerCase() !== 'decompile')) {
-      return badRequest('nativeBcfCleanup is only available for Ghidra decompilation')
+    if ((nativeBcfCleanup || nativeCffDeflatten)
+      && (plugin.manifest.id !== 'reamon-ghidra' || capability.toLowerCase() !== 'decompile')) {
+      return badRequest('Native control-flow cleanup is only available for Ghidra decompilation')
     }
 
     const provider = await ensureProviderRegistered(plugin.manifest)
@@ -123,7 +127,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     }
 
     const baseIdempotencyKey = `analysis:${projectId}:${artifact.id}:${provider.pluginId}:${capability}`
-    const idempotencyKey = `${baseIdempotencyKey}${nativeBcfCleanup ? ':native-bcf-cleanup' : ''}${runAttemptId ? `:${runAttemptId}` : ''}`
+    const idempotencyKey = `${baseIdempotencyKey}${nativeBcfCleanup ? ':native-bcf-cleanup' : ''}${nativeCffDeflatten ? ':native-cff-deflatten' : ''}${runAttemptId ? `:${runAttemptId}` : ''}`
     const taskSelect = {
       id: true,
       title: true,
@@ -140,7 +144,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     if (existing) {
       return NextResponse.json({ scheduled: false, reused: true, task: serialiseTask(existing) }, { headers: NO_STORE })
     }
-    if (runAttemptId) {
+    if (runAttemptId && !nativeBcfCleanup && !nativeCffDeflatten) {
       const activeTask = await prisma.task.findFirst({
         where: {
           projectId,
@@ -171,7 +175,11 @@ export async function POST(request: Request, { params }: RouteParams) {
             category: plugin.manifest.category,
             status: requiresApproval ? 'AWAITING_APPROVAL' : 'QUEUED',
             progress: 0,
-            options: { requiresApproval, ...(nativeBcfCleanup ? { nativeBcfCleanup: true } : {}) },
+            options: {
+              requiresApproval,
+              ...(nativeBcfCleanup ? { nativeBcfCleanup: true } : {}),
+              ...(nativeCffDeflatten ? { nativeCffDeflatten: true } : {}),
+            },
             idempotencyKey,
           },
           select: taskSelect,
