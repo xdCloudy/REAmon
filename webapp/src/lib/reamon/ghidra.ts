@@ -41,7 +41,7 @@ interface GhidraControlFlowGraph {
   edgeCount: number
   truncated: boolean
   instructionLabel: string
-  blocks: Array<[number, string, number, number, string[], string[]]>
+  blocks: Array<[number, string, number, number, string[], string[], string]>
   edges: Array<[number, number, string]>
 }
 
@@ -249,11 +249,12 @@ export async function executeGhidra(input: ToolExecutionInput): Promise<ToolResu
             || !Array.isArray(unit.cfgGraph.edges) || unit.cfgGraph.edges.length > 48
             || unit.cfgGraph.blockCount !== unit.cfgGraph.blocks.length || unit.cfgGraph.edgeCount !== unit.cfgGraph.edges.length
             || (unit.cfgGraph.blocks.length > 0 && (unit.cfgGraph.entryBlock >= unit.cfgGraph.blocks.length || unit.cfgGraph.exitBlock >= unit.cfgGraph.blocks.length))
-            || !unit.cfgGraph.blocks.every((block, index) => Array.isArray(block) && block.length === 6
+            || !unit.cfgGraph.blocks.every((block, index) => Array.isArray(block) && block.length === 7
               && block[0] === index && typeof block[1] === 'string'
               && Number.isInteger(block[2]) && block[2] >= 0 && Number.isInteger(block[3]) && block[3] >= 0
               && Array.isArray(block[4]) && block[4].every((sample) => typeof sample === 'string')
-              && Array.isArray(block[5]) && block[5].every((sample) => typeof sample === 'string'))
+              && Array.isArray(block[5]) && block[5].every((sample) => typeof sample === 'string')
+              && typeof block[6] === 'string' && /^[A-Za-z0-9:_-]{1,128}$/.test(block[6]))
             || !unit.cfgGraph.edges.every((edge) => Array.isArray(edge) && edge.length === 3
               && Number.isInteger(edge[0]) && edge[0] >= 0 && edge[0] < unit.cfgGraph!.blocks.length
               && Number.isInteger(edge[1]) && edge[1] >= 0 && edge[1] < unit.cfgGraph!.blocks.length

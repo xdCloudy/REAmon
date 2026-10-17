@@ -79,7 +79,9 @@ export async function GET(request: Request, { params }: RouteParams) {
     }
 
     const blocks = cfg.blocks.flatMap((value) => {
-      if (!Array.isArray(value) || (value.length !== 4 && value.length !== 6) || !nonNegativeInteger(value[0]) || typeof value[1] !== 'string'
+      if (!Array.isArray(value) || (value.length !== 4 && value.length !== 6 && value.length !== 7)
+        || (graphVersion === 'ghidra-basic-block-graph-v1' && value.length !== 7)
+        || !nonNegativeInteger(value[0]) || typeof value[1] !== 'string'
         || !nonNegativeInteger(value[2]) || !nonNegativeInteger(value[3])) return []
       const instructionSamples = value.length === 6 && Array.isArray(value[4])
         ? value[4].filter((line): line is string => typeof line === 'string').slice(0, 1).map((line) => line.slice(0, 100))
@@ -89,6 +91,9 @@ export async function GET(request: Request, { params }: RouteParams) {
         : []
       if (value.length === 6 && (!Array.isArray(value[4]) || !Array.isArray(value[5])
         || value[4].some((line) => typeof line !== 'string') || value[5].some((line) => typeof line !== 'string'))) return []
+      if (value.length === 7 && (!Array.isArray(value[4]) || !Array.isArray(value[5])
+        || value[4].some((line) => typeof line !== 'string') || value[5].some((line) => typeof line !== 'string')
+        || typeof value[6] !== 'string' || !/^[A-Za-z0-9:_-]{1,128}$/.test(value[6]))) return []
       return [{
         id: value[0],
         kind: value[1].slice(0, 40),
@@ -96,6 +101,7 @@ export async function GET(request: Request, { params }: RouteParams) {
         rawInstructionCount: value[3],
         instructionSamples,
         rawInstructionSamples,
+        ...(value.length === 7 ? { address: value[6] as string } : {}),
       }]
     })
     const edges = cfg.edges.flatMap((value) => {

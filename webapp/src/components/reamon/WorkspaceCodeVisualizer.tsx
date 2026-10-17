@@ -73,6 +73,7 @@ interface FunctionControlFlowGraph {
     rawInstructionCount: number
     instructionSamples: string[]
     rawInstructionSamples: string[]
+    address?: string
   }>
   edges: Array<{ from: number; to: number; kind: string }>
 }
@@ -236,9 +237,11 @@ function validationSummary(validation: Pick<CodeMaintenanceResponse, 'syntaxVali
 function FunctionControlFlowPanel({
   name,
   query,
+  onAddressSelect,
 }: {
   name: string
   query: { data?: FunctionControlFlowGraph; isLoading: boolean; error: unknown }
+  onAddressSelect?: (address: string) => void
 }) {
   const graph = query.data
   const columns = Math.min(4, Math.max(1, graph?.blocks.length || 1))
@@ -290,7 +293,21 @@ function FunctionControlFlowPanel({
           {graph.blocks.map((block) => {
             const position = positions.get(block.id)
             if (!position) return null
-            return <g key={block.id} className={`${styles.cfgNode} ${block.id === graph.entryBlock ? styles.cfgEntry : ''} ${block.id === graph.exitBlock ? styles.cfgExit : ''}`}>
+            return <g
+              key={block.id}
+              className={`${styles.cfgNode} ${block.id === graph.entryBlock ? styles.cfgEntry : ''} ${block.id === graph.exitBlock ? styles.cfgExit : ''}`}
+              role={block.address && onAddressSelect ? 'button' : undefined}
+              tabIndex={block.address && onAddressSelect ? 0 : undefined}
+              aria-label={block.address && onAddressSelect ? `Basic block ${block.id} at ${block.address}; navigate to disassembly` : undefined}
+              style={block.address && onAddressSelect ? { cursor: 'pointer' } : undefined}
+              onClick={block.address && onAddressSelect ? () => onAddressSelect(block.address!) : undefined}
+              onKeyDown={block.address && onAddressSelect ? (event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault()
+                  onAddressSelect(block.address!)
+                }
+              } : undefined}
+            >
               <rect x={position.x} y={position.y} width={nodeWidth} height={58} rx={8} />
               <text x={position.x + 12} y={position.y + 21}>Block {block.id} · {block.kind}</text>
               <text x={position.x + 12} y={position.y + 41}>{block.instructionCount} {graph.instructionLabel}</text>
@@ -2230,6 +2247,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
           {selectedGhidraFunctionId && <FunctionControlFlowPanel
             query={functionControlFlowQuery}
             name={selectedUnit.name}
+            onAddressSelect={(address) => setSelectedEvidenceAddress(address)}
           />}
           {(selectedUnit.prototype || (selectedUnit.recoveredVariables?.length ?? 0) > 0) && <details className={styles.recoveredVariables}>
             <summary>Recovered signature and variables <span>{(selectedUnit.recoveredVariables?.length ?? 0).toLocaleString()}</span></summary>

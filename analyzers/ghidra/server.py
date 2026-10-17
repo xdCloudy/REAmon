@@ -962,13 +962,14 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                                 blocks = parsed_cfg_graph["blocks"]
                                 edges = parsed_cfg_graph["edges"]
                                 valid_blocks = all(
-                                    isinstance(block, list) and len(block) == 6
+                                    isinstance(block, list) and len(block) == 7
                                     and isinstance(block[0], int) and not isinstance(block[0], bool)
                                     and block[0] == index
                                     and isinstance(block[1], str) and re.fullmatch(r"[A-Za-z0-9_]{1,40}", block[1])
                                     and all(isinstance(block[index], int) and not isinstance(block[index], bool)
                                             and 0 <= block[index] <= 1_000_000 for index in (2, 3))
                                     and block[4] == [] and block[5] == []
+                                    and isinstance(block[6], str) and re.fullmatch(r"[A-Za-z0-9:_-]{1,128}", block[6])
                                     for index, block in enumerate(blocks)
                                 )
                                 valid_edges = all(

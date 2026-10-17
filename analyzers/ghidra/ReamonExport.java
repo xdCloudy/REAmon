@@ -132,7 +132,9 @@ public class ReamonExport extends GhidraScript {
             }
             if (index > 0) blockJson.append(',');
             blockJson.append('[').append(index).append(",\"basic\",").append(instructionCount)
-                .append(',').append(instructionCount).append(",[],[]]");
+                .append(',').append(instructionCount).append(",[],[],\"")
+                .append(block.getMinAddress().toString().replaceAll("[^A-Za-z0-9:_-]", ""))
+                .append("\"]");
         }
 
         StringBuilder edgeJson = new StringBuilder();
