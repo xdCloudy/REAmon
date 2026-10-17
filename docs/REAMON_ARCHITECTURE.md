@@ -191,6 +191,11 @@ run's current code output. The visualizer applies the same hash check to its per
 maintained-source marker. Rewrite context omits that unit's own accepted names when
 its base hash is missing or stale, while keeping other accepted project symbols
 available as explicitly versioned consistency evidence.
+When a saved maintained source has a changed, unavailable, or unrecorded baseline,
+the editor warns that it may be stale, compares review changes against the current
+decompiler output, and offers to start a new editor version from that output. The
+previous accepted copy remains stored until the replacement is explicitly reviewed
+and accepted against the current source hash.
 
 ## Target profiler
 

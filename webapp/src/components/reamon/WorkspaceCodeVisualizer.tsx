@@ -1069,7 +1069,20 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
     queryFn: async ({ signal }) => {
       const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/maintained/${encodeURIComponent(selectedUnit?.id || '')}`, { signal, cache: 'no-store' })
       if (!response.ok) throw new Error('Unable to load the maintained source copy')
-      return response.json() as Promise<{ exists: boolean; sourceCode: string | null; sourceHash?: string | null; updatedAt?: string; reviews?: CodeReviewRecord[]; acceptedRenameAliases?: AcceptedRenameAlias[] }>
+      return response.json() as Promise<{
+        exists: boolean
+        sourceCode: string | null
+        sourceHash?: string | null
+        updatedAt?: string
+        reviews?: CodeReviewRecord[]
+        acceptedRenameAliases?: AcceptedRenameAlias[]
+        sourceLineage?: {
+          baseSourceHash: string | null
+          baseRunKey: string | null
+          currentSourceHash: string | null
+          baselineStatus: 'CURRENT' | 'CHANGED' | 'UNAVAILABLE' | 'UNRECORDED'
+        }
+      }>
     },
     enabled: Boolean(selectedUnit && selectedSourceUrl),
     staleTime: 30_000,
@@ -1106,10 +1119,16 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
     if (!selectedNoteUnitId || !noteResponse || noteResponse.unitId !== selectedNoteUnitId) return
     setProjectNoteDraft({ unitId: selectedNoteUnitId, note: noteResponse.note })
   }, [noteResponse, selectedNoteUnitId])
-  const reviewBaselineSource = maintainedQuery.data?.exists && typeof maintainedQuery.data.sourceCode === 'string'
-    ? maintainedQuery.data.sourceCode
-    : sourceQuery.data || ''
-  const reviewBaselineLabel = maintainedQuery.data?.exists ? 'the current saved maintained version' : 'the original decompilation'
+  const maintainedBaselineStatus = maintainedQuery.data?.sourceLineage?.baselineStatus
+  const maintainedBaselineNeedsReview = maintainedQuery.data?.exists && maintainedBaselineStatus !== 'CURRENT'
+  const reviewBaselineSource = maintainedBaselineNeedsReview
+    ? sourceQuery.data || ''
+    : maintainedQuery.data?.exists && typeof maintainedQuery.data.sourceCode === 'string'
+      ? maintainedQuery.data.sourceCode
+      : sourceQuery.data || ''
+  const reviewBaselineLabel = maintainedBaselineNeedsReview
+    ? 'the current decompilation'
+    : maintainedQuery.data?.exists ? 'the current saved maintained version' : 'the original decompilation'
   const normalizeReviewSource = (source: string) => source.replace(/\r\n?/g, '\r\n')
   const hasReviewDiff = Boolean(maintainedDraft.trim()) && normalizeReviewSource(reviewBaselineSource) !== normalizeReviewSource(maintainedDraft)
   const reviewDiff = showReviewDiff && hasReviewDiff ? buildReviewDiff(reviewBaselineSource, maintainedDraft) : null
@@ -1184,6 +1203,14 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
     }
     if (typeof window.requestAnimationFrame === 'function') window.requestAnimationFrame(focusEditor)
     else window.setTimeout(focusEditor, 0)
+  }
+  function startMaintainedFromCurrentDecompilation() {
+    if (typeof sourceQuery.data !== 'string') return
+    setMaintainedDraft(sourceQuery.data)
+    setMaintainedSaved(false)
+    setMaintenanceMeta(null)
+    setReviewRationale('')
+    setReviewStatus('Started from the current decompilation. Reapply and review any maintained changes before accepting.')
   }
   const explanationProvidersQuery = useQuery({
     queryKey: ['reamon-code-explanation-providers', projectId],
@@ -2637,6 +2664,12 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
           </section>}
           {maintainedQuery.isError && <p className={styles.error} role="alert">{maintainedQuery.error instanceof Error ? maintainedQuery.error.message : 'Could not load maintained source'}</p>}
           {codeDraftQuery.isError && <p className={styles.error} role="alert">{codeDraftQuery.error instanceof Error ? codeDraftQuery.error.message : 'Could not load the saved AI draft'}</p>}
+          {maintainedBaselineNeedsReview && <div className={styles.lineageWarning} role="status">
+            <strong>{maintainedBaselineStatus === 'CHANGED' ? 'This maintained copy is based on older decompiler output.' : maintainedBaselineStatus === 'UNAVAILABLE' ? 'The original decompiler output for this maintained copy is unavailable.' : 'This maintained copy has no recorded decompiler baseline.'}</strong>
+            <p>The saved copy remains available, but it is not current project memory. Compare it with the current decompilation and review any changes before accepting a new maintained version.</p>
+            <button type="button" className={styles.copyButton} onClick={startMaintainedFromCurrentDecompilation} disabled={typeof sourceQuery.data !== 'string' || maintainedDraft === sourceQuery.data}>Replace editor contents with current decompilation</button>
+            {maintainedBaselineStatus === 'CHANGED' && maintainedQuery.data?.sourceLineage?.baseRunKey && <small>Saved from analysis {maintainedQuery.data.sourceLineage.baseRunKey}</small>}
+          </div>}
           {maintainedQuery.data?.exists && !maintainedQuery.data.reviews?.length && <p className={styles.message}>This saved copy predates review receipts, so AI project memory will not treat it as an approved naming reference until you review and accept it here.</p>}
           {maintainedDraft && <>
             <div className={styles.maintainedComparison}>
