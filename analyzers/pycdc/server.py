@@ -212,10 +212,6 @@ def analyze(body: object, report_progress=lambda _message: None, cancel_check=la
             if b"\x00" in prefix:
                 raise AnalysisError("pycdc produced an invalid source file")
             destination = output_directory / output_name
-            os.replace(output_path, destination)
-            relative_output = destination.relative_to(DERIVED_ROOT).as_posix()
-            with destination.open("rb") as source:
-                output_sha256 = hashlib.file_digest(source, "sha256").hexdigest()
             warnings = log_path.read_bytes()[-4096:].decode("utf-8", errors="replace").strip()
             if returncode != 0:
                 warning = f"pycdc exited with status {returncode}; inspect the output before using it."
@@ -234,6 +230,10 @@ def analyze(body: object, report_progress=lambda _message: None, cancel_check=la
                     "sizeBytes": len(disassembly_bytes),
                     "sha256": hashlib.sha256(disassembly_bytes).hexdigest(),
                 }
+            os.replace(output_path, destination)
+            relative_output = destination.relative_to(DERIVED_ROOT).as_posix()
+            with destination.open("rb") as source:
+                output_sha256 = hashlib.file_digest(source, "sha256").hexdigest()
             with source_path.open("rb") as source:
                 bytecode_magic_hex = source.read(4).hex()
             return {
