@@ -1202,7 +1202,7 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
     } : null,
     alternateDecompilerOutputs: reipaPseudocode ? [reipaPseudocode] : [],
     disassembly: verifiedDisassembly ? {
-      relativePath: text(attributes.assemblyRelativePath ?? attributes.disassemblyRelativePath, 1000),
+      relativePath: text(attributes.assemblyRelativePath ?? attributes.disassemblyRelativePath ?? attributes.disassemblyArtifactId, 1000),
       language: text(attributes.disassemblyLanguage, 80),
       text: verifiedDisassembly.text,
       sizeBytes: verifiedDisassembly.sizeBytes,
