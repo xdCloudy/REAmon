@@ -69,9 +69,10 @@ product and engineering planning.
    with exact-input matching before member-level merging. MCP now exposes saved code
    units and bounded function dossiers from project memory so agents can inspect the
    exact function, provider, artifact, and same-task call edges before editing. The
-   next gap is fixture-backed validation-regression protection: validators already
-   exist for several languages, but representative input/version corpora and
-   before/after regression evidence remain sparse.
+   accepted source replacement now rejects failed/unavailable checks and blocks
+   downgrades from language-specific syntax validators to generic Tree-sitter.
+   The next gap is fixture-backed regression evidence: representative
+   input/version corpora and before/after recovery measurements remain sparse.
 2. Build the provider fixture and validator contract. Use decomp.me/objdiff for
    exact-build feedback and DecompileBench for multi-metric evaluation, but isolate
    every target compiler/build process. Begin with versioned native fixtures for

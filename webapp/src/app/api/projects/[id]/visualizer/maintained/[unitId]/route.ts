@@ -10,6 +10,7 @@ import { derivedArtifactRoot, resolveDerivedArtifactPath } from '@/lib/reamon/de
 import { MAINTAINED_SOURCE_OBSERVATION_SOURCE, MAINTAINED_SOURCE_OBSERVATION_TYPE } from '@/lib/reamon/code-units'
 import { extractAcceptedRenameAliases, extractMaintainedSymbols } from '@/lib/reamon/maintenance-memory'
 import { validateJavaScriptSource } from '@/lib/reamon/webcrack'
+import { isValidationRegression } from '@/lib/reamon/validation-regression'
 
 interface RouteParams { params: Promise<{ id: string; unitId: string }> }
 const MAX_SOURCE_BYTES = 2 * 1024 * 1024
@@ -508,9 +509,12 @@ export async function PUT(request: Request, { params }: RouteParams) {
             decision: 'ACCEPTED',
             maintainedSourceHash: currentSourceHash,
           },
-          select: { validationStatus: true },
+          select: { validationStatus: true, validationMethod: true },
         })
-        if (currentReceipt?.validationStatus === 'PASSED' && validation.validation_status !== 'PASSED') {
+        if (currentReceipt && isValidationRegression(
+          { status: currentReceipt.validationStatus, method: currentReceipt.validationMethod },
+          { status: validation.validation_status, method: validation.validation_method },
+        )) {
           throw new MaintainedSourceValidationRegression()
         }
       }
@@ -599,7 +603,7 @@ export async function PUT(request: Request, { params }: RouteParams) {
     }, { headers: { 'Cache-Control': 'private, no-store' } })
   } catch (error) {
     if (error instanceof MaintainedSourceValidationRegression) {
-      return NextResponse.json({ error: 'This code unit has a syntax-validated accepted version. The validator could not confirm the new source, so the accepted source was kept unchanged.' }, { status: 503 })
+      return NextResponse.json({ error: 'This code unit has an accepted source with stronger validation evidence. The new source used a weaker validator or could not be validated, so the accepted source was kept unchanged.' }, { status: 503 })
     }
     if (error instanceof MaintainedSourceConflict || isUniqueConflict(error)) {
       return NextResponse.json({ error: 'The maintained source changed after you opened it. Reload the current version and review it before saving again.' }, { status: 409 })
