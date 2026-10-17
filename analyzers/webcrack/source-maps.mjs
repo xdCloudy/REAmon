@@ -11,7 +11,7 @@ function digest(value) {
 function sourceLanguage(sourcePath) {
   const pathWithoutQuery = sourcePath.split(/[?#]/, 1)[0].toLowerCase()
   if (pathWithoutQuery.endsWith('.tsx')) return 'TypeScript JSX'
-  if (pathWithoutQuery.endsWith('.ts')) return 'TypeScript'
+  if (/\.(?:ts|mts|cts)$/.test(pathWithoutQuery)) return 'TypeScript'
   if (pathWithoutQuery.endsWith('.jsx')) return 'JavaScript JSX'
   if (/\.(?:js|mjs|cjs)$/.test(pathWithoutQuery)) return 'JavaScript'
   return null
@@ -80,7 +80,7 @@ export function sourceMapOutputPath(sourcePath) {
   const normalized = sourcePath.replace(/\\/g, '/')
   const basename = path.posix.basename(normalized.split(/[?#]/, 1)[0]) || 'source'
   const extension = path.posix.extname(basename).toLowerCase()
-  const safeExtension = /^\.(?:ts|tsx|js|jsx|mjs|cjs)$/.test(extension) ? extension : '.js'
+  const safeExtension = /^\.(?:ts|tsx|mts|cts|js|jsx|mjs|cjs)$/.test(extension) ? extension : '.js'
   const slug = basename.replace(/[^A-Za-z0-9_.-]/g, '_').replace(/^[.-]+/, '').slice(0, 80) || 'source'
   const sourceId = digest(normalized).slice(0, 16)
   return `sources/${sourceId}-${slug}${safeExtension}`
