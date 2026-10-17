@@ -6,7 +6,7 @@ import prisma from '@/lib/prisma'
 import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
 import { getActiveWorkspaceImportSelection } from '@/lib/reamon/inventory-query'
 import { derivedArtifactRoot, resolveDerivedArtifactPath } from '@/lib/reamon/derived-storage'
-import { nativeFunctionIdentity } from '@/lib/reamon/native-function-identity'
+import { nativeAddressAliases, nativeFunctionIdentity } from '@/lib/reamon/native-function-identity'
 
 interface RouteParams { params: Promise<{ id: string }> }
 const MAX_SOURCE_BYTES = 2 * 1024 * 1024
@@ -20,17 +20,6 @@ function record(value: unknown): Record<string, unknown> {
 function inside(root: string, file: string): boolean {
   const relative = path.relative(root, file)
   return Boolean(relative) && relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)
-}
-
-function nativeAddressAliases(address: string): string[] {
-  const normalized = address.trim().toLowerCase().replace(/^ram:/, '').replace(/^0x/, '')
-  if (!/^[a-f0-9]{1,64}$/.test(normalized)) return []
-  const value = BigInt(`0x${normalized}`).toString(16)
-  return [...new Set([
-    value,
-    `0x${value}`,
-    ...[4, 6, 8, 12, 16, 32, 64].map((width) => `ram:${value.padStart(width, '0')}`),
-  ])]
 }
 
 export async function GET(request: Request, { params }: RouteParams) {

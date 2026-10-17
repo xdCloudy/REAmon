@@ -8,6 +8,7 @@ import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
 import { getActiveWorkspaceImportSelection } from '@/lib/reamon/inventory-query'
 import { derivedArtifactRoot, resolveDerivedArtifactPath } from '@/lib/reamon/derived-storage'
 import { buildProjectSymbolContext, buildProviderGoTypeContext, buildProviderTypeContext, buildProviderSymbolContext, extractMaintainedSymbols } from '@/lib/reamon/maintenance-memory'
+import { nativeAddressAliases, nativeFunctionIdentity } from '@/lib/reamon/native-function-identity'
 import { flossRecoveredStringsOf, providerVariablesOf } from '@/lib/reamon/code-units'
 import { rankSimilarInstructionFunctions } from '@/lib/reamon/instruction-similarity'
 import { codeRewriteLeaseGraceMs, failInterruptedCodeAttempts } from '@/lib/reamon/code-attempts'
@@ -478,6 +479,9 @@ export async function POST(request: Request, { params }: RouteParams) {
     if (!artifact) return NextResponse.json({ error: 'Code unit is not part of the active workspace' }, { status: 404 })
 
     const attributes = plainObject(observation.attributes)
+    const selectedNativeAddress = typeof attributes.address === 'string' ? attributes.address
+      : typeof attributes.startAddress === 'string' ? attributes.startAddress : ''
+    const currentNativeFunctionIdentity = nativeFunctionIdentity(artifact.id, selectedNativeAddress)
     const codeArtifactId = typeof attributes.codeArtifactId === 'string' ? attributes.codeArtifactId : ''
     const pathPrefix = `${projectId}/${artifact.id}/`
     const segments = codeArtifactId.split('/')
@@ -947,7 +951,52 @@ export async function POST(request: Request, { params }: RouteParams) {
       symbolCursor = page.at(-1)?.id
       if (page.length < take) break
     }
-    const symbolRecords = [...maintainedRelatedRows, ...projectSymbolRows]
+    let crossProviderNativeRows: typeof maintainedRelatedRows = []
+    const nativeProviderByUnitId = new Map<string, string>()
+    const addressAliases = nativeAddressAliases(selectedNativeAddress)
+    if (currentNativeFunctionIdentity && addressAliases.length && artifact.sha256) {
+      const completedNativeTasks = await prisma.task.findMany({
+        where: { projectId, artifactId: artifact.id, capability: 'decompile', status: 'COMPLETED' },
+        orderBy: [{ completedAt: 'desc' }, { createdAt: 'desc' }],
+        take: 100,
+        select: { id: true },
+      })
+      if (completedNativeTasks.length) {
+        const matchingNativeObservations = await prisma.reamonObservation.findMany({
+          where: {
+            projectId,
+            artifactId: artifact.id,
+            taskId: { in: completedNativeTasks.map((taskRow) => taskRow.id) },
+            type: 'code_unit',
+            source: { not: observation.source },
+            AND: [{ attributes: { path: ['inputArtifactSha256'], equals: artifact.sha256 } }],
+            OR: [
+              { attributes: { path: ['identity'], equals: currentNativeFunctionIdentity } },
+              ...addressAliases.flatMap((address) => [
+                { attributes: { path: ['address'], equals: address } },
+                { attributes: { path: ['startAddress'], equals: address } },
+              ]),
+            ],
+          },
+          orderBy: [{ updatedAt: 'desc' }, { stableKey: 'asc' }],
+          take: 100,
+          select: { id: true, source: true },
+        })
+        for (const nativeRow of matchingNativeObservations) nativeProviderByUnitId.set(nativeRow.id, nativeRow.source)
+        const nativeUnitIds = matchingNativeObservations.map((nativeRow) => nativeRow.id)
+        if (nativeUnitIds.length) {
+          crossProviderNativeRows = await prisma.reamonMaintainedSource.findMany({
+            where: { projectId, artifactId: artifact.id, codeUnitId: { in: nativeUnitIds } },
+            select: { codeUnitId: true, artifactId: true, unitName: true, language: true, sourceCode: true, sourceHash: true, acceptedReviewId: true, symbolIndex: true, updatedAt: true },
+            orderBy: { updatedAt: 'desc' },
+          })
+        }
+      }
+    }
+    const symbolRecords = [...new Map(
+      [...maintainedRelatedRows, ...projectSymbolRows, ...crossProviderNativeRows]
+        .map((row) => [row.codeUnitId, row] as const),
+    ).values()]
     const acceptedReviewIds = [...new Set(symbolRecords.flatMap((row) => row.acceptedReviewId ? [row.acceptedReviewId] : []))]
     const acceptedReviews = acceptedReviewIds.length ? await prisma.reamonCodeReview.findMany({
       where: { projectId, id: { in: acceptedReviewIds }, decision: 'ACCEPTED' },
@@ -983,10 +1032,15 @@ export async function POST(request: Request, { params }: RouteParams) {
         ...row,
         artifactName: artifactById.get(row.artifactId)?.originalName,
         artifactHash: artifactById.get(row.artifactId)?.sha256,
+        ...(nativeProviderByUnitId.has(row.codeUnitId) ? {
+          functionIdentity: nativeFunctionIdentity(artifact.id, selectedNativeAddress) || undefined,
+          provider: nativeProviderByUnitId.get(row.codeUnitId),
+        } : {}),
         validationStatus: receipt?.validationStatus,
         validationMethod: receipt?.validationMethod,
       }
-    }), new Set(relatedUnitIds), undefined, artifact.sha256, calleeUnitIds, projectSymbolScanTruncated)
+    }), new Set(relatedUnitIds), undefined, artifact.sha256, calleeUnitIds, projectSymbolScanTruncated,
+    undefined, currentNativeFunctionIdentity || undefined)
     const selectedProviderRow = providerSymbolRows.find((row) => row.id === observation.id)
     const selectedProviderAttributes = selectedProviderRow ? plainObject(selectedProviderRow.attributes) : {}
     const selectedProviderVariables = selectedProviderRow

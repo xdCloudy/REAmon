@@ -13,3 +13,15 @@ export function nativeFunctionIdentity(artifactId: string, address: string): str
   const normalizedAddress = BigInt(`0x${digits}`).toString(16)
   return `${artifactId}:native:0x${normalizedAddress}`
 }
+
+/** Raw address spellings that may appear in provider observations. */
+export function nativeAddressAliases(address: string): string[] {
+  const normalized = address.trim().toLowerCase().replace(/^ram:/, '').replace(/^0x/, '')
+  if (!/^[a-f0-9]{1,64}$/.test(normalized)) return []
+  const value = BigInt(`0x${normalized}`).toString(16)
+  return [...new Set([
+    value,
+    `0x${value}`,
+    ...[4, 6, 8, 12, 16, 32, 64].map((width) => `ram:${value.padStart(width, '0')}`),
+  ])]
+}

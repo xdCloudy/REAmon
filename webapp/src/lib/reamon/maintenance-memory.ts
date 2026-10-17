@@ -8,6 +8,8 @@ export interface MaintainedSymbolRecord {
   artifactId?: string
   artifactName?: string
   artifactHash?: string
+  functionIdentity?: string
+  provider?: string
   validationStatus?: string | null
   validationMethod?: string | null
 }
@@ -226,8 +228,12 @@ export function buildProjectSymbolContext(
   calleeUnitIds: Set<string> = new Set(),
   inputTruncated = false,
   renameCandidates?: RenameContextCandidate[],
+  currentFunctionIdentity?: string,
 ): string {
   const ranked = records.map((record, index) => ({ record, index })).sort((left, right) => {
+    const functionRank = Number(Boolean(currentFunctionIdentity && right.record.functionIdentity === currentFunctionIdentity))
+      - Number(Boolean(currentFunctionIdentity && left.record.functionIdentity === currentFunctionIdentity))
+    if (functionRank) return functionRank
     const calleeRank = Number(calleeUnitIds.has(right.record.codeUnitId || '')) - Number(calleeUnitIds.has(left.record.codeUnitId || ''))
     if (calleeRank) return calleeRank
     const relatedRank = Number(relatedUnitIds.has(right.record.codeUnitId || '')) - Number(relatedUnitIds.has(left.record.codeUnitId || ''))
@@ -259,6 +265,9 @@ export function buildProjectSymbolContext(
       ? `; ${currentArtifactHash && record.artifactHash === currentArtifactHash ? 'current' : 'other'} artifact ${artifactLabel}`
       : ''
     const relationship = calleeUnitIds.has(record.codeUnitId || '') ? '; direct callee' : ''
+    const functionMatch = currentFunctionIdentity && record.functionIdentity === currentFunctionIdentity
+      ? `; same native address as selected function${record.provider ? ` from ${record.provider}` : ''} (same binary identity; address matches can still be thunks or aliases)`
+      : ''
     const validation = record.validationStatus === 'PASSED'
       ? `; syntax passed${record.validationMethod ? ` via ${record.validationMethod}` : ''} (structural evidence only)`
       : record.validationStatus === 'UNAVAILABLE' ? '; syntax validation unavailable' : ''
@@ -272,7 +281,7 @@ export function buildProjectSymbolContext(
     const aliasText = relevantAliases.length
       ? `reviewed rename history for matching language/name/kind only (binding ids are local to their original files; matching spelling/kind does not prove symbol identity, meaning, or behavior): ${relevantAliases.slice(0, 12).map(({ bindingId, oldName, newName, kind }) => `${oldName} → ${newName} [${kind}; binding ${bindingId.slice(0, 8)}]`).join(', ')}`
       : ''
-    const line = `${record.unitName} (${record.language}${artifactVersion}${relationship}${validation}): ${[symbolText, callableText, aliasText].filter(Boolean).join('; ')}`
+    const line = `${record.unitName} (${record.language}${artifactVersion}${relationship}${functionMatch}${validation}): ${[symbolText, callableText, aliasText].filter(Boolean).join('; ')}`
     if (length + line.length + 1 > maxChars) continue
     lines.push(line)
     includedUnits.add(identity)
