@@ -103,7 +103,7 @@ function normalizeObservation(value: unknown): ToolObservation | null {
       'deobfuscatedArtifactSha256',
       'deobfuscationProvider',
       'deobfuscationProviderRevision',
-      'deobfuscationPasses',
+      'deobfuscationEnabledPasses',
       'deobfuscationDisabledPasses',
       'providerRevision',
       'inputArtifactSha256',

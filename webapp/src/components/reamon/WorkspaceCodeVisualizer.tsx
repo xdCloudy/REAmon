@@ -2234,6 +2234,13 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
           </div>
         {selectedUnit && selectedSourceUrl && <section className={styles.sourcePanel} aria-label={selectedUnit.representation === 'optimized intermediate representation' ? 'Intermediate representation evidence' : selectedUnit.unitType === 'resource' ? 'Decoded Android resource' : selectedDisassemblyUrl ? 'Decompilation and disassembly comparison' : (selectedUnit.language === 'WebAssembly Text (WAT)' ? 'WAT disassembly' : isDisassemblyUnit(selectedUnit) ? 'Smali disassembly' : 'Decompiled source')}>
           {selectedUnit.representationSemantics && <p className={styles.sourcePreviewNote} role="note">{selectedUnit.representationSemantics}</p>}
+          {selectedUnit.deobfuscationProvider && <p className={styles.sourcePreviewNote} role="note">
+            {selectedUnit.deobfuscationProvider} {selectedUnit.deobfuscationProviderRevision ? `@ ${selectedUnit.deobfuscationProviderRevision.slice(0, 12)}` : 'transformation'} · transformed artifact {selectedUnit.deobfuscatedArtifactId?.split('/').pop() || 'recorded'}
+            {selectedUnit.inputArtifactSha256 ? ` · original SHA-256 ${selectedUnit.inputArtifactSha256}` : ''}
+            {selectedUnit.deobfuscatedArtifactSha256 ? ` · transformed SHA-256 ${selectedUnit.deobfuscatedArtifactSha256}` : ''}
+            {selectedUnit.deobfuscationEnabledPasses?.length ? ` · enabled: ${selectedUnit.deobfuscationEnabledPasses.join(', ')}` : ''}
+            {selectedUnit.deobfuscationDisabledPasses?.length ? ` · skipped: ${selectedUnit.deobfuscationDisabledPasses.join(', ')}` : ''}
+          </p>}
           {selectedUnit.recurseInstructionCount != null && <p className={styles.sourcePreviewNote} role="note">Lifted {selectedUnit.recurseInstructionCount.toLocaleString()} instructions{selectedUnit.recurseOptimizerPasses ? ` · Optimizer passes: ${Object.entries(selectedUnit.recurseOptimizerPasses).map(([name, count]) => `${name.replaceAll('_', ' ')} ${count}`).join(', ')}` : ''}{selectedUnit.sizeEvidence === 'instruction-count-fallback' ? ' · Function byte size unavailable; visualizer size uses instruction count.' : ''}</p>}
           {selectedDisassemblyUrl ? <div className={styles.comparison}>
             <div className={styles.listingPane}>

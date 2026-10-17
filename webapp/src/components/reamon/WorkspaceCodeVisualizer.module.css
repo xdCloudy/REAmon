@@ -244,7 +244,7 @@ button.flowNode:hover, button.flowNode:focus-visible { border-color: #86c8ff; ou
 .copyButton:hover:not(:disabled) { border-color: var(--accent-secondary); color: #fff; }
 .copyButton:disabled { cursor: wait; opacity: .55; }
 .sourceCode { max-height: 560px; margin: 0; overflow: auto; padding: var(--space-4); color: #d4deed; font-family: var(--font-mono); font-size: .76rem; line-height: 1.55; tab-size: 4; white-space: pre; }
-.sourcePreviewNote { margin: 0; border-bottom: 1px solid var(--border-default); padding: var(--space-2) var(--space-4); color: var(--status-warning, #b99a3b); font-size: var(--text-xs); line-height: 1.45; }
+.sourcePreviewNote { margin: 0; border-bottom: 1px solid var(--border-default); padding: var(--space-2) var(--space-4); color: var(--status-warning, #b99a3b); font-size: var(--text-xs); line-height: 1.45; overflow-wrap: anywhere; }
 .sourceCodeText { font-family: inherit; }
 .mappedSourceLine { display: block; border-left: 2px solid transparent; cursor: pointer; }
 .mappedSourceLine:hover, .mappedSourceLine:focus-visible { border-left-color: var(--accent-secondary); background: rgba(104, 165, 255, .12); outline: none; }

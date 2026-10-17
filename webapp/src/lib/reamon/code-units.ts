@@ -87,6 +87,12 @@ export interface CodeUnitObservationAttributes {
   inputArtifactSha256?: string
   codeArtifactSha256?: string
   decompiledSourceSha256?: string
+  deobfuscatedArtifactId?: string
+  deobfuscatedArtifactSha256?: string
+  deobfuscationProvider?: string
+  deobfuscationProviderRevision?: string
+  deobfuscationEnabledPasses?: string
+  deobfuscationDisabledPasses?: string
   disassemblyArtifactId?: string
   disassemblyLanguage?: string
   classReferences?: string[]
@@ -163,6 +169,12 @@ export interface CodeUnit {
   codeArtifactId: string | null
   inputArtifactSha256?: string | null
   codeArtifactSha256?: string | null
+  deobfuscatedArtifactId?: string | null
+  deobfuscatedArtifactSha256?: string | null
+  deobfuscationProvider?: string | null
+  deobfuscationProviderRevision?: string | null
+  deobfuscationEnabledPasses?: string[]
+  deobfuscationDisabledPasses?: string[]
   disassemblyArtifactId: string | null
   disassemblyLanguage: string | null
   classReferences?: string[]
@@ -499,6 +511,12 @@ export function normalizeCodeUnit(row: CodeUnitObservationRow, options: { includ
     codeArtifactId: text(attributes.codeArtifactId, 2000),
     inputArtifactSha256: sha256(attributes.inputArtifactSha256),
     codeArtifactSha256: sha256(attributes.codeArtifactSha256 ?? attributes.decompiledSourceSha256),
+    deobfuscatedArtifactId: text(attributes.deobfuscatedArtifactId, 2000),
+    deobfuscatedArtifactSha256: sha256(attributes.deobfuscatedArtifactSha256),
+    deobfuscationProvider: text(attributes.deobfuscationProvider, 80),
+    deobfuscationProviderRevision: text(attributes.deobfuscationProviderRevision, 80),
+    deobfuscationEnabledPasses: stringListOf(attributes.deobfuscationEnabledPasses, 12, 80),
+    deobfuscationDisabledPasses: stringListOf(attributes.deobfuscationDisabledPasses, 12, 80),
     disassemblyArtifactId: text(attributes.disassemblyArtifactId, 2000),
     disassemblyLanguage: text(attributes.disassemblyLanguage, 80),
     classReferences: classReferencesOf(attributes.classReferences),

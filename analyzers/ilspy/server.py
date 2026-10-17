@@ -167,7 +167,7 @@ def preprocess_dotnet(input_path, temporary, cancel_check, deadline, report_prog
         "status": "transformed", "provider": "NoFuserEx", "providerRevision": NOFUSEREX_REVISION,
         "inputSha256": original_hash, "outputSha256": output_hash,
         "artifactId": destination.relative_to(DERIVED_ROOT).as_posix(),
-        "passes": ["proxy-calls", "anti-debug", "anti-dump"],
+        "enabledPasses": ["proxy-calls", "anti-debug", "anti-dump"],
         "disabledPasses": ["unpack", "anti-tamper", "constants", "resources", "control-flow", "rename", "junk-method-removal"],
         "warning": "Static ConfuserEx cleanup only; this is an intermediate assembly, not proof of recovered behavior.",
     }

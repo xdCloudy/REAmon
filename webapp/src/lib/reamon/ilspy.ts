@@ -24,7 +24,7 @@ interface IlspyResponse {
     inputSha256?: string
     outputSha256?: string
     artifactId?: string
-    passes?: string[]
+    enabledPasses?: string[]
     disabledPasses?: string[]
   }
 }
@@ -107,7 +107,7 @@ export async function executeIlspy(input: ToolExecutionInput): Promise<ToolResul
       && typeof preprocessing.artifactId === 'string'
       && preprocessing.artifactId.startsWith(`${expectedRunPrefix}preprocessed/`)
       && !preprocessing.artifactId.includes('..') && !preprocessing.artifactId.includes('\\')
-      && (preprocessing.passes === undefined || (Array.isArray(preprocessing.passes) && preprocessing.passes.every((pass) => typeof pass === 'string' && pass.length <= 80)))
+      && (preprocessing.enabledPasses === undefined || (Array.isArray(preprocessing.enabledPasses) && preprocessing.enabledPasses.every((pass) => typeof pass === 'string' && pass.length <= 80)))
       && (preprocessing.disabledPasses === undefined || (Array.isArray(preprocessing.disabledPasses) && preprocessing.disabledPasses.every((pass) => typeof pass === 'string' && pass.length <= 80)))
       ? preprocessing
       : undefined
@@ -144,7 +144,7 @@ export async function executeIlspy(input: ToolExecutionInput): Promise<ToolResul
           deobfuscatedArtifactSha256: verifiedPreprocessing.outputSha256,
           deobfuscationProvider: 'NoFuserEx',
           deobfuscationProviderRevision: verifiedPreprocessing.providerRevision,
-          deobfuscationPasses: JSON.stringify(verifiedPreprocessing.passes || []),
+          deobfuscationEnabledPasses: JSON.stringify(verifiedPreprocessing.enabledPasses || []),
           deobfuscationDisabledPasses: JSON.stringify(verifiedPreprocessing.disabledPasses || []),
         } : {}),
       },
@@ -208,7 +208,7 @@ export async function executeIlspy(input: ToolExecutionInput): Promise<ToolResul
           inputSha256: verifiedPreprocessing.inputSha256,
           outputSha256: verifiedPreprocessing.outputSha256,
           artifactId: verifiedPreprocessing.artifactId,
-          passes: verifiedPreprocessing.passes || [],
+          enabledPasses: verifiedPreprocessing.enabledPasses || [],
           disabledPasses: verifiedPreprocessing.disabledPasses || [],
         } : { status: preprocessing?.status || 'unavailable' },
       },
