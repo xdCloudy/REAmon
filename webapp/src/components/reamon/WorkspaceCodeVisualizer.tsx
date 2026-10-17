@@ -337,6 +337,86 @@ function FunctionControlFlowPanel({
   </section>
 }
 
+type CffRecovery = NonNullable<CodeUnit['controlFlowFlattening']>
+
+function CffRecoveryGraph({ recovery, onAddressSelect }: { recovery: CffRecovery; onAddressSelect: (address: string) => void }) {
+  const columns = Math.min(4, Math.max(1, recovery.nodes.length))
+  const nodeWidth = 190
+  const nodeHeight = 58
+  const columnGap = 34
+  const rowGap = 50
+  const width = columns * (nodeWidth + columnGap) + 10
+  const rows = Math.ceil(recovery.nodes.length / columns)
+  const height = rows * (nodeHeight + rowGap) + 10
+  const positions = new Map(recovery.nodes.map((node, index) => [node.head, {
+    x: 5 + (index % columns) * (nodeWidth + columnGap),
+    y: 5 + Math.floor(index / columns) * (nodeHeight + rowGap),
+  }]))
+  const edges = recovery.nodes.flatMap((node) => node.successors.flatMap((target, index) => {
+    const from = positions.get(node.head)
+    const to = positions.get(target)
+    if (!from || !to) return []
+    const label = node.status === 'cond'
+      ? target === node.trueSuccessor ? 'true' : target === node.falseSuccessor ? 'false' : 'branch'
+      : ''
+    const selfLoop = node.head === target
+    return [{ from, to, label: selfLoop ? 'loop' : label, selfLoop, key: `${node.head}:${target}:${index}` }]
+  }))
+
+  return <div className={styles.cfgCanvas}>
+    <svg viewBox={`0 0 ${width} ${height}`} role="group" aria-label="Recovered flattened control-flow graph">
+      <defs>
+        <marker id="reamon-cff-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" />
+        </marker>
+      </defs>
+      {edges.map((edge) => {
+        if (edge.selfLoop) {
+          const x = edge.from.x + nodeWidth
+          const y = edge.from.y
+          return <g key={edge.key} className={styles.cfgEdge}>
+            <path d={`M ${x} ${y + 14} C ${x + 28} ${y + 14}, ${x + 28} ${y + 44}, ${x} ${y + 44}`} markerEnd="url(#reamon-cff-arrow)" />
+            <text x={x + 4} y={y + 33}>loop</text>
+          </g>
+        }
+        const startX = edge.from.x + nodeWidth / 2
+        const startY = edge.from.y + nodeHeight
+        const endX = edge.to.x + nodeWidth / 2
+        const endY = edge.to.y
+        const middleY = (startY + endY) / 2
+        return <g key={edge.key} className={styles.cfgEdge}>
+          <path d={`M ${startX} ${startY} C ${startX} ${middleY}, ${endX} ${middleY}, ${endX} ${endY}`} markerEnd="url(#reamon-cff-arrow)" />
+          {edge.label && <text x={(startX + endX) / 2 + 4} y={middleY - 3}>{edge.label}</text>}
+        </g>
+      })}
+      {recovery.nodes.map((node) => {
+        const position = positions.get(node.head)
+        if (!position) return null
+        const entry = node.head === recovery.entry || node.head === recovery.firstHead
+        return <g
+          key={node.head}
+          className={`${styles.cfgNode} ${entry ? styles.cfgEntry : ''} ${styles.cfgInteractive}`}
+          role="button"
+          tabIndex={0}
+          aria-label={`Recovered block ${node.head}, ${node.status}. Inspect disassembly.`}
+          onClick={() => onAddressSelect(node.head)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault()
+              onAddressSelect(node.head)
+            }
+          }}
+        >
+          <title>{`${node.head} · ${node.status}${node.selfLoop ? ' · self-loop' : ''}${node.complete ? '' : ' · incomplete'}`}</title>
+          <rect x={position.x} y={position.y} width={nodeWidth} height={nodeHeight} rx="4" />
+          <text x={position.x + 9} y={position.y + 23}>{node.head}</text>
+          <text x={position.x + 9} y={position.y + 43}>{node.status}{node.selfLoop ? ' · self-loop' : ''}{node.complete ? '' : ' · incomplete'}</text>
+        </g>
+      })}
+    </svg>
+  </div>
+}
+
 const EMPTY_CODE_UNITS: CodeUnit[] = []
 const AUTO_LOAD_CODE_UNIT_LIMIT = 20_000
 const FOLDER_VIEW_CODE_UNIT_LIMIT = 2_000
@@ -2261,13 +2341,8 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
             </ul>
             <details>
               <summary>Recovered transitions ({selectedUnit.controlFlowFlattening.nodes.length} blocks)</summary>
-              <ul>
-                {selectedUnit.controlFlowFlattening.nodes.map((node) => <li key={node.head}>
-                  <button type="button" onClick={() => setSelectedEvidenceAddress(node.head)} title={`Navigate disassembly to ${node.head}`}>
-                    {node.head} · {node.status}{node.successors.length ? ` → ${node.successors.join(', ')}` : ''}{node.complete ? '' : ' · incomplete'}
-                  </button>
-                </li>)}
-              </ul>
+              <CffRecoveryGraph recovery={selectedUnit.controlFlowFlattening} onAddressSelect={setSelectedEvidenceAddress} />
+              <p className={styles.cfgMessage}>Only edges between displayed recovered blocks are drawn. Click or keyboard-select a block to inspect its disassembly.</p>
             </details>
             <small>{selectedUnit.controlFlowFlattening.lowConfidence
               ? `Low-confidence provider recovery${selectedUnit.controlFlowFlattening.confidenceNote ? `: ${selectedUnit.controlFlowFlattening.confidenceNote}` : '.'}`

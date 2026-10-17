@@ -162,6 +162,8 @@
 .cfgNode rect { fill: var(--bg-secondary); stroke: var(--border-default); stroke-width: 1.5; }
 .cfgNode text { fill: var(--text-secondary); font: 10px var(--font-mono); }
 .cfgNode text + text { fill: var(--text-tertiary); font-size: 9px; }
+.cfgInteractive { cursor: pointer; }
+.cfgInteractive:focus-visible rect { stroke: var(--accent-secondary); stroke-width: 3; outline: none; }
 .cfgEntry rect { stroke: var(--status-success-text, #69c991); }
 .cfgExit rect { stroke: var(--accent-secondary); }
 .cfgEvidence { margin-top: var(--space-3); border-top: 1px solid var(--border-subtle); padding-top: var(--space-2); }
