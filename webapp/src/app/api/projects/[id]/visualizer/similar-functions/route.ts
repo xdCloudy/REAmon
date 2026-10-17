@@ -3,6 +3,7 @@ import prisma from '@/lib/prisma'
 import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
 import { getActiveWorkspaceImportSelection } from '@/lib/reamon/inventory-query'
 import { normalizeCodeUnit } from '@/lib/reamon/code-units'
+import { nativeArchitectureGroup } from '@/lib/reamon/native-function-identity'
 import { rankSimilarInstructionFunctions, type SimilarInstructionFunction } from '@/lib/reamon/instruction-similarity'
 
 interface RouteParams { params: Promise<{ id: string }> }
@@ -71,27 +72,31 @@ export async function GET(request: Request, { params }: RouteParams) {
       select: { id: true, artifactId: true, provider: { select: { pluginId: true } } },
     })
     const providerId = task?.provider?.pluginId
-    if (!task?.artifactId || (providerId !== 'reamon-ghidra' && providerId !== 'reamon-wabt' && providerId !== 'reamon-jadx' && providerId !== 'reamon-ilspy' && providerId !== 'reamon-dex-decompiler' && providerId !== 'reamon-unluac-rs')) {
+    if (!task?.artifactId || (providerId !== 'reamon-ghidra' && providerId !== 'reamon-kuna' && providerId !== 'reamon-wabt' && providerId !== 'reamon-jadx' && providerId !== 'reamon-ilspy' && providerId !== 'reamon-dex-decompiler' && providerId !== 'reamon-unluac-rs')) {
       return NextResponse.json({ error: 'Instruction-pattern matches are unavailable for this analysis run' }, { status: 404, headers: MAX_NO_STORE })
     }
 
+    const nativeSources = providerId === 'reamon-ghidra' || providerId === 'reamon-kuna'
+      ? ['reamon-ghidra', 'reamon-kuna']
+      : [providerId]
     const observationWhere = {
       projectId,
       type: providerId === 'reamon-jadx' || providerId === 'reamon-ilspy' || providerId === 'reamon-dex-decompiler' || providerId === 'reamon-unluac-rs' ? 'function' : 'code_unit',
-      source: providerId,
+      source: { in: nativeSources },
       artifact: { is: selection.artifactWhere },
       task: { is: {
         projectId,
         status: 'COMPLETED',
         capability: { in: ['decompile', 'disassemble'] },
-        provider: { is: { pluginId: providerId } },
+        provider: { is: { pluginId: { in: nativeSources } } },
       } },
     }
+    const focusWhere = { ...observationWhere, source: providerId }
     const [focus, rows] = await Promise.all([
       prisma.reamonObservation.findFirst({
-        where: { ...observationWhere, OR: [{ id: unitId }, { stableKey: unitId }] },
+        where: { ...focusWhere, OR: [{ id: unitId }, { stableKey: unitId }] },
         select: {
-          id: true, taskId: true, stableKey: true, canonicalKey: true, label: true, attributes: true, artifactId: true,
+          id: true, taskId: true, stableKey: true, canonicalKey: true, label: true, attributes: true, artifactId: true, source: true,
           artifact: { select: { profile: true } },
         },
       }),
@@ -111,13 +116,21 @@ export async function GET(request: Request, { params }: RouteParams) {
     const target = functionFeatures(focus)
     const sourceObservationRowsTruncated = rows.length > MAX_FUNCTION_OBSERVATIONS
     const uniqueRows = new Map<string, typeof rows[number]>()
-    const compatibleRows = providerId === 'reamon-ghidra'
-      ? rows.filter((row) => sameNativeArchitecture(focus, row))
+    const compatibleRows = providerId === 'reamon-ghidra' || providerId === 'reamon-kuna'
+      ? rows.filter((row) => row.source !== focus.source
+        ? nativeArchitectureGroup(focus.attributes) !== null
+          && nativeArchitectureGroup(focus.attributes) === nativeArchitectureGroup(row.attributes)
+        : providerId === 'reamon-ghidra' ? sameNativeArchitecture(focus, row) : row.artifactId === focus.artifactId)
       : providerId === 'reamon-unluac-rs'
         ? rows.filter((row) => attributesRecord(row.attributes).dialect === attributesRecord(focus.attributes).dialect)
         : rows
     for (const row of compatibleRows.slice(0, MAX_FUNCTION_OBSERVATIONS)) {
-      const identity = `${row.artifactId}:${row.canonicalKey}`
+      if ((providerId === 'reamon-ghidra' || providerId === 'reamon-kuna') && row.source !== focus.source) {
+        const focusIdentity = attributesRecord(focus.attributes).identity
+        if (typeof focusIdentity === 'string' && focusIdentity
+          && focusIdentity === attributesRecord(row.attributes).identity) continue
+      }
+      const identity = `${row.artifactId}:${row.source}:${row.canonicalKey}`
       if (!uniqueRows.has(identity)) uniqueRows.set(identity, row)
     }
     const distinctRows = [...uniqueRows.values()]
@@ -159,7 +172,13 @@ export async function GET(request: Request, { params }: RouteParams) {
       : []
     const functionParentsByKey = new Map(functionParentRows.map((row) => [`${row.taskId}:${row.stableKey}`, row]))
     const matches = rankedRows.flatMap(({ row, similarity }) => {
-      const artifact = { name: row.artifact?.originalName || 'Unknown artifact', sha256: row.artifact?.sha256 || null }
+      const artifact = {
+        name: row.artifact?.originalName || 'Unknown artifact',
+        sha256: row.artifact?.sha256 || null,
+        provider: typeof attributesRecord(row.attributes).decompiler === 'string'
+          ? attributesRecord(row.attributes).decompiler as string
+          : row.source,
+      }
       if (providerId === 'reamon-dex-decompiler' || providerId === 'reamon-unluac-rs') {
         const attributes = attributesRecord(row.attributes)
         const parentKey = typeof attributes.parentCodeUnitKey === 'string' ? attributes.parentCodeUnitKey : ''
@@ -167,6 +186,7 @@ export async function GET(request: Request, { params }: RouteParams) {
         const codeUnit = parentRow ? normalizeCodeUnit(parentRow) : null
         return codeUnit ? [{
           codeUnit,
+          taskId: row.taskId,
           function: {
             id: row.id,
             ...(row.taskId ? { taskId: row.taskId } : {}),
@@ -179,7 +199,7 @@ export async function GET(request: Request, { params }: RouteParams) {
         }] : []
       }
       const codeUnit = normalizeCodeUnit(row)
-      return codeUnit ? [{ codeUnit, similarity, artifact }] : []
+      return codeUnit ? [{ codeUnit, taskId: row.taskId, similarity, artifact }] : []
     })
     return NextResponse.json({ focusId: focus.id, matches, truncated }, { headers: MAX_NO_STORE })
   } catch (error) {
