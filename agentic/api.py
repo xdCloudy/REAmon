@@ -1030,6 +1030,22 @@ def _reamon_tree_sitter_symbols(source_code: str, language: str) -> list[str] | 
     if parser is None:
         return None
     try:
+        indexed = _reamon_tree_sitter_source_index(parser, source_code, language, include_members=False)
+        return indexed[0] if indexed is not None else None
+    except Exception as exc:  # noqa: BLE001
+        logger.debug(f"REAmon syntax-aware symbol indexing unavailable for {language}: {exc}")
+        return None
+
+
+def _reamon_tree_sitter_source_index(
+    parser,
+    source_code: str,
+    language: str,
+    *,
+    include_members: bool = True,
+) -> tuple[list[str], list[dict[str, Any]], bool] | None:
+    """Build project symbols and callable outlines from one syntax tree."""
+    try:
         root = parser.parse(source_code.encode("utf-8")).root_node
         declaration_markers = (
             "class", "function", "method", "struct", "interface", "enum", "trait",
@@ -1038,6 +1054,7 @@ def _reamon_tree_sitter_symbols(source_code: str, language: str) -> list[str] | 
         )
         excluded_markers = ("expression", "statement", "pattern", "reference", "call", "invocation", "import", "package")
         symbols: set[str] = set()
+        members: list[dict[str, Any]] = []
         stack = [root]
         while stack:
             node = stack.pop()
@@ -1046,10 +1063,25 @@ def _reamon_tree_sitter_symbols(source_code: str, language: str) -> list[str] | 
                 name = _reamon_member_name(node, language) or _reamon_declared_name(node)
                 if name and len(name) <= 128:
                     symbols.add(name)
+            if include_members:
+                kind = _reamon_member_kind(node, language)
+                body = node.child_by_field_name("body") if kind else None
+                if kind and body is not None:
+                    name = _reamon_member_name(node, language)
+                    if name:
+                        members.append({
+                            "name": name,
+                            "kind": kind,
+                            "start_byte": node.start_byte,
+                            "end_byte": node.end_byte,
+                            "line": node.start_point[0] + 1,
+                            "source_bytes": node.end_byte - node.start_byte,
+                        })
             stack.extend(reversed(node.named_children))
-        return sorted(symbols, key=str.casefold)[:512]
+        members.sort(key=lambda member: (member["start_byte"], member["end_byte"]))
+        return sorted(symbols, key=str.casefold)[:512], members[:10_000], len(members) > 10_000
     except Exception as exc:  # noqa: BLE001
-        logger.debug(f"REAmon syntax-aware symbol indexing unavailable for {language}: {exc}")
+        logger.debug(f"REAmon source indexing unavailable for {language}: {exc}")
         return None
 
 
@@ -1426,10 +1458,18 @@ async def index_reamon_code_symbols(body: ReamonCodeIndexSymbolsRequest):
         return JSONResponse(content={"error": "Source text is required"}, status_code=400)
     if len(body.language) > 80 or len(body.source_code.encode("utf-8")) > 2 * 1024 * 1024:
         return JSONResponse(content={"error": "The source exceeds the symbol-indexing limit"}, status_code=413)
-    symbols = _reamon_tree_sitter_symbols(body.source_code, body.language)
-    if symbols is None:
-        return {"indexed": False, "symbols": []}
-    return {"indexed": True, "symbols": symbols}
+    parser = _reamon_source_parser(body.language)
+    if parser is None:
+        return {"indexed": False, "symbols": [], "members": [], "truncated": False, "parserVersion": None}
+    indexed = _reamon_tree_sitter_source_index(parser, body.source_code, body.language)
+    if indexed is None:
+        return {"indexed": False, "symbols": [], "members": [], "truncated": False, "parserVersion": None}
+    symbols, members, truncated = indexed
+    try:
+        parser_version = package_version("tree-sitter-language-pack")
+    except PackageNotFoundError:
+        parser_version = "unknown"
+    return {"indexed": True, "symbols": symbols, "members": members, "truncated": truncated, "parserVersion": parser_version}
 
 
 @app.post("/reamon/code/python/bindings", tags=["REAmon"], dependencies=[Depends(require_internal_auth)])

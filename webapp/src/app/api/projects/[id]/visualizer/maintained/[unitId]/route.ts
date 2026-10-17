@@ -28,7 +28,12 @@ function isUniqueConflict(error: unknown): boolean {
   return Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'P2002')
 }
 
-async function maintainedSymbolIndex(sourceCode: string, language: string): Promise<string[]> {
+async function maintainedSourceIndex(sourceCode: string, language: string): Promise<{
+  symbols: string[]
+  members: Array<{ name: string; kind: string; line: number; startByte: number; endByte: number }>
+  truncated: boolean
+  parserVersion: string | null
+}> {
   try {
     const response = await agentFetch('/reamon/code/index-symbols', {
       method: 'POST',
@@ -36,58 +41,41 @@ async function maintainedSymbolIndex(sourceCode: string, language: string): Prom
       body: JSON.stringify({ source_code: sourceCode, language }),
     }, { timeoutMs: 5_000 })
     if (response.ok) {
-      const result = await response.json().catch(() => null) as { indexed?: boolean; symbols?: unknown } | null
+      const result = await response.json().catch(() => null) as {
+        indexed?: boolean
+        symbols?: unknown
+        members?: unknown
+        truncated?: unknown
+        parserVersion?: unknown
+      } | null
       if (result?.indexed === true && Array.isArray(result.symbols)) {
-        return [...new Set(result.symbols.filter((symbol): symbol is string => typeof symbol === 'string' && symbol.length > 1 && symbol.length <= 128))].slice(0, 512)
+        const members = Array.isArray(result.members) ? result.members.flatMap((value) => {
+          const member = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+          if (typeof member.name !== 'string' || !member.name || member.name.length > 256
+              || typeof member.kind !== 'string' || !member.kind || member.kind.length > 80
+              || !Number.isSafeInteger(member.line) || !Number.isSafeInteger(member.start_byte)
+              || !Number.isSafeInteger(member.end_byte) || (member.start_byte as number) < 0
+              || (member.end_byte as number) < (member.start_byte as number)) return []
+          return [{
+            name: member.name,
+            kind: member.kind,
+            line: member.line as number,
+            startByte: member.start_byte as number,
+            endByte: member.end_byte as number,
+          }]
+        }).slice(0, 10_000) : []
+        return {
+          symbols: [...new Set(result.symbols.filter((symbol): symbol is string => typeof symbol === 'string' && symbol.length > 1 && symbol.length <= 128))].slice(0, 512),
+          members,
+          truncated: result.truncated === true || (Array.isArray(result.members) && result.members.length > 10_000),
+          parserVersion: typeof result.parserVersion === 'string' ? result.parserVersion.slice(0, 80) : null,
+        }
       }
     }
   } catch {
     // Saving maintained source stays available when the optional parser service is down.
   }
-  return extractMaintainedSymbols(sourceCode, language)
-}
-
-async function maintainedMemberOutline(sourceCode: string, language: string): Promise<{
-  members: Array<{ name: string; kind: string; line: number; startByte: number; endByte: number }>
-  truncated: boolean
-  parserVersion: string | null
-}> {
-  try {
-    const response = await agentFetch('/reamon/code/outline', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ source_code: sourceCode, language }),
-    }, { timeoutMs: 5_000 })
-    if (!response.ok) return { members: [], truncated: false, parserVersion: null }
-    const result = await response.json().catch(() => null) as {
-      members?: unknown
-      truncated?: unknown
-      parserVersion?: unknown
-    } | null
-    if (!result || !Array.isArray(result.members)) return { members: [], truncated: false, parserVersion: null }
-    const members = result.members.flatMap((value) => {
-      const member = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
-      if (typeof member.name !== 'string' || !member.name || member.name.length > 256
-          || typeof member.kind !== 'string' || !member.kind || member.kind.length > 80
-          || !Number.isSafeInteger(member.line) || !Number.isSafeInteger(member.start_byte)
-          || !Number.isSafeInteger(member.end_byte) || (member.start_byte as number) < 0
-          || (member.end_byte as number) < (member.start_byte as number)) return []
-      return [{
-        name: member.name,
-        kind: member.kind,
-        line: member.line as number,
-        startByte: member.start_byte as number,
-        endByte: member.end_byte as number,
-      }]
-    }).slice(0, 10_000)
-    return {
-      members,
-      truncated: result.truncated === true || result.members.length > 10_000,
-      parserVersion: typeof result.parserVersion === 'string' ? result.parserVersion.slice(0, 80) : null,
-    }
-  } catch {
-    return { members: [], truncated: false, parserVersion: null }
-  }
+  return { symbols: extractMaintainedSymbols(sourceCode, language), members: [], truncated: false, parserVersion: null }
 }
 
 async function acceptedSafeRenameAliases(
@@ -410,12 +398,11 @@ export async function PUT(request: Request, { params }: RouteParams) {
     const now = new Date().toISOString()
     const { rootRealPath, absolute } = await checkedPath(resolved.relativePath)
     const maintainedSourceHash = createHash('sha256').update(sourceCode).digest('hex')
-    const [symbols, aliases, memberOutline] = await Promise.all([
-      maintainedSymbolIndex(sourceCode, language),
+    const [sourceIndex, aliases] = await Promise.all([
+      maintainedSourceIndex(sourceCode, language),
       acceptedSafeRenameAliases(projectId, resolved.artifactId, resolved.runKey, resolved.unitId, sourceCode, maintainedSourceHash),
-      maintainedMemberOutline(sourceCode, language),
     ])
-    const symbolIndex = { symbols, aliases, ...memberOutline }
+    const symbolIndex = { ...sourceIndex, aliases }
     const validation = await validateMaintainedSource(sourceCode, validationLanguage)
     if (validation.validation_status === 'FAILED') {
       return NextResponse.json({
