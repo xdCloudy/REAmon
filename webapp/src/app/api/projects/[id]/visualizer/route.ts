@@ -33,14 +33,29 @@ export async function GET(request: Request, { params }: RouteParams) {
     const searchParams = new URL(request.url).searchParams
     const search = searchParams.get('q')?.trim() || ''
     const requestedUnitId = searchParams.get('unitId')?.trim() || ''
+    const requestedTaskId = searchParams.get('taskId')?.trim() || null
     if (search.length > 300) {
       return NextResponse.json({ error: 'Code unit search is too long' }, { status: 400, headers: { 'Cache-Control': 'private, no-store' } })
     }
     if (requestedUnitId.length > 128) {
       return NextResponse.json({ error: 'Invalid code unit id' }, { status: 400, headers: { 'Cache-Control': 'private, no-store' } })
     }
+    if (requestedTaskId && requestedTaskId.length > 128) {
+      return NextResponse.json({ error: 'Invalid analysis run id' }, { status: 400, headers: { 'Cache-Control': 'private, no-store' } })
+    }
     const selection = await getActiveWorkspaceImportSelection(projectId)
-    const decompileTasks = await prisma.task.findMany({
+    const runSelect = {
+      id: true,
+      artifactId: true,
+      title: true,
+      createdAt: true,
+      completedAt: true,
+      result: true,
+      runToken: true,
+      provider: { select: { pluginId: true } },
+      artifact: { select: { originalName: true, relativePath: true } },
+    } as const
+    let decompileTasks = await prisma.task.findMany({
       where: {
         projectId,
         capability: { in: ['decompile', 'disassemble'] },
@@ -49,18 +64,21 @@ export async function GET(request: Request, { params }: RouteParams) {
       },
       orderBy: { completedAt: 'desc' },
       take: 100,
-      select: {
-        id: true,
-        artifactId: true,
-        title: true,
-        createdAt: true,
-        completedAt: true,
-        result: true,
-        runToken: true,
-        provider: { select: { pluginId: true } },
-        artifact: { select: { originalName: true, relativePath: true } },
-      },
+      select: runSelect,
     })
+    if (requestedTaskId && !decompileTasks.some((task) => task.id === requestedTaskId)) {
+      const historicalRun = await prisma.task.findFirst({
+        where: {
+          id: requestedTaskId,
+          projectId,
+          capability: { in: ['decompile', 'disassemble'] },
+          status: 'COMPLETED',
+          artifact: { is: selection.artifactWhere },
+        },
+        select: runSelect,
+      })
+      if (historicalRun) decompileTasks = [...decompileTasks, historicalRun]
+    }
     const decompileTaskIds = decompileTasks.map((task) => task.id)
     const observationCounts = decompileTaskIds.length
       ? await prisma.reamonObservation.groupBy({
@@ -108,7 +126,6 @@ export async function GET(request: Request, { params }: RouteParams) {
           visitedUnitCount: finiteCount(result.visitedFunctionCount),
         }
       })
-    const requestedTaskId = searchParams.get('taskId')?.trim() || null
     if (requestedTaskId && !runs.some((run) => run.id === requestedTaskId)) {
       return NextResponse.json({ error: 'Analysis run not found' }, { status: 404, headers: { 'Cache-Control': 'private, no-store' } })
     }
