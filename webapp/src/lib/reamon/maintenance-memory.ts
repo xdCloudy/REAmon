@@ -266,7 +266,7 @@ export function buildProjectSymbolContext(
       : ''
     const relationship = calleeUnitIds.has(record.codeUnitId || '') ? '; direct callee' : ''
     const functionMatch = currentFunctionIdentity && record.functionIdentity === currentFunctionIdentity
-      ? `; same native address as selected function${record.provider ? ` from ${record.provider}` : ''} (same binary identity; address matches can still be thunks or aliases)`
+      ? `; same project function identity as selected unit${record.provider ? ` from ${record.provider}` : ''} (provider identity evidence; address-based matches can still be thunks or aliases)`
       : ''
     const validation = record.validationStatus === 'PASSED'
       ? `; syntax passed${record.validationMethod ? ` via ${record.validationMethod}` : ''} (structural evidence only)`

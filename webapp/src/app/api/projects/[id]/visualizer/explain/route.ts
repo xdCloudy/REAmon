@@ -7,6 +7,8 @@ import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
 import { getActiveWorkspaceImportSelection } from '@/lib/reamon/inventory-query'
 import { derivedArtifactRoot, resolveDerivedArtifactPath } from '@/lib/reamon/derived-storage'
 import { flossRecoveredStringsOf } from '@/lib/reamon/code-units'
+import { buildProjectSymbolContext } from '@/lib/reamon/maintenance-memory'
+import { nativeAddressAliases, nativeFunctionIdentity } from '@/lib/reamon/native-function-identity'
 
 interface RouteParams { params: Promise<{ id: string }> }
 interface ExplainBody { unitId?: unknown; providerId?: unknown; question?: unknown }
@@ -181,6 +183,79 @@ async function loadMethodInstructionEvidence(
   return evidence
 }
 
+async function loadAcceptedSharedIdentityContext(input: {
+  projectId: string
+  artifactId: string
+  artifactHash: string | null
+  unitId: string
+  source: string
+  canonicalKey: string
+  address: string
+}): Promise<string> {
+  if (!input.artifactHash) return ''
+  const nativeIdentity = nativeFunctionIdentity(input.artifactId, input.address)
+  const addressAliases = nativeAddressAliases(input.address)
+  const tasks = await prisma.task.findMany({
+    where: { projectId: input.projectId, artifactId: input.artifactId, capability: 'decompile', status: 'COMPLETED' },
+    orderBy: [{ completedAt: 'desc' }, { createdAt: 'desc' }],
+    take: 100,
+    select: { id: true },
+  })
+  if (!tasks.length) return ''
+  const matches = await prisma.reamonObservation.findMany({
+    where: {
+      projectId: input.projectId,
+      artifactId: input.artifactId,
+      taskId: { in: tasks.map((task) => task.id) },
+      type: 'code_unit',
+      source: { not: input.source },
+      AND: [{ attributes: { path: ['inputArtifactSha256'], equals: input.artifactHash } }],
+      OR: [
+        { canonicalKey: input.canonicalKey },
+        ...(nativeIdentity ? [
+          { attributes: { path: ['identity'], equals: nativeIdentity } },
+          ...addressAliases.flatMap((address) => [
+            { attributes: { path: ['address'], equals: address } },
+            { attributes: { path: ['startAddress'], equals: address } },
+          ]),
+        ] : []),
+      ],
+    },
+    orderBy: [{ updatedAt: 'desc' }, { stableKey: 'asc' }],
+    take: 100,
+    select: { id: true, source: true },
+  })
+  const providerByUnitId = new Map(matches.map((row) => [row.id, row.source]))
+  const unitIds = [...new Set([input.unitId, ...matches.map((row) => row.id)])]
+  const maintainedRows = await prisma.reamonMaintainedSource.findMany({
+    where: { projectId: input.projectId, artifactId: input.artifactId, codeUnitId: { in: unitIds } },
+    select: { codeUnitId: true, artifactId: true, unitName: true, language: true, sourceHash: true, acceptedReviewId: true, symbolIndex: true },
+    orderBy: { updatedAt: 'desc' },
+  })
+  const reviewIds = [...new Set(maintainedRows.flatMap((row) => row.acceptedReviewId ? [row.acceptedReviewId] : []))]
+  if (!reviewIds.length) return ''
+  const receipts = await prisma.reamonCodeReview.findMany({
+    where: { projectId: input.projectId, id: { in: reviewIds }, decision: 'ACCEPTED' },
+    select: { id: true, artifactId: true, codeUnitId: true, maintainedSourceHash: true },
+  })
+  const receiptById = new Map(receipts.map((receipt) => [receipt.id, receipt]))
+  const trustedRows = maintainedRows.filter((row) => {
+    if (!row.sourceHash || !row.acceptedReviewId) return false
+    const receipt = receiptById.get(row.acceptedReviewId)
+    return receipt?.artifactId === row.artifactId
+      && receipt.codeUnitId === row.codeUnitId
+      && receipt.maintainedSourceHash === row.sourceHash
+  })
+  return buildProjectSymbolContext(trustedRows.map((row) => ({
+    ...row,
+    artifactHash: input.artifactHash || undefined,
+    ...(providerByUnitId.has(row.codeUnitId) ? {
+      functionIdentity: input.canonicalKey || nativeIdentity || undefined,
+      provider: providerByUnitId.get(row.codeUnitId),
+    } : {}),
+  })), new Set(), 3_500, input.artifactHash, new Set(), false, undefined, input.canonicalKey || nativeIdentity || undefined)
+}
+
 function validId(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0 && value.length <= 128
 }
@@ -214,14 +289,14 @@ export async function POST(request: Request, { params }: RouteParams) {
 
     const observation = await prisma.reamonObservation.findFirst({
       where: { id: body.unitId.trim(), projectId, type: 'code_unit' },
-      select: { id: true, stableKey: true, artifactId: true, taskId: true, source: true, label: true, attributes: true },
+      select: { id: true, stableKey: true, canonicalKey: true, artifactId: true, taskId: true, source: true, label: true, attributes: true },
     })
     if (!observation?.artifactId) return NextResponse.json({ error: 'Code unit not found' }, { status: 404 })
 
     const selection = await getActiveWorkspaceImportSelection(projectId)
     const artifact = await prisma.artifact.findFirst({
       where: { AND: [{ id: observation.artifactId, projectId }, selection.artifactWhere] },
-      select: { id: true },
+      select: { id: true, sha256: true },
     })
     if (!artifact) return NextResponse.json({ error: 'Code unit is not part of the active workspace' }, { status: 404 })
 
@@ -253,6 +328,17 @@ export async function POST(request: Request, { params }: RouteParams) {
     const boundedContextRows = [...contextRows, ...referenceRows]
     const methodInstructionEvidence = await loadMethodInstructionEvidence(contextRows, observation.stableKey, projectId, artifact.id)
     const projectContext = buildProjectContext(boundedContextRows, attributes, observation.stableKey, methodInstructionEvidence, referenceRows.length >= MAX_REFERENCE_EVIDENCE_ROWS)
+    const acceptedProjectContext = await loadAcceptedSharedIdentityContext({
+      projectId,
+      artifactId: artifact.id,
+      artifactHash: artifact.sha256,
+      unitId: observation.id,
+      source: observation.source,
+      canonicalKey: observation.canonicalKey,
+      address: typeof attributes.address === 'string' ? attributes.address
+        : typeof attributes.startAddress === 'string' ? attributes.startAddress : '',
+    })
+    const combinedProjectContext = utf8Prefix([acceptedProjectContext, projectContext].filter(Boolean).join('\n'), MAX_PROJECT_CONTEXT_BYTES)
     const codeArtifactId = typeof attributes.codeArtifactId === 'string' ? attributes.codeArtifactId : ''
     const pathPrefix = `${projectId}/${artifact.id}/`
     const segments = codeArtifactId.split('/')
@@ -291,7 +377,7 @@ export async function POST(request: Request, { params }: RouteParams) {
         source_language: sourceLanguage.slice(0, 80),
         source_code: sourceCode,
         source_truncated: sourceTruncated,
-        project_context: projectContext,
+        project_context: combinedProjectContext,
         question: typeof body.question === 'string' ? body.question.trim() : '',
       }),
     }, { timeoutMs })

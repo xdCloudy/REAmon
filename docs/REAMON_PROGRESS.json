@@ -12,8 +12,8 @@
     {
       "name": "Database-grounded project memory and provenance",
       "weight": 20,
-      "completion": 51,
-      "basis": "Project-scoped observations, symbols, relationships, drafts, and review records ground AI context. Common native virtual-address spellings now canonicalize across Ghidra, Glaurung, and Oxidizer for same-artifact function identity; bounded same-binary, completed-run lookups also bring accepted cross-provider names into rewrite context for the selected native address after receipt and input-hash checks. The MCP dossier includes bounded cross-provider native outputs only after completed-task, exact-input-hash, canonical-address, and output-hash checks. Exact-address ReIPA pseudocode alternatives for matched Swift/Objective-C methods also enter rewrite context and MCP dossiers only after same-run provenance checks; broader identity coverage and fixture validation remain open."
+      "completion": 53,
+      "basis": "Project-scoped observations, symbols, relationships, drafts, and review records ground AI context. Common native virtual-address spellings now canonicalize across Ghidra, Glaurung, and Oxidizer for same-artifact function identity; bounded same-binary, completed-run lookups bring accepted cross-provider names into both rewrite and explanation context for any selected unit with a shared persisted canonical identity, with native address-alias fallback, exact input-hash checks, and review-receipt verification. The MCP dossier includes bounded cross-provider native outputs only after completed-task, exact-input-hash, canonical-address, and output-hash checks. Exact-address ReIPA pseudocode alternatives for matched Swift/Objective-C methods also enter rewrite context and MCP dossiers only after same-run provenance checks; broader identity coverage and fixture validation remain open."
     },
     {
       "name": "Major-language and format decompilation fluency",

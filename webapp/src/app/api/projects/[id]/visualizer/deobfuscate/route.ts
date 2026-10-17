@@ -951,10 +951,10 @@ export async function POST(request: Request, { params }: RouteParams) {
       symbolCursor = page.at(-1)?.id
       if (page.length < take) break
     }
-    let crossProviderNativeRows: typeof maintainedRelatedRows = []
-    const nativeProviderByUnitId = new Map<string, string>()
+    let crossProviderIdentityRows: typeof maintainedRelatedRows = []
+    const matchedProviderByUnitId = new Map<string, string>()
     const addressAliases = nativeAddressAliases(selectedNativeAddress)
-    if (currentNativeFunctionIdentity && addressAliases.length && artifact.sha256) {
+    if (artifact.sha256 && (observation.canonicalKey || (currentNativeFunctionIdentity && addressAliases.length))) {
       const completedNativeTasks = await prisma.task.findMany({
         where: { projectId, artifactId: artifact.id, capability: 'decompile', status: 'COMPLETED' },
         orderBy: [{ completedAt: 'desc' }, { createdAt: 'desc' }],
@@ -971,22 +971,25 @@ export async function POST(request: Request, { params }: RouteParams) {
             source: { not: observation.source },
             AND: [{ attributes: { path: ['inputArtifactSha256'], equals: artifact.sha256 } }],
             OR: [
-              { attributes: { path: ['identity'], equals: currentNativeFunctionIdentity } },
-              ...addressAliases.flatMap((address) => [
-                { attributes: { path: ['address'], equals: address } },
-                { attributes: { path: ['startAddress'], equals: address } },
-              ]),
+              ...(observation.canonicalKey ? [{ canonicalKey: observation.canonicalKey }] : []),
+              ...(currentNativeFunctionIdentity ? [
+                { attributes: { path: ['identity'], equals: currentNativeFunctionIdentity } },
+                ...addressAliases.flatMap((address) => [
+                  { attributes: { path: ['address'], equals: address } },
+                  { attributes: { path: ['startAddress'], equals: address } },
+                ]),
+              ] : []),
             ],
           },
           orderBy: [{ updatedAt: 'desc' }, { stableKey: 'asc' }],
           take: 100,
           select: { id: true, source: true },
         })
-        for (const nativeRow of matchingNativeObservations) nativeProviderByUnitId.set(nativeRow.id, nativeRow.source)
-        const nativeUnitIds = matchingNativeObservations.map((nativeRow) => nativeRow.id)
-        if (nativeUnitIds.length) {
-          crossProviderNativeRows = await prisma.reamonMaintainedSource.findMany({
-            where: { projectId, artifactId: artifact.id, codeUnitId: { in: nativeUnitIds } },
+        for (const matchedRow of matchingNativeObservations) matchedProviderByUnitId.set(matchedRow.id, matchedRow.source)
+        const matchedUnitIds = matchingNativeObservations.map((matchedRow) => matchedRow.id)
+        if (matchedUnitIds.length) {
+          crossProviderIdentityRows = await prisma.reamonMaintainedSource.findMany({
+            where: { projectId, artifactId: artifact.id, codeUnitId: { in: matchedUnitIds } },
             select: { codeUnitId: true, artifactId: true, unitName: true, language: true, sourceCode: true, sourceHash: true, acceptedReviewId: true, symbolIndex: true, updatedAt: true },
             orderBy: { updatedAt: 'desc' },
           })
@@ -994,7 +997,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       }
     }
     const symbolRecords = [...new Map(
-      [...maintainedRelatedRows, ...projectSymbolRows, ...crossProviderNativeRows]
+      [...maintainedRelatedRows, ...projectSymbolRows, ...crossProviderIdentityRows]
         .map((row) => [row.codeUnitId, row] as const),
     ).values()]
     const acceptedReviewIds = [...new Set(symbolRecords.flatMap((row) => row.acceptedReviewId ? [row.acceptedReviewId] : []))]
@@ -1032,15 +1035,15 @@ export async function POST(request: Request, { params }: RouteParams) {
         ...row,
         artifactName: artifactById.get(row.artifactId)?.originalName,
         artifactHash: artifactById.get(row.artifactId)?.sha256,
-        ...(nativeProviderByUnitId.has(row.codeUnitId) ? {
-          functionIdentity: nativeFunctionIdentity(artifact.id, selectedNativeAddress) || undefined,
-          provider: nativeProviderByUnitId.get(row.codeUnitId),
+        ...(matchedProviderByUnitId.has(row.codeUnitId) ? {
+          functionIdentity: observation.canonicalKey || nativeFunctionIdentity(artifact.id, selectedNativeAddress) || undefined,
+          provider: matchedProviderByUnitId.get(row.codeUnitId),
         } : {}),
         validationStatus: receipt?.validationStatus,
         validationMethod: receipt?.validationMethod,
       }
     }), new Set(relatedUnitIds), undefined, artifact.sha256, calleeUnitIds, projectSymbolScanTruncated,
-    undefined, currentNativeFunctionIdentity || undefined)
+    undefined, observation.canonicalKey || currentNativeFunctionIdentity || undefined)
     const selectedProviderRow = providerSymbolRows.find((row) => row.id === observation.id)
     const selectedProviderAttributes = selectedProviderRow ? plainObject(selectedProviderRow.attributes) : {}
     const selectedProviderVariables = selectedProviderRow
