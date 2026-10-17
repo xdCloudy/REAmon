@@ -470,10 +470,38 @@ export async function PUT(request: Request, { params }: RouteParams) {
     const now = new Date().toISOString()
     const { rootRealPath, absolute } = await checkedPath(resolved.relativePath)
     const maintainedSourceHash = createHash('sha256').update(sourceCode).digest('hex')
-    const [sourceIndex, aliases] = await Promise.all([
+    const [sourceIndex, currentSource, newAliases] = await Promise.all([
       maintainedSourceIndex(sourceCode, language),
+      prisma.reamonMaintainedSource.findUnique({
+        where: { projectId_codeUnitId: { projectId, codeUnitId: resolved.unitId } },
+        select: { sourceCode: true, sourceHash: true, acceptedReviewId: true, symbolIndex: true },
+      }),
       acceptedSafeRenameAliases(projectId, resolved.artifactId, resolved.runKey, resolved.unitId, sourceCode, maintainedSourceHash),
     ])
+    const currentSourceHash = currentSource
+      ? createHash('sha256').update(currentSource.sourceCode).digest('hex')
+      : null
+    const acceptedSourceReceipt = currentSource?.acceptedReviewId && currentSourceHash
+      ? await prisma.reamonCodeReview.findFirst({
+        where: {
+          id: currentSource.acceptedReviewId,
+          projectId,
+          artifactId: resolved.artifactId,
+          codeUnitId: resolved.unitId,
+          decision: 'ACCEPTED',
+          maintainedSourceHash: currentSourceHash,
+        },
+        select: { id: true },
+      })
+      : null
+    const previousAliases = acceptedSourceReceipt && currentSource?.sourceHash === currentSourceHash
+      ? extractAcceptedRenameAliases(currentSource.symbolIndex)
+      : []
+    const aliasesByLineage = new Map<string, (typeof newAliases)[number]>()
+    for (const alias of [...previousAliases, ...newAliases]) {
+      aliasesByLineage.set(`${alias.bindingId}\u0000${alias.oldName}\u0000${alias.newName}\u0000${alias.kind}`, alias)
+    }
+    const aliases = [...aliasesByLineage.values()].slice(-200)
     const symbolIndex = {
       ...sourceIndex,
       aliases,
