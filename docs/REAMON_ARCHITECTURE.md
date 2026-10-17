@@ -192,10 +192,11 @@ maintained-source marker. Rewrite context omits that unit's own accepted names w
 its base hash is missing or stale, while keeping other accepted project symbols
 available as explicitly versioned consistency evidence.
 When a saved maintained source has a changed, unavailable, or unrecorded baseline,
-the editor warns that it may be stale, compares review changes against the current
-decompiler output, and offers to start a new editor version from that output. The
-previous accepted copy remains stored until the replacement is explicitly reviewed
-and accepted against the current source hash.
+the editor warns that it may be stale. For changed baselines, it verifies the saved
+baseline path against its recorded hash and shows the accepted baseline, current
+decompiler output, and maintained copy together. The editor can also start a new
+version from current output; the previous accepted copy remains stored until a
+replacement is reviewed and accepted against the current source hash.
 
 ## Target profiler
 

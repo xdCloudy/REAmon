@@ -1081,6 +1081,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
           baseRunKey: string | null
           currentSourceHash: string | null
           baselineStatus: 'CURRENT' | 'CHANGED' | 'UNAVAILABLE' | 'UNRECORDED'
+          baseSourceCode?: string | null
         }
       }>
     },
@@ -2672,8 +2673,11 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
           </div>}
           {maintainedQuery.data?.exists && !maintainedQuery.data.reviews?.length && <p className={styles.message}>This saved copy predates review receipts, so AI project memory will not treat it as an approved naming reference until you review and accept it here.</p>}
           {maintainedDraft && <>
-            <div className={styles.maintainedComparison}>
-              <div><strong>Original decompilation</strong>
+            <div className={`${styles.maintainedComparison} ${maintainedBaselineNeedsReview && maintainedQuery.data?.sourceLineage?.baseSourceCode ? styles.maintainedComparisonStale : ''}`}>
+              {maintainedBaselineNeedsReview && maintainedQuery.data?.sourceLineage?.baseSourceCode && <div><strong>Accepted decompiler baseline</strong>
+                <SourceListing source={maintainedQuery.data.sourceLineage.baseSourceCode} language={selectedUnit.language} fileName={selectedUnit.codeArtifactId?.split('/').pop()} />
+              </div>}
+              <div><strong>{maintainedBaselineNeedsReview ? 'Current decompilation' : 'Original decompilation'}</strong>
                 {sourceQuery.data !== undefined && <SourceListing source={sourceQuery.data} language={selectedUnit.language} fileName={selectedUnit.codeArtifactId?.split('/').pop()} fullSourceUrl={selectedSourceUrl} />}
               </div>
               <label>Editable maintained copy

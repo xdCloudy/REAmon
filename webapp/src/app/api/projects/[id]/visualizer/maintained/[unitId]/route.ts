@@ -292,6 +292,27 @@ export async function GET(request: Request, { params }: RouteParams) {
       const baselineStatus = baseSourceHash
         ? currentSourceHash === null ? 'UNAVAILABLE' : currentSourceHash === baseSourceHash ? 'CURRENT' : 'CHANGED'
         : 'UNRECORDED'
+      let baseSourceCode: string | null = null
+      const baseSourcePath = typeof storedLineage.baseSourcePath === 'string' && storedLineage.baseSourcePath.length <= 2_000 ? storedLineage.baseSourcePath : ''
+      const baseRunKey = typeof storedLineage.runKey === 'string' && storedLineage.runKey.length <= 500 ? storedLineage.runKey : ''
+      const expectedArtifactPrefix = `${projectId}/${resolved.artifactId}/`
+      if (baselineStatus === 'CHANGED' && baseSourceHash && baseRunKey
+          && baseSourcePath.startsWith(`${baseRunKey}/`)
+          && baseSourcePath.startsWith(expectedArtifactPrefix)
+          && !baseSourcePath.split('/').some((part) => !part || part === '.' || part === '..' || part.includes('\\'))) {
+        try {
+          const { fileRealPath } = await checkedPath(baseSourcePath)
+          if (fileRealPath) {
+            const info = await stat(fileRealPath)
+            if (info.isFile() && info.size <= MAX_SOURCE_BYTES) {
+              const bytes = await readFile(fileRealPath)
+              if (createHash('sha256').update(bytes).digest('hex') === baseSourceHash) baseSourceCode = bytes.toString('utf8')
+            }
+          }
+        } catch {
+          baseSourceCode = null
+        }
+      }
       return NextResponse.json({
         exists: true,
         sourceCode: savedSource.sourceCode,
@@ -301,9 +322,10 @@ export async function GET(request: Request, { params }: RouteParams) {
         acceptedRenameAliases,
         sourceLineage: {
           baseSourceHash,
-          baseRunKey: typeof storedLineage.runKey === 'string' ? storedLineage.runKey.slice(0, 500) : null,
+          baseRunKey: baseRunKey ? baseRunKey.slice(0, 500) : null,
           currentSourceHash,
           baselineStatus,
+          baseSourceCode,
         },
       }, { headers: { 'Cache-Control': 'private, no-store' } })
     }
@@ -442,7 +464,7 @@ export async function PUT(request: Request, { params }: RouteParams) {
     const symbolIndex = {
       ...sourceIndex,
       aliases,
-      sourceLineage: { baseSourceHash, runKey: resolved.runKey },
+      sourceLineage: { baseSourceHash, runKey: resolved.runKey, baseSourcePath: resolved.originalPath },
     }
     const validation = await validateMaintainedSource(sourceCode, validationLanguage)
     if (validation.validation_status === 'FAILED') {
