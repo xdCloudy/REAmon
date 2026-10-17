@@ -84,11 +84,53 @@ function maskNonCode(sourceCode: string, language: string): string {
   }
   const normalizedLanguage = language.trim().toLowerCase()
   const hashComments = new Set(['python', 'ruby', 'php', 'shell', 'bash', 'perl', 'r'])
+  const luaLike = normalizedLanguage === 'lua' || normalizedLanguage === 'luau' || normalizedLanguage.startsWith('lua ')
+  const longBracketEnd = (start: number): number | null => {
+    if (characters[start] !== '[') return null
+    let cursor = start + 1
+    while (characters[cursor] === '=') cursor += 1
+    if (characters[cursor] !== '[') return null
+    const level = cursor - start - 1
+    cursor += 1
+    while (cursor < characters.length) {
+      if (characters[cursor] === ']') {
+        let close = cursor + 1
+        let matchedEquals = 0
+        while (characters[close] === '=' && matchedEquals < level) {
+          close += 1
+          matchedEquals += 1
+        }
+        if (matchedEquals === level && characters[close] === ']') return close + 1
+      }
+      cursor += 1
+    }
+    return characters.length
+  }
   let index = 0
 
   while (index < characters.length) {
     const current = characters[index]
     const next = characters[index + 1]
+    if (luaLike && current === '-' && next === '-') {
+      const start = index
+      const longCommentEnd = longBracketEnd(index + 2)
+      if (longCommentEnd !== null) {
+        blank(start, longCommentEnd)
+        index = longCommentEnd
+      } else {
+        while (index < characters.length && characters[index] !== '\n' && characters[index] !== '\r') index += 1
+        blank(start, index)
+      }
+      continue
+    }
+    if (luaLike && current === '[') {
+      const longStringEnd = longBracketEnd(index)
+      if (longStringEnd !== null) {
+        blank(index, longStringEnd)
+        index = longStringEnd
+        continue
+      }
+    }
     if (current === '/' && next === '/') {
       const start = index
       index += 2
