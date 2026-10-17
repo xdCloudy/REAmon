@@ -47,6 +47,49 @@ async function maintainedSymbolIndex(sourceCode: string, language: string): Prom
   return extractMaintainedSymbols(sourceCode, language)
 }
 
+async function maintainedMemberOutline(sourceCode: string, language: string): Promise<{
+  members: Array<{ name: string; kind: string; line: number; startByte: number; endByte: number }>
+  truncated: boolean
+  parserVersion: string | null
+}> {
+  try {
+    const response = await agentFetch('/reamon/code/outline', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source_code: sourceCode, language }),
+    }, { timeoutMs: 5_000 })
+    if (!response.ok) return { members: [], truncated: false, parserVersion: null }
+    const result = await response.json().catch(() => null) as {
+      members?: unknown
+      truncated?: unknown
+      parserVersion?: unknown
+    } | null
+    if (!result || !Array.isArray(result.members)) return { members: [], truncated: false, parserVersion: null }
+    const members = result.members.flatMap((value) => {
+      const member = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+      if (typeof member.name !== 'string' || !member.name || member.name.length > 256
+          || typeof member.kind !== 'string' || !member.kind || member.kind.length > 80
+          || !Number.isSafeInteger(member.line) || !Number.isSafeInteger(member.start_byte)
+          || !Number.isSafeInteger(member.end_byte) || (member.start_byte as number) < 0
+          || (member.end_byte as number) < (member.start_byte as number)) return []
+      return [{
+        name: member.name,
+        kind: member.kind,
+        line: member.line as number,
+        startByte: member.start_byte as number,
+        endByte: member.end_byte as number,
+      }]
+    }).slice(0, 10_000)
+    return {
+      members,
+      truncated: result.truncated === true || result.members.length > 10_000,
+      parserVersion: typeof result.parserVersion === 'string' ? result.parserVersion.slice(0, 80) : null,
+    }
+  } catch {
+    return { members: [], truncated: false, parserVersion: null }
+  }
+}
+
 async function acceptedSafeRenameAliases(
   projectId: string,
   artifactId: string,
@@ -367,11 +410,12 @@ export async function PUT(request: Request, { params }: RouteParams) {
     const now = new Date().toISOString()
     const { rootRealPath, absolute } = await checkedPath(resolved.relativePath)
     const maintainedSourceHash = createHash('sha256').update(sourceCode).digest('hex')
-    const [symbols, aliases] = await Promise.all([
+    const [symbols, aliases, memberOutline] = await Promise.all([
       maintainedSymbolIndex(sourceCode, language),
       acceptedSafeRenameAliases(projectId, resolved.artifactId, resolved.runKey, resolved.unitId, sourceCode, maintainedSourceHash),
+      maintainedMemberOutline(sourceCode, language),
     ])
-    const symbolIndex = { symbols, aliases }
+    const symbolIndex = { symbols, aliases, ...memberOutline }
     const validation = await validateMaintainedSource(sourceCode, validationLanguage)
     if (validation.validation_status === 'FAILED') {
       return NextResponse.json({

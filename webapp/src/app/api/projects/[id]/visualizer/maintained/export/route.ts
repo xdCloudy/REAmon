@@ -42,6 +42,23 @@ function maintainedRenameAliases(value: unknown): Array<{ bindingId: string; old
   }).slice(0, 200)
 }
 
+function uniqueNativeFunctionDeclaration(value: unknown): { name: string; line: number; parserVersion: string | null } | null {
+  const index = plainObject(value)
+  if (index.truncated === true || !Array.isArray(index.members)) return null
+  const candidates = index.members.flatMap((value) => {
+    const member = plainObject(value)
+    if (member.kind !== 'function' || typeof member.name !== 'string'
+        || !/^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(member.name)
+        || !Number.isSafeInteger(member.line) || (member.line as number) < 1) return []
+    return [{ name: member.name, line: member.line as number }]
+  })
+  if (candidates.length !== 1) return null
+  return {
+    ...candidates[0],
+    parserVersion: typeof index.parserVersion === 'string' ? index.parserVersion.slice(0, 80) : null,
+  }
+}
+
 function isInside(root: string, file: string): boolean {
   const relative = path.relative(root, file)
   return Boolean(relative) && relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)
@@ -340,7 +357,8 @@ export async function GET(request: Request, { params }: RouteParams) {
           : typeof attributes.startAddress === 'string' ? attributes.startAddress : ''
         const acceptedSymbolNames = maintainedSymbolNames(maintainedSource.symbolIndex)
         const acceptedRenameHistory = maintainedRenameAliases(maintainedSource.symbolIndex)
-        if (address && (acceptedSymbolNames.length || acceptedRenameHistory.length)) nativeAnnotationEntries.push({
+        const functionDeclaration = uniqueNativeFunctionDeclaration(maintainedSource.symbolIndex)
+        if (address && (acceptedSymbolNames.length || acceptedRenameHistory.length || functionDeclaration)) nativeAnnotationEntries.push({
           codeUnitId: unit.id,
           stableKey: unit.stableKey,
           originalName: attributes.qualifiedName || attributes.name || unit.label || unit.stableKey,
@@ -350,6 +368,12 @@ export async function GET(request: Request, { params }: RouteParams) {
           language: typeof attributes.language === 'string' ? attributes.language : 'unknown',
           acceptedSymbolNames,
           acceptedRenameHistory,
+          ...(functionDeclaration ? {
+            functionDeclaration: {
+              ...functionDeclaration,
+              mapping: 'unique function declaration in the exact accepted source file',
+            },
+          } : {}),
           acceptedSourceSha256: maintainedSha256,
           review: {
             id: maintainedReceipt.id,
@@ -480,6 +504,11 @@ export async function GET(request: Request, { params }: RouteParams) {
         if (nativeAnnotationsBuffer) archive.append(nativeAnnotationsBuffer, { name: 'native-annotations.json' })
       }
     }
+    const hasImportableNativeNames = nativeAnnotationEntries.some((entry) => Boolean(plainObject(entry.functionDeclaration).name))
+    const ghidraImporterBuffer = hasImportableNativeNames
+      ? await readFile(path.join(process.cwd(), 'public', 'reamon', 'ImportReamonAnnotations.py'))
+      : null
+    if (ghidraImporterBuffer) archive.append(ghidraImporterBuffer, { name: 'tools/ImportReamonAnnotations.py' })
 
     archive.append(Buffer.from([
       'REAmon analysis source bundle',
@@ -491,7 +520,8 @@ export async function GET(request: Request, { params }: RouteParams) {
       'decompiled/ contains the analyzer output. maintained/ contains saved edited or AI-assisted copies when available.',
       'The two trees are kept separate; maintained source never overwrites the decompilation.',
       'See manifest.json for artifact and file hashes, maintained-source receipt verification, matching draft and attempt lineage, validation metadata, missing files, and export status.',
-      ...(nativeAnnotationsBuffer ? ['A Ghidra source bundle also contains native-annotations.json: reviewed symbol evidence tied to the exact input binary hash. It is an evidence manifest, not a ready-to-apply renaming script.'] : []),
+      ...(nativeAnnotationsBuffer ? ['A Ghidra source bundle also contains native-annotations.json with accepted evidence tied to the exact input binary hash. It does not authorize address rebasing.'] : []),
+      ...(ghidraImporterBuffer ? ['To apply unique native function names, add tools/ to Ghidra Script Manager, run ImportReamonAnnotations.py, and select this bundle root manifest.json. The script verifies the sidecar hash, exact loaded executable SHA-256, and each original function name; it never rebases addresses. Review its reported skips before saving the Ghidra project.'] : []),
       'This bundle does not include build scripts or dependencies. Review and build with the appropriate toolchain before relying on it.',
       '',
     ].join('\n')), { name: 'README.txt' })
@@ -522,6 +552,10 @@ export async function GET(request: Request, { params }: RouteParams) {
           entryCount: nativeAnnotationEntries.length,
           truncated: Boolean(nativeAnnotations?.truncated),
         },
+        ...(ghidraImporterBuffer ? { ghidraImporter: {
+          path: 'tools/ImportReamonAnnotations.py',
+          sha256: createHash('sha256').update(ghidraImporterBuffer).digest('hex'),
+        } } : {}),
       } : {}),
       files: manifestEntries,
     }, null, 2)), { name: 'manifest.json' })
