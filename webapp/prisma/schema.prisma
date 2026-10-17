@@ -2882,6 +2882,7 @@ model ReamonCodeReview {
   validationStatus     String?  @map("validation_status")
   validationMethod     String?  @map("validation_method")
   validationMessage    String?  @db.Text @map("validation_message")
+  sourceSnapshot       String?  @db.Text @map("source_snapshot")
   createdAt            DateTime @default(now()) @map("created_at")
 
   @@index([projectId, codeUnitId, createdAt])

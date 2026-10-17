@@ -149,6 +149,7 @@ interface CodeReviewRecord {
   validationStatus?: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null
   validationMethod?: string | null
   validationMessage?: string | null
+  sourceAvailable?: boolean
   createdAt: string
 }
 interface AcceptedRenameAlias { bindingId: string; oldName: string; newName: string; kind: string }
@@ -774,6 +775,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
   const [safeRenameStatus, setSafeRenameStatus] = useState('')
   const [reviewRationale, setReviewRationale] = useState('')
   const [reviewStatus, setReviewStatus] = useState('')
+  const [loadingMaintainedRevisionId, setLoadingMaintainedRevisionId] = useState<string | null>(null)
   const [showReviewDiff, setShowReviewDiff] = useState(false)
   const [transforming, setTransforming] = useState(false)
   const [activeRewriteAttemptId, setActiveRewriteAttemptId] = useState<string | null>(null)
@@ -784,6 +786,8 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
   const [smaliDraft, setSmaliDraft] = useState('')
   const [smaliSaved, setSmaliSaved] = useState(false)
   const [smaliReviewRationale, setSmaliReviewRationale] = useState('')
+  const [smaliReviewStatus, setSmaliReviewStatus] = useState('')
+  const [loadingSmaliRevisionId, setLoadingSmaliRevisionId] = useState<string | null>(null)
   const [savingSmali, setSavingSmali] = useState(false)
   const [smaliError, setSmaliError] = useState('')
   const [memberFilter, setMemberFilter] = useState('')
@@ -1145,11 +1149,14 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
     setApplyingSafeRenames(false)
     setReviewRationale('')
     setReviewStatus('')
+    setLoadingMaintainedRevisionId(null)
     setShowReviewDiff(false)
     setMaintainedDraft('')
     setSmaliDraft('')
     setSmaliSaved(false)
     setSmaliReviewRationale('')
+    setSmaliReviewStatus('')
+    setLoadingSmaliRevisionId(null)
     setSmaliError('')
     setDraftId(null)
     setDraftSource(null)
@@ -1657,6 +1664,56 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
       setMaintenanceError(error instanceof Error ? error.message : 'Could not reverse engineer this method')
     } finally {
       setTransforming(false)
+    }
+  }
+
+  async function loadAcceptedMaintainedRevision(review: CodeReviewRecord) {
+    if (!selectedUnit || review.decision !== 'ACCEPTED' || !review.sourceAvailable) return
+    const currentEditorBaseline = maintainedQuery.data?.sourceCode ?? sourceQuery.data ?? ''
+    if (maintainedDraft !== currentEditorBaseline
+        && !window.confirm('Replace the current editor contents with this accepted source version? Unsaved changes will be lost.')) return
+    const unitId = selectedUnit.id
+    setLoadingMaintainedRevisionId(review.id)
+    setMaintenanceError('')
+    setReviewStatus('')
+    try {
+      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/maintained/${encodeURIComponent(unitId)}?revision=${encodeURIComponent(review.id)}`, { cache: 'no-store' })
+      const result = await response.json().catch(() => ({})) as { sourceCode?: string; error?: string }
+      if (!response.ok || typeof result.sourceCode !== 'string') throw new Error(result.error || 'Could not load the accepted source version')
+      if (selectedUnit?.id !== unitId) return
+      setMaintainedDraft(result.sourceCode)
+      setReviewRationale('')
+      setMaintainedSaved(false)
+      setMaintenanceMeta(null)
+      setReviewStatus('Loaded the earlier accepted source. Review the diff and enter a rationale before accepting it as a new version.')
+    } catch (error) {
+      if (selectedUnit?.id === unitId) setMaintenanceError(error instanceof Error ? error.message : 'Could not load the accepted source version')
+    } finally {
+      setLoadingMaintainedRevisionId((current) => current === review.id ? null : current)
+    }
+  }
+
+  async function loadAcceptedSmaliRevision(review: CodeReviewRecord) {
+    if (!selectedUnit || review.decision !== 'ACCEPTED' || !review.sourceAvailable) return
+    if (smaliDraft !== (smaliSourceQuery.data?.sourceCode ?? '')
+        && !window.confirm('Replace the current Smali editor contents with this accepted version? Unsaved changes will be lost.')) return
+    const unitId = selectedUnit.id
+    setLoadingSmaliRevisionId(review.id)
+    setSmaliError('')
+    setSmaliReviewStatus('')
+    try {
+      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/maintained/${encodeURIComponent(unitId)}/smali?revision=${encodeURIComponent(review.id)}`, { cache: 'no-store' })
+      const result = await response.json().catch(() => ({})) as { sourceCode?: string; error?: string }
+      if (!response.ok || typeof result.sourceCode !== 'string') throw new Error(result.error || 'Could not load the accepted Smali version')
+      if (selectedUnit?.id !== unitId) return
+      setSmaliDraft(result.sourceCode)
+      setSmaliReviewRationale('')
+      setSmaliSaved(false)
+      setSmaliReviewStatus('Loaded the earlier accepted Smali source. Review it and enter a rationale before accepting it as a new version.')
+    } catch (error) {
+      if (selectedUnit?.id === unitId) setSmaliError(error instanceof Error ? error.message : 'Could not load the accepted Smali version')
+    } finally {
+      setLoadingSmaliRevisionId((current) => current === review.id ? null : current)
     }
   }
 
@@ -2301,6 +2358,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
                   <button type="button" className={styles.explainButton} onClick={() => void saveSmaliSource()} disabled={savingSmali || !smaliDraft.trim() || smaliReviewRationale.trim().length < 12 || (smaliSaved && smaliDraft === smaliSourceQuery.data?.sourceCode)}>{savingSmali ? 'Saving Smali…' : smaliSaved ? 'Review and save Smali changes' : 'Review and accept Smali source'}</button>
                   {smaliReviewRationale.trim().length > 0 && smaliReviewRationale.trim().length < 12 && <span className={styles.message}>Add at least 12 characters describing your review.</span>}
                   {smaliSaved && <span className={styles.savedStatus} role="status">Accepted Smali source and review receipt saved; included in APK rebuilds</span>}
+                  {smaliReviewStatus && <span className={styles.savedStatus} role="status">{smaliReviewStatus}</span>}
                 </div>
                 {(smaliSourceQuery.data?.reviews?.length || 0) > 0 && <section className={styles.reviewHistory} aria-label="Smali review history">
                   <strong>Recent Smali review receipts</strong>
@@ -2309,6 +2367,8 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
                     <p>{review.rationale}</p>
                     {review.validationStatus && <p>Assembler validation: {review.validationStatus.toLowerCase()}{review.validationMethod ? ` via ${review.validationMethod}` : ''}{review.validationMessage ? ` — ${review.validationMessage}` : ''}</p>}
                     <code>sha256:{review.maintainedSourceHash}</code>
+                    {review.decision === 'ACCEPTED' && review.sourceAvailable && review.maintainedSourceHash !== smaliSourceQuery.data?.sourceHash && <button type="button" className={styles.copyButton} onClick={() => void loadAcceptedSmaliRevision(review)} disabled={Boolean(loadingSmaliRevisionId)}>{loadingSmaliRevisionId === review.id ? 'Loading…' : 'Load this accepted version'}</button>}
+                    {review.decision === 'ACCEPTED' && !review.sourceAvailable && <small>Source snapshot unavailable for this older receipt.</small>}
                   </li>)}</ol>
                 </section>}
                 {smaliSourceQuery.isLoading && <p className={styles.message}>Loading saved Smali source…</p>}
@@ -2720,6 +2780,8 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
                 {review.validationStatus && <small>Syntax validation: {review.validationStatus.toLowerCase()}{review.validationMethod ? ` · ${review.validationMethod}` : ''}{review.validationMessage ? ` · ${review.validationMessage}` : ''}</small>}
                 <p>{review.rationale}</p>
                 <code>sha256:{review.maintainedSourceHash}</code>
+                {review.decision === 'ACCEPTED' && review.sourceAvailable && review.maintainedSourceHash !== maintainedQuery.data?.sourceHash && <button type="button" className={styles.copyButton} onClick={() => void loadAcceptedMaintainedRevision(review)} disabled={Boolean(loadingMaintainedRevisionId)}>{loadingMaintainedRevisionId === review.id ? 'Loading…' : 'Load this accepted version'}</button>}
+                {review.decision === 'ACCEPTED' && !review.sourceAvailable && <small>Source snapshot unavailable for this older receipt.</small>}
               </li>)}</ol>
             </section>}
           </>}

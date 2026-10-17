@@ -100,21 +100,52 @@ function classDescriptor(sourceCode: string): string | null {
   return declarations.length === 1 ? declarations[0][1] : null
 }
 
-export async function GET(_request: Request, { params }: RouteParams) {
+export async function GET(request: Request, { params }: RouteParams) {
   try {
     const { id: projectId, unitId } = await params
     const resolved = await resolveSmali(projectId, unitId)
     if ('response' in resolved) return resolved.response
     const codeUnitId = `${SMALI_CODE_UNIT_PREFIX}${unitId}`
-    const [saved, reviews] = await Promise.all([
+    const revisionId = new URL(request.url).searchParams.get('revision')
+    if (revisionId) {
+      if (revisionId.length > 128) return NextResponse.json({ error: 'Invalid accepted Smali revision' }, { status: 400 })
+      const revision = await prisma.reamonCodeReview.findFirst({
+        where: { id: revisionId, projectId, artifactId: resolved.unit.artifactId!, codeUnitId, decision: 'ACCEPTED' },
+        select: { id: true, maintainedSourceHash: true, sourceSnapshot: true, createdAt: true },
+      })
+      if (!revision?.sourceSnapshot) {
+        return NextResponse.json({ error: 'This accepted Smali source predates version snapshots or its source is unavailable.' }, { status: 404 })
+      }
+      if (Buffer.byteLength(revision.sourceSnapshot, 'utf8') > MAX_SOURCE_BYTES
+          || createHash('sha256').update(revision.sourceSnapshot).digest('hex') !== revision.maintainedSourceHash) {
+        return NextResponse.json({ error: 'The saved accepted Smali snapshot failed its integrity check.' }, { status: 409 })
+      }
+      return NextResponse.json({
+        sourceCode: revision.sourceSnapshot,
+        sourceHash: revision.maintainedSourceHash,
+        revisionId: revision.id,
+        createdAt: revision.createdAt.toISOString(),
+      }, { headers: { 'Cache-Control': 'private, no-store' } })
+    }
+    const [saved, reviews, restorableReviews] = await Promise.all([
       prisma.reamonMaintainedSource.findUnique({ where: { projectId_codeUnitId: { projectId, codeUnitId } }, select: { sourceCode: true, updatedAt: true } }),
       prisma.reamonCodeReview.findMany({
         where: { projectId, codeUnitId }, orderBy: { createdAt: 'desc' }, take: 10,
         select: { id: true, reviewerId: true, decision: true, rationale: true, maintainedSourceHash: true, validationStatus: true, validationMethod: true, validationMessage: true, createdAt: true },
       }),
+      prisma.reamonCodeReview.findMany({
+        where: { projectId, codeUnitId, decision: 'ACCEPTED', sourceSnapshot: { not: null } },
+        orderBy: { createdAt: 'desc' }, take: 10, select: { id: true },
+      }),
     ])
     const sourceCode = saved?.sourceCode ?? await readFile(resolved.file, 'utf8')
-    return NextResponse.json({ exists: Boolean(saved), sourceCode, sourceHash: saved ? createHash('sha256').update(saved.sourceCode).digest('hex') : null, updatedAt: saved?.updatedAt.toISOString() ?? null, reviews: reviews.map((review) => ({ ...review, createdAt: review.createdAt.toISOString() })) }, { headers: { 'Cache-Control': 'private, no-store' } })
+    const restorableReviewIds = new Set(restorableReviews.map((review) => review.id))
+    const reviewHistory = reviews.map((review) => ({
+      ...review,
+      sourceAvailable: restorableReviewIds.has(review.id),
+      createdAt: review.createdAt.toISOString(),
+    }))
+    return NextResponse.json({ exists: Boolean(saved), sourceCode, sourceHash: saved ? createHash('sha256').update(saved.sourceCode).digest('hex') : null, updatedAt: saved?.updatedAt.toISOString() ?? null, reviews: reviewHistory }, { headers: { 'Cache-Control': 'private, no-store' } })
   } catch (error) {
     console.error('Failed to load editable Smali source:', error)
     return NextResponse.json({ error: 'Failed to load Smali source' }, { status: 500, headers: { 'Cache-Control': 'no-store' } })
@@ -198,6 +229,7 @@ export async function PUT(request: Request, { params }: RouteParams) {
           validationStatus: validation.validation_status,
           validationMethod: validation.validation_method,
           validationMessage: validation.validation_message,
+          sourceSnapshot: sourceCode,
         },
         select: { id: true, createdAt: true, validationStatus: true, validationMethod: true, validationMessage: true },
       })

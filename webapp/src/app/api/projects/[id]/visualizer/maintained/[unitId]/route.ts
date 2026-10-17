@@ -246,7 +246,28 @@ export async function GET(request: Request, { params }: RouteParams) {
     const resolved = await resolveUnit(projectId, unitId)
     if ('response' in resolved) return resolved.response
     const { absolute, fileRealPath } = await checkedPath(resolved.relativePath)
-    const [savedSource, reviews] = await Promise.all([
+    const revisionId = new URL(request.url).searchParams.get('revision')
+    if (revisionId) {
+      if (revisionId.length > 128) return NextResponse.json({ error: 'Invalid accepted source revision' }, { status: 400 })
+      const revision = await prisma.reamonCodeReview.findFirst({
+        where: { id: revisionId, projectId, artifactId: resolved.artifactId, codeUnitId: unitId, decision: 'ACCEPTED' },
+        select: { id: true, maintainedSourceHash: true, sourceSnapshot: true, createdAt: true },
+      })
+      if (!revision?.sourceSnapshot) {
+        return NextResponse.json({ error: 'This accepted source predates version snapshots or its source is unavailable.' }, { status: 404 })
+      }
+      if (Buffer.byteLength(revision.sourceSnapshot, 'utf8') > MAX_SOURCE_BYTES
+          || createHash('sha256').update(revision.sourceSnapshot).digest('hex') !== revision.maintainedSourceHash) {
+        return NextResponse.json({ error: 'The saved accepted source snapshot failed its integrity check.' }, { status: 409 })
+      }
+      return NextResponse.json({
+        sourceCode: revision.sourceSnapshot,
+        sourceHash: revision.maintainedSourceHash,
+        revisionId: revision.id,
+        createdAt: revision.createdAt.toISOString(),
+      }, { headers: { 'Cache-Control': 'private, no-store' } })
+    }
+    const [savedSource, reviews, restorableReviews] = await Promise.all([
       prisma.reamonMaintainedSource.findUnique({
         where: { projectId_codeUnitId: { projectId, codeUnitId: unitId } },
         select: { sourceCode: true, sourceHash: true, acceptedReviewId: true, symbolIndex: true, updatedAt: true },
@@ -257,8 +278,17 @@ export async function GET(request: Request, { params }: RouteParams) {
         take: 10,
         select: { id: true, reviewerId: true, decision: true, rationale: true, maintainedSourceHash: true, validationStatus: true, validationMethod: true, validationMessage: true, createdAt: true },
       }),
+      prisma.reamonCodeReview.findMany({
+        where: { projectId, artifactId: resolved.artifactId, codeUnitId: unitId, decision: 'ACCEPTED', sourceSnapshot: { not: null } },
+        orderBy: { createdAt: 'desc' }, take: 10, select: { id: true },
+      }),
     ])
-    const reviewHistory = reviews.map((review) => ({ ...review, createdAt: review.createdAt.toISOString() }))
+    const restorableReviewIds = new Set(restorableReviews.map((review) => review.id))
+    const reviewHistory = reviews.map((review) => ({
+      ...review,
+      sourceAvailable: restorableReviewIds.has(review.id),
+      createdAt: review.createdAt.toISOString(),
+    }))
     if (savedSource) {
       if (new URL(request.url).searchParams.get('download') === '1') {
         return new NextResponse(savedSource.sourceCode, {
@@ -587,6 +617,7 @@ export async function PUT(request: Request, { params }: RouteParams) {
           validationStatus: validation.validation_status,
           validationMethod: validation.validation_method,
           validationMessage: validation.validation_message,
+          sourceSnapshot: sourceCode,
         },
         select: { id: true, reviewerId: true, decision: true, rationale: true, maintainedSourceHash: true, validationStatus: true, validationMethod: true, validationMessage: true, createdAt: true },
       })
