@@ -5,6 +5,8 @@ import { AgentUnreachableError, agentFetch } from '@/lib/agentFetch'
 const MAX_BATCH_SIZE = 5
 const MAX_DEPENDENCY_CANDIDATES = 100
 const MAX_DEPENDENCY_EDGES = 20_000
+const MAX_CALLEE_EDGE_SCAN = 100_000
+const CALLEE_EDGE_PAGE_SIZE = 512
 const MAX_RESULT_BYTES = 128 * 1024
 const REWRITE_LEASE_GRACE_MS = 60_000
 const MAX_REWRITE_TIMEOUT_MS = 5 * 60_000
@@ -29,12 +31,16 @@ async function hasPendingCalleeAttempt(input: {
   scope: string
 }): Promise<boolean> {
   if (input.scope === 'member') return false
-  try {
-    const unit = await prisma.reamonObservation.findFirst({
-      where: { id: input.codeUnitId, projectId: input.projectId, artifactId: input.artifactId, kind: 'entity', type: 'code_unit' },
-      select: { taskId: true, source: true, stableKey: true },
-    })
-    if (!unit?.taskId || !unit.stableKey) return false
+  const unit = await prisma.reamonObservation.findFirst({
+    where: { id: input.codeUnitId, projectId: input.projectId, artifactId: input.artifactId, kind: 'entity', type: 'code_unit' },
+    select: { taskId: true, source: true, stableKey: true },
+  })
+  if (!unit?.taskId || !unit.stableKey) return false
+
+  let scanned = 0
+  let cursor: string | undefined
+  while (scanned < MAX_CALLEE_EDGE_SCAN) {
+    const pageLimit = Math.min(CALLEE_EDGE_PAGE_SIZE, MAX_CALLEE_EDGE_SCAN - scanned)
     const edges = await prisma.reamonObservation.findMany({
       where: {
         projectId: input.projectId,
@@ -48,10 +54,13 @@ async function hasPendingCalleeAttempt(input: {
           { attributes: { path: ['fromCodeUnitKey'], equals: unit.stableKey } },
         ],
       },
-      select: { fromKey: true, toKey: true, attributes: true },
-      take: MAX_DEPENDENCY_EDGES + 1,
+      select: { id: true, fromKey: true, toKey: true, attributes: true },
+      orderBy: { id: 'asc' },
+      take: pageLimit,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
     })
-    if (edges.length > MAX_DEPENDENCY_EDGES) return false
+    if (!edges.length) return false
+    scanned += edges.length
     const calleeKeys = new Set<string>()
     for (const edge of edges) {
       const attributes = record(edge.attributes)
@@ -61,34 +70,36 @@ async function hasPendingCalleeAttempt(input: {
         : typeof attributes.toCodeUnitKey === 'string' ? attributes.toCodeUnitKey : edge.toKey
       if (targetKey && targetKey !== unit.stableKey) calleeKeys.add(targetKey)
     }
-    if (!calleeKeys.size) return false
-    const callees = await prisma.reamonObservation.findMany({
-      where: {
-        projectId: input.projectId,
-        artifactId: input.artifactId,
-        taskId: unit.taskId,
-        source: unit.source,
-        kind: 'entity',
-        type: 'code_unit',
-        stableKey: { in: [...calleeKeys] },
-      },
-      select: { id: true },
-    })
-    const calleeIds = callees.map((callee) => callee.id).filter((id) => id !== input.codeUnitId)
-    if (!calleeIds.length) return false
-    return Boolean(await prisma.reamonCodeAttempt.findFirst({
-      where: {
-        projectId: input.projectId,
-        artifactId: input.artifactId,
-        codeUnitId: { in: calleeIds },
-        status: { in: ['QUEUED', 'RUNNING'] },
-      },
-      select: { id: true },
-    }))
-  } catch {
-    // If the persisted graph cannot be read, leave FIFO dispatch available.
-    return false
+    if (calleeKeys.size) {
+      const callees = await prisma.reamonObservation.findMany({
+        where: {
+          projectId: input.projectId,
+          artifactId: input.artifactId,
+          taskId: unit.taskId,
+          source: unit.source,
+          kind: 'entity',
+          type: 'code_unit',
+          stableKey: { in: [...calleeKeys] },
+        },
+        select: { id: true },
+      })
+      const calleeIds = callees.map((callee) => callee.id).filter((id) => id !== input.codeUnitId)
+      if (calleeIds.length && await prisma.reamonCodeAttempt.findFirst({
+        where: {
+          projectId: input.projectId,
+          artifactId: input.artifactId,
+          codeUnitId: { in: calleeIds },
+          status: { in: ['QUEUED', 'RUNNING'] },
+        },
+        select: { id: true },
+      })) return true
+    }
+    cursor = edges[edges.length - 1].id
+    if (edges.length < pageLimit) return false
   }
+
+  // A pathological unit exceeded the bounded scan, so readiness cannot be proven.
+  return true
 }
 
 async function orderQueuedAttempts<T extends {
