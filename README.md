@@ -122,8 +122,10 @@ for isolated JVM `.class`/`.jar` alternatives,
 [WABT](https://github.com/WebAssembly/wabt). Python bytecode uses the MIT-licensed
 [pycdc](https://github.com/ejfkdev/pycdc) 0.6.0 CLI in an isolated analyzer;
 its broad version support and reconstruction quality still need REAmon fixture
-validation. [PyLingual](https://github.com/syssec-utd/pylingual) remains an
-alternative for comparison, with a GPL-3.0 license and a larger local ML runtime.
+validation. [PyLingual](https://github.com/syssec-utd/pylingual) is a planned
+Python comparison path: upstream currently advertises CPython 3.6–3.15, but its
+GPL-3.0-only license, Python 3.12+ runtime, model downloads, and floating model
+revisions need deliberate packaging and provenance work first.
 JavaScript bundles use the MIT-licensed [webcrack](https://github.com/j4k0xb/webcrack)
 2.16.0 package in an isolated Node.js analyzer. Its AST-based transforms and
 bundle extraction are a starting point for project-level source recovery, not a
