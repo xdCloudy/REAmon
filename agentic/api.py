@@ -1042,8 +1042,9 @@ def _reamon_tree_sitter_source_index(
     source_code: str,
     language: str,
     *,
+    include_symbols: bool = True,
     include_members: bool = True,
-) -> tuple[list[str], list[dict[str, Any]], bool] | None:
+) -> tuple[list[str], list[dict[str, Any]], bool, bool] | None:
     """Build project symbols and callable outlines from one syntax tree."""
     try:
         root = parser.parse(source_code.encode("utf-8")).root_node
@@ -1060,7 +1061,7 @@ def _reamon_tree_sitter_source_index(
         while stack:
             node = stack.pop()
             node_type = node.type.lower()
-            if any(marker in node_type for marker in declaration_markers) and not any(marker in node_type for marker in excluded_markers):
+            if include_symbols and any(marker in node_type for marker in declaration_markers) and not any(marker in node_type for marker in excluded_markers):
                 name = _reamon_member_name(node, language) or _reamon_declared_name(node)
                 if name and len(name) <= 128:
                     symbols.add(name)
@@ -1083,7 +1084,7 @@ def _reamon_tree_sitter_source_index(
                             members_truncated = True
             stack.extend(reversed(node.named_children))
         members.sort(key=lambda member: (member["start_byte"], member["end_byte"]))
-        return sorted(symbols, key=str.casefold)[:512], members, members_truncated
+        return sorted(symbols, key=str.casefold)[:512], members, members_truncated, root.has_error
     except Exception as exc:  # noqa: BLE001
         logger.debug(f"REAmon source indexing unavailable for {language}: {exc}")
         return None
@@ -1389,37 +1390,18 @@ def _reamon_callable_contract(parser, source: str, language: str) -> dict[str, A
     return None
 
 
-def _reamon_member_outline(parser, source: str, language: str, limit: int = 10_000) -> tuple[list[dict[str, Any]], bool]:
-    try:
-        encoded = source.encode("utf-8")
-        root = parser.parse(encoded).root_node
-        members = []
-        truncated = False
-        stack = [root]
-        while stack:
-            node = stack.pop()
-            kind = _reamon_member_kind(node, language)
-            body = node.child_by_field_name("body") if kind else None
-            if kind and body is not None:
-                name = _reamon_member_name(node, language)
-                if name:
-                    if len(members) < limit:
-                        members.append({
-                            "name": name,
-                            "kind": kind,
-                            "start_byte": node.start_byte,
-                            "end_byte": node.end_byte,
-                            "line": node.start_point[0] + 1,
-                            "source_bytes": node.end_byte - node.start_byte,
-                        })
-                    else:
-                        truncated = True
-            stack.extend(reversed(node.named_children))
-        members.sort(key=lambda member: (member["start_byte"], member["end_byte"]))
-        return members, truncated
-    except Exception as exc:  # noqa: BLE001
-        logger.debug(f"REAmon member outline unavailable for {language}: {exc}")
-        return [], False
+def _reamon_member_outline(parser, source: str, language: str, limit: int = 10_000) -> tuple[list[dict[str, Any]], bool, bool]:
+    indexed = _reamon_tree_sitter_source_index(
+        parser,
+        source,
+        language,
+        include_symbols=False,
+        include_members=True,
+    )
+    if indexed is None:
+        return [], False, False
+    _, members, truncated, has_errors = indexed
+    return members[:limit], truncated or len(members) > limit, has_errors
 
 
 class ReamonCodeOutlineRequest(BaseModel):
@@ -1434,8 +1416,8 @@ async def outline_reamon_code(body: ReamonCodeOutlineRequest):
     parser = _reamon_source_parser(body.language)
     if parser is None:
         return JSONResponse(content={"error": f"{body.language} source parsing is unavailable"}, status_code=415)
-    members, truncated = _reamon_member_outline(parser, body.source_code, body.language)
-    if not members and parser.parse(body.source_code.encode("utf-8")).root_node.has_error:
+    members, truncated, has_errors = _reamon_member_outline(parser, body.source_code, body.language)
+    if not members and has_errors:
         return JSONResponse(content={"error": f"The {body.language} source could not be parsed into functions or methods"}, status_code=422)
     try:
         parser_version = package_version("tree-sitter-language-pack")
@@ -1472,7 +1454,7 @@ async def index_reamon_code_symbols(body: ReamonCodeIndexSymbolsRequest):
     indexed = _reamon_tree_sitter_source_index(parser, body.source_code, body.language)
     if indexed is None:
         return {"indexed": False, "symbols": [], "members": [], "truncated": False, "parserVersion": None}
-    symbols, members, truncated = indexed
+    symbols, members, truncated, _ = indexed
     try:
         parser_version = package_version("tree-sitter-language-pack")
     except PackageNotFoundError:
