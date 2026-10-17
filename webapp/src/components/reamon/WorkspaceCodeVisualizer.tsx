@@ -162,11 +162,10 @@ interface ReviewDiff { rows: ReviewDiffRow[]; added: number; removed: number; tr
 function sourceLineCount(source: string): number {
   let lines = 1
   for (let index = 0; index < source.length; index += 1) {
-    if (source[index] === '\r\n') lines += 1
-    else if (source[index] === '\r\n') {
+    if (source[index] === '\r') {
       lines += 1
-      if (source[index + 1] === '\r\n') index += 1
-    }
+      if (source[index + 1] === '\n') index += 1
+    } else if (source[index] === '\n') lines += 1
   }
   return lines
 }
