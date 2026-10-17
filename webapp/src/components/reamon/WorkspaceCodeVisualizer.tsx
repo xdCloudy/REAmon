@@ -245,9 +245,9 @@ function FunctionControlFlowPanel({
 }) {
   const graph = query.data
   const columns = Math.min(4, Math.max(1, graph?.blocks.length || 1))
-  const nodeWidth = 200
+  const nodeWidth = 220
   const columnGap = 30
-  const rowHeight = 92
+  const rowHeight = 108
   const width = columns * (nodeWidth + columnGap) + 10
   const rows = Math.ceil((graph?.blocks.length || 1) / columns)
   const height = rows * rowHeight + 16
@@ -281,7 +281,7 @@ function FunctionControlFlowPanel({
             const to = positions.get(edge.to)
             if (!from || !to) return null
             const startX = from.x + nodeWidth / 2
-            const startY = from.y + 56
+            const startY = from.y + 78
             const endX = to.x + nodeWidth / 2
             const endY = to.y
             const middleY = (startY + endY) / 2
@@ -308,9 +308,13 @@ function FunctionControlFlowPanel({
                 }
               } : undefined}
             >
-              <rect x={position.x} y={position.y} width={nodeWidth} height={58} rx={8} />
+              <rect x={position.x} y={position.y} width={nodeWidth} height={78} rx={8} />
               <text x={position.x + 12} y={position.y + 21}>Block {block.id} · {block.kind}</text>
               <text x={position.x + 12} y={position.y + 41}>{block.instructionCount} {graph.instructionLabel}</text>
+              {block.address && <>
+                <text x={position.x + 12} y={position.y + 62}>{block.address.slice(0, 30)}</text>
+                <title>{`Block ${block.id} begins at ${block.address}`}</title>
+              </>}
             </g>
           })}
         </svg>
