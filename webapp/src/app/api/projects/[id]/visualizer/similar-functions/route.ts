@@ -35,6 +35,24 @@ function instructionMnemonics(value: unknown): string[] {
     typeof item === 'string' && /^[A-Za-z][A-Za-z0-9_./-]{0,31}$/.test(item))
 }
 
+function controlFlowMetrics(value: unknown): SimilarInstructionFunction['controlFlowMetrics'] {
+  if (typeof value !== 'string' || value.length > 512) return undefined
+  try {
+    const metrics = JSON.parse(value) as Record<string, unknown>
+    const counts = ['blockCount', 'edgeCount', 'entryBlockCount', 'exitBlockCount'] as const
+    if (metrics.version !== 'ghidra-basic-blocks-v1' || typeof metrics.truncated !== 'boolean'
+        || !counts.every((key) => Number.isSafeInteger(metrics[key])
+          && typeof metrics[key] === 'number' && (metrics[key] as number) >= 0 && (metrics[key] as number) <= 1_000_000)) return undefined
+    return {
+      blockCount: metrics.blockCount as number,
+      edgeCount: metrics.edgeCount as number,
+      entryBlockCount: metrics.entryBlockCount as number,
+      exitBlockCount: metrics.exitBlockCount as number,
+      truncated: metrics.truncated,
+    }
+  } catch { return undefined }
+}
+
 function functionFeatures(row: { id: string; stableKey: string; label: string | null; attributes: unknown }): SimilarInstructionFunction {
   const attributes = attributesRecord(row.attributes)
   return {
@@ -42,6 +60,7 @@ function functionFeatures(row: { id: string; stableKey: string; label: string | 
     name: (typeof attributes.qualifiedName === 'string' && attributes.qualifiedName) || row.label || 'Unknown function',
     address: typeof attributes.address === 'string' ? attributes.address : null,
     mnemonics: instructionMnemonics(attributes.instructionMnemonics),
+    controlFlowMetrics: controlFlowMetrics(attributes.controlFlowMetrics),
   }
 }
 
@@ -73,7 +92,7 @@ export async function GET(request: Request, { params }: RouteParams) {
     })
     const providerId = task?.provider?.pluginId
     if (!task?.artifactId || (providerId !== 'reamon-ghidra' && providerId !== 'reamon-kuna' && providerId !== 'reamon-wabt' && providerId !== 'reamon-jadx' && providerId !== 'reamon-ilspy' && providerId !== 'reamon-dex-decompiler' && providerId !== 'reamon-unluac-rs')) {
-      return NextResponse.json({ error: 'Instruction-pattern matches are unavailable for this analysis run' }, { status: 404, headers: MAX_NO_STORE })
+      return NextResponse.json({ error: 'Similar-function matches are unavailable for this analysis run' }, { status: 404, headers: MAX_NO_STORE })
     }
 
     const nativeSources = providerId === 'reamon-ghidra' || providerId === 'reamon-kuna'

@@ -7,6 +7,13 @@ export interface SimilarInstructionFunction {
   name: string
   address: string | null
   mnemonics: string[]
+  controlFlowMetrics?: {
+    blockCount: number
+    edgeCount: number
+    entryBlockCount: number
+    exitBlockCount: number
+    truncated: boolean
+  }
 }
 
 export interface RankedSimilarInstructionFunction extends SimilarInstructionFunction {
@@ -85,6 +92,20 @@ function orderedSimilarity(leftInput: string[], rightInput: string[]): number {
   return (2 * matchingInstructions) / (left.length + right.length)
 }
 
+function controlFlowSimilarity(
+  left: SimilarInstructionFunction['controlFlowMetrics'],
+  right: SimilarInstructionFunction['controlFlowMetrics'],
+): number | null {
+  if (!left || !right || left.truncated || right.truncated) return null
+  const values: Array<[number, number]> = [
+    [left.blockCount, right.blockCount],
+    [left.edgeCount, right.edgeCount],
+    [left.entryBlockCount, right.entryBlockCount],
+    [left.exitBlockCount, right.exitBlockCount],
+  ]
+  return values.reduce((score, [a, b]) => score + (a === 0 && b === 0 ? 1 : Math.min(a, b) / Math.max(a, b)), 0) / values.length
+}
+
 export function rankSimilarInstructionFunctions(
   target: SimilarInstructionFunction,
   candidates: SimilarInstructionFunction[],
@@ -94,16 +115,25 @@ export function rankSimilarInstructionFunctions(
   const rough = candidates.flatMap((candidate) => {
     const targetLength = target.mnemonics.length
     const candidateLength = candidate.mnemonics.length
-    if (candidate.key === target.key || candidateLength < MIN_FUNCTION_LENGTH
-        || candidateLength / targetLength < 0.6 || candidateLength / targetLength > 1 / 0.6) return []
+    if (candidate.key === target.key || candidateLength < MIN_FUNCTION_LENGTH) return []
+    const controlFlow = controlFlowSimilarity(target.controlFlowMetrics, candidate.controlFlowMetrics)
+    if (controlFlow === null
+        && (candidateLength / targetLength < 0.6 || candidateLength / targetLength > 1 / 0.6)) return []
     const frequency = cosineSimilarity(target.mnemonics, candidate.mnemonics)
-    return frequency >= 0.6 ? [{ candidate, frequency }] : []
-  }).sort((left, right) => right.frequency - left.frequency).slice(0, MAX_ORDERED_CANDIDATES)
+    const shortlistScore = controlFlow === null ? frequency : 0.6 * frequency + 0.4 * controlFlow
+    return shortlistScore >= 0.5 ? [{ candidate, shortlistScore }] : []
+  }).sort((left, right) => right.shortlistScore - left.shortlistScore).slice(0, MAX_ORDERED_CANDIDATES)
 
-  return rough.map(({ candidate }) => ({
-    ...candidate,
-    similarity: orderedSimilarity(target.mnemonics, candidate.mnemonics),
-  })).filter((candidate) => candidate.similarity >= 0.6)
+  return rough.map(({ candidate }) => {
+    const instructionScore = orderedSimilarity(target.mnemonics, candidate.mnemonics)
+    const controlFlowScore = controlFlowSimilarity(target.controlFlowMetrics, candidate.controlFlowMetrics)
+    return {
+      ...candidate,
+      similarity: controlFlowScore === null
+        ? instructionScore
+        : 0.6 * instructionScore + 0.4 * controlFlowScore,
+    }
+  }).filter((candidate) => candidate.similarity >= 0.6)
     .sort((left, right) => right.similarity - left.similarity || left.name.localeCompare(right.name))
     .slice(0, limit)
     .map((candidate) => ({ ...candidate, similarity: Math.round(candidate.similarity * 100) }))
