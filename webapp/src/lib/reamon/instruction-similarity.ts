@@ -123,7 +123,8 @@ export function rankSimilarInstructionFunctions(
         && (candidateLength / targetLength < 0.6 || candidateLength / targetLength > 1 / 0.6)) return []
     const frequency = cosineSimilarity(target.mnemonics, candidate.mnemonics)
     const shortlistScore = controlFlow === null ? frequency : 0.6 * frequency + 0.4 * controlFlow
-    return shortlistScore >= 0.5 ? [{ candidate, shortlistScore }] : []
+    const minimumShortlistScore = controlFlow === null ? 0.6 : 0.5
+    return shortlistScore >= minimumShortlistScore ? [{ candidate, shortlistScore }] : []
   }).sort((left, right) => right.shortlistScore - left.shortlistScore).slice(0, MAX_ORDERED_CANDIDATES)
 
   return rough.map(({ candidate }) => {
