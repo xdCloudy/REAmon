@@ -10,6 +10,15 @@ export interface FlossRecoveredString {
   decodedAt?: string
 }
 
+export interface GhidraControlFlowMetrics {
+  version: 'ghidra-basic-blocks-v1'
+  blockCount: number
+  edgeCount: number
+  entryBlockCount: number
+  exitBlockCount: number
+  truncated: boolean
+}
+
 export interface CodeUnitObservationAttributes {
   unitType: string
   name?: string
@@ -64,6 +73,7 @@ export interface CodeUnitObservationAttributes {
   prototype?: string
   recoveredVariables?: Array<{ kind: 'parameter' | 'local'; name: string; dataType: string; sizeBytes?: number; parameterIndex?: number; storageStartAddress?: string; nameLocked?: boolean; typeLocked?: boolean }>
   recoveredVariablesTruncated?: boolean
+  controlFlowMetrics?: GhidraControlFlowMetrics
   toCodeInputProvenance?: string
   toCodeClaimedInputPath?: string
   toCodeClaimedInputSha256?: string
@@ -134,6 +144,7 @@ export interface CodeUnit {
   prototype?: string | null
   recoveredVariables?: Array<{ kind: 'parameter' | 'local'; name: string; dataType: string; sizeBytes?: number; parameterIndex?: number; storageStartAddress?: string; nameLocked?: boolean; typeLocked?: boolean }>
   recoveredVariablesTruncated?: boolean
+  controlFlowMetrics?: GhidraControlFlowMetrics
   toCodeInputProvenance?: string | null
   toCodeClaimedInputPath?: string | null
   toCodeClaimedInputSha256?: string | null
@@ -158,6 +169,25 @@ function text(value: unknown, maxLength: number): string | null {
 
 function sha256(value: unknown): string | null {
   return typeof value === 'string' && /^[a-f0-9]{64}$/i.test(value) ? value.toLowerCase() : null
+}
+
+function ghidraControlFlowMetricsOf(value: unknown): GhidraControlFlowMetrics | undefined {
+  if (typeof value !== 'string' || value.length > 512) return undefined
+  try {
+    const metrics = attributesOf(JSON.parse(value))
+    const counts = ['blockCount', 'edgeCount', 'entryBlockCount', 'exitBlockCount']
+    if (metrics.version !== 'ghidra-basic-blocks-v1' || typeof metrics.truncated !== 'boolean'
+        || !counts.every((key) => Number.isSafeInteger(metrics[key]) && typeof metrics[key] === 'number'
+          && (metrics[key] as number) >= 0 && (metrics[key] as number) <= 1_000_000)) return undefined
+    return {
+      version: 'ghidra-basic-blocks-v1',
+      blockCount: metrics.blockCount as number,
+      edgeCount: metrics.edgeCount as number,
+      entryBlockCount: metrics.entryBlockCount as number,
+      exitBlockCount: metrics.exitBlockCount as number,
+      truncated: metrics.truncated,
+    }
+  } catch { return undefined }
 }
 
 function finiteNumber(value: unknown): number | null {
@@ -358,6 +388,9 @@ export function normalizeCodeUnit(row: CodeUnitObservationRow, options: { includ
     importedCalls: stringListOf(attributes.importedCalls, 32, 256),
     fieldReferences: stringListOf(attributes.fieldReferences, 32, 512),
     fieldReferencesTruncated: attributes.fieldReferencesTruncated === true,
+    ...(row.source === 'reamon-ghidra'
+      ? { controlFlowMetrics: ghidraControlFlowMetricsOf(attributes.controlFlowMetrics) }
+      : {}),
     ...(options.includeSourceAddressMap ? {
       sourceAddressMap: sourceAddressMapOf(attributes.sourceAddressMap),
       sourceAddressMapProvider: text(attributes.sourceAddressMapProvider, 80),

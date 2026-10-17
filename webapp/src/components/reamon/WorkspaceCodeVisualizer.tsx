@@ -2210,6 +2210,18 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
             <div><dt>Artifact</dt><dd>{selectedUnit.artifactPath || 'Not linked'}</dd></div>
             <div><dt>Provider</dt><dd>{selectedUnit.source}</dd></div>
           </dl>
+          {selectedUnit.controlFlowMetrics && <section className={styles.classReferences} aria-label="Ghidra control-flow structure">
+            <div><strong>Control-flow structure</strong><span>Ghidra BasicBlockModel</span></div>
+            <ul>
+              <li><code>{selectedUnit.controlFlowMetrics.blockCount.toLocaleString()} basic blocks</code></li>
+              <li><code>{selectedUnit.controlFlowMetrics.edgeCount.toLocaleString()} intra-function edges</code></li>
+              <li><code>{selectedUnit.controlFlowMetrics.entryBlockCount.toLocaleString()} entry blocks</code></li>
+              <li><code>{selectedUnit.controlFlowMetrics.exitBlockCount.toLocaleString()} exit blocks</code></li>
+            </ul>
+            <small>{selectedUnit.controlFlowMetrics.truncated
+              ? 'The counts are lower bounds because CFG extraction reached an analysis limit. They describe structure and do not establish function identity or behavioral equivalence.'
+              : 'These counts describe Ghidra’s recovered structure; they do not establish function identity or behavioral equivalence.'}</small>
+          </section>}
           {(selectedUnit.prototype || (selectedUnit.recoveredVariables?.length ?? 0) > 0) && <details className={styles.recoveredVariables}>
             <summary>Recovered signature and variables <span>{(selectedUnit.recoveredVariables?.length ?? 0).toLocaleString()}</span></summary>
             {selectedUnit.prototype && <p><strong>Provider signature</strong><code>{selectedUnit.prototype}</code></p>}
