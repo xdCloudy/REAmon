@@ -195,13 +195,15 @@ separate so a plausible name is never treated as proof of behavior.
   recovery; REAmon still needs its own reproducible fixture results.
 - [rust-analyzer](https://github.com/rust-lang/rust-analyzer) is the Rust
   compiler front-end used by editors, with semantic find-references and rename
-  through LSP. Its MIT/Apache-2.0 licensing and maintained distribution make it a
-  viable source-edit backend for REAmon's Rust maintenance path. Evaluate it through
-  a bounded, temporary Cargo workspace and return source-hash-bound edits to the
-  existing attempt/review database; do not let a standalone MCP or LSP workspace
-  become a second project-memory store. Incomplete project dependencies, macro
-  expansion, and `cfg`-conditional code can make a reference set incomplete, so
-  fail closed and compare against Rust fixtures before offering accepted edits.
+  through LSP. REAmon now packages the official 2026-10-12 Linux release with
+  architecture-specific SHA-256 verification and uses it for conservative local
+  binding catalogs and reviewer-selected renames. A temporary one-file
+  `rust-project.json` workspace keeps results inside REAmon's existing
+  source-hash-bound attempt/review database; it does not create parallel project
+  memory or execute Cargo build scripts/procedural macros. External modules,
+  `cfg` variants, macros, and dependencies remain outside the first slice and need
+  fixture-backed support before edits can span a real Rust workspace. The pinned
+  engine is an edit backend, not a decompiler or behavior-equivalence validator.
 - [unluac-rs](https://github.com/x3zvawq/unluac-rs) is an MIT-licensed Rust
   library/CLI that advertises Lua 5.1–5.5, LuaJIT 2.1, and Luau support. REAmon's
   pinned JS/WASM package now emits strict alternate views across those dialects,

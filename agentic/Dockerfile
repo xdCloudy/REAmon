@@ -93,6 +93,29 @@ RUN arch="${TARGETARCH:-$(dpkg --print-architecture)}" \
         -o /usr/share/licenses/lua-language-server/LICENSE https://raw.githubusercontent.com/LuaLS/lua-language-server/3.19.2/LICENSE \
     && echo "a0a65ffcdc8620548598ce8ac5ce1a7ec36edf3034a5df2d6593e49fcececa64  /usr/share/licenses/lua-language-server/LICENSE" | sha256sum -c -
 
+# rust-analyzer supplies semantic local references and rename edits for Rust.
+# Use the official dated release and verify the architecture-specific asset.
+ENV REAMON_RUST_ANALYZER_VERSION=2026-10-12 \
+    REAMON_RUST_ANALYZER=/usr/local/bin/rust-analyzer
+RUN arch="${TARGETARCH:-$(dpkg --print-architecture)}" \
+    && case "$arch" in \
+         amd64) asset_arch=x86_64; sha=040cab4e2abc490fadd95c3f6cbc60b941a78761dbc3acf0ec66fd7a97f31db3 ;; \
+         arm64) asset_arch=aarch64; sha=d7219d5d8f5537bb227b521157aebddfe7e4a90f4a85a74f31e53722f5691025 ;; \
+         *) echo "unsupported architecture: $arch" >&2; exit 1 ;; \
+       esac \
+    && retry curl -fsSL --retry 5 --retry-delay 5 --retry-all-errors \
+        -o /tmp/rust-analyzer.gz "https://github.com/rust-lang/rust-analyzer/releases/download/${REAMON_RUST_ANALYZER_VERSION}/rust-analyzer-${asset_arch}-unknown-linux-gnu.gz" \
+    && echo "${sha}  /tmp/rust-analyzer.gz" | sha256sum -c - \
+    && gzip -dc /tmp/rust-analyzer.gz > "$REAMON_RUST_ANALYZER" \
+    && chmod 0555 "$REAMON_RUST_ANALYZER" \
+    && rm /tmp/rust-analyzer.gz \
+    && mkdir -p /usr/share/licenses/rust-analyzer \
+    && retry curl -fsSL --retry 5 --retry-delay 5 --retry-all-errors \
+        -o /usr/share/licenses/rust-analyzer/LICENSE-APACHE "https://raw.githubusercontent.com/rust-lang/rust-analyzer/${REAMON_RUST_ANALYZER_VERSION}/LICENSE-APACHE" \
+    && retry curl -fsSL --retry 5 --retry-delay 5 --retry-all-errors \
+        -o /usr/share/licenses/rust-analyzer/LICENSE-MIT "https://raw.githubusercontent.com/rust-lang/rust-analyzer/${REAMON_RUST_ANALYZER_VERSION}/LICENSE-MIT" \
+    && "$REAMON_RUST_ANALYZER" --version
+
 # Pin official PUC-Lua compiler releases for exact-dialect syntax-only checks.
 # Each version gets its own binary so REAmon never validates recovered code
 # against a different Lua grammar by accident.

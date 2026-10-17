@@ -47,6 +47,7 @@ from utils import get_session_count
 from websocket_api import WebSocketManager, websocket_endpoint, MessageType
 from reamon_python_refactor import apply_python_renames, list_python_bindings
 from reamon_lua_refactor import LuaRefactorError, LuaRefactorUnavailable, refactor_source as refactor_lua_source
+from reamon_rust_refactor import apply_rust_renames, list_rust_bindings
 import workspace_fs
 import job_runner
 import ws_job_emitter
@@ -600,6 +601,13 @@ class ReamonPythonRenameRequest(BaseModel):
 
 
 class ReamonGoRefactorRequest(BaseModel):
+    operation: Literal["bindings", "rename"]
+    source_code: str
+    expected_sha256: str = ""
+    renames: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class ReamonRustRefactorRequest(BaseModel):
     operation: Literal["bindings", "rename"]
     source_code: str
     expected_sha256: str = ""
@@ -1528,6 +1536,31 @@ async def refactor_reamon_go_source(body: ReamonGoRefactorRequest):
     if payload.get("status"):
         return JSONResponse(content={"error": str(payload.get("error", "Go scope analysis failed"))[:300]}, status_code=int(payload["status"]))
     return payload
+
+
+@app.post("/reamon/code/rust/refactor", tags=["REAmon"], dependencies=[Depends(require_internal_auth)])
+async def refactor_reamon_rust_source(body: ReamonRustRefactorRequest):
+    if len(body.source_code.encode("utf-8")) > 512 * 1024 or len(body.renames) > 80:
+        return JSONResponse(content={"error": "The Rust refactor request exceeds its size or candidate limit"}, status_code=413)
+    if body.operation == "rename" and not re.fullmatch(r"[a-f0-9]{64}", body.expected_sha256, re.IGNORECASE):
+        return JSONResponse(content={"error": "A valid source SHA-256 is required"}, status_code=400)
+    try:
+        if body.operation == "bindings":
+            return await asyncio.wait_for(list_rust_bindings(body.source_code), timeout=90)
+        return await asyncio.wait_for(apply_rust_renames(
+            body.source_code, body.expected_sha256, body.renames,
+        ), timeout=90)
+    except FileNotFoundError:
+        return JSONResponse(content={"error": "The pinned rust-analyzer service is unavailable"}, status_code=503)
+    except RuntimeError as exc:
+        return JSONResponse(content={"error": str(exc)[:300]}, status_code=503)
+    except ValueError as exc:
+        return JSONResponse(content={"error": str(exc)[:300]}, status_code=409 if body.operation == "rename" else 422)
+    except asyncio.TimeoutError:
+        return JSONResponse(content={"error": "Rust semantic analysis exceeded its time limit"}, status_code=504)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug(f"REAmon Rust semantic refactor failed: {exc}")
+        return JSONResponse(content={"error": "rust-analyzer could not safely analyze the selected Rust bindings"}, status_code=422)
 
 
 @app.post("/reamon/code/lua/refactor", tags=["REAmon"], dependencies=[Depends(require_internal_auth)])
