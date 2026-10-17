@@ -8,6 +8,8 @@ import { McpToolError } from '@/lib/mcp/errors'
 import { getActiveWorkspaceImportSelection } from '@/lib/reamon/inventory-query'
 import { CODE_UNIT_OBSERVATION_TYPE, flossRecoveredStringsOf, providerVariablesOf } from '@/lib/reamon/code-units'
 import { derivedArtifactRoot, resolveDerivedArtifactPath } from '@/lib/reamon/derived-storage'
+import { buildProjectSymbolContext } from '@/lib/reamon/maintenance-memory'
+import { nativeAddressAliases, nativeFunctionIdentity } from '@/lib/reamon/native-function-identity'
 import { enforceRate, type McpContext } from '@/lib/mcp/tools'
 
 const DEFAULT_LIMIT = 50
@@ -18,6 +20,7 @@ const MAX_REIPA_BYTES = 128 * 1024
 const MAX_RELATIONSHIPS = 100
 const MAX_PROVIDER_ALTERNATES = 3
 const MAX_PROVIDER_ALTERNATE_BYTES = 16 * 1024
+const MAX_PROJECT_MEMORY_MATCHES = 100
 const CODE_UNIT_TYPES = [CODE_UNIT_OBSERVATION_TYPE, 'function']
 const REFERENCE_RELATIONSHIP_TYPES = ['reads_field', 'writes_field', 'references_field', 'references_string']
 const REIPA_PROVIDER_VERSION = 'ReIPA@b0d4759451ed20796892a059fa53d9dbb130af61'
@@ -423,7 +426,6 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
   const disassemblyArtifactId = text(attributes.disassemblyArtifactId, 2000)
   const bytecodeArtifactId = text(attributes.bytecodeArtifactId, 2000)
   const rawEvidenceArtifactId = text(attributes.rawEvidenceArtifactId, 2000)
-  const codeUnitIdentity = text(attributes.identity, 1000)
   const classUnitEdgeFilters = unit.type === CODE_UNIT_OBSERVATION_TYPE ? [
     { attributes: { path: ['fromCodeUnitKey'], equals: unit.stableKey } },
     { attributes: { path: ['toCodeUnitKey'], equals: unit.stableKey } },
@@ -431,6 +433,9 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
   const classReferenceFilters = unit.type === CODE_UNIT_OBSERVATION_TYPE
     ? [{ attributes: { path: ['fromCodeUnitKey'], equals: unit.stableKey } }]
     : []
+  const currentAddress = text(attributes.address ?? attributes.startAddress, 128) || ''
+  const currentNativeIdentity = unit.artifactId ? nativeFunctionIdentity(unit.artifactId, currentAddress) : null
+  const currentAddressAliases = nativeAddressAliases(currentAddress)
   const [code, disassembly, bytecode, rawEvidence, task, edges, referenceEdges, maintained, providerTypeMetadataRow, providerAlternateRows] = await Promise.all([
     readDerivedText(codeArtifactId, args.projectId, unit.artifactId),
     readDerivedText(disassemblyArtifactId, args.projectId, unit.artifactId),
@@ -493,7 +498,7 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
       },
       select: { attributes: true },
     }) : null,
-    unit.type === CODE_UNIT_OBSERVATION_TYPE && unit.artifactId && codeUnitIdentity
+    unit.type === CODE_UNIT_OBSERVATION_TYPE && unit.artifactId
       && unit.artifact?.sha256 && /^[a-f0-9]{64}$/i.test(unit.artifact.sha256)
       ? prisma.reamonObservation.findMany({
         where: {
@@ -503,18 +508,54 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
           kind: 'entity',
           id: { not: unit.id },
           source: { not: unit.source },
-          canonicalKey: unit.canonicalKey,
-          task: { is: { status: 'COMPLETED' } },
-          attributes: { path: ['identity'], equals: codeUnitIdentity },
+          task: { is: { status: 'COMPLETED', capability: 'decompile' } },
+          AND: [{ attributes: { path: ['inputArtifactSha256'], equals: unit.artifact.sha256 } }],
+          OR: [
+            { canonicalKey: unit.canonicalKey },
+            ...(currentNativeIdentity ? [
+              { attributes: { path: ['identity'], equals: currentNativeIdentity } },
+              ...currentAddressAliases.flatMap((address) => [
+                { attributes: { path: ['address'], equals: address } },
+                { attributes: { path: ['startAddress'], equals: address } },
+              ]),
+            ] : []),
+          ],
         },
         orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
-        take: MAX_PROVIDER_ALTERNATES,
-        select: { stableKey: true, source: true, label: true, taskId: true, attributes: true },
+        take: MAX_PROJECT_MEMORY_MATCHES,
+        select: { id: true, stableKey: true, source: true, label: true, taskId: true, attributes: true },
       })
       : [],
   ])
+  const alternateProviderByUnitId = new Map(providerAlternateRows.map((row) => [row.id, row.source]))
+  const alternateMaintainedRows = providerAlternateRows.length ? await prisma.reamonMaintainedSource.findMany({
+    where: { projectId: args.projectId, artifactId: unit.artifactId || '', codeUnitId: { in: providerAlternateRows.map((row) => row.id) } },
+    select: { codeUnitId: true, artifactId: true, unitName: true, language: true, sourceHash: true, acceptedReviewId: true, symbolIndex: true, updatedAt: true },
+    orderBy: { updatedAt: 'desc' },
+  }) : []
+  const alternateReviewIds = [...new Set(alternateMaintainedRows.flatMap((row) => row.acceptedReviewId ? [row.acceptedReviewId] : []))]
+  const alternateReviews = alternateReviewIds.length ? await prisma.reamonCodeReview.findMany({
+    where: { projectId: args.projectId, id: { in: alternateReviewIds }, decision: 'ACCEPTED' },
+    select: { id: true, artifactId: true, codeUnitId: true, maintainedSourceHash: true },
+  }) : []
+  const alternateReviewById = new Map(alternateReviews.map((review) => [review.id, review]))
+  const acceptedAlternateRows = alternateMaintainedRows.filter((row) => {
+    if (!row.sourceHash || !row.acceptedReviewId) return false
+    const receipt = alternateReviewById.get(row.acceptedReviewId)
+    return receipt?.artifactId === row.artifactId
+      && receipt.codeUnitId === row.codeUnitId
+      && receipt.maintainedSourceHash === row.sourceHash
+  })
+  const acceptedCrossProviderProjectMemory = buildProjectSymbolContext(acceptedAlternateRows.map((row) => ({
+    ...row,
+    artifactHash: unit.artifact?.sha256 || undefined,
+    functionIdentity: unit.canonicalKey,
+    provider: alternateProviderByUnitId.get(row.codeUnitId),
+  })), new Set(), 3_500, unit.artifact?.sha256 || undefined, new Set(),
+  providerAlternateRows.length >= MAX_PROJECT_MEMORY_MATCHES, undefined, unit.canonicalKey)
   const providerAlternates = []
   for (const alternate of providerAlternateRows) {
+    if (providerAlternates.length >= MAX_PROVIDER_ALTERNATES) break
     const alternateAttributes = record(alternate.attributes)
     const inputHash = text(alternateAttributes.inputArtifactSha256, 64)?.toLowerCase()
     const outputHash = text(alternateAttributes.codeArtifactSha256, 64)?.toLowerCase()
@@ -541,7 +582,7 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
       outputSha256: outputHash,
       sourceCode: boundedSource,
       sourceCodeTruncated: codeBuffer.length > MAX_PROVIDER_ALTERNATE_BYTES || alternateCode.truncated,
-      semantics: 'Completed output from a different provider for the same imported binary and canonical native function address. Input and saved-output SHA-256 values were checked. This is an independent analysis view, not verified original source, accepted maintained code, or proof of equivalent behavior.',
+      semantics: 'Completed output from a different provider for the same imported binary and persisted canonical function identity. Input and saved-output SHA-256 values were checked. This is an independent analysis view, not verified original source, accepted maintained code, or proof of equivalent behavior.',
     })
   }
   const reviewReceipt = maintained?.acceptedReviewId && maintained.sourceHash ? await prisma.reamonCodeReview.findFirst({
@@ -691,7 +732,12 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
       decompilerVersion: text(attributes.decompilerVersion, 120),
       providerAlternates,
       providerAlternatesSemantics: providerAlternates.length
-        ? 'Each alternate is from a distinct completed provider run for this exact artifact and canonical native address, with input and output hashes verified. Treat differences as evidence to review; do not infer that either output is original source or behaviorally equivalent.'
+        ? 'Each alternate is from a completed provider run for this exact artifact and persisted canonical function identity, with input and output hashes verified. Treat differences as evidence to review; do not infer that either output is original source or behaviorally equivalent.'
+        : null,
+      acceptedCrossProviderProjectMemory: acceptedCrossProviderProjectMemory || null,
+      acceptedCrossProviderProjectMemoryTruncated: providerAlternateRows.length >= MAX_PROJECT_MEMORY_MATCHES,
+      acceptedCrossProviderProjectMemorySemantics: acceptedCrossProviderProjectMemory
+        ? 'Names and callable summaries come from maintained source whose immutable accepted review receipt matches its exact source hash. The selected and accepted units share a persisted canonical identity in the same imported binary and the contributing analysis completed; provider identity is evidence, not proof of behavior.'
         : null,
       nameEvidence: text(attributes.nameEvidence, 80),
       dialect: text(attributes.dialect, 40),
