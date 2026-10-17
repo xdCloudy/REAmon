@@ -155,12 +155,26 @@ interface SafeRenameSuggestions { sourceSha256: string; providerId: string; prov
 interface ReviewDiffRow { kind: 'added' | 'removed'; text: string; beforeLine: number | null; afterLine: number | null }
 interface ReviewDiff { rows: ReviewDiffRow[]; added: number; removed: number; truncated: boolean; unavailable: boolean }
 
+function sourceLineCount(source: string): number {
+  let lines = 1
+  for (let index = 0; index < source.length; index += 1) {
+    if (source[index] === '\n') lines += 1
+    else if (source[index] === '\r') {
+      lines += 1
+      if (source[index + 1] === '\n') index += 1
+    }
+  }
+  return lines
+}
+
 function buildReviewDiff(before: string, after: string): ReviewDiff {
+  const beforeLineCount = sourceLineCount(before)
+  const afterLineCount = sourceLineCount(after)
+  const columns = afterLineCount + 1
+  const cells = (beforeLineCount + 1) * columns
+  if (cells > 1_000_000) return { rows: [], added: 0, removed: 0, truncated: false, unavailable: true }
   const beforeLines = before.replace(/\r\n?/g, '\n').split('\n')
   const afterLines = after.replace(/\r\n?/g, '\n').split('\n')
-  const columns = afterLines.length + 1
-  const cells = (beforeLines.length + 1) * columns
-  if (cells > 1_000_000) return { rows: [], added: 0, removed: 0, truncated: false, unavailable: true }
   const lengths = new Uint32Array(cells)
   for (let beforeIndex = beforeLines.length - 1; beforeIndex >= 0; beforeIndex -= 1) {
     for (let afterIndex = afterLines.length - 1; afterIndex >= 0; afterIndex -= 1) {
