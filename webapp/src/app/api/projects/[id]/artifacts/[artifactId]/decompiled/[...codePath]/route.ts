@@ -60,13 +60,16 @@ export async function GET(_request: Request, { params }: RouteParams) {
       ? linkedCodeUnit.attributes as Record<string, unknown>
       : {}
     const isCodeSource = sourceAttributes.codeArtifactId === relativePath
-    const storedSourceHash = sourceAttributes.codeArtifactSha256 ?? sourceAttributes.decompiledSourceSha256
-    const expectedSourceHash = isCodeSource && typeof storedSourceHash === 'string'
+    const isDisassembly = sourceAttributes.disassemblyArtifactId === relativePath
+    const storedSourceHash = isCodeSource
+      ? sourceAttributes.codeArtifactSha256 ?? sourceAttributes.decompiledSourceSha256
+      : isDisassembly ? sourceAttributes.disassemblyArtifactSha256 : undefined
+    const expectedSourceHash = (isCodeSource || isDisassembly) && typeof storedSourceHash === 'string'
       ? storedSourceHash.toLowerCase()
       : null
-    if (isCodeSource && storedSourceHash !== undefined
+    if ((isCodeSource || isDisassembly) && storedSourceHash !== undefined
       && (expectedSourceHash === null || !/^[a-f0-9]{64}$/.test(expectedSourceHash))) {
-      return NextResponse.json({ error: 'Stored source integrity metadata is invalid' }, { status: 409, headers: { 'Cache-Control': 'no-store' } })
+      return NextResponse.json({ error: 'Stored artifact integrity metadata is invalid' }, { status: 409, headers: { 'Cache-Control': 'no-store' } })
     }
 
     const configuredRoot = derivedArtifactRoot()
@@ -82,7 +85,7 @@ export async function GET(_request: Request, { params }: RouteParams) {
     const bytes = await readFile(fileRealPath)
     const actualSourceHash = createHash('sha256').update(bytes).digest('hex')
     if (expectedSourceHash && actualSourceHash !== expectedSourceHash) {
-      return NextResponse.json({ error: 'Stored source does not match its recorded SHA-256' }, { status: 409, headers: { 'Cache-Control': 'no-store' } })
+      return NextResponse.json({ error: 'Stored artifact does not match its recorded SHA-256' }, { status: 409, headers: { 'Cache-Control': 'no-store' } })
     }
     return new NextResponse(new Uint8Array(bytes), {
       headers: {
