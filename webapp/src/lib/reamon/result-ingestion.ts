@@ -22,11 +22,14 @@ function boundedString(value: unknown, maxLength: number): string | null {
   return typeof value === 'string' && value.trim() ? value.trim().slice(0, maxLength) : null
 }
 
-function asAttributes(value: unknown): ObservationAttributes {
+function asAttributes(value: unknown, preferredKeys: readonly string[] = []): ObservationAttributes {
   const record = asRecord(value)
   if (!record) return {}
   const attributes: ObservationAttributes = {}
-  for (const [key, rawValue] of Object.entries(record).slice(0, MAX_OBSERVATION_ATTRIBUTES)) {
+  const preferred = preferredKeys.flatMap((key) => Object.hasOwn(record, key) ? [[key, record[key]] as const] : [])
+  const preferredSet = new Set(preferredKeys)
+  const entries = [...preferred, ...Object.entries(record).filter(([key]) => !preferredSet.has(key))]
+  for (const [key, rawValue] of entries.slice(0, MAX_OBSERVATION_ATTRIBUTES)) {
     const boundedKey = boundedString(key, 128)
     if (!boundedKey) continue
     if (rawValue === null || typeof rawValue === 'string' || typeof rawValue === 'boolean') {
@@ -87,7 +90,19 @@ function normalizeObservation(value: unknown): ToolObservation | null {
     toKey: boundedString(record.toKey, 256) || undefined,
     fromCanonicalKey: boundedString(record.fromCanonicalKey, 512) || undefined,
     toCanonicalKey: boundedString(record.toCanonicalKey, 512) || undefined,
-    attributes: asAttributes(record.attributes),
+    attributes: asAttributes(record.attributes, type.toLowerCase() === 'code_unit' ? [
+      'codeArtifactId',
+      'relativePath',
+      'language',
+      'inputArtifactSha256',
+      'codeArtifactSha256',
+      'decompiledSourceSha256',
+      'unitType',
+      'qualifiedName',
+      'name',
+      'address',
+      'sizeBytes',
+    ] : []),
   }
   if (kind === 'relationship' && (!observation.fromKey || !observation.toKey)) return null
   return observation
