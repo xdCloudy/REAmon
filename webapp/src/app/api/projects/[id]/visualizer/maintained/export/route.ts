@@ -16,9 +16,30 @@ const MAX_CODE_UNITS = 25_000
 const MAX_DRAFT_ROWS = 50_000
 const MAX_SOURCE_BYTES = 2 * 1024 * 1024
 const MAX_ARCHIVE_SOURCE_BYTES = 512 * 1024 * 1024
+const MAX_NATIVE_ANNOTATION_BYTES = 8 * 1024 * 1024
 
 function plainObject(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+}
+
+function maintainedSymbolNames(value: unknown): string[] {
+  const symbols = Array.isArray(value) ? value : plainObject(value).symbols
+  if (!Array.isArray(symbols)) return []
+  return [...new Set(symbols.filter((symbol): symbol is string =>
+    typeof symbol === 'string' && symbol.length > 1 && symbol.length <= 128))].slice(0, 512)
+}
+
+function maintainedRenameAliases(value: unknown): Array<{ bindingId: string; oldName: string; newName: string; kind: string }> {
+  const aliases = plainObject(value).aliases
+  if (!Array.isArray(aliases)) return []
+  return aliases.flatMap((value) => {
+    const alias = plainObject(value)
+    if (typeof alias.bindingId !== 'string' || !/^[a-f0-9]{24}$/i.test(alias.bindingId)
+        || typeof alias.oldName !== 'string' || alias.oldName.length > 128
+        || typeof alias.newName !== 'string' || alias.newName.length > 128
+        || typeof alias.kind !== 'string' || alias.kind.length > 80) return []
+    return [{ bindingId: alias.bindingId.toLowerCase(), oldName: alias.oldName, newName: alias.newName, kind: alias.kind }]
+  }).slice(0, 200)
 }
 
 function isInside(root: string, file: string): boolean {
@@ -125,7 +146,7 @@ export async function GET(request: Request, { params }: RouteParams) {
     const maintainedByUnit = new Map(maintainedRows.map((row) => [row.stableKey, row]))
     const maintainedSourceRows = await prisma.reamonMaintainedSource.findMany({
       where: { projectId, codeUnitId: { in: codeUnits.map((unit) => unit.id) } },
-      select: { codeUnitId: true, artifactId: true, sourceCode: true, sourceHash: true, acceptedReviewId: true, updatedAt: true },
+      select: { codeUnitId: true, artifactId: true, sourceCode: true, sourceHash: true, acceptedReviewId: true, symbolIndex: true, updatedAt: true },
     })
     const maintainedSourceByUnit = new Map(maintainedSourceRows.map((row) => [row.codeUnitId, row]))
     const reviewIds = [...new Set(maintainedSourceRows.flatMap((row) => row.acceptedReviewId ? [row.acceptedReviewId] : []))]
@@ -201,6 +222,7 @@ export async function GET(request: Request, { params }: RouteParams) {
     const storageRoot = await realpath(derivedArtifactRoot())
     const archive = archiver('zip', { zlib: { level: 6 } })
     const manifestEntries: Array<Record<string, unknown>> = []
+    const nativeAnnotationEntries: Array<Record<string, unknown>> = []
     const decompiledArchivePaths = new Set<string>()
     const maintainedArchivePaths = new Set<string>()
     let decompiledFiles = 0
@@ -313,6 +335,32 @@ export async function GET(request: Request, { params }: RouteParams) {
         && maintainedReceipt.codeUnitId === unit.id
         && maintainedReceipt.decision === 'ACCEPTED'
         && maintainedReceipt.maintainedSourceHash === maintainedSha256)
+      if (task.provider?.pluginId === 'reamon-ghidra' && maintainedReceiptVerified && maintainedSource && maintainedReceipt) {
+        const address = typeof attributes.address === 'string' ? attributes.address
+          : typeof attributes.startAddress === 'string' ? attributes.startAddress : ''
+        const acceptedSymbolNames = maintainedSymbolNames(maintainedSource.symbolIndex)
+        const acceptedRenameHistory = maintainedRenameAliases(maintainedSource.symbolIndex)
+        if (address && (acceptedSymbolNames.length || acceptedRenameHistory.length)) nativeAnnotationEntries.push({
+          codeUnitId: unit.id,
+          stableKey: unit.stableKey,
+          originalName: attributes.qualifiedName || attributes.name || unit.label || unit.stableKey,
+          address,
+          addressKind: 'ghidra-address',
+          architecture: typeof attributes.instructionArchitecture === 'string' ? attributes.instructionArchitecture : null,
+          language: typeof attributes.language === 'string' ? attributes.language : 'unknown',
+          acceptedSymbolNames,
+          acceptedRenameHistory,
+          acceptedSourceSha256: maintainedSha256,
+          review: {
+            id: maintainedReceipt.id,
+            reviewerId: maintainedReceipt.reviewerId,
+            createdAt: maintainedReceipt.createdAt.toISOString(),
+            validationStatus: maintainedReceipt.validationStatus,
+            validationMethod: maintainedReceipt.validationMethod,
+          },
+          evidence: 'Symbols were indexed from this exact human-accepted maintained source for the address-associated Ghidra code unit. This does not map every listed identifier to the function address.',
+        })
+      }
       const maintainedDraft = draftByUnit.get(unit.id)
       const attemptOutputSha256 = maintainedDraft?.sourceAttempt?.resultSource
         ? createHash('sha256').update(maintainedDraft.sourceAttempt.resultSource).digest('hex')
@@ -388,6 +436,51 @@ export async function GET(request: Request, { params }: RouteParams) {
       })
     }
 
+    const nativeAnnotations = task.provider?.pluginId === 'reamon-ghidra' && nativeAnnotationEntries.length
+      ? {
+        schema: 'reamon.native-annotations.v1',
+        binary: {
+          name: task.artifact?.originalName || 'unknown',
+          sha256: task.artifact?.sha256 || null,
+          sizeBytes: task.artifact?.sizeBytes || null,
+          mimeType: task.artifact?.mimeType || null,
+        },
+        analysis: { taskId: task.id, provider: task.provider.pluginId, providerVersion: task.provider.version },
+        addressSemantics: 'Ghidra address from the original analysis. This schema does not claim RVA semantics and does not authorize rebasing.',
+        entries: nativeAnnotationEntries,
+        truncated: false as boolean,
+      }
+      : null
+    let nativeAnnotationsBuffer: Buffer | null = null
+    if (nativeAnnotations) {
+      const requestedEntryCount = nativeAnnotationEntries.length
+      let low = 0
+      let high = requestedEntryCount
+      let acceptedEntryCount = 0
+      let boundedBuffer: Buffer | null = null
+      while (low <= high) {
+        const candidateCount = Math.floor((low + high) / 2)
+        const candidate = Buffer.from(JSON.stringify({
+          ...nativeAnnotations,
+          entries: nativeAnnotationEntries.slice(0, candidateCount),
+          truncated: candidateCount < requestedEntryCount,
+        }, null, 2))
+        if (candidate.byteLength <= MAX_NATIVE_ANNOTATION_BYTES) {
+          acceptedEntryCount = candidateCount
+          boundedBuffer = candidate
+          low = candidateCount + 1
+        } else {
+          high = candidateCount - 1
+        }
+      }
+      if (acceptedEntryCount) {
+        nativeAnnotationEntries.length = acceptedEntryCount
+        nativeAnnotations.truncated = acceptedEntryCount < requestedEntryCount
+        nativeAnnotationsBuffer = boundedBuffer
+        if (nativeAnnotationsBuffer) archive.append(nativeAnnotationsBuffer, { name: 'native-annotations.json' })
+      }
+    }
+
     archive.append(Buffer.from([
       'REAmon analysis source bundle',
       '',
@@ -398,6 +491,7 @@ export async function GET(request: Request, { params }: RouteParams) {
       'decompiled/ contains the analyzer output. maintained/ contains saved edited or AI-assisted copies when available.',
       'The two trees are kept separate; maintained source never overwrites the decompilation.',
       'See manifest.json for artifact and file hashes, maintained-source receipt verification, matching draft and attempt lineage, validation metadata, missing files, and export status.',
+      ...(nativeAnnotationsBuffer ? ['A Ghidra source bundle also contains native-annotations.json: reviewed symbol evidence tied to the exact input binary hash. It is an evidence manifest, not a ready-to-apply renaming script.'] : []),
       'This bundle does not include build scripts or dependencies. Review and build with the appropriate toolchain before relying on it.',
       '',
     ].join('\n')), { name: 'README.txt' })
@@ -420,6 +514,15 @@ export async function GET(request: Request, { params }: RouteParams) {
       draftSearchTruncated,
       skippedFiles,
       sourceBytes: totalSourceBytes,
+      ...(nativeAnnotationsBuffer ? {
+        nativeAnnotations: {
+          schema: 'reamon.native-annotations.v1',
+          path: 'native-annotations.json',
+          sha256: createHash('sha256').update(nativeAnnotationsBuffer).digest('hex'),
+          entryCount: nativeAnnotationEntries.length,
+          truncated: Boolean(nativeAnnotations?.truncated),
+        },
+      } : {}),
       files: manifestEntries,
     }, null, 2)), { name: 'manifest.json' })
     archive.finalize()
