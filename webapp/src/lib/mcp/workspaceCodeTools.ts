@@ -646,15 +646,17 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
   const alternateReviewIds = [...new Set(alternateMaintainedRows.flatMap((row) => row.acceptedReviewId ? [row.acceptedReviewId] : []))]
   const alternateReviews = alternateReviewIds.length ? await prisma.reamonCodeReview.findMany({
     where: { projectId: args.projectId, id: { in: alternateReviewIds }, decision: 'ACCEPTED' },
-    select: { id: true, artifactId: true, codeUnitId: true, maintainedSourceHash: true },
+    select: { id: true, artifactId: true, codeUnitId: true, maintainedSourceHash: true, symbolIndexSnapshot: true },
   }) : []
   const alternateReviewById = new Map(alternateReviews.map((review) => [review.id, review]))
-  const acceptedAlternateRows = alternateMaintainedRows.filter((row) => {
-    if (!row.sourceHash || !row.acceptedReviewId) return false
+  const acceptedAlternateRows = alternateMaintainedRows.flatMap((row) => {
+    if (!row.sourceHash || !row.acceptedReviewId) return []
     const receipt = alternateReviewById.get(row.acceptedReviewId)
-    return receipt?.artifactId === row.artifactId
-      && receipt.codeUnitId === row.codeUnitId
-      && receipt.maintainedSourceHash === row.sourceHash
+    if (!receipt || receipt.artifactId !== row.artifactId
+        || receipt.codeUnitId !== row.codeUnitId
+        || receipt.maintainedSourceHash !== row.sourceHash
+        || receipt.symbolIndexSnapshot === null) return []
+    return [{ ...row, symbolIndex: receipt.symbolIndexSnapshot }]
   })
   const acceptedCrossProviderProjectMemory = buildProjectSymbolContext(acceptedAlternateRows.map((row) => ({
     ...row,

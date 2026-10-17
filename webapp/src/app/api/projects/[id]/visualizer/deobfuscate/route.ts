@@ -1107,18 +1107,25 @@ export async function POST(request: Request, { params }: RouteParams) {
     const acceptedReviewIds = [...new Set(symbolRecords.flatMap((row) => row.acceptedReviewId ? [row.acceptedReviewId] : []))]
     const acceptedReviews = acceptedReviewIds.length ? await prisma.reamonCodeReview.findMany({
       where: { projectId, id: { in: acceptedReviewIds }, decision: 'ACCEPTED' },
-      select: { id: true, artifactId: true, codeUnitId: true, maintainedSourceHash: true, validationStatus: true, validationMethod: true },
+      select: { id: true, artifactId: true, codeUnitId: true, maintainedSourceHash: true, symbolIndexSnapshot: true, validationStatus: true, validationMethod: true },
     }) : []
     const acceptedReviewById = new Map(acceptedReviews.map((review) => [review.id, review]))
-    const trustedSymbolRecords = symbolRecords.filter((row) => {
-      if (!row.sourceHash || !row.acceptedReviewId) return false
+    const trustedSymbolRecords = symbolRecords.flatMap((row) => {
+      if (!row.sourceHash || !row.acceptedReviewId) return []
       const receipt = acceptedReviewById.get(row.acceptedReviewId)
-      return receipt?.artifactId === row.artifactId
-        && receipt.codeUnitId === row.codeUnitId
-        && receipt.maintainedSourceHash === row.sourceHash
+      if (!receipt || receipt.artifactId !== row.artifactId
+        || receipt.codeUnitId !== row.codeUnitId
+        || receipt.maintainedSourceHash !== row.sourceHash
+        || receipt.symbolIndexSnapshot === null) return []
+      return [{ ...row, symbolIndex: receipt.symbolIndexSnapshot }]
     })
     const trustedRecordKeys = new Set(trustedSymbolRecords.map((row) => JSON.stringify([row.codeUnitId, row.artifactId, row.sourceHash, row.acceptedReviewId])))
-    const trustedRelatedRows = maintainedRelatedRows.filter((row) => trustedRecordKeys.has(JSON.stringify([row.codeUnitId, row.artifactId, row.sourceHash, row.acceptedReviewId])))
+    const trustedRelatedRows = maintainedRelatedRows.filter((row) => {
+      if (!trustedRecordKeys.has(JSON.stringify([row.codeUnitId, row.artifactId, row.sourceHash, row.acceptedReviewId]))) return false
+      const sourceBytes = Buffer.byteLength(row.sourceCode, 'utf8')
+      return sourceBytes <= MAX_ARTIFACT_BYTES
+        && createHash('sha256').update(row.sourceCode).digest('hex') === row.sourceHash?.toLowerCase()
+    })
     const symbolArtifactIds = [...new Set(trustedSymbolRecords.map((row) => row.artifactId))]
     const symbolArtifacts = symbolArtifactIds.length ? await prisma.artifact.findMany({
       where: { projectId, id: { in: symbolArtifactIds } },
