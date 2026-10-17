@@ -2039,9 +2039,28 @@ export async function POST(request: Request, { params }: RouteParams) {
         ? relatedAttributes.similarityArtifactName.slice(0, 160)
         : ''
       const similarityArtifactHash = typeof relatedAttributes?.similarityArtifactHash === 'string'
-        ? relatedAttributes.similarityArtifactHash.slice(0, 12)
+        ? relatedAttributes.similarityArtifactHash.slice(0, 64)
         : ''
       const similarityArtifact = [similarityArtifactName, similarityArtifactHash].filter(Boolean).join(' #')
+      const similarityProvider = typeof relatedAttributes?.similarityProvider === 'string'
+        ? relatedAttributes.similarityProvider.slice(0, 120)
+        : ''
+      const similarityTaskId = typeof relatedAttributes?.similarityAnalysisTaskId === 'string'
+        ? relatedAttributes.similarityAnalysisTaskId.slice(0, 128)
+        : ''
+      const similarityFunctionIdentity = typeof relatedAttributes?.similarityFunctionIdentity === 'string'
+        ? relatedAttributes.similarityFunctionIdentity.slice(0, 180)
+        : ''
+      const similarityFunctionAddress = typeof relatedAttributes?.address === 'string'
+        ? relatedAttributes.address.slice(0, 96)
+        : ''
+      const similarityProvenance = [
+        similarityProvider ? `provider ${similarityProvider}` : '',
+        similarityTaskId ? `completed run ${similarityTaskId}` : '',
+        similarityArtifact ? `artifact ${similarityArtifact}` : '',
+        similarityFunctionIdentity ? `function identity ${similarityFunctionIdentity}` : '',
+        similarityFunctionAddress ? `address ${similarityFunctionAddress}` : '',
+      ].filter(Boolean).join('; ')
       const similarityEvidence = [
         instructionSimilarityPercent === null ? '' : `instruction sequence ${instructionSimilarityPercent}%`,
         controlFlowSimilarityPercent === null ? '' : `control-flow counts ${controlFlowSimilarityPercent}%`,
@@ -2049,7 +2068,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       const similarityMethod = controlFlowSimilarityPercent === null ? 'instruction-sequence' : 'instruction-sequence plus control-flow-count'
       const similarityHint = similarityPercent === null
         ? ''
-        : ` (${similarityMethod} candidate score ${similarityPercent}%${similarityEvidence ? `; ${similarityEvidence}` : ''}; ranking lead only, not identity or behavior proof${similarityArtifact ? `; from artifact ${similarityArtifact}` : ''})`
+        : ` (${similarityMethod} candidate score ${similarityPercent}%${similarityEvidence ? `; ${similarityEvidence}` : ''}; ranking lead only, not identity or behavior proof${similarityProvenance ? `; ${similarityProvenance}` : ''})`
       const smaliSimilarity = similarityPercent !== null && observation.source === 'reamon-jadx'
       const relatedArtifactId = typeof (smaliSimilarity ? relatedAttributes?.disassemblyArtifactId : relatedAttributes?.codeArtifactId) === 'string'
         ? (smaliSimilarity ? relatedAttributes?.disassemblyArtifactId : relatedAttributes?.codeArtifactId) as string
