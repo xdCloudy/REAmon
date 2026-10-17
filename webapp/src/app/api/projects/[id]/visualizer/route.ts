@@ -22,6 +22,18 @@ function finiteCount(value: unknown): number | null {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null
 }
 
+function currentOutputHash(attributes: unknown): string | null {
+  const record = resultRecord(attributes)
+  const candidate = record.codeArtifactSha256 ?? record.decompiledSourceSha256
+  return typeof candidate === 'string' && /^[a-f0-9]{64}$/i.test(candidate) ? candidate.toLowerCase() : null
+}
+
+function maintainedBaseSourceHash(symbolIndex: unknown): string | null {
+  const sourceLineage = resultRecord(resultRecord(symbolIndex).sourceLineage)
+  const candidate = sourceLineage.baseSourceHash
+  return typeof candidate === 'string' && /^[a-f0-9]{64}$/i.test(candidate) ? candidate.toLowerCase() : null
+}
+
 export async function GET(request: Request, { params }: RouteParams) {
   try {
     const { id: projectId } = await params
@@ -211,17 +223,36 @@ export async function GET(request: Request, { params }: RouteParams) {
     ])
 
     const pageRows = rows.slice(0, CODE_UNIT_QUERY_LIMIT)
-    const [maintainedRows, draftRows] = pageRows.length
-      ? await Promise.all([prisma.reamonObservation.findMany({
-        where: { ...maintainedWhere, stableKey: { in: pageRows.map((row) => row.id) } },
-        select: { stableKey: true },
-      }), pageRows[0].artifactId ? prisma.reamonCodeDraft.findMany({
+    const [maintainedSourceRows, draftRows] = pageRows.length
+      ? await Promise.all([pageRows[0].artifactId ? prisma.reamonMaintainedSource.findMany({
+        where: {
+          projectId,
+          artifactId: { in: [...new Set(pageRows.flatMap((row) => row.artifactId ? [row.artifactId] : []))] },
+          codeUnitId: { in: pageRows.map((row) => row.id) },
+        },
+        select: { codeUnitId: true, sourceHash: true, acceptedReviewId: true, symbolIndex: true },
+      }) : Promise.resolve([]), pageRows[0].artifactId ? prisma.reamonCodeDraft.findMany({
         where: { projectId, artifactId: pageRows[0].artifactId, codeUnitId: { in: pageRows.map((row) => row.id) } },
         select: { codeUnitId: true },
         distinct: ['codeUnitId'],
       }) : Promise.resolve([])])
       : [[], []]
-    const maintainedUnitIds = new Set(maintainedRows.map((row) => row.stableKey))
+    const currentOutputHashByUnit = new Map(pageRows.map((row) => [row.id, currentOutputHash(row.attributes)] as const))
+    const currentSourceRows = maintainedSourceRows.filter((source) => {
+      const baseSourceHash = maintainedBaseSourceHash(source.symbolIndex)
+      return baseSourceHash !== null && baseSourceHash === currentOutputHashByUnit.get(source.codeUnitId)
+    })
+    const currentReviewIds = [...new Set(currentSourceRows.flatMap((source) => source.acceptedReviewId ? [source.acceptedReviewId] : []))]
+    const currentReviews = currentReviewIds.length ? await prisma.reamonCodeReview.findMany({
+      where: { projectId, id: { in: currentReviewIds }, decision: 'ACCEPTED' },
+      select: { id: true, codeUnitId: true, maintainedSourceHash: true },
+    }) : []
+    const currentReviewById = new Map(currentReviews.map((review) => [review.id, review]))
+    const maintainedUnitIds = new Set(currentSourceRows.filter((source) => {
+      if (!source.sourceHash || !source.acceptedReviewId) return false
+      const review = currentReviewById.get(source.acceptedReviewId)
+      return review?.codeUnitId === source.codeUnitId && review.maintainedSourceHash === source.sourceHash
+    }).map((source) => source.codeUnitId))
     const draftedUnitIds = new Set(draftRows.map((row) => row.codeUnitId))
     const units = pageRows
       .map((row) => normalizeCodeUnit(row, { includeSourceAddressMap: Boolean(requestedUnitId) }))

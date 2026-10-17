@@ -187,10 +187,10 @@ relationships, and neither host storage paths nor generated project instructions
 Accepted maintained sources also retain the SHA-256 and analysis run of the exact
 decompiler output they were reviewed against. Coverage counts an accepted maintained
 unit only when its review receipt is valid and its base hash matches the selected
-run's current code output. Rewrite context
-omits that unit's own accepted names when its base hash is missing or stale, while
-keeping other accepted project symbols available as explicitly versioned consistency
-evidence.
+run's current code output. The visualizer applies the same hash check to its per-unit
+maintained-source marker. Rewrite context omits that unit's own accepted names when
+its base hash is missing or stale, while keeping other accepted project symbols
+available as explicitly versioned consistency evidence.
 
 ## Target profiler
 
