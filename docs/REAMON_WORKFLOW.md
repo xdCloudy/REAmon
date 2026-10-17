@@ -43,6 +43,14 @@ source snippets and accepted symbols are prioritized and labeled ahead of weaker
 look-alike context. The AI must distinguish provider syntax from the binary's likely
 original language.
 
+Ghidra native functions now retain bounded basic-block, intra-function edge, entry,
+and exit counts from its `BasicBlockModel`. The rewrite prompt and MCP code-unit
+dossier can use these persisted counts alongside the function's mnemonic sequence and
+call edges. They are structural evidence only: truncated counts are lower bounds, and
+equal counts do not establish function identity. BinDiff's CFG and call-graph matching
+provides a reference for a future fixture-measured matcher; REAmon does not yet use
+these counts to transfer names or to rank native functions.
+
 ### 5. Queue, claim, and work without collisions
 
 The rewrite API stores the exact source, project evidence context, selected provider,

@@ -10,6 +10,12 @@ import ghidra.program.model.listing.FunctionIterator;
 import ghidra.program.model.listing.Instruction;
 import ghidra.program.model.listing.InstructionIterator;
 import ghidra.program.model.listing.Data;
+import ghidra.program.model.block.BasicBlockModel;
+import ghidra.program.model.block.CodeBlock;
+import ghidra.program.model.block.CodeBlockIterator;
+import ghidra.program.model.block.CodeBlockReference;
+import ghidra.program.model.block.CodeBlockReferenceIterator;
+import ghidra.util.exception.CancelledException;
 import ghidra.program.model.data.StringDataInstance;
 import ghidra.program.model.data.DataType;
 import ghidra.program.model.pcode.HighFunction;
@@ -30,14 +36,61 @@ public class ReamonExport extends GhidraScript {
     private static final int MAX_SOURCE_ADDRESS_MAPPINGS = 5000;
     private static final int MAX_RECOVERED_VARIABLES = 10000;
     private static final int MAX_VARIABLES_PER_FUNCTION = 100;
+    private static final int MAX_CFG_BLOCKS_PER_FUNCTION = 512;
+    private static final int MAX_CFG_EDGES_PER_FUNCTION = 2048;
+    private static final int MAX_CFG_BLOCKS_PER_RUN = 100000;
+    private static final int MAX_CFG_EDGES_PER_RUN = 200000;
     private int sourceAddressMappingCount = 0;
     private int recoveredVariableCount = 0;
     private boolean sourceAddressMapTruncated = false;
     private boolean recoveredVariablesTruncated = false;
     private boolean currentVariablesTruncated = false;
+    private int cfgBlocksCounted = 0;
+    private int cfgEdgesCounted = 0;
 
     private String encodeValue(String value) {
         return Base64.getEncoder().encodeToString(value.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private String collectControlFlowMetrics(Function function, BasicBlockModel blockModel) throws Exception {
+        int blockCount = 0;
+        int edgeCount = 0;
+        int entryBlockCount = 0;
+        int exitBlockCount = 0;
+        boolean truncated = false;
+        CodeBlockIterator blocks = blockModel.getCodeBlocksContaining(function.getBody(), monitor);
+        while (blocks.hasNext()) {
+            monitor.checkCancelled();
+            if (blockCount >= MAX_CFG_BLOCKS_PER_FUNCTION || cfgBlocksCounted >= MAX_CFG_BLOCKS_PER_RUN) {
+                truncated = true;
+                break;
+            }
+            CodeBlock block = blocks.next();
+            blockCount++;
+            cfgBlocksCounted++;
+            if (block.getMinAddress().equals(function.getEntryPoint())) entryBlockCount++;
+            CodeBlockReferenceIterator destinations = blockModel.getDestinations(block, monitor);
+            int blockDestinations = 0;
+            while (destinations.hasNext()) {
+                monitor.checkCancelled();
+                CodeBlockReference destination = destinations.next();
+                if (destination.getDestinationAddress() == null
+                    || !function.getBody().contains(destination.getDestinationAddress())) continue;
+                if (edgeCount >= MAX_CFG_EDGES_PER_FUNCTION || cfgEdgesCounted >= MAX_CFG_EDGES_PER_RUN) {
+                    truncated = true;
+                    break;
+                }
+                edgeCount++;
+                cfgEdgesCounted++;
+                blockDestinations++;
+            }
+            if (!truncated && blockDestinations == 0) exitBlockCount++;
+            if (truncated) break;
+        }
+        if (blocks.hasNext()) truncated = true;
+        return "{\"version\":\"ghidra-basic-blocks-v1\",\"blockCount\":" + blockCount
+            + ",\"edgeCount\":" + edgeCount + ",\"entryBlockCount\":" + entryBlockCount
+            + ",\"exitBlockCount\":" + exitBlockCount + ",\"truncated\":" + truncated + "}";
     }
 
     private String collectRecoveredVariables(HighFunction function) {
@@ -144,6 +197,7 @@ public class ReamonExport extends GhidraScript {
 
         DecompInterface decompiler = new DecompInterface();
         decompiler.setOptions(new DecompileOptions());
+        BasicBlockModel blockModel = new BasicBlockModel(currentProgram);
         if (!decompiler.openProgram(currentProgram)) {
             throw new IllegalStateException("Ghidra could not open the imported program for decompilation");
         }
@@ -247,9 +301,18 @@ public class ReamonExport extends GhidraScript {
                 String encodedPrototype = Base64.getEncoder().encodeToString(
                     (prototype == null ? "" : prototype.substring(0, Math.min(2000, prototype.length()))).getBytes(StandardCharsets.UTF_8));
                 String encodedVariables = collectRecoveredVariables(result.getHighFunction());
+                String encodedCfgMetrics = "";
+                try {
+                    encodedCfgMetrics = Base64.getEncoder().encodeToString(
+                        collectControlFlowMetrics(function, blockModel).getBytes(StandardCharsets.UTF_8));
+                } catch (CancelledException error) {
+                    throw error;
+                } catch (Exception ignored) {
+                    // Optional CFG metadata must not prevent the core decompilation from being saved.
+                }
                 String relativePath = "functions/" + filename;
                 String assemblyRelativePath = "assembly/" + assemblyFilename;
-                String line = encodedName + "\t" + address + "\t" + sizeBytes + "\t" + relativePath + "\t" + assemblyRelativePath + "\t" + encodedStrings + "\t" + encodedMnemonics + "\t" + encodedSourceAddressMap + "\t" + encodedPrototype + "\t" + encodedVariables + "\t" + currentVariablesTruncated + "\n";
+                String line = encodedName + "\t" + address + "\t" + sizeBytes + "\t" + relativePath + "\t" + assemblyRelativePath + "\t" + encodedStrings + "\t" + encodedMnemonics + "\t" + encodedSourceAddressMap + "\t" + encodedPrototype + "\t" + encodedVariables + "\t" + currentVariablesTruncated + "\t" + encodedCfgMetrics + "\n";
                 Files.writeString(manifest, line, StandardCharsets.UTF_8,
                     java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
                 decompiled++;

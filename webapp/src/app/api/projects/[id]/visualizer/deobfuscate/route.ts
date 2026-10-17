@@ -63,6 +63,19 @@ function boundedInstructionMnemonics(value: unknown): string[] {
     typeof item === 'string' && /^[A-Za-z][A-Za-z0-9_./-]{0,31}$/.test(item))
 }
 
+function basicBlockMetricsLine(label: string, value: unknown): string | null {
+  if (typeof value !== 'string' || value.length > 512) return null
+  try {
+    const metrics = plainObject(JSON.parse(value))
+    const keys = ['blockCount', 'edgeCount', 'entryBlockCount', 'exitBlockCount']
+    if (metrics.version !== 'ghidra-basic-blocks-v1'
+        || !keys.every((key) => typeof metrics[key] === 'number' && Number.isSafeInteger(metrics[key]) && metrics[key] >= 0)
+        || typeof metrics.truncated !== 'boolean') return null
+    const safeLabel = label.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 180)
+    return `${safeLabel}: Ghidra CFG ${metrics.blockCount} basic blocks/${metrics.edgeCount} intra-function edges, ${metrics.entryBlockCount} entry block(s), ${metrics.exitBlockCount} exit block(s)${metrics.truncated ? ' (lower-bound counts; extraction truncated)' : ''}`
+  } catch { return null }
+}
+
 function luaProtoIdFromSource(source: Buffer): number | null {
   const value = source.toString('utf8').match(/--\s*proto#(\d+)\b/)?.[1]
   if (!value) return null
@@ -1251,7 +1264,21 @@ export async function POST(request: Request, { params }: RouteParams) {
         },
       )
       : ''
-    const combinedProviderSymbolContext = [providerSymbolContext, providerGoTypeContext, providerUnstripTypeContext, providerToCodeTypeContext, providerSwiftTypeContext, providerObjcTypeContext].filter(Boolean).join('\n')
+    const controlFlowEvidence = [
+      basicBlockMetricsLine(`Selected unit ${unitName}`, selectedProviderAttributes.controlFlowMetrics),
+      ...[...relatedByName.entries()].slice(0, 8).map(([name, attributes]) => {
+        const artifactLabel = typeof attributes.instructionArtifactName === 'string'
+          ? ` from ${attributes.instructionArtifactName.slice(0, 120)}` : ''
+        return basicBlockMetricsLine(`Similar-function candidate ${name}${artifactLabel}`, attributes.controlFlowMetrics)
+      }),
+    ].filter((line): line is string => Boolean(line))
+    const combinedProviderSymbolContext = [
+      providerSymbolContext, providerGoTypeContext, providerUnstripTypeContext,
+      providerToCodeTypeContext, providerSwiftTypeContext, providerObjcTypeContext,
+      controlFlowEvidence.length
+        ? `Persisted Ghidra control-flow counts (structural evidence only; not function identity or behavior proof):\n${controlFlowEvidence.join('\n')}`
+        : '',
+    ].filter(Boolean).join('\n')
     const memberExcerptCache = new Map<string, { members: OutlineMember[]; truncated: boolean }>()
     const outlinedMethodExcerpt = async (name: string, source: Buffer, sourceLanguage: string, relatedArtifactId: string, persistOutline: boolean) => {
       const candidate = similarDexMethodByName.get(name)

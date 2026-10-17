@@ -24,6 +24,15 @@ interface FlossRecoveredString {
   decodedAt?: string
 }
 
+interface GhidraControlFlowMetrics {
+  version: 'ghidra-basic-blocks-v1'
+  blockCount: number
+  edgeCount: number
+  entryBlockCount: number
+  exitBlockCount: number
+  truncated: boolean
+}
+
 interface GhidraResponse {
   status: 'completed'
   toolVersion: string
@@ -51,7 +60,7 @@ interface GhidraResponse {
   codeBytes?: number
   returnedUnits: number
   truncated: boolean
-  units: Array<{ name: string; address: string; relativePath: string; codeArtifactId: string; disassemblyArtifactId?: string; reipaAlternateCodeArtifactId?: string; reipaAlternateOutputSha256?: string; reipaAlternateSizeBytes?: number; referencedStrings?: string[]; instructionMnemonics?: string[]; sourceAddressMap?: Array<{ ghidraLineNumber: number; address: string }>; prototype?: string; recoveredVariables?: Array<{ kind: 'parameter' | 'local'; name: string; dataType: string; sizeBytes: number; parameterIndex?: number; storageStartAddress?: string; nameLocked?: boolean; typeLocked?: boolean }>; recoveredVariablesTruncated?: boolean; flossVersion?: string; flossRecoveredStrings?: FlossRecoveredString[]; flossRecoveredStringsTruncated?: boolean; sourceLanguage?: string; symbolSource?: string; recoveredNativeSymbolName?: string; goPackage?: string; goUnstripSignature?: string; goUnstripSourceFile?: string; goUnstripSourceLine?: number; goUnstripInterfaces?: UnstripGoInterfaceMethod[]; goUnstripInterfacesTruncated?: boolean; sizeBytes: number }>
+  units: Array<{ name: string; address: string; relativePath: string; codeArtifactId: string; disassemblyArtifactId?: string; reipaAlternateCodeArtifactId?: string; reipaAlternateOutputSha256?: string; reipaAlternateSizeBytes?: number; referencedStrings?: string[]; instructionMnemonics?: string[]; cfgMetrics?: GhidraControlFlowMetrics; sourceAddressMap?: Array<{ ghidraLineNumber: number; address: string }>; prototype?: string; recoveredVariables?: Array<{ kind: 'parameter' | 'local'; name: string; dataType: string; sizeBytes: number; parameterIndex?: number; storageStartAddress?: string; nameLocked?: boolean; typeLocked?: boolean }>; recoveredVariablesTruncated?: boolean; flossVersion?: string; flossRecoveredStrings?: FlossRecoveredString[]; flossRecoveredStringsTruncated?: boolean; sourceLanguage?: string; symbolSource?: string; recoveredNativeSymbolName?: string; goPackage?: string; goUnstripSignature?: string; goUnstripSourceFile?: string; goUnstripSourceLine?: number; goUnstripInterfaces?: UnstripGoInterfaceMethod[]; goUnstripInterfacesTruncated?: boolean; sizeBytes: number }>
   calls?: Array<{ fromAddress: string; toAddress: string; fromName: string; toName: string }>
   callCount?: number
   callGraphTruncated?: boolean
@@ -215,6 +224,11 @@ export async function executeGhidra(input: ToolExecutionInput): Promise<ToolResu
           || (unit.instructionMnemonics !== undefined && (!Array.isArray(unit.instructionMnemonics)
             || unit.instructionMnemonics.length > 800
             || !unit.instructionMnemonics.every((value) => typeof value === 'string' && /^[A-Za-z][A-Za-z0-9_.]{0,31}$/.test(value))))
+          || (unit.cfgMetrics !== undefined && (!unit.cfgMetrics || unit.cfgMetrics.version !== 'ghidra-basic-blocks-v1'
+            || !['blockCount', 'edgeCount', 'entryBlockCount', 'exitBlockCount'].every((key) => {
+              const value = unit.cfgMetrics?.[key as keyof GhidraControlFlowMetrics]
+              return Number.isSafeInteger(value) && typeof value === 'number' && value >= 0 && value <= 1_000_000
+            }) || typeof unit.cfgMetrics.truncated !== 'boolean'))
           || (unit.sourceAddressMap !== undefined && (!Array.isArray(unit.sourceAddressMap)
             || unit.sourceAddressMap.length > 5000
             || !unit.sourceAddressMap.every((mapping) => mapping && Number.isInteger(mapping.ghidraLineNumber)
@@ -302,6 +316,7 @@ export async function executeGhidra(input: ToolExecutionInput): Promise<ToolResu
         ...(unit.flossRecoveredStrings?.length ? { flossRecoveredStrings: JSON.stringify(unit.flossRecoveredStrings.slice(0, 32)) } : {}),
         ...(unit.flossRecoveredStringsTruncated ? { flossRecoveredStringsTruncated: true } : {}),
         ...(unit.instructionMnemonics?.length ? { instructionMnemonics: JSON.stringify(unit.instructionMnemonics.slice(0, 800)) } : {}),
+        ...(unit.cfgMetrics ? { controlFlowMetrics: JSON.stringify(unit.cfgMetrics) } : {}),
         ...(unit.sourceAddressMap?.length ? { sourceAddressMap: JSON.stringify(unit.sourceAddressMap.slice(0, 5000)) } : {}),
         ...(unit.prototype ? { prototype: unit.prototype.slice(0, 2000) } : {}),
         ...(unit.recoveredVariables?.length ? { recoveredVariables: JSON.stringify(unit.recoveredVariables.slice(0, 100)) } : {}),

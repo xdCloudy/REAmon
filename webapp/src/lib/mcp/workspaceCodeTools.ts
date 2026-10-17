@@ -822,6 +822,10 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
         truncated: rawEvidence.truncated,
       } : null,
       controlFlowGraph: text(attributes.controlFlowGraph, 4_000),
+      controlFlowMetrics: text(attributes.controlFlowMetrics, 512),
+      controlFlowMetricsSemantics: typeof attributes.controlFlowMetrics === 'string'
+        ? 'Ghidra basic-block counts are structural evidence only. A truncated record contains lower bounds; equal counts do not establish function identity or behavioral equivalence.'
+        : null,
       cfgTruncated: attributes.cfgTruncated === true,
       bytecodeRowsTruncated: attributes.bytecodeRowsTruncated === true,
       locals: text(attributes.localsJson, 4000),
@@ -909,6 +913,9 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
       : 'none_recorded_for_this_unit_in_this_analysis_task',
     controlFlowGraphAvailability: typeof attributes.controlFlowGraph === 'string'
       ? 'persisted'
+      : 'not_persisted',
+    controlFlowMetricsAvailability: typeof attributes.controlFlowMetrics === 'string'
+      ? 'persisted_structural_counts_only'
       : 'not_persisted',
     instructionSequenceAvailability: typeof attributes.instructionMnemonics === 'string'
       ? 'persisted'

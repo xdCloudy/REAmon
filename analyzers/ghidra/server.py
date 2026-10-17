@@ -795,7 +795,7 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                 total_metadata_bytes = 0
                 for line in manifest.read_text(encoding="utf-8", errors="replace").splitlines():
                     fields = line.split("\t")
-                    if len(fields) not in (4, 5, 6, 7, 8, 9, 10, 11):
+                    if len(fields) not in (4, 5, 6, 7, 8, 9, 10, 11, 12):
                         continue
                     encoded_name, address, size_text, relative = fields[:4]
                     assembly_relative = fields[4] if len(fields) >= 5 else ""
@@ -807,6 +807,7 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                         encoded_prototype = fields[8]
                     encoded_variables = fields[9] if len(fields) >= 10 else ""
                     variables_truncated = len(fields) >= 11 and fields[10] == "true"
+                    encoded_cfg_metrics = fields[11] if len(fields) >= 12 else ""
                     if not re.fullmatch(r"[A-Za-z0-9_./-]{1,500}", relative) or ".." in Path(relative).parts:
                         continue
                     source = within(export_root, export_root / relative)
@@ -929,9 +930,25 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                                 recovered_variables.append(variable)
                         except (ValueError, UnicodeDecodeError):
                             pass
+                    cfg_metrics = None
+                    if encoded_cfg_metrics:
+                        try:
+                            decoded_cfg_metrics = base64.b64decode(encoded_cfg_metrics, validate=True).decode("utf-8", errors="strict")
+                            parsed_cfg_metrics = json.loads(decoded_cfg_metrics)
+                            if (isinstance(parsed_cfg_metrics, dict)
+                                    and parsed_cfg_metrics.get("version") == "ghidra-basic-blocks-v1"
+                                    and all(isinstance(parsed_cfg_metrics.get(key), int) and not isinstance(parsed_cfg_metrics.get(key), bool)
+                                            and 0 <= parsed_cfg_metrics[key] <= 1_000_000
+                                            for key in ("blockCount", "edgeCount", "entryBlockCount", "exitBlockCount"))
+                                    and isinstance(parsed_cfg_metrics.get("truncated"), bool)):
+                                cfg_metrics = parsed_cfg_metrics
+                        except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
+                            pass
+                    if cfg_metrics:
+                        total_metadata_bytes += len(json.dumps(cfg_metrics, separators=(",", ":")).encode("utf-8"))
                     if total_bytes + total_assembly_bytes + total_metadata_bytes > MAX_OUTPUT_BYTES:
                         raise AnalysisError("Ghidra sources and evidence exceeded the configured storage limit")
-                    rows.append((name[:500], address[:128], size_bytes, relative, source, assembly_relative, assembly, referenced_strings, instruction_mnemonics, source_address_map, prototype, recovered_variables, variables_truncated))
+                    rows.append((name[:500], address[:128], size_bytes, relative, source, assembly_relative, assembly, referenced_strings, instruction_mnemonics, source_address_map, prototype, recovered_variables, variables_truncated, cfg_metrics))
 
                 if not rows:
                     raise AnalysisError(log_text[-1200:] or "Ghidra found no functions it could decompile")
@@ -1001,7 +1018,7 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                 sources_root = run_root / "sources"
                 units = []
                 progress_stride = max(1, len(returned) // 25)
-                for unit_index, (name, address, size_bytes, relative, source, assembly_relative, assembly, referenced_strings, instruction_mnemonics, source_address_map, prototype, recovered_variables, variables_truncated) in enumerate(returned, start=1):
+                for unit_index, (name, address, size_bytes, relative, source, assembly_relative, assembly, referenced_strings, instruction_mnemonics, source_address_map, prototype, recovered_variables, variables_truncated, cfg_metrics) in enumerate(returned, start=1):
                     if unit_index == 1 or unit_index % progress_stride == 0 or unit_index == len(returned):
                         report_progress(f"Saving function {unit_index} of {len(returned)}")
                     destination = sources_root / relative
@@ -1057,6 +1074,8 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                         unit["referencedStrings"] = referenced_strings
                     if len(instruction_mnemonics) >= 4:
                         unit["instructionMnemonics"] = instruction_mnemonics
+                    if cfg_metrics:
+                        unit["cfgMetrics"] = cfg_metrics
                     if source_address_map:
                         unit["sourceAddressMap"] = source_address_map
                     if prototype:
@@ -1091,6 +1110,8 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                 recovered_variables_truncated = summary.get("recoveredVariablesTruncated") == "true"
                 if recovered_variables_truncated:
                     warnings.append("Ghidra recovered variable evidence reached its configured analysis limit.")
+                if any(row[13] and row[13].get("truncated") is True for row in returned):
+                    warnings.append("Ghidra basic-block metrics reached a per-function or per-run limit; affected counts are lower bounds.")
                 if floss_warning:
                     warnings.append(floss_warning)
                 if reipa_warning:
