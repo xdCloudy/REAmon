@@ -1714,6 +1714,7 @@ services:
 
   # Pinned Fission native reconstruction, stored as provider evidence in REAmon.
   fission-analyzer:
+    platform: linux/amd64
     build:
       context: ./analyzers/fission
     image: ${REAMON_FISSION_IMAGE:-reamon-fission:local}
@@ -1728,7 +1729,7 @@ services:
     pids_limit: ${REAMON_FISSION_PIDS:-64}
     cpus: ${REAMON_FISSION_CPUS:-2}
     tmpfs:
-      - /tmp:rw,noexec,nosuid,size=${REAMON_FISSION_TMP_SIZE:-1g},mode=1777
+      - /tmp:rw,noexec,nosuid,size=${REAMON_FISSION_TMP_SIZE:-2g},mode=1777
     environment:
       REAMON_ARTIFACTS_PATH: /data/reamon-artifacts
       REAMON_DERIVED_PATH: /data/reamon-derived

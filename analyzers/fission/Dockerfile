@@ -15,6 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
  && tar -xzf "/tmp/${archive}" --no-same-owner -C /opt/fission \
  && chmod 0555 /opt/fission/fission_cli \
  && curl --proto '=https' --tlsv1.2 -fsSL "https://raw.githubusercontent.com/fission-systems/Fission/${FISSION_COMMIT}/LICENSE" -o /licenses/fission/LICENSE \
+ && curl --proto '=https' --tlsv1.2 -fsSL "https://raw.githubusercontent.com/fission-systems/Fission/${FISSION_COMMIT}/THIRD_PARTY.md" -o /licenses/fission/THIRD_PARTY.md \
  && rm -f "/tmp/${archive}" \
  && useradd --system --uid 10007 --no-create-home --shell /usr/sbin/nologin fission
 

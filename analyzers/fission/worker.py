@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import selectors
 import subprocess
 import sys
@@ -38,7 +39,7 @@ def digest_file(path: Path) -> str:
 
 
 def run_cli(binary: Path, stdout_path: Path, timeout: int, cancel_check: Callable[[], bool]) -> None:
-    command = [FISSION, "--resource-root", RESOURCE_ROOT, "--no-db", "decomp", str(binary),
+    command = [FISSION, "--resource-root", RESOURCE_ROOT, "decomp", str(binary),
                "--all", "--limit", str(MAX_FUNCTIONS), "--profile", "balanced",
                "--function-discovery-profile", "balanced", "--timeout-ms", str(MAX_FUNCTION_MS), "--json"]
     with stdout_path.open("wb") as output:
@@ -82,9 +83,13 @@ def main(cancel_check: Callable[[], bool] = lambda: False) -> dict[str, object]:
     if not re.fullmatch(r"[a-f0-9]{64}", expected_input_hash) or digest_file(binary) != expected_input_hash:
         raise AnalysisError("Input artifact changed before Fission analysis started")
 
+    working_binary = temporary_root / "analysis-input.bin"
+    shutil.copyfile(binary, working_binary)
+    if digest_file(working_binary) != expected_input_hash:
+        raise AnalysisError("Temporary Fission input copy did not match the imported artifact")
     json_path = temporary_root / "fission-output.json"
     started = time.monotonic()
-    run_cli(binary, json_path, timeout, cancel_check)
+    run_cli(working_binary, json_path, timeout, cancel_check)
     try:
         raw = json.loads(json_path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
