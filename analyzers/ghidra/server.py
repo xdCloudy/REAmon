@@ -277,6 +277,7 @@ def extract_reipa_metadata(input_path, temporary_root, cancel_check, home):
 
     objc_type_details = []
     objc_class_names = set()
+    objc_symbols = {}
     current_interface = None
 
     def save_objc_interface():
@@ -310,9 +311,21 @@ def extract_reipa_metadata(input_path, temporary_root, cancel_check, home):
             save_objc_interface()
         elif current_interface and len(current_interface[1]) < 64:
             current_interface[1].append(line[:1000])
+            header, _ = current_interface
+            interface_match = re.match(r"@interface\s+([^\s(:]+)", header)
+            method_match = re.match(r"\s*([+-])\s+(.+?)\s*;\s*//\s+0x([0-9a-fA-F]{1,16})\s*$", line)
+            if interface_match and method_match:
+                class_name = interface_match.group(1)
+                sign, declaration, address = method_match.groups()
+                declaration = re.sub(r"^\([^)]*\)\s*", "", declaration.strip(), count=1)
+                selector_keywords = re.findall(r"([A-Za-z_$][A-Za-z0-9_$]*):", declaration)
+                selector = ":".join(selector_keywords) + ":" if selector_keywords else declaration.split(None, 1)[0]
+                if selector and len(selector) <= 500 and len(objc_symbols) < MAX_RETURNED_UNITS:
+                    objc_symbols.setdefault(address.lower().lstrip("0") or "0", f"{sign}[{class_name} {selector}]"[:500])
+                elif len(objc_symbols) >= MAX_RETURNED_UNITS:
+                    truncated = True
     save_objc_interface()
 
-    objc_symbols = {}
     if objc_class_names:
         for line in symbol_path.read_text(encoding="utf-8", errors="replace").splitlines():
             match = re.match(r"^0x([0-9a-fA-F]{1,16})\s+([-+]\[[^]]+\])$", line.strip())
