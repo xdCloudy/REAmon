@@ -19,6 +19,33 @@ export interface GhidraControlFlowMetrics {
   truncated: boolean
 }
 
+export interface GhidraCffRecovery {
+  version: 'reamon-cff-recovery-v1'
+  entry: string
+  dispatcher?: string
+  score: number
+  state?: string
+  firstHead?: string
+  lowConfidence: boolean
+  confidenceNote?: string
+  resolved: number
+  conditional: number
+  unresolved: number
+  truncated: boolean
+  nodes: Array<{
+    head: string
+    status: 'uncond' | 'cond' | 'multi' | 'ret' | 'exit' | 'unresolved'
+    pure: boolean
+    complete: boolean
+    selfLoop: boolean
+    successors: string[]
+    condition?: string
+    trueSuccessor?: string
+    falseSuccessor?: string
+    note?: string
+  }>
+}
+
 export interface CodeUnitObservationAttributes {
   unitType: string
   name?: string
@@ -74,6 +101,7 @@ export interface CodeUnitObservationAttributes {
   recoveredVariables?: Array<{ kind: 'parameter' | 'local'; name: string; dataType: string; sizeBytes?: number; parameterIndex?: number; storageStartAddress?: string; nameLocked?: boolean; typeLocked?: boolean }>
   recoveredVariablesTruncated?: boolean
   controlFlowMetrics?: GhidraControlFlowMetrics
+  controlFlowFlattening?: GhidraCffRecovery
   toCodeInputProvenance?: string
   toCodeClaimedInputPath?: string
   toCodeClaimedInputSha256?: string
@@ -145,6 +173,7 @@ export interface CodeUnit {
   recoveredVariables?: Array<{ kind: 'parameter' | 'local'; name: string; dataType: string; sizeBytes?: number; parameterIndex?: number; storageStartAddress?: string; nameLocked?: boolean; typeLocked?: boolean }>
   recoveredVariablesTruncated?: boolean
   controlFlowMetrics?: GhidraControlFlowMetrics
+  controlFlowFlattening?: GhidraCffRecovery
   toCodeInputProvenance?: string | null
   toCodeClaimedInputPath?: string | null
   toCodeClaimedInputSha256?: string | null
@@ -187,6 +216,66 @@ function ghidraControlFlowMetricsOf(value: unknown): GhidraControlFlowMetrics | 
       exitBlockCount: metrics.exitBlockCount as number,
       truncated: metrics.truncated,
     }
+  } catch { return undefined }
+}
+
+function ghidraCffRecoveryOf(value: unknown): GhidraCffRecovery | undefined {
+  if (typeof value !== 'string' || value.length > 64_000) return undefined
+  try {
+    const recovery = attributesOf(JSON.parse(value))
+    if (recovery.version !== 'reamon-cff-recovery-v1' || typeof recovery.entry !== 'string'
+        || !/^[A-Za-z0-9:_-]{1,128}$/.test(recovery.entry)
+        || typeof recovery.score !== 'number' || !Number.isFinite(recovery.score) || recovery.score < 0 || recovery.score > 1
+        || typeof recovery.lowConfidence !== 'boolean' || typeof recovery.truncated !== 'boolean'
+        || !Number.isSafeInteger(recovery.resolved) || Number(recovery.resolved) < 0
+        || !Number.isSafeInteger(recovery.conditional) || Number(recovery.conditional) < 0
+        || !Number.isSafeInteger(recovery.unresolved) || Number(recovery.unresolved) < 0
+        || !Array.isArray(recovery.nodes) || recovery.nodes.length > 32) return undefined
+    const allowed = ['uncond', 'cond', 'multi', 'ret', 'exit', 'unresolved'] as const
+    const nodes: GhidraCffRecovery['nodes'] = []
+    for (const candidate of recovery.nodes) {
+      const node = attributesOf(candidate)
+      if (typeof node.head !== 'string' || !/^[A-Za-z0-9:_-]{1,128}$/.test(node.head)
+          || typeof node.status !== 'string' || !allowed.includes(node.status as typeof allowed[number])
+          || typeof node.pure !== 'boolean' || typeof node.complete !== 'boolean' || typeof node.selfLoop !== 'boolean'
+          || !Array.isArray(node.successors) || node.successors.length > 48
+          || !node.successors.every((address) => typeof address === 'string' && /^[A-Za-z0-9:_-]{1,128}$/.test(address))) return undefined
+      const details: GhidraCffRecovery['nodes'][number] = {
+        head: node.head,
+        status: node.status as GhidraCffRecovery['nodes'][number]['status'],
+        pure: node.pure,
+        complete: node.complete,
+        selfLoop: node.selfLoop,
+        successors: node.successors as string[],
+      }
+      for (const key of ['condition', 'trueSuccessor', 'falseSuccessor', 'note'] as const) {
+        const item = node[key]
+        if (item !== undefined) {
+          if (typeof item !== 'string' || item.length > 500) return undefined
+          details[key] = item
+        }
+      }
+      nodes.push(details)
+    }
+    const result: GhidraCffRecovery = {
+      version: 'reamon-cff-recovery-v1',
+      entry: recovery.entry,
+      score: recovery.score,
+      lowConfidence: recovery.lowConfidence,
+      resolved: recovery.resolved as number,
+      conditional: recovery.conditional as number,
+      unresolved: recovery.unresolved as number,
+      truncated: recovery.truncated,
+      nodes,
+    }
+    for (const key of ['dispatcher', 'state', 'firstHead', 'confidenceNote'] as const) {
+      const item = recovery[key]
+      if (item !== undefined) {
+        if (typeof item !== 'string' || item.length > 500) return undefined
+        result[key] = item
+      }
+    }
+    return result
   } catch { return undefined }
 }
 
@@ -389,7 +478,10 @@ export function normalizeCodeUnit(row: CodeUnitObservationRow, options: { includ
     fieldReferences: stringListOf(attributes.fieldReferences, 32, 512),
     fieldReferencesTruncated: attributes.fieldReferencesTruncated === true,
     ...(row.source === 'reamon-ghidra'
-      ? { controlFlowMetrics: ghidraControlFlowMetricsOf(attributes.controlFlowMetrics) }
+      ? {
+        controlFlowMetrics: ghidraControlFlowMetricsOf(attributes.controlFlowMetrics),
+        controlFlowFlattening: ghidraCffRecoveryOf(attributes.controlFlowFlattening),
+      }
       : {}),
     ...(options.includeSourceAddressMap ? {
       sourceAddressMap: sourceAddressMapOf(attributes.sourceAddressMap),

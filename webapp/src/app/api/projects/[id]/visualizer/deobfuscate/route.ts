@@ -76,6 +76,26 @@ function basicBlockMetricsLine(label: string, value: unknown): string | null {
   } catch { return null }
 }
 
+function cffRecoveryLine(label: string, value: unknown): string | null {
+  if (typeof value !== 'string' || value.length > 64_000) return null
+  try {
+    const recovery = plainObject(JSON.parse(value))
+    if (recovery.version !== 'reamon-cff-recovery-v1' || typeof recovery.entry !== 'string'
+        || !/^[A-Za-z0-9:_-]{1,128}$/.test(recovery.entry) || typeof recovery.lowConfidence !== 'boolean'
+        || typeof recovery.truncated !== 'boolean' || !Array.isArray(recovery.nodes)) return null
+    const edges = recovery.nodes.slice(0, 32).flatMap((item) => {
+      const node = plainObject(item)
+      const successors = Array.isArray(node.successors) ? node.successors.slice(0, 2) : []
+      if (typeof node.head !== 'string' || !/^[A-Za-z0-9:_-]{1,128}$/.test(node.head)
+          || typeof node.status !== 'string' || !['uncond', 'cond', 'multi', 'ret', 'exit', 'unresolved'].includes(node.status)
+          || typeof node.complete !== 'boolean' || !successors.every((address) => typeof address === 'string' && /^[A-Za-z0-9:_-]{1,128}$/.test(address))) return []
+      return [`${node.head} ${node.status}${successors.length ? ` -> ${successors.join(', ')}` : ''}${!node.complete ? ' (incomplete)' : ''}`]
+    }).slice(0, 16)
+    const safeLabel = label.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 180)
+    return `${safeLabel}: p-code emulator flagged control-flow flattening (score ${typeof recovery.score === 'number' ? recovery.score.toFixed(3) : 'unavailable'}); ${recovery.lowConfidence ? 'recovery is explicitly low confidence' : 'recovery passed the engine confidence checks'}${recovery.truncated ? '; report is truncated' : ''}. Recovered block transitions: ${edges.join('; ') || 'none recorded'}. Treat this as provider evidence and a navigation lead, not proof of semantic equivalence; consult the raw disassembly and source.`
+  } catch { return null }
+}
+
 function luaProtoIdFromSource(source: Buffer): number | null {
   const value = source.toString('utf8').match(/--\s*proto#(\d+)\b/)?.[1]
   if (!value) return null
@@ -1266,6 +1286,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       : ''
     const controlFlowEvidence = [
       basicBlockMetricsLine(`Selected unit ${unitName}`, selectedProviderAttributes.controlFlowMetrics),
+      cffRecoveryLine(`Selected unit ${unitName}`, selectedProviderAttributes.controlFlowFlattening),
       ...[...relatedByName.entries()].slice(0, 8).map(([name, attributes]) => {
         const artifactLabel = typeof attributes.instructionArtifactName === 'string'
           ? ` from ${attributes.instructionArtifactName.slice(0, 120)}` : ''
@@ -1276,7 +1297,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       providerSymbolContext, providerGoTypeContext, providerUnstripTypeContext,
       providerToCodeTypeContext, providerSwiftTypeContext, providerObjcTypeContext,
       controlFlowEvidence.length
-        ? `Persisted Ghidra control-flow counts (structural evidence only; not function identity or behavior proof):\n${controlFlowEvidence.join('\n')}`
+        ? `Persisted Ghidra control-flow evidence from the project database (structural/recovery leads only; not function identity or behavior proof):\n${controlFlowEvidence.join('\n')}`
         : '',
     ].filter(Boolean).join('\n')
     const memberExcerptCache = new Map<string, { members: OutlineMember[]; truncated: boolean }>()

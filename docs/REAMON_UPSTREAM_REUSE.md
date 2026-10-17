@@ -61,6 +61,19 @@ separate so a plausible name is never treated as proof of behavior.
 
 ## Additional engines evaluated
 
+- [Ghidra Deobfuscation Lab](https://github.com/xubin0903/ghidra-deobfuscation-lab)
+  provides an MIT-licensed p-code emulator for control-flow-flattening detection
+  and recovery (including OLLVM/Hikari-style patterns). REAmon adapts its
+  `CffCore` at audited commit `f457afaa801b30f7bb98c28d419a36d5c9fd7115` as a
+  read-only, capped Ghidra pass: confidence-labeled transitions are persisted
+  with the matching function observation, shown as clickable disassembly leads,
+  and supplied to explanation/rewrite context from project memory. The adapter
+  never patches bytes or marks a recovered flow as semantically equivalent.
+  Before this evidence informs source reconstruction, compare results with
+  known clean/flattened fixtures across architectures and Ghidra versions, and
+  measure false positives, unresolved edges, and emulator cost. The copied
+  upstream MIT license is installed in the analyzer image.
+
 - [Humanify](https://github.com/jehna/humanify) v3.1.1 is MIT-licensed and uses
   OXC's JavaScript AST and semantic model to apply model-suggested renames across
   lexical scopes, with identifier validity and collision checks. Its important

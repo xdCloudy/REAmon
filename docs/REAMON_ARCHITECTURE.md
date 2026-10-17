@@ -178,7 +178,8 @@ ids with artifact hashes, provider names, and available source-language or packa
 call edges, task warnings, recovered variables, address-matched GoReSym package identity,
 the exact-run artifact-wide Go type catalog (searchable and pageable with
 `workspace_search_go_types` or `workspace_search_provider_types`), exact-version saved draft,
-and maintained source.
+maintained source, and bounded Ghidra control-flow-flattening recovery when present. That recovery
+is confidence-labeled provider evidence for navigation and analysis, not equivalent source.
 A maintained source is marked reviewed only when its receipt still
 matches the stored source hash. These reads do not invoke a decompiler or synthesize missing
 relationships, and neither host storage paths nor generated project instructions are returned.

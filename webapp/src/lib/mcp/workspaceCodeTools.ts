@@ -826,6 +826,10 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
       controlFlowMetricsSemantics: typeof attributes.controlFlowMetrics === 'string'
         ? 'Ghidra basic-block counts are structural evidence only. A truncated record contains lower bounds; equal counts do not establish function identity or behavioral equivalence.'
         : null,
+      controlFlowFlattening: text(attributes.controlFlowFlattening, 64_000),
+      controlFlowFlatteningSemantics: typeof attributes.controlFlowFlattening === 'string'
+        ? 'Ghidra Deobfuscation Lab p-code recovery stored for this exact function observation. Transitions and confidence are provider evidence/navigation leads, not recovered source, function identity, or semantic equivalence; check truncation and verify against disassembly.'
+        : null,
       cfgTruncated: attributes.cfgTruncated === true,
       bytecodeRowsTruncated: attributes.bytecodeRowsTruncated === true,
       locals: text(attributes.localsJson, 4000),

@@ -13,6 +13,7 @@ MAX_OUTPUT_BYTES = min(536870912, max(1048576, int(os.environ.get("GHIDRA_MAX_OU
 MAX_FUNCTIONS = min(2000, max(1, int(os.environ.get("GHIDRA_MAX_FUNCTIONS", "2000"))))
 MAX_RETURNED_UNITS = min(2000, max(1, int(os.environ.get("GHIDRA_MAX_RETURNED_UNITS", "2000"))))
 MAX_CALL_EDGES = min(400, max(0, int(os.environ.get("GHIDRA_MAX_CALL_EDGES", "400"))))
+MAX_CFF_RECOVERY_BYTES = 8 * 1024 * 1024
 MAX_GORESYM_OUTPUT_BYTES = min(134217728, max(1048576, int(os.environ.get("GORESYM_MAX_OUTPUT_BYTES", "67108864"))))
 GORESYM_TIMEOUT_SECONDS = min(300, max(15, int(os.environ.get("GORESYM_TIMEOUT_SECONDS", "120"))))
 MAX_UNSTRIP_OUTPUT_BYTES = min(67108864, max(1048576, int(os.environ.get("UNSTRIP_MAX_OUTPUT_BYTES", "33554432"))))
@@ -427,6 +428,69 @@ def normalized_address(value):
     address = address.removeprefix("0x").lstrip("0") or "0"
     return address if re.fullmatch(r"[0-9a-f]{1,16}", address) else None
 
+def bounded_cff_recovery(value):
+    if not isinstance(value, dict) or not isinstance(value.get("entry"), str):
+        return None
+    entry = value["entry"][:128]
+    if not re.fullmatch(r"[A-Za-z0-9:_-]{1,128}", entry):
+        return None
+    score = value.get("score")
+    if (isinstance(score, bool) or not isinstance(score, (int, float))
+            or not 0 <= score <= 1 or not isinstance(value.get("lowConfidence"), bool)
+            or not isinstance(value.get("truncated"), bool)
+            or not isinstance(value.get("nodes"), list) or len(value["nodes"]) > 32):
+        return None
+    nodes = []
+    allowed_statuses = {"uncond", "cond", "multi", "ret", "exit", "unresolved"}
+    for candidate in value["nodes"]:
+        if not isinstance(candidate, dict):
+            return None
+        head = candidate.get("head")
+        successors = candidate.get("successors")
+        if (not isinstance(head, str) or not re.fullmatch(r"[A-Za-z0-9:_-]{1,128}", head)
+                or candidate.get("status") not in allowed_statuses
+                or not isinstance(candidate.get("pure"), bool)
+                or not isinstance(candidate.get("complete"), bool)
+                or not isinstance(candidate.get("selfLoop"), bool)
+                or not isinstance(successors, list) or len(successors) > 48
+                or not all(isinstance(address, str) and re.fullmatch(r"[A-Za-z0-9:_-]{1,128}", address) for address in successors)):
+            return None
+        node = {
+            "head": head,
+            "status": candidate["status"],
+            "pure": candidate["pure"],
+            "complete": candidate["complete"],
+            "selfLoop": candidate["selfLoop"],
+            "successors": successors,
+        }
+        for key in ("condition", "trueSuccessor", "falseSuccessor", "note"):
+            item = candidate.get(key)
+            if item is not None:
+                if not isinstance(item, str) or len(item) > 500:
+                    return None
+                node[key] = item
+        nodes.append(node)
+    result = {
+        "version": "reamon-cff-recovery-v1",
+        "entry": entry,
+        "score": float(score),
+        "lowConfidence": value["lowConfidence"],
+        "truncated": value["truncated"],
+        "nodes": nodes,
+    }
+    for key in ("dispatcher", "state", "firstHead", "confidenceNote"):
+        item = value.get(key)
+        if item is not None:
+            if not isinstance(item, str) or len(item) > 500:
+                return None
+            result[key] = item
+    for key in ("resolved", "conditional", "unresolved"):
+        item = value.get(key)
+        if isinstance(item, bool) or not isinstance(item, int) or not 0 <= item <= 1_000_000:
+            return None
+        result[key] = item
+    return result
+
 def extract_floss_strings(input_path, output_path, log_path, cancel_check, home):
     if not native_format_supported_by_floss(input_path):
         return {}, {}, None, None
@@ -526,6 +590,7 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                 project_dir.mkdir()
                 export_root = temporary_root / "export"
                 export_root.mkdir()
+                cff_recovery_path = export_root / "cff-recovery.json"
                 log_path = temporary_root / "ghidra.log"
                 command = [
                     str(GHIDRA_HOME / "support" / "analyzeHeadless"),
@@ -533,6 +598,7 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                     "-import", str(input_path),
                     "-scriptPath", "/app/scripts",
                     "-postScript", "ReamonExport.java", str(export_root), str(MAX_FUNCTIONS), str(MAX_CALL_EDGES),
+                    "-postScript", "ReamonCffRecovery.java", str(cff_recovery_path), str(MAX_FUNCTIONS),
                     "-analysisTimeoutPerFile", str(min(600, max(30, int(os.environ.get("GHIDRA_FILE_TIMEOUT_SECONDS", "300"))))),
                     "-max-cpu", "2",
                     "-deleteProject",
@@ -789,10 +855,37 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                     raise AnalysisError(f"Ghidra could not produce function decompilation: {detail}")
                 report_progress("Ghidra analysis finished; indexing decompiled functions")
                 summary = parse_summary(summary_path)
+                cff_recoveries_by_address = {}
+                cff_recovery_metadata_bytes = 0
+                cff_recovery_truncated = False
+                cff_recovery_warning = None
+                if cff_recovery_path.is_file():
+                    if cff_recovery_path.stat().st_size <= MAX_CFF_RECOVERY_BYTES:
+                        try:
+                            cff_report = json.loads(cff_recovery_path.read_text(encoding="utf-8"))
+                            if isinstance(cff_report, dict) and cff_report.get("version") == "reamon-cff-recovery-v1" and isinstance(cff_report.get("functions"), list):
+                                cff_recovery_truncated = cff_report.get("truncated") is True
+                                for candidate in cff_report["functions"][:64]:
+                                    recovered = bounded_cff_recovery(candidate)
+                                    key = normalized_address(recovered.get("entry")) if recovered else None
+                                    if recovered and key:
+                                        cff_recoveries_by_address[key] = recovered
+                                        cff_recovery_metadata_bytes += len(json.dumps(recovered, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+                                if cff_report.get("failures", 0) > 0:
+                                    cff_recovery_warning = "Some candidate native control-flow-flattening functions could not be emulated."
+                            else:
+                                cff_recovery_warning = "Ghidra control-flow-flattening output did not match the expected report schema."
+                        except (OSError, ValueError, json.JSONDecodeError):
+                            cff_recovery_warning = "Ghidra control-flow-flattening recovery output could not be parsed."
+                    else:
+                        cff_recovery_truncated = True
+                        cff_recovery_warning = "Ghidra control-flow-flattening recovery exceeded the configured report limit."
+                else:
+                    cff_recovery_warning = "Ghidra control-flow-flattening analysis output was unavailable; standard decompilation remains available."
                 rows = []
                 total_bytes = 0
                 total_assembly_bytes = 0
-                total_metadata_bytes = 0
+                total_metadata_bytes = cff_recovery_metadata_bytes
                 for line in manifest.read_text(encoding="utf-8", errors="replace").splitlines():
                     fields = line.split("\t")
                     if len(fields) not in (4, 5, 6, 7, 8, 9, 10, 11, 12, 13):
@@ -1136,6 +1229,9 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                         unit["cfgMetrics"] = cfg_metrics
                     if cfg_graph:
                         unit["cfgGraph"] = cfg_graph
+                    cff_recovery = cff_recoveries_by_address.get(normalized_address(address))
+                    if cff_recovery:
+                        unit["cffRecovery"] = cff_recovery
                     if source_address_map:
                         unit["sourceAddressMap"] = source_address_map
                     if prototype:
@@ -1174,6 +1270,10 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                     warnings.append("Ghidra basic-block metrics reached a per-function or per-run limit; affected counts are lower bounds.")
                 if any(row[14] and row[14].get("truncated") is True for row in returned):
                     warnings.append("Ghidra control-flow graph display reached its per-function block or edge limit; displayed topology is partial.")
+                if cff_recovery_truncated:
+                    warnings.append("Ghidra control-flow-flattening evidence was capped; not all candidate functions or recovered blocks may be present.")
+                if cff_recovery_warning:
+                    warnings.append(cff_recovery_warning)
                 if floss_warning:
                     warnings.append(floss_warning)
                 if reipa_warning:

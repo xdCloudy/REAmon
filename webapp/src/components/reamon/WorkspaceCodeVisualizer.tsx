@@ -2250,6 +2250,30 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
               ? 'The counts are lower bounds because CFG extraction reached an analysis limit. They describe structure and do not establish function identity or behavioral equivalence.'
               : 'These counts describe Ghidra’s recovered structure; they do not establish function identity or behavioral equivalence.'}</small>
           </section>}
+          {selectedUnit.controlFlowFlattening && <section className={styles.classReferences} aria-label="Ghidra control-flow flattening recovery evidence">
+            <div><strong>Flattened control-flow recovery</strong><span>Ghidra p-code emulation · score {selectedUnit.controlFlowFlattening.score.toFixed(3)}</span></div>
+            <ul>
+              <li><code>{selectedUnit.controlFlowFlattening.resolved} recovered</code></li>
+              <li><code>{selectedUnit.controlFlowFlattening.conditional} conditional</code></li>
+              <li><code>{selectedUnit.controlFlowFlattening.unresolved} unresolved</code></li>
+              {selectedUnit.controlFlowFlattening.dispatcher && <li><code>dispatcher {selectedUnit.controlFlowFlattening.dispatcher}</code></li>}
+              {selectedUnit.controlFlowFlattening.state && <li><code>state {selectedUnit.controlFlowFlattening.state}</code></li>}
+            </ul>
+            <details>
+              <summary>Recovered transitions ({selectedUnit.controlFlowFlattening.nodes.length} blocks)</summary>
+              <ul>
+                {selectedUnit.controlFlowFlattening.nodes.map((node) => <li key={node.head}>
+                  <button type="button" onClick={() => setSelectedEvidenceAddress(node.head)} title={`Navigate disassembly to ${node.head}`}>
+                    {node.head} · {node.status}{node.successors.length ? ` → ${node.successors.join(', ')}` : ''}{node.complete ? '' : ' · incomplete'}
+                  </button>
+                </li>)}
+              </ul>
+            </details>
+            <small>{selectedUnit.controlFlowFlattening.lowConfidence
+              ? `Low-confidence provider recovery${selectedUnit.controlFlowFlattening.confidenceNote ? `: ${selectedUnit.controlFlowFlattening.confidenceNote}` : '.'}`
+              : 'Provider confidence checks passed; this remains a structural recovery lead, not proof of equivalent behavior.'}
+              {selectedUnit.controlFlowFlattening.truncated ? ' The recovered report is truncated.' : ''} Click a block address to inspect its disassembly.</small>
+          </section>}
           {selectedGhidraFunctionId && <FunctionControlFlowPanel
             query={functionControlFlowQuery}
             name={selectedUnit.name}

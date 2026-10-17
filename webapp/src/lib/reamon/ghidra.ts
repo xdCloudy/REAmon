@@ -46,6 +46,33 @@ interface GhidraControlFlowGraph {
   edges: Array<[number, number, string]>
 }
 
+interface GhidraCffRecovery {
+  version: 'reamon-cff-recovery-v1'
+  entry: string
+  dispatcher?: string
+  score: number
+  state?: string
+  firstHead?: string
+  lowConfidence: boolean
+  confidenceNote?: string
+  resolved: number
+  conditional: number
+  unresolved: number
+  truncated: boolean
+  nodes: Array<{
+    head: string
+    status: 'uncond' | 'cond' | 'multi' | 'ret' | 'exit' | 'unresolved'
+    pure: boolean
+    complete: boolean
+    selfLoop: boolean
+    successors: string[]
+    condition?: string
+    trueSuccessor?: string | null
+    falseSuccessor?: string | null
+    note?: string
+  }>
+}
+
 interface GhidraResponse {
   status: 'completed'
   toolVersion: string
@@ -73,7 +100,7 @@ interface GhidraResponse {
   codeBytes?: number
   returnedUnits: number
   truncated: boolean
-  units: Array<{ name: string; address: string; relativePath: string; codeArtifactId: string; disassemblyArtifactId?: string; reipaAlternateCodeArtifactId?: string; reipaAlternateOutputSha256?: string; reipaAlternateSizeBytes?: number; referencedStrings?: string[]; instructionMnemonics?: string[]; cfgMetrics?: GhidraControlFlowMetrics; cfgGraph?: GhidraControlFlowGraph; sourceAddressMap?: Array<{ ghidraLineNumber: number; address: string }>; prototype?: string; recoveredVariables?: Array<{ kind: 'parameter' | 'local'; name: string; dataType: string; sizeBytes: number; parameterIndex?: number; storageStartAddress?: string; nameLocked?: boolean; typeLocked?: boolean }>; recoveredVariablesTruncated?: boolean; flossVersion?: string; flossRecoveredStrings?: FlossRecoveredString[]; flossRecoveredStringsTruncated?: boolean; sourceLanguage?: string; symbolSource?: string; recoveredNativeSymbolName?: string; goPackage?: string; goUnstripSignature?: string; goUnstripSourceFile?: string; goUnstripSourceLine?: number; goUnstripInterfaces?: UnstripGoInterfaceMethod[]; goUnstripInterfacesTruncated?: boolean; sizeBytes: number }>
+  units: Array<{ name: string; address: string; relativePath: string; codeArtifactId: string; disassemblyArtifactId?: string; reipaAlternateCodeArtifactId?: string; reipaAlternateOutputSha256?: string; reipaAlternateSizeBytes?: number; referencedStrings?: string[]; instructionMnemonics?: string[]; cfgMetrics?: GhidraControlFlowMetrics; cfgGraph?: GhidraControlFlowGraph; cffRecovery?: GhidraCffRecovery; sourceAddressMap?: Array<{ ghidraLineNumber: number; address: string }>; prototype?: string; recoveredVariables?: Array<{ kind: 'parameter' | 'local'; name: string; dataType: string; sizeBytes: number; parameterIndex?: number; storageStartAddress?: string; nameLocked?: boolean; typeLocked?: boolean }>; recoveredVariablesTruncated?: boolean; flossVersion?: string; flossRecoveredStrings?: FlossRecoveredString[]; flossRecoveredStringsTruncated?: boolean; sourceLanguage?: string; symbolSource?: string; recoveredNativeSymbolName?: string; goPackage?: string; goUnstripSignature?: string; goUnstripSourceFile?: string; goUnstripSourceLine?: number; goUnstripInterfaces?: UnstripGoInterfaceMethod[]; goUnstripInterfacesTruncated?: boolean; sizeBytes: number }>
   calls?: Array<{ fromAddress: string; toAddress: string; fromName: string; toName: string }>
   callCount?: number
   callGraphTruncated?: boolean
@@ -265,6 +292,19 @@ export async function executeGhidra(input: ToolExecutionInput): Promise<ToolResu
               && typeof edge[2] === 'string')
             || typeof unit.cfgGraph.truncated !== 'boolean'
             || typeof unit.cfgGraph.instructionLabel !== 'string'))
+          || (unit.cffRecovery !== undefined && (!unit.cffRecovery || unit.cffRecovery.version !== 'reamon-cff-recovery-v1'
+            || typeof unit.cffRecovery.entry !== 'string' || !/^[A-Za-z0-9:_-]{1,128}$/.test(unit.cffRecovery.entry)
+            || !Number.isFinite(unit.cffRecovery.score) || unit.cffRecovery.score < 0 || unit.cffRecovery.score > 1
+            || typeof unit.cffRecovery.lowConfidence !== 'boolean' || typeof unit.cffRecovery.truncated !== 'boolean'
+            || !Number.isSafeInteger(unit.cffRecovery.resolved) || unit.cffRecovery.resolved < 0
+            || !Number.isSafeInteger(unit.cffRecovery.conditional) || unit.cffRecovery.conditional < 0
+            || !Number.isSafeInteger(unit.cffRecovery.unresolved) || unit.cffRecovery.unresolved < 0
+            || !Array.isArray(unit.cffRecovery.nodes) || unit.cffRecovery.nodes.length > 32
+            || !unit.cffRecovery.nodes.every((node) => node && /^[A-Za-z0-9:_-]{1,128}$/.test(node.head)
+              && ['uncond', 'cond', 'multi', 'ret', 'exit', 'unresolved'].includes(node.status)
+              && typeof node.pure === 'boolean' && typeof node.complete === 'boolean' && typeof node.selfLoop === 'boolean'
+              && Array.isArray(node.successors) && node.successors.length <= 48
+              && node.successors.every((address) => typeof address === 'string' && /^[A-Za-z0-9:_-]{1,128}$/.test(address)))))
           || (unit.sourceAddressMap !== undefined && (!Array.isArray(unit.sourceAddressMap)
             || unit.sourceAddressMap.length > 5000
             || !unit.sourceAddressMap.every((mapping) => mapping && Number.isInteger(mapping.ghidraLineNumber)
@@ -354,6 +394,7 @@ export async function executeGhidra(input: ToolExecutionInput): Promise<ToolResu
         ...(unit.instructionMnemonics?.length ? { instructionMnemonics: JSON.stringify(unit.instructionMnemonics.slice(0, 800)) } : {}),
         ...(unit.cfgMetrics ? { controlFlowMetrics: JSON.stringify(unit.cfgMetrics) } : {}),
         ...(unit.cfgGraph ? { controlFlowGraph: JSON.stringify(unit.cfgGraph) } : {}),
+        ...(unit.cffRecovery ? { controlFlowFlattening: JSON.stringify(unit.cffRecovery) } : {}),
         ...(unit.sourceAddressMap?.length ? { sourceAddressMap: JSON.stringify(unit.sourceAddressMap.slice(0, 5000)) } : {}),
         ...(unit.prototype ? { prototype: unit.prototype.slice(0, 2000) } : {}),
         ...(unit.recoveredVariables?.length ? { recoveredVariables: JSON.stringify(unit.recoveredVariables.slice(0, 100)) } : {}),
