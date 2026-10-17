@@ -60,10 +60,11 @@ export async function GET(_request: Request, { params }: RouteParams) {
       ? linkedCodeUnit.attributes as Record<string, unknown>
       : {}
     const isCodeSource = sourceAttributes.codeArtifactId === relativePath
-    const expectedSourceHash = isCodeSource && typeof sourceAttributes.decompiledSourceSha256 === 'string'
-      ? sourceAttributes.decompiledSourceSha256.toLowerCase()
+    const storedSourceHash = sourceAttributes.codeArtifactSha256 ?? sourceAttributes.decompiledSourceSha256
+    const expectedSourceHash = isCodeSource && typeof storedSourceHash === 'string'
+      ? storedSourceHash.toLowerCase()
       : null
-    if (isCodeSource && sourceAttributes.decompiledSourceSha256 !== undefined
+    if (isCodeSource && storedSourceHash !== undefined
       && (expectedSourceHash === null || !/^[a-f0-9]{64}$/.test(expectedSourceHash))) {
       return NextResponse.json({ error: 'Stored source integrity metadata is invalid' }, { status: 409, headers: { 'Cache-Control': 'no-store' } })
     }

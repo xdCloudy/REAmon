@@ -1,5 +1,7 @@
 import { Prisma } from '@prisma/client'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
+import { readFile, realpath, stat } from 'node:fs/promises'
+import path from 'node:path'
 import prisma from '@/lib/prisma'
 import { getBuiltinProvider } from './provider-registry'
 import { resolveCapabilities } from './capabilities'
@@ -7,10 +9,14 @@ import { resolveArtifactStoragePath } from './artifact-storage'
 import { ingestToolResult, MAX_CODE_UNITS_PER_RESULT, MAX_OBSERVATIONS_PER_RESULT } from './result-ingestion'
 import { boundResultData } from './result-bounds'
 import { taskRequiresApproval } from './task-approval'
+import { resolveDerivedArtifactPath } from './derived-storage'
 import type { TargetProfile, ToolResult } from './types'
 
 const DEFAULT_LEASE_OWNER = 'webapp'
 const MAX_LEASE_OWNER_LENGTH = 128
+const MAX_CODE_ARTIFACT_HASH_FILE_BYTES = 2 * 1024 * 1024
+const MAX_CODE_ARTIFACT_HASH_TOTAL_BYTES = 64 * 1024 * 1024
+const MAX_CODE_ARTIFACT_HASH_FILES = 1_024
 
 const taskSelect = {
   id: true,
@@ -36,7 +42,7 @@ const taskSelect = {
   updatedAt: true,
   approval: { select: { status: true } },
   provider: { select: { id: true, pluginId: true, name: true, enabled: true } },
-  artifact: { select: { id: true, targetId: true, relativePath: true, profile: true, storagePath: true } },
+  artifact: { select: { id: true, targetId: true, relativePath: true, profile: true, storagePath: true, sha256: true } },
 } satisfies Prisma.TaskSelect
 
 type TaskRow = Prisma.TaskGetPayload<{ select: typeof taskSelect }>
@@ -106,6 +112,96 @@ function boundedTaskResultData(value: unknown): Prisma.InputJsonValue {
     }
   }
   return boundResultData(value)
+}
+
+function isInsideDirectory(root: string, file: string): boolean {
+  const relative = path.relative(root, file)
+  return Boolean(relative) && relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)
+}
+
+async function attachCodeArtifactProvenance(task: TaskRow, runToken: string, result: ToolResult): Promise<ToolResult> {
+  if (result.toolId === 'reamon-tocode-import'
+    || !result.capabilities.some((capability) => capability === 'decompile' || capability === 'disassemble')
+    || !task.artifact || !task.artifactId || !/^[a-f0-9]{64}$/i.test(task.artifact.sha256)) return result
+  const observations = result.data.observations
+  if (!Array.isArray(observations) || observations.length === 0) return result
+
+  const projectId = task.projectId
+  const runPrefix = `${projectId}/${task.artifactId}/${task.id}/${runToken}`
+  let runRoot: string
+  try {
+    runRoot = await realpath(resolveDerivedArtifactPath(runPrefix))
+  } catch {
+    return result
+  }
+
+  const inputArtifactSha256 = task.artifact.sha256.toLowerCase()
+  const sourceHashByPath = new Map<string, string | null>()
+  let sourceFilesHashed = 0
+  let sourceBytesHashed = 0
+  let changed = false
+  const enrichedObservations: unknown[] = []
+  for (const observationValue of observations) {
+    if (!observationValue || typeof observationValue !== 'object' || Array.isArray(observationValue)) {
+      enrichedObservations.push(observationValue)
+      continue
+    }
+    const observation = observationValue as Record<string, unknown>
+    const attributes = observation.attributes && typeof observation.attributes === 'object' && !Array.isArray(observation.attributes)
+      ? observation.attributes as Record<string, unknown>
+      : null
+    const codeArtifactId = attributes?.codeArtifactId
+    if (observation.type !== 'code_unit' || !attributes || typeof codeArtifactId !== 'string'
+      || !codeArtifactId.startsWith(`${runPrefix}/`)) {
+      enrichedObservations.push(observationValue)
+      continue
+    }
+    const relativeFile = codeArtifactId.slice(runPrefix.length + 1)
+    const segments = relativeFile.split('/')
+    if (!relativeFile || segments.some((segment) => !segment || segment === '.' || segment === '..' || segment.includes('\\'))) {
+      enrichedObservations.push(observationValue)
+      continue
+    }
+    const reportedInputHash = attributes.inputArtifactSha256
+    if (reportedInputHash !== undefined
+      && (typeof reportedInputHash !== 'string' || reportedInputHash.toLowerCase() !== inputArtifactSha256)) {
+      enrichedObservations.push(observationValue)
+      continue
+    }
+
+    let sourceHash = sourceHashByPath.get(codeArtifactId)
+    if (!sourceHashByPath.has(codeArtifactId)) {
+      sourceHashByPath.set(codeArtifactId, null)
+      if (sourceFilesHashed >= MAX_CODE_ARTIFACT_HASH_FILES) {
+        enrichedObservations.push({ ...observation, attributes: { ...attributes, inputArtifactSha256 } })
+        changed = true
+        continue
+      }
+      try {
+        const candidatePath = resolveDerivedArtifactPath(codeArtifactId)
+        const candidateRealPath = await realpath(candidatePath)
+        if (!isInsideDirectory(runRoot, candidateRealPath)) throw new Error('Code artifact is outside its task run')
+        const info = await stat(candidateRealPath)
+        if (!info.isFile() || info.size <= 0 || info.size > MAX_CODE_ARTIFACT_HASH_FILE_BYTES
+          || sourceBytesHashed + info.size > MAX_CODE_ARTIFACT_HASH_TOTAL_BYTES) throw new Error('Code artifact exceeds hash limits')
+        const bytes = await readFile(candidateRealPath)
+        sourceHash = createHash('sha256').update(bytes).digest('hex')
+        sourceHashByPath.set(codeArtifactId, sourceHash)
+        sourceFilesHashed += 1
+        sourceBytesHashed += bytes.byteLength
+      } catch {
+        sourceHashByPath.set(codeArtifactId, null)
+      }
+    }
+    const enrichedAttributes = {
+      ...attributes,
+      inputArtifactSha256,
+      ...(sourceHash ? { codeArtifactSha256: sourceHash } : {}),
+    }
+    enrichedObservations.push({ ...observation, attributes: enrichedAttributes })
+    changed = true
+  }
+  return changed ? { ...result, data: { ...result.data, observations: enrichedObservations } } : result
 }
 
 function heartbeatIntervalMs(): number {
@@ -325,8 +421,12 @@ export async function executeAnalysisTask(projectId: string, taskId: string, lea
     stopHeartbeat()
     return failTask(task, runToken, error instanceof Error ? error.message : 'Provider execution failed')
   }
+  if (result.status !== 'completed') {
+    stopHeartbeat()
+    return settleTask(task, runToken, 'FAILED', plugin.manifest.name, result, result.error)
+  }
+  result = await attachCodeArtifactProvenance(task, runToken, result)
   stopHeartbeat()
-  if (result.status !== 'completed') return settleTask(task, runToken, 'FAILED', plugin.manifest.name, result, result.error)
   await reportProgress('Saving analyzer results to the workspace')
   return settleTask(task, runToken, 'COMPLETED', plugin.manifest.name, result)
 }

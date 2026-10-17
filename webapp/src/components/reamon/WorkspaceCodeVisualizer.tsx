@@ -885,7 +885,9 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
     staleTime: 5 * 60_000,
     gcTime: 60_000,
   })
-  const canCompareDecompilerOutputs = Boolean(selectedUnit && ['reamon-jadx', 'reamon-dex-decompiler', 'reamon-vineflower', 'reamon-cfr'].includes(selectedUnit.source))
+  const canCompareDecompilerOutputs = Boolean(selectedUnit
+    && selectedUnit.inputArtifactSha256
+    && selectedUnit.codeArtifactSha256)
   const alternateOutputsQuery = useQuery({
     queryKey: ['reamon-alternate-decompiler-outputs', projectId, selectedUnit?.id],
     queryFn: ({ signal }) => fetchAlternateDecompilerOutputs(projectId, selectedUnit?.id as string, signal),

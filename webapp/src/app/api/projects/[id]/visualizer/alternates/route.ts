@@ -8,7 +8,6 @@ import { getActiveWorkspaceImportSelection } from '@/lib/reamon/inventory-query'
 import { derivedArtifactRoot, resolveDerivedArtifactPath } from '@/lib/reamon/derived-storage'
 
 interface RouteParams { params: Promise<{ id: string }> }
-const PROVIDERS = ['reamon-jadx', 'reamon-dex-decompiler', 'reamon-vineflower', 'reamon-cfr']
 const MAX_SOURCE_BYTES = 2 * 1024 * 1024
 const MAX_ALTERNATES = 2
 const NO_STORE = { 'Cache-Control': 'private, no-store' }
@@ -53,14 +52,15 @@ export async function GET(request: Request, { params }: RouteParams) {
         artifact: { select: { sha256: true } },
       },
     })
-    if (!unit?.taskId || !unit.artifactId || !unit.artifact?.sha256 || !PROVIDERS.includes(unit.source)) {
+    if (!unit?.taskId || !unit.artifactId || !unit.artifact?.sha256) {
       return NextResponse.json({ alternates: [] }, { headers: NO_STORE })
     }
 
     const attributes = record(unit.attributes)
     const relativePath = typeof attributes.relativePath === 'string' ? attributes.relativePath : ''
     const language = typeof attributes.language === 'string' ? attributes.language : ''
-    const selectedOutputHash = typeof attributes.decompiledSourceSha256 === 'string' ? attributes.decompiledSourceSha256.toLowerCase() : ''
+    const selectedOutputHashValue = attributes.codeArtifactSha256 ?? attributes.decompiledSourceSha256
+    const selectedOutputHash = typeof selectedOutputHashValue === 'string' ? selectedOutputHashValue.toLowerCase() : ''
     if (!relativePath || !language || relativePath.length > 1000 || relativePath.startsWith('/')
       || relativePath.split('/').some((part) => !part || part === '.' || part === '..' || part.includes('\\'))
       || !/^[a-f0-9]{64}$/.test(selectedOutputHash)
@@ -74,7 +74,6 @@ export async function GET(request: Request, { params }: RouteParams) {
         artifactId: unit.artifactId,
         capability: 'decompile',
         status: 'COMPLETED',
-        provider: { is: { pluginId: { in: PROVIDERS.filter((provider) => provider !== unit.source) } } },
       },
       orderBy: [{ completedAt: 'desc' }, { createdAt: 'desc' }],
       take: 100,
@@ -88,7 +87,7 @@ export async function GET(request: Request, { params }: RouteParams) {
         artifactId: unit.artifactId,
         taskId: { in: tasks.map((task) => task.id) },
         type: 'code_unit',
-        source: { in: PROVIDERS.filter((provider) => provider !== unit.source) },
+        source: { not: unit.source },
         AND: [
           { attributes: { path: ['relativePath'], equals: relativePath } },
           { attributes: { path: ['language'], equals: language } },
@@ -114,16 +113,18 @@ export async function GET(request: Request, { params }: RouteParams) {
       const task = taskById.get(row.taskId)
       const candidate = record(row.attributes)
       const codeArtifactId = typeof candidate.codeArtifactId === 'string' ? candidate.codeArtifactId : ''
-      const expectedHash = typeof candidate.decompiledSourceSha256 === 'string' ? candidate.decompiledSourceSha256.toLowerCase() : ''
-      const outputDirectory = row.source === 'reamon-dex-decompiler' ? 'dex-decompiler' : 'sources'
-      const expectedPrefix = `${projectId}/${unit.artifactId}/${row.taskId}/${task?.runToken || ''}/${outputDirectory}/`
+      const expectedHashValue = candidate.codeArtifactSha256 ?? candidate.decompiledSourceSha256
+      const expectedHash = typeof expectedHashValue === 'string' ? expectedHashValue.toLowerCase() : ''
+      const expectedPrefix = `${projectId}/${unit.artifactId}/${row.taskId}/${task?.runToken || ''}/`
       const sourceRelativePath = codeArtifactId.startsWith(expectedPrefix) ? codeArtifactId.slice(expectedPrefix.length) : ''
       if (!task?.runToken || task.provider?.pluginId !== row.source || !codeArtifactId.startsWith(expectedPrefix)
-        || !sourceRelativePath || sourceRelativePath.split('/').some((part) => !part || part === '.' || part === '..' || part.includes('\\'))
-        || sourceRelativePath !== relativePath || !/^[a-f0-9]{64}$/.test(expectedHash)) continue
+        || !sourceRelativePath || (sourceRelativePath !== relativePath && !sourceRelativePath.endsWith(`/${relativePath}`))
+        || sourceRelativePath.split('/').some((part) => !part || part === '.' || part === '..' || part.includes('\\'))
+        || !/^[a-f0-9]{64}$/.test(expectedHash)) continue
       try {
+        const runRoot = await realpath(resolveDerivedArtifactPath(expectedPrefix.slice(0, -1)))
         const filePath = await realpath(resolveDerivedArtifactPath(codeArtifactId))
-        if (!inside(rootPath, filePath)) continue
+        if (!inside(rootPath, runRoot) || !inside(runRoot, filePath)) continue
         const info = await stat(filePath)
         if (!info.isFile() || info.size <= 0 || info.size > MAX_SOURCE_BYTES) continue
         const bytes = await readFile(filePath)

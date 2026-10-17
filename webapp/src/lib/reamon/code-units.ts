@@ -37,6 +37,9 @@ export interface CodeUnitObservationAttributes {
   relativePath?: string
   bundlePath?: string
   codeArtifactId?: string
+  inputArtifactSha256?: string
+  codeArtifactSha256?: string
+  decompiledSourceSha256?: string
   disassemblyArtifactId?: string
   disassemblyLanguage?: string
   classReferences?: string[]
@@ -101,6 +104,8 @@ export interface CodeUnit {
   artifactPath: string | null
   source: string
   codeArtifactId: string | null
+  inputArtifactSha256?: string | null
+  codeArtifactSha256?: string | null
   disassemblyArtifactId: string | null
   disassemblyLanguage: string | null
   classReferences?: string[]
@@ -134,6 +139,10 @@ function text(value: unknown, maxLength: number): string | null {
   if (typeof value !== 'string') return null
   const normalised = value.trim()
   return normalised ? normalised.slice(0, maxLength) : null
+}
+
+function sha256(value: unknown): string | null {
+  return typeof value === 'string' && /^[a-f0-9]{64}$/i.test(value) ? value.toLowerCase() : null
 }
 
 function finiteNumber(value: unknown): number | null {
@@ -297,6 +306,8 @@ export function normalizeCodeUnit(row: CodeUnitObservationRow, options: { includ
     artifactPath,
     source: row.source.slice(0, 120),
     codeArtifactId: text(attributes.codeArtifactId, 2000),
+    inputArtifactSha256: sha256(attributes.inputArtifactSha256),
+    codeArtifactSha256: sha256(attributes.codeArtifactSha256 ?? attributes.decompiledSourceSha256),
     disassemblyArtifactId: text(attributes.disassemblyArtifactId, 2000),
     disassemblyLanguage: text(attributes.disassemblyLanguage, 80),
     classReferences: classReferencesOf(attributes.classReferences),
