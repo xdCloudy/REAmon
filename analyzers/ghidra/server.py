@@ -795,7 +795,7 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                 total_metadata_bytes = 0
                 for line in manifest.read_text(encoding="utf-8", errors="replace").splitlines():
                     fields = line.split("\t")
-                    if len(fields) not in (4, 5, 6, 7, 8, 9, 10, 11, 12):
+                    if len(fields) not in (4, 5, 6, 7, 8, 9, 10, 11, 12, 13):
                         continue
                     encoded_name, address, size_text, relative = fields[:4]
                     assembly_relative = fields[4] if len(fields) >= 5 else ""
@@ -808,6 +808,7 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                     encoded_variables = fields[9] if len(fields) >= 10 else ""
                     variables_truncated = len(fields) >= 11 and fields[10] == "true"
                     encoded_cfg_metrics = fields[11] if len(fields) >= 12 else ""
+                    encoded_cfg_graph = fields[12] if len(fields) >= 13 else ""
                     if not re.fullmatch(r"[A-Za-z0-9_./-]{1,500}", relative) or ".." in Path(relative).parts:
                         continue
                     source = within(export_root, export_root / relative)
@@ -944,11 +945,57 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                                 cfg_metrics = parsed_cfg_metrics
                         except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
                             pass
+                    cfg_graph = None
+                    if encoded_cfg_graph:
+                        try:
+                            decoded_cfg_graph = base64.b64decode(encoded_cfg_graph, validate=True).decode("utf-8", errors="strict")
+                            parsed_cfg_graph = json.loads(decoded_cfg_graph)
+                            if (len(decoded_cfg_graph.encode("utf-8")) <= 4000
+                                    and isinstance(parsed_cfg_graph, dict)
+                                    and parsed_cfg_graph.get("version") == "ghidra-basic-block-graph-v1"
+                                    and isinstance(parsed_cfg_graph.get("blocks"), list)
+                                    and isinstance(parsed_cfg_graph.get("edges"), list)
+                                    and len(parsed_cfg_graph["blocks"]) <= 32
+                                    and len(parsed_cfg_graph["edges"]) <= 48
+                                    and isinstance(parsed_cfg_graph.get("truncated"), bool)
+                                    and parsed_cfg_graph.get("instructionLabel") == "instructions"):
+                                blocks = parsed_cfg_graph["blocks"]
+                                edges = parsed_cfg_graph["edges"]
+                                valid_blocks = all(
+                                    isinstance(block, list) and len(block) == 6
+                                    and isinstance(block[0], int) and not isinstance(block[0], bool)
+                                    and block[0] == index
+                                    and isinstance(block[1], str) and re.fullmatch(r"[A-Za-z0-9_]{1,40}", block[1])
+                                    and all(isinstance(block[index], int) and not isinstance(block[index], bool)
+                                            and 0 <= block[index] <= 1_000_000 for index in (2, 3))
+                                    and block[4] == [] and block[5] == []
+                                    for index, block in enumerate(blocks)
+                                )
+                                valid_edges = all(
+                                    isinstance(edge, list) and len(edge) == 3
+                                    and isinstance(edge[0], int) and not isinstance(edge[0], bool)
+                                    and isinstance(edge[1], int) and not isinstance(edge[1], bool)
+                                    and 0 <= edge[0] < len(blocks) and 0 <= edge[1] < len(blocks)
+                                    and isinstance(edge[2], str) and re.fullmatch(r"[A-Za-z0-9_]{1,40}", edge[2])
+                                    for edge in edges
+                                )
+                                if (valid_blocks and valid_edges
+                                        and isinstance(parsed_cfg_graph.get("entryBlock"), int)
+                                        and 0 <= parsed_cfg_graph["entryBlock"] < max(1, len(blocks))
+                                        and isinstance(parsed_cfg_graph.get("exitBlock"), int)
+                                        and 0 <= parsed_cfg_graph["exitBlock"] < max(1, len(blocks))
+                                        and parsed_cfg_graph.get("blockCount") == len(blocks)
+                                        and parsed_cfg_graph.get("edgeCount") == len(edges)):
+                                    cfg_graph = parsed_cfg_graph
+                        except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
+                            pass
                     if cfg_metrics:
                         total_metadata_bytes += len(json.dumps(cfg_metrics, separators=(",", ":")).encode("utf-8"))
+                    if cfg_graph:
+                        total_metadata_bytes += len(json.dumps(cfg_graph, separators=(",", ":")).encode("utf-8"))
                     if total_bytes + total_assembly_bytes + total_metadata_bytes > MAX_OUTPUT_BYTES:
                         raise AnalysisError("Ghidra sources and evidence exceeded the configured storage limit")
-                    rows.append((name[:500], address[:128], size_bytes, relative, source, assembly_relative, assembly, referenced_strings, instruction_mnemonics, source_address_map, prototype, recovered_variables, variables_truncated, cfg_metrics))
+                    rows.append((name[:500], address[:128], size_bytes, relative, source, assembly_relative, assembly, referenced_strings, instruction_mnemonics, source_address_map, prototype, recovered_variables, variables_truncated, cfg_metrics, cfg_graph))
 
                 if not rows:
                     raise AnalysisError(log_text[-1200:] or "Ghidra found no functions it could decompile")
@@ -1018,7 +1065,7 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                 sources_root = run_root / "sources"
                 units = []
                 progress_stride = max(1, len(returned) // 25)
-                for unit_index, (name, address, size_bytes, relative, source, assembly_relative, assembly, referenced_strings, instruction_mnemonics, source_address_map, prototype, recovered_variables, variables_truncated, cfg_metrics) in enumerate(returned, start=1):
+                for unit_index, (name, address, size_bytes, relative, source, assembly_relative, assembly, referenced_strings, instruction_mnemonics, source_address_map, prototype, recovered_variables, variables_truncated, cfg_metrics, cfg_graph) in enumerate(returned, start=1):
                     if unit_index == 1 or unit_index % progress_stride == 0 or unit_index == len(returned):
                         report_progress(f"Saving function {unit_index} of {len(returned)}")
                     destination = sources_root / relative
@@ -1076,6 +1123,8 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                         unit["instructionMnemonics"] = instruction_mnemonics
                     if cfg_metrics:
                         unit["cfgMetrics"] = cfg_metrics
+                    if cfg_graph:
+                        unit["cfgGraph"] = cfg_graph
                     if source_address_map:
                         unit["sourceAddressMap"] = source_address_map
                     if prototype:
@@ -1112,6 +1161,8 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                     warnings.append("Ghidra recovered variable evidence reached its configured analysis limit.")
                 if any(row[13] and row[13].get("truncated") is True for row in returned):
                     warnings.append("Ghidra basic-block metrics reached a per-function or per-run limit; affected counts are lower bounds.")
+                if any(row[14] and row[14].get("truncated") is True for row in returned):
+                    warnings.append("Ghidra control-flow graph display reached its per-function block or edge limit; displayed topology is partial.")
                 if floss_warning:
                     warnings.append(floss_warning)
                 if reipa_warning:

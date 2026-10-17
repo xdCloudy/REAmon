@@ -31,6 +31,9 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Base64;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map;
 
 public class ReamonExport extends GhidraScript {
     private static final int MAX_SOURCE_ADDRESS_MAPPINGS = 5000;
@@ -40,6 +43,8 @@ public class ReamonExport extends GhidraScript {
     private static final int MAX_CFG_EDGES_PER_FUNCTION = 2048;
     private static final int MAX_CFG_BLOCKS_PER_RUN = 100000;
     private static final int MAX_CFG_EDGES_PER_RUN = 200000;
+    private static final int MAX_CFG_DISPLAY_BLOCKS = 32;
+    private static final int MAX_CFG_DISPLAY_EDGES = 48;
     private int sourceAddressMappingCount = 0;
     private int recoveredVariableCount = 0;
     private boolean sourceAddressMapTruncated = false;
@@ -91,6 +96,82 @@ public class ReamonExport extends GhidraScript {
         return "{\"version\":\"ghidra-basic-blocks-v1\",\"blockCount\":" + blockCount
             + ",\"edgeCount\":" + edgeCount + ",\"entryBlockCount\":" + entryBlockCount
             + ",\"exitBlockCount\":" + exitBlockCount + ",\"truncated\":" + truncated + "}";
+    }
+
+    private String collectControlFlowGraph(Function function, BasicBlockModel blockModel) throws Exception {
+        ArrayList<CodeBlock> blocks = new ArrayList<>();
+        Map<String, Integer> blockIds = new HashMap<>();
+        CodeBlockIterator iterator = blockModel.getCodeBlocksContaining(function.getBody(), monitor);
+        boolean truncated = false;
+        while (iterator.hasNext()) {
+            monitor.checkCancelled();
+            if (blocks.size() >= MAX_CFG_DISPLAY_BLOCKS) {
+                truncated = true;
+                break;
+            }
+            CodeBlock block = iterator.next();
+            blockIds.put(block.getMinAddress().toString(), blocks.size());
+            blocks.add(block);
+        }
+        if (iterator.hasNext()) truncated = true;
+
+        int entryBlock = 0;
+        int exitBlock = 0;
+        boolean foundExit = false;
+        StringBuilder blockJson = new StringBuilder();
+        for (int index = 0; index < blocks.size(); index++) {
+            CodeBlock block = blocks.get(index);
+            if (block.getMinAddress().equals(function.getEntryPoint())) entryBlock = index;
+            int instructionCount = 0;
+            InstructionIterator instructions = currentProgram.getListing().getInstructions(block.getMinAddress(), true);
+            while (instructions.hasNext()) {
+                monitor.checkCancelled();
+                Instruction instruction = instructions.next();
+                if (instruction.getAddress().compareTo(block.getMaxAddress()) > 0) break;
+                instructionCount++;
+            }
+            if (index > 0) blockJson.append(',');
+            blockJson.append('[').append(index).append(",\"basic\",").append(instructionCount)
+                .append(',').append(instructionCount).append(",[],[]]");
+        }
+
+        StringBuilder edgeJson = new StringBuilder();
+        int edgeCount = 0;
+        for (int index = 0; index < blocks.size(); index++) {
+            CodeBlockReferenceIterator destinations = blockModel.getDestinations(blocks.get(index), monitor);
+            boolean hasInternalSuccessor = false;
+            while (destinations.hasNext()) {
+                monitor.checkCancelled();
+                CodeBlockReference destination = destinations.next();
+                if (destination.getDestinationAddress() == null
+                    || !function.getBody().contains(destination.getDestinationAddress())) continue;
+                hasInternalSuccessor = true;
+                Integer target = blockIds.get(destination.getDestinationAddress().toString());
+                if (target == null) {
+                    truncated = true;
+                    continue;
+                }
+                if (edgeCount >= MAX_CFG_DISPLAY_EDGES) {
+                    truncated = true;
+                    break;
+                }
+                if (edgeCount > 0) edgeJson.append(',');
+                String kind = destination.getFlowType() == null ? "flow" : destination.getFlowType().toString();
+                if (!kind.matches("[A-Za-z0-9_]{1,40}")) kind = "flow";
+                edgeJson.append('[').append(index).append(',').append(target).append(",\"").append(kind).append("\"]");
+                edgeCount++;
+            }
+            if (!hasInternalSuccessor && !foundExit) {
+                exitBlock = index;
+                foundExit = true;
+            }
+            if (edgeCount >= MAX_CFG_DISPLAY_EDGES) break;
+        }
+        return "{\"version\":\"ghidra-basic-block-graph-v1\",\"entryBlock\":" + entryBlock
+            + ",\"exitBlock\":" + exitBlock + ",\"blockCount\":" + blocks.size()
+            + ",\"edgeCount\":" + edgeCount + ",\"truncated\":" + truncated
+            + ",\"instructionLabel\":\"instructions\",\"blocks\":[" + blockJson
+            + "],\"edges\":[" + edgeJson + "]}";
     }
 
     private String collectRecoveredVariables(HighFunction function) {
@@ -302,9 +383,12 @@ public class ReamonExport extends GhidraScript {
                     (prototype == null ? "" : prototype.substring(0, Math.min(2000, prototype.length()))).getBytes(StandardCharsets.UTF_8));
                 String encodedVariables = collectRecoveredVariables(result.getHighFunction());
                 String encodedCfgMetrics = "";
+                String encodedCfgGraph = "";
                 try {
                     encodedCfgMetrics = Base64.getEncoder().encodeToString(
                         collectControlFlowMetrics(function, blockModel).getBytes(StandardCharsets.UTF_8));
+                    encodedCfgGraph = Base64.getEncoder().encodeToString(
+                        collectControlFlowGraph(function, blockModel).getBytes(StandardCharsets.UTF_8));
                 } catch (CancelledException error) {
                     throw error;
                 } catch (Exception ignored) {
@@ -312,7 +396,7 @@ public class ReamonExport extends GhidraScript {
                 }
                 String relativePath = "functions/" + filename;
                 String assemblyRelativePath = "assembly/" + assemblyFilename;
-                String line = encodedName + "\t" + address + "\t" + sizeBytes + "\t" + relativePath + "\t" + assemblyRelativePath + "\t" + encodedStrings + "\t" + encodedMnemonics + "\t" + encodedSourceAddressMap + "\t" + encodedPrototype + "\t" + encodedVariables + "\t" + currentVariablesTruncated + "\t" + encodedCfgMetrics + "\n";
+                String line = encodedName + "\t" + address + "\t" + sizeBytes + "\t" + relativePath + "\t" + assemblyRelativePath + "\t" + encodedStrings + "\t" + encodedMnemonics + "\t" + encodedSourceAddressMap + "\t" + encodedPrototype + "\t" + encodedVariables + "\t" + currentVariablesTruncated + "\t" + encodedCfgMetrics + "\t" + encodedCfgGraph + "\n";
                 Files.writeString(manifest, line, StandardCharsets.UTF_8,
                     java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
                 decompiled++;

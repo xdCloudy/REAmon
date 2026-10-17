@@ -59,6 +59,7 @@ interface FunctionMapMember {
 
 interface FunctionControlFlowGraph {
   label: string
+  instructionLabel: string
   entryBlock: number
   exitBlock: number
   blockCount: number
@@ -255,14 +256,14 @@ function FunctionControlFlowPanel({
   return <section className={styles.cfgPanel} aria-label={`Control-flow graph for ${name}`}>
     <div className={styles.cfgHeader}>
       <div>
-        <h3>Prototype control flow</h3>
-        <p>{graph ? `${graph.blockCount} blocks · ${graph.edgeCount} edges` : 'Bounded CFG summary from the Lua bytecode analyzer.'}</p>
+        <h3>Control-flow graph</h3>
+        <p>{graph ? `${graph.blockCount} blocks · ${graph.edgeCount} edges` : 'Bounded graph summary from the selected decompiler.'}</p>
       </div>
       {graph?.truncated && <span className={styles.graphBadge}>Partial graph</span>}
-      {graph?.instructionSamplesTruncated && <span className={styles.graphBadge}>Instruction excerpts</span>}
+      {graph?.instructionSamplesTruncated && <span className={styles.graphBadge}>Instruction samples omitted</span>}
     </div>
-    {query.isLoading && <p className={styles.cfgMessage} role="status">Loading prototype graph…</p>}
-    {Boolean(query.error) && <p className={styles.cfgMessage} role="alert">{query.error instanceof Error ? query.error.message : 'Could not load the prototype graph.'}</p>}
+    {query.isLoading && <p className={styles.cfgMessage} role="status">Loading control-flow graph…</p>}
+    {Boolean(query.error) && <p className={styles.cfgMessage} role="alert">{query.error instanceof Error ? query.error.message : 'Could not load the control-flow graph.'}</p>}
     {graph && graph.blocks.length > 0 && <>
       <div className={styles.cfgLegend}><span>Entry block {graph.entryBlock}</span><span>Exit block {graph.exitBlock}</span></div>
       <div className={styles.cfgCanvas}>
@@ -292,24 +293,24 @@ function FunctionControlFlowPanel({
             return <g key={block.id} className={`${styles.cfgNode} ${block.id === graph.entryBlock ? styles.cfgEntry : ''} ${block.id === graph.exitBlock ? styles.cfgExit : ''}`}>
               <rect x={position.x} y={position.y} width={nodeWidth} height={58} rx={8} />
               <text x={position.x + 12} y={position.y + 21}>Block {block.id} · {block.kind}</text>
-              <text x={position.x + 12} y={position.y + 41}>{block.instructionCount} IR · {block.rawInstructionCount} bytecode instructions</text>
+              <text x={position.x + 12} y={position.y + 41}>{block.instructionCount} {graph.instructionLabel}</text>
             </g>
           })}
         </svg>
       </div>
       {graph.blocks.some((block) => block.instructionSamples.length || block.rawInstructionSamples.length) && <details className={styles.cfgEvidence} open>
-        <summary>Sampled Low-IR and bytecode instructions</summary>
+        <summary>Sampled instructions</summary>
         <div>
           {graph.blocks.filter((block) => block.instructionSamples.length || block.rawInstructionSamples.length).map((block) => <article key={block.id}>
             <h4>Block {block.id}</h4>
-            {block.instructionSamples.map((line, index) => <p key={`ir:${index}`}><strong>Low-IR</strong><code>{line}</code></p>)}
-            {block.rawInstructionSamples.map((line, index) => <p key={`raw:${index}`}><strong>Bytecode</strong><code>{line}</code></p>)}
+            {block.instructionSamples.map((line, index) => <p key={`ir:${index}`}><strong>IR</strong><code>{line}</code></p>)}
+            {block.rawInstructionSamples.map((line, index) => <p key={`raw:${index}`}><strong>Bytecode / raw</strong><code>{line}</code></p>)}
           </article>)}
         </div>
       </details>}
       <p className={styles.cfgMessage}>This view shows bounded graph topology and instruction excerpts. Decompiled source remains the editable module artifact.</p>
     </>}
-    {graph && graph.blocks.length === 0 && <p className={styles.cfgMessage}>This prototype has no basic blocks to display.</p>}
+    {graph && graph.blocks.length === 0 && <p className={styles.cfgMessage}>This function has no basic blocks to display.</p>}
   </section>
 }
 
@@ -856,10 +857,14 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
     && selectedFunctionMapMember.parentUnitId === selectedUnit?.id
     ? selectedFunctionMapMember.id
     : ''
+  const selectedGhidraFunctionId = selectedUnit?.source === 'reamon-ghidra'
+    && selectedUnit.unitType === 'function' && selectedUnit.controlFlowMetrics
+    ? selectedUnit.id : ''
+  const selectedControlFlowFunctionId = selectedLuaFunctionId || selectedGhidraFunctionId
   const functionControlFlowQuery = useQuery({
-    queryKey: ['reamon-function-cfg', projectId, selectedFunctionMapMember?.taskId || currentRunId, selectedLuaFunctionId],
-    queryFn: ({ signal }) => fetchFunctionControlFlowGraph(projectId, (selectedFunctionMapMember?.taskId || currentRunId) as string, selectedLuaFunctionId, signal),
-    enabled: Boolean((selectedFunctionMapMember?.taskId || currentRunId) && selectedLuaFunctionId),
+    queryKey: ['reamon-function-cfg', projectId, selectedLuaFunctionId ? selectedFunctionMapMember?.taskId || currentRunId : currentRunId, selectedControlFlowFunctionId],
+    queryFn: ({ signal }) => fetchFunctionControlFlowGraph(projectId, (selectedLuaFunctionId ? selectedFunctionMapMember?.taskId || currentRunId : currentRunId) as string, selectedControlFlowFunctionId, signal),
+    enabled: Boolean(currentRunId && selectedControlFlowFunctionId),
     staleTime: 5 * 60_000,
     gcTime: 10 * 60_000,
   })
@@ -2222,6 +2227,10 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
               ? 'The counts are lower bounds because CFG extraction reached an analysis limit. They describe structure and do not establish function identity or behavioral equivalence.'
               : 'These counts describe Ghidra’s recovered structure; they do not establish function identity or behavioral equivalence.'}</small>
           </section>}
+          {selectedGhidraFunctionId && <FunctionControlFlowPanel
+            query={functionControlFlowQuery}
+            name={selectedUnit.name}
+          />}
           {(selectedUnit.prototype || (selectedUnit.recoveredVariables?.length ?? 0) > 0) && <details className={styles.recoveredVariables}>
             <summary>Recovered signature and variables <span>{(selectedUnit.recoveredVariables?.length ?? 0).toLocaleString()}</span></summary>
             {selectedUnit.prototype && <p><strong>Provider signature</strong><code>{selectedUnit.prototype}</code></p>}

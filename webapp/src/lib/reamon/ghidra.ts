@@ -33,6 +33,18 @@ interface GhidraControlFlowMetrics {
   truncated: boolean
 }
 
+interface GhidraControlFlowGraph {
+  version: 'ghidra-basic-block-graph-v1'
+  entryBlock: number
+  exitBlock: number
+  blockCount: number
+  edgeCount: number
+  truncated: boolean
+  instructionLabel: string
+  blocks: Array<[number, string, number, number, string[], string[]]>
+  edges: Array<[number, number, string]>
+}
+
 interface GhidraResponse {
   status: 'completed'
   toolVersion: string
@@ -60,7 +72,7 @@ interface GhidraResponse {
   codeBytes?: number
   returnedUnits: number
   truncated: boolean
-  units: Array<{ name: string; address: string; relativePath: string; codeArtifactId: string; disassemblyArtifactId?: string; reipaAlternateCodeArtifactId?: string; reipaAlternateOutputSha256?: string; reipaAlternateSizeBytes?: number; referencedStrings?: string[]; instructionMnemonics?: string[]; cfgMetrics?: GhidraControlFlowMetrics; sourceAddressMap?: Array<{ ghidraLineNumber: number; address: string }>; prototype?: string; recoveredVariables?: Array<{ kind: 'parameter' | 'local'; name: string; dataType: string; sizeBytes: number; parameterIndex?: number; storageStartAddress?: string; nameLocked?: boolean; typeLocked?: boolean }>; recoveredVariablesTruncated?: boolean; flossVersion?: string; flossRecoveredStrings?: FlossRecoveredString[]; flossRecoveredStringsTruncated?: boolean; sourceLanguage?: string; symbolSource?: string; recoveredNativeSymbolName?: string; goPackage?: string; goUnstripSignature?: string; goUnstripSourceFile?: string; goUnstripSourceLine?: number; goUnstripInterfaces?: UnstripGoInterfaceMethod[]; goUnstripInterfacesTruncated?: boolean; sizeBytes: number }>
+  units: Array<{ name: string; address: string; relativePath: string; codeArtifactId: string; disassemblyArtifactId?: string; reipaAlternateCodeArtifactId?: string; reipaAlternateOutputSha256?: string; reipaAlternateSizeBytes?: number; referencedStrings?: string[]; instructionMnemonics?: string[]; cfgMetrics?: GhidraControlFlowMetrics; cfgGraph?: GhidraControlFlowGraph; sourceAddressMap?: Array<{ ghidraLineNumber: number; address: string }>; prototype?: string; recoveredVariables?: Array<{ kind: 'parameter' | 'local'; name: string; dataType: string; sizeBytes: number; parameterIndex?: number; storageStartAddress?: string; nameLocked?: boolean; typeLocked?: boolean }>; recoveredVariablesTruncated?: boolean; flossVersion?: string; flossRecoveredStrings?: FlossRecoveredString[]; flossRecoveredStringsTruncated?: boolean; sourceLanguage?: string; symbolSource?: string; recoveredNativeSymbolName?: string; goPackage?: string; goUnstripSignature?: string; goUnstripSourceFile?: string; goUnstripSourceLine?: number; goUnstripInterfaces?: UnstripGoInterfaceMethod[]; goUnstripInterfacesTruncated?: boolean; sizeBytes: number }>
   calls?: Array<{ fromAddress: string; toAddress: string; fromName: string; toName: string }>
   callCount?: number
   callGraphTruncated?: boolean
@@ -229,6 +241,25 @@ export async function executeGhidra(input: ToolExecutionInput): Promise<ToolResu
               const value = unit.cfgMetrics?.[key as keyof GhidraControlFlowMetrics]
               return Number.isSafeInteger(value) && typeof value === 'number' && value >= 0 && value <= 1_000_000
             }) || typeof unit.cfgMetrics.truncated !== 'boolean'))
+          || (unit.cfgGraph !== undefined && (!unit.cfgGraph || unit.cfgGraph.version !== 'ghidra-basic-block-graph-v1'
+            || !Number.isInteger(unit.cfgGraph.entryBlock) || unit.cfgGraph.entryBlock < 0
+            || !Number.isInteger(unit.cfgGraph.exitBlock) || unit.cfgGraph.exitBlock < 0
+            || !Number.isSafeInteger(unit.cfgGraph.blockCount) || !Number.isSafeInteger(unit.cfgGraph.edgeCount)
+            || !Array.isArray(unit.cfgGraph.blocks) || unit.cfgGraph.blocks.length > 32
+            || !Array.isArray(unit.cfgGraph.edges) || unit.cfgGraph.edges.length > 48
+            || unit.cfgGraph.blockCount !== unit.cfgGraph.blocks.length || unit.cfgGraph.edgeCount !== unit.cfgGraph.edges.length
+            || (unit.cfgGraph.blocks.length > 0 && (unit.cfgGraph.entryBlock >= unit.cfgGraph.blocks.length || unit.cfgGraph.exitBlock >= unit.cfgGraph.blocks.length))
+            || !unit.cfgGraph.blocks.every((block, index) => Array.isArray(block) && block.length === 6
+              && block[0] === index && typeof block[1] === 'string'
+              && Number.isInteger(block[2]) && block[2] >= 0 && Number.isInteger(block[3]) && block[3] >= 0
+              && Array.isArray(block[4]) && block[4].every((sample) => typeof sample === 'string')
+              && Array.isArray(block[5]) && block[5].every((sample) => typeof sample === 'string'))
+            || !unit.cfgGraph.edges.every((edge) => Array.isArray(edge) && edge.length === 3
+              && Number.isInteger(edge[0]) && edge[0] >= 0 && edge[0] < unit.cfgGraph!.blocks.length
+              && Number.isInteger(edge[1]) && edge[1] >= 0 && edge[1] < unit.cfgGraph!.blocks.length
+              && typeof edge[2] === 'string')
+            || typeof unit.cfgGraph.truncated !== 'boolean'
+            || typeof unit.cfgGraph.instructionLabel !== 'string'))
           || (unit.sourceAddressMap !== undefined && (!Array.isArray(unit.sourceAddressMap)
             || unit.sourceAddressMap.length > 5000
             || !unit.sourceAddressMap.every((mapping) => mapping && Number.isInteger(mapping.ghidraLineNumber)
@@ -317,6 +348,7 @@ export async function executeGhidra(input: ToolExecutionInput): Promise<ToolResu
         ...(unit.flossRecoveredStringsTruncated ? { flossRecoveredStringsTruncated: true } : {}),
         ...(unit.instructionMnemonics?.length ? { instructionMnemonics: JSON.stringify(unit.instructionMnemonics.slice(0, 800)) } : {}),
         ...(unit.cfgMetrics ? { controlFlowMetrics: JSON.stringify(unit.cfgMetrics) } : {}),
+        ...(unit.cfgGraph ? { controlFlowGraph: JSON.stringify(unit.cfgGraph) } : {}),
         ...(unit.sourceAddressMap?.length ? { sourceAddressMap: JSON.stringify(unit.sourceAddressMap.slice(0, 5000)) } : {}),
         ...(unit.prototype ? { prototype: unit.prototype.slice(0, 2000) } : {}),
         ...(unit.recoveredVariables?.length ? { recoveredVariables: JSON.stringify(unit.recoveredVariables.slice(0, 100)) } : {}),

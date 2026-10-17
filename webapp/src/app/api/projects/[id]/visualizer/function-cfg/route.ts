@@ -41,7 +41,9 @@ export async function GET(request: Request, { params }: RouteParams) {
       select: { id: true, artifactId: true, provider: { select: { pluginId: true } } },
     })
     if (!task?.artifactId) return NextResponse.json({ error: 'Decompilation run not found' }, { status: 404, headers: NO_STORE })
-    const cfgSource = task.provider?.pluginId === 'reamon-dex-decompiler'
+    const cfgSource = task.provider?.pluginId === 'reamon-ghidra'
+      ? 'reamon-ghidra'
+      : task.provider?.pluginId === 'reamon-dex-decompiler'
       ? 'reamon-dex-decompiler'
       : task.provider?.pluginId === 'reamon-unluac-rs' ? 'reamon-unluac-rs' : null
     if (!cfgSource) return NextResponse.json({ error: 'This run does not provide stored function control-flow data' }, { status: 422, headers: NO_STORE })
@@ -53,7 +55,7 @@ export async function GET(request: Request, { params }: RouteParams) {
         taskId: task.id,
         artifactId: task.artifactId,
         source: cfgSource,
-        type: 'function',
+        type: cfgSource === 'reamon-ghidra' ? 'code_unit' : 'function',
         artifact: { is: selection.artifactWhere },
       },
       select: { label: true, attributes: true },
@@ -67,7 +69,9 @@ export async function GET(request: Request, { params }: RouteParams) {
         try { cfg = record(JSON.parse(attributes.controlFlowGraph)) } catch { cfg = null }
       }
     }
-    if (!cfg || !nonNegativeInteger(cfg.entryBlock) || !nonNegativeInteger(cfg.exitBlock)
+    const graphVersion = cfg?.version
+    if (!cfg || (cfg.version !== 'ghidra-basic-block-graph-v1' && cfg.version !== undefined)
+      || !nonNegativeInteger(cfg.entryBlock) || !nonNegativeInteger(cfg.exitBlock)
       || !nonNegativeInteger(cfg.blockCount) || !nonNegativeInteger(cfg.edgeCount)
       || !Array.isArray(cfg.blocks) || cfg.blocks.length > 32
       || !Array.isArray(cfg.edges) || cfg.edges.length > 48) {
@@ -105,11 +109,12 @@ export async function GET(request: Request, { params }: RouteParams) {
 
     return NextResponse.json({
       label: observation.label || 'Function',
+      instructionLabel: graphVersion === 'ghidra-basic-block-graph-v1' ? 'instructions' : 'IR and bytecode instructions',
       entryBlock: cfg.entryBlock,
       exitBlock: cfg.exitBlock,
       blockCount: cfg.blockCount,
       edgeCount: cfg.edgeCount,
-      truncated: cfg.blockCount > blocks.length || cfg.edgeCount > edges.length,
+      truncated: cfg.truncated === true || cfg.blockCount > blocks.length || cfg.edgeCount > edges.length,
       instructionSamplesTruncated: blocks.some((block) => block.instructionCount > block.instructionSamples.length
         || block.rawInstructionCount > block.rawInstructionSamples.length),
       blocks,
