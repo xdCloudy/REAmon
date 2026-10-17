@@ -1178,6 +1178,7 @@ services:
       REAMON_ILSPY_URL: http://ilspy-analyzer:8013
       REAMON_GHIDRA_URL: http://ghidra-analyzer:8011
       REAMON_OXIDIZER_URL: http://oxidizer-analyzer:8020
+      REAMON_GLAURUNG_URL: http://glaurung-analyzer:8024
       REAMON_WASM_URL: http://wasm-analyzer:8012
       REAMON_PYCDC_URL: http://pycdc-analyzer:8014
       REAMON_WEBCRACK_URL: http://webcrack-analyzer:8015
@@ -1583,6 +1584,47 @@ services:
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8020/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 180s
+    networks:
+      - reamon-analysis
+
+  # Experimental native C-like pseudocode from the pinned Glaurung engine.
+  # Keep this Rust/Python toolchain isolated from the webapp and other analyzers.
+  glaurung-analyzer:
+    build:
+      context: ./analyzers/glaurung
+    image: ${REAMON_GLAURUNG_IMAGE:-reamon-glaurung:local}
+    container_name: reamon-glaurung
+    init: true
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+    mem_limit: ${REAMON_GLAURUNG_MEM:-4g}
+    pids_limit: ${REAMON_GLAURUNG_PIDS:-128}
+    cpus: ${REAMON_GLAURUNG_CPUS:-2}
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=${REAMON_GLAURUNG_TMP_SIZE:-2g},mode=1777
+    environment:
+      REAMON_ARTIFACTS_PATH: /data/reamon-artifacts
+      REAMON_DERIVED_PATH: /data/reamon-derived
+      GLAURUNG_TIMEOUT_SECONDS: ${REAMON_GLAURUNG_TIMEOUT_SECONDS:-900}
+      GLAURUNG_MAX_FUNCTIONS: ${REAMON_GLAURUNG_MAX_FUNCTIONS:-200}
+      GLAURUNG_MAX_OUTPUT_BYTES: ${REAMON_GLAURUNG_MAX_OUTPUT_BYTES:-134217728}
+    volumes:
+      - reamon_artifacts:/data/reamon-artifacts:ro
+      - reamon_derived:/data/reamon-derived:rw
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8024/health', timeout=3)"]
       interval: 30s
       timeout: 5s
       retries: 3

@@ -630,9 +630,10 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
       language: text(attributes.language, 80),
       sourceLanguage: text(attributes.sourceLanguage, 80),
       representation: text(attributes.representation, 500),
-      representationSemantics: attributes.decompiler === 'unwasm' && attributes.sourceLanguage === 'WebAssembly'
+      representationSemantics: text(attributes.representationSemantics, 500)
+        || (attributes.decompiler === 'unwasm' && attributes.sourceLanguage === 'WebAssembly'
         ? 'Generated Rust is a translation view of this WebAssembly function, not the original source. Function and local names are provider evidence, not confirmed source names.'
-        : null,
+        : null),
       decompiler: text(attributes.decompiler, 80),
       decompilerVersion: text(attributes.decompilerVersion, 120),
       nameEvidence: text(attributes.nameEvidence, 80),

@@ -6,8 +6,8 @@
     {
       "name": "Core analysis and visualizer workflow",
       "weight": 20,
-      "completion": 62,
-      "basis": "Imports, provider execution, stored code units, source navigation, and review workflows exist. Native Mach-O analysis stores exact-address Swift/Objective-C metadata and exposes capped, hash-checked ReIPA pseudocode alternatives for matched functions; broader provider and format coverage remains incomplete."
+      "completion": 63,
+      "basis": "Imports, provider execution, stored code units, source navigation, and review workflows exist. Native Mach-O analysis stores exact-address Swift/Objective-C metadata and exposes capped, hash-checked ReIPA pseudocode alternatives for matched functions; an isolated pinned Glaurung provider now builds and persists bounded native C-like pseudocode, but fixture-backed comparison remains open."
     },
     {
       "name": "Database-grounded project memory and provenance",
@@ -18,8 +18,8 @@
     {
       "name": "Major-language and format decompilation fluency",
       "weight": 30,
-      "completion": 21,
-      "basis": "Several useful Java, .NET, Android, Python, WebAssembly, and native paths exist, and matched arm64 Mach-O methods can now show early ReIPA C-like pseudocode beside Ghidra output; many languages remain navigation-only, early, or represented by generic pseudocode."
+      "completion": 22,
+      "basis": "Several useful Java, .NET, Android, Python, WebAssembly, and native paths exist, and matched arm64 Mach-O methods can now show early ReIPA C-like pseudocode beside Ghidra output; the optional Glaurung provider adds bounded native pseudocode but still needs fixture validation. Many languages remain navigation-only, early, or represented by generic pseudocode."
     },
     {
       "name": "Maintainable editing, review, and export",
