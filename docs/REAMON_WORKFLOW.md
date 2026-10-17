@@ -97,6 +97,14 @@ preserve recognized callable counts across supported grammars. Java and C/C++ al
 retain declaration-form checks. These are structural evidence, not proof of behavioral
 equivalence. Editing a saved draft clears its prior validation metadata.
 
+The current maintained-source validators are structural checks; REAmon does not yet
+run an original-toolchain, function-level byte comparison. Projects such as Rebrew show
+the stronger path when the exact native compiler, flags, linker placement, and target
+bytes are available. A future adapter must store differential verdicts separately from
+syntax status and tie them to the exact source hash, target artifact hash, build recipe,
+and toolchain version. If those inputs cannot be reproduced, byte-match validation is
+unavailable, not a failed syntax check.
+
 For a failed check, attach the diagnostic, source span, or instruction diff to the
 attempt and let the agent revise that same work item. For an unavailable check, record
 that validation was unavailable. Never turn a decompilation score or similarity score
