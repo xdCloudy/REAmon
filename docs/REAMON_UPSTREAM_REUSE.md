@@ -97,13 +97,18 @@ separate so a plausible name is never treated as proof of behavior.
   `9450585772e6f1c18e5f0b2ad5518a18d6bce71e`, the CLI still accepts `json` and
   `json-human`, and `src/llvmir2hll/hll/output_managers/json_manager.cpp` still emits
   address-change records and source tokens. This confirms the documented token to
-  instruction-address mapping contract exists in current source; it does not yet
-  confirm a successful build or end-to-end result on a fixture. This mapping is a
-  particularly useful source-navigation feature to compare against Ghidra's
-  line/address map. Before integrating, build this pinned CLI and inspect a known
-  fixture's generated mapping; then compare packaging, architectures, function
-  boundaries, mapping precision, and output quality against Ghidra. The core is MIT,
-  with a separate third-party notice inventory.
+  instruction-address mapping contract exists in current source. The upstream Docker
+  build recipe, modified only to checkout this exact commit, built successfully on
+  Ubuntu 20.04/GCC 9.4. A small `-O0 -fno-inline -no-pie` x86-64 ELF then decompiled
+  successfully with `-f json`: the output contained 174 JSON records, 158 source
+  value tokens, 12 address-change records, and five distinct nonempty instruction
+  addresses; concatenated token values reconstructed the emitted C text. This is an
+  end-to-end smoke sample, not an accuracy benchmark or an address-mapping precision
+  result. The mapping is a useful source-navigation feature to compare against
+  Ghidra's line/address map. Next, integrate an isolated pinned provider and compare
+  function boundaries, mapping precision, output quality, runtime, and resource use
+  against Ghidra on versioned fixtures. The core is MIT, with a separate third-party
+  notice inventory.
 - [Rizin](https://github.com/rizinorg/rizin) has an active command-line framework
   and structured JSON output. [rz-ghidra](https://github.com/rizinorg/rz-ghidra)
   adds Ghidra's decompiler through a plugin and can emit function JSON and offsets.
