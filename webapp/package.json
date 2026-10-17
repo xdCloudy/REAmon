@@ -19,7 +19,7 @@
     "docs:settings": "MCP_DOCS_WRITE=1 vitest run src/lib/reconSettings/settingsReference.test.ts"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.30.0",
+    "@modelcontextprotocol/sdk": "1.32.1",
     "@prisma/client": "^6.19.2",
     "@tanstack/react-query": "^5.62.0",
     "@tanstack/react-table": "^8.21.3",
