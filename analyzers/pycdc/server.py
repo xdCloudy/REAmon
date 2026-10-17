@@ -214,6 +214,8 @@ def analyze(body: object, report_progress=lambda _message: None, cancel_check=la
             destination = output_directory / output_name
             os.replace(output_path, destination)
             relative_output = destination.relative_to(DERIVED_ROOT).as_posix()
+            with destination.open("rb") as source:
+                output_sha256 = hashlib.file_digest(source, "sha256").hexdigest()
             warnings = log_path.read_bytes()[-4096:].decode("utf-8", errors="replace").strip()
             if returncode != 0:
                 warning = f"pycdc exited with status {returncode}; inspect the output before using it."
@@ -242,6 +244,7 @@ def analyze(body: object, report_progress=lambda _message: None, cancel_check=la
                     "relativePath": source_relative_path,
                     "codeArtifactId": relative_output[:2000],
                     "sizeBytes": output_size,
+                    "outputSha256": output_sha256,
                     **({
                         "disassemblyArtifactId": disassembly_artifact["artifactId"],
                         "disassemblySizeBytes": disassembly_artifact["sizeBytes"],

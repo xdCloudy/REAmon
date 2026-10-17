@@ -13,6 +13,7 @@ interface PycdcResponse {
     relativePath: string
     codeArtifactId: string
     sizeBytes: number
+    outputSha256?: string
     disassemblyArtifactId?: string
     disassemblySizeBytes?: number
     disassemblySha256?: string
@@ -60,6 +61,7 @@ function isResponse(value: unknown): value is PycdcResponse {
     && typeof unit.relativePath === 'string' && unit.relativePath.length > 0 && unit.relativePath.length <= 1_000
     && typeof unit.codeArtifactId === 'string' && unit.codeArtifactId.length > 0 && unit.codeArtifactId.length <= 2_000
     && Number.isSafeInteger(unit.sizeBytes) && (unit.sizeBytes as number) > 0
+    && (unit.outputSha256 === undefined || (typeof unit.outputSha256 === 'string' && /^[a-f0-9]{64}$/.test(unit.outputSha256)))
     && ((unit.disassemblyArtifactId === undefined && unit.disassemblySizeBytes === undefined && unit.disassemblySha256 === undefined)
       || (typeof unit.disassemblyArtifactId === 'string' && unit.disassemblyArtifactId.length > 0 && unit.disassemblyArtifactId.length <= 2_000
         && Number.isSafeInteger(unit.disassemblySizeBytes) && (unit.disassemblySizeBytes as number) > 0 && (unit.disassemblySizeBytes as number) <= 2 * 1024 * 1024
@@ -129,6 +131,10 @@ export async function executePycdc(input: ToolExecutionInput): Promise<ToolResul
         representationSemantics: 'Recovered from Python bytecode by pycdc; source equivalence is not established.',
         decompiled: true,
         codeArtifactId: unit.codeArtifactId,
+        ...(unit.outputSha256 ? {
+          codeArtifactSha256: unit.outputSha256.toLowerCase(),
+          decompiledSourceSha256: unit.outputSha256.toLowerCase(),
+        } : {}),
         ...(unit.disassemblyArtifactId && unit.disassemblySha256 ? {
           disassemblyArtifactId: unit.disassemblyArtifactId,
           disassemblyLanguage: 'Python bytecode',
