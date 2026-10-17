@@ -630,6 +630,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
   const [graphUnit, setGraphUnit] = useState<CodeUnit | null>(null)
   const [copyStatus, setCopyStatus] = useState('')
   const [compareAlternatesOpen, setCompareAlternatesOpen] = useState(false)
+  const [compareDiffOpen, setCompareDiffOpen] = useState(false)
   const [selectedAlternateId, setSelectedAlternateId] = useState('')
   const [assemblyCopyStatus, setAssemblyCopyStatus] = useState('')
   const [providerId, setProviderId] = useState('')
@@ -880,6 +881,9 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
   })
   const alternateOutputs = alternateOutputsQuery.data?.alternates || []
   const selectedAlternateOutput = alternateOutputs.find((output) => output.id === selectedAlternateId) || alternateOutputs[0]
+  const alternateComparisonDiff = useMemo(() => compareDiffOpen && sourceQuery.data !== undefined && selectedAlternateOutput
+    ? buildReviewDiff(sourceQuery.data, selectedAlternateOutput.source)
+    : null, [compareDiffOpen, selectedAlternateOutput, sourceQuery.data])
   const disassemblyQuery = useQuery({
     queryKey: ['reamon-disassembly', selectedUnit?.id, selectedUnit?.disassemblyArtifactId],
     queryFn: ({ signal }) => fetchSource(selectedDisassemblyUrl as string, signal),
@@ -2136,19 +2140,34 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
                   {alternateOutputs.map((output) => <option key={output.id} value={output.id}>{output.providerName}{output.version ? ` ${output.version}` : ''}</option>)}
                 </select>
               </label>
-              {selectedAlternateOutput && <div className={styles.comparison}>
-                <div className={styles.listingPane}>
-                  <div className={styles.sourceHeader}><div><strong>{selectedUnit.source.replace(/^reamon-/, '')} · selected output</strong><span>{selectedUnit.decompilerVersion || selectedUnit.language} · {selectedUnit.codeArtifactId?.split('/').pop()}</span></div></div>
-                  {sourceQuery.data !== undefined
-                    ? <SourceListing source={sourceQuery.data} language={selectedUnit.language} fileName={selectedUnit.codeArtifactId?.split('/').pop()} fullSourceUrl={selectedSourceUrl} lineIdPrefix={`decompiler-primary-${selectedUnit.id}`} />
-                    : <p className={styles.message}>Loading selected output…</p>}
+              {selectedAlternateOutput && <>
+                <div className={styles.comparison}>
+                  <div className={styles.listingPane}>
+                    <div className={styles.sourceHeader}><div><strong>{selectedUnit.source.replace(/^reamon-/, '')} · selected output</strong><span>{selectedUnit.decompilerVersion || selectedUnit.language} · {selectedUnit.codeArtifactId?.split('/').pop()}</span></div></div>
+                    {sourceQuery.data !== undefined
+                      ? <SourceListing source={sourceQuery.data} language={selectedUnit.language} fileName={selectedUnit.codeArtifactId?.split('/').pop()} fullSourceUrl={selectedSourceUrl} lineIdPrefix={`decompiler-primary-${selectedUnit.id}`} />
+                      : <p className={styles.message}>Loading selected output…</p>}
+                  </div>
+                  <div className={styles.listingPane}>
+                    <div className={styles.sourceHeader}><div><strong>{selectedAlternateOutput.providerName} · alternate output</strong><span>{selectedAlternateOutput.version || selectedAlternateOutput.language} · sha256:{selectedAlternateOutput.outputSha256.slice(0, 16)}</span></div></div>
+                    <p className={styles.sourcePreviewNote} role="status">Independent reconstruction · input sha256:{selectedAlternateOutput.inputSha256.slice(0, 16)}. Review differences as evidence; neither output is ground truth.</p>
+                    <SourceListing source={selectedAlternateOutput.source} language={selectedAlternateOutput.language} fileName={selectedAlternateOutput.relativePath.split('/').pop()} lineIdPrefix={`decompiler-alternate-${selectedAlternateOutput.id}`} />
+                  </div>
                 </div>
-                <div className={styles.listingPane}>
-                  <div className={styles.sourceHeader}><div><strong>{selectedAlternateOutput.providerName} · alternate output</strong><span>{selectedAlternateOutput.version || selectedAlternateOutput.language} · sha256:{selectedAlternateOutput.outputSha256.slice(0, 16)}</span></div></div>
-                  <p className={styles.sourcePreviewNote} role="status">Independent reconstruction · input sha256:{selectedAlternateOutput.inputSha256.slice(0, 16)}. Review differences as evidence; neither output is ground truth.</p>
-                  <SourceListing source={selectedAlternateOutput.source} language={selectedAlternateOutput.language} fileName={selectedAlternateOutput.relativePath.split('/').pop()} lineIdPrefix={`decompiler-alternate-${selectedAlternateOutput.id}`} />
-                </div>
-              </div>}
+                <details className={styles.reviewDiff} open={compareDiffOpen} onToggle={(event) => setCompareDiffOpen(event.currentTarget.open)}>
+                  <summary>Show line differences between these outputs</summary>
+                  {compareDiffOpen && !sourceQuery.data && <p className={styles.message}>Loading the selected output before comparing…</p>}
+                  {alternateComparisonDiff?.unavailable && <p className={styles.message}>These files are too large for the inline diff. Use the source panes or open the artifacts in your editor.</p>}
+                  {alternateComparisonDiff && !alternateComparisonDiff.unavailable && <>
+                    <p className={styles.message}>{alternateComparisonDiff.added} lines appear only in the alternate output · {alternateComparisonDiff.removed} lines appear only in the selected output{alternateComparisonDiff.truncated ? ' · display limited to the first 600 changed lines' : ''}. Textual differences do not establish behavioral differences.</p>
+                    {alternateComparisonDiff.rows.length > 0
+                      ? <pre className={styles.reviewDiffCode}><code>{alternateComparisonDiff.rows.map((row, index) => <span key={`${row.kind}:${row.beforeLine}:${row.afterLine}:${index}`} className={row.kind === 'added' ? styles.reviewDiffAdded : styles.reviewDiffRemoved}>
+                        <span className={styles.reviewDiffGutter}>{row.beforeLine ?? ''}\t{row.afterLine ?? ''}\t{row.kind === 'added' ? '+' : '−'}</span>{row.text || ' '}
+                      </span>)}</code></pre>
+                      : <p className={styles.message}>No textual line differences.</p>}
+                  </>}
+                </details>
+              </>}
             </>}
           </>}
           </section>
