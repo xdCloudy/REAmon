@@ -24,8 +24,8 @@
     {
       "name": "Maintainable editing, review, and export",
       "weight": 15,
-      "completion": 36,
-      "basis": "Hash-bound drafts and review receipts preserve exact source lineage. Accepted-source promotion now rejects failed or unavailable validation and prevents a previously accepted language-specific syntax check from silently downgrading to generic Tree-sitter evidence. Syntax-aware edits cover selected languages, with reproducible export; language breadth and project-level edits remain limited."
+      "completion": 37,
+      "basis": "Hash-bound drafts and review receipts preserve exact source lineage. New accepted reviews snapshot the exact source and symbol index; the visualizer can restore a verified prior source into a new review using that revision's saved rename context. Accepted-source promotion rejects failed or unavailable validation and prevents a previously accepted language-specific syntax check from silently downgrading to generic Tree-sitter evidence. Syntax-aware edits cover selected languages, with reproducible export; broad language coverage, compiler-level validation, and project-level edits remain limited."
     },
     {
       "name": "Fixture-backed validation and fidelity evidence",
