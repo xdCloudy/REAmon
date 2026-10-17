@@ -8,7 +8,7 @@ import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
 import { getActiveWorkspaceImportSelection } from '@/lib/reamon/inventory-query'
 import { derivedArtifactRoot, resolveDerivedArtifactPath } from '@/lib/reamon/derived-storage'
 import { buildProjectSymbolContext, buildProviderGoTypeContext, buildProviderTypeContext, buildProviderSymbolContext, extractMaintainedSymbols } from '@/lib/reamon/maintenance-memory'
-import { nativeAddressAliases, nativeFunctionIdentity } from '@/lib/reamon/native-function-identity'
+import { nativeAddressAliases, nativeArchitectureGroup, nativeFunctionIdentity } from '@/lib/reamon/native-function-identity'
 import { flossRecoveredStringsOf, providerVariablesOf } from '@/lib/reamon/code-units'
 import { rankSimilarInstructionFunctions } from '@/lib/reamon/instruction-similarity'
 import { codeRewriteLeaseGraceMs, failInterruptedCodeAttempts } from '@/lib/reamon/code-attempts'
@@ -750,34 +750,45 @@ export async function POST(request: Request, { params }: RouteParams) {
           take: 2,
           select: { id: true, label: true, attributes: true, artifactId: true, taskId: true },
         }) : []
+        const nativeSources = observation.source === 'reamon-ghidra' || observation.source === 'reamon-kuna'
+          ? ['reamon-ghidra', 'reamon-kuna']
+          : [observation.source]
         const candidates = await prisma.reamonObservation.findMany({
           where: {
             projectId,
             type: isFunctionScopedRewrite ? 'function' : 'code_unit',
-            source: observation.source,
+            source: { in: nativeSources },
             artifact: { is: selection.artifactWhere },
             task: { is: {
               projectId,
               status: 'COMPLETED',
               capability: { in: ['decompile', 'disassemble'] },
-              provider: { is: { pluginId: observation.source } },
+              provider: { is: { pluginId: { in: nativeSources } } },
             } },
           },
           orderBy: [{ updatedAt: 'desc' }, { stableKey: 'asc' }],
           take: MAX_FUNCTION_HISTORY + 1,
           select: {
-            id: true, taskId: true, stableKey: true, canonicalKey: true, label: true, attributes: true, artifactId: true,
+            id: true, taskId: true, stableKey: true, canonicalKey: true, label: true, attributes: true, artifactId: true, source: true,
             artifact: { select: { profile: true, originalName: true, sha256: true } },
           },
         })
         const uniqueCandidates = new Map<string, typeof candidates[number]>()
         for (const candidate of candidates.slice(0, MAX_FUNCTION_HISTORY)) {
-          if (observation.source === 'reamon-ghidra' && candidate.artifactId !== artifact.id
+          if (candidate.source !== observation.source) {
+            const targetIdentity = attributes.identity
+            const candidateIdentity = plainObject(candidate.attributes).identity
+            if (typeof targetIdentity === 'string' && targetIdentity
+              && targetIdentity === candidateIdentity) continue
+            const targetArchitecture = nativeArchitectureGroup(attributes)
+            const candidateArchitecture = nativeArchitectureGroup(candidate.attributes)
+            if (!targetArchitecture || targetArchitecture !== candidateArchitecture) continue
+          } else if (observation.source === 'reamon-ghidra' && candidate.artifactId !== artifact.id
             && !sameGhidraArchitecture(attributes, candidate.attributes)) continue
-          if (observation.source === 'reamon-kuna' && candidate.artifactId !== artifact.id) continue
+          else if (observation.source === 'reamon-kuna' && candidate.artifactId !== artifact.id) continue
           if (observation.source === 'reamon-unluac-rs'
             && plainObject(candidate.attributes).dialect !== attributes.dialect) continue
-          const identity = `${candidate.artifactId}:${candidate.canonicalKey}`
+          const identity = `${candidate.artifactId}:${candidate.source}:${candidate.canonicalKey}`
           if (!uniqueCandidates.has(identity)) uniqueCandidates.set(identity, candidate)
         }
         const boundedCandidates = [...uniqueCandidates.values()]

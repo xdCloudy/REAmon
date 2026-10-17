@@ -162,6 +162,8 @@ export async function executeKuna(input: ToolExecutionInput): Promise<ToolResult
         decompilerVersion: payload.toolVersion,
         providerRevision: payload.providerRevision,
         inputArtifactSha256: payload.sourceSha256.toLowerCase(),
+        ...(typeof input.targetProfile.architecture === 'string' && input.targetProfile.architecture
+          ? { architecture: input.targetProfile.architecture.slice(0, 128) } : {}),
         codeArtifactSha256: unit.outputSha256.toLowerCase(),
         decompiledSourceSha256: unit.outputSha256.toLowerCase(),
         codeArtifactId: unit.codeArtifactId,
