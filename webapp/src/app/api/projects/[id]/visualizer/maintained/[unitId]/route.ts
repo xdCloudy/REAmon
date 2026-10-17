@@ -296,21 +296,32 @@ export async function GET(request: Request, { params }: RouteParams) {
       const baseSourcePath = typeof storedLineage.baseSourcePath === 'string' && storedLineage.baseSourcePath.length <= 2_000 ? storedLineage.baseSourcePath : ''
       const baseRunKey = typeof storedLineage.runKey === 'string' && storedLineage.runKey.length <= 500 ? storedLineage.runKey : ''
       const expectedArtifactPrefix = `${projectId}/${resolved.artifactId}/`
-      if (baselineStatus === 'CHANGED' && baseSourceHash && baseRunKey
-          && baseSourcePath.startsWith(`${baseRunKey}/`)
-          && baseSourcePath.startsWith(expectedArtifactPrefix)
-          && !baseSourcePath.split('/').some((part) => !part || part === '.' || part === '..' || part.includes('\\'))) {
-        try {
-          const { fileRealPath } = await checkedPath(baseSourcePath)
-          if (fileRealPath) {
-            const info = await stat(fileRealPath)
-            if (info.isFile() && info.size <= MAX_SOURCE_BYTES) {
-              const bytes = await readFile(fileRealPath)
-              if (createHash('sha256').update(bytes).digest('hex') === baseSourceHash) baseSourceCode = bytes.toString('utf8')
+      const sourcePathSuffix = resolved.originalPath.split('/').slice(4).join('/')
+      const candidateBasePaths = [...new Set([
+        baseSourcePath,
+        baseRunKey && sourcePathSuffix ? `${baseRunKey}/${sourcePathSuffix}` : '',
+      ].filter(Boolean))]
+      if (baselineStatus === 'CHANGED' && baseSourceHash && baseRunKey) {
+        for (const candidatePath of candidateBasePaths) {
+          if (!candidatePath.startsWith(`${baseRunKey}/`)
+              || !candidatePath.startsWith(expectedArtifactPrefix)
+              || candidatePath.length > 2_000
+              || candidatePath.split('/').some((part) => !part || part === '.' || part === '..' || part.includes('\\'))) continue
+          try {
+            const { fileRealPath } = await checkedPath(candidatePath)
+            if (fileRealPath) {
+              const info = await stat(fileRealPath)
+              if (info.isFile() && info.size <= MAX_SOURCE_BYTES) {
+                const bytes = await readFile(fileRealPath)
+                if (createHash('sha256').update(bytes).digest('hex') === baseSourceHash) {
+                  baseSourceCode = bytes.toString('utf8')
+                  break
+                }
+              }
             }
+          } catch {
+            continue
           }
-        } catch {
-          baseSourceCode = null
         }
       }
       return NextResponse.json({
