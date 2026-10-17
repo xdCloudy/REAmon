@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
 import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
 import { getActiveWorkspaceImportSelection } from '@/lib/reamon/inventory-query'
-import { CODE_UNIT_OBSERVATION_TYPE, MAINTAINED_SOURCE_OBSERVATION_SOURCE, MAINTAINED_SOURCE_OBSERVATION_TYPE, normalizeCodeUnit } from '@/lib/reamon/code-units'
+import { CODE_UNIT_OBSERVATION_TYPE, normalizeCodeUnit } from '@/lib/reamon/code-units'
 
 interface RouteParams { params: Promise<{ id: string }> }
 
@@ -87,24 +87,31 @@ export async function GET(request: Request, { params }: RouteParams) {
         }
       }
       codeUnitCount += validRows.length
-      const maintained = await prisma.reamonObservation.findMany({
-        where: {
-          projectId,
-          source: MAINTAINED_SOURCE_OBSERVATION_SOURCE,
-          type: MAINTAINED_SOURCE_OBSERVATION_TYPE,
-          artifact: { is: selection.artifactWhere },
-          stableKey: { in: validRows.map((row) => row.id) },
-        },
-        select: { stableKey: true },
-      })
-      maintainedUnitCount += maintained.length
-
       const unitIds = validRows.map((row) => row.id)
       const artifactIds = [...new Set(validRows.flatMap((row) => row.artifactId ? [row.artifactId] : []))]
       const maintainedSources = unitIds.length && artifactIds.length ? await prisma.reamonMaintainedSource.findMany({
         where: { projectId, codeUnitId: { in: unitIds }, artifactId: { in: artifactIds } },
-        select: { codeUnitId: true, artifactId: true, sourceHash: true, acceptedReviewId: true },
+        select: { codeUnitId: true, artifactId: true, sourceHash: true, acceptedReviewId: true, symbolIndex: true },
       }) : []
+      const currentSourceHashByUnit = new Map(validRows.map((row) => {
+        const attributes = row.attributes && typeof row.attributes === 'object' && !Array.isArray(row.attributes)
+          ? row.attributes as Record<string, unknown>
+          : {}
+        const candidate = attributes.codeArtifactSha256 ?? attributes.decompiledSourceSha256
+        return [row.id, typeof candidate === 'string' && /^[a-f0-9]{64}$/i.test(candidate) ? candidate.toLowerCase() : null] as const
+      }))
+      const currentMaintainedSources = maintainedSources.filter((source) => {
+        const index = source.symbolIndex && typeof source.symbolIndex === 'object' && !Array.isArray(source.symbolIndex)
+          ? source.symbolIndex as Record<string, unknown>
+          : {}
+        const lineage = index.sourceLineage && typeof index.sourceLineage === 'object' && !Array.isArray(index.sourceLineage)
+          ? index.sourceLineage as Record<string, unknown>
+          : {}
+        const baseSourceHash = lineage.baseSourceHash
+        return typeof baseSourceHash === 'string'
+          && /^[a-f0-9]{64}$/i.test(baseSourceHash)
+          && baseSourceHash.toLowerCase() === currentSourceHashByUnit.get(source.codeUnitId)
+      })
       const reviewIds = [...new Set(maintainedSources.flatMap((source) => source.acceptedReviewId ? [source.acceptedReviewId] : []))]
       const reviewRows = reviewIds.length ? await prisma.reamonCodeReview.findMany({
         where: { projectId, id: { in: reviewIds }, decision: 'ACCEPTED' },
@@ -112,13 +119,14 @@ export async function GET(request: Request, { params }: RouteParams) {
       }) : []
       const reviewById = new Map(reviewRows.map((review) => [review.id, review]))
       const runKeyByUnit = new Map(validRows.map((row) => [row.id, runKeyFor(row.attributes)]))
-      const reviewedSources = maintainedSources.filter((source) => {
+      const reviewedSources = currentMaintainedSources.filter((source) => {
         if (!source.sourceHash || !source.acceptedReviewId) return false
         const review = reviewById.get(source.acceptedReviewId)
         return review?.codeUnitId === source.codeUnitId
           && review.artifactId === source.artifactId
           && review.maintainedSourceHash === source.sourceHash
       })
+      maintainedUnitCount += new Set(reviewedSources.map((source) => source.codeUnitId)).size
       const reviewedUnitIds = new Set(reviewedSources.map((source) => source.codeUnitId))
       reviewedUnitCount += reviewedUnitIds.size
 

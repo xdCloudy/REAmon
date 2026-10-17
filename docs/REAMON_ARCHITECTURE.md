@@ -184,6 +184,14 @@ A maintained source is marked reviewed only when its receipt still
 matches the stored source hash. These reads do not invoke a decompiler or synthesize missing
 relationships, and neither host storage paths nor generated project instructions are returned.
 
+Accepted maintained sources also retain the SHA-256 and analysis run of the exact
+decompiler output they were reviewed against. Coverage counts an accepted maintained
+unit only when its review receipt is valid and its base hash matches the selected
+run's current code output. Rewrite context
+omits that unit's own accepted names when its base hash is missing or stale, while
+keeping other accepted project symbols available as explicitly versioned consistency
+evidence.
+
 ## Target profiler
 
 The initial profiler is intentionally conservative. It combines filename extension, MIME hints, magic bytes, basic header inspection, and byte entropy. It currently recognises representative ELF, PE, Mach-O, ZIP/APK/JAR, PDF, SQLite, PCAP, and source-code inputs. Everything else produces a valid `UNKNOWN` profile.

@@ -40,12 +40,16 @@ function maintainedIndex(value: unknown): {
   members: MaintainedCallable[]
   membersTruncated: boolean
   parserVersion: string | null
+  sourceLineage: { baseSourceHash: string | null; runKey: string | null }
 } {
   if (Array.isArray(value)) {
-    return { symbols: value.filter((item): item is string => typeof item === 'string'), aliases: [], members: [], membersTruncated: false, parserVersion: null }
+    return { symbols: value.filter((item): item is string => typeof item === 'string'), aliases: [], members: [], membersTruncated: false, parserVersion: null, sourceLineage: { baseSourceHash: null, runKey: null } }
   }
-  if (!value || typeof value !== 'object') return { symbols: [], aliases: [], members: [], membersTruncated: false, parserVersion: null }
+  if (!value || typeof value !== 'object') return { symbols: [], aliases: [], members: [], membersTruncated: false, parserVersion: null, sourceLineage: { baseSourceHash: null, runKey: null } }
   const record = value as Record<string, unknown>
+  const lineage = record.sourceLineage && typeof record.sourceLineage === 'object' && !Array.isArray(record.sourceLineage)
+    ? record.sourceLineage as Record<string, unknown>
+    : {}
   const symbols = Array.isArray(record.symbols)
     ? record.symbols.filter((item): item is string => typeof item === 'string')
     : []
@@ -76,6 +80,12 @@ function maintainedIndex(value: unknown): {
     members,
     membersTruncated: record.truncated === true || (Array.isArray(record.members) && record.members.length > members.length),
     parserVersion: typeof record.parserVersion === 'string' ? record.parserVersion.slice(0, 80) : null,
+    sourceLineage: {
+      baseSourceHash: typeof lineage.baseSourceHash === 'string' && /^[a-f0-9]{64}$/i.test(lineage.baseSourceHash)
+        ? lineage.baseSourceHash.toLowerCase()
+        : null,
+      runKey: typeof lineage.runKey === 'string' ? lineage.runKey.slice(0, 500) : null,
+    },
   }
 }
 
@@ -231,6 +241,8 @@ export function buildProjectSymbolContext(
   inputTruncated = false,
   renameCandidates?: RenameContextCandidate[],
   currentFunctionIdentity?: string,
+  currentCodeUnitId?: string,
+  currentBaseSourceHash?: string,
 ): string {
   const ranked = records.map((record, index) => ({ record, index })).sort((left, right) => {
     const functionRank = Number(Boolean(currentFunctionIdentity && right.record.functionIdentity === currentFunctionIdentity))
@@ -253,6 +265,8 @@ export function buildProjectSymbolContext(
   let length = lines.reduce((sum, line) => sum + line.length + 1, 0)
   for (const { record } of ranked) {
     const index = maintainedIndex(record.symbolIndex)
+    if (record.codeUnitId && record.codeUnitId === currentCodeUnitId
+        && (!currentBaseSourceHash || index.sourceLineage.baseSourceHash !== currentBaseSourceHash.toLowerCase())) continue
     const symbols = [...new Set(index.symbols.filter((value) => value.length <= 128))]
     if (!symbols.length && !index.members.length && !index.aliases.length) continue
     // Code-unit identity distinguishes overloads and duplicate names within one
@@ -277,6 +291,9 @@ export function buildProjectSymbolContext(
     const validation = record.validationStatus === 'PASSED'
       ? `; syntax passed${record.validationMethod ? ` via ${record.validationMethod}` : ''} (structural evidence only)`
       : record.validationStatus === 'UNAVAILABLE' ? '; syntax validation unavailable' : ''
+    const sourceLineage = index.sourceLineage.baseSourceHash
+      ? `; accepted source based on decompiler output sha256 ${index.sourceLineage.baseSourceHash.slice(0, 16)}${index.sourceLineage.runKey ? ` from analysis ${index.sourceLineage.runKey.slice(-128)}` : ''}`
+      : '; decompiler-output lineage was not recorded for this accepted source'
     const symbolText = symbols.length ? `symbols: ${symbols.join(', ')}` : ''
     const callableText = index.members.length
       ? `accepted-source file-scoped callable declarations${index.membersTruncated ? ' (partial)' : ''}${index.parserVersion ? ` via tree-sitter-language-pack ${index.parserVersion}` : ''}; names and lines do not by themselves prove address-to-function identity: ${index.members.slice(0, 12).map(({ name, kind, line }) => `${name} (${kind}, line ${line})`).join(', ')}${index.members.length > 12 ? ', …' : ''}`
@@ -287,7 +304,7 @@ export function buildProjectSymbolContext(
     const aliasText = relevantAliases.length
       ? `reviewed rename history for matching language/name/kind only (binding ids are local to their original files; matching spelling/kind does not prove symbol identity, meaning, or behavior): ${relevantAliases.slice(0, 12).map(({ bindingId, oldName, newName, kind }) => `${oldName} → ${newName} [${kind}; binding ${bindingId.slice(0, 8)}]`).join(', ')}`
       : ''
-    const line = `${record.unitName} (${record.language}${artifactVersion}${relationship}${functionMatch}${validation}): ${[symbolText, callableText, aliasText].filter(Boolean).join('; ')}`
+    const line = `${record.unitName} (${record.language}${artifactVersion}${relationship}${functionMatch}${validation}${sourceLineage}): ${[symbolText, callableText, aliasText].filter(Boolean).join('; ')}`
     if (length + line.length + 1 > maxChars) continue
     lines.push(line)
     includedUnits.add(identity)

@@ -179,6 +179,18 @@ async function checkedPath(relativePath: string) {
   return { rootRealPath, absolute, fileRealPath }
 }
 
+async function sourceArtifactHash(relativePath: string): Promise<string | null> {
+  try {
+    const { fileRealPath } = await checkedPath(relativePath)
+    if (!fileRealPath) return null
+    const info = await stat(fileRealPath)
+    if (!info.isFile() || info.size > MAX_SOURCE_BYTES) return null
+    return createHash('sha256').update(await readFile(fileRealPath)).digest('hex')
+  } catch {
+    return null
+  }
+}
+
 async function validateMaintainedSource(sourceCode: string, language: string): Promise<MaintainedSourceValidation> {
   const sourceHash = createHash('sha256').update(sourceCode).digest('hex')
   const unavailable = (message: string): MaintainedSourceValidation => ({
@@ -271,7 +283,29 @@ export async function GET(request: Request, { params }: RouteParams) {
       const acceptedRenameAliases = acceptedReceipt && savedSource.sourceHash === sourceHash
         ? extractAcceptedRenameAliases(savedSource.symbolIndex)
         : []
-      return NextResponse.json({ exists: true, sourceCode: savedSource.sourceCode, sourceHash, updatedAt: savedSource.updatedAt.toISOString(), reviews: reviewHistory, acceptedRenameAliases }, { headers: { 'Cache-Control': 'private, no-store' } })
+      const storedLineage = plainObject(plainObject(savedSource.symbolIndex).sourceLineage)
+      const baseSourceHash = typeof storedLineage.baseSourceHash === 'string'
+          && /^[a-f0-9]{64}$/i.test(storedLineage.baseSourceHash)
+        ? storedLineage.baseSourceHash.toLowerCase()
+        : null
+      const currentSourceHash = await sourceArtifactHash(resolved.originalPath)
+      const baselineStatus = baseSourceHash
+        ? currentSourceHash === null ? 'UNAVAILABLE' : currentSourceHash === baseSourceHash ? 'CURRENT' : 'CHANGED'
+        : 'UNRECORDED'
+      return NextResponse.json({
+        exists: true,
+        sourceCode: savedSource.sourceCode,
+        sourceHash,
+        updatedAt: savedSource.updatedAt.toISOString(),
+        reviews: reviewHistory,
+        acceptedRenameAliases,
+        sourceLineage: {
+          baseSourceHash,
+          baseRunKey: typeof storedLineage.runKey === 'string' ? storedLineage.runKey.slice(0, 500) : null,
+          currentSourceHash,
+          baselineStatus,
+        },
+      }, { headers: { 'Cache-Control': 'private, no-store' } })
     }
     if (!fileRealPath) return NextResponse.json({ exists: false, sourceCode: null }, { headers: { 'Cache-Control': 'private, no-store' } })
     const info = await stat(fileRealPath)
@@ -374,10 +408,13 @@ export async function PUT(request: Request, { params }: RouteParams) {
     if (expectedSourceHash === '') return NextResponse.json({ error: 'The maintained source version is invalid. Reload it before accepting changes.' }, { status: 400 })
 
     const original = await checkedPath(resolved.originalPath)
+    let baseSourceHash: string | null = null
     if (original.fileRealPath) {
       const originalInfo = await stat(original.fileRealPath)
       if (originalInfo.isFile() && originalInfo.size <= MAX_SOURCE_BYTES) {
-        const originalSource = await readFile(original.fileRealPath, 'utf8')
+        const originalBytes = await readFile(original.fileRealPath)
+        baseSourceHash = createHash('sha256').update(originalBytes).digest('hex')
+        const originalSource = originalBytes.toString('utf8')
         const normalize = (value: string) => value.replace(/\r\n?/g, '\n').trim()
         if (normalize(sourceCode) === normalize(originalSource)) {
           return NextResponse.json({ error: 'This source matches the original decompilation. Edit it or create a maintained version before saving.' }, { status: 422 })
@@ -402,7 +439,11 @@ export async function PUT(request: Request, { params }: RouteParams) {
       maintainedSourceIndex(sourceCode, language),
       acceptedSafeRenameAliases(projectId, resolved.artifactId, resolved.runKey, resolved.unitId, sourceCode, maintainedSourceHash),
     ])
-    const symbolIndex = { ...sourceIndex, aliases }
+    const symbolIndex = {
+      ...sourceIndex,
+      aliases,
+      sourceLineage: { baseSourceHash, runKey: resolved.runKey },
+    }
     const validation = await validateMaintainedSource(sourceCode, validationLanguage)
     if (validation.validation_status === 'FAILED') {
       return NextResponse.json({
@@ -411,6 +452,9 @@ export async function PUT(request: Request, { params }: RouteParams) {
         validationMethod: validation.validation_method,
         validationMessage: validation.validation_message,
       }, { status: 422 })
+    }
+    if (await sourceArtifactHash(resolved.originalPath) !== baseSourceHash) {
+      return NextResponse.json({ error: 'The decompiler output changed while this maintained source was being reviewed. Reload the code unit and review it against the current output.' }, { status: 409 })
     }
     const review = await prisma.$transaction(async (tx) => {
       const currentSource = await tx.reamonMaintainedSource.findUnique({

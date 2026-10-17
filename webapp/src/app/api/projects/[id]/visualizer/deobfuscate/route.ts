@@ -1148,7 +1148,8 @@ export async function POST(request: Request, { params }: RouteParams) {
         validationMethod: receipt?.validationMethod,
       }
     }), new Set(relatedUnitIds), undefined, artifact.sha256, calleeUnitIds, projectSymbolScanTruncated,
-    undefined, observation.canonicalKey || currentNativeFunctionIdentity || undefined)
+    undefined, observation.canonicalKey || currentNativeFunctionIdentity || undefined,
+    observation.id, sourceHash)
     const selectedProviderRow = providerSymbolRows.find((row) => row.id === observation.id)
     const selectedProviderAttributes = selectedProviderRow ? plainObject(selectedProviderRow.attributes) : {}
     const selectedProviderVariables = selectedProviderRow
