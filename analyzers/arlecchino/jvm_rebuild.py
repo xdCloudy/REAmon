@@ -17,6 +17,7 @@ MAX_JAR_UNPACKED_BYTES = 1024**3
 MAX_SOURCE_BYTES = 2 * 1024**2
 MAX_CLASS_BYTES = 16 * 1024**2
 MAX_COMPILED_BYTES = 64 * 1024**2
+MAX_GENERATED_CLASSES = 200
 MAX_ENTRIES = 100_000
 COMPILE_TIMEOUT_SECONDS = min(300, max(10, int(os.environ.get("ARLECCHINO_COMPILE_TIMEOUT_SECONDS", "120"))))
 SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
@@ -211,15 +212,25 @@ def rebuild(body: dict[str, object]) -> dict[str, object]:
                         if len(data) < 8 or data[:4] != b"\xca\xfe\xba\xbe":
                             raise RebuildError("javac produced an invalid class file")
                         compiled.append((path, archive_name, size))
+                        if len(compiled) > MAX_GENERATED_CLASSES:
+                            raise RebuildError("Reviewed source generated too many class files")
                 if not any(name == class_entry for _path, name, _size in compiled):
                     raise RebuildError(f"javac did not produce the selected class {class_entry}")
 
                 replacement_names = {name for _path, name, _size in compiled}
+                class_prefix = class_entry[:-6] + "$"
+                removed_names = {
+                    info.filename for info in infos
+                    if not info.is_dir() and info.filename.endswith(".class")
+                    and info.filename.startswith(class_prefix) and info.filename not in replacement_names
+                }
+                if len(removed_names) > MAX_GENERATED_CLASSES:
+                    raise RebuildError("Input JAR contains too many stale nested classes for this single-class rebuild")
                 temporary_jar = destination.with_suffix(".jar.tmp")
                 with zipfile.ZipFile(temporary_jar, "w", allowZip64=True) as rebuilt:
                     rebuilt.comment = source_jar.comment
                     for info in infos:
-                        if info.filename in replacement_names:
+                        if info.filename in replacement_names or info.filename in removed_names:
                             continue
                         if info.filename.upper() == "META-INF/MANIFEST.MF":
                             if info.file_size > 2 * 1024 * 1024:
@@ -260,11 +271,11 @@ def rebuild(body: dict[str, object]) -> dict[str, object]:
         "relativePath": relative_source,
         "classEntry": class_entry,
         "changedClassCount": len(compiled),
-        "removedClassCount": 0,
+        "removedClassCount": len(removed_names),
         "javaRelease": java_release,
         "compilerVersion": subprocess.run(["javac", "-version"], stdout=subprocess.PIPE,
                                            stderr=subprocess.STDOUT, timeout=5, check=False).stdout.decode(
                                                "utf-8", errors="replace").strip()[:120],
-        "warnings": "The derived JAR is unsigned. Newly compiled classes for the selected source replaced matching entries; pre-existing nested class entries absent from this compilation are retained. Compilation proves compatibility with this JAR classpath, not runtime equivalence.",
+        "warnings": "The derived JAR is unsigned. Newly compiled classes for the selected source replaced matching entries, and stale nested class entries were removed. Compilation proves compatibility with this JAR classpath, not runtime equivalence.",
         "diagnostics": compiler_output[:8000],
     }
