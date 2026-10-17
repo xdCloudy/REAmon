@@ -93,11 +93,15 @@ separate so a plausible name is never treated as proof of behavior.
   decompiler into a library and removed several older component executables; the
   release page reports 81 commits since that tag, while the repository README still
   warns of limited maintenance. Treat the release and current `master` as distinct
-  integration targets. RetDec's machine-readable token JSON associates source tokens
-  with instruction addresses and is a particularly useful source-navigation feature
-  to compare against Ghidra's line/address map. Before integrating, pin a current
-  revision, build its current CLI/library interface, and verify that JSON address
-  mapping remains available; then compare packaging, architectures, function
+  integration targets. At current `master` commit
+  `9450585772e6f1c18e5f0b2ad5518a18d6bce71e`, the CLI still accepts `json` and
+  `json-human`, and `src/llvmir2hll/hll/output_managers/json_manager.cpp` still emits
+  address-change records and source tokens. This confirms the documented token to
+  instruction-address mapping contract exists in current source; it does not yet
+  confirm a successful build or end-to-end result on a fixture. This mapping is a
+  particularly useful source-navigation feature to compare against Ghidra's
+  line/address map. Before integrating, build this pinned CLI and inspect a known
+  fixture's generated mapping; then compare packaging, architectures, function
   boundaries, mapping precision, and output quality against Ghidra. The core is MIT,
   with a separate third-party notice inventory.
 - [Rizin](https://github.com/rizinorg/rizin) has an active command-line framework
