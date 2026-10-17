@@ -2450,7 +2450,9 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
           <dl>
             <div><dt>Address</dt><dd>{selectedUnit.address || 'Not supplied'}</dd></div>
             <div><dt>Size</dt><dd>{formatBytes(selectedUnit.sizeBytes)}</dd></div>
-            <div><dt>Decompiler output</dt><dd>{selectedUnit.source === 'reamon-oxidizer' ? 'Rust-like pseudocode' : selectedUnit.sourceLanguage && selectedUnit.language === 'C' ? 'C-like pseudocode' : selectedUnit.language || 'Not identified'}</dd></div>
+            <div><dt>Decompiler output</dt><dd>{selectedUnit.recoveredFromSourceMap
+              ? `${selectedUnit.language || 'Source'} recovered from source map`
+              : selectedUnit.source === 'reamon-oxidizer' ? 'Rust-like pseudocode' : selectedUnit.sourceLanguage && selectedUnit.language === 'C' ? 'C-like pseudocode' : selectedUnit.language || 'Not identified'}</dd></div>
             {selectedUnit.sourceLanguage && <div><dt>Binary source language</dt><dd>{selectedUnit.sourceLanguage} (metadata)</dd></div>}
             {selectedUnit.symbolSource && <div><dt>Recovered symbol source</dt><dd>{selectedUnit.symbolSource} (provider evidence)</dd></div>}
             {selectedUnit.packageName && <div><dt>Recovered Go package</dt><dd>{selectedUnit.packageName} (address-matched metadata)</dd></div>}
@@ -2467,6 +2469,17 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
             <div><dt>Artifact</dt><dd>{selectedUnit.artifactPath || 'Not linked'}</dd></div>
             <div><dt>Provider</dt><dd>{selectedUnit.source}</dd></div>
           </dl>
+          {selectedUnit.recoveredFromSourceMap && <section className={styles.classReferences} aria-label="Recovered source-map provenance">
+            <div><strong>Build-provided source content</strong><span>Recovered from the compiled bundle’s source map</span></div>
+            <ul>
+              <li>Bundle: <code>{selectedUnit.sourceMapBundleRelativePath || selectedUnit.artifactPath || 'not recorded'}</code></li>
+              <li>Map source: <code>{selectedUnit.sourceMapRelativePath || 'not recorded'}</code></li>
+              <li>Original source path: <code>{selectedUnit.sourceMapSourcePath || selectedUnit.relativePath || 'not recorded'}</code></li>
+              {selectedUnit.sourceMapSha256 && <li>Source-map SHA-256: <code>{selectedUnit.sourceMapSha256}</code></li>}
+              {selectedUnit.sourceMapSourceContentSha256 && <li>Embedded source SHA-256: <code>{selectedUnit.sourceMapSourceContentSha256}</code></li>}
+            </ul>
+            <small>Embedded source content may be stale or unrelated to this compiled artifact. Compare it with the generated output and validate it before accepting maintained source.</small>
+          </section>}
           {selectedUnit.controlFlowMetrics && <section className={styles.classReferences} aria-label="Ghidra control-flow structure">
             <div><strong>Control-flow structure</strong><span>Ghidra BasicBlockModel</span></div>
             <ul>

@@ -93,6 +93,13 @@ export interface CodeUnitObservationAttributes {
   deobfuscationProviderRevision?: string
   deobfuscationEnabledPasses?: string
   deobfuscationDisabledPasses?: string
+  recoveredFromSourceMap?: boolean
+  sourceMapBundleRelativePath?: string
+  sourceMapRelativePath?: string
+  sourceMapSha256?: string
+  sourceMapArtifactId?: string
+  sourceMapSourcePath?: string
+  sourceMapSourceContentSha256?: string
   disassemblyArtifactId?: string
   disassemblyLanguage?: string
   classReferences?: string[]
@@ -171,6 +178,13 @@ export interface CodeUnit {
   codeArtifactSha256?: string | null
   deobfuscatedArtifactId?: string | null
   deobfuscatedArtifactSha256?: string | null
+  recoveredFromSourceMap?: boolean
+  sourceMapBundleRelativePath?: string | null
+  sourceMapRelativePath?: string | null
+  sourceMapSha256?: string | null
+  sourceMapArtifactId?: string | null
+  sourceMapSourcePath?: string | null
+  sourceMapSourceContentSha256?: string | null
   deobfuscationProvider?: string | null
   deobfuscationProviderRevision?: string | null
   deobfuscationEnabledPasses?: string[]
@@ -513,6 +527,13 @@ export function normalizeCodeUnit(row: CodeUnitObservationRow, options: { includ
     codeArtifactSha256: sha256(attributes.codeArtifactSha256 ?? attributes.decompiledSourceSha256),
     deobfuscatedArtifactId: text(attributes.deobfuscatedArtifactId, 2000),
     deobfuscatedArtifactSha256: sha256(attributes.deobfuscatedArtifactSha256),
+    recoveredFromSourceMap: attributes.recoveredFromSourceMap === true,
+    sourceMapBundleRelativePath: text(attributes.sourceMapBundleRelativePath, 1000),
+    sourceMapRelativePath: text(attributes.sourceMapRelativePath, 2000),
+    sourceMapSha256: sha256(attributes.sourceMapSha256),
+    sourceMapArtifactId: text(attributes.sourceMapArtifactId, 2000),
+    sourceMapSourcePath: text(attributes.sourceMapSourcePath, 2000),
+    sourceMapSourceContentSha256: sha256(attributes.sourceMapSourceContentSha256),
     deobfuscationProvider: text(attributes.deobfuscationProvider, 80),
     deobfuscationProviderRevision: text(attributes.deobfuscationProviderRevision, 80),
     deobfuscationEnabledPasses: stringListOf(attributes.deobfuscationEnabledPasses, 12, 80),

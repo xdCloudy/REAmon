@@ -4,7 +4,7 @@ import { readAnalyzerResponse } from './analyzer-response'
 
 const DEFAULT_TIMEOUT_MS = 180_000
 const MAX_TIMEOUT_MS = 10 * 60_000
-const MAX_UNITS = 501
+const MAX_UNITS = 1_001
 const MAX_SAFE_RENAME_SOURCE_BYTES = 512 * 1024
 const MAX_SAFE_RENAME_ITEMS = 200
 
@@ -15,6 +15,23 @@ interface WebcrackUnit {
   moduleId: string
   codeArtifactId: string
   sizeBytes: number
+  relativePath: string
+  language: string
+  origin: 'webcrack' | 'source-map'
+  sourceMapRelativePath?: string
+  sourceMapSha256?: string
+  sourceMapArtifactId?: string
+  sourceMapSourcePath?: string
+  sourceContentSha256?: string
+}
+
+interface WebcrackSourceMapSummary {
+  status: 'recovered' | 'present_without_supported_sources' | 'unavailable'
+  relativePath: string
+  sha256: string
+  recoveredSourceCount: number
+  truncated: boolean
+  artifactId: string
 }
 
 interface WebcrackResponse {
@@ -25,6 +42,7 @@ interface WebcrackResponse {
   units: WebcrackUnit[]
   codeBytes: number
   truncated: boolean
+  sourceMap: WebcrackSourceMapSummary | null
   warnings?: string
 }
 
@@ -91,6 +109,12 @@ function timeoutMs(): number {
 
 function safeRenameTimeoutMs(): number {
   return Math.min(60_000, timeoutMs())
+}
+
+function isRunArtifactId(value: unknown, expectedRunPrefix: string): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= 2_000
+    && value.startsWith(`${expectedRunPrefix}webcrack/`)
+    && value.split('/').every((part) => part && part !== '.' && part !== '..' && !part.includes('\\'))
 }
 
 function webcrackBaseUrl(): string {
@@ -177,7 +201,7 @@ export async function validateJavaScriptSource(sourceCode: string): Promise<Safe
   return result
 }
 
-function isResponse(value: unknown): value is WebcrackResponse {
+function isResponse(value: unknown, expectedRunPrefix: string): value is WebcrackResponse {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const response = value as Record<string, unknown>
   if (!response.input || typeof response.input !== 'object' || Array.isArray(response.input)) return false
@@ -195,9 +219,31 @@ function isResponse(value: unknown): value is WebcrackResponse {
       && (unit.type === 'file' || unit.type === 'module')
       && typeof unit.bundlePath === 'string' && unit.bundlePath.length <= 1_000
       && typeof unit.moduleId === 'string' && unit.moduleId.length <= 500
-      && typeof unit.codeArtifactId === 'string' && unit.codeArtifactId.length > 0 && unit.codeArtifactId.length <= 2_000
-      && Number.isSafeInteger(unit.sizeBytes) && unit.sizeBytes > 0)
+      && isRunArtifactId(unit.codeArtifactId, expectedRunPrefix)
+      && Number.isSafeInteger(unit.sizeBytes) && unit.sizeBytes > 0
+      && typeof unit.relativePath === 'string' && unit.relativePath.length <= 2_000
+      && typeof unit.language === 'string' && unit.language.length > 0 && unit.language.length <= 80
+      && ['webcrack', 'source-map'].includes(unit.origin)
+      && (unit.origin !== 'source-map' || (
+        typeof unit.sourceMapRelativePath === 'string' && unit.sourceMapRelativePath.length > 0 && unit.sourceMapRelativePath.length <= 2_000
+        && typeof unit.sourceMapSha256 === 'string' && /^[a-f0-9]{64}$/i.test(unit.sourceMapSha256)
+        && isRunArtifactId(unit.sourceMapArtifactId, expectedRunPrefix)
+        && typeof unit.sourceMapSourcePath === 'string' && unit.sourceMapSourcePath.length > 0 && unit.sourceMapSourcePath.length <= 2_000
+        && typeof unit.sourceContentSha256 === 'string' && /^[a-f0-9]{64}$/i.test(unit.sourceContentSha256)
+      )))
+    && (response.sourceMap === null || isSourceMapSummary(response.sourceMap, expectedRunPrefix))
     && (response.warnings === undefined || typeof response.warnings === 'string')
+}
+
+function isSourceMapSummary(value: unknown, expectedRunPrefix: string): value is WebcrackSourceMapSummary {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const summary = value as Record<string, unknown>
+  return ['recovered', 'present_without_supported_sources', 'unavailable'].includes(String(summary.status))
+    && typeof summary.relativePath === 'string' && summary.relativePath.length <= 2_000
+    && typeof summary.sha256 === 'string' && (summary.sha256 === '' || /^[a-f0-9]{64}$/i.test(summary.sha256))
+    && (summary.artifactId === '' || isRunArtifactId(summary.artifactId, expectedRunPrefix))
+    && Number.isSafeInteger(summary.recoveredSourceCount) && Number(summary.recoveredSourceCount) >= 0 && Number(summary.recoveredSourceCount) <= 500
+    && typeof summary.truncated === 'boolean'
 }
 
 export async function executeWebcrack(input: ToolExecutionInput): Promise<ToolResult> {
@@ -238,12 +284,13 @@ export async function executeWebcrack(input: ToolExecutionInput): Promise<ToolRe
         : `webcrack analyzer returned HTTP ${response.status}`
       throw new Error(detail)
     }
-    if (!isResponse(payload)) throw new Error('webcrack analyzer returned an invalid result')
+    const expectedRunPrefix = `${input.projectId}/${input.artifactId}/${input.taskId}/${input.runToken}/`
+    if (!isResponse(payload, expectedRunPrefix)) throw new Error('webcrack analyzer returned an invalid result')
 
     const observations: ToolObservation[] = payload.units.map((unit) => {
-      const unitIdentity = unit.moduleId || unit.bundlePath || unit.name
+      const unitIdentity = unit.origin === 'source-map' ? `${unit.sourceMapSourcePath}:${unit.sourceContentSha256}` : unit.moduleId || unit.bundlePath || unit.name
       const identity = `${input.artifactId}:${payload.input.relativePath}:${unitIdentity}`
-      const key = `webcrack:${unit.type}:${createHash('sha256').update(identity).digest('hex').slice(0, 32)}`
+      const key = `webcrack:${unit.origin}:${unit.type}:${createHash('sha256').update(identity).digest('hex').slice(0, 32)}`
       return {
         kind: 'entity',
         type: 'code_unit',
@@ -254,16 +301,27 @@ export async function executeWebcrack(input: ToolExecutionInput): Promise<ToolRe
           identity,
           name: unit.name,
           qualifiedName: unit.name,
-          relativePath: payload.input.relativePath,
+          relativePath: unit.relativePath || payload.input.relativePath,
           bundlePath: unit.bundlePath,
           bundleModuleId: unit.moduleId,
           bundleType: payload.bundleType || '',
           sizeBytes: unit.sizeBytes,
-          language: 'JavaScript',
-          decompiled: true,
-          deobfuscated: true,
+          language: unit.language,
+          decompiled: unit.origin === 'webcrack',
+          deobfuscated: unit.origin === 'webcrack',
+          recoveredFromSourceMap: unit.origin === 'source-map',
+          ...(unit.origin === 'source-map' ? {
+            sourceMapBundleRelativePath: payload.input.relativePath,
+            sourceMapRelativePath: unit.sourceMapRelativePath,
+            sourceMapSha256: unit.sourceMapSha256,
+            sourceMapArtifactId: unit.sourceMapArtifactId,
+            sourceMapSourcePath: unit.sourceMapSourcePath,
+            sourceMapSourceContentSha256: unit.sourceContentSha256,
+            sourceMapRecoveryWarning: 'Build-provided sourceContent may be stale or unrelated to this compiled artifact; review against generated output.',
+          } : {}),
           codeArtifactId: unit.codeArtifactId,
           inputSha256: payload.input.sha256,
+          inputArtifactSha256: payload.input.sha256,
           engineVersion: payload.toolVersion.slice(0, 80),
         },
       }
@@ -274,10 +332,12 @@ export async function executeWebcrack(input: ToolExecutionInput): Promise<ToolRe
       data: {
         observations,
         decompiledModuleCount: payload.units.filter((unit) => unit.type === 'module').length,
-        returnedModuleCount: payload.units.length,
+        returnedCodeUnitCount: payload.units.length,
+        recoveredSourceMapSourceCount: payload.sourceMap?.recoveredSourceCount || 0,
         codeBytes: payload.codeBytes,
         truncated: payload.truncated,
         bundleType: payload.bundleType,
+        sourceMap: payload.sourceMap,
         inputSha256: payload.input.sha256,
         webcrackVersion: payload.toolVersion.slice(0, 80),
         warnings: (payload.warnings || '').slice(0, 4_000),

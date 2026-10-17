@@ -3,6 +3,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { parentPort, workerData } from 'node:worker_threads'
 import { createIsolate } from './sandbox.mjs'
 import { applySafeRenames, listRenameBindings, validateSource } from './safe-renames.mjs'
+import { recoverSourcesFromMap, sourceMapOutputPath } from './source-maps.mjs'
 import { analyzeJavaScript } from './webcrack-runner.mjs'
 
 function digest(value) {
@@ -14,7 +15,7 @@ function safeSlug(value) {
   return slug || 'module'
 }
 
-async function store(units, relativeName, name, type, bundlePath, moduleId, code, budget) {
+async function store(units, relativeName, name, type, bundlePath, moduleId, code, budget, metadata = {}) {
   if (typeof code !== 'string' || !code.trim()) return
   const sizeBytes = Buffer.byteLength(code, 'utf8')
   budget.value += sizeBytes
@@ -29,6 +30,15 @@ async function store(units, relativeName, name, type, bundlePath, moduleId, code
     bundlePath: String(bundlePath || '').slice(0, 1000),
     moduleId: String(moduleId || '').slice(0, 500),
     sizeBytes,
+    relativePath: String(metadata.relativePath || '').slice(0, 2_000),
+    language: String(metadata.language || 'JavaScript').slice(0, 80),
+    origin: metadata.origin === 'source-map' ? 'source-map' : 'webcrack',
+    ...(metadata.origin === 'source-map' ? {
+      sourceMapRelativePath: String(metadata.sourceMapRelativePath || '').slice(0, 2_000),
+      sourceMapSha256: String(metadata.sourceMapSha256 || '').slice(0, 64),
+      sourceMapSourcePath: String(metadata.sourceMapSourcePath || '').slice(0, 2_000),
+      sourceContentSha256: String(metadata.sourceContentSha256 || '').slice(0, 64),
+    } : {}),
   })
 }
 
@@ -55,7 +65,7 @@ try {
     const result = await analyzeJavaScript(workerData.code, { sandbox: createIsolate })
     const units = []
     const budget = { value: 0 }
-    await store(units, 'deobfuscated.js', 'deobfuscated.js', 'file', '', '', result.code, budget)
+    await store(units, 'deobfuscated.js', 'deobfuscated.js', 'file', '', '', result.code, budget, { language: 'JavaScript' })
     const modules = result.bundle?.modules instanceof Map ? result.bundle.modules : new Map()
     let indexedModules = 0
     for (const [moduleId, module] of modules) {
@@ -63,18 +73,46 @@ try {
       const id = String(module?.id ?? moduleId)
       const modulePath = typeof module?.path === 'string' ? module.path : ''
       const fileName = `modules/${digest(id).slice(0, 12)}-${safeSlug(modulePath || id)}.js`
-      await store(units, fileName, modulePath || `module ${id}`, 'module', modulePath, id, module?.code, budget)
+      await store(units, fileName, modulePath || `module ${id}`, 'module', modulePath, id, module?.code, budget, { language: 'JavaScript' })
       indexedModules += 1
     }
     if (!units.length) throw new Error('Webcrack did not produce JavaScript source')
+
+    const sourceMapResult = recoverSourcesFromMap(workerData.sourceMap, Math.max(0, workerData.maxOutputBytes - budget.value))
+    let recoveredSourceCount = 0
+    for (const source of sourceMapResult.sources) {
+      const relativeName = sourceMapOutputPath(source.relativeSourcePath)
+      await store(units, relativeName, source.relativeSourcePath, 'file', '', `source-map:${source.relativeSourcePath}`, source.content, budget, {
+        origin: 'source-map',
+        relativePath: source.relativeSourcePath,
+        language: source.language,
+        sourceMapRelativePath: workerData.sourceMap.relativePath,
+        sourceMapSha256: workerData.sourceMap.sha256,
+        sourceMapSourcePath: source.relativeSourcePath,
+        sourceContentSha256: source.sourceSha256,
+      })
+      recoveredSourceCount += 1
+    }
+    const warnings = [
+      modules.size > workerData.maxModules ? `Only the first ${workerData.maxModules} bundle modules were indexed.` : '',
+      sourceMapResult.warning,
+      sourceMapResult.truncated ? 'Source-map sources were capped by source count, per-file size, or output-size limits.' : '',
+    ].filter(Boolean).join(' ')
     parentPort.postMessage({
       ok: true,
       result: {
         bundleType: result.bundle?.type || null,
         units,
         codeBytes: budget.value,
-        truncated: modules.size > workerData.maxModules,
-        warnings: modules.size > workerData.maxModules ? `Only the first ${workerData.maxModules} bundle modules were indexed.` : '',
+        truncated: modules.size > workerData.maxModules || sourceMapResult.truncated,
+        sourceMap: workerData.sourceMap ? {
+          status: recoveredSourceCount ? 'recovered' : workerData.sourceMap.text ? 'present_without_supported_sources' : 'unavailable',
+          relativePath: workerData.sourceMap.relativePath,
+          sha256: workerData.sourceMap.sha256,
+          recoveredSourceCount,
+          truncated: sourceMapResult.truncated,
+        } : null,
+        warnings,
       },
     })
   }

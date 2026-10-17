@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { mkdir, mkdtemp, readFile, realpath, rename, rm, stat } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { Worker } from 'node:worker_threads'
+import path from 'node:path'
 import { babelParserVersion } from './safe-renames.mjs'
 
 const PORT = Number(process.env.PORT || 8015)
@@ -9,6 +10,7 @@ const MAX_REQUEST_BYTES = 1024 * 1024
 const MAX_INPUT_BYTES = boundedNumber('WEBCRACK_MAX_INPUT_BYTES', 16 * 1024 * 1024, 1024, 64 * 1024 * 1024)
 const MAX_OUTPUT_BYTES = boundedNumber('WEBCRACK_MAX_OUTPUT_BYTES', 64 * 1024 * 1024, 1024, 256 * 1024 * 1024)
 const MAX_MODULES = boundedNumber('WEBCRACK_MAX_MODULES', 500, 1, 5000)
+const MAX_SOURCE_MAP_BYTES = 8 * 1024 * 1024
 const TIMEOUT_MS = boundedNumber('WEBCRACK_TIMEOUT_MS', 120_000, 10_000, 600_000)
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/
 
@@ -117,6 +119,58 @@ async function resolveInput(value, extension) {
   return { candidate, bytes, code }
 }
 
+async function resolveSourceMap(input) {
+  const directives = [...input.code.matchAll(/(?:\/\/[#@]\s*sourceMappingURL\s*=\s*([^\s*]+)|\/\*[#@]\s*sourceMappingURL\s*=\s*([^*]+?)\s*\*\/)/g)]
+  const url = directives.at(-1)?.[1]?.trim() || directives.at(-1)?.[2]?.trim() || ''
+  if (!url) return null
+
+  try {
+    let bytes
+    let relativePath = '<inline>'
+    if (/^data:/i.test(url)) {
+      const match = /^data:application\/json(?:;charset=[^;,]+)?(;base64)?,([\s\S]*)$/i.exec(url)
+      if (!match) throw new AnalysisError('The inline source map must use a JSON data URL')
+      bytes = match[1] ? Buffer.from(match[2], 'base64') : Buffer.from(decodeURIComponent(match[2]), 'utf8')
+    } else {
+      const decodedUrl = decodeURIComponent(url)
+      if (!decodedUrl || decodedUrl.length > 1_000 || /^[a-z][a-z0-9+.-]*:/i.test(decodedUrl)
+          || decodedUrl.startsWith('/') || decodedUrl.includes('\\') || decodedUrl.includes('?') || decodedUrl.includes('#')) {
+        throw new AnalysisError('The external source map URL must be a relative local path')
+      }
+      const segments = decodedUrl.split('/')
+      if (segments.some((segment) => !segment || segment === '.' || segment === '..')) {
+        throw new AnalysisError('The external source map URL contains an invalid path segment')
+      }
+      const sourceDirectory = path.dirname(input.candidate)
+      const candidate = path.resolve(sourceDirectory, ...segments)
+      if (!isWithin(sourceDirectory, candidate) || candidate === sourceDirectory) {
+        throw new AnalysisError('The external source map is outside the bundle directory')
+      }
+      const resolved = await realpath(candidate)
+      const info = await stat(resolved)
+      if (!isWithin(sourceDirectory, resolved) || !info.isFile() || info.size <= 0 || info.size > MAX_SOURCE_MAP_BYTES) {
+        throw new AnalysisError('The external source map is outside the configured size or path limit')
+      }
+      bytes = await readFile(resolved)
+      relativePath = path.relative(sourceDirectory, resolved).replace(/\\/g, '/')
+    }
+
+    if (!bytes.length || bytes.length > MAX_SOURCE_MAP_BYTES) {
+      throw new AnalysisError('The source map is empty or exceeds the configured size limit')
+    }
+    const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+    return { text, bytes, relativePath, sha256: digest(bytes), sizeBytes: bytes.length, warning: '' }
+  } catch (error) {
+    return {
+      text: '',
+      relativePath: '',
+      sha256: '',
+      sizeBytes: 0,
+      warning: `Source-map recovery was skipped: ${error instanceof AnalysisError ? error.message : 'the referenced local map could not be read safely'}.`,
+    }
+  }
+}
+
 async function analyze(body, signal) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw new AnalysisError('Request must be an object')
   const projectId = safeId(body.projectId)
@@ -129,6 +183,7 @@ async function analyze(body, signal) {
   }
   const sourcePath = body.artifactRelativePath.replace(/\\/g, '/')
   if (sourcePath.length > 1000) throw new AnalysisError('JavaScript artifact path exceeds the supported length')
+  const sourceMap = await resolveSourceMap(input)
 
   const derivedRoot = await realpath(process.env.REAMON_DERIVED_PATH || '/data/reamon-derived')
   const sourceKey = digest(sourcePath).slice(0, 16)
@@ -142,10 +197,22 @@ async function analyze(body, signal) {
   const stagingDirectory = await mkdtemp(`${resolvedOutputDirectory}/.webcrack-`)
 
   try {
-    const result = await runWorker(input.code, stagingDirectory, signal)
+    const result = await runWorker(input.code, stagingDirectory, signal, { sourceMap })
+    let sourceMapArtifactId = ''
+    if (sourceMap?.bytes && sourceMap.sha256) {
+      const evidenceRelativePath = `evidence/source-map-${sourceMap.sha256.slice(0, 16)}.json`
+      const evidencePath = path.resolve(resolvedOutputDirectory, evidenceRelativePath)
+      if (!isWithin(resolvedOutputDirectory, evidencePath) || evidencePath === resolvedOutputDirectory) {
+        throw new AnalysisError('Source-map evidence path is invalid')
+      }
+      await mkdir(path.dirname(evidencePath), { recursive: true })
+      await writeFile(evidencePath, sourceMap.bytes, { flag: 'wx' })
+      sourceMapArtifactId = `${outputRelativeRoot}/${evidenceRelativePath}`
+    }
     const rows = result.units.map((unit) => ({
       ...unit,
       codeArtifactId: `${outputRelativeRoot}/${unit.relativeName}`,
+      ...(unit.origin === 'source-map' && sourceMapArtifactId ? { sourceMapArtifactId } : {}),
     }))
     for (const row of rows) {
       const destination = `${derivedRoot}/${row.codeArtifactId}`
@@ -160,7 +227,8 @@ async function analyze(body, signal) {
       units: rows,
       codeBytes: result.codeBytes,
       truncated: result.truncated,
-      warnings: result.warnings,
+      sourceMap: result.sourceMap ? { ...result.sourceMap, artifactId: sourceMapArtifactId } : null,
+      warnings: (result.warnings || '').slice(0, 4_000),
     }
   } finally {
     await rm(stagingDirectory, { recursive: true, force: true })

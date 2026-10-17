@@ -139,8 +139,12 @@ separate so a plausible name is never treated as proof of behavior.
   JavaScript specifically: obfuscator.io transforms, unminification, JSX, and
   webpack/Browserify module extraction. REAmon now uses v2.16.0 in a Node 22
   analyzer, indexes the extracted modules, and runs decoder snippets inside a
-  memory-limited `isolated-vm` context. It does not promise source equivalence or
-  TypeScript support.
+  memory-limited `isolated-vm` context. REAmon also reads only a referenced,
+  bounded local source map and separately saves embedded JavaScript/TypeScript
+  `sourcesContent` with exact bundle, map, and source hashes. This recovers source
+  supplied by the build; it does not add TypeScript deobfuscation to webcrack or
+  establish that the embedded source matches the compiled bundle. The visualizer
+  keeps those source candidates distinct from webcrack's transformed output.
 - [RetDec](https://github.com/avast/retdec) is worth a pinned comparison as a
   second native decompiler. Its official v5.0 release (2022-12-08) changed the
   decompiler into a library and removed several older component executables; the

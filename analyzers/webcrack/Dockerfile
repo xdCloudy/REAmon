@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
     && useradd --system --uid 10001 --no-create-home --shell /usr/sbin/nologin webcrack
 WORKDIR /app
 COPY --from=build /app/node_modules ./node_modules
-COPY server.mjs sandbox.mjs webcrack-runner.mjs worker.mjs safe-renames.mjs entrypoint.sh ./
-RUN chmod 0555 /app/server.mjs /app/sandbox.mjs /app/webcrack-runner.mjs /app/worker.mjs /app/safe-renames.mjs /app/entrypoint.sh
+COPY server.mjs sandbox.mjs webcrack-runner.mjs worker.mjs safe-renames.mjs source-maps.mjs entrypoint.sh ./
+RUN chmod 0555 /app/server.mjs /app/sandbox.mjs /app/webcrack-runner.mjs /app/worker.mjs /app/safe-renames.mjs /app/source-maps.mjs /app/entrypoint.sh
 EXPOSE 8015
 ENTRYPOINT ["/app/entrypoint.sh"]
