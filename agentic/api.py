@@ -1216,7 +1216,7 @@ def _c_function_contract(parser, source: str) -> list[tuple[Any, ...]] | None:
         def declarator_shape(node):
             if node is None:
                 return None
-            if node.type == "identifier":
+            if node.type in {"identifier", "type_identifier", "field_identifier", "statement_identifier", "label_name"}:
                 return ("identifier",)
             if node.type == "function_declarator":
                 name_or_type_declarator = field(node, "declarator")
@@ -1240,7 +1240,7 @@ def _c_function_contract(parser, source: str) -> list[tuple[Any, ...]] | None:
                 return (node.type, node_text(node))
             children = []
             for child in node.children:
-                if child.type == "identifier":
+                if child.type in {"identifier", "type_identifier", "field_identifier", "statement_identifier", "label_name"}:
                     children.append(("identifier",))
                 elif child.is_named:
                     children.append(declarator_shape(child))
