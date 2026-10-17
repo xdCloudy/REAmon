@@ -6,6 +6,7 @@ import prisma from '@/lib/prisma'
 import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
 import { getActiveWorkspaceImportSelection } from '@/lib/reamon/inventory-query'
 import { derivedArtifactRoot, resolveDerivedArtifactPath } from '@/lib/reamon/derived-storage'
+import { nativeFunctionIdentity } from '@/lib/reamon/native-function-identity'
 
 interface RouteParams { params: Promise<{ id: string }> }
 const MAX_SOURCE_BYTES = 2 * 1024 * 1024
@@ -19,6 +20,17 @@ function record(value: unknown): Record<string, unknown> {
 function inside(root: string, file: string): boolean {
   const relative = path.relative(root, file)
   return Boolean(relative) && relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)
+}
+
+function nativeAddressAliases(address: string): string[] {
+  const normalized = address.trim().toLowerCase().replace(/^ram:/, '').replace(/^0x/, '')
+  if (!/^[a-f0-9]{1,64}$/.test(normalized)) return []
+  const value = BigInt(`0x${normalized}`).toString(16)
+  return [...new Set([
+    value,
+    `0x${value}`,
+    ...[4, 6, 8, 12, 16, 32, 64].map((width) => `ram:${value.padStart(width, '0')}`),
+  ])]
 }
 
 export async function GET(request: Request, { params }: RouteParams) {
@@ -59,6 +71,11 @@ export async function GET(request: Request, { params }: RouteParams) {
     const attributes = record(unit.attributes)
     const relativePath = typeof attributes.relativePath === 'string' ? attributes.relativePath : ''
     const language = typeof attributes.language === 'string' ? attributes.language : ''
+    const identity = typeof attributes.identity === 'string' ? attributes.identity : ''
+    const selectedAddress = typeof attributes.address === 'string' ? attributes.address
+      : typeof attributes.startAddress === 'string' ? attributes.startAddress : ''
+    const nativeIdentity = nativeFunctionIdentity(unit.artifactId, selectedAddress)
+    const addressAliases = nativeAddressAliases(selectedAddress)
     const selectedOutputHashValue = attributes.codeArtifactSha256 ?? attributes.decompiledSourceSha256
     const selectedOutputHash = typeof selectedOutputHashValue === 'string' ? selectedOutputHashValue.toLowerCase() : ''
     if (!relativePath || !language || relativePath.length > 1000 || relativePath.startsWith('/')
@@ -94,9 +111,22 @@ export async function GET(request: Request, { params }: RouteParams) {
         type: 'code_unit',
         source: { not: unit.source },
         AND: [
-          { attributes: { path: ['relativePath'], equals: relativePath } },
-          { attributes: { path: ['language'], equals: language } },
           { attributes: { path: ['inputArtifactSha256'], equals: unit.artifact.sha256 } },
+        ],
+        OR: [
+          {
+            AND: [
+              { attributes: { path: ['relativePath'], equals: relativePath } },
+              { attributes: { path: ['language'], equals: language } },
+            ],
+          },
+          ...(nativeIdentity ? [
+            ...(identity ? [{ attributes: { path: ['identity'], equals: identity } }] : []),
+            ...addressAliases.flatMap((address) => [
+              { attributes: { path: ['address'], equals: address } },
+              { attributes: { path: ['startAddress'], equals: address } },
+            ]),
+          ] : []),
         ],
       },
       orderBy: [{ updatedAt: 'desc' }, { stableKey: 'asc' }],
@@ -169,10 +199,18 @@ export async function GET(request: Request, { params }: RouteParams) {
       const codeArtifactId = typeof candidate.codeArtifactId === 'string' ? candidate.codeArtifactId : ''
       const expectedHashValue = candidate.codeArtifactSha256 ?? candidate.decompiledSourceSha256
       const expectedHash = typeof expectedHashValue === 'string' ? expectedHashValue.toLowerCase() : ''
+      const candidateRelativePath = typeof candidate.relativePath === 'string' ? candidate.relativePath : ''
+      const candidateLanguage = typeof candidate.language === 'string' ? candidate.language : ''
+      const candidateAddress = typeof candidate.address === 'string' ? candidate.address
+        : typeof candidate.startAddress === 'string' ? candidate.startAddress : ''
+      const sameNativeIdentity = Boolean(nativeIdentity && nativeFunctionIdentity(unit.artifactId!, candidateAddress) === nativeIdentity)
+      const sameSourcePath = candidateRelativePath === relativePath && candidateLanguage === language
       const expectedPrefix = `${projectId}/${unit.artifactId}/${row.taskId}/${task?.runToken || ''}/`
       const sourceRelativePath = codeArtifactId.startsWith(expectedPrefix) ? codeArtifactId.slice(expectedPrefix.length) : ''
       if (!task?.runToken || task.provider?.pluginId !== row.source || !codeArtifactId.startsWith(expectedPrefix)
-        || !sourceRelativePath || (sourceRelativePath !== relativePath && !sourceRelativePath.endsWith(`/${relativePath}`))
+        || !sourceRelativePath || (!sameSourcePath && !sameNativeIdentity)
+        || !candidateRelativePath
+        || (sourceRelativePath !== candidateRelativePath && !sourceRelativePath.endsWith(`/${candidateRelativePath}`))
         || sourceRelativePath.split('/').some((part) => !part || part === '.' || part === '..' || part.includes('\\'))
         || !/^[a-f0-9]{64}$/.test(expectedHash)) continue
       try {
@@ -189,10 +227,11 @@ export async function GET(request: Request, { params }: RouteParams) {
           id: row.id,
           providerId: row.source,
           providerName: row.source.replace(/^reamon-/, ''),
-          version: typeof candidate.decompilationEngineVersion === 'string' ? candidate.decompilationEngineVersion.slice(0, 120) : null,
+          version: typeof candidate.decompilerVersion === 'string' ? candidate.decompilerVersion.slice(0, 120)
+            : typeof candidate.decompilationEngineVersion === 'string' ? candidate.decompilationEngineVersion.slice(0, 120) : null,
           name: typeof candidate.qualifiedName === 'string' ? candidate.qualifiedName.slice(0, 500) : row.label,
-          language,
-          relativePath,
+          language: candidateLanguage || language,
+          relativePath: candidateRelativePath || sourceRelativePath,
           inputSha256: unit.artifact.sha256,
           outputSha256: outputHash,
           completedAt: task.completedAt?.toISOString() || null,

@@ -6,8 +6,8 @@
     {
       "name": "Core analysis and visualizer workflow",
       "weight": 20,
-      "completion": 63,
-      "basis": "Imports, provider execution, stored code units, source navigation, and review workflows exist. Native Mach-O analysis stores exact-address Swift/Objective-C metadata and exposes capped, hash-checked ReIPA pseudocode alternatives for matched functions; an isolated pinned Glaurung provider now builds and persists bounded native C-like pseudocode, but fixture-backed comparison remains open."
+      "completion": 64,
+      "basis": "Imports, provider execution, stored code units, source navigation, and review workflows exist. Native Mach-O analysis stores exact-address Swift/Objective-C metadata and exposes capped, hash-checked ReIPA pseudocode alternatives; the visualizer can compare native provider outputs by canonical function identity across differing saved paths and output-language labels. An isolated pinned Glaurung provider builds and persists bounded native C-like pseudocode, but fixture-backed comparison remains open."
     },
     {
       "name": "Database-grounded project memory and provenance",
