@@ -97,24 +97,33 @@ if not isinstance(entries, list) or len(entries) > MAX_ENTRIES:
 pending = []
 already_applied = 0
 skipped = 0
+skip_reasons = {}
 address_factory = currentProgram.getAddressFactory()
 function_manager = currentProgram.getFunctionManager()
+
+
+def skip(reason):
+    global skipped
+    skipped += 1
+    skip_reasons[reason] = skip_reasons.get(reason, 0) + 1
+
+
 for entry in entries:
     if not isinstance(entry, dict) or entry.get('addressKind') != 'ghidra-address':
-        skipped += 1
+        skip('invalid entry or address kind')
         continue
     declaration = entry.get('functionDeclaration')
     if not isinstance(declaration, dict) or declaration.get('mapping') != 'unique function declaration in the exact accepted source file':
-        skipped += 1
+        skip('no unique syntax-outlined function declaration')
         continue
     new_name = declaration.get('name')
     address_text = entry.get('address')
     original_name = entry.get('originalName')
     if not isinstance(new_name, STRING_TYPES) or not NAME_PATTERN.match(new_name):
-        skipped += 1
+        skip('invalid proposed function name')
         continue
     if not isinstance(address_text, STRING_TYPES) or not isinstance(original_name, STRING_TYPES):
-        skipped += 1
+        skip('missing address or original function name')
         continue
     try:
         address = address_factory.getAddress(address_text)
@@ -122,7 +131,7 @@ for entry in entries:
     except Exception:
         function = None
     if function is None:
-        skipped += 1
+        skip('Ghidra function not found at the stored address')
         continue
     current_name = function.getName()
     expected_name = original_name.rsplit('::', 1)[-1].split('(', 1)[0]
@@ -130,12 +139,13 @@ for entry in entries:
         already_applied += 1
         continue
     if current_name != expected_name:
-        skipped += 1
+        skip('current function name differs from the reviewed original name')
         continue
     pending.append((function, new_name, address_text))
 
 if not pending:
-    printerr("REAmon annotation import: no uniquely mapped function names are safe to apply; skipped=%d already_applied=%d" % (skipped, already_applied))
+    reasons = ', '.join(["%s=%d" % (reason, count) for reason, count in sorted(skip_reasons.items())])
+    printerr("REAmon annotation import: no uniquely mapped function names are safe to apply; skipped=%d already_applied=%d reasons={%s}" % (skipped, already_applied, reasons))
     fail("No uniquely mapped function names are safe to apply.")
 
 if not askYesNo("Apply REAmon function names", "The exact input SHA-256 matches. Apply %d accepted function names to this Ghidra program?\n\nNo addresses will be rebased. Functions whose current names changed or whose targets are missing will be skipped." % len(pending)):
@@ -157,4 +167,5 @@ try:
 finally:
     currentProgram.endTransaction(transaction_id, commit)
 
-print("REAmon annotation import complete: applied=%d already_applied=%d skipped=%d failed=%d" % (applied, already_applied, skipped, failed))
+reasons = ', '.join(["%s=%d" % (reason, count) for reason, count in sorted(skip_reasons.items())])
+print("REAmon annotation import complete: applied=%d already_applied=%d skipped=%d failed=%d skip_reasons={%s}" % (applied, already_applied, skipped, failed, reasons))
