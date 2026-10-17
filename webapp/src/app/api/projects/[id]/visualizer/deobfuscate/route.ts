@@ -2279,6 +2279,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       && /^[a-f0-9]{64}$/i.test(attributes.disassemblyArtifactSha256)
       ? attributes.disassemblyArtifactSha256.toLowerCase()
       : null
+    const hasDeclaredDisassemblyHash = attributes.disassemblyArtifactSha256 !== undefined
     const hasNativeReferenceEvidence = observation.source === 'reamon-ghidra' || observation.source === 'reamon-tocode-import'
     const referencedStrings = hasNativeReferenceEvidence
       ? classReferencesOf(attributes.referencedStrings).slice(0, 12).map((value) => value.slice(0, 512))
@@ -2319,9 +2320,9 @@ export async function POST(request: Request, { params }: RouteParams) {
           const disassemblyInfo = await stat(safeDisassemblyPath)
           if (disassemblyInfo.isFile() && disassemblyInfo.size <= MAX_ARTIFACT_BYTES) {
             const disassembly = await readFile(safeDisassemblyPath)
-            const hashMatches = expectedDisassemblyHash === null
-              ? typeof attributes.disassemblyArtifactSha256 !== 'string'
-              : createHash('sha256').update(disassembly).digest('hex') === expectedDisassemblyHash
+            const hashMatches = !hasDeclaredDisassemblyHash
+              || (expectedDisassemblyHash !== null
+                && createHash('sha256').update(disassembly).digest('hex') === expectedDisassemblyHash)
             if (hashMatches) {
               const disassemblyText = disassembly.toString('utf8')
               if (attributes.disassemblyLanguage === 'Python bytecode' && observation.source === 'reamon-pycdc') {
