@@ -1218,6 +1218,14 @@ def _c_function_contract(parser, source: str) -> list[tuple[Any, ...]] | None:
                 return None
             if node.type == "identifier":
                 return ("identifier",)
+            if node.type == "function_declarator":
+                name_or_type_declarator = field(node, "declarator")
+                parameters = field(node, "parameters")
+                parameter_shapes = tuple(
+                    parameter_shape(parameter)
+                    for parameter in (parameters.named_children if parameters is not None else [])
+                )
+                return ("function", declarator_shape(name_or_type_declarator), parameter_shapes)
             if node.type == "parameter_declaration":
                 type_node = field(node, "type")
                 declarator = field(node, "declarator")
@@ -1239,6 +1247,18 @@ def _c_function_contract(parser, source: str) -> list[tuple[Any, ...]] | None:
                 else:
                     children.append(("token", child.type, node_text(child)))
             return (node.type, tuple(children))
+
+        def parameter_shape(node):
+            if node.type != "parameter_declaration":
+                return declarator_shape(node)
+            type_node = field(node, "type")
+            declarator = field(node, "declarator")
+            specifiers = tuple(
+                (child.type, node_text(child))
+                for child in node.named_children
+                if child is not type_node and child is not declarator
+            )
+            return ("parameter", node_text(type_node), specifiers, declarator_shape(declarator))
 
         contracts = []
         for declaration in root.named_children:
@@ -2053,22 +2073,6 @@ TRANSFORMATION RULES
     if parser is not None and body.scope != "member" and not syntax_validated:
         if validation_status == "FAILED":
             return JSONResponse(content={"error": "The model draft does not parse as complete source. Try a stronger model or a more focused transformation.", "code": "invalid_source", "validation_status": validation_status, "validation_method": validation_method, "validation_message": validation_message, "model_used": requested_model}, status_code=422)
-    if parser is not None and body.scope != "member" and syntax_validated:
-        original_callable_count = _reamon_callable_count(parser, body.source_code, body.language)
-        rewritten_callable_count = _reamon_callable_count(parser, rewritten, body.language)
-        if original_callable_count is not None and rewritten_callable_count is not None:
-            if rewritten_callable_count < original_callable_count:
-                return JSONResponse(content={
-                    "error": "The rewrite removed one or more functions or methods from the selected source. Retry with a narrower request and preserve every callable.",
-                    "code": "declaration_removed",
-                    "validation_status": "FAILED",
-                    "validation_method": "tree-sitter+callable-count",
-                    "validation_message": f"The source contains {original_callable_count} callables; the draft contains {rewritten_callable_count}.",
-                    "model_used": requested_model,
-                }, status_code=422)
-            if original_callable_count > 0:
-                validation_method = "tree-sitter+callable-count"
-                validation_message = f"The parser accepted the source and the draft retained all {original_callable_count} recognized callable declarations. This is structural evidence, not a behavior-equivalence check."
     if body.scope == "member" and parser is not None:
         rewritten_contract = _java_member_contract(parser, rewritten) if body.language.strip().lower() == "java" else _reamon_callable_contract(parser, rewritten, body.language)
         if not rewritten_contract:
@@ -2143,6 +2147,22 @@ TRANSFORMATION RULES
             }, status_code=422)
         validation_method = "tree-sitter+callable-count+java-contract"
         validation_message = "The parser accepted the source, recognized callable count was preserved, and Java declaration structure remained stable. This is structural evidence, not a behavior-equivalence check."
+    if parser is not None and body.scope != "member" and syntax_validated and body.language.strip().lower() != "java":
+        original_callable_count = _reamon_callable_count(parser, body.source_code, body.language)
+        rewritten_callable_count = _reamon_callable_count(parser, rewritten, body.language)
+        if original_callable_count is not None and rewritten_callable_count is not None:
+            if rewritten_callable_count < original_callable_count:
+                return JSONResponse(content={
+                    "error": "The rewrite removed one or more functions or methods from the selected source. Retry with a narrower request and preserve every callable.",
+                    "code": "declaration_removed",
+                    "validation_status": "FAILED",
+                    "validation_method": "tree-sitter+callable-count",
+                    "validation_message": f"The source contains {original_callable_count} callables; the draft contains {rewritten_callable_count}.",
+                    "model_used": requested_model,
+                }, status_code=422)
+            if original_callable_count > 0:
+                validation_method = "tree-sitter+callable-count"
+                validation_message = f"The parser accepted the source and the draft retained all {original_callable_count} recognized callable declarations. This is structural evidence, not a behavior-equivalence check."
     if body.scope != "member" and body.language.strip().lower() in {"c", "c++", "cpp"} and parser is not None:
         selected_contract = _c_function_contract(parser, body.source_code)
         rewritten_contract = _c_function_contract(parser, rewritten)

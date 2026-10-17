@@ -317,11 +317,17 @@ export function buildProviderSymbolContext(
   records: ProviderSymbolRecord[],
   relatedUnitIds: Set<string>,
   maxBytes = 8_000,
-  provenance: { provider: string; artifactName: string; artifactHash: string; taskId: string; inputTruncated?: boolean },
+  provenance: { provider?: string | null; artifactName?: string | null; artifactHash?: string | null; taskId?: string | null; inputTruncated?: boolean },
   selectedUnitId?: string,
   calleeUnitIds: Set<string> = new Set(),
 ): string {
-  const header = `Provider-recovered signatures, names, and types (provisional evidence; provider=${provenance.provider.slice(0, 120)}; artifact=${provenance.artifactName.slice(0, 160)}; sha256=${provenance.artifactHash.slice(0, 16)}; analysis=${provenance.taskId.slice(0, 128)}${provenance.inputTruncated ? '; related-unit selection capped' : ''}):`
+  const provider = singleLine(provenance.provider || 'unknown provider', 120)
+  const artifactName = singleLine(provenance.artifactName || 'unknown artifact', 160)
+  const artifactHash = typeof provenance.artifactHash === 'string' && /^[a-f0-9]{64}$/i.test(provenance.artifactHash)
+    ? provenance.artifactHash.slice(0, 16).toLowerCase()
+    : 'unavailable'
+  const taskId = singleLine(provenance.taskId || 'unknown analysis', 128)
+  const header = `Provider-recovered signatures, names, and types (provisional evidence; provider=${provider}; artifact=${artifactName}; sha256=${artifactHash}; analysis=${taskId}${provenance.inputTruncated ? '; related-unit selection capped' : ''}):`
   const ranked = records.map((record, index) => ({ record, index })).sort((left, right) => {
     const selectedRank = Number(right.record.codeUnitId === selectedUnitId) - Number(left.record.codeUnitId === selectedUnitId)
     if (selectedRank) return selectedRank
