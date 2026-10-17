@@ -30,6 +30,10 @@ checkout; it does not imply broad fixture coverage or behavioral equivalence. Se
 
 Inspired by [ReVa's Ghidra cross-reference tools](https://github.com/cyberkaida/reverse-engineering-assistant), `workspace_list_code_relationships` pages through stored call edges or field/string references for one code unit. Every result is restricted to the active import and the selected unit's exact artifact, provider, and analysis task. This complements the bounded relationship preview in `workspace_get_code_unit`; it does not infer missing edges or claim that persisted references prove behavior.
 
+## Native deobfuscation follow-up
+
+REAmon currently uses the MIT-licensed [Ghidra Deobfuscation Lab](https://github.com/xubin0903/ghidra-deobfuscation-lab) `CffCore` only for read-only, confidence-labeled control-flow-flattening evidence. The pinned source also contains emulation-verified `BcfClean` and `CffDeflatten` passes, which are not integrated. The planned adaptation is an opt-in pass over a disposable Ghidra analysis project that preserves the original binary and decompilation, records patch/verification provenance, and stores cleaned pseudocode as a separate provider output. It targets OLLVM bogus control flow and CFF patterns, not arbitrary obfuscation; see the [upstream reuse audit](REAMON_UPSTREAM_REUSE.md#additional-engines-evaluated).
+
 ## Product-critical distinctions
 
 - Decompilation output and AI-maintained source are separate artifacts.

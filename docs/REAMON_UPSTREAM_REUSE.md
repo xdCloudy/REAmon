@@ -82,6 +82,17 @@ separate so a plausible name is never treated as proof of behavior.
   measure false positives, unresolved edges, and emulator cost. The copied
   upstream MIT license is installed in the analyzer image.
 
+  The same pinned source also includes `BcfClean` for constant bogus-control-flow
+  predicates and `CffDeflatten` for restoring recovered CFF successors. Both
+  write only to Ghidra's analysis program, verify per-function changes through
+  emulation, and provide undo logs; they do not rewrite the imported artifact.
+  They are not integrated yet. The next useful slice is an opt-in run against a
+  disposable Ghidra project, with original and cleaned provider outputs stored
+  separately and each changed function tied to its patch log, exact input/output
+  hashes, and verification result. Run the upstream fixtures in REAmon's pinned
+  Ghidra image before exposing the pass in the visualizer or raising support
+  claims. The current integrated feature remains read-only CFF evidence.
+
 - [Humanify](https://github.com/jehna/humanify) v3.1.1 is MIT-licensed and uses
   OXC's JavaScript AST and semantic model to apply model-suggested renames across
   lexical scopes, with identifier validity and collision checks. Its important
@@ -364,6 +375,10 @@ store.
 - [BinDiff license and disassembler/exporter integration](https://github.com/google/bindiff)
 - [Ghidra BasicBlockModel API](https://ghidra.re/ghidra_docs/api/ghidra/program/model/block/BasicBlockModel.html)
 - [Ghidra CodeBlockModel API](https://ghidra.re/ghidra_docs/api/ghidra/program/model/block/CodeBlockModel.html)
+- [Ghidra Deobfuscation Lab audited MIT snapshot](https://github.com/xubin0903/ghidra-deobfuscation-lab/tree/f457afaa801b30f7bb98c28d419a36d5c9fd7115)
+- [Ghidra Deobfuscation Lab CFF recovery and confidence checks](https://github.com/xubin0903/ghidra-deobfuscation-lab/blob/f457afaa801b30f7bb98c28d419a36d5c9fd7115/docs/scripts/CffRecover.md)
+- [Ghidra Deobfuscation Lab CFF patching and undo behavior](https://github.com/xubin0903/ghidra-deobfuscation-lab/blob/f457afaa801b30f7bb98c28d419a36d5c9fd7115/docs/scripts/CffDeflatten.md)
+- [Ghidra Deobfuscation Lab bogus-control-flow cleanup and limits](https://github.com/xubin0903/ghidra-deobfuscation-lab/blob/f457afaa801b30f7bb98c28d419a36d5c9fd7115/docs/scripts/BcfClean.md)
 - [DecBench metrics and evaluation pipeline](https://github.com/Noelo-Lab/decbench)
 - [DecompileBench evaluation pipeline](https://github.com/vul337/DecompileBench)
 - [Decompile-Bench dataset schema and compiler/optimization fields](https://github.com/Pey121/llm4decompile/tree/main/decompile-bench)
