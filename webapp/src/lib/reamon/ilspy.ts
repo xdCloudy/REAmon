@@ -9,11 +9,18 @@ const DEFAULT_TIMEOUT_MS = 20 * 60_000
 interface IlspyResponse {
   status: 'completed'
   toolVersion: string
+  vbBridgeVersion?: string | null
   classCount: number | null
   codeBytes?: number
+  vbCodeBytes?: number
   returnedUnits: number
   truncated: boolean
-  units: Array<{ name: string; relativePath: string; codeArtifactId: string; unitType?: string; language?: string; sizeBytes: number }>
+  vbTranslationTruncated?: boolean
+  units: Array<{
+    name: string; relativePath: string; codeArtifactId: string; unitType?: string; language?: string; sizeBytes: number
+    decompiler?: string; decompilerVersion?: string; sourceSha256?: string; inputArtifactSha256?: string
+    derivedFromRelativePath?: string; derivedFromSha256?: string; representationSemantics?: string
+  }>
   methods?: Array<{ signature: string; relativePath: string; instructionMnemonics: string[] }>
   methodFeaturesTruncated?: boolean
   warnings?: string
@@ -116,8 +123,17 @@ export async function executeIlspy(input: ToolExecutionInput): Promise<ToolResul
       unit && typeof unit.name === 'string' && typeof unit.relativePath === 'string'
       && typeof unit.codeArtifactId === 'string' && Number.isFinite(unit.sizeBytes) && unit.sizeBytes > 0
       && (unit.unitType === undefined || typeof unit.unitType === 'string')
-      && (unit.language === undefined || typeof unit.language === 'string'))
-    if (!units.length) throw new Error('ILSpy did not produce any viewable C# types')
+      && (unit.language === undefined || typeof unit.language === 'string')
+      && /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))[^\\\0]{1,1000}$/.test(unit.relativePath)
+      && unit.codeArtifactId === `${expectedRunPrefix}sources/${unit.relativePath}`
+      && (unit.sourceSha256 === undefined || /^[a-f0-9]{64}$/i.test(unit.sourceSha256))
+      && (unit.inputArtifactSha256 === undefined || /^[a-f0-9]{64}$/i.test(unit.inputArtifactSha256))
+      && (unit.derivedFromSha256 === undefined || /^[a-f0-9]{64}$/i.test(unit.derivedFromSha256))
+      && (unit.derivedFromRelativePath === undefined || /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))[^\\\0]{1,1000}$/.test(unit.derivedFromRelativePath))
+      && (unit.representationSemantics === undefined || typeof unit.representationSemantics === 'string'))
+    if (!units.length) throw new Error('ILSpy did not produce any viewable managed source types')
+    const returnedClassCount = units.filter((unit) => (unit.language || 'C#') === 'C#').length
+    const returnedBridgeUnitCount = units.filter((unit) => (unit.language || '') === 'Visual Basic').length
 
     const observations: ToolObservation[] = units.map((unit) => ({
       kind: 'entity',
@@ -133,11 +149,19 @@ export async function executeIlspy(input: ToolExecutionInput): Promise<ToolResul
         relativePath: unit.relativePath.slice(0, 1000),
         decompiled: true,
         codeArtifactId: unit.codeArtifactId.slice(0, 2000),
-        representationSemantics: verifiedPreprocessing
+        representationSemantics: typeof unit.representationSemantics === 'string'
+          ? unit.representationSemantics.slice(0, 1000)
+          : verifiedPreprocessing
           ? 'C# decompiled by ILSpy from a NoFuserEx static ConfuserEx cleanup output. This intermediate transformation is not proof of behavior or maintained source.'
           : 'C# decompiled by ILSpy from the original managed assembly. Decompiled output is reconstructed source, not proof of behavior or maintained source.',
-        decompiler: 'ILSpy',
-        decompilerVersion: typeof payload.toolVersion === 'string' ? payload.toolVersion.slice(0, 80) : 'unknown',
+        decompiler: typeof unit.decompiler === 'string' ? unit.decompiler.slice(0, 80) : 'ILSpy',
+        decompilerVersion: typeof unit.decompilerVersion === 'string' ? unit.decompilerVersion.slice(0, 80) : typeof payload.toolVersion === 'string' ? payload.toolVersion.slice(0, 80) : 'unknown',
+        ...(unit.sourceSha256 ? { outputSourceSha256: unit.sourceSha256.toLowerCase() } : {}),
+        ...(unit.inputArtifactSha256 ? { inputArtifactSha256: unit.inputArtifactSha256.toLowerCase() } : {}),
+        ...(unit.derivedFromRelativePath && unit.derivedFromSha256 ? {
+          derivedFromRelativePath: unit.derivedFromRelativePath,
+          derivedFromSourceSha256: unit.derivedFromSha256.toLowerCase(),
+        } : {}),
         ...(verifiedPreprocessing ? {
           inputArtifactSha256: verifiedPreprocessing.inputSha256,
           deobfuscatedArtifactId: verifiedPreprocessing.artifactId,
@@ -197,9 +221,14 @@ export async function executeIlspy(input: ToolExecutionInput): Promise<ToolResul
       data: {
         observations,
         decompiledClassCount: typeof payload.classCount === 'number' && Number.isSafeInteger(payload.classCount) && payload.classCount >= 0 ? payload.classCount : null,
-        returnedClassCount: units.length,
-        codeBytes: typeof payload.codeBytes === 'number' && Number.isFinite(payload.codeBytes) ? Math.max(0, Math.floor(payload.codeBytes)) : observations.reduce((sum, observation) => sum + Number(observation.attributes.sizeBytes), 0),
-        truncated: payload.truncated || payload.methodFeaturesTruncated === true || methodObservationsTruncated || (typeof payload.classCount === 'number' && payload.classCount > units.length),
+        returnedClassCount,
+        returnedBridgeUnitCount,
+        vbBridgeVersion: typeof payload.vbBridgeVersion === 'string' ? payload.vbBridgeVersion.slice(0, 80) : null,
+        vbTranslationTruncated: payload.vbTranslationTruncated === true,
+        codeBytes: typeof payload.codeBytes === 'number' && Number.isFinite(payload.codeBytes)
+          ? Math.max(0, Math.floor(payload.codeBytes) + (typeof payload.vbCodeBytes === 'number' && Number.isFinite(payload.vbCodeBytes) ? Math.floor(payload.vbCodeBytes) : 0))
+          : observations.reduce((sum, observation) => sum + Number(observation.attributes.sizeBytes), 0),
+        truncated: payload.truncated || payload.methodFeaturesTruncated === true || methodObservationsTruncated || (typeof payload.classCount === 'number' && payload.classCount > returnedClassCount),
         ilspyVersion: typeof payload.toolVersion === 'string' ? payload.toolVersion.slice(0, 80) : 'unknown',
         warnings: typeof payload.warnings === 'string' ? payload.warnings.slice(0, 4000) : '',
         dotnetPreprocessing: verifiedPreprocessing ? {

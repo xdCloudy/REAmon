@@ -14,16 +14,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
     && rm -rf /var/lib/apt/lists/* \
     && dotnet tool install --tool-path /opt/ilspycmd ilspycmd --version "${ILSPYCMD_VERSION}" \
     && chmod -R a+rX /opt/ilspycmd \
-    && mkdir -p /opt/nofuserex /usr/share/licenses/nofuserex \
+    && mkdir -p /opt/nofuserex /opt/reamon-vb-bridge /usr/share/licenses/nofuserex /usr/share/licenses/reamon-vb-bridge \
     && useradd --system --uid 10001 --no-create-home --shell /usr/sbin/nologin ilspy
 COPY --from=nofuserex-build /src/nofuserex/NoFuserEx/NoFuserEx/bin/Release/NoFuserEx.exe /opt/nofuserex/NoFuserEx.exe
 COPY --from=nofuserex-build /src/nofuserex/NoFuserEx/NoFuserEx/bin/Release/dnlib.dll /opt/nofuserex/dnlib.dll
 COPY --from=nofuserex-build /src/nofuserex/LICENSE /usr/share/licenses/nofuserex/LICENSE
 COPY --from=nofuserex-build /src/nofuserex/dnlib/LICENSE.txt /usr/share/licenses/nofuserex/dnlib-LICENSE.txt
+WORKDIR /src/vb-bridge
+COPY vb-bridge/Reamon.VbBridge.csproj ./Reamon.VbBridge.csproj
+COPY vb-bridge/Program.cs ./Program.cs
+RUN dotnet publish Reamon.VbBridge.csproj --configuration Release --output /opt/reamon-vb-bridge --no-self-contained \
+    && chmod -R a+rX /opt/reamon-vb-bridge
+COPY licenses/ICSharpCode.CodeConverter-MIT.txt /usr/share/licenses/reamon-vb-bridge/ICSharpCode.CodeConverter-MIT.txt
+COPY licenses/Microsoft.CodeAnalysis-MIT.txt /usr/share/licenses/reamon-vb-bridge/Microsoft.CodeAnalysis-MIT.txt
 WORKDIR /app
 COPY server.py ./server.py
 COPY entrypoint.sh ./entrypoint.sh
 RUN chmod 0555 /app/server.py /app/entrypoint.sh
-ENV ILSPYCMD=/opt/ilspycmd/ilspycmd ILSPY_VERSION=${ILSPYCMD_VERSION} NOFUSEREX=/opt/nofuserex/NoFuserEx.exe NOFUSEREX_VERSION=bbdde27a817cf9b2ab9f03207fc3bd9adb7c8ff4
+ENV ILSPYCMD=/opt/ilspycmd/ilspycmd ILSPY_VERSION=${ILSPYCMD_VERSION} NOFUSEREX=/opt/nofuserex/NoFuserEx.exe NOFUSEREX_VERSION=bbdde27a817cf9b2ab9f03207fc3bd9adb7c8ff4 REAMON_VB_BRIDGE=/opt/reamon-vb-bridge/Reamon.VbBridge.dll REAMON_VB_BRIDGE_VERSION=10.0.1.923
 EXPOSE 8013
 ENTRYPOINT ["/app/entrypoint.sh"]

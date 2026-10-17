@@ -31,6 +31,10 @@ NOFUSEREX_REVISION = "bbdde27a817cf9b2ab9f03207fc3bd9adb7c8ff4"
 MAX_METHOD_FEATURES = 8_000
 MAX_METHOD_FEATURE_INSTRUCTIONS = 128
 MAX_METHOD_FEATURE_BYTES = 8 * 1024 * 1024
+VB_BRIDGE_MAX_FILES = 200
+VB_BRIDGE_MAX_INPUT_BYTES = 8 * 1024 * 1024
+VB_BRIDGE_MAX_OUTPUT_BYTES = 16 * 1024 * 1024
+VB_BRIDGE_VERSION = os.environ.get("REAMON_VB_BRIDGE_VERSION", "10.0.1.923")
 STREAM_RESULT_CHUNK_SIZE = 100
 STREAM_RESULT_CHUNK_BYTES = 1024 * 1024
 SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
@@ -307,6 +311,98 @@ def run_analysis_tool(arguments, stderr_file, cancel_check, deadline, output_lim
         raise
 
 
+def translate_csharp_to_vb(sources, cancel_check, deadline, report_progress):
+    """Create provisional VB-shaped views from ILSpy C# output, with strict bounds."""
+    executable = os.environ.get("DOTNET", "/usr/bin/dotnet")
+    bridge = os.environ.get("REAMON_VB_BRIDGE", "/opt/reamon-vb-bridge/Reamon.VbBridge.dll")
+    if not Path(bridge).is_file() or not shutil.which(executable):
+        return [], len(sources), "The optional Visual Basic translation bridge is unavailable."
+
+    selected = []
+    input_bytes = 0
+    skipped = max(0, len(sources) - VB_BRIDGE_MAX_FILES)
+    for unit, source_path in sources[:VB_BRIDGE_MAX_FILES]:
+        try:
+            raw = source_path.read_bytes()
+        except OSError:
+            skipped += 1
+            continue
+        if not raw or len(raw) > MAX_VIEWABLE_BYTES or input_bytes + len(raw) > VB_BRIDGE_MAX_INPUT_BYTES:
+            skipped += 1
+            continue
+        try:
+            code = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            skipped += 1
+            continue
+        selected.append({"relativePath": unit["relativePath"], "sourceCode": code})
+        input_bytes += len(raw)
+
+    if not selected:
+        return [], skipped, "No eligible ILSpy source files fit the Visual Basic translation limits."
+
+    payload = json.dumps({"sources": selected}, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    report_progress(f"Generating bounded Visual Basic-shaped views for {len(selected)} C# types")
+    try:
+        process = subprocess.Popen(
+            [executable, bridge], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            start_new_session=True, env={**os.environ, "DOTNET_CLI_TELEMETRY_OPTOUT": "1", "DOTNET_NOLOGO": "1"},
+        )
+    except OSError:
+        return [], len(selected) + skipped, "The Visual Basic translation bridge could not be started."
+    try:
+        while True:
+            if cancel_check():
+                raise AnalysisError("ILSpy analysis was cancelled")
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise AnalysisError(f"ILSpy analysis exceeded {TIMEOUT_SECONDS} seconds")
+            try:
+                stdout, _ = process.communicate(payload, timeout=min(0.25, remaining))
+                break
+            except subprocess.TimeoutExpired:
+                payload = None
+        if process.returncode != 0 or len(stdout) > VB_BRIDGE_MAX_OUTPUT_BYTES + 256 * 1024:
+            return [], len(selected) + skipped, "The Visual Basic translation bridge failed or exceeded its output limit."
+        response = json.loads(stdout.decode("utf-8"))
+    except AnalysisError:
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        try:
+            process.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.wait()
+        raise
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return [], len(selected) + skipped, "The Visual Basic translation bridge returned an invalid response."
+
+    outputs = response.get("sources") if isinstance(response, dict) else None
+    if not isinstance(outputs, list):
+        return [], len(selected) + skipped, "The Visual Basic translation bridge returned an invalid source list."
+    by_path = {item["relativePath"]: item["sourceCode"] for item in selected}
+    translated = []
+    output_bytes = 0
+    for item in outputs[:VB_BRIDGE_MAX_FILES]:
+        if not isinstance(item, dict) or item.get("relativePath") not in by_path or not isinstance(item.get("sourceCode"), str):
+            continue
+        text = item["sourceCode"]
+        size = len(text.encode("utf-8"))
+        if not text.strip() or size > MAX_VIEWABLE_BYTES or output_bytes + size > VB_BRIDGE_MAX_OUTPUT_BYTES:
+            continue
+        translated.append((item["relativePath"], text))
+        output_bytes += size
+    skipped += min(len(selected), int(response.get("skipped", 0)) if isinstance(response.get("skipped", 0), int) else 0)
+    skipped += max(0, len(selected) - len(outputs))
+    warning = None if not skipped else f"The Visual Basic bridge omitted {skipped} source files because of conversion errors or configured limits."
+    return translated, skipped, warning
+
+
 def analyse(body, cancel_check=lambda: False, report_progress=lambda message: None):
     project_id, artifact_id = safe_id(body.get("projectId")), safe_id(body.get("artifactId"))
     task_id, run_id = safe_id(body.get("taskId")), safe_id(body.get("runId"))
@@ -376,6 +472,10 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                         "sizeBytes": len(raw),
                         "unitType": "type",
                         "language": "C#",
+                        "decompiler": "ILSpy",
+                        "decompilerVersion": os.environ.get("ILSPY_VERSION", "unknown"),
+                        "sourceSha256": hashlib.sha256(raw).hexdigest(),
+                        "inputArtifactSha256": preprocessing.get("inputSha256"),
                         "representationSemantics": (
                             "C# decompiled by ILSpy from a NoFuserEx static ConfuserEx cleanup output. "
                             "This intermediate transformation is not proof of behavior or maintained source."
@@ -384,8 +484,73 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                         ),
                     })
 
+                csharp_units_by_path = {unit["relativePath"]: unit for unit in units}
+                translation_sources = []
+                for unit in units:
+                    source_path = (DERIVED_ROOT / unit["codeArtifactId"]).resolve()
+                    try:
+                        source_path.relative_to(run_root)
+                    except ValueError:
+                        continue
+                    translation_sources.append((unit, source_path))
+                vb_sources, vb_skipped, vb_warning = translate_csharp_to_vb(
+                    translation_sources, cancel_check, deadline, report_progress,
+                )
+                vb_units = []
+                vb_saved_bytes = 0
+                vb_storage_skipped = 0
+                if vb_sources:
+                    vb_root = source_root / "visual-basic"
+                    for relative_path, vb_source in vb_sources:
+                        source_unit = csharp_units_by_path.get(relative_path)
+                        if source_unit is None:
+                            continue
+                        relative = Path(relative_path)
+                        if relative.is_absolute() or ".." in relative.parts or relative.suffix.lower() != ".cs":
+                            continue
+                        vb_relative = relative.with_suffix(".vb")
+                        destination = vb_root / vb_relative
+                        destination.parent.mkdir(parents=True, exist_ok=True)
+                        raw = vb_source.encode("utf-8")
+                        if not raw or len(raw) > MAX_VIEWABLE_BYTES or total_source_bytes + vb_saved_bytes + len(raw) > MAX_OUTPUT_BYTES:
+                            vb_skipped += 1
+                            vb_storage_skipped += 1
+                            continue
+                        destination.write_bytes(raw)
+                        vb_saved_bytes += len(raw)
+                        csharp_path = DERIVED_ROOT / source_unit["codeArtifactId"]
+                        csharp_hash = sha256_file(csharp_path)
+                        vb_units.append({
+                            "name": source_unit["name"],
+                            "relativePath": (Path("visual-basic") / vb_relative).as_posix()[:1000],
+                            "codeArtifactId": destination.relative_to(DERIVED_ROOT).as_posix(),
+                            "sizeBytes": len(raw),
+                            "unitType": "type",
+                            "language": "Visual Basic",
+                            "decompiler": "ICSharpCode.CodeConverter",
+                            "decompilerVersion": VB_BRIDGE_VERSION,
+                            "sourceSha256": hashlib.sha256(raw).hexdigest(),
+                            "inputArtifactSha256": preprocessing.get("inputSha256"),
+                            "derivedFromRelativePath": relative_path,
+                            "derivedFromSha256": csharp_hash,
+                            "representationSemantics": (
+                                "Visual Basic-shaped bridge translation generated from ILSpy C# reconstruction by "
+                                f"ICSharpCode.CodeConverter {VB_BRIDGE_VERSION}. This is not recovered original Visual Basic "
+                                "source, and syntax parsing does not prove compilation or runtime equivalence."
+                            ),
+                        })
+                units.extend(vb_units)
                 units.sort(key=lambda unit: str(unit["relativePath"]).casefold())
                 warnings = []
+                if vb_warning:
+                    warnings.append(vb_warning)
+                if vb_storage_skipped:
+                    warnings.append(f"The Visual Basic bridge omitted {vb_storage_skipped} translated file(s) because of configured storage limits.")
+                if vb_units:
+                    warnings.append(
+                        f"Generated {len(vb_units)} Visual Basic-shaped bridge file(s) from ILSpy C# output; "
+                        "these are translations and are not recovered original-language source."
+                    )
                 if preprocessing.get("warning"):
                     warnings.append(str(preprocessing["warning"])[:2000])
                 method_features = []
@@ -443,10 +608,13 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                 return {
                     "status": "completed",
                     "toolVersion": os.environ.get("ILSPY_VERSION", "unknown"),
+                    "vbBridgeVersion": VB_BRIDGE_VERSION if vb_units else None,
                     "classCount": None if scan_truncated else len(raw_sources),
                     "codeBytes": total_source_bytes,
                     "returnedUnits": len(units),
-                    "truncated": scan_truncated or len(raw_sources) > len(units) or method_features_truncated,
+                    "truncated": scan_truncated or len(raw_sources) > len(csharp_units_by_path) or method_features_truncated,
+                    "vbTranslationTruncated": vb_skipped > 0,
+                    "vbCodeBytes": sum(unit["sizeBytes"] for unit in vb_units),
                     "units": units,
                     "methods": method_features,
                     "methodFeaturesTruncated": method_features_truncated,
