@@ -223,12 +223,12 @@ resource extraction, and broader language-specific workflows remain future work.
 
 <progress value="36" max="100">36%</progress> <strong>36%</strong>
 
-Weighted estimate: **36.1%** (rounded for the bar). Refreshed from the workstream weights at pushed commit `f818c67`.
+Weighted estimate: **36.3%** (rounded for the bar). Refreshed from the workstream weights at pushed commit `0f9a10e`.
 
 | Workstream | Weight | Completion estimate | Weighted points | Current evidence and remaining gap |
 | --- | ---: | ---: | ---: | --- |
 | Core analysis and visualizer workflow | 20% | 63% | 12.6% | Imports, provider execution, stored code units, source navigation, and review workflows exist. Native Mach-O analysis stores exact-address Swift/Objective-C metadata and exposes capped, hash-checked ReIPA pseudocode alternatives for matched functions; an isolated pinned Glaurung provider now builds and persists bounded native C-like pseudocode, but fixture-backed comparison remains open. |
-| Database-grounded project memory and provenance | 20% | 47% | 9.4% | Project-scoped observations, symbols, relationships, drafts, and review records ground AI context. Exact-address ReIPA pseudocode alternatives for matched Swift/Objective-C methods now enter both rewrite context and the MCP code-unit dossier only after same-run task, run-token, path, provider, address, input, and output-hash checks; cross-provider identity and completeness still need broader validation. |
+| Database-grounded project memory and provenance | 20% | 48% | 9.6% | Project-scoped observations, symbols, relationships, drafts, and review records ground AI context. Common native virtual-address spellings now canonicalize across Ghidra, Glaurung, and Oxidizer for same-artifact function identity. Exact-address ReIPA pseudocode alternatives for matched Swift/Objective-C methods enter both rewrite context and the MCP code-unit dossier only after same-run task, run-token, path, provider, address, input, and output-hash checks; identity coverage and completeness still need broader validation. |
 | Major-language and format decompilation fluency | 30% | 22% | 6.6% | Several useful Java, .NET, Android, Python, WebAssembly, and native paths exist, and matched arm64 Mach-O methods can now show early ReIPA C-like pseudocode beside Ghidra output; the optional Glaurung provider adds bounded native pseudocode but still needs fixture validation. Many languages remain navigation-only, early, or represented by generic pseudocode. |
 | Maintainable editing, review, and export | 15% | 35% | 5.3% | Hash-bound drafts, review receipts, syntax-aware edits for selected languages, and reproducible export exist; language breadth and project-level edits remain limited. |
 | Fixture-backed validation and fidelity evidence | 15% | 15% | 2.3% | Provider smoke checks and structural validators exist, but broad versioned clean, optimized, stripped, and obfuscated fixture comparisons are still missing. |
