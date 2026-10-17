@@ -165,9 +165,11 @@ def rebuild(body: dict[str, object]) -> dict[str, object]:
             class_major = int.from_bytes(class_bytes[6:8], "big")
             if class_major < 45:
                 raise RebuildError("Selected class has an invalid Java class-file version")
-            java_release = min(21, max(8, class_major - 44))
+            if class_major < 52:
+                raise RebuildError("The bundled JDK can only preserve Java 8 or newer targets; rebuilding this older class would raise its minimum runtime")
             if class_major > 65:
                 raise RebuildError("The selected class targets a Java version newer than the bundled JDK 21 compiler")
+            java_release = class_major - 44
             if signed:
                 raise RebuildError("Signed JARs cannot be rebuilt yet; signing support is not configured")
 
