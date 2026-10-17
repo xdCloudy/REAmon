@@ -98,10 +98,11 @@ async function acceptedSafeRenameAliases(
           || createHash('sha256').update(attempt.resultSource).digest('hex') !== sourceHash) continue
       const payload = plainObject(attempt.requestPayload)
       const goBindings = payload.operation === 'go-types-scope-safe-renames'
+      const rustBindings = payload.operation === 'rust-analyzer-rust-lsp-semantic-local-renames'
       const luaBindings = payload.operation === 'luals-scope-safe-renames'
       const csharpBindings = payload.operation === 'roslyn-csharp-scope-safe-renames'
       const javaBindings = payload.operation === 'javac-java-scope-safe-renames'
-      if (!['humanify-style-scope-safe-renames', 'libcst-scope-safe-renames', 'go-types-scope-safe-renames', 'luals-scope-safe-renames', 'roslyn-csharp-scope-safe-renames', 'javac-java-scope-safe-renames'].includes(String(payload.operation))
+      if (!['humanify-style-scope-safe-renames', 'libcst-scope-safe-renames', 'go-types-scope-safe-renames', 'rust-analyzer-rust-lsp-semantic-local-renames', 'luals-scope-safe-renames', 'roslyn-csharp-scope-safe-renames', 'javac-java-scope-safe-renames'].includes(String(payload.operation))
           || payload.outputSha256 !== sourceHash || !Array.isArray(payload.renames)) continue
       const aliases = payload.renames.flatMap((value) => {
         const rename = plainObject(value)
@@ -109,7 +110,7 @@ async function acceptedSafeRenameAliases(
           ? /^[A-Za-z_$][A-Za-z0-9_$]{0,127}$/.test(name)
           : csharpBindings
             ? /^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(name)
-            : goBindings
+            : goBindings || rustBindings
           ? /^[_\p{ID_Start}][\p{ID_Continue}]*$/u.test(name)
           : luaBindings
             ? /^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(name) && !new Set(['and', 'break', 'do', 'else', 'elseif', 'end', 'false', 'for', 'function', 'goto', 'if', 'in', 'local', 'nil', 'not', 'or', 'repeat', 'return', 'then', 'true', 'until', 'while']).has(name)
