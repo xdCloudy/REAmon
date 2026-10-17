@@ -141,8 +141,9 @@ separate so a plausible name is never treated as proof of behavior.
   webpack/Browserify module extraction. REAmon now uses v2.16.0 in a Node 22
   analyzer, indexes the extracted modules, and runs decoder snippets inside a
   memory-limited `isolated-vm` context. REAmon also reads only a referenced,
-  bounded local source map and separately saves embedded JavaScript/TypeScript
-  `sourcesContent` with exact bundle, map, and source hashes. This recovers source
+  bounded local source map, including embedded maps in indexed-map sections, and
+  separately saves embedded JavaScript/TypeScript `sourcesContent` with exact
+  bundle, map, and source hashes. This recovers source
   supplied by the build; it does not add TypeScript deobfuscation to webcrack or
   establish that the embedded source matches the compiled bundle. The visualizer
   keeps those source candidates distinct from webcrack's transformed output.
@@ -451,6 +452,8 @@ store.
 - [Rizin license information](https://github.com/rizinorg/rizin/blob/dev/DEVELOPERS.md)
 - [jsdec decompiler README, JSON mode, and documented architecture list](https://github.com/rizinorg/jsdec)
 - [jsdec compatibility issue for Rizin 0.9+](https://github.com/rizinorg/jsdec/issues/79)
+- [ECMA-426 current source map format specification](https://tc39.es/ecma426/)
+- [ECMA-426 indexed source-map sections](https://tc39.es/ecma426/2024/#sec-index-source-map)
 - [ToCode export format, folder linking, backends, and MIT license](https://github.com/buzzer-re/ToCode)
 - [Glaurung project, supported analyses, experimental decompiler, and Apache-2.0 license](https://github.com/mjbommar/glaurung)
 - [PyLingual current audited revision](https://github.com/syssec-utd/pylingual/tree/509ea92e560b2c2c99b0c9901bd33e404fbfb4b8)
