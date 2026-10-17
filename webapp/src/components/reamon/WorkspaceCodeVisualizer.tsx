@@ -112,7 +112,7 @@ interface CallGraphResponse {
 }
 
 interface SimilarFunctionsResponse {
-  matches: Array<{ codeUnit: CodeUnit; taskId?: string | null; function?: { id: string; taskId?: string; name: string; address: string | null; hasControlFlowGraph: boolean }; similarity: number; artifact: { name: string; sha256: string | null; provider: string } }>
+  matches: Array<{ codeUnit: CodeUnit; taskId?: string | null; function?: { id: string; taskId?: string; name: string; address: string | null; hasControlFlowGraph: boolean }; similarity: number; instructionSimilarity: number; controlFlowSimilarity: number | null; artifact: { name: string; sha256: string | null; provider: string } }>
   truncated: boolean
 }
 
@@ -2604,7 +2604,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
           {similarFunctionsQuery.isLoading && <p className={styles.message}>Comparing this function with stored evidence from completed analyses…</p>}
           {similarFunctionsQuery.isError && <p className={styles.error}>{similarFunctionsQuery.error instanceof Error ? similarFunctionsQuery.error.message : 'Unable to find similar functions'}</p>}
           {!similarFunctionsQuery.isLoading && !similarFunctionsQuery.isError && similarFunctionsQuery.data?.matches.length === 0 && <p className={styles.message}>No close function matches were found in this project.</p>}
-          {similarFunctionsQuery.data?.matches.map(({ codeUnit, taskId: matchTaskId, function: matchedFunction, similarity, artifact }) => <button type="button" className={styles.similarFunction} key={matchedFunction?.id || codeUnit.id} onClick={() => {
+          {similarFunctionsQuery.data?.matches.map(({ codeUnit, taskId: matchTaskId, function: matchedFunction, similarity, instructionSimilarity, controlFlowSimilarity, artifact }) => <button type="button" className={styles.similarFunction} key={matchedFunction?.id || codeUnit.id} onClick={() => {
             if (matchTaskId) setSelectedRunId(matchTaskId)
             setGraphUnit(codeUnit)
             setSelectedId(codeUnit.id)
@@ -2621,8 +2621,8 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
             setExplanation(null)
             setExplainError('')
           }}>
-            <span><strong>{matchedFunction?.name || codeUnit.name}</strong><small>{matchedFunction?.address || codeUnit.address || codeUnit.artifactPath || 'Function'}</small><small>{artifact.name}{artifact.sha256 ? ` · ${artifact.sha256.slice(0, 12)}` : ''} · {artifact.provider}{matchedFunction ? ` · in ${codeUnit.name}` : ''}</small></span>
-            <b>{similarity}%</b>
+            <span><strong>{matchedFunction?.name || codeUnit.name}</strong><small>{matchedFunction?.address || codeUnit.address || codeUnit.artifactPath || 'Function'}</small><small>{artifact.name}{artifact.sha256 ? ` · ${artifact.sha256.slice(0, 12)}` : ''} · {artifact.provider}{matchedFunction ? ` · in ${codeUnit.name}` : ''}</small><small>Candidate score {similarity}% · instructions {instructionSimilarity}%{controlFlowSimilarity === null ? '' : ` · CFG ${controlFlowSimilarity}%`} · not identity evidence</small></span>
+            <b aria-label={`Candidate similarity score ${similarity} percent, not an identity confidence`}>{similarity}%</b>
           </button>)}
           {similarFunctionsQuery.data?.truncated && <p className={styles.message}>The comparison reached its history limit; older stored function observations may not have been included.</p>}
         </section>}

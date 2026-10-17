@@ -18,6 +18,8 @@ export interface SimilarInstructionFunction {
 
 export interface RankedSimilarInstructionFunction extends SimilarInstructionFunction {
   similarity: number
+  instructionSimilarity: number
+  controlFlowSimilarity: number | null
 }
 
 function cosineSimilarity(left: string[], right: string[]): number {
@@ -132,9 +134,18 @@ export function rankSimilarInstructionFunctions(
       similarity: controlFlowScore === null
         ? instructionScore
         : 0.6 * instructionScore + 0.4 * controlFlowScore,
+      instructionSimilarity: instructionScore,
+      controlFlowSimilarity: controlFlowScore,
     }
   }).filter((candidate) => candidate.similarity >= 0.6)
     .sort((left, right) => right.similarity - left.similarity || left.name.localeCompare(right.name))
     .slice(0, limit)
-    .map((candidate) => ({ ...candidate, similarity: Math.round(candidate.similarity * 100) }))
+    .map((candidate) => ({
+      ...candidate,
+      similarity: Math.round(candidate.similarity * 100),
+      instructionSimilarity: Math.round(candidate.instructionSimilarity * 100),
+      controlFlowSimilarity: candidate.controlFlowSimilarity === null
+        ? null
+        : Math.round(candidate.controlFlowSimilarity * 100),
+    }))
 }

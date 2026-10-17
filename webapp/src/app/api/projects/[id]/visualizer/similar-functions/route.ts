@@ -161,7 +161,12 @@ export async function GET(request: Request, { params }: RouteParams) {
     const byKey = new Map(boundedRows.map((row) => [row.id, row]))
     const rankedRows = ranked.flatMap((match) => {
       const row = byKey.get(match.key)
-      return row ? [{ row, similarity: match.similarity }] : []
+      return row ? [{
+        row,
+        similarity: match.similarity,
+        instructionSimilarity: match.instructionSimilarity,
+        controlFlowSimilarity: match.controlFlowSimilarity,
+      }] : []
     })
     const functionParentKeys = providerId === 'reamon-dex-decompiler' || providerId === 'reamon-unluac-rs'
       ? [...new Set(rankedRows.flatMap(({ row }) => {
@@ -190,7 +195,7 @@ export async function GET(request: Request, { params }: RouteParams) {
       })
       : []
     const functionParentsByKey = new Map(functionParentRows.map((row) => [`${row.taskId}:${row.stableKey}`, row]))
-    const matches = rankedRows.flatMap(({ row, similarity }) => {
+    const matches = rankedRows.flatMap(({ row, similarity, instructionSimilarity, controlFlowSimilarity }) => {
       const artifact = {
         name: row.artifact?.originalName || 'Unknown artifact',
         sha256: row.artifact?.sha256 || null,
@@ -214,11 +219,13 @@ export async function GET(request: Request, { params }: RouteParams) {
             hasControlFlowGraph: typeof attributes.controlFlowGraph === 'string',
           },
           similarity,
+          instructionSimilarity,
+          controlFlowSimilarity,
           artifact,
         }] : []
       }
       const codeUnit = normalizeCodeUnit(row)
-      return codeUnit ? [{ codeUnit, taskId: row.taskId, similarity, artifact }] : []
+      return codeUnit ? [{ codeUnit, taskId: row.taskId, similarity, instructionSimilarity, controlFlowSimilarity, artifact }] : []
     })
     return NextResponse.json({ focusId: focus.id, matches, truncated }, { headers: MAX_NO_STORE })
   } catch (error) {
