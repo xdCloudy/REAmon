@@ -141,24 +141,35 @@ for entry in entries:
     if current_name != expected_name:
         skip('current function name differs from the reviewed original name')
         continue
-    pending.append((function, new_name, address_text))
+    pending.append((function, new_name, address_text, expected_name))
 
 if not pending:
     reasons = ', '.join(["%s=%d" % (reason, count) for reason, count in sorted(skip_reasons.items())])
     printerr("REAmon annotation import: no uniquely mapped function names are safe to apply; skipped=%d already_applied=%d reasons={%s}" % (skipped, already_applied, reasons))
     fail("No uniquely mapped function names are safe to apply.")
 
-if not askYesNo("Apply REAmon function names", "The exact input SHA-256 matches. Apply %d accepted function names to this Ghidra program?\n\nNo addresses will be rebased. Functions whose current names changed or whose targets are missing will be skipped." % len(pending)):
+if not askYesNo("Apply REAmon function names", "The exact input SHA-256 matches. Apply %d accepted function names to this Ghidra program?\n\nNo addresses will be rebased. Functions whose current names changed or whose targets are missing will be skipped. Names are rechecked inside the edit transaction." % len(pending)):
     fail("Import cancelled by reviewer.")
+
+try:
+    confirmed_hash = sha256_file(executable_path)
+except Exception as error:
+    fail("Could not recheck Ghidra's executable after confirmation: " + str(error))
+if confirmed_hash.lower() != expected_hash.lower():
+    fail("The executable changed after the preflight hash check; no names were applied.")
 
 transaction_id = currentProgram.startTransaction("Import REAmon accepted function names")
 applied = 0
 failed = 0
 commit = False
 try:
-    for function, new_name, address_text in pending:
+    for function, new_name, address_text, expected_name in pending:
         try:
-            function.setName(new_name, SourceType.USER_DEFINED)
+            current_function = function_manager.getFunctionAt(function.getEntryPoint())
+            if current_function is None or current_function.getName() != expected_name:
+                skip('function name changed after confirmation')
+                continue
+            current_function.setName(new_name, SourceType.USER_DEFINED)
             applied += 1
         except Exception as error:
             failed += 1
