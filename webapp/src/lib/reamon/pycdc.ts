@@ -44,7 +44,7 @@ function isResponse(value: unknown): value is PycdcResponse {
   if (!response.unit || typeof response.unit !== 'object' || Array.isArray(response.unit)) return false
   const unit = response.unit as Record<string, unknown>
   return response.status === 'completed'
-    && typeof response.toolVersion === 'string'
+    && response.toolVersion === '0.6.0'
     && Number.isSafeInteger(response.codeBytes) && (response.codeBytes as number) > 0
     && typeof response.truncated === 'boolean'
     && typeof unit.name === 'string' && unit.name.length > 0 && unit.name.length <= 500
@@ -109,6 +109,10 @@ export async function executePycdc(input: ToolExecutionInput): Promise<ToolResul
         relativePath: unit.relativePath,
         sizeBytes: unit.sizeBytes,
         language: 'Python',
+        decompiler: 'pycdc',
+        decompilerVersion: payload.toolVersion,
+        representation: 'reconstructed Python source',
+        representationSemantics: 'Recovered from Python bytecode by pycdc; source equivalence is not established.',
         decompiled: true,
         codeArtifactId: unit.codeArtifactId,
       },
