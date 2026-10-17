@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Secret-free, network-isolated Ghidra headless adapter."""
 from __future__ import annotations
-import base64, json, os, re, select, shutil, signal, socket, subprocess, tempfile, threading, time
+import base64, hashlib, json, os, re, select, shutil, signal, socket, subprocess, tempfile, threading, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -22,6 +22,10 @@ REIPA_TIMEOUT_SECONDS = min(180, max(15, int(os.environ.get("REIPA_TIMEOUT_SECON
 MAX_REIPA_SYMBOL_BYTES = min(67108864, max(1048576, int(os.environ.get("REIPA_MAX_SYMBOL_BYTES", "33554432"))))
 MAX_REIPA_TYPE_BYTES = min(8388608, max(262144, int(os.environ.get("REIPA_MAX_TYPE_BYTES", "2097152"))))
 MAX_REIPA_OBJC_BYTES = min(33554432, max(262144, int(os.environ.get("REIPA_MAX_OBJC_BYTES", "8388608"))))
+REIPA_DECOMPILE_TIMEOUT_SECONDS = min(180, max(15, int(os.environ.get("REIPA_DECOMPILE_TIMEOUT_SECONDS", "60"))))
+MAX_REIPA_ALTERNATE_BYTES = min(67108864, max(1048576, int(os.environ.get("REIPA_MAX_ALTERNATE_BYTES", "33554432"))))
+MAX_REIPA_ALTERNATE_UNIT_BYTES = 131072
+MAX_REIPA_ALTERNATES = 64
 MAX_REIPA_TYPES = 1000
 FLOSS_VERSION = "3.1.1"
 MAX_FLOSS_OUTPUT_BYTES = min(67108864, max(1048576, int(os.environ.get("FLOSS_MAX_OUTPUT_BYTES", "16777216"))))
@@ -339,6 +343,74 @@ def extract_reipa_metadata(input_path, temporary_root, cancel_check, home):
                 truncated = True
                 break
     return type_details, swift_symbols, objc_type_details, objc_symbols, truncated, None
+
+def extract_reipa_pseudocode(input_path, run_root, temporary_root, target_addresses, cancel_check, home, output_limit):
+    if not target_addresses:
+        return {}, False, None
+    if output_limit < 1:
+        return {}, True, "ReIPA alternate pseudocode had no remaining artifact storage budget."
+    targets = set(target_addresses)
+    truncated = False
+    warning = None
+    output_path = temporary_root / "reipa-pseudocode.txt"
+    log_path = temporary_root / "reipa-pseudocode.log"
+    try:
+        with output_path.open("wb") as output_file, log_path.open("wb") as log_file:
+            return_code = run_ghidra(
+                ["/usr/local/bin/reipa", "decompile", str(input_path), "--all", "--count", "512"],
+                log_file, cancel_check, home, REIPA_DECOMPILE_TIMEOUT_SECONDS, output_file, output_limit,
+            )
+        if return_code != 0:
+            truncated = True
+            warning = "ReIPA alternate pseudocode exited early; complete functions from its output may still be available."
+    except AnalysisError as error:
+        if "cancelled" in str(error).lower():
+            raise
+        truncated = True
+        warning = "ReIPA alternate pseudocode reached its time or output limit; complete functions from the partial output may still be available."
+    except OSError:
+        return {}, False, "ReIPA alternate pseudocode could not start."
+
+    if not output_path.is_file():
+        return {}, truncated, warning
+    result = {}
+    current_address = None
+    current_lines = []
+
+    def save_current():
+        nonlocal truncated
+        if current_address not in targets or len(result) >= MAX_REIPA_ALTERNATES:
+            if current_address in targets:
+                truncated = True
+            return
+        code = "\n".join(current_lines).strip() + "\n"
+        encoded = code.encode("utf-8")
+        if not code.strip() or not code.rstrip().endswith("}") or len(encoded) > MAX_REIPA_ALTERNATE_UNIT_BYTES:
+            truncated = True
+            return
+        destination = run_root / "alternates" / "reipa" / f"{current_address}.c"
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(encoded)
+        result[current_address] = {
+            "path": destination,
+            "sizeBytes": len(encoded),
+            "sha256": hashlib.sha256(encoded).hexdigest(),
+        }
+
+    for line in output_path.read_text(encoding="utf-8", errors="replace").splitlines():
+        marker = re.match(r"^// .+?\s+@0x([0-9a-fA-F]{1,16})\s+\(", line)
+        if marker:
+            save_current()
+            current_address = marker.group(1).lower().lstrip("0") or "0"
+            current_lines = [line]
+        elif current_address is not None:
+            current_lines.append(line)
+    save_current()
+    if len(targets) > MAX_REIPA_ALTERNATES:
+        truncated = True
+    if not result and not warning:
+        warning = "ReIPA did not produce complete pseudocode for the matched Swift or Objective-C functions."
+    return result, truncated, warning
 
 def normalized_address(value):
     if isinstance(value, bool):
@@ -872,6 +944,26 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                 returned = rows[:MAX_RETURNED_UNITS]
                 report_progress(f"Indexing {len(returned)} function results")
                 returned_addresses = {row[1] for row in returned}
+                reipa_targets = {
+                    normalized_address(row[1])
+                    for row in returned
+                    if normalized_address(row[1]) in reipa_swift_symbols
+                    or normalized_address(row[1]) in reipa_objc_symbols
+                }
+                reipa_alternates = {}
+                reipa_alternate_truncated = False
+                reipa_alternate_warning = None
+                if reipa_targets:
+                    report_progress("Generating address-matched ReIPA pseudocode alternatives")
+                    reipa_output_budget = max(0, min(
+                        MAX_REIPA_ALTERNATE_BYTES,
+                        MAX_OUTPUT_BYTES - total_bytes - total_assembly_bytes - total_metadata_bytes,
+                    ))
+                    (reipa_alternates, reipa_alternate_truncated,
+                     reipa_alternate_warning) = extract_reipa_pseudocode(
+                        input_path, run_root, temporary_root, reipa_targets, cancel_check, home,
+                        reipa_output_budget,
+                    )
                 calls = []
                 call_edges_truncated = summary.get("callsTruncated") == "true"
                 calls_path = export_root / "calls.tsv"
@@ -924,6 +1016,13 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                         "codeArtifactId": destination.relative_to(DERIVED_ROOT).as_posix(),
                         "sizeBytes": size_bytes,
                     }
+                    reipa_alternate = reipa_alternates.get(address_key)
+                    if reipa_alternate:
+                        unit.update({
+                            "reipaAlternateCodeArtifactId": reipa_alternate["path"].relative_to(DERIVED_ROOT).as_posix(),
+                            "reipaAlternateOutputSha256": reipa_alternate["sha256"],
+                            "reipaAlternateSizeBytes": reipa_alternate["sizeBytes"],
+                        })
                     if go_function:
                         unit["sourceLanguage"] = "Go"
                         unit["symbolSource"] = "GoReSym"
@@ -998,6 +1097,10 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                     warnings.append(reipa_warning)
                 if reipa_metadata_truncated:
                     warnings.append("ReIPA type or symbol metadata was truncated at a configured limit.")
+                if reipa_alternate_warning:
+                    warnings.append(reipa_alternate_warning)
+                if reipa_alternate_truncated:
+                    warnings.append("ReIPA alternate pseudocode was truncated at a configured analysis limit.")
                 if unstrip_interfaces_truncated:
                     go_warnings.append("unstrip Go interface dispatch evidence was truncated by an analysis limit.")
                 go_type_rows = go_metadata.get("Types", []) if go_metadata and isinstance(go_metadata.get("Types"), list) else []
@@ -1044,6 +1147,8 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                     "objcTypeDetails": objc_type_details,
                     "reipaMetadataTruncated": reipa_metadata_truncated,
                     "swiftMetadataVersion": f"ReIPA@{REIPA_COMMIT}",
+                    "reipaAlternateTruncated": reipa_alternate_truncated,
+                    "reipaAlternateCodeBytes": sum(item["sizeBytes"] for item in reipa_alternates.values()),
                     "functionCount": len(rows),
                     "visitedFunctionCount": int(summary.get("visited", "0")),
                     "failedFunctionCount": failures,
@@ -1056,7 +1161,7 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                     "flossVersion": floss_version,
                     "flossRecoveredStringsTruncated": any(floss_truncated_by_function.values()),
                     "calls": calls,
-                    "truncated": summary.get("truncated") == "true" or len(rows) > len(units) or call_edges_truncated or source_address_map_truncated or recovered_variables_truncated or reipa_metadata_truncated or any(floss_truncated_by_function.values()),
+                    "truncated": summary.get("truncated") == "true" or len(rows) > len(units) or call_edges_truncated or source_address_map_truncated or recovered_variables_truncated or reipa_metadata_truncated or reipa_alternate_truncated or any(floss_truncated_by_function.values()),
                     "units": units,
                     "warnings": " ".join(warnings + go_warnings),
                 }

@@ -68,20 +68,25 @@ export async function GET(request: Request, { params }: RouteParams) {
       return NextResponse.json({ alternates: [] }, { headers: NO_STORE })
     }
 
-    const tasks = await prisma.task.findMany({
-      where: {
-        projectId,
-        artifactId: unit.artifactId,
-        capability: 'decompile',
-        status: 'COMPLETED',
-      },
-      orderBy: [{ completedAt: 'desc' }, { createdAt: 'desc' }],
-      take: 100,
-      select: { id: true, runToken: true, completedAt: true, provider: { select: { pluginId: true } } },
-    })
-    if (!tasks.length) return NextResponse.json({ alternates: [] }, { headers: NO_STORE })
+    const [tasks, currentTask] = await Promise.all([
+      prisma.task.findMany({
+        where: {
+          projectId,
+          artifactId: unit.artifactId,
+          capability: 'decompile',
+          status: 'COMPLETED',
+        },
+        orderBy: [{ completedAt: 'desc' }, { createdAt: 'desc' }],
+        take: 100,
+        select: { id: true, runToken: true, completedAt: true, provider: { select: { pluginId: true } } },
+      }),
+      prisma.task.findFirst({
+        where: { id: unit.taskId, projectId, artifactId: unit.artifactId, capability: 'decompile', status: 'COMPLETED' },
+        select: { id: true, runToken: true, completedAt: true, provider: { select: { pluginId: true } } },
+      }),
+    ])
 
-    const rows = await prisma.reamonObservation.findMany({
+    const rows = tasks.length ? await prisma.reamonObservation.findMany({
       where: {
         projectId,
         artifactId: unit.artifactId,
@@ -97,7 +102,7 @@ export async function GET(request: Request, { params }: RouteParams) {
       orderBy: [{ updatedAt: 'desc' }, { stableKey: 'asc' }],
       take: 100,
       select: { id: true, taskId: true, source: true, label: true, attributes: true },
-    })
+    }) : []
 
     const taskById = new Map(tasks.map((task) => [task.id, task]))
     const seenProviders = new Set<string>()
@@ -107,6 +112,55 @@ export async function GET(request: Request, { params }: RouteParams) {
       rootPath = await realpath(derivedArtifactRoot())
     } catch {
       return NextResponse.json({ alternates: [] }, { headers: NO_STORE })
+    }
+    const reipaArtifactId = typeof attributes.reipaAlternateCodeArtifactId === 'string'
+      ? attributes.reipaAlternateCodeArtifactId
+      : ''
+    const reipaHash = typeof attributes.reipaAlternateOutputSha256 === 'string'
+      ? attributes.reipaAlternateOutputSha256.toLowerCase()
+      : ''
+    const reipaVersion = typeof attributes.reipaAlternateProviderVersion === 'string'
+      ? attributes.reipaAlternateProviderVersion.slice(0, 120)
+      : ''
+    const reipaPrefix = `${projectId}/${unit.artifactId}/${unit.taskId}/${currentTask?.runToken || ''}/`
+    if (alternates.length < MAX_ALTERNATES && unit.source === 'reamon-ghidra'
+      && currentTask?.provider?.pluginId === 'reamon-ghidra' && currentTask.runToken
+      && reipaVersion.startsWith('ReIPA@') && /^ReIPA@[a-f0-9]{40}$/.test(reipaVersion)
+      && /^[a-f0-9]{64}$/.test(reipaHash) && reipaArtifactId.startsWith(reipaPrefix)) {
+      const reipaRelativePath = reipaArtifactId.slice(reipaPrefix.length)
+      if (reipaRelativePath.startsWith('alternates/reipa/') && reipaRelativePath.endsWith('.c')
+        && !reipaRelativePath.split('/').some((part) => !part || part === '.' || part === '..' || part.includes('\\'))) {
+        try {
+          const runRoot = await realpath(resolveDerivedArtifactPath(reipaPrefix.slice(0, -1)))
+          const filePath = await realpath(resolveDerivedArtifactPath(reipaArtifactId))
+          if (inside(rootPath, runRoot) && inside(runRoot, filePath)) {
+            const info = await stat(filePath)
+            if (info.isFile() && info.size > 0 && info.size <= MAX_SOURCE_BYTES) {
+              const bytes = await readFile(filePath)
+              const outputHash = createHash('sha256').update(bytes).digest('hex')
+              if (outputHash === reipaHash) {
+                alternates.push({
+                  id: `${unit.id}:reipa`,
+                  providerId: 'reamon-reipa',
+                  providerName: 'ReIPA · experimental pseudocode',
+                  version: reipaVersion,
+                  name: typeof attributes.recoveredNativeSymbolName === 'string'
+                    ? attributes.recoveredNativeSymbolName.slice(0, 500)
+                    : unitId,
+                  language: 'C',
+                  relativePath,
+                  inputSha256: unit.artifact.sha256,
+                  outputSha256: outputHash,
+                  completedAt: currentTask.completedAt?.toISOString() || null,
+                  source: bytes.toString('utf8'),
+                })
+              }
+            }
+          }
+        } catch {
+          // An unavailable ReIPA alternate must not prevent reviewing Ghidra output.
+        }
+      }
     }
     for (const row of rows) {
       if (!row.taskId || seenProviders.has(row.source) || alternates.length >= MAX_ALTERNATES) continue

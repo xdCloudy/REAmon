@@ -40,6 +40,8 @@ interface GhidraResponse {
   swiftTypeDetails?: Array<{ name: string; kind: string; reconstructed: string }>
   objcTypeDetails?: Array<{ name: string; kind: string; reconstructed: string }>
   reipaMetadataTruncated?: boolean
+  reipaAlternateTruncated?: boolean
+  reipaAlternateCodeBytes?: number
   flossVersion?: string | null
   flossRecoveredStringsTruncated?: boolean
   functionCount: number
@@ -48,7 +50,7 @@ interface GhidraResponse {
   codeBytes?: number
   returnedUnits: number
   truncated: boolean
-  units: Array<{ name: string; address: string; relativePath: string; codeArtifactId: string; disassemblyArtifactId?: string; referencedStrings?: string[]; instructionMnemonics?: string[]; sourceAddressMap?: Array<{ ghidraLineNumber: number; address: string }>; prototype?: string; recoveredVariables?: Array<{ kind: 'parameter' | 'local'; name: string; dataType: string; sizeBytes: number; parameterIndex?: number; storageStartAddress?: string; nameLocked?: boolean; typeLocked?: boolean }>; recoveredVariablesTruncated?: boolean; flossVersion?: string; flossRecoveredStrings?: FlossRecoveredString[]; flossRecoveredStringsTruncated?: boolean; sourceLanguage?: string; symbolSource?: string; recoveredNativeSymbolName?: string; goPackage?: string; goUnstripSignature?: string; goUnstripSourceFile?: string; goUnstripSourceLine?: number; goUnstripInterfaces?: UnstripGoInterfaceMethod[]; goUnstripInterfacesTruncated?: boolean; sizeBytes: number }>
+  units: Array<{ name: string; address: string; relativePath: string; codeArtifactId: string; disassemblyArtifactId?: string; reipaAlternateCodeArtifactId?: string; reipaAlternateOutputSha256?: string; reipaAlternateSizeBytes?: number; referencedStrings?: string[]; instructionMnemonics?: string[]; sourceAddressMap?: Array<{ ghidraLineNumber: number; address: string }>; prototype?: string; recoveredVariables?: Array<{ kind: 'parameter' | 'local'; name: string; dataType: string; sizeBytes: number; parameterIndex?: number; storageStartAddress?: string; nameLocked?: boolean; typeLocked?: boolean }>; recoveredVariablesTruncated?: boolean; flossVersion?: string; flossRecoveredStrings?: FlossRecoveredString[]; flossRecoveredStringsTruncated?: boolean; sourceLanguage?: string; symbolSource?: string; recoveredNativeSymbolName?: string; goPackage?: string; goUnstripSignature?: string; goUnstripSourceFile?: string; goUnstripSourceLine?: number; goUnstripInterfaces?: UnstripGoInterfaceMethod[]; goUnstripInterfacesTruncated?: boolean; sizeBytes: number }>
   calls?: Array<{ fromAddress: string; toAddress: string; fromName: string; toName: string }>
   callCount?: number
   callGraphTruncated?: boolean
@@ -152,6 +154,9 @@ function isGhidraResponse(value: unknown): value is GhidraResponse {
         && (item.kind === 'class' || item.kind === 'category')
         && typeof item.reconstructed === 'string' && item.reconstructed.length <= 4096)))
     && (record.reipaMetadataTruncated === undefined || typeof record.reipaMetadataTruncated === 'boolean')
+    && (record.reipaAlternateTruncated === undefined || typeof record.reipaAlternateTruncated === 'boolean')
+    && (record.reipaAlternateCodeBytes === undefined || (Number.isInteger(record.reipaAlternateCodeBytes)
+      && (record.reipaAlternateCodeBytes as number) >= 0 && (record.reipaAlternateCodeBytes as number) <= 67108864))
     && (record.flossVersion === undefined || record.flossVersion === null || record.flossVersion === '3.1.1')
     && (record.flossRecoveredStringsTruncated === undefined || typeof record.flossRecoveredStringsTruncated === 'boolean')
     && (record.sourceAddressMapTruncated === undefined || typeof record.sourceAddressMapTruncated === 'boolean')
@@ -226,6 +231,9 @@ export async function executeGhidra(input: ToolExecutionInput): Promise<ToolResu
               && (variable.nameLocked === undefined || typeof variable.nameLocked === 'boolean')
               && (variable.typeLocked === undefined || typeof variable.typeLocked === 'boolean'))))
           || (unit.recoveredVariablesTruncated !== undefined && typeof unit.recoveredVariablesTruncated !== 'boolean')
+          || (unit.reipaAlternateCodeArtifactId !== undefined && (typeof unit.reipaAlternateCodeArtifactId !== 'string' || unit.reipaAlternateCodeArtifactId.length > 2000))
+          || (unit.reipaAlternateOutputSha256 !== undefined && (typeof unit.reipaAlternateOutputSha256 !== 'string' || !/^[a-f0-9]{64}$/.test(unit.reipaAlternateOutputSha256)))
+          || (unit.reipaAlternateSizeBytes !== undefined && (!Number.isInteger(unit.reipaAlternateSizeBytes) || unit.reipaAlternateSizeBytes <= 0 || unit.reipaAlternateSizeBytes > 131072))
           || (unit.sourceLanguage !== undefined && typeof unit.sourceLanguage !== 'string')
           || (unit.symbolSource !== undefined && typeof unit.symbolSource !== 'string')
           || (unit.recoveredNativeSymbolName !== undefined && (typeof unit.recoveredNativeSymbolName !== 'string' || unit.recoveredNativeSymbolName.length > 500))
@@ -278,6 +286,14 @@ export async function executeGhidra(input: ToolExecutionInput): Promise<ToolResu
           ? { instructionArchitecture: payload.instructionArchitecture.slice(0, 128) } : {}),
         decompiled: true,
         codeArtifactId: unit.codeArtifactId.slice(0, 2000),
+        ...(unit.reipaAlternateCodeArtifactId && unit.reipaAlternateOutputSha256 && unit.reipaAlternateSizeBytes
+          ? {
+            reipaAlternateCodeArtifactId: unit.reipaAlternateCodeArtifactId.slice(0, 2000),
+            reipaAlternateOutputSha256: unit.reipaAlternateOutputSha256,
+            reipaAlternateSizeBytes: unit.reipaAlternateSizeBytes,
+            reipaAlternateProviderVersion: `ReIPA@${REIPA_COMMIT}`,
+          }
+          : {}),
         ...(unit.disassemblyArtifactId ? { disassemblyArtifactId: unit.disassemblyArtifactId.slice(0, 2000) } : {}),
         ...(unit.referencedStrings?.length ? { referencedStrings: JSON.stringify(unit.referencedStrings.slice(0, 12).map((value) => value.slice(0, 512))) } : {}),
         ...(unit.flossVersion ? { flossVersion: unit.flossVersion } : {}),
