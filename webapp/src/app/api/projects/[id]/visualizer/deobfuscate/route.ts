@@ -886,8 +886,13 @@ export async function POST(request: Request, { params }: RouteParams) {
           relatedByName.set(name, {
             ...relatedAttributes,
             instructionSimilarityPercent: match.similarity,
+            instructionProvider: row.source,
+            instructionAnalysisTaskId: row.taskId,
+            instructionArtifactId: row.artifactId,
             instructionArtifactName: row.artifact?.originalName,
             instructionArtifactHash: row.artifact?.sha256,
+            instructionIdentity: typeof relatedAttributes.identity === 'string' ? relatedAttributes.identity : undefined,
+            instructionArchitectureGroup: nativeArchitectureGroup(relatedAttributes) || undefined,
           })
           const parentKey = relatedAttributes.parentCodeUnitKey
           const parent = row.taskId && typeof parentKey === 'string'
