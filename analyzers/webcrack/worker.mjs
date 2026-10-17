@@ -38,6 +38,10 @@ async function store(units, relativeName, name, type, bundlePath, moduleId, code
       sourceMapSha256: String(metadata.sourceMapSha256 || '').slice(0, 64),
       sourceMapSourcePath: String(metadata.sourceMapSourcePath || '').slice(0, 2_000),
       sourceContentSha256: String(metadata.sourceContentSha256 || '').slice(0, 64),
+      ...(metadata.sectionMapRelativePath ? {
+        sourceMapSectionRelativePath: String(metadata.sectionMapRelativePath).slice(0, 2_000),
+        sourceMapSectionSha256: String(metadata.sectionMapSha256 || '').slice(0, 64),
+      } : {}),
     } : {}),
   })
 }
@@ -81,7 +85,7 @@ try {
     const sourceMapResult = recoverSourcesFromMap(workerData.sourceMap, Math.max(0, workerData.maxOutputBytes - budget.value))
     let recoveredSourceCount = 0
     for (const source of sourceMapResult.sources) {
-      const relativeName = sourceMapOutputPath(source.relativeSourcePath)
+      const relativeName = sourceMapOutputPath(source.relativeSourcePath, source.sourceSha256)
       await store(units, relativeName, source.relativeSourcePath, 'file', '', `source-map:${source.relativeSourcePath}`, source.content, budget, {
         origin: 'source-map',
         relativePath: source.relativeSourcePath,
@@ -90,6 +94,8 @@ try {
         sourceMapSha256: workerData.sourceMap.sha256,
         sourceMapSourcePath: source.relativeSourcePath,
         sourceContentSha256: source.sourceSha256,
+        sectionMapRelativePath: source.sectionMapRelativePath,
+        sectionMapSha256: source.sectionMapSha256,
       })
       recoveredSourceCount += 1
     }

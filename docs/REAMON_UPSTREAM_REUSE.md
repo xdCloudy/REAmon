@@ -141,9 +141,9 @@ separate so a plausible name is never treated as proof of behavior.
   webpack/Browserify module extraction. REAmon now uses v2.16.0 in a Node 22
   analyzer, indexes the extracted modules, and runs decoder snippets inside a
   memory-limited `isolated-vm` context. REAmon also reads only a referenced,
-  bounded local source map, including embedded maps in indexed-map sections, and
-  separately saves embedded JavaScript/TypeScript `sourcesContent` with exact
-  bundle, map, and source hashes. This recovers source
+  bounded local source map, including embedded and relative-local maps in
+  indexed-map sections, and separately saves embedded JavaScript/TypeScript
+  `sourcesContent` with exact bundle, root-map, section-map, and source hashes. This recovers source
   supplied by the build; it does not add TypeScript deobfuscation to webcrack or
   establish that the embedded source matches the compiled bundle. The visualizer
   keeps those source candidates distinct from webcrack's transformed output.

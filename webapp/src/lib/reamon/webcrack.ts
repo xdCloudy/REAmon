@@ -21,6 +21,9 @@ interface WebcrackUnit {
   sourceMapRelativePath?: string
   sourceMapSha256?: string
   sourceMapArtifactId?: string
+  sourceMapSectionRelativePath?: string
+  sourceMapSectionSha256?: string
+  sourceMapSectionArtifactId?: string
   sourceMapSourcePath?: string
   sourceContentSha256?: string
 }
@@ -230,6 +233,10 @@ function isResponse(value: unknown, expectedRunPrefix: string): value is Webcrac
         && isRunArtifactId(unit.sourceMapArtifactId, expectedRunPrefix)
         && typeof unit.sourceMapSourcePath === 'string' && unit.sourceMapSourcePath.length > 0 && unit.sourceMapSourcePath.length <= 2_000
         && typeof unit.sourceContentSha256 === 'string' && /^[a-f0-9]{64}$/i.test(unit.sourceContentSha256)
+        && ((unit.sourceMapSectionRelativePath === undefined && unit.sourceMapSectionSha256 === undefined && unit.sourceMapSectionArtifactId === undefined)
+          || (typeof unit.sourceMapSectionRelativePath === 'string' && unit.sourceMapSectionRelativePath.length > 0 && unit.sourceMapSectionRelativePath.length <= 2_000
+            && typeof unit.sourceMapSectionSha256 === 'string' && /^[a-f0-9]{64}$/i.test(unit.sourceMapSectionSha256)
+            && isRunArtifactId(unit.sourceMapSectionArtifactId, expectedRunPrefix)))
       )))
     && (response.sourceMap === null || isSourceMapSummary(response.sourceMap, expectedRunPrefix))
     && (response.warnings === undefined || typeof response.warnings === 'string')
@@ -315,6 +322,9 @@ export async function executeWebcrack(input: ToolExecutionInput): Promise<ToolRe
             sourceMapRelativePath: unit.sourceMapRelativePath,
             sourceMapSha256: unit.sourceMapSha256,
             sourceMapArtifactId: unit.sourceMapArtifactId,
+            sourceMapSectionRelativePath: unit.sourceMapSectionRelativePath,
+            sourceMapSectionSha256: unit.sourceMapSectionSha256,
+            sourceMapSectionArtifactId: unit.sourceMapSectionArtifactId,
             sourceMapSourcePath: unit.sourceMapSourcePath,
             sourceMapSourceContentSha256: unit.sourceContentSha256,
             sourceMapRecoveryWarning: 'Build-provided sourceContent may be stale or unrelated to this compiled artifact; review against generated output.',

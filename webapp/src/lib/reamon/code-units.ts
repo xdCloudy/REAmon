@@ -98,6 +98,9 @@ export interface CodeUnitObservationAttributes {
   sourceMapRelativePath?: string
   sourceMapSha256?: string
   sourceMapArtifactId?: string
+  sourceMapSectionRelativePath?: string
+  sourceMapSectionSha256?: string
+  sourceMapSectionArtifactId?: string
   sourceMapSourcePath?: string
   sourceMapSourceContentSha256?: string
   disassemblyArtifactId?: string
@@ -183,6 +186,9 @@ export interface CodeUnit {
   sourceMapRelativePath?: string | null
   sourceMapSha256?: string | null
   sourceMapArtifactId?: string | null
+  sourceMapSectionRelativePath?: string | null
+  sourceMapSectionSha256?: string | null
+  sourceMapSectionArtifactId?: string | null
   sourceMapSourcePath?: string | null
   sourceMapSourceContentSha256?: string | null
   deobfuscationProvider?: string | null
@@ -532,6 +538,9 @@ export function normalizeCodeUnit(row: CodeUnitObservationRow, options: { includ
     sourceMapRelativePath: text(attributes.sourceMapRelativePath, 2000),
     sourceMapSha256: sha256(attributes.sourceMapSha256),
     sourceMapArtifactId: text(attributes.sourceMapArtifactId, 2000),
+    sourceMapSectionRelativePath: text(attributes.sourceMapSectionRelativePath, 2000),
+    sourceMapSectionSha256: sha256(attributes.sourceMapSectionSha256),
+    sourceMapSectionArtifactId: text(attributes.sourceMapSectionArtifactId, 2000),
     sourceMapSourcePath: text(attributes.sourceMapSourcePath, 2000),
     sourceMapSourceContentSha256: sha256(attributes.sourceMapSourceContentSha256),
     deobfuscationProvider: text(attributes.deobfuscationProvider, 80),

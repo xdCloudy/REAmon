@@ -2474,8 +2474,10 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
             <ul>
               <li>Bundle: <code>{selectedUnit.sourceMapBundleRelativePath || selectedUnit.artifactPath || 'not recorded'}</code></li>
               <li>Map source: <code>{selectedUnit.sourceMapRelativePath || 'not recorded'}</code></li>
+              {selectedUnit.sourceMapSectionRelativePath && <li>Indexed map section: <code>{selectedUnit.sourceMapSectionRelativePath}</code></li>}
               <li>Original source path: <code>{selectedUnit.sourceMapSourcePath || selectedUnit.relativePath || 'not recorded'}</code></li>
               {selectedUnit.sourceMapSha256 && <li>Source-map SHA-256: <code>{selectedUnit.sourceMapSha256}</code></li>}
+              {selectedUnit.sourceMapSectionSha256 && <li>Section-map SHA-256: <code>{selectedUnit.sourceMapSectionSha256}</code></li>}
               {selectedUnit.sourceMapSourceContentSha256 && <li>Embedded source SHA-256: <code>{selectedUnit.sourceMapSourceContentSha256}</code></li>}
             </ul>
             <small>Embedded source content may be stale or unrelated to this compiled artifact. Compare it with the generated output and validate it before accepting maintained source.</small>

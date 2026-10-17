@@ -11,6 +11,8 @@ const MAX_INPUT_BYTES = boundedNumber('WEBCRACK_MAX_INPUT_BYTES', 16 * 1024 * 10
 const MAX_OUTPUT_BYTES = boundedNumber('WEBCRACK_MAX_OUTPUT_BYTES', 64 * 1024 * 1024, 1024, 256 * 1024 * 1024)
 const MAX_MODULES = boundedNumber('WEBCRACK_MAX_MODULES', 500, 1, 5000)
 const MAX_SOURCE_MAP_BYTES = 8 * 1024 * 1024
+const MAX_SOURCE_MAP_SET_BYTES = 16 * 1024 * 1024
+const MAX_SOURCE_MAP_DOCUMENTS = 128
 const TIMEOUT_MS = boundedNumber('WEBCRACK_TIMEOUT_MS', 120_000, 10_000, 600_000)
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/
 
@@ -124,48 +126,119 @@ async function resolveSourceMap(input) {
   const url = directives.at(-1)?.[1]?.trim() || directives.at(-1)?.[2]?.trim() || ''
   if (!url) return null
 
-  try {
+  const bundleDirectory = path.dirname(input.candidate)
+  const state = { totalBytes: 0, documents: [], documentByPath: new Map(), activePaths: new Set(), nodes: 0, warnings: [] }
+  const readMapReference = async (reference, baseDirectory, inlineName) => {
     let bytes
-    let relativePath = '<inline>'
-    if (/^data:/i.test(url)) {
-      const match = /^data:application\/json(?:;charset=[^;,]+)?(;base64)?,([\s\S]*)$/i.exec(url)
-      if (!match) throw new AnalysisError('The inline source map must use a JSON data URL')
+    let absolutePath = ''
+    let relativePath = inlineName
+    if (/^data:/i.test(reference)) {
+      const match = /^data:application\/json(?:;charset=[^;,]+)?(;base64)?,([\s\S]*)$/i.exec(reference)
+      if (!match) throw new AnalysisError('Source-map data URL must use application/json')
       bytes = match[1] ? Buffer.from(match[2], 'base64') : Buffer.from(decodeURIComponent(match[2]), 'utf8')
     } else {
-      const decodedUrl = decodeURIComponent(url)
+      const decodedUrl = decodeURIComponent(reference)
       if (!decodedUrl || decodedUrl.length > 1_000 || /^[a-z][a-z0-9+.-]*:/i.test(decodedUrl)
-          || decodedUrl.startsWith('/') || decodedUrl.includes('\\') || decodedUrl.includes('?') || decodedUrl.includes('#')) {
-        throw new AnalysisError('The external source map URL must be a relative local path')
+          || path.isAbsolute(decodedUrl) || decodedUrl.startsWith('/') || decodedUrl.includes('\\')
+          || decodedUrl.includes('?') || decodedUrl.includes('#')) {
+        throw new AnalysisError('External source-map URLs must be relative local paths')
       }
-      const segments = decodedUrl.split('/')
-      if (segments.some((segment) => !segment || segment === '.' || segment === '..')) {
-        throw new AnalysisError('The external source map URL contains an invalid path segment')
+      const candidate = path.resolve(baseDirectory, decodedUrl)
+      if (!isWithin(bundleDirectory, candidate) || candidate === bundleDirectory) {
+        throw new AnalysisError('External source map is outside the bundle directory')
       }
-      const sourceDirectory = path.dirname(input.candidate)
-      const candidate = path.resolve(sourceDirectory, ...segments)
-      if (!isWithin(sourceDirectory, candidate) || candidate === sourceDirectory) {
-        throw new AnalysisError('The external source map is outside the bundle directory')
+      absolutePath = await realpath(candidate)
+      const info = await stat(absolutePath)
+      if (!isWithin(bundleDirectory, absolutePath) || !info.isFile() || info.size <= 0 || info.size > MAX_SOURCE_MAP_BYTES) {
+        throw new AnalysisError('External source map is outside the configured size or path limit')
       }
-      const resolved = await realpath(candidate)
-      const info = await stat(resolved)
-      if (!isWithin(sourceDirectory, resolved) || !info.isFile() || info.size <= 0 || info.size > MAX_SOURCE_MAP_BYTES) {
-        throw new AnalysisError('The external source map is outside the configured size or path limit')
-      }
-      bytes = await readFile(resolved)
-      relativePath = path.relative(sourceDirectory, resolved).replace(/\\/g, '/')
+      relativePath = path.relative(bundleDirectory, absolutePath).replace(/\\/g, '/')
+      const cached = state.documentByPath.get(absolutePath)
+      if (cached) return cached
+      bytes = await readFile(absolutePath)
     }
 
-    if (!bytes.length || bytes.length > MAX_SOURCE_MAP_BYTES) {
-      throw new AnalysisError('The source map is empty or exceeds the configured size limit')
+    if (!bytes.length || bytes.length > MAX_SOURCE_MAP_BYTES || state.totalBytes + bytes.length > MAX_SOURCE_MAP_SET_BYTES) {
+      throw new AnalysisError('Source-map set is empty or exceeds the configured size limit')
     }
-    const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
-    return { text, bytes, relativePath, sha256: digest(bytes), sizeBytes: bytes.length, warning: '' }
+    let text
+    try {
+      text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+    } catch {
+      throw new AnalysisError('Source map is not valid UTF-8')
+    }
+    let map
+    try {
+      map = JSON.parse(text)
+    } catch {
+      throw new AnalysisError('Source map is not valid JSON')
+    }
+    if (!map || typeof map !== 'object' || map.version !== 3) throw new AnalysisError('Source map is not a version 3 map')
+    if (state.documents.length >= MAX_SOURCE_MAP_DOCUMENTS) {
+      throw new AnalysisError('Indexed source-map document count exceeds the configured limit')
+    }
+    const document = { map, bytes, relativePath, sha256: digest(bytes), absolutePath }
+    state.totalBytes += bytes.length
+    state.documents.push(document)
+    if (absolutePath) state.documentByPath.set(absolutePath, document)
+    return document
+  }
+  const expandSections = async (document, depth = 0) => {
+    state.nodes += 1
+    if (state.nodes > 1_024 || depth > 8) {
+      state.warnings.push('Indexed source-map expansion reached its section-depth or map-count limit.')
+      return false
+    }
+    const map = document.map
+    map.__reamonEvidence = { relativePath: document.relativePath, sha256: document.sha256, kind: depth ? 'section' : 'root' }
+    if (!Array.isArray(map.sections)) return
+    if (map.sections.length > 500) state.warnings.push('Indexed source-map sections were capped at 500 per map.')
+    for (const section of map.sections.slice(0, 500)) {
+      if (section?.map && typeof section.map === 'object') {
+        await expandSections({ ...document, map: section.map }, depth + 1)
+      } else if (typeof section?.url === 'string') {
+        try {
+          const child = await readMapReference(section.url, document.absolutePath ? path.dirname(document.absolutePath) : bundleDirectory, '<inline-section>')
+          if (child.absolutePath && state.activePaths.has(child.absolutePath)) throw new AnalysisError('Indexed source-map section cycle')
+          if (child.absolutePath) state.activePaths.add(child.absolutePath)
+          let expanded
+          try {
+            expanded = await expandSections(child, depth + 1)
+          } finally {
+            if (child.absolutePath) state.activePaths.delete(child.absolutePath)
+          }
+          if (!expanded) throw new AnalysisError('Indexed source-map section exceeded expansion limits')
+          section.map = child.map
+          delete section.url
+        } catch {
+          state.warnings.push('Some external indexed source-map sections could not be loaded safely.')
+        }
+      }
+    }
+    return true
+  }
+
+  try {
+    const root = await readMapReference(url, bundleDirectory, '<inline>')
+    if (root.absolutePath) state.activePaths.add(root.absolutePath)
+    await expandSections(root)
+    if (root.absolutePath) state.activePaths.delete(root.absolutePath)
+    return {
+      text: JSON.stringify(root.map),
+      bytes: root.bytes,
+      relativePath: root.relativePath,
+      sha256: root.sha256,
+      sizeBytes: root.bytes.length,
+      documents: state.documents.map(({ bytes, relativePath, sha256, absolutePath }) => ({ bytes, relativePath, sha256, absolutePath })),
+      warning: state.warnings.join(' '),
+    }
   } catch (error) {
     return {
       text: '',
       relativePath: '',
       sha256: '',
       sizeBytes: 0,
+      documents: [],
       warning: `Source-map recovery was skipped: ${error instanceof AnalysisError ? error.message : 'the referenced local map could not be read safely'}.`,
     }
   }
@@ -199,20 +272,34 @@ async function analyze(body, signal) {
   try {
     const result = await runWorker(input.code, stagingDirectory, signal, { sourceMap })
     let sourceMapArtifactId = ''
-    if (sourceMap?.bytes && sourceMap.sha256) {
-      const evidenceRelativePath = `evidence/source-map-${sourceMap.sha256.slice(0, 16)}.json`
+    const sourceMapSectionArtifacts = new Map()
+    const savedEvidencePaths = new Set()
+    for (const document of sourceMap?.documents || []) {
+      const isRootMap = document.relativePath === sourceMap.relativePath && document.sha256 === sourceMap.sha256
+      const evidenceRelativePath = isRootMap
+        ? `evidence/source-map-${document.sha256.slice(0, 16)}.json`
+        : `evidence/source-map-section-${digest(`${document.relativePath}\n${document.sha256}`).slice(0, 32)}.json`
       const evidencePath = path.resolve(resolvedOutputDirectory, evidenceRelativePath)
       if (!isWithin(resolvedOutputDirectory, evidencePath) || evidencePath === resolvedOutputDirectory) {
         throw new AnalysisError('Source-map evidence path is invalid')
       }
-      await mkdir(path.dirname(evidencePath), { recursive: true })
-      await writeFile(evidencePath, sourceMap.bytes, { flag: 'wx' })
-      sourceMapArtifactId = `${outputRelativeRoot}/${evidenceRelativePath}`
+      if (!savedEvidencePaths.has(evidenceRelativePath)) {
+        await mkdir(path.dirname(evidencePath), { recursive: true })
+        await writeFile(evidencePath, document.bytes, { flag: 'wx' })
+        savedEvidencePaths.add(evidenceRelativePath)
+      }
+      const evidenceArtifactId = `${outputRelativeRoot}/${evidenceRelativePath}`
+      if (isRootMap) sourceMapArtifactId = evidenceArtifactId
+      else sourceMapSectionArtifacts.set(`${document.relativePath}\n${document.sha256}`, evidenceArtifactId)
     }
     const rows = result.units.map((unit) => ({
       ...unit,
       codeArtifactId: `${outputRelativeRoot}/${unit.relativeName}`,
       ...(unit.origin === 'source-map' && sourceMapArtifactId ? { sourceMapArtifactId } : {}),
+      ...(unit.origin === 'source-map' && unit.sourceMapSectionRelativePath && unit.sourceMapSectionSha256
+        && sourceMapSectionArtifacts.has(`${unit.sourceMapSectionRelativePath}\n${unit.sourceMapSectionSha256}`)
+        ? { sourceMapSectionArtifactId: sourceMapSectionArtifacts.get(`${unit.sourceMapSectionRelativePath}\n${unit.sourceMapSectionSha256}`) }
+        : {}),
     }))
     for (const row of rows) {
       const destination = `${derivedRoot}/${row.codeArtifactId}`

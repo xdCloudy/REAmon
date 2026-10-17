@@ -632,10 +632,21 @@ export async function POST(request: Request, { params }: RouteParams) {
     const sourceMapArtifactId = typeof attributes.sourceMapArtifactId === 'string' ? attributes.sourceMapArtifactId : ''
     const sourceMapSha256 = typeof attributes.sourceMapSha256 === 'string' ? attributes.sourceMapSha256.toLowerCase() : ''
     const sourceMapContentSha256 = typeof attributes.sourceMapSourceContentSha256 === 'string' ? attributes.sourceMapSourceContentSha256.toLowerCase() : ''
+    const sourceMapSectionArtifactId = typeof attributes.sourceMapSectionArtifactId === 'string' ? attributes.sourceMapSectionArtifactId : ''
+    const sourceMapSectionSha256 = typeof attributes.sourceMapSectionSha256 === 'string' ? attributes.sourceMapSectionSha256.toLowerCase() : ''
+    const sourceMapSectionRelativePath = typeof attributes.sourceMapSectionRelativePath === 'string' ? attributes.sourceMapSectionRelativePath : ''
+    const hasSectionEvidence = Boolean(sourceMapSectionArtifactId || sourceMapSectionSha256 || sourceMapSectionRelativePath)
+    const sectionEvidenceMetadataValid = !hasSectionEvidence
+      || (sourceMapSectionArtifactId.startsWith(`${runPrefix}webcrack/`)
+        && belongsToArtifactRun(sourceMapSectionArtifactId, projectId, artifact.id)
+        && sourceMapSectionArtifactId.split('/').every((part) => part && part !== '.' && part !== '..' && !part.includes('\\'))
+        && /^[a-f0-9]{64}$/.test(sourceMapSectionSha256)
+        && sourceMapSectionRelativePath.length > 0 && sourceMapSectionRelativePath.length <= 2_000)
     if (attributes.recoveredFromSourceMap === true
       && attributes.inputArtifactSha256 === artifact.sha256
       && /^[a-f0-9]{64}$/.test(sourceMapSha256)
       && sourceHash === sourceMapContentSha256
+      && sectionEvidenceMetadataValid
       && sourceMapArtifactId.startsWith(`${runPrefix}webcrack/`)
       && belongsToArtifactRun(sourceMapArtifactId, projectId, artifact.id)
       && sourceMapArtifactId.split('/').every((part) => part && part !== '.' && part !== '..' && !part.includes('\\'))) {
@@ -646,9 +657,21 @@ export async function POST(request: Request, { params }: RouteParams) {
           const mapInfo = await stat(resolvedMapPath)
           if (mapInfo.isFile() && mapInfo.size > 0 && mapInfo.size <= 8 * 1024 * 1024) {
             const mapBytes = await readFile(resolvedMapPath)
-            if (createHash('sha256').update(mapBytes).digest('hex') === sourceMapSha256) {
+            let sectionMapVerified = !hasSectionEvidence
+            if (hasSectionEvidence) {
+              const sectionPath = resolveDerivedArtifactPath(sourceMapSectionArtifactId)
+              const resolvedSectionPath = await realpath(sectionPath)
+              if (isInside(mapRoot, resolvedSectionPath)) {
+                const sectionInfo = await stat(resolvedSectionPath)
+                if (sectionInfo.isFile() && sectionInfo.size > 0 && sectionInfo.size <= 8 * 1024 * 1024) {
+                  const sectionBytes = await readFile(resolvedSectionPath)
+                  sectionMapVerified = createHash('sha256').update(sectionBytes).digest('hex') === sourceMapSectionSha256
+                }
+              }
+            }
+            if (sectionMapVerified && createHash('sha256').update(mapBytes).digest('hex') === sourceMapSha256) {
               representationLines.push(
-                `Embedded source-map recovery: source ${String(attributes.sourceMapSourcePath || attributes.relativePath || 'unknown').slice(0, 500)} was recovered from the selected bundle's saved source map; bundle input sha256 ${artifact.sha256}; source-map sha256 ${sourceMapSha256}; embedded source sha256 ${sourceHash}. The exact map and source bytes match their saved hashes. Build-provided sourceContent can be stale or unrelated to this bundle, so treat it as a source candidate and compare it with the generated bundle before relying on it.`,
+                `Embedded source-map recovery: source ${String(attributes.sourceMapSourcePath || attributes.relativePath || 'unknown').slice(0, 500)} was recovered from the selected bundle's saved source map${hasSectionEvidence ? ` through indexed section ${sourceMapSectionRelativePath} with sha256 ${sourceMapSectionSha256}` : ''}; bundle input sha256 ${artifact.sha256}; root source-map sha256 ${sourceMapSha256}; embedded source sha256 ${sourceHash}. The exact map and source bytes match their saved hashes. Build-provided sourceContent can be stale or unrelated to this bundle, so treat it as a source candidate and compare it with the generated bundle before relying on it.`,
               )
             }
           }
