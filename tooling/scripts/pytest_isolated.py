@@ -196,8 +196,16 @@ def main() -> int:
 
     for path, code, out in failures:
         print(f"\n==== FAIL {path} (exit {code}) ====")
-        lines = [ln for ln in out.splitlines() if ("FAILED" in ln or "ERROR" in ln)]
-        print("\n".join(lines[-8:]) if lines else out.splitlines()[-8:])
+        # Preserve pytest's assertion details and traceback in CI. Printing
+        # only the short summary made isolated failures impossible to diagnose
+        # from the workflow logs, even though each subprocess already captured
+        # the useful output. Bound each file so a broken suite cannot flood the
+        # action log with an unbounded traceback dump.
+        failure_output_limit = 32_000
+        if len(out) > failure_output_limit:
+            print("[failure output truncated to the final 32,000 characters]\n")
+            out = out[-failure_output_limit:]
+        print(out.rstrip() or "(pytest produced no output)")
 
     # A file that collects nothing reads as a pass. It is a signal, not a
     # result: a script-style test with no `def test_` exits 5 and the gate has
