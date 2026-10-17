@@ -58,7 +58,8 @@ export interface CodeUnitObservationAttributes {
   importedCalls?: string[]
   fieldReferences?: string[]
   fieldReferencesTruncated?: boolean
-  sourceAddressMap?: Array<{ ghidraLineNumber: number; address: string }>
+  sourceAddressMap?: Array<{ sourceLineNumber: number; address: string }>
+  sourceAddressMapProvider?: string
   sourceAddressMapTruncated?: boolean
   prototype?: string
   recoveredVariables?: Array<{ kind: 'parameter' | 'local'; name: string; dataType: string; sizeBytes?: number; parameterIndex?: number; storageStartAddress?: string; nameLocked?: boolean; typeLocked?: boolean }>
@@ -127,7 +128,8 @@ export interface CodeUnit {
   importedCalls?: string[]
   fieldReferences?: string[]
   fieldReferencesTruncated?: boolean
-  sourceAddressMap?: Array<{ ghidraLineNumber: number; address: string }>
+  sourceAddressMap?: Array<{ sourceLineNumber: number; address: string }>
+  sourceAddressMapProvider?: string | null
   sourceAddressMapTruncated?: boolean
   prototype?: string | null
   recoveredVariables?: Array<{ kind: 'parameter' | 'local'; name: string; dataType: string; sizeBytes?: number; parameterIndex?: number; storageStartAddress?: string; nameLocked?: boolean; typeLocked?: boolean }>
@@ -174,17 +176,18 @@ function coverageOf(attributes: Record<string, unknown>): number | null {
   return attributes.decompiled === true ? 100 : null
 }
 
-function sourceAddressMapOf(value: unknown): Array<{ ghidraLineNumber: number; address: string }> {
+function sourceAddressMapOf(value: unknown): Array<{ sourceLineNumber: number; address: string }> {
   if (typeof value !== 'string' || value.length > 1_000_000) return []
   try {
     const parsed: unknown = JSON.parse(value)
     if (!Array.isArray(parsed)) return []
     return parsed.slice(0, 5000).flatMap((item) => {
       const mapping = attributesOf(item)
-      return Number.isInteger(mapping.ghidraLineNumber) && Number(mapping.ghidraLineNumber) > 0
-        && Number(mapping.ghidraLineNumber) <= 1_000_000
+      const lineNumber = mapping.sourceLineNumber ?? mapping.ghidraLineNumber
+      return Number.isInteger(lineNumber) && Number(lineNumber) > 0
+        && Number(lineNumber) <= 1_000_000
         && typeof mapping.address === 'string' && /^[A-Za-z0-9:_-]{1,128}$/.test(mapping.address)
-        ? [{ ghidraLineNumber: Number(mapping.ghidraLineNumber), address: mapping.address }]
+        ? [{ sourceLineNumber: Number(lineNumber), address: mapping.address }]
         : []
     })
   } catch {
@@ -357,6 +360,7 @@ export function normalizeCodeUnit(row: CodeUnitObservationRow, options: { includ
     fieldReferencesTruncated: attributes.fieldReferencesTruncated === true,
     ...(options.includeSourceAddressMap ? {
       sourceAddressMap: sourceAddressMapOf(attributes.sourceAddressMap),
+      sourceAddressMapProvider: text(attributes.sourceAddressMapProvider, 80),
       sourceAddressMapTruncated: attributes.sourceAddressMapTruncated === true,
       prototype: text(attributes.prototype, 2000),
       recoveredVariables: selectedEvidence?.variables || [],

@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "displayName": "REAmon long-term product goal",
+  "assessmentDate": "2026-10-17",
+  "workstreams": [
+    {
+      "name": "Core analysis and visualizer workflow",
+      "weight": 20,
+      "completion": 60,
+      "basis": "Imports, provider execution, stored code units, source navigation, and review workflows exist; provider and format coverage is still incomplete."
+    },
+    {
+      "name": "Database-grounded project memory and provenance",
+      "weight": 20,
+      "completion": 45,
+      "basis": "Project-scoped observations, symbols, relationships, drafts, and review records ground AI context; cross-provider identity and completeness still need broader validation."
+    },
+    {
+      "name": "Major-language and format decompilation fluency",
+      "weight": 30,
+      "completion": 20,
+      "basis": "Several useful Java, .NET, Android, Python, WebAssembly, and native paths exist, but many languages remain navigation-only, early, or represented by generic pseudocode."
+    },
+    {
+      "name": "Maintainable editing, review, and export",
+      "weight": 15,
+      "completion": 35,
+      "basis": "Hash-bound drafts, review receipts, syntax-aware edits for selected languages, and reproducible export exist; language breadth and project-level edits remain limited."
+    },
+    {
+      "name": "Fixture-backed validation and fidelity evidence",
+      "weight": 15,
+      "completion": 15,
+      "basis": "Provider smoke checks and structural validators exist, but broad versioned clean, optimized, stripped, and obfuscated fixture comparisons are still missing."
+    }
+  ]
+}

@@ -1173,6 +1173,7 @@ services:
       REAMON_JADX_URL: http://jadx-analyzer:8010
       REAMON_VINEFLOWER_URL: http://vineflower-analyzer:8021
       REAMON_CFR_URL: http://cfr-analyzer:8022
+      REAMON_RETDEC_URL: http://retdec-analyzer:8023
       REAMON_DEX_DECOMPILER_URL: http://dex-decompiler-analyzer:8019
       REAMON_ILSPY_URL: http://ilspy-analyzer:8013
       REAMON_GHIDRA_URL: http://ghidra-analyzer:8011
@@ -1377,6 +1378,45 @@ services:
       timeout: 5s
       retries: 3
       start_period: 60s
+    networks:
+      - reamon-analysis
+
+  # RetDec provides an independent C-like reconstruction and token-address evidence.
+  retdec-analyzer:
+    build:
+      context: ./analyzers/retdec
+    image: ${REAMON_RETDEC_IMAGE:-reamon-retdec:local}
+    container_name: reamon-retdec
+    init: true
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+    mem_limit: ${REAMON_RETDEC_MEM:-8g}
+    pids_limit: ${REAMON_RETDEC_PIDS:-192}
+    cpus: ${REAMON_RETDEC_CPUS:-2}
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=${REAMON_RETDEC_TMP_SIZE:-3g},mode=1777
+    environment:
+      REAMON_ARTIFACTS_PATH: /data/reamon-artifacts
+      REAMON_DERIVED_PATH: /data/reamon-derived
+      RETDEC_TIMEOUT_SECONDS: ${REAMON_RETDEC_TIMEOUT_SECONDS:-900}
+      RETDEC_MAX_OUTPUT_BYTES: ${REAMON_RETDEC_MAX_OUTPUT_BYTES:-268435456}
+    volumes:
+      - reamon_artifacts:/data/reamon-artifacts:ro
+      - reamon_derived:/data/reamon-derived:rw
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8023/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
     networks:
       - reamon-analysis
 

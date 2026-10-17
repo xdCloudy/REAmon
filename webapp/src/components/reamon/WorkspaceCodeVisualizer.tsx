@@ -481,7 +481,7 @@ function SourceListing({ source, language, fileName, fullSourceUrl, sourceAddres
   language: string | null | undefined
   fileName: string | null | undefined
   fullSourceUrl?: string | null
-  sourceAddressMap?: Array<{ ghidraLineNumber: number; address: string }>
+  sourceAddressMap?: Array<{ sourceLineNumber: number; address: string }>
   onMappedAddressSelect?: (addresses: string[]) => void
   highlightAddress?: string | null
   lineIdPrefix?: string
@@ -494,9 +494,9 @@ function SourceListing({ source, language, fileName, fullSourceUrl, sourceAddres
   const addressesByLine = useMemo(() => {
     const result = new Map<number, string[]>()
     for (const mapping of sourceAddressMap || []) {
-      const addresses = result.get(mapping.ghidraLineNumber) || []
+      const addresses = result.get(mapping.sourceLineNumber) || []
       if (!addresses.includes(mapping.address)) addresses.push(mapping.address)
-      result.set(mapping.ghidraLineNumber, addresses)
+      result.set(mapping.sourceLineNumber, addresses)
     }
     return result
   }, [sourceAddressMap])

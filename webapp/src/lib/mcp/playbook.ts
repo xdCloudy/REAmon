@@ -239,9 +239,11 @@ export const ONBOARDING_PLAYBOOK: Record<string, PlaybookEntry> = {
     whenToUse:
       'Use this after workspace_list_code_units returns a code-unit id when you need its exact saved ' +
       'decompiled source, assembly, provider metadata, incoming/outgoing call edges, and any saved ' +
-      'draft or reviewed maintained source for that exact code version. Ghidra dossiers may also ' +
-      'include sourceAddressMap links from Ghidra source lines to p-code operation target addresses, ' +
-      'plus recoveredVariables with provider-recovered parameter/local names and types. GoReSym ' +
+      'draft or reviewed maintained source for that exact code version. Dossiers may also ' +
+      'include provider-attributed sourceAddressMap links from source lines to instruction addresses, ' +
+      'plus bounded raw provider evidence when it was persisted. Treat these as navigation and provenance evidence, ' +
+      'not proof of original-source fidelity. Ghidra dossiers may also include recoveredVariables with ' +
+      'provider-recovered parameter/local names and types. GoReSym ' +
       'package metadata includes a note that it was matched by function address; GoReSym and unstrip ' +
       'type catalogs are artifact-wide, not function-specific, and must be matched against the selected source. ' +
       'Address-matched unstrip method signatures, source locations, and interface dispatch records may also be present. ToCode ' +
@@ -255,7 +257,8 @@ export const ONBOARDING_PLAYBOOK: Record<string, PlaybookEntry> = {
       'Use workspace_search_go_types with the same codeUnitId when you need to search or page through the full stored Go catalog.',
       'Use workspace_search_provider_types to search or page through the stored GoReSym or ToCode catalog. Match a candidate type name against the selected source or signature; catalog membership alone does not assign it to the function.',
       'ToCode Android fieldReferences are linked to field symbols as references_field relationships. They do not report read/write direction; do not describe them as reads or writes.',
-      'When sourceAddressMap is present, use it to navigate from a Ghidra line to the associated instruction address; check sourceAddressMapTruncated and do not treat this association as proof of semantic equivalence.',
+      'When sourceAddressMap is present, use it to navigate from a source line to the associated instruction address; check sourceAddressMapTruncated and do not treat this association as proof of semantic equivalence.',
+      'rawEvidence is a bounded excerpt from a stored provider artifact. Check its hash, provider, and truncated flag; it is supporting evidence and does not supersede maintained source or provider output.',
       'recoveredVariables are Ghidra symbol evidence, not reviewed canonical names. Preserve the provider attribution and check recoveredVariablesTruncated before relying on a complete inventory.',
       'nameLocked and typeLocked only indicate that Ghidra constrained its own decompiler model to use a name or type; they do not prove original-source provenance or correctness.',
       'storageStartAddress marks where a symbol storage mapping begins, not necessarily an instruction that reads or writes the value; null means Ghidra reports storage valid across the whole function.',

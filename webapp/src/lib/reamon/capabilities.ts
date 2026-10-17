@@ -16,6 +16,7 @@ import { jsonInspectorPlugin } from './json-inspector'
 import { jadxPlugin } from './jadx'
 import { vineflowerPlugin } from './vineflower'
 import { cfrPlugin } from './cfr'
+import { retdecPlugin } from './retdec'
 import { dexDecompilerPlugin } from './dex-decompiler'
 import { ilspyPlugin } from './ilspy'
 import { ghidraPlugin } from './ghidra'
@@ -104,6 +105,9 @@ export const BUILTIN_TOOL_PLUGINS: ToolPlugin[] = [
   },
   {
     ...cfrPlugin,
+  },
+  {
+    ...retdecPlugin,
   },
   {
     ...dexDecompilerPlugin,

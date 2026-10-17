@@ -167,17 +167,18 @@ function parseGoInterfaceMethods(value: unknown): { items: GoInterfaceMethod[]; 
   return { items, truncated }
 }
 
-function sourceAddressMappings(value: unknown): { mappings: Array<{ ghidraLineNumber: number; address: string }>; truncated: boolean } {
+function sourceAddressMappings(value: unknown): { mappings: Array<{ sourceLineNumber: number; address: string }>; truncated: boolean } {
   if (typeof value !== 'string' || value.length > 1_000_000) return { mappings: [], truncated: false }
   try {
     const parsed: unknown = JSON.parse(value)
     if (!Array.isArray(parsed)) return { mappings: [], truncated: false }
     const mappings = parsed.flatMap((item) => {
       const mapping = record(item)
-      return Number.isInteger(mapping.ghidraLineNumber) && Number(mapping.ghidraLineNumber) > 0
-        && Number(mapping.ghidraLineNumber) <= 1_000_000
+      const lineNumber = mapping.sourceLineNumber ?? mapping.ghidraLineNumber
+      return Number.isInteger(lineNumber) && Number(lineNumber) > 0
+        && Number(lineNumber) <= 1_000_000
         && typeof mapping.address === 'string' && /^[A-Za-z0-9:_-]{1,128}$/.test(mapping.address)
-        ? [{ ghidraLineNumber: Number(mapping.ghidraLineNumber), address: mapping.address }]
+        ? [{ sourceLineNumber: Number(lineNumber), address: mapping.address }]
         : []
     })
     return { mappings: mappings.slice(0, 500), truncated: mappings.length > 500 || mappings.length !== parsed.length }
@@ -352,6 +353,7 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
   const codeArtifactId = text(attributes.codeArtifactId, 2000)
   const disassemblyArtifactId = text(attributes.disassemblyArtifactId, 2000)
   const bytecodeArtifactId = text(attributes.bytecodeArtifactId, 2000)
+  const rawEvidenceArtifactId = text(attributes.rawEvidenceArtifactId, 2000)
   const classUnitEdgeFilters = unit.type === CODE_UNIT_OBSERVATION_TYPE ? [
     { attributes: { path: ['fromCodeUnitKey'], equals: unit.stableKey } },
     { attributes: { path: ['toCodeUnitKey'], equals: unit.stableKey } },
@@ -359,10 +361,11 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
   const classReferenceFilters = unit.type === CODE_UNIT_OBSERVATION_TYPE
     ? [{ attributes: { path: ['fromCodeUnitKey'], equals: unit.stableKey } }]
     : []
-  const [code, disassembly, bytecode, task, edges, referenceEdges, maintained, providerTypeMetadataRow] = await Promise.all([
+  const [code, disassembly, bytecode, rawEvidence, task, edges, referenceEdges, maintained, providerTypeMetadataRow] = await Promise.all([
     readDerivedText(codeArtifactId, args.projectId, unit.artifactId),
     readDerivedText(disassemblyArtifactId, args.projectId, unit.artifactId),
     readDerivedText(bytecodeArtifactId, args.projectId, unit.artifactId),
+    readDerivedText(rawEvidenceArtifactId, args.projectId, unit.artifactId),
     unit.taskId ? prisma.task.findFirst({
       where: { id: unit.taskId, projectId: args.projectId, artifactId: unit.artifactId },
       select: { id: true, title: true, status: true, completedAt: true, provider: { select: { pluginId: true } }, result: true },
@@ -616,12 +619,20 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
       instructionCount: typeof attributes.instructionCount === 'number' ? attributes.instructionCount : null,
       instructionMnemonics: text(attributes.instructionMnemonics, 16_000),
       sourceAddressMap: sourceAddressMap.mappings,
+      sourceAddressMapProvider: text(attributes.sourceAddressMapProvider, 80) || (unit.source === 'reamon-ghidra' ? 'Ghidra' : null),
       sourceAddressMapTruncated: sourceAddressMap.truncated || attributes.sourceAddressMapTruncated === true,
       sourceAddressMapSemantics: sourceAddressMap.mappings.length
         ? attributes.decompiler === 'unwasm' && attributes.sourceLanguage === 'WebAssembly'
           ? 'One-based lines in this Rust translation map to byte offsets in the original Wasm module. The linked listing contains bounded raw byte ranges; this mapping is provenance evidence, not proof of semantic equivalence.'
-          : 'One-based Ghidra source line numbers are passed through unchanged; each mapped statement points to its associated p-code operation target address.'
+          : `One-based source lines from ${text(attributes.sourceAddressMapProvider, 80) || (unit.source === 'reamon-ghidra' ? 'Ghidra' : 'the provider')} map to associated instruction addresses; this is navigation evidence, not proof of semantic equivalence.`
         : null,
+      rawEvidence: rawEvidence ? {
+        artifactId: rawEvidenceArtifactId,
+        sha256: text(attributes.rawEvidenceSha256, 64) || rawEvidence.sourceHash,
+        sizeBytes: rawEvidence.sizeBytes,
+        text: rawEvidence.text,
+        truncated: rawEvidence.truncated,
+      } : null,
       controlFlowGraph: text(attributes.controlFlowGraph, 4_000),
       cfgTruncated: attributes.cfgTruncated === true,
       bytecodeRowsTruncated: attributes.bytecodeRowsTruncated === true,

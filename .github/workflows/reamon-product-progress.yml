@@ -1,0 +1,36 @@
+name: REAmon product progress
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+concurrency:
+  group: reamon-product-progress-main
+  cancel-in-progress: true
+
+jobs:
+  update-readme:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the pushed commit
+        uses: actions/checkout@v4
+
+      - name: Regenerate weighted progress block
+        run: node tooling/reamon/update-product-progress.mjs "$GITHUB_SHA"
+
+      - name: Commit README progress update
+        run: |
+          if git diff --quiet -- README.md; then
+            echo "README progress is already current"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md
+          git commit -m "docs: refresh weighted product progress"
+          git push origin HEAD:main
