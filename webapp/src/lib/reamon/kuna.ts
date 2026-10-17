@@ -19,6 +19,7 @@ interface KunaUnit {
   sizeBytes: number
   outputSha256: string
   instructionSizeBytes: number
+  instructionMnemonics?: string[]
   assemblyRelativePath?: string
   assemblyArtifactId?: string
   assemblySizeBytes?: number
@@ -99,6 +100,9 @@ function validUnit(unit: unknown, expectedPrefix: string): unit is KunaUnit {
     && typeof record.sizeBytes === 'number' && Number.isSafeInteger(record.sizeBytes) && record.sizeBytes > 0 && record.sizeBytes <= 2 * 1024 * 1024
     && typeof record.outputSha256 === 'string' && /^[a-f0-9]{64}$/i.test(record.outputSha256)
     && typeof record.instructionSizeBytes === 'number' && Number.isSafeInteger(record.instructionSizeBytes) && record.instructionSizeBytes >= 0
+    && (record.instructionMnemonics === undefined || (Array.isArray(record.instructionMnemonics)
+      && record.instructionMnemonics.length <= 800
+      && record.instructionMnemonics.every((mnemonic) => typeof mnemonic === 'string' && /^[A-Za-z][A-Za-z0-9_.]{0,31}$/.test(mnemonic))))
   if (!base) return false
   if (record.assemblyRelativePath !== undefined) {
     return typeof record.assemblyRelativePath === 'string' && /^assembly\/[0-9a-f]+\.asm$/i.test(record.assemblyRelativePath)
@@ -163,6 +167,7 @@ export async function executeKuna(input: ToolExecutionInput): Promise<ToolResult
         codeArtifactId: unit.codeArtifactId,
         ...(unit.assemblyArtifactId ? { disassemblyArtifactId: unit.assemblyArtifactId } : {}),
         ...(unit.assemblyRelativePath ? { assemblyRelativePath: unit.assemblyRelativePath } : {}),
+        ...(unit.instructionMnemonics?.length ? { instructionMnemonics: JSON.stringify(unit.instructionMnemonics) } : {}),
         ...(unit.signature ? { prototype: unit.signature } : {}),
         kunaFunctionKind: unit.kind,
         experimentalPseudocode: true,

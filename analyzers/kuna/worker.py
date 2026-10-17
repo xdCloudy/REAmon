@@ -24,7 +24,9 @@ MAX_TOTAL_BYTES = min(128 * 1024 * 1024, max(MAX_FUNCTION_BYTES, int(os.environ.
 MAX_GRAPH_BYTES = min(256 * 1024 * 1024, max(MAX_TOTAL_BYTES, int(os.environ.get("KUNA_MAX_GRAPH_BYTES", str(192 * 1024 * 1024)))))
 MAX_FUNCTION_SECONDS = min(120, max(1, int(os.environ.get("KUNA_MAX_FUNCTION_SECONDS", "15"))))
 MAX_FAILURES = 200
+MAX_INSTRUCTION_MNEMONICS = 800
 ADDRESS = re.compile(r"^(?:0x)?[0-9a-f]{1,32}$", re.IGNORECASE)
+ASSEMBLY_INSTRUCTION = re.compile(r"^\s*[0-9a-f]{1,32}\s+([A-Za-z][A-Za-z0-9_.]{0,31})(?:\s|$)", re.IGNORECASE)
 
 
 class AnalysisError(Exception):
@@ -151,6 +153,18 @@ def digest_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def instruction_mnemonics(assembly: str) -> list[str]:
+    """Extract a bounded, operand-free opcode sequence for same-binary lookalikes."""
+    mnemonics: list[str] = []
+    for line in assembly.splitlines():
+        match = ASSEMBLY_INSTRUCTION.match(line)
+        if match:
+            mnemonics.append(match.group(1).lower())
+            if len(mnemonics) >= MAX_INSTRUCTION_MNEMONICS:
+                break
+    return mnemonics
+
+
 def main(cancel_check: Callable[[], bool] = lambda: False) -> dict[str, object]:
     if len(sys.argv) != 6:
         raise AnalysisError("Invalid Kuna worker arguments")
@@ -243,6 +257,9 @@ def main(cancel_check: Callable[[], bool] = lambda: False) -> dict[str, object]:
         assembly = row.get("assembly")
         if isinstance(assembly, str) and assembly.strip():
             assembly_bytes = assembly.encode("utf-8")
+            mnemonics = instruction_mnemonics(assembly)
+            if mnemonics:
+                unit["instructionMnemonics"] = mnemonics
             if len(assembly_bytes) <= MAX_ASSEMBLY_BYTES and output_bytes + len(encoded) + len(assembly_bytes) <= MAX_TOTAL_BYTES:
                 assembly_relative = f"assembly/{safe_address}.asm"
                 assembly_path = assembly_root / f"{safe_address}.asm"

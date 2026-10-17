@@ -725,7 +725,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     const isLuaFunctionScopedRewrite = observation.source === 'reamon-unluac-rs'
       && scope === 'member' && Boolean(selectedMemberName)
     const isFunctionScopedRewrite = isMethodScopedRewrite || isLuaFunctionScopedRewrite
-    if ((observation.source === 'reamon-ghidra' || observation.source === 'reamon-wabt' || isFunctionScopedRewrite) && observation.taskId && observation.stableKey) {
+    if ((observation.source === 'reamon-ghidra' || observation.source === 'reamon-wabt' || observation.source === 'reamon-kuna' || isFunctionScopedRewrite) && observation.taskId && observation.stableKey) {
       const targetMnemonics = boundedInstructionMnemonics(attributes.instructionMnemonics)
       if (targetMnemonics.length >= 4 || isFunctionScopedRewrite) {
         const targetLuaDialect = typeof attributes.dialect === 'string' ? attributes.dialect : ''
@@ -774,6 +774,7 @@ export async function POST(request: Request, { params }: RouteParams) {
         for (const candidate of candidates.slice(0, MAX_FUNCTION_HISTORY)) {
           if (observation.source === 'reamon-ghidra' && candidate.artifactId !== artifact.id
             && !sameGhidraArchitecture(attributes, candidate.attributes)) continue
+          if (observation.source === 'reamon-kuna' && candidate.artifactId !== artifact.id) continue
           if (observation.source === 'reamon-unluac-rs'
             && plainObject(candidate.attributes).dialect !== attributes.dialect) continue
           const identity = `${candidate.artifactId}:${candidate.canonicalKey}`
