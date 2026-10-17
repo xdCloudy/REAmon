@@ -313,6 +313,24 @@ source requires file-level license review, retained notices, and dependency chec
 for large frameworks, evaluate maintenance, binary size, parser/decompiler fidelity,
 and fixture results before adoption.
 
+### PyInstaller executable extraction candidate
+
+The MIT-licensed [pyinstxtractor-go](https://github.com/pyinstxtractor/pyinstxtractor-go)
+snapshot audited at [`2aa0ec9`](https://github.com/pyinstxtractor/pyinstxtractor-go/tree/2aa0ec9e58317ac717fdeec84a02d5a67de7b96c2)
+is a possible extraction stage before REAmon's existing pycdc provider. It extracts
+Python modules from PyInstaller CArchive/PYZ bundles and reports the embedded
+Python version. Its README says Python 2 PYZ archives and encrypted PYZ archives
+are unsupported.
+
+REAmon should not package this snapshot unchanged. The desktop CLI writes under the
+current directory and changes process-wide cwd. CArchive entry paths are used for
+filesystem writes without a uniform output-root containment check. The parser trusts
+archive lengths before allocating and reading, zlib decompression is not capped by
+expanded bytes, and malformed input can panic. A viable adapter must harden these
+boundaries, cap archive entries/expanded data/runtime, attach each extracted `.pyc`
+to the original executable hash and archive path, and pass only bounded children to
+pycdc. Add malformed and high-expansion fixtures before exposing this as a provider.
+
 ## Reuse rules for REAmon
 
 - Prefer calling a mature engine through a narrow adapter over copying its
@@ -466,3 +484,5 @@ store.
 - [PyLingual CLI, local-runtime, and model-cache documentation](https://github.com/syssec-utd/pylingual/blob/509ea92e560b2c2c99b0c9901bd33e404fbfb4b8/README.md)
 - [PyLingual model configuration with per-version Hugging Face revisions](https://github.com/syssec-utd/pylingual/blob/509ea92e560b2c2c99b0c9901bd33e404fbfb4b8/pylingual/decompiler_config.yaml)
 - [PyLingual pinned package metadata and GPL-3.0-only declaration](https://github.com/syssec-utd/pylingual/blob/509ea92e560b2c2c99b0c9901bd33e404fbfb4b8/pyproject.toml)
+- [PyInstaller Extractor Go audited snapshot and MIT license](https://github.com/pyinstxtractor/pyinstxtractor-go/tree/2aa0ec9e58317ac717fdeec84a02d5a67de7b96c2)
+- [PyInstaller Extractor Go README and documented limitations](https://github.com/pyinstxtractor/pyinstxtractor-go/blob/2aa0ec9e58317ac717fdeec84a02d5a67de7b96c2/README.md)
