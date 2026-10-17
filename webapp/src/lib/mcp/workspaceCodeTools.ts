@@ -523,11 +523,16 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
         },
         orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
         take: MAX_PROJECT_MEMORY_MATCHES,
-        select: { id: true, stableKey: true, source: true, label: true, taskId: true, attributes: true },
+        select: { id: true, stableKey: true, canonicalKey: true, source: true, label: true, taskId: true, attributes: true },
       })
       : [],
   ])
   const alternateProviderByUnitId = new Map(providerAlternateRows.map((row) => [row.id, row.source]))
+  const alternateIdentityEvidenceByUnitId = new Map(providerAlternateRows.map((row) => {
+    const rowAttributes = record(row.attributes)
+    return [row.id, row.canonicalKey === unit.canonicalKey ? 'canonical' as const
+      : rowAttributes.identity === currentNativeIdentity ? 'native_identity' as const : 'native_address_alias' as const]
+  }))
   const alternateMaintainedRows = providerAlternateRows.length ? await prisma.reamonMaintainedSource.findMany({
     where: { projectId: args.projectId, artifactId: unit.artifactId || '', codeUnitId: { in: providerAlternateRows.map((row) => row.id) } },
     select: { codeUnitId: true, artifactId: true, unitName: true, language: true, sourceHash: true, acceptedReviewId: true, symbolIndex: true, updatedAt: true },
@@ -550,6 +555,7 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
     ...row,
     artifactHash: unit.artifact?.sha256 || undefined,
     functionIdentity: unit.canonicalKey,
+    identityEvidence: alternateIdentityEvidenceByUnitId.get(row.codeUnitId),
     provider: alternateProviderByUnitId.get(row.codeUnitId),
   })), new Set(), 3_500, unit.artifact?.sha256 || undefined, new Set(),
   providerAlternateRows.length >= MAX_PROJECT_MEMORY_MATCHES, undefined, unit.canonicalKey)
@@ -571,6 +577,7 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
       : alternateCode.text
     providerAlternates.push({
       provider: alternate.source,
+      identityMatch: alternateIdentityEvidenceByUnitId.get(alternate.id),
       name: text(alternateAttributes.qualifiedName) || text(alternateAttributes.name) || text(alternate.label),
       address: text(alternateAttributes.address ?? alternateAttributes.startAddress, 128),
       language: text(alternateAttributes.language, 80),
@@ -582,7 +589,7 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
       outputSha256: outputHash,
       sourceCode: boundedSource,
       sourceCodeTruncated: codeBuffer.length > MAX_PROVIDER_ALTERNATE_BYTES || alternateCode.truncated,
-      semantics: 'Completed output from a different provider for the same imported binary and persisted canonical function identity. Input and saved-output SHA-256 values were checked. This is an independent analysis view, not verified original source, accepted maintained code, or proof of equivalent behavior.',
+      semantics: 'Completed output from a different provider for the same imported binary, matched by persisted canonical key, normalized native identity, or legacy native address alias as recorded in identityMatch. Input and saved-output SHA-256 values were checked. This is an independent analysis view, not verified original source, accepted maintained code, or proof of equivalent behavior.',
     })
   }
   const reviewReceipt = maintained?.acceptedReviewId && maintained.sourceHash ? await prisma.reamonCodeReview.findFirst({
@@ -732,12 +739,12 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
       decompilerVersion: text(attributes.decompilerVersion, 120),
       providerAlternates,
       providerAlternatesSemantics: providerAlternates.length
-        ? 'Each alternate is from a completed provider run for this exact artifact and persisted canonical function identity, with input and output hashes verified. Treat differences as evidence to review; do not infer that either output is original source or behaviorally equivalent.'
+        ? 'Each alternate is from a completed provider run for this exact artifact, matched by persisted canonical key, normalized native identity, or legacy address alias as recorded in identityMatch; input and output hashes are verified. Treat differences as evidence to review; do not infer that either output is original source or behaviorally equivalent.'
         : null,
       acceptedCrossProviderProjectMemory: acceptedCrossProviderProjectMemory || null,
       acceptedCrossProviderProjectMemoryTruncated: providerAlternateRows.length >= MAX_PROJECT_MEMORY_MATCHES,
       acceptedCrossProviderProjectMemorySemantics: acceptedCrossProviderProjectMemory
-        ? 'Names and callable summaries come from maintained source whose immutable accepted review receipt matches its exact source hash. The selected and accepted units share a persisted canonical identity in the same imported binary and the contributing analysis completed; provider identity is evidence, not proof of behavior.'
+        ? 'Names and callable summaries come from maintained source whose immutable accepted review receipt matches its exact source hash. The selected and accepted units match by persisted canonical key, normalized native identity, or legacy native address alias as recorded in their provider identity evidence; they belong to the same imported binary and the contributing analysis completed. Address matches can still be thunks or aliases; none of these names proves behavior.'
         : null,
       nameEvidence: text(attributes.nameEvidence, 80),
       dialect: text(attributes.dialect, 40),

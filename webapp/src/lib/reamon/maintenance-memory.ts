@@ -9,6 +9,7 @@ export interface MaintainedSymbolRecord {
   artifactName?: string
   artifactHash?: string
   functionIdentity?: string
+  identityEvidence?: 'canonical' | 'native_identity' | 'native_address_alias'
   provider?: string
   validationStatus?: string | null
   validationMethod?: string | null
@@ -266,7 +267,11 @@ export function buildProjectSymbolContext(
       : ''
     const relationship = calleeUnitIds.has(record.codeUnitId || '') ? '; direct callee' : ''
     const functionMatch = currentFunctionIdentity && record.functionIdentity === currentFunctionIdentity
-      ? `; same project function identity as selected unit${record.provider ? ` from ${record.provider}` : ''} (provider identity evidence; address-based matches can still be thunks or aliases)`
+      ? record.identityEvidence === 'native_address_alias'
+        ? `; same normalized native address as selected unit via legacy provider evidence${record.provider ? ` from ${record.provider}` : ''} (address matches can still be thunks or aliases)`
+        : record.identityEvidence === 'native_identity'
+          ? `; same normalized native function identity as selected unit${record.provider ? ` from ${record.provider}` : ''} (provider identity evidence, not behavior proof)`
+          : `; same persisted project function identity as selected unit${record.provider ? ` from ${record.provider}` : ''} (provider identity evidence, not behavior proof)`
       : ''
     const validation = record.validationStatus === 'PASSED'
       ? `; syntax passed${record.validationMethod ? ` via ${record.validationMethod}` : ''} (structural evidence only)`

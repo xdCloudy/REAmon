@@ -953,6 +953,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     }
     let crossProviderIdentityRows: typeof maintainedRelatedRows = []
     const matchedProviderByUnitId = new Map<string, string>()
+    const matchedIdentityEvidenceByUnitId = new Map<string, 'canonical' | 'native_identity' | 'native_address_alias'>()
     const addressAliases = nativeAddressAliases(selectedNativeAddress)
     if (artifact.sha256 && (observation.canonicalKey || (currentNativeFunctionIdentity && addressAliases.length))) {
       const completedNativeTasks = await prisma.task.findMany({
@@ -983,9 +984,15 @@ export async function POST(request: Request, { params }: RouteParams) {
           },
           orderBy: [{ updatedAt: 'desc' }, { stableKey: 'asc' }],
           take: 100,
-          select: { id: true, source: true },
+          select: { id: true, source: true, canonicalKey: true, attributes: true },
         })
-        for (const matchedRow of matchingNativeObservations) matchedProviderByUnitId.set(matchedRow.id, matchedRow.source)
+        for (const matchedRow of matchingNativeObservations) {
+          matchedProviderByUnitId.set(matchedRow.id, matchedRow.source)
+          matchedIdentityEvidenceByUnitId.set(matchedRow.id,
+            matchedRow.canonicalKey === observation.canonicalKey ? 'canonical'
+              : plainObject(matchedRow.attributes).identity === currentNativeFunctionIdentity ? 'native_identity'
+                : 'native_address_alias')
+        }
         const matchedUnitIds = matchingNativeObservations.map((matchedRow) => matchedRow.id)
         if (matchedUnitIds.length) {
           crossProviderIdentityRows = await prisma.reamonMaintainedSource.findMany({
@@ -1037,6 +1044,7 @@ export async function POST(request: Request, { params }: RouteParams) {
         artifactHash: artifactById.get(row.artifactId)?.sha256,
         ...(matchedProviderByUnitId.has(row.codeUnitId) ? {
           functionIdentity: observation.canonicalKey || nativeFunctionIdentity(artifact.id, selectedNativeAddress) || undefined,
+          identityEvidence: matchedIdentityEvidenceByUnitId.get(row.codeUnitId),
           provider: matchedProviderByUnitId.get(row.codeUnitId),
         } : {}),
         validationStatus: receipt?.validationStatus,

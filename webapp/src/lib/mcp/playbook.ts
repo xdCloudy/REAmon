@@ -240,8 +240,8 @@ export const ONBOARDING_PLAYBOOK: Record<string, PlaybookEntry> = {
       'Use this after workspace_list_code_units returns a code-unit id when you need its exact saved ' +
       'decompiled source, assembly, provider metadata, incoming/outgoing call edges, and any saved ' +
       'draft or reviewed maintained source for that exact code version. Dossiers may include ' +
-      'acceptedCrossProviderProjectMemory from completed providers when the canonical identity, ' +
-      'imported binary hash, and immutable review receipt match; retain provider attribution. They may also ' +
+      'acceptedCrossProviderProjectMemory from completed providers when canonical-key or normalized ' +
+      'native-identity matching, imported binary hash, and immutable review receipt checks pass; retain its match basis and provider attribution. They may also ' +
       'include provider-attributed sourceAddressMap links from source lines to instruction addresses, ' +
       'plus bounded raw provider evidence when it was persisted. Treat these as navigation and provenance evidence, ' +
       'not proof of original-source fidelity. Ghidra dossiers may also include recoveredVariables with ' +
@@ -249,7 +249,7 @@ export const ONBOARDING_PLAYBOOK: Record<string, PlaybookEntry> = {
       'package metadata includes a note that it was matched by function address; GoReSym and unstrip ' +
       'type catalogs are artifact-wide, not function-specific, and must be matched against the selected source. ' +
       'Address-matched unstrip method signatures, source locations, and interface dispatch records may also be present. Exact-address Swift/Objective-C units may include a hash-verified, same-run ReIPA C-like pseudocode alternate; it is experimental analysis evidence, not recovered source. Glaurung units may include experimental native C-like pseudocode with an explicit note that the original language is unknown. ' +
-      'Dossiers may also include up to three completed providerAlternates for the same artifact and canonical function identity after exact input and output hashes are verified; compare them as separate provider claims, not as canonical or accepted source. ToCode ' +
+      'Dossiers may also include up to three completed providerAlternates for the same artifact after canonical-key or normalized native-address matching and exact input/output hash checks; inspect identityMatch and compare outputs as separate provider claims, not as canonical or accepted source. ToCode ' +
       'dossiers expose a bounded export-scoped type catalog and the source artifact identity.',
     gotchas: [
       'Returned code is bounded to 128 KiB per file and may be truncated; check each truncated flag before reasoning from the snippet.',
@@ -265,7 +265,7 @@ export const ONBOARDING_PLAYBOOK: Record<string, PlaybookEntry> = {
       'recoveredVariables are Ghidra symbol evidence, not reviewed canonical names. Preserve the provider attribution and check recoveredVariablesTruncated before relying on a complete inventory.',
       'alternateDecompilerOutputs can include ReIPA C-like pseudocode for the exact function address. Treat it as experimental provider evidence, not recovered Swift/Objective-C source or accepted maintained code.',
       'providerAlternates are bounded, completed outputs from other providers for the same imported binary and canonical function identity. Their hashes are verified, but disagreement is unresolved evidence; do not merge names or assume either output is behaviorally correct.',
-      'acceptedCrossProviderProjectMemory contains symbol summaries only from maintained source whose immutable acceptance receipt matches its exact source hash. Identity matches and names remain evidence, not proof of behavior.',
+      'acceptedCrossProviderProjectMemory contains symbol summaries only from maintained source whose immutable acceptance receipt matches its exact source hash. Check identityEvidence: canonical keys and normalized native identities are stronger correspondence than legacy address aliases, which can still denote thunks; none of these names proves behavior.',
       'Glaurung output is experimental C-like pseudocode for native instructions. Its C syntax does not identify the original source language and does not establish behavior equivalence.',
       'nameLocked and typeLocked only indicate that Ghidra constrained its own decompiler model to use a name or type; they do not prove original-source provenance or correctness.',
       'storageStartAddress marks where a symbol storage mapping begins, not necessarily an instruction that reads or writes the value; null means Ghidra reports storage valid across the whole function.',

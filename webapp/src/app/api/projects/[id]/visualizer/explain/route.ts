@@ -223,9 +223,12 @@ async function loadAcceptedSharedIdentityContext(input: {
     },
     orderBy: [{ updatedAt: 'desc' }, { stableKey: 'asc' }],
     take: 100,
-    select: { id: true, source: true },
+    select: { id: true, source: true, canonicalKey: true, attributes: true },
   })
   const providerByUnitId = new Map(matches.map((row) => [row.id, row.source]))
+  const identityEvidenceByUnitId = new Map(matches.map((row) => [row.id,
+    row.canonicalKey === input.canonicalKey ? 'canonical' as const
+      : plainObject(row.attributes).identity === nativeIdentity ? 'native_identity' as const : 'native_address_alias' as const]))
   const unitIds = [...new Set([input.unitId, ...matches.map((row) => row.id)])]
   const maintainedRows = await prisma.reamonMaintainedSource.findMany({
     where: { projectId: input.projectId, artifactId: input.artifactId, codeUnitId: { in: unitIds } },
@@ -251,6 +254,7 @@ async function loadAcceptedSharedIdentityContext(input: {
     artifactHash: input.artifactHash || undefined,
     ...(providerByUnitId.has(row.codeUnitId) ? {
       functionIdentity: input.canonicalKey || nativeIdentity || undefined,
+      identityEvidence: identityEvidenceByUnitId.get(row.codeUnitId),
       provider: providerByUnitId.get(row.codeUnitId),
     } : {}),
   })), new Set(), 3_500, input.artifactHash, new Set(), false, undefined, input.canonicalKey || nativeIdentity || undefined)
