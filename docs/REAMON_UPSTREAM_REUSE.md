@@ -154,6 +154,24 @@ separate so a plausible name is never treated as proof of behavior.
   comparison for REAmon's native evidence contract. Its own README labels the
   project pre-1.0 and its decompiler experimental; treat it as a fixture-backed
   alternate-provider evaluation, not a replacement for Ghidra or REAmon's store.
+- [Aletheia](https://github.com/eddinos2/aletheia) is a very early MIT/Apache-2.0
+  Rust native-analysis project with a library-first API, an MCP server, x86-64 and
+  AArch64 analysis, and claims of Go/Rust/C++/Objective-C/Swift recovery. Its
+  `bench-smoke.sh`, fixture guidance, and typed proven-versus-heuristic outputs are
+  relevant to REAmon's missing fixture and evidence gates. Audited at
+  `d8d2ccb541fc662a14f90e3090d9a005e4d2b669` (2026-08-15); the repository had no
+  releases and reported no stars during this review. Do not add it as a provider
+  until a pinned build and independent fixture comparison confirm that the current
+  CLI produces useful outputs. If it does, reuse or adapt only the native analysis
+  pieces with exact artifact/function provenance; keep REAmon's project database
+  authoritative and do not surface its MCP annotations as accepted project memory.
+- [Disrobe](https://github.com/1-3-7/disrobe) advertises a broad multi-format
+  decompiler, unpacker, and obfuscation-removal pipeline, but its current
+  source-available License 1.1 requires a paid license for company use and restricts
+  redistribution and use to build a competing product. It is not open-source code
+  REAmon can reuse or bundle under those terms. Do not copy, adapt, or integrate it
+  without separate written rights; treat the upstream's coverage claims as unverified
+  for REAmon.
 - [Kong](https://github.com/amruth-sn/kong) is an Apache-2.0 Ghidra/PyGhidra
   agent pipeline that schedules functions bottom-up from the call graph, feeds
   callers bounded cross-reference, string, data-flow, and resolved-callee context,
