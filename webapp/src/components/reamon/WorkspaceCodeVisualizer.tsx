@@ -2827,7 +2827,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
                   {jvmBuild?.codeUnitId === selectedUnit.id && jvmBuild.sourceSha256 === maintainedQuery.data?.sourceHash && <>
                     <a className={styles.copyButton} href={jvmBuild.downloadUrl}><Download size={14} /> Download rebuilt JAR</a>
                     <span className={styles.savedStatus} role="status">
-                      Built with Java {jvmBuild.javaRelease}; {jvmBuild.changedClassCount} class files replaced · sha256:{jvmBuild.sha256.slice(0, 16)}
+                      Built with Java {jvmBuild.javaRelease}; {jvmBuild.changedClassCount} class files compiled, {jvmBuild.removedClassCount} stale nested classes removed · sha256:{jvmBuild.sha256.slice(0, 16)}
                     </span>
                     {jvmBuild.diagnostics && <span className={styles.message}>{jvmBuild.diagnostics}</span>}
                     <span className={styles.message}>{jvmBuild.warnings}</span>
