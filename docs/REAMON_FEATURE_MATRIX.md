@@ -28,6 +28,10 @@ checkout; it does not imply broad fixture coverage or behavioral equivalence. Se
 
 ## Product-critical distinctions
 
+### Paginated MCP relationships
+
+Inspired by [ReVa's Ghidra cross-reference tools](https://github.com/cyberkaida/reverse-engineering-assistant), `workspace_list_code_relationships` pages through stored call edges or field/string references for one code unit. Every result is restricted to the active import and the selected unit's exact artifact, provider, and analysis task. This complements the bounded relationship preview in `workspace_get_code_unit`; it does not infer missing edges or claim that persisted references prove behavior.
+
 - Decompilation output and AI-maintained source are separate artifacts.
 - A completed provider task is not proof of full analysis coverage.
 - A parsed candidate is not necessarily compilable; a compiled candidate is not

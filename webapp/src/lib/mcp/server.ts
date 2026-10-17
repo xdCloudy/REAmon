@@ -111,7 +111,7 @@ import { startRecon, stopRecon, updateReconSettings } from '@/lib/mcp/writeTools
 import { getWorkspaceArtifact, listWorkspaceInventory } from '@/lib/mcp/workspaceTools'
 import { getWorkspaceSummary } from '@/lib/mcp/workspaceSummaryTools'
 import { planWorkspaceAnalysis } from '@/lib/mcp/workspacePlanTools'
-import { getWorkspaceCodeUnit, listWorkspaceCodeUnits, searchWorkspaceGoTypes, searchWorkspaceProviderTypes } from '@/lib/mcp/workspaceCodeTools'
+import { getWorkspaceCodeUnit, listWorkspaceCodeRelationships, listWorkspaceCodeUnits, searchWorkspaceGoTypes, searchWorkspaceProviderTypes } from '@/lib/mcp/workspaceCodeTools'
 import {
   MAX_KEYS_PER_CALL,
   refusedFieldsSentence,
@@ -457,6 +457,29 @@ export function buildMcpServer(ctx: McpContext, instructions?: string): McpServe
       },
     },
     handler(ctx, 'workspace_get_code_unit', a => getWorkspaceCodeUnit(ctx, a), a => a.projectId)
+  )
+
+  server.registerTool(
+    'workspace_list_code_relationships',
+    {
+      title: 'List stored code relationships',
+      description:
+        'Page through call edges or field/string references recorded for one code unit by its exact analysis provider and run. ' +
+        'The lookup is limited to the active workspace import and never infers missing edges. Use direction to inspect incoming, ' +
+        'outgoing, or both sides; use offset and limit to continue through large graphs. Returned endpoints and provider metadata ' +
+        'are persisted evidence, not proof of behavior.',
+      annotations: READ_ONLY,
+      _meta: scopesMeta({ required: ['recon:read'] }),
+      inputSchema: {
+        projectId: projectIdSchema,
+        codeUnitId: entityIdSchema.describe('A code-unit id returned by workspace_list_code_units.'),
+        relationshipKind: z.enum(['calls', 'references']).describe('Select call relationships or persisted field/string references.'),
+        direction: z.enum(['both', 'incoming', 'outgoing']).default('both'),
+        limit: z.number().int().min(1).max(100).optional().describe('Default 50, maximum 100 relationships.'),
+        offset: z.number().int().min(0).max(100000).optional().describe('Number of matching relationships to skip.'),
+      },
+    },
+    handler(ctx, 'workspace_list_code_relationships', a => listWorkspaceCodeRelationships(ctx, a), a => a.projectId)
   )
 
   server.registerTool(

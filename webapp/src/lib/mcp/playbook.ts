@@ -274,6 +274,18 @@ export const ONBOARDING_PLAYBOOK: Record<string, PlaybookEntry> = {
     ],
     workflowRefs: ['inspect-workspace'],
   },
+  workspace_list_code_relationships: {
+    whenToUse:
+      'Use this when a code-unit dossier reports relationship truncation or you need to inspect ' +
+      'incoming/outgoing call edges or persisted field/string references page by page.',
+    gotchas: [
+      'Results are limited to relationships persisted by the selected provider in the exact analysis task, artifact, and active workspace import.',
+      'A missing relationship is not evidence that no call or reference exists; providers may omit edges or stop at configured limits.',
+      'Endpoint names and reference metadata remain provider evidence and do not prove behavior or original-source identity.',
+      'Use limit and offset to page through large results; inspect hasMore and nextOffset before concluding the listing is complete.',
+    ],
+    workflowRefs: ['inspect-workspace'],
+  },
   workspace_search_go_types: {
     whenToUse:
       'Use this when a Ghidra code-unit dossier includes GoReSym or unstrip metadata and you need a specific recovered type ' +

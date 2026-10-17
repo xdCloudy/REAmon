@@ -42,6 +42,15 @@ export interface WorkspaceGetCodeUnitArgs {
   codeUnitId: string
 }
 
+export interface WorkspaceListCodeRelationshipsArgs {
+  projectId: string
+  codeUnitId: string
+  relationshipKind: 'calls' | 'references'
+  direction: 'both' | 'incoming' | 'outgoing'
+  limit?: number
+  offset?: number
+}
+
 export interface WorkspaceSearchGoTypesArgs {
   projectId: string
   codeUnitId: string
@@ -405,6 +414,129 @@ async function prepareRead(ctx: McpContext, projectId: string) {
   enforceRate(ctx, 'read')
   await assertMcpProjectAccess(ctx.token.userId, projectId)
   return getActiveWorkspaceImportSelection(projectId)
+}
+
+export async function listWorkspaceCodeRelationships(ctx: McpContext, args: WorkspaceListCodeRelationshipsArgs) {
+  const selection = await prepareRead(ctx, args.projectId)
+  const unit = await prisma.reamonObservation.findFirst({
+    where: {
+      id: args.codeUnitId,
+      projectId: args.projectId,
+      type: { in: CODE_UNIT_TYPES },
+      artifact: { is: selection.artifactWhere },
+    },
+    select: {
+      id: true,
+      stableKey: true,
+      type: true,
+      source: true,
+      taskId: true,
+      artifactId: true,
+      artifact: { select: { sha256: true } },
+    },
+  })
+  if (!unit) throw new McpToolError('Code unit not found in the active workspace import.', 'not_found')
+
+  const limit = Math.max(1, Math.min(MAX_LIMIT, Math.floor(args.limit ?? DEFAULT_LIMIT)))
+  const offset = Math.max(0, Math.min(100_000, Math.floor(args.offset ?? 0)))
+  const incomingFilters = [
+    { toKey: unit.stableKey },
+    { attributes: { path: ['toCodeUnitKey'], equals: unit.stableKey } },
+  ]
+  const outgoingFilters = [
+    { fromKey: unit.stableKey },
+    { attributes: { path: ['fromCodeUnitKey'], equals: unit.stableKey } },
+  ]
+  const directionFilters = args.direction === 'incoming'
+    ? incomingFilters
+    : args.direction === 'outgoing'
+      ? outgoingFilters
+      : [...incomingFilters, ...outgoingFilters]
+
+  const rows = unit.taskId && unit.artifactId ? await prisma.reamonObservation.findMany({
+    where: {
+      projectId: args.projectId,
+      taskId: unit.taskId,
+      artifactId: unit.artifactId,
+      source: unit.source,
+      kind: 'relationship',
+      type: args.relationshipKind === 'calls' ? 'calls' : { in: REFERENCE_RELATIONSHIP_TYPES },
+      OR: directionFilters,
+    },
+    orderBy: [{ stableKey: 'asc' }, { id: 'asc' }],
+    skip: offset,
+    take: limit + 1,
+    select: { id: true, stableKey: true, type: true, label: true, fromKey: true, toKey: true, attributes: true },
+  }) : []
+  const visibleRows = rows.slice(0, limit)
+  const endpointKeys = [...new Set(visibleRows.flatMap((row) => {
+    const attributes = record(row.attributes)
+    return [row.fromKey, row.toKey, attributes.fromCodeUnitKey, attributes.toCodeUnitKey]
+      .flatMap((key) => {
+        const bounded = text(key, 1000)
+        return bounded ? [bounded] : []
+      })
+  }))]
+  const endpoints = endpointKeys.length && unit.taskId && unit.artifactId ? await prisma.reamonObservation.findMany({
+    where: {
+      projectId: args.projectId,
+      taskId: unit.taskId,
+      artifactId: unit.artifactId,
+      source: unit.source,
+      stableKey: { in: endpointKeys },
+      type: { in: [...CODE_UNIT_TYPES, 'symbol'] },
+    },
+    select: { stableKey: true, label: true, type: true, attributes: true },
+  }) : []
+  const endpointByKey = new Map(endpoints.map((endpoint) => {
+    const attributes = record(endpoint.attributes)
+    return [endpoint.stableKey, text(attributes.qualifiedName) || text(attributes.name) || text(endpoint.label, 500) || endpoint.stableKey]
+  }))
+
+  return {
+    codeUnit: { id: unit.id, stableKey: unit.stableKey, type: unit.type },
+    provenance: {
+      projectId: args.projectId,
+      artifactId: unit.artifactId,
+      artifactSha256: unit.artifact?.sha256 || null,
+      taskId: unit.taskId,
+      provider: unit.source,
+    },
+    relationshipKind: args.relationshipKind,
+    direction: args.direction,
+    relationships: visibleRows.map((row) => {
+      const attributes = record(row.attributes)
+      const fromKey = text(attributes.fromCodeUnitKey, 1000) || text(row.fromKey, 1000)
+      const toKey = text(attributes.toCodeUnitKey, 1000) || text(row.toKey, 1000)
+      return {
+        stableKey: text(row.stableKey, 1000),
+        type: row.type,
+        label: text(row.label, 500),
+        from: fromKey ? { key: fromKey, name: endpointByKey.get(fromKey) || fromKey } : null,
+        to: toKey ? { key: toKey, name: endpointByKey.get(toKey) || toKey } : null,
+        evidence: {
+          source: text(attributes.source, 120),
+          referenceKind: text(attributes.referenceKind, 80),
+          accessDirection: text(attributes.accessDirection, 80),
+          referenceSemantics: text(attributes.referenceSemantics, 500),
+          importSymbol: text(attributes.importSymbol, 256),
+          importer: text(attributes.importer, 1000),
+          target: text(attributes.target, 1000),
+          resolution: text(attributes.resolution, 128),
+          exportPath: text(attributes.exportPath, 1000),
+          targetName: text(attributes.targetName, 500),
+          targetSignature: text(attributes.targetSignature, 1000),
+          occurrenceCount: typeof attributes.occurrenceCount === 'number' ? attributes.occurrenceCount : null,
+          referenceOffsets: text(attributes.referenceOffsets, 2000),
+        },
+      }
+    }),
+    limit,
+    offset,
+    hasMore: rows.length > limit,
+    nextOffset: rows.length > limit ? offset + visibleRows.length : null,
+    semantics: 'Only relationships persisted by this provider for this exact artifact and analysis task are returned. Missing relationships do not prove that no call or reference exists; provider links are evidence, not behavioral proof.',
+  }
 }
 
 export async function listWorkspaceCodeUnits(ctx: McpContext, args: WorkspaceListCodeUnitsArgs) {

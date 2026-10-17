@@ -180,6 +180,10 @@ the exact-run artifact-wide Go type catalog (searchable and pageable with
 `workspace_search_go_types` or `workspace_search_provider_types`), exact-version saved draft,
 maintained source, and bounded Ghidra control-flow-flattening recovery when present. That recovery
 is confidence-labeled provider evidence for navigation and analysis, not equivalent source.
+A separate `workspace_list_code_relationships` operation pages through stored call edges or
+field/string references for that unit, preserving its active import, artifact hash, provider, and
+analysis task identity. This lets agents follow large reference sets beyond the dossier's bounded
+preview without treating omitted provider edges as absent.
 A maintained source is marked reviewed only when its receipt still
 matches the stored source hash. These reads do not invoke a decompiler or synthesize missing
 relationships, and neither host storage paths nor generated project instructions are returned.
