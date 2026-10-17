@@ -251,15 +251,18 @@ and fixture results before adoption.
 
 ## REA MCP workflow audit
 
-REA's current README describes MCP findings as evidence-bearing objects and its
-function dossiers combine provider-produced pseudocode and assembly with CFG, calls,
-references, strings, and limitations. REAmon's first database-backed counterpart is
-`workspace_list_code_units` plus `workspace_get_code_unit`: it reads only the active
-workspace and same-task observations, returning bounded source/disassembly, provider
-identity, artifact hash, warnings, and saved call edges. Source, names, and prototypes
-remain attributed to the producing provider. No missing relationship or symbol is
-filled by model inference. Add exact xrefs and CFG context to this surface only when a
-provider has persisted those facts.
+REA's current MCP contract returns an `evidence_id`, a normalized result, and a
+separate raw provider result when available; successful immutable snapshots are
+reused only when binary digest, format, architecture, operation parameters, loader
+arguments, and provider identity match. REAmon's database-backed counterpart is
+`workspace_list_code_units` plus `workspace_get_code_unit`: it reads the active
+workspace's persisted observations and now includes capped native cross-provider
+alternates only when the imported input hash, canonical native address identity,
+completed task, and saved output hash agree. Source, names, and prototypes remain
+attributed to the producing provider. No missing relationship or symbol is filled by
+model inference. Reuse REA's evidence identity/cache contract as a design reference;
+keep REAmon's project observation and review database authoritative. Add exact xrefs
+and CFG context to this surface only when a provider has persisted those facts.
 
 ## decomp.wtf source audit
 
@@ -318,6 +321,8 @@ store.
 - [REA architecture and Android analysis](https://github.com/morluto/rea)
 - [REA native analysis surface and function dossier workflow](https://github.com/morluto/rea#what-you-can-analyze)
 - [REA project workflow, evidence and limitations](https://github.com/morluto/rea#how-rea-works)
+- [REA MCP canonical evidence envelope and retained evidence contract](https://github.com/morluto/rea/blob/main/docs/mcp-contracts.md)
+- [REA exact-key immutable analysis snapshot workflow](https://github.com/morluto/rea/blob/main/docs/cli.md)
 - [Androguard v5 overview](https://github.com/androguard/androguard)
 - [Androguard dex-decompiler Python API and build requirements](https://github.com/androguard/dex-decompiler/blob/d458efd15d74351e83f4e8968c75ef17c71f3c65/dex-decompiler-py/README.md)
 - [Androguard dex-decompiler pinned source and Cargo.lock](https://github.com/androguard/dex-decompiler/tree/d458efd15d74351e83f4e8968c75ef17c71f3c65)
