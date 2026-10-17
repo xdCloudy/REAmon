@@ -193,6 +193,15 @@ separate so a plausible name is never treated as proof of behavior.
   The upstream [Oxidizer evaluation framework](https://github.com/sefcom/oxidizer-eval)
   is a useful source of comparison metrics for conciseness, fidelity, and type
   recovery; REAmon still needs its own reproducible fixture results.
+- [rust-analyzer](https://github.com/rust-lang/rust-analyzer) is the Rust
+  compiler front-end used by editors, with semantic find-references and rename
+  through LSP. Its MIT/Apache-2.0 licensing and maintained distribution make it a
+  viable source-edit backend for REAmon's Rust maintenance path. Evaluate it through
+  a bounded, temporary Cargo workspace and return source-hash-bound edits to the
+  existing attempt/review database; do not let a standalone MCP or LSP workspace
+  become a second project-memory store. Incomplete project dependencies, macro
+  expansion, and `cfg`-conditional code can make a reference set incomplete, so
+  fail closed and compare against Rust fixtures before offering accepted edits.
 - [unluac-rs](https://github.com/x3zvawq/unluac-rs) is an MIT-licensed Rust
   library/CLI that advertises Lua 5.1–5.5, LuaJIT 2.1, and Luau support. REAmon's
   pinned JS/WASM package now emits strict alternate views across those dialects,
@@ -329,6 +338,8 @@ store.
 - [angr analysis framework and BSD-2-Clause license](https://github.com/angr/angr)
 - [Oxidizer Rust decompilation project, angr merge notice, and BSD-2-Clause license](https://github.com/sefcom/oxidizer)
 - [angr repository where Oxidizer is maintained](https://github.com/angr/angr)
+- [rust-analyzer LSP refactorings and MIT/Apache-2.0 license](https://github.com/rust-lang/rust-analyzer)
+- [rust-analyzer rename feature and caveats](https://rust-analyzer.github.io/book/features.html)
 - [unluac-rs multi-dialect Lua decompiler and MIT license](https://github.com/x3zvawq/unluac-rs)
 - [Disrobe recovery catalog and current source-available license](https://github.com/1-3-7/disrobe)
 - [RetDec repository and maintenance notice](https://github.com/avast/retdec)
