@@ -89,11 +89,17 @@ separate so a plausible name is never treated as proof of behavior.
   memory-limited `isolated-vm` context. It does not promise source equivalence or
   TypeScript support.
 - [RetDec](https://github.com/avast/retdec) is worth a pinned comparison as a
-  second native decompiler. Its v5.0 release moved the decompiler toward a library
-  and the project README warns that development is in limited maintenance; compare
-  packaging, supported architectures, function boundaries, and output quality
-  against Ghidra before adding a redundant default provider. The core is MIT, with
-  a separate third-party notice inventory.
+  second native decompiler. Its official v5.0 release (2022-12-08) changed the
+  decompiler into a library and removed several older component executables; the
+  release page reports 81 commits since that tag, while the repository README still
+  warns of limited maintenance. Treat the release and current `master` as distinct
+  integration targets. RetDec's machine-readable token JSON associates source tokens
+  with instruction addresses and is a particularly useful source-navigation feature
+  to compare against Ghidra's line/address map. Before integrating, pin a current
+  revision, build its current CLI/library interface, and verify that JSON address
+  mapping remains available; then compare packaging, architectures, function
+  boundaries, mapping precision, and output quality against Ghidra. The core is MIT,
+  with a separate third-party notice inventory.
 - [Rizin](https://github.com/rizinorg/rizin) has an active command-line framework
   and structured JSON output. [rz-ghidra](https://github.com/rizinorg/rz-ghidra)
   adds Ghidra's decompiler through a plugin and can emit function JSON and offsets.
@@ -312,7 +318,10 @@ store.
 - [angr repository where Oxidizer is maintained](https://github.com/angr/angr)
 - [unluac-rs multi-dialect Lua decompiler and MIT license](https://github.com/x3zvawq/unluac-rs)
 - [Disrobe recovery catalog and current source-available license](https://github.com/1-3-7/disrobe)
-- [RetDec maintenance status](https://github.com/avast/retdec)
+- [RetDec repository and maintenance notice](https://github.com/avast/retdec)
+- [RetDec v5.0 release and changes](https://github.com/avast/retdec/releases/tag/v5.0)
+- [RetDec machine-readable token output and instruction-address mapping](https://github.com/avast/retdec/wiki/Decompiler-outputs)
+- [RetDec changelog and v5.0 release date](https://github.com/avast/retdec/blob/master/CHANGELOG.md)
 - [Rizin-powered Cutter UI and GPL-3.0 license](https://github.com/rizinorg/cutter)
 - [rev.ng repository and component licenses](https://github.com/revng/revng)
 - [Reko repository and GPL-2.0 license](https://github.com/uxmal/reko)
