@@ -20,6 +20,11 @@ _BINDING_CONTAINERS = {
     "let_declaration", "parameter", "self_parameter", "closure_parameter",
     "match_arm", "for_expression", "if_let_expression", "while_let_expression",
 }
+_NON_EXPANDING_ATTRIBUTES = {
+    "allow", "deny", "forbid", "warn", "expect", "cfg", "cfg_attr", "derive", "doc",
+    "inline", "cold", "must_use", "repr", "non_exhaustive", "test", "should_panic",
+    "ignore", "no_mangle", "export_name", "link", "link_section", "track_caller",
+}
 
 
 def _sha256(source: bytes) -> str:
@@ -146,8 +151,12 @@ def _pattern_declarations(source: str) -> list[tuple[int, str]]:
             raise ValueError("Rust safe rename is unavailable when the selected file declares external modules")
         if node.type in ("attribute_item", "inner_attribute_item"):
             attribute = node.text.decode("utf-8")
-            if re.search(r"#\s*!?\s*\[\s*cfg(?:_attr)?\b", attribute):
+            match = re.match(r"#\s*!?\s*\[\s*([A-Za-z_][A-Za-z0-9_]*)", attribute)
+            name = match.group(1) if match else ""
+            if name in ("cfg", "cfg_attr"):
                 raise ValueError("Rust safe rename is unavailable for cfg-conditional source until all variants are indexed")
+            if name not in _NON_EXPANDING_ATTRIBUTES:
+                raise ValueError("Rust safe rename is unavailable for custom attributes without procedural-macro expansion")
         if node.type in ("identifier", "raw_identifier"):
             parent = node.parent
             while parent is not None:
@@ -278,7 +287,7 @@ async def _catalog(source: str) -> tuple[str, list[dict[str, Any]], bool]:
                     break
             except (asyncio.TimeoutError, ValueError, KeyError, TypeError):
                 continue
-    truncated = len(declarations) > len(bindings) or len(declarations) > MAX_BINDINGS * 2
+    truncated = len(declarations) > MAX_BINDINGS * 2 or len(bindings) >= MAX_BINDINGS
     return source_hash, bindings, truncated
 
 
