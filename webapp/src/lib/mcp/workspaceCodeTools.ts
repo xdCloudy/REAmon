@@ -17,6 +17,7 @@ const DEFAULT_LIMIT = 50
 const MAX_LIMIT = 100
 const MAX_CODE_BYTES = 128 * 1024
 const MAX_HASH_SOURCE_BYTES = 2 * 1024 * 1024
+const MAX_VERIFIED_DERIVED_ARTIFACT_BYTES = 128 * 1024 * 1024
 const MAX_REIPA_BYTES = 128 * 1024
 const MAX_RECURSE_EVIDENCE_BYTES = 12 * 1024
 const MAX_RELATIONSHIPS = 100
@@ -222,7 +223,7 @@ function safeDerivedPath(relativePath: unknown, projectId: string, artifactId: s
   try { return resolveDerivedArtifactPath(relativePath) } catch { return null }
 }
 
-async function readDerivedText(relativePath: unknown, projectId: string, artifactId: string | null) {
+async function readDerivedText(relativePath: unknown, projectId: string, artifactId: string | null, maxHashBytes = MAX_HASH_SOURCE_BYTES) {
   const filePath = safeDerivedPath(relativePath, projectId, artifactId)
   if (!filePath) return null
   let handle: Awaited<ReturnType<typeof open>> | null = null
@@ -234,14 +235,24 @@ async function readDerivedText(relativePath: unknown, projectId: string, artifac
     handle = await open(resolved, 'r')
     const stat = await handle.stat()
     if (!stat.isFile() || stat.size < 0) return null
-    const buffer = Buffer.alloc(Math.min(stat.size, MAX_HASH_SOURCE_BYTES))
+    const buffer = Buffer.alloc(Math.min(stat.size, MAX_CODE_BYTES))
     const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0)
-    const sourceHash = stat.size <= MAX_HASH_SOURCE_BYTES && bytesRead === stat.size
-      ? createHash('sha256').update(buffer).digest('hex')
-      : null
+    let sourceHash: string | null = null
+    if (stat.size <= maxHashBytes) {
+      const digest = createHash('sha256')
+      const chunk = Buffer.alloc(Math.min(1024 * 1024, Math.max(1, stat.size)))
+      let position = 0
+      while (position < stat.size) {
+        const result = await handle.read(chunk, 0, Math.min(chunk.length, stat.size - position), position)
+        if (result.bytesRead <= 0) break
+        digest.update(chunk.subarray(0, result.bytesRead))
+        position += result.bytesRead
+      }
+      if (position === stat.size) sourceHash = digest.digest('hex')
+    }
     return {
-      text: buffer.subarray(0, Math.min(bytesRead, MAX_CODE_BYTES)).toString('utf8'),
-      bytesReturned: Math.min(bytesRead, MAX_CODE_BYTES),
+      text: buffer.subarray(0, bytesRead).toString('utf8'),
+      bytesReturned: bytesRead,
       sizeBytes: stat.size,
       truncated: stat.size > MAX_CODE_BYTES,
       sourceHash,
@@ -673,9 +684,13 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
   const currentAddress = text(attributes.address ?? attributes.startAddress, 128) || ''
   const currentNativeIdentity = unit.artifactId ? nativeFunctionIdentity(unit.artifactId, currentAddress) : null
   const currentAddressAliases = nativeAddressAliases(currentAddress)
+  const codeHashMetadataPresent = attributes.codeArtifactSha256 !== undefined || attributes.decompiledSourceSha256 !== undefined
+  const disassemblyHashMetadataPresent = attributes.disassemblyArtifactSha256 !== undefined
   const [code, disassembly, bytecode, rawEvidence, task, edges, referenceEdges, maintained, providerTypeMetadataRow, providerAlternateRows] = await Promise.all([
-    readDerivedText(codeArtifactId, args.projectId, unit.artifactId),
-    readDerivedText(disassemblyArtifactId, args.projectId, unit.artifactId),
+    readDerivedText(codeArtifactId, args.projectId, unit.artifactId,
+      codeHashMetadataPresent ? MAX_VERIFIED_DERIVED_ARTIFACT_BYTES : MAX_HASH_SOURCE_BYTES),
+    readDerivedText(disassemblyArtifactId, args.projectId, unit.artifactId,
+      disassemblyHashMetadataPresent ? MAX_VERIFIED_DERIVED_ARTIFACT_BYTES : MAX_HASH_SOURCE_BYTES),
     readDerivedText(bytecodeArtifactId, args.projectId, unit.artifactId),
     readDerivedText(rawEvidenceArtifactId, args.projectId, unit.artifactId),
     unit.taskId ? prisma.task.findFirst({
@@ -764,6 +779,24 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
       })
       : [],
   ])
+  const codeHashValue = attributes.codeArtifactSha256 ?? attributes.decompiledSourceSha256
+  const codeHashDeclared = attributes.codeArtifactSha256 !== undefined || attributes.decompiledSourceSha256 !== undefined
+  const expectedCodeHash = typeof codeHashValue === 'string' && /^[a-f0-9]{64}$/i.test(codeHashValue)
+    ? codeHashValue.toLowerCase()
+    : null
+  const codeHashMatches = code && (codeHashDeclared
+    ? expectedCodeHash !== null && code.sourceHash === expectedCodeHash
+    : unit.source !== 'reamon-pycdc' && unit.source !== 'reamon-recurse')
+  const verifiedCode = codeHashMatches ? code : null
+  const disassemblyHashValue = attributes.disassemblyArtifactSha256
+  const disassemblyHashDeclared = disassemblyHashValue !== undefined
+  const expectedDisassemblyHash = typeof disassemblyHashValue === 'string' && /^[a-f0-9]{64}$/i.test(disassemblyHashValue)
+    ? disassemblyHashValue.toLowerCase()
+    : null
+  const disassemblyHashMatches = disassembly && (disassemblyHashDeclared
+    ? expectedDisassemblyHash !== null && disassembly.sourceHash === expectedDisassemblyHash
+    : unit.source !== 'reamon-pycdc')
+  const verifiedDisassembly = disassemblyHashMatches ? disassembly : null
   const alternateProviderByUnitId = new Map(providerAlternateRows.map((row) => [row.id, row.source]))
   const alternateIdentityEvidenceByUnitId = new Map(providerAlternateRows.map((row) => {
     const rowAttributes = record(row.attributes)
@@ -904,7 +937,7 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
       identity: currentNativeIdentity,
     })
     : null
-  const selectedRecurseEvidence = isRecurseLift && code ? {
+  const selectedRecurseEvidence = isRecurseLift && verifiedCode ? {
     provider: 'Recurse',
     providerVersion: text(attributes.decompilerVersion, 120),
     providerRevision: text(attributes.providerRevision, 120),
@@ -917,8 +950,8 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
       && Number.isSafeInteger(attributes.recurseInstructionCount) && attributes.recurseInstructionCount >= 0
       ? attributes.recurseInstructionCount : null,
     optimizerPasses: recurseOptimizerPasses(attributes.recurseOptimizerPasses),
-    text: code.text.slice(0, MAX_RECURSE_EVIDENCE_BYTES),
-    truncated: code.sizeBytes > MAX_RECURSE_EVIDENCE_BYTES || code.truncated,
+    text: verifiedCode.text.slice(0, MAX_RECURSE_EVIDENCE_BYTES),
+    truncated: verifiedCode.sizeBytes > MAX_RECURSE_EVIDENCE_BYTES || verifiedCode.truncated,
     semantics: text(attributes.representationSemantics, 500)
       || 'Provisional VTIL-style optimized intermediate representation for this exact function and binary. This is structural analysis evidence, not recovered original source or proof of behavior.',
   } : null
@@ -1155,16 +1188,26 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
       completedAt: task.completedAt?.toISOString() || null,
       warnings: text(result.warnings, 2000),
     } : null,
-    decompiledSource: code && !isRecurseLift ? {
+    decompiledSource: verifiedCode && !isRecurseLift ? {
       scope: parentUnit ? 'containing_code_unit' : 'code_unit',
       relativePath: text(attributes.relativePath, 1000),
-      text: code.text,
-      sizeBytes: code.sizeBytes,
-      sourceHash: code.sourceHash,
-      truncated: code.truncated,
+      text: verifiedCode.text,
+      sizeBytes: verifiedCode.sizeBytes,
+      sourceHash: verifiedCode.sourceHash,
+      truncated: verifiedCode.truncated,
     } : null,
     alternateDecompilerOutputs: reipaPseudocode ? [reipaPseudocode] : [],
-    disassembly: disassembly ? { relativePath: text(attributes.assemblyRelativePath ?? attributes.disassemblyRelativePath, 1000), language: text(attributes.disassemblyLanguage, 80), text: disassembly.text, sizeBytes: disassembly.sizeBytes, truncated: disassembly.truncated } : null,
+    disassembly: verifiedDisassembly ? {
+      relativePath: text(attributes.assemblyRelativePath ?? attributes.disassemblyRelativePath, 1000),
+      language: text(attributes.disassemblyLanguage, 80),
+      text: verifiedDisassembly.text,
+      sizeBytes: verifiedDisassembly.sizeBytes,
+      sha256: verifiedDisassembly.sourceHash,
+      truncated: verifiedDisassembly.truncated,
+      ...(unit.source === 'reamon-pycdc' ? {
+        semantics: 'Bounded module-level Python bytecode evidence for this exact analysis run. It is not mapped to an individual code object or selected function.',
+      } : {}),
+    } : null,
     bytecode: bytecode ? { text: bytecode.text, sizeBytes: bytecode.sizeBytes, truncated: bytecode.truncated || attributes.bytecodeRowsTruncated === true } : null,
     callRelationships: edges.slice(0, MAX_RELATIONSHIPS).map((edge) => ({
       stableKey: edge.stableKey,
