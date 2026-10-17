@@ -2351,6 +2351,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
           </div>
         {selectedUnit && selectedSourceUrl && <section className={styles.sourcePanel} aria-label={selectedUnit.representation === 'optimized intermediate representation' ? 'Intermediate representation evidence' : selectedUnit.unitType === 'resource' ? 'Decoded Android resource' : selectedDisassemblyUrl ? 'Decompilation and disassembly comparison' : (selectedUnit.language === 'WebAssembly Text (WAT)' ? 'WAT disassembly' : isDisassemblyUnit(selectedUnit) ? 'Smali disassembly' : 'Decompiled source')}>
           {selectedUnit.representationSemantics && <p className={styles.sourcePreviewNote} role="note">{selectedUnit.representationSemantics}</p>}
+          {selectedUnit.bytecodeMagicHex && <p className={styles.sourcePreviewNote} role="note">Bytecode magic: 0x{selectedUnit.bytecodeMagicHex} · raw header metadata; runtime version is not inferred.</p>}
           {selectedUnit.deobfuscationProvider && <p className={styles.sourcePreviewNote} role="note">
             {selectedUnit.deobfuscationProvider} {selectedUnit.deobfuscationProviderRevision ? `@ ${selectedUnit.deobfuscationProviderRevision.slice(0, 12)}` : 'transformation'} · transformed artifact {selectedUnit.deobfuscatedArtifactId?.split('/').pop() || 'recorded'}
             {selectedUnit.inputArtifactSha256 ? ` · original SHA-256 ${selectedUnit.inputArtifactSha256}` : ''}
