@@ -25,15 +25,36 @@ export interface RenameContextCandidate {
   kind: string
 }
 
-function maintainedIndex(value: unknown): { symbols: string[]; aliases: MaintainedSymbolAlias[] } {
+interface MaintainedCallable {
+  name: string
+  kind: 'function' | 'method' | 'constructor'
+  line: number
+}
+
+function maintainedIndex(value: unknown): {
+  symbols: string[]
+  aliases: MaintainedSymbolAlias[]
+  members: MaintainedCallable[]
+  membersTruncated: boolean
+  parserVersion: string | null
+} {
   if (Array.isArray(value)) {
-    return { symbols: value.filter((item): item is string => typeof item === 'string'), aliases: [] }
+    return { symbols: value.filter((item): item is string => typeof item === 'string'), aliases: [], members: [], membersTruncated: false, parserVersion: null }
   }
-  if (!value || typeof value !== 'object') return { symbols: [], aliases: [] }
+  if (!value || typeof value !== 'object') return { symbols: [], aliases: [], members: [], membersTruncated: false, parserVersion: null }
   const record = value as Record<string, unknown>
   const symbols = Array.isArray(record.symbols)
     ? record.symbols.filter((item): item is string => typeof item === 'string')
     : []
+  const members = Array.isArray(record.members) ? record.members.flatMap((item) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return []
+    const member = item as Record<string, unknown>
+    const kind = member.kind
+    if (typeof member.name !== 'string' || member.name.length < 1 || member.name.length > 128
+        || (kind !== 'function' && kind !== 'method' && kind !== 'constructor')
+        || !Number.isInteger(member.line) || (member.line as number) < 1 || (member.line as number) > 1_000_000) return []
+    return [{ name: member.name, kind: kind as MaintainedCallable['kind'], line: member.line as number }]
+  }).slice(0, 64) : []
   const aliases = Array.isArray(record.aliases) ? record.aliases.flatMap((item) => {
     if (!item || typeof item !== 'object' || Array.isArray(item)) return []
     const alias = item as Record<string, unknown>
@@ -45,7 +66,13 @@ function maintainedIndex(value: unknown): { symbols: string[]; aliases: Maintain
         || alias.oldName === alias.newName) return []
     return [{ bindingId: alias.bindingId.toLowerCase(), oldName: alias.oldName, newName: alias.newName, kind: alias.kind }]
   }).slice(0, 200) : []
-  return { symbols, aliases }
+  return {
+    symbols,
+    aliases,
+    members,
+    membersTruncated: record.truncated === true || (Array.isArray(record.members) && record.members.length > members.length),
+    parserVersion: typeof record.parserVersion === 'string' ? record.parserVersion.slice(0, 80) : null,
+  }
 }
 
 export function extractAcceptedRenameAliases(value: unknown): MaintainedSymbolAlias[] {
@@ -219,12 +246,12 @@ export function buildProjectSymbolContext(
   for (const { record } of ranked) {
     const index = maintainedIndex(record.symbolIndex)
     const symbols = [...new Set(index.symbols.filter((value) => value.length <= 128))]
-    if (!symbols.length && !index.aliases.length) continue
+    if (!symbols.length && !index.members.length && !index.aliases.length) continue
     // Code-unit identity distinguishes overloads and duplicate names within one
     // artifact. Fall back to content identity only for legacy records without it.
     const identity = record.codeUnitId || (record.artifactHash
-      ? `${record.artifactHash}:${record.unitName}:${record.language}:${JSON.stringify([...symbols].sort())}:${JSON.stringify(index.aliases)}`
-      : `${record.artifactId || ''}:${record.unitName}:${record.language}:${JSON.stringify([...symbols].sort())}:${JSON.stringify(index.aliases)}`)
+      ? `${record.artifactHash}:${record.unitName}:${record.language}:${JSON.stringify([...symbols].sort())}:${JSON.stringify(index.members)}:${JSON.stringify(index.aliases)}`
+      : `${record.artifactId || ''}:${record.unitName}:${record.language}:${JSON.stringify([...symbols].sort())}:${JSON.stringify(index.members)}:${JSON.stringify(index.aliases)}`)
     if (includedUnits.has(identity)) continue
     const artifactName = record.artifactName || record.artifactId
     const artifactLabel = [artifactName, record.artifactHash?.slice(0, 12)].filter(Boolean).join(' #')
@@ -236,13 +263,16 @@ export function buildProjectSymbolContext(
       ? `; syntax passed${record.validationMethod ? ` via ${record.validationMethod}` : ''} (structural evidence only)`
       : record.validationStatus === 'UNAVAILABLE' ? '; syntax validation unavailable' : ''
     const symbolText = symbols.length ? `symbols: ${symbols.join(', ')}` : ''
+    const callableText = index.members.length
+      ? `syntax-outlined callables${index.membersTruncated ? ' (partial)' : ''}${index.parserVersion ? ` via tree-sitter-language-pack ${index.parserVersion}` : ''}: ${index.members.slice(0, 12).map(({ name, kind }) => `${name} (${kind})`).join(', ')}${index.members.length > 12 ? ', …' : ''}`
+      : ''
     const relevantAliases = renameCandidateKeys
       ? index.aliases.filter((alias) => renameCandidateKeys.has(`${record.language.trim().toLowerCase()}\u0000${alias.kind}\u0000${alias.oldName}`))
       : index.aliases
     const aliasText = relevantAliases.length
       ? `reviewed rename history for matching language/name/kind only (binding ids are local to their original files; matching spelling/kind does not prove symbol identity, meaning, or behavior): ${relevantAliases.slice(0, 12).map(({ bindingId, oldName, newName, kind }) => `${oldName} → ${newName} [${kind}; binding ${bindingId.slice(0, 8)}]`).join(', ')}`
       : ''
-    const line = `${record.unitName} (${record.language}${artifactVersion}${relationship}${validation}): ${[symbolText, aliasText].filter(Boolean).join('; ')}`
+    const line = `${record.unitName} (${record.language}${artifactVersion}${relationship}${validation}): ${[symbolText, callableText, aliasText].filter(Boolean).join('; ')}`
     if (length + line.length + 1 > maxChars) continue
     lines.push(line)
     includedUnits.add(identity)
