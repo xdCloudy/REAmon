@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
 import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
@@ -6,7 +7,9 @@ import { CODE_UNIT_OBSERVATION_TYPE, normalizeCodeUnit } from '@/lib/reamon/code
 
 interface RouteParams { params: Promise<{ id: string }> }
 
-const PAGE_SIZE = 5000
+// Coverage hashes stored source text, so keep source-bearing DB batches small.
+const PAGE_SIZE = 64
+const DRAFT_PAGE_SIZE = 32
 
 function runKeyFor(attributes: unknown): string | null {
   if (!attributes || typeof attributes !== 'object' || Array.isArray(attributes)) return null
@@ -91,7 +94,7 @@ export async function GET(request: Request, { params }: RouteParams) {
       const artifactIds = [...new Set(validRows.flatMap((row) => row.artifactId ? [row.artifactId] : []))]
       const maintainedSources = unitIds.length && artifactIds.length ? await prisma.reamonMaintainedSource.findMany({
         where: { projectId, codeUnitId: { in: unitIds }, artifactId: { in: artifactIds } },
-        select: { codeUnitId: true, artifactId: true, sourceHash: true, acceptedReviewId: true, symbolIndex: true },
+        select: { codeUnitId: true, artifactId: true, sourceCode: true, sourceHash: true, acceptedReviewId: true, symbolIndex: true },
       }) : []
       const currentSourceHashByUnit = new Map(validRows.map((row) => {
         const attributes = row.attributes && typeof row.attributes === 'object' && !Array.isArray(row.attributes)
@@ -101,6 +104,9 @@ export async function GET(request: Request, { params }: RouteParams) {
         return [row.id, typeof candidate === 'string' && /^[a-f0-9]{64}$/i.test(candidate) ? candidate.toLowerCase() : null] as const
       }))
       const currentMaintainedSources = maintainedSources.filter((source) => {
+        if (!source.sourceHash
+          || !/^[a-f0-9]{64}$/i.test(source.sourceHash)
+          || createHash('sha256').update(source.sourceCode).digest('hex') !== source.sourceHash.toLowerCase()) return false
         const index = source.symbolIndex && typeof source.symbolIndex === 'object' && !Array.isArray(source.symbolIndex)
           ? source.symbolIndex as Record<string, unknown>
           : {}
@@ -130,7 +136,7 @@ export async function GET(request: Request, { params }: RouteParams) {
       const reviewedUnitIds = new Set(reviewedSources.map((source) => source.codeUnitId))
       reviewedUnitCount += reviewedUnitIds.size
 
-      const sourceHashes = [...new Set(reviewedSources.map((source) => source.sourceHash).filter((hash): hash is string => Boolean(hash)))]
+      const sourceHashes = [...new Set(reviewedSources.flatMap((source) => source.sourceHash ? [source.sourceHash.toLowerCase()] : []))]
       const runKeys = [...new Set(reviewedSources.flatMap((source) => {
         const runKey = runKeyByUnit.get(source.codeUnitId)
         return runKey ? [runKey] : []
@@ -138,7 +144,7 @@ export async function GET(request: Request, { params }: RouteParams) {
       const reviewedUnitIdsWithRunKey = reviewedSources.filter((source) => runKeyByUnit.get(source.codeUnitId))
       const expectedValidation = new Map(reviewedUnitIdsWithRunKey.map((source) => {
         const runKey = runKeyByUnit.get(source.codeUnitId) as string
-        return [`${source.codeUnitId}:${source.artifactId}:${runKey}`, source.sourceHash]
+        return [`${source.codeUnitId}:${source.artifactId}:${runKey}`, source.sourceHash?.toLowerCase() ?? null]
       }))
       const candidateDraftWhere = {
         projectId,
@@ -148,26 +154,48 @@ export async function GET(request: Request, { params }: RouteParams) {
         scope: 'file',
         validationStatus: 'PASSED',
       }
-      const [candidateDrafts, legacyDrafts] = sourceHashes.length && runKeys.length ? await Promise.all([
-        prisma.reamonCodeDraft.findMany({
-          where: { ...candidateDraftWhere, draftHash: { in: sourceHashes } },
-          select: { codeUnitId: true, artifactId: true, runKey: true, draftHash: true },
-        }),
-        prisma.reamonCodeDraft.findMany({
-          where: { ...candidateDraftWhere, draftHash: null },
-          select: { codeUnitId: true, artifactId: true, runKey: true },
-        }),
-      ]) : [[], []]
       const matchedValidationUnitIds = new Set<string>()
       const legacyValidationUnitIds = new Set<string>()
-      for (const draft of candidateDrafts) {
-        const key = `${draft.codeUnitId}:${draft.artifactId}:${draft.runKey}`
-        const expectedHash = expectedValidation.get(key)
-        if (expectedHash && draft.draftHash === expectedHash) matchedValidationUnitIds.add(draft.codeUnitId)
+      let draftCursor: string | undefined
+      while (sourceHashes.length && runKeys.length) {
+        const drafts = await prisma.reamonCodeDraft.findMany({
+          where: { ...candidateDraftWhere, draftHash: { in: sourceHashes }, ...(draftCursor ? { id: { gt: draftCursor } } : {}) },
+          orderBy: { id: 'asc' },
+          take: DRAFT_PAGE_SIZE,
+          select: {
+            id: true, codeUnitId: true, artifactId: true, runKey: true, sourceCode: true, draftHash: true,
+            sourceAttempt: { select: { status: true, scope: true, resultSource: true, syntaxValidated: true, validationStatus: true } },
+          },
+        })
+        for (const draft of drafts) {
+          const key = `${draft.codeUnitId}:${draft.artifactId}:${draft.runKey}`
+          const expectedHash = expectedValidation.get(key)
+          const attempt = draft.sourceAttempt
+          if (expectedHash && draft.draftHash?.toLowerCase() === expectedHash
+            && createHash('sha256').update(draft.sourceCode).digest('hex') === expectedHash
+            && attempt?.status === 'SUCCEEDED' && attempt.scope === 'file'
+            && attempt.resultSource === draft.sourceCode && attempt.syntaxValidated === true
+            && attempt.validationStatus === 'PASSED') {
+            matchedValidationUnitIds.add(draft.codeUnitId)
+          }
+        }
+        if (drafts.length < DRAFT_PAGE_SIZE) break
+        draftCursor = drafts.at(-1)?.id
       }
-      for (const draft of legacyDrafts) {
-        const key = `${draft.codeUnitId}:${draft.artifactId}:${draft.runKey}`
-        if (expectedValidation.has(key)) legacyValidationUnitIds.add(draft.codeUnitId)
+      let legacyDraftCursor: string | undefined
+      while (runKeys.length) {
+        const drafts = await prisma.reamonCodeDraft.findMany({
+          where: { ...candidateDraftWhere, draftHash: null, ...(legacyDraftCursor ? { id: { gt: legacyDraftCursor } } : {}) },
+          orderBy: { id: 'asc' },
+          take: DRAFT_PAGE_SIZE,
+          select: { id: true, codeUnitId: true, artifactId: true, runKey: true },
+        })
+        for (const draft of drafts) {
+          const key = `${draft.codeUnitId}:${draft.artifactId}:${draft.runKey}`
+          if (expectedValidation.has(key)) legacyValidationUnitIds.add(draft.codeUnitId)
+        }
+        if (drafts.length < DRAFT_PAGE_SIZE) break
+        legacyDraftCursor = drafts.at(-1)?.id
       }
       validatedUnitCount += matchedValidationUnitIds.size
       unmatchedLegacyValidationUnitCount += [...legacyValidationUnitIds].filter((unitId) => !matchedValidationUnitIds.has(unitId)).length
