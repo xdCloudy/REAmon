@@ -60,8 +60,10 @@ export async function GET(request: Request, { params }: RouteParams) {
     const attributes = record(unit.attributes)
     const relativePath = typeof attributes.relativePath === 'string' ? attributes.relativePath : ''
     const language = typeof attributes.language === 'string' ? attributes.language : ''
+    const selectedOutputHash = typeof attributes.decompiledSourceSha256 === 'string' ? attributes.decompiledSourceSha256.toLowerCase() : ''
     if (!relativePath || !language || relativePath.length > 1000 || relativePath.startsWith('/')
       || relativePath.split('/').some((part) => !part || part === '.' || part === '..' || part.includes('\\'))
+      || !/^[a-f0-9]{64}$/.test(selectedOutputHash)
       || attributes.inputArtifactSha256 !== unit.artifact.sha256) {
       return NextResponse.json({ alternates: [] }, { headers: NO_STORE })
     }

@@ -2125,7 +2125,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
             onKeyDown={(event) => { if (event.key === 'Escape') setCompareAlternatesOpen(false) }}
           >
           <div className={styles.alternateComparisonHeader}>
-            <div><strong>Compare decompiler outputs</strong><span>Only matching input artifact, source path, and language; alternate output hash checked before display.</span></div>
+            <div><strong>Compare decompiler outputs</strong><span>Only matching input artifact, source path, and language; both stored output hashes checked before display.</span></div>
             <button type="button" className={styles.copyButton} onClick={() => setCompareAlternatesOpen((open) => !open)} aria-expanded={compareAlternatesOpen}>
               {compareAlternatesOpen ? 'Hide comparison' : 'Compare providers'}
             </button>

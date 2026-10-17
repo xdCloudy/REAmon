@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { readFile, realpath, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { NextResponse } from 'next/server'
@@ -50,10 +51,21 @@ export async function GET(_request: Request, { params }: RouteParams) {
           { attributes: { path: ['disassemblyArtifactId'], equals: relativePath } },
         ],
       },
-      select: { id: true },
+      select: { id: true, attributes: true },
     })
     if (!linkedCodeUnit) {
       return NextResponse.json({ error: 'Decompiled source not found' }, { status: 404, headers: { 'Cache-Control': 'no-store' } })
+    }
+    const sourceAttributes = linkedCodeUnit.attributes && typeof linkedCodeUnit.attributes === 'object' && !Array.isArray(linkedCodeUnit.attributes)
+      ? linkedCodeUnit.attributes as Record<string, unknown>
+      : {}
+    const isCodeSource = sourceAttributes.codeArtifactId === relativePath
+    const expectedSourceHash = isCodeSource && typeof sourceAttributes.decompiledSourceSha256 === 'string'
+      ? sourceAttributes.decompiledSourceSha256.toLowerCase()
+      : null
+    if (isCodeSource && sourceAttributes.decompiledSourceSha256 !== undefined
+      && (expectedSourceHash === null || !/^[a-f0-9]{64}$/.test(expectedSourceHash))) {
+      return NextResponse.json({ error: 'Stored source integrity metadata is invalid' }, { status: 409, headers: { 'Cache-Control': 'no-store' } })
     }
 
     const configuredRoot = derivedArtifactRoot()
@@ -67,11 +79,16 @@ export async function GET(_request: Request, { params }: RouteParams) {
       return NextResponse.json({ error: 'Decompiled source exceeds the view limit' }, { status: 413, headers: { 'Cache-Control': 'no-store' } })
     }
     const bytes = await readFile(fileRealPath)
+    const actualSourceHash = createHash('sha256').update(bytes).digest('hex')
+    if (expectedSourceHash && actualSourceHash !== expectedSourceHash) {
+      return NextResponse.json({ error: 'Stored source does not match its recorded SHA-256' }, { status: 409, headers: { 'Cache-Control': 'no-store' } })
+    }
     return new NextResponse(new Uint8Array(bytes), {
       headers: {
         'Cache-Control': 'private, no-store',
         'Content-Type': 'text/plain; charset=utf-8',
         'Content-Length': String(bytes.byteLength),
+        'X-Content-SHA256': actualSourceHash,
         'Content-Disposition': `inline; filename="${safeName(codePath[codePath.length - 1])}"`,
         'X-Content-Type-Options': 'nosniff',
       },
