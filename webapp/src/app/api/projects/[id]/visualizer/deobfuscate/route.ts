@@ -649,7 +649,7 @@ export async function POST(request: Request, { params }: RouteParams) {
         `Static transformation: NoFuserEx ${attributes.deobfuscationProviderRevision}; input sha256 ${artifact.sha256}; transformed sha256 ${transformedHash}; artifact ${transformedArtifactId.slice(0, 1000)}; enabled passes ${enabled.join(', ') || 'not recorded'}; disabled passes ${disabled.join(', ') || 'not recorded'}. This intermediate output is not proof of behavior or recovered original source.`,
       )
     }
-    const representationContext = representationLines.filter(Boolean).join('\n').slice(0, 4000)
+    const representationContext = utf8Prefix(representationLines.filter(Boolean).join('\n'), 4 * 1024)
     const classReferences = classReferencesOf(attributes.classReferences).filter((name) => name !== unitName)
     const relatedRows = classReferences.length ? await prisma.reamonObservation.findMany({
       where: {
