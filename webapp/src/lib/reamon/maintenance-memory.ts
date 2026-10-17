@@ -61,11 +61,12 @@ function maintainedIndex(value: unknown): {
   const aliases = Array.isArray(record.aliases) ? record.aliases.flatMap((item) => {
     if (!item || typeof item !== 'object' || Array.isArray(item)) return []
     const alias = item as Record<string, unknown>
+    const validIdentifier = (name: string) => /^[\p{ID_Start}_$][\p{ID_Continue}_$]{0,127}$/u.test(name)
     if (typeof alias.oldName !== 'string' || typeof alias.newName !== 'string'
         || typeof alias.bindingId !== 'string' || !/^[a-f0-9]{24}$/i.test(alias.bindingId)
         || typeof alias.kind !== 'string' || alias.kind.length > 80
-        || !/^[A-Za-z_$][\w$]{0,127}$/.test(alias.oldName)
-        || !/^[A-Za-z_$][\w$]{0,127}$/.test(alias.newName)
+        || !validIdentifier(alias.oldName)
+        || !validIdentifier(alias.newName)
         || alias.oldName === alias.newName) return []
     return [{ bindingId: alias.bindingId.toLowerCase(), oldName: alias.oldName, newName: alias.newName, kind: alias.kind }]
   }).slice(0, 200) : []
@@ -98,11 +99,11 @@ function singleLine(value: string, maxLength: number): string {
 }
 
 const declarationPatterns = [
-  /\b(?:class|interface|enum|record|struct|trait|type|function|func|fun|def|fn)\s+([A-Za-z_$][\w$]*)/g,
-  /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=/g,
-  /\b(?:public|protected|private|internal|static|final|abstract|async|virtual|override|synchronized|inline|export|default|readonly|extern|unsafe)\s+(?:[\w$<>?,.[\]]+\s+)+([A-Za-z_$][\w$]*)\s*\(/g,
-  /\b(?:[A-Za-z_$][\w$:<>,.[\]&?]*\s+|[*&]\s*)+([A-Za-z_$][\w$]*)\s*\([^;{}]*\)\s*(?:const\s*)?(?:noexcept\s*)?\{/g,
-  /\b(?:public|protected|private|internal|static|final|readonly|volatile|const|let|var)\s+(?:[\w$<>?,.[\]]+\s+)+([A-Za-z_$][\w$]*)\s*(?:=|;|,)/g,
+  /\b(?:class|interface|enum|record|struct|trait|type|function|func|fun|def|fn)\s+([\p{ID_Start}_$][\p{ID_Continue}_$]*)/gu,
+  /\b(?:const|let|var)\s+([\p{ID_Start}_$][\p{ID_Continue}_$]*)\s*=/gu,
+  /\b(?:public|protected|private|internal|static|final|abstract|async|virtual|override|synchronized|inline|export|default|readonly|extern|unsafe)\s+(?:[\w$<>?,.[\]]+\s+)+([\p{ID_Start}_$][\p{ID_Continue}_$]*)\s*\(/gu,
+  /\b(?:[\p{ID_Start}_$][\p{ID_Continue}_$:<>,.[\]&?]*\s+|[*&]\s*)+([\p{ID_Start}_$][\p{ID_Continue}_$]*)\s*\([^;{}]*\)\s*(?:const\s*)?(?:noexcept\s*)?\{/gu,
+  /\b(?:public|protected|private|internal|static|final|readonly|volatile|const|let|var)\s+(?:[\w$<>?,.[\]]+\s+)+([\p{ID_Start}_$][\p{ID_Continue}_$]*)\s*(?:=|;|,)/gu,
 ]
 
 function maskNonCode(sourceCode: string, language: string): string {
