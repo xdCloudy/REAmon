@@ -17,6 +17,9 @@ MAX_GORESYM_OUTPUT_BYTES = min(134217728, max(1048576, int(os.environ.get("GORES
 GORESYM_TIMEOUT_SECONDS = min(300, max(15, int(os.environ.get("GORESYM_TIMEOUT_SECONDS", "120"))))
 MAX_UNSTRIP_OUTPUT_BYTES = min(67108864, max(1048576, int(os.environ.get("UNSTRIP_MAX_OUTPUT_BYTES", "33554432"))))
 UNSTRIP_TIMEOUT_SECONDS = min(300, max(15, int(os.environ.get("UNSTRIP_TIMEOUT_SECONDS", "120"))))
+FLOSS_VERSION = "3.1.1"
+MAX_FLOSS_OUTPUT_BYTES = min(67108864, max(1048576, int(os.environ.get("FLOSS_MAX_OUTPUT_BYTES", "16777216"))))
+FLOSS_TIMEOUT_SECONDS = min(300, max(15, int(os.environ.get("FLOSS_TIMEOUT_SECONDS", "120"))))
 STREAM_RESULT_CHUNK_SIZE = 100
 STREAM_RESULT_CHUNK_BYTES = 1024 * 1024
 GHIDRA_HOME = Path(os.environ.get("GHIDRA_HOME", "/opt/ghidra/current")).resolve()
@@ -113,7 +116,7 @@ def client_disconnected(connection):
         return True
 
 def run_ghidra(arguments, log_file, cancel_check, home, timeout_seconds=TIMEOUT_SECONDS, stdout_file=None,
-               max_stdout_bytes=None):
+               max_stdout_bytes=None, extra_env=None):
     environment = {
         **os.environ,
         "HOME": str(home),
@@ -123,6 +126,8 @@ def run_ghidra(arguments, log_file, cancel_check, home, timeout_seconds=TIMEOUT_
         "JAVA_HOME": os.environ.get("JAVA_HOME", "/usr/lib/jvm/java-21-openjdk-amd64"),
         "TMPDIR": str(home / "tmp"),
     }
+    if extra_env:
+        environment.update(extra_env)
     process = subprocess.Popen(arguments, stdin=subprocess.DEVNULL, stdout=stdout_file or log_file,
                                stderr=log_file if stdout_file else subprocess.STDOUT,
                                start_new_session=True, env=environment)
@@ -155,6 +160,107 @@ def run_ghidra(arguments, log_file, cancel_check, home, timeout_seconds=TIMEOUT_
                 pass
             process.wait()
         raise
+
+def native_format_supported_by_floss(path):
+    try:
+        with path.open("rb") as source:
+            magic = source.read(4)
+    except OSError:
+        return False
+    return magic == b"\x7fELF" or magic[:2] == b"MZ" or magic in {
+        b"\xfe\xed\xfa\xce", b"\xce\xfa\xed\xfe", b"\xfe\xed\xfa\xcf", b"\xcf\xfa\xed\xfe",
+        b"\xca\xfe\xba\xbe", b"\xbe\xba\xfe\xca", b"\xca\xfe\xba\xbf", b"\xbf\xba\xfe\xca",
+    }
+
+def normalized_address(value):
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        if value < 0 or value > 0xFFFFFFFFFFFFFFFF:
+            return None
+        value = format(value, "x")
+    if not isinstance(value, str):
+        return None
+    address = value.strip().lower()
+    if ":" in address:
+        address = address.rsplit(":", 1)[-1]
+    address = address.removeprefix("0x").lstrip("0") or "0"
+    return address if re.fullmatch(r"[0-9a-f]{1,16}", address) else None
+
+def extract_floss_strings(input_path, output_path, log_path, cancel_check, home):
+    if not native_format_supported_by_floss(input_path):
+        return {}, {}, None, None
+    executable = os.environ.get("FLOSS_BIN", "/usr/local/bin/floss")
+    if not Path(executable).is_file():
+        return {}, {}, "FLOSS string recovery is unavailable in this analyzer image.", None
+    try:
+        with output_path.open("wb") as output_file, log_path.open("wb") as log_file:
+            return_code = run_ghidra(
+                [executable, "--json", "--no-string-type", "static", "--", str(input_path)],
+                log_file, cancel_check, home, FLOSS_TIMEOUT_SECONDS, output_file, MAX_FLOSS_OUTPUT_BYTES,
+                {
+                    "FLOSS_CACHE_ENABLE": "0",
+                    "FLOSS_SAVE_WORKSPACE": "0",
+                    "FLOSS_CACHE_DIR": str(home / "floss-cache"),
+                    "TMPDIR": os.environ.get("FLOSS_TMPDIR", str(home / "tmp")),
+                },
+            )
+        if return_code != 0:
+            return {}, {}, f"FLOSS string recovery was unavailable (exit code {return_code}).", None
+        if output_path.stat().st_size > MAX_FLOSS_OUTPUT_BYTES:
+            return {}, {}, "FLOSS output exceeded its configured storage limit.", None
+        document = json.loads(output_path.read_text(encoding="utf-8"))
+        metadata = document.get("metadata", {}) if isinstance(document, dict) else {}
+        if not isinstance(metadata, dict) or metadata.get("version") != FLOSS_VERSION:
+            return {}, {}, "FLOSS returned an unexpected or unversioned results document.", None
+        string_groups = document.get("strings", {})
+        if not isinstance(string_groups, dict):
+            return {}, {}, "FLOSS returned a malformed strings section.", None
+
+        recovered = {}
+        truncated = {}
+        total = 0
+        for source_field, kind, address_field in (
+            ("stack_strings", "stack", "function"),
+            ("tight_strings", "tight", "function"),
+            ("decoded_strings", "decoded", "decoding_routine"),
+        ):
+            entries = string_groups.get(source_field, [])
+            if not isinstance(entries, list):
+                continue
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    continue
+                function_address = normalized_address(entry.get(address_field))
+                value = entry.get("string")
+                if not function_address or not isinstance(value, str) or not value.strip():
+                    continue
+                value = value.strip()
+                if len(value) > 512:
+                    value = value[:512]
+                    truncated[function_address] = True
+                item = {"kind": kind, "value": value}
+                encoding = entry.get("encoding")
+                if isinstance(encoding, str) and len(encoding) <= 32:
+                    item["encoding"] = encoding
+                decoded_at = normalized_address(entry.get("decoded_at"))
+                if decoded_at:
+                    item["decodedAt"] = decoded_at
+                rows = recovered.setdefault(function_address, [])
+                if item in rows:
+                    continue
+                if total >= 5000 or len(rows) >= 32:
+                    truncated[function_address] = True
+                    continue
+                rows.append(item)
+                total += 1
+        return recovered, truncated, None, FLOSS_VERSION
+    except AnalysisError as error:
+        if "cancelled" in str(error).lower():
+            raise
+        return {}, {}, str(error)[:240], None
+    except (OSError, ValueError, json.JSONDecodeError) as error:
+        return {}, {}, f"FLOSS output could not be read: {type(error).__name__}.", None
 
 def analyse(body, cancel_check=lambda: False, report_progress=lambda message: None):
     project_id, artifact_id = safe_id(body.get("projectId")), safe_id(body.get("artifactId"))
@@ -197,6 +303,12 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                         return_code = run_ghidra(command, log_file, cancel_check, home)
                     except OSError as error:
                         raise AnalysisError("Ghidra headless analyzer could not be started") from error
+                floss_path = temporary_root / "floss-results.json"
+                floss_log_path = temporary_root / "floss.log"
+                report_progress("Recovering obfuscated native strings with FLOSS")
+                floss_strings_by_function, floss_truncated_by_function, floss_warning, floss_version = extract_floss_strings(
+                    input_path, floss_path, floss_log_path, cancel_check, home,
+                )
                 goresym_path = temporary_root / "goresym.json"
                 goresym_log_path = temporary_root / "goresym.log"
                 go_metadata = None
@@ -559,6 +671,12 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
 
                 if not rows:
                     raise AnalysisError(log_text[-1200:] or "Ghidra found no functions it could decompile")
+                total_metadata_bytes += sum(
+                    len(json.dumps(values, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+                    for values in floss_strings_by_function.values()
+                )
+                if total_bytes + total_assembly_bytes + total_metadata_bytes > MAX_OUTPUT_BYTES:
+                    raise AnalysisError("Ghidra sources and FLOSS string evidence exceeded the configured storage limit")
                 returned = rows[:MAX_RETURNED_UNITS]
                 report_progress(f"Indexing {len(returned)} function results")
                 returned_addresses = {row[1] for row in returned}
@@ -648,6 +766,14 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                         unit["recoveredVariables"] = recovered_variables
                     if variables_truncated:
                         unit["recoveredVariablesTruncated"] = True
+                    floss_key = normalized_address(address)
+                    if floss_version and floss_key:
+                        recovered_floss_strings = floss_strings_by_function.get(floss_key, [])
+                        if recovered_floss_strings:
+                            unit["flossRecoveredStrings"] = recovered_floss_strings
+                        if floss_truncated_by_function.get(floss_key):
+                            unit["flossRecoveredStringsTruncated"] = True
+                        unit["flossVersion"] = floss_version
                     units.append(unit)
 
                 warnings = []
@@ -666,6 +792,8 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                 recovered_variables_truncated = summary.get("recoveredVariablesTruncated") == "true"
                 if recovered_variables_truncated:
                     warnings.append("Ghidra recovered variable evidence reached its configured analysis limit.")
+                if floss_warning:
+                    warnings.append(floss_warning)
                 if unstrip_interfaces_truncated:
                     go_warnings.append("unstrip Go interface dispatch evidence was truncated by an analysis limit.")
                 go_type_rows = go_metadata.get("Types", []) if go_metadata and isinstance(go_metadata.get("Types"), list) else []
@@ -717,8 +845,10 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                     "callGraphTruncated": call_edges_truncated,
                     "sourceAddressMapTruncated": source_address_map_truncated,
                     "recoveredVariablesTruncated": recovered_variables_truncated,
+                    "flossVersion": floss_version,
+                    "flossRecoveredStringsTruncated": any(floss_truncated_by_function.values()),
                     "calls": calls,
-                    "truncated": summary.get("truncated") == "true" or len(rows) > len(units) or call_edges_truncated or source_address_map_truncated or recovered_variables_truncated,
+                    "truncated": summary.get("truncated") == "true" or len(rows) > len(units) or call_edges_truncated or source_address_map_truncated or recovered_variables_truncated or any(floss_truncated_by_function.values()),
                     "units": units,
                     "warnings": " ".join(warnings + go_warnings),
                 }
@@ -759,7 +889,12 @@ class Handler(BaseHTTPRequestHandler):
         if self.path != "/health":
             self._send(404, {"error": "Not found"})
             return
-        self._send(200, {"status": "ready", "provider": "ghidra", "version": "12.1.4"})
+        self._send(200, {
+            "status": "ready",
+            "provider": "ghidra",
+            "version": "12.1.4",
+            "flossVersion": FLOSS_VERSION if Path(os.environ.get("FLOSS_BIN", "/usr/local/bin/floss")).is_file() else None,
+        })
     def do_POST(self):
         if self.path != "/analyze":
             self._send(404, {"error": "Not found"})

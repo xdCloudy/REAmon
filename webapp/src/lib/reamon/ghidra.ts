@@ -15,6 +15,13 @@ interface UnstripGoInterfaceMethod {
   incomplete: boolean
 }
 
+interface FlossRecoveredString {
+  kind: 'stack' | 'tight' | 'decoded'
+  value: string
+  encoding?: string
+  decodedAt?: string
+}
+
 interface GhidraResponse {
   status: 'completed'
   toolVersion: string
@@ -28,13 +35,15 @@ interface GhidraResponse {
   goUnstripTypeDetails?: Array<{ name: string; kind: string; reconstructed: string; source: 'unstrip' }>
   goUnstripTypeDetailsTruncated?: boolean
   goUnstripInterfacesTruncated?: boolean
+  flossVersion?: string | null
+  flossRecoveredStringsTruncated?: boolean
   functionCount: number
   visitedFunctionCount?: number
   failedFunctionCount?: number
   codeBytes?: number
   returnedUnits: number
   truncated: boolean
-  units: Array<{ name: string; address: string; relativePath: string; codeArtifactId: string; disassemblyArtifactId?: string; referencedStrings?: string[]; instructionMnemonics?: string[]; sourceAddressMap?: Array<{ ghidraLineNumber: number; address: string }>; prototype?: string; recoveredVariables?: Array<{ kind: 'parameter' | 'local'; name: string; dataType: string; sizeBytes: number; parameterIndex?: number; storageStartAddress?: string; nameLocked?: boolean; typeLocked?: boolean }>; recoveredVariablesTruncated?: boolean; sourceLanguage?: string; symbolSource?: string; goPackage?: string; goUnstripSignature?: string; goUnstripSourceFile?: string; goUnstripSourceLine?: number; goUnstripInterfaces?: UnstripGoInterfaceMethod[]; goUnstripInterfacesTruncated?: boolean; sizeBytes: number }>
+  units: Array<{ name: string; address: string; relativePath: string; codeArtifactId: string; disassemblyArtifactId?: string; referencedStrings?: string[]; instructionMnemonics?: string[]; sourceAddressMap?: Array<{ ghidraLineNumber: number; address: string }>; prototype?: string; recoveredVariables?: Array<{ kind: 'parameter' | 'local'; name: string; dataType: string; sizeBytes: number; parameterIndex?: number; storageStartAddress?: string; nameLocked?: boolean; typeLocked?: boolean }>; recoveredVariablesTruncated?: boolean; flossVersion?: string; flossRecoveredStrings?: FlossRecoveredString[]; flossRecoveredStringsTruncated?: boolean; sourceLanguage?: string; symbolSource?: string; goPackage?: string; goUnstripSignature?: string; goUnstripSourceFile?: string; goUnstripSourceLine?: number; goUnstripInterfaces?: UnstripGoInterfaceMethod[]; goUnstripInterfacesTruncated?: boolean; sizeBytes: number }>
   calls?: Array<{ fromAddress: string; toAddress: string; fromName: string; toName: string }>
   callCount?: number
   callGraphTruncated?: boolean
@@ -96,6 +105,14 @@ function boundedGoInterfaceMethods(methods: UnstripGoInterfaceMethod[] | undefin
   return { serialized: stored.length ? JSON.stringify(stored) : '', truncated }
 }
 
+function isFlossRecoveredStrings(value: unknown): value is FlossRecoveredString[] {
+  return Array.isArray(value) && value.length <= 32 && value.every((item) => item
+    && (item.kind === 'stack' || item.kind === 'tight' || item.kind === 'decoded')
+    && typeof item.value === 'string' && item.value.length <= 512
+    && (item.encoding === undefined || (typeof item.encoding === 'string' && item.encoding.length <= 32))
+    && (item.decodedAt === undefined || (typeof item.decodedAt === 'string' && /^[0-9a-f]{1,16}$/.test(item.decodedAt))))
+}
+
 function isGhidraResponse(value: unknown): value is GhidraResponse {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const record = value as Record<string, unknown>
@@ -116,6 +133,8 @@ function isGhidraResponse(value: unknown): value is GhidraResponse {
         && item.source === 'unstrip')))
     && (record.goUnstripTypeDetailsTruncated === undefined || typeof record.goUnstripTypeDetailsTruncated === 'boolean')
     && (record.goUnstripInterfacesTruncated === undefined || typeof record.goUnstripInterfacesTruncated === 'boolean')
+    && (record.flossVersion === undefined || record.flossVersion === null || record.flossVersion === '3.1.1')
+    && (record.flossRecoveredStringsTruncated === undefined || typeof record.flossRecoveredStringsTruncated === 'boolean')
     && (record.sourceAddressMapTruncated === undefined || typeof record.sourceAddressMapTruncated === 'boolean')
     && (record.recoveredVariablesTruncated === undefined || typeof record.recoveredVariablesTruncated === 'boolean')
 }
@@ -165,6 +184,9 @@ export async function executeGhidra(input: ToolExecutionInput): Promise<ToolResu
           || (unit.disassemblyArtifactId !== undefined && typeof unit.disassemblyArtifactId !== 'string')
           || (unit.referencedStrings !== undefined && (!Array.isArray(unit.referencedStrings)
             || !unit.referencedStrings.every((value) => typeof value === 'string' && value.length <= 512)))
+          || (unit.flossVersion !== undefined && unit.flossVersion !== '3.1.1')
+          || (unit.flossRecoveredStrings !== undefined && !isFlossRecoveredStrings(unit.flossRecoveredStrings))
+          || (unit.flossRecoveredStringsTruncated !== undefined && typeof unit.flossRecoveredStringsTruncated !== 'boolean')
           || (unit.instructionMnemonics !== undefined && (!Array.isArray(unit.instructionMnemonics)
             || unit.instructionMnemonics.length > 800
             || !unit.instructionMnemonics.every((value) => typeof value === 'string' && /^[A-Za-z][A-Za-z0-9_.]{0,31}$/.test(value))))
@@ -237,6 +259,9 @@ export async function executeGhidra(input: ToolExecutionInput): Promise<ToolResu
         codeArtifactId: unit.codeArtifactId.slice(0, 2000),
         ...(unit.disassemblyArtifactId ? { disassemblyArtifactId: unit.disassemblyArtifactId.slice(0, 2000) } : {}),
         ...(unit.referencedStrings?.length ? { referencedStrings: JSON.stringify(unit.referencedStrings.slice(0, 12).map((value) => value.slice(0, 512))) } : {}),
+        ...(unit.flossVersion ? { flossVersion: unit.flossVersion } : {}),
+        ...(unit.flossRecoveredStrings?.length ? { flossRecoveredStrings: JSON.stringify(unit.flossRecoveredStrings.slice(0, 32)) } : {}),
+        ...(unit.flossRecoveredStringsTruncated ? { flossRecoveredStringsTruncated: true } : {}),
         ...(unit.instructionMnemonics?.length ? { instructionMnemonics: JSON.stringify(unit.instructionMnemonics.slice(0, 800)) } : {}),
         ...(unit.sourceAddressMap?.length ? { sourceAddressMap: JSON.stringify(unit.sourceAddressMap.slice(0, 5000)) } : {}),
         ...(unit.prototype ? { prototype: unit.prototype.slice(0, 2000) } : {}),

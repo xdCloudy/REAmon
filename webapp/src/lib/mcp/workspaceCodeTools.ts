@@ -6,7 +6,7 @@ import prisma from '@/lib/prisma'
 import { assertMcpProjectAccess, requireScope } from '@/lib/mcpAuth'
 import { McpToolError } from '@/lib/mcp/errors'
 import { getActiveWorkspaceImportSelection } from '@/lib/reamon/inventory-query'
-import { CODE_UNIT_OBSERVATION_TYPE, providerVariablesOf } from '@/lib/reamon/code-units'
+import { CODE_UNIT_OBSERVATION_TYPE, flossRecoveredStringsOf, providerVariablesOf } from '@/lib/reamon/code-units'
 import { derivedArtifactRoot, resolveDerivedArtifactPath } from '@/lib/reamon/derived-storage'
 import { enforceRate, type McpContext } from '@/lib/mcp/tools'
 
@@ -628,6 +628,11 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
       locals: text(attributes.localsJson, 4000),
       referencedStrings: textList(attributes.referencedStrings, 50, 512),
       referencedStringsTruncated: attributes.referencedStringsTruncated === true,
+      flossVersion: text(attributes.flossVersion, 32),
+      flossRecoveredStrings: flossRecoveredStringsOf(attributes.flossRecoveredStrings),
+      flossRecoveredStringsTruncated: attributes.flossRecoveredStringsTruncated === true,
+      flossRecoveredStringsSemantics: attributes.flossVersion === '3.1.1'
+        ? 'FLOSS stack, tight-loop, or decoded strings associated with this function address. This is static-analysis evidence, not proof of runtime behavior or intent.' : null,
       referencedStringsSemantics: unit.source === 'reamon-tocode-import'
         ? 'ToCode strings.json entries whose xrefs include this function address. This is address-linked provider evidence, not proof of behavior or intent.'
         : unit.source === 'reamon-ghidra' ? 'Strings referenced by this function according to Ghidra data references; this is provider evidence, not proof of behavior or intent.' : null,

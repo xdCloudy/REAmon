@@ -1483,6 +1483,8 @@ services:
     cpus: ${REAMON_GHIDRA_CPUS:-2}
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=${REAMON_GHIDRA_TMP_SIZE:-4g},mode=1777
+      # FLOSS is a PyInstaller one-file executable; its extracted shared libraries need exec-enabled temporary storage.
+      - /run/floss:rw,exec,nosuid,size=${REAMON_FLOSS_TMP_SIZE:-1g},mode=1777
     environment:
       REAMON_ARTIFACTS_PATH: /data/reamon-artifacts
       REAMON_DERIVED_PATH: /data/reamon-derived
@@ -1492,6 +1494,7 @@ services:
       GHIDRA_MAX_FUNCTIONS: ${REAMON_GHIDRA_MAX_FUNCTIONS:-500}
       GHIDRA_MAX_RETURNED_UNITS: ${REAMON_GHIDRA_MAX_RETURNED_UNITS:-500}
       GHIDRA_JAVA_MAXMEM: ${REAMON_GHIDRA_JAVA_MAXMEM:-3G}
+      FLOSS_TMPDIR: /run/floss
     volumes:
       - reamon_artifacts:/data/reamon-artifacts:ro
       - reamon_derived:/data/reamon-derived:rw

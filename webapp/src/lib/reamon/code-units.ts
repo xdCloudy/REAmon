@@ -3,6 +3,13 @@ export const MAINTAINED_SOURCE_OBSERVATION_TYPE = 'maintained_source'
 export const MAINTAINED_SOURCE_OBSERVATION_SOURCE = 'reamon-maintained-source'
 export const CODE_UNIT_QUERY_LIMIT = 1000
 
+export interface FlossRecoveredString {
+  kind: 'stack' | 'tight' | 'decoded'
+  value: string
+  encoding?: string
+  decodedAt?: string
+}
+
 export interface CodeUnitObservationAttributes {
   unitType: string
   name?: string
@@ -45,6 +52,9 @@ export interface CodeUnitObservationAttributes {
   classReferences?: string[]
   referencedStrings?: string[]
   referencedStringsTruncated?: boolean
+  flossVersion?: string
+  flossRecoveredStrings?: FlossRecoveredString[]
+  flossRecoveredStringsTruncated?: boolean
   importedCalls?: string[]
   fieldReferences?: string[]
   fieldReferencesTruncated?: boolean
@@ -111,6 +121,9 @@ export interface CodeUnit {
   classReferences?: string[]
   referencedStrings?: string[]
   referencedStringsTruncated?: boolean
+  flossVersion?: string | null
+  flossRecoveredStrings?: FlossRecoveredString[]
+  flossRecoveredStringsTruncated?: boolean
   importedCalls?: string[]
   fieldReferences?: string[]
   fieldReferencesTruncated?: boolean
@@ -173,6 +186,29 @@ function sourceAddressMapOf(value: unknown): Array<{ ghidraLineNumber: number; a
         && typeof mapping.address === 'string' && /^[A-Za-z0-9:_-]{1,128}$/.test(mapping.address)
         ? [{ ghidraLineNumber: Number(mapping.ghidraLineNumber), address: mapping.address }]
         : []
+    })
+  } catch {
+    return []
+  }
+}
+
+export function flossRecoveredStringsOf(value: unknown): FlossRecoveredString[] {
+  if (typeof value !== 'string' || value.length > 1_000_000) return []
+  try {
+    const parsed: unknown = JSON.parse(value)
+    if (!Array.isArray(parsed)) return []
+    return parsed.slice(0, 32).flatMap((candidate) => {
+      const item = attributesOf(candidate)
+      if ((item.kind !== 'stack' && item.kind !== 'tight' && item.kind !== 'decoded')
+          || typeof item.value !== 'string' || !item.value.trim() || item.value.length > 512
+          || (item.encoding !== undefined && (typeof item.encoding !== 'string' || item.encoding.length > 32))
+          || (item.decodedAt !== undefined && (typeof item.decodedAt !== 'string' || !/^[0-9a-f]{1,16}$/.test(item.decodedAt)))) return []
+      return [{
+        kind: item.kind,
+        value: item.value,
+        ...(typeof item.encoding === 'string' ? { encoding: item.encoding } : {}),
+        ...(typeof item.decodedAt === 'string' ? { decodedAt: item.decodedAt } : {}),
+      }]
     })
   } catch {
     return []
@@ -313,6 +349,9 @@ export function normalizeCodeUnit(row: CodeUnitObservationRow, options: { includ
     classReferences: classReferencesOf(attributes.classReferences),
     referencedStrings: stringListOf(attributes.referencedStrings, 12, 512),
     referencedStringsTruncated: attributes.referencedStringsTruncated === true,
+    flossVersion: text(attributes.flossVersion, 32),
+    flossRecoveredStrings: flossRecoveredStringsOf(attributes.flossRecoveredStrings),
+    flossRecoveredStringsTruncated: attributes.flossRecoveredStringsTruncated === true,
     importedCalls: stringListOf(attributes.importedCalls, 32, 256),
     fieldReferences: stringListOf(attributes.fieldReferences, 32, 512),
     fieldReferencesTruncated: attributes.fieldReferencesTruncated === true,

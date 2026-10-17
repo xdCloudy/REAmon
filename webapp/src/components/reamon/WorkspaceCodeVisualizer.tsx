@@ -2250,6 +2250,13 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
             <ul>{selectedUnit.referencedStrings?.slice(0, 12).map((value, index) => <li key={`${index}:${value}`}><code>{value}</code></li>)}</ul>
             {selectedUnit.referencedStringsTruncated && <small>Additional references were omitted by an analysis limit.</small>}
           </section>}
+          {(selectedUnit.flossRecoveredStrings?.length ?? 0) > 0 && <section className={styles.classReferences} aria-label="FLOSS recovered strings">
+            <div><strong>Recovered strings</strong><span>FLOSS {selectedUnit.flossVersion || ''} static analysis · stack, tight-loop, or decoded</span></div>
+            <ul>{selectedUnit.flossRecoveredStrings?.slice(0, 16).map((item, index) => <li key={`${item.kind}:${item.value}:${index}`}>
+              <code>{item.value}</code><small>{item.kind}{item.encoding ? ` · ${item.encoding}` : ''}{item.decodedAt ? ` · decoded at ${item.decodedAt}` : ''}</small>
+            </li>)}</ul>
+            <small>These strings are address-associated static-analysis evidence, not proof that the program uses them at runtime. {selectedUnit.flossRecoveredStringsTruncated ? 'The list was truncated by an analysis limit.' : ''}</small>
+          </section>}
           {(selectedUnit.importedCalls?.length ?? 0) > 0 && <section className={styles.classReferences} aria-label="Imported calls from this function">
             <div><strong>Imported calls</strong><span>ToCode reports these external symbols as called by this function</span></div>
             <ul>{selectedUnit.importedCalls?.slice(0, 32).map((value) => <li key={value}><code>{value}</code></li>)}</ul>

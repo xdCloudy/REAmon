@@ -17,11 +17,24 @@ FROM python:3.12-slim
 ARG GHIDRA_VERSION=12.1.4
 ARG GHIDRA_BUILD=20260921
 ARG GHIDRA_SHA256=ddac49f903da9d5bac833e5cc79395098b9c33cfd3279be5f31bd00387d2d4db
+ARG FLOSS_VERSION=3.1.1
+ARG FLOSS_SHA256=40c05a869f34f7e2417b17ca290cc54bd3671ee1f0a2d9bd5103284c01a54666
+ARG TARGETARCH
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl openjdk-21-jdk-headless unzip util-linux && rm -rf /var/lib/apt/lists/* \
  && curl --fail --location --retry 5 --output /tmp/ghidra.zip "https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_${GHIDRA_VERSION}_build/ghidra_${GHIDRA_VERSION}_PUBLIC_${GHIDRA_BUILD}.zip" \
  && echo "${GHIDRA_SHA256}  /tmp/ghidra.zip" | sha256sum --check --status \
  && mkdir -p /opt/ghidra && unzip -q /tmp/ghidra.zip -d /opt/ghidra && rm /tmp/ghidra.zip \
  && mv /opt/ghidra/ghidra_${GHIDRA_VERSION}_PUBLIC /opt/ghidra/current \
+ && if [ "${TARGETARCH}" = "amd64" ]; then \
+      curl --fail --location --retry 5 --output /tmp/floss.zip "https://github.com/mandiant/flare-floss/releases/download/v${FLOSS_VERSION}/floss-v${FLOSS_VERSION}-linux.zip" \
+      && echo "${FLOSS_SHA256}  /tmp/floss.zip" | sha256sum --check --status \
+      && unzip -q /tmp/floss.zip floss -d /tmp/floss-release \
+      && install -D -m 0555 /tmp/floss-release/floss /usr/local/bin/floss \
+      && curl --fail --location --retry 5 --output /tmp/floss-license.txt "https://raw.githubusercontent.com/mandiant/flare-floss/v${FLOSS_VERSION}/LICENSE.txt" \
+      && echo "787008a875d16021fa995a81553a98e481b938ece1f2e8a1910daf8dffaf1300  /tmp/floss-license.txt" | sha256sum --check --status \
+      && install -D -m 0444 /tmp/floss-license.txt /usr/share/licenses/floss/LICENSE.txt \
+      && rm -rf /tmp/floss.zip /tmp/floss-release /tmp/floss-license.txt; \
+    else echo "FLOSS standalone v${FLOSS_VERSION} is only installed for amd64; the analyzer will report it unavailable on ${TARGETARCH}"; fi \
  && chmod -R a+rX /opt/ghidra && apt-get purge -y --auto-remove curl unzip \
  && useradd --system --uid 10002 --no-create-home --shell /usr/sbin/nologin ghidra
 WORKDIR /app
