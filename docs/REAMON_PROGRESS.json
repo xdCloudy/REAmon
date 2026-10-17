@@ -6,8 +6,8 @@
     {
       "name": "Core analysis and visualizer workflow",
       "weight": 20,
-      "completion": 64,
-      "basis": "Imports, provider execution, stored code units, source navigation, and review workflows exist. Native Mach-O analysis stores exact-address Swift/Objective-C metadata and exposes capped, hash-checked ReIPA pseudocode alternatives; the visualizer can compare native provider outputs by canonical function identity across differing saved paths and output-language labels. An isolated pinned Glaurung provider builds and persists bounded native C-like pseudocode. A read-only Ghidra p-code emulator now persists bounded, confidence-labeled control-flow-flattening transitions and exposes them as visualizer navigation evidence; fixture-backed behavior and provider comparison remain open."
+      "completion": 65,
+      "basis": "Imports, provider execution, stored code units, source navigation, and review workflows exist. Native Mach-O analysis stores exact-address Swift/Objective-C metadata and exposes capped, hash-checked ReIPA pseudocode alternatives; the visualizer can compare native provider outputs by canonical function identity across differing saved paths and output-language labels. Isolated pinned Glaurung and Kuna providers persist bounded native C-like pseudocode; Kuna also stores assembly and selected call/jump/reference edges, and its v1.878 analyzer image and end-to-end worker have been exercised against a system ELF binary. A read-only Ghidra p-code emulator now persists bounded, confidence-labeled control-flow-flattening transitions and exposes them as visualizer navigation evidence; representative fixture coverage and provider comparison remain open."
     },
     {
       "name": "Database-grounded project memory and provenance",
@@ -18,8 +18,8 @@
     {
       "name": "Major-language and format decompilation fluency",
       "weight": 30,
-      "completion": 22,
-      "basis": "Several useful Java, .NET, Android, Python, WebAssembly, and native paths exist, and matched arm64 Mach-O methods can now show early ReIPA C-like pseudocode beside Ghidra output; the optional Glaurung provider adds bounded native pseudocode but still needs fixture validation. Many languages remain navigation-only, early, or represented by generic pseudocode."
+      "completion": 23,
+      "basis": "Several useful Java, .NET, Android, Python, WebAssembly, and native paths exist, and matched arm64 Mach-O methods can now show early ReIPA C-like pseudocode beside Ghidra output; optional Glaurung and Kuna providers add bounded native C-like pseudocode, with Kuna also saving assembly and selected graph edges. Kuna's analyzer has built and completed an end-to-end system-ELF smoke run, but both native alternates still need representative fixture comparison and fidelity validation. Many languages remain navigation-only, early, or represented by generic pseudocode."
     },
     {
       "name": "Maintainable editing, review, and export",

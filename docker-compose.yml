@@ -1179,6 +1179,7 @@ services:
       REAMON_GHIDRA_URL: http://ghidra-analyzer:8011
       REAMON_OXIDIZER_URL: http://oxidizer-analyzer:8020
       REAMON_GLAURUNG_URL: http://glaurung-analyzer:8024
+      REAMON_KUNA_URL: http://kuna-analyzer:8025
       REAMON_WASM_URL: http://wasm-analyzer:8012
       REAMON_PYCDC_URL: http://pycdc-analyzer:8014
       REAMON_WEBCRACK_URL: http://webcrack-analyzer:8015
@@ -1629,6 +1630,45 @@ services:
       timeout: 5s
       retries: 3
       start_period: 180s
+    networks:
+      - reamon-analysis
+
+  # Optional native C-like alternate using Kuna's pinned, self-contained CLI.
+  # Keep it isolated; REAmon remains the only persistent project-memory store.
+  kuna-analyzer:
+    build:
+      context: ./analyzers/kuna
+    image: ${REAMON_KUNA_IMAGE:-reamon-kuna:local}
+    container_name: reamon-kuna
+    init: true
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: ${REAMON_KUNA_MEM:-4g}
+    pids_limit: ${REAMON_KUNA_PIDS:-128}
+    cpus: ${REAMON_KUNA_CPUS:-2}
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=${REAMON_KUNA_TMP_SIZE:-2g},mode=1777
+    environment:
+      REAMON_ARTIFACTS_PATH: /data/reamon-artifacts
+      REAMON_DERIVED_PATH: /data/reamon-derived
+      KUNA_TIMEOUT_SECONDS: ${REAMON_KUNA_TIMEOUT_SECONDS:-900}
+      KUNA_MAX_FUNCTIONS: ${REAMON_KUNA_MAX_FUNCTIONS:-200}
+      KUNA_MAX_OUTPUT_BYTES: ${REAMON_KUNA_MAX_OUTPUT_BYTES:-100663296}
+      KUNA_MAX_GRAPH_BYTES: ${REAMON_KUNA_MAX_GRAPH_BYTES:-201326592}
+      KUNA_MAX_FUNCTION_SECONDS: ${REAMON_KUNA_MAX_FUNCTION_SECONDS:-15}
+    volumes:
+      - reamon_artifacts:/data/reamon-artifacts:ro
+      - reamon_derived:/data/reamon-derived:rw
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8025/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
     networks:
       - reamon-analysis
 
