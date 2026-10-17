@@ -1,0 +1,24 @@
+engines_root = "/opt/arlecchino/engines"
+
+[[engine]]
+name = "vineflower"
+type = "names"
+kind = "jar"
+path = "vineflower.jar"
+args = ["{jar}", "{out}"]
+
+[[engine]]
+name = "cfr"
+type = "names"
+kind = "jar"
+path = "cfr.jar"
+args = ["{jar}", "--outputdir", "{out}", "--renamedupmembers", "true", "--renameillegalidents", "true", "--silent", "true"]
+
+[[engine]]
+name = "jadx"
+type = "names"
+kind = "tool"
+path = "jadx/bin/jadx"
+args = ["--no-res", "-d", "{out}", "{jar}"]
+sources_subdir = "sources"
+normalize = "jadx"

@@ -1853,7 +1853,7 @@ export async function POST(request: Request, { params }: RouteParams) {
         // Provider comparison context must not block the selected-source rewrite.
       }
     }
-    const alternateDecompilerProviders = ['reamon-cfr', 'reamon-vineflower', 'reamon-jadx']
+    const alternateDecompilerProviders = ['reamon-arlecchino', 'reamon-cfr', 'reamon-vineflower', 'reamon-jadx']
       .filter((providerId) => providerId !== observation.source)
     if (relativePath && alternateDecompilerProviders.length && contextSources.length < MAX_CONTEXT_UNITS) {
       try {
@@ -1882,10 +1882,12 @@ export async function POST(request: Request, { params }: RouteParams) {
           })))
         const alternateRows = alternateRowsByProvider.flat()
       const providerPriority = observation.source === 'reamon-cfr'
-        ? ['reamon-vineflower', 'reamon-jadx']
+        ? ['reamon-arlecchino', 'reamon-vineflower', 'reamon-jadx']
         : observation.source === 'reamon-vineflower'
-          ? ['reamon-cfr', 'reamon-jadx']
-          : ['reamon-cfr', 'reamon-vineflower']
+          ? ['reamon-arlecchino', 'reamon-cfr', 'reamon-jadx']
+          : observation.source === 'reamon-jadx'
+            ? ['reamon-arlecchino', 'reamon-cfr', 'reamon-vineflower']
+            : ['reamon-cfr', 'reamon-vineflower', 'reamon-jadx']
       const candidatesByProvider = new Map<string, typeof alternateRows[number]>()
       for (const candidate of alternateRows) {
         if (!candidate.taskId || !alternateDecompilerProviders.includes(candidate.source) || candidatesByProvider.has(candidate.source)) continue
@@ -1921,7 +1923,9 @@ export async function POST(request: Request, { params }: RouteParams) {
           if (createHash('sha256').update(candidateBytes).digest('hex') !== expectedOutputHash) continue
 
           let alternateSource = candidateBytes.toString('utf8')
-          let excerptLabel = 'same-file alternate decompiler output'
+          let excerptLabel = candidate.source === 'reamon-arlecchino'
+            ? 'Arlecchino compilability-selected Java variant; canonical member names may be generated labels rather than recovered original names'
+            : 'same-file alternate decompiler output'
           if (scope === 'member') {
             const className = unitName.split(/[.$/]/).at(-1) || unitName
             const memberNames = selectedMemberName === className ? [selectedMemberName, '<init>'] : [selectedMemberName]

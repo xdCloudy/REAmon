@@ -1,0 +1,45 @@
+Arlecchino
+Copyright 2026 Wehrwolfmann
+
+This product is an independent, clean-room implementation of the
+meta-decompilation idea described in:
+  "Java Decompiler Diversity and its Application to Meta-decompilation"
+  Harrand, Soto-Valero, Monperrus, Baudry — arXiv:2005.11315
+No source code from the original "Arlecchino" prototype is used.
+
+It invokes (as separate processes, not linked) third-party tools, each under
+its own license and not bundled in this repository:
+  - Java decompilers: Vineflower, CFR, Procyon, jadx
+  - J2ME emulator:    FreeJ2ME (TASEmulators/freej2me-plus)
+  - Bytecode library: ASM (org.ow2.asm — asm, asm-tree, asm-commons, asm-analysis),
+                      © INRIA, France Telecom, BSD-3-Clause. Used by the bytecode
+                      member-renamer (assets/MemberRenamer.java, which is original
+                      work). `arlecchino setup` downloads the ASM jars from
+                      Maven Central into ~/.arlecchino/engines/asm and compiles the
+                      helper against them; ASM is not vendored in this repository.
+`arlecchino setup` downloads/builds these into ~/.arlecchino/engines on request.
+
+The bytecode member-renamer resolves framework callbacks against a clean-room
+MIDP 2.0 (JSR-118) / CLDC 1.1 (JSR-139) API stub that `arlecchino setup` GENERATES
+(src/midp_stub.rs): only PUBLIC class/interface and method signatures (ABI) are
+emitted, with empty/throwing bodies; no reference-implementation source, and no
+third-party MIDP/CLDC jar, is copied, downloaded, or vendored.
+
+The experimental --per-method merge uses a small built-in Java signature scanner;
+no third-party parser is required.
+
+VENDORED, SEPARATELY LICENSED: midp-rt/
+--------------------------------------
+`midp-rt/` is a fork of MicroEmulator, licensed under the GNU LGPL 2.1 (and, for
+parts, the Apache License 2.0) — see midp-rt/COPYING, midp-rt/COPYING-LGPL-2.1,
+midp-rt/COPYING-AL-2.0, midp-rt/CREDITS and midp-rt/NOTICE, which travel with it.
+It is vendored here as source only, as a git subtree; it is NOT part of the
+Arlecchino binary:
+
+  * nothing under midp-rt/ is compiled, linked or embedded into the Rust crate —
+    Cargo never looks at it, and `exclude` in Cargo.toml keeps it out of the
+    packaged crate as well;
+  * it is built by its own midp-rt/build.sh into midp-rt/build/midp-rt.jar and is
+    invoked ONLY as a separate operating-system process (`java -cp midp-rt.jar ...`);
+  * the LGPL boundary is therefore the PROCESS boundary, and it is unchanged by
+    the two trees living in one repository (mere aggregation).

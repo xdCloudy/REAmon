@@ -1173,6 +1173,7 @@ services:
       REAMON_JADX_URL: http://jadx-analyzer:8010
       REAMON_VINEFLOWER_URL: http://vineflower-analyzer:8021
       REAMON_CFR_URL: http://cfr-analyzer:8022
+      REAMON_ARLECCHINO_URL: http://arlecchino-analyzer:8028
       REAMON_RETDEC_URL: http://retdec-analyzer:8023
       REAMON_DEX_DECOMPILER_URL: http://dex-decompiler-analyzer:8019
       REAMON_ILSPY_URL: http://ilspy-analyzer:8013
@@ -1378,6 +1379,46 @@ services:
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8022/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    networks:
+      - reamon-analysis
+
+  # Arlecchino selects compilable per-class JVM source across pinned decompilers.
+  arlecchino-analyzer:
+    build:
+      context: ./analyzers/arlecchino
+    image: ${REAMON_ARLECCHINO_IMAGE:-reamon-arlecchino:local}
+    container_name: reamon-arlecchino
+    init: true
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+    mem_limit: ${REAMON_ARLECCHINO_MEM:-6g}
+    pids_limit: ${REAMON_ARLECCHINO_PIDS:-128}
+    cpus: ${REAMON_ARLECCHINO_CPUS:-2}
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=${REAMON_ARLECCHINO_TMP_SIZE:-3g},mode=1777
+    environment:
+      REAMON_ARTIFACTS_PATH: /data/reamon-artifacts
+      REAMON_DERIVED_PATH: /data/reamon-derived
+      ARLECCHINO_TIMEOUT_SECONDS: ${REAMON_ARLECCHINO_TIMEOUT_SECONDS:-900}
+      ARLECCHINO_MAX_OUTPUT_BYTES: ${REAMON_ARLECCHINO_MAX_OUTPUT_BYTES:-536870912}
+      ARLECCHINO_MAX_SOURCE_FILES: ${REAMON_ARLECCHINO_MAX_SOURCE_FILES:-20000}
+    volumes:
+      - reamon_artifacts:/data/reamon-artifacts:ro
+      - reamon_derived:/data/reamon-derived:rw
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8028/health', timeout=3)"]
       interval: 30s
       timeout: 5s
       retries: 3
