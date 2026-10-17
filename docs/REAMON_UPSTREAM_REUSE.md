@@ -183,6 +183,13 @@ separate so a plausible name is never treated as proof of behavior.
   reporting. Its Rust core exposes a possible comparison component for exact-build
   workflows; evaluate its CLI/WASM boundary and dependencies before integration. It
   supports selected console and desktop architectures, not arbitrary source recovery.
+  Open issue [#393](https://github.com/encounter/objdiff/issues/393) documents a
+  useful identity edge case: data-pool symbols can share an address, so equal
+  addresses may describe matching bytes even when symbol names differ. A function
+  match view should report byte equality, address equality, and symbol equality as
+  separate evidence and retain ambiguity instead of treating any one dimension as
+  universal identity. This is a design caution from the discussion, not a claim that
+  objdiff's matching policy is incorrect.
 - [ast-grep](https://github.com/ast-grep/ast-grep) offers structural search and
   rewrite over Tree-sitter syntax trees, including visible diffs and interactive
   application. It is a candidate for deterministic, grammar-backed source edits, not
