@@ -78,7 +78,7 @@ export async function GET(_request: Request, { params }: RouteParams) {
     const draft = await prisma.reamonCodeDraft.findFirst({
       where: { projectId, codeUnitId: unitId, artifactId: resolved.artifactId, runKey: resolved.runKey, sourceHash: resolved.sourceHash },
       orderBy: { updatedAt: 'desc' },
-      select: { id: true, sourceCode: true, sourceAttemptId: true, providerName: true, modelIdentifier: true, question: true, scope: true, syntaxValidated: true, validationStatus: true, validationMethod: true, validationMessage: true, updatedAt: true },
+      select: { id: true, sourceCode: true, sourceAttemptId: true, draftHash: true, providerName: true, modelIdentifier: true, question: true, scope: true, syntaxValidated: true, validationStatus: true, validationMethod: true, validationMessage: true, updatedAt: true },
     })
     const attempts = await prisma.reamonCodeAttempt.findMany({
       where: { projectId, codeUnitId: unitId, artifactId: resolved.artifactId, runKey: resolved.runKey, sourceHash: resolved.sourceHash },
@@ -87,7 +87,10 @@ export async function GET(_request: Request, { params }: RouteParams) {
       select: { id: true, providerName: true, modelIdentifier: true, question: true, scope: true, status: true, cancelRequested: true, errorCode: true, errorMessage: true, resultSource: true, syntaxValidated: true, validationStatus: true, validationMethod: true, validationMessage: true, createdAt: true, completedAt: true },
     })
     let trustedDraftValidation = { syntaxValidated: null as boolean | null, validationStatus: null as string | null, validationMethod: null as string | null, validationMessage: null as string | null }
-    if (draft?.sourceAttemptId) {
+    const draftHashMatches = Boolean(draft?.draftHash
+      && /^[a-f0-9]{64}$/i.test(draft.draftHash)
+      && createHash('sha256').update(draft.sourceCode).digest('hex') === draft.draftHash.toLowerCase())
+    if (draft?.sourceAttemptId && draftHashMatches && draft.scope === 'file') {
       const attempt = await prisma.reamonCodeAttempt.findFirst({
         where: {
           id: draft.sourceAttemptId,
@@ -100,10 +103,8 @@ export async function GET(_request: Request, { params }: RouteParams) {
         },
         select: { scope: true, resultSource: true, syntaxValidated: true, validationStatus: true, validationMethod: true, validationMessage: true },
       })
-      const attemptMatchesDraft = attempt?.resultSource && (attempt.scope === 'file'
-        ? attempt.resultSource === draft.sourceCode
-        : attempt.scope === 'member' && draft.sourceCode.includes(attempt.resultSource))
-      if (attemptMatchesDraft && attempt.scope === draft.scope) {
+      const attemptMatchesDraft = Boolean(attempt && attempt.scope === 'file' && attempt.resultSource === draft.sourceCode)
+      if (attemptMatchesDraft && attempt) {
         trustedDraftValidation = {
           syntaxValidated: attempt.syntaxValidated,
           validationStatus: attempt.validationStatus,
@@ -183,10 +184,10 @@ export async function POST(request: Request, { params }: RouteParams) {
         modelIdentifier: attempt.modelIdentifier,
         question: attempt.question,
         scope: attempt.scope,
-        syntaxValidated: attempt.syntaxValidated,
-        validationStatus: attempt.validationStatus,
-        validationMethod: attempt.validationMethod,
-        validationMessage: attempt.validationMessage,
+        syntaxValidated: attempt.scope === 'file' ? attempt.syntaxValidated : null,
+        validationStatus: attempt.scope === 'file' ? attempt.validationStatus : null,
+        validationMethod: attempt.scope === 'file' ? attempt.validationMethod : null,
+        validationMessage: attempt.scope === 'file' ? attempt.validationMessage : null,
       }
     } else if (!authoritative.providerName || authoritative.providerName.length > MAX_METADATA_CHARS
       || !authoritative.modelIdentifier || authoritative.modelIdentifier.length > MAX_METADATA_CHARS) {
