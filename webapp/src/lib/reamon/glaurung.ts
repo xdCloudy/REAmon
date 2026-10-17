@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import type { ToolExecutionInput, ToolObservation, ToolPlugin, ToolPluginManifest, ToolResult } from './types'
 import { readAnalyzerResponse } from './analyzer-response'
+import { nativeFunctionIdentity } from './native-function-identity'
 
 const DEFAULT_TIMEOUT_MS = 15 * 60_000
 const MAX_UNITS = 500
@@ -129,7 +130,8 @@ export async function executeGlaurung(input: ToolExecutionInput): Promise<ToolRe
       label: unit.name.slice(0, 500),
       attributes: {
         unitType: 'function',
-        identity: `${input.artifactId}:${unit.address}`,
+        ...(nativeFunctionIdentity(input.artifactId!, unit.address)
+          ? { identity: nativeFunctionIdentity(input.artifactId!, unit.address)! } : {}),
         name: unit.name.slice(0, 500),
         qualifiedName: unit.name.slice(0, 500),
         address: unit.address,

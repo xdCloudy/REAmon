@@ -12,8 +12,8 @@
     {
       "name": "Database-grounded project memory and provenance",
       "weight": 20,
-      "completion": 47,
-      "basis": "Project-scoped observations, symbols, relationships, drafts, and review records ground AI context. Exact-address ReIPA pseudocode alternatives for matched Swift/Objective-C methods now enter both rewrite context and the MCP code-unit dossier only after same-run task, run-token, path, provider, address, input, and output-hash checks; cross-provider identity and completeness still need broader validation."
+      "completion": 48,
+      "basis": "Project-scoped observations, symbols, relationships, drafts, and review records ground AI context. Common native virtual-address spellings now canonicalize across Ghidra, Glaurung, and Oxidizer for same-artifact function identity. Exact-address ReIPA pseudocode alternatives for matched Swift/Objective-C methods enter both rewrite context and the MCP code-unit dossier only after same-run task, run-token, path, provider, address, input, and output-hash checks; identity coverage and completeness still need broader validation."
     },
     {
       "name": "Major-language and format decompilation fluency",
