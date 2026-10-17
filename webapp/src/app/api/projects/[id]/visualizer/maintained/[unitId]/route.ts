@@ -464,6 +464,11 @@ export async function PUT(request: Request, { params }: RouteParams) {
       : typeof requestBody.expectedSourceHash === 'string' && /^[a-f0-9]{64}$/i.test(requestBody.expectedSourceHash)
         ? requestBody.expectedSourceHash.toLowerCase()
         : ''
+    const restoreReviewId = requestBody.restoreReviewId === undefined || requestBody.restoreReviewId === null
+      ? null
+      : typeof requestBody.restoreReviewId === 'string' && requestBody.restoreReviewId.length <= 128
+        ? requestBody.restoreReviewId
+        : ''
     const reviewRationale = typeof requestBody.reviewRationale === 'string' ? requestBody.reviewRationale.trim() : ''
     if (typeof sourceCode !== 'string' || !sourceCode.trim()) return NextResponse.json({ error: 'Maintained source cannot be empty' }, { status: 400 })
     if (Buffer.byteLength(sourceCode, 'utf8') > MAX_SOURCE_BYTES) return NextResponse.json({ error: 'Maintained source exceeds the save limit' }, { status: 413 })
@@ -471,6 +476,7 @@ export async function PUT(request: Request, { params }: RouteParams) {
       return NextResponse.json({ error: 'Add a review rationale between 12 and 1000 characters before accepting this source.' }, { status: 400 })
     }
     if (expectedSourceHash === '') return NextResponse.json({ error: 'The maintained source version is invalid. Reload it before accepting changes.' }, { status: 400 })
+    if (restoreReviewId === '') return NextResponse.json({ error: 'The accepted source revision is invalid. Reload it before accepting changes.' }, { status: 400 })
 
     const original = await checkedPath(resolved.originalPath)
     let baseSourceHash: string | null = null
@@ -500,14 +506,25 @@ export async function PUT(request: Request, { params }: RouteParams) {
     const now = new Date().toISOString()
     const { rootRealPath, absolute } = await checkedPath(resolved.relativePath)
     const maintainedSourceHash = createHash('sha256').update(sourceCode).digest('hex')
-    const [sourceIndex, currentSource, newAliases] = await Promise.all([
+    const [sourceIndex, currentSource, newAliases, restoredReview] = await Promise.all([
       maintainedSourceIndex(sourceCode, language),
       prisma.reamonMaintainedSource.findUnique({
         where: { projectId_codeUnitId: { projectId, codeUnitId: resolved.unitId } },
         select: { sourceCode: true, sourceHash: true, acceptedReviewId: true, symbolIndex: true },
       }),
       acceptedSafeRenameAliases(projectId, resolved.artifactId, resolved.runKey, resolved.unitId, sourceCode, maintainedSourceHash),
+      restoreReviewId
+        ? prisma.reamonCodeReview.findFirst({
+          where: { id: restoreReviewId, projectId, artifactId: resolved.artifactId, codeUnitId: resolved.unitId, decision: 'ACCEPTED' },
+          select: { maintainedSourceHash: true, sourceSnapshot: true, symbolIndexSnapshot: true },
+        })
+        : Promise.resolve(null),
     ])
+    if (restoreReviewId && (!restoredReview?.sourceSnapshot
+        || Buffer.byteLength(restoredReview.sourceSnapshot, 'utf8') > MAX_SOURCE_BYTES
+        || createHash('sha256').update(restoredReview.sourceSnapshot).digest('hex') !== restoredReview.maintainedSourceHash)) {
+      return NextResponse.json({ error: 'The selected accepted source revision is unavailable or failed its integrity check. Reload a verified revision before accepting.' }, { status: 409 })
+    }
     const currentSourceHash = currentSource
       ? createHash('sha256').update(currentSource.sourceCode).digest('hex')
       : null
@@ -524,9 +541,13 @@ export async function PUT(request: Request, { params }: RouteParams) {
         select: { id: true },
       })
       : null
-    const previousAliases = acceptedSourceReceipt && currentSource?.sourceHash === currentSourceHash
-      ? extractAcceptedRenameAliases(currentSource.symbolIndex)
-      : []
+    const previousAliases = restoredReview
+      ? restoredReview.symbolIndexSnapshot
+        ? extractAcceptedRenameAliases(restoredReview.symbolIndexSnapshot)
+        : []
+      : acceptedSourceReceipt && currentSource?.sourceHash === currentSourceHash
+        ? extractAcceptedRenameAliases(currentSource.symbolIndex)
+        : []
     const aliasesByLineage = new Map<string, (typeof newAliases)[number]>()
     for (const alias of [...previousAliases, ...newAliases]) {
       aliasesByLineage.set(`${alias.bindingId}\u0000${alias.oldName}\u0000${alias.newName}\u0000${alias.kind}`, alias)
@@ -618,6 +639,7 @@ export async function PUT(request: Request, { params }: RouteParams) {
           validationMethod: validation.validation_method,
           validationMessage: validation.validation_message,
           sourceSnapshot: sourceCode,
+          symbolIndexSnapshot: symbolIndex,
         },
         select: { id: true, reviewerId: true, decision: true, rationale: true, maintainedSourceHash: true, validationStatus: true, validationMethod: true, validationMessage: true, createdAt: true },
       })

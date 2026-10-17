@@ -776,6 +776,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
   const [reviewRationale, setReviewRationale] = useState('')
   const [reviewStatus, setReviewStatus] = useState('')
   const [loadingMaintainedRevisionId, setLoadingMaintainedRevisionId] = useState<string | null>(null)
+  const [restoreReviewId, setRestoreReviewId] = useState<string | null>(null)
   const [showReviewDiff, setShowReviewDiff] = useState(false)
   const [transforming, setTransforming] = useState(false)
   const [activeRewriteAttemptId, setActiveRewriteAttemptId] = useState<string | null>(null)
@@ -1150,6 +1151,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
     setReviewRationale('')
     setReviewStatus('')
     setLoadingMaintainedRevisionId(null)
+    setRestoreReviewId(null)
     setShowReviewDiff(false)
     setMaintainedDraft('')
     setSmaliDraft('')
@@ -1214,6 +1216,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
   function startMaintainedFromCurrentDecompilation() {
     if (typeof sourceQuery.data !== 'string') return
     setMaintainedDraft(sourceQuery.data)
+    setRestoreReviewId(null)
     setMaintainedSaved(false)
     setMaintenanceMeta(null)
     setReviewRationale('')
@@ -1682,6 +1685,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
       if (!response.ok || typeof result.sourceCode !== 'string') throw new Error(result.error || 'Could not load the accepted source version')
       if (selectedUnit?.id !== unitId) return
       setMaintainedDraft(result.sourceCode)
+      setRestoreReviewId(review.id)
       setReviewRationale('')
       setMaintainedSaved(false)
       setMaintenanceMeta(null)
@@ -1725,7 +1729,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
       const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/maintained/${encodeURIComponent(selectedUnit.id)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sourceCode: maintainedDraft, reviewRationale, expectedSourceHash: maintainedQuery.data?.sourceHash ?? null }),
+        body: JSON.stringify({ sourceCode: maintainedDraft, reviewRationale, expectedSourceHash: maintainedQuery.data?.sourceHash ?? null, ...(restoreReviewId ? { restoreReviewId } : {}) }),
       })
       const result = await response.json().catch(() => ({})) as { error?: string }
       if (!response.ok) throw new Error(result.error || 'Could not save the maintained source')
@@ -1737,6 +1741,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
         }
       })
       setMaintainedSaved(true)
+      setRestoreReviewId(null)
       setReviewRationale('')
       setReviewStatus('')
       await queryClient.invalidateQueries({ queryKey: ['reamon-code-units', projectId] })

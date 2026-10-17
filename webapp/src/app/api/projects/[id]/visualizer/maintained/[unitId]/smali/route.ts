@@ -230,6 +230,7 @@ export async function PUT(request: Request, { params }: RouteParams) {
           validationMethod: validation.validation_method,
           validationMessage: validation.validation_message,
           sourceSnapshot: sourceCode,
+          symbolIndexSnapshot: { aliases: [] },
         },
         select: { id: true, createdAt: true, validationStatus: true, validationMethod: true, validationMessage: true },
       })

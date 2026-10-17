@@ -132,10 +132,11 @@ AI context checks that pointer, unit, artifact, decision, and hash before using
 maintained source or its symbol index as trusted project memory. Older maintained copies without a
 receipt stay available to inspect, but must be saved through review before they can
 ground future AI names. A proposed rename cannot silently change the project's
-canonical symbol map. Each new accepted review stores its exact source snapshot.
-The visualizer can load an earlier accepted snapshot only after its content hash
-matches the immutable receipt, then stages it for comparison and a new reviewed
-acceptance. Receipts created before snapshots were introduced cannot be restored
+canonical symbol map. Each new accepted review stores exact source and symbol-index
+snapshots, including its reviewed rename history. The visualizer can load an earlier
+accepted snapshot only after its content hash matches the immutable receipt, then
+stages it for comparison and a new reviewed acceptance using that version's naming
+context. Receipts created before snapshots were introduced cannot be restored
 from project memory. Direct revocation of an accepted receipt remains future work.
 
 The acceptance API uses a source-hash compare-and-swap guard for decompiled source and
