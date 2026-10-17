@@ -5,7 +5,12 @@ ARG APKTOOL_VERSION=3.0.3
 ARG APKTOOL_SHA256=dbf930b076c6b9be08d57c449cacefc3bdd6b71ebd59b3066fc0e1f5b14f9423
 ARG BAKSMALI_VERSION=3.0.10
 ARG BAKSMALI_SHA256=37ae4a41a8886e15c20b8362fa4250f96bbdb55e1a608199ad8b5dff068b588f
+ARG SMALI_VERSION=3.0.10
+ARG SMALI_SHA256=32fa0e88a6c397b3922201adf5f3e534fbaed5a663c71d0c558c3ddce0af844a
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl openjdk-21-jre-headless unzip util-linux && rm -rf /var/lib/apt/lists/* \
+ && curl --fail --location --retry 5 --output /tmp/smali-notices.txt "https://raw.githubusercontent.com/baksmali/smali/${SMALI_VERSION}/third_party/NOTICE" \
+ && echo "29da1aadc6709dd25462efa679a659c74ca397ed69acb2d6094078eaa6d33c9e  /tmp/smali-notices.txt" | sha256sum --check --status \
+ && mkdir -p /usr/share/licenses/smali && mv /tmp/smali-notices.txt /usr/share/licenses/smali/THIRD_PARTY_NOTICES.txt \
  && curl --fail --location --retry 5 --output /tmp/jadx.zip "https://github.com/skylot/jadx/releases/download/v${JADX_VERSION}/jadx-${JADX_VERSION}.zip" \
  && echo "${JADX_SHA256}  /tmp/jadx.zip" | sha256sum --check --status \
  && mkdir -p /opt/jadx && unzip -q /tmp/jadx.zip -d /opt/jadx && rm /tmp/jadx.zip \
@@ -13,6 +18,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
  && curl --fail --location --retry 5 --output /tmp/baksmali.jar "https://github.com/baksmali/smali/releases/download/${BAKSMALI_VERSION}/baksmali-${BAKSMALI_VERSION}-fat-release.jar" \
  && echo "${BAKSMALI_SHA256}  /tmp/baksmali.jar" | sha256sum --check --status \
  && mkdir -p /opt/baksmali && mv /tmp/baksmali.jar /opt/baksmali/baksmali.jar && chmod 0444 /opt/baksmali/baksmali.jar \
+ && curl --fail --location --retry 5 --output /tmp/smali.jar "https://github.com/baksmali/smali/releases/download/${SMALI_VERSION}/smali-${SMALI_VERSION}-fat-release.jar" \
+ && echo "${SMALI_SHA256}  /tmp/smali.jar" | sha256sum --check --status \
+ && mkdir -p /opt/smali && mv /tmp/smali.jar /opt/smali/smali.jar && chmod 0444 /opt/smali/smali.jar \
  && curl --fail --location --retry 5 --output /tmp/apktool.jar "https://bitbucket.org/iBotPeaches/apktool/downloads/apktool_${APKTOOL_VERSION}.jar" \
  && echo "${APKTOOL_SHA256}  /tmp/apktool.jar" | sha256sum --check --status \
  && mkdir -p /opt/apktool && mv /tmp/apktool.jar /opt/apktool/apktool.jar && chmod 0444 /opt/apktool/apktool.jar \
@@ -21,6 +29,6 @@ WORKDIR /app
 COPY server.py ./server.py
 COPY entrypoint.sh ./entrypoint.sh
 RUN chmod 0555 /app/server.py /app/entrypoint.sh
-ENV APKTOOL_JAR=/opt/apktool/apktool.jar BAKSMALI_JAR=/opt/baksmali/baksmali.jar JADX_HOME=/opt/jadx JADX_ZIP_MAX_ENTRIES_COUNT=100000 JADX_CONFIG_DIR=/tmp/jadx-config JADX_CACHE_DIR=/tmp/jadx-cache JADX_TMP_DIR=/tmp/jadx-tmp
+ENV APKTOOL_JAR=/opt/apktool/apktool.jar BAKSMALI_JAR=/opt/baksmali/baksmali.jar SMALI_JAR=/opt/smali/smali.jar JADX_HOME=/opt/jadx JADX_ZIP_MAX_ENTRIES_COUNT=100000 JADX_CONFIG_DIR=/tmp/jadx-config JADX_CACHE_DIR=/tmp/jadx-cache JADX_TMP_DIR=/tmp/jadx-tmp
 EXPOSE 8010
 ENTRYPOINT ["/app/entrypoint.sh"]

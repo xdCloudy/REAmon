@@ -1547,8 +1547,9 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sourceCode: smaliDraft, reviewRationale: smaliReviewRationale, expectedSourceHash: smaliSourceQuery.data?.sourceHash ?? null }),
       })
-      const result = await response.json().catch(() => ({})) as { error?: string }
-      if (!response.ok) throw new Error(result.error || 'Could not save Smali source')
+      const result = await response.json().catch(() => ({})) as { error?: string; validationMessage?: string }
+      if (!response.ok) throw new Error([result.error, result.validationMessage].filter(Boolean).join(' ')
+        || 'Could not save Smali source')
       setSmaliSaved(true)
       setSmaliReviewRationale('')
       await queryClient.invalidateQueries({ queryKey: ['reamon-maintained-smali', projectId, selectedUnit.id] })
@@ -2114,6 +2115,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
                   <ol>{smaliSourceQuery.data?.reviews?.map((review) => <li key={review.id}>
                     <span>{review.decision.toLowerCase()} by {review.reviewerId} · {new Date(review.createdAt).toLocaleString()}</span>
                     <p>{review.rationale}</p>
+                    {review.validationStatus && <p>Assembler validation: {review.validationStatus.toLowerCase()}{review.validationMethod ? ` via ${review.validationMethod}` : ''}{review.validationMessage ? ` — ${review.validationMessage}` : ''}</p>}
                     <code>sha256:{review.maintainedSourceHash}</code>
                   </li>)}</ol>
                 </section>}

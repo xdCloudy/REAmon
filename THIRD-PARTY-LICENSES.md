@@ -422,6 +422,7 @@ In compliance with the AGPL-3.0 license, the complete corresponding source code 
 | **CFR 0.152** | Java `.class` and `.jar` decompilation | MIT | https://github.com/leibnitz27/cfr | Release jar SHA-256 is pinned in `analyzers/cfr/Dockerfile`; invoked in the isolated `reamon-cfr` service. License text is copied into `/usr/share/licenses/cfr/LICENSE.md`. |
 | **webcrack** | JavaScript deobfuscation, unminification, and bundle module extraction | MIT | https://github.com/j4k0xb/webcrack | Pinned to v2.16.0 in `analyzers/webcrack/package-lock.json`; executed in the isolated `reamon-webcrack` service. Its bounded string-array evaluation runs in `isolated-vm` 6.2.0. |
 | **isolated-vm** | Memory-limited V8 isolate for webcrack's string-array decoder | MIT | https://github.com/laverdet/isolated-vm | Pinned to 6.2.0 in `analyzers/webcrack/package-lock.json`; only recovered decoder snippets run in the isolate. |
+| **smali 3.0.10** | DEX assembler used for hash-bound structural validation of accepted Android Smali source | BSD-3-Clause | https://github.com/baksmali/smali | Checksum-pinned `smali-3.0.10-fat-release.jar` runs as a separate process in the isolated JADX analyzer. Its pinned upstream `third_party/NOTICE` is checksum-verified and copied to `/usr/share/licenses/smali/THIRD_PARTY_NOTICES.txt` in that image. |
 
 ## License Compatibility Note
 

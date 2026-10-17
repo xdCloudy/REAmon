@@ -12,6 +12,14 @@ const MAX_SOURCE_BYTES = 2 * 1024 * 1024
 const SMALI_CODE_UNIT_PREFIX = 'smali:'
 
 class MaintainedSourceConflict extends Error {}
+class MaintainedSourceValidationRegression extends Error {}
+
+interface SmaliValidation {
+  source_sha256: string
+  validation_status: 'PASSED' | 'FAILED' | 'UNAVAILABLE'
+  validation_method: string | null
+  validation_message: string
+}
 
 function isUniqueConflict(error: unknown): boolean {
   return Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'P2002')
@@ -24,6 +32,39 @@ function object(value: unknown): Record<string, unknown> {
 function isInside(root: string, file: string): boolean {
   const relative = path.relative(root, file)
   return Boolean(relative) && relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)
+}
+
+async function validateSmaliSource(sourceCode: string, expectedHash: string): Promise<SmaliValidation> {
+  const unavailable = (message: string): SmaliValidation => ({
+    source_sha256: expectedHash,
+    validation_status: 'UNAVAILABLE',
+    validation_method: 'smali-assembler',
+    validation_message: message,
+  })
+  const baseUrl = process.env.REAMON_JADX_URL?.trim().replace(/\/$/, '')
+  if (!baseUrl) return unavailable('The isolated Smali validation service is not configured.')
+  try {
+    const response = await fetch(`${baseUrl}/validate-smali`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ sourceCode }),
+      signal: AbortSignal.timeout(20_000),
+      cache: 'no-store',
+    })
+    const payload = await response.json().catch(() => null) as Partial<SmaliValidation> | null
+    if (!response.ok || !payload || payload.source_sha256 !== expectedHash
+      || !['PASSED', 'FAILED', 'UNAVAILABLE'].includes(String(payload.validation_status))) {
+      return unavailable('The isolated Smali assembler returned an incomplete or mismatched validation result.')
+    }
+    return {
+      source_sha256: expectedHash,
+      validation_status: payload.validation_status as SmaliValidation['validation_status'],
+      validation_method: typeof payload.validation_method === 'string' ? payload.validation_method.slice(0, 80) : null,
+      validation_message: typeof payload.validation_message === 'string' ? payload.validation_message.slice(0, 2000) : 'No validation message was returned.',
+    }
+  } catch {
+    return unavailable('The isolated Smali assembler is unavailable; syntax validation was not recorded.')
+  }
 }
 
 async function resolveSmali(projectId: string, unitId: string) {
@@ -68,7 +109,7 @@ export async function GET(_request: Request, { params }: RouteParams) {
       prisma.reamonMaintainedSource.findUnique({ where: { projectId_codeUnitId: { projectId, codeUnitId } }, select: { sourceCode: true, updatedAt: true } }),
       prisma.reamonCodeReview.findMany({
         where: { projectId, codeUnitId }, orderBy: { createdAt: 'desc' }, take: 10,
-        select: { id: true, reviewerId: true, decision: true, rationale: true, maintainedSourceHash: true, createdAt: true },
+        select: { id: true, reviewerId: true, decision: true, rationale: true, maintainedSourceHash: true, validationStatus: true, validationMethod: true, validationMessage: true, createdAt: true },
       }),
     ])
     const sourceCode = saved?.sourceCode ?? await readFile(resolved.file, 'utf8')
@@ -107,18 +148,54 @@ export async function PUT(request: Request, { params }: RouteParams) {
     const name = typeof attributes.qualifiedName === 'string' ? attributes.qualifiedName : resolved.unit.label || unitId
     const codeUnitId = `${SMALI_CODE_UNIT_PREFIX}${unitId}`
     const maintainedSourceHash = createHash('sha256').update(sourceCode).digest('hex')
+    const validation = await validateSmaliSource(sourceCode, maintainedSourceHash)
+    if (validation.validation_status === 'FAILED') {
+      return NextResponse.json({
+        error: 'The Smali assembler rejected this source; it was not accepted.',
+        validationStatus: validation.validation_status,
+        validationMethod: validation.validation_method,
+        validationMessage: validation.validation_message,
+      }, { status: 422, headers: { 'Cache-Control': 'private, no-store' } })
+    }
     const review = await prisma.$transaction(async (tx) => {
       const currentSource = await tx.reamonMaintainedSource.findUnique({
         where: { projectId_codeUnitId: { projectId, codeUnitId } },
-        select: { sourceCode: true, sourceHash: true },
+        select: { sourceCode: true, sourceHash: true, acceptedReviewId: true },
       })
       const currentSourceHash = currentSource
         ? createHash('sha256').update(currentSource.sourceCode).digest('hex')
         : null
       if (currentSourceHash !== expectedSourceHash) throw new MaintainedSourceConflict()
+      if (currentSource?.acceptedReviewId && currentSourceHash) {
+        const currentReceipt = await tx.reamonCodeReview.findFirst({
+          where: {
+            id: currentSource.acceptedReviewId,
+            projectId,
+            artifactId: resolved.unit.artifactId!,
+            codeUnitId,
+            decision: 'ACCEPTED',
+            maintainedSourceHash: currentSourceHash,
+          },
+          select: { validationStatus: true },
+        })
+        if (currentReceipt?.validationStatus === 'PASSED' && validation.validation_status !== 'PASSED') {
+          throw new MaintainedSourceValidationRegression()
+        }
+      }
       const receipt = await tx.reamonCodeReview.create({
-        data: { projectId, artifactId: resolved.unit.artifactId!, codeUnitId, reviewerId: resolved.reviewerId, decision: 'ACCEPTED', rationale: reviewRationale, maintainedSourceHash },
-        select: { id: true, createdAt: true },
+        data: {
+          projectId,
+          artifactId: resolved.unit.artifactId!,
+          codeUnitId,
+          reviewerId: resolved.reviewerId,
+          decision: 'ACCEPTED',
+          rationale: reviewRationale,
+          maintainedSourceHash,
+          validationStatus: validation.validation_status,
+          validationMethod: validation.validation_method,
+          validationMessage: validation.validation_message,
+        },
+        select: { id: true, createdAt: true, validationStatus: true, validationMethod: true, validationMessage: true },
       })
       const sourceData = { artifactId: resolved.unit.artifactId!, unitName: `${name} (Smali)`, language: 'Smali', sourceCode, sourceHash: maintainedSourceHash, acceptedReviewId: receipt.id, symbolIndex: [], relativePath: resolved.relativePath }
       if (currentSource) {
@@ -132,8 +209,20 @@ export async function PUT(request: Request, { params }: RouteParams) {
       }
       return receipt
     })
-    return NextResponse.json({ saved: true, review: { id: review.id, createdAt: review.createdAt.toISOString() } }, { headers: { 'Cache-Control': 'private, no-store' } })
+    return NextResponse.json({
+      saved: true,
+      review: {
+        id: review.id,
+        createdAt: review.createdAt.toISOString(),
+        validationStatus: review.validationStatus,
+        validationMethod: review.validationMethod,
+        validationMessage: review.validationMessage,
+      },
+    }, { headers: { 'Cache-Control': 'private, no-store' } })
   } catch (error) {
+    if (error instanceof MaintainedSourceValidationRegression) {
+      return NextResponse.json({ error: 'This Smali class has an assembler-validated accepted version. The assembler could not confirm the new source, so the accepted version was kept unchanged.' }, { status: 503 })
+    }
     if (error instanceof MaintainedSourceConflict || isUniqueConflict(error)) {
       return NextResponse.json({ error: 'The maintained Smali source changed after you opened it. Reload the current version and review it before saving again.' }, { status: 409 })
     }

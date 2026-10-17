@@ -28,6 +28,7 @@ MAX_METHOD_SIGNATURE_INSTRUCTIONS = 128
 MAX_REBUILD_REQUEST_BYTES = 20 * 1024 * 1024
 MAX_REBUILD_SOURCE_FILES = 2000
 MAX_REBUILD_SOURCE_BYTES = 16 * 1024 * 1024
+MAX_SMALI_VALIDATION_BYTES = 2 * 1024 * 1024
 SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
 PACKAGE_PATTERN = re.compile(r"^\s*package\s+([A-Za-z0-9_.$]+)\s*;", re.MULTILINE)
 TYPE_PATTERN = re.compile(r"\b(?:class|interface|enum|record)\s+([A-Za-z_$][A-Za-z0-9_$]*)")
@@ -35,6 +36,7 @@ SMALI_CLASS_DESCRIPTOR = re.compile(r"L([A-Za-z0-9_$/]+);")
 SMALI_METHOD_DECLARATION = re.compile(r"^\s*\.method\b.*?\s([^\s(]+\([^)]*\)\S+)\s*$")
 SMALI_METHOD_INVOKE = re.compile(r"^\s*invoke-(?!custom\b)\S*\s+\{[^}]*\},\s*(L[^;]+;->[^\s,]+)")
 SLOTS = threading.BoundedSemaphore(2)
+SMALI_VALIDATION_SLOTS = threading.BoundedSemaphore(2)
 
 class AnalysisError(Exception):
     pass
@@ -496,6 +498,68 @@ def analysis_log(stderr_bytes):
     lines = stderr_bytes.decode("utf-8", errors="replace").splitlines()
     return "\n".join(line for line in lines if not line.startswith("Picked up JAVA_TOOL_OPTIONS:")).strip()
 
+def validate_smali_source(body):
+    source = body.get("sourceCode")
+    if not isinstance(source, str) or not source.strip():
+        raise AnalysisError("Smali source cannot be empty")
+    try:
+        source_bytes = source.encode("utf-8")
+    except UnicodeEncodeError as error:
+        raise AnalysisError("Smali source must be valid UTF-8 text") from error
+    if len(source_bytes) > MAX_SMALI_VALIDATION_BYTES:
+        raise AnalysisError("Smali source exceeds the 2 MiB validation limit")
+    source_sha256 = hashlib.sha256(source_bytes).hexdigest()
+    method = "smali-3.0.10-assemble-api35"
+    if not SMALI_VALIDATION_SLOTS.acquire(blocking=False):
+        return {
+            "source_sha256": source_sha256,
+            "validation_status": "UNAVAILABLE",
+            "validation_method": method,
+            "validation_message": "The Smali assembler is busy; syntax validation was not recorded.",
+        }
+    try:
+        with tempfile.TemporaryDirectory(prefix="reamon-smali-validate-") as temp_dir:
+            source_path = Path(temp_dir) / "source.smali"
+            output_path = Path(temp_dir) / "classes.dex"
+            source_path.write_bytes(source_bytes)
+            try:
+                result = subprocess.run(
+                    ["java", "-Xmx512m", "-jar", os.environ.get("SMALI_JAR", "/opt/smali/smali.jar"),
+                     "assemble", "--api", "35", "-o", str(output_path), str(source_path)],
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    timeout=15,
+                    check=False,
+                    cwd=temp_dir,
+                    env={**os.environ, "JAVA_TOOL_OPTIONS": "-Xmx512m"},
+                    start_new_session=True,
+                )
+            except subprocess.TimeoutExpired:
+                return {
+                    "source_sha256": source_sha256,
+                    "validation_status": "UNAVAILABLE",
+                    "validation_method": method,
+                    "validation_message": "The Smali assembler exceeded its 15 second limit; syntax validation was not recorded.",
+                }
+            except OSError as error:
+                raise AnalysisError("The Smali assembler could not be started") from error
+            output = ((result.stderr or b"") + (result.stdout or b"")).decode("utf-8", errors="replace")
+            output = re.sub(r"[\r\n\t ]+", " ", output.replace("\x00", " ")).strip()[:1000]
+            passed = result.returncode == 0 and output_path.is_file() and output_path.stat().st_size > 0
+            return {
+                "source_sha256": source_sha256,
+                "validation_status": "PASSED" if passed else "FAILED",
+                "validation_method": method,
+                "validation_message": (
+                    "Smali 3.0.10 assembled the class to DEX without executing it. This is structural evidence, not behavioral equivalence."
+                    if passed else
+                    f"Smali 3.0.10 could not assemble this class: {output or 'assembler exited without diagnostic output'}"
+                ),
+            }
+    finally:
+        SMALI_VALIDATION_SLOTS.release()
+
 def analyse(body, cancel_check=lambda: False, report_progress=lambda message: None):
     project_id, artifact_id = safe_id(body.get("projectId")), safe_id(body.get("artifactId"))
     task_id, run_id = safe_id(body.get("taskId")), safe_id(body.get("runId"))
@@ -808,15 +872,15 @@ class Handler(BaseHTTPRequestHandler):
         if self.path != "/health":
             self._send(404, {"error": "Not found"})
             return
-        self._send(200, {"status": "ready", "provider": "jadx", "version": "1.5.6", "apktoolVersion": "3.0.3"})
+        self._send(200, {"status": "ready", "provider": "jadx", "version": "1.5.6", "apktoolVersion": "3.0.3", "smaliVersion": "3.0.10"})
     def do_POST(self):
-        if self.path not in ("/analyze", "/rebuild"):
+        if self.path not in ("/analyze", "/rebuild", "/validate-smali"):
             self._send(404, {"error": "Not found"})
             return
         stream_started = False
         try:
             length = int(self.headers.get("Content-Length", "0"))
-            limit = MAX_REBUILD_REQUEST_BYTES if self.path == "/rebuild" else 16 * 1024
+            limit = MAX_REBUILD_REQUEST_BYTES if self.path == "/rebuild" else 16 * 1024 * 1024 if self.path == "/validate-smali" else 16 * 1024
             if length < 1 or length > limit:
                 raise AnalysisError(f"Request body must be between 1 byte and {limit} bytes")
             body = json.loads(self.rfile.read(length))
@@ -824,6 +888,9 @@ class Handler(BaseHTTPRequestHandler):
                 raise AnalysisError("Request body must be an object")
             if self.path == "/rebuild":
                 self._send(200, rebuild_apktool_project(body))
+                return
+            if self.path == "/validate-smali":
+                self._send(200, validate_smali_source(body))
                 return
             if "application/x-ndjson" in self.headers.get("Accept", ""):
                 self._start_stream()
