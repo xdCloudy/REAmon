@@ -1055,6 +1055,7 @@ def _reamon_tree_sitter_source_index(
         excluded_markers = ("expression", "statement", "pattern", "reference", "call", "invocation", "import", "package")
         symbols: set[str] = set()
         members: list[dict[str, Any]] = []
+        members_truncated = False
         stack = [root]
         while stack:
             node = stack.pop()
@@ -1069,17 +1070,20 @@ def _reamon_tree_sitter_source_index(
                 if kind and body is not None:
                     name = _reamon_member_name(node, language)
                     if name:
-                        members.append({
-                            "name": name,
-                            "kind": kind,
-                            "start_byte": node.start_byte,
-                            "end_byte": node.end_byte,
-                            "line": node.start_point[0] + 1,
-                            "source_bytes": node.end_byte - node.start_byte,
-                        })
+                        if len(members) < 10_000:
+                            members.append({
+                                "name": name,
+                                "kind": kind,
+                                "start_byte": node.start_byte,
+                                "end_byte": node.end_byte,
+                                "line": node.start_point[0] + 1,
+                                "source_bytes": node.end_byte - node.start_byte,
+                            })
+                        else:
+                            members_truncated = True
             stack.extend(reversed(node.named_children))
         members.sort(key=lambda member: (member["start_byte"], member["end_byte"]))
-        return sorted(symbols, key=str.casefold)[:512], members[:10_000], len(members) > 10_000
+        return sorted(symbols, key=str.casefold)[:512], members, members_truncated
     except Exception as exc:  # noqa: BLE001
         logger.debug(f"REAmon source indexing unavailable for {language}: {exc}")
         return None
@@ -1390,6 +1394,7 @@ def _reamon_member_outline(parser, source: str, language: str, limit: int = 10_0
         encoded = source.encode("utf-8")
         root = parser.parse(encoded).root_node
         members = []
+        truncated = False
         stack = [root]
         while stack:
             node = stack.pop()
@@ -1398,17 +1403,20 @@ def _reamon_member_outline(parser, source: str, language: str, limit: int = 10_0
             if kind and body is not None:
                 name = _reamon_member_name(node, language)
                 if name:
-                    members.append({
-                        "name": name,
-                        "kind": kind,
-                        "start_byte": node.start_byte,
-                        "end_byte": node.end_byte,
-                        "line": node.start_point[0] + 1,
-                        "source_bytes": node.end_byte - node.start_byte,
-                    })
+                    if len(members) < limit:
+                        members.append({
+                            "name": name,
+                            "kind": kind,
+                            "start_byte": node.start_byte,
+                            "end_byte": node.end_byte,
+                            "line": node.start_point[0] + 1,
+                            "source_bytes": node.end_byte - node.start_byte,
+                        })
+                    else:
+                        truncated = True
             stack.extend(reversed(node.named_children))
         members.sort(key=lambda member: (member["start_byte"], member["end_byte"]))
-        return members[:limit], len(members) > limit
+        return members, truncated
     except Exception as exc:  # noqa: BLE001
         logger.debug(f"REAmon member outline unavailable for {language}: {exc}")
         return [], False
