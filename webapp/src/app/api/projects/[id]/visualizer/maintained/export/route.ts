@@ -170,7 +170,7 @@ export async function GET(request: Request, { params }: RouteParams) {
     const reviewClient = (prisma as typeof prisma & { reamonCodeReview?: typeof prisma.reamonCodeReview }).reamonCodeReview
     const reviews = reviewIds.length && reviewClient ? await reviewClient.findMany({
       where: { projectId, id: { in: reviewIds } },
-      select: { id: true, artifactId: true, codeUnitId: true, reviewerId: true, decision: true, maintainedSourceHash: true, validationStatus: true, validationMethod: true, createdAt: true },
+      select: { id: true, artifactId: true, codeUnitId: true, reviewerId: true, decision: true, maintainedSourceHash: true, symbolIndexSnapshot: true, validationStatus: true, validationMethod: true, createdAt: true },
     }) : []
     const reviewById = new Map(reviews.map((review) => [review.id, review]))
     const exportableMaintainedSources = maintainedSourceRows.filter((source) => {
@@ -352,12 +352,14 @@ export async function GET(request: Request, { params }: RouteParams) {
         && maintainedReceipt.codeUnitId === unit.id
         && maintainedReceipt.decision === 'ACCEPTED'
         && maintainedReceipt.maintainedSourceHash === maintainedSha256)
-      if (task.provider?.pluginId === 'reamon-ghidra' && maintainedReceiptVerified && maintainedSource && maintainedReceipt) {
+      if (task.provider?.pluginId === 'reamon-ghidra' && maintainedReceiptVerified && maintainedSource
+          && maintainedReceipt?.symbolIndexSnapshot !== null && maintainedReceipt?.symbolIndexSnapshot !== undefined) {
+        const acceptedSymbolIndex = maintainedReceipt.symbolIndexSnapshot
         const address = typeof attributes.address === 'string' ? attributes.address
           : typeof attributes.startAddress === 'string' ? attributes.startAddress : ''
-        const acceptedSymbolNames = maintainedSymbolNames(maintainedSource.symbolIndex)
-        const acceptedRenameHistory = maintainedRenameAliases(maintainedSource.symbolIndex)
-        const functionDeclaration = uniqueNativeFunctionDeclaration(maintainedSource.symbolIndex)
+        const acceptedSymbolNames = maintainedSymbolNames(acceptedSymbolIndex)
+        const acceptedRenameHistory = maintainedRenameAliases(acceptedSymbolIndex)
+        const functionDeclaration = uniqueNativeFunctionDeclaration(acceptedSymbolIndex)
         if (address && (acceptedSymbolNames.length || acceptedRenameHistory.length || functionDeclaration)) nativeAnnotationEntries.push({
           codeUnitId: unit.id,
           stableKey: unit.stableKey,

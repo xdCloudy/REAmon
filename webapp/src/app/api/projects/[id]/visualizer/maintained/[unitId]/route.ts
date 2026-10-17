@@ -310,12 +310,12 @@ export async function GET(request: Request, { params }: RouteParams) {
           decision: 'ACCEPTED',
           maintainedSourceHash: sourceHash,
         },
-        select: { id: true },
+        select: { id: true, symbolIndexSnapshot: true },
       }) : null
       const acceptedRenameAliases = acceptedReceipt && savedSource.sourceHash === sourceHash
-        ? extractAcceptedRenameAliases(savedSource.symbolIndex)
+        ? extractAcceptedRenameAliases(acceptedReceipt.symbolIndexSnapshot)
         : []
-      const storedLineage = plainObject(plainObject(savedSource.symbolIndex).sourceLineage)
+      const storedLineage = plainObject(plainObject(acceptedReceipt?.symbolIndexSnapshot).sourceLineage)
       const baseSourceHash = typeof storedLineage.baseSourceHash === 'string'
           && /^[a-f0-9]{64}$/i.test(storedLineage.baseSourceHash)
         ? storedLineage.baseSourceHash.toLowerCase()
@@ -538,7 +538,7 @@ export async function PUT(request: Request, { params }: RouteParams) {
           decision: 'ACCEPTED',
           maintainedSourceHash: currentSourceHash,
         },
-        select: { id: true },
+        select: { id: true, symbolIndexSnapshot: true },
       })
       : null
     const previousAliases = restoredReview
@@ -546,7 +546,7 @@ export async function PUT(request: Request, { params }: RouteParams) {
         ? extractAcceptedRenameAliases(restoredReview.symbolIndexSnapshot)
         : []
       : acceptedSourceReceipt && currentSource?.sourceHash === currentSourceHash
-        ? extractAcceptedRenameAliases(currentSource.symbolIndex)
+        ? extractAcceptedRenameAliases(acceptedSourceReceipt.symbolIndexSnapshot)
         : []
     const aliasesByLineage = new Map<string, (typeof newAliases)[number]>()
     for (const alias of [...previousAliases, ...newAliases]) {
