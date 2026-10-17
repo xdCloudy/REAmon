@@ -13,6 +13,15 @@ RUN cargo install --locked --version "${UNSTRIP_VERSION}" unstrip \
  && mkdir -p /unstrip-licenses \
  && cp /usr/local/cargo/registry/src/index.crates.io-*/unstrip-${UNSTRIP_VERSION}/LICENSE-* /unstrip-licenses/
 
+FROM rust:1.90-bookworm AS reipa-build
+ARG REIPA_COMMIT=b0d4759451ed20796892a059fa53d9dbb130af61
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
+ && rm -rf /var/lib/apt/lists/* \
+ && git clone --filter=blob:none https://github.com/JRBusiness/REipa.git /src/reipa \
+ && git -C /src/reipa checkout --detach "${REIPA_COMMIT}"
+COPY reipa-Cargo.lock /src/reipa/reipa/Cargo.lock
+RUN cd /src/reipa/reipa && cargo build --release --locked --bin reipa
+
 FROM python:3.12-slim
 ARG GHIDRA_VERSION=12.1.4
 ARG GHIDRA_BUILD=20260921
@@ -45,6 +54,8 @@ COPY --from=goresym-build /goresym /usr/local/bin/goresym
 COPY --from=goresym-build /src/GoReSym/LICENSE /usr/share/licenses/goresym/LICENSE
 COPY --from=unstrip-build /usr/local/cargo/bin/unstrip /usr/local/bin/unstrip
 COPY --from=unstrip-build /unstrip-licenses/ /usr/share/licenses/unstrip/
+COPY --from=reipa-build /src/reipa/reipa/target/release/reipa /usr/local/bin/reipa
+COPY --from=reipa-build /src/reipa/LICENSE /usr/share/licenses/reipa/LICENSE
 RUN chmod 0555 /app/server.py /app/entrypoint.sh /app/scripts/ReamonExport.java
 ENV GHIDRA_HOME=/opt/ghidra/current GHIDRA_INSTALL_DIR=/opt/ghidra/current JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
 EXPOSE 8011

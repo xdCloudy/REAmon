@@ -6,8 +6,8 @@
     {
       "name": "Core analysis and visualizer workflow",
       "weight": 20,
-      "completion": 60,
-      "basis": "Imports, provider execution, stored code units, source navigation, and review workflows exist; provider and format coverage is still incomplete."
+      "completion": 61,
+      "basis": "Imports, provider execution, stored code units, source navigation, and review workflows exist. Native Mach-O analysis now adds exact-address Swift/Objective-C symbol enrichment and artifact-run type metadata for rewrite context; broader provider and format coverage remains incomplete."
     },
     {
       "name": "Database-grounded project memory and provenance",

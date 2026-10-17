@@ -994,6 +994,12 @@ export async function POST(request: Request, { params }: RouteParams) {
     const providerGoMetadata = providerGoMetadataRows
       .map((row) => plainObject(row.attributes))
       .find((attributes) => attributes.language === 'Go')
+    const providerSwiftMetadata = providerGoMetadataRows
+      .map((row) => plainObject(row.attributes))
+      .find((attributes) => attributes.language === 'Swift' && attributes.symbolSource === 'ReIPA')
+    const providerObjcMetadata = providerGoMetadataRows
+      .map((row) => plainObject(row.attributes))
+      .find((attributes) => attributes.language === 'Objective-C' && attributes.symbolSource === 'ReIPA')
     const providerToCodeMetadata = providerGoMetadataRows
       .map((row) => plainObject(row.attributes))
       .find((attributes) => attributes.language === 'ToCode'
@@ -1143,7 +1149,43 @@ export async function POST(request: Request, { params }: RouteParams) {
         },
       )
       : ''
-    const combinedProviderSymbolContext = [providerSymbolContext, providerGoTypeContext, providerUnstripTypeContext, providerToCodeTypeContext].filter(Boolean).join('\n')
+    const providerSwiftTypeContext = observation.taskId
+      && selectedProviderAttributes.sourceLanguage === 'Swift'
+      && selectedProviderAttributes.symbolSource === 'ReIPA'
+      ? buildProviderTypeContext(
+        providerSwiftMetadata?.typeDetails,
+        bytes.toString('utf8'),
+        typeof selectedProviderAttributes.prototype === 'string' ? selectedProviderAttributes.prototype : undefined,
+        selectedProviderVariables.map((variable) => variable.dataType),
+        {
+          provider: 'ReIPA',
+          artifactName: artifact.originalName,
+          artifactHash: artifact.sha256,
+          taskId: observation.taskId,
+          functionAddress: typeof selectedProviderAttributes.address === 'string' ? selectedProviderAttributes.address : undefined,
+          truncated: providerSwiftMetadata?.typeDetailsTruncated === true,
+        },
+      )
+      : ''
+    const providerObjcTypeContext = observation.taskId
+      && selectedProviderAttributes.sourceLanguage === 'Objective-C'
+      && selectedProviderAttributes.symbolSource === 'ReIPA'
+      ? buildProviderTypeContext(
+        providerObjcMetadata?.typeDetails,
+        bytes.toString('utf8'),
+        typeof selectedProviderAttributes.prototype === 'string' ? selectedProviderAttributes.prototype : undefined,
+        selectedProviderVariables.map((variable) => variable.dataType),
+        {
+          provider: 'ReIPA Objective-C runtime metadata',
+          artifactName: artifact.originalName,
+          artifactHash: artifact.sha256,
+          taskId: observation.taskId,
+          functionAddress: typeof selectedProviderAttributes.address === 'string' ? selectedProviderAttributes.address : undefined,
+          truncated: providerObjcMetadata?.typeDetailsTruncated === true,
+        },
+      )
+      : ''
+    const combinedProviderSymbolContext = [providerSymbolContext, providerGoTypeContext, providerUnstripTypeContext, providerToCodeTypeContext, providerSwiftTypeContext, providerObjcTypeContext].filter(Boolean).join('\n')
     const memberExcerptCache = new Map<string, { members: OutlineMember[]; truncated: boolean }>()
     const outlinedMethodExcerpt = async (name: string, source: Buffer, sourceLanguage: string, relatedArtifactId: string, persistOutline: boolean) => {
       const candidate = similarDexMethodByName.get(name)

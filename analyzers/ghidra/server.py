@@ -17,6 +17,12 @@ MAX_GORESYM_OUTPUT_BYTES = min(134217728, max(1048576, int(os.environ.get("GORES
 GORESYM_TIMEOUT_SECONDS = min(300, max(15, int(os.environ.get("GORESYM_TIMEOUT_SECONDS", "120"))))
 MAX_UNSTRIP_OUTPUT_BYTES = min(67108864, max(1048576, int(os.environ.get("UNSTRIP_MAX_OUTPUT_BYTES", "33554432"))))
 UNSTRIP_TIMEOUT_SECONDS = min(300, max(15, int(os.environ.get("UNSTRIP_TIMEOUT_SECONDS", "120"))))
+REIPA_COMMIT = "b0d4759451ed20796892a059fa53d9dbb130af61"
+REIPA_TIMEOUT_SECONDS = min(180, max(15, int(os.environ.get("REIPA_TIMEOUT_SECONDS", "60"))))
+MAX_REIPA_SYMBOL_BYTES = min(67108864, max(1048576, int(os.environ.get("REIPA_MAX_SYMBOL_BYTES", "33554432"))))
+MAX_REIPA_TYPE_BYTES = min(8388608, max(262144, int(os.environ.get("REIPA_MAX_TYPE_BYTES", "2097152"))))
+MAX_REIPA_OBJC_BYTES = min(33554432, max(262144, int(os.environ.get("REIPA_MAX_OBJC_BYTES", "8388608"))))
+MAX_REIPA_TYPES = 1000
 FLOSS_VERSION = "3.1.1"
 MAX_FLOSS_OUTPUT_BYTES = min(67108864, max(1048576, int(os.environ.get("FLOSS_MAX_OUTPUT_BYTES", "16777216"))))
 FLOSS_TIMEOUT_SECONDS = min(300, max(15, int(os.environ.get("FLOSS_TIMEOUT_SECONDS", "120"))))
@@ -171,6 +177,155 @@ def native_format_supported_by_floss(path):
         b"\xfe\xed\xfa\xce", b"\xce\xfa\xed\xfe", b"\xfe\xed\xfa\xcf", b"\xcf\xfa\xed\xfe",
         b"\xca\xfe\xba\xbe", b"\xbe\xba\xfe\xca", b"\xca\xfe\xba\xbf", b"\xbf\xba\xfe\xca",
     }
+
+def is_macho_input(path):
+    try:
+        with path.open("rb") as source:
+            magic = source.read(4)
+    except OSError:
+        return False
+    return magic in {
+        b"\xfe\xed\xfa\xce", b"\xce\xfa\xed\xfe", b"\xfe\xed\xfa\xcf", b"\xcf\xfa\xed\xfe",
+        b"\xca\xfe\xba\xbe", b"\xbe\xba\xfe\xca", b"\xca\xfe\xba\xbf", b"\xbf\xba\xfe\xca",
+    }
+
+def extract_reipa_metadata(input_path, temporary_root, cancel_check, home):
+    if not is_macho_input(input_path):
+        return [], {}, [], {}, False, None
+    type_path = temporary_root / "reipa-swift-types.txt"
+    type_log = temporary_root / "reipa-swift-types.log"
+    symbol_path = temporary_root / "reipa-symbols.txt"
+    symbol_log = temporary_root / "reipa-symbols.log"
+    objc_path = temporary_root / "reipa-objc-classdump.txt"
+    objc_log = temporary_root / "reipa-objc-classdump.log"
+    verify_path = temporary_root / "reipa-verify.txt"
+    verify_log = temporary_root / "reipa-verify.log"
+    try:
+        with verify_path.open("wb") as output_file, verify_log.open("wb") as log_file:
+            verify_code = run_ghidra(
+                ["/usr/local/bin/reipa", "verify", str(input_path)], log_file,
+                cancel_check, home, REIPA_TIMEOUT_SECONDS, output_file, 4096,
+            )
+        if verify_code != 0:
+            return [], {}, [], {}, False, None
+        verification = verify_path.read_text(encoding="utf-8", errors="replace")
+        if not re.search(r"^arch:\s+arm64e?$", verification, re.MULTILINE):
+            return [], {}, [], {}, False, None
+        if re.search(r"^ENCRYPTED:\s+YES", verification, re.MULTILINE):
+            return [], {}, [], {}, False, "ReIPA skipped encrypted Mach-O metadata; analyze a decrypted arm64 binary for this evidence."
+        with type_path.open("wb") as output_file, type_log.open("wb") as log_file:
+            type_code = run_ghidra(
+                ["/usr/local/bin/reipa", "swift-types", str(input_path)], log_file,
+                cancel_check, home, REIPA_TIMEOUT_SECONDS, output_file, MAX_REIPA_TYPE_BYTES,
+            )
+        with symbol_path.open("wb") as output_file, symbol_log.open("wb") as log_file:
+            symbol_code = run_ghidra(
+                ["/usr/local/bin/reipa", "symbols", str(input_path)], log_file,
+                cancel_check, home, REIPA_TIMEOUT_SECONDS, output_file, MAX_REIPA_SYMBOL_BYTES,
+            )
+        with objc_path.open("wb") as output_file, objc_log.open("wb") as log_file:
+            objc_code = run_ghidra(
+                ["/usr/local/bin/reipa", "classdump", str(input_path)], log_file,
+                cancel_check, home, REIPA_TIMEOUT_SECONDS, output_file, MAX_REIPA_OBJC_BYTES,
+            )
+    except AnalysisError as error:
+        if "cancelled" in str(error).lower():
+            raise
+        return [], {}, [], {}, False, "ReIPA metadata recovery exceeded a limit or was unavailable."
+    except OSError:
+        return [], {}, [], {}, False, "ReIPA metadata recovery could not start."
+
+    if type_code != 0 or symbol_code != 0 or objc_code != 0:
+        return [], {}, [], {}, False, "ReIPA could not read this Mach-O metadata; Ghidra results remain available."
+    if (type_path.stat().st_size > MAX_REIPA_TYPE_BYTES or symbol_path.stat().st_size > MAX_REIPA_SYMBOL_BYTES
+            or objc_path.stat().st_size > MAX_REIPA_OBJC_BYTES):
+        return [], {}, [], {}, True, "ReIPA metadata exceeded its configured output limit."
+
+    type_details = []
+    type_names = set()
+    truncated = False
+    for line in type_path.read_text(encoding="utf-8", errors="replace").splitlines():
+        match = re.fullmatch(r"(class|struct|enum|type)\s+(.{1,500})", line.strip())
+        if not match:
+            continue
+        kind, name = match.groups()
+        if len(type_details) >= MAX_REIPA_TYPES:
+            truncated = True
+            break
+        name = name.strip()
+        if not name:
+            continue
+        type_names.add(name.rsplit(".", 1)[-1].split("<", 1)[0])
+        type_details.append({
+            "name": name,
+            "kind": kind,
+            "reconstructed": "Swift nominal type metadata; member layout was not recovered by this record.",
+        })
+
+    swift_symbols = {}
+    if type_names:
+        for line in symbol_path.read_text(encoding="utf-8", errors="replace").splitlines():
+            match = re.match(r"^0x([0-9a-fA-F]{1,16})\s+(.{1,1000})$", line.strip())
+            if not match:
+                continue
+            address, name = match.groups()
+            if any(re.search(r"(?<![A-Za-z0-9_])" + re.escape(type_name) + r"(?![A-Za-z0-9_])", name) for type_name in type_names):
+                swift_symbols.setdefault(address.lower().lstrip("0") or "0", name[:500])
+            if len(swift_symbols) >= MAX_RETURNED_UNITS:
+                truncated = True
+                break
+
+    objc_type_details = []
+    objc_class_names = set()
+    current_interface = None
+
+    def save_objc_interface():
+        nonlocal truncated, current_interface
+        if not current_interface:
+            return
+        header, body = current_interface
+        match = re.match(r"@interface\s+([^\s(:]+)(?:\s+\(([^)]+)\))?", header)
+        if not match:
+            current_interface = None
+            return
+        class_name, category_name = match.groups()
+        name = f"{class_name} ({category_name})" if category_name else class_name
+        if len(objc_type_details) >= MAX_REIPA_TYPES:
+            truncated = True
+            current_interface = None
+            return
+        objc_class_names.add(class_name)
+        objc_type_details.append({
+            "name": name[:500],
+            "kind": "category" if category_name else "class",
+            "reconstructed": "\n".join([header, *body])[:4096],
+        })
+        current_interface = None
+
+    for line in objc_path.read_text(encoding="utf-8", errors="replace").splitlines():
+        if line.startswith("@interface "):
+            save_objc_interface()
+            current_interface = (line.strip()[:1000], [])
+        elif line.strip() == "@end":
+            save_objc_interface()
+        elif current_interface and len(current_interface[1]) < 64:
+            current_interface[1].append(line[:1000])
+    save_objc_interface()
+
+    objc_symbols = {}
+    if objc_class_names:
+        for line in symbol_path.read_text(encoding="utf-8", errors="replace").splitlines():
+            match = re.match(r"^0x([0-9a-fA-F]{1,16})\s+([-+]\[[^]]+\])$", line.strip())
+            if not match:
+                continue
+            address, name = match.groups()
+            class_name_match = re.match(r"^[-+]\[([^\s\]]+)", name)
+            if class_name_match and class_name_match.group(1) in objc_class_names:
+                objc_symbols.setdefault(address.lower().lstrip("0") or "0", name[:500])
+            if len(objc_symbols) >= MAX_RETURNED_UNITS:
+                truncated = True
+                break
+    return type_details, swift_symbols, objc_type_details, objc_symbols, truncated, None
 
 def normalized_address(value):
     if isinstance(value, bool):
@@ -355,6 +510,15 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                             }
                     if not go_functions:
                         go_metadata = None
+                swift_type_details, reipa_swift_symbols, objc_type_details, reipa_objc_symbols = [], {}, [], {}
+                reipa_metadata_truncated = False
+                reipa_warning = None
+                if is_macho_input(input_path):
+                    report_progress("Checking for Swift and Objective-C metadata")
+                    (swift_type_details, reipa_swift_symbols, objc_type_details, reipa_objc_symbols,
+                     reipa_metadata_truncated, reipa_warning) = extract_reipa_metadata(
+                        input_path, temporary_root, cancel_check, home,
+                    )
                 unstrip_type_details = []
                 unstrip_type_details_truncated = False
                 unstrip_functions = {}
@@ -524,6 +688,14 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                     normalized = value.lower().removeprefix("0x").lstrip("0") or "0"
                     recovered = go_functions.get(normalized)
                     return recovered["name"] if recovered else fallback
+                def recovered_function_name(value, fallback):
+                    recovered_go = recovered_go_name(value, fallback)
+                    if recovered_go != fallback or not re.fullmatch(r"(?:FUN|thunk|sub|undefined)_[0-9a-fA-F]+", fallback):
+                        return recovered_go
+                    address_key = normalized_address(value)
+                    if address_key:
+                        return reipa_swift_symbols.get(address_key) or reipa_objc_symbols.get(address_key) or fallback
+                    return fallback
                 log_text = log_path.read_bytes()[-6000:].decode("utf-8", errors="replace").strip()
                 manifest = export_root / "manifest.tsv"
                 summary_path = export_root / "summary.txt"
@@ -574,6 +746,13 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                     go_function = go_functions.get(address_key)
                     if go_function and re.fullmatch(r"(?:FUN|thunk|sub|undefined)_[0-9a-fA-F]+", name):
                         name = go_function["name"]
+                    swift_symbol_name = reipa_swift_symbols.get(address_key)
+                    objc_symbol_name = reipa_objc_symbols.get(address_key)
+                    if re.fullmatch(r"(?:FUN|thunk|sub|undefined)_[0-9a-fA-F]+", name):
+                        if swift_symbol_name:
+                            name = swift_symbol_name
+                        elif objc_symbol_name:
+                            name = objc_symbol_name
                     referenced_strings = []
                     if encoded_references:
                         try:
@@ -709,8 +888,8 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                         calls.append({
                             "fromAddress": from_address,
                             "toAddress": to_address,
-                            "fromName": recovered_go_name(from_address, from_name)[:500],
-                            "toName": recovered_go_name(to_address, to_name)[:500],
+                            "fromName": recovered_function_name(from_address, from_name)[:500],
+                            "toName": recovered_function_name(to_address, to_name)[:500],
                         })
                 if summary.get("callsTruncated") == "true" and not call_edges_truncated:
                     call_edges_truncated = True
@@ -748,6 +927,14 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                         if interface_methods:
                             unit["goUnstripInterfaces"] = interface_methods[:32]
                             unit["goUnstripInterfacesTruncated"] = address_key in unstrip_interfaces_truncated_by_function
+                    if swift_symbol_name:
+                        unit["sourceLanguage"] = "Swift"
+                        unit["symbolSource"] = "ReIPA"
+                        unit["recoveredNativeSymbolName"] = swift_symbol_name
+                    elif objc_symbol_name:
+                        unit["sourceLanguage"] = "Objective-C"
+                        unit["symbolSource"] = "ReIPA"
+                        unit["recoveredNativeSymbolName"] = objc_symbol_name
                     if assembly is not None:
                         assembly_destination = run_root / assembly_relative
                         assembly_destination.parent.mkdir(parents=True, exist_ok=True)
@@ -794,6 +981,10 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                     warnings.append("Ghidra recovered variable evidence reached its configured analysis limit.")
                 if floss_warning:
                     warnings.append(floss_warning)
+                if reipa_warning:
+                    warnings.append(reipa_warning)
+                if reipa_metadata_truncated:
+                    warnings.append("ReIPA type or symbol metadata was truncated at a configured limit.")
                 if unstrip_interfaces_truncated:
                     go_warnings.append("unstrip Go interface dispatch evidence was truncated by an analysis limit.")
                 go_type_rows = go_metadata.get("Types", []) if go_metadata and isinstance(go_metadata.get("Types"), list) else []
@@ -836,6 +1027,10 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                     "goUnstripTypeDetails": unstrip_type_details,
                     "goUnstripTypeDetailsTruncated": unstrip_type_details_truncated,
                     "goUnstripInterfacesTruncated": unstrip_interfaces_truncated,
+                    "swiftTypeDetails": swift_type_details,
+                    "objcTypeDetails": objc_type_details,
+                    "reipaMetadataTruncated": reipa_metadata_truncated,
+                    "swiftMetadataVersion": f"ReIPA@{REIPA_COMMIT}",
                     "functionCount": len(rows),
                     "visitedFunctionCount": int(summary.get("visited", "0")),
                     "failedFunctionCount": failures,
@@ -848,7 +1043,7 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                     "flossVersion": floss_version,
                     "flossRecoveredStringsTruncated": any(floss_truncated_by_function.values()),
                     "calls": calls,
-                    "truncated": summary.get("truncated") == "true" or len(rows) > len(units) or call_edges_truncated or source_address_map_truncated or recovered_variables_truncated or any(floss_truncated_by_function.values()),
+                    "truncated": summary.get("truncated") == "true" or len(rows) > len(units) or call_edges_truncated or source_address_map_truncated or recovered_variables_truncated or reipa_metadata_truncated or any(floss_truncated_by_function.values()),
                     "units": units,
                     "warnings": " ".join(warnings + go_warnings),
                 }
