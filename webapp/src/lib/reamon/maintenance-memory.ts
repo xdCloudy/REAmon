@@ -264,7 +264,7 @@ export function buildProjectSymbolContext(
       : record.validationStatus === 'UNAVAILABLE' ? '; syntax validation unavailable' : ''
     const symbolText = symbols.length ? `symbols: ${symbols.join(', ')}` : ''
     const callableText = index.members.length
-      ? `syntax-outlined callables${index.membersTruncated ? ' (partial)' : ''}${index.parserVersion ? ` via tree-sitter-language-pack ${index.parserVersion}` : ''}: ${index.members.slice(0, 12).map(({ name, kind }) => `${name} (${kind})`).join(', ')}${index.members.length > 12 ? ', …' : ''}`
+      ? `accepted-source file-scoped callable declarations${index.membersTruncated ? ' (partial)' : ''}${index.parserVersion ? ` via tree-sitter-language-pack ${index.parserVersion}` : ''}; names and lines do not by themselves prove address-to-function identity: ${index.members.slice(0, 12).map(({ name, kind, line }) => `${name} (${kind}, line ${line})`).join(', ')}${index.members.length > 12 ? ', …' : ''}`
       : ''
     const relevantAliases = renameCandidateKeys
       ? index.aliases.filter((alias) => renameCandidateKeys.has(`${record.language.trim().toLowerCase()}\u0000${alias.kind}\u0000${alias.oldName}`))
