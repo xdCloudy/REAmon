@@ -697,16 +697,24 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
       semantics: 'Completed output from a different provider for the same imported binary, matched by persisted canonical key, normalized native identity, or legacy native address alias as recorded in identityMatch. Input and saved-output SHA-256 values were checked. This is an independent analysis view, not verified original source, accepted maintained code, or proof of equivalent behavior.',
     })
   }
-  const reviewReceipt = maintained?.acceptedReviewId && maintained.sourceHash ? await prisma.reamonCodeReview.findFirst({
+  const maintainedSourceBytes = maintained ? Buffer.byteLength(maintained.sourceCode, 'utf8') : 0
+  const maintainedSourceHash = maintained && maintainedSourceBytes <= MAX_HASH_SOURCE_BYTES
+    ? createHash('sha256').update(maintained.sourceCode).digest('hex')
+    : null
+  const maintainedSourceHashMatches = Boolean(maintained?.sourceHash && maintainedSourceHash
+    && maintained.sourceHash.toLowerCase() === maintainedSourceHash)
+  const reviewReceipt = maintained?.acceptedReviewId && maintainedSourceHashMatches && maintainedSourceHash ? await prisma.reamonCodeReview.findFirst({
     where: {
       id: maintained.acceptedReviewId,
       projectId: args.projectId,
       artifactId: unit.artifactId || '',
       codeUnitId: maintenanceCodeUnitId,
-      maintainedSourceHash: maintained.sourceHash,
+      decision: 'ACCEPTED',
+      maintainedSourceHash,
     },
     select: { decision: true, rationale: true, validationStatus: true, validationMethod: true, validationMessage: true, createdAt: true },
   }) : null
+  const maintainedSourceVerified = Boolean(maintainedSourceHashMatches && reviewReceipt?.decision === 'ACCEPTED')
 
   const runKey = codeArtifactId?.split('/').slice(0, 4).join('/') || ''
   const draft = code?.sourceHash && runKey ? await prisma.reamonCodeDraft.findFirst({
@@ -724,6 +732,12 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
       syntaxValidated: true, updatedAt: true,
     },
   }) : null
+  const draftSourceBytes = draft ? Buffer.byteLength(draft.sourceCode, 'utf8') : 0
+  const draftSourceHash = draft && draftSourceBytes <= MAX_HASH_SOURCE_BYTES
+    ? createHash('sha256').update(draft.sourceCode).digest('hex')
+    : null
+  const draftHashMatches = Boolean(draft?.draftHash && draftSourceHash
+    && draft.draftHash.toLowerCase() === draftSourceHash)
 
   const endpointKeys = [...new Set([...edges, ...referenceEdges]
     .flatMap((edge) => [edge.fromKey, edge.toKey])
@@ -1073,36 +1087,51 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
       : typeof attributes.instructionCount === 'number'
         ? 'count_only'
         : 'not_persisted',
-    maintainedSource: maintained ? {
+    maintainedSource: maintained && maintainedSourceVerified ? {
       ...boundedSource(maintained.sourceCode),
       scope: parentUnit ? 'containing_code_unit' : 'code_unit',
-      sourceHash: maintained.sourceHash,
+      sourceHash: maintainedSourceHash,
       acceptedReviewId: maintained.acceptedReviewId,
-      reviewed: Boolean(reviewReceipt),
+      reviewed: true,
       reviewReceipt: reviewReceipt ? {
         decision: reviewReceipt.decision,
         rationale: text(reviewReceipt.rationale, 1000),
         validationStatus: reviewReceipt.validationStatus,
         validationMethod: reviewReceipt.validationMethod,
         validationMessage: text(reviewReceipt.validationMessage, 1000),
+        validationSemantics: reviewReceipt.validationStatus
+          ? 'This validator result is tied to the accepted source hash. Syntax or structural validation does not establish behavioral equivalence.'
+          : 'No validator result was recorded for this accepted source.',
         createdAt: reviewReceipt.createdAt.toISOString(),
       } : null,
       language: maintained.language,
       updatedAt: maintained.updatedAt.toISOString(),
     } : null,
-    savedDraft: draft ? {
+    maintainedSourceAvailability: maintained
+      ? maintainedSourceVerified ? 'accepted_source_hash_and_receipt_verified'
+        : maintainedSourceBytes > MAX_HASH_SOURCE_BYTES ? 'source_exceeds_integrity_check_limit'
+          : maintainedSourceHashMatches ? 'accepted_review_receipt_missing_or_mismatched' : 'source_hash_mismatch'
+      : 'no_maintained_source',
+    savedDraft: draft && draftHashMatches ? {
       ...boundedSource(draft.sourceCode),
       scope: parentUnit ? 'containing_code_unit' : 'code_unit',
       sourceHash: draft.sourceHash,
-      draftHash: draft.draftHash,
+      draftHash: draftSourceHash,
       providerName: draft.providerName,
       modelIdentifier: draft.modelIdentifier,
       syntaxValidated: draft.syntaxValidated,
       validationStatus: draft.validationStatus,
       validationMethod: draft.validationMethod,
       validationMessage: text(draft.validationMessage, 1000),
+      validationSemantics: draft.validationStatus
+        ? 'This validator result is attached to the exact saved draft bytes. Syntax or structural validation does not establish behavioral equivalence.'
+        : 'No validator result was recorded for this saved draft.',
       updatedAt: draft.updatedAt.toISOString(),
     } : null,
+    savedDraftAvailability: draft
+      ? draftHashMatches ? 'draft_hash_verified'
+        : draftSourceBytes > MAX_HASH_SOURCE_BYTES ? 'source_exceeds_integrity_check_limit' : 'draft_hash_mismatch'
+      : 'no_saved_draft_for_current_decompiler_output',
     evidenceBasis: 'Stored REAmon observation, provider result, and derived source files. Names and types remain provider evidence; no new explanation or symbol inference was generated by this tool.',
   }
 }
