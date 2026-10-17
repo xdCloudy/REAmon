@@ -17,6 +17,16 @@ interface IlspyResponse {
   methods?: Array<{ signature: string; relativePath: string; instructionMnemonics: string[] }>
   methodFeaturesTruncated?: boolean
   warnings?: string
+  dotnetPreprocessing?: {
+    status: string
+    provider?: string
+    providerRevision?: string
+    inputSha256?: string
+    outputSha256?: string
+    artifactId?: string
+    passes?: string[]
+    disabledPasses?: string[]
+  }
 }
 
 export const ilspyManifest: ToolPluginManifest = {
@@ -87,6 +97,21 @@ export async function executeIlspy(input: ToolExecutionInput): Promise<ToolResul
     }
     if (!isIlspyResponse(payload)) throw new Error('ILSpy analyzer returned an invalid result')
 
+    const preprocessing = payload.dotnetPreprocessing
+    const expectedRunPrefix = `${input.projectId}/${input.artifactId}/${input.taskId}/${input.runToken}/`
+    const verifiedPreprocessing = preprocessing?.status === 'transformed'
+      && preprocessing.provider === 'NoFuserEx'
+      && preprocessing.providerRevision === 'bbdde27a817cf9b2ab9f03207fc3bd9adb7c8ff4'
+      && typeof preprocessing.inputSha256 === 'string' && /^[a-f0-9]{64}$/.test(preprocessing.inputSha256)
+      && typeof preprocessing.outputSha256 === 'string' && /^[a-f0-9]{64}$/.test(preprocessing.outputSha256)
+      && typeof preprocessing.artifactId === 'string'
+      && preprocessing.artifactId.startsWith(`${expectedRunPrefix}preprocessed/`)
+      && !preprocessing.artifactId.includes('..') && !preprocessing.artifactId.includes('\\')
+      && (preprocessing.passes === undefined || (Array.isArray(preprocessing.passes) && preprocessing.passes.every((pass) => typeof pass === 'string' && pass.length <= 80)))
+      && (preprocessing.disabledPasses === undefined || (Array.isArray(preprocessing.disabledPasses) && preprocessing.disabledPasses.every((pass) => typeof pass === 'string' && pass.length <= 80)))
+      ? preprocessing
+      : undefined
+
     const units = payload.units.slice(0, MAX_UNITS).filter((unit) =>
       unit && typeof unit.name === 'string' && typeof unit.relativePath === 'string'
       && typeof unit.codeArtifactId === 'string' && Number.isFinite(unit.sizeBytes) && unit.sizeBytes > 0
@@ -108,6 +133,20 @@ export async function executeIlspy(input: ToolExecutionInput): Promise<ToolResul
         relativePath: unit.relativePath.slice(0, 1000),
         decompiled: true,
         codeArtifactId: unit.codeArtifactId.slice(0, 2000),
+        representationSemantics: verifiedPreprocessing
+          ? 'C# decompiled by ILSpy from a NoFuserEx static ConfuserEx cleanup output. This intermediate transformation is not proof of behavior or maintained source.'
+          : 'C# decompiled by ILSpy from the original managed assembly. Decompiled output is reconstructed source, not proof of behavior or maintained source.',
+        decompiler: 'ILSpy',
+        decompilerVersion: typeof payload.toolVersion === 'string' ? payload.toolVersion.slice(0, 80) : 'unknown',
+        ...(verifiedPreprocessing ? {
+          inputArtifactSha256: verifiedPreprocessing.inputSha256,
+          deobfuscatedArtifactId: verifiedPreprocessing.artifactId,
+          deobfuscatedArtifactSha256: verifiedPreprocessing.outputSha256,
+          deobfuscationProvider: 'NoFuserEx',
+          deobfuscationProviderRevision: verifiedPreprocessing.providerRevision,
+          deobfuscationPasses: JSON.stringify(verifiedPreprocessing.passes || []),
+          deobfuscationDisabledPasses: JSON.stringify(verifiedPreprocessing.disabledPasses || []),
+        } : {}),
       },
     }))
     const unitsByPath = new Map(units.map((unit) => [unit.relativePath, unit]))
@@ -163,6 +202,15 @@ export async function executeIlspy(input: ToolExecutionInput): Promise<ToolResul
         truncated: payload.truncated || payload.methodFeaturesTruncated === true || methodObservationsTruncated || (typeof payload.classCount === 'number' && payload.classCount > units.length),
         ilspyVersion: typeof payload.toolVersion === 'string' ? payload.toolVersion.slice(0, 80) : 'unknown',
         warnings: typeof payload.warnings === 'string' ? payload.warnings.slice(0, 4000) : '',
+        dotnetPreprocessing: verifiedPreprocessing ? {
+          provider: 'NoFuserEx',
+          providerRevision: verifiedPreprocessing.providerRevision,
+          inputSha256: verifiedPreprocessing.inputSha256,
+          outputSha256: verifiedPreprocessing.outputSha256,
+          artifactId: verifiedPreprocessing.artifactId,
+          passes: verifiedPreprocessing.passes || [],
+          disabledPasses: verifiedPreprocessing.disabledPasses || [],
+        } : { status: preprocessing?.status || 'unavailable' },
       },
     }
   } catch (error) {

@@ -2,6 +2,7 @@
 """Secret-free ILSpy adapter isolated from REAmon's database and network."""
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -25,6 +26,8 @@ MAX_OUTPUT_BYTES = min(1024**3, max(1024**2, int(os.environ.get("ILSPY_MAX_OUTPU
 MAX_SOURCE_FILES = min(50000, max(1, int(os.environ.get("ILSPY_MAX_SOURCE_FILES", "20000"))))
 MAX_RETURNED_UNITS = min(20000, max(1, int(os.environ.get("ILSPY_MAX_RETURNED_UNITS", "20000"))))
 MAX_VIEWABLE_BYTES = 2 * 1024 * 1024
+MAX_ASSEMBLY_BYTES = 512 * 1024 * 1024
+NOFUSEREX_REVISION = "bbdde27a817cf9b2ab9f03207fc3bd9adb7c8ff4"
 MAX_METHOD_FEATURES = 8_000
 MAX_METHOD_FEATURE_INSTRUCTIONS = 128
 MAX_METHOD_FEATURE_BYTES = 8 * 1024 * 1024
@@ -102,6 +105,72 @@ def resolve_input(value):
     if not candidate.is_file():
         raise AnalysisError("Artifact input is not a regular file")
     return candidate
+
+
+def sha256_file(path):
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def preprocess_dotnet(input_path, temporary, cancel_check, deadline, report_progress, run_root):
+    """Run only NoFuserEx's static ConfuserEx cleanup passes; preserve the input."""
+    original_hash = sha256_file(input_path)
+    if input_path.stat().st_size > MAX_ASSEMBLY_BYTES:
+        return input_path, {"status": "skipped", "reason": "assembly exceeds preprocessing size limit", "inputSha256": original_hash}
+    executable = os.environ.get("NOFUSEREX", "/opt/nofuserex/NoFuserEx.exe")
+    mono = os.environ.get("MONO", "/usr/bin/mono")
+    if not Path(executable).is_file() or not shutil.which(mono):
+        return input_path, {"status": "unavailable", "inputSha256": original_hash}
+
+    working = Path(temporary) / "nofuserex"
+    working.mkdir()
+    staged = working / (input_path.stem + input_path.suffix.lower())
+    shutil.copyfile(input_path, staged)
+    log_path = Path(temporary) / "nofuserex.stderr"
+    # These switches disable passes that execute target methods while retaining
+    # proxy-call, anti-debug, and anti-dump metadata cleanup.
+    arguments = [mono, executable, "--dont-unpack", "--dont-tamper", "--dont-constants",
+                 "--dont-resources", "--dont-cflow", "--dont-rename", "--dont-remove-junk-methods", str(staged)]
+    report_progress("Applying static ConfuserEx cleanup passes")
+    try:
+        with log_path.open("wb") as nofuser_stderr:
+            return_code = run_analysis_tool(arguments, nofuser_stderr, cancel_check, deadline)
+    except (OSError, AnalysisError) as error:
+        if isinstance(error, AnalysisError) and "cancelled" in str(error).lower():
+            raise
+        return input_path, {"status": "failed", "inputSha256": original_hash, "warning": str(error)[:500]}
+
+    candidates = []
+    for candidate in working.rglob("*"):
+        if candidate.is_file() and not candidate.is_symlink() and candidate != staged and candidate.suffix.lower() in {".dll", ".exe", ".netmodule"}:
+            try:
+                if candidate.stat().st_size <= MAX_ASSEMBLY_BYTES:
+                    candidates.append(candidate)
+            except OSError:
+                continue
+    if return_code != 0 or len(candidates) != 1:
+        detail = log_path.read_bytes()[-2000:].decode("utf-8", errors="replace").strip()
+        return input_path, {"status": "unchanged", "inputSha256": original_hash,
+                            "warning": (detail or "NoFuserEx did not produce one unambiguous output assembly")[:2000]}
+    output = candidates[0]
+    output_hash = sha256_file(output)
+    if output_hash == original_hash:
+        return input_path, {"status": "unchanged", "inputSha256": original_hash, "outputSha256": output_hash}
+
+    destination = run_root / "preprocessed" / input_path.name
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(output, destination)
+    return destination, {
+        "status": "transformed", "provider": "NoFuserEx", "providerRevision": NOFUSEREX_REVISION,
+        "inputSha256": original_hash, "outputSha256": output_hash,
+        "artifactId": destination.relative_to(DERIVED_ROOT).as_posix(),
+        "passes": ["proxy-calls", "anti-debug", "anti-dump"],
+        "disabledPasses": ["unpack", "anti-tamper", "constants", "resources", "control-flow", "rename", "junk-method-removal"],
+        "warning": "Static ConfuserEx cleanup only; this is an intermediate assembly, not proof of recovered behavior.",
+    }
 
 
 def source_files(root):
@@ -257,12 +326,15 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
             with tempfile.TemporaryDirectory(prefix="reamon-ilspy-") as temporary:
                 output = Path(temporary) / "out"
                 stderr_path = Path(temporary) / "ilspy.stderr"
+                assembly_path, preprocessing = preprocess_dotnet(
+                    input_path, temporary, cancel_check, deadline, report_progress, run_root,
+                )
                 with stderr_path.open("wb") as stderr_file:
                     try:
                         report_progress("Decompiling managed assembly with ILSpy")
                         return_code = run_analysis_tool([
                             os.environ.get("ILSPYCMD", "/opt/ilspycmd/ilspycmd"),
-                            "--nested-directories", "-p", "-o", str(output), str(input_path),
+                            "--nested-directories", "-p", "-o", str(output), str(assembly_path),
                         ], stderr_file, cancel_check, deadline)
                     except OSError as error:
                         raise AnalysisError("ILSpy could not be started") from error
@@ -304,10 +376,18 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                         "sizeBytes": len(raw),
                         "unitType": "type",
                         "language": "C#",
+                        "representationSemantics": (
+                            "C# decompiled by ILSpy from a NoFuserEx static ConfuserEx cleanup output. "
+                            "This intermediate transformation is not proof of behavior or maintained source."
+                            if preprocessing.get("status") == "transformed"
+                            else "C# decompiled by ILSpy from the original managed assembly. Decompiled output is reconstructed source, not proof of behavior or maintained source."
+                        ),
                     })
 
                 units.sort(key=lambda unit: str(unit["relativePath"]).casefold())
                 warnings = []
+                if preprocessing.get("warning"):
+                    warnings.append(str(preprocessing["warning"])[:2000])
                 method_features = []
                 method_features_truncated = False
                 if units:
@@ -321,7 +401,7 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                         with il_stderr_path.open("wb") as il_stderr:
                             il_return_code = run_analysis_tool([
                                 os.environ.get("ILSPYCMD", "/opt/ilspycmd/ilspycmd"),
-                                "--disable-updatecheck", "--ilcode", "-o", str(il_output), str(input_path),
+                                "--disable-updatecheck", "--ilcode", "-o", str(il_output), str(assembly_path),
                             ], il_stderr, cancel_check, il_deadline, expected_il_listing)
                         il_listing = next((candidate for candidate in il_output.glob("*.il") if candidate.is_file() and not candidate.is_symlink()), None)
                         if il_return_code == 0 and il_listing is not None:
@@ -371,6 +451,7 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                     "methods": method_features,
                     "methodFeaturesTruncated": method_features_truncated,
                     "warnings": " ".join(warnings),
+                    "dotnetPreprocessing": preprocessing,
                 }
         except AnalysisError:
             if run_root.exists():
