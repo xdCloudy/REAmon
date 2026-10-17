@@ -23,6 +23,7 @@ import { ghidraPlugin } from './ghidra'
 import { oxidizerPlugin } from './oxidizer'
 import { glaurungPlugin } from './glaurung'
 import { kunaPlugin } from './kuna'
+import { recursePlugin } from './recurse'
 import { wasmPlugin } from './wasm'
 import { pycdcPlugin } from './pycdc'
 import { webcrackPlugin } from './webcrack'
@@ -128,6 +129,9 @@ export const BUILTIN_TOOL_PLUGINS: ToolPlugin[] = [
   },
   {
     ...kunaPlugin,
+  },
+  {
+    ...recursePlugin,
   },
   {
     ...wasmPlugin,

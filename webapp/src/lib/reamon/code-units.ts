@@ -60,6 +60,10 @@ export interface CodeUnitObservationAttributes {
   language?: string
   sourceLanguage?: string
   representation?: string
+  representationSemantics?: string
+  recurseInstructionCount?: number
+  recurseOptimizerPasses?: string
+  sizeEvidence?: string
   decompiler?: string
   decompilerVersion?: string
   nameEvidence?: string
@@ -129,6 +133,10 @@ export interface CodeUnit {
   language: string | null
   sourceLanguage?: string | null
   representation?: string | null
+  representationSemantics?: string | null
+  recurseInstructionCount?: number | null
+  recurseOptimizerPasses?: Record<string, number>
+  sizeEvidence?: string | null
   decompiler?: string | null
   decompilerVersion?: string | null
   nameEvidence?: string | null
@@ -281,6 +289,27 @@ function ghidraCffRecoveryOf(value: unknown): GhidraCffRecovery | undefined {
 
 function finiteNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function boundedCount(value: unknown): number | null {
+  const count = finiteNumber(value)
+  return count !== null && Number.isSafeInteger(count) && count >= 0 && count <= 1_000_000 ? count : null
+}
+
+function recurseOptimizerPasses(value: unknown): Record<string, number> | undefined {
+  if (typeof value !== 'string' || value.length > 1500) return undefined
+  try {
+    const parsed: unknown = JSON.parse(value)
+    const record = attributesOf(parsed)
+    const allowed = ['rounds', 'propagated', 'folded', 'simplified', 'dead_stores_removed', 'branches_resolved']
+    const passes = Object.fromEntries(allowed.flatMap((name) => {
+      const count = boundedCount(record[name])
+      return count === null ? [] : [[name, count]]
+    }))
+    return Object.keys(passes).length ? passes : undefined
+  } catch {
+    return undefined
+  }
 }
 
 function coverageOf(attributes: Record<string, unknown>): number | null {
@@ -452,6 +481,10 @@ export function normalizeCodeUnit(row: CodeUnitObservationRow, options: { includ
     language: text(attributes.language, 80),
     sourceLanguage: text(attributes.sourceLanguage, 80),
     representation: text(attributes.representation, 500),
+    representationSemantics: text(attributes.representationSemantics, 4000),
+    recurseInstructionCount: boundedCount(attributes.recurseInstructionCount),
+    recurseOptimizerPasses: recurseOptimizerPasses(attributes.recurseOptimizerPasses),
+    sizeEvidence: text(attributes.sizeEvidence, 100),
     decompiler: text(attributes.decompiler, 80),
     decompilerVersion: text(attributes.decompilerVersion, 120),
     nameEvidence: text(attributes.nameEvidence, 80),

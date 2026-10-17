@@ -1180,6 +1180,7 @@ services:
       REAMON_OXIDIZER_URL: http://oxidizer-analyzer:8020
       REAMON_GLAURUNG_URL: http://glaurung-analyzer:8024
       REAMON_KUNA_URL: http://kuna-analyzer:8025
+      REAMON_RECURSE_URL: http://recurse-analyzer:8026
       REAMON_WASM_URL: http://wasm-analyzer:8012
       REAMON_PYCDC_URL: http://pycdc-analyzer:8014
       REAMON_WEBCRACK_URL: http://webcrack-analyzer:8015
@@ -1665,6 +1666,44 @@ services:
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8025/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    networks:
+      - reamon-analysis
+
+  # Optional x86/x64-focused native lift evidence from pinned Recurse MCP.
+  # Its IL stays separate from maintained source and is persisted by REAmon.
+  recurse-analyzer:
+    build:
+      context: ./analyzers/recurse
+    image: ${REAMON_RECURSE_IMAGE:-reamon-recurse:local}
+    container_name: reamon-recurse
+    init: true
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: ${REAMON_RECURSE_MEM:-3g}
+    pids_limit: ${REAMON_RECURSE_PIDS:-64}
+    cpus: ${REAMON_RECURSE_CPUS:-2}
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=${REAMON_RECURSE_TMP_SIZE:-1g},mode=1777
+    environment:
+      REAMON_ARTIFACTS_PATH: /data/reamon-artifacts
+      REAMON_DERIVED_PATH: /data/reamon-derived
+      RECURSE_TIMEOUT_SECONDS: ${REAMON_RECURSE_TIMEOUT_SECONDS:-900}
+      RECURSE_MAX_FUNCTIONS: ${REAMON_RECURSE_MAX_FUNCTIONS:-100}
+      RECURSE_MAX_LIFT_BYTES: ${REAMON_RECURSE_MAX_LIFT_BYTES:-131072}
+      RECURSE_MAX_OUTPUT_BYTES: ${REAMON_RECURSE_MAX_OUTPUT_BYTES:-33554432}
+    volumes:
+      - reamon_artifacts:/data/reamon-artifacts:ro
+      - reamon_derived:/data/reamon-derived:rw
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8026/health', timeout=3)"]
       interval: 30s
       timeout: 5s
       retries: 3

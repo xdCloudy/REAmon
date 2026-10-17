@@ -97,6 +97,20 @@ function cffRecoveryLine(label: string, value: unknown): string | null {
   } catch { return null }
 }
 
+function recursePassesLine(value: unknown): string | null {
+  if (typeof value !== 'string' || value.length > 1500) return null
+  try {
+    const passes = plainObject(JSON.parse(value))
+    const allowed = ['rounds', 'propagated', 'folded', 'simplified', 'dead_stores_removed', 'branches_resolved']
+    const entries = allowed.flatMap((name) => {
+      const count = passes[name]
+      return typeof count === 'number' && Number.isSafeInteger(count) && count >= 0 && count <= 1_000_000
+        ? [`${name.replaceAll('_', ' ')}=${count}`] : []
+    })
+    return entries.length ? `Recurse optimizer counters: ${entries.join(', ')}.` : null
+  } catch { return null }
+}
+
 function luaProtoIdFromSource(source: Buffer): number | null {
   const value = source.toString('utf8').match(/--\s*proto#(\d+)\b/)?.[1]
   if (!value) return null
@@ -1429,6 +1443,84 @@ export async function POST(request: Request, { params }: RouteParams) {
     ].join('\n'), 4 * 1024)
     const contextSources: Array<{ unit_name: string; language: string; source_code: string }> = []
     let contextBytes = 0
+    if (observation.source !== 'reamon-recurse' && currentNativeFunctionIdentity && artifact.sha256) {
+      const recurseRows = await prisma.reamonObservation.findMany({
+        where: {
+          projectId,
+          artifactId: artifact.id,
+          source: 'reamon-recurse',
+          type: 'code_unit',
+          kind: 'entity',
+          AND: [
+            { attributes: { path: ['identity'], equals: currentNativeFunctionIdentity } },
+            { attributes: { path: ['inputArtifactSha256'], equals: artifact.sha256 } },
+          ],
+        },
+        orderBy: { updatedAt: 'desc' },
+        take: 20,
+        select: { taskId: true, label: true, attributes: true },
+      })
+      const recurseTaskIds = [...new Set(recurseRows.flatMap((row) => row.taskId ? [row.taskId] : []))]
+      const recurseTasks = recurseTaskIds.length ? await prisma.task.findMany({
+        where: {
+          id: { in: recurseTaskIds },
+          projectId,
+          artifactId: artifact.id,
+          capability: 'decompile',
+          status: 'COMPLETED',
+          provider: { is: { pluginId: 'reamon-recurse' } },
+        },
+        select: { id: true, runToken: true, provider: { select: { pluginId: true } } },
+      }) : []
+      const recurseTaskById = new Map(recurseTasks.map((task) => [task.id, task]))
+      for (const row of recurseRows) {
+        if (contextSources.length >= MAX_CONTEXT_UNITS || contextBytes >= MAX_CONTEXT_BYTES) break
+        if (!row.taskId) continue
+        const task = recurseTaskById.get(row.taskId)
+        if (!task || task.provider?.pluginId !== 'reamon-recurse' || !task.runToken) continue
+        const evidence = plainObject(row.attributes)
+        const address = typeof evidence.address === 'string' ? evidence.address : ''
+        const relativePath = typeof evidence.relativePath === 'string' ? evidence.relativePath : ''
+        const codeArtifactId = typeof evidence.codeArtifactId === 'string' ? evidence.codeArtifactId : ''
+        const expectedOutputHash = typeof evidence.codeArtifactSha256 === 'string' ? evidence.codeArtifactSha256.toLowerCase() : ''
+        const expectedInputHash = typeof evidence.inputArtifactSha256 === 'string' ? evidence.inputArtifactSha256.toLowerCase() : ''
+        const recurseRunPrefix = `${projectId}/${artifact.id}/${task.id}/${task.runToken}/`
+        if (evidence.identity !== currentNativeFunctionIdentity
+            || nativeFunctionIdentity(artifact.id, address) !== currentNativeFunctionIdentity
+            || !/^[a-f0-9]{64}$/.test(expectedOutputHash)
+            || expectedInputHash !== artifact.sha256.toLowerCase()
+            || !/^lift\/[0-9a-f]+\.vtil$/i.test(relativePath)
+            || codeArtifactId !== `${recurseRunPrefix}${relativePath}`) continue
+        try {
+          const runPath = await realpath(resolveDerivedArtifactPath(recurseRunPrefix.slice(0, -1)))
+          const evidencePath = await realpath(resolveDerivedArtifactPath(codeArtifactId))
+          if (!isInside(rootPath, runPath) || !isInside(runPath, evidencePath)) continue
+          const evidenceInfo = await stat(evidencePath)
+          if (!evidenceInfo.isFile() || evidenceInfo.size <= 0 || evidenceInfo.size > 128 * 1024) continue
+          const evidenceBytes = await readFile(evidencePath)
+          if (createHash('sha256').update(evidenceBytes).digest('hex') !== expectedOutputHash) continue
+          const allowance = Math.min(MAX_ALTERNATE_DECOMPILER_BYTES, MAX_CONTEXT_BYTES - contextBytes)
+          if (allowance <= 0) break
+          const optimizerSummary = recursePassesLine(evidence.recurseOptimizerPasses)
+          const source = utf8Prefix([
+            `Recurse VTIL-style optimized lift for ${String(row.label || unitName).slice(0, 300)} at ${address}; run ${task.id}; source artifact sha256:${artifact.sha256}.`,
+            'This is provisional structural analysis evidence. Lift semantics are x86/x64-focused, unsupported instructions may be opaque, and the text is not recovered original source or behavior proof.',
+            ...(optimizerSummary ? [optimizerSummary] : []),
+            evidenceBytes.toString('utf8'),
+          ].join('\n'), allowance)
+          if (!source) continue
+          contextSources.push({
+            unit_name: `Recurse lift evidence · ${String(row.label || unitName).slice(0, 300)} @ ${address}`,
+            language: 'VTIL-style IR (analysis evidence; not source)',
+            source_code: source,
+          })
+          contextBytes += Buffer.byteLength(source, 'utf8')
+          break
+        } catch {
+          continue
+        }
+      }
+    }
     const relativePath = typeof attributes.relativePath === 'string' ? attributes.relativePath : ''
     const reipaAlternatePath = typeof selectedProviderAttributes.reipaAlternateCodeArtifactId === 'string'
       ? selectedProviderAttributes.reipaAlternateCodeArtifactId

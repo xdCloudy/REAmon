@@ -162,10 +162,10 @@ interface ReviewDiff { rows: ReviewDiffRow[]; added: number; removed: number; tr
 function sourceLineCount(source: string): number {
   let lines = 1
   for (let index = 0; index < source.length; index += 1) {
-    if (source[index] === '\n') lines += 1
-    else if (source[index] === '\r') {
+    if (source[index] === '\r\n') lines += 1
+    else if (source[index] === '\r\n') {
       lines += 1
-      if (source[index + 1] === '\n') index += 1
+      if (source[index + 1] === '\r\n') index += 1
     }
   }
   return lines
@@ -177,8 +177,8 @@ function buildReviewDiff(before: string, after: string): ReviewDiff {
   const columns = afterLineCount + 1
   const cells = (beforeLineCount + 1) * columns
   if (cells > 1_000_000) return { rows: [], added: 0, removed: 0, truncated: false, unavailable: true }
-  const beforeLines = before.replace(/\r\n?/g, '\n').split('\n')
-  const afterLines = after.replace(/\r\n?/g, '\n').split('\n')
+  const beforeLines = before.replace(/\r\n?/g, '\r\n').split('\r\n')
+  const afterLines = after.replace(/\r\n?/g, '\r\n').split('\r\n')
   const lengths = new Uint32Array(cells)
   for (let beforeIndex = beforeLines.length - 1; beforeIndex >= 0; beforeIndex -= 1) {
     for (let afterIndex = afterLines.length - 1; afterIndex >= 0; afterIndex -= 1) {
@@ -607,7 +607,7 @@ function SourceListing({ source, language, fileName, fullSourceUrl, sourceAddres
   }, [sourceAddressMap])
   const assemblyAddressByLine = useMemo(() => {
     const result = new Map<number, string>()
-    preview.split(/\r?\n/).forEach((line, index) => {
+    preview.split(/\r\n?\r\n/).forEach((line, index) => {
       const address = line.match(/^\s*([A-Za-z0-9:_-]{1,128}):\s/)?.[1]
       if (address) result.set(index + 1, address)
     })
@@ -1063,7 +1063,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
   })
   const filteredMembers = (memberOutlineQuery.data?.members || []).filter((member) => `${member.name} ${member.kind} ${member.line}`.toLocaleLowerCase().includes(memberFilter.trim().toLocaleLowerCase())).slice(0, 200)
   const maintainedDraftDiffersFromSource = sourceQuery.data === undefined
-    || maintainedDraft.replace(/\r\n?/g, '\n').trim() !== sourceQuery.data.replace(/\r\n?/g, '\n').trim()
+    || maintainedDraft.replace(/\r\n?/g, '\r\n').trim() !== sourceQuery.data.replace(/\r\n?/g, '\r\n').trim()
   const maintainedQuery = useQuery({
     queryKey: ['reamon-maintained-source', projectId, selectedUnit?.id],
     queryFn: async ({ signal }) => {
@@ -1110,7 +1110,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
     ? maintainedQuery.data.sourceCode
     : sourceQuery.data || ''
   const reviewBaselineLabel = maintainedQuery.data?.exists ? 'the current saved maintained version' : 'the original decompilation'
-  const normalizeReviewSource = (source: string) => source.replace(/\r\n?/g, '\n')
+  const normalizeReviewSource = (source: string) => source.replace(/\r\n?/g, '\r\n')
   const hasReviewDiff = Boolean(maintainedDraft.trim()) && normalizeReviewSource(reviewBaselineSource) !== normalizeReviewSource(maintainedDraft)
   const reviewDiff = showReviewDiff && hasReviewDiff ? buildReviewDiff(reviewBaselineSource, maintainedDraft) : null
   useEffect(() => {
@@ -2232,7 +2232,9 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
               {transforming ? 'Reverse engineering…' : 'Create maintainable version'}
             </button>}
           </div>
-        {selectedUnit && selectedSourceUrl && <section className={styles.sourcePanel} aria-label={selectedUnit.unitType === 'resource' ? 'Decoded Android resource' : selectedDisassemblyUrl ? 'Decompilation and disassembly comparison' : (selectedUnit.language === 'WebAssembly Text (WAT)' ? 'WAT disassembly' : isDisassemblyUnit(selectedUnit) ? 'Smali disassembly' : 'Decompiled source')}>
+        {selectedUnit && selectedSourceUrl && <section className={styles.sourcePanel} aria-label={selectedUnit.representation === 'optimized intermediate representation' ? 'Intermediate representation evidence' : selectedUnit.unitType === 'resource' ? 'Decoded Android resource' : selectedDisassemblyUrl ? 'Decompilation and disassembly comparison' : (selectedUnit.language === 'WebAssembly Text (WAT)' ? 'WAT disassembly' : isDisassemblyUnit(selectedUnit) ? 'Smali disassembly' : 'Decompiled source')}>
+          {selectedUnit.representationSemantics && <p className={styles.sourcePreviewNote} role="note">{selectedUnit.representationSemantics}</p>}
+          {selectedUnit.recurseInstructionCount != null && <p className={styles.sourcePreviewNote} role="note">Lifted {selectedUnit.recurseInstructionCount.toLocaleString()} instructions{selectedUnit.recurseOptimizerPasses ? ` · Optimizer passes: ${Object.entries(selectedUnit.recurseOptimizerPasses).map(([name, count]) => `${name.replaceAll('_', ' ')} ${count}`).join(', ')}` : ''}{selectedUnit.sizeEvidence === 'instruction-count-fallback' ? ' · Function byte size unavailable; visualizer size uses instruction count.' : ''}</p>}
           {selectedDisassemblyUrl ? <div className={styles.comparison}>
             <div className={styles.listingPane}>
               <div className={styles.sourceHeader}>

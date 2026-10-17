@@ -18,6 +18,7 @@ const MAX_LIMIT = 100
 const MAX_CODE_BYTES = 128 * 1024
 const MAX_HASH_SOURCE_BYTES = 2 * 1024 * 1024
 const MAX_REIPA_BYTES = 128 * 1024
+const MAX_RECURSE_EVIDENCE_BYTES = 12 * 1024
 const MAX_RELATIONSHIPS = 100
 const MAX_PROVIDER_ALTERNATES = 3
 const MAX_PROVIDER_ALTERNATE_BYTES = 16 * 1024
@@ -25,6 +26,8 @@ const MAX_PROJECT_MEMORY_MATCHES = 100
 const CODE_UNIT_TYPES = [CODE_UNIT_OBSERVATION_TYPE, 'function']
 const REFERENCE_RELATIONSHIP_TYPES = ['reads_field', 'writes_field', 'references_field', 'references_string']
 const REIPA_PROVIDER_VERSION = 'ReIPA@b0d4759451ed20796892a059fa53d9dbb130af61'
+const RECURSE_PROVIDER_VERSION = '0.1.0'
+const RECURSE_PROVIDER_REVISION = '34ff28af22e6724d29e100001ef79dfe2a001d15'
 
 export interface WorkspaceListCodeUnitsArgs {
   projectId: string
@@ -239,6 +242,97 @@ async function readDerivedText(relativePath: unknown, projectId: string, artifac
   } finally {
     await handle?.close().catch(() => {})
   }
+}
+
+function recurseOptimizerPasses(value: unknown): Record<string, number> | null {
+  if (typeof value !== 'string' || value.length > 1500) return null
+  let parsed: unknown
+  try { parsed = JSON.parse(value) } catch { return null }
+  const passes = record(parsed)
+  const allowed = ['rounds', 'propagated', 'folded', 'simplified', 'dead_stores_removed', 'branches_resolved']
+  const output = Object.fromEntries(allowed.flatMap((name) => {
+    const count = passes[name]
+    return typeof count === 'number' && Number.isSafeInteger(count) && count >= 0 && count <= 1_000_000
+      ? [[name, count]] : []
+  }))
+  return Object.keys(output).length ? output : null
+}
+
+async function readMatchingRecurseLift(input: {
+  projectId: string
+  artifactId: string
+  artifactSha256: string
+  identity: string
+}): Promise<Record<string, unknown> | null> {
+  const rows = await prisma.reamonObservation.findMany({
+    where: {
+      projectId: input.projectId,
+      artifactId: input.artifactId,
+      source: 'reamon-recurse',
+      type: CODE_UNIT_OBSERVATION_TYPE,
+      kind: 'entity',
+      AND: [
+        { attributes: { path: ['identity'], equals: input.identity } },
+        { attributes: { path: ['inputArtifactSha256'], equals: input.artifactSha256 } },
+      ],
+    },
+    orderBy: { updatedAt: 'desc' },
+    take: 20,
+    select: { taskId: true, label: true, attributes: true },
+  })
+  const taskIds = [...new Set(rows.flatMap((row) => row.taskId ? [row.taskId] : []))]
+  const tasks = taskIds.length ? await prisma.task.findMany({
+    where: {
+      id: { in: taskIds },
+      projectId: input.projectId,
+      artifactId: input.artifactId,
+      capability: 'decompile',
+      status: 'COMPLETED',
+      provider: { is: { pluginId: 'reamon-recurse' } },
+    },
+    select: { id: true, runToken: true, provider: { select: { pluginId: true } } },
+  }) : []
+  const tasksById = new Map(tasks.map((task) => [task.id, task]))
+  for (const row of rows) {
+    if (!row.taskId) continue
+    const task = tasksById.get(row.taskId)
+    if (!task || task.provider?.pluginId !== 'reamon-recurse' || !task.runToken) continue
+    const attributes = record(row.attributes)
+    const address = text(attributes.address, 128) || ''
+    const relativePath = text(attributes.relativePath, 1000) || ''
+    const codeArtifactId = text(attributes.codeArtifactId, 2000) || ''
+    const inputHash = text(attributes.inputArtifactSha256, 64)?.toLowerCase()
+    const outputHash = text(attributes.codeArtifactSha256, 64)?.toLowerCase()
+    const runPrefix = `${input.projectId}/${input.artifactId}/${task.id}/${task.runToken}/`
+    if (attributes.providerRevision !== RECURSE_PROVIDER_REVISION
+        || attributes.decompilerVersion !== RECURSE_PROVIDER_VERSION
+        || attributes.identity !== input.identity
+        || nativeFunctionIdentity(input.artifactId, address) !== input.identity
+        || inputHash !== input.artifactSha256.toLowerCase()
+        || !outputHash || !/^[a-f0-9]{64}$/.test(outputHash)
+        || !/^lift\/[0-9a-f]+\.vtil$/i.test(relativePath)
+        || codeArtifactId !== `${runPrefix}${relativePath}`) continue
+    const code = await readDerivedText(codeArtifactId, input.projectId, input.artifactId)
+    if (!code || code.truncated || code.sourceHash !== outputHash || code.sizeBytes > 128 * 1024) continue
+    return {
+      provider: 'Recurse',
+      providerVersion: RECURSE_PROVIDER_VERSION,
+      providerRevision: RECURSE_PROVIDER_REVISION,
+      taskId: task.id,
+      name: text(row.label, 500) || address,
+      address,
+      inputArtifactSha256: inputHash,
+      outputSha256: code.sourceHash,
+      instructionCount: typeof attributes.recurseInstructionCount === 'number'
+        && Number.isSafeInteger(attributes.recurseInstructionCount) && attributes.recurseInstructionCount >= 0
+        ? attributes.recurseInstructionCount : null,
+      optimizerPasses: recurseOptimizerPasses(attributes.recurseOptimizerPasses),
+      text: code.text.slice(0, MAX_RECURSE_EVIDENCE_BYTES),
+      truncated: code.sizeBytes > MAX_RECURSE_EVIDENCE_BYTES,
+      semantics: 'Provisional VTIL-style optimized intermediate representation for this exact function and binary. Recurse lifting is x86/x64-focused; unsupported instructions may remain opaque. This is structural analysis evidence, not recovered original source or proof of behavior.',
+    }
+  }
+  return null
 }
 
 async function readVerifiedReipaAlternate(input: {
@@ -518,7 +612,7 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
           type: CODE_UNIT_OBSERVATION_TYPE,
           kind: 'entity',
           id: { not: unit.id },
-          source: { not: unit.source },
+          source: { notIn: [unit.source, 'reamon-recurse'] },
           task: { is: { status: 'COMPLETED', capability: 'decompile' } },
           AND: [{ attributes: { path: ['inputArtifactSha256'], equals: unit.artifact.sha256 } }],
           OR: [
@@ -651,6 +745,35 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
   }))
   const result = record(task?.result)
   const recoveredVariableData = providerVariablesOf(attributes, unit.source)
+  const isRecurseLift = unit.source === 'reamon-recurse'
+    && attributes.decompiler === 'Recurse'
+    && attributes.representation === 'optimized intermediate representation'
+  const recurseLiftEvidence = !isRecurseLift && unit.artifactId && unit.artifact?.sha256 && currentNativeIdentity
+    ? await readMatchingRecurseLift({
+      projectId: args.projectId,
+      artifactId: unit.artifactId,
+      artifactSha256: unit.artifact.sha256,
+      identity: currentNativeIdentity,
+    })
+    : null
+  const selectedRecurseEvidence = isRecurseLift && code ? {
+    provider: 'Recurse',
+    providerVersion: text(attributes.decompilerVersion, 120),
+    providerRevision: text(attributes.providerRevision, 120),
+    taskId: unit.taskId,
+    name: text(attributes.qualifiedName) || text(attributes.name) || text(unit.label),
+    address: text(attributes.address ?? attributes.startAddress, 128),
+    inputArtifactSha256: text(attributes.inputArtifactSha256, 64),
+    outputSha256: text(attributes.codeArtifactSha256, 64),
+    instructionCount: typeof attributes.recurseInstructionCount === 'number'
+      && Number.isSafeInteger(attributes.recurseInstructionCount) && attributes.recurseInstructionCount >= 0
+      ? attributes.recurseInstructionCount : null,
+    optimizerPasses: recurseOptimizerPasses(attributes.recurseOptimizerPasses),
+    text: code.text.slice(0, MAX_RECURSE_EVIDENCE_BYTES),
+    truncated: code.sizeBytes > MAX_RECURSE_EVIDENCE_BYTES || code.truncated,
+    semantics: text(attributes.representationSemantics, 500)
+      || 'Provisional VTIL-style optimized intermediate representation for this exact function and binary. This is structural analysis evidence, not recovered original source or proof of behavior.',
+  } : null
   const reipaPseudocode = task?.status === 'COMPLETED' ? await readVerifiedReipaAlternate({
     projectId: args.projectId,
     artifactId: unit.artifactId,
@@ -746,11 +869,20 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
         || (attributes.decompiler === 'unwasm' && attributes.sourceLanguage === 'WebAssembly'
         ? 'Generated Rust is a translation view of this WebAssembly function, not the original source. Function and local names are provider evidence, not confirmed source names.'
         : null),
+      recurseInstructionCount: typeof attributes.recurseInstructionCount === 'number'
+        && Number.isSafeInteger(attributes.recurseInstructionCount) && attributes.recurseInstructionCount >= 0
+        ? attributes.recurseInstructionCount : null,
+      recurseOptimizerPasses: recurseOptimizerPasses(attributes.recurseOptimizerPasses),
       decompiler: text(attributes.decompiler, 80),
       decompilerVersion: text(attributes.decompilerVersion, 120),
       providerAlternates,
       providerAlternatesSemantics: providerAlternates.length
         ? 'Each alternate is from a completed provider run for this exact artifact, matched by persisted canonical key, normalized native identity, or legacy address alias as recorded in identityMatch; input and output hashes are verified. Treat differences as evidence to review; do not infer that either output is original source or behaviorally equivalent.'
+        : null,
+      analysisEvidence: selectedRecurseEvidence,
+      sameFunctionRecurseLift: recurseLiftEvidence,
+      sameFunctionRecurseLiftSemantics: recurseLiftEvidence
+        ? 'Hash-verified provisional VTIL-style lift for the same normalized native function in this exact binary. Structural analysis evidence only; it is not original source, behavioral proof, or a substitute for the selected provider output.'
         : null,
       acceptedCrossProviderProjectMemory: acceptedCrossProviderProjectMemory || null,
       acceptedCrossProviderProjectMemoryTruncated: providerAlternateRows.length >= MAX_PROJECT_MEMORY_MATCHES,
@@ -875,7 +1007,7 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
       completedAt: task.completedAt?.toISOString() || null,
       warnings: text(result.warnings, 2000),
     } : null,
-    decompiledSource: code ? {
+    decompiledSource: code && !isRecurseLift ? {
       scope: parentUnit ? 'containing_code_unit' : 'code_unit',
       relativePath: text(attributes.relativePath, 1000),
       text: code.text,

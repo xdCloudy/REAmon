@@ -101,7 +101,8 @@ export async function GET(request: Request, { params }: RouteParams) {
         const discoveredUnitCount = finiteCount(isWasm ? result.wasmFunctionCount : result.decompiledCodeUnitCount ?? result.decompiledClassCount ?? result.decompiledFunctionCount)
         const returnedUnitCount = finiteCount(result.returnedCodeUnitCount ?? result.returnedClassCount ?? result.returnedFunctionCount) ?? codeUnitCount
         const indexedUnitCount = Math.min(codeUnitCount, returnedUnitCount)
-        const unitLabel = task.provider?.pluginId === 'reamon-ghidra' || isWasm ? 'functions' : 'code units'
+        const unitLabel = task.provider?.pluginId === 'reamon-ghidra'
+          || task.provider?.pluginId === 'reamon-recurse' || isWasm ? 'functions' : 'code units'
         return {
           id: task.id,
           title: task.title,
