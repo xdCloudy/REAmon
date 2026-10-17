@@ -236,7 +236,7 @@ async function readDerivedText(relativePath: unknown, projectId: string, artifac
     const stat = await handle.stat()
     if (!stat.isFile() || stat.size < 0) return null
     const buffer = Buffer.alloc(Math.min(stat.size, MAX_CODE_BYTES))
-    const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0)
+    let bytesReturned = 0
     let sourceHash: string | null = null
     if (stat.size <= maxHashBytes) {
       const digest = createHash('sha256')
@@ -246,13 +246,21 @@ async function readDerivedText(relativePath: unknown, projectId: string, artifac
         const result = await handle.read(chunk, 0, Math.min(chunk.length, stat.size - position), position)
         if (result.bytesRead <= 0) break
         digest.update(chunk.subarray(0, result.bytesRead))
+        const copyBytes = Math.min(result.bytesRead, buffer.length - bytesReturned)
+        if (copyBytes > 0) {
+          chunk.copy(buffer, bytesReturned, 0, copyBytes)
+          bytesReturned += copyBytes
+        }
         position += result.bytesRead
       }
       if (position === stat.size) sourceHash = digest.digest('hex')
+    } else if (buffer.length) {
+      const result = await handle.read(buffer, 0, buffer.length, 0)
+      bytesReturned = result.bytesRead
     }
     return {
-      text: buffer.subarray(0, bytesRead).toString('utf8'),
-      bytesReturned: bytesRead,
+      text: buffer.subarray(0, bytesReturned).toString('utf8'),
+      bytesReturned,
       sizeBytes: stat.size,
       truncated: stat.size > MAX_CODE_BYTES,
       sourceHash,
