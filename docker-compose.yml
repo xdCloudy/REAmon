@@ -1181,6 +1181,7 @@ services:
       REAMON_GLAURUNG_URL: http://glaurung-analyzer:8024
       REAMON_KUNA_URL: http://kuna-analyzer:8025
       REAMON_RECURSE_URL: http://recurse-analyzer:8026
+      REAMON_FISSION_URL: http://fission-analyzer:8027
       REAMON_WASM_URL: http://wasm-analyzer:8012
       REAMON_PYCDC_URL: http://pycdc-analyzer:8014
       REAMON_WEBCRACK_URL: http://webcrack-analyzer:8015
@@ -1704,6 +1705,44 @@ services:
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8026/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    networks:
+      - reamon-analysis
+
+  # Pinned Fission native reconstruction, stored as provider evidence in REAmon.
+  fission-analyzer:
+    build:
+      context: ./analyzers/fission
+    image: ${REAMON_FISSION_IMAGE:-reamon-fission:local}
+    container_name: reamon-fission
+    init: true
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: ${REAMON_FISSION_MEM:-4g}
+    pids_limit: ${REAMON_FISSION_PIDS:-64}
+    cpus: ${REAMON_FISSION_CPUS:-2}
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=${REAMON_FISSION_TMP_SIZE:-1g},mode=1777
+    environment:
+      REAMON_ARTIFACTS_PATH: /data/reamon-artifacts
+      REAMON_DERIVED_PATH: /data/reamon-derived
+      FISSION_TIMEOUT_SECONDS: ${REAMON_FISSION_TIMEOUT_SECONDS:-900}
+      FISSION_MAX_FUNCTIONS: ${REAMON_FISSION_MAX_FUNCTIONS:-128}
+      FISSION_MAX_OUTPUT_BYTES: ${REAMON_FISSION_MAX_OUTPUT_BYTES:-33554432}
+      FISSION_MAX_JSON_BYTES: ${REAMON_FISSION_MAX_JSON_BYTES:-67108864}
+      FISSION_FUNCTION_TIMEOUT_MS: ${REAMON_FISSION_FUNCTION_TIMEOUT_MS:-10000}
+    volumes:
+      - reamon_artifacts:/data/reamon-artifacts:ro
+      - reamon_derived:/data/reamon-derived:rw
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8027/health', timeout=3)"]
       interval: 30s
       timeout: 5s
       retries: 3

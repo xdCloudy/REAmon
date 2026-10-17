@@ -1599,6 +1599,72 @@ export async function POST(request: Request, { params }: RouteParams) {
         // ReIPA is optional rewrite context; the selected Ghidra source remains authoritative.
       }
     }
+    const selectedNativeIdentity = typeof attributes.identity === 'string' ? attributes.identity : ''
+    const selectedNativeInputHash = typeof attributes.inputArtifactSha256 === 'string'
+      ? attributes.inputArtifactSha256.toLowerCase() : ''
+    const nativeAlternateProviders = ['reamon-fission', 'reamon-ghidra', 'reamon-kuna']
+      .filter((providerId) => providerId !== observation.source)
+    if (selectedNativeIdentity && selectedNativeInputHash === artifact.sha256.toLowerCase()
+        && nativeAlternateProviders.length && contextSources.length < MAX_CONTEXT_UNITS) {
+      try {
+        const nativeAlternates = await prisma.reamonObservation.findMany({
+          where: {
+            projectId,
+            artifactId: artifact.id,
+            source: { in: nativeAlternateProviders },
+            kind: 'entity',
+            type: 'code_unit',
+            task: { is: {
+              projectId,
+              status: 'COMPLETED',
+              capability: 'decompile',
+              provider: { is: { pluginId: { in: nativeAlternateProviders } } },
+            } },
+            AND: [
+              { attributes: { path: ['identity'], equals: selectedNativeIdentity } },
+              { attributes: { path: ['inputArtifactSha256'], equals: artifact.sha256 } },
+            ],
+          },
+          select: { taskId: true, source: true, label: true, attributes: true, updatedAt: true },
+          orderBy: [{ updatedAt: 'desc' }],
+          take: 3,
+        })
+        for (const candidate of nativeAlternates) {
+          if (contextSources.length >= MAX_CONTEXT_UNITS || contextBytes >= MAX_CONTEXT_BYTES) break
+          const candidateAttributes = plainObject(candidate.attributes)
+          if (candidateAttributes.identity !== selectedNativeIdentity
+              || candidateAttributes.inputArtifactSha256 !== artifact.sha256
+              || typeof candidateAttributes.codeArtifactId !== 'string'
+              || typeof candidateAttributes.decompiledSourceSha256 !== 'string'
+              || !/^[a-f0-9]{64}$/.test(candidateAttributes.decompiledSourceSha256.toLowerCase())
+              || !belongsToArtifactRun(candidateAttributes.codeArtifactId, projectId, artifact.id)) continue
+          try {
+            const alternatePath = await realpath(resolveDerivedArtifactPath(candidateAttributes.codeArtifactId))
+            if (!isInside(rootPath, alternatePath)) continue
+            const alternateInfo = await stat(alternatePath)
+            if (!alternateInfo.isFile() || alternateInfo.size <= 0 || alternateInfo.size > 2 * 1024 * 1024) continue
+            const alternateBytes = await readFile(alternatePath)
+            const alternateHash = createHash('sha256').update(alternateBytes).digest('hex')
+            if (alternateHash !== candidateAttributes.decompiledSourceSha256.toLowerCase()) continue
+            const remaining = Math.min(MAX_ALTERNATE_DECOMPILER_BYTES, MAX_CONTEXT_BYTES - contextBytes)
+            const alternateSource = utf8Prefix(alternateBytes.toString('utf8'), remaining)
+            if (!alternateSource.trim()) continue
+            const providerName = candidate.source.slice('reamon-'.length)
+            const address = typeof candidateAttributes.address === 'string' ? candidateAttributes.address : 'unknown address'
+            contextSources.push({
+              unit_name: `${unitName} (${providerName} same-function native reconstruction at ${address}; same artifact sha256:${artifact.sha256.slice(0, 16)}; output sha256:${alternateHash.slice(0, 16)}; provisional provider evidence, not source ground truth)`.slice(0, 500),
+              language: typeof candidateAttributes.language === 'string' ? candidateAttributes.language.slice(0, 80) : 'C',
+              source_code: alternateSource,
+            })
+            contextBytes += Buffer.byteLength(alternateSource, 'utf8')
+          } catch {
+            // Same-function provider output is optional context; preserve the selected source on read failure.
+          }
+        }
+      } catch {
+        // Provider comparison context must not block the selected-source rewrite.
+      }
+    }
     const alternateDecompilerProviders = ['reamon-cfr', 'reamon-vineflower', 'reamon-jadx']
       .filter((providerId) => providerId !== observation.source)
     if (relativePath && alternateDecompilerProviders.length && contextSources.length < MAX_CONTEXT_UNITS) {
