@@ -12,8 +12,8 @@
     {
       "name": "Database-grounded project memory and provenance",
       "weight": 20,
-      "completion": 45,
-      "basis": "Project-scoped observations, symbols, relationships, drafts, and review records ground AI context; cross-provider identity and completeness still need broader validation."
+      "completion": 46,
+      "basis": "Project-scoped observations, symbols, relationships, drafts, and review records ground AI context. Exact-address ReIPA pseudocode alternatives for matched Swift/Objective-C methods now enter rewrite context only after same-run path and output-hash verification; cross-provider identity and completeness still need broader validation."
     },
     {
       "name": "Major-language and format decompilation fluency",

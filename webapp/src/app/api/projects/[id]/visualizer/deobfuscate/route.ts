@@ -36,6 +36,7 @@ const MAX_PROJECT_SYMBOL_SCAN = 4_096
 const MAX_PROVIDER_SYMBOL_RECORDS = 128
 const MAX_PROJECT_DRAFT_RECORDS = 64
 const MEMBER_OUTLINE_SOURCE = 'reamon-tree-sitter-outline@tree-sitter-language-pack-1.21.0'
+const REIPA_PROVIDER_VERSION = 'ReIPA@b0d4759451ed20796892a059fa53d9dbb130af61'
 const MAX_PERSISTED_OUTLINE_MEMBERS = 10_000
 
 interface OutlineMember {
@@ -1293,6 +1294,55 @@ export async function POST(request: Request, { params }: RouteParams) {
     const contextSources: Array<{ unit_name: string; language: string; source_code: string }> = []
     let contextBytes = 0
     const relativePath = typeof attributes.relativePath === 'string' ? attributes.relativePath : ''
+    const reipaAlternatePath = typeof selectedProviderAttributes.reipaAlternateCodeArtifactId === 'string'
+      ? selectedProviderAttributes.reipaAlternateCodeArtifactId
+      : ''
+    const reipaAlternateHash = typeof selectedProviderAttributes.reipaAlternateOutputSha256 === 'string'
+      ? selectedProviderAttributes.reipaAlternateOutputSha256.toLowerCase()
+      : ''
+    const reipaAlternateVersion = typeof selectedProviderAttributes.reipaAlternateProviderVersion === 'string'
+      ? selectedProviderAttributes.reipaAlternateProviderVersion
+      : ''
+    const selectedAddress = typeof selectedProviderAttributes.address === 'string'
+      ? selectedProviderAttributes.address.toLowerCase().replace(/^0x/, '')
+      : ''
+    const normalizedAddress = selectedAddress.replace(/^0+/, '') || '0'
+    if (observation.source === 'reamon-ghidra' && observation.taskId
+      && selectedProviderAttributes.symbolSource === 'ReIPA'
+      && (selectedProviderAttributes.sourceLanguage === 'Swift' || selectedProviderAttributes.sourceLanguage === 'Objective-C')
+      && selectedProviderAttributes.inputArtifactSha256 === artifact.sha256
+      && reipaAlternateVersion === REIPA_PROVIDER_VERSION
+      && /^[a-f0-9]{64}$/.test(reipaAlternateHash)
+      && /^(?:0x)?[0-9a-f]{1,16}$/i.test(selectedAddress)
+      && reipaAlternatePath.startsWith(runPrefix)
+      && reipaAlternatePath.slice(runPrefix.length) === `alternates/reipa/${normalizedAddress}.c`
+      && belongsToArtifactRun(reipaAlternatePath, projectId, artifact.id)) {
+      try {
+        const reipaRunRoot = await realpath(resolveDerivedArtifactPath(runPrefix.slice(0, -1)))
+        const reipaSourcePath = await realpath(resolveDerivedArtifactPath(reipaAlternatePath))
+        if (isInside(rootPath, reipaRunRoot) && isInside(reipaRunRoot, reipaSourcePath)) {
+          const reipaInfo = await stat(reipaSourcePath)
+          if (reipaInfo.isFile() && reipaInfo.size > 0 && reipaInfo.size <= 128 * 1024) {
+            const reipaBytes = await readFile(reipaSourcePath)
+            const outputHash = createHash('sha256').update(reipaBytes).digest('hex')
+            if (outputHash === reipaAlternateHash) {
+              const remaining = Math.min(MAX_ALTERNATE_DECOMPILER_BYTES, MAX_CONTEXT_BYTES - contextBytes)
+              const reipaSource = utf8Prefix(reipaBytes.toString('utf8'), remaining)
+              if (reipaSource.trim()) {
+                contextSources.push({
+                  unit_name: `${unitName} (ReIPA experimental C-like pseudocode; exact address 0x${normalizedAddress}; same artifact sha256:${artifact.sha256.slice(0, 16)}; same analysis task; output sha256:${outputHash.slice(0, 16)}; provisional analysis evidence, not recovered ${selectedProviderAttributes.sourceLanguage} source)`.slice(0, 500),
+                  language: 'C',
+                  source_code: reipaSource,
+                })
+                contextBytes += Buffer.byteLength(reipaSource, 'utf8')
+              }
+            }
+          }
+        }
+      } catch {
+        // ReIPA is optional rewrite context; the selected Ghidra source remains authoritative.
+      }
+    }
     const alternateDecompilerProviders = ['reamon-cfr', 'reamon-vineflower', 'reamon-jadx']
       .filter((providerId) => providerId !== observation.source)
     if (relativePath && alternateDecompilerProviders.length && contextSources.length < MAX_CONTEXT_UNITS) {
