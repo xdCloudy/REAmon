@@ -26,11 +26,11 @@ checkout; it does not imply broad fixture coverage or behavioral equivalence. Se
 | Reproducible project export | The source bundle keeps provider decompilation and maintained source in separate trees. Its manifest includes input-artifact identity/hash, registered provider ID/version, per-unit engine version when the analyzer recorded one, and per-file SHA-256 values. It verifies acceptance receipts against project, artifact, unit, accepted decision, and exact exported source hash. For accepted source, it links a saved whole-file draft from the same run only when its output hash matches, then records its input hash, provider/model, validator, and source-attempt lineage; attempt output hashes are checked against draft hashes. Ghidra bundles additionally contain a bounded `native-annotations.json` sidecar with accepted symbol inventories, function addresses, exact binary hash, and review provenance. Where the accepted source has exactly one Tree-sitter-outlined C function declaration, the bundle also includes a Ghidra script that checks the loaded executable's SHA-256 and the function's original name before applying that accepted declaration name at the original Ghidra address; it never rebases. Both sidecar and script hashes/truncation are recorded in the main manifest. This first importer path has not been validated against a Ghidra fixture yet. Draft lookup is capped at 50,000 rows and reports truncation. Missing, unavailable, or mismatched evidence is labeled. | Validate the importer against exact-binary fixtures and add IDA support; expand source declaration mappings only when syntax provides an unambiguous function-to-address relationship. Persist the actual engine version for every provider and include a reproducible rebuild or validation recipe where a supported toolchain exists. |
 | Dynamic analysis | Existing platform-specific work exists in the wider REAmon repository. | Connect runtime observations to static units and the same project identity model without requiring dynamic analysis for basic decompilation. |
 
-## Product-critical distinctions
-
-### Paginated MCP relationships
+## Paginated MCP relationships
 
 Inspired by [ReVa's Ghidra cross-reference tools](https://github.com/cyberkaida/reverse-engineering-assistant), `workspace_list_code_relationships` pages through stored call edges or field/string references for one code unit. Every result is restricted to the active import and the selected unit's exact artifact, provider, and analysis task. This complements the bounded relationship preview in `workspace_get_code_unit`; it does not infer missing edges or claim that persisted references prove behavior.
+
+## Product-critical distinctions
 
 - Decompilation output and AI-maintained source are separate artifacts.
 - A completed provider task is not proof of full analysis coverage.
