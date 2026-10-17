@@ -623,6 +623,33 @@ export async function POST(request: Request, { params }: RouteParams) {
     // Give the model a small, same-run neighborhood so names can be inferred from
     // how this class interacts with its collaborators, rather than this file alone.
     const runPrefix = `${segments.slice(0, 4).join('/')}/`
+    const representationLines = [
+      typeof attributes.decompiler === 'string' ? `Decompiler: ${attributes.decompiler.slice(0, 80)}${typeof attributes.decompilerVersion === 'string' ? ` ${attributes.decompilerVersion.slice(0, 120)}` : ''}` : '',
+      typeof attributes.representationSemantics === 'string' ? `Representation: ${attributes.representationSemantics.slice(0, 1000)}` : '',
+    ]
+    const transformedArtifactId = attributes.deobfuscatedArtifactId
+    const transformedHash = typeof attributes.deobfuscatedArtifactSha256 === 'string' ? attributes.deobfuscatedArtifactSha256.toLowerCase() : ''
+    if (attributes.deobfuscationProvider === 'NoFuserEx'
+      && attributes.deobfuscationProviderRevision === 'bbdde27a817cf9b2ab9f03207fc3bd9adb7c8ff4'
+      && attributes.inputArtifactSha256 === artifact.sha256
+      && typeof transformedArtifactId === 'string'
+      && transformedArtifactId.startsWith(`${runPrefix}preprocessed/`)
+      && belongsToArtifactRun(transformedArtifactId, projectId, artifact.id)
+      && /^[a-f0-9]{64}$/.test(transformedHash)) {
+      const parsePasses = (value: unknown) => {
+        if (typeof value !== 'string' || value.length > 2000) return []
+        try {
+          const parsed: unknown = JSON.parse(value)
+          return Array.isArray(parsed) ? parsed.filter((pass): pass is string => typeof pass === 'string' && pass.length <= 80).slice(0, 12) : []
+        } catch { return [] }
+      }
+      const enabled = parsePasses(attributes.deobfuscationEnabledPasses)
+      const disabled = parsePasses(attributes.deobfuscationDisabledPasses)
+      representationLines.push(
+        `Static transformation: NoFuserEx ${attributes.deobfuscationProviderRevision}; input sha256 ${artifact.sha256}; transformed sha256 ${transformedHash}; artifact ${transformedArtifactId.slice(0, 1000)}; enabled passes ${enabled.join(', ') || 'not recorded'}; disabled passes ${disabled.join(', ') || 'not recorded'}. This intermediate output is not proof of behavior or recovered original source.`,
+      )
+    }
+    const representationContext = representationLines.filter(Boolean).join('\n').slice(0, 4000)
     const classReferences = classReferencesOf(attributes.classReferences).filter((name) => name !== unitName)
     const relatedRows = classReferences.length ? await prisma.reamonObservation.findMany({
       where: {
@@ -2012,6 +2039,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       language: language.slice(0, 80),
       source_language: sourceLanguage.slice(0, 80),
       source_code: bytes.toString('utf8'),
+      representation_context: representationContext,
       scope,
       member_name: scope === 'member' ? String(body.memberName).slice(0, 500) : '',
       context_sources: contextSources,
