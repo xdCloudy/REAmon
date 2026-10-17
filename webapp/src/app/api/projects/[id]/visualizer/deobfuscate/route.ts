@@ -10,7 +10,7 @@ import { derivedArtifactRoot, resolveDerivedArtifactPath } from '@/lib/reamon/de
 import { buildProjectSymbolContext, buildProviderGoTypeContext, buildProviderTypeContext, buildProviderSymbolContext, extractMaintainedSymbols } from '@/lib/reamon/maintenance-memory'
 import { nativeAddressAliases, nativeArchitectureGroup, nativeFunctionIdentity } from '@/lib/reamon/native-function-identity'
 import { flossRecoveredStringsOf, providerVariablesOf } from '@/lib/reamon/code-units'
-import { rankSimilarInstructionFunctions } from '@/lib/reamon/instruction-similarity'
+import { rankSimilarInstructionFunctions, type RankedSimilarInstructionFunction } from '@/lib/reamon/instruction-similarity'
 import { codeRewriteLeaseGraceMs, failInterruptedCodeAttempts } from '@/lib/reamon/code-attempts'
 import { codeNoteText, REAMON_CODE_NOTE_SOURCE } from '@/lib/reamon/code-notes'
 
@@ -944,7 +944,7 @@ export async function POST(request: Request, { params }: RouteParams) {
             const prior = matches.get(match.key)
             if (!prior || prior.similarity < match.similarity) matches.set(match.key, match)
             return matches
-          }, new Map<string, typeof candidateFeatures[number] & { similarity: number }>())
+          }, new Map<string, RankedSimilarInstructionFunction>())
         const rankedMatches = [...similarFunctions.values()].sort((left, right) => right.similarity - left.similarity).slice(0, MAX_CONTEXT_UNITS)
         const functionParentRefs = isFunctionScopedRewrite ? rankedMatches.flatMap((match) => {
           const row = rowByKey.get(match.key)
@@ -979,14 +979,16 @@ export async function POST(request: Request, { params }: RouteParams) {
           if (!name || name === unitName || relatedByName.has(name)) continue
           relatedByName.set(name, {
             ...relatedAttributes,
-            instructionSimilarityPercent: match.similarity,
-            instructionProvider: row.source,
-            instructionAnalysisTaskId: row.taskId,
-            instructionArtifactId: row.artifactId,
-            instructionArtifactName: row.artifact?.originalName,
-            instructionArtifactHash: row.artifact?.sha256,
-            instructionIdentity: typeof relatedAttributes.identity === 'string' ? relatedAttributes.identity : undefined,
-            instructionArchitectureGroup: nativeArchitectureGroup(relatedAttributes) || undefined,
+            functionSimilarityPercent: match.similarity,
+            instructionSequenceSimilarityPercent: match.instructionSimilarity,
+            controlFlowCountSimilarityPercent: match.controlFlowSimilarity,
+            similarityProvider: row.source,
+            similarityAnalysisTaskId: row.taskId,
+            similarityArtifactId: row.artifactId,
+            similarityArtifactName: row.artifact?.originalName,
+            similarityArtifactHash: row.artifact?.sha256,
+            similarityFunctionIdentity: typeof relatedAttributes.identity === 'string' ? relatedAttributes.identity : undefined,
+            similarityArchitectureGroup: nativeArchitectureGroup(relatedAttributes) || undefined,
           })
           const parentKey = relatedAttributes.parentCodeUnitKey
           const parent = row.taskId && typeof parentKey === 'string'
@@ -1413,8 +1415,8 @@ export async function POST(request: Request, { params }: RouteParams) {
       basicBlockMetricsLine(`Selected unit ${unitName}`, selectedProviderAttributes.controlFlowMetrics),
       cffRecoveryLine(`Selected unit ${unitName}`, selectedProviderAttributes.controlFlowFlattening),
       ...[...relatedByName.entries()].slice(0, 8).map(([name, attributes]) => {
-        const artifactLabel = typeof attributes.instructionArtifactName === 'string'
-          ? ` from ${attributes.instructionArtifactName.slice(0, 120)}` : ''
+        const artifactLabel = typeof attributes.similarityArtifactName === 'string'
+          ? ` from ${attributes.similarityArtifactName.slice(0, 120)}` : ''
         return basicBlockMetricsLine(`Similar-function candidate ${name}${artifactLabel}`, attributes.controlFlowMetrics)
       }),
     ].filter((line): line is string => Boolean(line))
@@ -2024,19 +2026,30 @@ export async function POST(request: Request, { params }: RouteParams) {
     for (const name of references) {
       if (contextSources.length >= MAX_CONTEXT_UNITS || contextBytes >= MAX_CONTEXT_BYTES) break
       const relatedAttributes = relatedByName.get(name)
-      const similarityPercent = typeof relatedAttributes?.instructionSimilarityPercent === 'number'
-        ? relatedAttributes.instructionSimilarityPercent
+      const similarityPercent = typeof relatedAttributes?.functionSimilarityPercent === 'number'
+        ? relatedAttributes.functionSimilarityPercent
         : null
-      const similarityArtifactName = typeof relatedAttributes?.instructionArtifactName === 'string'
-        ? relatedAttributes.instructionArtifactName.slice(0, 160)
+      const instructionSimilarityPercent = typeof relatedAttributes?.instructionSequenceSimilarityPercent === 'number'
+        ? relatedAttributes.instructionSequenceSimilarityPercent
+        : null
+      const controlFlowSimilarityPercent = typeof relatedAttributes?.controlFlowCountSimilarityPercent === 'number'
+        ? relatedAttributes.controlFlowCountSimilarityPercent
+        : null
+      const similarityArtifactName = typeof relatedAttributes?.similarityArtifactName === 'string'
+        ? relatedAttributes.similarityArtifactName.slice(0, 160)
         : ''
-      const similarityArtifactHash = typeof relatedAttributes?.instructionArtifactHash === 'string'
-        ? relatedAttributes.instructionArtifactHash.slice(0, 12)
+      const similarityArtifactHash = typeof relatedAttributes?.similarityArtifactHash === 'string'
+        ? relatedAttributes.similarityArtifactHash.slice(0, 12)
         : ''
       const similarityArtifact = [similarityArtifactName, similarityArtifactHash].filter(Boolean).join(' #')
+      const similarityEvidence = [
+        instructionSimilarityPercent === null ? '' : `instruction sequence ${instructionSimilarityPercent}%`,
+        controlFlowSimilarityPercent === null ? '' : `control-flow counts ${controlFlowSimilarityPercent}%`,
+      ].filter(Boolean).join(', ')
+      const similarityMethod = controlFlowSimilarityPercent === null ? 'instruction-sequence' : 'instruction-sequence plus control-flow-count'
       const similarityHint = similarityPercent === null
         ? ''
-        : ` (instruction-pattern look-alike, ${similarityPercent}% sequence similarity; candidate only${similarityArtifact ? `, from artifact ${similarityArtifact}` : ''})`
+        : ` (${similarityMethod} candidate score ${similarityPercent}%${similarityEvidence ? `; ${similarityEvidence}` : ''}; ranking lead only, not identity or behavior proof${similarityArtifact ? `; from artifact ${similarityArtifact}` : ''})`
       const smaliSimilarity = similarityPercent !== null && observation.source === 'reamon-jadx'
       const relatedArtifactId = typeof (smaliSimilarity ? relatedAttributes?.disassemblyArtifactId : relatedAttributes?.codeArtifactId) === 'string'
         ? (smaliSimilarity ? relatedAttributes?.disassemblyArtifactId : relatedAttributes?.codeArtifactId) as string
