@@ -228,7 +228,7 @@ resource extraction, and broader language-specific workflows remain future work.
 
 <progress value="44" max="100">44%</progress> <strong>44%</strong>
 
-Weighted estimate: **44.2%** (rounded for the bar). Refreshed from the workstream weights at pushed commit `dfc9b73`.
+Weighted estimate: **44.2%** (rounded for the bar). Refreshed from the workstream weights at pushed commit `17b3214`.
 
 | Workstream | Weight | Completion estimate | Weighted points | Current evidence and remaining gap |
 | --- | ---: | ---: | ---: | --- |
