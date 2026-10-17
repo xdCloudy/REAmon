@@ -221,14 +221,14 @@ resource extraction, and broader language-specific workflows remain future work.
 <!-- REAMON_PRODUCT_PROGRESS_START -->
 ## Long-term product progress
 
-<progress value="35" max="100">35%</progress> <strong>35%</strong>
+<progress value="36" max="100">36%</progress> <strong>36%</strong>
 
-Weighted estimate: **35.4%** (rounded for the bar). Refreshed from the workstream weights at pushed commit `b694ea6`.
+Weighted estimate: **35.6%** (rounded for the bar). Refreshed from the workstream weights at pushed commit `4096b23`.
 
 | Workstream | Weight | Completion estimate | Weighted points | Current evidence and remaining gap |
 | --- | ---: | ---: | ---: | --- |
 | Core analysis and visualizer workflow | 20% | 62% | 12.4% | Imports, provider execution, stored code units, source navigation, and review workflows exist. Native Mach-O analysis stores exact-address Swift/Objective-C metadata and exposes capped, hash-checked ReIPA pseudocode alternatives for matched functions; broader provider and format coverage remains incomplete. |
-| Database-grounded project memory and provenance | 20% | 46% | 9.2% | Project-scoped observations, symbols, relationships, drafts, and review records ground AI context. Exact-address ReIPA pseudocode alternatives for matched Swift/Objective-C methods now enter rewrite context only after same-run path and output-hash verification; cross-provider identity and completeness still need broader validation. |
+| Database-grounded project memory and provenance | 20% | 47% | 9.4% | Project-scoped observations, symbols, relationships, drafts, and review records ground AI context. Exact-address ReIPA pseudocode alternatives for matched Swift/Objective-C methods now enter both rewrite context and the MCP code-unit dossier only after same-run task, run-token, path, provider, address, input, and output-hash checks; cross-provider identity and completeness still need broader validation. |
 | Major-language and format decompilation fluency | 30% | 21% | 6.3% | Several useful Java, .NET, Android, Python, WebAssembly, and native paths exist, and matched arm64 Mach-O methods can now show early ReIPA C-like pseudocode beside Ghidra output; many languages remain navigation-only, early, or represented by generic pseudocode. |
 | Maintainable editing, review, and export | 15% | 35% | 5.3% | Hash-bound drafts, review receipts, syntax-aware edits for selected languages, and reproducible export exist; language breadth and project-level edits remain limited. |
 | Fixture-backed validation and fidelity evidence | 15% | 15% | 2.3% | Provider smoke checks and structural validators exist, but broad versioned clean, optimized, stripped, and obfuscated fixture comparisons are still missing. |
