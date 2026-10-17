@@ -47,8 +47,8 @@ COPY --from=engines /opt/arlecchino /opt/arlecchino
 COPY --from=engines /usr/share/licenses /usr/share/licenses
 COPY ARLECCHINO_LICENSE ARLECCHINO_NOTICE CFR_LICENSE.md JADX_LICENSE VINEFLOWER_LICENSE.md /usr/share/licenses/arlecchino/
 WORKDIR /app
-COPY server.py entrypoint.sh ./
-RUN chmod 0555 /app/server.py /app/entrypoint.sh
+COPY server.py jvm_rebuild.py entrypoint.sh ./
+RUN chmod 0555 /app/server.py /app/jvm_rebuild.py /app/entrypoint.sh
 ENV REAMON_ARTIFACTS_PATH=/data/reamon-artifacts \
     REAMON_DERIVED_PATH=/data/reamon-derived \
     ARLECCHINO_BIN=/opt/arlecchino/bin/arlecchino \
@@ -57,6 +57,7 @@ ENV REAMON_ARTIFACTS_PATH=/data/reamon-artifacts \
     ARLECCHINO_TIMEOUT_SECONDS=900 \
     ARLECCHINO_MAX_OUTPUT_BYTES=536870912 \
     ARLECCHINO_MAX_SOURCE_FILES=20000 \
+    ARLECCHINO_COMPILE_TIMEOUT_SECONDS=120 \
     JAVA_TOOL_OPTIONS=-XX:MaxRAMPercentage=60
 EXPOSE 8028
 ENTRYPOINT ["/app/entrypoint.sh"]

@@ -16,6 +16,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from jvm_rebuild import CompileDiagnostics, RebuildError, rebuild as rebuild_jvm_source
 
 ARTIFACT_ROOT = Path(os.environ.get("REAMON_ARTIFACTS_PATH", "/data/reamon-artifacts")).resolve()
 DERIVED_ROOT = Path(os.environ.get("REAMON_DERIVED_PATH", "/data/reamon-derived")).resolve()
@@ -29,6 +30,7 @@ MAX_BINARY_BYTES = min(1024**3, max(1024**2, int(os.environ.get("ARLECCHINO_MAX_
 MAX_OUTPUT_BYTES = min(1024**3, max(1024**2, int(os.environ.get("ARLECCHINO_MAX_OUTPUT_BYTES", str(512 * 1024**2)))))
 MAX_SOURCE_FILES = min(50000, max(1, int(os.environ.get("ARLECCHINO_MAX_SOURCE_FILES", "20000"))))
 MAX_REQUEST_BYTES = 64 * 1024
+MAX_REBUILD_REQUEST_BYTES = 5 * 1024 * 1024
 MAX_LOG_BYTES = 1024 * 1024
 MAX_REPORT_BYTES = 16 * 1024 * 1024
 SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
@@ -332,17 +334,30 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(404, {"error": "Not found"})
 
     def do_POST(self) -> None:
-        if self.path != "/analyze":
+        if self.path not in {"/analyze", "/rebuild"}:
             self.send_json(404, {"error": "Not found"})
             return
         try:
             length = int(self.headers.get("Content-Length", "0"))
-            if length <= 0 or length > MAX_REQUEST_BYTES:
+            request_limit = MAX_REBUILD_REQUEST_BYTES if self.path == "/rebuild" else MAX_REQUEST_BYTES
+            if length <= 0 or length > request_limit:
                 raise AnalysisError("Request body is empty or too large")
             body = json.loads(self.rfile.read(length))
             if not isinstance(body, dict):
                 raise AnalysisError("Request must be a JSON object")
-            self.send_json(200, analyze(body))
+            if self.path == "/analyze":
+                self.send_json(200, analyze(body))
+                return
+            if not SLOTS.acquire(blocking=False):
+                raise AnalysisError("The Arlecchino analyzer is busy")
+            try:
+                self.send_json(200, rebuild_jvm_source(body))
+            finally:
+                SLOTS.release()
+        except CompileDiagnostics as error:
+            self.send_json(422, {"error": str(error)[:8000], "validationStatus": "FAILED"})
+        except RebuildError as error:
+            self.send_json(400, {"error": str(error)[:2000]})
         except AnalysisError as error:
             self.send_json(503 if "busy" in str(error).lower() else 400, {"error": str(error)[:2000]})
         except Exception as error:

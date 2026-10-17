@@ -105,8 +105,7 @@ preserve recognized callable counts across supported grammars. Java and C/C++ al
 retain declaration-form checks. These are structural evidence, not proof of behavioral
 equivalence. Editing a saved draft clears its prior validation metadata.
 
-The current maintained-source validators are structural checks; REAmon does not yet
-run an original-toolchain, function-level byte comparison. Projects such as Rebrew show
+Maintained-source acceptance checks remain structural. For a JVM JAR, the visualizer can separately compile one accepted Java class against the original archive and create an unsigned derived JAR. This compiler result validates that one source class against the bundled JDK and archive classpath; it does not use external project dependencies or prove runtime equivalence. REAmon does not yet run an original-toolchain, function-level byte comparison. Projects such as Rebrew show
 the stronger path when the exact native compiler, flags, linker placement, and target
 bytes are available. A future adapter must store differential verdicts separately from
 syntax status and tie them to the exact source hash, target artifact hash, build recipe,

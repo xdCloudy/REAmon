@@ -135,6 +135,7 @@ interface AlternateDecompilerResponse { alternates: AlternateDecompilerOutput[] 
 interface CodeExplanationProvider { id: string; name: string; modelIdentifier: string }
 interface CodeExplanationResponse { explanation: string; providerName: string; model: string; sourceTruncated: boolean }
 interface ApkBuildResponse { buildId: string; taskId: string; fileName: string; sizeBytes: number; sha256: string; signed: false; changedFileCount: number; warnings?: string; downloadUrl: string }
+interface JvmBuildResponse { buildId: string; taskId: string; codeUnitId: string; fileName: string; sizeBytes: number; sha256: string; sourceSha256: string; changedClassCount: number; removedClassCount: number; javaRelease: number; compilerVersion: string; diagnostics: string; warnings: string; downloadUrl: string }
 interface CodeMaintenanceResponse { sourceCode: string; providerName: string; model: string; attemptId?: string | null; syntaxValidated?: boolean | null; validationStatus?: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod?: string | null; validationMessage?: string | null }
 interface CodeDraftRecord { id: string; sourceCode: string; sourceAttemptId: string | null; providerName: string; modelIdentifier: string; question: string; scope: 'file' | 'member'; syntaxValidated: boolean | null; validationStatus: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod: string | null; validationMessage: string | null; updatedAt: string }
 interface CodeAttemptRecord { id: string; providerName: string; modelIdentifier: string; question: string; scope: 'file' | 'member'; status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'; cancelRequested: boolean; errorCode: string | null; errorMessage: string | null; resultSource: string | null; syntaxValidated: boolean | null; validationStatus: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod: string | null; validationMessage: string | null; createdAt: string; completedAt: string | null }
@@ -803,6 +804,9 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
   const [apkBuild, setApkBuild] = useState<ApkBuildResponse | null>(null)
   const [buildingApk, setBuildingApk] = useState(false)
   const [apkBuildError, setApkBuildError] = useState('')
+  const [jvmBuild, setJvmBuild] = useState<JvmBuildResponse | null>(null)
+  const [buildingJvm, setBuildingJvm] = useState(false)
+  const [jvmBuildError, setJvmBuildError] = useState('')
   const filterSearch = parseCodeUnitFilter(filter).text
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -1919,6 +1923,30 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
     }
   }
 
+  async function rebuildJvmJar() {
+    if (!currentRun || !selectedUnit || buildingJvm) return
+    setBuildingJvm(true)
+    setJvmBuildError('')
+    setJvmBuild(null)
+    try {
+      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/jvm/rebuild`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ taskId: currentRun.id, codeUnitId: selectedUnit.id }),
+      })
+      const result = await response.json().catch(() => ({})) as Partial<JvmBuildResponse> & { error?: string }
+      if (!response.ok || typeof result.downloadUrl !== 'string' || typeof result.sha256 !== 'string'
+          || typeof result.codeUnitId !== 'string') {
+        throw new Error(result.error || 'Could not rebuild this JVM JAR')
+      }
+      setJvmBuild(result as JvmBuildResponse)
+    } catch (error) {
+      setJvmBuildError(error instanceof Error ? error.message : 'Could not rebuild this JVM JAR')
+    } finally {
+      setBuildingJvm(false)
+    }
+  }
+
   return (
     <section id="code-visualizer" className={`${styles.panel} ${standalone ? styles.standalone : ''}`} aria-labelledby="code-visualizer-heading">
       <div className={styles.header}>
@@ -2760,7 +2788,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
                 {sourceQuery.data !== undefined && <SourceListing source={sourceQuery.data} language={selectedUnit.language} fileName={selectedUnit.codeArtifactId?.split('/').pop()} fullSourceUrl={selectedSourceUrl} />}
               </div>
               <label>Editable maintained copy
-              <textarea ref={maintainedEditorRef} aria-label="Editable maintained source" value={maintainedDraft} spellCheck={false} onChange={(event) => { setMaintainedDraft(event.target.value); setMaintainedSaved(false); setMaintenanceMeta((current) => current ? { ...current, syntaxValidated: null, validationStatus: null, validationMethod: null, validationMessage: null } : current) }} />
+              <textarea ref={maintainedEditorRef} aria-label="Editable maintained source" value={maintainedDraft} spellCheck={false} onChange={(event) => { setMaintainedDraft(event.target.value); setMaintainedSaved(false); setJvmBuild(null); setMaintenanceMeta((current) => current ? { ...current, syntaxValidated: null, validationStatus: null, validationMethod: null, validationMessage: null } : current) }} />
               </label>
             </div>
             {hasReviewDiff && <details className={styles.reviewDiff} onToggle={(event) => setShowReviewDiff(event.currentTarget.open)}>
@@ -2784,6 +2812,27 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
               {reviewRationale.trim().length > 0 && reviewRationale.trim().length < 12 && <span className={styles.message}>Add at least 12 characters describing your review.</span>}
               {maintainedSaved && <a className={styles.copyButton} href={`/api/projects/${encodeURIComponent(projectId)}/visualizer/maintained/${encodeURIComponent(selectedUnit.id)}?download=1`}><Download size={14} /> Download source</a>}
               {maintainedSaved && <span className={styles.savedStatus} role="status">Accepted source and review receipt saved separately</span>}
+              {currentRun?.artifactName.toLowerCase().endsWith('.jar')
+                && currentRun.providerId === selectedUnit.source
+                && ['reamon-jadx', 'reamon-cfr', 'reamon-vineflower'].includes(selectedUnit.source)
+                && selectedUnit.unitType === 'class'
+                && selectedUnit.language?.toLowerCase() === 'java'
+                && selectedUnit.maintainedSource && <>
+                  <button type="button" className={styles.explainButton} onClick={() => void rebuildJvmJar()}
+                    disabled={buildingJvm || savingMaintained || !maintainedQuery.data?.exists || maintainedQuery.data.sourceCode !== maintainedDraft}>
+                    {buildingJvm ? 'Compiling accepted Java…' : 'Build derived JAR'}
+                  </button>
+                  {maintainedQuery.data?.exists && maintainedQuery.data.sourceCode !== maintainedDraft && <span className={styles.message}>Accept the current Java edits before building the JAR.</span>}
+                  {jvmBuildError && <span className={styles.error} role="alert">{jvmBuildError}</span>}
+                  {jvmBuild?.codeUnitId === selectedUnit.id && jvmBuild.sourceSha256 === maintainedQuery.data?.sourceHash && <>
+                    <a className={styles.copyButton} href={jvmBuild.downloadUrl}><Download size={14} /> Download rebuilt JAR</a>
+                    <span className={styles.savedStatus} role="status">
+                      Built with Java {jvmBuild.javaRelease}; {jvmBuild.changedClassCount} class files replaced · sha256:{jvmBuild.sha256.slice(0, 16)}
+                    </span>
+                    {jvmBuild.diagnostics && <span className={styles.message}>{jvmBuild.diagnostics}</span>}
+                    <span className={styles.message}>{jvmBuild.warnings}</span>
+                  </>}
+                </>}
               {reviewStatus && <span className={styles.savedStatus} role="status">{reviewStatus}</span>}
             </div>
             {(maintainedQuery.data?.acceptedRenameAliases?.length || 0) > 0 && <section className={styles.reviewHistory} aria-label="Accepted rename history">
