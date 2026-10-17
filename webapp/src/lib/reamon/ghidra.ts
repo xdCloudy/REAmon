@@ -7,6 +7,7 @@ const MAX_UNITS = 2000
 const DEFAULT_TIMEOUT_MS = 15 * 60_000
 const MAX_CALL_EDGES = 400
 const REIPA_COMMIT = 'b0d4759451ed20796892a059fa53d9dbb130af61'
+const BCF_CLEAN_COMMIT = 'f457afaa801b30f7bb98c28d419a36d5c9fd7115'
 
 interface UnstripGoInterfaceMethod {
   interfaceName: string
@@ -100,7 +101,7 @@ interface GhidraResponse {
   codeBytes?: number
   returnedUnits: number
   truncated: boolean
-  units: Array<{ name: string; address: string; relativePath: string; codeArtifactId: string; disassemblyArtifactId?: string; reipaAlternateCodeArtifactId?: string; reipaAlternateOutputSha256?: string; reipaAlternateSizeBytes?: number; referencedStrings?: string[]; instructionMnemonics?: string[]; cfgMetrics?: GhidraControlFlowMetrics; cfgGraph?: GhidraControlFlowGraph; cffRecovery?: GhidraCffRecovery; sourceAddressMap?: Array<{ ghidraLineNumber: number; address: string }>; prototype?: string; recoveredVariables?: Array<{ kind: 'parameter' | 'local'; name: string; dataType: string; sizeBytes: number; parameterIndex?: number; storageStartAddress?: string; nameLocked?: boolean; typeLocked?: boolean }>; recoveredVariablesTruncated?: boolean; flossVersion?: string; flossRecoveredStrings?: FlossRecoveredString[]; flossRecoveredStringsTruncated?: boolean; sourceLanguage?: string; symbolSource?: string; recoveredNativeSymbolName?: string; goPackage?: string; goUnstripSignature?: string; goUnstripSourceFile?: string; goUnstripSourceLine?: number; goUnstripInterfaces?: UnstripGoInterfaceMethod[]; goUnstripInterfacesTruncated?: boolean; sizeBytes: number }>
+  units: Array<{ name: string; address: string; relativePath: string; codeArtifactId: string; disassemblyArtifactId?: string; reipaAlternateCodeArtifactId?: string; reipaAlternateOutputSha256?: string; reipaAlternateSizeBytes?: number; bcfCleanAlternateCodeArtifactId?: string; bcfCleanAlternateOutputSha256?: string; bcfCleanAlternateSizeBytes?: number; bcfCleanAuditArtifactId?: string; bcfCleanAuditSha256?: string; bcfCleanCommit?: string; referencedStrings?: string[]; instructionMnemonics?: string[]; cfgMetrics?: GhidraControlFlowMetrics; cfgGraph?: GhidraControlFlowGraph; cffRecovery?: GhidraCffRecovery; sourceAddressMap?: Array<{ ghidraLineNumber: number; address: string }>; prototype?: string; recoveredVariables?: Array<{ kind: 'parameter' | 'local'; name: string; dataType: string; sizeBytes: number; parameterIndex?: number; storageStartAddress?: string; nameLocked?: boolean; typeLocked?: boolean }>; recoveredVariablesTruncated?: boolean; flossVersion?: string; flossRecoveredStrings?: FlossRecoveredString[]; flossRecoveredStringsTruncated?: boolean; sourceLanguage?: string; symbolSource?: string; recoveredNativeSymbolName?: string; goPackage?: string; goUnstripSignature?: string; goUnstripSourceFile?: string; goUnstripSourceLine?: number; goUnstripInterfaces?: UnstripGoInterfaceMethod[]; goUnstripInterfacesTruncated?: boolean; sizeBytes: number }>
   calls?: Array<{ fromAddress: string; toAddress: string; fromName: string; toName: string }>
   callCount?: number
   callGraphTruncated?: boolean
@@ -238,6 +239,7 @@ export async function executeGhidra(input: ToolExecutionInput): Promise<ToolResu
         taskId: input.taskId,
         runId: input.runToken,
         artifactPath: input.artifactPath,
+        nativeBcfCleanup: input.options?.nativeBcfCleanup === true,
       }),
       signal,
       cache: 'no-store',
@@ -325,6 +327,12 @@ export async function executeGhidra(input: ToolExecutionInput): Promise<ToolResu
           || (unit.reipaAlternateCodeArtifactId !== undefined && (typeof unit.reipaAlternateCodeArtifactId !== 'string' || unit.reipaAlternateCodeArtifactId.length > 2000))
           || (unit.reipaAlternateOutputSha256 !== undefined && (typeof unit.reipaAlternateOutputSha256 !== 'string' || !/^[a-f0-9]{64}$/.test(unit.reipaAlternateOutputSha256)))
           || (unit.reipaAlternateSizeBytes !== undefined && (!Number.isInteger(unit.reipaAlternateSizeBytes) || unit.reipaAlternateSizeBytes <= 0 || unit.reipaAlternateSizeBytes > 131072))
+          || (unit.bcfCleanAlternateCodeArtifactId !== undefined && (typeof unit.bcfCleanAlternateCodeArtifactId !== 'string' || unit.bcfCleanAlternateCodeArtifactId.length > 2000))
+          || (unit.bcfCleanAlternateOutputSha256 !== undefined && (typeof unit.bcfCleanAlternateOutputSha256 !== 'string' || !/^[a-f0-9]{64}$/.test(unit.bcfCleanAlternateOutputSha256)))
+          || (unit.bcfCleanAlternateSizeBytes !== undefined && (!Number.isInteger(unit.bcfCleanAlternateSizeBytes) || unit.bcfCleanAlternateSizeBytes <= 0 || unit.bcfCleanAlternateSizeBytes > 131072))
+          || (unit.bcfCleanAuditArtifactId !== undefined && (typeof unit.bcfCleanAuditArtifactId !== 'string' || unit.bcfCleanAuditArtifactId.length > 2000))
+          || (unit.bcfCleanAuditSha256 !== undefined && (typeof unit.bcfCleanAuditSha256 !== 'string' || !/^[a-f0-9]{64}$/.test(unit.bcfCleanAuditSha256)))
+          || (unit.bcfCleanCommit !== undefined && unit.bcfCleanCommit !== BCF_CLEAN_COMMIT)
           || (unit.sourceLanguage !== undefined && typeof unit.sourceLanguage !== 'string')
           || (unit.symbolSource !== undefined && typeof unit.symbolSource !== 'string')
           || (unit.recoveredNativeSymbolName !== undefined && (typeof unit.recoveredNativeSymbolName !== 'string' || unit.recoveredNativeSymbolName.length > 500))
@@ -384,6 +392,17 @@ export async function executeGhidra(input: ToolExecutionInput): Promise<ToolResu
             reipaAlternateOutputSha256: unit.reipaAlternateOutputSha256,
             reipaAlternateSizeBytes: unit.reipaAlternateSizeBytes,
             reipaAlternateProviderVersion: `ReIPA@${REIPA_COMMIT}`,
+          }
+          : {}),
+        ...(unit.bcfCleanAlternateCodeArtifactId && unit.bcfCleanAlternateOutputSha256 && unit.bcfCleanAlternateSizeBytes
+          && unit.bcfCleanAuditArtifactId && unit.bcfCleanAuditSha256 && unit.bcfCleanCommit === BCF_CLEAN_COMMIT
+          ? {
+            bcfCleanAlternateCodeArtifactId: unit.bcfCleanAlternateCodeArtifactId.slice(0, 2000),
+            bcfCleanAlternateOutputSha256: unit.bcfCleanAlternateOutputSha256,
+            bcfCleanAlternateSizeBytes: unit.bcfCleanAlternateSizeBytes,
+            bcfCleanAuditArtifactId: unit.bcfCleanAuditArtifactId.slice(0, 2000),
+            bcfCleanAuditSha256: unit.bcfCleanAuditSha256,
+            bcfCleanProviderVersion: `BcfClean@${unit.bcfCleanCommit}`,
           }
           : {}),
         ...(unit.disassemblyArtifactId ? { disassemblyArtifactId: unit.disassemblyArtifactId.slice(0, 2000) } : {}),

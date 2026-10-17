@@ -1,4 +1,8 @@
 .container { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-2); }
+.option { display: flex; align-items: flex-start; gap: var(--space-2); max-width: 34rem; color: var(--text-primary); font-size: var(--text-sm); line-height: 1.4; cursor: pointer; }
+.option input { margin: .2rem 0 0; accent-color: var(--accent-secondary); }
+.option span { display: flex; flex-direction: column; gap: .15rem; }
+.option small { color: var(--text-secondary); font-size: var(--text-xs); }
 .action { border: 1px solid var(--accent-secondary); border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); color: var(--text-primary); background: var(--bg-primary); font: inherit; font-size: var(--text-sm); font-weight: var(--font-semibold); cursor: pointer; white-space: nowrap; }
 .action:hover:not(:disabled) { color: var(--accent-secondary); }
 .action:disabled { opacity: .6; cursor: wait; }

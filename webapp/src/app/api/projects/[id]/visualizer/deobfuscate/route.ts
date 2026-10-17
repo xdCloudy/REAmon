@@ -39,6 +39,7 @@ const MAX_PROVIDER_SYMBOL_RECORDS = 128
 const MAX_PROJECT_DRAFT_RECORDS = 64
 const MEMBER_OUTLINE_SOURCE = 'reamon-tree-sitter-outline@tree-sitter-language-pack-1.21.0'
 const REIPA_PROVIDER_VERSION = 'ReIPA@b0d4759451ed20796892a059fa53d9dbb130af61'
+const BCF_CLEAN_PROVIDER_VERSION = 'BcfClean@f457afaa801b30f7bb98c28d419a36d5c9fd7115'
 const MAX_PERSISTED_OUTLINE_MEMBERS = 10_000
 
 interface OutlineMember {
@@ -1569,14 +1570,14 @@ export async function POST(request: Request, { params }: RouteParams) {
     const selectedAddress = typeof selectedProviderAttributes.address === 'string'
       ? selectedProviderAttributes.address.toLowerCase().replace(/^0x/, '')
       : ''
-    const normalizedAddress = selectedAddress.replace(/^0+/, '') || '0'
+    const normalizedAddress = selectedAddress.replace(/^ram:/, '').replace(/^0x/, '').replace(/^0+/, '') || '0'
     if (observation.source === 'reamon-ghidra' && observation.taskId
       && selectedProviderAttributes.symbolSource === 'ReIPA'
       && (selectedProviderAttributes.sourceLanguage === 'Swift' || selectedProviderAttributes.sourceLanguage === 'Objective-C')
       && selectedProviderAttributes.inputArtifactSha256 === artifact.sha256
       && reipaAlternateVersion === REIPA_PROVIDER_VERSION
       && /^[a-f0-9]{64}$/.test(reipaAlternateHash)
-      && /^(?:0x)?[0-9a-f]{1,16}$/i.test(selectedAddress)
+      && /^(?:ram:)?(?:0x)?[0-9a-f]{1,16}$/i.test(selectedAddress)
       && reipaAlternatePath.startsWith(runPrefix)
       && reipaAlternatePath.slice(runPrefix.length) === `alternates/reipa/${normalizedAddress}.c`
       && belongsToArtifactRun(reipaAlternatePath, projectId, artifact.id)) {
@@ -1604,6 +1605,69 @@ export async function POST(request: Request, { params }: RouteParams) {
         }
       } catch {
         // ReIPA is optional rewrite context; the selected Ghidra source remains authoritative.
+      }
+    }
+    const bcfCleanAlternatePath = typeof selectedProviderAttributes.bcfCleanAlternateCodeArtifactId === 'string'
+      ? selectedProviderAttributes.bcfCleanAlternateCodeArtifactId : ''
+    const bcfCleanAlternateHash = typeof selectedProviderAttributes.bcfCleanAlternateOutputSha256 === 'string'
+      ? selectedProviderAttributes.bcfCleanAlternateOutputSha256.toLowerCase() : ''
+    const bcfCleanAuditPath = typeof selectedProviderAttributes.bcfCleanAuditArtifactId === 'string'
+      ? selectedProviderAttributes.bcfCleanAuditArtifactId : ''
+    const bcfCleanAuditHash = typeof selectedProviderAttributes.bcfCleanAuditSha256 === 'string'
+      ? selectedProviderAttributes.bcfCleanAuditSha256.toLowerCase() : ''
+    if (observation.source === 'reamon-ghidra' && observation.taskId
+      && selectedProviderAttributes.inputArtifactSha256 === artifact.sha256
+      && selectedProviderAttributes.bcfCleanProviderVersion === BCF_CLEAN_PROVIDER_VERSION
+      && /^[a-f0-9]{64}$/.test(bcfCleanAlternateHash) && /^[a-f0-9]{64}$/.test(bcfCleanAuditHash)
+      && /^(?:ram:)?(?:0x)?[0-9a-f]{1,16}$/i.test(selectedAddress)
+      && bcfCleanAlternatePath.startsWith(runPrefix)
+      && bcfCleanAlternatePath.slice(runPrefix.length) === `alternates/bcf-clean/${normalizedAddress}.c`
+      && bcfCleanAuditPath.startsWith(runPrefix)
+      && bcfCleanAuditPath.slice(runPrefix.length) === 'audit/bcf-clean-patch.json'
+      && belongsToArtifactRun(bcfCleanAlternatePath, projectId, artifact.id)
+      && belongsToArtifactRun(bcfCleanAuditPath, projectId, artifact.id)) {
+      try {
+        const bcfRunRoot = await realpath(resolveDerivedArtifactPath(runPrefix.slice(0, -1)))
+        const bcfSourcePath = await realpath(resolveDerivedArtifactPath(bcfCleanAlternatePath))
+        const bcfAuditFilePath = await realpath(resolveDerivedArtifactPath(bcfCleanAuditPath))
+        if (isInside(rootPath, bcfRunRoot) && isInside(bcfRunRoot, bcfSourcePath)
+          && isInside(bcfRunRoot, bcfAuditFilePath)) {
+          const [sourceInfo, auditInfo] = await Promise.all([stat(bcfSourcePath), stat(bcfAuditFilePath)])
+          if (sourceInfo.isFile() && sourceInfo.size > 0 && sourceInfo.size <= 128 * 1024
+            && auditInfo.isFile() && auditInfo.size > 0 && auditInfo.size <= 8 * 1024 * 1024) {
+            const [sourceBytes, auditBytes] = await Promise.all([readFile(bcfSourcePath), readFile(bcfAuditFilePath)])
+            const sourceHash = createHash('sha256').update(sourceBytes).digest('hex')
+            const auditHash = createHash('sha256').update(auditBytes).digest('hex')
+            const audit = plainObject(JSON.parse(auditBytes.toString('utf8')))
+            const functions = Array.isArray(audit.functions) ? audit.functions : []
+            const verified = audit.tool === 'BcfClean' && functions.some((value) => {
+              const candidate = plainObject(value)
+              const entry = typeof candidate.entry === 'string' ? candidate.entry : ''
+              return nativeFunctionIdentity(artifact.id, entry) === nativeFunctionIdentity(artifact.id, selectedAddress)
+                && typeof candidate.verify === 'string' && candidate.verify.startsWith('OK (')
+                && Number.isInteger(candidate.patches) && Number(candidate.patches) > 0
+            })
+            if (sourceHash === bcfCleanAlternateHash && auditHash === bcfCleanAuditHash && verified
+              && contextSources.length < MAX_CONTEXT_UNITS) {
+              const remaining = Math.min(MAX_ALTERNATE_DECOMPILER_BYTES, MAX_CONTEXT_BYTES - contextBytes)
+              const source = utf8Prefix([
+                `BcfClean emulation-verified OLLVM bogus-control-flow cleanup for ${unitName} at ${selectedAddress}; source artifact sha256:${artifact.sha256}; run ${observation.taskId}; output sha256:${sourceHash}.`,
+                'This is an experimental cleaner C-like Ghidra reconstruction, not recovered original source or proof of behavior. The matching patch audit reports a successful bounded emulator trace; retain the baseline and review differences.',
+                sourceBytes.toString('utf8'),
+              ].join('\n'), remaining)
+              if (source.trim()) {
+                contextSources.push({
+                  unit_name: `${unitName} (BcfClean verified alternative @ ${selectedAddress}; same artifact sha256:${artifact.sha256.slice(0, 16)}; output sha256:${sourceHash.slice(0, 16)})`.slice(0, 500),
+                  language: 'C',
+                  source_code: source,
+                })
+                contextBytes += Buffer.byteLength(source, 'utf8')
+              }
+            }
+          }
+        }
+      } catch {
+        // Unverified or unavailable BCF output must not enter rewrite context.
       }
     }
     const selectedNativeIdentity = typeof attributes.identity === 'string' ? attributes.identity : ''

@@ -32,7 +32,7 @@ Inspired by [ReVa's Ghidra cross-reference tools](https://github.com/cyberkaida/
 
 ## Native deobfuscation follow-up
 
-REAmon currently uses the MIT-licensed [Ghidra Deobfuscation Lab](https://github.com/xubin0903/ghidra-deobfuscation-lab) `CffCore` only for read-only, confidence-labeled control-flow-flattening evidence. The pinned source also contains emulation-verified `BcfClean` and `CffDeflatten` passes, which are not integrated. The planned adaptation is an opt-in pass over a disposable Ghidra analysis project that preserves the original binary and decompilation, records patch/verification provenance, and stores cleaned pseudocode as a separate provider output. It targets OLLVM bogus control flow and CFF patterns, not arbitrary obfuscation; see the [upstream reuse audit](REAMON_UPSTREAM_REUSE.md#additional-engines-evaluated).
+REAmon uses the MIT-licensed [Ghidra Deobfuscation Lab](https://github.com/xubin0903/ghidra-deobfuscation-lab) `CffCore` for read-only, confidence-labeled control-flow-flattening evidence and now offers `BcfClean` as an opt-in Ghidra pass. The cleanup scan is capped at 32 functions, uses upstream's per-function emulation checks and mismatch reversion, and stores its patch log and hash-checked cleaner pseudocode as a separate visualizer alternative. The imported binary and baseline decompilation are preserved. The pass remains experimental pending REAmon fixture comparison; `CffDeflatten` is not integrated. This targets OLLVM bogus control flow rather than arbitrary obfuscation; see the [upstream reuse audit](REAMON_UPSTREAM_REUSE.md#additional-engines-evaluated).
 
 ## Product-critical distinctions
 

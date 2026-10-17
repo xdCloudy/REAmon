@@ -16,6 +16,7 @@ export function WorkspaceDecompilationAction({ projectId, artifactId, providerId
 }) {
   const [pending, setPending] = useState(false)
   const [feedback, setFeedback] = useState<Feedback | null>(null)
+  const [nativeBcfCleanup, setNativeBcfCleanup] = useState(false)
 
   function createRunAttemptId(): string {
     const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16))
@@ -31,7 +32,14 @@ export function WorkspaceDecompilationAction({ projectId, artifactId, providerId
       const scheduleResponse = await fetch(`/api/projects/${projectId}/workspace/analysis-plan/schedule`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ artifactId, providerId, capability: 'decompile', approvalRequired: false, runAttemptId: createRunAttemptId() }),
+        body: JSON.stringify({
+          artifactId,
+          providerId,
+          capability: 'decompile',
+          approvalRequired: false,
+          runAttemptId: createRunAttemptId(),
+          ...(nativeBcfCleanup && providerId === 'reamon-ghidra' ? { nativeBcfCleanup: true } : {}),
+        }),
       })
       const scheduled = await scheduleResponse.json().catch(() => ({})) as {
         error?: string
@@ -91,6 +99,10 @@ export function WorkspaceDecompilationAction({ projectId, artifactId, providerId
   }
 
   return <div className={styles.container}>
+    {providerId === 'reamon-ghidra' && <label className={styles.option}>
+      <input type="checkbox" checked={nativeBcfCleanup} disabled={pending} onChange={(event) => setNativeBcfCleanup(event.currentTarget.checked)} />
+      <span><strong>Clean opaque branch predicates</strong><small>Experimental OLLVM BCF pass. Emulation verifies each change; mismatches are reverted. Examines at most 32 functions.</small></span>
+    </label>}
     <button type="button" className={styles.action} disabled={pending} onClick={() => void start()}>
       {pending ? 'Starting decompilation…' : hasPreviousRun ? 'Run decompilation again' : 'Run decompilation'}
     </button>

@@ -82,16 +82,17 @@ separate so a plausible name is never treated as proof of behavior.
   measure false positives, unresolved edges, and emulator cost. The copied
   upstream MIT license is installed in the analyzer image.
 
-  The same pinned source also includes `BcfClean` for constant bogus-control-flow
-  predicates and `CffDeflatten` for restoring recovered CFF successors. Both
-  write only to Ghidra's analysis program, verify per-function changes through
-  emulation, and provide undo logs; they do not rewrite the imported artifact.
-  They are not integrated yet. The next useful slice is an opt-in run against a
-  disposable Ghidra project, with original and cleaned provider outputs stored
-  separately and each changed function tied to its patch log, exact input/output
-  hashes, and verification result. Run the upstream fixtures in REAmon's pinned
-  Ghidra image before exposing the pass in the visualizer or raising support
-  claims. The current integrated feature remains read-only CFF evidence.
+  The same pinned source includes `BcfClean` for constant bogus-control-flow
+  predicates and `CffDeflatten` for restoring recovered CFF successors. REAmon
+  now exposes `BcfClean` as an opt-in Ghidra decompilation option. It caps the
+  scan at 32 functions, retains upstream's default per-function emulation check
+  and mismatch reversion, stores the patch audit and exact-hash cleaned output
+  under the analysis run, and exposes only audited functions as a separate
+  visualizer comparison. The imported artifact and baseline Ghidra output remain
+  unchanged. `CffDeflatten` is not integrated. This adapter has not yet been
+  compared against the upstream fixture corpus inside REAmon's pinned Ghidra
+  image, so it remains experimental and does not raise native-language fidelity
+  claims.
 
 - [Humanify](https://github.com/jehna/humanify) v3.1.1 is MIT-licensed and uses
   OXC's JavaScript AST and semantic model to apply model-suggested renames across

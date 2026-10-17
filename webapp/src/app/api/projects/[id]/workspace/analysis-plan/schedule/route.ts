@@ -14,6 +14,7 @@ interface ScheduleBody {
   providerId?: unknown
   capability?: unknown
   approvalRequired?: unknown
+  nativeBcfCleanup?: unknown
   runAttemptId?: unknown
 }
 
@@ -93,8 +94,10 @@ export async function POST(request: Request, { params }: RouteParams) {
     const providerId = readString(body, 'providerId', 128)
     const requestedCapability = readString(body, 'capability', 64)?.toLowerCase() || null
     const requiresApproval = readBoolean(body, 'approvalRequired', true)
+    const nativeBcfCleanup = readBoolean(body, 'nativeBcfCleanup', false)
     const runAttemptId = readRunAttemptId(body)
     if (requiresApproval === null) return badRequest('approvalRequired must be a boolean')
+    if (nativeBcfCleanup === null) return badRequest('nativeBcfCleanup must be a boolean')
     if (runAttemptId === false) return badRequest('runAttemptId must be a 32-character hexadecimal value')
     if (!artifactId || !providerId || !requestedCapability) {
       return badRequest('artifactId, providerId, and capability are required')
@@ -110,6 +113,9 @@ export async function POST(request: Request, { params }: RouteParams) {
     if (!match || !capability) {
       return NextResponse.json({ error: 'Provider is not compatible with this artifact capability' }, { status: 409, headers: NO_STORE })
     }
+    if (nativeBcfCleanup && (plugin.manifest.id !== 'reamon-ghidra' || capability.toLowerCase() !== 'decompile')) {
+      return badRequest('nativeBcfCleanup is only available for Ghidra decompilation')
+    }
 
     const provider = await ensureProviderRegistered(plugin.manifest)
     if (!provider.enabled) {
@@ -117,7 +123,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     }
 
     const baseIdempotencyKey = `analysis:${projectId}:${artifact.id}:${provider.pluginId}:${capability}`
-    const idempotencyKey = runAttemptId ? `${baseIdempotencyKey}:${runAttemptId}` : baseIdempotencyKey
+    const idempotencyKey = `${baseIdempotencyKey}${nativeBcfCleanup ? ':native-bcf-cleanup' : ''}${runAttemptId ? `:${runAttemptId}` : ''}`
     const taskSelect = {
       id: true,
       title: true,
@@ -141,6 +147,7 @@ export async function POST(request: Request, { params }: RouteParams) {
           artifactId: artifact.id,
           providerId: provider.id,
           capability,
+          ...(nativeBcfCleanup ? { options: { path: ['nativeBcfCleanup'], equals: true } } : {}),
           status: { in: ['AWAITING_APPROVAL', 'QUEUED', 'RUNNING'] },
         },
         orderBy: { createdAt: 'desc' },
@@ -164,7 +171,7 @@ export async function POST(request: Request, { params }: RouteParams) {
             category: plugin.manifest.category,
             status: requiresApproval ? 'AWAITING_APPROVAL' : 'QUEUED',
             progress: 0,
-            options: { requiresApproval },
+            options: { requiresApproval, ...(nativeBcfCleanup ? { nativeBcfCleanup: true } : {}) },
             idempotencyKey,
           },
           select: taskSelect,

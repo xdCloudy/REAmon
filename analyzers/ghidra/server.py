@@ -28,6 +28,10 @@ MAX_REIPA_ALTERNATE_BYTES = min(67108864, max(1048576, int(os.environ.get("REIPA
 MAX_REIPA_ALTERNATE_UNIT_BYTES = 131072
 MAX_REIPA_ALTERNATES = 64
 MAX_REIPA_TYPES = 1000
+BCF_CLEAN_COMMIT = "f457afaa801b30f7bb98c28d419a36d5c9fd7115"
+MAX_BCF_CLEAN_FUNCTIONS = 32
+MAX_BCF_CLEAN_ALTERNATE_BYTES = 4 * 1024 * 1024
+MAX_BCF_CLEAN_UNIT_BYTES = 131072
 FLOSS_VERSION = "3.1.1"
 MAX_FLOSS_OUTPUT_BYTES = min(67108864, max(1048576, int(os.environ.get("FLOSS_MAX_OUTPUT_BYTES", "16777216"))))
 FLOSS_TIMEOUT_SECONDS = min(300, max(15, int(os.environ.get("FLOSS_TIMEOUT_SECONDS", "120"))))
@@ -570,6 +574,9 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
     project_id, artifact_id = safe_id(body.get("projectId")), safe_id(body.get("artifactId"))
     task_id, run_id = safe_id(body.get("taskId")), safe_id(body.get("runId"))
     input_path = resolve_input(body.get("artifactPath"))
+    if "nativeBcfCleanup" in body and not isinstance(body["nativeBcfCleanup"], bool):
+        raise AnalysisError("nativeBcfCleanup must be a boolean")
+    native_bcf_cleanup = body.get("nativeBcfCleanup") is True
     run_root = (DERIVED_ROOT / project_id / artifact_id / task_id / run_id).resolve()
     try:
         run_root.relative_to(DERIVED_ROOT)
@@ -591,6 +598,8 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                 export_root = temporary_root / "export"
                 export_root.mkdir()
                 cff_recovery_path = export_root / "cff-recovery.json"
+                bcf_clean_export_root = temporary_root / "bcf-clean-export"
+                bcf_clean_audit_path = temporary_root / "bcf-clean-patch.json"
                 log_path = temporary_root / "ghidra.log"
                 command = [
                     str(GHIDRA_HOME / "support" / "analyzeHeadless"),
@@ -599,6 +608,8 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                     "-scriptPath", "/app/scripts",
                     "-postScript", "ReamonExport.java", str(export_root), str(MAX_FUNCTIONS), str(MAX_CALL_EDGES),
                     "-postScript", "ReamonCffRecovery.java", str(cff_recovery_path), str(MAX_FUNCTIONS),
+                    *(["-postScript", "BcfClean.java", "all", f"maxFunctions={MAX_BCF_CLEAN_FUNCTIONS}", f"log={bcf_clean_audit_path}",
+                       "-postScript", "ReamonExport.java", str(bcf_clean_export_root), str(MAX_FUNCTIONS), str(MAX_CALL_EDGES)] if native_bcf_cleanup else []),
                     "-analysisTimeoutPerFile", str(min(600, max(30, int(os.environ.get("GHIDRA_FILE_TIMEOUT_SECONDS", "300"))))),
                     "-max-cpu", "2",
                     "-deleteProject",
@@ -609,6 +620,62 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                         return_code = run_ghidra(command, log_file, cancel_check, home)
                     except OSError as error:
                         raise AnalysisError("Ghidra headless analyzer could not be started") from error
+                bcf_clean_alternates = {}
+                bcf_clean_audit_artifact_id = None
+                bcf_clean_audit_sha256 = None
+                bcf_clean_warning = None
+                if native_bcf_cleanup:
+                    try:
+                        audit_size = bcf_clean_audit_path.stat().st_size
+                        if audit_size > 8 * 1024 * 1024:
+                            raise AnalysisError("BCF cleanup audit exceeded its configured limit")
+                        audit_bytes = bcf_clean_audit_path.read_bytes()
+                        audit = json.loads(audit_bytes.decode("utf-8"))
+                        verified_addresses = {
+                            normalized_address(item.get("entry"))
+                            for item in audit.get("functions", [])
+                            if isinstance(item, dict) and isinstance(item.get("verify"), str)
+                            and item["verify"].startswith("OK (")
+                        } if isinstance(audit, dict) and isinstance(audit.get("functions"), list) else set()
+                        if not isinstance(audit, dict) or audit.get("tool") != "BcfClean":
+                            raise AnalysisError("BCF cleanup audit did not match the expected schema")
+                        audit_destination = run_root / "audit" / "bcf-clean-patch.json"
+                        audit_destination.parent.mkdir(parents=True, exist_ok=True)
+                        audit_destination.write_bytes(audit_bytes)
+                        bcf_clean_audit_artifact_id = audit_destination.relative_to(DERIVED_ROOT).as_posix()
+                        bcf_clean_audit_sha256 = hashlib.sha256(audit_bytes).hexdigest()
+                        clean_manifest = bcf_clean_export_root / "manifest.tsv"
+                        if clean_manifest.is_file() and verified_addresses:
+                            clean_total = 0
+                            for line in clean_manifest.read_text(encoding="utf-8", errors="replace").splitlines():
+                                fields = line.split("\t")
+                                if len(fields) < 4 or len(fields) > 13:
+                                    continue
+                                address, relative = fields[1], fields[3]
+                                address_key = normalized_address(address)
+                                if not address_key or address_key not in verified_addresses:
+                                    continue
+                                if address_key in bcf_clean_alternates or not re.fullmatch(r"[A-Za-z0-9_./-]{1,500}", relative) or ".." in Path(relative).parts:
+                                    continue
+                                source = within(bcf_clean_export_root, bcf_clean_export_root / relative)
+                                size = source.stat().st_size
+                                if size < 1 or size > MAX_BCF_CLEAN_UNIT_BYTES or clean_total + size > MAX_BCF_CLEAN_ALTERNATE_BYTES:
+                                    continue
+                                clean_total += size
+                                destination = run_root / "alternates" / "bcf-clean" / f"{address_key}.c"
+                                destination.parent.mkdir(parents=True, exist_ok=True)
+                                shutil.copyfile(source, destination)
+                                bcf_clean_alternates[address_key] = {
+                                    "path": destination,
+                                    "sha256": hashlib.sha256(destination.read_bytes()).hexdigest(),
+                                    "sizeBytes": size,
+                                }
+                        if not bcf_clean_alternates:
+                            bcf_clean_warning = "Verified BCF cleanup produced no alternate function output; the original Ghidra decompilation remains available."
+                    except (AnalysisError, OSError, ValueError, json.JSONDecodeError) as error:
+                        if "cancelled" in str(error).lower():
+                            raise
+                        bcf_clean_warning = "Verified BCF cleanup could not produce a hash-checked alternate output; the original Ghidra decompilation remains available."
                 floss_path = temporary_root / "floss-results.json"
                 floss_log_path = temporary_root / "floss.log"
                 report_progress("Recovering obfuscated native strings with FLOSS")
@@ -855,7 +922,7 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                     raise AnalysisError(f"Ghidra could not produce function decompilation: {detail}")
                 cff_recovery_warning = None
                 if return_code != 0:
-                    cff_recovery_warning = "The optional Ghidra control-flow-flattening pass exited unsuccessfully; completed standard decompilation was retained."
+                    cff_recovery_warning = "An optional Ghidra recovery pass exited unsuccessfully; completed standard decompilation was retained."
                 report_progress("Ghidra analysis finished; indexing decompiled functions")
                 summary = parse_summary(summary_path)
                 cff_recoveries_by_address = {}
@@ -1193,6 +1260,16 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                             "reipaAlternateOutputSha256": reipa_alternate["sha256"],
                             "reipaAlternateSizeBytes": reipa_alternate["sizeBytes"],
                         })
+                    bcf_clean_alternate = bcf_clean_alternates.get(normalized_address(address))
+                    if bcf_clean_alternate and bcf_clean_audit_artifact_id and bcf_clean_audit_sha256:
+                        unit.update({
+                            "bcfCleanAlternateCodeArtifactId": bcf_clean_alternate["path"].relative_to(DERIVED_ROOT).as_posix(),
+                            "bcfCleanAlternateOutputSha256": bcf_clean_alternate["sha256"],
+                            "bcfCleanAlternateSizeBytes": bcf_clean_alternate["sizeBytes"],
+                            "bcfCleanAuditArtifactId": bcf_clean_audit_artifact_id,
+                            "bcfCleanAuditSha256": bcf_clean_audit_sha256,
+                            "bcfCleanCommit": BCF_CLEAN_COMMIT,
+                        })
                     if go_function:
                         unit["sourceLanguage"] = "Go"
                         unit["symbolSource"] = "GoReSym"
@@ -1286,6 +1363,8 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                     warnings.append(reipa_alternate_warning)
                 if reipa_alternate_truncated:
                     warnings.append("ReIPA alternate pseudocode was truncated at a configured analysis limit.")
+                if bcf_clean_warning:
+                    warnings.append(bcf_clean_warning)
                 if unstrip_interfaces_truncated:
                     go_warnings.append("unstrip Go interface dispatch evidence was truncated by an analysis limit.")
                 go_type_rows = go_metadata.get("Types", []) if go_metadata and isinstance(go_metadata.get("Types"), list) else []
