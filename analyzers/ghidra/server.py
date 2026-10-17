@@ -850,15 +850,17 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                 log_text = log_path.read_bytes()[-6000:].decode("utf-8", errors="replace").strip()
                 manifest = export_root / "manifest.tsv"
                 summary_path = export_root / "summary.txt"
-                if return_code != 0 or not manifest.is_file() or not summary_path.is_file():
+                if not manifest.is_file() or not summary_path.is_file():
                     detail = log_text[-1200:] if log_text else f"Ghidra exited with code {return_code}"
                     raise AnalysisError(f"Ghidra could not produce function decompilation: {detail}")
+                cff_recovery_warning = None
+                if return_code != 0:
+                    cff_recovery_warning = "The optional Ghidra control-flow-flattening pass exited unsuccessfully; completed standard decompilation was retained."
                 report_progress("Ghidra analysis finished; indexing decompiled functions")
                 summary = parse_summary(summary_path)
                 cff_recoveries_by_address = {}
                 cff_recovery_metadata_bytes = 0
                 cff_recovery_truncated = False
-                cff_recovery_warning = None
                 if cff_recovery_path.is_file():
                     if cff_recovery_path.stat().st_size <= MAX_CFF_RECOVERY_BYTES:
                         try:
@@ -881,7 +883,7 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                         cff_recovery_truncated = True
                         cff_recovery_warning = "Ghidra control-flow-flattening recovery exceeded the configured report limit."
                 else:
-                    cff_recovery_warning = "Ghidra control-flow-flattening analysis output was unavailable; standard decompilation remains available."
+                    cff_recovery_warning = cff_recovery_warning or "Ghidra control-flow-flattening analysis output was unavailable; standard decompilation remains available."
                 rows = []
                 total_bytes = 0
                 total_assembly_bytes = 0
