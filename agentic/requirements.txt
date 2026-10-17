@@ -13,10 +13,11 @@ langchain-aws>=0.2.0
 boto3>=1.35.0
 
 # MCP integration
-# Pinned: mcp 2.0.0 removed RequestContext from mcp.shared.context, which
-# langchain-mcp-adapters 0.3.x still imports -> clean-build crash-loop (issue #161).
+# Pinned to the maintained 1.x line: 2.0.0 removed RequestContext from
+# mcp.shared.context, which langchain-mcp-adapters 0.3.x still imports (issue
+# #161). Version 1.30.0 also includes the fix for CVE-2026-59951.
 langchain-mcp-adapters==0.3.0
-mcp==1.28.1
+mcp==1.30.0
 
 # Neo4j integration
 langchain-community>=0.3.0
