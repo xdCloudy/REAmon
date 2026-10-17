@@ -8,7 +8,7 @@ export function codeNoteText(value: unknown, currentSourceHash?: string): string
   const savedSourceHash = typeof record.sourceHash === 'string' && /^[a-f0-9]{64}$/i.test(record.sourceHash)
     ? record.sourceHash.toLowerCase()
     : null
-  if (savedSourceHash && (!currentSourceHash || savedSourceHash !== currentSourceHash.toLowerCase())) return ''
+  if (!savedSourceHash || !currentSourceHash || savedSourceHash !== currentSourceHash.toLowerCase()) return ''
   const note = record.note
   return typeof note === 'string' ? note.slice(0, MAX_REAMON_CODE_NOTE_CHARS) : ''
 }

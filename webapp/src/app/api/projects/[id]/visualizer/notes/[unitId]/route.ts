@@ -13,7 +13,7 @@ async function resolveCodeUnit(projectId: string, unitId: string) {
   const access = await requireProjectAccess(user, projectId)
   if (access instanceof NextResponse) return { response: access } as const
   const unit = await prisma.reamonObservation.findFirst({
-    where: { id: unitId, projectId, type: CODE_UNIT_OBSERVATION_TYPE },
+    where: { id: unitId, projectId, type: { in: [CODE_UNIT_OBSERVATION_TYPE, 'function'] } },
     select: { id: true, artifactId: true, label: true, attributes: true },
   })
   if (!unit?.artifactId) return { response: NextResponse.json({ error: 'Code unit not found' }, { status: 404 }) } as const
@@ -48,7 +48,7 @@ export async function GET(_request: Request, { params }: RouteParams) {
       && /^[a-f0-9]{64}$/i.test(resolved.attributes.decompiledSourceSha256)
       ? resolved.attributes.decompiledSourceSha256.toLowerCase()
       : null
-    const stale = Boolean(savedSourceHash && (!currentSourceHash || savedSourceHash !== currentSourceHash))
+    const stale = Boolean(saved && (!savedSourceHash || !currentSourceHash || savedSourceHash !== currentSourceHash))
     return NextResponse.json({ unitId, note: codeNoteText(saved?.attributes, currentSourceHash || undefined), stale, updatedAt: saved?.updatedAt.toISOString() ?? null }, {
       headers: { 'Cache-Control': 'private, no-store' },
     })
@@ -82,6 +82,9 @@ export async function PUT(request: Request, { params }: RouteParams) {
       && /^[a-f0-9]{64}$/i.test(resolved.attributes.decompiledSourceSha256)
       ? resolved.attributes.decompiledSourceSha256.toLowerCase()
       : null
+    if (!sourceHash) {
+      return NextResponse.json({ error: 'This code unit has no verified decompiled-source hash to bind the note to' }, { status: 409, headers: { 'Cache-Control': 'no-store' } })
+    }
     const attributes = {
       codeUnitId: resolved.unit.id,
       note,

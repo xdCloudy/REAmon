@@ -2518,7 +2518,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
             <p>Use decompiled source, related classes, bytecode, and project memory to recover intent and keep names consistent. AI drafts are stored with this project for follow-up work; review and save a maintained copy before its names become trusted project-wide evidence. The original decompilation stays intact.</p>
           </div>
           <section className={styles.classReferences} aria-label="Persistent code-unit project note">
-            <div><strong>Project note for this code unit</strong><span>Saved in the database and supplied to future rewrites of this exact unit as untrusted background context. Keep evidence and naming hints specific.</span></div>
+            <div><strong>Project note for this code unit</strong><span>Saved in the database and supplied to future rewrites, explanations, and agent dossiers for this exact unit as untrusted background context. Keep evidence and naming hints specific.</span></div>
             {projectNoteQuery.isLoading && <p className={styles.message}>Loading saved project note…</p>}
             {projectNoteQuery.isError && <p className={styles.error} role="alert">{projectNoteQuery.error instanceof Error ? projectNoteQuery.error.message : 'Could not load the saved project note'}</p>}
             {projectNoteQuery.data?.unitId === selectedUnit.id && projectNoteQuery.data.stale && <p className={styles.message}>This note was saved against a different source hash, so it is withheld from AI context. Review and save it again for the current source.</p>}
