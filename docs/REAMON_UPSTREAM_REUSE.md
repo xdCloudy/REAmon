@@ -69,6 +69,20 @@ separate so a plausible name is never treated as proof of behavior.
 
 ## Additional engines evaluated
 
+- [m2c](https://github.com/matt-kempster/m2c) is a GPL-3.0 draft decompiler for
+  GNU-assembler-form 32-bit MIPS, ARM, PowerPC, and SuperH input, with C and partial
+  C++ output. The audited upstream revision is
+  `708d2d2cb2698f091a92492b328f73b24209f72d` (2026-10-17). decomp.wtf lists it among
+  its draft generators, which makes it a directly relevant architecture-specific
+  reference for REAmon. Its assembly input
+  is produced by tools such as `spimdisasm`; the current Ghidra export writes
+  address-prefixed listing text, so it is not yet a compatible input. First compare
+  assembly normalization and function-boundary retention on a supported MIPS or
+  PowerPC fixture, then measure source structure and compiler-match rates against
+  Ghidra output. Any future adapter must store m2c output as a separate provisional
+  reconstruction with target/compiler and input/output hashes. REAmon is MIT-licensed;
+  do not copy or bundle m2c without an intentional licensing decision.
+
 - [Ghidra Deobfuscation Lab](https://github.com/xubin0903/ghidra-deobfuscation-lab)
   provides an MIT-licensed p-code emulator for control-flow-flattening detection
   and recovery (including OLLVM/Hikari-style patterns). REAmon adapts its
