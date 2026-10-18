@@ -116,7 +116,16 @@ An updated audit on 2026-10-19 compared the two viable MIT projects:
   PR activity requests Unity 6 metadata v39. Use it only as optional metadata
   evidence, never as a method-body decompiler or as a reason to claim C# source
   recovery. Preserve exact APK member paths and hashes for the native binary
-  and `global-metadata.dat`.
+  and `global-metadata.dat`. Its `script.json` schema includes `ScriptMethod`
+  records (`Address`, `Name`, `Signature`, `TypeSignature`) and
+  `ScriptMetadataMethod` records (`Address`, `Name`, `MethodAddress`), which
+  gives a concrete route to address-scoped name evidence for matching Ghidra
+  functions. Treat these as provisional metadata: integrate only after checking
+  the exact binary/member hashes and address convention, and keep strings and
+  metadata usage slots separate from method entry points. Upstream issue
+  [#594](https://github.com/Perfare/Il2CppDumper/issues/594) documents incorrect
+  string-literal addresses in an older release, so string references need their
+  own fixture checks.
 - [Il2CppInspector](https://github.com/djkaty/Il2CppInspector) is suspended,
   AGPL-3.0, and explicitly not a decompiler. Keep it as a format and workflow
   reference; do not bundle or copy it into REAmon.
@@ -124,6 +133,8 @@ An updated audit on 2026-10-19 compared the two viable MIT projects:
 Upstream sources: [Cpp2IL README](https://github.com/SamboyCoding/Cpp2IL/blob/development/README.md),
 [Cpp2IL latest milestone](https://github.com/SamboyCoding/Cpp2IL/releases/tag/2022.1.0-pre-release.21),
 [Il2CppDumper README](https://github.com/Perfare/Il2CppDumper),
+[Il2CppDumper `ScriptJson.cs`](https://github.com/Perfare/Il2CppDumper/blob/master/Il2CppDumper/Outputs/ScriptJson.cs),
+[Il2CppDumper issue #594](https://github.com/Perfare/Il2CppDumper/issues/594),
 [Il2CppDumper license](https://github.com/Perfare/Il2CppDumper/blob/master/LICENSE),
 [Il2CppDumper v39 PR](https://github.com/Perfare/Il2CppDumper/pull/925), and
 [Il2CppInspector README](https://github.com/djkaty/Il2CppInspector).
