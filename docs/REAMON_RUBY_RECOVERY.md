@@ -78,6 +78,11 @@ compiler-optimized control flow, with semantic comparisons and instruction cover
 - Use the MIT-licensed [ruby-syntax-tree/yarv](https://github.com/ruby-syntax-tree/yarv)
   as an opcode-semantics and emulator reference. It is archived and educational; it
   does not reconstruct source and is not a drop-in decompiler.
+- Evaluate [Shopify Ruby LSP](https://github.com/Shopify/ruby-lsp) for semantic,
+  one-file local-variable and argument renames in maintained Ruby source. Its MIT
+  license is promising, but its handler also supports constants and workspace file
+  renames; REAmon must limit the temporary workspace, reject non-local or cross-file
+  edits, and pin/audit the full runtime dependency set before bundling it.
 - Keep [cout/ruby-decompiler](https://github.com/cout/ruby-decompiler) as an
   unintegrated research lead until licensing is clarified. Its example starts from a
   live method and does not establish arbitrary binary import or modern version
