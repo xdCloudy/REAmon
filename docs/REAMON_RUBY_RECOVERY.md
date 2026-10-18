@@ -78,11 +78,17 @@ compiler-optimized control flow, with semantic comparisons and instruction cover
 - Use the MIT-licensed [ruby-syntax-tree/yarv](https://github.com/ruby-syntax-tree/yarv)
   as an opcode-semantics and emulator reference. It is archived and educational; it
   does not reconstruct source and is not a drop-in decompiler.
-- Evaluate [Shopify Ruby LSP](https://github.com/Shopify/ruby-lsp) for semantic,
-  one-file local-variable and argument renames in maintained Ruby source. Its MIT
-  license is promising, but its handler also supports constants and workspace file
-  renames; REAmon must limit the temporary workspace, reject non-local or cross-file
-  edits, and pin/audit the full runtime dependency set before bundling it.
+- The audited [Shopify Ruby LSP](https://github.com/Shopify/ruby-lsp) 0.26.10 release
+  is not suitable for local-variable or parameter renames: its prepare-rename and
+  references handlers do not expose those bindings. Keep it as a semantic-token and
+  LSP design reference only. The MIT-licensed [Solargraph](https://github.com/castwide/solargraph)
+  0.60.4 release is the current candidate: it models local-variable and parameter
+  pins, filters references by resolved definition path, and tests argument renames.
+  Before integrating it, constrain the workspace to one source file, cross-check every
+  edit against Ripper's local-binding tokens, preserve input/output hashes and mapping
+  history, and parse the rewritten source with the pinned Ruby runtime. Its upstream
+  rename examples do not replace REAmon fixture coverage for shadowing, closures,
+  block/keyword parameters, or Unicode columns.
 - Keep [cout/ruby-decompiler](https://github.com/cout/ruby-decompiler) as an
   unintegrated research lead until licensing is clarified. Its example starts from a
   live method and does not establish arbitrary binary import or modern version
