@@ -52,8 +52,7 @@ interface CodeUnitResponse {
   failedRuns: Array<{
     id: string
     title: string
-    status: 'FAILED' | 'CANCELLED' | string
-    progress: number
+    status: string
     progressMessage: string
     error: string
     createdAt: string
@@ -2059,9 +2058,9 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
             <strong>{run.status === 'CANCELLED' ? 'Cancelled' : 'Failed'} · {run.title}</strong>
             <span>{run.artifactName} · {new Date(run.completedAt || run.createdAt).toLocaleString()}</span>
           </div>
-          {run.progressMessage && <p>{run.progressMessage}</p>}
+          {run.progressMessage && <p>Last recorded step: {run.progressMessage}</p>}
           {run.error && <p className={styles.failedRunError}>{run.error}</p>}
-          <small>Analyzer-reported progress: {run.progress}% · Run {run.id.slice(-8)}</small>
+          <small>Run {run.id.slice(-8)}</small>
           <a className={styles.failedRunLink} href="#analysis-tasks">Review task controls</a>
         </article>)}
       </section>}

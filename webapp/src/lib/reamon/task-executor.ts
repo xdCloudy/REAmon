@@ -330,12 +330,18 @@ async function settleTask(
     ? { maxWait: 10_000, timeout: 120_000 }
     : undefined
   const updated = await prisma.$transaction(async (tx) => {
+    const lastProgress = outcome === 'FAILED'
+      ? await tx.task.findFirst({
+        where: { id: task.id, projectId: task.projectId, status: 'RUNNING', runToken },
+        select: { progressMessage: true },
+      })
+      : null
     const claim = await tx.task.updateMany({
       where: { id: task.id, projectId: task.projectId, status: 'RUNNING', runToken },
       data: {
         status: outcome,
         progress: outcome === 'COMPLETED' ? 100 : task.progress,
-        progressMessage: outcome === 'COMPLETED' ? 'Analysis complete' : 'Analysis failed',
+        progressMessage: outcome === 'COMPLETED' ? 'Analysis complete' : lastProgress?.progressMessage || 'Analysis failed',
         result: persistedResult,
         error: outcome === 'COMPLETED' ? '' : error,
         leaseHeartbeatAt: null,
