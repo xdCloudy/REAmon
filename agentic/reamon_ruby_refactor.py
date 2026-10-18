@@ -17,6 +17,8 @@ MAX_SOURCE_BYTES = 512 * 1024
 MAX_RENAMES = 80
 MAX_BINDINGS = 200
 MAX_BINDING_PROBES = 500
+MAX_LOCAL_TOKENS = 50_000
+MAX_REFERENCE_ROWS = 20_000
 IDENTIFIER = re.compile(r"^[a-z_][A-Za-z0-9_]{0,127}$")
 RUBY_KEYWORDS = {
     "BEGIN", "END", "alias", "and", "begin", "break", "case", "class", "def", "defined?", "do",
@@ -92,8 +94,10 @@ tokens = []
 collect_locals(tree, tokens)
 tokens.uniq! { |item| [item["line"], item["column"], item["name"]] }
 tokens.sort_by! { |item| [item["line"], item["column"]] }
+token_truncated = tokens.length > 50_000
+tokens = tokens.first(50_000)
 candidates = tokens.select { |item| item["candidate"] }
-truncated = candidates.length > 500
+truncated = token_truncated || candidates.length > 500
 candidates = candidates.first(500)
 
 file = Tempfile.new(["reamon-ruby-", ".rb"])
@@ -110,9 +114,16 @@ begin
     raise "Solargraph workspace mapping timed out" if Process.clock_gettime(Process::CLOCK_MONOTONIC) >= deadline
     sleep 0.02
   end
-  records = candidates.map do |token|
+  records = []
+  total_references = 0
+  candidates.each do |token|
     refs = host.references_from(uri, token["line"] - 1, token["column"], strip: false, only: true) || []
-    {"token" => token, "references" => refs.map(&:to_hash)}
+    if refs.length > 20_000 || total_references + refs.length > 20_000
+      truncated = true
+      break
+    end
+    total_references += refs.length
+    records << {"token" => token, "references" => refs.map(&:to_hash)}
   end
   puts JSON.generate({"solargraph_version" => Solargraph::VERSION, "tokens" => tokens, "records" => records, "truncated" => truncated})
 ensure
@@ -138,7 +149,7 @@ def _records_to_catalog(source: str, source_hash: str, payload: dict[str, Any]) 
     records = payload.get("records")
     tokens = payload.get("tokens")
     if (not isinstance(records, list) or len(records) > MAX_BINDING_PROBES
-            or not isinstance(tokens, list) or len(tokens) > 100_000):
+            or not isinstance(tokens, list) or len(tokens) > MAX_LOCAL_TOKENS):
         raise RubyRefactorError("Solargraph returned an invalid local reference index")
     encoded = source.encode("utf-8")
     line_offsets = _line_byte_offsets(source)
