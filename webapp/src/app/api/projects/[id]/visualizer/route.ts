@@ -146,6 +146,7 @@ export async function GET(request: Request, { params }: RouteParams) {
           skippedUnitCount: hasPersistedInventory ? finiteCount(inventory.skippedUnitCount) : null,
           unsupportedUnitCount: hasPersistedInventory ? finiteCount(inventory.unsupportedUnitCount) : null,
           excludedUnitCount: hasPersistedInventory ? finiteCount(inventory.excludedUnitCount) : null,
+          omittedUnitCount: hasPersistedInventory ? finiteCount(inventory.omittedUnitCount) : null,
           codeBytes: finiteCount(result.codeBytes),
           linkPercent,
           inventoryAvailable: hasPersistedInventory,

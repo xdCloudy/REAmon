@@ -266,6 +266,7 @@ export async function executeWasm(input: ToolExecutionInput): Promise<ToolResult
         observations,
         wasmFunctionCount: payload.functionCount,
         returnedFunctionCount: units.length,
+        omittedFunctionCount: omittedUnits,
         rustFunctionCount: rustUnits.length,
         callCount: seenEdges.size,
         callGraphTruncated: payload.callGraphTruncated === true || (payload.calls?.length || 0) > MAX_UNITS,

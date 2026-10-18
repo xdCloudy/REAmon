@@ -111,17 +111,24 @@ function reportedCount(record: Record<string, unknown>, keys: string[]): number 
 function buildCoverageInventory(data: unknown, providerId: string | null, indexedUnitCount: number): Prisma.InputJsonValue {
   const result = asOptions(data)
   const rawObservations = Array.isArray(result.observations) ? result.observations : []
-  const observedUnitCount = rawObservations.reduce((count, value) => asOptions(value).type === 'code_unit' ? count + 1 : count, 0)
+  const observedUnitCount = rawObservations.reduce((count, value) => {
+    const observation = asOptions(value)
+    if (observation.type !== 'code_unit') return count
+    if (providerId === 'reamon-wabt' && asOptions(observation.attributes).language !== 'WebAssembly Text (WAT)') return count
+    return count + 1
+  }, 0)
   const discoveredUnitCount = reportedCount(result, providerId === 'reamon-wabt'
     ? ['wasmFunctionCount', 'discoveredUnitCount', 'decompiledFunctionCount']
     : ['decompiledCodeUnitCount', 'discoveredCodeUnitCount', 'decompiledClassCount', 'discoveredClassCount', 'classCount', 'decompiledFunctionCount', 'functionCount', 'batchResultCount', 'discoveredUnitCount'])
   const providerReturnedUnitCount = reportedCount(result, ['returnedCodeUnitCount', 'returnedUnitCount', 'returnedClassCount', 'returnedFunctionCount'])
     ?? observedUnitCount
+  const indexedCoverageUnitCount = Math.min(indexedUnitCount, observedUnitCount, providerReturnedUnitCount)
   const failedUnitCount = reportedCount(result, ['failedFunctionCount', 'failedUnitCount'])
   const visitedUnitCount = reportedCount(result, ['visitedFunctionCount', 'visitedUnitCount'])
   const skippedUnitCount = reportedCount(result, ['skippedCodeUnitCount', 'skippedClassCount', 'skippedFunctionCount', 'skippedUnitCount'])
   const unsupportedUnitCount = reportedCount(result, ['unsupportedCodeUnitCount', 'unsupportedClassCount', 'unsupportedFunctionCount', 'unsupportedUnitCount'])
   const excludedUnitCount = reportedCount(result, ['excludedCodeUnitCount', 'excludedClassCount', 'excludedFunctionCount', 'excludedUnitCount'])
+  const omittedUnitCount = reportedCount(result, ['omittedCodeUnitCount', 'omittedClassCount', 'omittedFunctionCount', 'omittedUnitCount'])
   return {
     schemaVersion: 1,
     denominatorSource: discoveredUnitCount === null ? 'unavailable' : 'provider-reported-discovered-units',
@@ -129,9 +136,9 @@ function buildCoverageInventory(data: unknown, providerId: string | null, indexe
     discoveredUnitCount,
     providerReturnedUnitCount,
     observedUnitCount,
-    indexedUnitCount,
+    indexedUnitCount: indexedCoverageUnitCount,
     notObservedUnitCount: Math.max(0, providerReturnedUnitCount - observedUnitCount),
-    notIndexedUnitCount: Math.max(0, observedUnitCount - indexedUnitCount),
+    notIndexedUnitCount: Math.max(0, observedUnitCount - indexedCoverageUnitCount),
     unaccountedDiscoveredUnitCount: discoveredUnitCount === null ? null : Math.max(0, discoveredUnitCount - providerReturnedUnitCount),
     failedUnitCount,
     visitedUnitCount,
@@ -141,11 +148,12 @@ function buildCoverageInventory(data: unknown, providerId: string | null, indexe
     skippedUnitCount,
     unsupportedUnitCount,
     excludedUnitCount,
+    omittedUnitCount,
     truncated: result.truncated === true || (discoveredUnitCount !== null && providerReturnedUnitCount < discoveredUnitCount)
       || observedUnitCount > MAX_CODE_UNITS_PER_RESULT,
     coveragePercent: discoveredUnitCount === null
       ? null
-      : Math.min(100, Math.round((indexedUnitCount / Math.max(1, discoveredUnitCount)) * 100)),
+      : Math.min(100, Math.round((indexedCoverageUnitCount / Math.max(1, discoveredUnitCount)) * 100)),
   }
 }
 

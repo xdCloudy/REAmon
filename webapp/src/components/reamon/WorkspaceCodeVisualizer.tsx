@@ -39,6 +39,7 @@ interface CodeUnitResponse {
     skippedUnitCount: number | null
     unsupportedUnitCount: number | null
     excludedUnitCount: number | null
+    omittedUnitCount: number | null
     linkPercent: number | null
     codeBytes: number | null
     truncated: boolean
@@ -2064,7 +2065,8 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
           || (currentRun.notVisitedUnitCount !== null && currentRun.notVisitedUnitCount > 0)
           || (currentRun.skippedUnitCount !== null && currentRun.skippedUnitCount > 0)
           || (currentRun.unsupportedUnitCount !== null && currentRun.unsupportedUnitCount > 0)
-          || (currentRun.excludedUnitCount !== null && currentRun.excludedUnitCount > 0)) && <div className={styles.runSummaryMeta}>
+          || (currentRun.excludedUnitCount !== null && currentRun.excludedUnitCount > 0)
+          || (currentRun.omittedUnitCount !== null && currentRun.omittedUnitCount > 0)) && <div className={styles.runSummaryMeta}>
           {currentRun.truncated && <span>{currentRun.linkPercent === null ? 'Partial index; the analyzer could not determine the total class count.' : 'Partial index. This bar shows indexed coverage, not whether the task finished.'}</span>}
           {currentRun.truncated && decompilationHref && <a className={styles.runAgain} href={decompilationHref}>Run decompilation again</a>}
           {currentRun.notObservedUnitCount > 0 && <span>{currentRun.notObservedUnitCount.toLocaleString()} provider-reported results had no returned observation.</span>}
@@ -2074,6 +2076,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
           {currentRun.skippedUnitCount !== null && currentRun.skippedUnitCount > 0 && <span>{currentRun.skippedUnitCount.toLocaleString()} units were reported skipped.</span>}
           {currentRun.unsupportedUnitCount !== null && currentRun.unsupportedUnitCount > 0 && <span>{currentRun.unsupportedUnitCount.toLocaleString()} units were reported unsupported.</span>}
           {currentRun.excludedUnitCount !== null && currentRun.excludedUnitCount > 0 && <span>{currentRun.excludedUnitCount.toLocaleString()} units were reported excluded.</span>}
+          {currentRun.omittedUnitCount !== null && currentRun.omittedUnitCount > 0 && <span>{currentRun.omittedUnitCount.toLocaleString()} invalid or excess records were omitted by the provider adapter.</span>}
         </div>}
         {currentRun.inventoryAvailable && currentRun.unaccountedDiscoveredUnitCount !== null && currentRun.unaccountedDiscoveredUnitCount > 0 && <p className={styles.runSummaryMeta}>
           {currentRun.unaccountedDiscoveredUnitCount.toLocaleString()} discovered {currentRun.unitLabel} were not returned by the provider. Failures, skips, unsupported units, and exclusions are shown separately only when the provider reported them; any remainder is unclassified.
