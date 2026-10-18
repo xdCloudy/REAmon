@@ -694,6 +694,17 @@ def _reamon_tree_sitter_diagnostics(tree, limit: int = 8) -> list[str]:
     return diagnostics
 
 
+def _reamon_source_round(round_number: int, source: str, status: str, method: str, message: str) -> dict[str, Any]:
+    return {
+        "round": round_number,
+        "source_code": source,
+        "source_sha256": hashlib.sha256(source.encode("utf-8")).hexdigest(),
+        "validation_status": status,
+        "validation_method": method,
+        "validation_message": message[:2000],
+    }
+
+
 def _reamon_cli_syntax_validation(
     source_code: str,
     *,
@@ -2203,6 +2214,7 @@ TRANSFORMATION RULES
     validation_method = "tree-sitter" if parser is not None else None
     validation_message = f"No Tree-sitter parser is registered for {body.language}." if parser is None else ""
     syntax_repaired = False
+    rewrite_history: list[dict[str, Any]] = []
     if parser is not None and body.scope != "member":
         try:
             validation_tree = parser.parse(rewritten.encode("utf-8"))
@@ -2222,6 +2234,9 @@ TRANSFORMATION RULES
         if validation_status == "FAILED":
             rejected_draft = rewritten
             repair_diagnostics = _reamon_tree_sitter_diagnostics(validation_tree)
+            rewrite_history.append(_reamon_source_round(
+                1, rejected_draft, "FAILED", "tree-sitter", validation_message,
+            ))
             repair_system_prompt = system_prompt + (
                 "\n\nSYNTAX REPAIR: The previous candidate failed the configured syntax parser. "
                 "Return one corrected complete source file that preserves the original declarations "
@@ -2248,7 +2263,8 @@ TRANSFORMATION RULES
             if _response_was_truncated(response):
                 return JSONResponse(content={
                     "error": "The syntax repair stopped before returning the complete file. Increase its output token limit or choose a larger model, then retry.",
-                    "code": "incomplete_source", "model_used": requested_model,
+                    "code": "incomplete_source", "rewrite_history": rewrite_history,
+                    "model_used": requested_model,
                 }, status_code=422)
             repaired = normalize_content(getattr(response, "content", None))
             repaired = re.sub(r"<think>.*?</think>", "", repaired, flags=re.IGNORECASE | re.DOTALL).strip()
@@ -2259,6 +2275,7 @@ TRANSFORMATION RULES
                     "error": "The syntax repair returned no complete source within the response limit.",
                     "code": "invalid_source", "validation_status": "FAILED",
                     "validation_method": "tree-sitter", "validation_message": validation_message,
+                    "rewrite_history": rewrite_history,
                     "model_used": requested_model,
                 }, status_code=422)
             rewritten = repaired
@@ -2268,6 +2285,7 @@ TRANSFORMATION RULES
             except Exception as exc:  # noqa: BLE001
                 logger.debug(f"REAmon syntax repair validation failed for {body.language}: {exc}")
                 syntax_validated = False
+                validation_status = "UNAVAILABLE"
                 validation_message = "The configured source parser could not validate the repaired draft."
             else:
                 if syntax_validated:
@@ -2278,11 +2296,15 @@ TRANSFORMATION RULES
                     repair_diagnostics = _reamon_tree_sitter_diagnostics(validation_tree)
                     validation_status = "FAILED"
                     validation_message = "The syntax-repaired source still has parser errors: " + "; ".join(repair_diagnostics)
+            rewrite_history.append(_reamon_source_round(
+                2, rewritten, validation_status, validation_method, validation_message,
+            ))
             if not syntax_validated:
                 return JSONResponse(content={
                     "error": "The model draft still does not parse as complete source after one repair. Try a stronger model or a more focused transformation.",
                     "code": "invalid_source", "validation_status": validation_status,
                     "validation_method": validation_method, "validation_message": validation_message,
+                    "rewrite_history": rewrite_history,
                     "model_used": requested_model,
                 }, status_code=422)
     if body.scope == "member" and parser is not None:
@@ -2341,21 +2363,24 @@ TRANSFORMATION RULES
             if rewritten_type_kinds != selected_type_kinds:
                 return JSONResponse(content={
                     "error": "The model did not preserve this file's Java top-level declaration kinds. Choose a stronger model.",
-                    "code": "wrong_target", "model_used": requested_model,
+                    "code": "wrong_target", "rewrite_history": rewrite_history,
+                    "model_used": requested_model,
                 }, status_code=422)
         selected_bodies = _java_executable_body_count(parser, body.source_code)
         rewritten_bodies = _java_executable_body_count(parser, rewritten)
         if rewritten_bodies < selected_bodies:
             return JSONResponse(content={
                 "error": "The model removed executable Java method or constructor logic. Choose a stronger model or retry with a narrower transformation.",
-                "code": "behavior_dropped", "model_used": requested_model,
+                "code": "behavior_dropped", "rewrite_history": rewrite_history,
+                "model_used": requested_model,
             }, status_code=422)
         selected_structure = _java_structure_contract(parser, body.source_code)
         rewritten_structure = _java_structure_contract(parser, rewritten)
         if selected_structure is not None and rewritten_structure is not None and rewritten_structure != selected_structure:
             return JSONResponse(content={
                 "error": "The model changed Java class or member declarations, including access or type information. Review the source and retry with a stronger model.",
-                "code": "declaration_changed", "model_used": requested_model,
+                "code": "declaration_changed", "rewrite_history": rewrite_history,
+                "model_used": requested_model,
             }, status_code=422)
         validation_method = "tree-sitter+callable-count+java-contract"
         validation_message = "The parser accepted the source, recognized callable count was preserved, and Java declaration structure remained stable. This is structural evidence, not a behavior-equivalence check."
@@ -2370,6 +2395,7 @@ TRANSFORMATION RULES
                     "validation_status": "FAILED",
                     "validation_method": "tree-sitter+callable-count",
                     "validation_message": f"The source contains {original_callable_count} callables; the draft contains {rewritten_callable_count}.",
+                    "rewrite_history": rewrite_history,
                     "model_used": requested_model,
                 }, status_code=422)
             if original_callable_count > 0:
@@ -2381,7 +2407,8 @@ TRANSFORMATION RULES
         if selected_contract and rewritten_contract is not None and rewritten_contract != selected_contract:
             return JSONResponse(content={
                 "error": "The model changed native function declarations, return types, parameter types, or calling shape. Review the source and retry with a stronger model.",
-                "code": "declaration_changed", "model_used": requested_model,
+                "code": "declaration_changed", "rewrite_history": rewrite_history,
+                "model_used": requested_model,
             }, status_code=422)
         if selected_contract is not None and rewritten_contract is not None:
             validation_method = "tree-sitter+callable-count+c-contract"
@@ -2391,6 +2418,7 @@ TRANSFORMATION RULES
         validation_message += " One syntax-repair pass was used."
     return {
         "source_code": rewritten,
+        "rewrite_history": rewrite_history,
         "syntax_validated": syntax_validated,
         "validation_status": validation_status,
         "validation_method": validation_method,

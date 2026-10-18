@@ -2854,6 +2854,7 @@ model ReamonCodeAttempt {
   errorCode       String?   @map("error_code")
   errorMessage    String?   @db.Text @map("error_message")
   resultSource    String?   @db.Text @map("result_source")
+  rewriteHistory  Json?     @map("rewrite_history")
   syntaxValidated Boolean?  @map("syntax_validated")
   validationStatus  String?  @map("validation_status")
   validationMethod  String?  @map("validation_method")

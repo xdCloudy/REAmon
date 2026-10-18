@@ -158,7 +158,8 @@ interface ApkBuildResponse { buildId: string; taskId: string; fileName: string; 
 interface JvmBuildResponse { buildId: string; taskId: string; codeUnitId: string; fileName: string; sizeBytes: number; sha256: string; sourceSha256: string; changedClassCount: number; removedClassCount: number; javaRelease: number; compilerVersion: string; diagnostics: string; warnings: string; downloadUrl: string }
 interface CodeMaintenanceResponse { sourceCode: string; providerName: string; model: string; attemptId?: string | null; syntaxValidated?: boolean | null; validationStatus?: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod?: string | null; validationMessage?: string | null }
 interface CodeDraftRecord { id: string; sourceCode: string; sourceAttemptId: string | null; providerName: string; modelIdentifier: string; question: string; scope: 'file' | 'member'; syntaxValidated: boolean | null; validationStatus: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod: string | null; validationMessage: string | null; updatedAt: string }
-interface CodeAttemptRecord { id: string; providerName: string; modelIdentifier: string; question: string; scope: 'file' | 'member' | 'rename-suggestions'; status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'; cancelRequested: boolean; errorCode: string | null; errorMessage: string | null; resultSource: string | null; renameProposals?: SafeRenameProposal[]; proposalSourceSha256?: string; proposalProviderId?: string; projectSymbolContextSha256?: string; proposalCandidateCount?: number; syntaxValidated: boolean | null; validationStatus: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod: string | null; validationMessage: string | null; createdAt: string; completedAt: string | null }
+interface RewriteHistoryEntry { round: number; sourceCode: string; sourceSha256: string; validationStatus: string; validationMethod: string; validationMessage: string }
+interface CodeAttemptRecord { id: string; providerName: string; modelIdentifier: string; question: string; scope: 'file' | 'member' | 'rename-suggestions'; status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'; cancelRequested: boolean; errorCode: string | null; errorMessage: string | null; resultSource: string | null; rewriteHistoryRoundCount: number; renameProposals?: SafeRenameProposal[]; proposalSourceSha256?: string; proposalProviderId?: string; projectSymbolContextSha256?: string; proposalCandidateCount?: number; syntaxValidated: boolean | null; validationStatus: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod: string | null; validationMessage: string | null; createdAt: string; completedAt: string | null }
 interface CodeDraftResponse { exists: boolean; draft: CodeDraftRecord | null; attempts?: CodeAttemptRecord[] }
 interface CodeUnitNoteResponse { unitId: string; note: string; stale: boolean; updatedAt: string | null }
 interface CodeReviewRecord {
@@ -551,6 +552,33 @@ async function fetchSource(url: string, signal: AbortSignal): Promise<string> {
     throw new Error(detail?.error || 'Could not load code output')
   }
   return response.text()
+}
+
+async function fetchRewriteHistory(projectId: string, attemptId: string, signal?: AbortSignal): Promise<RewriteHistoryEntry[]> {
+  const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/deobfuscate/attempts/${encodeURIComponent(attemptId)}`, { signal, cache: 'no-store' })
+  const result = await response.json().catch(() => null) as { rewriteHistory?: unknown; error?: string } | null
+  if (!response.ok) throw new Error(result?.error || 'Could not load saved syntax-repair candidates')
+  return Array.isArray(result?.rewriteHistory) ? result.rewriteHistory as RewriteHistoryEntry[] : []
+}
+
+function SavedRewriteHistory({ projectId, attemptId, roundCount }: { projectId: string; attemptId: string; roundCount: number }) {
+  const [open, setOpen] = useState(false)
+  const historyQuery = useQuery({
+    queryKey: ['reamon-rewrite-history', projectId, attemptId],
+    queryFn: ({ signal }) => fetchRewriteHistory(projectId, attemptId, signal),
+    enabled: open,
+    staleTime: Infinity,
+  })
+  return <details onToggle={(event) => setOpen(event.currentTarget.open)}>
+    <summary>View saved syntax-repair candidates ({roundCount})</summary>
+    {historyQuery.isLoading && <p className={styles.message}>Loading saved candidates…</p>}
+    {historyQuery.isError && <p className={styles.error}>{historyQuery.error instanceof Error ? historyQuery.error.message : 'Could not load saved candidates'}</p>}
+    {historyQuery.data?.map((round) => <section key={`${round.round}:${round.sourceSha256}`}>
+      <p>Round {round.round} · {round.validationStatus} via {round.validationMethod} · SHA-256 {round.sourceSha256}</p>
+      <p>{round.validationMessage}</p>
+      <pre className={styles.attemptSource}><code>{round.sourceCode}</code></pre>
+    </section>)}
+  </details>
 }
 
 async function fetchAlternateDecompilerOutputs(projectId: string, unitId: string, signal?: AbortSignal): Promise<AlternateDecompilerResponse> {
@@ -3002,6 +3030,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
                 {attempt.status === 'SUCCEEDED' && attempt.resultSource && <button type="button" className={styles.copyButton} onClick={() => void restoreCodeAttempt(attempt)} disabled={transforming || restoringAttemptId !== null || (attempt.scope === 'member' && !sourceQuery.data)}>
                   {restoringAttemptId === attempt.id ? 'Restoring result…' : 'Load result into editor'}
                 </button>}
+                {attempt.rewriteHistoryRoundCount > 0 && <SavedRewriteHistory projectId={projectId} attemptId={attempt.id} roundCount={attempt.rewriteHistoryRoundCount} />}
                 {attempt.resultSource && <pre className={styles.attemptSource}><code>{attempt.resultSource}</code></pre>}
               </details>
             </li>)}</ol>

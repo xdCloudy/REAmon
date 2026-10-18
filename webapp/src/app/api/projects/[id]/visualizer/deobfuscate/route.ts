@@ -1541,7 +1541,7 @@ export async function POST(request: Request, { params }: RouteParams) {
         where: { projectId, artifactId: artifact.id, runKey: runPrefix.slice(0, -1), codeUnitId: observation.id, sourceHash },
         orderBy: { createdAt: 'desc' },
         take: 5,
-        select: { providerName: true, modelIdentifier: true, question: true, scope: true, status: true, errorCode: true, errorMessage: true, syntaxValidated: true, validationStatus: true, validationMethod: true, validationMessage: true, createdAt: true },
+        select: { providerName: true, modelIdentifier: true, question: true, scope: true, status: true, errorCode: true, errorMessage: true, rewriteHistory: true, syntaxValidated: true, validationStatus: true, validationMethod: true, validationMessage: true, createdAt: true },
       }),
       prisma.reamonCodeReview.findMany({
         where: { projectId, artifactId: artifact.id, codeUnitId: observation.id, decision: 'REJECTED' },
@@ -1559,7 +1559,18 @@ export async function POST(request: Request, { params }: RouteParams) {
       const validation = attempt.validationStatus
         ? `; validation=${attempt.validationStatus.toLowerCase()}${attempt.validationMethod ? ` via ${attempt.validationMethod}` : ''}${attempt.validationMessage ? `: ${attempt.validationMessage}` : ''}`
         : ''
-      return `${index + 1}. ${attempt.providerName} / ${attempt.modelIdentifier}; scope=${attempt.scope}; request=${attempt.question || '(default)'}; outcome=${outcome}${validation}`
+      const repairRounds = Array.isArray(attempt.rewriteHistory)
+        ? attempt.rewriteHistory.flatMap((value) => {
+          const round = plainObject(value)
+          return Number.isSafeInteger(round.round)
+            && typeof round.validationStatus === 'string'
+            && typeof round.sourceSha256 === 'string' && /^[a-f0-9]{64}$/i.test(round.sourceSha256)
+            ? [`round ${round.round} ${round.validationStatus.toLowerCase()} candidate sha256:${round.sourceSha256.slice(0, 16)}`]
+            : []
+        })
+        : []
+      const repairSummary = repairRounds.length ? `; saved syntax-repair history: ${repairRounds.join(', ')}` : ''
+      return `${index + 1}. ${attempt.providerName} / ${attempt.modelIdentifier}; scope=${attempt.scope}; request=${attempt.question || '(default)'}; outcome=${outcome}${validation}${repairSummary}`
     })
     const rejectedReviewLines = rejectedReviews.map((review) => {
       const rationale = review.rationale.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 600)

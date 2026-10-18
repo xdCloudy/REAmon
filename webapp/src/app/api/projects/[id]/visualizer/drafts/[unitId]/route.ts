@@ -100,7 +100,7 @@ export async function GET(_request: Request, { params }: RouteParams) {
       where: { projectId, codeUnitId: unitId, artifactId: resolved.artifactId, runKey: resolved.runKey, sourceHash: resolved.sourceHash },
       orderBy: { createdAt: 'desc' },
       take: 10,
-      select: { id: true, providerName: true, modelIdentifier: true, question: true, scope: true, status: true, cancelRequested: true, errorCode: true, errorMessage: true, resultSource: true, requestPayload: true, syntaxValidated: true, validationStatus: true, validationMethod: true, validationMessage: true, createdAt: true, completedAt: true },
+      select: { id: true, providerName: true, modelIdentifier: true, question: true, scope: true, status: true, cancelRequested: true, errorCode: true, errorMessage: true, resultSource: true, rewriteHistory: true, requestPayload: true, syntaxValidated: true, validationStatus: true, validationMethod: true, validationMessage: true, createdAt: true, completedAt: true },
     })
     let trustedDraftValidation = { syntaxValidated: null as boolean | null, validationStatus: null as string | null, validationMethod: null as string | null, validationMessage: null as string | null }
     const draftHashMatches = Boolean(draft?.draftHash
@@ -143,6 +143,7 @@ export async function GET(_request: Request, { params }: RouteParams) {
         errorCode: attempt.errorCode,
         errorMessage: attempt.errorMessage,
         resultSource: attempt.resultSource,
+        rewriteHistoryRoundCount: Array.isArray(attempt.rewriteHistory) ? attempt.rewriteHistory.length : 0,
         syntaxValidated: attempt.syntaxValidated,
         validationStatus: attempt.validationStatus,
         validationMethod: attempt.validationMethod,

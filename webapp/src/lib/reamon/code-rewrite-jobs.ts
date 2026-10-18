@@ -1,4 +1,5 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
+import type { Prisma } from '@prisma/client'
 import prisma from '@/lib/prisma'
 import { AgentUnreachableError, agentFetch } from '@/lib/agentFetch'
 
@@ -8,6 +9,7 @@ const MAX_DEPENDENCY_EDGES = 20_000
 const MAX_CALLEE_EDGE_SCAN = 100_000
 const CALLEE_EDGE_PAGE_SIZE = 512
 const MAX_RESULT_BYTES = 128 * 1024
+const MAX_REWRITE_HISTORY_BYTES = MAX_RESULT_BYTES * 2 + 8 * 1024
 const REWRITE_LEASE_GRACE_MS = 60_000
 const MAX_REWRITE_TIMEOUT_MS = 5 * 60_000
 const STALE_JOB_GRACE_MS = 60_000
@@ -17,6 +19,40 @@ function record(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
     : {}
+}
+
+function validatedRewriteHistory(value: unknown): Prisma.InputJsonArray | undefined {
+  if (!Array.isArray(value) || value.length === 0 || value.length > 2) return undefined
+  const entries: Prisma.InputJsonObject[] = []
+  let totalBytes = 0
+  for (const item of value) {
+    const round = record(item)
+    const sourceCode = round.source_code
+    const sourceSha256 = round.source_sha256
+    const validationStatus = round.validation_status
+    const validationMethod = round.validation_method
+    const validationMessage = round.validation_message
+    if (typeof round.round !== 'number' || !Number.isSafeInteger(round.round) || (round.round !== 1 && round.round !== 2)
+      || typeof sourceCode !== 'string' || !sourceCode
+      || typeof sourceSha256 !== 'string' || !/^[a-f0-9]{64}$/i.test(sourceSha256)
+      || typeof validationStatus !== 'string'
+      || (validationStatus !== 'PASSED' && validationStatus !== 'FAILED' && validationStatus !== 'UNAVAILABLE')
+      || typeof validationMethod !== 'string' || validationMethod.length > 80
+      || typeof validationMessage !== 'string' || validationMessage.length > 2000) return undefined
+    const sourceBytes = Buffer.byteLength(sourceCode, 'utf8')
+    totalBytes += sourceBytes
+    if (sourceBytes > MAX_RESULT_BYTES || totalBytes > MAX_REWRITE_HISTORY_BYTES
+      || createHash('sha256').update(sourceCode, 'utf8').digest('hex') !== sourceSha256.toLowerCase()) return undefined
+    entries.push({
+      round: round.round,
+      sourceCode,
+      sourceSha256: sourceSha256.toLowerCase(),
+      validationStatus,
+      validationMethod,
+      validationMessage,
+    })
+  }
+  return entries
 }
 
 function dependencyGroup(row: { projectId: string; artifactId: string; taskId: string | null; source: string }): string {
@@ -299,6 +335,7 @@ async function settleFailure(input: {
   status?: string
   method?: string | null
   validationMessage?: string | null
+  rewriteHistory?: Prisma.InputJsonArray
 }) {
   const failed = await prisma.reamonCodeAttempt.updateMany({
     where: { id: input.attemptId, status: 'RUNNING', runToken: input.runToken, cancelRequested: false },
@@ -309,6 +346,7 @@ async function settleFailure(input: {
       validationStatus: input.status?.slice(0, 32) ?? null,
       validationMethod: input.method?.slice(0, 80) ?? null,
       validationMessage: input.validationMessage?.slice(0, 2000) ?? null,
+      ...(input.rewriteHistory ? { rewriteHistory: input.rewriteHistory } : {}),
       completedAt: new Date(),
       runToken: null,
       leaseOwner: null,
@@ -446,6 +484,7 @@ async function executeAttempt(attemptId: string, workerId: string) {
       signal: controller.signal,
     }, { timeoutMs })
     const result = record(await response.json().catch(() => null))
+    const rewriteHistory = validatedRewriteHistory(result.rewrite_history)
     if (!response.ok) {
       const code = typeof result.code === 'string' ? result.code : `http_${response.status}`
       await settleFailure({
@@ -456,6 +495,7 @@ async function executeAttempt(attemptId: string, workerId: string) {
         status: typeof result.validation_status === 'string' ? result.validation_status : code === 'invalid_source' ? 'FAILED' : undefined,
         method: typeof result.validation_method === 'string' ? result.validation_method : null,
         validationMessage: typeof result.validation_message === 'string' ? result.validation_message : null,
+        rewriteHistory,
       })
       return true
     }
@@ -486,6 +526,7 @@ async function executeAttempt(attemptId: string, workerId: string) {
         where: { id: attempt.id, projectId: attempt.projectId, status: 'RUNNING', runToken, cancelRequested: false },
         data: {
           status: 'SUCCEEDED', resultSource: rewrittenSource,
+          ...(rewriteHistory ? { rewriteHistory } : {}),
           syntaxValidated: result.syntax_validated === true,
           validationStatus,
           validationMethod: typeof result.validation_method === 'string' ? result.validation_method.slice(0, 80) : null,
