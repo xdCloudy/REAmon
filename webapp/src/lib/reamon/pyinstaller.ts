@@ -7,8 +7,8 @@ import { readAnalyzerResponse } from './analyzer-response'
 import { executePycdc, pycdcManifest } from './pycdc'
 import { resolveDerivedArtifactPath } from './derived-storage'
 
-const MAX_MODULES_TO_DECOMPILE = 8
-const MAX_REQUEST_TIMEOUT_MS = 20 * 60_000
+const MAX_MODULES_TO_DECOMPILE = 4
+const MAX_REQUEST_TIMEOUT_MS = 22 * 60_000
 
 interface ExtractedModule {
   archivePath: string
