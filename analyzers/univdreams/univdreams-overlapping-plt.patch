@@ -1,0 +1,46 @@
+--- a/src/analysis/mod.rs
++++ b/src/analysis/mod.rs
+@@ -102,6 +102,7 @@ pub fn discover_functions(elf: &Elf64File) -> Result<FunctionMap> {
+     }
+ 
+     fill_in_sizes_from_neighbors(&mut map, elf);
++    clamp_overlapping_ranges_at_plt_boundaries(&mut map);
+ 
+     Ok(map)
+ }
+@@ -149,3 +150,35 @@ fn fill_in_sizes_from_neighbors(map: &mut FunctionMap, elf: &Elf64File) {
+         });
+     }
+ }
++
++/// A size-bearing `.eh_frame` record can span a PLT resolver and one or
++/// more named PLT thunks. The PLT discovery pass provides authoritative
++/// entry boundaries; stop an earlier overlapping function there so the
++/// decompiler does not emit the thunk bytes twice in the same section.
++fn clamp_overlapping_ranges_at_plt_boundaries(map: &mut FunctionMap) {
++    let mut plt_addresses: Vec<u64> = map
++        .iter()
++        .filter(|function| function.sources.contains(&FunctionSource::Plt))
++        .map(|function| function.addr.0)
++        .collect();
++    plt_addresses.sort_unstable();
++    plt_addresses.dedup();
++
++    if plt_addresses.is_empty() {
++        return;
++    }
++
++    let mut corrected = FunctionMap::new();
++    for mut function in map.iter().cloned() {
++        if function.size > 0 && !function.sources.contains(&FunctionSource::Plt) {
++            let next_plt = plt_addresses.partition_point(|addr| *addr <= function.addr.0);
++            if let Some(&boundary) = plt_addresses.get(next_plt)
++                && boundary < function.addr.0.saturating_add(function.size)
++            {
++                function.size = boundary.saturating_sub(function.addr.0);
++            }
++        }
++        corrected.insert(function);
++    }
++    *map = corrected;
++}

@@ -3,7 +3,7 @@ FROM rust:1.89-bookworm AS build
 ARG UNIVDREAMS_REVISION=f02c749da48a4f379210dfa72e7cb2ccfeaf1fc9
 ARG UNIVDREAMS_SOURCE_SHA256=50baa74e31ae28700278bdcf996c4b072b45658b7c46ae37ef3f0ba4f5af6691
 
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl tar \
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl patch tar \
  && rm -rf /var/lib/apt/lists/* \
  && curl --proto '=https' --tlsv1.2 -fsSL "https://codeload.github.com/KarpelesLab/univdreams/tar.gz/${UNIVDREAMS_REVISION}" -o /tmp/univdreams.tar.gz \
  && echo "${UNIVDREAMS_SOURCE_SHA256}  /tmp/univdreams.tar.gz" | sha256sum -c - \
@@ -13,7 +13,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 
 WORKDIR /src/univdreams
 COPY Cargo.lock /tmp/reamon-univdreams-Cargo.lock
-RUN cp /tmp/reamon-univdreams-Cargo.lock Cargo.lock \
+COPY univdreams-overlapping-plt.patch /tmp/reamon-univdreams-overlapping-plt.patch
+RUN patch -d /src/univdreams -p1 < /tmp/reamon-univdreams-overlapping-plt.patch \
+ && cp /tmp/reamon-univdreams-Cargo.lock Cargo.lock \
  && RUSTUP_TOOLCHAIN=1.89.0 cargo build --locked --release --bin ud
 
 FROM debian:bookworm-slim
