@@ -32,7 +32,8 @@ in one investigation workspace. Android APKs use isolated JADX and an alternate 
 Rust DEX decompiler; JVM `.class`/`.jar` artifacts can also use isolated Arlecchino, Vineflower, and CFR.
 Vineflower's Kotlin plugin is experimental. Managed .NET PE assemblies use isolated ILSpy,
 and native ELF, PE, and Mach-O files use isolated Ghidra headless analysis with optional
-RetDec, Glaurung, and Kuna C-like alternatives. These providers publish
+RetDec, Glaurung, and Kuna C-like alternatives, alongside Miasm's bounded simplified IR
+evidence for PE/ELF functions. These providers publish
 bounded function or code-unit indexes in the code visualizer. Other formats and
 dynamic analysis still need matching engines. A workspace can contain multiple
 related targets and artifacts:
