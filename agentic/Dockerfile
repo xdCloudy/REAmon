@@ -178,6 +178,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* \
     && gem install bundler --no-document
 
+# Solargraph resolves Ruby local-variable and parameter references by binding
+# identity. Keep its complete gem set isolated and pinned by the committed lock.
+ENV REAMON_SOLARGRAPH_RUBY=/usr/local/bin/reamon-solargraph-ruby
+COPY agentic/analyzers/solargraph/Gemfile agentic/analyzers/solargraph/Gemfile.lock /opt/reamon-solargraph/
+RUN BUNDLE_GEMFILE=/opt/reamon-solargraph/Gemfile bundle install --gemfile /opt/reamon-solargraph/Gemfile \
+        --path /opt/reamon-solargraph/bundle --jobs 4 --retry 3 \
+    && printf '#!/bin/sh\nBUNDLE_GEMFILE=/opt/reamon-solargraph/Gemfile exec bundle exec ruby "$@"\n' \
+        > "$REAMON_SOLARGRAPH_RUBY" \
+    && chmod 0755 "$REAMON_SOLARGRAPH_RUBY" \
+    && mkdir -p /usr/share/licenses/solargraph
+COPY agentic/analyzers/solargraph/LICENSE /usr/share/licenses/solargraph/LICENSE
+
 # Install Java 17 JDK + Maven (for Java projects)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     default-jdk-headless \

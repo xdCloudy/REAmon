@@ -82,13 +82,12 @@ compiler-optimized control flow, with semantic comparisons and instruction cover
   is not suitable for local-variable or parameter renames: its prepare-rename and
   references handlers do not expose those bindings. Keep it as a semantic-token and
   LSP design reference only. The MIT-licensed [Solargraph](https://github.com/castwide/solargraph)
-  0.60.4 release is the current candidate: it models local-variable and parameter
-  pins, filters references by resolved definition path, and tests argument renames.
-  Before integrating it, constrain the workspace to one source file, cross-check every
-  edit against Ripper's local-binding tokens, preserve input/output hashes and mapping
-  history, and parse the rewritten source with the pinned Ruby runtime. Its upstream
-  rename examples do not replace REAmon fixture coverage for shadowing, closures,
-  block/keyword parameters, or Unicode columns.
+  0.60.4 release now supplies same-file local-variable and positional-parameter
+  binding resolution. REAmon cross-checks resolved references against Ripper's local
+  token ranges, caps candidate probes, and runs `ruby -c` on the output. Keyword labels
+  and cross-file references remain outside this first slice. Its upstream rename
+  examples do not replace REAmon fixture coverage for shadowing, closures, block
+  parameters, Unicode columns, or recovery-produced Ruby.
 - Keep [cout/ruby-decompiler](https://github.com/cout/ruby-decompiler) as an
   unintegrated research lead until licensing is clarified. Its example starts from a
   live method and does not establish arbitrary binary import or modern version

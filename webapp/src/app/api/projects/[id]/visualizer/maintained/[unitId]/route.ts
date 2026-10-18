@@ -103,11 +103,14 @@ async function acceptedSafeRenameAliases(
       const csharpBindings = payload.operation === 'roslyn-csharp-scope-safe-renames'
       const javaBindings = payload.operation === 'javac-java-scope-safe-renames'
       const phpBindings = payload.operation === 'phpactor-php-lsp-scope-safe-renames'
-      if (!['humanify-style-scope-safe-renames', 'libcst-scope-safe-renames', 'go-types-scope-safe-renames', 'rust-analyzer-rust-lsp-semantic-local-renames', 'luals-scope-safe-renames', 'roslyn-csharp-scope-safe-renames', 'javac-java-scope-safe-renames', 'phpactor-php-lsp-scope-safe-renames'].includes(String(payload.operation))
+      const rubyBindings = payload.operation === 'solargraph-ruby-semantic-local-renames'
+      if (!['humanify-style-scope-safe-renames', 'libcst-scope-safe-renames', 'go-types-scope-safe-renames', 'rust-analyzer-rust-lsp-semantic-local-renames', 'luals-scope-safe-renames', 'roslyn-csharp-scope-safe-renames', 'javac-java-scope-safe-renames', 'phpactor-php-lsp-scope-safe-renames', 'solargraph-ruby-semantic-local-renames'].includes(String(payload.operation))
           || payload.outputSha256 !== sourceHash || !Array.isArray(payload.renames)) continue
       const aliases = payload.renames.flatMap((value) => {
         const rename = plainObject(value)
-        const validName = (name: string) => phpBindings
+        const validName = (name: string) => rubyBindings
+          ? /^[a-z_][A-Za-z0-9_]{0,127}$/.test(name)
+          : phpBindings
           ? /^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(name)
           : javaBindings
           ? /^[A-Za-z_$][A-Za-z0-9_$]{0,127}$/.test(name)

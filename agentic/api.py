@@ -48,6 +48,7 @@ from websocket_api import WebSocketManager, websocket_endpoint, MessageType
 from reamon_python_refactor import apply_python_renames, list_python_bindings
 from reamon_lua_refactor import LuaRefactorError, LuaRefactorUnavailable, refactor_source as refactor_lua_source
 from reamon_php_refactor import PhpRefactorError, PhpactorUnavailable, refactor_source as refactor_php_source
+from reamon_ruby_refactor import RubyRefactorError, SolargraphUnavailable, refactor_source as refactor_ruby_source
 from reamon_rust_refactor import apply_rust_renames, list_rust_bindings
 import workspace_fs
 import job_runner
@@ -628,6 +629,13 @@ class ReamonLuaRefactorRequest(BaseModel):
 
 
 class ReamonPhpRefactorRequest(BaseModel):
+    operation: Literal["bindings", "rename"]
+    source_code: str
+    expected_sha256: str = ""
+    renames: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class ReamonRubyRefactorRequest(BaseModel):
     operation: Literal["bindings", "rename"]
     source_code: str
     expected_sha256: str = ""
@@ -1669,6 +1677,58 @@ async def refactor_reamon_php_source(body: ReamonPhpRefactorRequest):
     except Exception as exc:  # noqa: BLE001
         logger.debug(f"REAmon PHP scope-safe refactor failed: {exc}")
         return JSONResponse(content={"error": "Phpactor could not safely analyze this PHP source"}, status_code=503)
+
+
+@app.post("/reamon/code/ruby/refactor", tags=["REAmon"], dependencies=[Depends(require_internal_auth)])
+async def refactor_reamon_ruby_source(body: ReamonRubyRefactorRequest):
+    if len(body.source_code.encode("utf-8")) > 512 * 1024 or len(body.renames) > 80:
+        return JSONResponse(content={"error": "The Ruby refactor request exceeds its size or candidate limit"}, status_code=413)
+    if body.operation == "rename" and not re.fullmatch(r"[a-f0-9]{64}", body.expected_sha256, re.IGNORECASE):
+        return JSONResponse(content={"error": "A valid source SHA-256 is required"}, status_code=400)
+    lint = _reamon_cli_syntax_validation(
+        body.source_code,
+        label="ruby",
+        executable="ruby",
+        version_args=["--disable-gems", "--version"],
+        lint_args=["--disable-gems", "-c", "-"],
+        version_pattern=r"^ruby\s+(\d+\.\d+(?:\.\d+)?)",
+        ignored_environment={"RUBYOPT", "RUBYLIB"},
+    )
+    if lint.get("validation_status") != "PASSED":
+        status = 503 if lint.get("validation_status") == "UNAVAILABLE" else 422
+        return JSONResponse(content={"error": lint.get("validation_message", "Ruby syntax validation failed")[:300]}, status_code=status)
+    try:
+        result = await asyncio.wait_for(refactor_ruby_source(
+            body.source_code,
+            operation=body.operation,
+            expected_sha256=body.expected_sha256,
+            renames=body.renames,
+        ), timeout=35)
+        if body.operation == "rename":
+            output_lint = _reamon_cli_syntax_validation(
+                result["source_code"],
+                label="ruby",
+                executable="ruby",
+                version_args=["--disable-gems", "--version"],
+                lint_args=["--disable-gems", "-c", "-"],
+                version_pattern=r"^ruby\s+(\d+\.\d+(?:\.\d+)?)",
+                ignored_environment={"RUBYOPT", "RUBYLIB"},
+            )
+            if output_lint.get("validation_status") != "PASSED":
+                return JSONResponse(content={"error": output_lint.get("validation_message", "Ruby output failed syntax validation")[:300]}, status_code=422)
+            result["validation_status"] = "PASSED"
+            result["validation_method"] = output_lint["validation_method"]
+            result["validation_message"] = "Solargraph resolved same-file Ruby local bindings; Ripper constrained edits to local tokens and ruby -c parsed the output without executing it. This does not validate dependencies or behavior."
+        return result
+    except SolargraphUnavailable as exc:
+        return JSONResponse(content={"error": str(exc)[:300]}, status_code=503)
+    except RubyRefactorError as exc:
+        return JSONResponse(content={"error": str(exc)[:300]}, status_code=409 if body.operation == "rename" else 422)
+    except asyncio.TimeoutError:
+        return JSONResponse(content={"error": "Ruby semantic analysis exceeded its time limit"}, status_code=504)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug(f"REAmon Ruby scope-safe refactor failed: {exc}")
+        return JSONResponse(content={"error": "Solargraph could not safely analyze this Ruby source"}, status_code=503)
 
 
 @app.post("/reamon/code/csharp/refactor", tags=["REAmon"], dependencies=[Depends(require_internal_auth)])
