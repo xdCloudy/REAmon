@@ -242,11 +242,27 @@ separate so a plausible name is never treated as proof of behavior.
   workflows are useful comparisons for Android MCP ergonomics. REAmon already
   integrates JADX, so compare these evidence contracts before considering another
   service; avoid duplicate JADX execution without a measured gap.
-- [Reko](https://github.com/uxmal/reko) provides a .NET CLI for decompilation,
-  disassembly, and executable inspection across architecture and file-format
-  plugins. It is a GPL-2.0 candidate for an opt-in comparison on architectures or
-  formats where REAmon has weak Ghidra coverage; validate exact fixture support and
-  distribution requirements before bundling it.
+- [Reko](https://github.com/uxmal/reko) is a GPL-2.0 binary decompiler with a CLI
+  and a wide plugin inventory. Its latest inspected release is v0.12.5 at
+  `418d3538ee87f46e87b80b5b8b93138f63952497` (2026-09-29); the x64 CLI archive
+  digest is `26a0705ed12928d4c0543e2f2c1846fe293220df66ddb41e922afa7c6a4ff9fe`.
+  The CLI writes segment-partitioned C-like output and prefixes each procedure
+  with its entry address and name, which gives REAmon a path to address-keyed
+  comparison units without inferring addresses from line similarity. The v0.12.5
+  release adds partial PS2 Emotion Engine support and more zSeries and Blackfin
+  coverage. The upstream supported-binaries table is explicitly for v0.12.0.0 and
+  labels many architectures as minimal or incomplete; it is not current-version
+  coverage evidence. **REAmon adaptation:** prototype an optional isolated
+  comparison provider for formats and architectures where Reko fills a measured
+  Ghidra gap. Split C output only at upstream's address/name markers, preserve
+  exact input/output hashes and the Reko pin, and label every result as provisional
+  C-like reconstruction. **Limits:** the engine is GPL-2.0 and requires .NET 9;
+  an image distribution needs a deliberate corresponding-source and notice plan.
+  Its ordinary CLI emits source files rather than a machine-readable per-function
+  manifest, so the adapter must validate marker parsing, globals, function
+  coverage, and source boundaries before use. Reko's own maintainer notes that
+  decompiler output is not generally compileable. Keep it opt-in and do not infer
+  original C/C++ or behavior from its output.
 - [decomp.me](https://github.com/decompme/decomp.me) is a collaborative exact-build
   function-matching application. Its MIT-licensed code and compiler configuration
   model are useful references for a future validator contract, but its web product is
@@ -489,6 +505,12 @@ store.
 - [Rizin-powered Cutter UI and GPL-3.0 license](https://github.com/rizinorg/cutter)
 - [rev.ng repository and component licenses](https://github.com/revng/revng)
 - [Reko repository and GPL-2.0 license](https://github.com/uxmal/reko)
+- [Reko v0.12.5 release and CLI asset digest](https://github.com/uxmal/reko/releases/tag/version-0.12.5)
+- [Reko supported-binaries table and stated v0.12.0.0 scope](https://github.com/uxmal/reko/wiki/Supported-binaries)
+- [Reko v0.12.5 CLI procedure output markers](https://github.com/uxmal/reko/blob/418d3538ee87f46e87b80b5b8b93138f63952497/src/Decompiler/Decompiler.cs)
+- [Reko v0.12.5 segment output policy](https://github.com/uxmal/reko/blob/418d3538ee87f46e87b80b5b8b93138f63952497/src/Core/Output/SegmentFilePolicy.cs)
+- [Reko CLI usage](https://github.com/uxmal/reko/blob/418d3538ee87f46e87b80b5b8b93138f63952497/doc/guide/cli.md)
+- [Reko maintainer note on compilability limits](https://github.com/uxmal/reko/discussions/1286)
 - [Tree-sitter Language Pack](https://github.com/xberg-io/tree-sitter-language-pack)
 - [APKLab license and workflow](https://github.com/APKLab/APKLab)
 - [Rizin license information](https://github.com/rizinorg/rizin/blob/dev/DEVELOPERS.md)

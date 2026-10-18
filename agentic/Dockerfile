@@ -174,7 +174,7 @@ RUN arch="${TARGETARCH:-$(dpkg --print-architecture)}" \
 
 # Install Ruby + Bundler (for Ruby/Rails projects)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ruby ruby-dev \
+    ruby ruby-dev libyaml-dev pkg-config \
     && rm -rf /var/lib/apt/lists/* \
     && gem install bundler --no-document
 
