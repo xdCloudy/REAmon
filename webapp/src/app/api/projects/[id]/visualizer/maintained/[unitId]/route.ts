@@ -363,6 +363,7 @@ export async function GET(request: Request, { params }: RouteParams) {
         exists: true,
         sourceCode: savedSource.sourceCode,
         sourceHash,
+        acceptedReviewId: acceptedReceipt?.id ?? null,
         updatedAt: savedSource.updatedAt.toISOString(),
         reviews: reviewHistory,
         acceptedRenameAliases,
@@ -448,6 +449,71 @@ export async function POST(request: Request, { params }: RouteParams) {
   } catch (error) {
     console.error('Failed to record rejected REAmon draft:', error)
     return NextResponse.json({ error: 'Failed to record rejected draft' }, { status: 500, headers: { 'Cache-Control': 'no-store' } })
+  }
+}
+
+export async function PATCH(request: Request, { params }: RouteParams) {
+  try {
+    const { id: projectId, unitId } = await params
+    const resolved = await resolveUnit(projectId, unitId)
+    if ('response' in resolved) return resolved.response
+    const body = plainObject(await request.json().catch(() => null))
+    const expectedSourceHash = typeof body.expectedSourceHash === 'string' && /^[a-f0-9]{64}$/i.test(body.expectedSourceHash)
+      ? body.expectedSourceHash.toLowerCase()
+      : ''
+    const rationale = typeof body.reviewRationale === 'string' ? body.reviewRationale.trim() : ''
+    if (!expectedSourceHash) return NextResponse.json({ error: 'A valid expected source hash is required to revoke acceptance.' }, { status: 400 })
+    if (rationale.length < 12 || rationale.length > 1000) {
+      return NextResponse.json({ error: 'Add a revocation rationale between 12 and 1000 characters.' }, { status: 400 })
+    }
+
+    const review = await prisma.$transaction(async (tx) => {
+      const currentSource = await tx.reamonMaintainedSource.findUnique({
+        where: { projectId_codeUnitId: { projectId, codeUnitId: unitId } },
+        select: { sourceCode: true, sourceHash: true, acceptedReviewId: true },
+      })
+      if (!currentSource?.acceptedReviewId) throw new MaintainedSourceConflict()
+      const sourceHash = createHash('sha256').update(currentSource.sourceCode).digest('hex')
+      if (sourceHash !== expectedSourceHash) throw new MaintainedSourceConflict()
+      const acceptedReceipt = await tx.reamonCodeReview.findFirst({
+        where: {
+          id: currentSource.acceptedReviewId,
+          projectId,
+          artifactId: resolved.artifactId,
+          codeUnitId: unitId,
+          decision: 'ACCEPTED',
+          maintainedSourceHash: sourceHash,
+        },
+        select: { id: true },
+      })
+      if (!acceptedReceipt) throw new MaintainedSourceConflict()
+
+      const revokedReceipt = await tx.reamonCodeReview.create({
+        data: {
+          projectId,
+          artifactId: resolved.artifactId,
+          codeUnitId: unitId,
+          reviewerId: resolved.reviewerId,
+          decision: 'REVOKED',
+          rationale,
+          maintainedSourceHash: sourceHash,
+        },
+        select: { id: true, reviewerId: true, decision: true, rationale: true, maintainedSourceHash: true, createdAt: true },
+      })
+      const updated = await tx.reamonMaintainedSource.updateMany({
+        where: { projectId, codeUnitId: unitId, sourceHash: currentSource.sourceHash, acceptedReviewId: acceptedReceipt.id },
+        data: { acceptedReviewId: null },
+      })
+      if (updated.count !== 1) throw new MaintainedSourceConflict()
+      return revokedReceipt
+    })
+    return NextResponse.json({ revoked: true, review: { ...review, createdAt: review.createdAt.toISOString() } }, { headers: { 'Cache-Control': 'private, no-store' } })
+  } catch (error) {
+    if (error instanceof MaintainedSourceConflict || isUniqueConflict(error)) {
+      return NextResponse.json({ error: 'The accepted source changed after you opened it. Reload and review the current version before revoking it.' }, { status: 409 })
+    }
+    console.error('Failed to revoke maintained REAmon source:', error)
+    return NextResponse.json({ error: 'Failed to revoke maintained source acceptance' }, { status: 500, headers: { 'Cache-Control': 'no-store' } })
   }
 }
 

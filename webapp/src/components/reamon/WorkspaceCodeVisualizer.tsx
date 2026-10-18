@@ -164,7 +164,7 @@ interface CodeUnitNoteResponse { unitId: string; note: string; stale: boolean; u
 interface CodeReviewRecord {
   id: string
   reviewerId: string
-  decision: 'ACCEPTED' | 'REJECTED'
+  decision: 'ACCEPTED' | 'REJECTED' | 'REVOKED'
   rationale: string
   maintainedSourceHash: string
   validationStatus?: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null
@@ -1118,6 +1118,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
         exists: boolean
         sourceCode: string | null
         sourceHash?: string | null
+        acceptedReviewId?: string | null
         updatedAt?: string
         reviews?: CodeReviewRecord[]
         acceptedRenameAliases?: AcceptedRenameAlias[]
@@ -1888,6 +1889,35 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
       await queryClient.invalidateQueries({ queryKey: ['reamon-maintained-source', projectId, selectedUnit.id] })
     } catch (error) {
       setMaintenanceError(error instanceof Error ? error.message : 'Could not record this rejection')
+    } finally {
+      setSavingMaintained(false)
+    }
+  }
+
+  async function revokeMaintainedAcceptance() {
+    if (!selectedUnit || !maintainedQuery.data?.acceptedReviewId || !maintainedQuery.data.sourceHash) return
+    if (reviewRationale.trim().length < 12 || reviewRationale.trim().length > 1000) {
+      setMaintenanceError('Add between 12 and 1000 characters explaining why this acceptance was revoked.')
+      return
+    }
+    setSavingMaintained(true)
+    setMaintenanceError('')
+    setReviewStatus('')
+    try {
+      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/maintained/${encodeURIComponent(selectedUnit.id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ expectedSourceHash: maintainedQuery.data.sourceHash, reviewRationale }),
+      })
+      const result = await response.json().catch(() => ({})) as { error?: string }
+      if (!response.ok) throw new Error(result.error || 'Could not revoke this acceptance')
+      setReviewRationale('')
+      setReviewStatus('Acceptance revoked. This source and its naming context will no longer be treated as approved project memory.')
+      await queryClient.invalidateQueries({ queryKey: ['reamon-code-units', projectId] })
+      await queryClient.invalidateQueries({ queryKey: ['reamon-maintained-coverage', projectId, currentRunId] })
+      await queryClient.invalidateQueries({ queryKey: ['reamon-maintained-source', projectId, selectedUnit.id] })
+    } catch (error) {
+      setMaintenanceError(error instanceof Error ? error.message : 'Could not revoke this acceptance')
     } finally {
       setSavingMaintained(false)
     }
@@ -2974,12 +3004,13 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
                 </span>)}</code></pre>
               </>}
             </details>}
-            <label className={styles.reviewRationale}>Review rationale (required to accept or reject this version)
-              <textarea aria-label="Review rationale" value={reviewRationale} maxLength={1000} onChange={(event) => setReviewRationale(event.target.value)} placeholder="For acceptance, say what you checked. For rejection, explain what needs correction." />
+            <label className={styles.reviewRationale}>Review rationale (required to accept, reject, or revoke)
+              <textarea aria-label="Review rationale" value={reviewRationale} maxLength={1000} onChange={(event) => setReviewRationale(event.target.value)} placeholder="For acceptance, say what you checked. For rejection or revocation, explain the decision." />
             </label>
             <div className={styles.maintainedActions}>
               <button type="button" className={styles.copyButton} onClick={() => void saveCodeDraft()} disabled={savingDraft || !maintainedDraft.trim() || !maintainedDraftDiffersFromSource || maintainedDraft === draftSource || hasUnresolvedRebaseConflicts}>{savingDraft ? 'Saving draft…' : maintainedDraft === draftSource ? 'Draft saved to project memory' : 'Save draft'}</button>
               <button type="button" className={styles.explainButton} onClick={() => void saveMaintainedSource()} disabled={savingMaintained || !maintainedDraft.trim() || !maintainedDraftDiffersFromSource || reviewRationale.trim().length < 12 || hasUnresolvedRebaseConflicts}>{savingMaintained ? 'Saving…' : maintainedSaved ? 'Review and save changes' : 'Review and accept maintained copy'}</button>
+              {maintainedQuery.data?.acceptedReviewId && <button type="button" className={styles.copyButton} onClick={() => void revokeMaintainedAcceptance()} disabled={savingMaintained || reviewRationale.trim().length < 12}>{savingMaintained ? 'Recording review…' : 'Revoke current acceptance'}</button>}
               <button type="button" className={styles.copyButton} onClick={() => void rejectMaintainedDraft()} disabled={savingMaintained || savingDraft || !maintainedDraft.trim() || !maintainedDraftDiffersFromSource || reviewRationale.trim().length < 12}>{savingMaintained ? 'Recording review…' : 'Reject this draft'}</button>
               {!maintainedDraftDiffersFromSource && <span className={styles.message}>Edit the decompilation or create a maintained version before saving.</span>}
               {reviewRationale.trim().length > 0 && reviewRationale.trim().length < 12 && <span className={styles.message}>Add at least 12 characters describing your review.</span>}
