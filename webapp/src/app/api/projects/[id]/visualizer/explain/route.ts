@@ -7,7 +7,7 @@ import { AgentUnreachableError, agentFetch } from '@/lib/agentFetch'
 import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
 import { getActiveWorkspaceImportSelection } from '@/lib/reamon/inventory-query'
 import { derivedArtifactRoot, resolveDerivedArtifactPath } from '@/lib/reamon/derived-storage'
-import { flossRecoveredStringsOf } from '@/lib/reamon/code-units'
+import { crubyIseqEvidenceOf, flossRecoveredStringsOf } from '@/lib/reamon/code-units'
 import { buildProjectSymbolContext } from '@/lib/reamon/maintenance-memory'
 import { nativeAddressAliases, nativeFunctionIdentity } from '@/lib/reamon/native-function-identity'
 import { codeNoteText, REAMON_CODE_NOTE_SOURCE } from '@/lib/reamon/code-notes'
@@ -20,6 +20,7 @@ const MAX_ARTIFACT_BYTES = 2 * 1024 * 1024
 const MAX_QUESTION_CHARS = 1000
 const MAX_EXPLANATION_CHARS = 20_000
 const MAX_PROJECT_CONTEXT_BYTES = 8 * 1024
+const MAX_STRUCTURED_BYTECODE_CONTEXT_BYTES = 12 * 1024
 const MAX_CONTEXT_OBSERVATIONS = 2_500
 const MAX_METHOD_EVIDENCE_ROWS = 12
 const MAX_METHOD_EVIDENCE_BYTES = 4 * 1024
@@ -47,6 +48,35 @@ function parseStringList(value: unknown, limit: number): string[] {
 function utf8Prefix(value: string, maxBytes: number): string {
   const bytes = Buffer.from(value, 'utf8')
   return bytes.length <= maxBytes ? value : bytes.subarray(0, maxBytes).toString('utf8').replace(/\uFFFD$/, '')
+}
+
+function crubyIseqContext(attributes: Record<string, unknown>): string {
+  const serialized = attributes.structuredBytecode
+  const expectedHash = attributes.structuredBytecodeSha256
+  if (typeof serialized !== 'string' || serialized.length > 200_000
+      || typeof expectedHash !== 'string' || !/^[a-f0-9]{64}$/i.test(expectedHash)
+      || createHash('sha256').update(serialized).digest('hex') !== expectedHash.toLowerCase()) return ''
+  const evidence = crubyIseqEvidenceOf(serialized)
+  if (!evidence) return ''
+  const lines = [
+    `Structured MRI ISeq evidence (${evidence.runtimeVersion}; ${evidence.sequenceCount} sequences; ${evidence.instructionCount} instructions${evidence.truncated ? '; stored evidence capped' : ''}):`,
+  ]
+  let instructionCount = 0
+  for (const sequence of evidence.sequences.slice(0, 24)) {
+    const locals = sequence.locals.slice(0, 24).join(', ') || 'none recorded'
+    lines.push(`Sequence #${sequence.id} ${sequence.type} ${sequence.label}${sequence.firstLine === null ? '' : ` line ${sequence.firstLine}`}; locals: ${locals}`)
+    if (sequence.parameters !== null) lines.push(`  parameters: ${JSON.stringify(sequence.parameters).slice(0, 600)}`)
+    for (const instruction of sequence.instructions) {
+      if (instructionCount >= 160) break
+      const operation = instruction.event || instruction.opcode || 'unknown'
+      const operands = instruction.operands.slice(0, 8).map((operand) => JSON.stringify(operand).slice(0, 180)).join(', ')
+      lines.push(`  ${operation}${operands ? ` ${operands}` : ''}`)
+      instructionCount += 1
+    }
+    if (instructionCount >= 160) break
+  }
+  if (evidence.truncated || instructionCount < evidence.instructionCount) lines.push('Structured instruction context is partial; consult the complete saved listing and database evidence.')
+  return utf8Prefix(lines.join('\n'), MAX_STRUCTURED_BYTECODE_CONTEXT_BYTES)
 }
 
 function ghidraCffEvidence(value: unknown): string | null {
@@ -423,6 +453,10 @@ export async function POST(request: Request, { params }: RouteParams) {
       ? `${typeof attributes.language === 'string' ? attributes.language : 'unknown'} ${typeof attributes.representation === 'string' ? attributes.representation : 'analysis evidence'}`.slice(0, 80)
       : typeof attributes.language === 'string' ? attributes.language : 'unknown'
     const sourceLanguage = typeof attributes.sourceLanguage === 'string' ? attributes.sourceLanguage : ''
+    const structuredBytecodeContext = attributes.isExecutableSource === false
+      && typeof attributes.representation === 'string' && attributes.representation === 'YARV instruction disassembly'
+      ? crubyIseqContext(attributes)
+      : ''
     const timeoutSeconds = typeof provider.timeout === 'number' && Number.isFinite(provider.timeout) ? provider.timeout : 120
     const timeoutMs = Math.max(10_000, Math.min(300_000, timeoutSeconds * 1000))
 
@@ -438,6 +472,7 @@ export async function POST(request: Request, { params }: RouteParams) {
         source_code: sourceCode,
         source_truncated: sourceTruncated,
         project_context: combinedProjectContext,
+        structured_evidence: structuredBytecodeContext,
         question: typeof body.question === 'string' ? body.question.trim() : '',
       }),
     }, { timeoutMs })

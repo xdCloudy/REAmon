@@ -38,8 +38,9 @@ The initial isolated MRI ISeq inspection provider is implemented. It runs CRuby
 inspection, enforces input, output, memory, sequence, instruction, nesting, and CPU
 limits, writes a separate derived disassembly artifact, and stores bounded structured
 sequence/opcode evidence, instruction counts, exact hashes, and runtime identity in
-the project observation. The visualizer and MCP expose both views as bytecode evidence;
-the AI explanation prompt labels its limits, and maintenance rewrites reject it. The
+the project observation. The visualizer, MCP dossier, and AI explanation context expose
+both views as bytecode evidence with separate integrity checks; maintenance rewrites
+reject it. The
 current limit is 16 MiB input, 512 KiB output, one concurrent analysis, 25 CPU
 seconds in the child, and 384 MiB child address space. The analyzer image builds,
 both Ruby files pass `ruby -c`, Compose configuration validates, and the webapp passes
