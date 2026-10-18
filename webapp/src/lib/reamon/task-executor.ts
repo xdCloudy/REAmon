@@ -100,6 +100,57 @@ function asOptions(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
 }
 
+function reportedCount(record: Record<string, unknown>, keys: string[]): number | null {
+  for (const key of keys) {
+    const value = record[key]
+    if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0) return value
+  }
+  return null
+}
+
+function buildCoverageInventory(data: unknown, providerId: string | null, indexedUnitCount: number): Prisma.InputJsonValue {
+  const result = asOptions(data)
+  const rawObservations = Array.isArray(result.observations) ? result.observations : []
+  const observedUnitCount = rawObservations.reduce((count, value) => asOptions(value).type === 'code_unit' ? count + 1 : count, 0)
+  const discoveredUnitCount = reportedCount(result, providerId === 'reamon-wabt'
+    ? ['wasmFunctionCount', 'discoveredUnitCount', 'decompiledFunctionCount']
+    : ['decompiledCodeUnitCount', 'discoveredCodeUnitCount', 'decompiledClassCount', 'discoveredClassCount', 'classCount', 'decompiledFunctionCount', 'functionCount', 'batchResultCount', 'discoveredUnitCount'])
+  const providerReturnedUnitCount = reportedCount(result, ['returnedCodeUnitCount', 'returnedUnitCount', 'returnedClassCount', 'returnedFunctionCount'])
+    ?? observedUnitCount
+  const failedUnitCount = reportedCount(result, ['failedFunctionCount', 'failedUnitCount'])
+  const visitedUnitCount = reportedCount(result, ['visitedFunctionCount', 'visitedUnitCount'])
+  const skippedUnitCount = reportedCount(result, ['skippedCodeUnitCount', 'skippedClassCount', 'skippedFunctionCount', 'skippedUnitCount'])
+  const unsupportedUnitCount = reportedCount(result, ['unsupportedCodeUnitCount', 'unsupportedClassCount', 'unsupportedFunctionCount', 'unsupportedUnitCount'])
+  const excludedUnitCount = reportedCount(result, ['excludedCodeUnitCount', 'excludedClassCount', 'excludedFunctionCount', 'excludedUnitCount'])
+  return {
+    schemaVersion: 1,
+    denominatorSource: discoveredUnitCount === null ? 'unavailable' : 'provider-reported-discovered-units',
+    unitKind: ['reamon-ghidra', 'reamon-recurse', 'reamon-wabt', 'reamon-glaurung', 'reamon-kuna', 'reamon-fission', 'reamon-oxidizer'].includes(providerId || '') ? 'function' : 'code-unit',
+    discoveredUnitCount,
+    providerReturnedUnitCount,
+    observedUnitCount,
+    indexedUnitCount,
+    notObservedUnitCount: Math.max(0, providerReturnedUnitCount - observedUnitCount),
+    notIndexedUnitCount: Math.max(0, observedUnitCount - indexedUnitCount),
+    unaccountedDiscoveredUnitCount: discoveredUnitCount === null ? null : Math.max(0, discoveredUnitCount - providerReturnedUnitCount),
+    failedUnitCount,
+    visitedUnitCount,
+    skippedUnitCount,
+    unsupportedUnitCount,
+    excludedUnitCount,
+    truncated: result.truncated === true || (discoveredUnitCount !== null && providerReturnedUnitCount < discoveredUnitCount)
+      || observedUnitCount > MAX_CODE_UNITS_PER_RESULT,
+    coveragePercent: discoveredUnitCount === null
+      ? null
+      : Math.min(100, Math.round((indexedUnitCount / Math.max(1, discoveredUnitCount)) * 100)),
+  }
+}
+
+function persistedResultWithCoverage(value: Prisma.InputJsonValue | undefined, inventory: Prisma.InputJsonValue): Prisma.InputJsonValue {
+  const record = asOptions(value)
+  return { ...record, coverageInventory: inventory } as Prisma.InputJsonObject
+}
+
 function boundedError(value: string): string {
   return value.trim().slice(0, 4000) || 'Provider execution failed'
 }
@@ -262,7 +313,7 @@ async function settleTask(
   failure?: string,
 ): Promise<ExecutedAnalysisTask> {
   const error = boundedError(failure || result?.error || '')
-  const persistedResult = outcome === 'COMPLETED' && result ? boundedTaskResultData(result.data) : undefined
+  let persistedResult = outcome === 'COMPLETED' && result ? boundedTaskResultData(result.data) : undefined
   const completedAt = new Date()
   const transactionOptions = result?.capabilities.some((capability) => capability === 'decompile' || capability === 'disassemble')
     ? { maxWait: 10_000, timeout: 120_000 }
@@ -283,11 +334,24 @@ async function settleTask(
     })
     if (claim.count !== 1) return null
 
-    const updatedTask = await tx.task.findUnique({ where: { id: task.id }, select: taskSelect })
-    if (!updatedTask) return null
-
     let observationSummary = { accepted: 0, rejected: 0 }
     if (outcome === 'COMPLETED' && result) {
+      observationSummary = await ingestToolResult(tx, {
+        projectId: task.projectId,
+        taskId: task.id,
+        targetId: task.targetId,
+        artifactId: task.artifactId,
+        source: result.toolId,
+        data: result.data,
+        maxObservations: (result.capabilities.includes('decompile') || result.capabilities.includes('disassemble')) ? MAX_CODE_UNITS_PER_RESULT : MAX_OBSERVATIONS_PER_RESULT,
+      })
+      if (persistedResult && (result.capabilities.includes('decompile') || result.capabilities.includes('disassemble'))) {
+        const indexedUnitCount = await tx.reamonObservation.count({
+          where: { projectId: task.projectId, taskId: task.id, type: 'code_unit' },
+        })
+        persistedResult = persistedResultWithCoverage(persistedResult, buildCoverageInventory(result.data, task.provider?.pluginId || null, indexedUnitCount))
+        await tx.task.update({ where: { id: task.id }, data: { result: persistedResult } })
+      }
       await tx.evidence.create({
         data: {
           projectId: task.projectId,
@@ -298,15 +362,6 @@ async function settleTask(
           source: result.toolId,
           data: persistedResult as Prisma.InputJsonValue,
         },
-      })
-      observationSummary = await ingestToolResult(tx, {
-        projectId: task.projectId,
-        taskId: task.id,
-        targetId: task.targetId,
-        artifactId: task.artifactId,
-        source: result.toolId,
-        data: result.data,
-        maxObservations: (result.capabilities.includes('decompile') || result.capabilities.includes('disassemble')) ? MAX_CODE_UNITS_PER_RESULT : MAX_OBSERVATIONS_PER_RESULT,
       })
     }
     await tx.workspaceActivity.create({
@@ -327,7 +382,7 @@ async function settleTask(
         },
       },
     })
-    return updatedTask
+    return tx.task.findUnique({ where: { id: task.id }, select: taskSelect })
   }, transactionOptions)
   if (!updated) {
     const current = await loadTask(task.projectId, task.id)

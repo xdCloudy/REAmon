@@ -108,13 +108,22 @@ export async function GET(request: Request, { params }: RouteParams) {
     const runs = decompileTasks
       .map((task) => {
         const result = resultRecord(task.result)
+        const inventory = resultRecord(result.coverageInventory)
+        const hasPersistedInventory = inventory.schemaVersion === 1
         const codeUnitCount = countByTaskId.get(task.id) || 0
         const isWasm = task.provider?.pluginId === 'reamon-wabt'
-        const discoveredUnitCount = finiteCount(isWasm ? result.wasmFunctionCount : result.decompiledCodeUnitCount ?? result.decompiledClassCount ?? result.decompiledFunctionCount)
-        const returnedUnitCount = finiteCount(result.returnedCodeUnitCount ?? result.returnedClassCount ?? result.returnedFunctionCount) ?? codeUnitCount
-        const indexedUnitCount = Math.min(codeUnitCount, returnedUnitCount)
-        const unitLabel = task.provider?.pluginId === 'reamon-ghidra'
-          || task.provider?.pluginId === 'reamon-recurse' || isWasm ? 'functions' : 'code units'
+        const discoveredUnitCount = hasPersistedInventory
+          ? finiteCount(inventory.discoveredUnitCount)
+          : finiteCount(isWasm ? result.wasmFunctionCount : result.decompiledCodeUnitCount ?? result.decompiledClassCount ?? result.decompiledFunctionCount)
+        const returnedUnitCount = (hasPersistedInventory ? finiteCount(inventory.providerReturnedUnitCount) : null)
+          ?? finiteCount(result.returnedCodeUnitCount ?? result.returnedClassCount ?? result.returnedFunctionCount)
+          ?? codeUnitCount
+        const indexedUnitCount = hasPersistedInventory
+          ? finiteCount(inventory.indexedUnitCount) ?? 0
+          : Math.min(codeUnitCount, returnedUnitCount)
+        const linkPercent = hasPersistedInventory ? finiteCount(inventory.coveragePercent)
+          : discoveredUnitCount ? Math.min(100, Math.round((indexedUnitCount / discoveredUnitCount) * 100)) : null
+        const unitLabel = ['reamon-ghidra', 'reamon-recurse', 'reamon-wabt', 'reamon-glaurung', 'reamon-kuna', 'reamon-fission', 'reamon-oxidizer'].includes(task.provider?.pluginId || '') ? 'functions' : 'code units'
         return {
           id: task.id,
           title: task.title,
@@ -131,12 +140,19 @@ export async function GET(request: Request, { params }: RouteParams) {
           discoveredUnitCount,
           returnedUnitCount,
           indexedUnitCount,
+          notObservedUnitCount: hasPersistedInventory ? finiteCount(inventory.notObservedUnitCount) ?? 0 : 0,
+          notIndexedUnitCount: hasPersistedInventory ? finiteCount(inventory.notIndexedUnitCount) ?? 0 : Math.max(0, returnedUnitCount - indexedUnitCount),
+          unaccountedDiscoveredUnitCount: hasPersistedInventory ? finiteCount(inventory.unaccountedDiscoveredUnitCount) : null,
+          skippedUnitCount: hasPersistedInventory ? finiteCount(inventory.skippedUnitCount) : null,
+          unsupportedUnitCount: hasPersistedInventory ? finiteCount(inventory.unsupportedUnitCount) : null,
+          excludedUnitCount: hasPersistedInventory ? finiteCount(inventory.excludedUnitCount) : null,
           codeBytes: finiteCount(result.codeBytes),
-          linkPercent: discoveredUnitCount ? Math.min(100, Math.round((indexedUnitCount / discoveredUnitCount) * 100)) : null,
-          truncated: result.truncated === true || (discoveredUnitCount !== null && returnedUnitCount < discoveredUnitCount),
+          linkPercent,
+          inventoryAvailable: hasPersistedInventory,
+          truncated: hasPersistedInventory ? inventory.truncated === true : result.truncated === true || (discoveredUnitCount !== null && returnedUnitCount < discoveredUnitCount),
           warnings: typeof result.warnings === 'string' ? result.warnings.slice(0, 4000) : '',
-          failedUnitCount: finiteCount(result.failedFunctionCount),
-          visitedUnitCount: finiteCount(result.visitedFunctionCount),
+          failedUnitCount: hasPersistedInventory ? finiteCount(inventory.failedUnitCount) : finiteCount(result.failedFunctionCount),
+          visitedUnitCount: hasPersistedInventory ? finiteCount(inventory.visitedUnitCount) : finiteCount(result.visitedFunctionCount),
         }
       })
     if (requestedTaskId && !runs.some((run) => run.id === requestedTaskId)) {

@@ -33,9 +33,16 @@ interface CodeUnitResponse {
     discoveredUnitCount: number | null
     returnedUnitCount: number
     indexedUnitCount: number
+    notObservedUnitCount: number
+    notIndexedUnitCount: number
+    unaccountedDiscoveredUnitCount: number | null
+    skippedUnitCount: number | null
+    unsupportedUnitCount: number | null
+    excludedUnitCount: number | null
     linkPercent: number | null
     codeBytes: number | null
     truncated: boolean
+    inventoryAvailable: boolean
     warnings: string
     failedUnitCount: number | null
     visitedUnitCount: number | null
@@ -2052,14 +2059,26 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
             : `${currentRun.linkPercent}% of analyzed ${currentRun.unitLabel} indexed`}>
           <span style={{ width: `${maintainedCoverageQuery.data?.decompilationCoveragePercent ?? currentRun.linkPercent ?? 0}%` }} />
         </div>}
-        {(currentRun.truncated || (currentRun.failedUnitCount !== null && currentRun.failedUnitCount > 0)) && <div className={styles.runSummaryMeta}>
+        {(currentRun.truncated || currentRun.notObservedUnitCount > 0 || currentRun.notIndexedUnitCount > 0 || (currentRun.failedUnitCount !== null && currentRun.failedUnitCount > 0)
+          || (currentRun.skippedUnitCount !== null && currentRun.skippedUnitCount > 0)
+          || (currentRun.unsupportedUnitCount !== null && currentRun.unsupportedUnitCount > 0)
+          || (currentRun.excludedUnitCount !== null && currentRun.excludedUnitCount > 0)) && <div className={styles.runSummaryMeta}>
           {currentRun.truncated && <span>{currentRun.linkPercent === null ? 'Partial index; the analyzer could not determine the total class count.' : 'Partial index. This bar shows indexed coverage, not whether the task finished.'}</span>}
           {currentRun.truncated && decompilationHref && <a className={styles.runAgain} href={decompilationHref}>Run decompilation again</a>}
+          {currentRun.notObservedUnitCount > 0 && <span>{currentRun.notObservedUnitCount.toLocaleString()} provider-reported results had no returned observation.</span>}
+          {currentRun.notIndexedUnitCount > 0 && <span>{currentRun.notIndexedUnitCount.toLocaleString()} provider-returned code units could not be indexed.</span>}
           {currentRun.failedUnitCount !== null && currentRun.failedUnitCount > 0 && <span>{currentRun.failedUnitCount.toLocaleString()} functions could not be decompiled{currentRun.visitedUnitCount !== null ? ` of ${currentRun.visitedUnitCount.toLocaleString()} visited` : ''}</span>}
+          {currentRun.skippedUnitCount !== null && currentRun.skippedUnitCount > 0 && <span>{currentRun.skippedUnitCount.toLocaleString()} units were reported skipped.</span>}
+          {currentRun.unsupportedUnitCount !== null && currentRun.unsupportedUnitCount > 0 && <span>{currentRun.unsupportedUnitCount.toLocaleString()} units were reported unsupported.</span>}
+          {currentRun.excludedUnitCount !== null && currentRun.excludedUnitCount > 0 && <span>{currentRun.excludedUnitCount.toLocaleString()} units were reported excluded.</span>}
         </div>}
-        {currentRun.discoveredUnitCount !== null && currentRun.discoveredUnitCount > currentRun.indexedUnitCount && <p className={styles.runSummaryMeta}>
-          {(currentRun.discoveredUnitCount - currentRun.indexedUnitCount).toLocaleString()} discovered {currentRun.unitLabel} have no indexed code-unit record.
+        {currentRun.inventoryAvailable && currentRun.unaccountedDiscoveredUnitCount !== null && currentRun.unaccountedDiscoveredUnitCount > 0 && <p className={styles.runSummaryMeta}>
+          {currentRun.unaccountedDiscoveredUnitCount.toLocaleString()} discovered {currentRun.unitLabel} were not returned by the provider. Failures, skips, unsupported units, and exclusions are shown separately only when the provider reported them; any remainder is unclassified.
         </p>}
+        {!currentRun.inventoryAvailable && currentRun.discoveredUnitCount !== null && currentRun.discoveredUnitCount > currentRun.indexedUnitCount && <p className={styles.runSummaryMeta}>
+          {(currentRun.discoveredUnitCount - currentRun.indexedUnitCount).toLocaleString()} discovered {currentRun.unitLabel} have no indexed code-unit record; this older run did not save separate returned and indexed counts.
+        </p>}
+        {!currentRun.inventoryAvailable && <p className={styles.runSummaryMeta}>This older run has no persisted shared coverage inventory; the displayed rate uses the available provider count.</p>}
         {maintainedCoverageQuery.data && <p className={styles.runSummaryMeta}>
           {maintainedCoverageQuery.data.codeBytes > 0
             ? `Decompilation measurements cover ${Math.round((maintainedCoverageQuery.data.measuredBytes / maintainedCoverageQuery.data.codeBytes) * 100)}% of indexed code size (${formatBytes(maintainedCoverageQuery.data.measuredBytes)} measured, ${formatBytes(Math.max(0, maintainedCoverageQuery.data.codeBytes - maintainedCoverageQuery.data.measuredBytes))} unmeasured).`
