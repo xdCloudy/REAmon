@@ -705,6 +705,24 @@ def _reamon_source_round(round_number: int, source: str, status: str, method: st
     }
 
 
+def _reamon_failure_with_rewrite_history(failure, rewrite_history: list[dict[str, Any]]):
+    """Keep a rejected candidate visible when its follow-up repair call fails."""
+    if not rewrite_history or not isinstance(failure, JSONResponse):
+        return failure
+    try:
+        payload = json.loads(failure.body)
+    except (TypeError, ValueError):
+        return failure
+    if not isinstance(payload, dict):
+        return failure
+    payload["rewrite_history"] = rewrite_history
+    headers = {
+        key: value for key, value in failure.headers.items()
+        if key.lower() not in {"content-length", "content-type"}
+    }
+    return JSONResponse(content=payload, status_code=failure.status_code, headers=headers)
+
+
 def _reamon_cli_syntax_validation(
     source_code: str,
     *,
@@ -2259,7 +2277,7 @@ TRANSFORMATION RULES
                 [SystemMessage(content=repair_system_prompt), repair_message],
             )
             if failure:
-                return failure
+                return _reamon_failure_with_rewrite_history(failure, rewrite_history)
             if _response_was_truncated(response):
                 return JSONResponse(content={
                     "error": "The syntax repair stopped before returning the complete file. Increase its output token limit or choose a larger model, then retry.",
@@ -2351,7 +2369,7 @@ TRANSFORMATION RULES
                     [SystemMessage(content=repair_system_prompt), repair_message],
                 )
                 if failure:
-                    return failure
+                    return _reamon_failure_with_rewrite_history(failure, rewrite_history)
                 if _response_was_truncated(response):
                     return JSONResponse(content={
                         "error": "The member syntax repair stopped before returning the complete member. Increase its output token limit or choose a larger model.",
