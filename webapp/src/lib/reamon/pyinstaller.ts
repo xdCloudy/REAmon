@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { createReadStream } from 'node:fs'
-import { mkdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import type { ToolExecutionInput, ToolObservation, ToolPlugin, ToolPluginManifest, ToolResult } from './types'
 import { readAnalyzerResponse } from './analyzer-response'
@@ -90,6 +90,65 @@ function safeArchivePath(value: string): string | null {
   return normalized.length <= 1000 ? normalized : null
 }
 
+function moduleSourcePath(artifactRelativePath: string | undefined, artifactId: string, archivePath: string, moduleIdentity: string): string {
+  const fullPath = `${artifactRelativePath || artifactId}!/${archivePath}`
+  if (fullPath.length <= 1_000) return fullPath
+  return `${(artifactRelativePath || artifactId).slice(0, 700)}!/modules/${moduleIdentity.slice(0, 16)}-${path.posix.basename(archivePath).slice(0, 240)}`
+}
+
+async function persistBytecode(relativePath: string, artifactPath: string, bytecode: Buffer, sha256: string): Promise<void> {
+  await mkdir(path.dirname(artifactPath), { recursive: true })
+  try {
+    await writeFile(artifactPath, bytecode, { flag: 'wx', mode: 0o600 })
+  } catch (error) {
+    if (!isRecord(error) || error.code !== 'EEXIST') throw error
+    const existing = await readFile(artifactPath)
+    if (existing.length !== bytecode.length || createHash('sha256').update(existing).digest('hex') !== sha256) {
+      throw new Error(`Derived bytecode path collision for ${relativePath}`)
+    }
+  }
+}
+
+function extractedModuleObservation(
+  input: ToolExecutionInput,
+  module: ExtractedModule,
+  relativePath: string,
+  bytecodeArtifactId: string,
+  moduleIdentity: string,
+  executableSha256: string,
+  extractorRevision: string,
+): ToolObservation {
+  const moduleName = path.posix.basename(module.archivePath).replace(/\.pyc$/i, '').slice(0, 500)
+  const codeUnitKey = `pycdc:module:${createHash('sha256').update(`${input.artifactId}:${relativePath}`).digest('hex').slice(0, 32)}`
+  return {
+    kind: 'entity',
+    type: 'code_unit',
+    key: codeUnitKey,
+    label: moduleName,
+    attributes: {
+      unitType: 'module',
+      identity: `${input.artifactId}:${relativePath}`,
+      name: moduleName,
+      qualifiedName: module.archivePath.replace(/\.pyc$/i, '').replaceAll('/', '.'),
+      relativePath,
+      sizeBytes: module.sizeBytes,
+      language: 'Python',
+      decompiler: 'pycdc',
+      representation: 'extracted Python bytecode',
+      representationSemantics: 'Bytecode recovered from a PyInstaller archive; source reconstruction has not yet completed.',
+      decompiled: false,
+      sourceExecutableArtifactId: input.artifactId || '',
+      sourceExecutableSha256: executableSha256,
+      pyinstallerExtractorRevision: extractorRevision,
+      pyinstallerArchivePath: module.archivePath,
+      extractedBytecodeArtifactId: bytecodeArtifactId,
+      extractedBytecodeSha256: module.sha256,
+      extractedBytecodeSizeBytes: module.sizeBytes,
+      moduleIdentity,
+    },
+  }
+}
+
 function timeoutSignal(input: ToolExecutionInput): AbortSignal {
   const timeout = AbortSignal.timeout(MAX_REQUEST_TIMEOUT_MS)
   return input.signal ? AbortSignal.any([input.signal, timeout]) : timeout
@@ -135,7 +194,6 @@ export async function executePyInstaller(input: ToolExecutionInput): Promise<Too
     }
     if (!isResponse(payload)) throw new Error('PyInstaller analyzer returned an invalid bounded module list')
 
-    const executableSha256 = await sha256File(input.artifactPath)
     const orderedModules = [...payload.modules].sort((left, right) => {
       const leftNested = left.archivePath.includes('/') ? 1 : 0
       const rightNested = right.archivePath.includes('/') ? 1 : 0
@@ -144,31 +202,49 @@ export async function executePyInstaller(input: ToolExecutionInput): Promise<Too
     const selectedModules = orderedModules.slice(0, MAX_MODULES_TO_DECOMPILE)
     const observations: ToolObservation[] = []
     const warnings: string[] = []
+    const executableSha256 = await sha256File(input.artifactPath)
     let codeBytes = 0
     let decompiledCount = 0
+
+    const modulePaths = new Map<string, { relativePath: string; bytecodeArtifactId: string; moduleIdentity: string; bytecodePath: string }>()
+    for (const module of orderedModules) {
+      const logicalArchivePath = safeArchivePath(module.archivePath)
+      if (!logicalArchivePath) {
+        warnings.push(`${module.archivePath}: extractor returned an unsafe archive member path`)
+        continue
+      }
+      const bytecode = Buffer.from(module.dataBase64, 'base64')
+      if (bytecode.length !== module.sizeBytes || bytecode.subarray(0, 4).toString('hex') !== module.magicHex
+          || createHash('sha256').update(bytecode).digest('hex') !== module.sha256) {
+        warnings.push(`${logicalArchivePath}: extracted bytecode integrity check failed`)
+        continue
+      }
+      const moduleIdentity = createHash('sha256').update(`${logicalArchivePath}\0${module.sha256}`).digest('hex')
+      const relativeBytecodePath = path.posix.join(
+        input.projectId, input.artifactId, input.taskId, input.runToken, 'pyinstaller', `${moduleIdentity}.pyc`,
+      )
+      const bytecodePath = resolveDerivedArtifactPath(relativeBytecodePath)
+      const sourceRelativePath = moduleSourcePath(input.artifactRelativePath, input.artifactId, logicalArchivePath, moduleIdentity)
+      try {
+        await persistBytecode(relativeBytecodePath, bytecodePath, bytecode, module.sha256)
+        modulePaths.set(moduleIdentity, { relativePath: sourceRelativePath, bytecodeArtifactId: relativeBytecodePath, moduleIdentity, bytecodePath })
+        if (!selectedModules.includes(module)) {
+          observations.push(extractedModuleObservation(input, { ...module, archivePath: logicalArchivePath }, sourceRelativePath, relativeBytecodePath, moduleIdentity, executableSha256, payload.extractorRevision))
+        }
+      } catch (error) {
+        warnings.push(`${logicalArchivePath}: ${errorText(error)}`)
+      }
+    }
 
     for (let offset = 0; offset < selectedModules.length; offset += 2) {
       const batch = selectedModules.slice(offset, offset + 2)
       const results = await Promise.allSettled(batch.map(async (module) => {
         const logicalArchivePath = safeArchivePath(module.archivePath)
         if (!logicalArchivePath) throw new Error('Extractor returned an unsafe archive member path')
-        const bytecode = Buffer.from(module.dataBase64, 'base64')
-        if (bytecode.length !== module.sizeBytes || bytecode.subarray(0, 4).toString('hex') !== module.magicHex
-            || createHash('sha256').update(bytecode).digest('hex') !== module.sha256) {
-          throw new Error(`Extracted bytecode integrity check failed for ${logicalArchivePath}`)
-        }
         const moduleIdentity = createHash('sha256').update(`${logicalArchivePath}\0${module.sha256}`).digest('hex')
-        const relativeBytecodePath = path.posix.join(
-          input.projectId!, input.artifactId!, input.taskId!, input.runToken!, 'pyinstaller', `${moduleIdentity}.pyc`,
-        )
-        const bytecodePath = resolveDerivedArtifactPath(relativeBytecodePath)
-        await mkdir(path.dirname(bytecodePath), { recursive: true })
-        await writeFile(bytecodePath, bytecode, { flag: 'wx', mode: 0o600 })
-
-        const fullSourcePath = `${input.artifactRelativePath || input.artifactId}!/${logicalArchivePath}`
-        const sourceRelativePath = fullSourcePath.length <= 1_000
-          ? fullSourcePath
-          : `${(input.artifactRelativePath || input.artifactId!).slice(0, 700)}!/modules/${moduleIdentity.slice(0, 16)}-${path.posix.basename(logicalArchivePath)}`
+        const persisted = modulePaths.get(moduleIdentity)
+        if (!persisted) throw new Error('Extracted bytecode was not safely persisted')
+        const { relativePath: sourceRelativePath, bytecodeArtifactId, bytecodePath } = persisted
         const pycdcResult = await executePycdc({
           ...input,
           targetProfile: { ...input.targetProfile, format: 'python-bytecode', extension: 'pyc' },
@@ -176,7 +252,6 @@ export async function executePyInstaller(input: ToolExecutionInput): Promise<Too
           artifactRelativePath: sourceRelativePath,
         })
         if (pycdcResult.status !== 'completed') {
-          await rm(bytecodePath, { force: true })
           throw new Error(pycdcResult.error || `pycdc failed for ${logicalArchivePath}`)
         }
         const data = pycdcResult.data
@@ -184,7 +259,6 @@ export async function executePyInstaller(input: ToolExecutionInput): Promise<Too
           ? data.observations.filter(isCodeUnitObservation)
           : []
         if (!moduleObservations.length) {
-          await rm(bytecodePath, { force: true })
           throw new Error(`pycdc returned no source unit for ${logicalArchivePath}`)
         }
         const enriched = moduleObservations.map((observation) => ({
@@ -199,7 +273,7 @@ export async function executePyInstaller(input: ToolExecutionInput): Promise<Too
             sourceExecutableSha256: executableSha256,
             pyinstallerExtractorRevision: payload.extractorRevision,
             pyinstallerArchivePath: logicalArchivePath,
-            extractedBytecodeArtifactId: relativeBytecodePath,
+            extractedBytecodeArtifactId: bytecodeArtifactId,
             extractedBytecodeSha256: module.sha256,
           },
         }))
@@ -216,6 +290,23 @@ export async function executePyInstaller(input: ToolExecutionInput): Promise<Too
         } else {
           const module = batch[index]
           warnings.push(`${module.archivePath}: ${errorText(result.reason)}`)
+          const logicalArchivePath = safeArchivePath(module.archivePath)
+          const moduleIdentity = logicalArchivePath
+            ? createHash('sha256').update(`${logicalArchivePath}\0${module.sha256}`).digest('hex')
+            : undefined
+          const persisted = moduleIdentity ? modulePaths.get(moduleIdentity) : undefined
+          if (logicalArchivePath && persisted) {
+            const extracted = orderedModules.find((candidate) => candidate.archivePath === module.archivePath)
+            if (extracted) observations.push(extractedModuleObservation(
+              input,
+              { ...extracted, archivePath: logicalArchivePath },
+              persisted.relativePath,
+              persisted.bytecodeArtifactId,
+              persisted.moduleIdentity,
+              executableSha256,
+              payload.extractorRevision,
+            ))
+          }
         }
       }
       await input.reportProgress?.(`Recovered ${decompiledCount} Python module(s) from the PyInstaller bundle`)
@@ -223,13 +314,14 @@ export async function executePyInstaller(input: ToolExecutionInput): Promise<Too
 
     const truncated = payload.truncated || payload.moduleCount > selectedModules.length
     if (truncated) warnings.unshift(`Decompiled ${selectedModules.length} module(s) from ${payload.moduleCount} extracted module(s); the bundle output is capped per run.`)
-    if (!observations.length) throw new Error(warnings[0] || 'No extracted Python modules could be decompiled')
+    if (!observations.length) throw new Error(warnings[0] || 'No extracted Python modules could be stored')
     return {
       status: 'completed',
       ...base,
       data: {
         observations,
         extractedModuleCount: payload.moduleCount,
+        storedBytecodeModuleCount: modulePaths.size,
         decompiledModuleCount: decompiledCount,
         returnedModuleCount: observations.length,
         codeBytes,
