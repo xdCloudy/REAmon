@@ -131,6 +131,10 @@ export function WorkspaceTaskList({ projectId, tasks, onChanged }: {
         <div className={styles.row} key={task.id}>
           <span className={styles.title} title={task.error || undefined}>
             {task.title}
+            {(task.status === 'FAILED' || task.status === 'CANCELLED')
+              && task.progressMessage
+              && task.progressMessage !== 'Analysis failed'
+              && <small className={styles.progressMessage}>Last recorded step: {task.progressMessage}</small>}
             {task.error && <small className={styles.error}>{task.error}</small>}
           </span>
           <span className={styles.status} title={task.status === 'RUNNING' ? heartbeatLabel(task.leaseHeartbeatAt) : undefined}>{task.status === 'RUNNING' ? `RUNNING · ${task.progressMessage || 'Starting analysis'} · ${task.leaseOwner || 'worker pending'} · ${heartbeatLabel(task.leaseHeartbeatAt)}` : task.status}</span>
