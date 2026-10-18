@@ -35,7 +35,7 @@ interface CodeUnitResponse {
     indexedUnitCount: number
     notObservedUnitCount: number
     notIndexedUnitCount: number
-    unaccountedDiscoveredUnitCount: number | null
+    unreturnedDiscoveredUnitCount: number | null
     skippedUnitCount: number | null
     unsupportedUnitCount: number | null
     excludedUnitCount: number | null
@@ -2078,8 +2078,8 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
           {currentRun.excludedUnitCount !== null && currentRun.excludedUnitCount > 0 && <span>{currentRun.excludedUnitCount.toLocaleString()} units were reported excluded.</span>}
           {currentRun.omittedUnitCount !== null && currentRun.omittedUnitCount > 0 && <span>{currentRun.omittedUnitCount.toLocaleString()} invalid or excess records were omitted by the provider adapter.</span>}
         </div>}
-        {currentRun.inventoryAvailable && currentRun.unaccountedDiscoveredUnitCount !== null && currentRun.unaccountedDiscoveredUnitCount > 0 && <p className={styles.runSummaryMeta}>
-          {currentRun.unaccountedDiscoveredUnitCount.toLocaleString()} discovered {currentRun.unitLabel} were not returned by the provider. Failures, skips, unsupported units, and exclusions are shown separately only when the provider reported them; any remainder is unclassified.
+        {currentRun.inventoryAvailable && currentRun.unreturnedDiscoveredUnitCount !== null && currentRun.unreturnedDiscoveredUnitCount > 0 && <p className={styles.runSummaryMeta}>
+          {currentRun.unreturnedDiscoveredUnitCount.toLocaleString()} discovered {currentRun.unitLabel} were not returned by the provider. Reported failures, omissions, skips, unsupported units, and exclusions are breakdowns where available; the remaining units are not assigned a cause.
         </p>}
         {!currentRun.inventoryAvailable && currentRun.discoveredUnitCount !== null && currentRun.discoveredUnitCount > currentRun.indexedUnitCount && <p className={styles.runSummaryMeta}>
           {(currentRun.discoveredUnitCount - currentRun.indexedUnitCount).toLocaleString()} discovered {currentRun.unitLabel} have no indexed code-unit record; this older run did not save separate returned and indexed counts.

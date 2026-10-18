@@ -109,7 +109,7 @@ export async function GET(request: Request, { params }: RouteParams) {
       .map((task) => {
         const result = resultRecord(task.result)
         const inventory = resultRecord(result.coverageInventory)
-        const hasPersistedInventory = inventory.schemaVersion === 1
+        const hasPersistedInventory = inventory.schemaVersion === 1 || inventory.schemaVersion === 2
         const codeUnitCount = countByTaskId.get(task.id) || 0
         const isWasm = task.provider?.pluginId === 'reamon-wabt'
         const discoveredUnitCount = hasPersistedInventory
@@ -142,7 +142,9 @@ export async function GET(request: Request, { params }: RouteParams) {
           indexedUnitCount,
           notObservedUnitCount: hasPersistedInventory ? finiteCount(inventory.notObservedUnitCount) ?? 0 : 0,
           notIndexedUnitCount: hasPersistedInventory ? finiteCount(inventory.notIndexedUnitCount) ?? 0 : Math.max(0, returnedUnitCount - indexedUnitCount),
-          unaccountedDiscoveredUnitCount: hasPersistedInventory ? finiteCount(inventory.unaccountedDiscoveredUnitCount) : null,
+          unreturnedDiscoveredUnitCount: hasPersistedInventory
+            ? finiteCount(inventory.unreturnedDiscoveredUnitCount ?? inventory.unaccountedDiscoveredUnitCount)
+            : null,
           skippedUnitCount: hasPersistedInventory ? finiteCount(inventory.skippedUnitCount) : null,
           unsupportedUnitCount: hasPersistedInventory ? finiteCount(inventory.unsupportedUnitCount) : null,
           excludedUnitCount: hasPersistedInventory ? finiteCount(inventory.excludedUnitCount) : null,

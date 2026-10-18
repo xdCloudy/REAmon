@@ -130,7 +130,7 @@ function buildCoverageInventory(data: unknown, providerId: string | null, indexe
   const excludedUnitCount = reportedCount(result, ['excludedCodeUnitCount', 'excludedClassCount', 'excludedFunctionCount', 'excludedUnitCount'])
   const omittedUnitCount = reportedCount(result, ['omittedCodeUnitCount', 'omittedClassCount', 'omittedFunctionCount', 'omittedUnitCount'])
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     denominatorSource: discoveredUnitCount === null ? 'unavailable' : 'provider-reported-discovered-units',
     unitKind: ['reamon-ghidra', 'reamon-recurse', 'reamon-wabt', 'reamon-glaurung', 'reamon-kuna', 'reamon-fission', 'reamon-oxidizer'].includes(providerId || '') ? 'function' : 'code-unit',
     discoveredUnitCount,
@@ -139,7 +139,7 @@ function buildCoverageInventory(data: unknown, providerId: string | null, indexe
     indexedUnitCount: indexedCoverageUnitCount,
     notObservedUnitCount: Math.max(0, providerReturnedUnitCount - observedUnitCount),
     notIndexedUnitCount: Math.max(0, observedUnitCount - indexedCoverageUnitCount),
-    unaccountedDiscoveredUnitCount: discoveredUnitCount === null ? null : Math.max(0, discoveredUnitCount - providerReturnedUnitCount),
+    unreturnedDiscoveredUnitCount: discoveredUnitCount === null ? null : Math.max(0, discoveredUnitCount - providerReturnedUnitCount),
     failedUnitCount,
     visitedUnitCount,
     notVisitedUnitCount: discoveredUnitCount === null || visitedUnitCount === null
