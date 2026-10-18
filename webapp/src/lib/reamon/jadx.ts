@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import type { ToolExecutionInput, ToolObservation, ToolPlugin, ToolPluginManifest, ToolResult } from './types'
 import { readAnalyzerResponse } from './analyzer-response'
 
-const MAX_UNITS = 20000
+const MAX_UNITS = 100000
 const MAX_CALL_EDGES = 400
 const MAX_METHOD_FEATURES = 8_000
 const DEFAULT_TIMEOUT_MS = 20 * 60_000

@@ -7,6 +7,7 @@ const DEFAULT_STALE_AFTER_MINUTES = 30
 const MAX_POLL_SECONDS = 300
 const MAX_BATCH_SIZE = 10
 const MAX_STALE_AFTER_MINUTES = 24 * 60
+const TASK_DISPATCH_TIMEOUT_MS = 35 * 60_000
 const MAX_WORKER_ID_LENGTH = 128
 const MAX_PROJECTION_PAGES = 100
 const DEFAULT_BACKFILL_INTERVAL_SECONDS = 300
@@ -80,7 +81,9 @@ export async function dispatchOnce(config, fetchImpl = fetch, logger = console) 
       staleAfterMinutes: config.staleAfterMinutes,
       workerId: config.workerId || 'reamon-worker',
     }),
-    signal: AbortSignal.timeout(20_000),
+    // Analyzer jobs can run for up to 30 minutes. Keep the worker attached to
+    // this synchronous dispatch so it observes completion before claiming more.
+    signal: AbortSignal.timeout(TASK_DISPATCH_TIMEOUT_MS),
   })
 
   if (response.status === 401 || response.status === 403) {
