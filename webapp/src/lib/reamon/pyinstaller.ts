@@ -92,9 +92,10 @@ function safeArchivePath(value: string): string | null {
 }
 
 function moduleSourcePath(artifactRelativePath: string | undefined, artifactId: string, archivePath: string, moduleIdentity: string): string {
-  const fullPath = `${artifactRelativePath || artifactId}!/${archivePath}`
+  const sourceRoot = (artifactRelativePath || artifactId).replaceAll('\\', '/')
+  const fullPath = `${sourceRoot}!/${archivePath}`
   if (fullPath.length <= 1_000) return fullPath
-  return `${(artifactRelativePath || artifactId).slice(0, 700)}!/modules/${moduleIdentity.slice(0, 16)}-${path.posix.basename(archivePath).slice(0, 240)}`
+  return `${sourceRoot.slice(0, 700)}!/modules/${moduleIdentity.slice(0, 16)}-${path.posix.basename(archivePath).slice(0, 240)}`
 }
 
 function moduleCodeUnitKey(artifactId: string, relativePath: string): string {
@@ -123,7 +124,7 @@ function extractedModuleObservation(
   executableSha256: string,
   extractorRevision: string,
 ): ToolObservation {
-  const moduleName = path.posix.basename(module.archivePath).replace(/\.pyc$/i, '').slice(0, 500)
+  const moduleName = path.posix.basename(module.archivePath).replace(/\.pyc$/i, '').slice(0, 500) || 'module'
   const codeUnitKey = moduleCodeUnitKey(input.artifactId || '', relativePath)
   return {
     kind: 'entity',
@@ -291,10 +292,10 @@ export async function executePyInstaller(input: ToolExecutionInput): Promise<Too
         }
         const enriched = moduleObservations.map((observation) => ({
           ...observation,
-          label: path.posix.basename(logicalArchivePath).replace(/\.pyc$/i, '').slice(0, 500),
+          label: path.posix.basename(logicalArchivePath).replace(/\.pyc$/i, '').slice(0, 500) || 'module',
           attributes: {
             ...observation.attributes,
-            name: path.posix.basename(logicalArchivePath).replace(/\.pyc$/i, '').slice(0, 500),
+            name: path.posix.basename(logicalArchivePath).replace(/\.pyc$/i, '').slice(0, 500) || 'module',
             qualifiedName: logicalArchivePath.replace(/\.pyc$/i, '').replaceAll('/', '.'),
             relativePath: sourceRelativePath,
             sourceExecutableArtifactId: input.artifactId!,
