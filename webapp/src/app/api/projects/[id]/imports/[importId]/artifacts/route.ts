@@ -58,7 +58,21 @@ export async function POST(request: Request, { params }: RouteParams) {
     const access = await requireProjectAccess(effectiveUser, projectId)
     if (access instanceof NextResponse) return access
 
-    const form = await request.formData()
+    let form: FormData
+    try {
+      form = await request.formData()
+    } catch (error) {
+      const contentLength = Number(request.headers.get('content-length'))
+      const overheadAllowance = 1024 * 1024
+      const tooLarge = Number.isSafeInteger(contentLength)
+        && contentLength > maxArtifactBytes() + overheadAllowance
+      console.warn('Could not parse REAmon workspace artifact multipart body:', error)
+      return NextResponse.json({
+        error: tooLarge
+          ? `File exceeds the ${Math.round(maxArtifactBytes() / 1024 / 1024)} MiB limit`
+          : 'Could not parse the uploaded file. Check that the upload is complete and uses a supported file size.',
+      }, { status: tooLarge ? 413 : 400, headers: { 'Cache-Control': 'no-store' } })
+    }
     const fileValue = form.get('file')
     const workspaceImport = await prisma.workspaceImport.findFirst({
       where: { id: importId, projectId },

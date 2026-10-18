@@ -135,7 +135,15 @@ export async function runWorkspaceImport(options: {
         body.set('relativePath', entry.relativePath)
         const response = await fetch(`/api/projects/${projectId}/imports/${importId}/artifacts`, { method: 'POST', body, signal })
         const data = await response.json()
-        if (!response.ok) throw new Error(data.error || `Upload failed for ${entry.relativePath}`)
+        if (!response.ok) {
+          const message = data.error || `Upload failed for ${entry.relativePath}`
+          if (response.status >= 400 && response.status < 500 && response.status !== 408 && response.status !== 429) {
+            failedPaths.push(entry.relativePath)
+            emit('FAILED', entry.relativePath)
+            return
+          }
+          throw new Error(message)
+        }
         completedPaths.add(entry.relativePath)
         completedFiles += 1
         uploadedBytes += entry.size
