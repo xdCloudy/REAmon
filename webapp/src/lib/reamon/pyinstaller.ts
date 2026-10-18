@@ -243,30 +243,30 @@ export async function executePyInstaller(input: ToolExecutionInput): Promise<Too
     await input.reportProgress?.(`Found ${payload.moduleCount} bounded bytecode modules; ${alreadyDecompiledCount} already have source and ${modulesNeedingSource.length} need decompilation`)
 
     const modulePaths = new Map<string, { relativePath: string; bytecodeArtifactId: string; moduleIdentity: string; bytecodePath: string }>()
-    for (const module of orderedModules) {
-      const logicalArchivePath = safeArchivePath(module.archivePath)
+    for (const extractedModule of orderedModules) {
+      const logicalArchivePath = safeArchivePath(extractedModule.archivePath)
       if (!logicalArchivePath) {
-        warnings.push(`${module.archivePath}: extractor returned an unsafe archive member path`)
+        warnings.push(`${extractedModule.archivePath}: extractor returned an unsafe archive member path`)
         continue
       }
-      const bytecode = Buffer.from(module.dataBase64, 'base64')
-      if (bytecode.length !== module.sizeBytes || bytecode.subarray(0, 4).toString('hex') !== module.magicHex
-          || createHash('sha256').update(bytecode).digest('hex') !== module.sha256) {
+      const bytecode = Buffer.from(extractedModule.dataBase64, 'base64')
+      if (bytecode.length !== extractedModule.sizeBytes || bytecode.subarray(0, 4).toString('hex') !== extractedModule.magicHex
+          || createHash('sha256').update(bytecode).digest('hex') !== extractedModule.sha256) {
         warnings.push(`${logicalArchivePath}: extracted bytecode integrity check failed`)
         continue
       }
-      const moduleIdentity = createHash('sha256').update(`${logicalArchivePath}\0${module.sha256}`).digest('hex')
+      const moduleIdentity = createHash('sha256').update(`${logicalArchivePath}\0${extractedModule.sha256}`).digest('hex')
       const relativeBytecodePath = path.posix.join(
         input.projectId, input.artifactId, input.taskId, input.runToken, 'pyinstaller', `${moduleIdentity}.pyc`,
       )
       const bytecodePath = resolveDerivedArtifactPath(relativeBytecodePath)
       const sourceRelativePath = moduleSourcePath(input.artifactRelativePath, input.artifactId, logicalArchivePath, moduleIdentity)
       try {
-        await persistBytecode(relativeBytecodePath, bytecodePath, bytecode, module.sha256)
+        await persistBytecode(relativeBytecodePath, bytecodePath, bytecode, extractedModule.sha256)
         modulePaths.set(moduleIdentity, { relativePath: sourceRelativePath, bytecodeArtifactId: relativeBytecodePath, moduleIdentity, bytecodePath })
         const alreadyDecompiled = decompiledKeys.has(moduleCodeUnitKey(input.artifactId!, sourceRelativePath))
-        if (!selectedModules.includes(module) && !alreadyDecompiled) {
-          observations.push(extractedModuleObservation(input, { ...module, archivePath: logicalArchivePath }, sourceRelativePath, relativeBytecodePath, moduleIdentity, executableSha256, payload.extractorRevision))
+        if (!selectedModules.includes(extractedModule) && !alreadyDecompiled) {
+          observations.push(extractedModuleObservation(input, { ...extractedModule, archivePath: logicalArchivePath }, sourceRelativePath, relativeBytecodePath, moduleIdentity, executableSha256, payload.extractorRevision))
         }
       } catch (error) {
         warnings.push(`${logicalArchivePath}: ${errorText(error)}`)
@@ -326,15 +326,15 @@ export async function executePyInstaller(input: ToolExecutionInput): Promise<Too
           decompiledCount += result.value.observations.length
           if (result.value.warnings) warnings.push(result.value.warnings)
         } else {
-          const module = batch[index]
-          warnings.push(`${module.archivePath}: ${errorText(result.reason)}`)
-          const logicalArchivePath = safeArchivePath(module.archivePath)
+          const extractedModule = batch[index]
+          warnings.push(`${extractedModule.archivePath}: ${errorText(result.reason)}`)
+          const logicalArchivePath = safeArchivePath(extractedModule.archivePath)
           const moduleIdentity = logicalArchivePath
-            ? createHash('sha256').update(`${logicalArchivePath}\0${module.sha256}`).digest('hex')
+            ? createHash('sha256').update(`${logicalArchivePath}\0${extractedModule.sha256}`).digest('hex')
             : undefined
           const persisted = moduleIdentity ? modulePaths.get(moduleIdentity) : undefined
           if (logicalArchivePath && persisted) {
-            const extracted = orderedModules.find((candidate) => candidate.archivePath === module.archivePath)
+            const extracted = orderedModules.find((candidate) => candidate.archivePath === extractedModule.archivePath)
             if (extracted) observations.push(extractedModuleObservation(
               input,
               { ...extracted, archivePath: logicalArchivePath },
