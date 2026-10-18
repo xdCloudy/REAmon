@@ -91,6 +91,8 @@ separate so a plausible name is never treated as proof of behavior.
 
 ## Additional engines evaluated
 
+- [CHISEL](https://github.com/VarunKohli18/chisel) is a research prototype for iteratively refining Ghidra pseudo-C into compilable source. Its loop uses compiler errors and differential fuzzing against the original binary, carries discovered counterexamples into later iterations, and can select the best measured candidate. This is a close conceptual match for REAmon's maintainable-source goal and decomp.wtf's per-attempt evidence and acceptance process. Audited at `8d90b457a6bf5aa9f68addd544ccbdf21fe1a711` (2026-10-18). The repository exposes no license metadata and the checkout has no root license file; do not copy or bundle its code unless licensing is clarified. Its benchmark and implementation target x86-64 C-like functions, so the results do not establish language-universal recovery. The runner executes both the original and generated candidate as local subprocesses with CPU and wall-clock limits; this audit found no container boundary or memory cap. REAmon should implement any analogous oracle as its own optional service with hard memory, CPU, wall-time, process-count, filesystem, and network restrictions. Store the exact binary hash, function identity, compiler/toolchain profile, candidate/source hash, inputs, outputs, per-round feedback, and candidate selection result in REAmon's database. Only count an oracle pass for the exact artifacts and function that were actually compared; keep generated inputs and failed candidates as reviewable evidence. CHISEL's reported evaluation is research evidence, not a REAmon accuracy claim.
+
 - [m2c](https://github.com/matt-kempster/m2c) is a GPL-3.0 draft decompiler for
   GNU-assembler-form 32-bit MIPS, ARM, PowerPC, and SuperH input, with C and partial
   C++ output. The audited upstream revision is
@@ -561,5 +563,7 @@ store.
 - [PyInstaller Extractor Go README and documented limitations](https://github.com/pyinstxtractor/pyinstxtractor-go/blob/2aa0ec9e58317ac717fdeec84a02d5a67de7b96c2/README.md)
 - [universal-decompiler workflow, CLI, example, and MIT license](https://github.com/hammerill/universal-decompiler/tree/128c123c58fe89f74b817456e9324b251239d7e9)
 - [RE-MCP shared Ghidra/IDA interface, tools, resources, annotations, and dual license](https://github.com/jtsylve/re-mcp/tree/7b38aa92952bd0621e8c964dc859f1515fe26a10)
+- [CHISEL iterative compiler and differential-fuzzing workflow, audited revision](https://github.com/VarunKohli18/chisel/tree/8d90b457a6bf5aa9f68addd544ccbdf21fe1a711)
+- [CHISEL research paper](https://arxiv.org/abs/2608.27981)
 - [univdreams `.ud` language, format support, and MIT license](https://github.com/KarpelesLab/univdreams/tree/f02c749da48a4f379210dfa72e7cb2ccfeaf1fc9)
 - [univdreams byte-identical round-trip contract](https://github.com/KarpelesLab/univdreams/blob/f02c749da48a4f379210dfa72e7cb2ccfeaf1fc9/docs/round-trip-contract.md)
