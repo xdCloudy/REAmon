@@ -20,6 +20,7 @@ function validationStrength(method: string | null | undefined): number {
     || /^babel-parser-[a-z0-9.+-]+$/.test(normalized)
     || /^javac(?:-[a-z0-9.+-]+)?-parse$/.test(normalized)
     || /^roslyn-csharp(?:-[a-z0-9.+-]+)?-parse$/.test(normalized)
+    || /^univdreams-\d+\.\d+\.\d+-compile$/.test(normalized)
   ) return 2
   return 0
 }

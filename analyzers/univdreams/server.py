@@ -24,6 +24,8 @@ REVISION = os.environ.get("UNIVDREAMS_PROVIDER_REVISION", "")
 TIMEOUT_SECONDS = min(1800, max(60, int(os.environ.get("UNIVDREAMS_TIMEOUT_SECONDS", "900"))))
 MAX_BINARY_BYTES = min(1024**3, max(1024**2, int(os.environ.get("UNIVDREAMS_MAX_BINARY_BYTES", str(512 * 1024**2)))))
 MAX_REQUEST_BYTES = 64 * 1024
+MAX_VALIDATE_REQUEST_BYTES = 4 * 1024 * 1024
+MAX_SOURCE_BYTES = 2 * 1024**2
 MAX_OUTPUT_BYTES = min(2 * 1024**2, max(1024**2, int(os.environ.get("UNIVDREAMS_MAX_OUTPUT_BYTES", str(2 * 1024**2)))))
 MAX_ROUNDTRIP_BYTES = 512 * 1024**2
 SAFE_ID_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")
@@ -70,6 +72,54 @@ def hash_file(path: Path) -> str:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def persist_validated_output(rebuilt_path: Path, body: dict[str, object], source_hash: str, compiled_hash: str) -> str:
+    project_id = safe_id(body.get("projectId"))
+    artifact_id = safe_id(body.get("artifactId"))
+    task_id = safe_id(body.get("taskId"))
+    run_id = safe_id(body.get("runId"))
+    identifiers = (project_id, artifact_id, task_id, run_id)
+    DERIVED_ROOT.mkdir(parents=True, exist_ok=True)
+    root_real = DERIVED_ROOT.resolve(strict=True)
+    current = DERIVED_ROOT
+    for identifier in identifiers:
+        current = current / identifier
+        try:
+            current.lstat()
+        except FileNotFoundError:
+            raise AnalysisError("The source analysis run is missing from derived storage") from None
+        if current.is_symlink() or not current.is_dir() or not current.resolve(strict=True).is_relative_to(root_real):
+            raise AnalysisError("Derived output path is invalid")
+
+    evidence_dir = current / "evidence"
+    if evidence_dir.is_symlink():
+        raise AnalysisError("Derived output path is invalid")
+    evidence_dir.mkdir(exist_ok=True)
+    if not evidence_dir.is_dir() or not evidence_dir.resolve(strict=True).is_relative_to(root_real):
+        raise AnalysisError("Derived output path is invalid")
+    destination_dir = evidence_dir / "maintained-univdreams"
+    if destination_dir.is_symlink():
+        raise AnalysisError("Derived output path is invalid")
+    destination_dir.mkdir(exist_ok=True)
+    if not destination_dir.is_dir() or not destination_dir.resolve(strict=True).is_relative_to(root_real):
+        raise AnalysisError("Derived output path is invalid")
+    destination = destination_dir / f"{source_hash}-{compiled_hash}.bin"
+    if destination.exists() or destination.is_symlink():
+        if destination.is_symlink() or not destination.is_file() or hash_file(destination) != compiled_hash:
+            raise AnalysisError("A conflicting maintained compile artifact already exists")
+    else:
+        temporary_path = destination_dir / f".{source_hash}.{os.getpid()}.{threading.get_ident()}.tmp"
+        try:
+            shutil.copyfile(rebuilt_path, temporary_path)
+            if hash_file(temporary_path) != compiled_hash:
+                raise AnalysisError("Compiled output changed while it was being stored")
+            os.replace(temporary_path, destination)
+        finally:
+            temporary_path.unlink(missing_ok=True)
+    if hash_file(destination) != compiled_hash:
+        raise AnalysisError("Stored compile artifact failed its integrity check")
+    return f"{project_id}/{artifact_id}/{task_id}/{run_id}/evidence/maintained-univdreams/{source_hash}-{compiled_hash}.bin"
 
 
 def client_disconnected(connection: socket.socket) -> bool:
@@ -222,6 +272,81 @@ def analyze(body: dict[str, object], cancel_check=lambda: False) -> dict[str, ob
         SLOTS.release()
 
 
+def validate_source(body: dict[str, object], cancel_check=lambda: False) -> dict[str, object]:
+    source = body.get("code")
+    if not isinstance(source, str) or not source.strip():
+        raise AnalysisError("Source code is required")
+    source_bytes = source.encode("utf-8")
+    if len(source_bytes) > MAX_SOURCE_BYTES:
+        raise AnalysisError("Source exceeds the 2 MiB .ud validation limit")
+    source_hash = hashlib.sha256(source_bytes).hexdigest()
+    method = f"univdreams-{VERSION}-compile"
+    if not SLOTS.acquire(blocking=False):
+        raise AnalysisError("The univdreams analyzer is busy")
+    try:
+        started = time.monotonic()
+        with tempfile.TemporaryDirectory(prefix="reamon-univdreams-validate-") as temporary:
+            temporary_root = Path(temporary)
+            source_path = temporary_root / "maintained.ud"
+            rebuilt_path = temporary_root / "maintained.bin"
+            source_path.write_bytes(source_bytes)
+            try:
+                run_command([UD_BIN, "verify", str(source_path)], temporary_root / "verify.log", started, cancel_check)
+                run_command([UD_BIN, "compile", str(source_path), "--out", str(rebuilt_path)],
+                            temporary_root / "compile.log", started, cancel_check)
+            except CommandFailed as error:
+                return {
+                    "sourceSha256": source_hash,
+                    "validationStatus": "FAILED",
+                    "validationMethod": method,
+                    "validationMessage": str(error)[:1200] or "univdreams rejected the .ud source.",
+                    "compiledSha256": None,
+                    "compiledBytes": 0,
+                    "toolVersion": VERSION,
+                    "providerRevision": REVISION,
+                }
+            if not rebuilt_path.is_file() or rebuilt_path.stat().st_size <= 0:
+                return {
+                    "sourceSha256": source_hash,
+                    "validationStatus": "FAILED",
+                    "validationMethod": method,
+                    "validationMessage": "univdreams accepted the source but produced no binary output.",
+                    "compiledSha256": None,
+                    "compiledBytes": 0,
+                    "toolVersion": VERSION,
+                    "providerRevision": REVISION,
+                }
+            compiled_bytes = rebuilt_path.stat().st_size
+            if compiled_bytes > MAX_ROUNDTRIP_BYTES:
+                return {
+                    "sourceSha256": source_hash,
+                    "validationStatus": "UNAVAILABLE",
+                    "validationMethod": method,
+                    "validationMessage": "The compiled output exceeds the analyzer's 512 MiB validation limit.",
+                    "compiledSha256": None,
+                    "compiledBytes": 0,
+                    "toolVersion": VERSION,
+                    "providerRevision": REVISION,
+                }
+            compiled_hash = hash_file(rebuilt_path)
+            compiled_artifact_id = persist_validated_output(rebuilt_path, body, source_hash, compiled_hash)
+            return {
+                "sourceSha256": source_hash,
+                "validationStatus": "PASSED",
+                "validationMethod": method,
+                "validationMessage": f"univdreams {VERSION} compiled this .ud source without executing it; output SHA-256 {compiled_hash} ({compiled_bytes} bytes), stored at {compiled_artifact_id}. Compilation does not verify behavior.",
+                "compiledSha256": compiled_hash,
+                "compiledBytes": compiled_bytes,
+                "compiledArtifactId": compiled_artifact_id,
+                "toolVersion": VERSION,
+                "providerRevision": REVISION,
+            }
+    except AnalysisError:
+        raise
+    finally:
+        SLOTS.release()
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "REAmonUnivdreams/1"
 
@@ -246,7 +371,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_json(200, {"status": "ok", "toolVersion": VERSION, "providerRevision": REVISION})
 
     def do_POST(self) -> None:
-        if self.path != "/analyze":
+        if self.path not in {"/analyze", "/validate"}:
             self.send_json(404, {"error": "Not found"})
             return
         try:
@@ -254,7 +379,8 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             self.send_json(400, {"error": "Invalid request length"})
             return
-        if length <= 0 or length > MAX_REQUEST_BYTES:
+        max_request = MAX_VALIDATE_REQUEST_BYTES if self.path == "/validate" else MAX_REQUEST_BYTES
+        if length <= 0 or length > max_request:
             self.send_json(413, {"error": "Request body is empty or too large"})
             return
         try:
@@ -266,7 +392,9 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(400, {"error": "Request body must be a JSON object"})
             return
         try:
-            self.send_json(200, analyze(body, lambda: client_disconnected(self.connection)))
+            cancel_check = lambda: client_disconnected(self.connection)
+            result = validate_source(body, cancel_check) if self.path == "/validate" else analyze(body, cancel_check)
+            self.send_json(200, result)
         except AnalysisError as error:
             self.send_json(429 if "busy" in str(error).lower() else 400, {"error": str(error)[:2000]})
         except Exception:

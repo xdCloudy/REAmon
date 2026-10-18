@@ -14,6 +14,8 @@ import { isValidationRegression } from '@/lib/reamon/validation-regression'
 
 interface RouteParams { params: Promise<{ id: string; unitId: string }> }
 const MAX_SOURCE_BYTES = 2 * 1024 * 1024
+const UNIVDREAMS_VERSION = '0.4.0'
+const UNIVDREAMS_REVISION = 'f02c749da48a4f379210dfa72e7cb2ccfeaf1fc9'
 
 class MaintainedSourceConflict extends Error {}
 class MaintainedSourceValidationRegression extends Error {}
@@ -199,7 +201,11 @@ async function sourceArtifactHash(relativePath: string): Promise<string | null> 
   }
 }
 
-async function validateMaintainedSource(sourceCode: string, language: string): Promise<MaintainedSourceValidation> {
+async function validateMaintainedSource(
+  sourceCode: string,
+  language: string,
+  run?: { projectId: string; artifactId: string; taskId: string; runId: string },
+): Promise<MaintainedSourceValidation> {
   const sourceHash = createHash('sha256').update(sourceCode).digest('hex')
   const unavailable = (message: string): MaintainedSourceValidation => ({
     source_sha256: sourceHash,
@@ -208,6 +214,53 @@ async function validateMaintainedSource(sourceCode: string, language: string): P
     validation_message: message,
   })
   const normalizedLanguage = language.trim().toLowerCase()
+  if (normalizedLanguage === 'universal dreams' || normalizedLanguage === 'univdreams') {
+    const unavailable = (message: string): MaintainedSourceValidation => ({
+      source_sha256: sourceHash,
+      validation_status: 'UNAVAILABLE',
+      validation_method: `univdreams-${UNIVDREAMS_VERSION}-compile`,
+      validation_message: message,
+    })
+    if (!run) return unavailable('This code unit has no valid analysis run for compiler evidence.')
+    const baseUrl = process.env.REAMON_UNIVDREAMS_URL?.trim().replace(/\/$/, '')
+    if (!baseUrl) return unavailable('The isolated univdreams compiler is not configured; edited .ud source was not validated.')
+    try {
+      const response = await fetch(`${baseUrl}/validate`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', accept: 'application/json' },
+        body: JSON.stringify({
+          code: sourceCode,
+          projectId: run.projectId,
+          artifactId: run.artifactId,
+          taskId: run.taskId,
+          runId: run.runId,
+        }),
+        signal: AbortSignal.timeout(2 * 60_000),
+        cache: 'no-store',
+      })
+      if (!response.ok) return unavailable('The isolated univdreams compiler could not validate this .ud source.')
+      const payload = await response.json().catch(() => null) as Record<string, unknown> | null
+      if (!payload || payload.sourceSha256 !== sourceHash
+          || payload.toolVersion !== UNIVDREAMS_VERSION || payload.providerRevision !== UNIVDREAMS_REVISION
+          || !['PASSED', 'FAILED', 'UNAVAILABLE'].includes(String(payload.validationStatus))
+          || payload.validationMethod !== `univdreams-${UNIVDREAMS_VERSION}-compile`
+          || typeof payload.validationMessage !== 'string' || payload.validationMessage.length > 2000
+          || (payload.validationStatus === 'PASSED'
+            && (typeof payload.compiledSha256 !== 'string' || !/^[a-f0-9]{64}$/i.test(payload.compiledSha256)
+              || !Number.isSafeInteger(payload.compiledBytes) || Number(payload.compiledBytes) <= 0
+              || payload.compiledArtifactId !== `${run.projectId}/${run.artifactId}/${run.taskId}/${run.runId}/evidence/maintained-univdreams/${sourceHash}-${payload.compiledSha256}.bin`))) {
+        return unavailable('The univdreams compiler returned an incomplete or mismatched validation result.')
+      }
+      return {
+        source_sha256: sourceHash,
+        validation_status: payload.validationStatus as MaintainedSourceValidation['validation_status'],
+        validation_method: `univdreams-${UNIVDREAMS_VERSION}-compile`,
+        validation_message: payload.validationMessage.slice(0, 2000),
+      }
+    } catch {
+      return unavailable('The isolated univdreams compiler is unavailable; edited .ud source was not validated.')
+    }
+  }
   const babelLanguages = new Set(['javascript', 'javascript source', 'ecmascript', 'js', 'jsx', 'mjs', 'cjs', 'typescript', 'typescript source', 'ts', 'tsx'])
   if (babelLanguages.has(normalizedLanguage) && Buffer.byteLength(sourceCode, 'utf8') <= 512 * 1024) {
     try {
@@ -572,9 +625,10 @@ export async function PUT(request: Request, { params }: RouteParams) {
       || resolved.unitId
     const language = typeof attributes.language === 'string' ? attributes.language.slice(0, 80) : 'unknown'
     const dialect = typeof attributes.dialect === 'string' ? attributes.dialect.toLowerCase() : ''
-    const validationLanguage = language.trim().toLowerCase() === 'lua' && /^lua5\.[1-5]$/.test(dialect)
+    const normalizedLanguage = language.trim().toLowerCase()
+    const validationLanguage = normalizedLanguage === 'lua' && /^lua5\.[1-5]$/.test(dialect)
       ? `Lua ${dialect.slice(3)}`
-      : language
+      : normalizedLanguage === 'universal dreams' ? 'univdreams' : language
     const now = new Date().toISOString()
     const { rootRealPath, absolute } = await checkedPath(resolved.relativePath)
     const maintainedSourceHash = createHash('sha256').update(sourceCode).digest('hex')
@@ -630,7 +684,25 @@ export async function PUT(request: Request, { params }: RouteParams) {
       aliases,
       sourceLineage: { baseSourceHash, runKey: resolved.runKey, baseSourcePath: resolved.originalPath },
     }
-    const validation = await validateMaintainedSource(sourceCode, validationLanguage)
+    let validationRun: { projectId: string; artifactId: string; taskId: string; runId: string } | undefined
+    if (validationLanguage.toLowerCase() === 'univdreams') {
+      const runParts = resolved.runKey.split('/')
+      if (runParts.length !== 4 || runParts[0] !== projectId || runParts[1] !== resolved.artifactId) {
+        return NextResponse.json({ error: 'This code unit has no valid analysis run for compiler evidence.' }, { status: 409 })
+      }
+      validationRun = { projectId, artifactId: resolved.artifactId, taskId: runParts[2], runId: runParts[3] }
+    }
+    const validation = await validateMaintainedSource(sourceCode, validationLanguage, validationRun)
+    if (validationLanguage.toLowerCase() === 'univdreams' && validation.validation_status !== 'PASSED') {
+      return NextResponse.json({
+        error: validation.validation_status === 'FAILED'
+          ? 'The univdreams compiler rejected this .ud source; it was not accepted.'
+          : 'The univdreams compiler is unavailable, so this .ud source was not accepted.',
+        validationStatus: validation.validation_status,
+        validationMethod: validation.validation_method,
+        validationMessage: validation.validation_message,
+      }, { status: validation.validation_status === 'FAILED' ? 422 : 503 })
+    }
     if (validation.validation_status === 'FAILED') {
       return NextResponse.json({
         error: 'The maintained source has syntax errors and was not accepted.',
