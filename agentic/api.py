@@ -1614,8 +1614,8 @@ async def refactor_reamon_lua_source(body: ReamonLuaRefactorRequest):
     except asyncio.TimeoutError:
         return JSONResponse(content={"error": "Lua semantic analysis exceeded its time limit"}, status_code=504)
     except Exception as exc:  # noqa: BLE001
-        logger.debug(f"REAmon Lua scope-safe refactor failed: {exc}")
-        return JSONResponse(content={"error": "LuaLS could not safely analyze this Lua source"}, status_code=503)
+        logger.debug(f"REAmon Lua/Luau scope-safe refactor failed: {exc}")
+        return JSONResponse(content={"error": "The configured Lua or Luau language server could not safely analyze this source"}, status_code=503)
 
 
 @app.post("/reamon/code/php/refactor", tags=["REAmon"], dependencies=[Depends(require_internal_auth)])

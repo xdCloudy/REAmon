@@ -1,4 +1,4 @@
-"""Conservative, single-source Lua binding refactors using LuaLS over LSP."""
+"""Conservative, single-file Lua and Luau binding refactors using LSP servers."""
 
 from __future__ import annotations
 
@@ -7,12 +7,14 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import tempfile
 from pathlib import Path
 from typing import Any
 
 
 LUALS_VERSION = "3.19.2"
+LUAU_LSP_VERSION = "1.70.1"
 MAX_SOURCE_BYTES = 512 * 1024
 MAX_BINDINGS = 200
 MAX_RENAMES = 80
@@ -107,10 +109,46 @@ def _apply_text_edits(source: str, edits: list[dict[str, Any]]) -> str:
     return output
 
 
+async def _validate_luau_source(source: str) -> str:
+    """Parse with the pinned Luau compiler or a Luau Tree-sitter grammar."""
+    binary = shutil.which("luau-compile")
+    if binary:
+        with tempfile.TemporaryDirectory(prefix="reamon-luau-validate-") as temp_dir:
+            source_path = Path(temp_dir) / "source.luau"
+            source_path.write_text(source, encoding="utf-8", newline="")
+            process = await asyncio.create_subprocess_exec(
+                binary, "--only-parse", str(source_path),
+                cwd=temp_dir,
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            try:
+                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=10)
+            except asyncio.TimeoutError as exc:
+                process.kill()
+                await process.wait()
+                raise LuaRefactorUnavailable("The Luau syntax parser exceeded its time limit") from exc
+        if process.returncode != 0:
+            detail = (stderr + stdout).decode("utf-8", errors="replace").replace("\x00", " ").strip()
+            raise LuaRefactorError(f"Luau compiler rejected the renamed source: {detail[:300] or 'syntax parse failed'}")
+        return f"luau-compile-{os.environ.get('REAMON_LUAU_COMPILER_VERSION', '0.742')}-only-parse"
+    from reamon_treesitter import get_reamon_parser_with_language
+    parser, grammar = get_reamon_parser_with_language("Luau")
+    if parser is None or not grammar:
+        raise LuaRefactorUnavailable("Neither the pinned Luau compiler nor a Luau syntax grammar is available")
+    if parser.parse(source.encode("utf-8")).root_node.has_error:
+        raise LuaRefactorError("Tree-sitter rejected the renamed Luau source")
+    return f"tree-sitter-{grammar}"
+
+
 class _LuaLanguageServer:
     def __init__(self, source: str, runtime: str):
         self.source = source
         self.runtime = runtime
+        self.is_luau = runtime == "Luau"
+        self.server_name = "Luau LSP" if self.is_luau else "LuaLS"
+        self.server_version = LUAU_LSP_VERSION if self.is_luau else LUALS_VERSION
         self.temp: tempfile.TemporaryDirectory[str] | None = None
         self.process: asyncio.subprocess.Process | None = None
         self.stderr_task: asyncio.Task[None] | None = None
@@ -119,19 +157,19 @@ class _LuaLanguageServer:
         self.root_uri = ""
         self.document_uri = ""
         self.server_capabilities: dict[str, Any] = {}
-        self.server_settings = {
+        self.server_settings = ({"Luau": {}} if self.is_luau else {
             "Lua": {
                 "runtime": {"version": runtime},
                 "diagnostics": {"enable": False},
                 "workspace": {"checkThirdParty": False, "library": []},
             },
-        }
+        })
 
     async def __aenter__(self) -> "_LuaLanguageServer":
-        binary = os.environ.get("REAMON_LUALS", "/opt/lua-language-server/bin/lua-language-server")
-        self.temp = tempfile.TemporaryDirectory(prefix="reamon-luals-")
+        binary = os.environ.get("REAMON_LUAU_LSP", "/usr/local/bin/luau-lsp") if self.is_luau else os.environ.get("REAMON_LUALS", "/opt/lua-language-server/bin/lua-language-server")
+        self.temp = tempfile.TemporaryDirectory(prefix="reamon-luau-lsp-" if self.is_luau else "reamon-luals-")
         root = Path(self.temp.name).resolve()
-        source_path = root / "unit.lua"
+        source_path = root / ("unit.luau" if self.is_luau else "unit.lua")
         source_path.write_text(self.source, encoding="utf-8", newline="")
         self.root_uri = root.as_uri()
         self.document_uri = source_path.as_uri()
@@ -144,7 +182,7 @@ class _LuaLanguageServer:
         })
         try:
             self.process = await asyncio.create_subprocess_exec(
-                binary,
+                *([binary, "lsp"] if self.is_luau else [binary]),
                 cwd=str(root),
                 env=env,
                 stdin=asyncio.subprocess.PIPE,
@@ -154,7 +192,7 @@ class _LuaLanguageServer:
         except FileNotFoundError as exc:
             self.temp.cleanup()
             self.temp = None
-            raise LuaRefactorUnavailable("The pinned LuaLS semantic refactor service is unavailable") from exc
+            raise LuaRefactorUnavailable(f"The pinned {self.server_name} semantic refactor service is unavailable") from exc
         self.stderr_task = asyncio.create_task(self._drain_stderr())
         try:
             result = await self.request("initialize", {
@@ -185,7 +223,7 @@ class _LuaLanguageServer:
             await self.notify("textDocument/didOpen", {
                 "textDocument": {
                     "uri": self.document_uri,
-                    "languageId": "lua",
+                    "languageId": "luau" if self.is_luau else "lua",
                     "version": 1,
                     "text": self.source,
                 },
@@ -359,19 +397,20 @@ class _LuaLanguageServer:
             name = self.source[start:end]
             if not IDENTIFIER.fullmatch(name):
                 continue
-            prepared = await self.request("textDocument/prepareRename", {
-                "textDocument": {"uri": self.document_uri},
-                "position": start_position,
-            })
-            prepared_range = prepared.get("range") if isinstance(prepared, dict) else prepared
-            if not isinstance(prepared_range, dict):
-                continue
-            try:
-                prepare_start, prepare_end = _range_indexes(self.source, prepared_range, offsets)
-            except LuaRefactorError:
-                continue
-            if (prepare_start, prepare_end) != (start, end):
-                continue
+            if not self.is_luau:
+                prepared = await self.request("textDocument/prepareRename", {
+                    "textDocument": {"uri": self.document_uri},
+                    "position": start_position,
+                })
+                prepared_range = prepared.get("range") if isinstance(prepared, dict) else prepared
+                if not isinstance(prepared_range, dict):
+                    continue
+                try:
+                    prepare_start, prepare_end = _range_indexes(self.source, prepared_range, offsets)
+                except LuaRefactorError:
+                    continue
+                if (prepare_start, prepare_end) != (start, end):
+                    continue
             references = await self.request("textDocument/references", {
                 "textDocument": {"uri": self.document_uri},
                 "position": start_position,
@@ -421,7 +460,7 @@ class _LuaLanguageServer:
                 break
         return {
             "source_sha256": _source_hash(self.source),
-            "parser_version": LUALS_VERSION,
+            "parser_version": self.server_version,
             "bindings": bindings,
             "truncated": len(bindings) >= MAX_BINDINGS,
         }
@@ -439,7 +478,8 @@ class _LuaLanguageServer:
             binding = available.get(binding_id) if isinstance(binding_id, str) else None
             if binding is None or binding_id in requested_ids:
                 raise LuaRefactorError("A selected Lua rename no longer matches a current local binding")
-            if not isinstance(new_name, str) or not IDENTIFIER.fullmatch(new_name) or new_name in LUA_KEYWORDS:
+            keywords = LUA_KEYWORDS | ({"continue", "export", "type"} if self.is_luau else set())
+            if not isinstance(new_name, str) or not IDENTIFIER.fullmatch(new_name) or new_name in keywords:
                 raise LuaRefactorError("A selected Lua name is not a valid identifier")
             if new_name == binding["name"]:
                 raise LuaRefactorError("A selected Lua rename has no name change")
@@ -486,15 +526,20 @@ class _LuaLanguageServer:
                 "referenceCount": binding["referenceCount"],
             })
         output = _apply_text_edits(self.source, edits)
-        from reamon_treesitter import get_reamon_parser_with_language
-        parser, _ = get_reamon_parser_with_language("Lua")
-        if parser is None or parser.parse(output.encode("utf-8")).root_node.has_error:
-            raise LuaRefactorError("The renamed Lua source did not pass structural parsing")
+        if self.is_luau:
+            syntax_validator = await _validate_luau_source(output)
+            parser_version = f"{self.server_version}+{syntax_validator}"
+        else:
+            from reamon_treesitter import get_reamon_parser_with_language
+            parser, _ = get_reamon_parser_with_language("Lua")
+            if parser is None or parser.parse(output.encode("utf-8")).root_node.has_error:
+                raise LuaRefactorError("The renamed Lua source did not pass structural parsing")
+            parser_version = self.server_version
         return {
             "source_sha256": _source_hash(self.source),
             "output_sha256": _source_hash(output),
             "source_code": output,
-            "parser_version": LUALS_VERSION,
+            "parser_version": parser_version,
             "renamed_bindings": renamed_bindings,
         }
 
@@ -509,13 +554,13 @@ async def refactor_source(
 ) -> dict[str, Any]:
     encoded = source.encode("utf-8")
     if len(encoded) > MAX_SOURCE_BYTES:
-        raise LuaRefactorError("Lua source exceeds the 512 KiB safe-rename limit")
-    if runtime not in {f"Lua 5.{minor}" for minor in range(1, 6)} | {"LuaJIT"}:
-        raise LuaRefactorError("LuaLS refactoring supports Lua 5.1–5.5 and LuaJIT only")
+        raise LuaRefactorError("Lua/Luau source exceeds the 512 KiB safe-rename limit")
+    if runtime not in {f"Lua 5.{minor}" for minor in range(1, 6)} | {"LuaJIT", "Luau"}:
+        raise LuaRefactorError("LuaLS supports Lua 5.1–5.5 and LuaJIT; Luau uses the separate Luau language server")
     source_sha256 = _source_hash(source)
     if operation == "rename":
         if not re.fullmatch(r"[a-f0-9]{64}", expected_sha256, re.IGNORECASE) or expected_sha256.lower() != source_sha256:
-            raise LuaRefactorError("The Lua source changed after the rename suggestions were generated")
+            raise LuaRefactorError("The source changed after the rename suggestions were generated")
     elif operation != "bindings":
         raise LuaRefactorError("A Lua bindings or rename operation is required")
     async with _LuaLanguageServer(source, runtime) as language_server:

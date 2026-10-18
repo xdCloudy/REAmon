@@ -151,6 +151,27 @@ RUN if [ "${TARGETARCH:-amd64}" = "amd64" ]; then \
       && rm -rf /tmp/luau-ubuntu.zip /tmp/luau-release; \
     fi
 
+# The upstream Luau LSP supplies semantic local references and rename edits.
+# Pin architecture-specific release archives and verify both before installation.
+ENV REAMON_LUAU_LSP_VERSION=1.70.1 \
+    REAMON_LUAU_LSP=/usr/local/bin/luau-lsp
+RUN arch="${TARGETARCH:-$(dpkg --print-architecture)}" \
+    && case "$arch" in \
+         amd64) asset_arch=x86_64; sha=1a2ea1ae4f98f8946cefd970a4b54853e11ab4775e6932faa7f60cf920346567 ;; \
+         arm64) asset_arch=arm64; sha=6062345b95124ca937b8c324b74bc3fddb1d6919ba133c58f8b17945ce1acbc2 ;; \
+         *) echo "unsupported Luau LSP architecture: $arch" >&2; exit 1 ;; \
+       esac \
+    && retry curl -fsSL --retry 5 --retry-delay 5 --retry-all-errors \
+        -o /tmp/luau-lsp.zip "https://github.com/JohnnyMorganz/luau-lsp/releases/download/${REAMON_LUAU_LSP_VERSION}/luau-lsp-linux-${asset_arch}.zip" \
+    && echo "${sha}  /tmp/luau-lsp.zip" | sha256sum -c - \
+    && unzip -q /tmp/luau-lsp.zip -d /tmp/luau-lsp \
+    && install -m 0755 /tmp/luau-lsp/luau-lsp "$REAMON_LUAU_LSP" \
+    && rm -rf /tmp/luau-lsp /tmp/luau-lsp.zip \
+    && mkdir -p /usr/share/licenses/luau-lsp \
+    && retry curl -fsSL --retry 5 --retry-delay 5 --retry-all-errors \
+        -o /usr/share/licenses/luau-lsp/LICENSE.md "https://raw.githubusercontent.com/JohnnyMorganz/luau-lsp/${REAMON_LUAU_LSP_VERSION}/LICENSE.md" \
+    && echo "5bf374ce7ab54c8d75f14e21f04932cae10708189afaec95321aed1a47701935  /usr/share/licenses/luau-lsp/LICENSE.md" | sha256sum -c -
+
 # Install Ruby + Bundler (for Ruby/Rails projects)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ruby ruby-dev \

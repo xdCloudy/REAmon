@@ -386,16 +386,17 @@ export async function POST(request: Request, { params }: RouteParams) {
     const isJava = ['java', 'java source'].includes(normalizedLanguage)
     const isCSharp = ['c#', 'csharp', 'cs'].includes(normalizedLanguage)
     const isGo = ['go', 'golang'].includes(normalizedLanguage)
-    const isLua = ['lua', 'lua source'].includes(normalizedLanguage) || /^lua(?: source)?\s+5\.[1-5]$/.test(normalizedLanguage)
     const dialect = typeof attributes.dialect === 'string' ? attributes.dialect.toLowerCase().replace(/\s+/g, '') : ''
-    const luaRuntime = dialect === 'luajit' ? 'LuaJIT' : /^lua5\.[1-5]$/.test(dialect) ? `Lua ${dialect.slice(3)}`
+    const isLuau = ['luau', 'luau source'].includes(normalizedLanguage) || dialect === 'luau'
+    const isLua = ['lua', 'lua source'].includes(normalizedLanguage) || /^lua(?: source)?\s+5\.[1-5]$/.test(normalizedLanguage)
+    const luaRuntime = isLuau ? 'Luau' : dialect === 'luajit' ? 'LuaJIT' : /^lua5\.[1-5]$/.test(dialect) ? `Lua ${dialect.slice(3)}`
       : (normalizedLanguage.match(/5\.[1-5]/)?.[0] ? `Lua ${normalizedLanguage.match(/5\.[1-5]/)?.[0]}` : 'Lua 5.5')
-    if (isLua && dialect && dialect !== 'luajit' && !/^lua5\.[1-5]$/.test(dialect)) {
+    if (isLua && !isLuau && dialect && dialect !== 'luajit' && !/^lua5\.[1-5]$/.test(dialect)) {
       return NextResponse.json({ error: 'LuaLS scope-safe renaming supports Lua 5.1–5.5 and LuaJIT; this source dialect is not supported' }, { status: 415 })
     }
     if (!['javascript', 'typescript', 'jsx', 'tsx', 'python', 'python 3', 'python3', 'php', 'php source', 'go', 'golang', 'lua', 'lua source'].includes(normalizedLanguage)
-        && !isLua && !isCSharp && !isJava && !isRust) {
-      return NextResponse.json({ error: 'Scope-safe renaming currently supports JavaScript, TypeScript, Python, PHP, Go, Lua, Java, C#, and Rust source' }, { status: 415 })
+        && !isLua && !isLuau && !isCSharp && !isJava && !isRust) {
+      return NextResponse.json({ error: 'Scope-safe renaming currently supports JavaScript, TypeScript, Python, PHP, Go, Lua, Luau, Java, C#, and Rust source' }, { status: 415 })
     }
     const codeArtifactId = typeof attributes.codeArtifactId === 'string' ? attributes.codeArtifactId : ''
     const selection = await getActiveWorkspaceImportSelection(projectId)
@@ -445,6 +446,7 @@ export async function POST(request: Request, { params }: RouteParams) {
         : isPhp ? await refactorPhpBindings(workingSource, 'bindings') as SafeRenameCatalog
         : isRust ? await refactorRustBindings(workingSource, 'bindings') as SafeRenameCatalog
         : isPython ? await listPythonRenameBindings(workingSource)
+        : isLuau ? await refactorLuaBindings(workingSource, 'bindings', luaRuntime) as SafeRenameCatalog
           : isLua ? await refactorLuaBindings(workingSource, 'bindings', luaRuntime) as SafeRenameCatalog
             : await listSafeRenameBindings(workingSource)
       const candidates = catalog.bindings
@@ -701,6 +703,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       : isPhp ? await refactorPhpBindings(workingSource, 'rename', workingSourceSha256, selectedRenames) as SafeRenameResult
       : isRust ? await refactorRustBindings(workingSource, 'rename', workingSourceSha256, selectedRenames) as SafeRenameResult
       : isPython ? await applyPythonRenameBindings(workingSource, workingSourceSha256, selectedRenames)
+        : isLuau ? await refactorLuaBindings(workingSource, 'rename', luaRuntime, workingSourceSha256, selectedRenames) as SafeRenameResult
         : isLua ? await refactorLuaBindings(workingSource, 'rename', luaRuntime, workingSourceSha256, selectedRenames) as SafeRenameResult
           : await applySafeRenameBindings(workingSource, workingSourceSha256, selectedRenames)
     const validationMethod = isPhp
@@ -713,6 +716,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       ? `${transformed.parserVersion}+go-ast-types-scope-safe-rename`
       : isRust ? `rust-analyzer-${transformed.parserVersion}+lsp-semantic-local-rename`
       : isPython ? `libcst-${transformed.parserVersion}+scope-safe-rename`
+        : isLuau ? `luau-lsp-${transformed.parserVersion}+scope-safe-rename`
         : isLua ? `luals-${transformed.parserVersion}+tree-sitter-lua-scope-safe-rename`
           : `babel-parser-${transformed.parserVersion}+scope-safe-rename`
     const validationMessage = isPhp
@@ -727,6 +731,8 @@ export async function POST(request: Request, { params }: RouteParams) {
       ? `rust-analyzer ${transformed.parserVersion} resolved the selected local binding and returned the complete same-file reference set; Tree-sitter parsed the output. This does not validate project dependencies, build behavior, or runtime equivalence.`
       : isPython
         ? `LibCST ${transformed.parserVersion} applied scope-aware local-binding renames and parsed the output. This confirms structure only, not module-level references or behavior equivalence.`
+        : isLuau
+          ? `Luau LSP ${transformed.parserVersion} resolved the selected Luau binding and applied its single-source rename edits; syntax was checked without executing the source. This does not verify project API definitions or runtime behavior.`
         : isLua
           ? `LuaLS ${transformed.parserVersion} resolved the selected local binding and applied its single-source rename edits; Tree-sitter parsed the output. LuaLS references and parsing do not prove behavior equivalence.`
           : `Babel ${transformed.parserVersion} parsed the output after scope-aware renaming and rejected binding collisions. This confirms syntax only, not behavior equivalence.`
@@ -746,8 +752,8 @@ export async function POST(request: Request, { params }: RouteParams) {
         scope: 'file',
         status: 'SUCCEEDED',
         requestPayload: {
-          operation: isPhp ? 'phpactor-php-lsp-scope-safe-renames' : isJava ? 'javac-java-scope-safe-renames' : isCSharp ? 'roslyn-csharp-scope-safe-renames' : isGo ? 'go-types-scope-safe-renames' : isRust ? 'rust-analyzer-rust-lsp-semantic-local-renames' : isPython ? 'libcst-scope-safe-renames' : isLua ? 'luals-scope-safe-renames' : 'humanify-style-scope-safe-renames',
-          engine: isPhp ? `Phpactor ${transformed.parserVersion} LSP semantic rename; PHP lint` : isJava ? `JDK javac ${transformed.parserVersion} --release 17 Trees/Element symbol identity` : isCSharp ? `Roslyn ${transformed.parserVersion} semantic model and symbol identity` : isGo ? `Go ${transformed.parserVersion} AST and go/types object identity` : isRust ? `rust-analyzer ${transformed.parserVersion} LSP references + rename` : isPython ? `LibCST ${transformed.parserVersion} ScopeProvider/RenameCommand` : isLua ? `LuaLS ${transformed.parserVersion} LSP rename + Tree-sitter Lua parse` : `Babel ${transformed.parserVersion} scope.rename (Humanify two-stage design)`,
+          operation: isPhp ? 'phpactor-php-lsp-scope-safe-renames' : isJava ? 'javac-java-scope-safe-renames' : isCSharp ? 'roslyn-csharp-scope-safe-renames' : isGo ? 'go-types-scope-safe-renames' : isRust ? 'rust-analyzer-rust-lsp-semantic-local-renames' : isPython ? 'libcst-scope-safe-renames' : isLuau ? 'luau-lsp-semantic-local-renames' : isLua ? 'luals-scope-safe-renames' : 'humanify-style-scope-safe-renames',
+          engine: isPhp ? `Phpactor ${transformed.parserVersion} LSP semantic rename; PHP lint` : isJava ? `JDK javac ${transformed.parserVersion} --release 17 Trees/Element symbol identity` : isCSharp ? `Roslyn ${transformed.parserVersion} semantic model and symbol identity` : isGo ? `Go ${transformed.parserVersion} AST and go/types object identity` : isRust ? `rust-analyzer ${transformed.parserVersion} LSP references + rename` : isPython ? `LibCST ${transformed.parserVersion} ScopeProvider/RenameCommand` : isLuau ? `Luau LSP ${transformed.parserVersion} semantic rename + Luau compiler parse` : isLua ? `LuaLS ${transformed.parserVersion} LSP rename + Tree-sitter Lua parse` : `Babel ${transformed.parserVersion} scope.rename (Humanify two-stage design)`,
           inputSha256: workingSourceSha256,
           artifactSourceSha256,
           inputSource: workingSource,
