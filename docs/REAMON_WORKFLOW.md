@@ -101,8 +101,8 @@ Run the strongest applicable checks in order, without conflating their meanings:
 
 Each rewrite attempt now retains a validator status (`PASSED`, `FAILED`, or
 `UNAVAILABLE`), the check name, and a bounded message. Tree-sitter syntax checks also
-preserve recognized callable counts across supported grammars. When a whole-file draft
-has parser errors, REAmon makes one bounded repair request to the same saved provider,
+preserve recognized callable counts across supported grammars. When a draft has parser
+errors, REAmon makes one bounded repair request to the same saved provider,
 including up to eight parser locations and the exact rejected candidate. This applies
 to whole-file and single-member drafts; member repair must still preserve its original
 declaration contract. The repaired draft is parsed again before declaration checks
