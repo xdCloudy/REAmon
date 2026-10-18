@@ -221,6 +221,13 @@ export async function executePyInstaller(input: ToolExecutionInput): Promise<Too
       take: 10_000,
     })
     const decompiledKeys = new Set(priorDecompiled.map((row) => row.stableKey))
+    const alreadyDecompiledCount = orderedModules.filter((module) => {
+      const logicalPath = safeArchivePath(module.archivePath)
+      if (!logicalPath) return false
+      const moduleIdentity = createHash('sha256').update(`${logicalPath}\0${module.sha256}`).digest('hex')
+      const relativePath = moduleSourcePath(input.artifactRelativePath, input.artifactId!, logicalPath, moduleIdentity)
+      return decompiledKeys.has(moduleCodeUnitKey(input.artifactId!, relativePath))
+    }).length
     const modulesNeedingSource = orderedModules.filter((module) => {
       const logicalPath = safeArchivePath(module.archivePath)
       if (!logicalPath) return true
@@ -233,6 +240,7 @@ export async function executePyInstaller(input: ToolExecutionInput): Promise<Too
     const warnings: string[] = []
     let codeBytes = 0
     let decompiledCount = 0
+    await input.reportProgress?.(`Found ${payload.moduleCount} bounded bytecode modules; ${alreadyDecompiledCount} already have source and ${modulesNeedingSource.length} need decompilation`)
 
     const modulePaths = new Map<string, { relativePath: string; bytecodeArtifactId: string; moduleIdentity: string; bytecodePath: string }>()
     for (const module of orderedModules) {
@@ -264,6 +272,7 @@ export async function executePyInstaller(input: ToolExecutionInput): Promise<Too
         warnings.push(`${logicalArchivePath}: ${errorText(error)}`)
       }
     }
+    await input.reportProgress?.(`Persisted ${modulePaths.size} of ${payload.moduleCount} extracted bytecode modules; decompiling up to ${selectedModules.length} pending modules`)
 
     for (let offset = 0; offset < selectedModules.length; offset += 2) {
       const batch = selectedModules.slice(offset, offset + 2)
@@ -338,7 +347,7 @@ export async function executePyInstaller(input: ToolExecutionInput): Promise<Too
           }
         }
       }
-      await input.reportProgress?.(`Recovered ${decompiledCount} Python module(s) from the PyInstaller bundle`)
+      await input.reportProgress?.(`Decompiled ${decompiledCount} of ${selectedModules.length} selected pending modules; ${modulePaths.size} bytecode modules are stored`)
     }
 
     const truncated = payload.truncated || modulesNeedingSource.length > selectedModules.length
