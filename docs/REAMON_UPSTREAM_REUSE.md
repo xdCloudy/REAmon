@@ -236,6 +236,23 @@ separate so a plausible name is never treated as proof of behavior.
   attempts. Reuse the workflow pattern only; the provider and Ghidra project state
   should remain separate from REAmon's database. Its C/C++ focus and recovery
   claims still need fixture comparison.
+- [universal-decompiler](https://github.com/hammerill/universal-decompiler/tree/128c123c58fe89f74b817456e9324b251239d7e9) is an
+  MIT-licensed, archived agent workflow at commit `128c123c58fe89f74b817456e9324b251239d7e9` around binary triage, tool preflight,
+  function inventories, vertical-slice reconstruction, build/run comparison, and
+  persistent field notes. Its explicit completion criteria and verification loop
+  complement decomp.wtf's unit-level claim/attempt/judge process. REAmon can compare
+  its intake and route planning with existing target profiles and analysis plans.
+  The project is read-only since 2026-10-13, focuses mainly on game-to-C++
+  reconstruction, and orchestrates existing engines rather than implementing a
+  universal decompiler; reuse workflow ideas only.
+- [RE-MCP](https://github.com/jtsylve/re-mcp/tree/7b38aa92952bd0621e8c964dc859f1515fe26a10) at commit `7b38aa92952bd0621e8c964dc859f1515fe26a10` exposes headless Ghidra and IDA through
+  a shared MCP contract, with concurrent database workers, structured read-only
+  resources, batch/execute operations, snapshots, and standard tool mutation hints.
+  Compare the Ghidra backend's tool schemas and batching with REAmon's existing MCP
+  surface; adapt only concrete gaps while retaining REAmon's project, artifact, run,
+  provenance, and review model. The repository is dual MIT/Apache-2.0; the IDA
+  backend requires commercial software, and its Ghidra backend requires Ghidra 12+
+  and JDK 21+. It is an engine interface, not a decompiler or shared memory store.
 - [delamain](https://github.com/xjoker/delamain) is an Apache-2.0 headless MCP
   layer around JADX. Its bounded graph traversals, explicit truncation and
   decompilation-quality signals, xref/data-flow queries, and rename/ProGuard
@@ -526,3 +543,5 @@ store.
 - [PyLingual pinned package metadata and GPL-3.0-only declaration](https://github.com/syssec-utd/pylingual/blob/509ea92e560b2c2c99b0c9901bd33e404fbfb4b8/pyproject.toml)
 - [PyInstaller Extractor Go audited snapshot and MIT license](https://github.com/pyinstxtractor/pyinstxtractor-go/tree/2aa0ec9e58317ac717fdeec84a02d5a67de7b96c2)
 - [PyInstaller Extractor Go README and documented limitations](https://github.com/pyinstxtractor/pyinstxtractor-go/blob/2aa0ec9e58317ac717fdeec84a02d5a67de7b96c2/README.md)
+- [universal-decompiler workflow, CLI, example, and MIT license](https://github.com/hammerill/universal-decompiler/tree/128c123c58fe89f74b817456e9324b251239d7e9)
+- [RE-MCP shared Ghidra/IDA interface, tools, resources, annotations, and dual license](https://github.com/jtsylve/re-mcp/tree/7b38aa92952bd0621e8c964dc859f1515fe26a10)
