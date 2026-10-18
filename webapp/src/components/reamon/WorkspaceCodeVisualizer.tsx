@@ -746,7 +746,7 @@ function DenseFunctionMap({ cells, onSelect }: {
   const activeRow = layout ? Math.floor(activeIndex / layout.columns) + 1 : 1
   const activeColumn = layout ? activeIndex % layout.columns + 1 : 1
 
-  function cellAtPointer(event: PointerEvent<HTMLDivElement>): number {
+  function cellAtPointer(event: { clientX: number; clientY: number }): number {
     if (!layout) return -1
     const rect = canvasRef.current?.getBoundingClientRect()
     if (!rect) return -1
