@@ -125,7 +125,11 @@ An updated audit on 2026-10-19 compared the two viable MIT projects:
   metadata usage slots separate from method entry points. Upstream issue
   [#594](https://github.com/Perfare/Il2CppDumper/issues/594) documents incorrect
   string-literal addresses in an older release, so string references need their
-  own fixture checks.
+  own fixture checks. REAmon now builds this pinned revision in an isolated
+  analyzer image and stores bounded method metadata observations with the APK,
+  metadata-member, and native-library hashes. RVA-to-Ghidra joins remain
+  disabled until the address convention is verified on representative fixtures;
+  this adapter does not recover method bodies or emit source.
 - [Il2CppInspector](https://github.com/djkaty/Il2CppInspector) is suspended,
   AGPL-3.0, and explicitly not a decompiler. Keep it as a format and workflow
   reference; do not bundle or copy it into REAmon.

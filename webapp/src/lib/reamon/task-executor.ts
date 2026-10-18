@@ -328,7 +328,7 @@ async function settleTask(
   const error = boundedError(failure || result?.error || '')
   let persistedResult = outcome === 'COMPLETED' && result ? boundedTaskResultData(result.data) : undefined
   const completedAt = new Date()
-  const transactionOptions = result?.capabilities.some((capability) => capability === 'decompile' || capability === 'disassemble')
+  const transactionOptions = result?.capabilities.some((capability) => capability === 'decompile' || capability === 'disassemble' || capability === 'recover_metadata')
     ? { maxWait: 10_000, timeout: 120_000 }
     : undefined
   const updated = await prisma.$transaction(async (tx) => {
@@ -362,7 +362,9 @@ async function settleTask(
         artifactId: task.artifactId,
         source: result.toolId,
         data: result.data,
-        maxObservations: (result.capabilities.includes('decompile') || result.capabilities.includes('disassemble')) ? MAX_CODE_UNITS_PER_RESULT : MAX_OBSERVATIONS_PER_RESULT,
+        maxObservations: (result.capabilities.includes('decompile') || result.capabilities.includes('disassemble') || result.capabilities.includes('recover_metadata'))
+          ? MAX_CODE_UNITS_PER_RESULT
+          : MAX_OBSERVATIONS_PER_RESULT,
       })
       if (persistedResult && (result.capabilities.includes('decompile') || result.capabilities.includes('disassemble'))) {
         const indexedUnitCount = await tx.reamonObservation.count({

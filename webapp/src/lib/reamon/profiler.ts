@@ -34,6 +34,7 @@ function readUInt32BE(bytes: Uint8Array, offset: number): number | null {
 interface UnityIl2CppApkMembers {
   metadataPath: string
   libraryPaths: string[]
+  libraryPathsTruncated: boolean
 }
 
 /**
@@ -66,6 +67,7 @@ function unityIl2CppApkMembers(bytes: Uint8Array): UnityIl2CppApkMembers | null 
   const end = centralDirectoryOffset + centralDirectorySize
   let metadataPath: string | null = null
   const libraryPaths: string[] = []
+  let libraryPathsTruncated = false
   for (let index = 0; index < entryCount; index += 1) {
     if (cursor + 46 > end || readUInt32(bytes, cursor) !== 0x02014b50) return null
     const nameLength = readUInt16(bytes, cursor + 28)
@@ -77,11 +79,14 @@ function unityIl2CppApkMembers(bytes: Uint8Array): UnityIl2CppApkMembers | null 
     const memberPath = decoder.decode(bytes.subarray(cursor + 46, cursor + 46 + nameLength)).replaceAll('\\', '/')
     const lowerPath = memberPath.toLowerCase()
     if (!metadataPath && /(?:^|\/)global-metadata\.dat$/.test(lowerPath)) metadataPath = memberPath
-    if (libraryPaths.length < 32 && /^lib\/[^/]+\/libil2cpp\.so$/i.test(memberPath)) libraryPaths.push(memberPath)
+    if (/^lib\/[^/]+\/libil2cpp\.so$/i.test(memberPath)) {
+      if (libraryPaths.length < 32) libraryPaths.push(memberPath)
+      else libraryPathsTruncated = true
+    }
     cursor += 46 + nameLength + extraLength + commentLength
   }
 
-  return metadataPath && libraryPaths.length ? { metadataPath, libraryPaths } : null
+  return metadataPath && libraryPaths.length ? { metadataPath, libraryPaths, libraryPathsTruncated } : null
 }
 
 function hasPyInstallerCookie(bytes: Uint8Array): boolean {
@@ -448,6 +453,7 @@ export function profileArtifact(
       ...(unityIl2Cpp ? {
         unityIl2CppMetadataPath: unityIl2Cpp.metadataPath,
         unityIl2CppLibraryPaths: unityIl2Cpp.libraryPaths.join('\n'),
+        unityIl2CppLibraryPathsTruncated: unityIl2Cpp.libraryPathsTruncated,
       } : {}),
     },
   }

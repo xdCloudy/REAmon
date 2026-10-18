@@ -1177,6 +1177,7 @@ services:
       REAMON_RETDEC_URL: http://retdec-analyzer:8023
       REAMON_DEX_DECOMPILER_URL: http://dex-decompiler-analyzer:8019
       REAMON_ILSPY_URL: http://ilspy-analyzer:8013
+      REAMON_IL2CPP_URL: http://il2cpp-analyzer:8035
       REAMON_GHIDRA_URL: http://ghidra-analyzer:8011
       REAMON_OXIDIZER_URL: http://oxidizer-analyzer:8020
       REAMON_GLAURUNG_URL: http://glaurung-analyzer:8024
@@ -2014,6 +2015,39 @@ services:
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8029/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - reamon-analysis
+
+  # Il2CppDumper supplies address/name metadata only; recovered method bodies
+  # require a separate Cpp2IL stage and must not be inferred from dummy DLLs.
+  il2cpp-analyzer:
+    build:
+      context: ./analyzers/il2cpp
+    image: reamon-il2cpp:local
+    container_name: reamon-il2cpp
+    init: true
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: ${REAMON_IL2CPP_MEM:-2g}
+    pids_limit: ${REAMON_IL2CPP_PIDS:-32}
+    cpus: ${REAMON_IL2CPP_CPUS:-2}
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=${REAMON_IL2CPP_TMP_SIZE:-1536m},mode=1777
+    environment:
+      REAMON_ARTIFACTS_PATH: /data/reamon-artifacts
+      PORT: 8035
+      IL2CPP_DUMPER_HOME: /opt/il2cpp-dumper
+    volumes:
+      - reamon_artifacts:/data/reamon-artifacts:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8035/health', timeout=3)"]
       interval: 30s
       timeout: 5s
       retries: 3
