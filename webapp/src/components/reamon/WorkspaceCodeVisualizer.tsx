@@ -49,6 +49,17 @@ interface CodeUnitResponse {
     visitedUnitCount: number | null
     notVisitedUnitCount: number | null
   }>
+  failedRuns: Array<{
+    id: string
+    title: string
+    status: 'FAILED' | 'CANCELLED' | string
+    progress: number
+    progressMessage: string
+    error: string
+    createdAt: string
+    completedAt: string | null
+    artifactName: string
+  }>
   selectedRunId: string | null
 }
 
@@ -838,6 +849,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
   })
   const baseUnits = query.data?.units || EMPTY_CODE_UNITS
   const runs = query.data?.runs || []
+  const failedRuns = query.data?.failedRuns || []
   const currentRunId = runs.some((run) => run.id === selectedRunId) ? selectedRunId : query.data?.selectedRunId || null
   useEffect(() => { setFolderPath([]) }, [currentRunId])
   const pageState = additionalPage?.runId === currentRunId && additionalPage.search === serverSearch ? additionalPage : null
@@ -2036,6 +2048,23 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
         <button type="button" className={styles.runButton} aria-label="Next run" disabled={currentRunIndex <= 0} onClick={() => showRun(runs[currentRunIndex - 1]?.id || null)}>Next</button>
         <button type="button" className={styles.runButton} aria-label="Latest run" disabled={currentRunIndex === 0} onClick={() => showRun(null)}>Latest</button>
       </nav>}
+
+      {failedRuns.length > 0 && <section className={styles.failedRunList} aria-label="Unsuccessful analysis runs">
+        <div className={styles.failedRunHeading}>
+          <strong>Recent unsuccessful runs</strong>
+          <span>These attempts are kept separate from completed output.</span>
+        </div>
+        {failedRuns.map((run) => <article className={styles.failedRun} key={run.id}>
+          <div className={styles.failedRunTitle}>
+            <strong>{run.status === 'CANCELLED' ? 'Cancelled' : 'Failed'} · {run.title}</strong>
+            <span>{run.artifactName} · {new Date(run.completedAt || run.createdAt).toLocaleString()}</span>
+          </div>
+          {run.progressMessage && <p>{run.progressMessage}</p>}
+          {run.error && <p className={styles.failedRunError}>{run.error}</p>}
+          <small>Analyzer-reported progress: {run.progress}% · Run {run.id.slice(-8)}</small>
+          <a className={styles.failedRunLink} href="#analysis-tasks">Review task controls</a>
+        </article>)}
+      </section>}
 
       {currentRun && <div className={styles.progressCards}>
       <div className={styles.runSummary} aria-label="Selected analysis summary">

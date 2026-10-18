@@ -62,11 +62,36 @@ export async function GET(request: Request, { params }: RouteParams) {
       title: true,
       createdAt: true,
       completedAt: true,
+      status: true,
+      progress: true,
+      progressMessage: true,
+      error: true,
       result: true,
       runToken: true,
       provider: { select: { pluginId: true } },
       artifact: { select: { originalName: true, relativePath: true } },
     } as const
+    const failedTasks = await prisma.task.findMany({
+      where: {
+        projectId,
+        capability: { in: ['decompile', 'disassemble'] },
+        status: { in: ['FAILED', 'CANCELLED'] },
+        artifact: { is: selection.artifactWhere },
+      },
+      orderBy: { updatedAt: 'desc' },
+      take: 20,
+      select: {
+        id: true,
+        title: true,
+        status: true,
+        progress: true,
+        progressMessage: true,
+        error: true,
+        createdAt: true,
+        completedAt: true,
+        artifact: { select: { originalName: true, relativePath: true } },
+      },
+    })
     let decompileTasks = await prisma.task.findMany({
       where: {
         projectId,
@@ -351,6 +376,17 @@ export async function GET(request: Request, { params }: RouteParams) {
       hasMore: nextCursor !== null,
       nextCursor,
       runs,
+      failedRuns: failedTasks.map((task) => ({
+        id: task.id,
+        title: task.title,
+        status: task.status,
+        progress: Math.max(0, Math.min(100, task.progress)),
+        progressMessage: task.progressMessage.slice(0, 500),
+        error: task.error.slice(0, 2000),
+        createdAt: task.createdAt.toISOString(),
+        completedAt: task.completedAt?.toISOString() || null,
+        artifactName: task.artifact?.relativePath || task.artifact?.originalName || 'Unknown artifact',
+      })),
       selectedRunId,
       summary: summarizeCodeUnits(units),
     }, { headers: { 'Cache-Control': 'private, no-store' } })

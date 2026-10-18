@@ -32,6 +32,16 @@
 .runDetails { display: flex; flex: 1 1 auto; flex-direction: column; align-items: center; gap: .15rem; min-width: 0; text-align: center; }
 .runDetails strong { color: var(--text-primary); font-size: var(--text-xs); }
 .runDetails span, .runDetails small { max-width: 100%; overflow: hidden; color: var(--text-tertiary); font-size: var(--text-xs); text-overflow: ellipsis; white-space: nowrap; }
+.failedRunList { display: grid; gap: var(--space-2); margin: 0 0 var(--space-3); }
+.failedRunHeading { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2); color: var(--text-primary); font-size: var(--text-xs); }
+.failedRunHeading span, .failedRun small { color: var(--text-tertiary); font-size: var(--text-xs); }
+.failedRun { display: grid; gap: var(--space-1); border: 1px solid var(--border-default); border-left: 3px solid var(--status-warning, #b99a3b); border-radius: var(--radius-default); padding: var(--space-2) var(--space-3); background: var(--bg-tertiary); }
+.failedRunTitle { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--space-1) var(--space-3); }
+.failedRunTitle strong { color: var(--text-primary); font-size: var(--text-xs); }
+.failedRunTitle span { color: var(--text-tertiary); font-size: var(--text-xs); }
+.failedRun p { margin: 0; color: var(--text-secondary); font-size: var(--text-xs); overflow-wrap: anywhere; }
+.failedRun .failedRunError { color: var(--status-warning, #b99a3b); }
+.failedRunLink { width: fit-content; color: var(--accent-secondary); font-size: var(--text-xs); text-decoration: underline; text-underline-offset: 2px; }
 .runSummary { display: flex; flex-direction: column; gap: var(--space-2); margin: 0 0 var(--space-3); padding: var(--space-3); border: 1px solid var(--border-default); border-radius: var(--radius-default); background: var(--bg-tertiary); }
 .runSummaryHeading { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
 .runSummaryHeading > div { display: flex; flex-direction: column; gap: .2rem; min-width: 0; }
