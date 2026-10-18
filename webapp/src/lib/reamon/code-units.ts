@@ -107,6 +107,10 @@ export interface CodeUnitObservationAttributes {
   disassemblyLanguage?: string
   disassemblyArtifactSha256?: string
   bytecodeMagicHex?: string
+  extractedBytecodeArtifactId?: string
+  extractedBytecodeSha256?: string
+  extractedBytecodeSizeBytes?: number
+  pyinstallerArchivePath?: string
   classReferences?: string[]
   referencedStrings?: string[]
   referencedStringsTruncated?: boolean
@@ -201,6 +205,10 @@ export interface CodeUnit {
   disassemblyLanguage: string | null
   disassemblyArtifactSha256?: string | null
   bytecodeMagicHex?: string | null
+  extractedBytecodeArtifactId?: string | null
+  extractedBytecodeSha256?: string | null
+  extractedBytecodeSizeBytes?: number | null
+  pyinstallerArchivePath?: string | null
   classReferences?: string[]
   referencedStrings?: string[]
   referencedStringsTruncated?: boolean
@@ -555,6 +563,10 @@ export function normalizeCodeUnit(row: CodeUnitObservationRow, options: { includ
     disassemblyLanguage: text(attributes.disassemblyLanguage, 80),
     disassemblyArtifactSha256: sha256(attributes.disassemblyArtifactSha256),
     bytecodeMagicHex: /^[a-f0-9]{8}$/i.test(String(attributes.bytecodeMagicHex || '')) ? String(attributes.bytecodeMagicHex).toLowerCase() : null,
+    extractedBytecodeArtifactId: text(attributes.extractedBytecodeArtifactId, 2000),
+    extractedBytecodeSha256: sha256(attributes.extractedBytecodeSha256),
+    extractedBytecodeSizeBytes: Number.isSafeInteger(attributes.extractedBytecodeSizeBytes) ? Number(attributes.extractedBytecodeSizeBytes) : null,
+    pyinstallerArchivePath: text(attributes.pyinstallerArchivePath, 1000),
     classReferences: classReferencesOf(attributes.classReferences),
     referencedStrings: stringListOf(attributes.referencedStrings, 12, 512),
     referencedStringsTruncated: attributes.referencedStringsTruncated === true,

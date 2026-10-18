@@ -2345,10 +2345,13 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
         {selectedUnit && <div className={styles.details}>
           <div className={styles.detailsHeading}>
             <div><span className={styles.detailLabel}>{selectedUnit.unitType === 'resource' ? 'Selected Android resource' : 'Selected code unit'}</span><strong>{selectedUnit.name}</strong>{selectedUnit.maintainedSource && <span className={styles.savedStatus}>Maintained source saved</span>}</div>
-          {explanationProviders.length > 0 && !largeSource && <button type="button" className={styles.explainButton} onClick={() => void deobfuscateSelectedUnit()} disabled={!selectedProviderId || transforming || sourceQuery.isError || sourceQuery.isLoading || maintainedQuery.isLoading}>
+          {explanationProviders.length > 0 && selectedSourceUrl && !largeSource && <button type="button" className={styles.explainButton} onClick={() => void deobfuscateSelectedUnit()} disabled={!selectedProviderId || transforming || sourceQuery.isError || sourceQuery.isLoading || maintainedQuery.isLoading}>
               {transforming ? 'Reverse engineering…' : 'Create maintainable version'}
             </button>}
           </div>
+        {selectedUnit.extractedBytecodeArtifactId && !selectedSourceUrl && <p className={styles.sourcePreviewNote} role="note">
+          PyInstaller module {selectedUnit.pyinstallerArchivePath ? <code>{selectedUnit.pyinstallerArchivePath}</code> : selectedUnit.name} is saved as bytecode with SHA-256 {selectedUnit.extractedBytecodeSha256 || 'recorded in project provenance'}. Source reconstruction is pending; later PyInstaller analyses continue with up to four pending modules.
+        </p>}
         {selectedUnit && selectedSourceUrl && <section className={styles.sourcePanel} aria-label={selectedUnit.representation === 'optimized intermediate representation' ? 'Intermediate representation evidence' : selectedUnit.unitType === 'resource' ? 'Decoded Android resource' : selectedDisassemblyUrl ? 'Decompilation and disassembly comparison' : (selectedUnit.language === 'WebAssembly Text (WAT)' ? 'WAT disassembly' : isDisassemblyUnit(selectedUnit) ? 'Smali disassembly' : 'Decompiled source')}>
           {selectedUnit.representationSemantics && <p className={styles.sourcePreviewNote} role="note">{selectedUnit.representationSemantics}</p>}
           {selectedUnit.bytecodeMagicHex && <p className={styles.sourcePreviewNote} role="note">Bytecode magic: 0x{selectedUnit.bytecodeMagicHex} · raw header metadata; runtime version is not inferred.</p>}
