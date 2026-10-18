@@ -564,6 +564,9 @@ export async function POST(request: Request, { params }: RouteParams) {
     if (!artifact) return NextResponse.json({ error: 'Code unit is not part of the active workspace' }, { status: 404 })
 
     const attributes = plainObject(observation.attributes)
+    if (attributes.isExecutableSource === false) {
+      return NextResponse.json({ error: 'This code unit is bytecode or analysis evidence, not executable source for a maintenance rewrite' }, { status: 415 })
+    }
     const selectedNativeAddress = typeof attributes.address === 'string' ? attributes.address
       : typeof attributes.startAddress === 'string' ? attributes.startAddress : ''
     const currentNativeFunctionIdentity = nativeFunctionIdentity(artifact.id, selectedNativeAddress)

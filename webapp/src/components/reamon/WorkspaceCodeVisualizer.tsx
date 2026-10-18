@@ -544,7 +544,7 @@ async function fetchExplanationProviders(projectId: string): Promise<CodeExplana
 }
 
 function isDisassemblyUnit(unit: CodeUnit | undefined): boolean {
-  return unit?.language === 'WebAssembly Text (WAT)' || unit?.language === 'Smali'
+  return unit?.language === 'WebAssembly Text (WAT)' || unit?.language === 'Smali' || unit?.representation === 'YARV instruction disassembly'
 }
 
 function formatBytes(size: number): string {
@@ -2351,14 +2351,14 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
         {selectedUnit && <div className={styles.details}>
           <div className={styles.detailsHeading}>
             <div><span className={styles.detailLabel}>{selectedUnit.unitType === 'resource' ? 'Selected Android resource' : 'Selected code unit'}</span><strong>{selectedUnit.name}</strong>{selectedUnit.maintainedSource && <span className={styles.savedStatus}>Maintained source saved</span>}</div>
-          {explanationProviders.length > 0 && selectedSourceUrl && !largeSource && <button type="button" className={styles.explainButton} onClick={() => void deobfuscateSelectedUnit()} disabled={!selectedProviderId || transforming || sourceQuery.isError || sourceQuery.isLoading || maintainedQuery.isLoading}>
+          {explanationProviders.length > 0 && selectedSourceUrl && selectedUnit.isExecutableSource !== false && !largeSource && <button type="button" className={styles.explainButton} onClick={() => void deobfuscateSelectedUnit()} disabled={!selectedProviderId || transforming || sourceQuery.isError || sourceQuery.isLoading || maintainedQuery.isLoading}>
               {transforming ? 'Reverse engineering…' : 'Create maintainable version'}
             </button>}
           </div>
         {selectedUnit.extractedBytecodeArtifactId && !selectedSourceUrl && <p className={styles.sourcePreviewNote} role="note">
           PyInstaller module {selectedUnit.pyinstallerArchivePath ? <code>{selectedUnit.pyinstallerArchivePath}</code> : selectedUnit.name} is saved as bytecode with SHA-256 {selectedUnit.extractedBytecodeSha256 || 'recorded in project provenance'}. Source reconstruction is pending; later PyInstaller analyses continue with up to four pending modules.
         </p>}
-        {selectedUnit && selectedSourceUrl && <section className={styles.sourcePanel} aria-label={selectedUnit.representation === 'optimized intermediate representation' ? 'Intermediate representation evidence' : selectedUnit.unitType === 'resource' ? 'Decoded Android resource' : selectedDisassemblyUrl ? 'Decompilation and disassembly comparison' : (selectedUnit.language === 'WebAssembly Text (WAT)' ? 'WAT disassembly' : isDisassemblyUnit(selectedUnit) ? 'Smali disassembly' : 'Decompiled source')}>
+        {selectedUnit && selectedSourceUrl && <section className={styles.sourcePanel} aria-label={selectedUnit.representation === 'optimized intermediate representation' ? 'Intermediate representation evidence' : selectedUnit.unitType === 'resource' ? 'Decoded Android resource' : selectedDisassemblyUrl ? 'Decompilation and disassembly comparison' : (selectedUnit.language === 'WebAssembly Text (WAT)' ? 'WAT disassembly' : selectedUnit.representation === 'YARV instruction disassembly' ? 'YARV bytecode disassembly' : isDisassemblyUnit(selectedUnit) ? 'Smali disassembly' : 'Decompiled source')}>
           {selectedUnit.representationSemantics && <p className={styles.sourcePreviewNote} role="note">{selectedUnit.representationSemantics}</p>}
           {selectedUnit.bytecodeMagicHex && <p className={styles.sourcePreviewNote} role="note">Bytecode magic: 0x{selectedUnit.bytecodeMagicHex} · raw header metadata; runtime version is not inferred.</p>}
           {selectedUnit.deobfuscationProvider && <p className={styles.sourcePreviewNote} role="note">
@@ -2372,13 +2372,13 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
           {selectedDisassemblyUrl ? <div className={styles.comparison}>
             <div className={styles.listingPane}>
               <div className={styles.sourceHeader}>
-                <div><strong>Decompiled source</strong><span>{languageLabel(selectedUnit)} · {selectedUnit.codeArtifactId?.split('/').pop()}</span></div>
-                <button type="button" className={styles.copyButton} onClick={() => void copySource()} disabled={!sourceQuery.data}><Copy size={14} /> {copyStatus || 'Copy source'}</button>
+                <div><strong>{selectedUnit.representation === 'YARV instruction disassembly' ? 'YARV bytecode disassembly' : 'Decompiled source'}</strong><span>{languageLabel(selectedUnit)} · {selectedUnit.codeArtifactId?.split('/').pop()}</span></div>
+                <button type="button" className={styles.copyButton} onClick={() => void copySource()} disabled={!sourceQuery.data}><Copy size={14} /> {copyStatus || (selectedUnit.representation === 'YARV instruction disassembly' ? 'Copy listing' : 'Copy source')}</button>
               </div>
               {selectedUnit.representation && <p className={styles.sourcePreviewNote} role="status">{selectedUnit.representation}{selectedUnit.decompilerVersion ? ` · ${selectedUnit.decompilerVersion}` : ''}{selectedUnit.nameEvidence ? ` · Name evidence: ${selectedUnit.nameEvidence}` : ''}</p>}
               {selectedUnit.sourceAddressMap?.length ? <p className={styles.sourcePreviewNote} role="status">Mapped source lines are clickable. Click again to cycle through associated {selectedUnit.disassemblyLanguage?.toLowerCase() === 'webassembly bytes' ? 'Wasm byte offsets' : 'instruction addresses'}.</p> : null}
               {selectedUnit.sourceAddressMapTruncated && <p className={styles.sourcePreviewNote} role="status">Some source-to-instruction mappings were omitted at the analyzer limit.</p>}
-              {sourceQuery.isLoading && <p className={styles.message}>Loading decompiled source…</p>}
+              {sourceQuery.isLoading && <p className={styles.message}>{selectedUnit.representation === 'YARV instruction disassembly' ? 'Loading bytecode evidence…' : 'Loading decompiled source…'}</p>}
               {sourceQuery.isError && <p className={styles.error}>{sourceQuery.error instanceof Error ? sourceQuery.error.message : 'Could not load decompiled source'}</p>}
               {sourceQuery.data !== undefined && <SourceListing source={sourceQuery.data} language={selectedUnit.language} fileName={selectedUnit.codeArtifactId?.split('/').pop()} fullSourceUrl={selectedSourceUrl} sourceAddressMap={selectedUnit.sourceAddressMap} onMappedAddressSelect={selectSourceAddress} mappingLabel={selectedUnit.disassemblyLanguage?.toLowerCase() === 'webassembly bytes' ? 'Wasm byte offset' : 'instruction address'} />}
             </div>
@@ -2667,7 +2667,15 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
         </aside>
         </div>
 
-        {selectedUnit && selectedSourceUrl && <section className={styles.maintainPanel} aria-labelledby="code-maintain-heading">
+        {selectedUnit && selectedSourceUrl && selectedUnit.isExecutableSource === false
+          ? <section className={styles.maintainPanel} aria-label="Bytecode inspection evidence">
+              <div>
+                <h3><WandSparkles size={16} /> Bytecode inspection evidence</h3>
+                <p>This CRuby YARV listing is saved with the original artifact hash, disassembly hash, and runtime version. REAmon has not reconstructed Ruby source from this bytecode yet.</p>
+                {selectedUnit.runtimeVersion && <p className={styles.sourcePreviewNote}>Inspected with {selectedUnit.runtimeVersion}{selectedUnit.instructionCount !== undefined && selectedUnit.instructionCount !== null ? ` · ${selectedUnit.instructionCount.toLocaleString()} instruction rows` : ''}{selectedUnit.binarySignature ? ` · ${selectedUnit.binarySignature} ISeq` : ''}</p>}
+              </div>
+            </section>
+          : selectedUnit && selectedSourceUrl && <section className={styles.maintainPanel} aria-labelledby="code-maintain-heading">
           <div>
             <h3 id="code-maintain-heading"><WandSparkles size={16} /> Reverse engineer into maintainable code</h3>
             <p>Use decompiled source, related classes, bytecode, and project memory to recover intent and keep names consistent. AI drafts are stored with this project for follow-up work; review and save a maintained copy before its names become trusted project-wide evidence. The original decompilation stays intact.</p>
@@ -2867,8 +2875,8 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
         </section>}
         {selectedUnit && selectedSourceUrl && <section className={styles.explainPanel} aria-labelledby="code-explain-heading">
           <div>
-            <h3 id="code-explain-heading">Explain this code with AI</h3>
-            <p>When you choose Explain, this code is sent to the selected saved provider. API keys stay on the server. Check the explanation against the code before relying on it.</p>
+            <h3 id="code-explain-heading">{selectedUnit.isExecutableSource === false ? 'Explain this bytecode evidence with AI' : 'Explain this code with AI'}</h3>
+            <p>{selectedUnit.isExecutableSource === false ? 'The saved provider receives this version-matched YARV disassembly and its project evidence. Check any explanation against the instruction listing; it is not reconstructed Ruby source.' : 'When you choose Explain, this code is sent to the selected saved provider. API keys stay on the server. Check the explanation against the code before relying on it.'}</p>
           </div>
           {explanationProvidersQuery.isLoading && <p className={styles.message}>Loading saved providers…</p>}
           {explanationProvidersQuery.isError && <p className={styles.error}>Could not load saved AI providers.</p>}
@@ -2879,8 +2887,8 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
                 {explanationProviders.map((provider) => <option key={provider.id} value={provider.id}>{provider.name} · {provider.modelIdentifier}</option>)}
               </select>
             </label>
-            <label className={styles.explainField}>Question about this code (optional)
-              <textarea value={question} onChange={(event) => setQuestion(event.target.value)} maxLength={1000} rows={3} placeholder="What state does this method change?" />
+            <label className={styles.explainField}>Question about {selectedUnit.isExecutableSource === false ? 'these instructions' : 'this code'} (optional)
+              <textarea value={question} onChange={(event) => setQuestion(event.target.value)} maxLength={1000} rows={3} placeholder={selectedUnit.isExecutableSource === false ? 'What does this instruction sequence appear to do?' : 'What state does this method change?'} />
             </label>
             <button type="button" className={styles.explainButton} onClick={() => void explainSelectedUnit()} disabled={!selectedProviderId || explaining || sourceQuery.isError || sourceQuery.isLoading}>
               {explaining ? 'Explaining…' : 'Explain selected code'}

@@ -33,6 +33,7 @@ import { webcrackPlugin } from './webcrack'
 import { luajitPlugin } from './luajit'
 import { unluacPlugin } from './unluac'
 import { unluacRsPlugin } from './unluac-rs'
+import { crubyIseqPlugin } from './cruby-iseq'
 
 export const CAPABILITIES: Capability[] = [
   { id: 'identify', label: 'Identify', description: 'Classify a target or artifact using observable metadata.', category: 'profiling' },
@@ -42,6 +43,7 @@ export const CAPABILITIES: Capability[] = [
   { id: 'inspect_binary_header', label: 'Inspect binary header', description: 'Read executable format, architecture, entrypoint, and ABI metadata.', category: 'static_analysis' },
   { id: 'extract_dependencies', label: 'Extract dependencies', description: 'Recover dynamic libraries and imported or exported symbols from native executables.', category: 'static_analysis' },
   { id: 'disassemble', label: 'Disassemble', description: 'Translate machine code into instructions.', category: 'static_analysis' },
+  { id: 'inspect_bytecode', label: 'Inspect bytecode', description: 'Inspect virtual-machine bytecode and preserve versioned instruction evidence.', category: 'static_analysis' },
   { id: 'decompile', label: 'Decompile', description: 'Produce higher-level code representations.', category: 'static_analysis' },
   { id: 'runtime_observation', label: 'Runtime observation', description: 'Collect observations from a live process or device.', category: 'dynamic_analysis' },
   { id: 'knowledge_graph', label: 'Knowledge graph', description: 'Write typed entities and relationships to the investigation graph.', category: 'knowledge' },
@@ -167,6 +169,9 @@ export const BUILTIN_TOOL_PLUGINS: ToolPlugin[] = [
   },
   {
     ...unluacRsPlugin,
+  },
+  {
+    ...crubyIseqPlugin,
   },
 ]
 

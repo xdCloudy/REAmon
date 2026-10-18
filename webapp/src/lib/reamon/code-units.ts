@@ -57,6 +57,10 @@ export interface CodeUnitObservationAttributes {
   coveragePercent?: number
   decompiledBytes?: number
   decompiled?: boolean
+  isExecutableSource?: boolean
+  instructionCount?: number
+  runtimeVersion?: string
+  binarySignature?: string
   language?: string
   sourceLanguage?: string
   representation?: string
@@ -156,6 +160,10 @@ export interface CodeUnit {
   sourceLanguage?: string | null
   representation?: string | null
   representationSemantics?: string | null
+  isExecutableSource?: boolean
+  instructionCount?: number | null
+  runtimeVersion?: string | null
+  binarySignature?: string | null
   recurseInstructionCount?: number | null
   recurseOptimizerPasses?: Record<string, number>
   sizeEvidence?: string | null
@@ -526,6 +534,10 @@ export function normalizeCodeUnit(row: CodeUnitObservationRow, options: { includ
     sourceLanguage: text(attributes.sourceLanguage, 80),
     representation: text(attributes.representation, 500),
     representationSemantics: text(attributes.representationSemantics, 4000),
+    isExecutableSource: typeof attributes.isExecutableSource === 'boolean' ? attributes.isExecutableSource : undefined,
+    instructionCount: boundedCount(attributes.instructionCount),
+    runtimeVersion: text(attributes.runtimeVersion, 300),
+    binarySignature: text(attributes.binarySignature, 16),
     recurseInstructionCount: boundedCount(attributes.recurseInstructionCount),
     recurseOptimizerPasses: recurseOptimizerPasses(attributes.recurseOptimizerPasses),
     sizeEvidence: text(attributes.sizeEvidence, 100),

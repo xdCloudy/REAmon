@@ -80,6 +80,17 @@ function detectFormat(bytes: Uint8Array, extension: string): {
   embeddedArtifacts: string[]
   containerFormat?: string
 } {
+  if (bytes.length >= 8 && readAscii(bytes, 0, 4) === 'YARB') {
+    return {
+      format: 'cruby-iseq',
+      targetType: 'FILE',
+      architecture: null,
+      platform: 'cruby',
+      runtimes: ['ruby'],
+      embeddedArtifacts: ['ruby-source'],
+    }
+  }
+
   const pyInstaller = hasPyInstallerCookie(bytes)
   if (bytes.length >= 4 && bytes[0] === 0x7f && readAscii(bytes, 1, 3) === 'ELF') {
     const elfClass = bytes[4] === 2 ? '64-bit' : bytes[4] === 1 ? '32-bit' : null

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { readFile, realpath, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { NextResponse } from 'next/server'
@@ -347,7 +348,8 @@ export async function POST(request: Request, { params }: RouteParams) {
       select: { attributes: true },
     })
     const codeNote = codeNoteText(savedCodeNote?.attributes,
-      typeof attributes.decompiledSourceSha256 === 'string' ? attributes.decompiledSourceSha256 : undefined)
+      typeof attributes.decompiledSourceSha256 === 'string' ? attributes.decompiledSourceSha256
+        : typeof attributes.codeArtifactSha256 === 'string' ? attributes.codeArtifactSha256 : undefined)
     const contextRows = observation.taskId ? await prisma.reamonObservation.findMany({
       where: { projectId, artifactId: artifact.id, taskId: observation.taskId, type: { in: ['code_unit', 'function', 'calls', 'language_metadata'] } },
       select: { type: true, label: true, attributes: true },
@@ -405,13 +407,21 @@ export async function POST(request: Request, { params }: RouteParams) {
       return NextResponse.json({ error: 'Linked source exceeds the explanation limit' }, { status: 413 })
     }
     const bytes = await readFile(sourcePath)
+    const expectedCodeHash = typeof attributes.codeArtifactSha256 === 'string' ? attributes.codeArtifactSha256.toLowerCase()
+      : typeof attributes.decompiledSourceSha256 === 'string' ? attributes.decompiledSourceSha256.toLowerCase() : null
+    if (expectedCodeHash && (!/^[a-f0-9]{64}$/.test(expectedCodeHash)
+      || createHash('sha256').update(bytes).digest('hex') !== expectedCodeHash)) {
+      return NextResponse.json({ error: 'Linked code artifact does not match its recorded SHA-256' }, { status: 409, headers: { 'Cache-Control': 'no-store' } })
+    }
     const sourceTruncated = bytes.byteLength > MAX_SOURCE_BYTES
     const sourceCode = bytes.subarray(0, MAX_SOURCE_BYTES).toString('utf8')
     const unitName = (typeof attributes.qualifiedName === 'string' && attributes.qualifiedName)
       || (typeof attributes.name === 'string' && attributes.name)
       || observation.label
       || 'Selected code unit'
-    const language = typeof attributes.language === 'string' ? attributes.language : 'unknown'
+    const language = attributes.isExecutableSource === false
+      ? `${typeof attributes.language === 'string' ? attributes.language : 'unknown'} ${typeof attributes.representation === 'string' ? attributes.representation : 'analysis evidence'}`.slice(0, 80)
+      : typeof attributes.language === 'string' ? attributes.language : 'unknown'
     const sourceLanguage = typeof attributes.sourceLanguage === 'string' ? attributes.sourceLanguage : ''
     const timeoutSeconds = typeof provider.timeout === 'number' && Number.isFinite(provider.timeout) ? provider.timeout : 120
     const timeoutMs = Math.max(10_000, Math.min(300_000, timeoutSeconds * 1000))

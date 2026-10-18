@@ -78,6 +78,10 @@ function text(value: unknown, max = 500): string | null {
   return typeof value === 'string' && value.trim() ? value.trim().slice(0, max) : null
 }
 
+function boundedInteger(value: unknown): number | null {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 && value <= 10_000_000 ? value : null
+}
+
 function textList(value: unknown, limit: number, maxLength: number): string[] {
   let parsed = value
   if (typeof value === 'string') {
@@ -662,7 +666,8 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
     },
     select: { attributes: true },
   })
-  const projectCodeNote = codeNoteText(savedCodeNote?.attributes, text(attributes.decompiledSourceSha256, 64) || undefined)
+  const projectCodeNote = codeNoteText(savedCodeNote?.attributes,
+    text(attributes.decompiledSourceSha256 ?? attributes.codeArtifactSha256, 64) || undefined)
   const sourceAddressMap = sourceAddressMappings(attributes.sourceAddressMap)
   const parentCodeUnitKey = text(attributes.parentCodeUnitKey, 1000)
   const parentUnit = unit.type === 'function' && parentCodeUnitKey ? await prisma.reamonObservation.findFirst({
@@ -1058,6 +1063,9 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
         || (attributes.decompiler === 'unwasm' && attributes.sourceLanguage === 'WebAssembly'
         ? 'Generated Rust is a translation view of this WebAssembly function, not the original source. Function and local names are provider evidence, not confirmed source names.'
         : null),
+      isExecutableSource: typeof attributes.isExecutableSource === 'boolean' ? attributes.isExecutableSource : null,
+      runtimeVersion: text(attributes.runtimeVersion, 300),
+      binarySignature: text(attributes.binarySignature, 16),
       recurseInstructionCount: typeof attributes.recurseInstructionCount === 'number'
         && Number.isSafeInteger(attributes.recurseInstructionCount) && attributes.recurseInstructionCount >= 0
         ? attributes.recurseInstructionCount : null,
@@ -1200,12 +1208,24 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
       completedAt: task.completedAt?.toISOString() || null,
       warnings: text(result.warnings, 2000),
     } : null,
-    decompiledSource: verifiedCode && !isRecurseLift ? {
+    decompiledSource: verifiedCode && !isRecurseLift && attributes.isExecutableSource !== false ? {
       scope: parentUnit ? 'containing_code_unit' : 'code_unit',
       relativePath: text(attributes.relativePath, 1000),
       text: verifiedCode.text,
       sizeBytes: verifiedCode.sizeBytes,
       sourceHash: verifiedCode.sourceHash,
+      truncated: verifiedCode.truncated,
+    } : null,
+    bytecodeDisassembly: verifiedCode && attributes.isExecutableSource === false ? {
+      relativePath: text(attributes.relativePath, 1000),
+      language: text(attributes.language, 80),
+      text: verifiedCode.text,
+      sizeBytes: verifiedCode.sizeBytes,
+      sha256: verifiedCode.sourceHash,
+      runtimeVersion: text(attributes.runtimeVersion, 300),
+      instructionCount: boundedInteger(attributes.instructionCount),
+      semantics: text(attributes.representationSemantics, 1000)
+        || 'Version-matched bytecode inspection evidence; this is not recovered source or proof of behavior.',
       truncated: verifiedCode.truncated,
     } : null,
     alternateDecompilerOutputs: reipaPseudocode ? [reipaPseudocode] : [],

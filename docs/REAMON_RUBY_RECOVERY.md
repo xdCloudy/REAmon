@@ -7,7 +7,9 @@ as a decompilation result.
 ## Current state
 
 REAmon supports Ruby source outlines and a version-reported `ruby -c` syntax check.
-It does not yet import CRuby ISeq binaries or reconstruct source from YARV bytecode.
+The isolated CRuby 3.4.11 provider now recognizes `YARB` ISeq artifacts, records a
+bounded YARV disassembly as hash-attributed project evidence, and keeps that artifact
+explicitly separate from source. It does not reconstruct Ruby source from bytecode.
 See the [language matrix](REAMON_LANGUAGE_MATRIX.md) for current support status and
 the [upstream reuse audit](REAMON_UPSTREAM_REUSE.md) for project and license notes.
 
@@ -29,16 +31,28 @@ version, ISeq header version, provider build, and output SHA-256.
 
 ## First implementation boundary
 
-Start with an isolated MRI ISeq inspection provider, then add source recovery only
-after the structured instruction model is validated. The inspection provider should:
+The initial isolated MRI ISeq inspection provider is implemented. It runs CRuby
+3.4.11 in a constrained analyzer, loads the ISeq only for disassembly, enforces input,
+output, memory, and CPU limits, writes a separate derived disassembly artifact, and
+stores the bounded disassembly, instruction count, exact hashes, and runtime identity
+in the project observation. The visualizer and MCP expose it as bytecode evidence;
+the AI explanation prompt labels its limits, and maintenance rewrites reject it. The
+current limit is 16 MiB input, 512 KiB output, one concurrent analysis, 25 CPU
+seconds in the child, and 384 MiB child address space. The analyzer image builds,
+both Ruby files pass `ruby -c`, Compose configuration validates, and the webapp passes
+its production TypeScript check. Runtime artifact inspection and fixture fidelity
+evidence remain open. Add source recovery only after the structured instruction model
+is validated.
+
+The implemented inspection boundary must continue to:
 
 - accept only recognized ISeq binary inputs and enforce byte, memory, CPU, and output
   limits;
 - use a pinned MRI runtime selected by the input's compatible header, with the exact
   runtime build recorded;
 - load the ISeq only to inspect/disassemble it, never evaluate it;
-- save bounded raw disassembly and structured ISeq metadata as separate,
-  hash-attributed project observations;
+- save bounded raw disassembly and summary metadata as separate, hash-attributed
+  project observations;
 - reject a runtime/header mismatch explicitly instead of silently trying another
   Ruby version;
 - keep raw instructions, intermediate representations, generated Ruby, and accepted
