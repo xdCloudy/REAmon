@@ -26,6 +26,34 @@ function readUInt32(bytes: Uint8Array, offset: number): number | null {
   return (bytes[offset] | (bytes[offset + 1] << 8) | (bytes[offset + 2] << 16) | (bytes[offset + 3] << 24)) >>> 0
 }
 
+function readUInt32BE(bytes: Uint8Array, offset: number): number | null {
+  if (offset < 0 || offset + 4 > bytes.length) return null
+  return ((bytes[offset] * 0x1000000) + (bytes[offset + 1] << 16) + (bytes[offset + 2] << 8) + bytes[offset + 3]) >>> 0
+}
+
+function hasPyInstallerCookie(bytes: Uint8Array): boolean {
+  const signature = [0x4d, 0x45, 0x49, 0x0c, 0x0b, 0x0a, 0x0b, 0x0e]
+  const searchStart = Math.max(0, bytes.length - 1024 * 1024)
+  for (let offset = bytes.length - signature.length; offset >= searchStart; offset -= 1) {
+    let matches = true
+    for (let index = 0; index < signature.length; index += 1) {
+      if (bytes[offset + index] !== signature[index]) {
+        matches = false
+        break
+      }
+    }
+    if (!matches) continue
+    const packageLength = readUInt32BE(bytes, offset + 8)
+    const tocOffset = readUInt32BE(bytes, offset + 12)
+    const tocLength = readUInt32BE(bytes, offset + 16)
+    if (packageLength === null || tocOffset === null || tocLength === null) continue
+    if (packageLength === 0 || packageLength > offset) continue
+    if (tocLength === 0 || tocOffset > packageLength || tocLength > packageLength - tocOffset) continue
+    return true
+  }
+  return false
+}
+
 function hasCliHeader(bytes: Uint8Array): boolean {
   const peOffset = readUInt32(bytes, 0x3c)
   if (peOffset === null || peOffset + 24 > bytes.length || readAscii(bytes, peOffset, 4) !== 'PE\u0000\u0000') return false
@@ -50,7 +78,9 @@ function detectFormat(bytes: Uint8Array, extension: string): {
   platform: string | null
   runtimes: string[]
   embeddedArtifacts: string[]
+  containerFormat?: string
 } {
+  const pyInstaller = hasPyInstallerCookie(bytes)
   if (bytes.length >= 4 && bytes[0] === 0x7f && readAscii(bytes, 1, 3) === 'ELF') {
     const elfClass = bytes[4] === 2 ? '64-bit' : bytes[4] === 1 ? '32-bit' : null
     const machine = bytes.length >= 20
@@ -70,8 +100,9 @@ function detectFormat(bytes: Uint8Array, extension: string): {
       targetType: 'FILE',
       architecture,
       platform: 'unix-like',
-      runtimes: extension === 'so' ? ['native-library'] : ['native'],
-      embeddedArtifacts: [],
+      runtimes: [...(extension === 'so' ? ['native-library'] : ['native']), ...(pyInstaller ? ['python'] : [])],
+      embeddedArtifacts: pyInstaller ? ['python-bytecode'] : [],
+      ...(pyInstaller ? { containerFormat: 'pyinstaller' } : {}),
     }
   }
 
@@ -182,8 +213,9 @@ function detectFormat(bytes: Uint8Array, extension: string): {
       targetType: 'FILE',
       architecture: null,
       platform: 'windows',
-      runtimes: managed ? ['dotnet'] : ['native'],
-      embeddedArtifacts: [],
+      runtimes: [...(managed ? ['dotnet'] : ['native']), ...(pyInstaller ? ['python'] : [])],
+      embeddedArtifacts: pyInstaller ? ['python-bytecode'] : [],
+      ...(pyInstaller ? { containerFormat: 'pyinstaller' } : {}),
     }
   }
 
@@ -196,8 +228,9 @@ function detectFormat(bytes: Uint8Array, extension: string): {
       targetType: 'FILE',
       architecture: magic === 0xfeedfacf || magic === 0xcffaedfe ? '64-bit' : '32-bit',
       platform: 'macos',
-      runtimes: ['native'],
-      embeddedArtifacts: [],
+      runtimes: [...(pyInstaller ? ['native', 'python'] : ['native'])],
+      embeddedArtifacts: pyInstaller ? ['python-bytecode'] : [],
+      ...(pyInstaller ? { containerFormat: 'pyinstaller' } : {}),
     }
   }
 
@@ -330,10 +363,11 @@ export function profileArtifact(
 ): TargetProfile {
   const extension = extensionOf(fileName)
   const detected = detectFormat(bytes, extension)
+  const { containerFormat, ...profile } = detected
   const mimeType = mimeTypeFor(detected.format, extension, providedMimeType)
 
   return {
-    ...detected,
+    ...profile,
     mimeType,
     extension,
     entropy: entropyOf(bytes),
@@ -341,6 +375,7 @@ export function profileArtifact(
       byteLength: bytes.byteLength,
       hasMagic: detected.format !== 'unknown',
       extensionHint: extension || null,
+      containerFormat: containerFormat || null,
     },
   }
 }

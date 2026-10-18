@@ -75,6 +75,11 @@ const resultFor = (manifest: ToolPluginManifest, input: ToolExecutionInput): Too
         format: input.targetProfile.format,
         mimeType: input.targetProfile.mimeType,
         extension: input.targetProfile.extension,
+        ...(typeof input.targetProfile.metadata.containerFormat === 'string'
+          ? { containerFormat: input.targetProfile.metadata.containerFormat }
+          : {}),
+        runtimes: input.targetProfile.runtimes,
+        embeddedArtifacts: input.targetProfile.embeddedArtifacts,
       },
     }],
   },
