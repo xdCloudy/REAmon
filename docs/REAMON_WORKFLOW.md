@@ -103,14 +103,15 @@ Each rewrite attempt now retains a validator status (`PASSED`, `FAILED`, or
 `UNAVAILABLE`), the check name, and a bounded message. Tree-sitter syntax checks also
 preserve recognized callable counts across supported grammars. When a whole-file draft
 has parser errors, REAmon makes one bounded repair request to the same saved provider,
-including up to eight parser locations and the exact rejected candidate; the repaired
-draft is parsed again before declaration checks continue. Both candidate rounds, their
-source hashes, and parser outcomes are stored on the attempt and shown in its history;
-the next rewrite receives their bounded hashes and validator summary for this exact
-source version. A failed repair remains a failed attempt with its parser diagnostic.
-Java and C/C++ also retain declaration-form checks. These are structural evidence, not
-proof of behavioral equivalence. Editing a saved draft clears its prior validation
-metadata.
+including up to eight parser locations and the exact rejected candidate. This applies
+to whole-file and single-member drafts; member repair must still preserve its original
+declaration contract. The repaired draft is parsed again before declaration checks
+continue. Both candidate rounds, their source hashes, and parser outcomes are stored on
+the attempt and shown in its history; the next rewrite receives their bounded hashes
+and validator summary for this exact source version. A failed repair remains a failed
+attempt with its parser diagnostic. Java and C/C++ also retain declaration-form checks.
+These are structural evidence, not proof of behavioral equivalence. Editing a saved
+draft clears its prior validation metadata.
 
 Most maintained-source acceptance checks remain structural. For a JVM JAR, the visualizer can separately compile one accepted Java class against the original archive and create an unsigned derived JAR. Generated class entries replace their prior versions, and stale nested-class entries missing from the new compile are removed under a bounded count limit. This compiler result validates that one source class against the bundled JDK and archive classpath; it does not use external project dependencies or prove runtime equivalence. For Universal Dreams `.ud` source, acceptance runs the pinned compiler and stores its compiled output under the originating analysis run, keyed by the exact source and output hashes. The immutable review receipt records the source hash, validator revision, output hash, and derived artifact path. This proves that the pinned compiler accepted the edited representation and produced bytes; byte identity against the original is recorded separately and neither result proves behavioral equivalence. REAmon does not yet run a general original-toolchain, function-level byte comparison. Projects such as Rebrew show
 the stronger path when the exact native compiler, flags, linker placement, and target
