@@ -145,6 +145,17 @@ export async function GET(request: Request, { params }: RouteParams) {
         const indexedUnitCount = hasPersistedInventory
           ? finiteCount(inventory.indexedUnitCount) ?? 0
           : Math.min(codeUnitCount, returnedUnitCount)
+        const notObservedUnitCount = hasPersistedInventory ? finiteCount(inventory.notObservedUnitCount) ?? 0 : 0
+        const notIndexedUnitCount = hasPersistedInventory
+          ? finiteCount(inventory.notIndexedUnitCount) ?? 0
+          : Math.max(0, returnedUnitCount - indexedUnitCount)
+        const unreturnedDiscoveredUnitCount = hasPersistedInventory
+          ? finiteCount(inventory.unreturnedDiscoveredUnitCount ?? inventory.unaccountedDiscoveredUnitCount)
+          : null
+        const hasKnownCoverageGaps = notObservedUnitCount > 0 || notIndexedUnitCount > 0 || (unreturnedDiscoveredUnitCount ?? 0) > 0
+        const coverageTruncated = discoveredUnitCount !== null
+          ? indexedUnitCount < discoveredUnitCount
+          : hasKnownCoverageGaps || (hasPersistedInventory ? inventory.truncated === true : result.truncated === true)
         const linkPercent = hasPersistedInventory ? finiteCount(inventory.coveragePercent)
           : discoveredUnitCount ? Math.min(100, Math.round((indexedUnitCount / discoveredUnitCount) * 100)) : null
         const unitLabel = ['reamon-ghidra', 'reamon-recurse', 'reamon-miasm', 'reamon-wabt', 'reamon-glaurung', 'reamon-kuna', 'reamon-fission', 'reamon-oxidizer', 'reamon-reko'].includes(task.provider?.pluginId || '') ? 'functions' : 'code units'
@@ -164,11 +175,9 @@ export async function GET(request: Request, { params }: RouteParams) {
           discoveredUnitCount,
           returnedUnitCount,
           indexedUnitCount,
-          notObservedUnitCount: hasPersistedInventory ? finiteCount(inventory.notObservedUnitCount) ?? 0 : 0,
-          notIndexedUnitCount: hasPersistedInventory ? finiteCount(inventory.notIndexedUnitCount) ?? 0 : Math.max(0, returnedUnitCount - indexedUnitCount),
-          unreturnedDiscoveredUnitCount: hasPersistedInventory
-            ? finiteCount(inventory.unreturnedDiscoveredUnitCount ?? inventory.unaccountedDiscoveredUnitCount)
-            : null,
+          notObservedUnitCount,
+          notIndexedUnitCount,
+          unreturnedDiscoveredUnitCount,
           skippedUnitCount: hasPersistedInventory ? finiteCount(inventory.skippedUnitCount) : null,
           unsupportedUnitCount: hasPersistedInventory ? finiteCount(inventory.unsupportedUnitCount) : null,
           excludedUnitCount: hasPersistedInventory ? finiteCount(inventory.excludedUnitCount) : null,
@@ -176,7 +185,7 @@ export async function GET(request: Request, { params }: RouteParams) {
           codeBytes: finiteCount(result.codeBytes),
           linkPercent,
           inventoryAvailable: hasPersistedInventory,
-          truncated: hasPersistedInventory ? inventory.truncated === true : result.truncated === true || (discoveredUnitCount !== null && returnedUnitCount < discoveredUnitCount),
+          truncated: coverageTruncated,
           warnings: typeof result.warnings === 'string' ? result.warnings.slice(0, 4000) : '',
           failedUnitCount: hasPersistedInventory ? finiteCount(inventory.failedUnitCount) : finiteCount(result.failedFunctionCount),
           visitedUnitCount: hasPersistedInventory ? finiteCount(inventory.visitedUnitCount) : finiteCount(result.visitedFunctionCount),

@@ -74,6 +74,33 @@ function formatBytes(size: number): string {
   return `${(size / 1024 / 1024 / 1024).toFixed(2)} GB`
 }
 
+function countFrom(record: Record<string, unknown> | null, keys: string[]): number | null {
+  if (!record) return null
+  for (const key of keys) {
+    const value = record[key]
+    if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0) return value
+  }
+  return null
+}
+
+function hasIncompleteCodeUnitCoverage(result: Record<string, unknown> | null | undefined): boolean {
+  if (!result) return false
+  const inventory = result.coverageInventory && typeof result.coverageInventory === 'object' && !Array.isArray(result.coverageInventory)
+    ? result.coverageInventory as Record<string, unknown>
+    : null
+  const discovered = countFrom(inventory, ['discoveredUnitCount'])
+    ?? countFrom(result, ['decompiledCodeUnitCount', 'discoveredCodeUnitCount', 'decompiledClassCount', 'classCount', 'functionCount'])
+  const indexed = countFrom(inventory, ['indexedUnitCount'])
+    ?? countFrom(result, ['returnedCodeUnitCount', 'returnedClassCount', 'returnedFunctionCount'])
+  const notObserved = countFrom(inventory, ['notObservedUnitCount'])
+  const notIndexed = countFrom(inventory, ['notIndexedUnitCount'])
+  const unreturned = countFrom(inventory, ['unreturnedDiscoveredUnitCount', 'unaccountedDiscoveredUnitCount'])
+  if ([notObserved, notIndexed, unreturned].some((count) => count !== null && count > 0)) return true
+  if (discovered !== null && indexed !== null) return indexed < discovered
+  if (inventory && typeof inventory.truncated === 'boolean') return inventory.truncated
+  return result.truncated === true
+}
+
 function profileLabel(profile: TargetProfile): string {
   const details = [profile.format.toUpperCase()]
   if (profile.architecture) details.push(profile.architecture)
@@ -194,7 +221,7 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
   const returnedClassCount = typeof decompileResult?.returnedClassCount === 'number' ? decompileResult.returnedClassCount : null
   const discoveredClassCount = typeof decompileResult?.decompiledClassCount === 'number' ? decompileResult.decompiledClassCount : null
   const sourceScanLimited = typeof decompileResult?.warnings === 'string' && /produced more than|source scan.*limit/i.test(decompileResult.warnings)
-  const hasPartialDecompilation = decompileTask?.status === 'COMPLETED' && decompileResult?.truncated === true
+  const hasPartialDecompilation = decompileTask?.status === 'COMPLETED' && hasIncompleteCodeUnitCoverage(decompileResult)
   const decompileProposal = analysisPlan.data?.steps.find((step) => step.capability === 'decompile')
   const decompilationTaskActive = decompileTask && ['AWAITING_APPROVAL', 'QUEUED', 'RUNNING'].includes(decompileTask.status)
   const logicalTargets = data?.targets.filter((target) => target.targetType !== 'DIRECTORY') || []
@@ -234,7 +261,7 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
         void queryClient.invalidateQueries({ queryKey: ['reamon-code-units', projectId] })
       }} />
       {hasDecompilableArtifact && <aside className={styles.analysisNextStep} id="analysis-next-step">
-        <div><strong>{hasPartialDecompilation && returnedClassCount !== null ? discoveredClassCount !== null && !sourceScanLimited ? `Previous run indexed ${returnedClassCount.toLocaleString()} of ${discoveredClassCount.toLocaleString()} Java classes.` : `At least ${returnedClassCount.toLocaleString()} Java classes indexed; the total is unknown.` : decompileTask?.status === 'AWAITING_APPROVAL' ? 'Decompilation is waiting for approval.' : decompileTask?.status === 'QUEUED' ? 'Decompilation is queued.' : decompileTask?.status === 'RUNNING' ? 'Decompilation is running.' : decompileTask?.status === 'COMPLETED' ? 'Decompilation run finished.' : decompileTask?.status === 'FAILED' ? 'Decompilation failed.' : decompileTask?.status === 'CANCELLED' ? 'Decompilation was cancelled.' : 'Import complete; decompilation has not started.'}</strong><p>{hasPartialDecompilation ? 'This run did not index every code unit. A new run uses current analyzer settings, up to 20,000 classes; larger targets can still be partial. This performs static decompilation; it does not launch the Android app.' : decompileTask?.status === 'AWAITING_APPROVAL' ? 'Approve this task under Tasks and findings, then choose Run.' : decompileTask?.status === 'QUEUED' ? 'The approved task is ready. Choose Run under Tasks and findings.' : decompileTask?.status === 'RUNNING' ? decompileTask.progressMessage || 'The isolated analyzer is processing the imported artifact.' : decompileTask?.status === 'COMPLETED' ? 'Review indexed coverage and any truncation warnings in the visualizer below. Start another run to refresh the results.' : decompileTask ? 'Review the task details below, or start a fresh analysis attempt.' : 'Choose Run decompilation to start the matching isolated analyzer for this imported artifact. This performs static analysis; it does not launch the Android app.'}</p></div>
+        <div><strong>{hasPartialDecompilation && returnedClassCount !== null ? discoveredClassCount !== null && !sourceScanLimited ? `Previous run indexed ${returnedClassCount.toLocaleString()} of ${discoveredClassCount.toLocaleString()} Java classes.` : `At least ${returnedClassCount.toLocaleString()} Java classes indexed; the total is unknown.` : decompileTask?.status === 'AWAITING_APPROVAL' ? 'Decompilation is waiting for approval.' : decompileTask?.status === 'QUEUED' ? 'Decompilation is queued.' : decompileTask?.status === 'RUNNING' ? 'Decompilation is running.' : decompileTask?.status === 'COMPLETED' ? 'Decompilation run finished.' : decompileTask?.status === 'FAILED' ? 'Decompilation failed.' : decompileTask?.status === 'CANCELLED' ? 'Decompilation was cancelled.' : 'Import complete; decompilation has not started.'}</strong><p>{hasPartialDecompilation ? 'This run did not index every code unit. A new run uses the current analyzer limits, so very large targets can still be partial. This performs static decompilation; it does not launch the Android app.' : decompileTask?.status === 'AWAITING_APPROVAL' ? 'Approve this task under Tasks and findings, then choose Run.' : decompileTask?.status === 'QUEUED' ? 'The approved task is ready. Choose Run under Tasks and findings.' : decompileTask?.status === 'RUNNING' ? decompileTask.progressMessage || 'The isolated analyzer is processing the imported artifact.' : decompileTask?.status === 'COMPLETED' ? 'Review indexed coverage and any supplemental evidence limits in the visualizer below. Start another run to refresh the results.' : decompileTask ? 'Review the task details below, or start a fresh analysis attempt.' : 'Choose Run decompilation to start the matching isolated analyzer for this imported artifact. This performs static analysis; it does not launch the Android app.'}</p></div>
         {!decompilationTaskActive && decompileProposal && <WorkspaceDecompilationAction projectId={projectId} artifactId={decompileProposal.artifactId} providerId={decompileProposal.provider.pluginId} hasPreviousRun={Boolean(decompileTask)} onPendingChange={setDecompilationActionPending} onChanged={() => {
           void queryClient.invalidateQueries({ queryKey: ['reamon-workspace', projectId] })
           void queryClient.invalidateQueries({ queryKey: ['reamon-code-units', projectId] })

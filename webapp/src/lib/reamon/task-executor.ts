@@ -149,8 +149,10 @@ function buildCoverageInventory(data: unknown, providerId: string | null, indexe
     unsupportedUnitCount,
     excludedUnitCount,
     omittedUnitCount,
-    truncated: result.truncated === true || (discoveredUnitCount !== null && providerReturnedUnitCount < discoveredUnitCount)
-      || observedUnitCount > MAX_CODE_UNITS_PER_RESULT,
+    truncated: observedUnitCount > MAX_CODE_UNITS_PER_RESULT
+      || (discoveredUnitCount === null
+        ? result.truncated === true
+        : indexedCoverageUnitCount < discoveredUnitCount),
     coveragePercent: discoveredUnitCount === null
       ? null
       : Math.min(100, Math.round((indexedCoverageUnitCount / Math.max(1, discoveredUnitCount)) * 100)),
