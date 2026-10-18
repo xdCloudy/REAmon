@@ -122,7 +122,10 @@ export async function runWorkspaceImport(options: {
 
   emit('UPLOADING')
   let cursor = 0
-  const concurrency = Math.max(1, Math.min(options.concurrency || 3, 6))
+  // Next.js buffers proxied request bodies in memory. Keep large artifact
+  // uploads serial so several near-limit files cannot multiply that buffer.
+  const hasLargeFile = selection.files.some((entry) => entry.size >= 8 * 1024 * 1024)
+  const concurrency = hasLargeFile ? 1 : Math.max(1, Math.min(options.concurrency || 3, 6))
   const uploadOne = async (entry: WorkspaceSelectionFile) => {
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try {

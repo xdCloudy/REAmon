@@ -3,6 +3,14 @@ import type { NextConfig } from 'next'
 const nextConfig: NextConfig = {
   output: 'standalone',
 
+  // The workspace artifact route accepts files up to 512 MiB. Proxy
+  // buffers requests before they reach that route, and its 10 MiB default
+  // truncates larger multipart bodies so request.formData() fails. Leave a
+  // small allowance for multipart boundaries and form fields.
+  experimental: {
+    proxyClientMaxBodySize: '513mb',
+  },
+
   // Keep production type-checking focused on shipped application code. Vitest
   // owns the test suite, including its test-only mocks and fixtures.
   typescript: {
