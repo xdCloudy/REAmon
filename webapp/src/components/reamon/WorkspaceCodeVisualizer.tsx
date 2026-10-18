@@ -2553,8 +2553,16 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
         {selectedUnit.extractedBytecodeArtifactId && !selectedSourceUrl && <p className={styles.sourcePreviewNote} role="note">
           PyInstaller module {selectedUnit.pyinstallerArchivePath ? <code>{selectedUnit.pyinstallerArchivePath}</code> : selectedUnit.name} is saved as bytecode with SHA-256 {selectedUnit.extractedBytecodeSha256 || 'recorded in project provenance'}. Source reconstruction is pending; later PyInstaller analyses continue with up to four pending modules.
         </p>}
-        {selectedUnit && selectedSourceUrl && <section className={styles.sourcePanel} aria-label={selectedUnit.representation === 'optimized intermediate representation' ? 'Intermediate representation evidence' : selectedUnit.unitType === 'resource' ? 'Decoded Android resource' : selectedDisassemblyUrl ? 'Decompilation and disassembly comparison' : (selectedUnit.language === 'WebAssembly Text (WAT)' ? 'WAT disassembly' : selectedUnit.representation === 'YARV instruction disassembly' ? 'YARV bytecode disassembly' : isDisassemblyUnit(selectedUnit) ? 'Smali disassembly' : 'Decompiled source')}>
+        {selectedUnit && selectedSourceUrl && <section className={styles.sourcePanel} aria-label={selectedUnit.representation === 'optimized intermediate representation' ? 'Intermediate representation evidence' : selectedUnit.representation === 'Editable .ud binary specification' ? 'Editable binary specification' : selectedUnit.unitType === 'resource' ? 'Decoded Android resource' : selectedDisassemblyUrl ? 'Decompilation and disassembly comparison' : (selectedUnit.language === 'WebAssembly Text (WAT)' ? 'WAT disassembly' : selectedUnit.representation === 'YARV instruction disassembly' ? 'YARV bytecode disassembly' : isDisassemblyUnit(selectedUnit) ? 'Smali disassembly' : 'Decompiled source')}>
           {selectedUnit.representationSemantics && <p className={styles.sourcePreviewNote} role="note">{selectedUnit.representationSemantics}</p>}
+          {selectedUnit.roundTripByteIdentical !== null && selectedUnit.roundTripByteIdentical !== undefined && <p className={styles.sourcePreviewNote} role="status">
+            univdreams compile-back {selectedUnit.roundTripByteIdentical ? 'matches the imported file byte-for-byte' : 'differs from the imported file'}
+            {selectedUnit.roundTripSha256 ? ` · rebuilt SHA-256 ${selectedUnit.roundTripSha256}` : ''}
+            {' · This is an encoding and layout comparison, not proof of equivalent behavior.'}
+          </p>}
+          {selectedUnit.roundTripError && <p className={styles.sourcePreviewNote} role="status">
+            univdreams compile-back was unavailable: {selectedUnit.roundTripError}
+          </p>}
           {selectedUnit.bytecodeMagicHex && <p className={styles.sourcePreviewNote} role="note">Bytecode magic: 0x{selectedUnit.bytecodeMagicHex} · raw header metadata; runtime version is not inferred.</p>}
           {selectedUnit.deobfuscationProvider && <p className={styles.sourcePreviewNote} role="note">
             {selectedUnit.deobfuscationProvider} {selectedUnit.deobfuscationProviderRevision ? `@ ${selectedUnit.deobfuscationProviderRevision.slice(0, 12)}` : 'transformation'} · transformed artifact {selectedUnit.deobfuscatedArtifactId?.split('/').pop() || 'recorded'}
@@ -2567,7 +2575,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
           {selectedDisassemblyUrl ? <div className={styles.comparison}>
             <div className={styles.listingPane}>
               <div className={styles.sourceHeader}>
-                <div><strong>{selectedUnit.representation === 'YARV instruction disassembly' ? 'YARV bytecode disassembly' : 'Decompiled source'}</strong><span>{languageLabel(selectedUnit)} · {selectedUnit.codeArtifactId?.split('/').pop()}</span></div>
+                <div><strong>{selectedUnit.representation === 'Editable .ud binary specification' ? 'Editable binary specification' : selectedUnit.representation === 'YARV instruction disassembly' ? 'YARV bytecode disassembly' : 'Decompiled source'}</strong><span>{languageLabel(selectedUnit)} · {selectedUnit.codeArtifactId?.split('/').pop()}</span></div>
                 <button type="button" className={styles.copyButton} onClick={() => void copySource()} disabled={!sourceQuery.data}><Copy size={14} /> {copyStatus || (selectedUnit.representation === 'YARV instruction disassembly' ? 'Copy listing' : 'Copy source')}</button>
               </div>
               {selectedUnit.representation && <p className={styles.sourcePreviewNote} role="status">{selectedUnit.representation}{selectedUnit.decompilerVersion ? ` · ${selectedUnit.decompilerVersion}` : ''}{selectedUnit.nameEvidence ? ` · Name evidence: ${selectedUnit.nameEvidence}` : ''}</p>}

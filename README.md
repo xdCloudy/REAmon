@@ -120,7 +120,11 @@ for isolated JVM `.class`/`.jar` alternatives,
 [ILSpy](https://github.com/icsharpcode/ILSpy),
 [Oxidizer](https://github.com/sefcom/oxidizer) through an optional analyzer pinned to angr 10.0.4,
 [Ghidra](https://github.com/NationalSecurityAgency/ghidra), and
-[WABT](https://github.com/WebAssembly/wabt). Python bytecode uses the MIT-licensed
+[WABT](https://github.com/WebAssembly/wabt). Native and WebAssembly artifacts can
+also receive an isolated [univdreams](https://github.com/KarpelesLab/univdreams)
+`.ud` binary view with a separately stored compile-back result and exact byte-match
+status; this is an editable low-level binary representation, not recovered original
+language source. Python bytecode uses the MIT-licensed
 [pycdc](https://github.com/ejfkdev/pycdc) 0.6.0 CLI in an isolated analyzer;
 its broad version support and reconstruction quality still need REAmon fixture
 validation. [PyLingual](https://github.com/syssec-utd/pylingual) is a planned

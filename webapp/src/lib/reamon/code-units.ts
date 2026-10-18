@@ -109,6 +109,12 @@ export interface CodeUnitObservationAttributes {
   sourceLanguage?: string
   representation?: string
   representationSemantics?: string
+  roundTripAvailable?: boolean
+  roundTripByteIdentical?: boolean | null
+  roundTripArtifactId?: string
+  roundTripSha256?: string
+  roundTripBytes?: number
+  roundTripError?: string
   recurseInstructionCount?: number
   recurseOptimizerPasses?: string
   sizeEvidence?: string
@@ -204,6 +210,12 @@ export interface CodeUnit {
   sourceLanguage?: string | null
   representation?: string | null
   representationSemantics?: string | null
+  roundTripAvailable?: boolean
+  roundTripByteIdentical?: boolean | null
+  roundTripArtifactId?: string | null
+  roundTripSha256?: string | null
+  roundTripBytes?: number | null
+  roundTripError?: string | null
   isExecutableSource?: boolean
   instructionCount?: number | null
   structuredBytecode?: CrubyIseqEvidence | null
@@ -668,6 +680,12 @@ export function normalizeCodeUnit(row: CodeUnitObservationRow, options: { includ
     sourceLanguage: text(attributes.sourceLanguage, 80),
     representation: text(attributes.representation, 500),
     representationSemantics: text(attributes.representationSemantics, 4000),
+    roundTripAvailable: typeof attributes.roundTripAvailable === 'boolean' ? attributes.roundTripAvailable : undefined,
+    roundTripByteIdentical: typeof attributes.roundTripByteIdentical === 'boolean' ? attributes.roundTripByteIdentical : null,
+    roundTripArtifactId: text(attributes.roundTripArtifactId, 2000),
+    roundTripSha256: sha256(attributes.roundTripSha256),
+    roundTripBytes: boundedCount(attributes.roundTripBytes),
+    roundTripError: text(attributes.roundTripError, 1200),
     isExecutableSource: typeof attributes.isExecutableSource === 'boolean' ? attributes.isExecutableSource : undefined,
     instructionCount: boundedCount(attributes.instructionCount),
     structuredBytecode: crubyIseqEvidenceOf(attributes.structuredBytecode),
