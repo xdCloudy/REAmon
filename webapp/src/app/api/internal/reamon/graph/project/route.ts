@@ -102,6 +102,7 @@ export async function POST(request: NextRequest) {
   let projectionRunCreated = false
   let projectionLeaseAcquired = false
   let projectionLeaseShouldRelease = false
+  let projectionResumed = false
   try {
     let body: ProjectionBody
     try {
@@ -117,7 +118,34 @@ export async function POST(request: NextRequest) {
     if (body.offset !== undefined && (typeof body.offset !== 'number' || !Number.isFinite(body.offset))) return badRequest('offset must be a number')
 
     projectId = body.projectId.trim()
-    projectionRunId = typeof body.projectionRunId === 'string' ? body.projectionRunId.trim() : randomUUID()
+    projectionRunId = typeof body.projectionRunId === 'string' ? body.projectionRunId.trim() : null
+    let projectionOffset = typeof body.offset === 'number' ? Math.min(1_000_000, Math.max(0, Math.floor(body.offset))) : 0
+
+    // A worker can lose its in-memory continuation cursor if it is stopped while
+    // a page is running. Resume from the latest database checkpoint only after
+    // its lease expires; while a lease is live, let the current request finish.
+    if (!projectionRunId && (body.offset === undefined || body.offset === 0)
+      && typeof prisma.reamonProjectionRun.findFirst === 'function'
+      && typeof prisma.reamonProjectionLease.findUnique === 'function') {
+      const latestRun = await prisma.reamonProjectionRun.findFirst({
+        where: { projectId },
+        orderBy: { updatedAt: 'desc' },
+        select: { projectionRunId: true, status: true, offset: true, selected: true, truncated: true },
+      })
+      const isResumable = latestRun && (
+        latestRun.status === 'RUNNING' || (latestRun.status === 'COMPLETED' && latestRun.truncated)
+      )
+      if (isResumable) {
+        const existingLease = await prisma.reamonProjectionLease.findUnique({ where: { projectId }, select: { leaseUntil: true } })
+        if (!existingLease || existingLease.leaseUntil <= new Date()) {
+          projectionRunId = latestRun.projectionRunId
+          projectionOffset = latestRun.offset + latestRun.selected
+          projectionResumed = true
+        }
+      }
+    }
+
+    projectionRunId ||= randomUUID()
     projectionLeaseAcquired = await acquireProjectionLease(projectId, projectionRunId)
     if (!projectionLeaseAcquired) {
       return NextResponse.json({ error: 'A graph projection is already running for this project' }, {
@@ -125,18 +153,19 @@ export async function POST(request: NextRequest) {
         headers: { 'Cache-Control': 'no-store', 'Retry-After': '30' },
       })
     }
-    await createProjectionRun(projectionRunId, projectId, typeof body.offset === 'number' ? Math.min(1_000_000, Math.max(0, Math.floor(body.offset))) : 0)
+    await createProjectionRun(projectionRunId, projectId, projectionOffset)
     projectionRunCreated = true
-    await recordProjectionActivity(projectId, 'analysis.graph_projection.started', `Started graph projection for ${projectId}`, {
+    await recordProjectionActivity(projectId, 'analysis.graph_projection.started', `${projectionResumed ? 'Resumed' : 'Started'} graph projection for ${projectId}`, {
       projectionRunId,
       limit: body.limit ?? null,
       batchSize: body.batchSize ?? null,
-      offset: body.offset ?? 0,
+      offset: projectionOffset,
+      resumed: projectionResumed,
     })
 
     const session = getGraphSession()
     try {
-      const result = await projectReamonObservations(projectId, session, body.limit as number | undefined, body.batchSize as number | undefined, body.offset as number | undefined, projectionRunId)
+      const result = await projectReamonObservations(projectId, session, body.limit as number | undefined, body.batchSize as number | undefined, projectionOffset, projectionRunId)
       projectionLeaseShouldRelease = !result.truncated
       const reconciliation = result.truncated
         ? { reconciled: false, deletedNodes: 0, deletedRelationships: 0 }

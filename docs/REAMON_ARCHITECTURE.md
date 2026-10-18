@@ -465,7 +465,10 @@ per-request observation cap.
 Every page carries the same projection marker; the completed page performs a
 marker-based Neo4j sweep that removes stale REAmon nodes and relationships. A
 short-lived PostgreSQL project lease fences overlapping workers across pages, and
-the run record exposes the removed counts for operator review.
+the run record exposes the removed counts for operator review. If a worker loses
+its in-memory page cursor, a later request resumes the latest incomplete or
+truncated run from the database checkpoint after its lease expires; it does not
+restart the full project from offset zero.
 Observation ingestion now derives a bounded canonical identity from an
 explicit `identity`, `identityKey`, `canonicalKey`, or `qualifiedName` hint (and from
 normalized string values); observations without a hint remain source-scoped. Neo4j
