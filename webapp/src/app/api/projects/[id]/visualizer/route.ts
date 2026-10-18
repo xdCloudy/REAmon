@@ -153,6 +153,7 @@ export async function GET(request: Request, { params }: RouteParams) {
           warnings: typeof result.warnings === 'string' ? result.warnings.slice(0, 4000) : '',
           failedUnitCount: hasPersistedInventory ? finiteCount(inventory.failedUnitCount) : finiteCount(result.failedFunctionCount),
           visitedUnitCount: hasPersistedInventory ? finiteCount(inventory.visitedUnitCount) : finiteCount(result.visitedFunctionCount),
+          notVisitedUnitCount: hasPersistedInventory ? finiteCount(inventory.notVisitedUnitCount) : null,
         }
       })
     if (requestedTaskId && !runs.some((run) => run.id === requestedTaskId)) {

@@ -46,6 +46,7 @@ interface CodeUnitResponse {
     warnings: string
     failedUnitCount: number | null
     visitedUnitCount: number | null
+    notVisitedUnitCount: number | null
   }>
   selectedRunId: string | null
 }
@@ -2060,6 +2061,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
           <span style={{ width: `${maintainedCoverageQuery.data?.decompilationCoveragePercent ?? currentRun.linkPercent ?? 0}%` }} />
         </div>}
         {(currentRun.truncated || currentRun.notObservedUnitCount > 0 || currentRun.notIndexedUnitCount > 0 || (currentRun.failedUnitCount !== null && currentRun.failedUnitCount > 0)
+          || (currentRun.notVisitedUnitCount !== null && currentRun.notVisitedUnitCount > 0)
           || (currentRun.skippedUnitCount !== null && currentRun.skippedUnitCount > 0)
           || (currentRun.unsupportedUnitCount !== null && currentRun.unsupportedUnitCount > 0)
           || (currentRun.excludedUnitCount !== null && currentRun.excludedUnitCount > 0)) && <div className={styles.runSummaryMeta}>
@@ -2067,6 +2069,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
           {currentRun.truncated && decompilationHref && <a className={styles.runAgain} href={decompilationHref}>Run decompilation again</a>}
           {currentRun.notObservedUnitCount > 0 && <span>{currentRun.notObservedUnitCount.toLocaleString()} provider-reported results had no returned observation.</span>}
           {currentRun.notIndexedUnitCount > 0 && <span>{currentRun.notIndexedUnitCount.toLocaleString()} provider-returned code units could not be indexed.</span>}
+          {currentRun.notVisitedUnitCount !== null && currentRun.notVisitedUnitCount > 0 && <span>{currentRun.notVisitedUnitCount.toLocaleString()} discovered units were not visited by the analyzer.</span>}
           {currentRun.failedUnitCount !== null && currentRun.failedUnitCount > 0 && <span>{currentRun.failedUnitCount.toLocaleString()} functions could not be decompiled{currentRun.visitedUnitCount !== null ? ` of ${currentRun.visitedUnitCount.toLocaleString()} visited` : ''}</span>}
           {currentRun.skippedUnitCount !== null && currentRun.skippedUnitCount > 0 && <span>{currentRun.skippedUnitCount.toLocaleString()} units were reported skipped.</span>}
           {currentRun.unsupportedUnitCount !== null && currentRun.unsupportedUnitCount > 0 && <span>{currentRun.unsupportedUnitCount.toLocaleString()} units were reported unsupported.</span>}

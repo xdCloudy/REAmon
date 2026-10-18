@@ -135,6 +135,9 @@ function buildCoverageInventory(data: unknown, providerId: string | null, indexe
     unaccountedDiscoveredUnitCount: discoveredUnitCount === null ? null : Math.max(0, discoveredUnitCount - providerReturnedUnitCount),
     failedUnitCount,
     visitedUnitCount,
+    notVisitedUnitCount: discoveredUnitCount === null || visitedUnitCount === null
+      ? null
+      : Math.max(0, discoveredUnitCount - visitedUnitCount),
     skippedUnitCount,
     unsupportedUnitCount,
     excludedUnitCount,
