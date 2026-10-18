@@ -6,6 +6,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Code2, Copy, Download, ExternalLink, RefreshCw, Search, WandSparkles } from 'lucide-react'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
+import { mergeDiff3 } from 'node-diff3'
 import { buildCodeUnitTreemapEntries, filterCodeUnits, filterCodeUnitsByFolder, layoutCodeUnitTreemap, parseCodeUnitFilter, summarizeCodeUnits, type CodeUnit, type CodeUnitTreemapEntry } from '@/lib/reamon/code-units'
 import type { CallGraphRecord, CallGraphRelationship } from '@/lib/reamon/callgraph-layout'
 import { sourceSyntaxLanguage } from './source-language'
@@ -244,6 +245,14 @@ function buildReviewDiff(before: string, after: string): ReviewDiff {
     afterIndex += 1
   }
   return { rows, added, removed, truncated, unavailable: false }
+}
+
+function containsUnresolvedMergeMarkers(source: string): boolean {
+  return /^(?:<<<<<<< .+|\|{7} .+|=======|>>>>>>> .+)$/m.test(source)
+}
+
+function sourceLines(source: string): string[] {
+  return source.replace(/\r\n?/g, '\n').split('\n')
 }
 
 function validationSummary(validation: Pick<CodeMaintenanceResponse, 'syntaxValidated' | 'validationStatus' | 'validationMethod' | 'validationMessage'>): string {
@@ -794,6 +803,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
   const [applyingSafeRenames, setApplyingSafeRenames] = useState(false)
   const [safeRenameStatus, setSafeRenameStatus] = useState('')
   const [reviewRationale, setReviewRationale] = useState('')
+  const [rebaseStatus, setRebaseStatus] = useState('')
   const [reviewStatus, setReviewStatus] = useState('')
   const [loadingMaintainedRevisionId, setLoadingMaintainedRevisionId] = useState<string | null>(null)
   const [restoreReviewId, setRestoreReviewId] = useState<string | null>(null)
@@ -1098,6 +1108,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
   const filteredMembers = (memberOutlineQuery.data?.members || []).filter((member) => `${member.name} ${member.kind} ${member.line}`.toLocaleLowerCase().includes(memberFilter.trim().toLocaleLowerCase())).slice(0, 200)
   const maintainedDraftDiffersFromSource = sourceQuery.data === undefined
     || maintainedDraft.replace(/\r\n?/g, '\r\n').trim() !== sourceQuery.data.replace(/\r\n?/g, '\r\n').trim()
+  const hasUnresolvedRebaseConflicts = containsUnresolvedMergeMarkers(maintainedDraft)
   const maintainedQuery = useQuery({
     queryKey: ['reamon-maintained-source', projectId, selectedUnit?.id],
     queryFn: async ({ signal }) => {
@@ -1180,6 +1191,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
     setApplyingSafeRenames(false)
     setReviewRationale('')
     setReviewStatus('')
+    setRebaseStatus('')
     setLoadingMaintainedRevisionId(null)
     setRestoreReviewId(null)
     setShowReviewDiff(false)
@@ -1246,11 +1258,37 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
   function startMaintainedFromCurrentDecompilation() {
     if (typeof sourceQuery.data !== 'string') return
     setMaintainedDraft(sourceQuery.data)
+    setRebaseStatus('')
     setRestoreReviewId(null)
     setMaintainedSaved(false)
     setMaintenanceMeta(null)
     setReviewRationale('')
     setReviewStatus('Started from the current decompilation. Reapply and review any maintained changes before accepting.')
+  }
+  function rebaseMaintainedChanges() {
+    const baseline = maintainedQuery.data?.sourceLineage?.baseSourceCode
+    const currentSource = sourceQuery.data
+    if (maintainedBaselineStatus !== 'CHANGED' || typeof baseline !== 'string' || typeof currentSource !== 'string' || !maintainedDraft.trim()) return
+    const merged = mergeDiff3(
+      sourceLines(maintainedDraft),
+      sourceLines(baseline),
+      sourceLines(currentSource),
+      {
+        excludeFalseConflicts: true,
+        label: { a: 'saved maintained copy', o: 'accepted baseline', b: 'current decompilation' },
+      },
+    )
+    const lineEnding = currentSource.includes('\r\n') ? '\r\n' : '\n'
+    setMaintainedDraft(merged.result.join('\n').replace(/\n/g, lineEnding))
+    setMaintainedSaved(false)
+    setRestoreReviewId(null)
+    setJvmBuild(null)
+    setMaintenanceMeta(null)
+    setReviewRationale('')
+    setMaintenanceError('')
+    setRebaseStatus(merged.conflict
+      ? 'Overlapping edits were marked in the editor. Resolve every marked section before saving a draft or accepting this source.'
+      : 'Independent saved edits were reapplied to the current decompilation. Review the diff and validate the result before accepting it.')
   }
   const explanationProvidersQuery = useQuery({
     queryKey: ['reamon-code-explanation-providers', projectId],
@@ -1478,6 +1516,10 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
 
   async function saveCodeDraft(): Promise<boolean> {
     if (!selectedUnit || !maintainedDraft.trim()) return false
+    if (hasUnresolvedRebaseConflicts) {
+      setMaintenanceError('Resolve all three-way merge conflict markers before saving this draft.')
+      return false
+    }
     const configuredProvider = explanationProviders.find((provider) => provider.id === selectedProviderId)
     const providerName = maintenanceMeta?.providerName || configuredProvider?.name
     const model = maintenanceMeta?.model || configuredProvider?.modelIdentifier
@@ -1788,6 +1830,10 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
 
   async function saveMaintainedSource() {
     if (!selectedUnit || !maintainedDraft.trim()) return
+    if (hasUnresolvedRebaseConflicts) {
+      setMaintenanceError('Resolve all three-way merge conflict markers before accepting this source.')
+      return
+    }
     setSavingMaintained(true)
     setMaintenanceError('')
     try {
@@ -2895,7 +2941,14 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
           {maintainedBaselineNeedsReview && <div className={styles.lineageWarning} role="status">
             <strong>{maintainedBaselineStatus === 'CHANGED' ? 'This maintained copy is based on older decompiler output.' : maintainedBaselineStatus === 'UNAVAILABLE' ? 'The original decompiler output for this maintained copy is unavailable.' : 'This maintained copy has no recorded decompiler baseline.'}</strong>
             <p>The saved copy remains available, but it is not current project memory. Compare it with the current decompilation and review any changes before accepting a new maintained version.</p>
+            {maintainedBaselineStatus === 'CHANGED' && typeof maintainedQuery.data?.sourceLineage?.baseSourceCode === 'string' && <button type="button" className={styles.copyButton} onClick={rebaseMaintainedChanges}
+              disabled={typeof sourceQuery.data !== 'string' || !maintainedDraft.trim() || hasUnresolvedRebaseConflicts}>
+              Preview three-way merge in editor
+            </button>}
             <button type="button" className={styles.copyButton} onClick={startMaintainedFromCurrentDecompilation} disabled={typeof sourceQuery.data !== 'string' || maintainedDraft === sourceQuery.data}>Replace editor contents with current decompilation</button>
+            {(rebaseStatus || hasUnresolvedRebaseConflicts) && <p className={hasUnresolvedRebaseConflicts ? styles.error : styles.message} role="status">
+              {hasUnresolvedRebaseConflicts ? 'Resolve every marked conflict section in the editor before saving a draft or accepting the source.' : rebaseStatus}
+            </p>}
             {maintainedBaselineStatus === 'CHANGED' && maintainedQuery.data?.sourceLineage?.baseRunKey && <small>Saved from analysis {maintainedQuery.data.sourceLineage.baseRunKey}</small>}
           </div>}
           {maintainedQuery.data?.exists && !maintainedQuery.data.reviews?.length && <p className={styles.message}>This saved copy predates review receipts, so AI project memory will not treat it as an approved naming reference until you review and accept it here.</p>}
@@ -2908,7 +2961,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
                 {sourceQuery.data !== undefined && <SourceListing source={sourceQuery.data} language={selectedUnit.language} fileName={selectedUnit.codeArtifactId?.split('/').pop()} fullSourceUrl={selectedSourceUrl} />}
               </div>
               <label>Editable maintained copy
-              <textarea ref={maintainedEditorRef} aria-label="Editable maintained source" value={maintainedDraft} spellCheck={false} onChange={(event) => { setMaintainedDraft(event.target.value); setMaintainedSaved(false); setJvmBuild(null); setMaintenanceMeta((current) => current ? { ...current, syntaxValidated: null, validationStatus: null, validationMethod: null, validationMessage: null } : current) }} />
+              <textarea ref={maintainedEditorRef} aria-label="Editable maintained source" value={maintainedDraft} spellCheck={false} onChange={(event) => { setMaintainedDraft(event.target.value); setRebaseStatus(''); setMaintenanceError(''); setMaintainedSaved(false); setJvmBuild(null); setMaintenanceMeta((current) => current ? { ...current, syntaxValidated: null, validationStatus: null, validationMethod: null, validationMessage: null } : current) }} />
               </label>
             </div>
             {hasReviewDiff && <details className={styles.reviewDiff} onToggle={(event) => setShowReviewDiff(event.currentTarget.open)}>
@@ -2925,8 +2978,8 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
               <textarea aria-label="Review rationale" value={reviewRationale} maxLength={1000} onChange={(event) => setReviewRationale(event.target.value)} placeholder="For acceptance, say what you checked. For rejection, explain what needs correction." />
             </label>
             <div className={styles.maintainedActions}>
-              <button type="button" className={styles.copyButton} onClick={() => void saveCodeDraft()} disabled={savingDraft || !maintainedDraft.trim() || !maintainedDraftDiffersFromSource || maintainedDraft === draftSource}>{savingDraft ? 'Saving draft…' : maintainedDraft === draftSource ? 'Draft saved to project memory' : 'Save draft'}</button>
-              <button type="button" className={styles.explainButton} onClick={() => void saveMaintainedSource()} disabled={savingMaintained || !maintainedDraft.trim() || !maintainedDraftDiffersFromSource || reviewRationale.trim().length < 12}>{savingMaintained ? 'Saving…' : maintainedSaved ? 'Review and save changes' : 'Review and accept maintained copy'}</button>
+              <button type="button" className={styles.copyButton} onClick={() => void saveCodeDraft()} disabled={savingDraft || !maintainedDraft.trim() || !maintainedDraftDiffersFromSource || maintainedDraft === draftSource || hasUnresolvedRebaseConflicts}>{savingDraft ? 'Saving draft…' : maintainedDraft === draftSource ? 'Draft saved to project memory' : 'Save draft'}</button>
+              <button type="button" className={styles.explainButton} onClick={() => void saveMaintainedSource()} disabled={savingMaintained || !maintainedDraft.trim() || !maintainedDraftDiffersFromSource || reviewRationale.trim().length < 12 || hasUnresolvedRebaseConflicts}>{savingMaintained ? 'Saving…' : maintainedSaved ? 'Review and save changes' : 'Review and accept maintained copy'}</button>
               <button type="button" className={styles.copyButton} onClick={() => void rejectMaintainedDraft()} disabled={savingMaintained || savingDraft || !maintainedDraft.trim() || !maintainedDraftDiffersFromSource || reviewRationale.trim().length < 12}>{savingMaintained ? 'Recording review…' : 'Reject this draft'}</button>
               {!maintainedDraftDiffersFromSource && <span className={styles.message}>Edit the decompilation or create a maintained version before saving.</span>}
               {reviewRationale.trim().length > 0 && reviewRationale.trim().length < 12 && <span className={styles.message}>Add at least 12 characters describing your review.</span>}
