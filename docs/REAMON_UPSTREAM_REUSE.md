@@ -253,6 +253,20 @@ separate so a plausible name is never treated as proof of behavior.
   provenance, and review model. The repository is dual MIT/Apache-2.0; the IDA
   backend requires commercial software, and its Ghidra backend requires Ghidra 12+
   and JDK 21+. It is an engine interface, not a decompiler or shared memory store.
+- [univdreams](https://github.com/KarpelesLab/univdreams/tree/f02c749da48a4f379210dfa72e7cb2ccfeaf1fc9)
+  is an MIT-licensed Rust compiler/decompiler suite whose `.ud` representation
+  records both lifted operations and exact binary-layout details. At audited commit
+  `f02c749da48a4f379210dfa72e7cb2ccfeaf1fc9`, upstream reports byte-identical
+  whole-file round trips for ELF, PE/COFF, thin Mach-O, Windows NE, and 6502 raw
+  images; it also reports structured lifting for x86, x86-64, AArch64, and 6502.
+  **Potential REAmon use:** evaluate it as an editable low-level native view and an
+  exact-rebuild validator, storing its output and rebuilt binary with input,
+  provider, source, and output hashes as separate derived artifacts. **Limits:**
+  the reported corpus is small (15 committed binaries, about 490 KB, plus one
+  optional external DLL), loops and type/struct recovery remain incomplete, and
+  `.ud` is not original-language source. These upstream claims are not REAmon
+  fixture results; validate format coverage, output boundaries, and round trips
+  independently before integration.
 - [delamain](https://github.com/xjoker/delamain) is an Apache-2.0 headless MCP
   layer around JADX. Its bounded graph traversals, explicit truncation and
   decompilation-quality signals, xref/data-flow queries, and rename/ProGuard
@@ -545,3 +559,5 @@ store.
 - [PyInstaller Extractor Go README and documented limitations](https://github.com/pyinstxtractor/pyinstxtractor-go/blob/2aa0ec9e58317ac717fdeec84a02d5a67de7b96c2/README.md)
 - [universal-decompiler workflow, CLI, example, and MIT license](https://github.com/hammerill/universal-decompiler/tree/128c123c58fe89f74b817456e9324b251239d7e9)
 - [RE-MCP shared Ghidra/IDA interface, tools, resources, annotations, and dual license](https://github.com/jtsylve/re-mcp/tree/7b38aa92952bd0621e8c964dc859f1515fe26a10)
+- [univdreams `.ud` language, format support, and MIT license](https://github.com/KarpelesLab/univdreams/tree/f02c749da48a4f379210dfa72e7cb2ccfeaf1fc9)
+- [univdreams byte-identical round-trip contract](https://github.com/KarpelesLab/univdreams/blob/f02c749da48a4f379210dfa72e7cb2ccfeaf1fc9/docs/round-trip-contract.md)
