@@ -28,6 +28,7 @@ import { recursePlugin } from './recurse'
 import { fissionPlugin } from './fission'
 import { wasmPlugin } from './wasm'
 import { pycdcPlugin } from './pycdc'
+import { pyinstallerPlugin } from './pyinstaller'
 import { webcrackPlugin } from './webcrack'
 import { luajitPlugin } from './luajit'
 import { unluacPlugin } from './unluac'
@@ -153,6 +154,9 @@ export const BUILTIN_TOOL_PLUGINS: ToolPlugin[] = [
     ...pycdcPlugin,
   },
   {
+    ...pyinstallerPlugin,
+  },
+  {
     ...webcrackPlugin,
   },
   {
@@ -174,7 +178,9 @@ export function resolveCapabilities(
     .filter((plugin) => {
       const acceptsType = plugin.manifest.acceptsTargetTypes.includes(profile.targetType)
       const acceptsFormat = plugin.manifest.acceptsFormats.includes('*') || plugin.manifest.acceptsFormats.includes(profile.format)
-      return acceptsType && acceptsFormat
+      const acceptsMetadata = Object.entries(plugin.manifest.acceptsMetadata || {})
+        .every(([key, value]) => profile.metadata[key] === value)
+      return acceptsType && acceptsFormat && acceptsMetadata
     })
     .map((plugin) => ({
       pluginId: plugin.manifest.id,
@@ -183,6 +189,7 @@ export function resolveCapabilities(
       integration: plugin.manifest.integration,
       acceptsTargetTypes: plugin.manifest.acceptsTargetTypes,
       acceptsFormats: plugin.manifest.acceptsFormats,
+      ...(plugin.manifest.acceptsMetadata ? { acceptsMetadata: plugin.manifest.acceptsMetadata } : {}),
       capabilities: plugin.manifest.capabilities,
       produces: plugin.manifest.produces,
       requirements: plugin.manifest.requirements,
@@ -200,6 +207,7 @@ export function resolveWorkspaceCapabilities(
     integration: plugin.manifest.integration,
     acceptsTargetTypes: plugin.manifest.acceptsTargetTypes,
     acceptsFormats: plugin.manifest.acceptsFormats,
+    ...(plugin.manifest.acceptsMetadata ? { acceptsMetadata: plugin.manifest.acceptsMetadata } : {}),
     capabilities: plugin.manifest.capabilities,
     produces: plugin.manifest.produces,
     requirements: plugin.manifest.requirements,

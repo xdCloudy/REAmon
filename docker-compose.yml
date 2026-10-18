@@ -1185,6 +1185,7 @@ services:
       REAMON_FISSION_URL: http://fission-analyzer:8027
       REAMON_WASM_URL: http://wasm-analyzer:8012
       REAMON_PYCDC_URL: http://pycdc-analyzer:8014
+      REAMON_PYINSTALLER_URL: http://pyinstaller-analyzer:8029
       REAMON_WEBCRACK_URL: http://webcrack-analyzer:8015
       REAMON_LUAJIT_URL: http://luajit-analyzer:8016
       REAMON_UNLUAC_URL: http://unluac-analyzer:8017
@@ -1861,6 +1862,37 @@ services:
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8014/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - reamon-analysis
+
+  # PyInstaller archive extraction runs without a derived-artifact volume.
+  pyinstaller-analyzer:
+    build:
+      context: ./analyzers/pyinstaller
+    image: reamon-pyinstaller:local
+    container_name: reamon-pyinstaller
+    init: true
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: ${REAMON_PYINSTALLER_MEM:-512m}
+    pids_limit: ${REAMON_PYINSTALLER_PIDS:-16}
+    cpus: ${REAMON_PYINSTALLER_CPUS:-1}
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=${REAMON_PYINSTALLER_TMP_SIZE:-256m},mode=1777
+    environment:
+      REAMON_ARTIFACTS_PATH: /data/reamon-artifacts
+      PORT: 8029
+    volumes:
+      - reamon_artifacts:/data/reamon-artifacts:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8029/health', timeout=3)"]
       interval: 30s
       timeout: 5s
       retries: 3

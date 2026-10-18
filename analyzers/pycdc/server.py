@@ -36,12 +36,17 @@ def safe_id(value: object) -> str:
         raise AnalysisError("Invalid analysis identifier")
     return value
 
-def resolve_input(value: object, extension: object) -> Path:
+def resolve_input(value: object, extension: object, derived_prefix: Path | None = None) -> Path:
     if not isinstance(value, str) or not value or len(value) > 4096:
         raise AnalysisError("Invalid Python bytecode path")
     try:
         candidate = Path(value).resolve(strict=True)
-        candidate.relative_to(ARTIFACT_ROOT)
+        try:
+            candidate.relative_to(ARTIFACT_ROOT)
+        except ValueError:
+            if derived_prefix is None:
+                raise
+            candidate.relative_to(derived_prefix.resolve(strict=True))
     except (OSError, RuntimeError, ValueError) as error:
         raise AnalysisError("Input is outside the read-only artifact volume") from error
     if not isinstance(extension, str) or extension.lower().lstrip(".") not in {"pyc", "pyo"}:
@@ -129,7 +134,8 @@ def analyze(body: object, report_progress=lambda _message: None, cancel_check=la
     artifact_id = safe_id(body.get("artifactId"))
     task_id = safe_id(body.get("taskId"))
     run_id = safe_id(body.get("runId"))
-    source_path = resolve_input(body.get("artifactPath"), body.get("extension"))
+    derived_prefix = DERIVED_ROOT / project_id / artifact_id / task_id / run_id / "pyinstaller"
+    source_path = resolve_input(body.get("artifactPath"), body.get("extension"), derived_prefix)
     source_relative_path = body.get("artifactRelativePath")
     if not isinstance(source_relative_path, str) or not source_relative_path or len(source_relative_path) > 1000:
         raise AnalysisError("Python bytecode logical path is invalid")

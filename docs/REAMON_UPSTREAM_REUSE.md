@@ -322,14 +322,18 @@ Python modules from PyInstaller CArchive/PYZ bundles and reports the embedded
 Python version. Its README says Python 2 PYZ archives and encrypted PYZ archives
 are unsupported.
 
-REAmon should not package this snapshot unchanged. The desktop CLI writes under the
-current directory and changes process-wide cwd. CArchive entry paths are used for
-filesystem writes without a uniform output-root containment check. The parser trusts
-archive lengths before allocating and reading, zlib decompression is not capped by
-expanded bytes, and malformed input can panic. A viable adapter must harden these
-boundaries, cap archive entries/expanded data/runtime, attach each extracted `.pyc`
-to the original executable hash and archive path, and pass only bounded children to
-pycdc. Add malformed and high-expansion fixtures before exposing this as a provider.
+REAmon now vendors the audited snapshot's required Go files and MIT notice in
+`analyzers/pyinstaller/upstream/`, pinned to the revision above. The adapter caps
+input size, CArchive entries and compressed bytes, expanded data, PYZ item counts,
+wall time, memory, CPU, and process count. It sanitizes archive output paths, runs in a
+temporary directory inside a non-root container with a read-only artifact mount and
+no derived-volume access, and returns only capped `.pyc` children. The webapp checks
+child size, magic, and SHA-256, stores bytecode in task-scoped derived storage, then
+runs the existing pycdc provider. Database observations retain the executable hash,
+archive member path, extractor revision, bytecode hash, and recovered-source hashes.
+The container image builds and the webapp type-checks; representative archive runtime,
+malformed/high-expansion fixtures, and decompilation fidelity comparison remain open.
+Python 2 PYZ and encrypted PYZ archives remain upstream limitations.
 
 ## Reuse rules for REAmon
 

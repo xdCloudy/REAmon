@@ -92,6 +92,7 @@ export interface ToolPluginManifest {
   integration: ToolIntegration
   acceptsTargetTypes: TargetType[]
   acceptsFormats: string[]
+  acceptsMetadata?: Record<string, string | number | boolean>
   capabilities: string[]
   produces: string[]
   requirements: ToolRequirement[]
@@ -165,6 +166,7 @@ export interface CapabilityMatch {
   integration: ToolIntegration
   acceptsTargetTypes: TargetType[]
   acceptsFormats: string[]
+  acceptsMetadata?: Record<string, string | number | boolean>
   capabilities: string[]
   produces: string[]
   requirements: ToolRequirement[]
@@ -177,6 +179,7 @@ export interface WorkspaceCapabilitySummary {
   integration: ToolIntegration
   acceptsTargetTypes: TargetType[]
   acceptsFormats: string[]
+  acceptsMetadata?: Record<string, string | number | boolean>
   capabilities: string[]
   produces: string[]
   requirements: ToolRequirement[]

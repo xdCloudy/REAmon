@@ -19,6 +19,7 @@ export async function ensureProviderRegistered(manifest: ToolPluginManifest) {
     integration: manifest.integration,
     acceptsTargetTypes: manifest.acceptsTargetTypes,
     acceptsFormats: manifest.acceptsFormats,
+    ...(manifest.acceptsMetadata ? { acceptsMetadata: manifest.acceptsMetadata } : {}),
     capabilities: manifest.capabilities,
     produces: manifest.produces,
     requirements: manifest.requirements as unknown as Prisma.InputJsonValue,
