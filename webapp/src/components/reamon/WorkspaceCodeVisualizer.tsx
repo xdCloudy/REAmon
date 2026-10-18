@@ -2673,6 +2673,17 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
                 <h3><WandSparkles size={16} /> Bytecode inspection evidence</h3>
                 <p>This CRuby YARV listing is saved with the original artifact hash, disassembly hash, and runtime version. REAmon has not reconstructed Ruby source from this bytecode yet.</p>
                 {selectedUnit.runtimeVersion && <p className={styles.sourcePreviewNote}>Inspected with {selectedUnit.runtimeVersion}{selectedUnit.instructionCount !== undefined && selectedUnit.instructionCount !== null ? ` · ${selectedUnit.instructionCount.toLocaleString()} instruction rows` : ''}{selectedUnit.binarySignature ? ` · ${selectedUnit.binarySignature} ISeq` : ''}</p>}
+                {selectedUnit.structuredBytecode && <details className={styles.attemptHistory}>
+                  <summary>Structured ISeq evidence · {selectedUnit.structuredBytecode.sequenceCount} sequences · {selectedUnit.structuredBytecode.instructionCount} instructions</summary>
+                  <p className={styles.sourcePreviewNote}>MRI exposes this version-specific bytecode structure for analysis. Operands and nested sequence references are evidence; this view is not recovered Ruby source.{selectedUnit.structuredBytecode.truncated ? ' The stored structure was capped.' : ''}</p>
+                  {selectedUnit.structuredBytecode.sequences.map((sequence) => <details key={sequence.id}>
+                    <summary>{sequence.label} · {sequence.type}{sequence.firstLine === null ? '' : ` · line ${sequence.firstLine}`} · {sequence.instructions.length} rows{sequence.truncated ? ' · capped' : ''}</summary>
+                    <p>Locals: {sequence.locals.length ? sequence.locals.join(', ') : 'none recorded'}</p>
+                    {sequence.parameters !== null && <p>Parameters: <code>{JSON.stringify(sequence.parameters)}</code></p>}
+                    {sequence.catchTable.length > 0 && <p>Catch table: <code>{JSON.stringify(sequence.catchTable)}</code></p>}
+                    <pre>{sequence.instructions.map((instruction, index) => `${String(index).padStart(4, '0')}  ${instruction.event || instruction.opcode || 'unknown'}${instruction.operands.length ? `  ${JSON.stringify(instruction.operands)}` : ''}`).join('\n')}</pre>
+                  </details>)}
+                </details>}
               </div>
             </section>
           : selectedUnit && selectedSourceUrl && <section className={styles.maintainPanel} aria-labelledby="code-maintain-heading">

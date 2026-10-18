@@ -33,7 +33,9 @@ function asAttributes(value: unknown, preferredKeys: readonly string[] = []): Ob
     const boundedKey = boundedString(key, 128)
     if (!boundedKey) continue
     if (rawValue === null || typeof rawValue === 'string' || typeof rawValue === 'boolean') {
-      attributes[boundedKey] = typeof rawValue === 'string' ? rawValue.slice(0, 4000) : rawValue
+      attributes[boundedKey] = typeof rawValue === 'string'
+        ? rawValue.slice(0, boundedKey === 'structuredBytecode' ? 200_000 : 4000)
+        : rawValue
     } else if (typeof rawValue === 'number' && Number.isFinite(rawValue)) {
       attributes[boundedKey] = rawValue
     }
@@ -108,6 +110,8 @@ function normalizeObservation(value: unknown): ToolObservation | null {
       'providerRevision',
       'inputArtifactSha256',
       'codeArtifactSha256',
+      'structuredBytecode',
+      'structuredBytecodeSha256',
       'decompiledSourceSha256',
       'unitType',
       'qualifiedName',

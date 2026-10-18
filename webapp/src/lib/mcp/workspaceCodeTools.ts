@@ -6,7 +6,7 @@ import prisma from '@/lib/prisma'
 import { assertMcpProjectAccess, requireScope } from '@/lib/mcpAuth'
 import { McpToolError } from '@/lib/mcp/errors'
 import { getActiveWorkspaceImportSelection } from '@/lib/reamon/inventory-query'
-import { CODE_UNIT_OBSERVATION_TYPE, flossRecoveredStringsOf, providerVariablesOf } from '@/lib/reamon/code-units'
+import { CODE_UNIT_OBSERVATION_TYPE, crubyIseqEvidenceOf, flossRecoveredStringsOf, providerVariablesOf } from '@/lib/reamon/code-units'
 import { derivedArtifactRoot, resolveDerivedArtifactPath } from '@/lib/reamon/derived-storage'
 import { buildProjectSymbolContext } from '@/lib/reamon/maintenance-memory'
 import { nativeAddressAliases, nativeFunctionIdentity } from '@/lib/reamon/native-function-identity'
@@ -93,6 +93,24 @@ function textList(value: unknown, limit: number, maxLength: number): string[] {
     const normalized = text(item, maxLength)
     return normalized ? [normalized] : []
   }))].slice(0, limit)
+}
+
+function boundedCrubyIseqEvidence(value: unknown, expectedSha256: unknown) {
+  if (typeof value !== 'string' || value.length > 200_000
+      || typeof expectedSha256 !== 'string' || !/^[a-f0-9]{64}$/i.test(expectedSha256)
+      || createHash('sha256').update(value).digest('hex') !== expectedSha256.toLowerCase()) return null
+  const evidence = crubyIseqEvidenceOf(value)
+  if (!evidence) return null
+  let instructionBudget = 240
+  let truncated = evidence.truncated || evidence.sequences.length > 32
+  const sequences = evidence.sequences.slice(0, 32).map((sequence) => {
+    const instructions = sequence.instructions.slice(0, instructionBudget)
+    instructionBudget -= instructions.length
+    const sequenceTruncated = sequence.truncated || instructions.length < sequence.instructions.length
+    truncated ||= sequenceTruncated
+    return { ...sequence, instructions, truncated: sequenceTruncated }
+  })
+  return { ...evidence, sequences, truncated }
 }
 
 function boundedJsonTextList(value: unknown, maxBytes: number, maxItems: number, maxLength: number): { items: string[]; truncated: boolean } {
@@ -1224,6 +1242,9 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
       sha256: verifiedCode.sourceHash,
       runtimeVersion: text(attributes.runtimeVersion, 300),
       instructionCount: boundedInteger(attributes.instructionCount),
+      structuredBytecode: verifiedCode && unit.source === 'reamon-cruby-iseq'
+        ? boundedCrubyIseqEvidence(attributes.structuredBytecode, attributes.structuredBytecodeSha256)
+        : null,
       semantics: text(attributes.representationSemantics, 1000)
         || 'Version-matched bytecode inspection evidence; this is not recovered source or proof of behavior.',
       truncated: verifiedCode.truncated,

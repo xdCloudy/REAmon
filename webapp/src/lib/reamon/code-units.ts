@@ -46,6 +46,34 @@ export interface GhidraCffRecovery {
   }>
 }
 
+export interface CrubyIseqInstruction {
+  opcode?: string
+  event?: string
+  operands: unknown[]
+}
+
+export interface CrubyIseqSequence {
+  id: number
+  label: string
+  type: string
+  firstLine: number | null
+  locals: string[]
+  parameters: unknown
+  catchTable: unknown[]
+  instructions: CrubyIseqInstruction[]
+  truncated: boolean
+}
+
+export interface CrubyIseqEvidence {
+  format: string
+  runtimeVersion: string
+  rootSequenceId: number | null
+  sequenceCount: number
+  instructionCount: number
+  truncated: boolean
+  sequences: CrubyIseqSequence[]
+}
+
 export interface CodeUnitObservationAttributes {
   unitType: string
   name?: string
@@ -59,6 +87,7 @@ export interface CodeUnitObservationAttributes {
   decompiled?: boolean
   isExecutableSource?: boolean
   instructionCount?: number
+  structuredBytecode?: CrubyIseqEvidence
   runtimeVersion?: string
   binarySignature?: string
   language?: string
@@ -162,6 +191,7 @@ export interface CodeUnit {
   representationSemantics?: string | null
   isExecutableSource?: boolean
   instructionCount?: number | null
+  structuredBytecode?: CrubyIseqEvidence | null
   runtimeVersion?: string | null
   binarySignature?: string | null
   recurseInstructionCount?: number | null
@@ -515,6 +545,58 @@ export function providerVariablesOf(
   return { variables: variables.slice(0, 100), truncated: truncated || variables.length > 100 }
 }
 
+export function crubyIseqEvidenceOf(value: unknown): CrubyIseqEvidence | null {
+  if (typeof value !== 'string' || value.length > 200_000) return null
+  let parsed: unknown
+  try { parsed = JSON.parse(value) } catch { return null }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
+  const input = parsed as Record<string, unknown>
+  if (input.format !== 'YARVInstructionSequence/SimpleDataFormat'
+      || typeof input.runtimeVersion !== 'string'
+      || !Array.isArray(input.sequences) || input.sequences.length > 96) return null
+  const sequences: CrubyIseqSequence[] = []
+  let instructionBudget = 0
+  for (const item of input.sequences) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return null
+    const sequence = item as Record<string, unknown>
+    if (!Number.isSafeInteger(sequence.id) || typeof sequence.label !== 'string' || typeof sequence.type !== 'string'
+        || !Array.isArray(sequence.locals) || !Array.isArray(sequence.instructions)) return null
+    const instructions: CrubyIseqInstruction[] = []
+    for (const rawInstruction of sequence.instructions) {
+      if (!rawInstruction || typeof rawInstruction !== 'object' || Array.isArray(rawInstruction)) return null
+      const instruction = rawInstruction as Record<string, unknown>
+      if ((!('opcode' in instruction) && !('event' in instruction)) || !Array.isArray(instruction.operands)) return null
+      instructions.push({
+        ...(typeof instruction.opcode === 'string' ? { opcode: instruction.opcode.slice(0, 160) } : {}),
+        ...(typeof instruction.event === 'string' ? { event: instruction.event.slice(0, 160) } : {}),
+        operands: instruction.operands.slice(0, 12),
+      })
+      instructionBudget += 1
+      if (instructionBudget > 1200) return null
+    }
+    sequences.push({
+      id: sequence.id as number,
+      label: sequence.label.slice(0, 160),
+      type: sequence.type.slice(0, 40),
+      firstLine: typeof sequence.firstLine === 'number' && Number.isSafeInteger(sequence.firstLine) ? sequence.firstLine : null,
+      locals: sequence.locals.filter((name): name is string => typeof name === 'string').slice(0, 256),
+      parameters: sequence.parameters ?? null,
+      catchTable: Array.isArray(sequence.catchTable) ? sequence.catchTable.slice(0, 128) : [],
+      instructions,
+      truncated: sequence.truncated === true,
+    })
+  }
+  return {
+    format: input.format,
+    runtimeVersion: input.runtimeVersion.slice(0, 300),
+    rootSequenceId: typeof input.rootSequenceId === 'number' && Number.isSafeInteger(input.rootSequenceId) ? input.rootSequenceId : null,
+    sequenceCount: boundedCount(input.sequenceCount) ?? sequences.length,
+    instructionCount: boundedCount(input.instructionCount) ?? instructionBudget,
+    truncated: input.truncated === true,
+    sequences,
+  }
+}
+
 export function normalizeCodeUnit(row: CodeUnitObservationRow, options: { includeSourceAddressMap?: boolean } = {}): CodeUnit | null {
   const attributes = attributesOf(row.attributes)
   const sizeBytes = finiteNumber(attributes.sizeBytes)
@@ -536,6 +618,7 @@ export function normalizeCodeUnit(row: CodeUnitObservationRow, options: { includ
     representationSemantics: text(attributes.representationSemantics, 4000),
     isExecutableSource: typeof attributes.isExecutableSource === 'boolean' ? attributes.isExecutableSource : undefined,
     instructionCount: boundedCount(attributes.instructionCount),
+    structuredBytecode: crubyIseqEvidenceOf(attributes.structuredBytecode),
     runtimeVersion: text(attributes.runtimeVersion, 300),
     binarySignature: text(attributes.binarySignature, 16),
     recurseInstructionCount: boundedCount(attributes.recurseInstructionCount),

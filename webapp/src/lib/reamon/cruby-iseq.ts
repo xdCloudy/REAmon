@@ -5,6 +5,26 @@ import { readAnalyzerResponse } from './analyzer-response'
 const MAX_OUTPUT_BYTES = 512 * 1024
 const DEFAULT_TIMEOUT_MS = 45_000
 
+interface CrubyIseqStructuredEvidence {
+  format: string
+  runtimeVersion: string
+  rootSequenceId: number | null
+  sequenceCount: number
+  instructionCount: number
+  truncated: boolean
+  sequences: Array<{
+    id: number
+    label: string
+    type: string
+    firstLine: number | null
+    locals: string[]
+    parameters: unknown
+    catchTable: unknown[]
+    instructions: Array<{ opcode?: string; event?: string; operands: unknown[] }>
+    truncated: boolean
+  }>
+}
+
 interface CrubyIseqResponse {
   status: 'completed'
   toolVersion: string
@@ -19,6 +39,9 @@ interface CrubyIseqResponse {
   outputSha256: string
   outputBytes: number
   instructionCount: number
+  structuredEvidenceSha256: string
+  structuredEvidenceBytes: number
+  structuredEvidenceJson: string
   disassembly: string
   warnings: string
 }
@@ -58,6 +81,11 @@ function isResponse(value: unknown): value is CrubyIseqResponse {
     && typeof result.outputSha256 === 'string' && /^[a-f0-9]{64}$/i.test(result.outputSha256)
     && isSafeInteger(result.outputBytes, 1) && result.outputBytes <= MAX_OUTPUT_BYTES
     && isSafeInteger(result.instructionCount)
+    && typeof result.structuredEvidenceSha256 === 'string' && /^[a-f0-9]{64}$/i.test(result.structuredEvidenceSha256)
+    && isSafeInteger(result.structuredEvidenceBytes, 1) && result.structuredEvidenceBytes <= 192 * 1024
+    && typeof result.structuredEvidenceJson === 'string'
+    && Buffer.byteLength(result.structuredEvidenceJson, 'utf8') === result.structuredEvidenceBytes
+    && createHash('sha256').update(result.structuredEvidenceJson).digest('hex') === result.structuredEvidenceSha256.toLowerCase()
     && typeof result.disassembly === 'string' && Buffer.byteLength(result.disassembly, 'utf8') === result.outputBytes
     && typeof result.warnings === 'string' && result.warnings.length <= 1_000
 }
@@ -100,6 +128,17 @@ export async function executeCrubyIseq(input: ToolExecutionInput): Promise<ToolR
       throw new Error(detail)
     }
     if (!isResponse(payload)) throw new Error('CRuby ISeq inspector returned an invalid or unsupported result')
+    const parsedEvidence: unknown = JSON.parse(payload.structuredEvidenceJson)
+    if (!parsedEvidence || typeof parsedEvidence !== 'object' || Array.isArray(parsedEvidence)) {
+      throw new Error('CRuby ISeq inspector returned malformed structured evidence')
+    }
+    const structuredEvidence = parsedEvidence as CrubyIseqStructuredEvidence
+    if (structuredEvidence.format !== 'YARVInstructionSequence/SimpleDataFormat'
+        || !isSafeInteger(structuredEvidence.instructionCount)
+        || !isSafeInteger(structuredEvidence.sequenceCount)
+        || !Array.isArray(structuredEvidence.sequences) || structuredEvidence.sequences.length > 96) {
+      throw new Error('CRuby ISeq inspector returned unsupported structured evidence')
+    }
 
     const identity = `${input.artifactId}:${payload.inputRelativePath}`
     const key = `cruby-iseq:module:${createHash('sha256').update(identity).digest('hex').slice(0, 32)}`
@@ -129,6 +168,8 @@ export async function executeCrubyIseq(input: ToolExecutionInput): Promise<ToolR
         outputSha256: payload.outputSha256,
         codeArtifactSha256: payload.outputSha256,
         instructionCount: payload.instructionCount,
+        structuredBytecode: payload.structuredEvidenceJson,
+        structuredBytecodeSha256: payload.structuredEvidenceSha256.toLowerCase(),
         runtimeVersion: payload.runtimeVersion,
         engineVersion: payload.toolVersion,
         binarySignature: payload.binarySignature,
@@ -144,6 +185,7 @@ export async function executeCrubyIseq(input: ToolExecutionInput): Promise<ToolR
         observations,
         inspectedModuleCount: 1,
         instructionCount: payload.instructionCount,
+        structuredInstructionCount: structuredEvidence.instructionCount,
         inputSha256: payload.inputSha256,
         outputSha256: payload.outputSha256,
         runtimeVersion: payload.runtimeVersion,

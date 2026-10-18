@@ -14,17 +14,19 @@ See the [language matrix](REAMON_LANGUAGE_MATRIX.md) for current support status 
 the [upstream reuse audit](REAMON_UPSTREAM_REUSE.md) for project and license notes.
 
 CRuby's `RubyVM::InstructionSequence` API can load and disassemble compiled
-instruction sequences, but it is MRI-specific and its representation can change
-between Ruby versions. A matching MRI runtime is part of the artifact identity. Any
-disassembly or recovered source must retain the exact input SHA-256, observed MRI
-version, ISeq header version, provider build, and output SHA-256.
+instruction sequences, and `to_a` exposes a structured but explicitly unstable
+representation containing locals, parameters, catch entries, and opcode operands.
+Both are MRI-specific and may change between Ruby versions. A matching MRI runtime
+is part of the artifact identity. Any disassembly, structured evidence, or recovered
+source must retain the exact input SHA-256, observed MRI version, ISeq header version,
+provider build, and output SHA-256.
 
 ## Recovery stages
 
 | Stage | Required result | Evidence and limits |
 | --- | --- | --- |
 | 1. Detect and inspect | Recognize candidate CRuby ISeq binaries without treating an extension as proof; report header and compatible runtime. | Do not load unsupported or malformed versions. Never call `eval` or execute target instructions. |
-| 2. Decode | Produce a structured, bounded instruction-sequence tree with opcode, operands, source location, local table, nested sequences, and exception/catch metadata. | Keep original bytes and raw disassembly. Unknown opcodes and truncated sequences become explicit gaps. |
+| 2. Decode | Produce a structured, bounded instruction-sequence tree with opcode, operands, source location, local table, nested sequences, and exception/catch metadata. | Implemented as bounded MRI `to_a` evidence for CRuby 3.4.11 and shown in the visualizer/MCP. This is a version-specific inspection format, not a normalized IR; retain raw disassembly and mark capped records. |
 | 3. Recover control/data flow | Build version-specific basic blocks, stack effects, expression data flow, and structured branches/loops. | Persist intermediate representation and confidence per recovered construct; do not invent locals or types. |
 | 4. Emit Ruby | Render readable Ruby source and attach each output span to its ISeq/instruction origins. | Label inferred names and constructs. Preserve unresolved instructions as diagnostics rather than plausible-looking Ruby. |
 | 5. Validate | Parse with the matching Ruby family/version and compare fixture behavior against the original artifact in an isolated harness when executable fixtures are authorized. | Syntax acceptance is not semantic equivalence. Record validator runtime, input/output hashes, fixtures, and comparison result. |
@@ -32,10 +34,11 @@ version, ISeq header version, provider build, and output SHA-256.
 ## First implementation boundary
 
 The initial isolated MRI ISeq inspection provider is implemented. It runs CRuby
-3.4.11 in a constrained analyzer, loads the ISeq only for disassembly, enforces input,
-output, memory, and CPU limits, writes a separate derived disassembly artifact, and
-stores the bounded disassembly, instruction count, exact hashes, and runtime identity
-in the project observation. The visualizer and MCP expose it as bytecode evidence;
+3.4.11 in a constrained analyzer, loads the ISeq only for disassembly and `to_a`
+inspection, enforces input, output, memory, sequence, instruction, nesting, and CPU
+limits, writes a separate derived disassembly artifact, and stores bounded structured
+sequence/opcode evidence, instruction counts, exact hashes, and runtime identity in
+the project observation. The visualizer and MCP expose both views as bytecode evidence;
 the AI explanation prompt labels its limits, and maintenance rewrites reject it. The
 current limit is 16 MiB input, 512 KiB output, one concurrent analysis, 25 CPU
 seconds in the child, and 384 MiB child address space. The analyzer image builds,
