@@ -91,6 +91,27 @@ separate so a plausible name is never treated as proof of behavior.
 
 ## Additional engines evaluated
 
+- [Cpp2IL](https://github.com/SamboyCoding/Cpp2IL) is an MIT-licensed Unity IL2CPP
+  reconstruction project. The latest milestone preview at audit time,
+  `2022.1.0-pre-release.21`, resolves to commit
+  `12c8b4413900558a14e30adc4fc4d13d82383901`; its release notes list metadata
+  support through recent Unity 6000.5 alpha versions, and its CLI accepts Unity
+  game folders and single APK inputs. It can reconstruct managed assemblies
+  from IL2CPP metadata and native binaries, giving REAmon a path from Unity's
+  compiled C++ output back to C#-shaped evidence that can pass through the
+  existing ILSpy provider. Preserve each generated assembly as a separate
+  hash-addressed artifact with its game binary, metadata, Unity version, and
+  Cpp2IL revision attached. Link recovered methods only where Cpp2IL's metadata
+  identity maps to saved native addresses; keep generated names provisional in
+  project memory until review. This is a planned integration, not current
+  support: the milestone is a pre-release, the development branch is in a major
+  rewrite with incomplete output modes, and upstream describes its recovered
+  CIL as rough. Implement the initial adapter against the immutable milestone
+  and validate APK, Windows, Android, and ARM64 cases before updating the
+  support rating. Upstream source: [README](https://github.com/SamboyCoding/Cpp2IL/blob/2022.1.0-pre-release.21/README.md),
+  [release](https://github.com/SamboyCoding/Cpp2IL/releases/tag/2022.1.0-pre-release.21),
+  and [MIT license](https://github.com/SamboyCoding/Cpp2IL/blob/2022.1.0-pre-release.21/LICENSE).
+
 - [CHISEL](https://github.com/VarunKohli18/chisel) is a research prototype for iteratively refining Ghidra pseudo-C into compilable source. Its loop uses compiler errors and differential fuzzing against the original binary, carries discovered counterexamples into later iterations, and can select the best measured candidate. This is a close conceptual match for REAmon's maintainable-source goal and decomp.wtf's per-attempt evidence and acceptance process. Audited at `8d90b457a6bf5aa9f68addd544ccbdf21fe1a711` (2026-10-18). The repository exposes no license metadata and the checkout has no root license file; do not copy or bundle its code unless licensing is clarified. Its benchmark and implementation target x86-64 C-like functions, so the results do not establish language-universal recovery. The runner executes both the original and generated candidate as local subprocesses with CPU and wall-clock limits; this audit found no container boundary or memory cap. REAmon should implement any analogous oracle as its own optional service with hard memory, CPU, wall-time, process-count, filesystem, and network restrictions. Store the exact binary hash, function identity, compiler/toolchain profile, candidate/source hash, inputs, outputs, per-round feedback, and candidate selection result in REAmon's database. Only count an oracle pass for the exact artifacts and function that were actually compared; keep generated inputs and failed candidates as reviewable evidence. CHISEL's reported evaluation is research evidence, not a REAmon accuracy claim.
 
 - [m2c](https://github.com/matt-kempster/m2c) is a GPL-3.0 draft decompiler for
