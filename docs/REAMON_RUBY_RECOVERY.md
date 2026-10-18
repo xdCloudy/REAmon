@@ -7,9 +7,14 @@ as a decompilation result.
 ## Current state
 
 REAmon supports Ruby source outlines and a version-reported `ruby -c` syntax check.
-The isolated CRuby 3.4.11 provider now recognizes `YARB` ISeq artifacts, records a
+The isolated CRuby 3.4.11 provider recognizes `YARB` ISeq artifacts, records a
 bounded YARV disassembly as hash-attributed project evidence, and keeps that artifact
-explicitly separate from source. It does not reconstruct Ruby source from bytecode.
+explicitly separate from source. It also runs a bounded, experimental source candidate
+reconstructor adapted from a Ruby 2.7-focused BSD-2-Clause upstream. Only candidates
+accepted by CRuby 3.4.11's syntax parser are indexed as executable source artifacts;
+syntax acceptance does not establish behavior equivalence. This is not native Ruby
+2.7 binary support: the current input gate and disassembler still require YARB accepted
+by the integrated CRuby 3.4.11 runtime.
 See the [language matrix](REAMON_LANGUAGE_MATRIX.md) for current support status and
 the [upstream reuse audit](REAMON_UPSTREAM_REUSE.md) for project and license notes.
 
@@ -28,7 +33,7 @@ provider build, and output SHA-256.
 | 1. Detect and inspect | Recognize candidate CRuby ISeq binaries without treating an extension as proof; report header and compatible runtime. | Do not load unsupported or malformed versions. Never call `eval` or execute target instructions. |
 | 2. Decode | Produce a structured, bounded instruction-sequence tree with opcode, operands, source location, local table, nested sequences, and exception/catch metadata. | Implemented as bounded MRI `to_a` evidence for CRuby 3.4.11 and shown in the visualizer/MCP. This is a version-specific inspection format, not a normalized IR; retain raw disassembly and mark capped records. |
 | 3. Recover control/data flow | Build version-specific basic blocks, stack effects, expression data flow, and structured branches/loops. | Early structural step: explicit YARV label markers and known branch opcodes form a bounded navigation CFG with unresolved edges marked. Stack effects, expression data flow, and loop/branch structuring remain open. |
-| 4. Emit Ruby | Render readable Ruby source and attach each output span to its ISeq/instruction origins. | Label inferred names and constructs. Preserve unresolved instructions as diagnostics rather than plausible-looking Ruby. |
+| 4. Emit Ruby | Render a provisional source candidate and attach the provider revision, exact input/output hashes, sequence counts, and explicit warnings. | The current pattern-based upstream adapter has no per-span instruction mapping. It is experimental, Ruby 2.7-focused, and may omit or approximate unsupported instructions. |
 | 5. Validate | Parse with the matching Ruby family/version and compare fixture behavior against the original artifact in an isolated harness when executable fixtures are authorized. | Syntax acceptance is not semantic equivalence. Record validator runtime, input/output hashes, fixtures, and comparison result. |
 
 ## First implementation boundary
@@ -63,10 +68,10 @@ The implemented inspection boundary must continue to:
 - keep raw instructions, intermediate representations, generated Ruby, and accepted
   maintained source as distinct artifacts in the project database.
 
-This first stage is useful evidence, but it is not a source decompiler and must not
-raise Ruby's source-recovery status by itself. The source emitter becomes an
-integration only after versioned fixtures cover methods, blocks, closures, keyword
-arguments, exceptions, pattern matching, and compiler-optimized control flow.
+The integrated source candidate is an early experimental adapter and does not establish
+reliable Ruby source recovery. Raise its support status only after versioned fixtures
+cover methods, blocks, closures, keyword arguments, exceptions, pattern matching, and
+compiler-optimized control flow, with semantic comparisons and instruction coverage.
 
 ## Reuse decisions
 
@@ -84,6 +89,13 @@ arguments, exceptions, pattern matching, and compiler-optimized control flow.
 - Use the official
   [RubyVM::InstructionSequence documentation](https://ruby-doc.org/3.4/RubyVM/InstructionSequence.html)
   and version-matched CRuby `insns.def` as primary format and opcode references.
+- The bounded source candidate adapter reuses the static parser/translator core from
+  [DECOMPILER-RUBY-FOR-SKETCHUP-RUBY-2.7](https://github.com/trancuong2806/DECOMPILER-RUBY-FOR-SKETCHUP-RUBY-2.7)
+  at `8296afafb099110f944135f32f59e789567dd1a4` under BSD-2-Clause. Only its parser,
+  translator, and required core modules are vendored with the upstream license. Its
+  dumper/runtime hook is excluded. Upstream targets Ruby 2.7 YARV disassembly and
+  reports SketchUp RubyEncoder plugin use; REAmon currently supplies CRuby 3.4.11
+  disassembly, so the adapter is explicitly experimental and version-mismatched.
 
 ## Completion evidence
 

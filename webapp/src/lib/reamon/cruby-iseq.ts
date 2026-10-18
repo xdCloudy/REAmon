@@ -3,7 +3,7 @@ import type { ToolExecutionInput, ToolObservation, ToolPlugin, ToolPluginManifes
 import { readAnalyzerResponse } from './analyzer-response'
 
 const MAX_OUTPUT_BYTES = 512 * 1024
-const DEFAULT_TIMEOUT_MS = 45_000
+const DEFAULT_TIMEOUT_MS = 75_000
 
 interface CrubyIseqStructuredEvidence {
   format: string
@@ -44,19 +44,32 @@ interface CrubyIseqResponse {
   structuredEvidenceJson: string
   disassembly: string
   warnings: string
+  reconstructionStatus?: 'syntax_validated_candidate' | 'syntax_rejected' | 'unavailable'
+  reconstructionRelativePath?: string
+  reconstructionName?: string
+  reconstructionSha256?: string
+  reconstructionBytes?: number
+  reconstructionUpstream?: string
+  reconstructionUpstreamRevision?: string
+  reconstructionScope?: string
+  reconstructionIseqCount?: number
+  reconstructionRootCount?: number
+  reconstructionWarnings?: string
+  reconstructionSyntaxMessage?: string
+  reconstructionWarning?: string
 }
 
 export const crubyIseqManifest: ToolPluginManifest = {
   id: 'reamon-cruby-iseq',
-  name: 'CRuby YARV ISeq Inspector',
+  name: 'CRuby YARV ISeq Recovery',
   category: 'static_analysis',
   integration: 'process',
   acceptsTargetTypes: ['FILE'],
   acceptsFormats: ['cruby-iseq'],
-  capabilities: ['inspect_bytecode'],
-  produces: ['CodeUnit', 'BytecodeDisassembly'],
+  capabilities: ['inspect_bytecode', 'decompile'],
+  produces: ['CodeUnit', 'BytecodeDisassembly', 'DecompiledSource'],
   requirements: [
-    { key: 'service', value: 'Isolated CRuby 3.4.11 ISeq inspector' },
+    { key: 'service', value: 'Isolated CRuby 3.4.11 ISeq inspector and experimental source recovery' },
     { key: 'artifactPath' },
   ],
 }
@@ -88,6 +101,24 @@ function isResponse(value: unknown): value is CrubyIseqResponse {
     && createHash('sha256').update(result.structuredEvidenceJson).digest('hex') === result.structuredEvidenceSha256.toLowerCase()
     && typeof result.disassembly === 'string' && Buffer.byteLength(result.disassembly, 'utf8') === result.outputBytes
     && typeof result.warnings === 'string' && result.warnings.length <= 1_000
+    && (result.reconstructionStatus === undefined || ['syntax_validated_candidate', 'syntax_rejected', 'unavailable'].includes(String(result.reconstructionStatus)))
+    && (result.reconstructionStatus !== 'syntax_validated_candidate' || (
+      typeof result.reconstructionRelativePath === 'string'
+      && typeof result.reconstructionName === 'string'
+      && result.reconstructionRelativePath === result.outputRelativePath.replace(/[^/]+$/, result.reconstructionName)
+      && result.reconstructionName.endsWith('.reconstructed.rb')
+      && typeof result.reconstructionName === 'string' && result.reconstructionName.length <= 200
+      && typeof result.reconstructionSha256 === 'string' && /^[a-f0-9]{64}$/i.test(result.reconstructionSha256)
+      && isSafeInteger(result.reconstructionBytes, 1) && result.reconstructionBytes <= MAX_OUTPUT_BYTES
+      && result.reconstructionUpstream === 'DECOMPILER-RUBY-FOR-SKETCHUP-RUBY-2.7'
+      && result.reconstructionUpstreamRevision === '8296afafb099110f944135f32f59e789567dd1a4'
+      && typeof result.reconstructionScope === 'string' && result.reconstructionScope.length <= 500
+      && isSafeInteger(result.reconstructionIseqCount, 1) && result.reconstructionIseqCount <= 96
+      && isSafeInteger(result.reconstructionRootCount, 1) && result.reconstructionRootCount <= 96
+      && typeof result.reconstructionWarnings === 'string' && result.reconstructionWarnings.length <= 1_000
+      && typeof result.reconstructionSyntaxMessage === 'string' && result.reconstructionSyntaxMessage.length <= 1_000
+    ))
+    && (result.reconstructionWarning === undefined || (typeof result.reconstructionWarning === 'string' && result.reconstructionWarning.length <= 1_000))
 }
 
 export async function executeCrubyIseq(input: ToolExecutionInput): Promise<ToolResult> {
@@ -178,6 +209,49 @@ export async function executeCrubyIseq(input: ToolExecutionInput): Promise<ToolR
       },
     }]
 
+    if (payload.reconstructionStatus === 'syntax_validated_candidate') {
+      const reconstructedIdentity = `${input.artifactId}:${payload.inputRelativePath}:ruby-sketchup-decompiler:${payload.reconstructionUpstreamRevision}`
+      observations.push({
+        kind: 'entity',
+        type: 'code_unit',
+        key: `cruby-iseq:reconstructed:${createHash('sha256').update(reconstructedIdentity).digest('hex').slice(0, 32)}`,
+        label: payload.reconstructionName as string,
+        attributes: {
+          unitType: 'module',
+          identity: reconstructedIdentity,
+          name: payload.reconstructionName as string,
+          qualifiedName: payload.reconstructionName as string,
+          relativePath: payload.inputRelativePath,
+          language: 'Ruby',
+          sourceLanguage: 'Ruby',
+          decompiler: payload.reconstructionUpstream as string,
+          decompilerVersion: payload.reconstructionUpstreamRevision as string,
+          providerRevision: `${payload.reconstructionUpstream}@${payload.reconstructionUpstreamRevision}`,
+          representation: 'experimental reconstructed Ruby source',
+          representationSemantics: 'Pattern-based source candidate adapted from a Ruby 2.7-focused decompiler and parsed by CRuby 3.4.11. Syntax acceptance does not establish semantic equivalence; unresolved or optimized behavior may be missing or approximated.',
+          isExecutableSource: true,
+          decompiled: true,
+          codeArtifactId: payload.reconstructionRelativePath as string,
+          decompiledSourceSha256: (payload.reconstructionSha256 as string).toLowerCase(),
+          codeArtifactSha256: (payload.reconstructionSha256 as string).toLowerCase(),
+          sizeBytes: payload.reconstructionBytes as number,
+          inputBytes: payload.inputBytes,
+          inputSha256: payload.inputSha256,
+          outputSha256: (payload.reconstructionSha256 as string).toLowerCase(),
+          runtimeVersion: payload.runtimeVersion,
+          engineVersion: `${payload.reconstructionUpstream}@${payload.reconstructionUpstreamRevision}`,
+          binarySignature: payload.binarySignature,
+          syntaxValidationStatus: 'passed',
+          syntaxValidationMethod: `CRuby ${payload.runtimeVersion} ruby -c (syntax only)`,
+          syntaxValidationMessage: payload.reconstructionSyntaxMessage as string,
+          reconstructionScope: payload.reconstructionScope as string,
+          reconstructionIseqCount: payload.reconstructionIseqCount as number,
+          reconstructionRootCount: payload.reconstructionRootCount as number,
+          evidenceWarning: payload.reconstructionWarnings as string,
+        },
+      })
+    }
+
     return {
       status: 'completed',
       ...base,
@@ -191,6 +265,8 @@ export async function executeCrubyIseq(input: ToolExecutionInput): Promise<ToolR
         runtimeVersion: payload.runtimeVersion,
         engineVersion: payload.toolVersion,
         warnings: payload.warnings,
+        reconstructionStatus: payload.reconstructionStatus ?? 'unavailable',
+        ...(payload.reconstructionWarning ? { reconstructionWarning: payload.reconstructionWarning } : {}),
       },
     }
   } catch (error) {

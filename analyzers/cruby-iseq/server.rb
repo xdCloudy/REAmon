@@ -16,6 +16,9 @@ TIMEOUT_SECONDS = Integer(ENV.fetch("CRUBY_ISEQ_TIMEOUT_SECONDS", "35"))
 MAX_REQUEST = 16 * 1024
 SAFE_ID = /\A[A-Za-z0-9][A-Za-z0-9_-]{0,127}\z/
 WORKER = File.expand_path("worker.rb", __dir__)
+DECOMPILE_WORKER = File.expand_path("decompile_worker.py", __dir__)
+DECOMPILE_TIMEOUT_SECONDS = 22
+MAX_RECONSTRUCTED_SOURCE = 512 * 1024
 
 def json_response(socket, code, body)
   payload = JSON.generate(body)
@@ -94,6 +97,87 @@ def run_inspector(input_path)
   end
 end
 
+def run_process(command, stdin_data: nil, timeout_seconds:, max_output:)
+  output = +""
+  error_output = +""
+  Open3.popen3(*command, pgroup: true) do |stdin, stdout, stderr, wait_thread|
+    stdin.write(stdin_data) if stdin_data
+    stdin.close
+    stdout_thread = Thread.new do
+      captured = +""
+      while (chunk = stdout.read(8_192))
+        remaining = (max_output + 1) - captured.bytesize
+        captured << chunk.byteslice(0, remaining) if remaining.positive?
+      end
+      captured
+    end
+    stderr_thread = Thread.new { stderr.read(16_384) }
+    begin
+      Timeout.timeout(timeout_seconds) do
+        status = wait_thread.value
+        output = stdout_thread.value
+        error_output = stderr_thread.value
+        raise ArgumentError, "Analyzer output exceeded its limit" if output.bytesize > max_output
+        return [status, output, error_output]
+      end
+    rescue Timeout::Error
+      Process.kill("KILL", -wait_thread.pid) rescue nil
+      wait_thread.join
+      raise ArgumentError, "Analyzer subprocess exceeded its #{timeout_seconds} second limit"
+    ensure
+      if wait_thread.alive?
+        Process.kill("KILL", -wait_thread.pid) rescue nil
+        wait_thread.join
+      end
+      [stdin, stdout, stderr].each { |pipe| pipe.close rescue nil }
+      [stdout_thread, stderr_thread].each { |thread| thread.kill if thread.alive? }
+    end
+  end
+end
+
+def run_reconstructor(disassembly_path)
+  status, output, error_output = run_process(
+    ["python3", DECOMPILE_WORKER, disassembly_path],
+    timeout_seconds: DECOMPILE_TIMEOUT_SECONDS,
+    max_output: MAX_RECONSTRUCTED_SOURCE + 32_768
+  )
+  result = JSON.parse(output)
+  unless status.success? && result["status"] == "completed"
+    detail = result["error"].to_s
+    detail = error_output[0, 500] if detail.empty?
+    raise ArgumentError, detail.empty? ? "Ruby source reconstruction failed" : detail
+  end
+  source = result["source"]
+  raise ArgumentError, "Ruby reconstruction returned invalid source" unless source.is_a?(String) && source.bytesize.between?(1, MAX_RECONSTRUCTED_SOURCE)
+  result
+end
+
+def ruby_syntax_check(source)
+  status, output, error_output = run_process(
+    [RbConfig.ruby, "-c", "-"],
+    stdin_data: source,
+    timeout_seconds: 8,
+    max_output: 8_192
+  )
+  [status.success?, (output + error_output).strip[0, 1_000]]
+rescue StandardError => error
+  [false, error.message.to_s[0, 1_000]]
+end
+
+def save_derived_file(output_path, content)
+  output_directory = File.dirname(output_path)
+  FileUtils.mkdir_p(output_directory)
+  resolved_directory = File.realpath(output_directory)
+  raise ArgumentError, "Derived output directory escaped its storage root" unless resolved_directory.start_with?(DERIVED_ROOT + File::SEPARATOR)
+  temp_path = File.join(resolved_directory, ".#{SecureRandom.hex(12)}.tmp")
+  File.open(temp_path, File::WRONLY | File::CREAT | File::EXCL, 0o644) do |file|
+    file.write(content)
+    file.flush
+    file.fsync
+  end
+  File.rename(temp_path, output_path)
+end
+
 def analyze(body)
   raise ArgumentError, "Request must be a JSON object" unless body.is_a?(Hash)
   project_id = safe_id(body["projectId"])
@@ -113,23 +197,47 @@ def analyze(body)
   output_relative = [project_id, artifact_id, task_id, run_id, "cruby-iseq", source_key, "#{basename}.yarv.disasm"].join("/")
   output_path = File.join(DERIVED_ROOT, *output_relative.split("/"))
   output_directory = File.dirname(output_path)
-  FileUtils.mkdir_p(output_directory)
-  resolved_directory = File.realpath(output_directory)
-  raise ArgumentError, "Derived output directory escaped its storage root" unless resolved_directory.start_with?(DERIVED_ROOT + File::SEPARATOR)
-  temp_path = File.join(resolved_directory, ".#{SecureRandom.hex(12)}.tmp")
-  File.open(temp_path, File::WRONLY | File::CREAT | File::EXCL, 0o644) do |file|
-    file.write(result.fetch("disassembly"))
-    file.flush
-    file.fsync
-  end
-  File.rename(temp_path, output_path)
+  save_derived_file(output_path, result.fetch("disassembly"))
 
-  result.merge(
+  response = result.merge(
     toolVersion: "cruby-iseq-inspector@1",
     inputRelativePath: relative_path.tr("\\", "/"),
     outputRelativePath: output_relative,
     outputName: "#{basename}.yarv.disasm",
   ).reject { |key, _| key == "disassembly" }
+
+  begin
+    reconstructed = run_reconstructor(output_path)
+    syntax_valid, syntax_message = ruby_syntax_check(reconstructed.fetch("source"))
+    if syntax_valid
+      reconstructed_relative = output_relative.sub(/\.yarv\.disasm\z/, ".reconstructed.rb")
+      reconstructed_path = File.join(DERIVED_ROOT, *reconstructed_relative.split("/"))
+      source = reconstructed.fetch("source")
+      save_derived_file(reconstructed_path, source)
+      response.merge!(
+        reconstructionStatus: "syntax_validated_candidate",
+        reconstructionRelativePath: reconstructed_relative,
+        reconstructionName: "#{basename}.reconstructed.rb",
+        reconstructionSha256: Digest::SHA256.hexdigest(source),
+        reconstructionBytes: source.bytesize,
+        reconstructionUpstream: reconstructed.fetch("upstream"),
+        reconstructionUpstreamRevision: reconstructed.fetch("upstreamRevision"),
+        reconstructionScope: reconstructed.fetch("upstreamScope"),
+        reconstructionIseqCount: reconstructed.fetch("iseqCount"),
+        reconstructionRootCount: reconstructed.fetch("rootCount"),
+        reconstructionWarnings: reconstructed.fetch("warnings"),
+        reconstructionSyntaxMessage: syntax_message
+      )
+    else
+      response[:reconstructionStatus] = "syntax_rejected"
+      response[:reconstructionWarning] = "Experimental source candidate failed CRuby #{RUBY_VERSION} syntax validation: #{syntax_message}"
+    end
+  rescue StandardError => error
+    response[:reconstructionStatus] = "unavailable"
+    response[:reconstructionWarning] = "Experimental Ruby source reconstruction unavailable: #{error.message.to_s[0, 500]}"
+  end
+
+  response
 end
 
 server = TCPServer.new("0.0.0.0", PORT)

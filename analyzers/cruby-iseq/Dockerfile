@@ -1,6 +1,6 @@
 FROM ruby:3.4.11-slim-bookworm
 
-RUN apt-get update && apt-get install -y --no-install-recommends util-linux \
+RUN apt-get update && apt-get install -y --no-install-recommends util-linux python3 \
     && useradd --system --uid 10001 --no-create-home --shell /usr/sbin/nologin cruby-iseq \
     && rm -rf /var/lib/apt/lists/*
 
@@ -11,7 +11,8 @@ ENV REAMON_ARTIFACTS_PATH=/data/reamon-artifacts \
     CRUBY_ISEQ_TIMEOUT_SECONDS=35
 
 WORKDIR /app
-COPY server.rb worker.rb entrypoint.sh ./
-RUN chmod 0555 /app/server.rb /app/worker.rb /app/entrypoint.sh
+COPY server.rb worker.rb decompile_worker.py entrypoint.sh ./
+COPY upstream/ruby-sketchup-decompiler ./upstream/ruby-sketchup-decompiler
+RUN chmod 0555 /app/server.rb /app/worker.rb /app/decompile_worker.py /app/entrypoint.sh
 EXPOSE 8030
 ENTRYPOINT ["/app/entrypoint.sh"]
