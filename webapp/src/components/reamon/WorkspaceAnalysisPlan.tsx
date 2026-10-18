@@ -28,7 +28,7 @@ function taskLabel(step: WorkspaceAnalysisPlanStep): string {
   if (task.status === 'RUNNING' && isStaleRunningTask(step)) return 'STALE · choose Run to retry'
   if (task.status === 'RUNNING') return `RUNNING · ${task.progressMessage || 'Starting analysis'}`
   if (task.status === 'QUEUED') return 'QUEUED'
-  if (task.status === 'AWAITING_APPROVAL') return 'PENDING · choose Run to queue'
+  if (task.status === 'AWAITING_APPROVAL') return 'READY · choose Run to queue'
   return task.status
 }
 
