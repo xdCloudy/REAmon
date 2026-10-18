@@ -5,6 +5,7 @@ import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
 import { getWorkspaceArtifact } from '@/lib/reamon/inventory-query'
 import { resolveCapabilities } from '@/lib/reamon/capabilities'
 import { ensureProviderRegistered, getBuiltinProvider } from '@/lib/reamon/provider-registry'
+import { recoverStaleAnalysisTasks } from '@/lib/reamon/task-control'
 import type { TargetProfile } from '@/lib/reamon/types'
 
 interface RouteParams { params: Promise<{ id: string }> }
@@ -137,6 +138,8 @@ export async function POST(request: Request, { params }: RouteParams) {
       providerId: true,
       capability: true,
       artifactId: true,
+      startedAt: true,
+      leaseHeartbeatAt: true,
       createdAt: true,
       updatedAt: true,
     } as const
@@ -158,6 +161,17 @@ export async function POST(request: Request, { params }: RouteParams) {
         select: taskSelect,
       })
       if (activeTask) {
+        if (activeTask.status === 'RUNNING' && !requiresApproval) {
+          const lastHeartbeat = activeTask.leaseHeartbeatAt || activeTask.startedAt
+          const stale = lastHeartbeat && Date.now() - lastHeartbeat.getTime() >= 5 * 60 * 1000
+          if (stale) {
+            const recovered = await recoverStaleAnalysisTasks(projectId, 5, effectiveUser.userId, activeTask.id)
+            if (recovered.recovered) {
+              const queued = await prisma.task.findUnique({ where: { id: activeTask.id }, select: taskSelect })
+              if (queued) return NextResponse.json({ scheduled: true, reused: true, task: serialiseTask(queued) }, { headers: NO_STORE })
+            }
+          }
+        }
         if (activeTask.status === 'AWAITING_APPROVAL' && !requiresApproval) {
           const queued = await prisma.$transaction(async (tx) => {
             const updated = await tx.task.updateMany({

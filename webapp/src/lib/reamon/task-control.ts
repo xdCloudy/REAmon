@@ -178,12 +178,13 @@ function normaliseStaleAfterMinutes(value: number | undefined): number {
   return Math.min(24 * 60, Math.max(5, Math.floor(value as number)))
 }
 
-export async function recoverStaleAnalysisTasks(projectId: string | undefined, requestedMinutes?: number, recoveredBy?: string) {
+export async function recoverStaleAnalysisTasks(projectId: string | undefined, requestedMinutes?: number, recoveredBy?: string, taskId?: string) {
   const staleAfterMinutes = normaliseStaleAfterMinutes(requestedMinutes)
   const cutoff = new Date(Date.now() - staleAfterMinutes * 60 * 1000)
   const candidates = await prisma.task.findMany({
     where: {
       ...(projectId ? { projectId } : {}),
+      ...(taskId ? { id: taskId } : {}),
       status: 'RUNNING',
       OR: [
         { leaseHeartbeatAt: { not: null, lt: cutoff } },

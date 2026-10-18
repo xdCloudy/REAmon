@@ -27,6 +27,7 @@ export interface WorkspaceAnalysisPlanStep {
     progress: number
     progressMessage: string
     error: string
+    leaseHeartbeatAt: string | null
     updatedAt: string
   } | null
 }

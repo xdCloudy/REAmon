@@ -15,9 +15,17 @@ function createRunAttemptId(): string {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')
 }
 
+function isStaleRunningTask(step: WorkspaceAnalysisPlanStep): boolean {
+  const task = step.latestTask
+  if (task?.status !== 'RUNNING') return false
+  const timestamp = Date.parse(task.leaseHeartbeatAt || task.updatedAt)
+  return Number.isFinite(timestamp) && Date.now() - timestamp >= 5 * 60 * 1000
+}
+
 function taskLabel(step: WorkspaceAnalysisPlanStep): string {
   const task = step.latestTask
   if (!task) return 'PROPOSED'
+  if (task.status === 'RUNNING' && isStaleRunningTask(step)) return 'STALE · choose Run to retry'
   if (task.status === 'RUNNING') return `RUNNING · ${task.progressMessage || 'Starting analysis'}`
   if (task.status === 'QUEUED') return 'QUEUED'
   if (task.status === 'AWAITING_APPROVAL') return 'PENDING · choose Run to queue'
@@ -144,8 +152,9 @@ export function WorkspaceAnalysisPlanPanel({ projectId, plan, isLoading, isError
         <div className={styles.list}>
           {plan.steps.slice(0, visibleCount).map((step) => {
             const taskStatus = step.latestTask?.status
-            const isActive = taskStatus === 'QUEUED' || taskStatus === 'RUNNING'
-            const runLabel = pendingId === `run:${step.id}` ? 'Starting…' : isActive ? (taskStatus === 'RUNNING' ? 'Running' : 'Queued') : step.previousRunCount ? 'Run again' : 'Run'
+            const staleRun = isStaleRunningTask(step)
+            const isActive = taskStatus === 'QUEUED' || (taskStatus === 'RUNNING' && !staleRun)
+            const runLabel = pendingId === `run:${step.id}` ? 'Starting…' : staleRun ? 'Run' : isActive ? (taskStatus === 'RUNNING' ? 'Running' : 'Queued') : step.previousRunCount ? 'Run again' : 'Run'
             return <div className={styles.row} key={step.id}>
               <span className={styles.path} title={step.relativePath}>{step.relativePath}</span>
               <span className={styles.provider}>{step.provider.pluginName}</span>

@@ -87,6 +87,7 @@ export async function GET(request: Request, { params }: RouteParams) {
             progress: true,
             progressMessage: true,
             error: true,
+            leaseHeartbeatAt: true,
             updatedAt: true,
             provider: { select: { pluginId: true } },
           },
@@ -112,6 +113,7 @@ export async function GET(request: Request, { params }: RouteParams) {
           progress: task.progress,
           progressMessage: task.progressMessage,
           error: task.error,
+          leaseHeartbeatAt: task.leaseHeartbeatAt?.toISOString() || null,
           updatedAt: task.updatedAt.toISOString(),
         } : null,
       }
