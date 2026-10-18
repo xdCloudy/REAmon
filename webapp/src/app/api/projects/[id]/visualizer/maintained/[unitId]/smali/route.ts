@@ -128,7 +128,7 @@ export async function GET(request: Request, { params }: RouteParams) {
       }, { headers: { 'Cache-Control': 'private, no-store' } })
     }
     const [saved, reviews, restorableReviews] = await Promise.all([
-      prisma.reamonMaintainedSource.findUnique({ where: { projectId_codeUnitId: { projectId, codeUnitId } }, select: { sourceCode: true, updatedAt: true } }),
+      prisma.reamonMaintainedSource.findUnique({ where: { projectId_codeUnitId: { projectId, codeUnitId } }, select: { sourceCode: true, sourceHash: true, acceptedReviewId: true, updatedAt: true } }),
       prisma.reamonCodeReview.findMany({
         where: { projectId, codeUnitId }, orderBy: { createdAt: 'desc' }, take: 10,
         select: { id: true, reviewerId: true, decision: true, rationale: true, maintainedSourceHash: true, validationStatus: true, validationMethod: true, validationMessage: true, createdAt: true },
@@ -145,10 +145,63 @@ export async function GET(request: Request, { params }: RouteParams) {
       sourceAvailable: restorableReviewIds.has(review.id),
       createdAt: review.createdAt.toISOString(),
     }))
-    return NextResponse.json({ exists: Boolean(saved), sourceCode, sourceHash: saved ? createHash('sha256').update(saved.sourceCode).digest('hex') : null, updatedAt: saved?.updatedAt.toISOString() ?? null, reviews: reviewHistory }, { headers: { 'Cache-Control': 'private, no-store' } })
+    const sourceHash = saved ? createHash('sha256').update(saved.sourceCode).digest('hex') : null
+    const acceptedReceipt = saved?.acceptedReviewId && sourceHash ? await prisma.reamonCodeReview.findFirst({
+      where: { id: saved.acceptedReviewId, projectId, artifactId: resolved.unit.artifactId!, codeUnitId, decision: 'ACCEPTED', maintainedSourceHash: sourceHash },
+      select: { id: true },
+    }) : null
+    return NextResponse.json({ exists: Boolean(saved), sourceCode, sourceHash, acceptedReviewId: acceptedReceipt?.id ?? null, updatedAt: saved?.updatedAt.toISOString() ?? null, reviews: reviewHistory }, { headers: { 'Cache-Control': 'private, no-store' } })
   } catch (error) {
     console.error('Failed to load editable Smali source:', error)
     return NextResponse.json({ error: 'Failed to load Smali source' }, { status: 500, headers: { 'Cache-Control': 'no-store' } })
+  }
+}
+
+export async function PATCH(request: Request, { params }: RouteParams) {
+  try {
+    const { id: projectId, unitId } = await params
+    const resolved = await resolveSmali(projectId, unitId)
+    if ('response' in resolved) return resolved.response
+    const codeUnitId = `${SMALI_CODE_UNIT_PREFIX}${unitId}`
+    const requestBody = object(await request.json().catch(() => null))
+    const expectedSourceHash = typeof requestBody.expectedSourceHash === 'string' && /^[a-f0-9]{64}$/i.test(requestBody.expectedSourceHash)
+      ? requestBody.expectedSourceHash.toLowerCase()
+      : ''
+    const rationale = typeof requestBody.reviewRationale === 'string' ? requestBody.reviewRationale.trim() : ''
+    if (!expectedSourceHash) return NextResponse.json({ error: 'A valid expected Smali source hash is required to revoke acceptance.' }, { status: 400 })
+    if (rationale.length < 12 || rationale.length > 1000) return NextResponse.json({ error: 'Add a revocation rationale between 12 and 1000 characters.' }, { status: 400 })
+
+    const review = await prisma.$transaction(async (tx) => {
+      const currentSource = await tx.reamonMaintainedSource.findUnique({
+        where: { projectId_codeUnitId: { projectId, codeUnitId } },
+        select: { sourceCode: true, sourceHash: true, acceptedReviewId: true },
+      })
+      if (!currentSource?.acceptedReviewId) throw new MaintainedSourceConflict()
+      const sourceHash = createHash('sha256').update(currentSource.sourceCode).digest('hex')
+      if (sourceHash !== expectedSourceHash) throw new MaintainedSourceConflict()
+      const acceptedReceipt = await tx.reamonCodeReview.findFirst({
+        where: { id: currentSource.acceptedReviewId, projectId, artifactId: resolved.unit.artifactId!, codeUnitId, decision: 'ACCEPTED', maintainedSourceHash: sourceHash },
+        select: { id: true },
+      })
+      if (!acceptedReceipt) throw new MaintainedSourceConflict()
+      const revokedReceipt = await tx.reamonCodeReview.create({
+        data: { projectId, artifactId: resolved.unit.artifactId!, codeUnitId, reviewerId: resolved.reviewerId, decision: 'REVOKED', rationale, maintainedSourceHash: sourceHash },
+        select: { id: true, reviewerId: true, decision: true, rationale: true, maintainedSourceHash: true, createdAt: true },
+      })
+      const updated = await tx.reamonMaintainedSource.updateMany({
+        where: { projectId, codeUnitId, sourceHash: currentSource.sourceHash, acceptedReviewId: acceptedReceipt.id },
+        data: { acceptedReviewId: null },
+      })
+      if (updated.count !== 1) throw new MaintainedSourceConflict()
+      return revokedReceipt
+    })
+    return NextResponse.json({ revoked: true, review: { ...review, createdAt: review.createdAt.toISOString() } }, { headers: { 'Cache-Control': 'private, no-store' } })
+  } catch (error) {
+    if (error instanceof MaintainedSourceConflict || isUniqueConflict(error)) {
+      return NextResponse.json({ error: 'The accepted Smali source changed after you opened it. Reload and review the current version before revoking it.' }, { status: 409 })
+    }
+    console.error('Failed to revoke maintained Smali source:', error)
+    return NextResponse.json({ error: 'Failed to revoke Smali source acceptance' }, { status: 500, headers: { 'Cache-Control': 'no-store' } })
   }
 }
 

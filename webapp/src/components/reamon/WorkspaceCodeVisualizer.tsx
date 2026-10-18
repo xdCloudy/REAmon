@@ -1070,7 +1070,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
       const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/maintained/${encodeURIComponent(selectedUnit?.id || '')}/smali`, { signal, cache: 'no-store' })
       const result = await response.json().catch(() => ({})) as { sourceCode?: string; sourceHash?: string | null; exists?: boolean; error?: string; reviews?: CodeReviewRecord[] }
       if (!response.ok || typeof result.sourceCode !== 'string') throw new Error(result.error || 'Unable to load Smali source')
-      return result as { sourceCode: string; sourceHash: string | null; exists: boolean; reviews?: CodeReviewRecord[] }
+      return result as { sourceCode: string; sourceHash: string | null; acceptedReviewId?: string | null; exists: boolean; reviews?: CodeReviewRecord[] }
     },
     enabled: Boolean(selectedUnit?.disassemblyLanguage?.toLowerCase() === 'smali' && selectedUnit.disassemblyArtifactId),
     staleTime: 0,
@@ -1946,6 +1946,35 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
     }
   }
 
+  async function revokeSmaliAcceptance() {
+    if (!selectedUnit || !smaliSourceQuery.data?.acceptedReviewId || !smaliSourceQuery.data.sourceHash) return
+    if (smaliReviewRationale.trim().length < 12 || smaliReviewRationale.trim().length > 1000) {
+      setSmaliError('Add between 12 and 1000 characters explaining why this acceptance was revoked.')
+      return
+    }
+    setSavingSmali(true)
+    setSmaliError('')
+    setSmaliReviewStatus('')
+    try {
+      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/maintained/${encodeURIComponent(selectedUnit.id)}/smali`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ expectedSourceHash: smaliSourceQuery.data.sourceHash, reviewRationale: smaliReviewRationale }),
+      })
+      const result = await response.json().catch(() => ({})) as { error?: string }
+      if (!response.ok) throw new Error(result.error || 'Could not revoke Smali acceptance')
+      setSmaliReviewRationale('')
+      setSmaliReviewStatus('Acceptance revoked. This Smali source will no longer be treated as approved project memory.')
+      await queryClient.invalidateQueries({ queryKey: ['reamon-maintained-smali', projectId, selectedUnit.id] })
+      await queryClient.invalidateQueries({ queryKey: ['reamon-code-units', projectId] })
+      await queryClient.invalidateQueries({ queryKey: ['reamon-maintained-coverage', projectId, currentRunId] })
+    } catch (error) {
+      setSmaliError(error instanceof Error ? error.message : 'Could not revoke Smali acceptance')
+    } finally {
+      setSavingSmali(false)
+    }
+  }
+
   function openTreemapEntry(entry: CodeUnitTreemapEntry) {
     setSelectedFunctionMapMember(null)
     if (entry.folderPath) {
@@ -2558,11 +2587,12 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
                 <label>Editable Smali source
                   <textarea aria-label="Editable Smali source" value={smaliDraft} spellCheck={false} onChange={(event) => { setSmaliDraft(event.target.value); setSmaliSaved(false); setSmaliError('') }} />
                 </label>
-                <label className={styles.reviewRationale}>Review rationale (required to accept this Smali version)
-                  <textarea aria-label="Smali review rationale" value={smaliReviewRationale} maxLength={1000} onChange={(event) => setSmaliReviewRationale(event.target.value)} placeholder="Summarize what you checked before saving this Smali source." />
+                <label className={styles.reviewRationale}>Review rationale (required to accept or revoke this Smali version)
+                  <textarea aria-label="Smali review rationale" value={smaliReviewRationale} maxLength={1000} onChange={(event) => setSmaliReviewRationale(event.target.value)} placeholder="Summarize what you checked before accepting, or why you are revoking acceptance." />
                 </label>
                 <div className={styles.maintainedActions}>
                   <button type="button" className={styles.explainButton} onClick={() => void saveSmaliSource()} disabled={savingSmali || !smaliDraft.trim() || smaliReviewRationale.trim().length < 12 || (smaliSaved && smaliDraft === smaliSourceQuery.data?.sourceCode)}>{savingSmali ? 'Saving Smali…' : smaliSaved ? 'Review and save Smali changes' : 'Review and accept Smali source'}</button>
+                  {smaliSourceQuery.data?.acceptedReviewId && <button type="button" className={styles.copyButton} onClick={() => void revokeSmaliAcceptance()} disabled={savingSmali || smaliReviewRationale.trim().length < 12}>{savingSmali ? 'Recording review…' : 'Revoke current acceptance'}</button>}
                   {smaliReviewRationale.trim().length > 0 && smaliReviewRationale.trim().length < 12 && <span className={styles.message}>Add at least 12 characters describing your review.</span>}
                   {smaliSaved && <span className={styles.savedStatus} role="status">Accepted Smali source and review receipt saved; included in APK rebuilds</span>}
                   {smaliReviewStatus && <span className={styles.savedStatus} role="status">{smaliReviewStatus}</span>}
