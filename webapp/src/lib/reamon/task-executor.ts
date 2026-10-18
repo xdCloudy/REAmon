@@ -426,7 +426,7 @@ export async function executeAnalysisTask(projectId: string, taskId: string, lea
     where: { id: task.id, projectId, status: 'QUEUED' },
     data: {
       status: 'RUNNING',
-      progress: 10,
+      progress: 0,
       progressMessage: 'Starting analysis',
       startedAt: new Date(),
       leaseHeartbeatAt: new Date(),
