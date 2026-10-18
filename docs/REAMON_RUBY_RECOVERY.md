@@ -27,7 +27,7 @@ provider build, and output SHA-256.
 | --- | --- | --- |
 | 1. Detect and inspect | Recognize candidate CRuby ISeq binaries without treating an extension as proof; report header and compatible runtime. | Do not load unsupported or malformed versions. Never call `eval` or execute target instructions. |
 | 2. Decode | Produce a structured, bounded instruction-sequence tree with opcode, operands, source location, local table, nested sequences, and exception/catch metadata. | Implemented as bounded MRI `to_a` evidence for CRuby 3.4.11 and shown in the visualizer/MCP. This is a version-specific inspection format, not a normalized IR; retain raw disassembly and mark capped records. |
-| 3. Recover control/data flow | Build version-specific basic blocks, stack effects, expression data flow, and structured branches/loops. | Persist intermediate representation and confidence per recovered construct; do not invent locals or types. |
+| 3. Recover control/data flow | Build version-specific basic blocks, stack effects, expression data flow, and structured branches/loops. | Early structural step: explicit YARV label markers and known branch opcodes form a bounded navigation CFG with unresolved edges marked. Stack effects, expression data flow, and loop/branch structuring remain open. |
 | 4. Emit Ruby | Render readable Ruby source and attach each output span to its ISeq/instruction origins. | Label inferred names and constructs. Preserve unresolved instructions as diagnostics rather than plausible-looking Ruby. |
 | 5. Validate | Parse with the matching Ruby family/version and compare fixture behavior against the original artifact in an isolated harness when executable fixtures are authorized. | Syntax acceptance is not semantic equivalence. Record validator runtime, input/output hashes, fixtures, and comparison result. |
 
@@ -41,8 +41,9 @@ sequence/opcode evidence, instruction counts, exact hashes, and runtime identity
 the project observation. The visualizer, MCP dossier, and AI explanation context expose
 both views as bytecode evidence with separate integrity checks; maintenance rewrites
 reject it. The
-current limit is 16 MiB input, 512 KiB output, one concurrent analysis, 25 CPU
-seconds in the child, and 384 MiB child address space. The analyzer image builds,
+current limit is 16 MiB input, 512 KiB raw disassembly, 192 KiB structured evidence,
+96 sequences, 1,200 instructions, 400 CFG blocks per sequence, one concurrent analysis,
+25 CPU seconds in the child, and 384 MiB child address space. The analyzer image builds,
 both Ruby files pass `ruby -c`, Compose configuration validates, and the webapp passes
 its production TypeScript check. Runtime artifact inspection and fixture fidelity
 evidence remain open. Add source recovery only after the structured instruction model

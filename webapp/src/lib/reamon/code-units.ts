@@ -52,6 +52,20 @@ export interface CrubyIseqInstruction {
   operands: unknown[]
 }
 
+export interface CrubyIseqControlFlow {
+  version: 'cruby-iseq-cfg-v1'
+  blocks: Array<{
+    id: number
+    label: string | null
+    startIndex: number
+    endIndex: number
+    instructionCount: number
+    successors: Array<{ blockId?: number; label?: string; kind: string }>
+  }>
+  truncated: boolean
+  unresolvedEdges: number
+}
+
 export interface CrubyIseqSequence {
   id: number
   label: string
@@ -61,6 +75,7 @@ export interface CrubyIseqSequence {
   parameters: unknown
   catchTable: unknown[]
   instructions: CrubyIseqInstruction[]
+  controlFlow: CrubyIseqControlFlow | null
   truncated: boolean
 }
 
@@ -561,6 +576,42 @@ export function crubyIseqEvidenceOf(value: unknown): CrubyIseqEvidence | null {
     const sequence = item as Record<string, unknown>
     if (!Number.isSafeInteger(sequence.id) || typeof sequence.label !== 'string' || typeof sequence.type !== 'string'
         || !Array.isArray(sequence.locals) || !Array.isArray(sequence.instructions)) return null
+    const rawControlFlow = sequence.controlFlow && typeof sequence.controlFlow === 'object' && !Array.isArray(sequence.controlFlow)
+      ? sequence.controlFlow as Record<string, unknown> : null
+    let controlFlow: CrubyIseqControlFlow | null = null
+    if (rawControlFlow?.version === 'cruby-iseq-cfg-v1' && Array.isArray(rawControlFlow.blocks) && rawControlFlow.blocks.length <= 400) {
+      const blocks: CrubyIseqControlFlow['blocks'] = []
+      for (const rawBlock of rawControlFlow.blocks) {
+        if (!rawBlock || typeof rawBlock !== 'object' || Array.isArray(rawBlock)) return null
+        const block = rawBlock as Record<string, unknown>
+        if (!Number.isSafeInteger(block.id) || !Number.isSafeInteger(block.startIndex) || !Number.isSafeInteger(block.endIndex)
+            || !Number.isSafeInteger(block.instructionCount) || !Array.isArray(block.successors)) return null
+        const successors = block.successors.flatMap((rawEdge) => {
+          if (!rawEdge || typeof rawEdge !== 'object' || Array.isArray(rawEdge)) return []
+          const edge = rawEdge as Record<string, unknown>
+          if (typeof edge.kind !== 'string') return []
+          return [{
+            ...(Number.isSafeInteger(edge.blockId) ? { blockId: edge.blockId as number } : {}),
+            ...(typeof edge.label === 'string' ? { label: edge.label.slice(0, 160) } : {}),
+            kind: edge.kind.slice(0, 32),
+          }]
+        }).slice(0, 16)
+        blocks.push({
+          id: block.id as number,
+          label: typeof block.label === 'string' ? block.label.slice(0, 160) : null,
+          startIndex: block.startIndex as number,
+          endIndex: block.endIndex as number,
+          instructionCount: block.instructionCount as number,
+          successors,
+        })
+      }
+      controlFlow = {
+        version: 'cruby-iseq-cfg-v1',
+        blocks,
+        truncated: rawControlFlow.truncated === true,
+        unresolvedEdges: boundedCount(rawControlFlow.unresolvedEdges) ?? 0,
+      }
+    }
     const instructions: CrubyIseqInstruction[] = []
     for (const rawInstruction of sequence.instructions) {
       if (!rawInstruction || typeof rawInstruction !== 'object' || Array.isArray(rawInstruction)) return null
@@ -583,6 +634,7 @@ export function crubyIseqEvidenceOf(value: unknown): CrubyIseqEvidence | null {
       parameters: sequence.parameters ?? null,
       catchTable: Array.isArray(sequence.catchTable) ? sequence.catchTable.slice(0, 128) : [],
       instructions,
+      controlFlow,
       truncated: sequence.truncated === true,
     })
   }

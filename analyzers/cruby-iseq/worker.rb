@@ -10,6 +10,84 @@ MAX_DEPTH = 20
 MAX_OPERANDS = 12
 MAX_VALUE_ITEMS = 32
 MAX_STRING_BYTES = 160
+MAX_CFG_BLOCKS = 400
+
+def yarv_control_flow(instructions, truncated)
+  labels = {}
+  instructions.each_with_index do |instruction, index|
+    opcode = instruction[:opcode].to_s
+    labels[opcode] = index if opcode.match?(/\Alabel_[A-Za-z0-9_]+\z/)
+  end
+  return { version: "cruby-iseq-cfg-v1", blocks: [], truncated: false, unresolvedEdges: 0 } if instructions.empty?
+
+  branch_ops = %w[jump branchif branchunless branchnil opt_case_dispatch]
+  terminal_ops = %w[leave throw finish]
+  starts = [0]
+  instructions.each_with_index do |instruction, index|
+    opcode = instruction[:opcode].to_s
+    starts << index if opcode.match?(/\Alabel_[A-Za-z0-9_]+\z/)
+    starts << index + 1 if index + 1 < instructions.length && (branch_ops.include?(opcode) || terminal_ops.include?(opcode))
+  end
+  starts = starts.uniq.sort
+  if starts.length > MAX_CFG_BLOCKS
+    starts = starts.first(MAX_CFG_BLOCKS)
+    truncated = true
+  end
+  block_for_instruction = {}
+  starts.each_with_index do |start_index, block_id|
+    next_start = starts[block_id + 1] || instructions.length
+    (start_index...next_start).each { |instruction_index| block_for_instruction[instruction_index] = block_id }
+  end
+  blocks = starts.each_with_index.map do |start_index, block_id|
+    end_index = (starts[block_id + 1] || instructions.length) - 1
+    block = {
+      id: block_id,
+      label: instructions[start_index][:opcode].to_s.match?(/\Alabel_/) ? instructions[start_index][:opcode].to_s : nil,
+      startIndex: start_index,
+      endIndex: end_index,
+      instructionCount: end_index - start_index + 1,
+      successors: [],
+    }
+    last = instructions[end_index]
+    opcode = last[:opcode].to_s
+    next_id = block_for_instruction[end_index + 1]
+    if branch_ops.include?(opcode)
+      target_names = []
+      collect_labels = lambda do |value, nested = 0|
+        if nested <= 8 && value.is_a?(String) && value.match?(/\Alabel_[A-Za-z0-9_]+\z/)
+          target_names << value
+        elsif nested < 8 && value.is_a?(Array)
+          value.first(32).each { |item| collect_labels.call(item, nested + 1) }
+        elsif nested < 8 && value.is_a?(Hash)
+          value.values.first(32).each { |item| collect_labels.call(item, nested + 1) }
+        end
+      end
+      last.fetch(:operands, []).each { |operand| collect_labels.call(operand) }
+      target_names.uniq.each do |target|
+        target_index = labels[target]
+        target_block = target_index && block_for_instruction[target_index]
+        if target_block
+          block[:successors] << { blockId: target_block, kind: opcode == "opt_case_dispatch" ? "dispatch" : "branch" }
+        else
+          block[:successors] << { label: target, kind: "unresolved" }
+        end
+      end
+      block[:successors] << { kind: "unresolved-target" } if target_names.empty?
+      block[:successors] << { blockId: next_id, kind: "fallthrough" } if opcode != "jump" && next_id
+      block[:successors] << { kind: "unresolved-fallthrough" } if opcode != "jump" && !next_id && !terminal_ops.include?(opcode)
+    elsif !terminal_ops.include?(opcode)
+      block[:successors] << { blockId: next_id, kind: "sequential" } if next_id
+    end
+    block
+  end
+  unresolved = blocks.sum { |block| block[:successors].count { |edge| edge[:kind].to_s.start_with?("unresolved") } }
+  {
+    version: "cruby-iseq-cfg-v1",
+    blocks: blocks,
+    truncated: truncated || unresolved.positive?,
+    unresolvedEdges: unresolved,
+  }
+end
 
 def emit(value, status = 0)
   STDOUT.write(JSON.generate(value))
@@ -70,6 +148,7 @@ def structured_iseq(root)
       parameters: nil,
       catchTable: [],
       instructions: [],
+      controlFlow: nil,
       truncated: false,
     }
     state[:sequences] << sequence
@@ -104,6 +183,7 @@ def structured_iseq(root)
         sequence[:instructions] << { opcode: bounded_string(head), operands: operands }
       end
     end
+    sequence[:controlFlow] = yarv_control_flow(sequence[:instructions], sequence[:truncated])
     sequence[:truncated] = true if state[:truncated]
     index
   end

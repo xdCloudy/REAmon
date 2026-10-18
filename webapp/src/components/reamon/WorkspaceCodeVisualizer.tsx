@@ -2681,6 +2681,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
                     <p>Locals: {sequence.locals.length ? sequence.locals.join(', ') : 'none recorded'}</p>
                     {sequence.parameters !== null && <p>Parameters: <code>{JSON.stringify(sequence.parameters)}</code></p>}
                     {sequence.catchTable.length > 0 && <p>Catch table: <code>{JSON.stringify(sequence.catchTable)}</code></p>}
+                    {sequence.controlFlow && <div><p>Label-derived control flow · {sequence.controlFlow.blocks.length} blocks{sequence.controlFlow.unresolvedEdges ? ` · ${sequence.controlFlow.unresolvedEdges} unresolved edges` : ''}{sequence.controlFlow.truncated ? ' · incomplete' : ''}</p><ol>{sequence.controlFlow.blocks.map((block) => <li key={block.id}>B{block.id} · instructions {block.startIndex}–{block.endIndex}{block.successors.length ? ` → ${block.successors.map((edge) => edge.blockId === undefined ? `${edge.label || '?'} (${edge.kind})` : `B${edge.blockId} (${edge.kind})`).join(', ')}` : ' · exit'}</li>)}</ol></div>}
                     <pre>{sequence.instructions.map((instruction, index) => `${String(index).padStart(4, '0')}  ${instruction.event || instruction.opcode || 'unknown'}${instruction.operands.length ? `  ${JSON.stringify(instruction.operands)}` : ''}`).join('\n')}</pre>
                   </details>)}
                 </details>}

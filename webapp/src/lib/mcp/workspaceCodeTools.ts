@@ -108,7 +108,13 @@ function boundedCrubyIseqEvidence(value: unknown, expectedSha256: unknown) {
     instructionBudget -= instructions.length
     const sequenceTruncated = sequence.truncated || instructions.length < sequence.instructions.length
     truncated ||= sequenceTruncated
-    return { ...sequence, instructions, truncated: sequenceTruncated }
+    const controlFlow = sequence.controlFlow ? {
+      ...sequence.controlFlow,
+      blocks: sequence.controlFlow.blocks.slice(0, 64),
+      truncated: sequence.controlFlow.truncated || sequence.controlFlow.blocks.length > 64,
+    } : null
+    if (controlFlow?.truncated) truncated = true
+    return { ...sequence, instructions, controlFlow, truncated: sequenceTruncated }
   })
   return { ...evidence, sequences, truncated }
 }

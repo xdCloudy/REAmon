@@ -66,6 +66,13 @@ function crubyIseqContext(attributes: Record<string, unknown>): string {
     const locals = sequence.locals.slice(0, 24).join(', ') || 'none recorded'
     lines.push(`Sequence #${sequence.id} ${sequence.type} ${sequence.label}${sequence.firstLine === null ? '' : ` line ${sequence.firstLine}`}; locals: ${locals}`)
     if (sequence.parameters !== null) lines.push(`  parameters: ${JSON.stringify(sequence.parameters).slice(0, 600)}`)
+    if (sequence.controlFlow) {
+      lines.push(`  label-derived CFG: ${sequence.controlFlow.blocks.length} blocks; ${sequence.controlFlow.unresolvedEdges} unresolved edges${sequence.controlFlow.truncated ? '; incomplete' : ''}`)
+      for (const block of sequence.controlFlow.blocks.slice(0, 32)) {
+        const targets = block.successors.map((edge) => edge.blockId === undefined ? `${edge.label || '?'} (${edge.kind})` : `B${edge.blockId} (${edge.kind})`).join(', ')
+        lines.push(`  B${block.id} instructions ${block.startIndex}-${block.endIndex}${targets ? ` -> ${targets}` : ' -> exit'}`)
+      }
+    }
     for (const instruction of sequence.instructions) {
       if (instructionCount >= 160) break
       const operation = instruction.event || instruction.opcode || 'unknown'
@@ -75,7 +82,7 @@ function crubyIseqContext(attributes: Record<string, unknown>): string {
     }
     if (instructionCount >= 160) break
   }
-  if (evidence.truncated || instructionCount < evidence.instructionCount) lines.push('Structured instruction context is partial; consult the complete saved listing and database evidence.')
+  if (evidence.truncated || instructionCount < evidence.instructionCount) lines.push('Structured instruction context is partial; consult the complete saved listing and database evidence. The label-derived CFG is navigation evidence and does not model operand-stack effects.')
   return utf8Prefix(lines.join('\n'), MAX_STRUCTURED_BYTECODE_CONTEXT_BYTES)
 }
 
