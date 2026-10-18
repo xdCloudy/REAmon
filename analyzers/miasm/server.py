@@ -118,6 +118,25 @@ def function_candidates(container, loc_db) -> list[tuple[int, str]]:
                             else str(raw_name))[:500]
                     candidates.setdefault(address, set()).add(name or f"sub_{address:x}")
     else:
+        export_funcs = getattr(container.executable, "export_funcs", None)
+        if callable(export_funcs):
+            try:
+                exports = export_funcs()
+            except Exception:
+                exports = {}
+            if isinstance(exports, dict):
+                for raw_name, raw_address in exports.items():
+                    if not isinstance(raw_name, (str, bytes)):
+                        continue
+                    try:
+                        address = int(raw_address)
+                    except (TypeError, ValueError):
+                        continue
+                    if address <= 0 or not is_executable(address):
+                        continue
+                    name = (raw_name.decode("utf-8", errors="replace") if isinstance(raw_name, bytes)
+                            else raw_name)[:500]
+                    candidates.setdefault(address, set()).add(name or f"sub_{address:x}")
         for address in loc_db.offsets:
             if not isinstance(address, int) or address <= 0 or not is_executable(address):
                 continue
