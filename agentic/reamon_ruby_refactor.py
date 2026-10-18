@@ -151,6 +151,14 @@ def _records_to_catalog(source: str, source_hash: str, payload: dict[str, Any]) 
     if (not isinstance(records, list) or len(records) > MAX_BINDING_PROBES
             or not isinstance(tokens, list) or len(tokens) > MAX_LOCAL_TOKENS):
         raise RubyRefactorError("Solargraph returned an invalid local reference index")
+    reference_rows = 0
+    for record in records:
+        refs = record.get("references") if isinstance(record, dict) else None
+        if not isinstance(refs, list):
+            raise RubyRefactorError("Solargraph returned a malformed local reference record")
+        reference_rows += len(refs)
+        if reference_rows > MAX_REFERENCE_ROWS:
+            raise RubyRefactorError("Solargraph returned too many local reference rows")
     encoded = source.encode("utf-8")
     line_offsets = _line_byte_offsets(source)
     allowed: dict[tuple[int, int], str] = {}
