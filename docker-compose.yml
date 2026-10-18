@@ -1183,6 +1183,7 @@ services:
       REAMON_KUNA_URL: http://kuna-analyzer:8025
       REAMON_RECURSE_URL: http://recurse-analyzer:8026
       REAMON_FISSION_URL: http://fission-analyzer:8027
+      REAMON_REKO_URL: http://reko-analyzer:8031
       REAMON_WASM_URL: http://wasm-analyzer:8012
       REAMON_PYCDC_URL: http://pycdc-analyzer:8014
       REAMON_PYINSTALLER_URL: http://pyinstaller-analyzer:8029
@@ -1792,6 +1793,43 @@ services:
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8027/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    networks:
+      - reamon-analysis
+
+  # GPL-2.0-or-later Reko output is isolated and saved as provider evidence.
+  reko-analyzer:
+    platform: linux/amd64
+    build:
+      context: ./analyzers/reko
+    image: ${REAMON_REKO_IMAGE:-reamon-reko:local}
+    container_name: reamon-reko
+    init: true
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: ${REAMON_REKO_MEM:-4g}
+    pids_limit: ${REAMON_REKO_PIDS:-64}
+    cpus: ${REAMON_REKO_CPUS:-2}
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=${REAMON_REKO_TMP_SIZE:-2g},mode=1777
+    environment:
+      REAMON_ARTIFACTS_PATH: /data/reamon-artifacts
+      REAMON_DERIVED_PATH: /data/reamon-derived
+      REKO_TIMEOUT_SECONDS: ${REAMON_REKO_TIMEOUT_SECONDS:-900}
+      REKO_MAX_FUNCTIONS: ${REAMON_REKO_MAX_FUNCTIONS:-256}
+      REKO_MAX_OUTPUT_BYTES: ${REAMON_REKO_MAX_OUTPUT_BYTES:-33554432}
+    volumes:
+      - reamon_artifacts:/data/reamon-artifacts:ro
+      - reamon_derived:/data/reamon-derived:rw
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8031/health', timeout=3)"]
       interval: 30s
       timeout: 5s
       retries: 3

@@ -1828,7 +1828,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     const selectedNativeIdentity = typeof attributes.identity === 'string' ? attributes.identity : ''
     const selectedNativeInputHash = typeof attributes.inputArtifactSha256 === 'string'
       ? attributes.inputArtifactSha256.toLowerCase() : ''
-    const nativeAlternateProviders = ['reamon-fission', 'reamon-ghidra', 'reamon-kuna']
+    const nativeAlternateProviders = ['reamon-fission', 'reamon-ghidra', 'reamon-kuna', 'reamon-reko']
       .filter((providerId) => providerId !== observation.source)
     if (selectedNativeIdentity && selectedNativeInputHash === artifact.sha256.toLowerCase()
         && nativeAlternateProviders.length && contextSources.length < MAX_CONTEXT_UNITS) {

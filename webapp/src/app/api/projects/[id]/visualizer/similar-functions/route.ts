@@ -91,12 +91,12 @@ export async function GET(request: Request, { params }: RouteParams) {
       select: { id: true, artifactId: true, provider: { select: { pluginId: true } } },
     })
     const providerId = task?.provider?.pluginId
-    if (!task?.artifactId || (providerId !== 'reamon-ghidra' && providerId !== 'reamon-kuna' && providerId !== 'reamon-wabt' && providerId !== 'reamon-jadx' && providerId !== 'reamon-ilspy' && providerId !== 'reamon-dex-decompiler' && providerId !== 'reamon-unluac-rs')) {
+    if (!task?.artifactId || (providerId !== 'reamon-ghidra' && providerId !== 'reamon-kuna' && providerId !== 'reamon-reko' && providerId !== 'reamon-wabt' && providerId !== 'reamon-jadx' && providerId !== 'reamon-ilspy' && providerId !== 'reamon-dex-decompiler' && providerId !== 'reamon-unluac-rs')) {
       return NextResponse.json({ error: 'Similar-function matches are unavailable for this analysis run' }, { status: 404, headers: MAX_NO_STORE })
     }
 
-    const nativeSources = providerId === 'reamon-ghidra' || providerId === 'reamon-kuna'
-      ? ['reamon-ghidra', 'reamon-kuna']
+    const nativeSources = providerId === 'reamon-ghidra' || providerId === 'reamon-kuna' || providerId === 'reamon-reko'
+      ? ['reamon-ghidra', 'reamon-kuna', 'reamon-reko']
       : [providerId]
     const observationWhere = {
       projectId,
@@ -135,7 +135,7 @@ export async function GET(request: Request, { params }: RouteParams) {
     const target = functionFeatures(focus)
     const sourceObservationRowsTruncated = rows.length > MAX_FUNCTION_OBSERVATIONS
     const uniqueRows = new Map<string, typeof rows[number]>()
-    const compatibleRows = providerId === 'reamon-ghidra' || providerId === 'reamon-kuna'
+    const compatibleRows = providerId === 'reamon-ghidra' || providerId === 'reamon-kuna' || providerId === 'reamon-reko'
       ? rows.filter((row) => row.source !== focus.source
         ? nativeArchitectureGroup(focus.attributes) !== null
           && nativeArchitectureGroup(focus.attributes) === nativeArchitectureGroup(row.attributes)
@@ -144,7 +144,7 @@ export async function GET(request: Request, { params }: RouteParams) {
         ? rows.filter((row) => attributesRecord(row.attributes).dialect === attributesRecord(focus.attributes).dialect)
         : rows
     for (const row of compatibleRows.slice(0, MAX_FUNCTION_OBSERVATIONS)) {
-      if ((providerId === 'reamon-ghidra' || providerId === 'reamon-kuna') && row.source !== focus.source) {
+      if ((providerId === 'reamon-ghidra' || providerId === 'reamon-kuna' || providerId === 'reamon-reko') && row.source !== focus.source) {
         const focusIdentity = attributesRecord(focus.attributes).identity
         if (typeof focusIdentity === 'string' && focusIdentity
           && focusIdentity === attributesRecord(row.attributes).identity) continue

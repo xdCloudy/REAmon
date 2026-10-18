@@ -252,17 +252,17 @@ separate so a plausible name is never treated as proof of behavior.
   release adds partial PS2 Emotion Engine support and more zSeries and Blackfin
   coverage. The upstream supported-binaries table is explicitly for v0.12.0.0 and
   labels many architectures as minimal or incomplete; it is not current-version
-  coverage evidence. **REAmon adaptation:** prototype an optional isolated
-  comparison provider for formats and architectures where Reko fills a measured
-  Ghidra gap. Split C output only at upstream's address/name markers, preserve
-  exact input/output hashes and the Reko pin, and label every result as provisional
-  C-like reconstruction. **Limits:** the engine is GPL-2.0 and requires .NET 9;
-  an image distribution needs a deliberate corresponding-source and notice plan.
-  Its ordinary CLI emits source files rather than a machine-readable per-function
-  manifest, so the adapter must validate marker parsing, globals, function
-  coverage, and source boundaries before use. Reko's own maintainer notes that
-  decompiler output is not generally compileable. Keep it opt-in and do not infer
-  original C/C++ or behavior from its output.
+  coverage evidence. **REAmon adaptation:** REAmon integrates an isolated optional
+  comparison provider pinned to v0.12.5. It splits C output only at upstream's
+  address/name markers, stores bounded function artifacts with exact input/output
+  hashes, and labels every result as provisional C-like reconstruction. The image
+  contains the pinned corresponding source archive and `COPYING` notice. **Limits:**
+  Reko's ordinary CLI emits segment source files rather than a machine-readable
+  per-function manifest; REAmon's parser extracts only balanced function bodies,
+  while global declarations and full coverage remain unrepresented. The supported
+  binary table is for v0.12.0.0 and is not current-version fixture evidence. Reko's
+  own maintainer notes that decompiler output is not generally compileable. Do not
+  infer original C/C++ or behavior from its output.
 - [decomp.me](https://github.com/decompme/decomp.me) is a collaborative exact-build
   function-matching application. Its MIT-licensed code and compiler configuration
   model are useful references for a future validator contract, but its web product is

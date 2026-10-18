@@ -34,6 +34,7 @@ import { luajitPlugin } from './luajit'
 import { unluacPlugin } from './unluac'
 import { unluacRsPlugin } from './unluac-rs'
 import { crubyIseqPlugin } from './cruby-iseq'
+import { rekoPlugin } from './reko'
 
 export const CAPABILITIES: Capability[] = [
   { id: 'identify', label: 'Identify', description: 'Classify a target or artifact using observable metadata.', category: 'profiling' },
@@ -172,6 +173,9 @@ export const BUILTIN_TOOL_PLUGINS: ToolPlugin[] = [
   },
   {
     ...crubyIseqPlugin,
+  },
+  {
+    ...rekoPlugin,
   },
 ]
 
