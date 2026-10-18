@@ -25,6 +25,7 @@ import { oxidizerPlugin } from './oxidizer'
 import { glaurungPlugin } from './glaurung'
 import { kunaPlugin } from './kuna'
 import { recursePlugin } from './recurse'
+import { miasmPlugin } from './miasm'
 import { fissionPlugin } from './fission'
 import { wasmPlugin } from './wasm'
 import { pycdcPlugin } from './pycdc'
@@ -147,6 +148,9 @@ export const BUILTIN_TOOL_PLUGINS: ToolPlugin[] = [
   },
   {
     ...recursePlugin,
+  },
+  {
+    ...miasmPlugin,
   },
   {
     ...fissionPlugin,

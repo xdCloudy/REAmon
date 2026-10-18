@@ -1182,6 +1182,7 @@ services:
       REAMON_GLAURUNG_URL: http://glaurung-analyzer:8024
       REAMON_KUNA_URL: http://kuna-analyzer:8025
       REAMON_RECURSE_URL: http://recurse-analyzer:8026
+      REAMON_MIASM_URL: http://miasm-analyzer:8034
       REAMON_FISSION_URL: http://fission-analyzer:8027
       REAMON_REKO_URL: http://reko-analyzer:8031
       REAMON_UNIVDREAMS_URL: http://univdreams-analyzer:8032
@@ -1759,6 +1760,45 @@ services:
       timeout: 5s
       retries: 3
       start_period: 60s
+    networks:
+      - reamon-analysis
+
+  # GPL-2.0 Miasm runs in its own process-isolated service. Its simplified IR
+  # is database-backed analysis evidence, not maintained source.
+  miasm-analyzer:
+    build:
+      context: ./analyzers/miasm
+    image: ${REAMON_MIASM_IMAGE:-reamon-miasm:local}
+    container_name: reamon-miasm
+    init: true
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: ${REAMON_MIASM_MEM:-2g}
+    pids_limit: ${REAMON_MIASM_PIDS:-64}
+    cpus: ${REAMON_MIASM_CPUS:-2}
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=${REAMON_MIASM_TMP_SIZE:-1g},mode=1777
+    environment:
+      REAMON_ARTIFACTS_PATH: /data/reamon-artifacts
+      REAMON_DERIVED_PATH: /data/reamon-derived
+      MIASM_TIMEOUT_SECONDS: ${REAMON_MIASM_TIMEOUT_SECONDS:-300}
+      MIASM_MAX_FUNCTIONS: ${REAMON_MIASM_MAX_FUNCTIONS:-80}
+      MIASM_MAX_BLOCKS_PER_FUNCTION: ${REAMON_MIASM_MAX_BLOCKS_PER_FUNCTION:-32}
+      MIASM_MAX_INSTRUCTIONS_PER_BLOCK: ${REAMON_MIASM_MAX_INSTRUCTIONS_PER_BLOCK:-128}
+      MIASM_MAX_OUTPUT_BYTES: ${REAMON_MIASM_MAX_OUTPUT_BYTES:-16777216}
+    volumes:
+      - reamon_artifacts:/data/reamon-artifacts:ro
+      - reamon_derived:/data/reamon-derived:rw
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8034/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     networks:
       - reamon-analysis
 

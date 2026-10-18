@@ -29,6 +29,8 @@ const REFERENCE_RELATIONSHIP_TYPES = ['reads_field', 'writes_field', 'references
 const REIPA_PROVIDER_VERSION = 'ReIPA@b0d4759451ed20796892a059fa53d9dbb130af61'
 const RECURSE_PROVIDER_VERSION = '0.1.0'
 const RECURSE_PROVIDER_REVISION = '34ff28af22e6724d29e100001ef79dfe2a001d15'
+const MIASM_PROVIDER_VERSION = '0.1.5'
+const MIASM_PROVIDER_REVISION = '3671fc24d6e625c2d75f3311724eb6b0c97664f8'
 
 export interface WorkspaceListCodeUnitsArgs {
   projectId: string
@@ -386,6 +388,90 @@ async function readMatchingRecurseLift(input: {
       text: code.text.slice(0, MAX_RECURSE_EVIDENCE_BYTES),
       truncated: code.sizeBytes > MAX_RECURSE_EVIDENCE_BYTES,
       semantics: 'Provisional VTIL-style optimized intermediate representation for this exact function and binary. Recurse lifting is x86/x64-focused; unsupported instructions may remain opaque. This is structural analysis evidence, not recovered original source or proof of behavior.',
+    }
+  }
+  return null
+}
+
+async function readMatchingMiasmIr(input: {
+  projectId: string
+  artifactId: string
+  artifactSha256: string
+  identity: string
+}): Promise<Record<string, unknown> | null> {
+  const rows = await prisma.reamonObservation.findMany({
+    where: {
+      projectId: input.projectId,
+      artifactId: input.artifactId,
+      source: 'reamon-miasm',
+      type: CODE_UNIT_OBSERVATION_TYPE,
+      kind: 'entity',
+      AND: [
+        { attributes: { path: ['identity'], equals: input.identity } },
+        { attributes: { path: ['inputArtifactSha256'], equals: input.artifactSha256 } },
+      ],
+    },
+    orderBy: { updatedAt: 'desc' },
+    take: 20,
+    select: { taskId: true, label: true, attributes: true },
+  })
+  const taskIds = [...new Set(rows.flatMap((row) => row.taskId ? [row.taskId] : []))]
+  const tasks = taskIds.length ? await prisma.task.findMany({
+    where: {
+      id: { in: taskIds },
+      projectId: input.projectId,
+      artifactId: input.artifactId,
+      capability: 'decompile',
+      status: 'COMPLETED',
+      provider: { is: { pluginId: 'reamon-miasm' } },
+    },
+    select: { id: true, runToken: true, provider: { select: { pluginId: true } } },
+  }) : []
+  const tasksById = new Map(tasks.map((task) => [task.id, task]))
+  for (const row of rows) {
+    if (!row.taskId) continue
+    const task = tasksById.get(row.taskId)
+    if (!task || task.provider?.pluginId !== 'reamon-miasm' || !task.runToken) continue
+    const attributes = record(row.attributes)
+    const address = text(attributes.address, 128) || ''
+    const relativePath = text(attributes.relativePath, 1000) || ''
+    const codeArtifactId = text(attributes.codeArtifactId, 2000) || ''
+    const inputHash = text(attributes.inputArtifactSha256, 64)?.toLowerCase()
+    const outputHash = text(attributes.codeArtifactSha256, 64)?.toLowerCase()
+    const runPrefix = `${input.projectId}/${input.artifactId}/${task.id}/${task.runToken}/`
+    if (attributes.providerRevision !== MIASM_PROVIDER_REVISION
+        || attributes.decompilerVersion !== MIASM_PROVIDER_VERSION
+        || attributes.identity !== input.identity
+        || nativeFunctionIdentity(input.artifactId, address) !== input.identity
+        || inputHash !== input.artifactSha256.toLowerCase()
+        || !outputHash || !/^[a-f0-9]{64}$/.test(outputHash)
+        || !/^functions\/[0-9a-f]+\.ir$/i.test(relativePath)
+        || codeArtifactId !== `${runPrefix}${relativePath}`) continue
+    const code = await readDerivedText(codeArtifactId, input.projectId, input.artifactId)
+    if (!code || code.truncated || code.sourceHash !== outputHash || code.sizeBytes > 128 * 1024) continue
+    return {
+      provider: 'Miasm',
+      providerVersion: MIASM_PROVIDER_VERSION,
+      providerRevision: MIASM_PROVIDER_REVISION,
+      taskId: task.id,
+      name: text(row.label, 500) || address,
+      address,
+      inputArtifactSha256: inputHash,
+      outputSha256: code.sourceHash,
+      architecture: text(attributes.miasmArchitecture, 64),
+      instructionCount: typeof attributes.miasmInstructionCount === 'number'
+        && Number.isSafeInteger(attributes.miasmInstructionCount) && attributes.miasmInstructionCount > 0
+        ? attributes.miasmInstructionCount : null,
+      blockCountBeforeSimplification: typeof attributes.miasmBlockCountBeforeSimplification === 'number'
+        && Number.isSafeInteger(attributes.miasmBlockCountBeforeSimplification)
+        && attributes.miasmBlockCountBeforeSimplification >= 0 ? attributes.miasmBlockCountBeforeSimplification : null,
+      blockCountAfterSimplification: typeof attributes.miasmBlockCountAfterSimplification === 'number'
+        && Number.isSafeInteger(attributes.miasmBlockCountAfterSimplification)
+        && attributes.miasmBlockCountAfterSimplification >= 0 ? attributes.miasmBlockCountAfterSimplification : null,
+      text: code.text.slice(0, MAX_RECURSE_EVIDENCE_BYTES),
+      truncated: code.sizeBytes > MAX_RECURSE_EVIDENCE_BYTES,
+      semantics: text(attributes.representationSemantics, 500)
+        || 'Provisional simplified Miasm intermediate representation for this exact native function and binary. This is structural analysis evidence, not recovered original source or proof of behavior.',
     }
   }
   return null
@@ -992,6 +1078,41 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
     semantics: text(attributes.representationSemantics, 500)
       || 'Provisional VTIL-style optimized intermediate representation for this exact function and binary. This is structural analysis evidence, not recovered original source or proof of behavior.',
   } : null
+  const isMiasmIr = unit.source === 'reamon-miasm'
+    && attributes.decompiler === 'Miasm'
+    && attributes.representation === 'simplified intermediate representation'
+  const miasmIrEvidence = !isMiasmIr && unit.artifactId && unit.artifact?.sha256 && currentNativeIdentity
+    ? await readMatchingMiasmIr({
+      projectId: args.projectId,
+      artifactId: unit.artifactId,
+      artifactSha256: unit.artifact.sha256,
+      identity: currentNativeIdentity,
+    })
+    : null
+  const selectedMiasmEvidence = isMiasmIr && verifiedCode ? {
+    provider: 'Miasm',
+    providerVersion: text(attributes.decompilerVersion, 120),
+    providerRevision: text(attributes.providerRevision, 120),
+    taskId: unit.taskId,
+    name: text(attributes.qualifiedName) || text(attributes.name) || text(unit.label),
+    address: text(attributes.address ?? attributes.startAddress, 128),
+    inputArtifactSha256: text(attributes.inputArtifactSha256, 64),
+    outputSha256: text(attributes.codeArtifactSha256, 64),
+    architecture: text(attributes.miasmArchitecture, 64),
+    instructionCount: typeof attributes.miasmInstructionCount === 'number'
+      && Number.isSafeInteger(attributes.miasmInstructionCount) && attributes.miasmInstructionCount > 0
+      ? attributes.miasmInstructionCount : null,
+    blockCountBeforeSimplification: typeof attributes.miasmBlockCountBeforeSimplification === 'number'
+      && Number.isSafeInteger(attributes.miasmBlockCountBeforeSimplification)
+      && attributes.miasmBlockCountBeforeSimplification >= 0 ? attributes.miasmBlockCountBeforeSimplification : null,
+    blockCountAfterSimplification: typeof attributes.miasmBlockCountAfterSimplification === 'number'
+      && Number.isSafeInteger(attributes.miasmBlockCountAfterSimplification)
+      && attributes.miasmBlockCountAfterSimplification >= 0 ? attributes.miasmBlockCountAfterSimplification : null,
+    text: verifiedCode.text.slice(0, MAX_RECURSE_EVIDENCE_BYTES),
+    truncated: verifiedCode.sizeBytes > MAX_RECURSE_EVIDENCE_BYTES || verifiedCode.truncated,
+    semantics: text(attributes.representationSemantics, 500)
+      || 'Provisional simplified Miasm intermediate representation for this exact function and binary. This is structural analysis evidence, not recovered original source or proof of behavior.',
+  } : null
   const reipaPseudocode = task?.status === 'COMPLETED' ? await readVerifiedReipaAlternate({
     projectId: args.projectId,
     artifactId: unit.artifactId,
@@ -1101,9 +1222,14 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
         ? 'Each alternate is from a completed provider run for this exact artifact, matched by persisted canonical key, normalized native identity, or legacy address alias as recorded in identityMatch; input and output hashes are verified. Treat differences as evidence to review; do not infer that either output is original source or behaviorally equivalent.'
         : null,
       analysisEvidence: selectedRecurseEvidence,
+      miasmAnalysisEvidence: selectedMiasmEvidence,
       sameFunctionRecurseLift: recurseLiftEvidence,
       sameFunctionRecurseLiftSemantics: recurseLiftEvidence
         ? 'Hash-verified provisional VTIL-style lift for the same normalized native function in this exact binary. Structural analysis evidence only; it is not original source, behavioral proof, or a substitute for the selected provider output.'
+        : null,
+      sameFunctionMiasmIr: miasmIrEvidence,
+      sameFunctionMiasmIrSemantics: miasmIrEvidence
+        ? 'Hash-verified provisional simplified Miasm IR for the same normalized native function in this exact binary. This may expose simplifications in the machine-code control/data flow; it is not recovered original source or behavior proof.'
         : null,
       acceptedCrossProviderProjectMemory: acceptedCrossProviderProjectMemory || null,
       acceptedCrossProviderProjectMemoryTruncated: providerAlternateRows.length >= MAX_PROJECT_MEMORY_MATCHES,

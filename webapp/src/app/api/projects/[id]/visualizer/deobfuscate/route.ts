@@ -1649,6 +1649,84 @@ export async function POST(request: Request, { params }: RouteParams) {
         }
       }
     }
+    if (observation.source !== 'reamon-miasm' && currentNativeFunctionIdentity && artifact.sha256) {
+      const miasmRows = await prisma.reamonObservation.findMany({
+        where: {
+          projectId,
+          artifactId: artifact.id,
+          source: 'reamon-miasm',
+          type: 'code_unit',
+          kind: 'entity',
+          AND: [
+            { attributes: { path: ['identity'], equals: currentNativeFunctionIdentity } },
+            { attributes: { path: ['inputArtifactSha256'], equals: artifact.sha256 } },
+          ],
+        },
+        orderBy: { updatedAt: 'desc' },
+        take: 20,
+        select: { taskId: true, label: true, attributes: true },
+      })
+      const miasmTaskIds = [...new Set(miasmRows.flatMap((row) => row.taskId ? [row.taskId] : []))]
+      const miasmTasks = miasmTaskIds.length ? await prisma.task.findMany({
+        where: {
+          id: { in: miasmTaskIds },
+          projectId,
+          artifactId: artifact.id,
+          capability: 'decompile',
+          status: 'COMPLETED',
+          provider: { is: { pluginId: 'reamon-miasm' } },
+        },
+        select: { id: true, runToken: true, provider: { select: { pluginId: true } } },
+      }) : []
+      const miasmTaskById = new Map(miasmTasks.map((task) => [task.id, task]))
+      for (const row of miasmRows) {
+        if (contextSources.length >= MAX_CONTEXT_UNITS || contextBytes >= MAX_CONTEXT_BYTES) break
+        if (!row.taskId) continue
+        const task = miasmTaskById.get(row.taskId)
+        if (!task || task.provider?.pluginId !== 'reamon-miasm' || !task.runToken) continue
+        const evidence = plainObject(row.attributes)
+        const address = typeof evidence.address === 'string' ? evidence.address : ''
+        const relativePath = typeof evidence.relativePath === 'string' ? evidence.relativePath : ''
+        const codeArtifactId = typeof evidence.codeArtifactId === 'string' ? evidence.codeArtifactId : ''
+        const expectedOutputHash = typeof evidence.codeArtifactSha256 === 'string' ? evidence.codeArtifactSha256.toLowerCase() : ''
+        const expectedInputHash = typeof evidence.inputArtifactSha256 === 'string' ? evidence.inputArtifactSha256.toLowerCase() : ''
+        const miasmRunPrefix = `${projectId}/${artifact.id}/${task.id}/${task.runToken}/`
+        if (evidence.providerRevision !== '3671fc24d6e625c2d75f3311724eb6b0c97664f8'
+            || evidence.decompilerVersion !== '0.1.5'
+            || evidence.identity !== currentNativeFunctionIdentity
+            || nativeFunctionIdentity(artifact.id, address) !== currentNativeFunctionIdentity
+            || !/^[a-f0-9]{64}$/.test(expectedOutputHash)
+            || expectedInputHash !== artifact.sha256.toLowerCase()
+            || !/^functions\/[0-9a-f]+\.ir$/i.test(relativePath)
+            || codeArtifactId !== `${miasmRunPrefix}${relativePath}`) continue
+        try {
+          const runPath = await realpath(resolveDerivedArtifactPath(miasmRunPrefix.slice(0, -1)))
+          const evidencePath = await realpath(resolveDerivedArtifactPath(codeArtifactId))
+          if (!isInside(rootPath, runPath) || !isInside(runPath, evidencePath)) continue
+          const evidenceInfo = await stat(evidencePath)
+          if (!evidenceInfo.isFile() || evidenceInfo.size <= 0 || evidenceInfo.size > 512 * 1024) continue
+          const evidenceBytes = await readFile(evidencePath)
+          if (createHash('sha256').update(evidenceBytes).digest('hex') !== expectedOutputHash) continue
+          const allowance = Math.min(MAX_ALTERNATE_DECOMPILER_BYTES, MAX_CONTEXT_BYTES - contextBytes)
+          if (allowance <= 0) break
+          const source = utf8Prefix([
+            `Miasm simplified IR for ${String(row.label || unitName).slice(0, 300)} at ${address}; run ${task.id}; source artifact sha256:${artifact.sha256}.`,
+            'This is hash-verified provisional structural evidence from the same native function. It is not recovered original source or behavior proof.',
+            evidenceBytes.toString('utf8'),
+          ].join('\n'), allowance)
+          if (!source) continue
+          contextSources.push({
+            unit_name: `Miasm simplified IR evidence · ${String(row.label || unitName).slice(0, 300)} @ ${address}`,
+            language: 'Miasm IR (analysis evidence; not source)',
+            source_code: source,
+          })
+          contextBytes += Buffer.byteLength(source, 'utf8')
+          break
+        } catch {
+          continue
+        }
+      }
+    }
     const relativePath = typeof attributes.relativePath === 'string' ? attributes.relativePath : ''
     const reipaAlternatePath = typeof selectedProviderAttributes.reipaAlternateCodeArtifactId === 'string'
       ? selectedProviderAttributes.reipaAlternateCodeArtifactId
