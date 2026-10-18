@@ -90,6 +90,49 @@ async function applyPythonRenameBindings(
   }
 }
 
+async function refactorPhpBindings(
+  sourceCode: string,
+  operation: 'bindings' | 'rename',
+  expectedSha256 = '',
+  renames: Array<{ bindingId: string; newName: string }> = [],
+): Promise<SafeRenameCatalog | SafeRenameResult> {
+  const response = await agentFetch('/reamon/code/php/refactor', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ operation, source_code: sourceCode, expected_sha256: expectedSha256,
+      renames: renames.map((rename) => ({ binding_id: rename.bindingId, new_name: rename.newName })) }),
+  }, { timeoutMs: 120_000 })
+  const payload = await response.json().catch(() => null) as Record<string, unknown> | null
+  if (operation === 'bindings') {
+    const bindings = Array.isArray(payload?.bindings) ? payload.bindings : []
+    if (!response.ok || payload?.source_sha256 !== digest(Buffer.from(sourceCode, 'utf8'))
+        || typeof payload?.truncated !== 'boolean' || bindings.length > 200
+        || payload?.parser_version !== '2026.10.07.0'
+        || !bindings.every((value) => {
+          const binding = plainObject(value)
+          return /^[a-f0-9]{24}$/i.test(String(binding.id || ''))
+            && typeof binding.name === 'string' && /^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(binding.name)
+            && typeof binding.kind === 'string' && binding.kind.length <= 80
+            && typeof binding.scopeType === 'string' && binding.scopeType.length <= 80
+            && Number.isSafeInteger(binding.declarationStart) && Number(binding.declarationStart) >= 0
+            && Number.isSafeInteger(binding.referenceCount) && Number(binding.referenceCount) > 0
+            && binding.exported === false
+        })) throw new Error(typeof payload?.error === 'string' ? payload.error : 'Phpactor returned an invalid binding catalog')
+    return { sourceSha256: String(payload.source_sha256), bindings: bindings as SafeRenameBinding[], truncated: Boolean(payload.truncated) }
+  }
+  const output = typeof payload?.source_code === 'string' ? payload.source_code : ''
+  const renamed = Array.isArray(payload?.renamed_bindings) ? payload.renamed_bindings : []
+  const outputSha256 = typeof payload?.output_sha256 === 'string' ? payload.output_sha256 : ''
+  if (!response.ok || payload?.source_sha256 !== expectedSha256 || !/^[a-f0-9]{64}$/i.test(outputSha256)
+      || digest(Buffer.from(output, 'utf8')) !== outputSha256 || payload?.parser_version !== '2026.10.07.0'
+      || payload?.validation_status !== 'PASSED' || typeof payload.validation_method !== 'string'
+      || !/^php-\d+\.\d+(?:\.\d+)?-syntax-check$/.test(payload.validation_method)
+      || typeof payload.validation_message !== 'string'
+      || Buffer.byteLength(output, 'utf8') > MAX_SOURCE_BYTES || renamed.length !== renames.length) {
+    throw new Error(typeof payload?.error === 'string' ? payload.error : 'Phpactor returned invalid transformed PHP source')
+  }
+  return { sourceCode: output, sourceSha256: expectedSha256, outputSha256, parserVersion: String(payload.parser_version), renamedBindings: renamed as SafeRenameResult['renamedBindings'] }
+}
+
 async function listGoRenameBindings(sourceCode: string): Promise<SafeRenameCatalog> {
   const response = await agentFetch('/reamon/code/go/refactor', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -338,6 +381,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     const language = typeof attributes.language === 'string' ? attributes.language.trim() : ''
     const normalizedLanguage = language.toLowerCase()
     const isPython = ['python', 'python 3', 'python3'].includes(normalizedLanguage)
+    const isPhp = ['php', 'php source'].includes(normalizedLanguage)
     const isRust = ['rust', 'rust source', 'rustlang'].includes(normalizedLanguage)
     const isJava = ['java', 'java source'].includes(normalizedLanguage)
     const isCSharp = ['c#', 'csharp', 'cs'].includes(normalizedLanguage)
@@ -349,9 +393,9 @@ export async function POST(request: Request, { params }: RouteParams) {
     if (isLua && dialect && dialect !== 'luajit' && !/^lua5\.[1-5]$/.test(dialect)) {
       return NextResponse.json({ error: 'LuaLS scope-safe renaming supports Lua 5.1–5.5 and LuaJIT; this source dialect is not supported' }, { status: 415 })
     }
-    if (!['javascript', 'typescript', 'jsx', 'tsx', 'python', 'python 3', 'python3', 'go', 'golang', 'lua', 'lua source'].includes(normalizedLanguage)
+    if (!['javascript', 'typescript', 'jsx', 'tsx', 'python', 'python 3', 'python3', 'php', 'php source', 'go', 'golang', 'lua', 'lua source'].includes(normalizedLanguage)
         && !isLua && !isCSharp && !isJava && !isRust) {
-      return NextResponse.json({ error: 'Scope-safe renaming currently supports JavaScript, TypeScript, Python, Go, Lua, Java, C#, and Rust source' }, { status: 415 })
+      return NextResponse.json({ error: 'Scope-safe renaming currently supports JavaScript, TypeScript, Python, PHP, Go, Lua, Java, C#, and Rust source' }, { status: 415 })
     }
     const codeArtifactId = typeof attributes.codeArtifactId === 'string' ? attributes.codeArtifactId : ''
     const selection = await getActiveWorkspaceImportSelection(projectId)
@@ -370,17 +414,17 @@ export async function POST(request: Request, { params }: RouteParams) {
     const [rootRealPath, sourceRealPath] = await Promise.all([realpath(root), realpath(candidatePath).catch(() => null)])
     if (!sourceRealPath || !isInside(rootRealPath, sourceRealPath)) return NextResponse.json({ error: 'Linked source path is invalid' }, { status: 404 })
     const info = await stat(sourceRealPath)
-    if (!info.isFile() || info.size > MAX_SOURCE_BYTES) return NextResponse.json({ error: `Linked ${isJava ? 'Java' : isCSharp ? 'C#' : isGo ? 'Go' : isPython ? 'Python' : isRust ? 'Rust' : isLua ? 'Lua' : 'JavaScript'} source exceeds the safe-rename limit` }, { status: 413 })
+    if (!info.isFile() || info.size > MAX_SOURCE_BYTES) return NextResponse.json({ error: `Linked ${isJava ? 'Java' : isCSharp ? 'C#' : isGo ? 'Go' : isPython ? 'Python' : isPhp ? 'PHP' : isRust ? 'Rust' : isLua ? 'Lua' : 'JavaScript'} source exceeds the safe-rename limit` }, { status: 413 })
     const sourceBytes = await readFile(sourceRealPath)
     const sourceCode = new TextDecoder('utf-8', { fatal: true }).decode(sourceBytes)
     const artifactSourceSha256 = digest(sourceBytes)
     const workingSource = typeof body.sourceCode === 'string' ? body.sourceCode : sourceCode
     const workingBytes = Buffer.from(workingSource, 'utf8')
-    if (workingBytes.byteLength > MAX_SOURCE_BYTES) return NextResponse.json({ error: `Editable ${isJava ? 'Java' : isCSharp ? 'C#' : isGo ? 'Go' : isPython ? 'Python' : isRust ? 'Rust' : isLua ? 'Lua' : 'JavaScript'} source exceeds the safe-rename limit` }, { status: 413 })
+    if (workingBytes.byteLength > MAX_SOURCE_BYTES) return NextResponse.json({ error: `Editable ${isJava ? 'Java' : isCSharp ? 'C#' : isGo ? 'Go' : isPython ? 'Python' : isPhp ? 'PHP' : isRust ? 'Rust' : isLua ? 'Lua' : 'JavaScript'} source exceeds the safe-rename limit` }, { status: 413 })
     const workingSourceSha256 = digest(workingBytes)
     const unitName = (typeof attributes.qualifiedName === 'string' && attributes.qualifiedName)
       || (typeof attributes.name === 'string' && attributes.name)
-      || `Selected ${isJava ? 'Java' : isCSharp ? 'C#' : isGo ? 'Go' : isPython ? 'Python' : isRust ? 'Rust' : isLua ? 'Lua' : 'JavaScript'} unit`
+      || `Selected ${isJava ? 'Java' : isCSharp ? 'C#' : isGo ? 'Go' : isPython ? 'Python' : isPhp ? 'PHP' : isRust ? 'Rust' : isLua ? 'Lua' : 'JavaScript'} unit`
 
     if (operation === 'suggest') {
       if (!providerId || providerId.length > 128) return NextResponse.json({ error: 'Choose a saved AI provider' }, { status: 400 })
@@ -397,6 +441,7 @@ export async function POST(request: Request, { params }: RouteParams) {
         ? await refactorCSharpBindings(workingSource, 'bindings') as SafeRenameCatalog
         : isGo
         ? await listGoRenameBindings(workingSource)
+        : isPhp ? await refactorPhpBindings(workingSource, 'bindings') as SafeRenameCatalog
         : isRust ? await refactorRustBindings(workingSource, 'bindings') as SafeRenameCatalog
         : isPython ? await listPythonRenameBindings(workingSource)
           : isLua ? await refactorLuaBindings(workingSource, 'bindings', luaRuntime) as SafeRenameCatalog
@@ -454,7 +499,7 @@ export async function POST(request: Request, { params }: RouteParams) {
           model: `custom/${provider.id}`,
           user_id: user.userId,
           unit_name: unitName,
-          language: isJava ? 'Java' : isCSharp ? 'C#' : isGo ? 'Go' : isPython ? 'Python' : isRust ? 'Rust' : isLua ? 'Lua' : language,
+          language: isJava ? 'Java' : isCSharp ? 'C#' : isGo ? 'Go' : isPython ? 'Python' : isPhp ? 'PHP' : isRust ? 'Rust' : isLua ? 'Lua' : language,
           source_code: workingSource,
           bindings: candidates,
           project_symbol_context: projectSymbolContext,
@@ -497,6 +542,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       ? await refactorCSharpBindings(workingSource, 'bindings') as SafeRenameCatalog
       : isGo
       ? await listGoRenameBindings(workingSource)
+      : isPhp ? await refactorPhpBindings(workingSource, 'bindings') as SafeRenameCatalog
       : isRust ? await refactorRustBindings(workingSource, 'bindings') as SafeRenameCatalog
       : isPython ? await listPythonRenameBindings(workingSource)
         : isLua ? await refactorLuaBindings(workingSource, 'bindings', luaRuntime) as SafeRenameCatalog
@@ -520,12 +566,15 @@ export async function POST(request: Request, { params }: RouteParams) {
       ? await refactorCSharpBindings(workingSource, 'rename', workingSourceSha256, selectedRenames) as SafeRenameResult
       : isGo
       ? await applyGoRenameBindings(workingSource, workingSourceSha256, selectedRenames)
+      : isPhp ? await refactorPhpBindings(workingSource, 'rename', workingSourceSha256, selectedRenames) as SafeRenameResult
       : isRust ? await refactorRustBindings(workingSource, 'rename', workingSourceSha256, selectedRenames) as SafeRenameResult
       : isPython ? await applyPythonRenameBindings(workingSource, workingSourceSha256, selectedRenames)
         : isLua ? await refactorLuaBindings(workingSource, 'rename', luaRuntime, workingSourceSha256, selectedRenames) as SafeRenameResult
           : await applySafeRenameBindings(workingSource, workingSourceSha256, selectedRenames)
     const runKey = segments.slice(0, 4).join('/')
-    const validationMethod = isJava
+    const validationMethod = isPhp
+      ? `phpactor-${transformed.parserVersion}+php-scope-safe-rename`
+      : isJava
       ? `javac-${transformed.parserVersion}-release17+java-scope-safe-rename`
       : isCSharp
       ? `roslyn-${transformed.parserVersion}+csharp-scope-safe-rename`
@@ -535,7 +584,9 @@ export async function POST(request: Request, { params }: RouteParams) {
       : isPython ? `libcst-${transformed.parserVersion}+scope-safe-rename`
         : isLua ? `luals-${transformed.parserVersion}+tree-sitter-lua-scope-safe-rename`
           : `babel-parser-${transformed.parserVersion}+scope-safe-rename`
-    const validationMessage = isJava
+    const validationMessage = isPhp
+      ? `Phpactor ${transformed.parserVersion} resolved selected local PHP bindings and PHP lint parsed the rewritten source without executing it. This does not verify project dependencies, dynamic lookups, or behavior.`
+      : isJava
       ? `javac ${transformed.parserVersion} resolved selected Java bindings and the output was reparsed with selected references checked against their declarations. This is syntax and binding evidence only; it does not validate project dependencies or runtime equivalence.`
       : isCSharp
       ? `Roslyn ${transformed.parserVersion} resolved selected C# local bindings and parsed the renamed output. This confirms syntax only; it does not validate project references, compilation, or runtime equivalence.`
@@ -564,8 +615,8 @@ export async function POST(request: Request, { params }: RouteParams) {
         scope: 'file',
         status: 'SUCCEEDED',
         requestPayload: {
-          operation: isJava ? 'javac-java-scope-safe-renames' : isCSharp ? 'roslyn-csharp-scope-safe-renames' : isGo ? 'go-types-scope-safe-renames' : isRust ? 'rust-analyzer-rust-lsp-semantic-local-renames' : isPython ? 'libcst-scope-safe-renames' : isLua ? 'luals-scope-safe-renames' : 'humanify-style-scope-safe-renames',
-          engine: isJava ? `JDK javac ${transformed.parserVersion} --release 17 Trees/Element symbol identity` : isCSharp ? `Roslyn ${transformed.parserVersion} semantic model and symbol identity` : isGo ? `Go ${transformed.parserVersion} AST and go/types object identity` : isRust ? `rust-analyzer ${transformed.parserVersion} LSP references + rename` : isPython ? `LibCST ${transformed.parserVersion} ScopeProvider/RenameCommand` : isLua ? `LuaLS ${transformed.parserVersion} LSP rename + Tree-sitter Lua parse` : `Babel ${transformed.parserVersion} scope.rename (Humanify two-stage design)`,
+          operation: isPhp ? 'phpactor-php-lsp-scope-safe-renames' : isJava ? 'javac-java-scope-safe-renames' : isCSharp ? 'roslyn-csharp-scope-safe-renames' : isGo ? 'go-types-scope-safe-renames' : isRust ? 'rust-analyzer-rust-lsp-semantic-local-renames' : isPython ? 'libcst-scope-safe-renames' : isLua ? 'luals-scope-safe-renames' : 'humanify-style-scope-safe-renames',
+          engine: isPhp ? `Phpactor ${transformed.parserVersion} LSP semantic rename; PHP lint` : isJava ? `JDK javac ${transformed.parserVersion} --release 17 Trees/Element symbol identity` : isCSharp ? `Roslyn ${transformed.parserVersion} semantic model and symbol identity` : isGo ? `Go ${transformed.parserVersion} AST and go/types object identity` : isRust ? `rust-analyzer ${transformed.parserVersion} LSP references + rename` : isPython ? `LibCST ${transformed.parserVersion} ScopeProvider/RenameCommand` : isLua ? `LuaLS ${transformed.parserVersion} LSP rename + Tree-sitter Lua parse` : `Babel ${transformed.parserVersion} scope.rename (Humanify two-stage design)`,
           inputSha256: workingSourceSha256,
           artifactSourceSha256,
           inputSource: workingSource,

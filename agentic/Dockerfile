@@ -172,6 +172,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && php /tmp/composer-setup.php --install-dir=/usr/local/bin --filename=composer \
     && rm /tmp/composer-setup.php
 
+# Pin Phpactor's standalone LSP runtime by both release and artifact digest.
+ARG PHPACTOR_VERSION=2026.10.07.0
+ARG PHPACTOR_SHA256=b28bf6166e016d539fc2f2aec18ef918b12590e436a6f1ccbdf30b5bbdbdb16b
+RUN mkdir -p /opt/phpactor \
+    && retry curl -fsSL --retry 5 --retry-delay 5 --retry-all-errors \
+        -o /opt/phpactor/phpactor.phar "https://github.com/phpactor/phpactor/releases/download/${PHPACTOR_VERSION}/phpactor.phar" \
+    && echo "${PHPACTOR_SHA256}  /opt/phpactor/phpactor.phar" | sha256sum -c - \
+    && printf '#!/bin/sh\nexec php /opt/phpactor/phpactor.phar "$@"\n' > /usr/local/bin/phpactor \
+    && chmod 0755 /usr/local/bin/phpactor
+COPY analyzers/phpactor/LICENSE.md /usr/share/licenses/phpactor/LICENSE.md
+
 # Install .NET 8 SDK (for C# projects)
 RUN apt-get update && apt-get install -y --no-install-recommends libicu-dev && rm -rf /var/lib/apt/lists/* \
     && retry curl -fsSL --retry 5 --retry-delay 5 --retry-all-errors \
