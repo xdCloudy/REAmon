@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type PointerEvent } from 'react'
 import Link from 'next/link'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Code2, Copy, Download, ExternalLink, RefreshCw, Search, WandSparkles } from 'lucide-react'
@@ -75,6 +75,19 @@ interface FunctionMapMember {
   line: number | null
   hasControlFlowGraph: boolean
   parentCodeUnit: CodeUnit
+}
+
+type FunctionMapCellTarget = { kind: 'unit'; unit: CodeUnit }
+  | { kind: 'member'; member: FunctionMapMember }
+
+interface FunctionMapCell {
+  key: string
+  label: string
+  detail: string
+  accessibleLabel: string
+  color: 'complete' | 'partial' | 'none' | 'unknown' | 'drafted'
+  selected: boolean
+  target: FunctionMapCellTarget
 }
 
 interface FunctionControlFlowGraph {
@@ -628,6 +641,187 @@ function workStatusColor(draftedUnitCount: number, maintainedUnitCount: number, 
   return maintenanceColor(maintainedUnitCount, unitCount)
 }
 
+// The high-density cell sizing follows decomp.wtf's canvas map, adapted for REAmon's evidence layers.
+// Upstream is MIT licensed: https://github.com/i12bp8/decomp.wtf/tree/575b4a30ed481ff5497dfb9ce4f599368a95a04a
+const DENSE_FUNCTION_MAP_THRESHOLD = 900
+
+function cssCanvasColor(token: string, fallback: string): string {
+  const probe = document.createElement('span')
+  probe.style.color = `var(${token}, ${fallback})`
+  document.body.append(probe)
+  const color = getComputedStyle(probe).color
+  probe.remove()
+  return color
+}
+
+function DenseFunctionMap({ cells, onSelect }: {
+  cells: FunctionMapCell[]
+  onSelect: (cell: FunctionMapCell) => void
+}) {
+  const viewportRef = useRef<HTMLDivElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const mapId = useId()
+  const [layout, setLayout] = useState<{ width: number; height: number; cellSize: number; gap: number; columns: number; dpr: number } | null>(null)
+  const [activeIndex, setActiveIndex] = useState(0)
+  const [themeRevision, setThemeRevision] = useState(0)
+
+  useEffect(() => {
+    const viewport = viewportRef.current
+    if (!viewport) return
+    const measure = () => {
+      const style = getComputedStyle(viewport)
+      const horizontalPadding = Number.parseFloat(style.paddingLeft) + Number.parseFloat(style.paddingRight)
+      const width = Math.max(1, Math.floor(viewport.clientWidth - horizontalPadding))
+      const count = Math.max(1, cells.length)
+      let cellSize = Math.floor(Math.sqrt((width * 300) / count))
+      cellSize = Math.max(5, Math.min(26, cellSize))
+      const gap = cellSize >= 12 ? 3 : 2
+      const columns = Math.max(1, Math.floor((width + gap) / (cellSize + gap)))
+      const rows = Math.ceil(count / columns)
+      setLayout({
+        width,
+        height: rows * (cellSize + gap) - gap,
+        cellSize,
+        gap,
+        columns,
+        dpr: Math.min(2, window.devicePixelRatio || 1),
+      })
+    }
+    measure()
+    const resizeObserver = new ResizeObserver(measure)
+    resizeObserver.observe(viewport)
+    const themeObserver = new MutationObserver(() => setThemeRevision((revision) => revision + 1))
+    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'class'] })
+    return () => {
+      resizeObserver.disconnect()
+      themeObserver.disconnect()
+    }
+  }, [cells.length])
+
+  useEffect(() => {
+    setActiveIndex((index) => Math.max(0, Math.min(index, cells.length - 1)))
+  }, [cells.length])
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas || !layout) return
+    canvas.width = Math.round(layout.width * layout.dpr)
+    canvas.height = Math.round(layout.height * layout.dpr)
+    canvas.style.width = `${layout.width}px`
+    canvas.style.height = `${layout.height}px`
+    const context = canvas.getContext('2d')
+    if (!context) return
+    context.setTransform(layout.dpr, 0, 0, layout.dpr, 0, 0)
+    context.clearRect(0, 0, layout.width, layout.height)
+    const colors = {
+      complete: cssCanvasColor('--status-success', '#00a876'),
+      partial: cssCanvasColor('--status-warning', '#b99a3b'),
+      none: cssCanvasColor('--status-error', '#9b4d4d'),
+      unknown: cssCanvasColor('--status-neutral-bg', '#394458'),
+      drafted: cssCanvasColor('--accent-secondary', '#5f9fe8'),
+    }
+    const radius = layout.cellSize >= 10 ? 2.5 : layout.cellSize >= 7 ? 1.5 : 1
+    cells.forEach((cell, index) => {
+      const x = (index % layout.columns) * (layout.cellSize + layout.gap)
+      const y = Math.floor(index / layout.columns) * (layout.cellSize + layout.gap)
+      context.fillStyle = colors[cell.color]
+      context.beginPath()
+      context.roundRect(x, y, layout.cellSize, layout.cellSize, radius)
+      context.fill()
+      if (cell.selected) {
+        context.strokeStyle = '#ffffff'
+        context.lineWidth = 2
+        context.strokeRect(x - 1, y - 1, layout.cellSize + 2, layout.cellSize + 2)
+      }
+    })
+  }, [cells, layout, themeRevision])
+
+  const activeCell = cells[activeIndex]
+  const activeRow = layout ? Math.floor(activeIndex / layout.columns) + 1 : 1
+  const activeColumn = layout ? activeIndex % layout.columns + 1 : 1
+
+  function cellAtPointer(event: PointerEvent<HTMLDivElement>): number {
+    if (!layout) return -1
+    const rect = canvasRef.current?.getBoundingClientRect()
+    if (!rect) return -1
+    const x = event.clientX - rect.left
+    const y = event.clientY - rect.top + event.currentTarget.scrollTop
+    const stride = layout.cellSize + layout.gap
+    const column = Math.floor(x / stride)
+    const row = Math.floor(y / stride)
+    if (column < 0 || column >= layout.columns || x % stride > layout.cellSize || y % stride > layout.cellSize) return -1
+    const index = row * layout.columns + column
+    return index < cells.length ? index : -1
+  }
+
+  function moveActive(key: string) {
+    if (!layout || !cells.length) return
+    const rowStep = layout.columns
+    const nextIndex = key === 'ArrowRight' ? Math.min(cells.length - 1, activeIndex + 1)
+      : key === 'ArrowLeft' ? Math.max(0, activeIndex - 1)
+        : key === 'ArrowDown' ? Math.min(cells.length - 1, activeIndex + rowStep)
+          : key === 'ArrowUp' ? Math.max(0, activeIndex - rowStep)
+            : key === 'Home' ? 0
+              : key === 'End' ? cells.length - 1
+                : key === 'PageDown' ? Math.min(cells.length - 1, activeIndex + rowStep * 10)
+                  : key === 'PageUp' ? Math.max(0, activeIndex - rowStep * 10) : activeIndex
+    setActiveIndex(nextIndex)
+    if (key.startsWith('Arrow') || key.startsWith('Page')) {
+      const row = Math.floor(nextIndex / rowStep)
+      const scrollTarget = row * (layout.cellSize + layout.gap)
+      const viewport = viewportRef.current
+      if (viewport && (scrollTarget < viewport.scrollTop || scrollTarget > viewport.scrollTop + viewport.clientHeight - layout.cellSize)) {
+        viewport.scrollTop = Math.max(0, scrollTarget - viewport.clientHeight / 2)
+      }
+    }
+  }
+
+  const activeCellId = `${mapId}-cell-${activeIndex}`
+  return <>
+    <p className={styles.functionMapNote}>Dense map: one cell per code unit or outlined function. Focus the map and use arrow keys, Home, End, or Page Up and Page Down; press Enter or Space to inspect the selected item. Hover a cell for its label.</p>
+    <div
+      ref={viewportRef}
+      className={styles.denseFunctionMapViewport}
+      role="grid"
+      tabIndex={0}
+      aria-label={`Dense function map with ${cells.length.toLocaleString()} code units and functions`}
+      aria-rowcount={layout ? Math.ceil(cells.length / layout.columns) : undefined}
+      aria-colcount={layout?.columns}
+      aria-activedescendant={activeCell ? activeCellId : undefined}
+      onPointerMove={(event) => {
+        const index = cellAtPointer(event)
+        event.currentTarget.title = index >= 0
+          ? `${cells[index].label}${cells[index].detail ? ` · ${cells[index].detail}` : ''} · ${cells[index].accessibleLabel}`
+          : ''
+      }}
+      onPointerLeave={(event) => {
+        event.currentTarget.removeAttribute('title')
+      }}
+      onClick={(event) => {
+        const index = cellAtPointer(event)
+        if (index >= 0) {
+          setActiveIndex(index)
+          onSelect(cells[index])
+        }
+      }}
+      onKeyDown={(event) => {
+        if (['ArrowRight', 'ArrowLeft', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) {
+          event.preventDefault()
+          moveActive(event.key)
+        } else if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          if (activeCell) onSelect(activeCell)
+        }
+      }}
+    >
+      <canvas ref={canvasRef} aria-hidden="true" />
+      {activeCell && <div className={styles.srOnly} role="row" aria-rowindex={activeRow}>
+        <div id={activeCellId} role="gridcell" aria-colindex={activeColumn} aria-label={activeCell.accessibleLabel} />
+      </div>}
+    </div>
+  </>
+}
+
 function shortenLabel(value: string, width: number): string {
   const maxCharacters = Math.max(0, Math.floor((width - 14) / 7.2))
   if (maxCharacters < 5) return ''
@@ -981,6 +1175,40 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
       return [{ ...member, parentCodeUnit }]
     })
   }, [filterSearch, folderUnits, functionMapMembers])
+  const functionMapCells = useMemo(() => {
+    const colorFor = (unit: CodeUnit): FunctionMapCell['color'] => {
+      if (mapLayer === 'decompilation') {
+        if (unit.coveragePercent === null) return 'unknown'
+        if (unit.coveragePercent >= 100) return 'complete'
+        return unit.coveragePercent > 0 ? 'partial' : 'none'
+      }
+      if (mapLayer === 'maintenance') return unit.maintainedSource ? 'complete' : 'none'
+      if (unit.draftSource) return 'drafted'
+      return unit.maintainedSource ? 'complete' : 'none'
+    }
+    const units = folderUnits.map((unit): FunctionMapCell => ({
+      key: `unit:${unit.id}`,
+      label: unit.name,
+      detail: [languageLabel(unit), unit.address, formatBytes(unit.sizeBytes)].filter(Boolean).join(' · '),
+      accessibleLabel: `${unit.name}, ${unit.unitType}, ${unit.coveragePercent === null ? 'decompilation completeness unmeasured' : `${Math.round(unit.coveragePercent)}% decompiled`}, ${unit.maintainedSource ? 'maintained source saved' : unit.draftSource ? 'draft saved for review' : 'needs reverse engineering'}`,
+      color: colorFor(unit),
+      selected: unit.id === selectedId,
+      target: { kind: 'unit', unit },
+    }))
+    const members = visibleFunctionMapMembers.map((member): FunctionMapCell => {
+      const parent = member.parentCodeUnit
+      return {
+        key: `function:${member.id}`,
+        label: member.name,
+        detail: [parent.name, member.language, member.address || (member.line ? `line ${member.line}` : null)].filter(Boolean).join(' · '),
+        accessibleLabel: `${member.fullName}, ${member.memberKind} in ${parent.name}, ${parent.coveragePercent === null ? 'parent decompilation completeness unmeasured' : `${Math.round(parent.coveragePercent)}% parent coverage`}, ${parent.maintainedSource ? 'maintained source saved' : parent.draftSource ? 'draft saved for review' : 'needs reverse engineering'}`,
+        color: colorFor(parent),
+        selected: selectedFunctionMapMember?.id === member.id,
+        target: { kind: 'member', member },
+      }
+    })
+    return [...units, ...members]
+  }, [folderUnits, languageLabel, mapLayer, selectedFunctionMapMember?.id, selectedId, visibleFunctionMapMembers])
   const treemapEntries = useMemo(() => mapContent === 'folders'
     ? buildCodeUnitTreemapEntries(folderUnits, folderPath)
     : folderUnits.map((unit): CodeUnitTreemapEntry => ({
@@ -2027,6 +2255,31 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
     setExplainError('')
   }
 
+  function selectFunctionMapCell(cell: FunctionMapCell) {
+    if (cell.target.kind === 'unit') {
+      const unit = cell.target.unit
+      openTreemapEntry({
+        key: `unit:${unit.id}`, name: unit.name, sizeBytes: unit.sizeBytes,
+        coveragePercent: unit.coveragePercent, codeUnit: unit, unitCount: 1,
+        maintainedUnitCount: unit.maintainedSource ? 1 : 0, draftedUnitCount: unit.draftSource ? 1 : 0,
+      })
+      return
+    }
+    const { member } = cell.target
+    const parent = member.parentCodeUnit
+    openTreemapEntry({
+      key: `unit:${parent.id}`, name: parent.name, sizeBytes: parent.sizeBytes,
+      coveragePercent: parent.coveragePercent, codeUnit: parent, unitCount: 1,
+      maintainedUnitCount: parent.maintainedSource ? 1 : 0, draftedUnitCount: parent.draftSource ? 1 : 0,
+    })
+    setSelectedFunctionMapMember({
+      id: member.id, parentUnitId: parent.id,
+      name: member.name.replace(/#\d+$/, ''),
+      similarityAvailable: member.similarityAvailable,
+      hasControlFlowGraph: member.hasControlFlowGraph,
+    })
+  }
+
   function showFolder(path: string[]) {
     setFolderPath(path)
     setSelectedId(null)
@@ -2425,7 +2678,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
             })}
           </nav>}
           {visualizerView === 'function-map' ? <>
-          <div className={styles.functionMap} role="group" aria-label="Language-neutral functions and code units map">
+          {functionMapCells.length > DENSE_FUNCTION_MAP_THRESHOLD ? <DenseFunctionMap cells={functionMapCells} onSelect={selectFunctionMapCell} /> : <div className={styles.functionMap} role="group" aria-label="Language-neutral functions and code units map">
             {folderUnits.map((unit) => {
               const fill = mapLayer === 'decompilation'
                 ? unitColor(unit.coveragePercent)
@@ -2483,7 +2736,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
                 <small>{coverage} · {work} · {member.memberKind}</small>
               </button>
             })}
-          </div>
+          </div>}
           {selectedLuaFunctionId && <FunctionControlFlowPanel
             query={functionControlFlowQuery}
             name={selectedFunctionMapMember?.name || 'Lua prototype'}

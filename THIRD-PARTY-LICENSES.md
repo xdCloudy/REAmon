@@ -464,4 +464,33 @@ AGPL-3.0 extends the GPL-3.0 copyleft to users who interact with the software **
 
 ---
 
-*Last updated: September 2026*
+## Visualizer Code Adaptation
+
+The dense function-map cell sizing and canvas rendering strategy in
+`webapp/src/components/reamon/WorkspaceCodeVisualizer.tsx` is adapted from the
+high-density function map in [decomp.wtf](https://github.com/i12bp8/decomp.wtf),
+audited at commit `575b4a30ed481ff5497dfb9ce4f599368a95a04a`. The upstream was
+archived and its repository declares the MIT License. REAmon keeps its own React
+component, database-derived state, interaction model, and visual tokens.
+
+Copyright (c) 2026 Sam Wolfs
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+*Last updated: October 2026*
