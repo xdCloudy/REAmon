@@ -28,6 +28,11 @@ function safeRenameProposals(value: unknown) {
   }).slice(0, 80)
 }
 
+function safeRenameCandidateCount(value: unknown): number | undefined {
+  const bindings = plainObject(value).bindings
+  return Array.isArray(bindings) ? bindings.length : undefined
+}
+
 function isInside(root: string, file: string): boolean {
   const relative = path.relative(root, file)
   return Boolean(relative) && relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)
@@ -143,6 +148,10 @@ export async function GET(_request: Request, { params }: RouteParams) {
         validationMethod: attempt.validationMethod,
         validationMessage: attempt.validationMessage,
         renameProposals: attempt.scope === 'rename-suggestions' ? safeRenameProposals(attempt.requestPayload) : undefined,
+        proposalSourceSha256: attempt.scope === 'rename-suggestions' && typeof plainObject(attempt.requestPayload).inputSha256 === 'string' ? plainObject(attempt.requestPayload).inputSha256 : undefined,
+        proposalProviderId: attempt.scope === 'rename-suggestions' && typeof plainObject(attempt.requestPayload).providerId === 'string' ? plainObject(attempt.requestPayload).providerId : undefined,
+        projectSymbolContextSha256: attempt.scope === 'rename-suggestions' && typeof plainObject(attempt.requestPayload).projectSymbolContextSha256 === 'string' ? plainObject(attempt.requestPayload).projectSymbolContextSha256 : undefined,
+        proposalCandidateCount: attempt.scope === 'rename-suggestions' ? safeRenameCandidateCount(attempt.requestPayload) : undefined,
         createdAt: attempt.createdAt.toISOString(),
         completedAt: attempt.completedAt?.toISOString() ?? null,
       })),

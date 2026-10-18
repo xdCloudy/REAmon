@@ -138,7 +138,7 @@ interface ApkBuildResponse { buildId: string; taskId: string; fileName: string; 
 interface JvmBuildResponse { buildId: string; taskId: string; codeUnitId: string; fileName: string; sizeBytes: number; sha256: string; sourceSha256: string; changedClassCount: number; removedClassCount: number; javaRelease: number; compilerVersion: string; diagnostics: string; warnings: string; downloadUrl: string }
 interface CodeMaintenanceResponse { sourceCode: string; providerName: string; model: string; attemptId?: string | null; syntaxValidated?: boolean | null; validationStatus?: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod?: string | null; validationMessage?: string | null }
 interface CodeDraftRecord { id: string; sourceCode: string; sourceAttemptId: string | null; providerName: string; modelIdentifier: string; question: string; scope: 'file' | 'member'; syntaxValidated: boolean | null; validationStatus: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod: string | null; validationMessage: string | null; updatedAt: string }
-interface CodeAttemptRecord { id: string; providerName: string; modelIdentifier: string; question: string; scope: 'file' | 'member' | 'rename-suggestions'; status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'; cancelRequested: boolean; errorCode: string | null; errorMessage: string | null; resultSource: string | null; renameProposals?: SafeRenameProposal[]; syntaxValidated: boolean | null; validationStatus: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod: string | null; validationMessage: string | null; createdAt: string; completedAt: string | null }
+interface CodeAttemptRecord { id: string; providerName: string; modelIdentifier: string; question: string; scope: 'file' | 'member' | 'rename-suggestions'; status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'; cancelRequested: boolean; errorCode: string | null; errorMessage: string | null; resultSource: string | null; renameProposals?: SafeRenameProposal[]; proposalSourceSha256?: string; proposalProviderId?: string; projectSymbolContextSha256?: string; proposalCandidateCount?: number; syntaxValidated: boolean | null; validationStatus: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod: string | null; validationMessage: string | null; createdAt: string; completedAt: string | null }
 interface CodeDraftResponse { exists: boolean; draft: CodeDraftRecord | null; attempts?: CodeAttemptRecord[] }
 interface CodeUnitNoteResponse { unitId: string; note: string; stale: boolean; updatedAt: string | null }
 interface CodeReviewRecord {
@@ -1608,6 +1608,40 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
     }
   }
 
+  async function loadSavedSafeRenames(attempt: CodeAttemptRecord) {
+    const workingSource = maintainedDraft || sourceQuery.data
+    if (!selectedUnit || !workingSource || !attempt.renameProposals?.length || !attempt.proposalSourceSha256
+        || !attempt.proposalProviderId || !attempt.projectSymbolContextSha256) return
+    if (selectedProviderId !== attempt.proposalProviderId) {
+      setSafeRenameStatus('Select the provider used for this saved proposal before loading it.')
+      return
+    }
+    try {
+      const sourceBytes = new TextEncoder().encode(workingSource)
+      const sourceDigest = await window.crypto.subtle.digest('SHA-256', sourceBytes)
+      const sourceSha256 = Array.from(new Uint8Array(sourceDigest), (value) => value.toString(16).padStart(2, '0')).join('')
+      if (sourceSha256 !== attempt.proposalSourceSha256) {
+        setSafeRenameStatus('This saved proposal belongs to a different source version. Restore that source version or generate new suggestions.')
+        return
+      }
+      setSafeRenameSuggestions({
+        sourceSha256,
+        providerId: attempt.proposalProviderId,
+        providerName: attempt.providerName,
+        model: attempt.modelIdentifier,
+        attemptId: attempt.id,
+        projectSymbolContextSha256: attempt.projectSymbolContextSha256,
+        candidates: attempt.proposalCandidateCount ?? attempt.renameProposals.length,
+        renames: attempt.renameProposals,
+      })
+      setSelectedSafeRenameIds(new Set(attempt.renameProposals.map((proposal) => proposal.bindingId)))
+      setSafeRenameStatus('Loaded saved proposals. Review the selections before applying them.')
+      setMaintenanceError('')
+    } catch (error) {
+      setMaintenanceError(error instanceof Error ? error.message : 'Could not verify the saved proposal source')
+    }
+  }
+
   async function deobfuscateMember(member: CodeMemberOutline) {
     if (!selectedUnit || !selectedProviderId || !sourceQuery.data || member.source_bytes > MAX_MEMBER_REWRITE_BYTES) return
     const currentSource = sourceQuery.data
@@ -2792,6 +2826,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
                 {codeDraftQuery.data?.draft?.sourceAttemptId === attempt.id && <p>This attempt produced the current saved draft.</p>}
                 {attempt.question && <p>Request: {attempt.question}</p>}
                 {attempt.renameProposals && attempt.renameProposals.length > 0 && <ul>{attempt.renameProposals.map((proposal) => <li key={proposal.bindingId}><strong>{proposal.oldName} → {proposal.newName}</strong> · {proposal.kind} · {proposal.referenceCount} reference{proposal.referenceCount === 1 ? '' : 's'}<p>{proposal.rationale}</p></li>)}</ul>}
+                {attempt.scope === 'rename-suggestions' && attempt.renameProposals && attempt.renameProposals.length > 0 && <button type="button" className={styles.copyButton} onClick={() => void loadSavedSafeRenames(attempt)} disabled={!selectedProviderId || !attempt.proposalSourceSha256 || !attempt.proposalProviderId || !attempt.projectSymbolContextSha256 || !(maintainedDraft || sourceQuery.data)}>Load saved proposals into rename review</button>}
                 {attempt.validationStatus && <p>{validationSummary(attempt)}</p>}
                 {attempt.status === 'SUCCEEDED' && !attempt.validationStatus && <p>{validationSummary(attempt)}</p>}
                 {attempt.errorMessage && <p className={styles.error}>{attempt.errorMessage}{attempt.errorCode ? ` (${attempt.errorCode})` : ''}</p>}
