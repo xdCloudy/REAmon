@@ -138,7 +138,7 @@ interface ApkBuildResponse { buildId: string; taskId: string; fileName: string; 
 interface JvmBuildResponse { buildId: string; taskId: string; codeUnitId: string; fileName: string; sizeBytes: number; sha256: string; sourceSha256: string; changedClassCount: number; removedClassCount: number; javaRelease: number; compilerVersion: string; diagnostics: string; warnings: string; downloadUrl: string }
 interface CodeMaintenanceResponse { sourceCode: string; providerName: string; model: string; attemptId?: string | null; syntaxValidated?: boolean | null; validationStatus?: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod?: string | null; validationMessage?: string | null }
 interface CodeDraftRecord { id: string; sourceCode: string; sourceAttemptId: string | null; providerName: string; modelIdentifier: string; question: string; scope: 'file' | 'member'; syntaxValidated: boolean | null; validationStatus: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod: string | null; validationMessage: string | null; updatedAt: string }
-interface CodeAttemptRecord { id: string; providerName: string; modelIdentifier: string; question: string; scope: 'file' | 'member'; status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'; cancelRequested: boolean; errorCode: string | null; errorMessage: string | null; resultSource: string | null; syntaxValidated: boolean | null; validationStatus: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod: string | null; validationMessage: string | null; createdAt: string; completedAt: string | null }
+interface CodeAttemptRecord { id: string; providerName: string; modelIdentifier: string; question: string; scope: 'file' | 'member' | 'rename-suggestions'; status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'; cancelRequested: boolean; errorCode: string | null; errorMessage: string | null; resultSource: string | null; renameProposals?: SafeRenameProposal[]; syntaxValidated: boolean | null; validationStatus: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod: string | null; validationMessage: string | null; createdAt: string; completedAt: string | null }
 interface CodeDraftResponse { exists: boolean; draft: CodeDraftRecord | null; attempts?: CodeAttemptRecord[] }
 interface CodeUnitNoteResponse { unitId: string; note: string; stale: boolean; updatedAt: string | null }
 interface CodeReviewRecord {
@@ -156,7 +156,7 @@ interface CodeReviewRecord {
 interface AcceptedRenameAlias { bindingId: string; oldName: string; newName: string; kind: string }
 interface CodeMemberOutline { name: string; kind: 'function' | 'method' | 'constructor'; start_byte: number; end_byte: number; line: number; source_bytes: number }
 interface SafeRenameProposal { bindingId: string; oldName: string; newName: string; kind: string; referenceCount: number; rationale: string }
-interface SafeRenameSuggestions { sourceSha256: string; providerId: string; providerName: string; model: string; candidates: number; renames: SafeRenameProposal[] }
+interface SafeRenameSuggestions { sourceSha256: string; providerId: string; providerName: string; model: string; attemptId: string; projectSymbolContextSha256: string; candidates: number; renames: SafeRenameProposal[] }
 
 interface ReviewDiffRow { kind: 'added' | 'removed'; text: string; beforeLine: number | null; afterLine: number | null }
 interface ReviewDiff { rows: ReviewDiffRow[]; added: number; removed: number; truncated: boolean; unavailable: boolean }
@@ -1445,7 +1445,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
       setDraftSource(null)
       setDraftScope(null)
       try {
-        await persistCodeDraft(sourceCode, meta, attempt.scope)
+        await persistCodeDraft(sourceCode, meta, attempt.scope === 'member' ? 'member' : 'file')
       } catch (error) {
         setMaintenanceError(`The completed result is loaded in the editor, but could not be saved to project memory: ${error instanceof Error ? error.message : 'unknown error'}`)
       }
@@ -1559,11 +1559,12 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
         body: JSON.stringify({ operation: 'suggest', unitId: selectedUnit.id, providerId: selectedProviderId, sourceCode: workingSource, question: question.trim() }),
       })
       const result = await response.json().catch(() => ({})) as SafeRenameSuggestions & { error?: string }
-      if (!response.ok || typeof result.sourceSha256 !== 'string' || result.providerId !== selectedProviderId || !Array.isArray(result.renames)) {
+      if (!response.ok || typeof result.sourceSha256 !== 'string' || result.providerId !== selectedProviderId || typeof result.attemptId !== 'string' || typeof result.projectSymbolContextSha256 !== 'string' || !Array.isArray(result.renames)) {
         throw new Error(result.error || 'Could not suggest scope-safe rename candidates')
       }
       setSafeRenameSuggestions(result)
       setSelectedSafeRenameIds(new Set(result.renames.map((proposal) => proposal.bindingId)))
+      await queryClient.invalidateQueries({ queryKey: ['reamon-code-draft', projectId, selectedUnit.id] })
       if (!result.renames.length) setSafeRenameStatus('No lexical binding names were clear enough to suggest from this source and reviewed project memory.')
     } catch (error) {
       setMaintenanceError(error instanceof Error ? error.message : 'Could not suggest scope-safe rename candidates')
@@ -1583,7 +1584,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
     try {
       const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/safe-renames`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ operation: 'apply', unitId: selectedUnit.id, providerId: selectedProviderId, sourceCode: workingSource, expectedSha256: safeRenameSuggestions.sourceSha256, renames }),
+        body: JSON.stringify({ operation: 'apply', unitId: selectedUnit.id, providerId: selectedProviderId, sourceCode: workingSource, expectedSha256: safeRenameSuggestions.sourceSha256, suggestionAttemptId: safeRenameSuggestions.attemptId, renames }),
       })
       const result = await response.json().catch(() => ({})) as CodeMaintenanceResponse & { error?: string; outputSha256?: string; renamedBindings?: Array<{ oldName: string; newName: string }> }
       if (!response.ok || typeof result.sourceCode !== 'string' || !result.attemptId) {
@@ -2730,7 +2731,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
             </button>
             {safeRenameSourceByteLength > 64 * 1024 && <p className={styles.message}>AI rename suggestions are limited to editable source of 64 KiB or less.</p>}
             {safeRenameSuggestions && safeRenameSuggestions.renames.length > 0 && <div className={styles.attemptHistory}>
-              <p>{safeRenameSuggestions.renames.length} proposals from {safeRenameSuggestions.providerName} · {safeRenameSuggestions.model}. Source SHA-256: {safeRenameSuggestions.sourceSha256.slice(0, 16)}…</p>
+              <p>{safeRenameSuggestions.renames.length} saved, unreviewed proposals from {safeRenameSuggestions.providerName} · {safeRenameSuggestions.model}. They are recorded in project attempt history and are not applied until selected. Source SHA-256: {safeRenameSuggestions.sourceSha256.slice(0, 16)}…</p>
               <ul>{safeRenameSuggestions.renames.map((proposal) => <li key={proposal.bindingId}>
                 <label className={styles.explainField}>
                   <input type="checkbox" checked={selectedSafeRenameIds.has(proposal.bindingId)} onChange={(event) => setSelectedSafeRenameIds((current) => {
@@ -2785,11 +2786,12 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
             <ol>{codeDraftQuery.data?.attempts?.map((attempt) => <li key={attempt.id}>
               <details>
                 <summary>
-                  <strong>{attempt.status === 'SUCCEEDED' ? 'Completed' : attempt.status === 'FAILED' ? 'Failed' : attempt.status === 'CANCELLED' ? 'Cancelled' : attempt.status === 'QUEUED' ? 'Queued' : attempt.cancelRequested ? 'Cancelling' : attempt.status === 'RUNNING' ? 'Running' : 'Interrupted'}</strong>
+                  <strong>{attempt.scope === 'rename-suggestions' && attempt.status === 'SUCCEEDED' ? 'Suggestions saved' : attempt.status === 'SUCCEEDED' ? 'Completed' : attempt.status === 'FAILED' ? 'Failed' : attempt.status === 'CANCELLED' ? 'Cancelled' : attempt.status === 'QUEUED' ? 'Queued' : attempt.cancelRequested ? 'Cancelling' : attempt.status === 'RUNNING' ? 'Running' : 'Interrupted'}</strong>
                   <span>{attempt.providerName} · {attempt.modelIdentifier} · {attempt.scope} · {new Date(attempt.createdAt).toLocaleString()}</span>
                 </summary>
                 {codeDraftQuery.data?.draft?.sourceAttemptId === attempt.id && <p>This attempt produced the current saved draft.</p>}
                 {attempt.question && <p>Request: {attempt.question}</p>}
+                {attempt.renameProposals && attempt.renameProposals.length > 0 && <ul>{attempt.renameProposals.map((proposal) => <li key={proposal.bindingId}><strong>{proposal.oldName} → {proposal.newName}</strong> · {proposal.kind} · {proposal.referenceCount} reference{proposal.referenceCount === 1 ? '' : 's'}<p>{proposal.rationale}</p></li>)}</ul>}
                 {attempt.validationStatus && <p>{validationSummary(attempt)}</p>}
                 {attempt.status === 'SUCCEEDED' && !attempt.validationStatus && <p>{validationSummary(attempt)}</p>}
                 {attempt.errorMessage && <p className={styles.error}>{attempt.errorMessage}{attempt.errorCode ? ` (${attempt.errorCode})` : ''}</p>}

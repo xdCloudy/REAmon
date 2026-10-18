@@ -422,6 +422,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     const workingBytes = Buffer.from(workingSource, 'utf8')
     if (workingBytes.byteLength > MAX_SOURCE_BYTES) return NextResponse.json({ error: `Editable ${isJava ? 'Java' : isCSharp ? 'C#' : isGo ? 'Go' : isPython ? 'Python' : isPhp ? 'PHP' : isRust ? 'Rust' : isLua ? 'Lua' : 'JavaScript'} source exceeds the safe-rename limit` }, { status: 413 })
     const workingSourceSha256 = digest(workingBytes)
+    const runKey = segments.slice(0, 4).join('/')
     const unitName = (typeof attributes.qualifiedName === 'string' && attributes.qualifiedName)
       || (typeof attributes.name === 'string' && attributes.name)
       || `Selected ${isJava ? 'Java' : isCSharp ? 'C#' : isGo ? 'Go' : isPython ? 'Python' : isPhp ? 'PHP' : isRust ? 'Rust' : isLua ? 'Lua' : 'JavaScript'} unit`
@@ -451,7 +452,60 @@ export async function POST(request: Request, { params }: RouteParams) {
           && (binding.name.length <= 3 || /^_?(?:0x[\da-f]{4,}|[\da-f]{6,})$/i.test(binding.name)))
         .slice(0, MAX_CANDIDATES)
       if (!candidates.length) {
-        return NextResponse.json({ sourceSha256: workingSourceSha256, providerId: provider.id, providerName: 'REAmon scope-safe renames', model: provider.modelIdentifier, candidates: 0, renames: [] }, { headers: { 'Cache-Control': 'private, no-store' } })
+        const projectSymbolContextSha256 = digest(Buffer.alloc(0))
+        const savedAttempt = await prisma.reamonCodeAttempt.create({
+          data: {
+            projectId, ownerUserId: user.userId, artifactId: artifact.id, runKey, codeUnitId: observation.id,
+            unitName: unitName.slice(0, 500), language, sourceHash: artifactSourceSha256,
+            providerName: 'REAmon scope-safe rename suggestions', modelIdentifier: provider.modelIdentifier.slice(0, 128),
+            question: (typeof body.question === 'string' ? body.question : '').slice(0, 1000),
+            scope: 'rename-suggestions', status: 'SUCCEEDED',
+            requestPayload: { operation: 'scope-safe-rename-suggestions', providerId: provider.id, modelIdentifier: provider.modelIdentifier, inputSha256: workingSourceSha256, artifactSourceSha256, inputSource: workingSource, bindings: [], projectSymbolContext: '', projectSymbolContextSha256, renames: [] },
+            syntaxValidated: false, validationStatus: 'UNAVAILABLE', validationMethod: 'proposal-only',
+            validationMessage: 'No eligible obfuscated local bindings were found; no rename proposal was generated.', completedAt: new Date(),
+          },
+          select: { id: true },
+        })
+        return NextResponse.json({ sourceSha256: workingSourceSha256, providerId: provider.id, providerName: 'REAmon scope-safe renames', model: provider.modelIdentifier, attemptId: savedAttempt.id, projectSymbolContextSha256, candidates: 0, renames: [] }, { headers: { 'Cache-Control': 'private, no-store' } })
+      }
+
+      const priorAttempts = await prisma.reamonCodeAttempt.findMany({
+        where: {
+          projectId,
+          artifactId: artifact.id,
+          runKey,
+          codeUnitId: observation.id,
+          sourceHash: artifactSourceSha256,
+          scope: 'rename-suggestions',
+          status: 'SUCCEEDED',
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+        select: { id: true, createdAt: true, requestPayload: true },
+      })
+      const priorSuggestionContext = priorAttempts.flatMap((attempt) => {
+        const payload = plainObject(attempt.requestPayload)
+        if (payload.operation !== 'scope-safe-rename-suggestions' || payload.inputSha256 !== workingSourceSha256
+            || !Array.isArray(payload.renames)) return []
+        const proposals = payload.renames.flatMap((value) => {
+          const rename = plainObject(value)
+          if (typeof rename.bindingId !== 'string' || typeof rename.oldName !== 'string' || typeof rename.newName !== 'string'
+              || typeof rename.kind !== 'string' || typeof rename.rationale !== 'string') return []
+          return [{ bindingId: rename.bindingId.slice(0, 128), oldName: rename.oldName.slice(0, 256), newName: rename.newName.slice(0, 128), kind: rename.kind.slice(0, 80), rationale: rename.rationale.slice(0, 400) }]
+        }).slice(0, 80)
+        return proposals.length ? [{ id: attempt.id, createdAt: attempt.createdAt.toISOString(), proposals }] : []
+      })
+      const priorSuggestionText = priorSuggestionContext.length
+        ? JSON.stringify({ notice: 'These are unreviewed prior proposals, not accepted names or evidence. Use only as weak consistency hints and independently verify every suggestion in the current source.', attempts: priorSuggestionContext })
+        : ''
+      let boundedPriorSuggestionText = priorSuggestionText
+      while (Buffer.byteLength(boundedPriorSuggestionText, 'utf8') > 8 * 1024 && priorSuggestionContext.length) {
+        const latest = priorSuggestionContext[priorSuggestionContext.length - 1]
+        latest.proposals.pop()
+        if (!latest.proposals.length) priorSuggestionContext.pop()
+        boundedPriorSuggestionText = priorSuggestionContext.length
+          ? JSON.stringify({ notice: 'These are unreviewed prior proposals, not accepted names or evidence. Use only as weak consistency hints and independently verify every suggestion in the current source.', attempts: priorSuggestionContext })
+          : ''
       }
 
       const scannedSymbolRows = await prisma.reamonMaintainedSource.findMany({
@@ -503,6 +557,7 @@ export async function POST(request: Request, { params }: RouteParams) {
           source_code: workingSource,
           bindings: candidates,
           project_symbol_context: projectSymbolContext,
+          prior_suggestion_context: boundedPriorSuggestionText,
           question: typeof body.question === 'string' ? body.question.slice(0, 1000) : '',
         }),
       }, { timeoutMs: 120_000 })
@@ -510,17 +565,67 @@ export async function POST(request: Request, { params }: RouteParams) {
       if (!response.ok || !result || !Array.isArray(result.renames)) {
         return NextResponse.json({ error: result?.error || 'Could not generate rename suggestions' }, { status: response.status || 502 })
       }
-      const allowedIds = new Set(candidates.map((candidate) => candidate.id))
-      const renames = result.renames.filter((rename): rename is Record<string, unknown> => Boolean(rename && typeof rename === 'object' && !Array.isArray(rename)))
-        .filter((rename) => typeof rename.bindingId === 'string' && allowedIds.has(rename.bindingId)
-          && typeof rename.oldName === 'string' && typeof rename.newName === 'string'
-          && typeof rename.rationale === 'string')
-        .slice(0, 80)
+      const candidateById = new Map(candidates.map((candidate) => [candidate.id, candidate]))
+      const renames = result.renames.flatMap((value) => {
+        const rename = plainObject(value)
+        const binding = typeof rename.bindingId === 'string' ? candidateById.get(rename.bindingId) : undefined
+        if (!binding || rename.oldName !== binding.name || typeof rename.newName !== 'string' || rename.newName.length > 128
+            || typeof rename.rationale !== 'string') return []
+        return [{
+          bindingId: binding.id,
+          oldName: binding.name,
+          newName: rename.newName,
+          kind: binding.kind,
+          referenceCount: binding.referenceCount,
+          rationale: rename.rationale.slice(0, 400),
+        }]
+      }).slice(0, 80)
+      const projectSymbolContextSha256 = digest(Buffer.from(projectSymbolContext, 'utf8'))
+      const savedAttempt = await prisma.reamonCodeAttempt.create({
+        data: {
+          projectId,
+          ownerUserId: user.userId,
+          artifactId: artifact.id,
+          runKey,
+          codeUnitId: observation.id,
+          unitName: unitName.slice(0, 500),
+          language,
+          sourceHash: artifactSourceSha256,
+          providerName: 'REAmon scope-safe rename suggestions',
+          modelIdentifier: provider.modelIdentifier.slice(0, 128),
+          question: (typeof body.question === 'string' ? body.question : '').slice(0, 1000),
+          scope: 'rename-suggestions',
+          status: 'SUCCEEDED',
+          requestPayload: {
+            operation: 'scope-safe-rename-suggestions',
+            providerId: provider.id,
+            modelIdentifier: provider.modelIdentifier,
+            engine: 'AI rename proposals grounded in immutable source and accepted project-symbol memory',
+            inputSha256: workingSourceSha256,
+            artifactSourceSha256,
+            inputSource: workingSource,
+            bindings: candidates.map((candidate) => ({ id: candidate.id, name: candidate.name, kind: candidate.kind, scopeType: candidate.scopeType, referenceCount: candidate.referenceCount, exported: candidate.exported })),
+            projectSymbolContext,
+            projectSymbolContextSha256,
+            projectSymbolScanTruncated,
+            priorSuggestionContext: boundedPriorSuggestionText,
+            renames,
+          },
+          syntaxValidated: false,
+          validationStatus: 'UNAVAILABLE',
+          validationMethod: 'proposal-only',
+          validationMessage: 'Suggestions are saved as unreviewed proposals. Syntax and binding validation runs only after selected names are applied.',
+          completedAt: new Date(),
+        },
+        select: { id: true },
+      })
       return NextResponse.json({
         sourceSha256: workingSourceSha256,
         providerId: provider.id,
         providerName: 'REAmon scope-safe renames',
         model: provider.modelIdentifier,
+        attemptId: savedAttempt.id,
+        projectSymbolContextSha256,
         candidates: candidates.length,
         renames,
       }, { headers: { 'Cache-Control': 'private, no-store' } })
@@ -534,6 +639,31 @@ export async function POST(request: Request, { params }: RouteParams) {
       select: { id: true, name: true, modelIdentifier: true },
     })
     if (!provider) return NextResponse.json({ error: 'Saved OpenAI-compatible provider not found' }, { status: 404 })
+    const suggestionAttemptId = typeof body.suggestionAttemptId === 'string' ? body.suggestionAttemptId : ''
+    if (!suggestionAttemptId || suggestionAttemptId.length > 128) return NextResponse.json({ error: 'The saved rename proposal is missing; generate suggestions again' }, { status: 400 })
+    const suggestionAttempt = await prisma.reamonCodeAttempt.findFirst({
+      where: {
+        id: suggestionAttemptId,
+        projectId,
+        artifactId: artifact.id,
+        runKey,
+        codeUnitId: observation.id,
+        sourceHash: artifactSourceSha256,
+        scope: 'rename-suggestions',
+        status: 'SUCCEEDED',
+        providerName: 'REAmon scope-safe rename suggestions',
+      },
+      select: { id: true, requestPayload: true },
+    })
+    const proposalPayload = plainObject(suggestionAttempt?.requestPayload)
+    const savedRenames = Array.isArray(proposalPayload.renames) ? proposalPayload.renames : []
+    if (!suggestionAttempt || proposalPayload.operation !== 'scope-safe-rename-suggestions' || proposalPayload.providerId !== provider.id
+        || proposalPayload.modelIdentifier !== provider.modelIdentifier || proposalPayload.inputSha256 !== workingSourceSha256
+        || typeof proposalPayload.projectSymbolContext !== 'string' || typeof proposalPayload.projectSymbolContextSha256 !== 'string'
+        || proposalPayload.projectSymbolContextSha256 !== digest(Buffer.from(proposalPayload.projectSymbolContext, 'utf8'))) {
+      return NextResponse.json({ error: 'The saved rename proposal does not match this source and project context; generate suggestions again' }, { status: 409 })
+    }
+
     const requests = Array.isArray(body.renames) ? body.renames : []
     if (requests.length < 1 || requests.length > 80) return NextResponse.json({ error: 'Select between 1 and 80 rename suggestions' }, { status: 400 })
     const catalog = isJava
@@ -551,8 +681,10 @@ export async function POST(request: Request, { params }: RouteParams) {
     for (const rename of requests) {
       const item = plainObject(rename)
       const binding = typeof item.bindingId === 'string' ? available.get(item.bindingId) : undefined
+      const saved = savedRenames.map(plainObject).find((proposal) => proposal.bindingId === item.bindingId)
       if (!binding || binding.exported || typeof item.newName !== 'string' || item.oldName !== binding.name
-          || typeof item.rationale !== 'string' || item.rationale.length > 400) {
+          || typeof item.rationale !== 'string' || item.rationale.length > 400
+          || !saved || saved.oldName !== item.oldName || saved.newName !== item.newName || saved.kind !== binding.kind || saved.rationale !== item.rationale) {
         return NextResponse.json({ error: 'A selected rename no longer matches the current source bindings' }, { status: 409 })
       }
     }
@@ -571,7 +703,6 @@ export async function POST(request: Request, { params }: RouteParams) {
       : isPython ? await applyPythonRenameBindings(workingSource, workingSourceSha256, selectedRenames)
         : isLua ? await refactorLuaBindings(workingSource, 'rename', luaRuntime, workingSourceSha256, selectedRenames) as SafeRenameResult
           : await applySafeRenameBindings(workingSource, workingSourceSha256, selectedRenames)
-    const runKey = segments.slice(0, 4).join('/')
     const validationMethod = isPhp
       ? `phpactor-${transformed.parserVersion}+php-scope-safe-rename`
       : isJava
@@ -620,6 +751,8 @@ export async function POST(request: Request, { params }: RouteParams) {
           inputSha256: workingSourceSha256,
           artifactSourceSha256,
           inputSource: workingSource,
+          suggestionAttemptId: suggestionAttempt.id,
+          projectSymbolContextSha256: proposalPayload.projectSymbolContextSha256,
           outputSha256: transformed.outputSha256,
           renames: transformed.renamedBindings.map((binding) => ({
             ...binding,

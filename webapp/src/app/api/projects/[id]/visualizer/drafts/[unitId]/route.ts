@@ -17,6 +17,17 @@ function plainObject(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
 }
 
+function safeRenameProposals(value: unknown) {
+  const renames = plainObject(value).renames
+  if (!Array.isArray(renames)) return []
+  return renames.flatMap((value: unknown) => {
+    const proposal = plainObject(value)
+    if (typeof proposal.bindingId !== 'string' || typeof proposal.oldName !== 'string' || typeof proposal.newName !== 'string'
+        || typeof proposal.kind !== 'string' || typeof proposal.rationale !== 'string') return []
+    return [{ bindingId: proposal.bindingId.slice(0, 128), oldName: proposal.oldName.slice(0, 256), newName: proposal.newName.slice(0, 128), kind: proposal.kind.slice(0, 80), referenceCount: Number.isSafeInteger(proposal.referenceCount) ? proposal.referenceCount : 0, rationale: proposal.rationale.slice(0, 400) }]
+  }).slice(0, 80)
+}
+
 function isInside(root: string, file: string): boolean {
   const relative = path.relative(root, file)
   return Boolean(relative) && relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)
@@ -84,7 +95,7 @@ export async function GET(_request: Request, { params }: RouteParams) {
       where: { projectId, codeUnitId: unitId, artifactId: resolved.artifactId, runKey: resolved.runKey, sourceHash: resolved.sourceHash },
       orderBy: { createdAt: 'desc' },
       take: 10,
-      select: { id: true, providerName: true, modelIdentifier: true, question: true, scope: true, status: true, cancelRequested: true, errorCode: true, errorMessage: true, resultSource: true, syntaxValidated: true, validationStatus: true, validationMethod: true, validationMessage: true, createdAt: true, completedAt: true },
+      select: { id: true, providerName: true, modelIdentifier: true, question: true, scope: true, status: true, cancelRequested: true, errorCode: true, errorMessage: true, resultSource: true, requestPayload: true, syntaxValidated: true, validationStatus: true, validationMethod: true, validationMessage: true, createdAt: true, completedAt: true },
     })
     let trustedDraftValidation = { syntaxValidated: null as boolean | null, validationStatus: null as string | null, validationMethod: null as string | null, validationMessage: null as string | null }
     const draftHashMatches = Boolean(draft?.draftHash
@@ -117,7 +128,21 @@ export async function GET(_request: Request, { params }: RouteParams) {
       exists: Boolean(draft),
       draft: draft ? { ...draft, ...trustedDraftValidation, updatedAt: draft.updatedAt.toISOString() } : null,
       attempts: attempts.map((attempt) => ({
-        ...attempt,
+        id: attempt.id,
+        providerName: attempt.providerName,
+        modelIdentifier: attempt.modelIdentifier,
+        question: attempt.question,
+        scope: attempt.scope,
+        status: attempt.status,
+        cancelRequested: attempt.cancelRequested,
+        errorCode: attempt.errorCode,
+        errorMessage: attempt.errorMessage,
+        resultSource: attempt.resultSource,
+        syntaxValidated: attempt.syntaxValidated,
+        validationStatus: attempt.validationStatus,
+        validationMethod: attempt.validationMethod,
+        validationMessage: attempt.validationMessage,
+        renameProposals: attempt.scope === 'rename-suggestions' ? safeRenameProposals(attempt.requestPayload) : undefined,
         createdAt: attempt.createdAt.toISOString(),
         completedAt: attempt.completedAt?.toISOString() ?? null,
       })),
