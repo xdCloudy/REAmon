@@ -4,9 +4,11 @@ import os from 'node:os'
 const DEFAULT_POLL_SECONDS = 10
 const DEFAULT_BATCH_SIZE = 1
 const DEFAULT_STALE_AFTER_MINUTES = 30
+const DEFAULT_PROJECTION_TIMEOUT_MS = 240_000
 const MAX_POLL_SECONDS = 300
 const MAX_BATCH_SIZE = 10
 const MAX_STALE_AFTER_MINUTES = 24 * 60
+const MAX_PROJECTION_TIMEOUT_MS = 240_000
 const TASK_DISPATCH_TIMEOUT_MS = 35 * 60_000
 const MAX_WORKER_ID_LENGTH = 128
 const MAX_PROJECTION_PAGES = 100
@@ -59,6 +61,7 @@ export function readWorkerConfig(env = process.env) {
     pollSeconds: boundedNumber(env.REAMON_WORKER_POLL_SECONDS, DEFAULT_POLL_SECONDS, 5, MAX_POLL_SECONDS),
     batchSize: boundedNumber(env.REAMON_WORKER_BATCH_SIZE, DEFAULT_BATCH_SIZE, 1, MAX_BATCH_SIZE),
     staleAfterMinutes: boundedNumber(env.REAMON_WORKER_STALE_AFTER_MINUTES, DEFAULT_STALE_AFTER_MINUTES, 5, MAX_STALE_AFTER_MINUTES),
+    projectionTimeoutMs: boundedNumber(env.REAMON_WORKER_PROJECTION_TIMEOUT_MS, DEFAULT_PROJECTION_TIMEOUT_MS, 20_000, MAX_PROJECTION_TIMEOUT_MS),
     backfillIntervalSeconds: boundedNumber(env.REAMON_WORKER_BACKFILL_INTERVAL_SECONDS, DEFAULT_BACKFILL_INTERVAL_SECONDS, 0, MAX_BACKFILL_INTERVAL_SECONDS),
     backfillBatchSize: boundedNumber(env.REAMON_WORKER_BACKFILL_BATCH_SIZE, DEFAULT_BACKFILL_BATCH_SIZE, 1, MAX_BACKFILL_BATCH_SIZE),
     retentionIntervalSeconds: boundedNumber(env.REAMON_WORKER_RETENTION_INTERVAL_SECONDS, DEFAULT_RETENTION_INTERVAL_SECONDS, 0, MAX_RETENTION_INTERVAL_SECONDS),
@@ -129,7 +132,10 @@ export async function projectOnce(config, projectId, fetchImpl = fetch, logger =
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-internal-key': config.internalKey },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(20_000),
+    // A 10,000-observation page can take well over a minute on a large project.
+    // Stay under the API's five-minute projection lease so the caller does not
+    // abandon work that still owns the project lock.
+    signal: AbortSignal.timeout(config.projectionTimeoutMs || DEFAULT_PROJECTION_TIMEOUT_MS),
   })
 
   if (response.status === 401 || response.status === 403) {

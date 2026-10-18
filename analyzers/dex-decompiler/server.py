@@ -10,6 +10,7 @@ import subprocess
 import tempfile
 import threading
 import time
+import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path, PurePosixPath
 from uuid import uuid4
@@ -54,9 +55,35 @@ def resolve_input(value: object) -> Path:
         raise AnalysisError("Input must resolve to a file inside the read-only artifact volume") from error
     if candidate.is_symlink() or not candidate.is_file():
         raise AnalysisError("Artifact input is not a regular file")
-    if candidate.suffix.lower() not in {".apk", ".dex"}:
-        raise AnalysisError("This engine accepts APK and DEX inputs")
     return candidate
+
+
+def detect_input_suffix(source: Path) -> str:
+    # Artifact storage uses content-addressed filenames without extensions, so
+    # identify Android inputs by their bytes and provide the CLI a useful suffix.
+    try:
+        if zipfile.is_zipfile(source):
+            with zipfile.ZipFile(source) as archive:
+                def is_dex_entry(name: str) -> bool:
+                    basename = PurePosixPath(name).name.lower()
+                    if basename == "classes.dex":
+                        return True
+                    return basename.startswith("classes") and basename.endswith(".dex") \
+                        and basename[7:-4].isdigit()
+
+                if any(is_dex_entry(name) for name in archive.namelist()):
+                    return ".apk"
+    except (OSError, zipfile.BadZipFile):
+        pass
+
+    try:
+        with source.open("rb") as stream:
+            magic = stream.read(8)
+    except OSError as error:
+        raise AnalysisError("Could not read the DEX input") from error
+    if len(magic) == 8 and magic[:4] == b"dex\n" and magic[4:7].isdigit() and magic[7:] == b"\0":
+        return ".dex"
+    raise AnalysisError("This engine accepts APK and DEX inputs")
 
 
 def collect_sources(root: Path) -> tuple[list[tuple[Path, PurePosixPath, int]], int, bool]:
@@ -99,6 +126,7 @@ def analyse(body: dict[str, object]) -> dict[str, object]:
     task_id = safe_id(body.get("taskId"))
     run_id = safe_id(body.get("runId"))
     source = resolve_input(body.get("artifactPath"))
+    input_suffix = detect_input_suffix(source)
     artifact_hash = hashlib.sha256()
     with source.open("rb") as stream:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
@@ -106,10 +134,12 @@ def analyse(body: dict[str, object]) -> dict[str, object]:
 
     with tempfile.TemporaryDirectory(prefix="reamon-dex-decompiler-") as temporary:
         temporary_root = Path(temporary)
+        compiler_input = temporary_root / f"input{input_suffix}"
+        compiler_input.symlink_to(source)
         output_root = temporary_root / "java"
         output_root.mkdir()
         command = [
-            "/usr/local/bin/dex-decompile", "-i", str(source), "-d", str(output_root),
+            "/usr/local/bin/dex-decompile", "-i", str(compiler_input), "-d", str(output_root),
             "--deobf", "--show-bytecode",
         ]
         try:
@@ -130,6 +160,11 @@ def analyse(body: dict[str, object]) -> dict[str, object]:
         stdout = result.stdout[-4000:].decode("utf-8", errors="replace").strip()
         stderr = result.stderr[-4000:].decode("utf-8", errors="replace").strip()
         if result.returncode != 0:
+            if result.returncode == -9:
+                raise AnalysisError(
+                    "The DEX decompiler was killed by signal 9, likely after exceeding the analyzer's "
+                    "memory limit. Try JADX for the full APK or analyze a smaller DEX input."
+                )
             detail = stderr or stdout or f"DEX decompiler exited with code {result.returncode}"
             raise AnalysisError(detail[:2000])
         sources, total_source_bytes, source_truncated = collect_sources(output_root)
@@ -142,7 +177,7 @@ def analyse(body: dict[str, object]) -> dict[str, object]:
         method_evidence_root = temporary_root / "method-evidence"
         try:
             structured = subprocess.run(
-                ["/usr/local/bin/reamon-dex-structure", str(source), str(method_evidence_root)],
+                ["/usr/local/bin/reamon-dex-structure", str(compiler_input), str(method_evidence_root)],
                 cwd=temporary_root,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
