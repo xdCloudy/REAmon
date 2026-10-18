@@ -745,11 +745,13 @@ function DenseFunctionMap({ cells, onSelect }: {
     const rect = canvasRef.current?.getBoundingClientRect()
     if (!rect) return -1
     const x = event.clientX - rect.left
-    const y = event.clientY - rect.top + event.currentTarget.scrollTop
+    // The canvas rect moves with the scrolled content, so this is already a
+    // canvas-relative coordinate. Adding scrollTop again would offset hit tests.
+    const y = event.clientY - rect.top
     const stride = layout.cellSize + layout.gap
     const column = Math.floor(x / stride)
     const row = Math.floor(y / stride)
-    if (column < 0 || column >= layout.columns || x % stride > layout.cellSize || y % stride > layout.cellSize) return -1
+    if (column < 0 || column >= layout.columns || x % stride >= layout.cellSize || y % stride >= layout.cellSize) return -1
     const index = row * layout.columns + column
     return index < cells.length ? index : -1
   }
