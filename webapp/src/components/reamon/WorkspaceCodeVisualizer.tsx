@@ -3133,7 +3133,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
         />}
         {(currentRun?.providerId === 'reamon-ghidra' || currentRun?.providerId === 'reamon-kuna' || currentRun?.providerId === 'reamon-wabt' || currentRun?.providerId === 'reamon-jadx' || currentRun?.providerId === 'reamon-ilspy' || currentRun?.providerId === 'reamon-dex-decompiler' || currentRun?.providerId === 'reamon-unluac-rs')
           && selectedUnit?.source === currentRun.providerId && Boolean(selectedSimilarityTarget) && <section className={styles.similarFunctions} aria-labelledby="similar-functions-heading">
-          <div className={styles.similarFunctionsHeading}><h3 id="similar-functions-heading">Similar functions</h3><span>Instruction sequences with available control-flow evidence</span></div>
+          <div className={styles.similarFunctionsHeading}><h3 id="similar-functions-heading">Similar functions</h3><span>Opcode sequences; control-flow evidence where available</span></div>
           {similarFunctionsQuery.isLoading && <p className={styles.message}>Comparing this function with stored evidence from completed analyses…</p>}
           {similarFunctionsQuery.isError && <p className={styles.error}>{similarFunctionsQuery.error instanceof Error ? similarFunctionsQuery.error.message : 'Unable to find similar functions'}</p>}
           {!similarFunctionsQuery.isLoading && !similarFunctionsQuery.isError && similarFunctionsQuery.data?.matches.length === 0 && <p className={styles.message}>No close function matches were found in this project.</p>}

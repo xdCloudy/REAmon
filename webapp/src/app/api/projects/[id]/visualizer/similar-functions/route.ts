@@ -33,6 +33,7 @@ function instructionMnemonics(value: unknown): string[] {
   if (!Array.isArray(parsed)) return []
   return parsed.slice(0, 800).filter((item): item is string =>
     typeof item === 'string' && /^[A-Za-z][A-Za-z0-9_./-]{0,31}$/.test(item))
+    .map((mnemonic) => mnemonic.toLowerCase())
 }
 
 function controlFlowMetrics(value: unknown): SimilarInstructionFunction['controlFlowMetrics'] {
@@ -95,19 +96,21 @@ export async function GET(request: Request, { params }: RouteParams) {
       return NextResponse.json({ error: 'Similar-function matches are unavailable for this analysis run' }, { status: 404, headers: MAX_NO_STORE })
     }
 
-    const nativeSources = providerId === 'reamon-ghidra' || providerId === 'reamon-kuna'
+    const isNativeProvider = providerId === 'reamon-ghidra' || providerId === 'reamon-kuna'
+    const isDexProvider = providerId === 'reamon-jadx' || providerId === 'reamon-dex-decompiler'
+    const relatedSources = isNativeProvider
       ? ['reamon-ghidra', 'reamon-kuna']
-      : [providerId]
+      : isDexProvider ? ['reamon-jadx', 'reamon-dex-decompiler'] : [providerId]
     const observationWhere = {
       projectId,
       type: providerId === 'reamon-jadx' || providerId === 'reamon-ilspy' || providerId === 'reamon-dex-decompiler' || providerId === 'reamon-unluac-rs' ? 'function' : 'code_unit',
-      source: { in: nativeSources },
+      source: { in: relatedSources },
       artifact: { is: selection.artifactWhere },
       task: { is: {
         projectId,
         status: 'COMPLETED',
         capability: { in: ['decompile', 'disassemble'] },
-        provider: { is: { pluginId: { in: nativeSources } } },
+        provider: { is: { pluginId: { in: relatedSources } } },
       } },
     }
     const focusWhere = { ...observationWhere, source: providerId }
@@ -135,16 +138,22 @@ export async function GET(request: Request, { params }: RouteParams) {
     const target = functionFeatures(focus)
     const sourceObservationRowsTruncated = rows.length > MAX_FUNCTION_OBSERVATIONS
     const uniqueRows = new Map<string, typeof rows[number]>()
-    const compatibleRows = providerId === 'reamon-ghidra' || providerId === 'reamon-kuna'
+    const compatibleRows = isNativeProvider
       ? rows.filter((row) => row.source !== focus.source
         ? nativeArchitectureGroup(focus.attributes) !== null
           && nativeArchitectureGroup(focus.attributes) === nativeArchitectureGroup(row.attributes)
         : providerId === 'reamon-ghidra' ? sameNativeArchitecture(focus, row) : row.artifactId === focus.artifactId)
+      : isDexProvider
+        ? rows.filter((row) => row.source === focus.source || (
+          row.artifactId === focus.artifactId
+          && ['Dalvik', 'Smali'].includes(String(attributesRecord(focus.attributes).instructionLanguage))
+          && ['Dalvik', 'Smali'].includes(String(attributesRecord(row.attributes).instructionLanguage))
+        ))
       : providerId === 'reamon-unluac-rs'
         ? rows.filter((row) => attributesRecord(row.attributes).dialect === attributesRecord(focus.attributes).dialect)
         : rows
     for (const row of compatibleRows.slice(0, MAX_FUNCTION_OBSERVATIONS)) {
-      if ((providerId === 'reamon-ghidra' || providerId === 'reamon-kuna') && row.source !== focus.source) {
+      if (isNativeProvider && row.source !== focus.source) {
         const focusIdentity = attributesRecord(focus.attributes).identity
         if (typeof focusIdentity === 'string' && focusIdentity
           && focusIdentity === attributesRecord(row.attributes).identity) continue
@@ -168,20 +177,24 @@ export async function GET(request: Request, { params }: RouteParams) {
         controlFlowSimilarity: match.controlFlowSimilarity,
       }] : []
     })
-    const functionParentKeys = providerId === 'reamon-dex-decompiler' || providerId === 'reamon-unluac-rs'
+    const functionParentSources = [...new Set(rankedRows.flatMap(({ row }) =>
+      row.source === 'reamon-dex-decompiler' || row.source === 'reamon-unluac-rs'
+        || (isDexProvider && row.source !== focus.source) ? [row.source] : []
+    ))]
+    const functionParentKeys = functionParentSources.length
       ? [...new Set(rankedRows.flatMap(({ row }) => {
         const key = attributesRecord(row.attributes).parentCodeUnitKey
         return typeof key === 'string' && key ? [key] : []
       }))]
       : []
-    const functionParentTaskIds = providerId === 'reamon-dex-decompiler' || providerId === 'reamon-unluac-rs'
+    const functionParentTaskIds = functionParentSources.length
       ? [...new Set(rankedRows.map(({ row }) => row.taskId).filter((value): value is string => Boolean(value)))]
       : []
     const functionParentRows = functionParentKeys.length && functionParentTaskIds.length
       ? await prisma.reamonObservation.findMany({
         where: {
           projectId,
-          source: providerId,
+          source: { in: functionParentSources },
           type: 'code_unit',
           taskId: { in: functionParentTaskIds },
           stableKey: { in: functionParentKeys },
@@ -203,7 +216,9 @@ export async function GET(request: Request, { params }: RouteParams) {
           ? attributesRecord(row.attributes).decompiler as string
           : row.source,
       }
-      if (providerId === 'reamon-dex-decompiler' || providerId === 'reamon-unluac-rs') {
+      const needsParent = row.source === 'reamon-dex-decompiler' || row.source === 'reamon-unluac-rs'
+        || (isDexProvider && row.source !== focus.source)
+      if (needsParent) {
         const attributes = attributesRecord(row.attributes)
         const parentKey = typeof attributes.parentCodeUnitKey === 'string' ? attributes.parentCodeUnitKey : ''
         const parentRow = functionParentsByKey.get(`${row.taskId}:${parentKey}`)
