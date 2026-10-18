@@ -6,6 +6,7 @@ import type { ToolExecutionInput, ToolObservation, ToolPlugin, ToolPluginManifes
 import { readAnalyzerResponse } from './analyzer-response'
 import { executePycdc, pycdcManifest } from './pycdc'
 import { resolveDerivedArtifactPath } from './derived-storage'
+import prisma from '@/lib/prisma'
 
 const MAX_MODULES_TO_DECOMPILE = 4
 const MAX_REQUEST_TIMEOUT_MS = 22 * 60_000
@@ -96,6 +97,10 @@ function moduleSourcePath(artifactRelativePath: string | undefined, artifactId: 
   return `${(artifactRelativePath || artifactId).slice(0, 700)}!/modules/${moduleIdentity.slice(0, 16)}-${path.posix.basename(archivePath).slice(0, 240)}`
 }
 
+function moduleCodeUnitKey(artifactId: string, relativePath: string): string {
+  return `pycdc:module:${createHash('sha256').update(`${artifactId}:${relativePath}`).digest('hex').slice(0, 32)}`
+}
+
 async function persistBytecode(relativePath: string, artifactPath: string, bytecode: Buffer, sha256: string): Promise<void> {
   await mkdir(path.dirname(artifactPath), { recursive: true })
   try {
@@ -119,7 +124,7 @@ function extractedModuleObservation(
   extractorRevision: string,
 ): ToolObservation {
   const moduleName = path.posix.basename(module.archivePath).replace(/\.pyc$/i, '').slice(0, 500)
-  const codeUnitKey = `pycdc:module:${createHash('sha256').update(`${input.artifactId}:${relativePath}`).digest('hex').slice(0, 32)}`
+  const codeUnitKey = moduleCodeUnitKey(input.artifactId || '', relativePath)
   return {
     kind: 'entity',
     type: 'code_unit',
@@ -194,15 +199,37 @@ export async function executePyInstaller(input: ToolExecutionInput): Promise<Too
     }
     if (!isResponse(payload)) throw new Error('PyInstaller analyzer returned an invalid bounded module list')
 
+    const executableSha256 = await sha256File(input.artifactPath)
     const orderedModules = [...payload.modules].sort((left, right) => {
       const leftNested = left.archivePath.includes('/') ? 1 : 0
       const rightNested = right.archivePath.includes('/') ? 1 : 0
       return leftNested - rightNested || left.archivePath.localeCompare(right.archivePath)
     })
-    const selectedModules = orderedModules.slice(0, MAX_MODULES_TO_DECOMPILE)
+    const priorDecompiled = await prisma.reamonObservation.findMany({
+      where: {
+        projectId: input.projectId,
+        artifactId: input.artifactId,
+        source: pyinstallerManifest.id,
+        type: 'code_unit',
+        AND: [
+          { attributes: { path: ['decompiled'], equals: true } },
+          { attributes: { path: ['sourceExecutableSha256'], equals: executableSha256 } },
+        ],
+      },
+      select: { stableKey: true },
+      take: 10_000,
+    })
+    const decompiledKeys = new Set(priorDecompiled.map((row) => row.stableKey))
+    const modulesNeedingSource = orderedModules.filter((module) => {
+      const logicalPath = safeArchivePath(module.archivePath)
+      if (!logicalPath) return true
+      const moduleIdentity = createHash('sha256').update(`${logicalPath}\0${module.sha256}`).digest('hex')
+      const relativePath = moduleSourcePath(input.artifactRelativePath, input.artifactId!, logicalPath, moduleIdentity)
+      return !decompiledKeys.has(moduleCodeUnitKey(input.artifactId!, relativePath))
+    })
+    const selectedModules = modulesNeedingSource.slice(0, MAX_MODULES_TO_DECOMPILE)
     const observations: ToolObservation[] = []
     const warnings: string[] = []
-    const executableSha256 = await sha256File(input.artifactPath)
     let codeBytes = 0
     let decompiledCount = 0
 
@@ -228,7 +255,8 @@ export async function executePyInstaller(input: ToolExecutionInput): Promise<Too
       try {
         await persistBytecode(relativeBytecodePath, bytecodePath, bytecode, module.sha256)
         modulePaths.set(moduleIdentity, { relativePath: sourceRelativePath, bytecodeArtifactId: relativeBytecodePath, moduleIdentity, bytecodePath })
-        if (!selectedModules.includes(module)) {
+        const alreadyDecompiled = decompiledKeys.has(moduleCodeUnitKey(input.artifactId!, sourceRelativePath))
+        if (!selectedModules.includes(module) && !alreadyDecompiled) {
           observations.push(extractedModuleObservation(input, { ...module, archivePath: logicalArchivePath }, sourceRelativePath, relativeBytecodePath, moduleIdentity, executableSha256, payload.extractorRevision))
         }
       } catch (error) {
@@ -312,9 +340,10 @@ export async function executePyInstaller(input: ToolExecutionInput): Promise<Too
       await input.reportProgress?.(`Recovered ${decompiledCount} Python module(s) from the PyInstaller bundle`)
     }
 
-    const truncated = payload.truncated || payload.moduleCount > selectedModules.length
-    if (truncated) warnings.unshift(`Decompiled ${selectedModules.length} module(s) from ${payload.moduleCount} extracted module(s); the bundle output is capped per run.`)
-    if (!observations.length) throw new Error(warnings[0] || 'No extracted Python modules could be stored')
+    const truncated = payload.truncated || modulesNeedingSource.length > selectedModules.length
+    if (truncated) warnings.unshift(`Decompiled up to ${selectedModules.length} new module(s) from ${payload.moduleCount} extracted module(s); previously decompiled modules were skipped and each run is capped.`)
+    if (!observations.length && modulePaths.size === 0) throw new Error(warnings[0] || 'No extracted Python modules could be stored')
+    if (!observations.length) warnings.unshift('All bounded extracted modules already have hash-matched recovered source in this project.')
     return {
       status: 'completed',
       ...base,
