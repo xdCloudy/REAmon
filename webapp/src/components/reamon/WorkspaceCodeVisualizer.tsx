@@ -663,6 +663,7 @@ function DenseFunctionMap({ cells, onSelect }: {
   const mapId = useId()
   const [layout, setLayout] = useState<{ width: number; height: number; cellSize: number; gap: number; columns: number; dpr: number } | null>(null)
   const [activeIndex, setActiveIndex] = useState(0)
+  const [hasFocus, setHasFocus] = useState(false)
   const [themeRevision, setThemeRevision] = useState(0)
 
   useEffect(() => {
@@ -733,8 +734,13 @@ function DenseFunctionMap({ cells, onSelect }: {
         context.lineWidth = 2
         context.strokeRect(x - 1, y - 1, layout.cellSize + 2, layout.cellSize + 2)
       }
+      if (hasFocus && index === activeIndex) {
+        context.strokeStyle = colors.drafted
+        context.lineWidth = 2
+        context.strokeRect(x - 2, y - 2, layout.cellSize + 4, layout.cellSize + 4)
+      }
     })
-  }, [cells, layout, themeRevision])
+  }, [activeIndex, cells, hasFocus, layout, themeRevision])
 
   const activeCell = cells[activeIndex]
   const activeRow = layout ? Math.floor(activeIndex / layout.columns) + 1 : 1
@@ -790,6 +796,8 @@ function DenseFunctionMap({ cells, onSelect }: {
       aria-rowcount={layout ? Math.ceil(cells.length / layout.columns) : undefined}
       aria-colcount={layout?.columns}
       aria-activedescendant={activeCell ? activeCellId : undefined}
+      onFocus={() => setHasFocus(true)}
+      onBlur={() => setHasFocus(false)}
       onPointerMove={(event) => {
         const index = cellAtPointer(event)
         event.currentTarget.title = index >= 0
