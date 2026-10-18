@@ -339,7 +339,8 @@ def analyze(body: dict[str, object]) -> dict[str, object]:
                                     "preprocessorSemantics": "Static bytecode-pattern cleanup; target application code was not executed.",
                                 })
                     else:
-                        warnings.append("Allatori flow cleanup changed bytecode, but Vineflower produced no alternate source units.")
+                        transform_warning = "Allatori flow cleanup changed bytecode, but no alternate source units fit the configured output limits."
+                        warnings.append(transform_warning)
                 elif transform_warning:
                     warnings.append(transform_warning[:4000])
             except Exception as error:  # Optional alternate path must not discard baseline source.
