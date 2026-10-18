@@ -20,6 +20,15 @@ export interface WorkspaceAnalysisPlanStep {
   capability: string
   provider: CapabilityMatch
   reason: string
+  previousRunCount?: number
+  latestTask?: {
+    id: string
+    status: string
+    progress: number
+    progressMessage: string
+    error: string
+    updatedAt: string
+  } | null
 }
 
 export interface WorkspaceAnalysisPlan {
@@ -33,6 +42,16 @@ export interface WorkspaceAnalysisPlan {
   steps: WorkspaceAnalysisPlanStep[]
   hasMoreArtifacts: boolean
   hasMoreSteps: boolean
+  clearedProposalIds?: string[]
+  lastProjectScan?: {
+    scannedAt: string
+    artifactsScanned: number
+    proposalCount: number
+    previousTasks: number
+    findings: number
+    hypotheses: number
+    evidence: number
+  } | null
 }
 
 const MAX_PROPOSED_STEPS = 500

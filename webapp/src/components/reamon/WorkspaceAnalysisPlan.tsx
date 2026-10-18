@@ -1,53 +1,118 @@
 'use client'
 
 import { useState } from 'react'
-import { ClipboardList } from 'lucide-react'
+import { ClipboardList, ScanSearch } from 'lucide-react'
+import type { WorkspaceAnalysisPlan as AnalysisPlan, WorkspaceAnalysisPlanStep } from '@/lib/reamon/analysis-plan'
 import type { CapabilityMatch, TargetProfile } from '@/lib/reamon'
 import styles from './WorkspaceAnalysisPlan.module.css'
 
-export interface WorkspaceAnalysisPlan {
-  candidateArtifacts: number
-  returnedArtifacts: number
-  proposedSteps: number
-  steps: Array<{
-    id: string
-    status: 'PROPOSED'
-    artifactId: string
-    relativePath: string
-    profile: TargetProfile
-    capability: string
-    provider: CapabilityMatch
-    reason: string
-  }>
-  hasMoreArtifacts: boolean
-  hasMoreSteps: boolean
+export interface WorkspaceAnalysisPlan extends AnalysisPlan {
+  steps: Array<WorkspaceAnalysisPlanStep & { profile: TargetProfile; provider: CapabilityMatch }>
 }
 
-export function WorkspaceAnalysisPlanPanel({ projectId, plan, isLoading, isError, onScheduled }: {
+function createRunAttemptId(): string {
+  const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16))
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')
+}
+
+function taskLabel(step: WorkspaceAnalysisPlanStep): string {
+  const task = step.latestTask
+  if (!task) return 'PROPOSED'
+  if (task.status === 'RUNNING') return `RUNNING · ${task.progressMessage || 'Starting analysis'}`
+  if (task.status === 'QUEUED') return 'QUEUED'
+  if (task.status === 'AWAITING_APPROVAL') return 'PENDING · choose Run to queue'
+  return task.status
+}
+
+export function WorkspaceAnalysisPlanPanel({ projectId, plan, isLoading, isError, onScheduled, onScanned }: {
   projectId: string
   plan: WorkspaceAnalysisPlan | undefined
   isLoading: boolean
   isError: boolean
   onScheduled?: () => void
+  onScanned?: () => void
 }) {
   const [pendingId, setPendingId] = useState<string | null>(null)
   const [feedback, setFeedback] = useState<string | null>(null)
+  const [visibleCount, setVisibleCount] = useState(8)
 
-  async function schedule(step: WorkspaceAnalysisPlan['steps'][number]) {
-    setPendingId(step.id)
+  async function scanProject() {
+    setPendingId('scan')
+    setFeedback(null)
+    try {
+      const response = await fetch(`/api/projects/${projectId}/workspace/analysis-plan/scan`, { method: 'POST' })
+      const payload = await response.json().catch(() => ({})) as {
+        error?: string
+        artifactsScanned?: number
+        proposalCount?: number
+        previousTasks?: number
+        findings?: number
+        hypotheses?: number
+        evidence?: number
+      }
+      if (!response.ok) throw new Error(payload.error || 'Unable to scan project context')
+      setFeedback(`Scanned ${payload.artifactsScanned || 0} files and rebuilt ${payload.proposalCount || 0} proposals using ${payload.previousTasks || 0} prior task results, ${payload.findings || 0} findings, ${payload.hypotheses || 0} hypotheses, and ${payload.evidence || 0} evidence records.`)
+      onScanned?.()
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : 'Unable to scan project context')
+    } finally {
+      setPendingId(null)
+    }
+  }
+
+  async function run(step: WorkspaceAnalysisPlanStep) {
+    setPendingId(`run:${step.id}`)
     setFeedback(null)
     try {
       const response = await fetch(`/api/projects/${projectId}/workspace/analysis-plan/schedule`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ artifactId: step.artifactId, providerId: step.provider.pluginId, capability: step.capability, approvalRequired: true }),
+        body: JSON.stringify({
+          artifactId: step.artifactId,
+          providerId: step.provider.pluginId,
+          capability: step.capability,
+          approvalRequired: false,
+          runAttemptId: createRunAttemptId(),
+        }),
       })
-      const payload = await response.json().catch(() => ({})) as { error?: string; reused?: boolean; task?: { status?: string } }
-      if (!response.ok) throw new Error(payload.error || 'Unable to queue analysis task')
-      setFeedback(payload.reused ? 'This proposal is already queued or awaiting approval.' : `${step.capability} is awaiting operator approval for ${step.relativePath}. Approve it under Tasks and findings, then choose Run.`)
+      const payload = await response.json().catch(() => ({})) as { error?: string; task?: { status?: string } }
+      if (!response.ok) throw new Error(payload.error || 'Unable to run analysis task')
+      const status = payload.task?.status
+      setFeedback(status === 'RUNNING'
+        ? `${step.capability} is running for ${step.relativePath}.`
+        : status === 'QUEUED'
+          ? `${step.capability} is queued for ${step.relativePath}.`
+          : status === 'COMPLETED'
+            ? `The latest ${step.capability} run for ${step.relativePath} is complete.`
+            : `${step.capability} was added to the project task list.`)
       onScheduled?.()
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : 'Unable to queue analysis task')
+      setFeedback(error instanceof Error ? error.message : 'Unable to run analysis task')
+    } finally {
+      setPendingId(null)
+    }
+  }
+
+  async function clear(step: WorkspaceAnalysisPlanStep) {
+    setPendingId(`clear:${step.id}`)
+    setFeedback(null)
+    try {
+      const response = await fetch(`/api/projects/${projectId}/workspace/analysis-plan/clear`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          proposalId: step.id,
+          artifactId: step.artifactId,
+          providerId: step.provider.pluginId,
+          capability: step.capability,
+        }),
+      })
+      const payload = await response.json().catch(() => ({})) as { error?: string }
+      if (!response.ok) throw new Error(payload.error || 'Unable to clear proposal')
+      setFeedback(`${step.capability} for ${step.relativePath} was cleared. Scan the project to restore it.`)
+      onScheduled?.()
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : 'Unable to clear proposal')
     } finally {
       setPendingId(null)
     }
@@ -58,33 +123,44 @@ export function WorkspaceAnalysisPlanPanel({ projectId, plan, isLoading, isError
       <div className={styles.header}>
         <div>
           <h2 id="analysis-plan-heading"><ClipboardList size={17} /> Analysis proposals</h2>
-          <p>Deterministic provider matches from the active inventory. Each proposal requests operator approval before execution.</p>
+          <p>Run any compatible analysis directly. Scan the project to rebuild this list from workspace files and saved analysis results.</p>
         </div>
-        {plan && <span className={styles.badge}>QUEUEABLE</span>}
+        <button type="button" className={styles.scanButton} disabled={pendingId !== null} onClick={() => void scanProject()}>
+          <ScanSearch size={15} />{pendingId === 'scan' ? 'Scanning…' : 'Scan project'}
+        </button>
       </div>
       {isLoading && <p className={styles.muted}>Preparing compatible analysis proposals…</p>}
       {isError && <p className={styles.error}>Analysis proposals are temporarily unavailable.</p>}
-      {feedback && <p className={styles.feedback} role="status">{feedback} {feedback.includes('awaiting approval') && <a href="#analysis-tasks">Go to task controls</a>}</p>}
-      {!isLoading && !isError && plan && !plan.proposedSteps && <p className={styles.muted}>No compatible provider capabilities were found in the current inventory page.</p>}
+      {feedback && <p className={styles.feedback} role="status">{feedback}</p>}
+      {plan?.lastProjectScan && <p className={styles.scanSummary}>
+        Last scan: {new Date(plan.lastProjectScan.scannedAt).toLocaleString()} · {plan.lastProjectScan.artifactsScanned.toLocaleString()} files · {plan.lastProjectScan.previousTasks.toLocaleString()} prior tasks · {plan.lastProjectScan.findings.toLocaleString()} findings · {plan.lastProjectScan.evidence.toLocaleString()} evidence records.
+      </p>}
+      {!isLoading && !isError && plan && !plan.proposedSteps && <p className={styles.muted}>No compatible proposals are visible. Scan the project to restore cleared proposals and check for new capabilities.</p>}
       {!isLoading && !isError && plan && plan.proposedSteps > 0 && <>
         <p className={styles.summary}>
           {plan.proposedSteps.toLocaleString()} proposal{plan.proposedSteps === 1 ? '' : 's'} from {plan.candidateArtifacts.toLocaleString()} matching artifact{plan.candidateArtifacts === 1 ? '' : 's'}.
           {(plan.hasMoreArtifacts || plan.hasMoreSteps) && ' More candidates are available.'}
         </p>
         <div className={styles.list}>
-          {plan.steps.slice(0, 8).map((step) => (
-            <div className={styles.row} key={step.id}>
+          {plan.steps.slice(0, visibleCount).map((step) => {
+            const taskStatus = step.latestTask?.status
+            const isActive = taskStatus === 'QUEUED' || taskStatus === 'RUNNING'
+            const runLabel = pendingId === `run:${step.id}` ? 'Starting…' : isActive ? (taskStatus === 'RUNNING' ? 'Running' : 'Queued') : step.previousRunCount ? 'Run again' : 'Run'
+            return <div className={styles.row} key={step.id}>
               <span className={styles.path} title={step.relativePath}>{step.relativePath}</span>
               <span className={styles.provider}>{step.provider.pluginName}</span>
               <span className={styles.capability}>{step.capability}</span>
-              <span className={styles.status}>{step.status}</span>
-              <button type="button" className={styles.queueButton} disabled={pendingId !== null} onClick={() => void schedule(step)}>
-                {pendingId === step.id ? 'Requesting…' : 'Request approval'}
-              </button>
+              <span className={styles.status} title={step.latestTask?.error || undefined}>{taskLabel(step)}</span>
+              {step.previousRunCount ? <span className={styles.history}>{step.previousRunCount} prior run{step.previousRunCount === 1 ? '' : 's'}</span> : <span className={styles.history} />}
+              <span className={styles.actions}>
+                <button type="button" className={styles.queueButton} disabled={pendingId !== null || isActive} onClick={() => void run(step)}>{runLabel}</button>
+                <button type="button" className={styles.clearButton} disabled={pendingId !== null} onClick={() => void clear(step)}>Clear</button>
+              </span>
             </div>
-          ))}
+          })}
         </div>
-        {plan.proposedSteps > 8 && <p className={styles.muted}>Showing the first 8 proposals. Use the inventory filters for a narrower plan.</p>}
+        {visibleCount < plan.steps.length && <button type="button" className={styles.moreButton} onClick={() => setVisibleCount((count) => Math.min(count + 8, plan.steps.length))}>Show {Math.min(8, plan.steps.length - visibleCount)} more proposals</button>}
+        {plan.hasMoreSteps && visibleCount >= plan.steps.length && <p className={styles.muted}>There are more proposals than this page displays. Narrow the workspace inventory and scan again to view a subset.</p>}
       </>}
     </section>
   )

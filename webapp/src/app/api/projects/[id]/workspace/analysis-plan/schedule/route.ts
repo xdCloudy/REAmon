@@ -158,6 +158,30 @@ export async function POST(request: Request, { params }: RouteParams) {
         select: taskSelect,
       })
       if (activeTask) {
+        if (activeTask.status === 'AWAITING_APPROVAL' && !requiresApproval) {
+          const queued = await prisma.$transaction(async (tx) => {
+            const updated = await tx.task.updateMany({
+              where: { id: activeTask.id, projectId, status: 'AWAITING_APPROVAL' },
+              data: { status: 'QUEUED', progressMessage: 'Queued by operator' },
+            })
+            if (updated.count !== 1) return tx.task.findUnique({ where: { id: activeTask.id }, select: taskSelect })
+            await tx.reamonApproval.updateMany({
+              where: { taskId: activeTask.id, status: 'PENDING' },
+              data: { status: 'APPROVED', decidedBy: effectiveUser.userId, decidedAt: new Date(), reason: 'Operator chose Run from analysis proposals' },
+            })
+            await tx.workspaceActivity.create({
+              data: {
+                projectId,
+                actor: 'Operator',
+                eventType: 'analysis.task.queued',
+                message: `Queued ${capability} for ${artifact.relativePath} from analysis proposals`,
+                data: { taskId: activeTask.id, artifactId: artifact.id, providerId: provider.pluginId, capability, approvalPromotedByRun: true },
+              },
+            })
+            return tx.task.findUnique({ where: { id: activeTask.id }, select: taskSelect })
+          })
+          if (queued) return NextResponse.json({ scheduled: true, reused: true, task: serialiseTask(queued) }, { headers: NO_STORE })
+        }
         return NextResponse.json({ scheduled: false, reused: true, task: serialiseTask(activeTask) }, { headers: NO_STORE })
       }
     }

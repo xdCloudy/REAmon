@@ -178,7 +178,12 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
     },
     refetchIntervalInBackground: false,
   })
-  const analysisPlan = useQuery({ queryKey: ['reamon-analysis-plan', projectId], queryFn: () => fetchAnalysisPlan(projectId) })
+  const analysisPlan = useQuery({
+    queryKey: ['reamon-analysis-plan', projectId],
+    queryFn: () => fetchAnalysisPlan(projectId),
+    refetchInterval: (query) => query.state.data?.steps.some((step) => ['AWAITING_APPROVAL', 'QUEUED', 'RUNNING'].includes(step.latestTask?.status || '')) ? 3000 : false,
+    refetchIntervalInBackground: false,
+  })
 
   const data = workspace.data
   const rootTarget = useMemo(() => data?.targets.find((target) => target.targetType === 'DIRECTORY'), [data?.targets])
@@ -243,6 +248,10 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
       <WorkspaceAnalysisPlanPanel projectId={projectId} plan={analysisPlan.data} isLoading={analysisPlan.isLoading} isError={analysisPlan.isError} onScheduled={() => {
         void queryClient.invalidateQueries({ queryKey: ['reamon-workspace', projectId] })
         void queryClient.invalidateQueries({ queryKey: ['reamon-code-units', projectId] })
+        void queryClient.invalidateQueries({ queryKey: ['reamon-analysis-plan', projectId] })
+      }} onScanned={() => {
+        void queryClient.invalidateQueries({ queryKey: ['reamon-workspace', projectId] })
+        void queryClient.invalidateQueries({ queryKey: ['reamon-analysis-plan', projectId] })
       }} />
       <WorkspaceCodeVisualizer
         projectId={projectId}
