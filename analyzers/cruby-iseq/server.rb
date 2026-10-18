@@ -40,6 +40,8 @@ def read_request(socket)
     headers[key.to_s.downcase] = value.to_s.strip
   end
   length = Integer(headers.fetch("content-length", "0"))
+  return [method, path, nil] if method == "GET" && length.zero?
+
   raise ArgumentError, "Request body size is invalid" unless length.between?(1, MAX_REQUEST)
   body = socket.read(length)
   raise ArgumentError, "Request body is incomplete" unless body&.bytesize == length
