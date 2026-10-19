@@ -1,3 +1,5 @@
+import { nativeArchitectureGroup } from './native-function-identity'
+
 const MAX_SIGNATURE = 800
 const MIN_FUNCTION_LENGTH = 4
 const MAX_ORDERED_CANDIDATES = 150
@@ -20,6 +22,47 @@ export interface RankedSimilarInstructionFunction extends SimilarInstructionFunc
   similarity: number
   instructionSimilarity: number
   controlFlowSimilarity: number | null
+}
+
+export interface InstructionSequenceIdentity {
+  providerId: string
+  artifactId: string | null
+  attributes: unknown
+}
+
+/** Match only instruction sequences with a shared, explicit execution vocabulary. */
+export function instructionSequenceFamily(input: InstructionSequenceIdentity): string | null {
+  const attributes = input.attributes && typeof input.attributes === 'object' && !Array.isArray(input.attributes)
+    ? input.attributes as Record<string, unknown>
+    : {}
+  const nativeArchitecture = nativeArchitectureGroup(attributes)
+  if (nativeArchitecture) return `native:${nativeArchitecture}`
+
+  const language = [attributes.instructionLanguage, attributes.disassemblyLanguage, attributes.dialect]
+    .find((value): value is string => typeof value === 'string' && value.trim().length > 0)
+  if (language) {
+    const normalized = language.toLowerCase().replace(/[^a-z0-9]+/g, '')
+    if (['asm', 'assembly', 'disassembly', 'machinecode', 'bytecode'].includes(normalized)) {
+      return input.providerId && input.artifactId
+        ? `provider-artifact:${input.providerId}:${input.artifactId}`
+        : null
+    }
+    if (normalized === 'dalvik' || normalized === 'smali') return 'bytecode:dex'
+    if (normalized === 'il' || normalized === 'cil' || normalized === 'msil' || normalized === 'ecma335') return 'bytecode:dotnet-il'
+    if (normalized === 'wat' || normalized === 'wasm' || normalized.includes('webassembly')) return 'bytecode:wasm'
+    if (normalized === 'luajit') return 'bytecode:luajit'
+    if (/^lua5[1-5]$/.test(normalized)) return `bytecode:${normalized}`
+    return `bytecode:${normalized}`
+  }
+
+  return input.providerId && input.artifactId
+    ? `provider-artifact:${input.providerId}:${input.artifactId}`
+    : null
+}
+
+export function instructionSequencesAreCompatible(left: InstructionSequenceIdentity, right: InstructionSequenceIdentity): boolean {
+  const family = instructionSequenceFamily(left)
+  return family !== null && family === instructionSequenceFamily(right)
 }
 
 function cosineSimilarity(left: string[], right: string[]): number {

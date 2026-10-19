@@ -147,6 +147,7 @@ interface CallGraphResponse {
 interface SimilarFunctionsResponse {
   matches: Array<{ codeUnit: CodeUnit; taskId?: string | null; function?: { id: string; taskId?: string; name: string; address: string | null; hasControlFlowGraph: boolean }; similarity: number; instructionSimilarity: number; controlFlowSimilarity: number | null; artifact: { name: string; sha256: string | null; provider: string } }>
   truncated: boolean
+  unavailableReason?: string
 }
 
 interface AlternateDecompilerOutput {
@@ -1284,12 +1285,11 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
     ? selectedFunctionMapMember.id
     : ''
   const selectedSimilarityTarget = selectedFunctionMapTarget || (selectedUnit?.unitType === 'function' ? selectedUnit.id : '')
+  const selectedSimilarityTaskId = selectedFunctionMapTarget ? selectedFunctionMapMember?.taskId || currentRunId : currentRunId
   const similarFunctionsQuery = useQuery({
-    queryKey: ['reamon-similar-functions', projectId, currentRunId, selectedSimilarityTarget],
-    queryFn: ({ signal }) => fetchSimilarFunctions(projectId, currentRunId as string, selectedSimilarityTarget, signal),
-    enabled: Boolean(currentRunId && selectedSimilarityTarget
-      && (currentRun?.providerId === 'reamon-ghidra' || currentRun?.providerId === 'reamon-wabt' || currentRun?.providerId === 'reamon-jadx' || currentRun?.providerId === 'reamon-ilspy' || currentRun?.providerId === 'reamon-dex-decompiler' || currentRun?.providerId === 'reamon-unluac-rs')
-      && selectedUnit?.source === currentRun?.providerId),
+    queryKey: ['reamon-similar-functions', projectId, selectedSimilarityTaskId, selectedSimilarityTarget],
+    queryFn: ({ signal }) => fetchSimilarFunctions(projectId, selectedSimilarityTaskId as string, selectedSimilarityTarget, signal),
+    enabled: Boolean(currentRunId && selectedSimilarityTarget && selectedUnit?.source === currentRun?.providerId),
     staleTime: 5 * 60_000,
     gcTime: 60_000,
   })
@@ -3128,12 +3128,11 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
             setExplainError('')
           }}
         />}
-        {(currentRun?.providerId === 'reamon-ghidra' || currentRun?.providerId === 'reamon-kuna' || currentRun?.providerId === 'reamon-wabt' || currentRun?.providerId === 'reamon-jadx' || currentRun?.providerId === 'reamon-ilspy' || currentRun?.providerId === 'reamon-dex-decompiler' || currentRun?.providerId === 'reamon-unluac-rs')
-          && selectedUnit?.source === currentRun.providerId && Boolean(selectedSimilarityTarget) && <section className={styles.similarFunctions} aria-labelledby="similar-functions-heading">
-          <div className={styles.similarFunctionsHeading}><h3 id="similar-functions-heading">Similar functions</h3><span>Opcode sequences; control-flow evidence where available</span></div>
+        {selectedUnit?.source === currentRun?.providerId && Boolean(selectedSimilarityTarget) && <section className={styles.similarFunctions} aria-labelledby="similar-functions-heading">
+          <div className={styles.similarFunctionsHeading}><h3 id="similar-functions-heading">Similar functions</h3><span>Instruction sequences; control-flow evidence where available</span></div>
           {similarFunctionsQuery.isLoading && <p className={styles.message}>Comparing this function with stored evidence from completed analyses…</p>}
           {similarFunctionsQuery.isError && <p className={styles.error}>{similarFunctionsQuery.error instanceof Error ? similarFunctionsQuery.error.message : 'Unable to find similar functions'}</p>}
-          {!similarFunctionsQuery.isLoading && !similarFunctionsQuery.isError && similarFunctionsQuery.data?.matches.length === 0 && <p className={styles.message}>No close function matches were found in this project.</p>}
+          {!similarFunctionsQuery.isLoading && !similarFunctionsQuery.isError && similarFunctionsQuery.data?.matches.length === 0 && <p className={styles.message}>{similarFunctionsQuery.data.unavailableReason || 'No close function matches were found in this project.'}</p>}
           {similarFunctionsQuery.data?.matches.map(({ codeUnit, taskId: matchTaskId, function: matchedFunction, similarity, instructionSimilarity, controlFlowSimilarity, artifact }) => <button type="button" className={styles.similarFunction} key={matchedFunction?.id || codeUnit.id} onClick={() => {
             if (matchTaskId) setSelectedRunId(matchTaskId)
             setGraphUnit(codeUnit)
