@@ -555,14 +555,23 @@ export async function POST(request: Request, { params }: RouteParams) {
           : ''
       }
 
-      const scannedSymbolRows = await prisma.reamonMaintainedSource.findMany({
-        where: { projectId },
-        select: { codeUnitId: true, artifactId: true, unitName: true, language: true, sourceHash: true, acceptedReviewId: true, symbolIndex: true },
-        orderBy: { updatedAt: 'desc' },
-        take: MAX_PROJECT_SYMBOL_SCAN + 1,
-      })
-      const projectSymbolScanTruncated = scannedSymbolRows.length > MAX_PROJECT_SYMBOL_SCAN
-      const symbolRows = scannedSymbolRows.slice(0, MAX_PROJECT_SYMBOL_SCAN)
+      const [currentArtifactSymbolRows, otherProjectSymbolRows] = await Promise.all([
+        prisma.reamonMaintainedSource.findMany({
+          where: { projectId, artifactId: artifact.id },
+          select: { codeUnitId: true, artifactId: true, unitName: true, language: true, sourceHash: true, acceptedReviewId: true, symbolIndex: true },
+          orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+          take: MAX_PROJECT_SYMBOL_SCAN + 1,
+        }),
+        prisma.reamonMaintainedSource.findMany({
+          where: { projectId, artifactId: { not: artifact.id } },
+          select: { codeUnitId: true, artifactId: true, unitName: true, language: true, sourceHash: true, acceptedReviewId: true, symbolIndex: true },
+          orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+          take: MAX_PROJECT_SYMBOL_SCAN + 1,
+        }),
+      ])
+      const projectSymbolScanTruncated = currentArtifactSymbolRows.length > MAX_PROJECT_SYMBOL_SCAN
+        || otherProjectSymbolRows.length > MAX_PROJECT_SYMBOL_SCAN
+      const symbolRows = [...currentArtifactSymbolRows.slice(0, MAX_PROJECT_SYMBOL_SCAN), ...otherProjectSymbolRows.slice(0, MAX_PROJECT_SYMBOL_SCAN)]
       const reviewIds = [...new Set(symbolRows.flatMap((row) => row.acceptedReviewId ? [row.acceptedReviewId] : []))]
       const reviews = reviewIds.length ? await prisma.reamonCodeReview.findMany({
         where: { projectId, id: { in: reviewIds }, decision: 'ACCEPTED' },

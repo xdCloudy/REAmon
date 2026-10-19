@@ -1127,12 +1127,20 @@ export async function POST(request: Request, { params }: RouteParams) {
       acceptedReviewId: string | null
       symbolIndex: unknown
     }> = []
+    const currentArtifactSymbolPage = await prisma.reamonMaintainedSource.findMany({
+      where: { projectId, artifactId: artifact.id },
+      select: { codeUnitId: true, artifactId: true, unitName: true, language: true, sourceHash: true, acceptedReviewId: true, symbolIndex: true, id: true },
+      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+      take: MAX_PROJECT_SYMBOL_SCAN + 1,
+    })
+    const currentArtifactSymbolTruncated = currentArtifactSymbolPage.length > MAX_PROJECT_SYMBOL_SCAN
+    const currentArtifactSymbolRows = currentArtifactSymbolPage.slice(0, MAX_PROJECT_SYMBOL_SCAN)
     let symbolCursor: string | undefined
     let projectSymbolScanTruncated = false
     while (projectSymbolRows.length <= MAX_PROJECT_SYMBOL_SCAN) {
       const take = Math.min(MAX_PROJECT_SYMBOL_RECORDS, MAX_PROJECT_SYMBOL_SCAN + 1 - projectSymbolRows.length)
       const page = await prisma.reamonMaintainedSource.findMany({
-        where: { projectId },
+        where: { projectId, artifactId: { not: artifact.id } },
         select: { codeUnitId: true, artifactId: true, unitName: true, language: true, sourceHash: true, acceptedReviewId: true, symbolIndex: true, id: true },
         orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
         ...(symbolCursor ? { cursor: { id: symbolCursor }, skip: 1 } : {}),
@@ -1148,6 +1156,12 @@ export async function POST(request: Request, { params }: RouteParams) {
       symbolCursor = page.at(-1)?.id
       if (page.length < take) break
     }
+    projectSymbolScanTruncated ||= currentArtifactSymbolTruncated
+    const projectSymbolRowsByUnitId = new Map<string, (typeof projectSymbolRows)[number]>()
+    for (const { id: _id, ...row } of currentArtifactSymbolRows) projectSymbolRowsByUnitId.set(row.codeUnitId, row)
+    for (const row of projectSymbolRows) if (!projectSymbolRowsByUnitId.has(row.codeUnitId)) projectSymbolRowsByUnitId.set(row.codeUnitId, row)
+    projectSymbolRows.length = 0
+    projectSymbolRows.push(...projectSymbolRowsByUnitId.values())
     let crossProviderIdentityRows: typeof maintainedRelatedRows = []
     const matchedProviderByUnitId = new Map<string, string>()
     const matchedIdentityEvidenceByUnitId = new Map<string, 'canonical' | 'native_identity' | 'native_address_alias'>()
