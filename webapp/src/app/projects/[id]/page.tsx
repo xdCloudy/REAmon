@@ -120,25 +120,26 @@ function ImportStatus({ latestImport, projectId, onChanged }: { latestImport: Wo
   )
 }
 
-function WorkerHealthAlert({ workers }: { workers: WorkerHealth[] }) {
+function WorkerHealthAlert({ workers, hasPendingTasks }: { workers: WorkerHealth[]; hasPendingTasks: boolean }) {
   const attention = summarizeWorkerAttention(workers)
-  if (!attention) return null
+  if (!attention || ((attention.kind === 'stale' || attention.kind === 'unavailable') && !hasPendingTasks)) return null
 
   const names = attention.workers.slice(0, 3).map((worker) => worker.workerId).join(', ')
   const remainder = attention.workers.length > 3 ? ` and ${attention.workers.length - 3} more` : ''
+  const title = attention.kind === 'degraded' ? 'Analysis worker reported an error' : 'Analysis is waiting for a worker'
   const message = attention.kind === 'degraded'
-    ? `${attention.workers.length} responsive worker${attention.workers.length === 1 ? '' : 's'} reported a failed dispatch. Affected: ${names}${remainder}.`
+    ? `${attention.workers.length} worker${attention.workers.length === 1 ? '' : 's'} reported a failed dispatch. Affected: ${names}${remainder}.`
     : attention.kind === 'stale'
-      ? `No worker has checked in recently. ${attention.workers.length} registered worker${attention.workers.length === 1 ? ' is' : 's are'} stale: ${names}${remainder}.`
-      : 'No worker has reported a heartbeat yet.'
+      ? `No worker has checked in recently. ${attention.workers.length} registered worker${attention.workers.length === 1 ? ' is' : 's are'} stale.`
+      : 'No analysis worker has checked in. Queued tasks will start when a worker is available.'
   const guidance = attention.kind === 'degraded'
-    ? 'Review the worker status details below before retrying failed tasks.'
-    : 'New analysis tasks may wait until a worker checks in.'
+    ? 'Check project diagnostics before retrying failed tasks.'
+    : 'Check that an analysis worker is running.'
   return (
     <aside className={styles.workerAlert} role="alert" aria-labelledby="worker-alert-heading">
       <AlertTriangle size={19} aria-hidden="true" />
       <div>
-        <strong id="worker-alert-heading">Analysis worker attention required</strong>
+        <strong id="worker-alert-heading">{title}</strong>
         <p>{message}</p>
         <small>{guidance}</small>
       </div>
@@ -172,6 +173,17 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
   const rootTarget = useMemo(() => data?.targets.find((target) => target.targetType === 'DIRECTORY'), [data?.targets])
   const latestImport = data?.imports[0]
   const codeAnalysisTask = data?.tasks.find((task) => ['decompile', 'disassemble', 'recover_metadata'].includes(task.capability || ''))
+  const hasPendingTasks = Boolean(data?.tasks.some((task) => task.status === 'QUEUED' || task.status === 'RUNNING' || task.status === 'AWAITING_APPROVAL'))
+  const hasWorkspaceContent = Boolean(data && data.artifactPage.total > 0)
+  const hasAnalysisContext = Boolean(data && (
+    hasWorkspaceContent
+    || data.tasks.length > 0
+    || data.findings.length > 0
+    || data.hypotheses.length > 0
+    || data.evidence.length > 0
+    || data.observations.length > 0
+  ))
+  const hasAnalysisHistory = Boolean(data && (data.tasks.length > 0 || data.findings.length > 0))
 
   if (workspace.isLoading) return <div className={styles.loading}>Loading workspace…</div>
   if (workspace.isError || !data) return <div className={styles.error}>Unable to load this workspace. Check that it still exists.</div>
@@ -183,10 +195,10 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
       </div>
 
       <header className={styles.hero}>
-        <div><p className={styles.eyebrow}>Reverse-engineering workspace</p><h1>{data.workspace.name}</h1><p className={styles.description}>{data.workspace.description || 'Analyse anything. Connect the evidence. Understand the system.'}</p></div>
+        <div><p className={styles.eyebrow}>Reverse-engineering workspace</p><h1>{data.workspace.name}</h1><p className={styles.description}>{data.workspace.description || 'Import source, binaries, or packages. Run compatible analysis and review the recovered code alongside its evidence.'}</p></div>
       </header>
 
-      <WorkerHealthAlert workers={data.workers} />
+      <WorkerHealthAlert workers={data.workers} hasPendingTasks={hasPendingTasks} />
 
       <WorkspaceImportPanel projectId={projectId} onImported={() => {
         void queryClient.invalidateQueries({ queryKey: ['reamon-workspace', projectId] })
@@ -197,32 +209,32 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
         void queryClient.invalidateQueries({ queryKey: ['reamon-workspace', projectId] })
         void queryClient.invalidateQueries({ queryKey: ['reamon-code-units', projectId] })
       }} />
-      <WorkspaceAnalysisPlanPanel projectId={projectId} plan={analysisPlan.data} isLoading={analysisPlan.isLoading} isError={analysisPlan.isError} onScheduled={() => {
+      {hasAnalysisContext && <WorkspaceAnalysisPlanPanel projectId={projectId} plan={analysisPlan.data} isLoading={analysisPlan.isLoading} isError={analysisPlan.isError} onScheduled={() => {
         void queryClient.invalidateQueries({ queryKey: ['reamon-workspace', projectId] })
         void queryClient.invalidateQueries({ queryKey: ['reamon-code-units', projectId] })
         void queryClient.invalidateQueries({ queryKey: ['reamon-analysis-plan', projectId] })
       }} onScanned={() => {
         void queryClient.invalidateQueries({ queryKey: ['reamon-workspace', projectId] })
         void queryClient.invalidateQueries({ queryKey: ['reamon-analysis-plan', projectId] })
-      }} />
-      <WorkspaceCodeVisualizer
+      }} />}
+      {hasAnalysisContext && <WorkspaceCodeVisualizer
         projectId={projectId}
         isAnalyzing={data.tasks.some((task) => task.status === 'RUNNING')}
         analysisTask={codeAnalysisTask ? { status: codeAnalysisTask.status, progressMessage: codeAnalysisTask.progressMessage } : undefined}
         analysisHref="#analysis-proposals"
-      />
+      />}
 
-      <section className={styles.panel} aria-labelledby="files-heading">
-        <div className={styles.panelHeader}><h2 id="files-heading">Project files</h2><span className={styles.muted}>Relative paths are preserved as workspace context</span></div>
+      {hasWorkspaceContent && <section className={styles.panel} aria-labelledby="files-heading">
+        <div className={styles.panelHeader}><h2 id="files-heading">Project files</h2><span className={styles.muted}>{data.artifactPage.total.toLocaleString()} files</span></div>
         <WorkspaceFileTree projectId={projectId} rootName={latestImport?.rootName || data.workspace.name} artifacts={data.artifacts} totalArtifacts={data.artifactPage.total} hasMoreArtifacts={data.artifactPage.hasMore} />
-      </section>
+      </section>}
 
-      <section id="analysis-tasks" className={styles.panel} aria-labelledby="work-heading"><div className={styles.panelHeader}><h2 id="work-heading">Tasks and findings</h2></div>{!data.tasks.length && !data.findings.length ? <p className={styles.muted}>No analysis work has been scheduled.</p> : <>{data.tasks.length > 0 && <WorkspaceTaskList projectId={projectId} tasks={data.tasks} onChanged={() => {
+      {hasAnalysisHistory && <section id="analysis-tasks" className={styles.panel} aria-labelledby="work-heading"><div className={styles.panelHeader}><h2 id="work-heading">Tasks and findings</h2></div>{data.tasks.length > 0 && <WorkspaceTaskList projectId={projectId} tasks={data.tasks} onChanged={() => {
         void queryClient.invalidateQueries({ queryKey: ['reamon-workspace', projectId] })
         void queryClient.invalidateQueries({ queryKey: ['reamon-code-units', projectId] })
       }} />}{data.findings.length > 0 && <WorkspaceFindingList projectId={projectId} findings={data.findings} onChanged={() => {
         void queryClient.invalidateQueries({ queryKey: ['reamon-workspace', projectId] })
-      }} />}</>}</section>
+      }} />}</section>}
 
       <details className={styles.secondaryDetails} onToggle={(event) => setShowDiagnostics(event.currentTarget.open)}>
         <summary>Project data and diagnostics <span>{data.counts.targets} targets · {data.counts.observations} knowledge records · {data.counts.hypotheses} hypotheses</span></summary>
