@@ -1,5 +1,7 @@
 import { normalizeRelativePath } from './paths'
 
+export const WORKSPACE_IMPORT_CHUNK_BYTES = 8 * 1024 * 1024
+
 export type BrowserWorkspaceFile = File & { webkitRelativePath?: string }
 
 export interface WorkspaceSelectionFile {
@@ -86,9 +88,10 @@ export async function runWorkspaceImport(options: {
   concurrency?: number
   signal?: AbortSignal
   onImportReady?: (importId: string) => void
+  onFileFailure?: (failure: { path: string; message: string }) => void
   onProgress?: (progress: ImportProgress) => void
 }): Promise<{ importId: string; failedPaths: string[] }> {
-  const { projectId, selection, onImportReady, onProgress, signal } = options
+  const { projectId, selection, onImportReady, onFileFailure, onProgress, signal } = options
   let importId = options.importId
   const completedPaths = options.completedPaths || new Set<string>()
   const failedPaths: string[] = []
@@ -142,32 +145,58 @@ export async function runWorkspaceImport(options: {
   const hasLargeFile = selection.files.some((entry) => entry.size >= 8 * 1024 * 1024)
   const concurrency = hasLargeFile ? 1 : Math.max(1, Math.min(options.concurrency || 3, 6))
   const uploadOne = async (entry: WorkspaceSelectionFile) => {
+    let confirmedOffset = 0
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
-        throwIfCancelled()
-        const body = new FormData()
-        body.set('file', entry.file)
-        body.set('relativePath', entry.relativePath)
-        const response = await fetch(`/api/projects/${projectId}/imports/${activeImportId}/artifacts`, { method: 'POST', body, signal })
-        const data = await response.json()
-        if (!response.ok) {
-          const message = data.error || `Upload failed for ${entry.relativePath}`
-          if (response.status >= 400 && response.status < 500 && response.status !== 408 && response.status !== 429) {
-            failedPaths.push(entry.relativePath)
-            emit('FAILED', entry.relativePath)
-            return
+        while (confirmedOffset < entry.size) {
+          throwIfCancelled()
+          const end = Math.min(confirmedOffset + WORKSPACE_IMPORT_CHUNK_BYTES, entry.size)
+          const chunk = entry.file.slice(confirmedOffset, end)
+          const url = new URL(`/api/projects/${projectId}/imports/${activeImportId}/artifacts/chunks`, window.location.origin)
+          url.searchParams.set('relativePath', entry.relativePath)
+          const response = await fetch(url, {
+            method: 'PUT',
+            headers: {
+              'X-REAmon-Upload-Offset': String(confirmedOffset),
+              'X-REAmon-Upload-Size': String(entry.size),
+            },
+            body: chunk,
+            signal,
+          })
+          const data = await response.json()
+          if (!response.ok) {
+            const message = data.error || `Upload failed for ${entry.relativePath}`
+            if (response.status >= 400 && response.status < 500 && response.status !== 408 && response.status !== 429) {
+              failedPaths.push(entry.relativePath)
+              onFileFailure?.({ path: entry.relativePath, message: String(message).slice(0, 500) })
+              emit('FAILED', entry.relativePath)
+              return
+            }
+            throw new Error(message)
           }
-          throw new Error(message)
+          confirmedOffset += chunk.size
+          uploadedBytes += chunk.size
+          emit('UPLOADING', entry.relativePath)
         }
+
+        throwIfCancelled()
+        const response = await fetch(`/api/projects/${projectId}/imports/${activeImportId}/artifacts/complete`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ relativePath: entry.relativePath, mimeType: entry.file.type }),
+          signal,
+        })
+        const data = await response.json()
+        if (!response.ok) throw new Error(data.error || `Could not finalize ${entry.relativePath}`)
         completedPaths.add(entry.relativePath)
         completedFiles += 1
-        uploadedBytes += entry.size
         emit('UPLOADING', entry.relativePath)
         return
       } catch (error) {
         if (signal?.aborted || error instanceof WorkspaceImportCancelledError) throw new WorkspaceImportCancelledError(activeImportId)
         if (attempt === 1) {
           failedPaths.push(entry.relativePath)
+          onFileFailure?.({ path: entry.relativePath, message: error instanceof Error ? error.message.slice(0, 500) : 'Upload failed after retry' })
           emit('FAILED', entry.relativePath)
           return
         }

@@ -166,7 +166,7 @@ export async function getWorkspaceSnapshot(projectId: string) {
       importId: artifact.importId,
       relativePath: artifact.relativePath || artifact.originalName,
       parentPath: artifact.parentPath,
-      sizeBytes: artifact.sizeBytes,
+      sizeBytes: Number(artifact.sizeBytes),
       sha256: artifact.sha256,
       mimeType: artifact.mimeType,
       extension: artifact.extension,

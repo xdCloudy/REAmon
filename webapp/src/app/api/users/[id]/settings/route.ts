@@ -323,6 +323,16 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       }
     }
 
+    if ('idaExecutablePath' in body) {
+      const idaExecutablePath = String(body.idaExecutablePath ?? '').trim()
+      if (idaExecutablePath && (!idaExecutablePath.startsWith('/opt/ida/')
+        || !/^\/opt\/ida\/[A-Za-z0-9._/-]+$/.test(idaExecutablePath)
+        || idaExecutablePath.split('/').some((part) => part === '.' || part === '..'))) {
+        return NextResponse.json({ error: 'IDA Pro executable must be an absolute path under /opt/ida' }, { status: 400 })
+      }
+      data.idaExecutablePath = idaExecutablePath
+    }
+
     // STRIDE I19: tunnelsEnabled is a Boolean, so it can't ride the string
     // `data`/`fields` loop above - handle it separately.
     const enabledProvided = 'tunnelsEnabled' in body

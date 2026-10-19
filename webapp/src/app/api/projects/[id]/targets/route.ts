@@ -195,7 +195,7 @@ export async function POST(request: Request, { params }: RouteParams) {
           originalName: artifact.originalName,
           relativePath: artifact.relativePath,
           parentPath: artifact.parentPath,
-          sizeBytes: artifact.sizeBytes,
+          sizeBytes: Number(artifact.sizeBytes),
           sha256: artifact.sha256,
           mimeType: artifact.mimeType,
           extension: artifact.extension,

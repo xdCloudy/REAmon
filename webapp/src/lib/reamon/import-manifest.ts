@@ -7,13 +7,11 @@ export interface ImportManifestEntry {
 }
 
 const DEFAULT_MAX_FILES = 50_000
-const DEFAULT_MAX_IMPORT_BYTES = 8 * 1024 * 1024 * 1024
-const DEFAULT_MAX_ARTIFACT_BYTES = 512 * 1024 * 1024
 
 export interface WorkspaceImportLimits {
   maxFiles: number
-  maxImportBytes: number
-  maxArtifactBytes: number
+  maxImportBytes: number | null
+  maxArtifactBytes: number | null
 }
 
 function configuredPositiveInt(name: string, fallback: number): number {
@@ -24,13 +22,13 @@ function configuredPositiveInt(name: string, fallback: number): number {
 export function workspaceImportLimits(): WorkspaceImportLimits {
   return {
     maxFiles: configuredPositiveInt('REAMON_MAX_IMPORT_FILES', DEFAULT_MAX_FILES),
-    maxImportBytes: configuredPositiveInt('REAMON_MAX_IMPORT_BYTES', DEFAULT_MAX_IMPORT_BYTES),
-    maxArtifactBytes: configuredPositiveInt('REAMON_MAX_ARTIFACT_BYTES', DEFAULT_MAX_ARTIFACT_BYTES),
+    maxImportBytes: null,
+    maxArtifactBytes: null,
   }
 }
 
 export function parseImportManifest(value: unknown): { entries: ImportManifestEntry[]; totalBytes: number } {
-  const { maxFiles, maxImportBytes, maxArtifactBytes } = workspaceImportLimits()
+  const { maxFiles } = workspaceImportLimits()
   if (!Array.isArray(value) || value.length === 0) throw new Error('At least one file is required')
   if (value.length > maxFiles) throw new Error(`Import exceeds the ${maxFiles.toLocaleString()} file limit`)
 
@@ -43,11 +41,11 @@ export function parseImportManifest(value: unknown): { entries: ImportManifestEn
     if (seen.has(relativePath)) throw new Error(`Duplicate path in import manifest: ${relativePath}`)
     seen.add(relativePath)
     const size = Number(candidate.size)
-    if (!Number.isSafeInteger(size) || size < 0 || size > maxArtifactBytes) {
+    if (!Number.isSafeInteger(size) || size < 0) {
       throw new Error(`Invalid or oversized artifact: ${relativePath}`)
     }
     totalBytes += size
-    if (totalBytes > maxImportBytes) throw new Error('Import exceeds the configured byte limit')
+    if (!Number.isSafeInteger(totalBytes)) throw new Error('Import size exceeds the supported file-size range')
     const lastModified = candidate.lastModified == null ? null : Number(candidate.lastModified)
     return {
       relativePath,

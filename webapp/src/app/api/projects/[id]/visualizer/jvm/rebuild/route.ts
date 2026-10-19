@@ -128,7 +128,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       realpath(inputPath),
       stat(inputPath),
     ])
-    if (!isInside(artifactRootPath, artifactRealPath) || !inputInfo.isFile() || inputInfo.size !== artifact.sizeBytes
+    if (!isInside(artifactRootPath, artifactRealPath) || !inputInfo.isFile() || BigInt(inputInfo.size) !== artifact.sizeBytes
         || await sha256File(artifactRealPath) !== artifact.sha256.toLowerCase()) {
       return NextResponse.json({ error: 'The imported JAR failed its stored hash or path integrity check' }, { status: 409 })
     }

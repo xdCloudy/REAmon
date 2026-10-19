@@ -22,6 +22,7 @@ import { dexDecompilerPlugin } from './dex-decompiler'
 import { ilspyPlugin } from './ilspy'
 import { il2CppDumperPlugin } from './il2cppdumper'
 import { ghidraPlugin } from './ghidra'
+import { idaPlugin } from './ida'
 import { oxidizerPlugin } from './oxidizer'
 import { glaurungPlugin } from './glaurung'
 import { kunaPlugin } from './kuna'
@@ -141,6 +142,9 @@ export const BUILTIN_TOOL_PLUGINS: ToolPlugin[] = [
   },
   {
     ...ghidraPlugin,
+  },
+  {
+    ...idaPlugin,
   },
   {
     ...oxidizerPlugin,

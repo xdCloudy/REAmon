@@ -158,7 +158,7 @@ export async function GET(request: Request, { params }: RouteParams) {
           : hasKnownCoverageGaps || (hasPersistedInventory ? inventory.truncated === true : result.truncated === true)
         const linkPercent = hasPersistedInventory ? finiteCount(inventory.coveragePercent)
           : discoveredUnitCount ? Math.min(100, Math.round((indexedUnitCount / discoveredUnitCount) * 100)) : null
-        const unitLabel = ['reamon-ghidra', 'reamon-recurse', 'reamon-miasm', 'reamon-wabt', 'reamon-glaurung', 'reamon-kuna', 'reamon-fission', 'reamon-oxidizer', 'reamon-reko'].includes(task.provider?.pluginId || '') ? 'functions' : 'code units'
+        const unitLabel = ['reamon-ghidra', 'reamon-ida', 'reamon-recurse', 'reamon-miasm', 'reamon-wabt', 'reamon-glaurung', 'reamon-kuna', 'reamon-fission', 'reamon-oxidizer', 'reamon-reko'].includes(task.provider?.pluginId || '') ? 'functions' : 'code units'
         return {
           id: task.id,
           title: task.title,

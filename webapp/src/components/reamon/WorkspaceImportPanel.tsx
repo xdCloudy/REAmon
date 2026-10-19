@@ -15,8 +15,8 @@ import styles from './WorkspaceImportPanel.module.css'
 
 interface WorkspaceImportLimits {
   maxFiles: number
-  maxImportBytes: number
-  maxArtifactBytes: number
+  maxImportBytes: number | null
+  maxArtifactBytes: number | null
 }
 
 interface WorkspaceImportPanelProps {
@@ -152,6 +152,7 @@ export function WorkspaceImportPanel({ projectId, onImported }: WorkspaceImportP
     abortRef.current = controller
     setBusy(true)
     setError(null)
+    const uploadFailures: string[] = []
     try {
       const result = await runWorkspaceImport({
         projectId,
@@ -160,6 +161,7 @@ export function WorkspaceImportPanel({ projectId, onImported }: WorkspaceImportP
         completedPaths: new Set(completedPaths),
         concurrency: 3,
         signal: controller.signal,
+        onFileFailure: ({ path, message }) => uploadFailures.push(`${path}: ${message}`),
         onImportReady: setImportId,
         onProgress: (next) => {
           setProgress(next)
@@ -170,7 +172,8 @@ export function WorkspaceImportPanel({ projectId, onImported }: WorkspaceImportP
       })
       setImportId(result.importId)
       if (result.failedPaths.length) {
-        setError(`${result.failedPaths.length} file${result.failedPaths.length === 1 ? '' : 's'} failed. Retry to resume this import.`)
+        const details = uploadFailures.slice(0, 3).join(' · ')
+        setError(`${result.failedPaths.length} file${result.failedPaths.length === 1 ? '' : 's'} failed${details ? ` (${details})` : ''}. Retry to resume this import.`)
       } else {
         onImported()
       }
@@ -250,7 +253,7 @@ export function WorkspaceImportPanel({ projectId, onImported }: WorkspaceImportP
         </div>
       )}
       {error && <p className={styles.error} role="alert">{error}</p>}
-      <p className={styles.limits}>Everything selected is included by default. {limits ? <>Configured limits: {limits.maxFiles.toLocaleString()} files · {formatBytes(limits.maxImportBytes)} per import · {formatBytes(limits.maxArtifactBytes)} per file. </> : 'Upload limits are configurable by the server. '}The browser never exposes your absolute local path.</p>
+      <p className={styles.limits}>Everything selected is included by default. {limits ? <>{limits.maxFiles.toLocaleString()} files per import; no per-file or total-byte cap. Large files transfer in resumable chunks. </> : 'Large files transfer in resumable chunks. '}The browser never exposes your absolute local path.</p>
     </section>
   )
 }

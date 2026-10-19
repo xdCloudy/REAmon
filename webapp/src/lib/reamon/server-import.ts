@@ -115,17 +115,14 @@ async function inspectRegularFile(absolutePath: string, relativePath: string): P
   if (!details.isFile()) throw new ServerSourceError('SPECIAL_FILE', 'Server-mounted imports support regular files only')
 
   const size = details.size
-  const { maxArtifactBytes } = workspaceImportLimits()
-  if (!Number.isSafeInteger(size) || size > maxArtifactBytes) {
-    throw new ServerSourceError('LIMIT', `Server source exceeds the ${Math.round(maxArtifactBytes / 1024 / 1024)} MiB artifact limit`)
-  }
+  if (!Number.isSafeInteger(size)) throw new ServerSourceError('LIMIT', 'Server source file size is outside the supported range')
   const lastModified = Number.isFinite(details.mtimeMs) ? Math.trunc(details.mtimeMs) : null
   return { relativePath, size, lastModified }
 }
 
 export async function inventoryServerSource(sourcePath: string): Promise<{ sourcePath: string; entries: ImportManifestEntry[]; totalBytes: number }> {
   const sourceRoot = await resolveSourceDirectory(sourcePath)
-  const { maxFiles, maxImportBytes } = workspaceImportLimits()
+  const { maxFiles } = workspaceImportLimits()
   const entries: ImportManifestEntry[] = []
   const pending = [sourceRoot]
 
@@ -161,7 +158,7 @@ export async function inventoryServerSource(sourcePath: string): Promise<{ sourc
 
   entries.sort((left, right) => left.relativePath < right.relativePath ? -1 : left.relativePath > right.relativePath ? 1 : 0)
   const totalBytes = entries.reduce((sum, entry) => sum + entry.size, 0)
-  if (totalBytes > maxImportBytes) throw new ServerSourceError('LIMIT', 'Import exceeds the configured byte limit')
+  if (!Number.isSafeInteger(totalBytes)) throw new ServerSourceError('LIMIT', 'Import size is outside the supported range')
   return { sourcePath: sourceRoot, entries, totalBytes }
 }
 
@@ -186,28 +183,17 @@ async function resolveSourceFile(sourceRoot: string, relativePath: string): Prom
   return current
 }
 
-export async function readServerSourceArtifact(sourcePath: string, relativePath: string, expectedSize?: number): Promise<Uint8Array> {
+export async function resolveServerSourceArtifact(sourcePath: string, relativePath: string, expectedSize?: number): Promise<string> {
   const sourceRoot = await resolveSourceDirectory(sourcePath)
   const absolutePath = await resolveSourceFile(sourceRoot, relativePath)
-  const { maxArtifactBytes } = workspaceImportLimits()
   let before
   try {
     before = await lstat(absolutePath)
   } catch {
     throw new ServerSourceError('UNAVAILABLE', 'Server source file is unavailable', 409)
   }
-  if (before.size > maxArtifactBytes) {
-    throw new ServerSourceError('LIMIT', 'Server source exceeds the configured artifact limit')
-  }
   if (expectedSize != null && before.size !== expectedSize) {
     throw new ServerSourceError('CHANGED', 'Server source file changed after inventory', 409)
-  }
-
-  let bytes: Uint8Array
-  try {
-    bytes = new Uint8Array(await readFile(absolutePath))
-  } catch {
-    throw new ServerSourceError('UNAVAILABLE', 'Server source file is unavailable', 409)
   }
   let after
   try {
@@ -215,7 +201,23 @@ export async function readServerSourceArtifact(sourcePath: string, relativePath:
   } catch {
     throw new ServerSourceError('CHANGED', 'Server source file changed during import', 409)
   }
-  if (!after.isFile() || after.size !== bytes.byteLength || after.size !== before.size) {
+  if (!after.isFile() || after.size !== before.size) {
+    throw new ServerSourceError('CHANGED', 'Server source file changed during import', 409)
+  }
+  return absolutePath
+}
+
+/** Compatibility helper for callers that explicitly need the source bytes in memory. */
+export async function readServerSourceArtifact(sourcePath: string, relativePath: string, expectedSize?: number): Promise<Uint8Array> {
+  const absolutePath = await resolveServerSourceArtifact(sourcePath, relativePath, expectedSize)
+  let bytes: Uint8Array
+  try {
+    bytes = new Uint8Array(await readFile(absolutePath))
+  } catch {
+    throw new ServerSourceError('UNAVAILABLE', 'Server source file is unavailable', 409)
+  }
+  const after = await lstat(absolutePath).catch(() => null)
+  if (!after?.isFile() || after.size !== bytes.byteLength || (expectedSize != null && after.size !== expectedSize)) {
     throw new ServerSourceError('CHANGED', 'Server source file changed during import', 409)
   }
   return bytes

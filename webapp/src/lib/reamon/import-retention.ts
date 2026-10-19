@@ -162,7 +162,7 @@ export async function applyImportRetention(input: { projectId?: string; dryRun?:
     if (!deleted) continue
     pruned += 1
     deletedArtifacts += deleted.artifacts.length
-    deletedBytes += deleted.artifacts.reduce((total, artifact) => total + artifact.sizeBytes, 0)
+    deletedBytes += deleted.artifacts.reduce((total, artifact) => total + Number(artifact.sizeBytes), 0)
     for (const artifact of deleted.artifacts) {
       try {
         await unlink(resolveArtifactStoragePath(artifact.storagePath))

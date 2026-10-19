@@ -9,7 +9,8 @@ import { resolveCapabilities } from '@/lib/reamon/capabilities'
 import { isLogicalTargetCandidate } from '@/lib/reamon/inventory'
 import { InvalidWorkspacePathError, parentPathOf, normalizeRelativePath } from '@/lib/reamon/paths'
 import { profileArtifact } from '@/lib/reamon/profiler'
-import { readServerSourceArtifact, SERVER_DIRECTORY_SOURCE_TYPE, ServerSourceError } from '@/lib/reamon/server-import'
+import { commitArtifactFromPath } from '@/lib/reamon/artifact-import-commit'
+import { resolveServerSourceArtifact, SERVER_DIRECTORY_SOURCE_TYPE, ServerSourceError } from '@/lib/reamon/server-import'
 
 interface RouteParams { params: Promise<{ id: string; importId: string }> }
 
@@ -102,8 +103,6 @@ export async function POST(request: Request, { params }: RouteParams) {
     }
     const declaredSize = Number(manifestEntry.size)
 
-    let bytes: Uint8Array
-    let mimeType = 'application/octet-stream'
     if (isServerSource) {
       const metadata = workspaceImport.metadata && typeof workspaceImport.metadata === 'object' && !Array.isArray(workspaceImport.metadata)
         ? workspaceImport.metadata as Record<string, unknown>
@@ -111,18 +110,31 @@ export async function POST(request: Request, { params }: RouteParams) {
       if (typeof metadata.serverSourcePath !== 'string') {
         return NextResponse.json({ error: 'Server source metadata is missing' }, { status: 409, headers: { 'Cache-Control': 'no-store' } })
       }
-      bytes = await readServerSourceArtifact(metadata.serverSourcePath, relativePath, Number.isSafeInteger(declaredSize) ? declaredSize : undefined)
-    } else {
-      const file = fileValue as File
-      if (file.size > maxArtifactBytes()) {
-        return NextResponse.json({ error: `File exceeds the ${Math.round(maxArtifactBytes() / 1024 / 1024)} MiB limit` }, { status: 413, headers: { 'Cache-Control': 'no-store' } })
-      }
-      if (Number.isSafeInteger(declaredSize) && declaredSize !== file.size) {
-        return NextResponse.json({ error: `Uploaded size does not match the manifest for ${relativePath}` }, { status: 400, headers: { 'Cache-Control': 'no-store' } })
-      }
-      bytes = new Uint8Array(await file.arrayBuffer())
-      mimeType = file.type
+      const sourcePath = await resolveServerSourceArtifact(metadata.serverSourcePath, relativePath, Number.isSafeInteger(declaredSize) ? declaredSize : undefined)
+      const imported = await commitArtifactFromPath({
+        projectId, importId, relativePath, sourcePath,
+        sourceType: SERVER_DIRECTORY_SOURCE_TYPE, cleanupSource: false,
+      })
+      return NextResponse.json({
+        artifact: {
+          id: imported.artifact.id, relativePath,
+          sizeBytes: imported.artifact.sizeBytes, sha256: imported.artifact.sha256,
+          profile: imported.profile, capabilities: imported.capabilities,
+        },
+      }, { status: 201, headers: { 'Cache-Control': 'no-store' } })
     }
+
+    let bytes: Uint8Array
+    let mimeType = 'application/octet-stream'
+    const file = fileValue as File
+    if (file.size > maxArtifactBytes()) {
+      return NextResponse.json({ error: `This compatibility upload endpoint accepts files up to ${Math.round(maxArtifactBytes() / 1024 / 1024)} MiB; use chunked workspace upload for larger files` }, { status: 413, headers: { 'Cache-Control': 'no-store' } })
+    }
+    if (Number.isSafeInteger(declaredSize) && declaredSize !== file.size) {
+      return NextResponse.json({ error: `Uploaded size does not match the manifest for ${relativePath}` }, { status: 400, headers: { 'Cache-Control': 'no-store' } })
+    }
+    bytes = new Uint8Array(await file.arrayBuffer())
+    mimeType = file.type
     if (Number.isSafeInteger(declaredSize) && declaredSize !== bytes.byteLength) {
       return NextResponse.json({ error: `Imported size does not match the manifest for ${relativePath}` }, { status: 400, headers: { 'Cache-Control': 'no-store' } })
     }
@@ -256,7 +268,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       artifact: {
         id: result.artifact.id,
         relativePath,
-        sizeBytes: result.artifact.sizeBytes,
+        sizeBytes: Number(result.artifact.sizeBytes),
         sha256: result.artifact.sha256,
         profile,
         capabilities,

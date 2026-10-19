@@ -53,9 +53,9 @@ export default function NewProjectPage() {
       setSelectionError('Enter a workspace name or choose a folder first')
       return
     }
-
     setCreateError(null)
     setImportError(null)
+    const uploadFailures: string[] = []
     let project
     try {
       project = await createProjectMutation.mutateAsync({
@@ -85,10 +85,12 @@ export default function NewProjectPage() {
           projectId: project.id,
           selection,
           concurrency: 3,
+          onFileFailure: ({ path, message }) => uploadFailures.push(`${path}: ${message}`),
           onProgress: setProgress,
         })
         if (result.failedPaths.length) {
-          setImportError(`${result.failedPaths.length} files failed to upload. The workspace is available and the import can be retried from its dashboard.`)
+          const details = uploadFailures.slice(0, 3).join(' · ')
+          setImportError(`${result.failedPaths.length} files failed to upload${details ? ` (${details})` : ''}. The workspace is available and the import can be retried from its dashboard.`)
           toast.warning('Workspace created with a partial import')
           router.push(`/projects/${project.id}`)
           return

@@ -132,7 +132,7 @@ function buildCoverageInventory(data: unknown, providerId: string | null, indexe
   return {
     schemaVersion: 2,
     denominatorSource: discoveredUnitCount === null ? 'unavailable' : 'provider-reported-discovered-units',
-    unitKind: ['reamon-ghidra', 'reamon-recurse', 'reamon-miasm', 'reamon-wabt', 'reamon-glaurung', 'reamon-kuna', 'reamon-fission', 'reamon-oxidizer', 'reamon-reko'].includes(providerId || '') ? 'function' : 'code-unit',
+    unitKind: ['reamon-ghidra', 'reamon-ida', 'reamon-recurse', 'reamon-miasm', 'reamon-wabt', 'reamon-glaurung', 'reamon-kuna', 'reamon-fission', 'reamon-oxidizer', 'reamon-reko'].includes(providerId || '') ? 'function' : 'code-unit',
     discoveredUnitCount,
     providerReturnedUnitCount,
     observedUnitCount,

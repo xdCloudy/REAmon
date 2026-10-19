@@ -62,10 +62,10 @@ export async function POST(_request: Request, { params }: RouteParams) {
 
       const profile = buildWorkspaceProfile(workspaceImport.artifacts.map((artifact) => ({
         relativePath: artifact.relativePath,
-        sizeBytes: artifact.sizeBytes,
+        sizeBytes: Number(artifact.sizeBytes),
         profile: artifact.profile as never,
       })))
-      const uploadedBytes = workspaceImport.artifacts.reduce((sum, artifact) => sum + artifact.sizeBytes, 0)
+      const uploadedBytes = workspaceImport.artifacts.reduce((sum, artifact) => sum + Number(artifact.sizeBytes), 0)
       const previousImport = await tx.workspaceImport.findFirst({
         where: {
           projectId,
@@ -82,12 +82,12 @@ export async function POST(_request: Request, { params }: RouteParams) {
       const comparison = compareWorkspaceImports(
         previousImport?.artifacts.map((artifact): ImportComparisonEntry => ({
           relativePath: artifact.relativePath,
-          size: artifact.sizeBytes,
+          size: Number(artifact.sizeBytes),
           sha256: artifact.sha256,
         })) || [],
         workspaceImport.artifacts.map((artifact): ImportComparisonEntry => ({
           relativePath: artifact.relativePath,
-          size: artifact.sizeBytes,
+          size: Number(artifact.sizeBytes),
           sha256: artifact.sha256,
         })),
         { mode: 'HASH', previousImportId: previousImport?.id },

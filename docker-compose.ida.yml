@@ -1,0 +1,9 @@
+# Optional overlay for a licensed Linux IDA Pro installation on the REAmon host.
+# Set REAMON_IDA_INSTALL_HOST_PATH to the installation directory before starting.
+services:
+  ida-analyzer:
+    volumes:
+      - type: bind
+        source: ${REAMON_IDA_INSTALL_HOST_PATH:?Set REAMON_IDA_INSTALL_HOST_PATH to a Linux IDA Pro installation directory}
+        target: /opt/ida
+        read_only: true

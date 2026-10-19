@@ -862,7 +862,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     const isLuaFunctionScopedRewrite = observation.source === 'reamon-unluac-rs'
       && scope === 'member' && Boolean(selectedMemberName)
     const isFunctionScopedRewrite = isMethodScopedRewrite || isLuaFunctionScopedRewrite
-    if ((observation.source === 'reamon-ghidra' || observation.source === 'reamon-wabt' || observation.source === 'reamon-kuna' || isFunctionScopedRewrite) && observation.taskId && observation.stableKey) {
+    if ((observation.source === 'reamon-ghidra' || observation.source === 'reamon-ida' || observation.source === 'reamon-wabt' || observation.source === 'reamon-kuna' || isFunctionScopedRewrite) && observation.taskId && observation.stableKey) {
       const targetMnemonics = boundedInstructionMnemonics(attributes.instructionMnemonics)
       if (targetMnemonics.length >= 4 || isFunctionScopedRewrite) {
         const targetLuaDialect = typeof attributes.dialect === 'string' ? attributes.dialect : ''
@@ -887,8 +887,8 @@ export async function POST(request: Request, { params }: RouteParams) {
           take: 2,
           select: { id: true, label: true, attributes: true, artifactId: true, taskId: true },
         }) : []
-        const nativeSources = observation.source === 'reamon-ghidra' || observation.source === 'reamon-kuna'
-          ? ['reamon-ghidra', 'reamon-kuna']
+        const nativeSources = observation.source === 'reamon-ghidra' || observation.source === 'reamon-kuna' || observation.source === 'reamon-ida'
+          ? ['reamon-ghidra', 'reamon-kuna', 'reamon-ida']
           : [observation.source]
         const candidates = await prisma.reamonObservation.findMany({
           where: {
@@ -922,6 +922,8 @@ export async function POST(request: Request, { params }: RouteParams) {
             if (!targetArchitecture || targetArchitecture !== candidateArchitecture) continue
           } else if (observation.source === 'reamon-ghidra' && candidate.artifactId !== artifact.id
             && !sameGhidraArchitecture(attributes, candidate.attributes)) continue
+          else if (observation.source === 'reamon-ida' && candidate.artifactId !== artifact.id
+            && nativeArchitectureGroup(attributes) !== nativeArchitectureGroup(candidate.attributes)) continue
           else if (observation.source === 'reamon-kuna' && candidate.artifactId !== artifact.id) continue
           if (observation.source === 'reamon-unluac-rs'
             && plainObject(candidate.attributes).dialect !== attributes.dialect) continue
@@ -1929,7 +1931,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     const selectedNativeIdentity = typeof attributes.identity === 'string' ? attributes.identity : ''
     const selectedNativeInputHash = typeof attributes.inputArtifactSha256 === 'string'
       ? attributes.inputArtifactSha256.toLowerCase() : ''
-    const nativeAlternateProviders = ['reamon-fission', 'reamon-ghidra', 'reamon-kuna', 'reamon-reko']
+    const nativeAlternateProviders = ['reamon-fission', 'reamon-ghidra', 'reamon-ida', 'reamon-kuna', 'reamon-reko']
       .filter((providerId) => providerId !== observation.source)
     if (selectedNativeIdentity && selectedNativeInputHash === artifact.sha256.toLowerCase()
         && nativeAlternateProviders.length && contextSources.length < MAX_CONTEXT_UNITS) {

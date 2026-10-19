@@ -1173,6 +1173,7 @@ services:
       REAMON_JADX_URL: http://jadx-analyzer:8010
       REAMON_VINEFLOWER_URL: http://vineflower-analyzer:8021
       REAMON_CFR_URL: http://cfr-analyzer:8022
+      REAMON_IDA_URL: http://ida-analyzer:8014
       REAMON_ARLECCHINO_URL: http://arlecchino-analyzer:8028
       REAMON_RETDEC_URL: http://retdec-analyzer:8023
       REAMON_DEX_DECOMPILER_URL: http://dex-decompiler-analyzer:8019
@@ -1197,7 +1198,6 @@ services:
       REAMON_CRUBY_ISEQ_URL: http://cruby-iseq-analyzer:8030
       REAMON_MAX_ARTIFACT_BYTES: ${REAMON_MAX_ARTIFACT_BYTES:-536870912}
       REAMON_MAX_IMPORT_FILES: ${REAMON_MAX_IMPORT_FILES:-50000}
-      REAMON_MAX_IMPORT_BYTES: ${REAMON_MAX_IMPORT_BYTES:-8589934592}
       # Bound the JSON envelope persisted for each provider task/evidence row.
       REAMON_MAX_RESULT_BYTES: ${REAMON_MAX_RESULT_BYTES:-2097152}
       # Historical completed snapshots are retained for this many days. The
@@ -1604,6 +1604,46 @@ services:
       timeout: 5s
       retries: 3
       start_period: 120s
+    networks:
+      - reamon-analysis
+
+  # Optional IDA Pro batch analysis. The licensed install is mounted read-only
+  # by docker-compose.ida.yml and is never included in the REAmon image.
+  ida-analyzer:
+    build:
+      context: ./analyzers/ida
+    image: ${REAMON_IDA_IMAGE:-reamon-ida:local}
+    container_name: reamon-ida
+    init: true
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+    mem_limit: ${REAMON_IDA_MEM:-3g}
+    pids_limit: ${REAMON_IDA_PIDS:-128}
+    cpus: ${REAMON_IDA_CPUS:-2}
+    tmpfs:
+      - /tmp:rw,exec,nosuid,size=${REAMON_IDA_TMP_SIZE:-2g},mode=1777
+    environment:
+      REAMON_ARTIFACTS_PATH: /data/reamon-artifacts
+      REAMON_DERIVED_PATH: /data/reamon-derived
+      IDA_TIMEOUT_SECONDS: ${REAMON_IDA_TIMEOUT_SECONDS:-1800}
+      IDA_MAX_FUNCTIONS: ${REAMON_IDA_MAX_FUNCTIONS:-1200}
+    volumes:
+      - reamon_artifacts:/data/reamon-artifacts:ro
+      - reamon_derived:/data/reamon-derived:rw
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8014/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     networks:
       - reamon-analysis
 

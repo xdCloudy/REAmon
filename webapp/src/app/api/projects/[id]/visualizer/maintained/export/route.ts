@@ -536,7 +536,7 @@ export async function GET(request: Request, { params }: RouteParams) {
       inputArtifact: task.artifact ? {
         name: task.artifact.originalName,
         sha256: task.artifact.sha256,
-        sizeBytes: task.artifact.sizeBytes,
+        sizeBytes: Number(task.artifact.sizeBytes),
         mimeType: task.artifact.mimeType,
       } : null,
       exportedAt: new Date().toISOString(),

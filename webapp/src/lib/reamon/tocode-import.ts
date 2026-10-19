@@ -396,6 +396,7 @@ export async function indexToCodeWorkspaceImport(projectId: string, importId: st
   const artifacts: ImportArtifact[] = workspaceImport.artifacts.map((item) => ({
     ...item,
     relativePath: item.relativePath.replace(/\\/g, '/'),
+    sizeBytes: Number(item.sizeBytes),
   }))
   const artifactsByPath = new Map(artifacts.map((artifact) => [artifact.relativePath, artifact]))
   const pathSet = new Set(artifactsByPath.keys())

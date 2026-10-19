@@ -255,6 +255,10 @@ model UserSettings {
   // User-managed MCP servers (UI-driven, see /settings/mcp)
   mcpServers      Json     @default("[]") @map("mcp_servers")
 
+  /// Path to the licensed IDA Pro batch executable as visible inside REAmon's Linux runtime.
+  /// Empty disables the local IDA provider. The executable must live under /opt/ida.
+  idaExecutablePath String @default("") @map("ida_executable_path")
+
   // HTTP Traffic Capture (mitmproxy, Phase 1) — GLOBAL capability switch + config.
   // ON by default: the proxy + ingest containers are meant to run out of the box;
   // flipping this drives the orchestrator capture-proxy/{start,stop}. The operator
@@ -2453,7 +2457,7 @@ model Artifact {
   parentPath     String   @default("") @map("parent_path")
   storagePath    String   @map("storage_path")
   sha256         String
-  sizeBytes      Int      @map("size_bytes")
+  sizeBytes      BigInt   @map("size_bytes")
   mimeType       String   @default("application/octet-stream") @map("mime_type")
   extension      String   @default("")
   status         String   @default("DISCOVERED")

@@ -434,6 +434,7 @@ export function profileArtifact(
   bytes: Uint8Array,
   fileName: string,
   providedMimeType = 'application/octet-stream',
+  fullSizeBytes = bytes.byteLength,
 ): TargetProfile {
   const extension = extensionOf(fileName)
   const detected = detectFormat(bytes, extension)
@@ -446,7 +447,8 @@ export function profileArtifact(
     extension,
     entropy: entropyOf(bytes),
     metadata: {
-      byteLength: bytes.byteLength,
+      byteLength: fullSizeBytes,
+      profileSampled: fullSizeBytes > bytes.byteLength,
       hasMagic: detected.format !== 'unknown',
       extensionHint: extension || null,
       containerFormat: containerFormat || null,

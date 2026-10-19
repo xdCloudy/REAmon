@@ -146,6 +146,7 @@ export async function listWorkspaceFiles(projectId: string, query: WorkspaceFile
   return {
     artifacts: rows.slice(0, limit).map((artifact) => ({
       ...artifact,
+      sizeBytes: Number(artifact.sizeBytes),
       capabilities: resolveCapabilities(artifact.profile as unknown as TargetProfile),
     })),
     total,
@@ -226,7 +227,7 @@ export async function getWorkspaceArtifact(projectId: string, artifactId: string
     parentPath: artifact.parentPath,
     targetId: artifact.targetId,
     importId: artifact.importId,
-    sizeBytes: artifact.sizeBytes,
+    sizeBytes: Number(artifact.sizeBytes),
     sha256: artifact.sha256,
     extension: artifact.extension,
     mimeType: artifact.mimeType,

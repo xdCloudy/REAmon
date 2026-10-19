@@ -69,6 +69,7 @@ interface UserSettings {
   ngrokAuthtoken: string
   chiselServerUrl: string
   chiselAuth: string
+  idaExecutablePath: string
   captureProxyEnabled: boolean
   captureProxyPort: number
   captureProxyScope: string
@@ -139,6 +140,7 @@ const EMPTY_SETTINGS: UserSettings = {
   ngrokAuthtoken: '',
   chiselServerUrl: '',
   chiselAuth: '',
+  idaExecutablePath: '',
   captureProxyEnabled: true,
   captureProxyPort: 8888,
   captureProxyScope: 'both',
@@ -609,6 +611,7 @@ export default function SettingsPage() {
           ngrokAuthtoken: data.ngrokAuthtoken || '',
           chiselServerUrl: data.chiselServerUrl || '',
           chiselAuth: data.chiselAuth || '',
+          idaExecutablePath: data.idaExecutablePath || '',
           captureProxyEnabled: data.captureProxyEnabled ?? true,
           captureProxyPort: data.captureProxyPort ?? 8888,
           captureProxyScope: data.captureProxyScope || 'both',
@@ -740,6 +743,7 @@ export default function SettingsPage() {
           ngrokAuthtoken: data.ngrokAuthtoken || '',
           chiselServerUrl: data.chiselServerUrl || '',
           chiselAuth: data.chiselAuth || '',
+          idaExecutablePath: data.idaExecutablePath || '',
           captureProxyEnabled: data.captureProxyEnabled ?? true,
           captureProxyPort: data.captureProxyPort ?? 8888,
           captureProxyScope: data.captureProxyScope || 'both',
@@ -1805,7 +1809,7 @@ export default function SettingsPage() {
       {/* Tab: System */}
       {activeTab === 'system' && (
         <>
-          <SystemSection />
+          <SystemSection idaExecutablePath={settings.idaExecutablePath} onIdaExecutablePathChange={(value) => updateSetting('idaExecutablePath', value)} />
         </>
       )}
 
@@ -2148,9 +2152,26 @@ export default function SettingsPage() {
   )
 }
 
-function SystemSection() {
+function SystemSection({ idaExecutablePath, onIdaExecutablePathChange }: { idaExecutablePath: string; onIdaExecutablePathChange: (value: string) => void }) {
   return (
     <div className={styles.section}>
+      <div className={styles.sectionHeader}>
+        <h2 className={styles.sectionTitle}>Local decompiler tools</h2>
+      </div>
+      <div className="formGroup">
+        <label className="formLabel" htmlFor="ida-executable-path">IDA Pro executable</label>
+        <input
+          id="ida-executable-path"
+          className="textInput"
+          value={idaExecutablePath}
+          onChange={(event) => onIdaExecutablePathChange(event.target.value)}
+          placeholder="/opt/ida/idat64"
+          spellCheck={false}
+          autoCapitalize="off"
+          autoComplete="off"
+        />
+        <span className="formHint">Optional. Enter the IDA batch executable path visible inside the isolated analyzer. Mount your licensed Linux IDA installation at <code>/opt/ida</code>; Windows executables and paths on a LAN browser PC cannot run inside this Linux service. No IDA API key is used.</span>
+      </div>
       <div className={styles.sectionHeader}>
         <h2 className={styles.sectionTitle} style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
           <Info size={16} /> REAmon release
