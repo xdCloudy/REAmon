@@ -93,6 +93,21 @@ export async function recordWorkerDispatch(input: WorkerDispatchHealthInput) {
   })
 }
 
+/** Refresh process liveness independently of synchronous task dispatches. */
+export async function recordWorkerHeartbeat(workerId: string) {
+  return prisma.reamonWorker.upsert({
+    where: { workerId },
+    create: {
+      workerId,
+      status: 'IDLE',
+      lastSeenAt: new Date(),
+    },
+    update: {
+      lastSeenAt: new Date(),
+    },
+  })
+}
+
 export async function listWorkerHealth() {
   const workers = await prisma.reamonWorker.findMany({
     orderBy: { lastSeenAt: 'desc' },

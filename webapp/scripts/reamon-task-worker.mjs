@@ -104,6 +104,31 @@ export async function dispatchOnce(config, fetchImpl = fetch, logger = console) 
   return result
 }
 
+function startWorkerHeartbeat(config, fetchImpl, logger) {
+  let inFlight = false
+  const workerId = config.workerId || 'reamon-worker'
+  const send = async () => {
+    if (inFlight) return
+    inFlight = true
+    try {
+      const response = await fetchImpl(`${config.webappUrl}/api/internal/reamon/workers/heartbeat`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-internal-key': config.internalKey },
+        body: JSON.stringify({ workerId }),
+        signal: AbortSignal.timeout(10_000),
+      })
+      if (!response.ok) logger.warn(`[reamon-worker:${workerId}] heartbeat returned HTTP ${response.status}`)
+    } catch (error) {
+      logger.warn(`[reamon-worker:${workerId}] heartbeat failed`, error)
+    } finally {
+      inFlight = false
+    }
+  }
+  const timer = setInterval(() => { void send() }, 30_000)
+  timer.unref?.()
+  return () => clearInterval(timer)
+}
+
 export async function dispatchCodeRewritesOnce(config, fetchImpl = fetch, logger = console) {
   const response = await fetchImpl(`${config.webappUrl}/api/internal/reamon/code-rewrites/dispatch`, {
     method: 'POST',
@@ -246,43 +271,48 @@ export async function runWorker(config, { fetchImpl = fetch, sleepImpl = sleep, 
   let nextBackfillAt = 0
   let nextRetentionAt = 0
   const scheduleProjection = createProjectionScheduler(config, fetchImpl, logger)
-  while (!shouldStop()) {
-    try {
-      const dispatches = [dispatchOnce(config, fetchImpl, logger)]
-      if (config.codeRewriteJobsEnabled) dispatches.push(dispatchCodeRewritesOnce(config, fetchImpl, logger))
-      const [result] = await Promise.all(dispatches)
-      const completedProjectIds = new Set((result?.results || [])
-        .filter((entry) => entry?.outcome === 'COMPLETED' && typeof entry.task?.projectId === 'string')
-        .map((entry) => entry.task.projectId))
-      for (const projectId of completedProjectIds) {
-        scheduleProjection(projectId)
-      }
-
-      if (Number(config.backfillIntervalSeconds) > 0 && Date.now() >= nextBackfillAt) {
-        const backfill = await listBackfillProjects(config, fetchImpl, logger, backfillOffset)
-        const backfillProjectIds = [...new Set((backfill?.projects || [])
-          .filter((projectId) => typeof projectId === 'string' && !completedProjectIds.has(projectId)))]
-        for (const projectId of backfillProjectIds) {
+  const stopHeartbeat = startWorkerHeartbeat(config, fetchImpl, logger)
+  try {
+    while (!shouldStop()) {
+      try {
+        const dispatches = [dispatchOnce(config, fetchImpl, logger)]
+        if (config.codeRewriteJobsEnabled) dispatches.push(dispatchCodeRewritesOnce(config, fetchImpl, logger))
+        const [result] = await Promise.all(dispatches)
+        const completedProjectIds = new Set((result?.results || [])
+          .filter((entry) => entry?.outcome === 'COMPLETED' && typeof entry.task?.projectId === 'string')
+          .map((entry) => entry.task.projectId))
+        for (const projectId of completedProjectIds) {
           scheduleProjection(projectId)
         }
-        const nextOffset = Number(backfill?.nextOffset)
-        if (backfill?.truncated && Number.isSafeInteger(nextOffset) && nextOffset > backfillOffset) {
-          backfillOffset = nextOffset
-        } else if (backfill) {
-          backfillOffset = 0
-        }
-        nextBackfillAt = Date.now() + Number(config.backfillIntervalSeconds) * 1000
-      }
 
-      if (Number(config.retentionIntervalSeconds) > 0 && Date.now() >= nextRetentionAt) {
-        await runRetentionOnce(config, fetchImpl, logger)
-        nextRetentionAt = Date.now() + Number(config.retentionIntervalSeconds) * 1000
+        if (Number(config.backfillIntervalSeconds) > 0 && Date.now() >= nextBackfillAt) {
+          const backfill = await listBackfillProjects(config, fetchImpl, logger, backfillOffset)
+          const backfillProjectIds = [...new Set((backfill?.projects || [])
+            .filter((projectId) => typeof projectId === 'string' && !completedProjectIds.has(projectId)))]
+          for (const projectId of backfillProjectIds) {
+            scheduleProjection(projectId)
+          }
+          const nextOffset = Number(backfill?.nextOffset)
+          if (backfill?.truncated && Number.isSafeInteger(nextOffset) && nextOffset > backfillOffset) {
+            backfillOffset = nextOffset
+          } else if (backfill) {
+            backfillOffset = 0
+          }
+          nextBackfillAt = Date.now() + Number(config.backfillIntervalSeconds) * 1000
+        }
+
+        if (Number(config.retentionIntervalSeconds) > 0 && Date.now() >= nextRetentionAt) {
+          await runRetentionOnce(config, fetchImpl, logger)
+          nextRetentionAt = Date.now() + Number(config.retentionIntervalSeconds) * 1000
+        }
+      } catch (error) {
+        if (error instanceof WorkerConfigurationError) throw error
+        logger.error('[reamon-worker] dispatch failed; will retry', error)
       }
-    } catch (error) {
-      if (error instanceof WorkerConfigurationError) throw error
-      logger.error('[reamon-worker] dispatch failed; will retry', error)
+      if (!shouldStop()) await sleepImpl(config.pollSeconds * 1000)
     }
-    if (!shouldStop()) await sleepImpl(config.pollSeconds * 1000)
+  } finally {
+    stopHeartbeat()
   }
 }
 

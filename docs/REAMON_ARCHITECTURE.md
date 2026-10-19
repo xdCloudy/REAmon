@@ -448,9 +448,13 @@ workspace refreshes while work is running and shows the current lease owner and
 heartbeat freshness, so operators can distinguish active work from a stalled lease.
 The source process adapter now terminates its child on operator cancellation or a
 bounded timeout. Dispatches also persist worker last-seen, outcome counts, duration,
-and the last provider error; the workspace labels workers stale after a bounded
-silence window and surfaces stale/degraded worker alerts. Failed dispatches can also
-send an optional environment-configured webhook with bounded, non-secret JSON; URL
+and the last provider error; a separate internal heartbeat refreshes process
+liveness while a synchronous analyzer dispatch is still running. The workspace
+labels workers stale after a bounded silence window and surfaces stale/degraded
+worker alerts. Graph projection is queued separately from task polling, so a slow
+or contended projection does not hold up the next analysis dispatch. Failed
+dispatches can also send an optional environment-configured webhook with bounded,
+non-secret JSON; URL
 validation, a five-second timeout, and best-effort handling keep alert delivery from
 blocking work. The repository now includes an executable staging multi-worker
 contention drill and an explicit backup/restore drill wrapper; additional MCP/process
