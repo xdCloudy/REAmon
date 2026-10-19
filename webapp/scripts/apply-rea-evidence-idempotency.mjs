@@ -10,7 +10,7 @@ import { PrismaClient } from '@prisma/client'
 const prisma = new PrismaClient()
 
 try {
-  const [table] = await prisma.$queryRawUnsafe('SELECT to_regclass($1) AS name', 'public.reamon_evidence')
+  const [table] = await prisma.$queryRawUnsafe('SELECT to_regclass($1)::text AS name', 'public.reamon_evidence')
   if (!table?.name) {
     console.log('[rea-evidence] table not created yet; Prisma will create the model')
   } else {
