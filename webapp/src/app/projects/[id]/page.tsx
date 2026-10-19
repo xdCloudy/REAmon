@@ -120,21 +120,36 @@ function ImportStatus({ latestImport, projectId, onChanged }: { latestImport: Wo
   )
 }
 
-function WorkerHealthAlert({ workers, hasPendingTasks }: { workers: WorkerHealth[]; hasPendingTasks: boolean }) {
-  const attention = summarizeWorkerAttention(workers)
-  if (!attention || ((attention.kind === 'stale' || attention.kind === 'unavailable') && !hasPendingTasks)) return null
+function WorkerHealthAlert({ workers, tasks }: { workers: WorkerHealth[]; tasks: WorkspaceSnapshot['tasks'] }) {
+  const attention = summarizeWorkerAttention(workers, tasks)
+  if (!attention || ((attention.kind === 'stale' || attention.kind === 'unavailable') && !('queuedTaskCount' in attention))) return null
 
   const names = attention.workers.slice(0, 3).map((worker) => worker.workerId).join(', ')
   const remainder = attention.workers.length > 3 ? ` and ${attention.workers.length - 3} more` : ''
-  const title = attention.kind === 'degraded' ? 'Analysis worker reported an error' : 'Analysis is waiting for a worker'
+  const staleRegistryMessage = attention.workers.length > 0
+    ? `${attention.workers.length} registered worker${attention.workers.length === 1 ? ' is' : 's are'} stale.`
+    : 'No worker has checked in recently.'
+  const title = attention.kind === 'degraded'
+    ? 'Analysis worker reported an error'
+    : attention.kind === 'active-task'
+      ? 'Analysis is running'
+      : 'Analysis is waiting for a worker'
   const message = attention.kind === 'degraded'
     ? `${attention.workers.length} worker${attention.workers.length === 1 ? '' : 's'} reported a failed dispatch. Affected: ${names}${remainder}.`
+    : attention.kind === 'active-task'
+      ? `${attention.activeTaskCount} running task${attention.activeTaskCount === 1 ? ' has' : 's have'} a recent lease heartbeat. ${staleRegistryMessage}`
+      : attention.kind === 'queued-with-active-task'
+        ? `${attention.activeTaskCount} task${attention.activeTaskCount === 1 ? ' is' : 's are'} running with recent lease heartbeats, while ${attention.queuedTaskCount} task${attention.queuedTaskCount === 1 ? ' remains' : 's remain'} queued. ${staleRegistryMessage}`
     : attention.kind === 'stale'
-      ? `No worker has checked in recently. ${attention.workers.length} registered worker${attention.workers.length === 1 ? ' is' : 's are'} stale.`
+      ? 'queuedTaskCount' in attention
+        ? `${attention.queuedTaskCount} task${attention.queuedTaskCount === 1 ? ' is' : 's are'} queued. ${staleRegistryMessage}`
+        : `No worker has checked in recently. ${staleRegistryMessage}`
       : 'No analysis worker has checked in. Queued tasks will start when a worker is available.'
   const guidance = attention.kind === 'degraded'
     ? 'Check project diagnostics before retrying failed tasks.'
-    : 'Check that an analysis worker is running.'
+    : attention.kind === 'active-task'
+      ? 'Task execution is active; check worker diagnostics if the registry remains stale.'
+      : 'Check that an analysis worker is running.'
   return (
     <aside className={styles.workerAlert} role="alert" aria-labelledby="worker-alert-heading">
       <AlertTriangle size={19} aria-hidden="true" />
@@ -173,7 +188,6 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
   const rootTarget = useMemo(() => data?.targets.find((target) => target.targetType === 'DIRECTORY'), [data?.targets])
   const latestImport = data?.imports[0]
   const codeAnalysisTask = data?.tasks.find((task) => ['decompile', 'disassemble', 'recover_metadata'].includes(task.capability || ''))
-  const hasPendingTasks = Boolean(data?.tasks.some((task) => task.status === 'QUEUED' || task.status === 'RUNNING' || task.status === 'AWAITING_APPROVAL'))
   const hasWorkspaceContent = Boolean(data && data.artifactPage.total > 0)
   const hasAnalysisContext = Boolean(data && (
     hasWorkspaceContent
@@ -198,7 +212,7 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
         <div><p className={styles.eyebrow}>Reverse-engineering workspace</p><h1>{data.workspace.name}</h1><p className={styles.description}>{data.workspace.description || 'Import source, binaries, or packages. Run compatible analysis and review the recovered code alongside its evidence.'}</p></div>
       </header>
 
-      <WorkerHealthAlert workers={data.workers} hasPendingTasks={hasPendingTasks} />
+      <WorkerHealthAlert workers={data.workers} tasks={data.tasks} />
 
       <WorkspaceImportPanel projectId={projectId} onImported={() => {
         void queryClient.invalidateQueries({ queryKey: ['reamon-workspace', projectId] })

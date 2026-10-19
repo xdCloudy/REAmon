@@ -2,6 +2,9 @@ import prisma from '@/lib/prisma'
 
 const DEFAULT_STALE_SECONDS = 90
 const MAX_STALE_SECONDS = 60 * 60
+// Task execution heartbeats default to 60 seconds. Allow two intervals plus
+// a small scheduling margin before treating a RUNNING task lease as stale.
+const TASK_LEASE_FRESH_SECONDS = 150
 
 function staleAfterSeconds(): number {
   const parsed = Number(process.env.REAMON_WORKER_STALE_SECONDS)
@@ -24,11 +27,38 @@ export interface WorkerHealthStatusInput {
   status: string
 }
 
-export function summarizeWorkerAttention(workers: WorkerHealthStatusInput[]) {
+export interface WorkerTaskLivenessInput {
+  status: string
+  leaseHeartbeatAt: string | null
+}
+
+export function summarizeWorkerAttention(
+  workers: WorkerHealthStatusInput[],
+  tasks: WorkerTaskLivenessInput[] = [],
+  now = Date.now(),
+) {
   const responsive = workers.filter((worker) => worker.status !== 'STALE')
   const degraded = responsive.filter((worker) => worker.status === 'DEGRADED')
   if (responsive.length > 0) return degraded.length ? { kind: 'degraded' as const, workers: degraded } : null
-  if (workers.length > 0) return { kind: 'stale' as const, workers }
+
+  const freshRunningTasks = tasks.filter((task) => {
+    if (task.status !== 'RUNNING' || !task.leaseHeartbeatAt) return false
+    const heartbeatAt = Date.parse(task.leaseHeartbeatAt)
+    return Number.isFinite(heartbeatAt) && heartbeatAt >= now - TASK_LEASE_FRESH_SECONDS * 1000
+  }).length
+  const queuedTasks = tasks.filter((task) => task.status === 'QUEUED').length
+  if (freshRunningTasks > 0 && queuedTasks === 0) {
+    return { kind: 'active-task' as const, workers, activeTaskCount: freshRunningTasks }
+  }
+  if (freshRunningTasks > 0 && queuedTasks > 0) {
+    return { kind: 'queued-with-active-task' as const, workers, activeTaskCount: freshRunningTasks, queuedTaskCount: queuedTasks }
+  }
+  if (workers.length > 0) {
+    return queuedTasks > 0
+      ? { kind: 'stale' as const, workers, queuedTaskCount: queuedTasks }
+      : { kind: 'stale' as const, workers }
+  }
+  if (queuedTasks > 0) return { kind: 'unavailable' as const, workers: [], queuedTaskCount: queuedTasks }
   return { kind: 'unavailable' as const, workers: [] }
 }
 

@@ -59,4 +59,46 @@ describe('REAmon worker health', () => {
     expect(summarizeWorkerAttention([{ workerId: 'old', status: 'STALE' }])).toEqual({ kind: 'stale', workers: [{ workerId: 'old', status: 'STALE' }] })
     expect(summarizeWorkerAttention([])).toEqual({ kind: 'unavailable', workers: [] })
   })
+
+  test('reports a fresh running task lease when worker registrations are stale', () => {
+    const now = Date.parse('2026-10-19T06:12:30.000Z')
+    expect(summarizeWorkerAttention(
+      [{ workerId: 'old', status: 'STALE' }],
+      [{ status: 'RUNNING', leaseHeartbeatAt: '2026-10-19T06:12:19.000Z' }],
+      now,
+    )).toEqual({ kind: 'active-task', workers: [{ workerId: 'old', status: 'STALE' }], activeTaskCount: 1 })
+  })
+
+  test('keeps queued work visible even when another task has a fresh lease', () => {
+    const now = Date.parse('2026-10-19T06:12:30.000Z')
+    expect(summarizeWorkerAttention(
+      [{ workerId: 'old', status: 'STALE' }],
+      [
+        { status: 'RUNNING', leaseHeartbeatAt: '2026-10-19T06:12:19.000Z' },
+        { status: 'QUEUED', leaseHeartbeatAt: null },
+        { status: 'AWAITING_APPROVAL', leaseHeartbeatAt: null },
+      ],
+      now,
+    )).toEqual({ kind: 'queued-with-active-task', workers: [{ workerId: 'old', status: 'STALE' }], activeTaskCount: 1, queuedTaskCount: 1 })
+  })
+
+  test('does not treat an old lease or approval-only task as active work', () => {
+    const now = Date.parse('2026-10-19T06:12:30.000Z')
+    expect(summarizeWorkerAttention(
+      [{ workerId: 'old', status: 'STALE' }],
+      [
+        { status: 'RUNNING', leaseHeartbeatAt: '2026-10-19T06:09:59.000Z' },
+        { status: 'AWAITING_APPROVAL', leaseHeartbeatAt: null },
+      ],
+      now,
+    )).toEqual({ kind: 'stale', workers: [{ workerId: 'old', status: 'STALE' }] })
+  })
+
+  test('keeps queued tasks visible when every registered worker is stale', () => {
+    expect(summarizeWorkerAttention(
+      [{ workerId: 'old', status: 'STALE' }],
+      [{ status: 'QUEUED', leaseHeartbeatAt: null }],
+      Date.parse('2026-10-19T06:12:30.000Z'),
+    )).toEqual({ kind: 'stale', workers: [{ workerId: 'old', status: 'STALE' }], queuedTaskCount: 1 })
+  })
 })
