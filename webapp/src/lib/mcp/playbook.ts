@@ -252,7 +252,7 @@ export const ONBOARDING_PLAYBOOK: Record<string, PlaybookEntry> = {
       'Dossiers may also include up to three completed providerAlternates for the same artifact after canonical-key or normalized native-address matching and exact input/output hash checks; inspect identityMatch and compare outputs as separate provider claims, not as canonical or accepted source. ToCode ' +
       'dossiers expose a bounded export-scoped type catalog and the source artifact identity.',
     gotchas: [
-      'Returned code is bounded to 128 KiB per file and may be truncated; check each truncated flag before reasoning from the snippet.',
+      'Each source field is bounded to 128 KiB per call. For a truncated source, call workspace_get_code_unit again with sourceOffsetBytes set to that field’s nextOffsetBytes; continue until truncated is false. Offsets are UTF-8 byte offsets and each source field reports its own nextOffsetBytes.',
       'Only relationships already persisted for the same analysis task are included. Missing edges do not prove that no call exists.',
       'Availability fields describe what REAmon persisted. “None recorded” does not establish that the binary has no calls or member references.',
       'Decompiler output is provider evidence, not original source or canonical truth. Use other stored evidence to corroborate names and types.',

@@ -43,6 +43,7 @@ export interface WorkspaceListCodeUnitsArgs {
 export interface WorkspaceGetCodeUnitArgs {
   projectId: string
   codeUnitId: string
+  sourceOffsetBytes?: number
 }
 
 export interface WorkspaceListCodeRelationshipsArgs {
@@ -238,11 +239,41 @@ function sourceAddressMappings(value: unknown): { mappings: Array<{ sourceLineNu
   }
 }
 
-function boundedSource(value: string): { sourceCode: string; truncated: boolean } {
+function utf8Page(bytes: Buffer, offsetBytes: number, totalBytes: number) {
+  let start = 0
+  while (start < bytes.length && (bytes[start] & 0xc0) === 0x80) start += 1
+  const actualOffset = offsetBytes + start
+  let end = Math.min(bytes.length, start + MAX_CODE_BYTES)
+  if (actualOffset + end - start < totalBytes) {
+    let lead = end - 1
+    while (lead >= start && (bytes[lead] & 0xc0) === 0x80) lead -= 1
+    if (lead >= start) {
+      const first = bytes[lead]
+      const sequenceLength = first >= 0xf0 ? 4 : first >= 0xe0 ? 3 : first >= 0xc2 ? 2 : 1
+      if (end - lead < sequenceLength) end = lead
+    }
+  }
+  const page = bytes.subarray(start, end)
+  const nextOffsetBytes = actualOffset + page.length
+  return {
+    text: page.toString('utf8'),
+    offsetBytes: actualOffset,
+    nextOffsetBytes,
+    truncated: nextOffsetBytes < totalBytes,
+  }
+}
+
+function boundedSource(value: string, offsetBytes = 0) {
   const bytes = Buffer.from(value, 'utf8')
-  const truncated = bytes.byteLength > MAX_CODE_BYTES
-  const prefix = bytes.subarray(0, MAX_CODE_BYTES).toString('utf8')
-  return { sourceCode: truncated ? prefix.replace(/\uFFFD$/, '') : prefix, truncated }
+  const offset = Math.min(Math.max(0, Math.floor(offsetBytes)), bytes.length)
+  const page = utf8Page(bytes.subarray(offset, Math.min(bytes.length, offset + MAX_CODE_BYTES + 4)), offset, bytes.length)
+  return {
+    sourceCode: page.text,
+    offsetBytes: page.offsetBytes,
+    nextOffsetBytes: page.nextOffsetBytes,
+    sizeBytes: bytes.length,
+    truncated: page.truncated,
+  }
 }
 
 function safeDerivedPath(relativePath: unknown, projectId: string, artifactId: string | null): string | null {
@@ -253,7 +284,13 @@ function safeDerivedPath(relativePath: unknown, projectId: string, artifactId: s
   try { return resolveDerivedArtifactPath(relativePath) } catch { return null }
 }
 
-async function readDerivedText(relativePath: unknown, projectId: string, artifactId: string | null, maxHashBytes = MAX_HASH_SOURCE_BYTES) {
+async function readDerivedText(
+  relativePath: unknown,
+  projectId: string,
+  artifactId: string | null,
+  maxHashBytes = MAX_HASH_SOURCE_BYTES,
+  offsetBytes = 0,
+) {
   const filePath = safeDerivedPath(relativePath, projectId, artifactId)
   if (!filePath) return null
   let handle: Awaited<ReturnType<typeof open>> | null = null
@@ -265,7 +302,8 @@ async function readDerivedText(relativePath: unknown, projectId: string, artifac
     handle = await open(resolved, 'r')
     const stat = await handle.stat()
     if (!stat.isFile() || stat.size < 0) return null
-    const buffer = Buffer.alloc(Math.min(stat.size, MAX_CODE_BYTES))
+    const offset = Math.min(Math.max(0, Math.floor(offsetBytes)), stat.size)
+    const buffer = Buffer.alloc(Math.min(stat.size - offset, MAX_CODE_BYTES + 4))
     let bytesReturned = 0
     let sourceHash: string | null = null
     if (stat.size <= maxHashBytes) {
@@ -276,23 +314,29 @@ async function readDerivedText(relativePath: unknown, projectId: string, artifac
         const result = await handle.read(chunk, 0, Math.min(chunk.length, stat.size - position), position)
         if (result.bytesRead <= 0) break
         digest.update(chunk.subarray(0, result.bytesRead))
-        const copyBytes = Math.min(result.bytesRead, buffer.length - bytesReturned)
-        if (copyBytes > 0) {
-          chunk.copy(buffer, bytesReturned, 0, copyBytes)
+        const readEnd = position + result.bytesRead
+        const copyStart = Math.max(position, offset)
+        const copyEnd = Math.min(readEnd, offset + buffer.length)
+        if (copyEnd > copyStart) {
+          const copyBytes = copyEnd - copyStart
+          chunk.copy(buffer, copyStart - offset, copyStart - position, copyStart - position + copyBytes)
           bytesReturned += copyBytes
         }
         position += result.bytesRead
       }
       if (position === stat.size) sourceHash = digest.digest('hex')
     } else if (buffer.length) {
-      const result = await handle.read(buffer, 0, buffer.length, 0)
+      const result = await handle.read(buffer, 0, buffer.length, offset)
       bytesReturned = result.bytesRead
     }
+    const page = utf8Page(buffer.subarray(0, bytesReturned), offset, stat.size)
     return {
-      text: buffer.subarray(0, bytesReturned).toString('utf8'),
+      text: page.text,
+      offsetBytes: page.offsetBytes,
+      nextOffsetBytes: page.nextOffsetBytes,
       bytesReturned,
       sizeBytes: stat.size,
-      truncated: stat.size > MAX_CODE_BYTES,
+      truncated: page.truncated,
       sourceHash,
     }
   } catch {
@@ -752,6 +796,10 @@ export async function listWorkspaceCodeUnits(ctx: McpContext, args: WorkspaceLis
 export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCodeUnitArgs) {
   const selection = await prepareRead(ctx, args.projectId)
   if (!args.codeUnitId || args.codeUnitId.length > 64) throw new McpToolError('Invalid code unit id.', 'invalid_input')
+  const sourceOffsetBytes = args.sourceOffsetBytes ?? 0
+  if (!Number.isSafeInteger(sourceOffsetBytes) || sourceOffsetBytes < 0 || sourceOffsetBytes > MAX_VERIFIED_DERIVED_ARTIFACT_BYTES) {
+    throw new McpToolError('sourceOffsetBytes must be a non-negative byte offset no greater than 128 MiB.', 'invalid_input')
+  }
   const unit = await prisma.reamonObservation.findFirst({
     where: {
       id: args.codeUnitId,
@@ -811,7 +859,7 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
   const disassemblyHashMetadataPresent = attributes.disassemblyArtifactSha256 !== undefined
   const [code, disassembly, bytecode, rawEvidence, task, edges, referenceEdges, maintained, providerTypeMetadataRow, providerAlternateRows] = await Promise.all([
     readDerivedText(codeArtifactId, args.projectId, unit.artifactId,
-      codeHashMetadataPresent ? MAX_VERIFIED_DERIVED_ARTIFACT_BYTES : MAX_HASH_SOURCE_BYTES),
+      codeHashMetadataPresent ? MAX_VERIFIED_DERIVED_ARTIFACT_BYTES : MAX_HASH_SOURCE_BYTES, sourceOffsetBytes),
     readDerivedText(disassemblyArtifactId, args.projectId, unit.artifactId,
       disassemblyHashMetadataPresent ? MAX_VERIFIED_DERIVED_ARTIFACT_BYTES : MAX_HASH_SOURCE_BYTES),
     readDerivedText(bytecodeArtifactId, args.projectId, unit.artifactId),
@@ -1362,6 +1410,8 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
       scope: parentUnit ? 'containing_code_unit' : 'code_unit',
       relativePath: text(attributes.relativePath, 1000),
       text: verifiedCode.text,
+      offsetBytes: verifiedCode.offsetBytes,
+      nextOffsetBytes: verifiedCode.nextOffsetBytes,
       sizeBytes: verifiedCode.sizeBytes,
       sourceHash: verifiedCode.sourceHash,
       truncated: verifiedCode.truncated,
@@ -1370,6 +1420,8 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
       relativePath: text(attributes.relativePath, 1000),
       language: text(attributes.language, 80),
       text: verifiedCode.text,
+      offsetBytes: verifiedCode.offsetBytes,
+      nextOffsetBytes: verifiedCode.nextOffsetBytes,
       sizeBytes: verifiedCode.sizeBytes,
       sha256: verifiedCode.sourceHash,
       runtimeVersion: text(attributes.runtimeVersion, 300),
@@ -1450,7 +1502,7 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
         ? 'count_only'
         : 'not_persisted',
     maintainedSource: maintained && maintainedSourceVerified ? {
-      ...boundedSource(maintained.sourceCode),
+      ...boundedSource(maintained.sourceCode, sourceOffsetBytes),
       scope: parentUnit ? 'containing_code_unit' : 'code_unit',
       sourceHash: maintainedSourceHash,
       acceptedReviewId: maintained.acceptedReviewId,
@@ -1475,7 +1527,7 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
           : maintainedSourceHashMatches ? 'accepted_review_receipt_missing_or_mismatched' : 'source_hash_mismatch'
       : 'no_maintained_source',
     savedDraft: draft && draftHashMatches ? {
-      ...boundedSource(draft.sourceCode),
+      ...boundedSource(draft.sourceCode, sourceOffsetBytes),
       scope: parentUnit ? 'containing_code_unit' : 'code_unit',
       sourceHash: draft.sourceHash,
       draftHash: draftSourceHash,

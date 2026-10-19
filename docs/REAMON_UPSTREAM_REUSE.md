@@ -495,16 +495,27 @@ and CFG context to this surface only when a provider has persisted those facts.
 ## decomp.wtf source audit
 
 The source was inspected at commit `575b4a30ed481ff5497dfb9ce4f599368a95a04a`,
-the repository's final commit before it was archived on 2026-10-15. Its README
-describes the end-to-end loop: agents take distinct functions, receive assembly,
-related data, callers, machine drafts, and earlier notes; every attempt is built
-with the target compiler and judged; misses return an instruction diff; matches
-are saved and shared; and regression guards protect previous matches. This process
-is the highest-priority reference for REAmon's next workflow work, ahead of adding
-more isolated engines. Its execution and persistence code is tightly coupled to ROM
-projects, local compiler toolchains, and a SQLite coordinator. REAmon should adapt
-the contracts rather than replace its PostgreSQL-backed project records with that
-store.
+which is still the `main` tip and the last push reported by GitHub on 2026-10-15.
+GitHub currently marks the MIT-licensed repository archived. The final README
+describes a loop where agents claim distinct functions, receive assembly, related
+data, callers, machine drafts, and previous notes; every attempt is built with
+the target compiler and judged; misses return an instruction diff; and accepted
+matches are shared and protected from regressions. Its public surface is deliberately
+tool-bound: agents use an MCP API without shell access, and parallel helper agents
+can work on separate functions. Host-based collaboration rooms coordinate claims
+and notes while each member keeps and verifies against their own local game copy.
+These are strong workflow and privacy references even though the runtime is tuned
+for game projects and reproducible compiler toolchains.
+
+REAmon now has persisted function-level attempts, cross-unit project memory,
+conflict-aware merge checks, and scoped MCP reads. The MCP code-unit reader now
+pages long provider output by UTF-8 byte offsets while retaining hash verification
+and provenance, so agents can read a large function in bounded requests. Remaining
+adaptations are a durable multi-client claim queue, provider-specific compiler or
+oracle validators with exact input/output receipts, and reviewable cross-unit
+symbol changes that protect already-accepted source. Keep REAmon's PostgreSQL
+records authoritative; do not transplant the game compiler, ROM adapters, or
+SQLite store.
 
 - `src/decompnet/server.py` shows small MCP operations for claiming one function,
   reporting attempts, shared notes, and live status. Map that lifecycle to
@@ -534,10 +545,12 @@ store.
 
 ## Source references
 
-- [decomp.wtf workflow, license, and archive notice](https://github.com/i12bp8/decomp.wtf)
+- [decomp.wtf workflow, license, and archived repository status](https://github.com/i12bp8/decomp.wtf)
 - [decomp.wtf README workflow and guardrails](https://github.com/i12bp8/decomp.wtf/blob/575b4a30ed481ff5497dfb9ce4f599368a95a04a/README.md)
 - [decomp.wtf audited source snapshot](https://github.com/i12bp8/decomp.wtf/tree/575b4a30ed481ff5497dfb9ce4f599368a95a04a/src/decompnet)
 - [decomp.wtf instruction-sequence similarity implementation](https://github.com/i12bp8/decomp.wtf/blob/575b4a30ed481ff5497dfb9ce4f599368a95a04a/src/decompnet/similarity.py)
+- [DecLib cross-decompiler API and supported backends](https://github.com/binsync/declib)
+- [DecLib BSD-2-Clause license](https://github.com/binsync/declib/blob/main/LICENSE)
 - [ReAgent independent checker and bounded reconstruction loop](https://github.com/Dryxio/reagent/blob/main/src/re_agent/agents/loop.py)
 - [ReAgent validation configuration and MIT license](https://github.com/Dryxio/reagent/blob/main/pyproject.toml)
 - [Quokka shared protobuf exporter design and backend support](https://github.com/quarkslab/quokka)
