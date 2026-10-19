@@ -44,7 +44,7 @@ describe('WorkspaceAnalysisPlanPanel', () => {
     const onScheduled = vi.fn()
     render(<WorkspaceAnalysisPlanPanel projectId="project-1" plan={plan} isLoading={false} isError={false} onScheduled={onScheduled} />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Run' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Run extract_strings for src/main.c' }))
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('extract_strings is queued for src/main.c.'))
 
     expect(fetch).toHaveBeenCalledWith('/api/projects/project-1/workspace/analysis-plan/schedule', expect.objectContaining({

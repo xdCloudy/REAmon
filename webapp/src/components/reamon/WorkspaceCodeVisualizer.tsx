@@ -8,9 +8,7 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { mergeDiff3 } from 'node-diff3'
 import { buildCodeUnitTreemapEntries, filterCodeUnits, filterCodeUnitsByFolder, layoutCodeUnitTreemap, parseCodeUnitFilter, summarizeCodeUnits, type CodeUnit, type CodeUnitTreemapEntry } from '@/lib/reamon/code-units'
-import type { CallGraphRecord, CallGraphRelationship } from '@/lib/reamon/callgraph-layout'
 import { sourceSyntaxLanguage } from './source-language'
-import { WorkspaceCallGraphCanvas } from './WorkspaceCallGraphCanvas'
 import styles from './WorkspaceCodeVisualizer.module.css'
 
 interface CodeUnitResponse {
@@ -126,22 +124,6 @@ interface MaintainedCoverageResponse {
   sourceLinkedPercent: number
   codeBytes: number
   measuredBytes: number
-}
-
-interface CallGraphNode {
-  key: string
-  label: string
-  address: string | null
-  codeUnit: CodeUnit | null
-  isFocus: boolean
-}
-
-interface CallGraphResponse {
-  graphType?: 'function_calls' | 'class_dependencies' | 'member_references'
-  focusKey: string | null
-  nodes: CallGraphNode[]
-  edges: Array<{ id: string; fromKey: string; toKey: string; label: string }>
-  truncated: boolean
 }
 
 interface SimilarFunctionsResponse {
@@ -504,16 +486,6 @@ async function fetchMaintainedCoverage(projectId: string, taskId: string, signal
   } as MaintainedCoverageResponse
 }
 
-async function fetchCallGraph(projectId: string, taskId: string, unitId: string, signal?: AbortSignal): Promise<CallGraphResponse> {
-  const params = new URLSearchParams({ taskId, unitId })
-  const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/callgraph?${params.toString()}`, { signal, cache: 'no-store' })
-  if (!response.ok) {
-    const detail = await response.json().catch(() => null) as { error?: string } | null
-    throw new Error(detail?.error || 'Unable to load this function call graph')
-  }
-  return response.json()
-}
-
 async function fetchFunctionControlFlowGraph(projectId: string, taskId: string, functionId: string, signal?: AbortSignal): Promise<FunctionControlFlowGraph> {
   const params = new URLSearchParams({ taskId, functionId })
   const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/function-cfg?${params.toString()}`, { signal, cache: 'no-store' })
@@ -530,18 +502,6 @@ async function fetchSimilarFunctions(projectId: string, taskId: string, unitId: 
   if (!response.ok) {
     const detail = await response.json().catch(() => null) as { error?: string } | null
     throw new Error(detail?.error || 'Unable to find similar functions')
-  }
-  return response.json()
-}
-
-async function fetchRunCallGraph(projectId: string, taskId: string, unitId: string, graphType: 'function_calls' | 'class_dependencies' | 'member_references', signal?: AbortSignal): Promise<CallGraphResponse> {
-  const params = new URLSearchParams({ taskId, view: 'graph' })
-  if (unitId) params.set('unitId', unitId)
-  params.set('graphType', graphType)
-  const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/callgraph?${params.toString()}`, { signal, cache: 'no-store' })
-  if (!response.ok) {
-    const detail = await response.json().catch(() => null) as { error?: string } | null
-    throw new Error(detail?.error || 'Unable to load this run call graph')
   }
   return response.json()
 }
@@ -926,64 +886,6 @@ function SourceListing({ source, language, fileName, fullSourceUrl, sourceAddres
   </>
 }
 
-function CallGraphPanel({ focusUnit, graph, isLoading, isError, error, onSelectUnit }: {
-  focusUnit: CodeUnit
-  graph: CallGraphResponse | undefined
-  isLoading: boolean
-  isError: boolean
-  error: string
-  onSelectUnit: (unit: CodeUnit) => void
-}) {
-  const nodeByKey = new Map((graph?.nodes || []).map((node) => [node.key, node]))
-  const incoming = (graph?.edges || []).filter((edge) => edge.toKey === graph?.focusKey)
-  const outgoing = (graph?.edges || []).filter((edge) => edge.fromKey === graph?.focusKey)
-  const maxVisible = 8
-
-  function nodeControl(node: CallGraphNode | undefined, fallbackLabel: string, isFocus = false) {
-    if (!node) return <span className={styles.graphExternal}>{fallbackLabel}<small>Function unavailable</small></span>
-    if (isFocus) return <span className={`${styles.graphNode} ${styles.graphFocus}`}><strong>{node.label}</strong>{node.address && <small>{node.address}</small>}</span>
-    if (node.codeUnit) return <button type="button" className={styles.graphNode} onClick={() => onSelectUnit(node.codeUnit as CodeUnit)} aria-label={`Open function ${node.label}`}>
-      <strong>{node.label}</strong>{node.address && <small>{node.address}</small>}
-    </button>
-    return <span className={styles.graphExternal} title="External or not decompiled in this run"><strong>{node.label}</strong><small>{node.address || 'External or not decompiled'}</small></span>
-  }
-
-  return <section className={styles.callGraph} aria-labelledby="call-graph-heading">
-    <div className={styles.callGraphHeader}>
-      <div><h3 id="call-graph-heading">Function call graph</h3><p>Direct callers and callees recorded for this analysis. Select a linked function to open its code.</p></div>
-      <span className={styles.graphBadge}>{focusUnit.source.replace(/^reamon-/, '').toUpperCase()}</span>
-    </div>
-    {isLoading && <p className={styles.message}>Loading function relationships…</p>}
-    {isError && <p className={styles.error} role="alert">{error}</p>}
-    {!isLoading && !isError && graph && incoming.length === 0 && outgoing.length === 0 && <p className={styles.message}>No direct call relationships were recorded for this function.</p>}
-    {!isLoading && !isError && graph && (incoming.length > 0 || outgoing.length > 0) && <div className={styles.graphGroups}>
-      {incoming.length > 0 && <div className={styles.graphGroup}>
-        <h4>Called by</h4>
-        <div className={styles.graphEdges}>
-          {incoming.slice(0, maxVisible).map((edge) => <div className={styles.graphEdge} key={edge.id}>
-            {nodeControl(nodeByKey.get(edge.fromKey), edge.fromKey)}
-            <span className={styles.graphArrow} aria-label="calls">→</span>
-            {nodeControl(nodeByKey.get(edge.toKey), focusUnit.name, true)}
-          </div>)}
-        </div>
-        {incoming.length > maxVisible && <p className={styles.message}>Showing {maxVisible} of {incoming.length} callers.</p>}
-      </div>}
-      {outgoing.length > 0 && <div className={styles.graphGroup}>
-        <h4>Calls</h4>
-        <div className={styles.graphEdges}>
-          {outgoing.slice(0, maxVisible).map((edge) => <div className={styles.graphEdge} key={edge.id}>
-            {nodeControl(nodeByKey.get(edge.fromKey), focusUnit.name, true)}
-            <span className={styles.graphArrow} aria-label="calls">→</span>
-            {nodeControl(nodeByKey.get(edge.toKey), edge.toKey)}
-          </div>)}
-        </div>
-        {outgoing.length > maxVisible && <p className={styles.message}>Showing {maxVisible} of {outgoing.length} called functions.</p>}
-      </div>}
-      {graph.truncated && <p className={styles.message}>This function has more relationships than the graph response limit; showing the first results.</p>}
-    </div>}
-  </section>
-}
-
 export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, analysisHref, standalone = false }: {
   projectId: string
   isAnalyzing: boolean
@@ -994,21 +896,17 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
   const [filter, setFilter] = useState('')
   const [maintenanceFilter, setMaintenanceFilter] = useState<'all' | 'needs-work' | 'drafted' | 'maintained'>('all')
   const [serverSearch, setServerSearch] = useState('')
-  const [visualizerView, setVisualizerView] = useState<'function-map' | 'treemap' | 'callgraph'>('function-map')
+  const [visualizerView, setVisualizerView] = useState<'function-map' | 'treemap'>('function-map')
   const [mapContentPreference, setMapContentPreference] = useState<'auto' | 'units' | 'folders'>('auto')
   const [mapLayer, setMapLayer] = useState<'decompilation' | 'maintenance' | 'work'>('work')
   const [folderPath, setFolderPath] = useState<string[]>([])
   const [languageFilter, setLanguageFilter] = useState('')
-  const [graphSearch, setGraphSearch] = useState('')
-  const [graphFocusKey, setGraphFocusKey] = useState<string | null>(null)
-  const [jadxGraphType, setJadxGraphType] = useState<'function_calls' | 'class_dependencies'>('function_calls')
-  const [androidGraphType, setAndroidGraphType] = useState<'function_calls' | 'member_references'>('function_calls')
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [selectedEvidenceAddress, setSelectedEvidenceAddress] = useState<string | null>(null)
   const [selectedFunctionMapMember, setSelectedFunctionMapMember] = useState<{ id: string; taskId?: string; parentUnitId: string; name: string; similarityAvailable: boolean; hasControlFlowGraph: boolean } | null>(null)
   const [urlInitialized, setUrlInitialized] = useState(false)
-  const [graphUnit, setGraphUnit] = useState<CodeUnit | null>(null)
+  const [matchedUnitOverride, setMatchedUnitOverride] = useState<CodeUnit | null>(null)
   const [copyStatus, setCopyStatus] = useState('')
   const [compareAlternatesOpen, setCompareAlternatesOpen] = useState(false)
   const [compareDiffOpen, setCompareDiffOpen] = useState(false)
@@ -1125,8 +1023,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
     window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`)
   }, [currentRunId, selectedId, urlInitialized])
   const nextCursor = pageState ? pageState.nextCursor : query.data?.nextCursor || null
-  const currentRunIndex = runs.findIndex((run) => run.id === currentRunId)
-  const currentRun = currentRunIndex >= 0 ? runs[currentRunIndex] : null
+  const currentRun = runs.find((run) => run.id === currentRunId) || null
   const displayRunWarnings = currentRun?.warnings.replace(/(?:^|\s)Picked up JAVA_TOOL_OPTIONS:(?:\s+-\S+)*/g, '').trim() || ''
   const maintainedCoverageQuery = useQuery({
     queryKey: ['reamon-maintained-coverage', projectId, currentRunId],
@@ -1136,10 +1033,6 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
     refetchInterval: isAnalyzing ? 3000 : false,
     refetchIntervalInBackground: false,
   })
-  const canShowCallGraph = Boolean(currentRun?.providerId)
-  const graphType = currentRun?.providerId === 'reamon-jadx'
-    ? jadxGraphType
-    : currentRun?.providerId === 'reamon-dex-decompiler' || currentRun?.providerId === 'reamon-tocode-import' ? androidGraphType : 'function_calls'
   const visibleUnits = useMemo(() => {
     const matchedUnits = filterCodeUnits(units, filter)
     if (!filterSearch) return matchedUnits
@@ -1248,24 +1141,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
         recoveredVariablesTruncated: linkedSelectedUnit.recoveredVariablesTruncated,
       } : {}),
     }
-    : linkedSelectedUnit || (graphUnit?.id === selectedId ? graphUnit : undefined)
-  const runCallGraphQuery = useQuery({
-    queryKey: ['reamon-callgraph-run', projectId, currentRunId, selectedUnit?.id, graphFocusKey, graphType],
-    queryFn: ({ signal }) => fetchRunCallGraph(projectId, currentRunId as string,
-      graphFocusKey || (graphType === 'member_references'
-        ? selectedUnit?.id || ''
-        : selectedUnit?.unitType === 'function' ? selectedUnit.id : ''), graphType, signal),
-    enabled: Boolean(currentRunId && currentRun?.providerId && visualizerView === 'callgraph'),
-    staleTime: 30_000,
-    gcTime: 60_000,
-  })
-  const callGraphQuery = useQuery({
-    queryKey: ['reamon-callgraph', projectId, currentRunId, selectedUnit?.id],
-    queryFn: ({ signal }) => fetchCallGraph(projectId, currentRunId as string, selectedUnit?.id as string, signal),
-    enabled: Boolean(currentRunId && currentRun?.providerId === selectedUnit?.source && selectedUnit?.unitType === 'function'),
-    staleTime: 30_000,
-    gcTime: 60_000,
-  })
+    : linkedSelectedUnit || (matchedUnitOverride?.id === selectedId ? matchedUnitOverride : undefined)
   const selectedLuaFunctionId = selectedFunctionMapMember?.hasControlFlowGraph
     && selectedFunctionMapMember.parentUnitId === selectedUnit?.id
     ? selectedFunctionMapMember.id
@@ -1570,29 +1446,6 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
   const selectedProviderId = explanationProviders.some((provider) => provider.id === providerId)
     ? providerId
     : explanationProviders[0]?.id || ''
-  const graphSearchResults = useMemo(() => {
-    const search = graphSearch.trim().toLocaleLowerCase()
-    if (!search) return []
-    return (runCallGraphQuery.data?.nodes || [])
-      .filter((node) => `${node.label} ${node.address || ''} ${node.codeUnit?.bundlePath || ''} ${node.codeUnit?.artifactPath || ''}`.toLocaleLowerCase().includes(search))
-      .slice(0, 8)
-  }, [runCallGraphQuery.data, graphSearch])
-  const graphFocus = runCallGraphQuery.data?.nodes.find((node) => node.key === graphFocusKey)
-    || runCallGraphQuery.data?.nodes.find((node) => node.codeUnit?.id === selectedUnit?.id)
-    || null
-
-  function selectGraphNode(node: CallGraphRecord) {
-    setGraphFocusKey(node.key)
-    if (!node.codeUnit) return
-    setGraphUnit(node.codeUnit)
-    setSelectedId(node.codeUnit.id)
-    revealUnitInspector()
-    setCopyStatus('')
-    setAssemblyCopyStatus('')
-    setExplanation(null)
-    setExplainError('')
-  }
-
   async function copySource(text = sourceQuery.data, assembly = false) {
     if (!text) return
     const setStatus = assembly ? setAssemblyCopyStatus : setCopyStatus
@@ -1646,23 +1499,6 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
     } finally {
       setSavingProjectNote(false)
     }
-  }
-
-  function showRun(taskId: string | null) {
-    setSelectedRunId(taskId)
-    setAdditionalPage(null)
-    setLoadMoreError('')
-    setSelectedId(null)
-    setSelectedFunctionMapMember(null)
-    setGraphUnit(null)
-    setVisualizerView('function-map')
-    setFolderPath([])
-    setGraphFocusKey(null)
-    setGraphSearch('')
-    setCopyStatus('')
-    setAssemblyCopyStatus('')
-    setExplanation(null)
-    setExplainError('')
   }
 
   function revealUnitInspector() {
@@ -2248,16 +2084,12 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
     if (entry.folderPath) {
       setFolderPath(entry.folderPath)
       setSelectedId(null)
-      setGraphUnit(null)
-      setGraphFocusKey(null)
       setExplanation(null)
       setExplainError('')
       return
     }
     if (!entry.codeUnit) return
     setSelectedId(entry.codeUnit.id)
-    setGraphUnit(null)
-    setGraphFocusKey(null)
     revealUnitInspector()
     setCopyStatus('')
     setAssemblyCopyStatus('')
@@ -2293,8 +2125,6 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
   function showFolder(path: string[]) {
     setFolderPath(path)
     setSelectedId(null)
-    setGraphUnit(null)
-    setGraphFocusKey(null)
     setExplanation(null)
     setExplainError('')
   }
@@ -2303,8 +2133,6 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
     setMaintenanceFilter(value)
     setSelectedId(null)
     setSelectedFunctionMapMember(null)
-    setGraphUnit(null)
-    setGraphFocusKey(null)
   }
 
   const loadMoreUnits = useCallback(async () => {
@@ -2405,15 +2233,6 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
           {currentRun && <div className={styles.viewSwitcher} role="group" aria-label="Code visualizer view">
             <button type="button" className={visualizerView === 'function-map' ? styles.viewButtonActive : styles.viewButton} aria-pressed={visualizerView === 'function-map'} onClick={() => setVisualizerView('function-map')}>Code map</button>
             <button type="button" className={visualizerView === 'treemap' ? styles.viewButtonActive : styles.viewButton} aria-pressed={visualizerView === 'treemap'} onClick={() => setVisualizerView('treemap')}>Treemap</button>
-            {canShowCallGraph && <button type="button" className={visualizerView === 'callgraph' ? styles.viewButtonActive : styles.viewButton} aria-pressed={visualizerView === 'callgraph'} onClick={() => setVisualizerView('callgraph')}>{graphType === 'class_dependencies' ? 'Class dependencies' : graphType === 'member_references' ? 'Member references' : 'Call graph'}</button>}
-          </div>}
-          {currentRun?.providerId === 'reamon-jadx' && visualizerView === 'callgraph' && <div className={styles.viewSwitcher} role="group" aria-label="Android relationship graph">
-            <button type="button" className={graphType === 'function_calls' ? styles.viewButtonActive : styles.viewButton} aria-pressed={graphType === 'function_calls'} onClick={() => { setGraphFocusKey(null); setJadxGraphType('function_calls') }}>Method calls</button>
-            <button type="button" className={graphType === 'class_dependencies' ? styles.viewButtonActive : styles.viewButton} aria-pressed={graphType === 'class_dependencies'} onClick={() => { setGraphFocusKey(null); setJadxGraphType('class_dependencies') }}>Class dependencies</button>
-          </div>}
-          {(currentRun?.providerId === 'reamon-dex-decompiler' || currentRun?.providerId === 'reamon-tocode-import') && visualizerView === 'callgraph' && <div className={styles.viewSwitcher} role="group" aria-label="Android relationship graph">
-            <button type="button" className={graphType === 'function_calls' ? styles.viewButtonActive : styles.viewButton} aria-pressed={graphType === 'function_calls'} onClick={() => { setGraphFocusKey(null); setAndroidGraphType('function_calls') }}>Method calls</button>
-            {(currentRun?.providerId === 'reamon-dex-decompiler' || currentRun?.providerId === 'reamon-tocode-import') && <button type="button" className={graphType === 'member_references' ? styles.viewButtonActive : styles.viewButton} aria-pressed={graphType === 'member_references'} onClick={() => { setGraphFocusKey(null); setAndroidGraphType('member_references') }}>Field and string references</button>}
           </div>}
           <Link className={styles.focusLink} href={standalone ? `/projects/${encodeURIComponent(projectId)}` : `/projects/${encodeURIComponent(projectId)}/visualizer`}>
             {standalone ? 'Back to workspace' : 'Open full visualizer'}
@@ -2421,22 +2240,11 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
         </div>
       </div>
 
-      {currentRun && <nav className={styles.runHistory} aria-label="Analysis run history">
-        <button type="button" className={styles.runButton} aria-label="Previous run" disabled={currentRunIndex >= runs.length - 1} onClick={() => showRun(runs[currentRunIndex + 1]?.id || null)}>Previous</button>
-        <div className={styles.runDetails} aria-live="polite">
-          <strong>Run {currentRunIndex + 1} of {runs.length}</strong>
-          <span>{currentRun.artifactName} · {new Date(currentRun.completedAt || currentRun.createdAt).toLocaleString()}</span>
-          <small>{currentRun.codeUnitCount.toLocaleString()} code units</small>
-        </div>
-        <button type="button" className={styles.runButton} aria-label="Next run" disabled={currentRunIndex <= 0} onClick={() => showRun(runs[currentRunIndex - 1]?.id || null)}>Next</button>
-        <button type="button" className={styles.runButton} aria-label="Latest run" disabled={currentRunIndex === 0} onClick={() => showRun(null)}>Latest</button>
-      </nav>}
-
-      {failedRuns.length > 0 && <section className={styles.failedRunList} aria-label="Unsuccessful analysis runs">
-        <div className={styles.failedRunHeading}>
-          <strong>Recent unsuccessful runs</strong>
+      {failedRuns.length > 0 && <details className={styles.failedRunList}>
+        <summary className={styles.failedRunHeading}>
+          <strong>Recent unsuccessful runs ({failedRuns.length})</strong>
           <span>These attempts are kept separate from completed output.</span>
-        </div>
+        </summary>
         {failedRuns.map((run) => <article className={styles.failedRun} key={run.id}>
           <div className={styles.failedRunTitle}>
             <strong>{run.status === 'CANCELLED' ? 'Cancelled' : 'Failed'} · {run.title}</strong>
@@ -2447,7 +2255,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
           <small>Run {run.id.slice(-8)}</small>
           <a className={styles.failedRunLink} href="#analysis-tasks">Review task controls</a>
         </article>)}
-      </section>}
+      </details>}
 
       {currentRun && <div className={styles.progressCards}>
       <div className={styles.runSummary} aria-label="Selected analysis summary">
@@ -2673,7 +2481,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
           <span><i className={styles.complete} /> Maintained source saved</span>
         </div>}
 
-        <div className={`${styles.workbench} ${selectedUnit && visualizerView !== 'callgraph' ? '' : styles.workbenchMapOnly}`}>
+        <div className={`${styles.workbench} ${selectedUnit ? '' : styles.workbenchMapOnly}`}>
         <div className={styles.mapColumn} aria-label="Program map and relationships">
         {(visualizerView === 'function-map' || visualizerView === 'treemap') && ((visualizerView === 'function-map' ? folderUnits.length : treemapEntries.length) ? <div className={styles.mapFrame}>
           {visualizerView === 'treemap' && folderPath.length > 0 && <nav className={styles.folderPath} aria-label="Program source path">
@@ -2793,38 +2601,6 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
             })}
           </svg>}
         </div> : <p className={styles.noMatches}>{maintenanceFilter === 'all' ? 'No code units match this filter.' : maintenanceFilter === 'drafted' ? 'No code units have a saved draft in the current map.' : 'No code units match this work status in the current map.'}</p>)}
-
-        {visualizerView === 'callgraph' && <section className={styles.callGraph} aria-labelledby="run-call-graph-heading">
-          <div className={styles.callGraphHeader}>
-            <div><h3 id="run-call-graph-heading">{graphType === 'class_dependencies' ? 'Program class dependencies' : graphType === 'member_references' ? 'Program field and string references' : 'Program call graph'}</h3><p>{graphType === 'class_dependencies' ? 'Classes connected by references found in Android bytecode. Select a class to open its decompiled source.' : graphType === 'member_references' ? 'Methods linked to referenced fields and string literals. Access direction is shown only when the analyzer reports it. Select a method to inspect its source, or a symbol to focus its related methods.' : 'Functions and direct calls recorded by the analyzer. Drag to arrange, scroll to zoom, or select a function to open its code.'}</p></div>
-            {runCallGraphQuery.data && <span className={styles.graphBadge}>{graphType === 'class_dependencies'
-              ? `${runCallGraphQuery.data.nodes.length.toLocaleString()} classes · ${runCallGraphQuery.data.edges.length.toLocaleString()} dependencies`
-              : graphType === 'member_references'
-                ? `${runCallGraphQuery.data.nodes.length.toLocaleString()} methods and symbols · ${runCallGraphQuery.data.edges.length.toLocaleString()} references`
-                : `${runCallGraphQuery.data.nodes.length.toLocaleString()} functions · ${runCallGraphQuery.data.edges.length.toLocaleString()} calls`}</span>}
-          </div>
-          <label className={styles.filter}>
-            <Search size={16} aria-hidden="true" />
-            <span className={styles.srOnly}>Search call graph</span>
-            <input value={graphSearch} onChange={(event) => setGraphSearch(event.target.value)} placeholder={graphType === 'class_dependencies' ? 'Find a class by name' : graphType === 'member_references' ? 'Find a method, field, or string' : 'Find a function by name or address'} />
-          </label>
-          {graphSearchResults.length > 0 && <div className={styles.graphSearchResults} aria-label="Call graph search results">
-            {graphSearchResults.map((node) => <button type="button" key={node.key} onClick={() => selectGraphNode(node)}>
-              <strong>{node.label}</strong><small>{node.address || (node.codeUnit ? node.codeUnit.artifactPath : 'External or not decompiled')}</small>
-            </button>)}
-          </div>}
-          {runCallGraphQuery.isLoading && <p className={styles.message}>Loading run relationships…</p>}
-          {runCallGraphQuery.isError && <p className={styles.error} role="alert">{runCallGraphQuery.error instanceof Error ? runCallGraphQuery.error.message : 'Unable to load this run call graph'}</p>}
-          {!runCallGraphQuery.isLoading && !runCallGraphQuery.isError && runCallGraphQuery.data && runCallGraphQuery.data.nodes.length === 0 && <p className={styles.message}>{graphType === 'class_dependencies' ? 'This JADX run did not record any class references.' : graphType === 'member_references' ? 'This run did not record field or string references.' : 'This run did not record any function calls.'}</p>}
-          {!runCallGraphQuery.isLoading && !runCallGraphQuery.isError && runCallGraphQuery.data && runCallGraphQuery.data.nodes.length > 0 && <WorkspaceCallGraphCanvas
-            nodes={runCallGraphQuery.data.nodes as CallGraphRecord[]}
-            edges={runCallGraphQuery.data.edges as CallGraphRelationship[]}
-            focusKey={graphFocus?.key || runCallGraphQuery.data.focusKey}
-            graphType={runCallGraphQuery.data.graphType || graphType}
-            onSelectNode={selectGraphNode}
-          />}
-          {runCallGraphQuery.data?.truncated && <p className={styles.message}>{graphType === 'class_dependencies' ? 'Showing up to 400 class dependencies. Select a class to inspect its direct relationships.' : graphType === 'member_references' ? 'Showing the first 400 field and string relationships. Select a class, method, or symbol to inspect its direct references.' : 'Showing the first 400 call relationships returned by the analyzer.'}</p>}
-        </section>}
 
         {nextCursor && <p className={styles.message}>Showing {units.length.toLocaleString()} of {query.data.total.toLocaleString()} code units matching your search. Load more to include additional units in size and coverage filters.</p>}
         </div>
@@ -3079,7 +2855,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
           {(selectedUnit.classReferences?.length ?? 0) > 0 && <section className={styles.classReferences} aria-label="Related classes">
             <div><strong>Related classes</strong><span>From Android bytecode references</span></div>
             <ul>{selectedUnit.classReferences?.slice(0, 24).map((name) => <li key={name}>
-              <button type="button" onClick={() => { setFilter(name); setSelectedId(null); setGraphUnit(null); setFolderPath([]) }} title={`Find ${name} in this run`}>{name}</button>
+              <button type="button" onClick={() => { setFilter(name); setSelectedId(null); setFolderPath([]) }} title={`Find ${name} in this run`}>{name}</button>
             </li>)}</ul>
             {(selectedUnit.classReferences?.length ?? 0) > 24 && <small>Showing 24 of {selectedUnit.classReferences?.length} references.</small>}
           </section>}
@@ -3113,21 +2889,6 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
               ><ExternalLink size={14} /> Open code separately</a>
             : <p className={styles.message}>This provider has not attached a viewable code artifact to the unit.</p>}
         </div>}
-        {(visualizerView === 'treemap' || visualizerView === 'function-map') && currentRun?.providerId === selectedUnit?.source && selectedUnit?.unitType === 'function' && <CallGraphPanel
-          focusUnit={selectedUnit}
-          graph={callGraphQuery.data}
-          isLoading={callGraphQuery.isLoading}
-          isError={callGraphQuery.isError}
-          error={callGraphQuery.error instanceof Error ? callGraphQuery.error.message : 'Unable to load this function call graph'}
-          onSelectUnit={(unit) => {
-            setGraphUnit(unit)
-            setSelectedId(unit.id)
-            setCopyStatus('')
-            setAssemblyCopyStatus('')
-            setExplanation(null)
-            setExplainError('')
-          }}
-        />}
         {selectedUnit?.source === currentRun?.providerId && Boolean(selectedSimilarityTarget) && <section className={styles.similarFunctions} aria-labelledby="similar-functions-heading">
           <div className={styles.similarFunctionsHeading}><h3 id="similar-functions-heading">Similar functions</h3><span>Instruction sequences; control-flow evidence where available</span></div>
           {similarFunctionsQuery.isLoading && <p className={styles.message}>Comparing this function with stored evidence from completed analyses…</p>}
@@ -3135,7 +2896,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
           {!similarFunctionsQuery.isLoading && !similarFunctionsQuery.isError && similarFunctionsQuery.data?.matches.length === 0 && <p className={styles.message}>{similarFunctionsQuery.data.unavailableReason || 'No close function matches were found in this project.'}</p>}
           {similarFunctionsQuery.data?.matches.map(({ codeUnit, taskId: matchTaskId, function: matchedFunction, similarity, instructionSimilarity, controlFlowSimilarity, artifact }) => <button type="button" className={styles.similarFunction} key={matchedFunction?.id || codeUnit.id} onClick={() => {
             if (matchTaskId) setSelectedRunId(matchTaskId)
-            setGraphUnit(codeUnit)
+            setMatchedUnitOverride(codeUnit)
             setSelectedId(codeUnit.id)
             setSelectedFunctionMapMember(matchedFunction ? {
               id: matchedFunction.id,

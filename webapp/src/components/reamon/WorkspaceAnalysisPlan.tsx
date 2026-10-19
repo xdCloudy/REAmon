@@ -168,7 +168,13 @@ export function WorkspaceAnalysisPlanPanel({ projectId, plan, isLoading, isError
               </span>
               {step.previousRunCount ? <span className={styles.history}>{step.previousRunCount} prior run{step.previousRunCount === 1 ? '' : 's'}</span> : <span className={styles.history} />}
               <span className={styles.actions}>
-                <button type="button" className={styles.queueButton} disabled={pendingId !== null || isActive} onClick={() => void run(step)}>{runLabel}</button>
+                <button
+                  type="button"
+                  className={styles.queueButton}
+                  aria-label={`${runLabel} ${step.capability} for ${step.relativePath}`}
+                  disabled={pendingId !== null || isActive}
+                  onClick={() => void run(step)}
+                >{runLabel}</button>
                 <button type="button" className={styles.clearButton} aria-label={`Clear ${step.capability} proposal for ${step.relativePath}`} disabled={pendingId !== null} onClick={() => void clear(step)}>Clear</button>
               </span>
             </div>

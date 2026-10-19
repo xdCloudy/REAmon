@@ -164,20 +164,20 @@ export function WorkspaceTaskList({ projectId, tasks, onChanged }: {
             {isStaleForRecovery(task) && <small>No update for {heartbeatLabel(task.leaseHeartbeatAt || task.startedAt).replace('heartbeat stale (', '').replace(')', '')}</small>}
           </span>
           <span className={styles.actions}>
-            {task.status === 'QUEUED' && <button type="button" className={styles.actionButton} disabled={pendingAction !== null} onClick={() => void execute(task)}>
+            {task.status === 'QUEUED' && <button type="button" className={styles.actionButton} aria-label={`${pendingAction === `execute:${task.id}` ? 'Running' : 'Run'} ${task.title}`} disabled={pendingAction !== null} onClick={() => void execute(task)}>
               {pendingAction === `execute:${task.id}` ? 'Running…' : 'Run'}
             </button>}
-            {(task.status === 'FAILED' || task.status === 'CANCELLED') && <button type="button" className={styles.actionButton} disabled={pendingAction !== null} onClick={() => void retry(task)}>
+            {(task.status === 'FAILED' || task.status === 'CANCELLED') && <button type="button" className={styles.actionButton} aria-label={`Retry ${task.title}`} disabled={pendingAction !== null} onClick={() => void retry(task)}>
               {pendingAction === `retry:${task.id}` ? 'Requeuing…' : 'Retry'}
             </button>}
-            {(task.status === 'QUEUED' || task.status === 'RUNNING') && <button type="button" className={styles.actionButton} disabled={pendingAction !== null} onClick={() => void cancel(task)}>
+            {(task.status === 'QUEUED' || task.status === 'RUNNING') && <button type="button" className={styles.actionButton} aria-label={`Cancel ${task.title}`} disabled={pendingAction !== null} onClick={() => void cancel(task)}>
               {pendingAction === `cancel:${task.id}` ? 'Cancelling…' : 'Cancel'}
             </button>}
             {task.status === 'AWAITING_APPROVAL' && task.approval?.status === 'PENDING' && <>
-              <button type="button" className={styles.actionButton} disabled={pendingAction !== null} onClick={() => void decide(task, 'approve')}>
+              <button type="button" className={styles.actionButton} aria-label={`Approve ${task.title}`} disabled={pendingAction !== null} onClick={() => void decide(task, 'approve')}>
                 {pendingAction === `approve:${task.id}` ? 'Approving…' : 'Approve'}
               </button>
-              <button type="button" className={styles.actionButton} disabled={pendingAction !== null} onClick={() => void decide(task, 'reject')}>
+              <button type="button" className={styles.actionButton} aria-label={`Reject ${task.title}`} disabled={pendingAction !== null} onClick={() => void decide(task, 'reject')}>
                 {pendingAction === `reject:${task.id}` ? 'Rejecting…' : 'Reject'}
               </button>
             </>}

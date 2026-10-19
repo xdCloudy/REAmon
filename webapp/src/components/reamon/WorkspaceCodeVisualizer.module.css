@@ -35,15 +35,11 @@
 .languageFilter select { max-width: min(220px, 45vw); border: 0; outline: 0; background: transparent; color: var(--text-primary); font: inherit; cursor: pointer; }
 .languageFilter select:focus-visible { outline: 2px solid var(--accent-secondary); outline-offset: 2px; }
 .mapContentSwitcher { display: inline-flex; align-items: center; gap: 2px; width: fit-content; max-width: 100%; padding: 3px; border: 1px solid var(--border-default); border-radius: var(--radius-sm); background: var(--bg-tertiary); }
-.runHistory { display: flex; align-items: center; gap: var(--space-2); margin: 0 0 var(--space-3); padding: var(--space-2); border: 1px solid var(--border-default); border-radius: var(--radius-default); background: var(--bg-tertiary); }
-.runButton { flex: 0 0 auto; border: 1px solid var(--border-default); border-radius: var(--radius-sm); padding: .35rem .55rem; background: var(--bg-primary); color: var(--text-secondary); cursor: pointer; font-size: var(--text-xs); }
-.runButton:hover:not(:disabled) { border-color: var(--accent-secondary); color: var(--text-primary); }
-.runButton:disabled { cursor: default; opacity: .5; }
-.runDetails { display: flex; flex: 1 1 auto; flex-direction: column; align-items: center; gap: .15rem; min-width: 0; text-align: center; }
-.runDetails strong { color: var(--text-primary); font-size: var(--text-xs); }
-.runDetails span, .runDetails small { max-width: 100%; overflow: hidden; color: var(--text-tertiary); font-size: var(--text-xs); text-overflow: ellipsis; white-space: nowrap; }
-.failedRunList { display: grid; gap: var(--space-2); margin: 0 0 var(--space-3); }
-.failedRunHeading { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2); color: var(--text-primary); font-size: var(--text-xs); }
+.failedRunList { display: grid; gap: var(--space-2); margin: 0 0 var(--space-3); border: 1px solid var(--border-default); border-radius: var(--radius-default); padding: 0 var(--space-3) var(--space-3); background: var(--bg-tertiary); }
+.failedRunHeading { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2); margin: 0 calc(-1 * var(--space-3)); border-radius: inherit; padding: var(--space-3); color: var(--text-primary); cursor: pointer; font-size: var(--text-xs); }
+.failedRunHeading:focus-visible { outline: 2px solid var(--accent-secondary); outline-offset: -2px; }
+.failedRunList:not([open]) { padding-bottom: 0; }
+.failedRunList[open] .failedRunHeading { border-bottom: 1px solid var(--border-default); }
 .failedRunHeading span, .failedRun small { color: var(--text-tertiary); font-size: var(--text-xs); }
 .failedRun { display: grid; gap: var(--space-1); border: 1px solid var(--border-default); border-left: 3px solid var(--status-warning, #b99a3b); border-radius: var(--radius-default); padding: var(--space-2) var(--space-3); background: var(--bg-tertiary); }
 .failedRunTitle { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--space-1) var(--space-3); }
@@ -66,7 +62,7 @@
 .runWarning { margin: 0; color: var(--status-warning, #b99a3b); font-size: var(--text-xs); }
 .standalone .description, .standalone .stats, .standalone .legend, .standalone .mapMetrics { display: none; }
 .standalone .header { margin-bottom: var(--space-2); }
-.standalone .runHistory, .standalone .viewSwitcher { margin-bottom: var(--space-2); }
+.standalone .viewSwitcher { margin-bottom: var(--space-2); }
 .standalone .progressCards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); margin-bottom: var(--space-2); }
 .standalone .runSummary { min-width: 0; margin: 0; padding: var(--space-3); }
 .standalone .runProgress { height: 9px; }
@@ -357,11 +353,6 @@ button.flowNode:hover, button.flowNode:focus-visible { border-color: #86c8ff; ou
   .sourceCode { max-height: 440px; padding: var(--space-3); font-size: .7rem; }
   .comparison { grid-template-columns: minmax(0, 1fr); }
   .maintainedComparison { grid-template-columns: minmax(0, 1fr); }
-  .graphGroups { grid-template-columns: minmax(0, 1fr); }
-  .callGraph { padding: var(--space-3); }
-  .graphCanvas { height: 56vh; min-height: 340px; }
-  .runHistory { gap: var(--space-1); padding: var(--space-1); }
-  .runButton { padding: .35rem .4rem; }
   .runSummaryHeading { align-items: flex-start; flex-direction: column; }
 }
 

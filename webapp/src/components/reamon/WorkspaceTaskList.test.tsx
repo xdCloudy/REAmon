@@ -20,7 +20,7 @@ describe('WorkspaceTaskList', () => {
     const onChanged = vi.fn()
     render(<WorkspaceTaskList projectId="project-1" onChanged={onChanged} tasks={[{ id: 'task-1', title: 'Inspect source', status: 'QUEUED', progress: 0 }]} />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Run' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Run Inspect source' }))
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Inspect source completed.'))
 
     expect(fetch).toHaveBeenCalledWith('/api/projects/project-1/workspace/tasks/task-1/execute', { method: 'POST' })
@@ -32,7 +32,7 @@ describe('WorkspaceTaskList', () => {
 
     expect(screen.getByText('Provider timed out')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Retry Inspect source' }))
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Inspect source was requeued.'))
 
     expect(fetch).toHaveBeenCalledWith('/api/projects/project-1/workspace/tasks/task-1/retry', { method: 'POST' })
@@ -59,7 +59,7 @@ describe('WorkspaceTaskList', () => {
   test('cancels a running task', async () => {
     render(<WorkspaceTaskList projectId="project-1" tasks={[{ id: 'task-1', title: 'Inspect source', status: 'RUNNING', progress: 10 }]} />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel Inspect source' }))
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Inspect source was cancelled.'))
 
     expect(fetch).toHaveBeenCalledWith('/api/projects/project-1/workspace/tasks/task-1/cancel', { method: 'POST' })
@@ -69,7 +69,7 @@ describe('WorkspaceTaskList', () => {
     const onChanged = vi.fn()
     render(<WorkspaceTaskList projectId="project-1" onChanged={onChanged} tasks={[{ id: 'task-1', title: 'Inspect source', status: 'AWAITING_APPROVAL', progress: 0, approval: { id: 'approval-1', status: 'PENDING' } }]} />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Approve' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Approve Inspect source' }))
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Inspect source was approved.'))
 
     expect(fetch).toHaveBeenCalledWith('/api/projects/project-1/approvals/approval-1', expect.objectContaining({
