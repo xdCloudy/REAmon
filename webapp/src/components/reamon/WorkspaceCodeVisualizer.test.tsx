@@ -23,6 +23,11 @@ function renderVisualizer(props: { isAnalyzing?: boolean; decompilationTask?: { 
   )
 }
 
+function openDetails(name: string) {
+  const disclosure = [...document.querySelectorAll('details')].find((element) => element.querySelector('summary')?.textContent?.includes(name))
+  if (disclosure && !disclosure.open) fireEvent.click(disclosure.querySelector('summary') as HTMLElement)
+}
+
 afterEach(() => {
   cleanup()
   window.history.replaceState({}, '', '/')
@@ -48,7 +53,7 @@ describe('WorkspaceCodeVisualizer', () => {
     vi.stubGlobal('fetch', fetchMock)
     renderVisualizer()
 
-    expect(await screen.findByRole('progressbar', { name: 'Decompilation coverage' })).toHaveAttribute('aria-valuenow', '70')
+    expect(await screen.findByRole('progressbar', { name: 'Measured decompilation completeness' })).toHaveAttribute('aria-valuenow', '70')
     expect(await screen.findByRole('progressbar', { name: 'Maintained source coverage' })).toHaveAttribute('aria-valuenow', '50')
     expect(screen.getByText('1 of 2 code units have a saved maintained copy')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith('/api/projects/project-1/visualizer/coverage?taskId=run-1', expect.objectContaining({ cache: 'no-store' }))
@@ -96,9 +101,10 @@ describe('WorkspaceCodeVisualizer', () => {
     }) }))
     renderVisualizer({ decompilationHref: '#analysis-next-step' })
 
-    expect(await screen.findByText('500 code units indexed of 5,000 analyzed classes')).toBeInTheDocument()
-    expect(screen.getByRole('progressbar', { name: 'Indexed code unit coverage' })).toHaveAttribute('aria-valuenow', '10')
-    expect(screen.getByText(/Partial index\. This bar shows indexed coverage/)).toBeInTheDocument()
+    expect(await screen.findByText('500 code units indexed of 5,000 discovered classes')).toBeInTheDocument()
+    expect(screen.queryByRole('progressbar', { name: 'Indexed code unit coverage' })).not.toBeInTheDocument()
+    openDetails('Run diagnostics')
+    expect(screen.getByText(/Partial index\. The counts below describe stored output/)).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Run decompilation again' })).toHaveAttribute('href', '#analysis-next-step')
   })
   test('does not show a percentage when the analyzer reached its scan limit', async () => {
@@ -111,9 +117,10 @@ describe('WorkspaceCodeVisualizer', () => {
     }) }))
     renderVisualizer({ decompilationHref: '#analysis-next-step' })
 
-    expect(await screen.findByText('5,000 classes indexed')).toBeInTheDocument()
+    expect(await screen.findByText('5,000 code units indexed')).toBeInTheDocument()
     expect(screen.queryByRole('progressbar', { name: 'Indexed code unit coverage' })).not.toBeInTheDocument()
-    expect(screen.getByText('Partial index; the analyzer could not determine the total class count.')).toBeInTheDocument()
+    openDetails('Run diagnostics')
+    expect(screen.getByText(/Partial index\. The counts below describe stored output/)).toBeInTheDocument()
   })
   test('offers a direct route to decompilation when an artifact is ready but has no code units', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ units: [], total: 0, hasMore: false }) }))
@@ -161,6 +168,7 @@ describe('WorkspaceCodeVisualizer', () => {
     const filter = await screen.findByRole('textbox', { name: 'Filter code units' })
     fireEvent.change(filter, { target: { value: 'onPause >1kb <70%' } })
     fireEvent.click(await screen.findByRole('button', { name: /app\.MainActivity\.onPause/ }))
+    openDetails('Map metrics')
 
     expect(await screen.findByText('Selected code unit')).toBeInTheDocument()
     await waitFor(() => expect(new URLSearchParams(window.location.search).get('unitId')).toBe('unit-2'))
@@ -307,11 +315,13 @@ describe('WorkspaceCodeVisualizer', () => {
     ]
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ units, total: 2, hasMore: false }) }))
     renderVisualizer()
+    openDetails('Map options')
 
     const status = await screen.findByRole('group', { name: 'Maintained source status' })
     expect(within(status).getByRole('button', { name: 'All (2)' })).toHaveAttribute('aria-pressed', 'true')
     fireEvent.click(within(status).getByRole('button', { name: 'Maintained (1)' }))
     expect(within(status).getByRole('button', { name: 'Maintained (1)' })).toHaveAttribute('aria-pressed', 'true')
+    openDetails('Map metrics')
     expect(within(screen.getByText('Code units in this map').parentElement!).getByText('1')).toBeInTheDocument()
     expect(await screen.findByRole('button', { name: /app\.Maintained/ })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /app\.NeedsWork/ })).not.toBeInTheDocument()
@@ -329,6 +339,8 @@ describe('WorkspaceCodeVisualizer', () => {
     ]
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ units, total: 2, hasMore: false }) }))
     renderVisualizer()
+    fireEvent.click(await screen.findByRole('button', { name: 'Treemap' }))
+    openDetails('Map options')
 
     const maintainedTile = await screen.findByRole('button', { name: /app\.Ready/ })
     const pendingTile = await screen.findByRole('button', { name: /app\.Pending/ })
@@ -352,6 +364,7 @@ describe('WorkspaceCodeVisualizer', () => {
     }) }))
     renderVisualizer()
 
+    openDetails('Map options')
     const download = await screen.findByRole('link', { name: 'Download source bundle · 1 code unit' })
     expect(download).toHaveAttribute('href', '/api/projects/project-1/visualizer/maintained/export?taskId=run-1')
   })
@@ -468,7 +481,7 @@ describe('WorkspaceCodeVisualizer', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/projects/project-1/visualizer?taskId=run-new&cursor=unit-first&q=app', expect.objectContaining({ cache: 'no-store' }))
   })
 
-  test('loads every code-unit page to build a complete map', async () => {
+  test('loads one code-unit page at a time for large maps', async () => {
     const units = ['one', 'two', 'three', 'four', 'five'].map((name) => unit({ id: name, name: `app.${name}` }))
     const fetchMock = vi.fn((input: string) => {
       const page = input.includes('cursor=cursor-two')
@@ -481,7 +494,9 @@ describe('WorkspaceCodeVisualizer', () => {
     vi.stubGlobal('fetch', fetchMock)
     renderVisualizer()
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Load all 3 remaining' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Load more code units' }))
+    expect(await screen.findByRole('button', { name: 'Load more code units' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Load more code units' }))
 
     expect(await screen.findByText('5 code units', { exact: true })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Load more code units' })).not.toBeInTheDocument()
@@ -494,8 +509,8 @@ describe('WorkspaceCodeVisualizer', () => {
     const second = unit({ id: 'unit-second', name: 'app.Second' })
     const run = { id: 'run-small', title: 'Latest analysis', createdAt: '2026-10-04T00:00:00.000Z', completedAt: '2026-10-04T00:01:00.000Z', artifactName: 'app.apk', codeUnitCount: 2, unitLabel: 'classes', discoveredUnitCount: 2, returnedUnitCount: 2, indexedUnitCount: 2, linkPercent: 100, codeBytes: 2048, truncated: false, warnings: '', failedUnitCount: null, visitedUnitCount: null }
     const fetchMock = vi.fn((input: string) => input.includes('cursor=')
-      ? Promise.resolve({ ok: true, json: async () => ({ units: [second], total: 11_469, hasMore: false, nextCursor: null, runs: [run], selectedRunId: 'run-small' }) })
-      : Promise.resolve({ ok: true, json: async () => ({ units: [first], total: 11_469, hasMore: true, nextCursor: 'unit-first', runs: [run], selectedRunId: 'run-small' }) }))
+      ? Promise.resolve({ ok: true, json: async () => ({ units: [second], total: 1_469, hasMore: false, nextCursor: null, runs: [run], selectedRunId: 'run-small' }) })
+      : Promise.resolve({ ok: true, json: async () => ({ units: [first], total: 1_469, hasMore: true, nextCursor: 'unit-first', runs: [run], selectedRunId: 'run-small' }) }))
     vi.stubGlobal('fetch', fetchMock)
     const { container } = renderVisualizer({ standalone: true })
 
@@ -536,10 +551,10 @@ describe('WorkspaceCodeVisualizer', () => {
 
     await waitFor(() => expect(container.querySelector('.badge')).toHaveTextContent('1 / 20,001 code units'))
     const loadingControls = await screen.findByRole('group', { name: 'Map code unit loading' })
-    const treemap = container.querySelector('svg[role="group"]')
-    expect(screen.getByRole('button', { name: 'Load all 20,000 remaining' })).toBeInTheDocument()
-    expect(treemap).not.toBeNull()
-    expect(loadingControls.compareDocumentPosition(treemap as Node) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    const codeMap = screen.getByRole('group', { name: 'Language-neutral functions and code units map' })
+    expect(screen.queryByRole('button', { name: /Load all/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Load more code units' })).toBeInTheDocument()
+    expect(loadingControls.compareDocumentPosition(codeMap) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(fetchMock.mock.calls.filter(([input]) => String(input) === '/api/projects/project-1/visualizer')).toHaveLength(1)
   })
 

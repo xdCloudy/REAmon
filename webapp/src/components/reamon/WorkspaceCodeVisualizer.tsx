@@ -462,7 +462,7 @@ function CffRecoveryGraph({ recovery, onAddressSelect }: { recovery: CffRecovery
 }
 
 const EMPTY_CODE_UNITS: CodeUnit[] = []
-const AUTO_LOAD_CODE_UNIT_LIMIT = 20_000
+const AUTO_LOAD_CODE_UNIT_LIMIT = 2_000
 const FOLDER_VIEW_CODE_UNIT_LIMIT = 2_000
 const FUNCTION_MAP_CLIENT_LIMIT = 20_000
 
@@ -2307,38 +2307,24 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
     setGraphFocusKey(null)
   }
 
-  const loadMoreUnits = useCallback(async (loadAll = false) => {
+  const loadMoreUnits = useCallback(async () => {
     if (!nextCursor || loadingMore) return
     setLoadingMore(true)
     setLoadMoreError('')
     try {
-      let cursor = nextCursor
-      let loadedUnits = pageState?.units || []
-      let loadedFunctionMembers = pageState?.functionMapMembers || query.data?.functionMapMembers || []
-      let functionMembersTruncated = pageState?.functionMapTruncated || query.data?.functionMapTruncated || false
-      let pagesLoaded = 0
-      while (cursor) {
-        const page = await fetchCodeUnits(projectId, currentRunId, cursor, undefined, serverSearch)
-        loadedUnits = [...loadedUnits, ...page.units]
-        const byFunctionId = new Map(loadedFunctionMembers.map((member) => [member.id, member]))
-        for (const member of page.functionMapMembers || []) byFunctionId.set(member.id, member)
-        const allFunctionMembers = [...byFunctionId.values()]
-        loadedFunctionMembers = allFunctionMembers.slice(0, FUNCTION_MAP_CLIENT_LIMIT)
-        functionMembersTruncated ||= page.functionMapTruncated === true || allFunctionMembers.length > FUNCTION_MAP_CLIENT_LIMIT
-        const nextPageCursor = page.nextCursor || null
-        setAdditionalPage({
-          runId: currentRunId,
-          search: serverSearch,
-          units: loadedUnits,
-          functionMapMembers: loadedFunctionMembers,
-          functionMapTruncated: functionMembersTruncated,
-          nextCursor: nextPageCursor,
-        })
-        pagesLoaded += 1
-        if (!loadAll || !nextPageCursor) break
-        if (nextPageCursor === cursor || pagesLoaded >= 100) throw new Error('The code-unit page cursor did not advance')
-        cursor = nextPageCursor
-      }
+      const page = await fetchCodeUnits(projectId, currentRunId, nextCursor, undefined, serverSearch)
+      const loadedUnits = [...(pageState?.units || []), ...page.units]
+      const byFunctionId = new Map((pageState?.functionMapMembers || query.data?.functionMapMembers || []).map((member) => [member.id, member]))
+      for (const member of page.functionMapMembers || []) byFunctionId.set(member.id, member)
+      const allFunctionMembers = [...byFunctionId.values()]
+      setAdditionalPage({
+        runId: currentRunId,
+        search: serverSearch,
+        units: loadedUnits,
+        functionMapMembers: allFunctionMembers.slice(0, FUNCTION_MAP_CLIENT_LIMIT),
+        functionMapTruncated: Boolean(pageState?.functionMapTruncated || query.data?.functionMapTruncated || page.functionMapTruncated || allFunctionMembers.length > FUNCTION_MAP_CLIENT_LIMIT),
+        nextCursor: page.nextCursor || null,
+      })
     } catch (error) {
       setLoadMoreError(error instanceof Error ? error.message : 'Could not load more code units')
     } finally {
@@ -2351,7 +2337,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
     const mapKey = `${currentRunId || ''}:${serverSearch}`
     if (!standalone || !query.data || query.data.total > AUTO_LOAD_CODE_UNIT_LIMIT || !nextCursor || autoLoadedMapKeys.current.has(mapKey)) return
     autoLoadedMapKeys.current.add(mapKey)
-    void loadMoreUnits(true)
+    void loadMoreUnits()
   }, [currentRunId, loadMoreUnits, nextCursor, query.data, serverSearch, standalone])
 
   async function refreshMap() {
@@ -2410,14 +2396,14 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
     <section id="code-visualizer" className={`${styles.panel} ${standalone ? styles.standalone : ''}`} aria-labelledby="code-visualizer-heading">
       <div className={styles.header}>
         <div>
-          <p className={styles.kicker}>Program structure</p>
-          <h2 id="code-visualizer-heading"><Code2 size={18} /> Code visualizer</h2>
-          <p className={styles.description}>Follow each code unit from analyzer decompilation through reverse engineering into a separate, maintainable source copy. Select a tile to inspect the original, create and review its maintained version, then save or export both outputs.</p>
+          <p className={styles.kicker}>Decompiled program</p>
+          <h2 id="code-visualizer-heading"><Code2 size={18} /> Reverse engineering workspace</h2>
+          <p className={styles.description}>Inspect analyzer output, then rewrite and save a maintainable source copy. Decompiled output stays available as evidence beside your reviewed version.</p>
         </div>
         <div className={styles.headerActions}>
           {query.data && <span className={styles.badge}>{nextCursor ? `${units.length.toLocaleString()} / ${query.data.total.toLocaleString()} code units` : `${units.length.toLocaleString()} code units`}</span>}
           {currentRun && <div className={styles.viewSwitcher} role="group" aria-label="Code visualizer view">
-            <button type="button" className={visualizerView === 'function-map' ? styles.viewButtonActive : styles.viewButton} aria-pressed={visualizerView === 'function-map'} onClick={() => setVisualizerView('function-map')}>Function map</button>
+            <button type="button" className={visualizerView === 'function-map' ? styles.viewButtonActive : styles.viewButton} aria-pressed={visualizerView === 'function-map'} onClick={() => setVisualizerView('function-map')}>Code map</button>
             <button type="button" className={visualizerView === 'treemap' ? styles.viewButtonActive : styles.viewButton} aria-pressed={visualizerView === 'treemap'} onClick={() => setVisualizerView('treemap')}>Treemap</button>
             {canShowCallGraph && <button type="button" className={visualizerView === 'callgraph' ? styles.viewButtonActive : styles.viewButton} aria-pressed={visualizerView === 'callgraph'} onClick={() => setVisualizerView('callgraph')}>{graphType === 'class_dependencies' ? 'Class dependencies' : graphType === 'member_references' ? 'Member references' : 'Call graph'}</button>}
           </div>}
@@ -2469,31 +2455,36 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
           <div>
             <strong>{maintainedCoverageQuery.data?.decompilationCoveragePercent !== null && maintainedCoverageQuery.data?.decompilationCoveragePercent !== undefined
               ? `${maintainedCoverageQuery.data.decompilationCoveragePercent}% of measured code decompiled`
-              : currentRun.linkPercent === null ? `${currentRun.indexedUnitCount.toLocaleString()} ${currentRun.unitLabel} indexed` : `${currentRun.linkPercent}% of analyzed ${currentRun.unitLabel} indexed`}</strong>
+              : maintainedCoverageQuery.isLoading
+                ? 'Checking decompilation completeness…'
+                : maintainedCoverageQuery.isError
+                  ? 'Decompilation measurements unavailable'
+                  : 'Decompilation completeness not measured'}</strong>
             <span>{maintainedCoverageQuery.data
-              ? `${maintainedCoverageQuery.data.sourceLinkedPercent}% of code units have viewable source · `
-              : ''}{currentRun.indexedUnitCount.toLocaleString()} indexed{currentRun.discoveredUnitCount !== null
-                ? ` of ${currentRun.discoveredUnitCount.toLocaleString()} analyzed ${currentRun.unitLabel}`
-                : ' code units'}</span>
+              ? `${maintainedCoverageQuery.data.sourceLinkedPercent}% have viewable source · `
+              : ''}{currentRun.indexedUnitCount.toLocaleString()} code units indexed{currentRun.discoveredUnitCount !== null
+                ? ` of ${currentRun.discoveredUnitCount.toLocaleString()} discovered ${currentRun.unitLabel}`
+                : ''}</span>
           </div>
           <span>Code {formatBytes(maintainedCoverageQuery.data?.codeBytes ?? currentRun.codeBytes ?? units.reduce((sum, unit) => sum + unit.sizeBytes, 0))}</span>
         </div>
-        {(maintainedCoverageQuery.data?.decompilationCoveragePercent ?? currentRun.linkPercent) !== null && <div className={styles.runProgress} role="progressbar"
-          aria-label={maintainedCoverageQuery.data?.decompilationCoveragePercent !== null && maintainedCoverageQuery.data?.decompilationCoveragePercent !== undefined ? 'Decompilation coverage' : 'Indexed code unit coverage'}
+        {maintainedCoverageQuery.data?.decompilationCoveragePercent !== null && maintainedCoverageQuery.data?.decompilationCoveragePercent !== undefined && <div className={styles.runProgress} role="progressbar"
+          aria-label="Measured decompilation completeness"
           aria-valuemin={0} aria-valuemax={100}
-          aria-valuenow={maintainedCoverageQuery.data?.decompilationCoveragePercent ?? currentRun.linkPercent ?? 0}
-          aria-valuetext={maintainedCoverageQuery.data?.decompilationCoveragePercent !== null && maintainedCoverageQuery.data?.decompilationCoveragePercent !== undefined
-            ? `${maintainedCoverageQuery.data.decompilationCoveragePercent}% of measured code decompiled`
-            : `${currentRun.linkPercent}% of analyzed ${currentRun.unitLabel} indexed`}>
-          <span style={{ width: `${maintainedCoverageQuery.data?.decompilationCoveragePercent ?? currentRun.linkPercent ?? 0}%` }} />
+          aria-valuenow={maintainedCoverageQuery.data.decompilationCoveragePercent}
+          aria-valuetext={`${maintainedCoverageQuery.data.decompilationCoveragePercent}% of measured code decompiled`}>
+          <span style={{ width: `${maintainedCoverageQuery.data.decompilationCoveragePercent}%` }} />
         </div>}
+        {maintainedCoverageQuery.data?.decompilationCoveragePercent === null && <p className={styles.runSummaryMeta}>The analyzer did not provide enough measurements to calculate decompilation completeness. Indexed records and viewable source are counted separately.</p>}
+        <details className={styles.runDiagnostics}>
+          <summary>Run diagnostics{currentRun.truncated || currentRun.notObservedUnitCount > 0 || currentRun.notIndexedUnitCount > 0 || currentRun.failedUnitCount !== null && currentRun.failedUnitCount > 0 ? ' · issues reported' : ''}</summary>
         {(currentRun.truncated || currentRun.notObservedUnitCount > 0 || currentRun.notIndexedUnitCount > 0 || (currentRun.failedUnitCount !== null && currentRun.failedUnitCount > 0)
           || (currentRun.notVisitedUnitCount !== null && currentRun.notVisitedUnitCount > 0)
           || (currentRun.skippedUnitCount !== null && currentRun.skippedUnitCount > 0)
           || (currentRun.unsupportedUnitCount !== null && currentRun.unsupportedUnitCount > 0)
           || (currentRun.excludedUnitCount !== null && currentRun.excludedUnitCount > 0)
           || (currentRun.omittedUnitCount !== null && currentRun.omittedUnitCount > 0)) && <div className={styles.runSummaryMeta}>
-          {currentRun.truncated && <span>{currentRun.linkPercent === null ? 'Partial index; the analyzer could not determine the total class count.' : 'Partial index. This bar shows indexed coverage, not whether the task finished.'}</span>}
+          {currentRun.truncated && <span>Partial index. The counts below describe stored output; they do not indicate whether the task finished.</span>}
           {currentRun.truncated && decompilationHref && <a className={styles.runAgain} href={decompilationHref}>Run decompilation again</a>}
           {currentRun.notObservedUnitCount > 0 && <span>{currentRun.notObservedUnitCount.toLocaleString()} provider-reported results had no returned observation.</span>}
           {currentRun.notIndexedUnitCount > 0 && <span>{currentRun.notIndexedUnitCount.toLocaleString()} provider-returned code units could not be indexed.</span>}
@@ -2517,6 +2508,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
             : 'No indexed code size is available for decompilation measurement.'}
         </p>}
         {displayRunWarnings && <p className={styles.runWarning}>{displayRunWarnings}</p>}
+        </details>
       </div>
 
       {currentRun && <div className={styles.runSummary} aria-label="Selected run maintainable-source progress">
@@ -2525,11 +2517,13 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
         {maintainedCoverageQuery.data && <>
           <div className={styles.runSummaryHeading}>
             <div>
-              <strong>{maintainedCoverageQuery.data.coveragePercent}% reverse engineered into maintainable source</strong>
+              <strong>{maintainedCoverageQuery.data.coveragePercent}% saved as maintainable source</strong>
               <span>{maintainedCoverageQuery.data.maintainedUnitCount.toLocaleString()} of {maintainedCoverageQuery.data.codeUnitCount.toLocaleString()} code units have a saved maintained copy</span>
             </div>
             <span>Only saved maintained copies count</span>
           </div>
+          <details className={styles.runDiagnostics}>
+          <summary>Review and validation details</summary>
           <p className={styles.runSummaryMeta}>
             {maintainedCoverageQuery.data.reviewedUnitCount !== null && maintainedCoverageQuery.data.validatedUnitCount !== null
               ? `${maintainedCoverageQuery.data.reviewedUnitCount.toLocaleString()} copies have a current accepted review receipt; ${maintainedCoverageQuery.data.validatedUnitCount.toLocaleString()} match passed whole-file structural validation.`
@@ -2538,6 +2532,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
               ? ` ${maintainedCoverageQuery.data.unmatchedLegacyValidationUnitCount.toLocaleString()} older validation record(s) lack an output hash, so they cannot be matched to the current source.`
               : ''}
           </p>
+          </details>
           <div className={`${styles.runProgress} ${styles.maintainedProgress}`} role="progressbar" aria-label="Maintained source coverage" aria-valuemin={0} aria-valuemax={100} aria-valuenow={maintainedCoverageQuery.data.coveragePercent} aria-valuetext={`${maintainedCoverageQuery.data.coveragePercent}% reverse engineered into maintainable source`}>
             <span style={{ width: `${maintainedCoverageQuery.data.coveragePercent}%` }} />
           </div>
@@ -2596,7 +2591,9 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
           <input value={filter} maxLength={300} onChange={(event) => setFilter(event.target.value)} placeholder="Search by name, address, path, or referenced string · >10kb · <70%" />
         </label>
         <p className={styles.message}>Name, address, and path search spans the full run. Language, size, decompilation, and work-status filters apply to code units loaded here.</p>
-      {(visualizerView === 'function-map' || visualizerView === 'treemap') && <div className={styles.visualizerToolbar}>
+      {(visualizerView === 'function-map' || visualizerView === 'treemap') && <details className={styles.mapOptions}>
+        <summary>Map options <span>Filters, colors, and exports</span></summary>
+        <div className={styles.visualizerToolbar}>
           {availableLanguages.length > 1 && <label className={styles.languageFilter}>Language
             <select aria-label="Filter map by language" value={activeLanguageFilter} onChange={(event) => { setLanguageFilter(event.target.value); setFolderPath([]) }}>
               <option value="">All languages</option>
@@ -2633,7 +2630,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
           {currentRun && <a className={styles.runButton} href={`/api/projects/${encodeURIComponent(projectId)}/visualizer/maintained/export?taskId=${encodeURIComponent(currentRun.id)}`}>
             Download source bundle · {currentRun.codeUnitCount.toLocaleString()} code {currentRun.codeUnitCount === 1 ? 'unit' : 'units'}
           </a>}
-        </div>}
+        </div></details>}
         {currentRun?.apktoolProjectAvailable && (visualizerView === 'function-map' || visualizerView === 'treemap') && <p className={styles.functionMapNote}>
           APK rebuilds apply saved Android resource and Smali edits to the retained Apktool project. Maintained JADX Java stays separate because it is not compiled back into DEX; the rebuilt APK is unsigned.
         </p>}
@@ -2642,14 +2639,13 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
           <button type="button" className={styles.runButton} onClick={() => void loadMoreUnits()} disabled={loadingMore}>
             {loadingMore ? 'Loading code units…' : 'Load more code units'}
           </button>
-          <button type="button" className={styles.runButton} onClick={() => void loadMoreUnits(true)} disabled={loadingMore}>
-            {loadingMore ? 'Loading full map…' : `Load all ${Math.max(0, (query.data?.total || 0) - units.length).toLocaleString()} remaining`}
-          </button>
           {loadMoreError && <p className={styles.error} role="alert">{loadMoreError}</p>}
         </div>}
       </>}
 
       {!query.isLoading && !query.isError && query.data && units.length > 0 && <>
+        <details className={styles.mapMetrics}>
+        <summary>Map metrics</summary>
         <div className={styles.stats}>
           <div><strong>{folderUnits.length.toLocaleString()}</strong><span>Code units in this map</span></div>
           <div><strong>{summary.sourceLinkedPercent === null ? 'Unknown' : `${summary.sourceLinkedPercent}%`}</strong><span>Viewable source links in map ({summary.sourceLinkedUnits.toLocaleString()}/{folderUnits.length.toLocaleString()})</span></div>
@@ -2659,6 +2655,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
           <div><strong>{maintainedUnits.toLocaleString()}</strong><span>Maintained source copies in map</span></div>
         </div>
         {summary.unmeasuredBytes > 0 && <p className={styles.message}>{formatBytes(summary.unmeasuredBytes)} of mapped code has no decompilation completeness value from its provider.</p>}
+        </details>
 
         {mapLayer === 'decompilation' ? <div className={styles.legend} role="group" aria-label="Decompilation completeness legend">
           <span><i className={styles.complete} /> Full decompilation</span>
