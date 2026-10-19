@@ -3,19 +3,91 @@ import tempfile
 import zipfile
 from pathlib import Path
 
-from server import build_decompile_command, extract_dex_inputs
+from server import (
+    build_decompile_command,
+    build_mapping_command,
+    extract_dex_inputs,
+    parse_dex_inventory,
+    recover_batch_class_failures,
+    reconcile_dex_inventory,
+)
 
 
 class DecompilerCommandTests(unittest.TestCase):
-    def test_uses_batch_slicer_with_shared_mapping_without_debug_bytecode(self):
+    def test_uses_batch_slicer_with_shared_mapping_and_structured_mode(self):
         command = build_decompile_command(Path("classes.dex"), Path("names.txt"), Path("java"), 128, 64)
 
         self.assertEqual(
             command,
-            ["/usr/local/bin/reamon-dex-batch", "classes.dex", "names.txt", "java", "128", "64"],
+            ["/usr/local/bin/reamon-dex-batch", "classes.dex", "names.txt", "java", "128", "64", "restructure"],
         )
         self.assertNotIn("--show-bytecode", command)
         self.assertNotIn("--deobf", command)
+
+    def test_can_request_lower_memory_modes_for_a_single_class_retry(self):
+        for mode in ("simple", "fallback"):
+            with self.subTest(mode=mode):
+                command = build_decompile_command(
+                    Path("classes.dex"), Path("names.txt"), Path("java"), 7, 1, mode,
+                )
+
+                self.assertEqual(command[-3:], ["7", "1", mode])
+
+    def test_builds_one_accumulated_map_from_each_extracted_dex(self):
+        command = build_mapping_command(Path("classes2.dex"), Path("project-map.txt"))
+
+        self.assertEqual(
+            command,
+            ["/usr/local/bin/reamon-dex-map", "classes2.dex", "project-map.txt"],
+        )
+
+    def test_reads_inventory_even_when_map_generation_fails_after_inventory(self):
+        self.assertEqual(parse_dex_inventory(b'{"discoveredClassCount": 123}\n'), 123)
+        self.assertIsNone(parse_dex_inventory(b"map generation failed"))
+
+    def test_preserves_inventory_when_every_decompilation_retry_lacks_a_summary(self):
+        self.assertEqual(reconcile_dex_inventory(1, None, "classes2.dex"), 1)
+        self.assertIsNone(reconcile_dex_inventory(None, None, "classes2.dex"))
+
+    def test_retries_only_reported_class_failures_and_reconciles_counts_once(self):
+        summary = {
+            "discoveredClassCount": 12,
+            "returnedClassCount": 7,
+            "failedClassCount": 2,
+            "failedClassIndices": [4, 9],
+        }
+        attempted = []
+
+        def retry(class_index):
+            attempted.append(class_index)
+            if class_index == 4:
+                return 12, 1, 0
+            return None, 0, 1
+
+        returned, failed, retries = recover_batch_class_failures(summary, 0, 12, retry)
+
+        self.assertEqual(attempted, [4, 9])
+        self.assertEqual((returned, failed), (8, 1))
+        self.assertEqual(retries, [(12, 1, 0), (None, 0, 1)])
+
+    def test_keeps_failure_count_when_batch_does_not_identify_failed_indexes(self):
+        summary = {
+            "returnedClassCount": 3,
+            "failedClassCount": 1,
+            "failedClassIndices": [99],
+        }
+        attempted = []
+
+        returned, failed, retries = recover_batch_class_failures(
+            summary,
+            0,
+            4,
+            lambda index: attempted.append(index) or (4, 1, 0),
+        )
+
+        self.assertEqual((returned, failed), (3, 1))
+        self.assertIsNone(retries)
+        self.assertEqual(attempted, [])
 
     def test_extracts_multidex_apks_in_numeric_order(self):
         with tempfile.TemporaryDirectory() as temporary:

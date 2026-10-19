@@ -15,6 +15,7 @@ import time
 import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path, PurePosixPath
+from typing import Callable
 from uuid import uuid4
 
 ARTIFACT_ROOT = Path(os.environ.get("REAMON_ARTIFACTS_PATH", "/data/reamon-artifacts")).resolve()
@@ -31,7 +32,7 @@ MAX_STRUCTURED_REFERENCES = 4_000
 MAX_STRUCTURED_OUTPUT_BYTES = 64 * 1024 * 1024
 MAX_DEX_ENTRIES = 64
 MAX_TOTAL_DEX_BYTES = 512 * 1024 * 1024
-CLASS_BATCH_SIZE = min(256, max(8, int(os.environ.get("DEX_DECOMPILER_CLASS_BATCH_SIZE", "256"))))
+CLASS_BATCH_SIZE = min(256, max(8, int(os.environ.get("DEX_DECOMPILER_CLASS_BATCH_SIZE", "64"))))
 CLASS_BATCH_TIMEOUT_SECONDS = min(
     600,
     max(30, int(os.environ.get("DEX_DECOMPILER_CLASS_BATCH_TIMEOUT_SECONDS", "60"))),
@@ -93,13 +94,78 @@ def extract_dex_inputs(source: Path, input_suffix: str, output_root: Path) -> li
 
 
 def build_decompile_command(
-    input_path: Path, mapping_path: Path, output_path: Path, start_index: int, class_limit: int,
+    input_path: Path, mapping_path: Path | str, output_path: Path, start_index: int, class_limit: int,
+    mode: str = "restructure",
 ) -> list[str]:
     """Use upstream's single-class slicer in a bounded process batch."""
     return [
         "/usr/local/bin/reamon-dex-batch", str(input_path), str(mapping_path), str(output_path),
-        str(start_index), str(class_limit),
+        str(start_index), str(class_limit), mode,
     ]
+
+
+def build_mapping_command(input_path: Path, mapping_path: Path) -> list[str]:
+    """Accumulate a project map from one DEX at a time to bound parser memory."""
+    return ["/usr/local/bin/reamon-dex-map", str(input_path), str(mapping_path)]
+
+
+def parse_dex_inventory(stdout: bytes) -> int | None:
+    """Read the class count emitted before map generation starts."""
+    try:
+        summary = json.loads(stdout.decode("utf-8", errors="strict").strip())
+        count = summary.get("discoveredClassCount")
+    except (UnicodeDecodeError, json.JSONDecodeError, AttributeError):
+        return None
+    return count if isinstance(count, int) and not isinstance(count, bool) and count >= 0 else None
+
+
+def reconcile_dex_inventory(inventory_count: int | None, batch_count: int | None, dex_entry: str) -> int | None:
+    """Keep independent parser inventory when a decompilation retry has no summary."""
+    if batch_count is None:
+        return inventory_count
+    if inventory_count is not None and inventory_count != batch_count:
+        raise AnalysisError(f"DEX class count changed between inventory and decompilation for {dex_entry}")
+    return batch_count
+
+
+def validate_failed_class_indices(summary: dict[str, object], failed: int, start: int, limit: int) -> list[int] | None:
+    """Require an exact, in-range index for every class-level failure."""
+    indices = summary.get("failedClassIndices")
+    if not isinstance(indices, list) or len(indices) != failed:
+        return None
+    if any(not isinstance(index, int) or isinstance(index, bool) for index in indices):
+        return None
+    if len(set(indices)) != len(indices) or any(index < start or index >= start + limit for index in indices):
+        return None
+    return indices
+
+
+def reconcile_class_retries(returned: int, failed: int, retry_results: list[tuple[int, int]]) -> tuple[int, int]:
+    """Count successful retries once; an unrecovered class stays failed once."""
+    for retry_returned, retry_failed in retry_results:
+        if retry_returned > 0 and retry_failed == 0:
+            returned += retry_returned
+            failed -= 1
+    return returned, failed
+
+
+def recover_batch_class_failures(
+    summary: dict[str, object],
+    start: int,
+    limit: int,
+    retry_class: Callable[[int], tuple[int | None, int, int]],
+) -> tuple[int, int, list[tuple[int | None, int, int]] | None]:
+    """Retry indexed class-level failures and reconcile batch totals."""
+    returned = summary["returnedClassCount"]
+    failed = summary["failedClassCount"]
+    if not isinstance(returned, int) or not isinstance(failed, int):
+        return 0, 0, None
+    failed_indices = validate_failed_class_indices(summary, failed, start, limit)
+    if failed > 0 and failed_indices is None:
+        return returned, failed, None
+    retries = [retry_class(index) for index in failed_indices or []]
+    totals = reconcile_class_retries(returned, failed, [(result[1], result[2]) for result in retries])
+    return totals[0], totals[1], retries
 
 
 def run_with_progress(command: list[str], timeout: int, message: str, progress=None, cwd: Path | None = None) -> subprocess.CompletedProcess[bytes]:
@@ -246,51 +312,111 @@ def analyse(body: dict[str, object], progress=None) -> dict[str, object]:
             input_suffix,
             temporary_root / "dex-inputs",
         )
-        mapping_path = temporary_root / "deobfuscation.txt"
-        try:
-            if progress:
-                progress("Building a project wide symbol map from every DEX file")
-            mapping = run_with_progress(
-                ["/usr/local/bin/reamon-dex-map", str(compiler_input), str(mapping_path)],
-                TIMEOUT_SECONDS,
-                "Building the project wide symbol map",
-                progress,
-                temporary_root,
-            )
-            if mapping.returncode != 0 or not mapping_path.is_file():
-                detail = mapping.stderr[-2000:].decode("utf-8", errors="replace").strip()
-                raise AnalysisError(detail or f"Could not create the APK-wide name map (exit {mapping.returncode})")
-        except subprocess.TimeoutExpired as error:
-            raise AnalysisError(f"DEX name mapping exceeded {TIMEOUT_SECONDS} seconds") from error
-        except OSError as error:
-            raise AnalysisError(f"Could not start the DEX name mapper: {error}") from error
-
         diagnostic_lines: list[str] = []
         discovered_classes = 0
         returned_classes = 0
         failed_classes = 0
+        mapping_path = temporary_root / "deobfuscation.txt"
+        mapping_path.parent.mkdir(parents=True, exist_ok=True)
         for dex_index, (dex_path, dex_entry) in enumerate(dex_inputs, start=1):
+            inventory_count: int | None = None
+            try:
+                description = f"DEX {dex_index} of {len(dex_inputs)}"
+                if progress:
+                    progress(f"Building shared project names from {description}")
+                mapping = run_with_progress(
+                    build_mapping_command(dex_path, mapping_path),
+                    TIMEOUT_SECONDS,
+                    f"Building shared project names from {description}",
+                    progress,
+                    temporary_root,
+                )
+                inventory_count = parse_dex_inventory(mapping.stdout)
+                if mapping.returncode != 0 or not mapping_path.is_file():
+                    detail = mapping.stderr[-2000:].decode("utf-8", errors="replace").strip()
+                    diagnostic_lines.append(
+                        f"Generated-name mapping for {dex_entry} was unavailable; using names already collected from prior DEX files. "
+                        f"{detail or f'exit {mapping.returncode}'}"
+                    )
+            except subprocess.TimeoutExpired:
+                diagnostic_lines.append(
+                    f"Generated-name mapping for {dex_entry} exceeded {TIMEOUT_SECONDS} seconds; "
+                    "using names already collected from prior DEX files."
+                )
+            except OSError as error:
+                diagnostic_lines.append(
+                    f"Could not start the name mapper for {dex_entry}: {error}; "
+                    "using names already collected from prior DEX files."
+                )
+
+            active_mapping: Path | str = mapping_path if mapping_path.is_file() else "-"
             offset = 0
-            dex_discovered: int | None = None
+            dex_discovered = inventory_count
+            if dex_discovered is not None:
+                discovered_classes += dex_discovered
             while dex_discovered is None or offset < dex_discovered:
+                def retry_single_class(start: int, reason: str) -> tuple[int | None, int, int]:
+                    for mode in ("simple", "fallback"):
+                        description = f"Retrying DEX {dex_index} class {start + 1} with {mode} output"
+                        try:
+                            result = run_with_progress(
+                                build_decompile_command(dex_path, active_mapping, output_root, start, 1, mode),
+                                min(TIMEOUT_SECONDS, CLASS_BATCH_TIMEOUT_SECONDS),
+                                description,
+                                progress,
+                                temporary_root,
+                            )
+                        except subprocess.TimeoutExpired:
+                            diagnostic_lines.append(f"{description} exceeded the per-class time limit.")
+                            continue
+                        except OSError as error:
+                            diagnostic_lines.append(f"{description} could not start: {error}.")
+                            continue
+
+                        stdout = result.stdout[-2000:].decode("utf-8", errors="replace").strip()
+                        stderr = result.stderr[-2000:].decode("utf-8", errors="replace").strip()
+                        if result.returncode != 0:
+                            diagnostic_lines.append(
+                                f"{description} failed with exit {result.returncode}"
+                                + (f": {stderr or stdout}" if stderr or stdout else ".")
+                            )
+                            continue
+                        try:
+                            summary = json.loads(stdout)
+                            discovered = summary.get("discoveredClassCount")
+                            returned = summary.get("returnedClassCount")
+                            failed = summary.get("failedClassCount")
+                            if not all(isinstance(value, int) and value >= 0
+                                       for value in (discovered, returned, failed)):
+                                raise ValueError("invalid class counts")
+                        except (json.JSONDecodeError, AttributeError, ValueError):
+                            diagnostic_lines.append(f"{description} returned an invalid class summary.")
+                            continue
+                        if returned == 1 and failed == 0:
+                            diagnostic_lines.append(
+                                f"Class index {start} in {dex_entry} used {mode} output after {reason}."
+                            )
+                            return discovered, 1, 0
+                    diagnostic_lines.append(
+                        f"Class index {start} in {dex_entry} was skipped after {reason}; all output modes failed."
+                    )
+                    return None, 0, 1
+
                 def run_range(start: int, limit: int) -> tuple[int | None, int, int]:
                     try:
                         description = f"DEX {dex_index} of {len(dex_inputs)} · classes {start + 1}–{start + limit}"
                         if progress:
                             progress(f"Decompiling {description}")
                         result = run_with_progress(
-                            build_decompile_command(dex_path, mapping_path, output_root, start, limit),
+                            build_decompile_command(dex_path, active_mapping, output_root, start, limit),
                             min(TIMEOUT_SECONDS, CLASS_BATCH_TIMEOUT_SECONDS),
                             f"Decompiling {description}",
                             progress,
                             temporary_root,
                         )
-                    except subprocess.TimeoutExpired as error:
+                    except subprocess.TimeoutExpired:
                         if limit == 1:
-                            diagnostic_lines.append(
-                                f"Class index {start} in {dex_entry} exceeded the per-class time limit and was skipped."
-                            )
-                            return None, 0, 1
+                            return retry_single_class(start, "structured decompilation exceeded the time limit")
                         left_limit = limit // 2
                         right_start = start + left_limit
                         left = run_range(start, left_limit)
@@ -305,10 +431,7 @@ def analyse(body: dict[str, object], progress=None) -> dict[str, object]:
                         diagnostic_lines.append(stderr)
                     if result.returncode == -9:
                         if limit == 1:
-                            diagnostic_lines.append(
-                                f"Class index {start} in {dex_entry} exceeded the analyzer memory limit and was skipped."
-                            )
-                            return None, 0, 1
+                            return retry_single_class(start, "structured decompilation exceeded the memory limit")
                         left_limit = limit // 2
                         right_start = start + left_limit
                         left = run_range(start, left_limit)
@@ -319,10 +442,7 @@ def analyse(body: dict[str, object], progress=None) -> dict[str, object]:
                         detail = stderr or stdout or f"DEX decompiler exited with code {result.returncode}"
                         if "panicked at" in detail or "thread 'main' panicked" in detail:
                             if limit == 1:
-                                diagnostic_lines.append(
-                                    f"Class index {start} in {dex_entry} panicked in the upstream decompiler and was skipped."
-                                )
-                                return None, 0, 1
+                                return retry_single_class(start, "structured decompilation panicked")
                             left_limit = limit // 2
                             right_start = start + left_limit
                             left = run_range(start, left_limit)
@@ -339,15 +459,33 @@ def analyse(body: dict[str, object], progress=None) -> dict[str, object]:
                             raise ValueError("invalid class counts")
                     except (json.JSONDecodeError, AttributeError, ValueError) as error:
                         raise AnalysisError(f"DEX decompilation of {dex_entry} returned an invalid class summary") from error
+                    batch_retries: list[tuple[int | None, int, int]] | None = []
+                    if failed > 0:
+                        returned, failed, batch_retries = recover_batch_class_failures(
+                            summary,
+                            start,
+                            limit,
+                            lambda failed_index: retry_single_class(
+                                failed_index,
+                                "structured decompilation returned a class-level error",
+                            ),
+                        )
+                    if batch_retries is None:
+                        diagnostic_lines.append(
+                            f"Class failures in {dex_entry} did not include a complete index list; "
+                            "those classes remain marked failed."
+                        )
+                    else:
+                        for retry_discovered, _, _ in batch_retries:
+                            if retry_discovered is not None and retry_discovered != discovered:
+                                raise AnalysisError(f"DEX class count changed while retrying {dex_entry}")
                     return discovered, returned, failed
 
                 discovered, returned, failed = run_range(offset, CLASS_BATCH_SIZE)
-                if discovered is not None:
-                    if dex_discovered is None:
-                        dex_discovered = discovered
-                        discovered_classes += discovered
-                    elif discovered != dex_discovered:
-                        raise AnalysisError(f"DEX class count changed between batches for {dex_entry}")
+                previous_inventory = dex_discovered
+                dex_discovered = reconcile_dex_inventory(dex_discovered, discovered, dex_entry)
+                if previous_inventory is None and dex_discovered is not None:
+                    discovered_classes += dex_discovered
                 returned_classes += returned
                 failed_classes += failed
                 if dex_discovered is None and discovered is None:
@@ -476,7 +614,7 @@ def analyse(body: dict[str, object], progress=None) -> dict[str, object]:
         "units": units,
         "warnings": "\n".join(filter(None, [
             "This is an alternate DEX-to-Java reconstruction; review it against JADX and bytecode evidence.",
-            f"The upstream class slicer could not reconstruct {failed_classes} of {discovered_classes} classes." if failed_classes else "",
+            f"The DEX provider could not reconstruct {failed_classes} of {discovered_classes} classes." if failed_classes else "",
             method_warning,
             stderr[:2000],
         ]))[:4000],
