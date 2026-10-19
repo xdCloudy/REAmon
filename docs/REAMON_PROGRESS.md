@@ -1,6 +1,6 @@
 # REAmon product progress
 
-Assessment date: 2026-10-19 · Source: pushed commit `9b1c12d` · Weighted estimate: **48.6%**
+Assessment date: 2026-10-19 · Source: pushed commit `4a39a5c` · Weighted estimate: **48.6%**
 
 This is an estimate of progress toward the long-term product goal, not a release-readiness score. Workstream weights total 100%; each contribution is weight × completion.
 
