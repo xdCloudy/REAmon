@@ -52,7 +52,7 @@ export async function GET(_request: Request, { params }: RouteParams) {
     ...(attempt.status === 'SUCCEEDED' ? {
       sourceCode: attempt.resultSource,
       rewriteHistory: attempt.rewriteHistory,
-      ...(inputSource ? { inputSource } : {}),
+      ...(inputSource !== undefined ? { inputSource } : {}),
       providerName: attempt.providerName,
       model: attempt.modelIdentifier,
       syntaxValidated: attempt.syntaxValidated,

@@ -149,6 +149,15 @@
 .classReferences > div strong { color: var(--text-primary); font-size: var(--text-xs); }
 .classReferences > div span, .classReferences > small { color: var(--text-tertiary); font-size: var(--text-xs); }
 .classReferences ul { display: flex; flex-wrap: wrap; gap: var(--space-1-5); margin: var(--space-2) 0; padding: 0; list-style: none; }
+.functionAgentRow { display: inline-flex; align-items: center; gap: var(--space-1); max-width: 100%; }
+.functionAgentChoice { display: inline-flex; align-items: center; padding: .25rem; }
+.functionAgentChoice input { accent-color: var(--accent-secondary); }
+.functionAgentControls { display: grid !important; gap: var(--space-2) !important; margin-top: var(--space-3); }
+.functionAgentControls > div { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.functionAgentControls > span, .functionAgentControls > small { color: var(--text-tertiary); font-size: var(--text-xs); }
+.functionAgentStatus { display: grid; gap: var(--space-1); width: 100%; margin: var(--space-2) 0; padding-left: 1.25rem; }
+.functionAgentStatus li { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--space-2); color: var(--text-secondary); font-size: var(--text-xs); }
+.functionAgentStatus strong { color: var(--text-primary); }
 .classReferences button { max-width: 100%; overflow: hidden; border: 1px solid var(--border-default); border-radius: var(--radius-sm); padding: .25rem .4rem; background: var(--bg-secondary); color: var(--accent-secondary); cursor: pointer; font: var(--text-xs) var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
 .classReferences button:hover, .classReferences button:focus-visible { border-color: var(--accent-secondary); outline: 2px solid var(--accent-secondary); outline-offset: 1px; }
 .recoveredVariables { margin: var(--space-3) 0; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); background: var(--bg-tertiary); }

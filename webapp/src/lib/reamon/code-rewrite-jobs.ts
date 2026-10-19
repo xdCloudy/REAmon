@@ -631,13 +631,10 @@ export async function dispatchQueuedCodeRewrites(input: { limit?: number; worker
       .filter((attempt) => !dependencyPlan.blockedAttemptIds.has(attempt.id))
       .slice(0, limit)
     : queuedCandidates
-  const results = []
-  let claimedCount = 0
-  for (const attempt of queued) {
-    const claimed = await executeAttempt(attempt.id, workerId)
-    results.push({ attemptId: attempt.id, claimed })
-    if (claimed) claimedCount += 1
-    if (!dependencyPlan.complete && claimedCount >= limit) break
-  }
+  const runnable = queued.slice(0, limit)
+  const results = await Promise.all(runnable.map(async (attempt) => ({
+    attemptId: attempt.id,
+    claimed: await executeAttempt(attempt.id, workerId),
+  })))
   return { recovered, selected: dependencyPlan.complete ? queued.length : results.length, workerId, results }
 }

@@ -3,6 +3,7 @@ import os from 'node:os'
 
 const DEFAULT_POLL_SECONDS = 10
 const DEFAULT_BATCH_SIZE = 1
+const DEFAULT_REWRITE_BATCH_SIZE = 3
 const DEFAULT_STALE_AFTER_MINUTES = 30
 const DEFAULT_PROJECTION_TIMEOUT_MS = 240_000
 const MAX_POLL_SECONDS = 300
@@ -69,6 +70,7 @@ export function readWorkerConfig(env = process.env) {
     retentionIntervalSeconds: boundedNumber(env.REAMON_WORKER_RETENTION_INTERVAL_SECONDS, DEFAULT_RETENTION_INTERVAL_SECONDS, 0, MAX_RETENTION_INTERVAL_SECONDS),
     retentionApply: booleanValue(env.REAMON_WORKER_RETENTION_APPLY),
     codeRewriteJobsEnabled: booleanValue(env.REAMON_WORKER_CODE_REWRITE_JOBS, true),
+    rewriteBatchSize: boundedNumber(env.REAMON_WORKER_REWRITE_BATCH_SIZE, DEFAULT_REWRITE_BATCH_SIZE, 1, 5),
     // Some Compose/CI environments expose HOSTNAME as a service address
     // (for example 0.0.0.0) instead of the container identity. Fall back to
     // the runtime hostname so scaled replicas always register distinctly.
@@ -135,7 +137,7 @@ export async function dispatchCodeRewritesOnce(config, fetchImpl = fetch, logger
   const response = await fetchImpl(`${config.webappUrl}/api/internal/reamon/code-rewrites/dispatch`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-internal-key': config.internalKey },
-    body: JSON.stringify({ limit: 1, workerId: config.workerId || 'reamon-worker' }),
+    body: JSON.stringify({ limit: config.rewriteBatchSize || DEFAULT_REWRITE_BATCH_SIZE, workerId: config.workerId || 'reamon-worker' }),
     signal: AbortSignal.timeout(6 * 60_000),
   })
 

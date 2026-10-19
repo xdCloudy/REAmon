@@ -954,6 +954,9 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
   const [smaliError, setSmaliError] = useState('')
   const [memberFilter, setMemberFilter] = useState('')
   const [rewrittenMembers, setRewrittenMembers] = useState<Set<string>>(new Set())
+  const [selectedAgentMembers, setSelectedAgentMembers] = useState<Set<string>>(new Set())
+  const [agentTeamRunning, setAgentTeamRunning] = useState(false)
+  const [agentTeamStatus, setAgentTeamStatus] = useState<Array<{ key: string; name: string; status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED'; error?: string }>>([])
   const queryClient = useQueryClient()
   const initializedMaintainedUnits = useRef(new Set<string>())
   const unitInspectorRef = useRef<HTMLElement>(null)
@@ -1882,6 +1885,112 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
       setMaintenanceError(error instanceof Error ? error.message : 'Could not reverse engineer this method')
     } finally {
       setTransforming(false)
+    }
+  }
+
+  async function runAgentTeam(members: CodeMemberOutline[]) {
+    if (!selectedUnit || !selectedProviderId || !sourceQuery.data || transforming || members.length === 0 || members.length > 10) return
+    const byRange = [...members].sort((left, right) => left.start_byte - right.start_byte)
+    for (let index = 1; index < byRange.length; index += 1) {
+      if (byRange[index].start_byte < byRange[index - 1].end_byte) {
+        setMaintenanceError('Nested functions overlap in the source outline. Run one of the overlapping functions at a time.')
+        return
+      }
+    }
+    const baseline = sourceQuery.data
+    const draft = maintainedDraft || baseline
+    if (draft.replace(/\r\n?/g, '\n') !== baseline.replace(/\r\n?/g, '\n')) {
+      setMaintenanceError('Save or reset the maintained copy to the current decompilation before starting a function team. The team needs stable function ranges to merge results safely.')
+      return
+    }
+    const selectedUnitId = selectedUnit.id
+    setAgentTeamRunning(true)
+    setMaintenanceError('')
+    setAgentTeamStatus(members.map((member) => ({ key: `${member.start_byte}:${member.end_byte}`, name: member.name, status: 'QUEUED' as const })))
+    try {
+      const queueResults = await Promise.allSettled(members.map(async (member) => {
+        const key = `${member.start_byte}:${member.end_byte}`
+        const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/deobfuscate`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ unitId: selectedUnitId, providerId: selectedProviderId, question: question.trim(), scope: 'member', startByte: member.start_byte, endByte: member.end_byte, memberName: member.name }),
+        })
+        const result = await response.json().catch(() => ({})) as { attemptId?: string; status?: string; error?: string }
+        if (!response.ok || !result.attemptId) throw new Error(`${member.name}: ${result.error || 'Could not queue function rewrite'}`)
+        return { member, key, attemptId: result.attemptId }
+      }))
+      const queued = queueResults.flatMap((result) => result.status === 'fulfilled' ? [result.value] : [])
+      const failures = queueResults.flatMap((result) => result.status === 'rejected' ? [result.reason instanceof Error ? result.reason.message : 'Could not queue a function rewrite'] : [])
+      const pending = new Map(queued.map((item) => [item.attemptId, item]))
+      const completed: Array<{ member: CodeMemberOutline; key: string; result: CodeMaintenanceResponse & { inputSource?: string } }> = []
+      const deadline = Date.now() + 10 * 60_000
+      while (pending.size && Date.now() < deadline) {
+        await new Promise((resolve) => window.setTimeout(resolve, 1500))
+        const updates = await Promise.all([...pending.entries()].map(async ([attemptId, item]) => {
+          try {
+            const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/deobfuscate/attempts/${encodeURIComponent(attemptId)}`, { cache: 'no-store' })
+            const status = await response.json().catch(() => ({})) as CodeMaintenanceResponse & { status?: string; inputSource?: string; error?: string }
+            if (!response.ok) throw new Error(status.error || `Could not read status for ${item.member.name}`)
+            return { attemptId, item, status }
+          } catch (error) {
+            return { attemptId, item, error }
+          }
+        }))
+        for (const update of updates) {
+          if ('error' in update) {
+            failures.push(update.error instanceof Error ? update.error.message : `Could not read status for ${update.item.member.name}`)
+            pending.delete(update.attemptId)
+            setAgentTeamStatus((current) => current.map((row) => row.key === update.item.key ? { ...row, status: 'FAILED', error: 'Could not read attempt status' } : row))
+            continue
+          }
+          const { attemptId, item, status } = update
+          if (status.status === 'RUNNING' || status.status === 'QUEUED') {
+            setAgentTeamStatus((current) => current.map((row) => row.key === item.key ? { ...row, status: status.status as 'QUEUED' | 'RUNNING' } : row))
+          } else if (status.status === 'SUCCEEDED' && typeof status.sourceCode === 'string') {
+            completed.push({ member: item.member, key: item.key, result: { ...status, attemptId } })
+            pending.delete(attemptId)
+            setAgentTeamStatus((current) => current.map((row) => row.key === item.key ? { ...row, status: 'SUCCEEDED' } : row))
+          } else if (status.status === 'FAILED' || status.status === 'CANCELLED') {
+            failures.push(`${item.member.name}: ${status.error || 'Rewrite failed'}`)
+            pending.delete(attemptId)
+            setAgentTeamStatus((current) => current.map((row) => row.key === item.key ? { ...row, status: 'FAILED', error: status.error || 'Rewrite failed' } : row))
+          }
+        }
+      }
+      if (pending.size) failures.push(`${pending.size} function rewrite${pending.size === 1 ? '' : 's'} still queued or running; their attempts remain in project history.`)
+      if (completed.length) {
+        const bytes = new TextEncoder().encode(draft)
+        const ordered = [...completed].sort((left, right) => right.member.start_byte - left.member.start_byte)
+        let merged = bytes
+        for (const { member, result } of ordered) {
+          const currentSlice = new TextDecoder().decode(merged.subarray(member.start_byte, member.end_byte))
+          if (result.inputSource === undefined || currentSlice !== result.inputSource) throw new Error(`The source for ${member.name} changed while the team was running, so results were kept in attempt history and not merged.`)
+          const replacement = new TextEncoder().encode(result.sourceCode)
+          const updated = new Uint8Array(merged.byteLength - (member.end_byte - member.start_byte) + replacement.byteLength)
+          updated.set(merged.subarray(0, member.start_byte), 0)
+          updated.set(replacement, member.start_byte)
+          updated.set(merged.subarray(member.end_byte), member.start_byte + replacement.byteLength)
+          merged = updated
+        }
+        const mergedDraft = new TextDecoder().decode(merged)
+        const meta = completed[0].result
+        setMaintainedDraft(mergedDraft)
+        setMaintenanceMeta(meta)
+        setMaintainedSaved(false)
+        setRewrittenMembers((current) => new Set([...current, ...completed.map((item) => item.key)]))
+        revealMaintainedEditor()
+        try {
+          await persistCodeDraft(mergedDraft, meta, 'member')
+        } catch (error) {
+          failures.push(`Results are in the editor, but saving project memory failed: ${error instanceof Error ? error.message : 'unknown error'}`)
+        }
+      }
+      if (failures.length) setMaintenanceError(failures.join(' '))
+      setSelectedAgentMembers(new Set())
+      await queryClient.invalidateQueries({ queryKey: ['reamon-code-draft', projectId, selectedUnitId] })
+    } catch (error) {
+      setMaintenanceError(error instanceof Error ? error.message : 'The function team could not complete')
+    } finally {
+      setAgentTeamRunning(false)
     }
   }
 
@@ -3017,15 +3126,37 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
               {memberOutlineQuery.data.unsupported && <p className={styles.message}>No Tree-sitter grammar is available for {selectedUnit?.language || 'this source'} yet. File-level reverse engineering is still available.</p>}
               {!memberOutlineQuery.data.unsupported && memberOutlineQuery.data.members.length === 0 && <p className={styles.message}>No functions or methods with bodies were found in this source.</p>}
               {memberOutlineQuery.data.members.length > 0 && filteredMembers.length === 0 && <p className={styles.message}>No functions or methods match this filter.</p>}
+              {filteredMembers.length > 0 && <div className={styles.functionAgentControls}>
+                <span>Select up to 10 functions for parallel AI agents. Results use the saved project context and return to this editor for review.</span>
+                <div>
+                  <button type="button" className={styles.copyButton} onClick={() => setSelectedAgentMembers(new Set(filteredMembers.filter((member) => member.source_bytes <= MAX_MEMBER_REWRITE_BYTES).map((member) => `${member.start_byte}:${member.end_byte}`).slice(0, 10)))} disabled={agentTeamRunning || transforming}>Select first 10 visible</button>
+                  <button type="button" className={styles.copyButton} onClick={() => setSelectedAgentMembers(new Set())} disabled={agentTeamRunning || transforming || selectedAgentMembers.size === 0}>Clear selection</button>
+                  <button type="button" className={styles.explainButton} onClick={() => void runAgentTeam(filteredMembers.filter((member) => selectedAgentMembers.has(`${member.start_byte}:${member.end_byte}`)))} disabled={!selectedProviderId || agentTeamRunning || transforming || selectedAgentMembers.size === 0 || selectedAgentMembers.size > 10 || maintainedDraftDiffersFromSource || sourceQuery.isError}>
+                    {agentTeamRunning ? 'Agents working…' : `Run ${selectedAgentMembers.size} function agent${selectedAgentMembers.size === 1 ? '' : 's'}`}
+                  </button>
+                </div>
+                {maintainedDraftDiffersFromSource && <small>Reset the maintained editor to current decompilation before starting a parallel batch, so function results can be merged at stable source ranges.</small>}
+              </div>}
               <ul>{filteredMembers.map((member) => {
                 const key = `${member.start_byte}:${member.end_byte}`
                 const tooLarge = member.source_bytes > MAX_MEMBER_REWRITE_BYTES
-                return <li key={key}>
-                  <button type="button" className={styles.copyButton} onClick={() => void deobfuscateMember(member)} disabled={!selectedProviderId || transforming || tooLarge || rewrittenMembers.has(key) || sourceQuery.isError} title={tooLarge ? 'This function or method exceeds the single request limit' : undefined}>
+                return <li key={key} className={styles.functionAgentRow}>
+                  <label className={styles.functionAgentChoice}>
+                    <input type="checkbox" checked={selectedAgentMembers.has(key)} disabled={agentTeamRunning || transforming || tooLarge || rewrittenMembers.has(key)} onChange={(event) => setSelectedAgentMembers((current) => {
+                      const next = new Set(current)
+                      if (event.target.checked && next.size < 10) next.add(key)
+                      else next.delete(key)
+                      return next
+                    })} aria-label={`Select ${member.kind} ${member.name} for an AI agent`} />
+                  </label>
+                  <button type="button" className={styles.copyButton} onClick={() => void deobfuscateMember(member)} disabled={!selectedProviderId || transforming || agentTeamRunning || tooLarge || rewrittenMembers.has(key) || sourceQuery.isError} title={tooLarge ? 'This function or method exceeds the single request limit' : undefined}>
                     {member.kind} {member.name} · line {member.line} · {formatBytes(member.source_bytes)}{rewrittenMembers.has(key) ? ' · rewritten' : tooLarge ? ' · too large' : ''}
                   </button>
                 </li>
               })}</ul>
+              {agentTeamStatus.length > 0 && <ol className={styles.functionAgentStatus} aria-live="polite" aria-label="Function agent progress">
+                {agentTeamStatus.map((agent) => <li key={agent.key}><strong>{agent.name}</strong><span>{agent.status === 'QUEUED' ? 'Queued' : agent.status === 'RUNNING' ? 'Working' : agent.status === 'SUCCEEDED' ? 'Ready to review' : `Failed${agent.error ? `: ${agent.error}` : ''}`}</span></li>)}
+              </ol>}
               {memberOutlineQuery.data.members.length > filteredMembers.length && <p className={styles.message}>Showing {filteredMembers.length} functions or methods. Filter the list to find others.</p>}
               {memberOutlineQuery.data.truncated && <p className={styles.message}>The outline reached its 10,000 member limit; some functions or methods may not be listed.</p>}
             </>}

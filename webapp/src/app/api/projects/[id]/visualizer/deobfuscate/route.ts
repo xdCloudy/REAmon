@@ -2447,7 +2447,13 @@ export async function POST(request: Request, { params }: RouteParams) {
     const timeoutSeconds = typeof provider.timeout === 'number' && Number.isFinite(provider.timeout) ? provider.timeout : 120
     const timeoutMs = Math.max(10_000, Math.min(300_000, timeoutSeconds * 1000))
 
-    const leaseIdentity = JSON.stringify([artifact.id, runPrefix.slice(0, -1), observation.id, sourceHash])
+    // Member rewrites can run concurrently within the same source unit. Keep
+    // duplicate attempts for one member exclusive while allowing other members
+    // of that unit to be claimed by parallel helper agents.
+    const memberLeaseIdentity = scope === 'member'
+      ? [body.startByte, body.endByte, String(body.memberName || '').slice(0, 500)]
+      : null
+    const leaseIdentity = JSON.stringify([artifact.id, runPrefix.slice(0, -1), observation.id, sourceHash, memberLeaseIdentity])
     const leaseKey = createHash('sha256').update(leaseIdentity).digest('hex')
     const leaseWhere = { projectId, leaseKey }
     const leaseNow = new Date()
@@ -2473,7 +2479,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     if (!acquiredLeaseId) throw new Error('Could not acquire the code-unit rewrite lease')
 
     const attemptScope = { projectId, artifactId: artifact.id, runKey: runPrefix.slice(0, -1), codeUnitId: observation.id, sourceHash }
-    await failInterruptedCodeAttempts(attemptScope, leaseNow)
+    if (scope !== 'member') await failInterruptedCodeAttempts(attemptScope, leaseNow)
 
     const requestPayload = {
       model: `custom/${provider.id}`,
