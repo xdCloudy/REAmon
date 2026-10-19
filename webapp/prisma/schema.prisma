@@ -460,6 +460,8 @@ model Project {
   approvals                   ReamonApproval[]
   activities                  WorkspaceActivity[]
   imports                     WorkspaceImport[]
+  nativeFunctionMatches       ReamonFunctionMatch[]
+  nativeFunctionMatchReviews  ReamonFunctionMatchReview[]
 
   // ========== TARGET CONFIGURATION ==========
   targetDomain                String   @default("") @map("target_domain")
@@ -2778,6 +2780,68 @@ model ReamonObservation {
   @@index([projectId, taskId])
   @@index([projectId, artifactId])
   @@map("reamon_observations")
+}
+
+/// A durable, hash-attributed candidate correspondence between two functions.
+/// Observation IDs are lookup hints only; the function and feature snapshots
+/// preserve what the matcher actually compared after observations are refreshed.
+model ReamonFunctionMatch {
+  id                  String   @id @default(cuid())
+  projectId           String   @map("project_id")
+  project             Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  artifactAId         String   @map("artifact_a_id")
+  artifactASha256     String   @map("artifact_a_sha256")
+  artifactAName       String   @map("artifact_a_name")
+  taskAId             String   @map("task_a_id")
+  providerAId         String   @map("provider_a_id")
+  providerAVersion    String   @map("provider_a_version")
+  functionAObservationId String? @map("function_a_observation_id")
+  functionAStableKey  String   @map("function_a_stable_key")
+  functionAName       String   @map("function_a_name")
+  functionAAddress    String?  @map("function_a_address")
+  functionAFeatures   Json     @map("function_a_features")
+  artifactBId         String   @map("artifact_b_id")
+  artifactBSha256     String   @map("artifact_b_sha256")
+  artifactBName       String   @map("artifact_b_name")
+  taskBId             String   @map("task_b_id")
+  providerBId         String   @map("provider_b_id")
+  providerBVersion    String   @map("provider_b_version")
+  functionBObservationId String? @map("function_b_observation_id")
+  functionBStableKey  String   @map("function_b_stable_key")
+  functionBName       String   @map("function_b_name")
+  functionBAddress    String?  @map("function_b_address")
+  functionBFeatures   Json     @map("function_b_features")
+  architecture       String
+  matcher             String   @default("reamon-instruction-cfg")
+  matcherVersion      String   @default("1") @map("matcher_version")
+  similarity          Float
+  instructionSimilarity Float @map("instruction_similarity")
+  controlFlowSimilarity Float? @map("control_flow_similarity")
+  reviews             ReamonFunctionMatchReview[]
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  @@index([projectId, createdAt])
+  @@index([projectId, artifactASha256, artifactBSha256])
+  @@index([projectId, functionAStableKey])
+  @@index([projectId, functionBStableKey])
+  @@map("reamon_function_matches")
+}
+
+/// Append-only analyst decision. Later reviews supersede earlier decisions;
+/// the prior actor, rationale, and timestamp remain available for audit.
+model ReamonFunctionMatchReview {
+  id          String   @id @default(cuid())
+  projectId   String   @map("project_id")
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  matchId     String   @map("match_id")
+  match       ReamonFunctionMatch @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  decision    String
+  reviewerId  String   @map("reviewer_id")
+  rationale   String   @default("") @db.Text
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([projectId, matchId, createdAt])
+  @@map("reamon_function_match_reviews")
 }
 
 model ReamonMaintainedSource {

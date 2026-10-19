@@ -221,6 +221,12 @@
 .graphSearchResults strong { color: var(--text-primary); font: 600 var(--text-xs) var(--font-mono); }
 .graphSearchResults small { margin-top: .2rem; color: var(--text-tertiary); font: var(--text-xs) var(--font-mono); }
 .similarFunctions { display: grid; gap: var(--space-1); margin-top: var(--space-3); border-top: 1px solid var(--border-subtle); padding-top: var(--space-3); }
+.similarFunctionRow { display: grid; gap: var(--space-1); }
+.functionMatchActions { display: flex; align-items: center; gap: var(--space-1); padding: 0 var(--space-2); color: var(--text-tertiary); font-size: var(--text-xs); }
+.functionMatchActions span { margin-right: auto; }
+.functionMatchActions button { border: 1px solid var(--border-default); border-radius: var(--radius-sm); padding: .2rem .45rem; background: var(--bg-secondary); color: var(--text-secondary); cursor: pointer; font: inherit; }
+.functionMatchActions button:hover:not(:disabled), .functionMatchActions button:focus-visible { border-color: var(--accent-secondary); color: var(--text-primary); }
+.functionMatchActions button:disabled { cursor: wait; opacity: .6; }
 .similarFunctionsHeading { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); margin-bottom: var(--space-1); }
 .similarFunctionsHeading h3 { margin: 0; color: var(--text-primary); font-size: var(--text-sm); }
 .similarFunctionsHeading span { color: var(--text-tertiary); font-size: var(--text-xs); }

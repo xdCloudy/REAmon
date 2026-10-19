@@ -132,6 +132,20 @@ interface SimilarFunctionsResponse {
   unavailableReason?: string
 }
 
+interface PersistedFunctionMatch {
+  id: string
+  taskAId: string
+  taskBId: string
+  functionAObservationId: string | null
+  functionBObservationId: string | null
+  similarity: number
+  instructionSimilarity: number
+  controlFlowSimilarity: number | null
+  reviews: Array<{ decision: string; rationale: string; reviewerId: string; createdAt: string }>
+}
+
+interface PersistedFunctionMatchesResponse { matches: PersistedFunctionMatch[] }
+
 interface AlternateDecompilerOutput {
   id: string
   providerId: string
@@ -504,6 +518,13 @@ async function fetchSimilarFunctions(projectId: string, taskId: string, unitId: 
     const detail = await response.json().catch(() => null) as { error?: string } | null
     throw new Error(detail?.error || 'Unable to find similar functions')
   }
+  return response.json()
+}
+
+async function fetchSavedFunctionMatches(projectId: string, taskId: string, functionId: string, signal?: AbortSignal): Promise<PersistedFunctionMatchesResponse> {
+  const params = new URLSearchParams({ taskId, functionId })
+  const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/function-matches?${params.toString()}`, { signal, cache: 'no-store' })
+  if (!response.ok) throw new Error('Unable to load saved function comparison reviews')
   return response.json()
 }
 
@@ -906,6 +927,8 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [selectedEvidenceAddress, setSelectedEvidenceAddress] = useState<string | null>(null)
   const [selectedFunctionMapMember, setSelectedFunctionMapMember] = useState<{ id: string; taskId?: string; parentUnitId: string; name: string; similarityAvailable: boolean; hasControlFlowGraph: boolean } | null>(null)
+  const [savingFunctionMatchKey, setSavingFunctionMatchKey] = useState<string | null>(null)
+  const [functionMatchActionError, setFunctionMatchActionError] = useState('')
   const [urlInitialized, setUrlInitialized] = useState(false)
   const [matchedUnitOverride, setMatchedUnitOverride] = useState<CodeUnit | null>(null)
   const [copyStatus, setCopyStatus] = useState('')
@@ -1176,6 +1199,12 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
     enabled: Boolean(currentRunId && selectedSimilarityTarget && selectedUnit?.source === currentRun?.providerId),
     staleTime: 5 * 60_000,
     gcTime: 60_000,
+  })
+  const savedFunctionMatchesQuery = useQuery({
+    queryKey: ['reamon-function-matches', projectId, selectedSimilarityTaskId, selectedSimilarityTarget],
+    queryFn: ({ signal }) => fetchSavedFunctionMatches(projectId, selectedSimilarityTaskId as string, selectedSimilarityTarget, signal),
+    enabled: Boolean(currentRunId && selectedSimilarityTarget && selectedUnit?.source === currentRun?.providerId),
+    staleTime: 30_000,
   })
   const selectedSourceUrl = selectedUnit ? artifactUrl(projectId, selectedUnit, selectedUnit.codeArtifactId) : null
   const selectedDisassemblyUrl = selectedUnit ? artifactUrl(projectId, selectedUnit, selectedUnit.disassemblyArtifactId) : null
@@ -1455,6 +1484,45 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
   const selectedProviderId = explanationProviders.some((provider) => provider.id === providerId)
     ? providerId
     : explanationProviders[0]?.id || ''
+  async function saveFunctionMatch(taskBId: string, functionBId: string, candidateKey: string) {
+    if (!selectedSimilarityTaskId || !selectedSimilarityTarget) return
+    setSavingFunctionMatchKey(candidateKey)
+    setFunctionMatchActionError('')
+    try {
+      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/function-matches`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ taskAId: selectedSimilarityTaskId, functionAId: selectedSimilarityTarget, taskBId, functionBId }),
+      })
+      const result = await response.json() as { error?: string }
+      if (!response.ok) throw new Error(result.error || 'Could not save this function comparison')
+      await queryClient.invalidateQueries({ queryKey: ['reamon-function-matches', projectId, selectedSimilarityTaskId, selectedSimilarityTarget] })
+    } catch (error) {
+      setFunctionMatchActionError(error instanceof Error ? error.message : 'Could not save this function comparison')
+    } finally {
+      setSavingFunctionMatchKey(null)
+    }
+  }
+
+  async function reviewFunctionMatch(matchId: string, decision: 'ACCEPTED' | 'REJECTED') {
+    setSavingFunctionMatchKey(matchId)
+    setFunctionMatchActionError('')
+    try {
+      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/function-matches/${encodeURIComponent(matchId)}/review`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ decision }),
+      })
+      const result = await response.json() as { error?: string }
+      if (!response.ok) throw new Error(result.error || 'Could not save this match review')
+      await queryClient.invalidateQueries({ queryKey: ['reamon-function-matches', projectId, selectedSimilarityTaskId, selectedSimilarityTarget] })
+    } catch (error) {
+      setFunctionMatchActionError(error instanceof Error ? error.message : 'Could not save this match review')
+    } finally {
+      setSavingFunctionMatchKey(null)
+    }
+  }
+
   async function copySource(text = sourceQuery.data, assembly = false) {
     if (!text) return
     const setStatus = assembly ? setAssemblyCopyStatus : setCopyStatus
@@ -3084,26 +3152,46 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
           {similarFunctionsQuery.isLoading && <p className={styles.message}>Comparing this function with stored evidence from completed analyses…</p>}
           {similarFunctionsQuery.isError && <p className={styles.error}>{similarFunctionsQuery.error instanceof Error ? similarFunctionsQuery.error.message : 'Unable to find similar functions'}</p>}
           {!similarFunctionsQuery.isLoading && !similarFunctionsQuery.isError && similarFunctionsQuery.data?.matches.length === 0 && <p className={styles.message}>{similarFunctionsQuery.data.unavailableReason || 'No close function matches were found in this project.'}</p>}
-          {similarFunctionsQuery.data?.matches.map(({ codeUnit, taskId: matchTaskId, function: matchedFunction, similarity, instructionSimilarity, controlFlowSimilarity, artifact }) => <button type="button" className={styles.similarFunction} key={matchedFunction?.id || codeUnit.id} onClick={() => {
-            if (matchTaskId) setSelectedRunId(matchTaskId)
-            setMatchedUnitOverride(codeUnit)
-            setSelectedId(codeUnit.id)
-            setSelectedFunctionMapMember(matchedFunction ? {
-              id: matchedFunction.id,
-              ...(matchedFunction.taskId ? { taskId: matchedFunction.taskId } : {}),
-              parentUnitId: codeUnit.id,
-              name: matchedFunction.name.replace(/#\d+$/, ''),
-              similarityAvailable: true,
-              hasControlFlowGraph: matchedFunction.hasControlFlowGraph,
-            } : null)
-            setCopyStatus('')
-            setAssemblyCopyStatus('')
-            setExplanation(null)
-            setExplainError('')
-          }}>
-            <span><strong>{matchedFunction?.name || codeUnit.name}</strong><small>{matchedFunction?.address || codeUnit.address || codeUnit.artifactPath || 'Function'}</small><small>{artifact.name}{artifact.sha256 ? ` · ${artifact.sha256.slice(0, 12)}` : ''} · {artifact.provider}{matchedFunction ? ` · in ${codeUnit.name}` : ''}</small><small>Candidate score {similarity}% · instructions {instructionSimilarity}%{controlFlowSimilarity === null ? '' : ` · CFG ${controlFlowSimilarity}%`} · not identity evidence</small></span>
-            <b aria-label={`Candidate similarity score ${similarity} percent, not an identity confidence`}>{similarity}%</b>
-          </button>)}
+          {similarFunctionsQuery.data?.matches.map(({ codeUnit, taskId: matchTaskId, function: matchedFunction, similarity, instructionSimilarity, controlFlowSimilarity, artifact }) => {
+            const functionBId = matchedFunction?.id || codeUnit.id
+            const candidateKey = `${matchTaskId || ''}:${functionBId}`
+            const savedMatch = savedFunctionMatchesQuery.data?.matches.find((match) =>
+              (match.taskAId === selectedSimilarityTaskId && match.taskBId === matchTaskId && match.functionAObservationId === selectedSimilarityTarget && match.functionBObservationId === functionBId)
+              || (match.taskBId === selectedSimilarityTaskId && match.taskAId === matchTaskId && match.functionBObservationId === selectedSimilarityTarget && match.functionAObservationId === functionBId))
+            const latestReview = savedMatch?.reviews[0]
+            return <div className={styles.similarFunctionRow} key={candidateKey}>
+              <button type="button" className={styles.similarFunction} onClick={() => {
+                if (matchTaskId) setSelectedRunId(matchTaskId)
+                setMatchedUnitOverride(codeUnit)
+                setSelectedId(codeUnit.id)
+                setSelectedFunctionMapMember(matchedFunction ? {
+                  id: matchedFunction.id,
+                  ...(matchedFunction.taskId ? { taskId: matchedFunction.taskId } : {}),
+                  parentUnitId: codeUnit.id,
+                  name: matchedFunction.name.replace(/#\d+$/, ''),
+                  similarityAvailable: true,
+                  hasControlFlowGraph: matchedFunction.hasControlFlowGraph,
+                } : null)
+                setCopyStatus('')
+                setAssemblyCopyStatus('')
+                setExplanation(null)
+                setExplainError('')
+              }}>
+                <span><strong>{matchedFunction?.name || codeUnit.name}</strong><small>{matchedFunction?.address || codeUnit.address || codeUnit.artifactPath || 'Function'}</small><small>{artifact.name}{artifact.sha256 ? ` · ${artifact.sha256.slice(0, 12)}` : ''} · {artifact.provider}{matchedFunction ? ` · in ${codeUnit.name}` : ''}</small><small>Candidate score {similarity}% · instructions {instructionSimilarity}%{controlFlowSimilarity === null ? '' : ` · CFG ${controlFlowSimilarity}%`} · ranking signal, not proof of identity</small></span>
+                <b aria-label={`Candidate similarity score ${similarity} percent, not an identity confidence`}>{similarity}%</b>
+              </button>
+              <div className={styles.functionMatchActions}>
+                {savedMatch ? <>
+                  <span>Saved comparison{latestReview ? ` · ${latestReview.decision.toLowerCase()}` : ' · proposed'}</span>
+                  <button type="button" disabled={savingFunctionMatchKey === savedMatch.id} onClick={() => void reviewFunctionMatch(savedMatch.id, 'ACCEPTED')}>Accept</button>
+                  <button type="button" disabled={savingFunctionMatchKey === savedMatch.id} onClick={() => void reviewFunctionMatch(savedMatch.id, 'REJECTED')}>Reject</button>
+                </> : <button type="button" disabled={!matchTaskId || matchTaskId === selectedSimilarityTaskId || savingFunctionMatchKey === candidateKey} onClick={() => matchTaskId && void saveFunctionMatch(matchTaskId, functionBId, candidateKey)}>
+                  {savingFunctionMatchKey === candidateKey ? 'Saving…' : 'Save comparison'}
+                </button>}
+              </div>
+            </div>
+          })}
+          {functionMatchActionError && <p className={styles.error} role="alert">{functionMatchActionError}</p>}
           {similarFunctionsQuery.data?.truncated && <p className={styles.message}>The comparison reached its history limit; older stored function observations may not have been included.</p>}
         </section>}
         </aside>

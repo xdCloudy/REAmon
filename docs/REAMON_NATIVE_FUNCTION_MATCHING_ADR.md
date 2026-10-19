@@ -1,6 +1,6 @@
 # ADR: Durable cross-artifact native function matching
 
-- **Status:** Proposed
+- **Status:** In progress
 - **Scope:** First cross-version native function comparison, with QBinDiff as an evaluated engine reference
 - **Decision date:** 2026-10-19
 
@@ -105,3 +105,23 @@ or name propagation are treated as reliable.
 Related project references: [upstream reuse audit](REAMON_UPSTREAM_REUSE.md),
 [reference portfolio](REAMON_REFERENCE_PORTFOLIO.md), and
 [language support matrix](REAMON_LANGUAGE_MATRIX.md).
+
+## Implementation status
+
+REAmon now lets an analyst save a ranked native function pair from the visualizer
+as a durable `reamon_function_matches` record. Each record snapshots both
+artifact hashes, run and provider versions, function identities, the exact
+bounded instruction/CFG features and their SHA-256 digests, architecture, and
+feature scores. The review endpoint appends accepted or rejected decisions with
+reviewer and timestamp; it never mutates the source observations or propagates a
+name. The project database remains the authority after provider observations are
+refreshed.
+
+This is the selected-pair foundation, not whole-artifact QBinDiff integration.
+The UI currently saves candidates surfaced by REAmon's bounded instruction/CFG
+ranker, and only native functions with a matching recognized architecture qualify.
+The isolated QBinDiff adapter, full candidate-set snapshots, and reviewed-name
+context remain open. Upstream process reference: [decomp.wtf](https://github.com/i12bp8/decomp.wtf)
+assigns work one function at a time and validates attempts with the original
+compiler and exact bytes; REAmon adopts the reviewable function unit while
+keeping its multi-language evidence and validation boundaries.

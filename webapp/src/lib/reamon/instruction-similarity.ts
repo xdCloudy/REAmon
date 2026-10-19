@@ -171,17 +171,9 @@ export function rankSimilarInstructionFunctions(
   }).sort((left, right) => right.shortlistScore - left.shortlistScore).slice(0, MAX_ORDERED_CANDIDATES)
 
   return rough.map(({ candidate }) => {
-    const instructionScore = orderedSimilarity(target.mnemonics, candidate.mnemonics)
-    const controlFlowScore = controlFlowSimilarity(target.controlFlowMetrics, candidate.controlFlowMetrics)
-    return {
-      ...candidate,
-      similarity: controlFlowScore === null
-        ? instructionScore
-        : 0.6 * instructionScore + 0.4 * controlFlowScore,
-      instructionSimilarity: instructionScore,
-      controlFlowSimilarity: controlFlowScore,
-    }
-  }).filter((candidate) => candidate.similarity >= 0.6)
+    const scores = scoreInstructionFunctionPair(target, candidate)
+    return scores ? { ...candidate, ...scores } : null
+  }).filter((candidate): candidate is RankedSimilarInstructionFunction => candidate !== null && candidate.similarity >= 0.6)
     .sort((left, right) => right.similarity - left.similarity || left.name.localeCompare(right.name))
     .slice(0, limit)
     .map((candidate) => ({
@@ -192,4 +184,28 @@ export function rankSimilarInstructionFunctions(
         ? null
         : Math.round(candidate.controlFlowSimilarity * 100),
     }))
+}
+
+/** Score one exact function pair with the same bounded features used for ranking. */
+export function scoreInstructionFunctionPair(
+  target: SimilarInstructionFunction,
+  candidate: SimilarInstructionFunction,
+): { similarity: number; instructionSimilarity: number; controlFlowSimilarity: number | null } | null {
+  if (target.mnemonics.length < MIN_FUNCTION_LENGTH || candidate.mnemonics.length < MIN_FUNCTION_LENGTH) return null
+  const instructionSimilarity = orderedSimilarity(target.mnemonics, candidate.mnemonics)
+  const controlFlowSimilarity = controlFlowSimilarityForPair(target.controlFlowMetrics, candidate.controlFlowMetrics)
+  return {
+    similarity: controlFlowSimilarity === null
+      ? instructionSimilarity
+      : 0.6 * instructionSimilarity + 0.4 * controlFlowSimilarity,
+    instructionSimilarity,
+    controlFlowSimilarity,
+  }
+}
+
+function controlFlowSimilarityForPair(
+  left: SimilarInstructionFunction['controlFlowMetrics'],
+  right: SimilarInstructionFunction['controlFlowMetrics'],
+): number | null {
+  return controlFlowSimilarity(left, right)
 }
