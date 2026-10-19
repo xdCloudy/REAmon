@@ -1,6 +1,7 @@
 import { normalizeRelativePath } from './paths'
 
 export const WORKSPACE_IMPORT_CHUNK_BYTES = 8 * 1024 * 1024
+const MAX_FILE_UPLOAD_ATTEMPTS = 6
 
 export type BrowserWorkspaceFile = File & { webkitRelativePath?: string }
 
@@ -146,7 +147,8 @@ export async function runWorkspaceImport(options: {
   const concurrency = hasLargeFile ? 1 : Math.max(1, Math.min(options.concurrency || 3, 6))
   const uploadOne = async (entry: WorkspaceSelectionFile) => {
     let confirmedOffset = 0
-    for (let attempt = 0; attempt < 2; attempt += 1) {
+    let consecutiveFailures = 0
+    while (true) {
       try {
         while (confirmedOffset < entry.size) {
           throwIfCancelled()
@@ -176,6 +178,7 @@ export async function runWorkspaceImport(options: {
           }
           confirmedOffset += chunk.size
           uploadedBytes += chunk.size
+          consecutiveFailures = 0
           emit('UPLOADING', entry.relativePath)
         }
 
@@ -194,13 +197,14 @@ export async function runWorkspaceImport(options: {
         return
       } catch (error) {
         if (signal?.aborted || error instanceof WorkspaceImportCancelledError) throw new WorkspaceImportCancelledError(activeImportId)
-        if (attempt === 1) {
+        if (consecutiveFailures >= MAX_FILE_UPLOAD_ATTEMPTS - 1) {
           failedPaths.push(entry.relativePath)
           onFileFailure?.({ path: entry.relativePath, message: error instanceof Error ? error.message.slice(0, 500) : 'Upload failed after retry' })
           emit('FAILED', entry.relativePath)
           return
         }
-        await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)))
+        await new Promise((resolve) => setTimeout(resolve, Math.min(10_000, 250 * (2 ** consecutiveFailures))))
+        consecutiveFailures += 1
       }
     }
   }

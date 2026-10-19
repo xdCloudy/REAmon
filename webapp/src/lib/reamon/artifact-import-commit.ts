@@ -42,10 +42,26 @@ export async function receiveArtifactChunk(input: {
     const currentSize = (await handle.stat()).size
     const chunkEnd = input.offset + input.bytes.byteLength
     if (chunkEnd > input.totalSize) throw new Error('Chunk exceeds the declared artifact size')
-    if (input.offset < currentSize && chunkEnd <= currentSize) {
-      const prior = Buffer.alloc(input.bytes.byteLength)
-      const { bytesRead } = await handle.read(prior, 0, prior.byteLength, input.offset)
-      if (bytesRead === prior.byteLength && prior.equals(Buffer.from(input.bytes))) return currentSize
+    if (input.offset < currentSize) {
+      // A client may need to retry after the process or connection stopped
+      // between a partial disk write and the response. Verify the persisted
+      // overlap, then append only the missing tail. Fully repeated chunks are
+      // idempotent; conflicting bytes remain a hard error.
+      const overlap = Math.min(currentSize - input.offset, input.bytes.byteLength)
+      const prior = Buffer.alloc(overlap)
+      const { bytesRead } = await handle.read(prior, 0, overlap, input.offset)
+      if (bytesRead !== overlap || !prior.equals(Buffer.from(input.bytes.subarray(0, overlap)))) {
+        throw new Error('Retried upload chunk conflicts with bytes already received')
+      }
+      if (overlap === input.bytes.byteLength) return currentSize
+      const tail = input.bytes.subarray(overlap)
+      let written = 0
+      while (written < tail.byteLength) {
+        const result = await handle.write(tail, written, tail.byteLength - written, currentSize + written)
+        if (result.bytesWritten <= 0) throw new Error('Could not persist the uploaded chunk')
+        written += result.bytesWritten
+      }
+      return currentSize + written
     }
     if (input.offset !== currentSize) throw new Error('Upload chunk offset does not match the received file bytes')
     let written = 0
