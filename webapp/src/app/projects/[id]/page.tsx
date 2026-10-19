@@ -7,7 +7,6 @@ import { AlertTriangle, ArrowLeft, Server } from 'lucide-react'
 import { WorkspaceFileTree } from '@/components/reamon/WorkspaceFileTree'
 import { WorkspaceImportPanel } from '@/components/reamon/WorkspaceImportPanel'
 import { WorkspaceAnalysisPlanPanel, type WorkspaceAnalysisPlan } from '@/components/reamon/WorkspaceAnalysisPlan'
-import { WorkspaceDecompilationAction } from '@/components/reamon/WorkspaceDecompilationAction'
 import { ToCodeImportAction } from '@/components/reamon/ToCodeImportAction'
 import { WorkspaceTaskList } from '@/components/reamon/WorkspaceTaskList'
 import { WorkspaceFindingList } from '@/components/reamon/WorkspaceFindingList'
@@ -70,33 +69,6 @@ function formatBytes(size: number): string {
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
   if (size < 1024 * 1024 * 1024) return `${(size / 1024 / 1024).toFixed(1)} MB`
   return `${(size / 1024 / 1024 / 1024).toFixed(2)} GB`
-}
-
-function countFrom(record: Record<string, unknown> | null, keys: string[]): number | null {
-  if (!record) return null
-  for (const key of keys) {
-    const value = record[key]
-    if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0) return value
-  }
-  return null
-}
-
-function hasIncompleteCodeUnitCoverage(result: Record<string, unknown> | null | undefined): boolean {
-  if (!result) return false
-  const inventory = result.coverageInventory && typeof result.coverageInventory === 'object' && !Array.isArray(result.coverageInventory)
-    ? result.coverageInventory as Record<string, unknown>
-    : null
-  const discovered = countFrom(inventory, ['discoveredUnitCount'])
-    ?? countFrom(result, ['decompiledCodeUnitCount', 'discoveredCodeUnitCount', 'decompiledClassCount', 'classCount', 'functionCount'])
-  const indexed = countFrom(inventory, ['indexedUnitCount'])
-    ?? countFrom(result, ['returnedCodeUnitCount', 'returnedClassCount', 'returnedFunctionCount'])
-  const notObserved = countFrom(inventory, ['notObservedUnitCount'])
-  const notIndexed = countFrom(inventory, ['notIndexedUnitCount'])
-  const unreturned = countFrom(inventory, ['unreturnedDiscoveredUnitCount', 'unaccountedDiscoveredUnitCount'])
-  if ([notObserved, notIndexed, unreturned].some((count) => count !== null && count > 0)) return true
-  if (discovered !== null && indexed !== null) return indexed < discovered
-  if (inventory && typeof inventory.truncated === 'boolean') return inventory.truncated
-  return result.truncated === true
 }
 
 function profileLabel(profile: TargetProfile): string {
@@ -177,14 +149,13 @@ function WorkerHealthAlert({ workers }: { workers: WorkerHealth[] }) {
 export default function WorkspacePage({ params }: { params: Promise<{ id: string }> }) {
   const { id: projectId } = use(params)
   const queryClient = useQueryClient()
-  const [decompilationActionPending, setDecompilationActionPending] = useState(false)
   const [showDiagnostics, setShowDiagnostics] = useState(false)
   const workspace = useQuery({
     queryKey: ['reamon-workspace', projectId],
     queryFn: () => fetchWorkspace(projectId),
     refetchInterval: (query) => {
       const snapshot = query.state.data
-      if (decompilationActionPending || snapshot?.tasks.some((task) => task.status === 'RUNNING')) return 3000
+      if (snapshot?.tasks.some((task) => task.status === 'RUNNING')) return 3000
       if (snapshot?.workers.length) return 30000
       return false
     },
@@ -200,15 +171,7 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
   const data = workspace.data
   const rootTarget = useMemo(() => data?.targets.find((target) => target.targetType === 'DIRECTORY'), [data?.targets])
   const latestImport = data?.imports[0]
-  const hasDecompilableArtifact = data?.artifacts.some((artifact) => ['apk', 'jar', 'dex', 'class', 'elf', 'pe', 'pe-dll', 'pe-dotnet', 'macho'].includes(artifact.profile.format)) ?? false
-  const decompileTask = data?.tasks.find((task) => task.capability === 'decompile')
-  const decompileResult = decompileTask?.result
-  const returnedClassCount = typeof decompileResult?.returnedClassCount === 'number' ? decompileResult.returnedClassCount : null
-  const discoveredClassCount = typeof decompileResult?.decompiledClassCount === 'number' ? decompileResult.decompiledClassCount : null
-  const sourceScanLimited = typeof decompileResult?.warnings === 'string' && /produced more than|source scan.*limit/i.test(decompileResult.warnings)
-  const hasPartialDecompilation = decompileTask?.status === 'COMPLETED' && hasIncompleteCodeUnitCoverage(decompileResult)
-  const decompileProposal = analysisPlan.data?.steps.find((step) => step.capability === 'decompile')
-  const decompilationTaskActive = decompileTask && ['AWAITING_APPROVAL', 'QUEUED', 'RUNNING'].includes(decompileTask.status)
+  const codeAnalysisTask = data?.tasks.find((task) => ['decompile', 'disassemble', 'recover_metadata'].includes(task.capability || ''))
 
   if (workspace.isLoading) return <div className={styles.loading}>Loading workspace…</div>
   if (workspace.isError || !data) return <div className={styles.error}>Unable to load this workspace. Check that it still exists.</div>
@@ -234,18 +197,6 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
         void queryClient.invalidateQueries({ queryKey: ['reamon-workspace', projectId] })
         void queryClient.invalidateQueries({ queryKey: ['reamon-code-units', projectId] })
       }} />
-      {hasDecompilableArtifact && <aside className={styles.analysisNextStep} id="analysis-next-step">
-        <div><strong>{hasPartialDecompilation && returnedClassCount !== null ? discoveredClassCount !== null && !sourceScanLimited ? `Previous run indexed ${returnedClassCount.toLocaleString()} of ${discoveredClassCount.toLocaleString()} Java classes.` : `At least ${returnedClassCount.toLocaleString()} Java classes indexed; the total is unknown.` : decompileTask?.status === 'AWAITING_APPROVAL' ? 'Decompilation is waiting for approval.' : decompileTask?.status === 'QUEUED' ? 'Decompilation is queued.' : decompileTask?.status === 'RUNNING' ? 'Decompilation is running.' : decompileTask?.status === 'COMPLETED' ? 'Decompilation run finished.' : decompileTask?.status === 'FAILED' ? 'Decompilation failed.' : decompileTask?.status === 'CANCELLED' ? 'Decompilation was cancelled.' : 'Import complete; decompilation has not started.'}</strong><p>{hasPartialDecompilation ? 'This run did not index every code unit. A new run uses the current analyzer limits, so very large targets can still be partial. This performs static decompilation; it does not launch the Android app.' : decompileTask?.status === 'AWAITING_APPROVAL' ? 'Approve this task under Tasks and findings, then choose Run.' : decompileTask?.status === 'QUEUED' ? 'The approved task is ready. Choose Run under Tasks and findings.' : decompileTask?.status === 'RUNNING' ? decompileTask.progressMessage || 'The isolated analyzer is processing the imported artifact.' : decompileTask?.status === 'COMPLETED' ? 'Review indexed coverage and any supplemental evidence limits in the visualizer below. Start another run to refresh the results.' : decompileTask ? 'Review the task details below, or start a fresh analysis attempt.' : 'Choose Run decompilation to start the matching isolated analyzer for this imported artifact. This performs static analysis; it does not launch the Android app.'}</p></div>
-        {!decompilationTaskActive && decompileProposal && <WorkspaceDecompilationAction projectId={projectId} artifactId={decompileProposal.artifactId} providerId={decompileProposal.provider.pluginId} hasPreviousRun={Boolean(decompileTask)} onPendingChange={setDecompilationActionPending} onChanged={() => {
-          void queryClient.invalidateQueries({ queryKey: ['reamon-workspace', projectId] })
-          void queryClient.invalidateQueries({ queryKey: ['reamon-code-units', projectId] })
-        }} />}
-        {!decompilationTaskActive && analysisPlan.isLoading && <span className={styles.muted}>Finding a compatible decompiler…</span>}
-        {!decompilationTaskActive && analysisPlan.isError && <span className={styles.uploadError}>Available analysis proposals could not be loaded. Refresh the workspace and try again.</span>}
-        {!decompilationTaskActive && !analysisPlan.isLoading && !analysisPlan.isError && !decompileProposal && <span className={styles.muted}>No compatible decompiler is available for this artifact.</span>}
-        {decompileTask && <a href="#analysis-tasks">Open task controls</a>}
-        <a href="#analysis-proposals">View all analysis proposals</a>
-      </aside>}
       <WorkspaceAnalysisPlanPanel projectId={projectId} plan={analysisPlan.data} isLoading={analysisPlan.isLoading} isError={analysisPlan.isError} onScheduled={() => {
         void queryClient.invalidateQueries({ queryKey: ['reamon-workspace', projectId] })
         void queryClient.invalidateQueries({ queryKey: ['reamon-code-units', projectId] })
@@ -257,8 +208,8 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
       <WorkspaceCodeVisualizer
         projectId={projectId}
         isAnalyzing={data.tasks.some((task) => task.status === 'RUNNING')}
-        decompilationTask={decompileTask ? { status: decompileTask.status, progressMessage: decompileTask.progressMessage } : undefined}
-        decompilationHref={hasDecompilableArtifact ? '#analysis-next-step' : undefined}
+        analysisTask={codeAnalysisTask ? { status: codeAnalysisTask.status, progressMessage: codeAnalysisTask.progressMessage } : undefined}
+        analysisHref="#analysis-proposals"
       />
 
       <section className={styles.panel} aria-labelledby="files-heading">

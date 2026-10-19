@@ -27,7 +27,7 @@ export default function ProjectVisualizerPage({ params }: { params: Promise<{ id
     refetchIntervalInBackground: false,
   })
   const tasks = workspace.data?.tasks || []
-  const decompilationTask = tasks.find((task) => task.capability === 'decompile')
+  const analysisTask = tasks.find((task) => ['decompile', 'disassemble', 'recover_metadata'].includes(task.capability || ''))
 
   return <main className={styles.page}>
     <Link className={styles.backLink} href={`/projects/${encodeURIComponent(projectId)}`}>
@@ -38,8 +38,8 @@ export default function ProjectVisualizerPage({ params }: { params: Promise<{ id
     <WorkspaceCodeVisualizer
       projectId={projectId}
       isAnalyzing={tasks.some((task) => task.status === 'RUNNING')}
-      decompilationTask={decompilationTask ? { status: decompilationTask.status, progressMessage: decompilationTask.progressMessage } : undefined}
-      decompilationHref={`/projects/${encodeURIComponent(projectId)}#analysis-next-step`}
+      analysisTask={analysisTask ? { status: analysisTask.status, progressMessage: analysisTask.progressMessage } : undefined}
+      analysisHref={`/projects/${encodeURIComponent(projectId)}#analysis-proposals`}
       standalone
     />
   </main>

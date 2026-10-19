@@ -38,14 +38,14 @@ describe('parseToolObservations', () => {
     expect(parseToolObservations({ observations })).toMatchObject({ rejected: 700 })
   })
 
-  test('accepts the full configured 20,000 code unit result and rejects only excess units', () => {
+  test('accepts the full configured code unit result and rejects only excess units', () => {
     const observations = Array.from({ length: MAX_CODE_UNITS_PER_RESULT + 3 }, (_, index) => ({
       kind: 'entity', type: 'code_unit', key: `large-unit:${index}`, attributes: { unitType: 'class', sizeBytes: 1 },
     }))
 
     const result = parseToolObservations({ observations }, MAX_CODE_UNITS_PER_RESULT)
 
-    expect(result.observations).toHaveLength(20_000)
+    expect(result.observations).toHaveLength(MAX_CODE_UNITS_PER_RESULT)
     expect(result.rejected).toBe(3)
   })
 })
@@ -72,9 +72,9 @@ describe('ingestToolResult', () => {
   })
 
   test('upserts observations using the project, source, and stable key', async () => {
-    const upsert = vi.fn().mockResolvedValue({ id: 'observation-1' })
+    const executeRaw = vi.fn().mockResolvedValue(1)
     const findingCreate = vi.fn().mockResolvedValue({ id: 'finding-1' })
-    const tx = { reamonObservation: { upsert }, finding: { findFirst: vi.fn().mockResolvedValue(null), update: vi.fn(), create: findingCreate } } as never
+    const tx = { $executeRaw: executeRaw, finding: { findFirst: vi.fn().mockResolvedValue(null), update: vi.fn(), create: findingCreate } } as never
 
     const summary = await ingestToolResult(tx, {
       projectId: 'project-1',
@@ -86,16 +86,12 @@ describe('ingestToolResult', () => {
     })
 
     expect(summary).toEqual({ accepted: 1, rejected: 0, findingsAccepted: 0, findingsRejected: 0 })
-    expect(upsert).toHaveBeenCalledWith(expect.objectContaining({
-      where: { projectId_source_stableKey: { projectId: 'project-1', source: 'reamon-source-inspector', stableKey: 'fn:main' } },
-      create: expect.objectContaining({ projectId: 'project-1', taskId: 'task-1', artifactId: 'artifact-1', stableKey: 'fn:main' }),
-      update: expect.objectContaining({ taskId: 'task-1', type: 'function' }),
-    }))
+    expect(executeRaw).toHaveBeenCalledTimes(1)
   })
 
   test('preserves explicit relationship endpoint identities for graph convergence', async () => {
-    const upsert = vi.fn().mockResolvedValue({ id: 'observation-2' })
-    const tx = { reamonObservation: { upsert } } as never
+    const executeRaw = vi.fn().mockResolvedValue(1)
+    const tx = { $executeRaw: executeRaw } as never
 
     await ingestToolResult(tx, {
       projectId: 'project-1',
@@ -106,10 +102,10 @@ describe('ingestToolResult', () => {
       data: { observations: [{ kind: 'relationship', type: 'calls', key: 'call:main->parse', fromKey: 'local-main', toKey: 'local-parse', fromCanonicalKey: 'identity:function:main', toCanonicalKey: 'identity:function:parse', attributes: {} }] },
     })
 
-    expect(upsert).toHaveBeenCalledWith(expect.objectContaining({
-      create: expect.objectContaining({ fromCanonicalKey: 'identity:function:main', toCanonicalKey: 'identity:function:parse' }),
-      update: expect.objectContaining({ fromCanonicalKey: 'identity:function:main', toCanonicalKey: 'identity:function:parse' }),
-    }))
+    expect(executeRaw).toHaveBeenCalledTimes(1)
+    const statement = executeRaw.mock.calls[0][0]
+    expect(statement.values).toContain('identity:function:main')
+    expect(statement.values).toContain('identity:function:parse')
   })
 
   test('persists normalized findings with source and task provenance', async () => {

@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto'
 import type { ToolExecutionInput, ToolObservation, ToolPlugin, ToolPluginManifest, ToolResult } from './types'
 import { readAnalyzerResponse } from './analyzer-response'
+import { MAX_CODE_UNITS_PER_RESULT } from './result-ingestion'
 
-const MAX_CLASSES = 500
+const MAX_CLASSES = 80_000
 const MAX_METHODS = 10_000
 const MAX_CALL_EDGES = 4_000
 const MAX_REFERENCES = 4_000
@@ -262,7 +263,7 @@ export async function executeDexDecompiler(input: ToolExecutionInput): Promise<T
     for (const method of payload.methods) {
       const unit = unitsByPath.get(method.relativePath)
       const parentCodeUnitKey = classKeysByPath.get(method.relativePath)
-      if (!unit || !parentCodeUnitKey || observations.length >= 20_000) continue
+      if (!unit || !parentCodeUnitKey || observations.length >= MAX_CODE_UNITS_PER_RESULT) continue
       const cfg = JSON.stringify(method.controlFlowGraph)
       const identity = `${input.artifactId}:${method.dexIndex}:${method.methodIndex}:${method.signature}`
       const key = methodObservationKey(input, method.dexIndex, method.methodIndex, method.signature)
@@ -312,7 +313,7 @@ export async function executeDexDecompiler(input: ToolExecutionInput): Promise<T
     ): string | null => {
       const key = methodObservationKey(input, dexIndex, methodIndex, signature)
       if (methodNodeKeys.has(key)) return key
-      if (observations.length >= 20_000) return null
+      if (observations.length >= MAX_CODE_UNITS_PER_RESULT) return null
       const unit = unitsByPath.get(relativePath)
       const parentCodeUnitKey = classKeysByPath.get(relativePath)
       const owner = signature.split('#')[0] || signature
@@ -350,7 +351,7 @@ export async function executeDexDecompiler(input: ToolExecutionInput): Promise<T
       if (seenCalls.has(edgeIdentity)) continue
       const fromKey = addCallEndpoint(call.fromSignature, call.fromRelativePath, call.fromDexIndex, call.fromMethodIndex, call.fromAddress)
       const toKey = addCallEndpoint(call.toSignature, call.toRelativePath, call.toDexIndex, call.toMethodIndex, call.toAddress)
-      if (!fromKey || !toKey || observations.length >= 20_000) {
+      if (!fromKey || !toKey || observations.length >= MAX_CODE_UNITS_PER_RESULT) {
         callGraphTruncated = true
         break
       }
@@ -387,7 +388,7 @@ export async function executeDexDecompiler(input: ToolExecutionInput): Promise<T
         continue
       }
       const fromKey = addCallEndpoint(reference.fromSignature, reference.fromRelativePath, reference.fromDexIndex, reference.fromMethodIndex, reference.fromAddress)
-      if (!fromKey || observations.length + 2 > 20_000) {
+      if (!fromKey || observations.length + 2 > MAX_CODE_UNITS_PER_RESULT) {
         referencesTruncated = true
         break
       }

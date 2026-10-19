@@ -983,11 +983,11 @@ function CallGraphPanel({ focusUnit, graph, isLoading, isError, error, onSelectU
   </section>
 }
 
-export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationTask, decompilationHref, standalone = false }: {
+export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, analysisHref, standalone = false }: {
   projectId: string
   isAnalyzing: boolean
-  decompilationTask?: { status: string; progressMessage?: string | null }
-  decompilationHref?: string
+  analysisTask?: { status: string; progressMessage?: string | null }
+  analysisHref?: string
   standalone?: boolean
 }) {
   const [filter, setFilter] = useState('')
@@ -2485,7 +2485,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
           || (currentRun.excludedUnitCount !== null && currentRun.excludedUnitCount > 0)
           || (currentRun.omittedUnitCount !== null && currentRun.omittedUnitCount > 0)) && <div className={styles.runSummaryMeta}>
           {currentRun.truncated && <span>Partial index. The counts below describe stored output; they do not indicate whether the task finished.</span>}
-          {currentRun.truncated && decompilationHref && <a className={styles.runAgain} href={decompilationHref}>Run decompilation again</a>}
+          {currentRun.truncated && analysisHref && <a className={styles.runAgain} href={analysisHref}>View analysis proposals</a>}
           {currentRun.notObservedUnitCount > 0 && <span>{currentRun.notObservedUnitCount.toLocaleString()} provider-reported results had no returned observation.</span>}
           {currentRun.notIndexedUnitCount > 0 && <span>{currentRun.notIndexedUnitCount.toLocaleString()} provider-returned code units could not be indexed.</span>}
           {currentRun.notVisitedUnitCount !== null && currentRun.notVisitedUnitCount > 0 && <span>{currentRun.notVisitedUnitCount.toLocaleString()} discovered units were not visited by the analyzer.</span>}
@@ -2550,31 +2550,31 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, decompilationT
       )}
       {!query.isLoading && !query.isError && query.data && units.length === 0 && query.data.total === 0 && (
         !filter.trim() && <div className={styles.empty}>
-          {decompilationTask?.status === 'RUNNING' ? <>
-            <strong>Decompilation is running.</strong>
-            <p>{decompilationTask.progressMessage || 'The code map will fill in after the analyzer publishes its results.'}</p>
-          </> : decompilationTask?.status === 'QUEUED' ? <>
-            <strong>Decompilation is queued.</strong>
+          {analysisTask?.status === 'RUNNING' ? <>
+            <strong>Analysis is running.</strong>
+            <p>{analysisTask.progressMessage || 'The code map will fill in after the analyzer publishes its results.'}</p>
+          </> : analysisTask?.status === 'QUEUED' ? <>
+            <strong>Analysis is queued.</strong>
             <p>Open the task controls and choose Run to start the analyzer.</p>
             <a className={styles.emptyAction} href="#analysis-tasks">Open task controls</a>
-          </> : decompilationTask?.status === 'AWAITING_APPROVAL' ? <>
-            <strong>Decompilation is waiting for approval.</strong>
+          </> : analysisTask?.status === 'AWAITING_APPROVAL' ? <>
+            <strong>Analysis is waiting for approval.</strong>
             <p>Approve the task in the task controls before running it.</p>
             <a className={styles.emptyAction} href="#analysis-tasks">Open task controls</a>
-          </> : decompilationTask?.status === 'COMPLETED' ? <>
+          </> : analysisTask?.status === 'COMPLETED' ? <>
             <strong>{currentRun?.indexedUnitCount === 0 ? 'This run indexed no viewable code units.' : 'The analyzer finished without viewable code units.'}</strong>
             <p>{currentRun && currentRun.discoveredUnitCount !== null
               ? `The analyzer reported ${currentRun.discoveredUnitCount.toLocaleString()} analyzed ${currentRun.unitLabel}; ${currentRun.indexedUnitCount.toLocaleString()} were indexed. Review provider warnings and limits under task controls.`
               : 'Review provider output and warnings under task controls to see why no units were indexed.'}</p>
             <a className={styles.emptyAction} href="#analysis-tasks">Review task</a>
-          </> : decompilationTask?.status === 'FAILED' || decompilationTask?.status === 'CANCELLED' ? <>
-            <strong>Decompilation did not finish.</strong>
+          </> : analysisTask?.status === 'FAILED' || analysisTask?.status === 'CANCELLED' ? <>
+            <strong>Analysis did not finish.</strong>
             <p>Review the task and retry it from the task controls.</p>
             <a className={styles.emptyAction} href="#analysis-tasks">Open task controls</a>
           </> : <>
             <strong>No code units have been analyzed yet.</strong>
-            <p>Importing a file records and profiles it. Run a compatible analyzer to populate this map with classes, functions, and their code.</p>
-            {decompilationHref && <a className={styles.emptyAction} href={decompilationHref}>Run decompilation</a>}
+            <p>Import files, then run a compatible analysis proposal to populate this map with code units and their relationships.</p>
+            {analysisHref && <a className={styles.emptyAction} href={analysisHref}>View analysis proposals</a>}
           </>}
         </div>
       )}

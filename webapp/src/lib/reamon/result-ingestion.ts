@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { Prisma } from '@prisma/client'
 import type {
   ObservationAttributes,
@@ -10,6 +10,7 @@ export const MAX_OBSERVATIONS_PER_RESULT = 500
 export const MAX_CODE_UNITS_PER_RESULT = 100000
 export const MAX_OBSERVATION_ATTRIBUTES = 64
 export const MAX_FINDINGS_PER_RESULT = 200
+const OBSERVATION_UPSERT_BATCH_SIZE = 250
 
 const OBSERVATION_KINDS = new Set<ObservationKind>(['entity', 'relationship', 'fact'])
 const FINDING_SEVERITIES = new Set(['critical', 'high', 'medium', 'low', 'info'])
@@ -228,50 +229,39 @@ export async function ingestToolResult(
   input: ObservationIngestionInput,
 ): Promise<ObservationIngestionSummary> {
   const parsed = parseToolObservations(input.data, input.maxObservations)
-  for (const observation of parsed.observations) {
-    const attributes = observation.attributes as unknown as Prisma.InputJsonValue
-    await tx.reamonObservation.upsert({
-      where: {
-        projectId_source_stableKey: {
-          projectId: input.projectId,
-          source: input.source,
-          stableKey: observation.key,
-        },
-      },
-      create: {
-        projectId: input.projectId,
-        taskId: input.taskId,
-        targetId: input.targetId,
-        artifactId: input.artifactId,
-        kind: observation.kind,
-        type: observation.type,
-        stableKey: observation.key,
-        canonicalKey: canonicalKeyForObservation(input.source, observation),
-        label: observation.label,
-        source: input.source,
-        relation: observation.relation,
-        fromKey: observation.fromKey,
-        toKey: observation.toKey,
-        fromCanonicalKey: observation.fromCanonicalKey,
-        toCanonicalKey: observation.toCanonicalKey,
-        attributes,
-      },
-      update: {
-        taskId: input.taskId,
-        targetId: input.targetId,
-        artifactId: input.artifactId,
-        kind: observation.kind,
-        type: observation.type,
-        canonicalKey: canonicalKeyForObservation(input.source, observation),
-        label: observation.label,
-        relation: observation.relation,
-        fromKey: observation.fromKey,
-        toKey: observation.toKey,
-        fromCanonicalKey: observation.fromCanonicalKey,
-        toCanonicalKey: observation.toCanonicalKey,
-        attributes,
-      },
-    })
+  for (let offset = 0; offset < parsed.observations.length; offset += OBSERVATION_UPSERT_BATCH_SIZE) {
+    const batch = parsed.observations.slice(offset, offset + OBSERVATION_UPSERT_BATCH_SIZE)
+    const rows = batch.map((observation) => Prisma.sql`(
+      ${`c${randomUUID().replaceAll('-', '')}`},
+      ${input.projectId}, ${input.taskId}, ${input.targetId}, ${input.artifactId},
+      ${observation.kind}, ${observation.type}, ${observation.key},
+      ${canonicalKeyForObservation(input.source, observation)}, ${observation.label ?? null}, ${input.source},
+      ${observation.relation ?? null}, ${observation.fromKey ?? null}, ${observation.toKey ?? null},
+      ${observation.fromCanonicalKey ?? null}, ${observation.toCanonicalKey ?? null},
+      ${JSON.stringify(observation.attributes)}::jsonb
+    )`)
+    await tx.$executeRaw(Prisma.sql`
+      INSERT INTO "reamon_observations" (
+        "id", "project_id", "task_id", "target_id", "artifact_id", "kind", "type",
+        "stable_key", "canonical_key", "label", "source", "relation", "from_key", "to_key",
+        "from_canonical_key", "to_canonical_key", "attributes"
+      ) VALUES ${Prisma.join(rows)}
+      ON CONFLICT ("project_id", "source", "stable_key") DO UPDATE SET
+        "task_id" = EXCLUDED."task_id",
+        "target_id" = EXCLUDED."target_id",
+        "artifact_id" = EXCLUDED."artifact_id",
+        "kind" = EXCLUDED."kind",
+        "type" = EXCLUDED."type",
+        "canonical_key" = EXCLUDED."canonical_key",
+        "label" = EXCLUDED."label",
+        "relation" = EXCLUDED."relation",
+        "from_key" = EXCLUDED."from_key",
+        "to_key" = EXCLUDED."to_key",
+        "from_canonical_key" = EXCLUDED."from_canonical_key",
+        "to_canonical_key" = EXCLUDED."to_canonical_key",
+        "attributes" = EXCLUDED."attributes",
+        "updated_at" = CURRENT_TIMESTAMP
+    `)
   }
   const parsedFindings = parseToolFindings(input.data)
   for (const finding of parsedFindings.findings) {
