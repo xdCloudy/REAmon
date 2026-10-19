@@ -243,12 +243,12 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
         <WorkspaceFileTree projectId={projectId} rootName={latestImport?.rootName || data.workspace.name} artifacts={data.artifacts} totalArtifacts={data.artifactPage.total} hasMoreArtifacts={data.artifactPage.hasMore} />
       </section>}
 
-      {hasAnalysisHistory && <section id="analysis-tasks" className={styles.panel} aria-labelledby="work-heading"><div className={styles.panelHeader}><h2 id="work-heading">Tasks and findings</h2></div>{data.tasks.length > 0 && <WorkspaceTaskList projectId={projectId} tasks={data.tasks} onChanged={() => {
+      {hasAnalysisHistory && <details id="analysis-tasks" className={styles.secondaryDetails}><summary>Tasks and findings <span>{data.tasks.length} tasks · {data.findings.length} findings</span></summary><section className={styles.panel} aria-label="Tasks and findings">{data.tasks.length > 0 && <WorkspaceTaskList projectId={projectId} tasks={data.tasks} onChanged={() => {
         void queryClient.invalidateQueries({ queryKey: ['reamon-workspace', projectId] })
         void queryClient.invalidateQueries({ queryKey: ['reamon-code-units', projectId] })
       }} />}{data.findings.length > 0 && <WorkspaceFindingList projectId={projectId} findings={data.findings} onChanged={() => {
         void queryClient.invalidateQueries({ queryKey: ['reamon-workspace', projectId] })
-      }} />}</section>}
+      }} />}</section></details>}
 
       <details className={styles.secondaryDetails} onToggle={(event) => setShowDiagnostics(event.currentTarget.open)}>
         <summary>Project data and diagnostics <span>{data.counts.targets} targets · {data.counts.observations} knowledge records · {data.counts.hypotheses} hypotheses</span></summary>

@@ -9,7 +9,9 @@ const MAX_POLL_SECONDS = 300
 const MAX_BATCH_SIZE = 10
 const MAX_STALE_AFTER_MINUTES = 24 * 60
 const MAX_PROJECTION_TIMEOUT_MS = 240_000
-const TASK_DISPATCH_TIMEOUT_MS = 35 * 60_000
+// Leave bounded time after a large multi-DEX request for result ingestion and
+// task settlement; the analyzer itself has a 150-minute deadline.
+const TASK_DISPATCH_TIMEOUT_MS = 160 * 60_000
 const MAX_WORKER_ID_LENGTH = 128
 const MAX_PROJECTION_PAGES = 100
 const DEFAULT_BACKFILL_INTERVAL_SECONDS = 300

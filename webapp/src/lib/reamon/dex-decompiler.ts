@@ -7,7 +7,10 @@ const MAX_CLASSES = 80_000
 const MAX_METHODS = 10_000
 const MAX_CALL_EDGES = 4_000
 const MAX_REFERENCES = 4_000
-const DEFAULT_TIMEOUT_MS = 30 * 60_000
+// A previous 30-minute run reached DEX 3 of 10 before aborting; give a
+// multi-DEX run room to finish while keeping each request strictly bounded.
+const MAX_TIMEOUT_MS = 150 * 60_000
+const DEFAULT_TIMEOUT_MS = MAX_TIMEOUT_MS
 
 interface DexMethod {
   signature: string
@@ -97,7 +100,7 @@ function errorText(error: unknown): string {
 
 function timeoutMs(): number {
   const value = Number(process.env.REAMON_DEX_DECOMPILER_REQUEST_TIMEOUT_MS)
-  return Number.isFinite(value) ? Math.min(30 * 60_000, Math.max(60_000, Math.floor(value))) : DEFAULT_TIMEOUT_MS
+  return Number.isFinite(value) ? Math.min(MAX_TIMEOUT_MS, Math.max(60_000, Math.floor(value))) : DEFAULT_TIMEOUT_MS
 }
 
 function methodObservationKey(input: ToolExecutionInput, dexIndex: number, methodIndex: number, signature: string): string {

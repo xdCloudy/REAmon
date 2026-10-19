@@ -1024,7 +1024,10 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
   }, [currentRunId, selectedId, urlInitialized])
   const nextCursor = pageState ? pageState.nextCursor : query.data?.nextCursor || null
   const currentRun = runs.find((run) => run.id === currentRunId) || null
-  const displayRunWarnings = currentRun?.warnings.replace(/(?:^|\s)Picked up JAVA_TOOL_OPTIONS:(?:\s+-\S+)*/g, '').trim() || ''
+  const displayRunWarnings = currentRun?.warnings
+    .replace(/(?:^|\s)Picked up JAVA_TOOL_OPTIONS:(?:\s+-\S+)*/g, '')
+    .replace(/JADX exited with code 3\.?/g, 'JADX reported decompilation errors after producing output; some retained source may be incomplete (exit code 3).')
+    .trim() || ''
   const maintainedCoverageQuery = useQuery({
     queryKey: ['reamon-maintained-coverage', projectId, currentRunId],
     queryFn: ({ signal }) => fetchMaintainedCoverage(projectId, currentRunId as string, signal),
@@ -2312,7 +2315,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
         {!currentRun.inventoryAvailable && <p className={styles.runSummaryMeta}>This older run has no persisted shared coverage inventory; the displayed rate uses the available provider count.</p>}
         {maintainedCoverageQuery.data && <p className={styles.runSummaryMeta}>
           {maintainedCoverageQuery.data.codeBytes > 0
-            ? `Decompilation measurements cover ${Math.round((maintainedCoverageQuery.data.measuredBytes / maintainedCoverageQuery.data.codeBytes) * 100)}% of indexed code size (${formatBytes(maintainedCoverageQuery.data.measuredBytes)} measured, ${formatBytes(Math.max(0, maintainedCoverageQuery.data.codeBytes - maintainedCoverageQuery.data.measuredBytes))} unmeasured).`
+            ? `Completeness measurements are available for ${Math.round((maintainedCoverageQuery.data.measuredBytes / maintainedCoverageQuery.data.codeBytes) * 100)}% of indexed code bytes (${formatBytes(maintainedCoverageQuery.data.measuredBytes)} measured, ${formatBytes(Math.max(0, maintainedCoverageQuery.data.codeBytes - maintainedCoverageQuery.data.measuredBytes))} unmeasured). This is measurement availability; the decompiled percentage above shows how much of the measured code was decompiled. Graph and instruction-index limits are reported separately below.`
             : 'No indexed code size is available for decompilation measurement.'}
         </p>}
         {displayRunWarnings && <p className={styles.runWarning}>{displayRunWarnings}</p>}

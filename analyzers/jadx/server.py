@@ -815,8 +815,11 @@ def analyse(body, cancel_check=lambda: False, report_progress=lambda message: No
                     warnings.append(f"The Smali instruction index was limited to {len(method_features)} methods.")
                 if log_text:
                     warnings.append(log_text[:4000])
-                elif jadx_return_code:
-                    warnings.append(f"JADX exited with code {jadx_return_code}.")
+                if jadx_return_code:
+                    if jadx_return_code == 3:
+                        warnings.append("JADX reported decompilation errors after producing output; some retained source may be incomplete (exit code 3).")
+                    else:
+                        warnings.append(f"JADX exited with code {jadx_return_code}; any output retained by this run may be incomplete.")
                 returned_class_count = sum(unit.get("unitType") != "resource" for unit in returned)
                 returned_resource_count = len(returned) - returned_class_count
                 resource_count = sum(unit.get("unitType") == "resource" for unit in units)
