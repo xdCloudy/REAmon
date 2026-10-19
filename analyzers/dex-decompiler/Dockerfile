@@ -7,6 +7,9 @@ COPY Cargo.lock /src/Cargo.lock
 COPY structured-analysis.rs /src/src/bin/reamon-dex-structure.rs
 COPY deobf-map.rs /src/src/bin/reamon-dex-map.rs
 COPY bounded-decompile.rs /src/src/bin/reamon-dex-batch.rs
+COPY upstream-unicode-rename.patch /tmp/upstream-unicode-rename.patch
+RUN git -C /src apply --check /tmp/upstream-unicode-rename.patch \
+ && git -C /src apply /tmp/upstream-unicode-rename.patch
 RUN cargo build --release --locked --bin dex-decompile --bin reamon-dex-structure --bin reamon-dex-map --bin reamon-dex-batch
 
 FROM python:3.12-slim

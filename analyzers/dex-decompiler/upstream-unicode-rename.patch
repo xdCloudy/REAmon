@@ -1,0 +1,43 @@
+diff --git a/src/decompile/rename.rs b/src/decompile/rename.rs
+index 8c065b0..8cb19f1 100644
+--- a/src/decompile/rename.rs
++++ b/src/decompile/rename.rs
+@@ -94,5 +94,5 @@ fn replace_identifier_occurrences(s: &str, old: &str, new: &str) -> String {
+         } else {
+-            s[start - 1..]
++            s[..start]
+                 .chars()
+-                .next()
++                .next_back()
+                 .map(|c| is_identifier_char_utf8(c))
+@@ -114,4 +114,6 @@ fn replace_identifier_occurrences(s: &str, old: &str, new: &str) -> String {
+         } else {
+-            result.push_str(&s[search_start..=start]);
+-            search_start = start + 1;
++            let next_char_len = s[start..].chars().next().map(char::len_utf8).unwrap_or(1);
++            let next_start = start + next_char_len;
++            result.push_str(&s[search_start..next_start]);
++            search_start = next_start;
+         }
+@@ -123,3 +125,3 @@ fn replace_identifier_occurrences(s: &str, old: &str, new: &str) -> String {
+ fn is_identifier_char_utf8(c: char) -> bool {
+-    c.is_ascii_alphanumeric() || c == '_' || c == '$' || c == '.'
++    c.is_alphanumeric() || c == '_' || c == '$' || c == '.'
+ }
+@@ -144,2 +146,16 @@ mod tests {
+ 
++    #[test]
++    fn replace_identifier_after_unicode_punctuation() {
++        let s = "// café¦foo; foo();";
++        let out = replace_identifier_occurrences(s, "foo", "bar");
++        assert_eq!(out, "// café¦bar; bar();");
++    }
++
++    #[test]
++    fn replace_identifier_does_not_match_inside_unicode_identifier() {
++        let s = "int caféfoo = 1; foo();";
++        let out = replace_identifier_occurrences(s, "foo", "bar");
++        assert_eq!(out, "int caféfoo = 1; bar();");
++    }
++
+     #[test]
