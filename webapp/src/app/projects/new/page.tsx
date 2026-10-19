@@ -23,6 +23,7 @@ export default function NewProjectPage() {
   const [progress, setProgress] = useState<ImportProgress | null>(null)
   const [selectionError, setSelectionError] = useState<string | null>(null)
   const [importError, setImportError] = useState<string | null>(null)
+  const [createError, setCreateError] = useState<string | null>(null)
 
   useEffect(() => {
     directoryInput.current?.setAttribute('webkitdirectory', '')
@@ -53,14 +54,21 @@ export default function NewProjectPage() {
       return
     }
 
+    setCreateError(null)
     setImportError(null)
-    const project = await createProjectMutation.mutateAsync({
-      userId,
-      name: name.trim(),
-      description: description.trim() || undefined,
-      projectKind: 'REVERSE_ENGINEERING',
-      targetDomain: '',
-    })
+    let project
+    try {
+      project = await createProjectMutation.mutateAsync({
+        userId,
+        name: name.trim(),
+        description: description.trim() || undefined,
+        projectKind: 'REVERSE_ENGINEERING',
+        targetDomain: '',
+      })
+    } catch (error) {
+      setCreateError(error instanceof Error ? error.message : 'Unable to create the workspace. Please try again.')
+      return
+    }
 
     setCurrentProject({
       id: project.id,
@@ -125,6 +133,7 @@ export default function NewProjectPage() {
           {importError && <p className={styles.formError} role="alert">{importError}</p>}
           {progress && <div className={styles.importProgress} aria-live="polite"><div><span>{progress.phase === 'UPLOADING' ? `Uploading ${progress.currentPath || ''}` : progress.phase}</span><strong>{progressPercent}%</strong></div><div className={styles.progressTrack}><div style={{ width: `${progressPercent}%` }} /></div><small>{progress.completedFiles.toLocaleString()} / {progress.totalFiles.toLocaleString()} files · {formatBytes(progress.uploadedBytes)} / {formatBytes(progress.totalBytes)}</small></div>}
         </section>
+        {createError && <p className={styles.formError} role="alert">{createError}</p>}
         <div className={styles.formFooter}><button type="button" className="secondaryButton" onClick={() => router.push('/projects')} disabled={isSubmitting}>Cancel</button><button type="button" className="primaryButton" onClick={() => void createWorkspace()} disabled={isSubmitting}>{isSubmitting && <RefreshCw size={15} className={styles.spin} />}{isSubmitting ? 'Creating workspace…' : selection ? 'Create and import workspace' : 'Create workspace'}</button></div>
       </main>
     </div>
