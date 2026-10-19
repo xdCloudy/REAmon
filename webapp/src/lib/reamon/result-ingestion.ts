@@ -238,13 +238,14 @@ export async function ingestToolResult(
       ${canonicalKeyForObservation(input.source, observation)}, ${observation.label ?? null}, ${input.source},
       ${observation.relation ?? null}, ${observation.fromKey ?? null}, ${observation.toKey ?? null},
       ${observation.fromCanonicalKey ?? null}, ${observation.toCanonicalKey ?? null},
-      ${JSON.stringify(observation.attributes)}::jsonb
+      ${JSON.stringify(observation.attributes)}::jsonb,
+      CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
     )`)
     await tx.$executeRaw(Prisma.sql`
       INSERT INTO "reamon_observations" (
         "id", "project_id", "task_id", "target_id", "artifact_id", "kind", "type",
         "stable_key", "canonical_key", "label", "source", "relation", "from_key", "to_key",
-        "from_canonical_key", "to_canonical_key", "attributes"
+        "from_canonical_key", "to_canonical_key", "attributes", "created_at", "updated_at"
       ) VALUES ${Prisma.join(rows)}
       ON CONFLICT ("project_id", "source", "stable_key") DO UPDATE SET
         "task_id" = EXCLUDED."task_id",
