@@ -1,13 +1,13 @@
 # REAmon product progress
 
-Assessment date: 2026-10-19 · Source: pushed commit `cf0de70` · Weighted estimate: **48.5%**
+Assessment date: 2026-10-19 · Source: pushed commit `c70aa45` · Weighted estimate: **48.6%**
 
 This is an estimate of progress toward the long-term product goal, not a release-readiness score. Workstream weights total 100%; each contribution is weight × completion.
 
 | Workstream | Goal weight | Estimated complete | Weighted points |
 | --- | ---: | ---: | ---: |
 | Core analysis and visualizer workflow | 20% | 76% | 15.20 pts |
-| Database-grounded project memory and provenance | 20% | 71% | 14.20 pts |
+| Database-grounded project memory and provenance | 20% | 72% | 14.40 pts |
 | Major-language and format decompilation fluency | 30% | 35% | 10.50 pts |
 | Maintainable editing, review, and export | 15% | 42% | 6.30 pts |
 | Fixture-backed validation and fidelity evidence | 15% | 15% | 2.25 pts |
@@ -22,7 +22,7 @@ This is an estimate of progress toward the long-term product goal, not a release
 
 ### Database-grounded project memory and provenance
 
-**Current evidence:** Project observations, symbols, relationships, source drafts, review receipts, hashes, provider versions, and run evidence ground AI context and cross-provider name reuse.
+**Current evidence:** Project observations, symbols, relationships, source drafts, review receipts, hashes, provider versions, and run evidence ground AI context and cross-provider name reuse. A bounded REA Evidence v2 bundle importer validates canonical identities and manifests, stores complete provider-attributed records idempotently, links only exact artifact hashes, and supplies a bounded untrusted subset to rewrite context.
 
 **Remaining:** Coverage and consistency still need validation across all formats, providers, and long-running project histories.
 
