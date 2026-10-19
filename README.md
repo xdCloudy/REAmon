@@ -95,6 +95,7 @@ See the [developer guide](docs/readmes/README.DEV.md) for the development enviro
 - [Migration from RedAmon](docs/REAMON_MIGRATION.md)
 - [Reference portfolio](docs/REAMON_REFERENCE_PORTFOLIO.md)
 - [Upstream reuse and licensing decisions](docs/REAMON_UPSTREAM_REUSE.md)
+- [Native cross-version function matching ADR](docs/REAMON_NATIVE_FUNCTION_MATCHING_ADR.md)
 - [ToCode export adapter](docs/REAMON_TOCODE_ADAPTER.md)
 - [Release, backup, and recovery](docs/REAMON_RELEASE_RUNBOOK.md)
 

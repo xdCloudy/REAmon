@@ -204,12 +204,48 @@ async function projectAllPages(config, projectId, fetchImpl, logger) {
   logger.warn(`[reamon-worker] graph projection reached the ${MAX_PROJECTION_PAGES}-page safety limit for project ${projectId}`)
 }
 
+function createProjectionScheduler(config, fetchImpl, logger) {
+  const queuedProjects = []
+  const scheduledProjects = new Set()
+  let draining = false
+
+  const drain = async () => {
+    if (draining) return
+    draining = true
+    try {
+      while (queuedProjects.length > 0) {
+        const projectId = queuedProjects.shift()
+        try {
+          await projectAllPages(config, projectId, fetchImpl, logger)
+        } catch (error) {
+          // Projection is best-effort and must not hold up the next task poll.
+          logger.warn(`[reamon-worker] graph projection failed for project ${projectId}; will retry on a later completion or backfill`, error)
+        } finally {
+          scheduledProjects.delete(projectId)
+        }
+      }
+    } finally {
+      draining = false
+      // A project may have been queued as the drain was completing.
+      if (queuedProjects.length > 0) void drain()
+    }
+  }
+
+  return (projectId) => {
+    if (scheduledProjects.has(projectId)) return
+    scheduledProjects.add(projectId)
+    queuedProjects.push(projectId)
+    void drain()
+  }
+}
+
 const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds))
 
 export async function runWorker(config, { fetchImpl = fetch, sleepImpl = sleep, logger = console, shouldStop = () => false } = {}) {
   let backfillOffset = 0
   let nextBackfillAt = 0
   let nextRetentionAt = 0
+  const scheduleProjection = createProjectionScheduler(config, fetchImpl, logger)
   while (!shouldStop()) {
     try {
       const dispatches = [dispatchOnce(config, fetchImpl, logger)]
@@ -219,7 +255,7 @@ export async function runWorker(config, { fetchImpl = fetch, sleepImpl = sleep, 
         .filter((entry) => entry?.outcome === 'COMPLETED' && typeof entry.task?.projectId === 'string')
         .map((entry) => entry.task.projectId))
       for (const projectId of completedProjectIds) {
-        await projectAllPages(config, projectId, fetchImpl, logger)
+        scheduleProjection(projectId)
       }
 
       if (Number(config.backfillIntervalSeconds) > 0 && Date.now() >= nextBackfillAt) {
@@ -227,7 +263,7 @@ export async function runWorker(config, { fetchImpl = fetch, sleepImpl = sleep, 
         const backfillProjectIds = [...new Set((backfill?.projects || [])
           .filter((projectId) => typeof projectId === 'string' && !completedProjectIds.has(projectId)))]
         for (const projectId of backfillProjectIds) {
-          await projectAllPages(config, projectId, fetchImpl, logger)
+          scheduleProjection(projectId)
         }
         const nextOffset = Number(backfill?.nextOffset)
         if (backfill?.truncated && Number.isSafeInteger(nextOffset) && nextOffset > backfillOffset) {
