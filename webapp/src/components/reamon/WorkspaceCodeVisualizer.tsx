@@ -957,6 +957,8 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
   const [rewrittenMembers, setRewrittenMembers] = useState<Set<string>>(new Set())
   const [selectedAgentMembers, setSelectedAgentMembers] = useState<Set<string>>(new Set())
   const [agentTeamRunning, setAgentTeamRunning] = useState(false)
+  const [agentTeamDispatching, setAgentTeamDispatching] = useState(false)
+  const [cancellingAgentBatch, setCancellingAgentBatch] = useState(false)
   const queryClient = useQueryClient()
   const initializedMaintainedUnits = useRef(new Set<string>())
   const unitInspectorRef = useRef<HTMLElement>(null)
@@ -1575,6 +1577,23 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
     }
   }
 
+  async function cancelFunctionAgentBatch(batchId: string) {
+    if (!selectedUnit || agentTeamDispatching || cancellingAgentBatch) return
+    setCancellingAgentBatch(true)
+    setMaintenanceError('')
+    try {
+      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/deobfuscate/batches/${encodeURIComponent(batchId)}/cancel`, { method: 'POST' })
+      const result = await response.json().catch(() => ({})) as { cancelledQueued?: number; cancelRequestedRunning?: number; remaining?: number; error?: string }
+      if (!response.ok) throw new Error(result.error || 'Could not cancel the function agent batch')
+      setMaintenanceError(`${result.cancelledQueued ?? 0} queued function agent${result.cancelledQueued === 1 ? '' : 's'} cancelled; cancellation requested for ${result.cancelRequestedRunning ?? 0} running agent${result.cancelRequestedRunning === 1 ? '' : 's'}.${result.remaining ? ` ${result.remaining} still settling.` : ''}`)
+      await queryClient.invalidateQueries({ queryKey: ['reamon-code-draft', projectId, selectedUnit.id] })
+    } catch (error) {
+      setMaintenanceError(error instanceof Error ? error.message : 'Could not cancel the function agent batch')
+    } finally {
+      setCancellingAgentBatch(false)
+    }
+  }
+
   async function restoreCodeAttempt(attempt: CodeAttemptRecord) {
     if (!selectedUnit || attempt.status !== 'SUCCEEDED' || !attempt.resultSource) return
     setRestoringAttemptId(attempt.id)
@@ -1907,6 +1926,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
     const selectedUnitId = selectedUnit.id
     const agentBatchId = `agent-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`
     setAgentTeamRunning(true)
+    setAgentTeamDispatching(true)
     setMaintenanceError('')
     try {
       const queueResults = await Promise.allSettled(members.map(async (member) => {
@@ -1919,6 +1939,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
         if (!response.ok || !result.attemptId) throw new Error(`${member.name}: ${result.error || 'Could not queue function rewrite'}`)
         return { member, key, attemptId: result.attemptId }
       }))
+      setAgentTeamDispatching(false)
       const queued = queueResults.flatMap((result) => result.status === 'fulfilled' ? [result.value] : [])
       const failures = queueResults.flatMap((result) => result.status === 'rejected' ? [result.reason instanceof Error ? result.reason.message : 'Could not queue a function rewrite'] : [])
       await queryClient.invalidateQueries({ queryKey: ['reamon-code-draft', projectId, selectedUnitId] })
@@ -1988,6 +2009,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
       setMaintenanceError(error instanceof Error ? error.message : 'The function team could not complete')
     } finally {
       setAgentTeamRunning(false)
+      setAgentTeamDispatching(false)
     }
   }
 
@@ -3218,6 +3240,9 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
                   <strong>{attempt.memberName}</strong> · {attempt.status === 'QUEUED' ? 'Queued' : attempt.status === 'RUNNING' ? attempt.cancelRequested ? 'Cancelling' : 'Working' : attempt.status === 'SUCCEEDED' ? 'Ready to review' : attempt.status === 'CANCELLED' ? 'Cancelled' : 'Failed'}
                   {attempt.errorMessage && <p>{attempt.errorMessage}</p>}
                 </li>)}</ol>
+                {codeDraftQuery.data?.agentBatch && codeDraftQuery.data.agentBatch.attempts.some((attempt) => attempt.status === 'QUEUED' || attempt.status === 'RUNNING') && <button type="button" className={styles.copyButton} onClick={() => void cancelFunctionAgentBatch(codeDraftQuery.data!.agentBatch!.id)} disabled={agentTeamDispatching || cancellingAgentBatch}>
+                  {cancellingAgentBatch ? 'Requesting batch cancellation…' : 'Cancel remaining function agents'}
+                </button>}
                 {codeDraftQuery.data?.agentBatch && <button type="button" className={styles.explainButton} onClick={() => void applySavedFunctionAgentResults()} disabled={agentTeamRunning || maintainedDraftDiffersFromSource || savingDraft || codeDraftQuery.data.agentBatch.attempts.some((attempt) => attempt.status === 'QUEUED' || attempt.status === 'RUNNING') || !codeDraftQuery.data.agentBatch.attempts.some((attempt) => attempt.status === 'SUCCEEDED')}>
                   Apply completed agent results to the maintained editor
                 </button>}
