@@ -89,10 +89,11 @@ export async function runWorkspaceImport(options: {
   concurrency?: number
   signal?: AbortSignal
   onImportReady?: (importId: string) => void
+  onFileCompleted?: (relativePath: string) => void
   onFileFailure?: (failure: { path: string; message: string }) => void
   onProgress?: (progress: ImportProgress) => void
 }): Promise<{ importId: string; failedPaths: string[] }> {
-  const { projectId, selection, onImportReady, onFileFailure, onProgress, signal } = options
+  const { projectId, selection, onImportReady, onFileCompleted, onFileFailure, onProgress, signal } = options
   let importId = options.importId
   const completedPaths = options.completedPaths || new Set<string>()
   const failedPaths: string[] = []
@@ -192,6 +193,7 @@ export async function runWorkspaceImport(options: {
         const data = await response.json()
         if (!response.ok) throw new Error(data.error || `Could not finalize ${entry.relativePath}`)
         completedPaths.add(entry.relativePath)
+        onFileCompleted?.(entry.relativePath)
         completedFiles += 1
         emit('UPLOADING', entry.relativePath)
         return

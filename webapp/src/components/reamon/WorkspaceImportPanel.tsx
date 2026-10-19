@@ -139,13 +139,9 @@ export function WorkspaceImportPanel({ projectId, onImported }: WorkspaceImportP
         concurrency: 3,
         signal: controller.signal,
         onFileFailure: ({ path, message }) => uploadFailures.push(`${path}: ${message}`),
+        onFileCompleted: (path) => setCompletedPaths((current) => new Set(current).add(path)),
         onImportReady: setImportId,
-        onProgress: (next) => {
-          setProgress(next)
-          if (next.phase === 'UPLOADING' && next.currentPath) {
-            setCompletedPaths((current) => new Set(current).add(next.currentPath))
-          }
-        },
+        onProgress: setProgress,
       })
       setImportId(result.importId)
       if (result.failedPaths.length) {
