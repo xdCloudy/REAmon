@@ -2542,6 +2542,7 @@ model ReamonProvider {
   integration        String
   acceptsTargetTypes String[] @default([]) @map("accepts_target_types")
   acceptsFormats     String[] @default([]) @map("accepts_formats")
+  acceptsMetadata    Json?    @map("accepts_metadata")
   capabilities       String[] @default([])
   produces           String[] @default([])
   requirements       Json     @default("[]")

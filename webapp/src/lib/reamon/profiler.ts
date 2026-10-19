@@ -137,8 +137,30 @@ function detectFormat(bytes: Uint8Array, extension: string): {
   runtimes: string[]
   embeddedArtifacts: string[]
   containerFormat?: string
+  metadata?: Record<string, string | number | boolean | null>
   unityIl2Cpp?: UnityIl2CppApkMembers
 } {
+  if (bytes.length >= 32 && readAscii(bytes, 0, 4) === 'SLB2') {
+    const entryCount = readUInt32(bytes, 12)
+    const declaredBlocks = readUInt32(bytes, 16)
+    const declaredSizeBytes = declaredBlocks === null ? null : declaredBlocks * 512
+    const isPupBundle = extension === 'pup'
+    return {
+      format: 'slb2',
+      targetType: 'FILE',
+      architecture: null,
+      platform: isPupBundle ? 'playstation' : null,
+      runtimes: isPupBundle ? ['playstation-firmware'] : [],
+      embeddedArtifacts: entryCount && entryCount > 0 ? ['container-entries'] : [],
+      containerFormat: 'slb2',
+      metadata: {
+        slb2Version: readUInt32(bytes, 4),
+        slb2EntryCount: entryCount,
+        slb2DeclaredSizeBytes: declaredSizeBytes,
+      },
+    }
+  }
+
   if (bytes.length >= 8 && readAscii(bytes, 0, 4) === 'YARB') {
     return {
       format: 'cruby-iseq',
@@ -438,7 +460,7 @@ export function profileArtifact(
 ): TargetProfile {
   const extension = extensionOf(fileName)
   const detected = detectFormat(bytes, extension)
-  const { containerFormat, unityIl2Cpp, ...profile } = detected
+  const { containerFormat, unityIl2Cpp, metadata: detectedMetadata, ...profile } = detected
   const mimeType = mimeTypeFor(detected.format, extension, providedMimeType)
 
   return {
@@ -452,6 +474,7 @@ export function profileArtifact(
       hasMagic: detected.format !== 'unknown',
       extensionHint: extension || null,
       containerFormat: containerFormat || null,
+      ...(detectedMetadata || {}),
       ...(unityIl2Cpp ? {
         unityIl2CppMetadataPath: unityIl2Cpp.metadataPath,
         unityIl2CppLibraryPaths: unityIl2Cpp.libraryPaths.join('\n'),
