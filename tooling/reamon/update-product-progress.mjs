@@ -31,24 +31,10 @@ const commit = suppliedCommit?.trim()
 if (commit && !/^[a-f0-9]{7,40}$/i.test(commit)) throw new Error('Progress source commit must be a Git SHA')
 const sourceStamp = commit ? `pushed commit \`${commit.slice(0, 7)}\`` : 'the current local worktree'
 
-const rows = manifest.workstreams.map((workstream) => {
-  const contribution = workstream.weight * workstream.completion / 100
-  return `| ${workstream.name} | ${workstream.weight}% | ${workstream.completion}% | ${contribution.toFixed(1)}% | ${workstream.basis} |`
-})
-
 const generated = [
   startMarker,
-  '## Long-term product progress',
-  '',
-  `<progress value="${displayedScore}" max="100">${displayedScore}%</progress> <strong>${displayedScore}%</strong>`,
-  '',
-  `Weighted estimate: **${score.toFixed(1)}%** (rounded for the bar). Refreshed from the workstream weights at ${sourceStamp}.`,
-  '',
-  '| Workstream | Weight | Completion estimate | Weighted points | Current evidence and remaining gap |',
-  '| --- | ---: | ---: | ---: | --- |',
-  ...rows,
-  '',
-  'The weights describe REAmon’s full reverse-engineering goal, not the narrower bootstrap release. Each push to `main` regenerates this block from [the progress ledger](docs/REAMON_PROGRESS.json). Update a workstream estimate only when committed implementation or fixture evidence changes its basis; the score is a roadmap estimate, not a line-count or test-count metric.',
+  `<progress value="${displayedScore}" max="100">${displayedScore}%</progress> <strong>${displayedScore}%</strong> — weighted estimate **${score.toFixed(1)}%**.`,
+  `Refreshed from ${sourceStamp}. See the [progress ledger](docs/REAMON_PROGRESS.json) for workstream weights, evidence, and remaining gaps.`,
   endMarker,
 ].join('\n')
 
