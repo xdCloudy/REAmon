@@ -15,7 +15,7 @@ import { codeRewriteLeaseGraceMs, failInterruptedCodeAttempts } from '@/lib/ream
 import { codeNoteText, REAMON_CODE_NOTE_SOURCE } from '@/lib/reamon/code-notes'
 
 interface RouteParams { params: Promise<{ id: string }> }
-interface DeobfuscateBody { unitId?: unknown; providerId?: unknown; question?: unknown; scope?: unknown; startByte?: unknown; endByte?: unknown; memberName?: unknown; sourceCode?: unknown }
+interface DeobfuscateBody { unitId?: unknown; providerId?: unknown; question?: unknown; scope?: unknown; startByte?: unknown; endByte?: unknown; memberName?: unknown; sourceCode?: unknown; agentBatchId?: unknown }
 
 const MAX_SOURCE_BYTES = 64 * 1024
 const MAX_ARTIFACT_BYTES = 2 * 1024 * 1024
@@ -593,6 +593,10 @@ export async function POST(request: Request, { params }: RouteParams) {
     })
     const projectNoteContext = codeNoteText(savedCodeNote?.attributes, sourceHash)
     const scope = body.scope === 'member' ? 'member' : body.scope === 'outline' ? 'outline' : 'file'
+    const agentBatchId = typeof body.agentBatchId === 'string' ? body.agentBatchId.trim() : ''
+    if (agentBatchId && !/^agent-[a-z0-9-]{10,80}$/i.test(agentBatchId)) {
+      return NextResponse.json({ error: 'The function-agent batch identifier is invalid.' }, { status: 400 })
+    }
     const language = typeof attributes.language === 'string' ? attributes.language : 'unknown'
     const sourceLanguage = typeof attributes.sourceLanguage === 'string' ? attributes.sourceLanguage : ''
     const unitName = (typeof attributes.qualifiedName === 'string' && attributes.qualifiedName)
@@ -2500,6 +2504,11 @@ export async function POST(request: Request, { params }: RouteParams) {
       project_note_context: projectNoteContext,
       prior_attempt_context: priorAttemptContext,
       question: typeof body.question === 'string' ? body.question.trim() : '',
+      ...(scope === 'member' ? {
+      member_start_byte: body.startByte as number,
+      member_end_byte: body.endByte as number,
+        ...(agentBatchId ? { agent_batch_id: agentBatchId } : {}),
+      } : {}),
     }
     const attempt = await prisma.reamonCodeAttempt.create({
       data: {
@@ -2511,6 +2520,7 @@ export async function POST(request: Request, { params }: RouteParams) {
         modelIdentifier: provider.modelIdentifier.slice(0, 128),
         question: typeof body.question === 'string' ? body.question.trim() : '',
         scope,
+        agentBatchId: scope === 'member' && agentBatchId ? agentBatchId : null,
         status: 'QUEUED',
         requestPayload,
         timeoutMs,

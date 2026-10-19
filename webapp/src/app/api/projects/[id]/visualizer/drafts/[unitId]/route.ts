@@ -98,10 +98,21 @@ export async function GET(_request: Request, { params }: RouteParams) {
     })
     const attempts = await prisma.reamonCodeAttempt.findMany({
       where: { projectId, codeUnitId: unitId, artifactId: resolved.artifactId, runKey: resolved.runKey, sourceHash: resolved.sourceHash },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: 10,
       select: { id: true, providerName: true, modelIdentifier: true, question: true, scope: true, status: true, cancelRequested: true, errorCode: true, errorMessage: true, resultSource: true, rewriteHistory: true, requestPayload: true, syntaxValidated: true, validationStatus: true, validationMethod: true, validationMessage: true, createdAt: true, completedAt: true },
     })
+    const latestAgentBatchAttempt = await prisma.reamonCodeAttempt.findFirst({
+      where: { projectId, codeUnitId: unitId, artifactId: resolved.artifactId, runKey: resolved.runKey, sourceHash: resolved.sourceHash, scope: 'member', agentBatchId: { not: null } },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      select: { agentBatchId: true },
+    })
+    const agentBatch = latestAgentBatchAttempt?.agentBatchId ? await prisma.reamonCodeAttempt.findMany({
+      where: { projectId, codeUnitId: unitId, artifactId: resolved.artifactId, runKey: resolved.runKey, sourceHash: resolved.sourceHash, agentBatchId: latestAgentBatchAttempt.agentBatchId },
+      orderBy: { createdAt: 'asc' },
+      take: 10,
+      select: { id: true, agentBatchId: true, providerName: true, modelIdentifier: true, status: true, cancelRequested: true, errorMessage: true, resultSource: true, requestPayload: true, createdAt: true, completedAt: true },
+    }) : []
     let trustedDraftValidation = { syntaxValidated: null as boolean | null, validationStatus: null as string | null, validationMethod: null as string | null, validationMessage: null as string | null }
     const draftHashMatches = Boolean(draft?.draftHash
       && /^[a-f0-9]{64}$/i.test(draft.draftHash)
@@ -132,12 +143,39 @@ export async function GET(_request: Request, { params }: RouteParams) {
     return NextResponse.json({
       exists: Boolean(draft),
       draft: draft ? { ...draft, ...trustedDraftValidation, updatedAt: draft.updatedAt.toISOString() } : null,
+      agentBatch: latestAgentBatchAttempt?.agentBatchId ? {
+        id: latestAgentBatchAttempt.agentBatchId,
+        attempts: agentBatch.map((attempt) => {
+          const payload = plainObject(attempt.requestPayload)
+          return {
+            id: attempt.id,
+            providerName: attempt.providerName,
+            modelIdentifier: attempt.modelIdentifier,
+            memberName: typeof payload.member_name === 'string' ? payload.member_name : 'Function or method',
+            memberStartByte: Number.isSafeInteger(payload.member_start_byte) ? payload.member_start_byte : null,
+            memberEndByte: Number.isSafeInteger(payload.member_end_byte) ? payload.member_end_byte : null,
+            status: attempt.status,
+            cancelRequested: attempt.cancelRequested,
+            errorMessage: attempt.errorMessage,
+            resultSource: attempt.status === 'SUCCEEDED' ? attempt.resultSource : null,
+            inputSource: attempt.status === 'SUCCEEDED' && typeof payload.source_code === 'string' ? payload.source_code : null,
+            createdAt: attempt.createdAt.toISOString(),
+            completedAt: attempt.completedAt?.toISOString() ?? null,
+          }
+        }),
+      } : null,
       attempts: attempts.map((attempt) => ({
         id: attempt.id,
         providerName: attempt.providerName,
         modelIdentifier: attempt.modelIdentifier,
         question: attempt.question,
         scope: attempt.scope,
+        ...(attempt.scope === 'member' ? {
+          memberName: typeof plainObject(attempt.requestPayload).member_name === 'string' ? plainObject(attempt.requestPayload).member_name : undefined,
+          memberStartByte: Number.isSafeInteger(plainObject(attempt.requestPayload).member_start_byte) ? plainObject(attempt.requestPayload).member_start_byte : undefined,
+          memberEndByte: Number.isSafeInteger(plainObject(attempt.requestPayload).member_end_byte) ? plainObject(attempt.requestPayload).member_end_byte : undefined,
+          agentBatchId: typeof plainObject(attempt.requestPayload).agent_batch_id === 'string' ? plainObject(attempt.requestPayload).agent_batch_id : undefined,
+        } : {}),
         status: attempt.status,
         cancelRequested: attempt.cancelRequested,
         errorCode: attempt.errorCode,

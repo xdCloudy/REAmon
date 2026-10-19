@@ -156,7 +156,8 @@ interface CodeMaintenanceResponse { sourceCode: string; providerName: string; mo
 interface CodeDraftRecord { id: string; sourceCode: string; sourceAttemptId: string | null; providerName: string; modelIdentifier: string; question: string; scope: 'file' | 'member'; syntaxValidated: boolean | null; validationStatus: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod: string | null; validationMessage: string | null; updatedAt: string }
 interface RewriteHistoryEntry { round: number; sourceCode: string; sourceSha256: string; validationStatus: string; validationMethod: string; validationMessage: string }
 interface CodeAttemptRecord { id: string; providerName: string; modelIdentifier: string; question: string; scope: 'file' | 'member' | 'rename-suggestions'; status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'; cancelRequested: boolean; errorCode: string | null; errorMessage: string | null; resultSource: string | null; rewriteHistoryRoundCount: number; renameProposals?: SafeRenameProposal[]; proposalSourceSha256?: string; proposalProviderId?: string; projectSymbolContextSha256?: string; proposalCandidateCount?: number; syntaxValidated: boolean | null; validationStatus: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod: string | null; validationMessage: string | null; createdAt: string; completedAt: string | null }
-interface CodeDraftResponse { exists: boolean; draft: CodeDraftRecord | null; attempts?: CodeAttemptRecord[] }
+interface CodeAgentBatchAttempt { id: string; providerName: string; modelIdentifier: string; memberName: string; memberStartByte: number | null; memberEndByte: number | null; status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'; cancelRequested: boolean; errorMessage: string | null; resultSource: string | null; inputSource: string | null; createdAt: string; completedAt: string | null }
+interface CodeDraftResponse { exists: boolean; draft: CodeDraftRecord | null; agentBatch?: { id: string; attempts: CodeAgentBatchAttempt[] } | null; attempts?: CodeAttemptRecord[] }
 interface CodeUnitNoteResponse { unitId: string; note: string; stale: boolean; updatedAt: string | null }
 interface CodeReviewRecord {
   id: string
@@ -956,7 +957,6 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
   const [rewrittenMembers, setRewrittenMembers] = useState<Set<string>>(new Set())
   const [selectedAgentMembers, setSelectedAgentMembers] = useState<Set<string>>(new Set())
   const [agentTeamRunning, setAgentTeamRunning] = useState(false)
-  const [agentTeamStatus, setAgentTeamStatus] = useState<Array<{ key: string; name: string; status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED'; error?: string }>>([])
   const queryClient = useQueryClient()
   const initializedMaintainedUnits = useRef(new Set<string>())
   const unitInspectorRef = useRef<HTMLElement>(null)
@@ -1295,6 +1295,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
     enabled: Boolean(selectedUnit && selectedSourceUrl),
     staleTime: 0,
     gcTime: 60_000,
+    refetchInterval: (query) => query.state.data?.agentBatch?.attempts.some((attempt) => attempt.status === 'QUEUED' || attempt.status === 'RUNNING') ? 2000 : false,
   })
   const projectNoteQuery = useQuery({
     queryKey: ['reamon-code-note', projectId, selectedUnit?.id],
@@ -1904,15 +1905,15 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
       return
     }
     const selectedUnitId = selectedUnit.id
+    const agentBatchId = `agent-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`
     setAgentTeamRunning(true)
     setMaintenanceError('')
-    setAgentTeamStatus(members.map((member) => ({ key: `${member.start_byte}:${member.end_byte}`, name: member.name, status: 'QUEUED' as const })))
     try {
       const queueResults = await Promise.allSettled(members.map(async (member) => {
         const key = `${member.start_byte}:${member.end_byte}`
         const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/deobfuscate`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ unitId: selectedUnitId, providerId: selectedProviderId, question: question.trim(), scope: 'member', startByte: member.start_byte, endByte: member.end_byte, memberName: member.name }),
+          body: JSON.stringify({ unitId: selectedUnitId, providerId: selectedProviderId, question: question.trim(), scope: 'member', startByte: member.start_byte, endByte: member.end_byte, memberName: member.name, agentBatchId }),
         })
         const result = await response.json().catch(() => ({})) as { attemptId?: string; status?: string; error?: string }
         if (!response.ok || !result.attemptId) throw new Error(`${member.name}: ${result.error || 'Could not queue function rewrite'}`)
@@ -1920,6 +1921,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
       }))
       const queued = queueResults.flatMap((result) => result.status === 'fulfilled' ? [result.value] : [])
       const failures = queueResults.flatMap((result) => result.status === 'rejected' ? [result.reason instanceof Error ? result.reason.message : 'Could not queue a function rewrite'] : [])
+      await queryClient.invalidateQueries({ queryKey: ['reamon-code-draft', projectId, selectedUnitId] })
       const pending = new Map(queued.map((item) => [item.attemptId, item]))
       const completed: Array<{ member: CodeMemberOutline; key: string; result: CodeMaintenanceResponse & { inputSource?: string } }> = []
       const deadline = Date.now() + 10 * 60_000
@@ -1939,20 +1941,15 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
           if ('error' in update) {
             failures.push(update.error instanceof Error ? update.error.message : `Could not read status for ${update.item.member.name}`)
             pending.delete(update.attemptId)
-            setAgentTeamStatus((current) => current.map((row) => row.key === update.item.key ? { ...row, status: 'FAILED', error: 'Could not read attempt status' } : row))
             continue
           }
           const { attemptId, item, status } = update
-          if (status.status === 'RUNNING' || status.status === 'QUEUED') {
-            setAgentTeamStatus((current) => current.map((row) => row.key === item.key ? { ...row, status: status.status as 'QUEUED' | 'RUNNING' } : row))
-          } else if (status.status === 'SUCCEEDED' && typeof status.sourceCode === 'string') {
+          if (status.status === 'SUCCEEDED' && typeof status.sourceCode === 'string') {
             completed.push({ member: item.member, key: item.key, result: { ...status, attemptId } })
             pending.delete(attemptId)
-            setAgentTeamStatus((current) => current.map((row) => row.key === item.key ? { ...row, status: 'SUCCEEDED' } : row))
           } else if (status.status === 'FAILED' || status.status === 'CANCELLED') {
             failures.push(`${item.member.name}: ${status.error || 'Rewrite failed'}`)
             pending.delete(attemptId)
-            setAgentTeamStatus((current) => current.map((row) => row.key === item.key ? { ...row, status: 'FAILED', error: status.error || 'Rewrite failed' } : row))
           }
         }
       }
@@ -1991,6 +1988,65 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
       setMaintenanceError(error instanceof Error ? error.message : 'The function team could not complete')
     } finally {
       setAgentTeamRunning(false)
+    }
+  }
+
+  async function applySavedFunctionAgentResults() {
+    const batch = codeDraftQuery.data?.agentBatch
+    if (!selectedUnit || !sourceQuery.data || !batch || agentTeamRunning) return
+    if (batch.attempts.some((attempt) => attempt.status === 'QUEUED' || attempt.status === 'RUNNING')) {
+      setMaintenanceError('Wait until every function agent in this batch has finished before applying the saved results.')
+      return
+    }
+    if (maintainedDraftDiffersFromSource) {
+      setMaintenanceError('Reset the maintained editor to the current decompilation before applying saved function-agent results.')
+      return
+    }
+    const completed = batch.attempts.filter((attempt) => attempt.status === 'SUCCEEDED' && attempt.resultSource !== null)
+    if (!completed.length) return
+    const ordered = [...completed].sort((left, right) => (right.memberStartByte ?? -1) - (left.memberStartByte ?? -1))
+    for (let index = 0; index < ordered.length; index += 1) {
+      const item = ordered[index]
+      if (item.memberStartByte === null || item.memberEndByte === null || item.inputSource === null || !item.resultSource) {
+        setMaintenanceError(`Saved source ranges for ${item.memberName} are unavailable. The individual result remains in attempt history.`)
+        return
+      }
+      const next = ordered[index + 1]
+      if (next?.memberEndByte !== null && next?.memberEndByte !== undefined && item.memberStartByte < next.memberEndByte) {
+        setMaintenanceError('These saved functions overlap in the source outline. Load their results one at a time instead.')
+        return
+      }
+    }
+    setMaintenanceError('')
+    const draftBytes = new TextEncoder().encode(sourceQuery.data)
+    let merged = draftBytes
+    for (const item of ordered) {
+      const start = item.memberStartByte as number
+      const end = item.memberEndByte as number
+      if (new TextDecoder().decode(merged.subarray(start, end)) !== item.inputSource) {
+        setMaintenanceError(`The current source range for ${item.memberName} no longer matches its saved attempt. Results remain in history and were not merged.`)
+        return
+      }
+      const replacement = new TextEncoder().encode(item.resultSource as string)
+      const updated = new Uint8Array(merged.byteLength - (end - start) + replacement.byteLength)
+      updated.set(merged.subarray(0, start), 0)
+      updated.set(replacement, start)
+      updated.set(merged.subarray(end), start + replacement.byteLength)
+      merged = updated
+    }
+    const mergedDraft = new TextDecoder().decode(merged)
+    const sourceAttempt = ordered[0]
+    const meta: CodeMaintenanceResponse = { sourceCode: mergedDraft, attemptId: sourceAttempt.id, providerName: sourceAttempt.providerName, model: sourceAttempt.modelIdentifier }
+    setMaintainedDraft(mergedDraft)
+    setMaintenanceMeta(meta)
+    setMaintainedSaved(false)
+    setRewrittenMembers((current) => new Set([...current, ...completed.flatMap((attempt) => attempt.memberStartByte !== null && attempt.memberEndByte !== null ? [`${attempt.memberStartByte}:${attempt.memberEndByte}`] : [])]))
+    revealMaintainedEditor()
+    try {
+      await persistCodeDraft(mergedDraft, meta, 'member')
+      await queryClient.invalidateQueries({ queryKey: ['reamon-code-draft', projectId, selectedUnit.id] })
+    } catch (error) {
+      setMaintenanceError(`Results are in the editor, but could not be saved to project memory: ${error instanceof Error ? error.message : 'unknown error'}`)
     }
   }
 
@@ -3155,9 +3211,17 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
                   </button>
                 </li>
               })}</ul>
-              {agentTeamStatus.length > 0 && <ol className={styles.functionAgentStatus} aria-live="polite" aria-label="Function agent progress">
-                {agentTeamStatus.map((agent) => <li key={agent.key}><strong>{agent.name}</strong><span>{agent.status === 'QUEUED' ? 'Queued' : agent.status === 'RUNNING' ? 'Working' : agent.status === 'SUCCEEDED' ? 'Ready to review' : `Failed${agent.error ? `: ${agent.error}` : ''}`}</span></li>)}
-              </ol>}
+              {(codeDraftQuery.data?.agentBatch?.attempts.length ?? 0) > 0 && <section className={styles.attemptHistory} aria-live="polite" aria-label="Saved function agent batch progress">
+                <h4>Saved function agent batch</h4>
+                <p>{codeDraftQuery.data?.agentBatch?.attempts.filter((attempt) => attempt.status === 'SUCCEEDED').length ?? 0} of {codeDraftQuery.data?.agentBatch?.attempts.length ?? 0} functions ready. This batch is stored in project history and keeps updating if you reload.</p>
+                <ol>{codeDraftQuery.data?.agentBatch?.attempts.map((attempt) => <li key={attempt.id}>
+                  <strong>{attempt.memberName}</strong> · {attempt.status === 'QUEUED' ? 'Queued' : attempt.status === 'RUNNING' ? attempt.cancelRequested ? 'Cancelling' : 'Working' : attempt.status === 'SUCCEEDED' ? 'Ready to review' : attempt.status === 'CANCELLED' ? 'Cancelled' : 'Failed'}
+                  {attempt.errorMessage && <p>{attempt.errorMessage}</p>}
+                </li>)}</ol>
+                {codeDraftQuery.data?.agentBatch && <button type="button" className={styles.explainButton} onClick={() => void applySavedFunctionAgentResults()} disabled={agentTeamRunning || maintainedDraftDiffersFromSource || savingDraft || codeDraftQuery.data.agentBatch.attempts.some((attempt) => attempt.status === 'QUEUED' || attempt.status === 'RUNNING') || !codeDraftQuery.data.agentBatch.attempts.some((attempt) => attempt.status === 'SUCCEEDED')}>
+                  Apply completed agent results to the maintained editor
+                </button>}
+              </section>}
               {memberOutlineQuery.data.members.length > filteredMembers.length && <p className={styles.message}>Showing {filteredMembers.length} functions or methods. Filter the list to find others.</p>}
               {memberOutlineQuery.data.truncated && <p className={styles.message}>The outline reached its 10,000 member limit; some functions or methods may not be listed.</p>}
             </>}

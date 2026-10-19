@@ -2843,6 +2843,7 @@ model ReamonCodeAttempt {
   modelIdentifier String    @map("model_identifier")
   question        String    @default("") @db.Text
   scope           String    @default("file")
+  agentBatchId    String?   @map("agent_batch_id")
   status          String    @default("QUEUED")
   cancelRequested Boolean   @default(false) @map("cancel_requested")
   requestPayload  Json?     @map("request_payload")
@@ -2863,6 +2864,7 @@ model ReamonCodeAttempt {
   completedAt     DateTime? @map("completed_at")
 
   @@index([projectId, codeUnitId, sourceHash, createdAt])
+  @@index([projectId, codeUnitId, agentBatchId, createdAt])
   @@index([projectId, artifactId, runKey, createdAt])
   @@index([status, createdAt])
   @@index([status, leaseHeartbeatAt])
