@@ -128,7 +128,10 @@ export function WorkspaceImportPanel({ projectId, onImported }: WorkspaceImportP
   }
 
   const choose = (input: FileList | null) => {
-    if (!input?.length) return
+    // File inputs can still dispatch a change event while a transfer is
+    // underway (for example via a scripted event), so guard state as well as
+    // disabling the controls below.
+    if (busy || !input?.length) return
     try {
       const nextSelection = selectionFromFiles(input)
       setSelection(nextSelection)
@@ -157,6 +160,7 @@ export function WorkspaceImportPanel({ projectId, onImported }: WorkspaceImportP
         completedPaths: new Set(completedPaths),
         concurrency: 3,
         signal: controller.signal,
+        onImportReady: setImportId,
         onProgress: (next) => {
           setProgress(next)
           if (next.phase === 'UPLOADING' && next.currentPath) {
@@ -178,7 +182,9 @@ export function WorkspaceImportPanel({ projectId, onImported }: WorkspaceImportP
           setImportId(cancelledImportId)
         }
         setProgress((current) => current ? { ...current, phase: 'CANCELLED' } : null)
-        setError('Import cancelled. Resume it to continue uploading the remaining paths.')
+        setError(cancelledImportId
+          ? 'Import cancelled. Resume it to continue uploading the remaining paths.'
+          : 'Import cancelled before setup completed. Start the import again to retry.')
       } else {
         setError(importError instanceof Error ? importError.message : 'Workspace import failed')
       }
@@ -215,11 +221,11 @@ export function WorkspaceImportPanel({ projectId, onImported }: WorkspaceImportP
       <div className={styles.actions}>
         <label className="primaryButton">
           <FolderOpen size={16} /> Choose project folder
-          <input ref={directoryInput} type="file" multiple onChange={(event) => choose(event.target.files)} className={styles.hiddenInput} />
+          <input ref={directoryInput} type="file" multiple disabled={busy} onChange={(event) => choose(event.target.files)} className={styles.hiddenInput} />
         </label>
         <label className="secondaryButton">
           <Upload size={16} /> Add files
-          <input ref={fileInput} type="file" multiple onChange={(event) => choose(event.target.files)} className={styles.hiddenInput} />
+          <input ref={fileInput} type="file" multiple disabled={busy} onChange={(event) => choose(event.target.files)} className={styles.hiddenInput} />
         </label>
         {selection && <button type="button" className="secondaryButton" onClick={reset} disabled={busy}>Clear</button>}
       </div>
@@ -227,8 +233,8 @@ export function WorkspaceImportPanel({ projectId, onImported }: WorkspaceImportP
       {selection && comparing && <p className={styles.limits}>Comparing with the latest completed snapshot…</p>}
       {selection && progress && (
         <div className={styles.progress} aria-live="polite">
-          <div className={styles.progressHeader}><span>{progress.phase === 'COMPLETED' ? 'Upload complete' : progress.phase === 'FAILED' ? 'Upload paused' : progress.phase === 'CANCELLED' ? 'Upload cancelled' : progress.phase === 'FINALIZING' ? 'Saving inventory' : 'Uploading workspace'}</span><strong>{progressPercent(progress)}%</strong></div>
-          <div className={styles.track} role="progressbar" aria-label="Workspace file transfer" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progressPercent(progress)} aria-valuetext={`${progressPercent(progress)}% of selected files transferred; analysis is tracked separately`}><div className={styles.fill} style={{ width: `${progressPercent(progress)}%` }} /></div>
+          <div className={styles.progressHeader}><span>{progress.phase === 'INVENTORY' ? 'Preparing inventory' : progress.phase === 'COMPLETED' ? 'Import complete' : progress.phase === 'FAILED' ? 'Import needs attention' : progress.phase === 'CANCELLED' ? 'Upload cancelled' : progress.phase === 'FINALIZING' ? 'Saving inventory' : 'Uploading workspace'}</span><strong>{progressPercent(progress)}%</strong></div>
+          <div className={styles.track} role="progressbar" aria-label="Workspace file transfer" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progressPercent(progress)} aria-valuetext={progress.phase === 'FINALIZING' ? `All ${progress.totalFiles.toLocaleString()} selected files transferred; saving the import inventory` : progress.phase === 'FAILED' ? `${progressPercent(progress)}% of selected files transferred; the import needs attention` : `${progressPercent(progress)}% of selected files transferred; analysis is tracked separately`}><div className={styles.fill} style={{ width: `${progressPercent(progress)}%` }} /></div>
           <div className={styles.progressMeta}><span>{progress.completedFiles.toLocaleString()} / {progress.totalFiles.toLocaleString()} files</span><span>{formatBytes(progress.uploadedBytes)} / {formatBytes(progress.totalBytes)}</span></div>
           {progress.currentPath && <code>{progress.currentPath}</code>}
           {progress.failedPaths.length > 0 && <span className={styles.failure}>{progress.failedPaths.length} failed</span>}

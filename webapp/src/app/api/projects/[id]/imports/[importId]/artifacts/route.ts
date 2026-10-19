@@ -79,7 +79,9 @@ export async function POST(request: Request, { params }: RouteParams) {
       select: { id: true, projectId: true, rootTargetId: true, status: true, sourceType: true, metadata: true, manifest: true },
     })
     if (!workspaceImport) return NextResponse.json({ error: 'Import not found' }, { status: 404, headers: { 'Cache-Control': 'no-store' } })
-    if (workspaceImport.status === 'COMPLETED' || workspaceImport.status === 'CANCELLED') {
+    // CANCELLED is a resumable client-side pause. A retry explicitly reopens
+    // it by accepting its next artifact; completed snapshots stay immutable.
+    if (workspaceImport.status === 'COMPLETED') {
       return NextResponse.json({ error: `Import is already ${workspaceImport.status.toLowerCase()}` }, { status: 409, headers: { 'Cache-Control': 'no-store' } })
     }
 
@@ -143,7 +145,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       // Updating the import row first serializes same-import uploads on
       // PostgreSQL's row lock. The path lookup must happen after that lock.
       const lockedImport = await tx.workspaceImport.updateMany({
-        where: { id: importId, status: { notIn: ['COMPLETED', 'CANCELLED'] } },
+        where: { id: importId, status: { notIn: ['COMPLETED'] } },
         data: { status: 'UPLOADING' },
       })
       if (lockedImport.count !== 1) throw new WorkspaceImportClosedError()

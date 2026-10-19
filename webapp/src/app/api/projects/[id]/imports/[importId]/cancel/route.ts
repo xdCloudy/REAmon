@@ -12,20 +12,23 @@ export async function POST(_request: Request, { params }: RouteParams) {
     const access = await requireProjectAccess(effectiveUser, projectId)
     if (access instanceof NextResponse) return access
 
-    const workspaceImport = await prisma.workspaceImport.findFirst({
-      where: { id: importId, projectId },
-      select: { id: true, status: true, totalFiles: true, completedFiles: true, rootName: true },
-    })
-    if (!workspaceImport) return NextResponse.json({ error: 'Import not found' }, { status: 404, headers: { 'Cache-Control': 'no-store' } })
-    if (workspaceImport.status === 'COMPLETED') {
-      return NextResponse.json({ error: 'Completed imports cannot be cancelled' }, { status: 409, headers: { 'Cache-Control': 'no-store' } })
-    }
-    if (workspaceImport.status === 'CANCELLED') {
-      return NextResponse.json({ status: 'CANCELLED', importId }, { headers: { 'Cache-Control': 'no-store' } })
-    }
+    const outcome = await prisma.$transaction(async (tx) => {
+      // The conditional update takes the same row lock as artifact upload and
+      // finalization. If finalization already committed, this cannot downgrade
+      // its COMPLETED status.
+      const claimed = await tx.workspaceImport.updateMany({
+        where: { id: importId, projectId, status: { notIn: ['COMPLETED', 'CANCELLED'] } },
+        data: { status: 'CANCELLING' },
+      })
+      const workspaceImport = await tx.workspaceImport.findFirst({
+        where: { id: importId, projectId },
+        select: { id: true, status: true, totalFiles: true, completedFiles: true, rootName: true },
+      })
+      if (!workspaceImport) return { kind: 'NOT_FOUND' as const }
+      if (workspaceImport.status === 'COMPLETED') return { kind: 'COMPLETED' as const }
+      if (!claimed.count || workspaceImport.status === 'CANCELLED') return { kind: 'CANCELLED' as const }
 
-    const cancelled = await prisma.$transaction(async (tx) => {
-      const updated = await tx.workspaceImport.update({
+      const cancelled = await tx.workspaceImport.update({
         where: { id: importId },
         data: {
           status: 'CANCELLED',
@@ -42,10 +45,12 @@ export async function POST(_request: Request, { params }: RouteParams) {
           data: { importId, completedFiles: workspaceImport.completedFiles, totalFiles: workspaceImport.totalFiles },
         },
       })
-      return updated
+      return { kind: 'CANCELLED' as const, cancelled }
     })
 
-    return NextResponse.json({ status: cancelled.status, importId: cancelled.id }, { headers: { 'Cache-Control': 'no-store' } })
+    if (outcome.kind === 'NOT_FOUND') return NextResponse.json({ error: 'Import not found' }, { status: 404, headers: { 'Cache-Control': 'no-store' } })
+    if (outcome.kind === 'COMPLETED') return NextResponse.json({ error: 'Completed imports cannot be cancelled' }, { status: 409, headers: { 'Cache-Control': 'no-store' } })
+    return NextResponse.json({ status: 'CANCELLED', importId }, { headers: { 'Cache-Control': 'no-store' } })
   } catch (error) {
     console.error('Failed to cancel REAmon workspace import:', error)
     return NextResponse.json({ error: 'Failed to cancel workspace import' }, { status: 500, headers: { 'Cache-Control': 'no-store' } })

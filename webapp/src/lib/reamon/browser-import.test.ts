@@ -59,6 +59,66 @@ describe('browser workspace imports', () => {
     expect(phases.at(-1)).toBe('COMPLETED')
   })
 
+  test('preserves the import ID and reports failure when finalization fails', async () => {
+    const selection = selectionFromFiles([browserFile('Example/src/main.c', 'source')])
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id: 'import-1' }), { status: 201 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ artifact: { id: 'artifact-1' } }), { status: 201 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: 'Inventory save failed' }), { status: 503 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const phases: string[] = []
+    const onImportReady = vi.fn()
+
+    await expect(runWorkspaceImport({
+      projectId: 'project-1',
+      selection,
+      onImportReady,
+      onProgress: (progress) => phases.push(progress.phase),
+    })).rejects.toThrow('Inventory save failed')
+
+    expect(onImportReady).toHaveBeenCalledWith('import-1')
+    expect(phases.slice(-2)).toEqual(['FINALIZING', 'FAILED'])
+    expect(fetchMock.mock.calls.at(-1)?.[0]).toBe('/api/projects/project-1/imports/import-1/finalize')
+  })
+
+  test('marks failed inventory preparation in progress instead of leaving it at zero percent', async () => {
+    const selection = selectionFromFiles([browserFile('Example/src/main.c', 'source')])
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: 'Inventory unavailable' }), { status: 503 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const phases: string[] = []
+
+    await expect(runWorkspaceImport({
+      projectId: 'project-1',
+      selection,
+      onProgress: (progress) => phases.push(progress.phase),
+    })).rejects.toThrow('Inventory unavailable')
+
+    expect(fetchMock).toHaveBeenCalledOnce()
+    expect(phases).toEqual(['INVENTORY', 'FAILED'])
+  })
+
+  test('aborts a pending inventory preparation and reports cancellation', async () => {
+    const selection = selectionFromFiles([browserFile('Example/src/main.c', 'source')])
+    const controller = new AbortController()
+    const fetchMock = vi.fn().mockImplementation(async (_url: string, init: RequestInit) => {
+      expect(init.signal).toBe(controller.signal)
+      controller.abort()
+      throw new DOMException('aborted', 'AbortError')
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const phases: string[] = []
+
+    await expect(runWorkspaceImport({
+      projectId: 'project-1',
+      selection,
+      signal: controller.signal,
+      onProgress: (progress) => phases.push(progress.phase),
+    })).rejects.toBeInstanceOf(WorkspaceImportCancelledError)
+
+    expect(fetchMock).toHaveBeenCalledOnce()
+    expect(phases).toEqual(['INVENTORY', 'CANCELLED'])
+  })
+
   test('stops queued uploads when the operator aborts the snapshot', async () => {
     const selection = selectionFromFiles([
       browserFile('Example/one.bin', '1'),

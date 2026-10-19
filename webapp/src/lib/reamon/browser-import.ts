@@ -85,9 +85,10 @@ export async function runWorkspaceImport(options: {
   completedPaths?: Set<string>
   concurrency?: number
   signal?: AbortSignal
+  onImportReady?: (importId: string) => void
   onProgress?: (progress: ImportProgress) => void
 }): Promise<{ importId: string; failedPaths: string[] }> {
-  const { projectId, selection, onProgress, signal } = options
+  const { projectId, selection, onImportReady, onProgress, signal } = options
   let importId = options.importId
   const completedPaths = options.completedPaths || new Set<string>()
   const failedPaths: string[] = []
@@ -106,19 +107,33 @@ export async function runWorkspaceImport(options: {
   if (!importId) {
     throwIfCancelled()
     emit('INVENTORY')
-    const response = await fetch(`/api/projects/${projectId}/imports`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        rootName: selection.rootName,
-        sourceType: 'BROWSER_DIRECTORY',
-        files: selection.files.map(({ relativePath, size, lastModified }) => ({ relativePath, size, lastModified })),
-      }),
-    })
-    const data = await response.json()
-    if (!response.ok) throw new Error(data.error || 'Unable to prepare workspace import')
-    importId = data.id as string
+    try {
+      const response = await fetch(`/api/projects/${projectId}/imports`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          rootName: selection.rootName,
+          sourceType: 'BROWSER_DIRECTORY',
+          files: selection.files.map(({ relativePath, size, lastModified }) => ({ relativePath, size, lastModified })),
+        }),
+        signal,
+      })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || 'Unable to prepare workspace import')
+      if (typeof data.id !== 'string' || !data.id) throw new Error('Workspace import was prepared without an import ID')
+      importId = data.id
+    } catch (error) {
+      if (signal?.aborted) {
+        emit('CANCELLED')
+        throw new WorkspaceImportCancelledError()
+      }
+      emit('FAILED')
+      throw error
+    }
   }
+  const activeImportId = importId
+  if (!activeImportId) throw new Error('Workspace import ID is unavailable')
+  onImportReady?.(activeImportId)
 
   emit('UPLOADING')
   let cursor = 0
@@ -133,7 +148,7 @@ export async function runWorkspaceImport(options: {
         const body = new FormData()
         body.set('file', entry.file)
         body.set('relativePath', entry.relativePath)
-        const response = await fetch(`/api/projects/${projectId}/imports/${importId}/artifacts`, { method: 'POST', body, signal })
+        const response = await fetch(`/api/projects/${projectId}/imports/${activeImportId}/artifacts`, { method: 'POST', body, signal })
         const data = await response.json()
         if (!response.ok) {
           const message = data.error || `Upload failed for ${entry.relativePath}`
@@ -150,7 +165,7 @@ export async function runWorkspaceImport(options: {
         emit('UPLOADING', entry.relativePath)
         return
       } catch (error) {
-        if (signal?.aborted || error instanceof WorkspaceImportCancelledError) throw new WorkspaceImportCancelledError(importId)
+        if (signal?.aborted || error instanceof WorkspaceImportCancelledError) throw new WorkspaceImportCancelledError(activeImportId)
         if (attempt === 1) {
           failedPaths.push(entry.relativePath)
           emit('FAILED', entry.relativePath)
@@ -175,14 +190,23 @@ export async function runWorkspaceImport(options: {
   throwIfCancelled()
   emit(failedPaths.length ? 'FAILED' : 'FINALIZING')
   if (!failedPaths.length) {
-    const response = await fetch(`/api/projects/${projectId}/imports/${importId}/finalize`, { method: 'POST', signal })
-    const data = await response.json()
-    if (!response.ok) throw new Error(data.error || 'Unable to finalize workspace import')
-    emit('COMPLETED')
+    try {
+      const response = await fetch(`/api/projects/${projectId}/imports/${activeImportId}/finalize`, { method: 'POST', signal })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || 'Unable to finalize workspace import')
+      emit('COMPLETED')
+    } catch (error) {
+      if (signal?.aborted) {
+        emit('CANCELLED')
+        throw new WorkspaceImportCancelledError(activeImportId)
+      }
+      emit('FAILED')
+      throw error
+    }
   } else {
     // Persist the partial state. The server marks it FAILED with missing paths;
     // a retry can upload those paths against the same import id.
-    await fetch(`/api/projects/${projectId}/imports/${importId}/finalize`, { method: 'POST' }).catch(() => {})
+    await fetch(`/api/projects/${projectId}/imports/${activeImportId}/finalize`, { method: 'POST' }).catch(() => {})
   }
-  return { importId, failedPaths }
+  return { importId: activeImportId, failedPaths }
 }

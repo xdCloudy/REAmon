@@ -180,11 +180,30 @@ describe('POST /api/projects/[id]/imports/[importId]/artifacts', () => {
       data: expect.objectContaining({ relativePath: 'bin/app.exe' }),
     }))
     expect(mocks.importUpdateMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { id: 'import-1', status: { notIn: ['COMPLETED', 'CANCELLED'] } },
+      where: { id: 'import-1', status: { notIn: ['COMPLETED'] } },
       data: { status: 'UPLOADING' },
     }))
     await expect(readFile(path.join(storageRoot, previousStoragePath), 'utf8')).rejects.toThrow()
     expect(mocks.importUpdateMany.mock.invocationCallOrder[0]).toBeLessThan(mocks.artifactFindFirst.mock.invocationCallOrder[0])
+  })
+
+  test('resumes a cancelled import when a missing manifest artifact is retried', async () => {
+    mocks.workspaceImportFindFirst.mockResolvedValueOnce({
+      id: 'import-1',
+      projectId: 'project-1',
+      rootTargetId: 'root-target-1',
+      status: 'CANCELLED',
+      manifest: [{ relativePath: 'bin/app.exe', size: 3 }],
+    })
+
+    const response = await POST(uploadRequest('bin/app.exe'), params())
+
+    expect(response.status).toBe(201)
+    expect(mocks.importUpdateMany).toHaveBeenCalledWith({
+      where: { id: 'import-1', status: { notIn: ['COMPLETED'] } },
+      data: { status: 'UPLOADING' },
+    })
+    expect(mocks.artifactCreate).toHaveBeenCalledOnce()
   })
 
   test('does not reopen an import finalized while bytes were being written', async () => {

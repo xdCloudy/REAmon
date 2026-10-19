@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, test, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   workspaceImportFindFirst: vi.fn(),
   workspaceImportUpdate: vi.fn(),
+  workspaceImportUpdateMany: vi.fn(),
   transaction: vi.fn(),
   targetUpdate: vi.fn(),
   activityCreate: vi.fn(),
@@ -20,6 +21,7 @@ vi.mock('@/lib/prisma', () => ({
     workspaceImport: {
       findFirst: mocks.workspaceImportFindFirst,
       update: mocks.workspaceImportUpdate,
+      updateMany: mocks.workspaceImportUpdateMany,
     },
     $transaction: mocks.transaction,
   },
@@ -63,10 +65,15 @@ beforeEach(() => {
   mocks.requireEffectiveUser.mockResolvedValue({ userId: 'user-1' })
   mocks.requireProjectAccess.mockResolvedValue({ project: { id: 'project-1', userId: 'user-1' } })
   mocks.workspaceImportUpdate.mockResolvedValue({ id: 'import-1' })
+  mocks.workspaceImportUpdateMany.mockResolvedValue({ count: 1 })
   mocks.targetUpdate.mockResolvedValue({ id: 'root-target-1' })
   mocks.activityCreate.mockResolvedValue({ id: 'activity-1' })
   mocks.transaction.mockImplementation(async (callback: (tx: unknown) => unknown) => callback({
-    workspaceImport: { update: mocks.workspaceImportUpdate },
+    workspaceImport: {
+      findFirst: mocks.workspaceImportFindFirst,
+      update: mocks.workspaceImportUpdate,
+      updateMany: mocks.workspaceImportUpdateMany,
+    },
     target: { update: mocks.targetUpdate },
     workspaceActivity: { create: mocks.activityCreate },
   }))
@@ -74,7 +81,7 @@ beforeEach(() => {
 
 describe('POST /api/projects/[id]/imports/[importId]/finalize', () => {
   test('marks an incomplete import failed and reports missing paths', async () => {
-    mocks.workspaceImportFindFirst.mockResolvedValue({
+    mocks.workspaceImportFindFirst.mockResolvedValueOnce({
       id: 'import-1',
       projectId: 'project-1',
       rootTarget: { id: 'root-target-1' },
@@ -94,15 +101,20 @@ describe('POST /api/projects/[id]/imports/[importId]/finalize', () => {
       status: 'FAILED',
       missingPaths: ['plugins/audio.dll'],
     })
+    expect(mocks.workspaceImportUpdateMany).toHaveBeenCalledWith({
+      where: { id: 'import-1', projectId: 'project-1', status: { notIn: ['COMPLETED'] } },
+      data: { status: 'FINALIZING' },
+    })
     expect(mocks.workspaceImportUpdate).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: 'import-1' },
       data: expect.objectContaining({ status: 'FAILED', failedFiles: 1 }),
     }))
-    expect(mocks.transaction).not.toHaveBeenCalled()
+    expect(mocks.workspaceImportUpdateMany.mock.invocationCallOrder[0]).toBeLessThan(mocks.workspaceImportFindFirst.mock.invocationCallOrder[0])
   })
 
   test('profiles the aggregate and completes an import only after every path exists', async () => {
-    mocks.workspaceImportFindFirst.mockResolvedValue({
+    mocks.workspaceImportFindFirst
+      .mockResolvedValueOnce({
       id: 'import-1',
       projectId: 'project-1',
       rootTarget: { id: 'root-target-1' },
@@ -110,7 +122,8 @@ describe('POST /api/projects/[id]/imports/[importId]/finalize', () => {
       status: 'UPLOADING',
       manifest: [{ relativePath: 'bin/app.exe', size: 3 }],
       artifacts: [artifact],
-    })
+      })
+      .mockResolvedValueOnce(null)
     mocks.workspaceImportUpdate.mockResolvedValue({ id: 'import-1', status: 'COMPLETED', rootTargetId: 'root-target-1', completedFiles: 1 })
 
     const response = await POST(request(), params())
@@ -131,5 +144,35 @@ describe('POST /api/projects/[id]/imports/[importId]/finalize', () => {
     expect(mocks.activityCreate).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ eventType: 'workspace.import.completed' }),
     }))
+    expect(mocks.workspaceImportUpdateMany).toHaveBeenCalledBefore(mocks.workspaceImportFindFirst)
+  })
+
+  test('reads artifact inventory after acquiring the import row lock', async () => {
+    mocks.workspaceImportFindFirst.mockResolvedValueOnce({
+      id: 'import-1', projectId: 'project-1', rootTarget: { id: 'root-target-1' },
+      rootName: 'ExampleApp', status: 'FINALIZING', manifest: [{ relativePath: 'bin/app.exe', size: 3 }],
+      artifacts: [artifact],
+    }).mockResolvedValueOnce(null)
+    mocks.workspaceImportUpdate.mockResolvedValue({ id: 'import-1', status: 'COMPLETED', rootTargetId: 'root-target-1', completedFiles: 1 })
+
+    const response = await POST(request(), params())
+
+    expect(response.status).toBe(200)
+    expect(mocks.workspaceImportUpdateMany).toHaveBeenCalledBefore(mocks.workspaceImportFindFirst)
+    expect(mocks.workspaceImportUpdate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'COMPLETED', completedFiles: 1 }),
+    }))
+  })
+
+  test('does not downgrade an import completed before the finalizer acquired its lock', async () => {
+    mocks.workspaceImportUpdateMany.mockResolvedValueOnce({ count: 0 })
+    mocks.workspaceImportFindFirst.mockResolvedValueOnce({ id: 'import-1', status: 'COMPLETED' })
+
+    const response = await POST(request(), params())
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ status: 'COMPLETED', importId: 'import-1', missingPaths: [] })
+    expect(mocks.workspaceImportUpdate).not.toHaveBeenCalled()
+    expect(mocks.targetUpdate).not.toHaveBeenCalled()
   })
 })
