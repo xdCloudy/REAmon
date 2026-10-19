@@ -6,6 +6,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertTriangle, ArrowLeft, Server } from 'lucide-react'
 import { WorkspaceFileTree } from '@/components/reamon/WorkspaceFileTree'
 import { WorkspaceImportPanel } from '@/components/reamon/WorkspaceImportPanel'
+import { ReaEvidenceImportPanel } from '@/components/reamon/ReaEvidenceImportPanel'
 import { WorkspaceAnalysisPlanPanel, type WorkspaceAnalysisPlan } from '@/components/reamon/WorkspaceAnalysisPlan'
 import { ToCodeImportAction } from '@/components/reamon/ToCodeImportAction'
 import { WorkspaceTaskList } from '@/components/reamon/WorkspaceTaskList'
@@ -222,6 +223,9 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
         void queryClient.invalidateQueries({ queryKey: ['reamon-workspace', projectId] })
         void queryClient.invalidateQueries({ queryKey: ['reamon-analysis-plan', projectId] })
         void queryClient.invalidateQueries({ queryKey: ['reamon-code-units', projectId] })
+      }} />
+      <ReaEvidenceImportPanel projectId={projectId} onImported={() => {
+        void queryClient.invalidateQueries({ queryKey: ['reamon-workspace', projectId] })
       }} />
       <ImportStatus latestImport={latestImport} projectId={projectId} onChanged={() => {
         void queryClient.invalidateQueries({ queryKey: ['reamon-workspace', projectId] })

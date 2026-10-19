@@ -8,6 +8,7 @@ import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
 import { getActiveWorkspaceImportSelection } from '@/lib/reamon/inventory-query'
 import { derivedArtifactRoot, resolveDerivedArtifactPath } from '@/lib/reamon/derived-storage'
 import { buildProjectSymbolContext, buildProviderGoTypeContext, buildProviderTypeContext, buildProviderSymbolContext, extractMaintainedSymbols } from '@/lib/reamon/maintenance-memory'
+import { buildImportedReaEvidenceContext } from '@/lib/reamon/rea-evidence-context'
 import { nativeAddressAliases, nativeArchitectureGroup, nativeFunctionIdentity } from '@/lib/reamon/native-function-identity'
 import { flossRecoveredStringsOf, providerVariablesOf } from '@/lib/reamon/code-units'
 import { rankSimilarInstructionFunctions, type RankedSimilarInstructionFunction } from '@/lib/reamon/instruction-similarity'
@@ -1254,6 +1255,13 @@ export async function POST(request: Request, { params }: RouteParams) {
     }), new Set(relatedUnitIds), undefined, artifact.sha256, calleeUnitIds, projectSymbolScanTruncated,
     undefined, observation.canonicalKey || currentNativeFunctionIdentity || undefined,
     observation.id, sourceHash)
+    const importedReaEvidenceRows = await prisma.evidence.findMany({
+      where: { projectId, artifactId: artifact.id, source: 'rea-evidence-v2' },
+      orderBy: { createdAt: 'desc' },
+      take: 12,
+      select: { summary: true, sourceReference: true, data: true },
+    })
+    const importedReaEvidenceContext = buildImportedReaEvidenceContext(importedReaEvidenceRows)
     const selectedProviderRow = providerSymbolRows.find((row) => row.id === observation.id)
     const selectedProviderAttributes = selectedProviderRow ? plainObject(selectedProviderRow.attributes) : {}
     const selectedProviderVariables = selectedProviderRow
@@ -2499,6 +2507,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       disassembly_source: disassemblySource,
       binary_evidence: binaryEvidence,
       project_symbol_context: maintainedProjectContext,
+      imported_rea_evidence_context: importedReaEvidenceContext,
       provider_symbol_context: combinedProviderSymbolContext,
       project_draft_context: projectDraftContext,
       project_note_context: projectNoteContext,

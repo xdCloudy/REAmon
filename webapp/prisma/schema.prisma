@@ -2727,12 +2727,14 @@ model Evidence {
   kind        String   @default("observation")
   summary     String   @db.Text
   source      String   @default("system")
+  sourceReference String? @map("source_reference")
   data        Json     @default("{}")
   createdAt   DateTime @default(now()) @map("created_at")
 
   @@index([projectId, createdAt])
   @@index([targetId])
   @@index([artifactId])
+  @@unique([projectId, source, sourceReference])
   @@map("reamon_evidence")
 }
 
