@@ -5,10 +5,12 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import signal
 import shutil
 import subprocess
 import tempfile
 import threading
+import time
 import time
 import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -27,6 +29,13 @@ MAX_STRUCTURED_METHODS = 10_000
 MAX_STRUCTURED_CALLS = 4_000
 MAX_STRUCTURED_REFERENCES = 4_000
 MAX_STRUCTURED_OUTPUT_BYTES = 64 * 1024 * 1024
+MAX_DEX_ENTRIES = 64
+MAX_TOTAL_DEX_BYTES = 512 * 1024 * 1024
+CLASS_BATCH_SIZE = min(256, max(8, int(os.environ.get("DEX_DECOMPILER_CLASS_BATCH_SIZE", "256"))))
+CLASS_BATCH_TIMEOUT_SECONDS = min(
+    600,
+    max(30, int(os.environ.get("DEX_DECOMPILER_CLASS_BATCH_TIMEOUT_SECONDS", "60"))),
+)
 MAX_REQUEST_BYTES = 64 * 1024
 TOOL_VERSION = "d458efd15d74351e83f4e8968c75ef17c71f3c65"
 SAFE_ID_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")
@@ -35,6 +44,100 @@ SLOTS = threading.BoundedSemaphore(1)
 
 class AnalysisError(Exception):
     pass
+
+
+def is_dex_entry(name: str) -> bool:
+    basename = PurePosixPath(name).name.lower()
+    if basename == "classes.dex":
+        return True
+    return basename.startswith("classes") and basename.endswith(".dex") \
+        and basename[7:-4].isdigit() and int(basename[7:-4]) >= 2
+
+
+def extract_dex_inputs(source: Path, input_suffix: str, output_root: Path) -> list[tuple[Path, str]]:
+    """Extract APK DEX entries so each one is decompiled in its own process."""
+    if input_suffix != ".apk":
+        return [(source, source.name)]
+
+    try:
+        with zipfile.ZipFile(source) as archive:
+            entries = [info for info in archive.infolist() if not info.is_dir() and is_dex_entry(info.filename)]
+            entries.sort(key=lambda info: (0 if PurePosixPath(info.filename).name.lower() == "classes.dex"
+                                            else int(PurePosixPath(info.filename).name[7:-4])))
+            if not entries:
+                raise AnalysisError("APK contains no classes*.dex entries")
+            if len(entries) > MAX_DEX_ENTRIES:
+                raise AnalysisError(f"APK contains more than the {MAX_DEX_ENTRIES}-DEX analyzer limit")
+            if sum(info.file_size for info in entries) > MAX_TOTAL_DEX_BYTES:
+                raise AnalysisError("Uncompressed DEX inputs exceed the 512 MiB analyzer limit")
+
+            output_root.mkdir(parents=True, exist_ok=True)
+            extracted: list[tuple[Path, str]] = []
+            total_bytes = 0
+            for index, info in enumerate(entries):
+                target = output_root / f"input-{index + 1:02}.dex"
+                copied = 0
+                with archive.open(info, "r") as input_stream, target.open("wb") as output_stream:
+                    while chunk := input_stream.read(1024 * 1024):
+                        copied += len(chunk)
+                        total_bytes += len(chunk)
+                        if copied > info.file_size or total_bytes > MAX_TOTAL_DEX_BYTES:
+                            raise AnalysisError("APK DEX data exceeded its declared or configured size limit")
+                        output_stream.write(chunk)
+                if copied != info.file_size:
+                    raise AnalysisError(f"APK DEX entry {info.filename} did not match its declared size")
+                extracted.append((target, info.filename[:500]))
+            return extracted
+    except (OSError, zipfile.BadZipFile, RuntimeError) as error:
+        raise AnalysisError("Could not safely extract DEX entries from the APK") from error
+
+
+def build_decompile_command(
+    input_path: Path, mapping_path: Path, output_path: Path, start_index: int, class_limit: int,
+) -> list[str]:
+    """Use upstream's single-class slicer in a bounded process batch."""
+    return [
+        "/usr/local/bin/reamon-dex-batch", str(input_path), str(mapping_path), str(output_path),
+        str(start_index), str(class_limit),
+    ]
+
+
+def run_with_progress(command: list[str], timeout: int, message: str, progress=None, cwd: Path | None = None) -> subprocess.CompletedProcess[bytes]:
+    """Run one bounded tool process while keeping long analyzer requests alive."""
+    process = subprocess.Popen(
+        command,
+        cwd=cwd or os.getcwd(),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        start_new_session=True,
+    )
+    started = time.monotonic()
+    try:
+        while True:
+            remaining = timeout - (time.monotonic() - started)
+            if remaining <= 0:
+                raise subprocess.TimeoutExpired(command, timeout)
+            try:
+                stdout, stderr = process.communicate(timeout=min(15, remaining))
+                return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+            except subprocess.TimeoutExpired:
+                elapsed = int(time.monotonic() - started)
+                if progress:
+                    progress(f"{message} · still working ({elapsed}s)")
+    except subprocess.TimeoutExpired as error:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+        stdout, stderr = process.communicate()
+        raise subprocess.TimeoutExpired(command, timeout, output=stdout, stderr=stderr) from error
+    except (BrokenPipeError, ConnectionResetError):
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+        process.communicate()
+        raise
 
 
 def safe_id(value: object) -> str:
@@ -120,7 +223,7 @@ def collect_sources(root: Path) -> tuple[list[tuple[Path, PurePosixPath, int]], 
     return sources, total_bytes, truncated
 
 
-def analyse(body: dict[str, object]) -> dict[str, object]:
+def analyse(body: dict[str, object], progress=None) -> dict[str, object]:
     project_id = safe_id(body.get("projectId"))
     artifact_id = safe_id(body.get("artifactId"))
     task_id = safe_id(body.get("taskId"))
@@ -138,35 +241,121 @@ def analyse(body: dict[str, object]) -> dict[str, object]:
         compiler_input.symlink_to(source)
         output_root = temporary_root / "java"
         output_root.mkdir()
-        command = [
-            "/usr/local/bin/dex-decompile", "-i", str(compiler_input), "-d", str(output_root),
-            "--deobf", "--show-bytecode",
-        ]
+        dex_inputs = extract_dex_inputs(
+            compiler_input if input_suffix != ".apk" else source,
+            input_suffix,
+            temporary_root / "dex-inputs",
+        )
+        mapping_path = temporary_root / "deobfuscation.txt"
         try:
-            result = subprocess.run(
-                command,
-                cwd=temporary_root,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                timeout=TIMEOUT_SECONDS,
-                check=False,
-                start_new_session=True,
+            if progress:
+                progress("Building a project wide symbol map from every DEX file")
+            mapping = run_with_progress(
+                ["/usr/local/bin/reamon-dex-map", str(compiler_input), str(mapping_path)],
+                TIMEOUT_SECONDS,
+                "Building the project wide symbol map",
+                progress,
+                temporary_root,
             )
+            if mapping.returncode != 0 or not mapping_path.is_file():
+                detail = mapping.stderr[-2000:].decode("utf-8", errors="replace").strip()
+                raise AnalysisError(detail or f"Could not create the APK-wide name map (exit {mapping.returncode})")
         except subprocess.TimeoutExpired as error:
-            raise AnalysisError(f"DEX-to-Java decompilation exceeded {TIMEOUT_SECONDS} seconds") from error
+            raise AnalysisError(f"DEX name mapping exceeded {TIMEOUT_SECONDS} seconds") from error
         except OSError as error:
-            raise AnalysisError(f"Could not start the DEX decompiler: {error}") from error
+            raise AnalysisError(f"Could not start the DEX name mapper: {error}") from error
 
-        stdout = result.stdout[-4000:].decode("utf-8", errors="replace").strip()
-        stderr = result.stderr[-4000:].decode("utf-8", errors="replace").strip()
-        if result.returncode != 0:
-            if result.returncode == -9:
-                raise AnalysisError(
-                    "The DEX decompiler was killed by signal 9, likely after exceeding the analyzer's "
-                    "memory limit. Try JADX for the full APK or analyze a smaller DEX input."
-                )
-            detail = stderr or stdout or f"DEX decompiler exited with code {result.returncode}"
-            raise AnalysisError(detail[:2000])
+        diagnostic_lines: list[str] = []
+        discovered_classes = 0
+        returned_classes = 0
+        failed_classes = 0
+        for dex_index, (dex_path, dex_entry) in enumerate(dex_inputs, start=1):
+            offset = 0
+            dex_discovered: int | None = None
+            while dex_discovered is None or offset < dex_discovered:
+                def run_range(start: int, limit: int) -> tuple[int | None, int, int]:
+                    try:
+                        description = f"DEX {dex_index} of {len(dex_inputs)} · classes {start + 1}–{start + limit}"
+                        if progress:
+                            progress(f"Decompiling {description}")
+                        result = run_with_progress(
+                            build_decompile_command(dex_path, mapping_path, output_root, start, limit),
+                            min(TIMEOUT_SECONDS, CLASS_BATCH_TIMEOUT_SECONDS),
+                            f"Decompiling {description}",
+                            progress,
+                            temporary_root,
+                        )
+                    except subprocess.TimeoutExpired as error:
+                        if limit == 1:
+                            diagnostic_lines.append(
+                                f"Class index {start} in {dex_entry} exceeded the per-class time limit and was skipped."
+                            )
+                            return None, 0, 1
+                        left_limit = limit // 2
+                        right_start = start + left_limit
+                        left = run_range(start, left_limit)
+                        right = run_range(right_start, limit - left_limit)
+                        discovered = left[0] if left[0] is not None else right[0]
+                        return discovered, left[1] + right[1], left[2] + right[2]
+                    except OSError as error:
+                        raise AnalysisError(f"Could not start the DEX decompiler for {dex_entry}: {error}") from error
+                    stdout = result.stdout[-2000:].decode("utf-8", errors="replace").strip()
+                    stderr = result.stderr[-2000:].decode("utf-8", errors="replace").strip()
+                    if stderr:
+                        diagnostic_lines.append(stderr)
+                    if result.returncode == -9:
+                        if limit == 1:
+                            diagnostic_lines.append(
+                                f"Class index {start} in {dex_entry} exceeded the analyzer memory limit and was skipped."
+                            )
+                            return None, 0, 1
+                        left_limit = limit // 2
+                        right_start = start + left_limit
+                        left = run_range(start, left_limit)
+                        right = run_range(right_start, limit - left_limit)
+                        discovered = left[0] if left[0] is not None else right[0]
+                        return discovered, left[1] + right[1], left[2] + right[2]
+                    if result.returncode != 0:
+                        detail = stderr or stdout or f"DEX decompiler exited with code {result.returncode}"
+                        if "panicked at" in detail or "thread 'main' panicked" in detail:
+                            if limit == 1:
+                                diagnostic_lines.append(
+                                    f"Class index {start} in {dex_entry} panicked in the upstream decompiler and was skipped."
+                                )
+                                return None, 0, 1
+                            left_limit = limit // 2
+                            right_start = start + left_limit
+                            left = run_range(start, left_limit)
+                            right = run_range(right_start, limit - left_limit)
+                            discovered = left[0] if left[0] is not None else right[0]
+                            return discovered, left[1] + right[1], left[2] + right[2]
+                        raise AnalysisError(f"DEX decompilation of {dex_entry} failed: {detail[:1500]}")
+                    try:
+                        summary = json.loads(stdout)
+                        discovered = summary.get("discoveredClassCount")
+                        returned = summary.get("returnedClassCount")
+                        failed = summary.get("failedClassCount")
+                        if not all(isinstance(value, int) and value >= 0 for value in (discovered, returned, failed)):
+                            raise ValueError("invalid class counts")
+                    except (json.JSONDecodeError, AttributeError, ValueError) as error:
+                        raise AnalysisError(f"DEX decompilation of {dex_entry} returned an invalid class summary") from error
+                    return discovered, returned, failed
+
+                discovered, returned, failed = run_range(offset, CLASS_BATCH_SIZE)
+                if discovered is not None:
+                    if dex_discovered is None:
+                        dex_discovered = discovered
+                        discovered_classes += discovered
+                    elif discovered != dex_discovered:
+                        raise AnalysisError(f"DEX class count changed between batches for {dex_entry}")
+                returned_classes += returned
+                failed_classes += failed
+                if dex_discovered is None and discovered is None:
+                    raise AnalysisError(f"Could not inventory classes in {dex_entry} after a memory-limited batch")
+                offset += CLASS_BATCH_SIZE
+                if progress:
+                    progress(f"Decompiled {dex_entry}: {min(offset, dex_discovered or offset)} of {dex_discovered or offset} classes · {returned_classes} reconstructed so far")
+        stderr = "\n".join(diagnostic_lines)[-4000:]
         sources, total_source_bytes, source_truncated = collect_sources(output_root)
         if not sources:
             detail = stderr or stdout
@@ -176,14 +365,14 @@ def analyse(body: dict[str, object]) -> dict[str, object]:
         method_warning = ""
         method_evidence_root = temporary_root / "method-evidence"
         try:
-            structured = subprocess.run(
+            if progress:
+                progress("Collecting method, call, and data reference evidence")
+            structured = run_with_progress(
                 ["/usr/local/bin/reamon-dex-structure", str(compiler_input), str(method_evidence_root)],
-                cwd=temporary_root,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                timeout=TIMEOUT_SECONDS,
-                check=False,
-                start_new_session=True,
+                TIMEOUT_SECONDS,
+                "Collecting method and reference evidence",
+                progress,
+                temporary_root,
             )
             if structured.returncode != 0:
                 raise AnalysisError((structured.stderr[-2000:].decode("utf-8", errors="replace").strip()
@@ -272,7 +461,7 @@ def analyse(body: dict[str, object]) -> dict[str, object]:
         "status": "completed",
         "toolVersion": TOOL_VERSION,
         "input": {"sha256": artifact_hash.hexdigest(), "relativePath": source.relative_to(ARTIFACT_ROOT).as_posix()},
-        "discoveredClassCount": len(sources),
+        "discoveredClassCount": discovered_classes,
         "returnedClassCount": len(units),
         "discoveredMethodCount": discovered_methods if isinstance(discovered_methods, int) and discovered_methods >= 0 else len(methods),
         "returnedMethodCount": len(methods),
@@ -287,6 +476,7 @@ def analyse(body: dict[str, object]) -> dict[str, object]:
         "units": units,
         "warnings": "\n".join(filter(None, [
             "This is an alternate DEX-to-Java reconstruction; review it against JADX and bytecode evidence.",
+            f"The upstream class slicer could not reconstruct {failed_classes} of {discovered_classes} classes." if failed_classes else "",
             method_warning,
             stderr[:2000],
         ]))[:4000],
@@ -294,6 +484,7 @@ def analyse(body: dict[str, object]) -> dict[str, object]:
 
 
 class Handler(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
     server_version = "REAmonDexDecompiler/1.0"
 
     def log_message(self, format: str, *args: object) -> None:
@@ -307,6 +498,38 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("cache-control", "no-store")
         self.end_headers()
         self.wfile.write(encoded)
+
+    def _start_stream(self) -> None:
+        self.send_response(200)
+        self.send_header("content-type", "application/x-ndjson; charset=utf-8")
+        self.send_header("transfer-encoding", "chunked")
+        self.send_header("cache-control", "no-store")
+        self.end_headers()
+
+    def _stream_line(self, event: dict[str, object]) -> None:
+        encoded = json.dumps(event, separators=(",", ":")).encode("utf-8") + b"\n"
+        self.wfile.write(f"{len(encoded):X}\r\n".encode("ascii"))
+        self.wfile.write(encoded)
+        self.wfile.write(b"\r\n")
+        self.wfile.flush()
+
+    def _stream_progress(self, message: str) -> None:
+        self._stream_line({"type": "progress", "message": message[:500]})
+
+    def _stream_result(self, result: dict[str, object]) -> None:
+        array_fields = [field for field in ("units", "methods", "calls", "references") if isinstance(result.get(field), list)]
+        metadata = {key: value for key, value in result.items() if key not in array_fields}
+        self._stream_line({"type": "result_start", "data": metadata, "arrayFields": array_fields})
+        for field in array_fields:
+            items = result[field]
+            assert isinstance(items, list)
+            for start in range(0, len(items), 10):
+                self._stream_line({"type": "result_chunk", "field": field, "items": items[start:start + 10]})
+        self._stream_line({"type": "result_end"})
+
+    def _finish_stream(self) -> None:
+        self.wfile.write(b"0\r\n\r\n")
+        self.wfile.flush()
 
     def do_GET(self) -> None:
         if self.path != "/health":
@@ -328,11 +551,26 @@ class Handler(BaseHTTPRequestHandler):
             if not SLOTS.acquire(timeout=1):
                 self._send(429, {"error": "DEX decompiler is busy; retry this analysis later"})
                 return
+            self._start_stream()
             try:
-                result = analyse(body)
+                try:
+                    result = analyse(body, self._stream_progress)
+                    self._stream_result(result)
+                except AnalysisError as error:
+                    self._stream_line({"type": "error", "error": str(error)[:2000]})
+                except (BrokenPipeError, ConnectionResetError):
+                    return
+                except Exception as error:
+                    self.log_error("analysis failed: %s", error)
+                    self._stream_line({"type": "error", "error": "DEX decompiler analysis failed"})
+            except (BrokenPipeError, ConnectionResetError):
+                return
             finally:
+                try:
+                    self._finish_stream()
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
                 SLOTS.release()
-            self._send(200, result)
         except (ValueError, json.JSONDecodeError):
             self._send(400, {"error": "Request body must be valid JSON"})
         except AnalysisError as error:

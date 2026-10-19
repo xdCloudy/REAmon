@@ -19,17 +19,20 @@ function isStaleRunningTask(step: WorkspaceAnalysisPlanStep): boolean {
   const task = step.latestTask
   if (task?.status !== 'RUNNING') return false
   const timestamp = Date.parse(task.leaseHeartbeatAt || task.updatedAt)
-  return Number.isFinite(timestamp) && Date.now() - timestamp >= 5 * 60 * 1000
+  return Number.isFinite(timestamp) && Date.now() - timestamp >= 30 * 60 * 1000
 }
 
 function taskLabel(step: WorkspaceAnalysisPlanStep): string {
   const task = step.latestTask
-  if (!task) return 'PROPOSED'
-  if (task.status === 'RUNNING' && isStaleRunningTask(step)) return 'STALE · choose Run to retry'
-  if (task.status === 'RUNNING') return `RUNNING · ${task.progressMessage || 'Starting analysis'}`
-  if (task.status === 'QUEUED') return 'QUEUED'
-  if (task.status === 'AWAITING_APPROVAL') return 'READY · choose Run to queue'
-  return task.status
+  if (!task) return 'Proposed'
+  if (task.status === 'RUNNING' && isStaleRunningTask(step)) return 'Running · no update for 30 minutes'
+  if (task.status === 'RUNNING') return `Running · ${task.progressMessage || 'Starting analysis'}`
+  if (task.status === 'QUEUED') return 'Queued'
+  if (task.status === 'AWAITING_APPROVAL') return 'Ready to run'
+  if (task.status === 'COMPLETED') return 'Complete'
+  if (task.status === 'FAILED') return 'Failed'
+  if (task.status === 'CANCELLED') return 'Cancelled'
+  return 'Proposed'
 }
 
 export function WorkspaceAnalysisPlanPanel({ projectId, plan, isLoading, isError, onScheduled, onScanned }: {
@@ -159,11 +162,14 @@ export function WorkspaceAnalysisPlanPanel({ projectId, plan, isLoading, isError
               <span className={styles.path} title={step.relativePath}>{step.relativePath}</span>
               <span className={styles.provider}>{step.provider.pluginName}</span>
               <span className={styles.capability}>{step.capability}</span>
-              <span className={styles.status} title={step.latestTask?.error || undefined}>{taskLabel(step)}</span>
+              <span className={styles.status}>
+                {taskLabel(step)}
+                {step.latestTask?.error && <small className={styles.taskError}>{step.latestTask.error}</small>}
+              </span>
               {step.previousRunCount ? <span className={styles.history}>{step.previousRunCount} prior run{step.previousRunCount === 1 ? '' : 's'}</span> : <span className={styles.history} />}
               <span className={styles.actions}>
                 <button type="button" className={styles.queueButton} disabled={pendingId !== null || isActive} onClick={() => void run(step)}>{runLabel}</button>
-                <button type="button" className={styles.clearButton} disabled={pendingId !== null} onClick={() => void clear(step)}>Clear</button>
+                <button type="button" className={styles.clearButton} aria-label={`Clear ${step.capability} proposal for ${step.relativePath}`} disabled={pendingId !== null} onClick={() => void clear(step)}>Clear</button>
               </span>
             </div>
           })}

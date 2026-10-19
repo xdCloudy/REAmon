@@ -43,12 +43,17 @@ describe('WorkspaceTaskList', () => {
       ok: true,
       json: async () => ({ recovered: 2 }),
     }))
-    render(<WorkspaceTaskList projectId="project-1" tasks={[{ id: 'task-1', title: 'Inspect source', status: 'RUNNING', progress: 10 }]} />)
+    render(<WorkspaceTaskList projectId="project-1" tasks={[{ id: 'task-1', title: 'Inspect source', status: 'RUNNING', progress: 10, leaseHeartbeatAt: new Date(Date.now() - 31 * 60_000).toISOString() }]} />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Recover stale' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Requeue stalled task' }))
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Recovered 2 stale tasks.'))
 
     expect(fetch).toHaveBeenCalledWith('/api/projects/project-1/workspace/tasks/recover', { method: 'POST' })
+  })
+
+  test('does not show recovery controls for a task that is still updating', () => {
+    render(<WorkspaceTaskList projectId="project-1" tasks={[{ id: 'task-1', title: 'Inspect source', status: 'RUNNING', progress: 10, leaseHeartbeatAt: new Date().toISOString() }]} />)
+    expect(screen.queryByRole('button', { name: 'Requeue stalled task' })).toBeNull()
   })
 
   test('cancels a running task', async () => {
@@ -79,16 +84,18 @@ describe('WorkspaceTaskList', () => {
     expect(screen.queryByRole('button', { name: 'Run' })).toBeNull()
   })
 
-  test('shows the current lease owner for running tasks', () => {
+  test('keeps worker details out of the primary running status', () => {
     render(<WorkspaceTaskList projectId="project-1" tasks={[{ id: 'task-1', title: 'Inspect source', status: 'RUNNING', progress: 35, leaseOwner: 'worker-a', leaseHeartbeatAt: new Date().toISOString() }]} />)
 
-    expect(screen.getByText('RUNNING · Starting analysis · worker-a · heartbeat fresh')).toBeInTheDocument()
+    expect(screen.getByText('Running')).toBeInTheDocument()
+    expect(screen.queryByText('worker-a')).toBeNull()
   })
 
   test('shows live analyzer phase for running tasks', () => {
     render(<WorkspaceTaskList projectId="project-1" tasks={[{ id: 'task-1', title: 'Decompile Android package', status: 'RUNNING', progress: 10, progressMessage: 'Indexing Java source 12 of 80', leaseOwner: 'worker-a', leaseHeartbeatAt: new Date().toISOString() }]} />)
 
-    expect(screen.getByText('RUNNING · Indexing Java source 12 of 80 · worker-a · heartbeat fresh')).toBeInTheDocument()
+    expect(screen.getByText('Running')).toBeInTheDocument()
+    expect(screen.getByText('Indexing Java source 12 of 80')).toBeInTheDocument()
   })
 
   test('labels an old heartbeat as stale', () => {

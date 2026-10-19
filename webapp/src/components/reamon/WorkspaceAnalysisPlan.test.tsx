@@ -53,4 +53,45 @@ describe('WorkspaceAnalysisPlanPanel', () => {
     }))
     expect(onScheduled).toHaveBeenCalledOnce()
   })
+
+  test('shows a failed run reason beside the proposal status', () => {
+    const failedPlan: WorkspaceAnalysisPlan = {
+      ...plan,
+      steps: [{
+        ...plan.steps[0],
+        latestTask: {
+          id: 'task-1', status: 'FAILED', progress: 25, progressMessage: 'Compiling source',
+          error: 'Analyzer worker ran out of memory', leaseHeartbeatAt: null, updatedAt: new Date().toISOString(),
+        },
+      }],
+    }
+    render(<WorkspaceAnalysisPlanPanel projectId="project-1" plan={failedPlan} isLoading={false} isError={false} />)
+
+    expect(screen.getByText('Failed')).toBeInTheDocument()
+    expect(screen.getByText('Analyzer worker ran out of memory')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Clear extract_strings proposal for src/main.c' })).toBeInTheDocument()
+  })
+
+  test('scans the whole project and explains what informed the rebuilt proposals', async () => {
+    const onScanned = vi.fn()
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ artifactsScanned: 12, proposalCount: 4, previousTasks: 3, findings: 2, hypotheses: 1, evidence: 5 }),
+    }))
+    render(<WorkspaceAnalysisPlanPanel projectId="project-1" plan={plan} isLoading={false} isError={false} onScanned={onScanned} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Scan project' }))
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Scanned 12 files and rebuilt 4 proposals'))
+    expect(fetch).toHaveBeenCalledWith('/api/projects/project-1/workspace/analysis-plan/scan', { method: 'POST' })
+    expect(onScanned).toHaveBeenCalledOnce()
+  })
+
+  test('clears one proposal and tells the user to scan to restore it', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ cleared: true }) }))
+    render(<WorkspaceAnalysisPlanPanel projectId="project-1" plan={plan} isLoading={false} isError={false} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear extract_strings proposal for src/main.c' }))
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('extract_strings for src/main.c was cleared. Scan the project to restore it.'))
+    expect(fetch).toHaveBeenCalledWith('/api/projects/project-1/workspace/analysis-plan/clear', expect.objectContaining({ method: 'POST' }))
+  })
 })

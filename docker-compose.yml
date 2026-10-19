@@ -1492,7 +1492,10 @@ services:
       - CHOWN
       - SETGID
       - SETUID
-    mem_limit: ${REAMON_DEX_DECOMPILER_MEM:-2g}
+    # The full APK DEX-to-Java pass retains DEX metadata and reconstructed
+    # classes together. Match JADX's 4 GiB default so larger real-world APKs do
+    # not get killed at the previous 2 GiB ceiling.
+    mem_limit: ${REAMON_DEX_DECOMPILER_MEM:-4g}
     pids_limit: ${REAMON_DEX_DECOMPILER_PIDS:-64}
     cpus: ${REAMON_DEX_DECOMPILER_CPUS:-2}
     tmpfs:

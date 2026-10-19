@@ -28,11 +28,6 @@
 .workerAlert p { margin: var(--space-1) 0 0; color: var(--text-secondary); font-size: var(--text-sm); line-height: 1.45; }
 .workerAlert small { display: block; margin-top: var(--space-2); color: var(--text-tertiary); font-size: var(--text-xs); }
 
-.stats { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; border: 1px solid var(--border-default); background: var(--border-default); border-radius: var(--radius-lg); overflow: hidden; }
-.stat { background: var(--bg-secondary); padding: var(--space-3) var(--space-4); display: flex; flex-direction: column; gap: var(--space-1); }
-.statValue { font-size: var(--text-xl); font-weight: var(--font-semibold); color: var(--text-primary); }
-.statLabel { color: var(--text-secondary); font-size: var(--text-xs); }
-
 .importPanel { display: grid; grid-template-columns: minmax(0, 1fr) minmax(460px, 1.4fr); align-items: center; gap: var(--space-5); padding: var(--space-5); border: 1px solid var(--accent-secondary-subtle); border-radius: var(--radius-lg); background: linear-gradient(110deg, var(--bg-secondary), var(--bg-tertiary)); }
 .importPanel h2, .panel h2 { font-size: var(--text-base); margin: 0; font-weight: var(--font-semibold); }
 .importPanel p { margin: 0; }
@@ -44,14 +39,15 @@
 .filePicker input { position: absolute; width: 1px; height: 1px; opacity: 0; }
 .uploadError { color: var(--status-error-text); font-size: var(--text-sm); grid-column: 1 / -1; }
 
-.grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr); gap: var(--space-4); }
-.bottomGrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-4); }
+.secondaryDetails { border: 1px solid var(--border-default); border-radius: var(--radius-lg); background: var(--bg-secondary); }
+.secondaryDetails > summary { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-4); color: var(--text-primary); font-size: var(--text-sm); font-weight: var(--font-semibold); cursor: pointer; }
+.secondaryDetails > summary span { color: var(--text-tertiary); font-size: var(--text-xs); font-weight: var(--font-normal); }
+.secondaryDetails[open] > summary { border-bottom: 1px solid var(--border-subtle); }
+.secondaryGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); padding: var(--space-4); }
 .panel { border: 1px solid var(--border-default); border-radius: var(--radius-lg); background: var(--bg-secondary); padding: var(--space-4); min-width: 0; }
 .panelHeader { margin-bottom: var(--space-4); align-items: baseline; }
 .muted { color: var(--text-secondary); font-size: var(--text-sm); line-height: 1.45; }
 
-.metric { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); margin-top: var(--space-3); border-top: 1px solid var(--border-subtle); padding-top: var(--space-3); color: var(--text-secondary); font-size: var(--text-sm); }
-.metricCount { color: var(--text-primary); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .analysisNextStep { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); border: 1px solid var(--accent-secondary-subtle); border-radius: var(--radius-lg); padding: var(--space-4); background: var(--bg-secondary); }
 .analysisNextStep strong { color: var(--text-primary); font-size: var(--text-sm); }
 .analysisNextStep p { margin: var(--space-1) 0 0; color: var(--text-secondary); font-size: var(--text-sm); }
@@ -74,14 +70,6 @@
 .importStatusGrid { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: var(--space-2) var(--space-4); font-size: var(--text-sm); }
 .importStatusGrid span { color: var(--text-tertiary); }
 .importStatusGrid strong { color: var(--text-secondary); overflow-wrap: anywhere; }
-.logicalTargets { display: flex; flex-direction: column; gap: var(--space-2); }
-.logicalTarget { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); border: 1px solid var(--border-subtle); border-radius: var(--radius-default); padding: var(--space-3); background: var(--bg-tertiary); color: var(--text-primary); text-align: left; cursor: pointer; }
-.logicalTarget:hover, .logicalTargetSelected { border-color: var(--accent-secondary); background: var(--accent-secondary-subtle); }
-.logicalTarget > span:first-child { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
-.logicalTarget > span:first-child svg { color: var(--accent-primary); flex: 0 0 auto; }
-.logicalTarget > span:first-child strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.logicalTarget small { color: var(--text-tertiary); font-size: .68rem; margin-left: var(--space-2); }
-.targetNotice { border-top: 1px solid var(--border-subtle); margin-top: var(--space-3); padding-top: var(--space-3); color: var(--text-secondary); font-size: var(--text-sm); }
 
 .targetBlock + .targetBlock { border-top: 1px solid var(--border-default); margin-top: var(--space-4); padding-top: var(--space-4); }
 .targetTitle { display: flex; align-items: center; gap: var(--space-2); }
@@ -115,8 +103,7 @@
 .error { color: var(--status-error-text); }
 
 @media (max-width: 1000px) {
-  .stats { grid-template-columns: repeat(3, 1fr); }
-  .importPanel, .grid, .bottomGrid { grid-template-columns: 1fr; }
+  .importPanel { grid-template-columns: 1fr; }
   .importControls { justify-content: flex-start; }
 }
 
@@ -124,7 +111,8 @@
   .page { padding: var(--space-4); }
   .analysisNextStep { align-items: flex-start; flex-direction: column; }
   .hero { align-items: flex-start; flex-direction: column; }
-  .stats { grid-template-columns: repeat(2, 1fr); }
+  .secondaryGrid { grid-template-columns: 1fr; padding: var(--space-3); }
+  .secondaryDetails > summary { align-items: flex-start; flex-direction: column; }
   .importPanel { padding: var(--space-4); }
   .importControls { display: grid; grid-template-columns: 1fr; width: 100%; }
   .filePicker, .importControls .textInput, .importControls button { width: 100%; max-width: none; }

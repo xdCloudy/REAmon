@@ -16,7 +16,8 @@
 .path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); color: var(--text-primary); }
 .provider { color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .capability { color: var(--status-info-text); text-transform: capitalize; }
-.status { color: var(--status-warning-text); font-size: .68rem; letter-spacing: .02em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.status { display: flex; flex-direction: column; gap: .15rem; color: var(--text-secondary); font-size: .72rem; line-height: 1.35; }
+.taskError { color: var(--status-error-text); font-size: .68rem; overflow-wrap: anywhere; }
 .history { color: var(--text-tertiary, var(--text-secondary)); font-size: .7rem; white-space: nowrap; }
 .actions { display: inline-flex; align-items: center; justify-content: flex-end; gap: var(--space-1); }
 .moreButton { margin-top: var(--space-3); border: 0; background: none; color: var(--accent-secondary); cursor: pointer; font-size: var(--text-sm); font-weight: var(--font-semibold); padding: .25rem 0; }

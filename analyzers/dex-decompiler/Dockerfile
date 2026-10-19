@@ -5,7 +5,9 @@ RUN git clone --filter=blob:none https://github.com/androguard/dex-decompiler.gi
 WORKDIR /src
 COPY Cargo.lock /src/Cargo.lock
 COPY structured-analysis.rs /src/src/bin/reamon-dex-structure.rs
-RUN cargo build --release --locked --bin dex-decompile --bin reamon-dex-structure
+COPY deobf-map.rs /src/src/bin/reamon-dex-map.rs
+COPY bounded-decompile.rs /src/src/bin/reamon-dex-batch.rs
+RUN cargo build --release --locked --bin dex-decompile --bin reamon-dex-structure --bin reamon-dex-map --bin reamon-dex-batch
 
 FROM python:3.12-slim
 RUN apt-get update \
@@ -16,10 +18,12 @@ RUN apt-get update \
  && chmod 0555 /usr/share/licenses/dex-decompiler
 COPY --from=build /src/target/release/dex-decompile /usr/local/bin/dex-decompile
 COPY --from=build /src/target/release/reamon-dex-structure /usr/local/bin/reamon-dex-structure
+COPY --from=build /src/target/release/reamon-dex-map /usr/local/bin/reamon-dex-map
+COPY --from=build /src/target/release/reamon-dex-batch /usr/local/bin/reamon-dex-batch
 COPY --from=build /src/LICENSE /usr/share/licenses/dex-decompiler/LICENSE
 WORKDIR /app
 COPY server.py entrypoint.sh ./
-RUN chmod 0555 /app/server.py /app/entrypoint.sh /usr/local/bin/dex-decompile /usr/local/bin/reamon-dex-structure
+RUN chmod 0555 /app/server.py /app/entrypoint.sh /usr/local/bin/dex-decompile /usr/local/bin/reamon-dex-structure /usr/local/bin/reamon-dex-map /usr/local/bin/reamon-dex-batch
 ENV REAMON_ARTIFACTS_PATH=/data/reamon-artifacts \
     REAMON_DERIVED_PATH=/data/reamon-derived \
     DEX_DECOMPILER_TIMEOUT_SECONDS=900 \

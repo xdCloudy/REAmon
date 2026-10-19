@@ -10,6 +10,7 @@ export interface WorkspaceTaskListItem {
   progress: number
   progressMessage?: string | null
   error?: string | null
+  startedAt?: string | null
   leaseOwner?: string | null
   leaseHeartbeatAt?: string | null
   approval?: { id: string; status: string } | null
@@ -25,6 +26,24 @@ export function heartbeatLabel(value: string | null | undefined): string {
   return `heartbeat stale (${Math.floor(ageSeconds / 60)}m ago)`
 }
 
+function taskStatusLabel(status: string): string {
+  const labels: Record<string, string> = {
+    AWAITING_APPROVAL: 'Needs approval',
+    QUEUED: 'Queued',
+    RUNNING: 'Running',
+    COMPLETED: 'Complete',
+    FAILED: 'Failed',
+    CANCELLED: 'Cancelled',
+  }
+  return labels[status] || status.toLowerCase().replaceAll('_', ' ')
+}
+
+function isStaleForRecovery(task: WorkspaceTaskListItem): boolean {
+  if (task.status !== 'RUNNING') return false
+  const timestamp = Date.parse(task.leaseHeartbeatAt || task.startedAt || '')
+  return Number.isFinite(timestamp) && Date.now() - timestamp >= 30 * 60 * 1000
+}
+
 export function WorkspaceTaskList({ projectId, tasks, onChanged }: {
   projectId: string
   tasks: WorkspaceTaskListItem[]
@@ -32,6 +51,7 @@ export function WorkspaceTaskList({ projectId, tasks, onChanged }: {
 }) {
   const [pendingAction, setPendingAction] = useState<string | null>(null)
   const [feedback, setFeedback] = useState<string | null>(null)
+  const hasStaleTasks = tasks.some(isStaleForRecovery)
 
   async function execute(task: WorkspaceTaskListItem) {
     setPendingAction(`execute:${task.id}`)
@@ -120,12 +140,12 @@ export function WorkspaceTaskList({ projectId, tasks, onChanged }: {
 
   return (
     <div className={styles.container}>
-      <div className={styles.toolbar}>
-        <span className={styles.toolbarHint}>Execution is approval-gated when requested, lease-protected, and safe to recover after a stalled run.</span>
+      {hasStaleTasks && <div className={styles.toolbar}>
+        <span className={styles.toolbarHint}>A task has had no update for 30 minutes and may be stalled.</span>
         <button type="button" className={styles.actionButton} disabled={pendingAction !== null} onClick={() => void recoverStale()}>
-          {pendingAction === 'recover' ? 'Recovering…' : 'Recover stale'}
+          {pendingAction === 'recover' ? 'Recovering…' : 'Requeue stalled task'}
         </button>
-      </div>
+      </div>}
       {feedback && <p className={styles.feedback} role="status">{feedback}</p>}
       {tasks.map((task) => (
         <div className={styles.row} key={task.id}>
@@ -137,7 +157,12 @@ export function WorkspaceTaskList({ projectId, tasks, onChanged }: {
               && <small className={styles.progressMessage}>Last recorded step: {task.progressMessage}</small>}
             {task.error && <small className={styles.error}>{task.error}</small>}
           </span>
-          <span className={styles.status} title={task.status === 'RUNNING' ? heartbeatLabel(task.leaseHeartbeatAt) : undefined}>{task.status === 'RUNNING' ? `RUNNING · ${task.progressMessage || 'Starting analysis'} · ${task.leaseOwner || 'worker pending'} · ${heartbeatLabel(task.leaseHeartbeatAt)}` : task.status}</span>
+          <span className={styles.status} title={task.leaseOwner ? `Worker: ${task.leaseOwner}` : undefined}>
+            <strong>{taskStatusLabel(task.status)}</strong>
+            {task.status === 'RUNNING' && task.progressMessage && <small>{task.progressMessage}</small>}
+            {task.status === 'RUNNING' && !task.leaseHeartbeatAt && !task.startedAt && <small>Waiting for the first worker update</small>}
+            {isStaleForRecovery(task) && <small>No update for {heartbeatLabel(task.leaseHeartbeatAt || task.startedAt).replace('heartbeat stale (', '').replace(')', '')}</small>}
+          </span>
           <span className={styles.actions}>
             {task.status === 'QUEUED' && <button type="button" className={styles.actionButton} disabled={pendingAction !== null} onClick={() => void execute(task)}>
               {pendingAction === `execute:${task.id}` ? 'Running…' : 'Run'}

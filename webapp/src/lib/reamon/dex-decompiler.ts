@@ -6,7 +6,7 @@ const MAX_CLASSES = 500
 const MAX_METHODS = 10_000
 const MAX_CALL_EDGES = 4_000
 const MAX_REFERENCES = 4_000
-const DEFAULT_TIMEOUT_MS = 20 * 60_000
+const DEFAULT_TIMEOUT_MS = 30 * 60_000
 
 interface DexMethod {
   signature: string
