@@ -3,7 +3,7 @@ import type { Prisma } from '@prisma/client'
 import prisma from '@/lib/prisma'
 import { AgentUnreachableError, agentFetch } from '@/lib/agentFetch'
 
-const MAX_BATCH_SIZE = 5
+const MAX_BATCH_SIZE = 3
 const MAX_DEPENDENCY_CANDIDATES = 100
 const MAX_DEPENDENCY_EDGES = 20_000
 const MAX_CALLEE_EDGE_SCAN = 100_000

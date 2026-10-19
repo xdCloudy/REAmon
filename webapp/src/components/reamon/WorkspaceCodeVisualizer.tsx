@@ -3116,7 +3116,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
           {largeSource && !memberOutlineEligible && <p className={styles.message}>This source exceeds the single request limit, and function-level rewriting is unavailable for this code unit.</p>}
           {memberOutlineEligible && sourceByteLength !== null && sourceByteLength > MAX_MEMBER_OUTLINE_BYTES && <p className={styles.message}>Function and method outlining is limited to source files of 2 MiB or less.</p>}
           {memberOutlineAvailable && <section className={styles.classReferences} aria-label="Function and method outline">
-            <div><strong>Reverse engineer one function or method at a time</strong><span>Each rewrite replaces only the selected function or method in the editable copy, so you can use a smaller change even when the full source fits in one request.</span></div>
+            <div><strong>Reverse engineer functions and methods with AI agents</strong><span>Run one member at a time or select a batch for parallel agents. Each worker runs up to three at once. Every attempt uses saved project context; completed results are merged into the editable copy for review.</span></div>
             {memberOutlineQuery.isLoading && <p className={styles.message}>Reading function and method outline…</p>}
             {memberOutlineQuery.isError && <p className={styles.error} role="alert">{memberOutlineQuery.error instanceof Error ? memberOutlineQuery.error.message : 'Could not read the function and method outline'}</p>}
             {memberOutlineQuery.data && <>
@@ -3135,6 +3135,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
                     {agentTeamRunning ? 'Agents working…' : `Run ${selectedAgentMembers.size} function agent${selectedAgentMembers.size === 1 ? '' : 's'}`}
                   </button>
                 </div>
+                {!explanationProvidersQuery.isLoading && !explanationProvidersQuery.isError && explanationProviders.length === 0 && <small>No AI provider is configured, so function agents cannot run yet. <a href="/settings">Add an OpenAI-compatible provider in Settings</a>.</small>}
                 {maintainedDraftDiffersFromSource && <small>Reset the maintained editor to current decompilation before starting a parallel batch, so function results can be merged at stable source ranges.</small>}
               </div>}
               <ul>{filteredMembers.map((member) => {

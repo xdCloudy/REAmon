@@ -70,7 +70,7 @@ export function readWorkerConfig(env = process.env) {
     retentionIntervalSeconds: boundedNumber(env.REAMON_WORKER_RETENTION_INTERVAL_SECONDS, DEFAULT_RETENTION_INTERVAL_SECONDS, 0, MAX_RETENTION_INTERVAL_SECONDS),
     retentionApply: booleanValue(env.REAMON_WORKER_RETENTION_APPLY),
     codeRewriteJobsEnabled: booleanValue(env.REAMON_WORKER_CODE_REWRITE_JOBS, true),
-    rewriteBatchSize: boundedNumber(env.REAMON_WORKER_REWRITE_BATCH_SIZE, DEFAULT_REWRITE_BATCH_SIZE, 1, 5),
+    rewriteBatchSize: boundedNumber(env.REAMON_WORKER_REWRITE_BATCH_SIZE, DEFAULT_REWRITE_BATCH_SIZE, 1, 3),
     // Some Compose/CI environments expose HOSTNAME as a service address
     // (for example 0.0.0.0) instead of the container identity. Fall back to
     // the runtime hostname so scaled replicas always register distinctly.
