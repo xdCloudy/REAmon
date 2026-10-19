@@ -127,14 +127,14 @@ function WorkerHealthAlert({ workers, tasks }: { workers: WorkerHealth[]; tasks:
   const names = attention.workers.slice(0, 3).map((worker) => worker.workerId).join(', ')
   const remainder = attention.workers.length > 3 ? ` and ${attention.workers.length - 3} more` : ''
   const staleRegistryMessage = attention.workers.length > 0
-    ? `${attention.workers.length} registered worker${attention.workers.length === 1 ? ' is' : 's are'} stale.`
+    ? `${attention.workers.length} registered worker${attention.workers.length === 1 ? ' has' : 's have'} a stale heartbeat.`
     : 'No worker has checked in recently.'
   const title = attention.kind === 'degraded'
     ? 'Analysis worker reported an error'
     : attention.kind === 'active-task'
       ? 'Analysis is running'
       : 'Analysis is waiting for a worker'
-  const message = attention.kind === 'degraded'
+  const messageText = attention.kind === 'degraded'
     ? `${attention.workers.length} worker${attention.workers.length === 1 ? '' : 's'} reported a failed dispatch. Affected: ${names}${remainder}.`
     : attention.kind === 'active-task'
       ? `${attention.activeTaskCount} running task${attention.activeTaskCount === 1 ? ' has' : 's have'} a recent lease heartbeat. ${staleRegistryMessage}`
@@ -145,6 +145,10 @@ function WorkerHealthAlert({ workers, tasks }: { workers: WorkerHealth[]; tasks:
         ? `${attention.queuedTaskCount} task${attention.queuedTaskCount === 1 ? ' is' : 's are'} queued. ${staleRegistryMessage}`
         : `No worker has checked in recently. ${staleRegistryMessage}`
       : 'No analysis worker has checked in. Queued tasks will start when a worker is available.'
+  const historicalNote = (attention.historicalWorkerCount ?? 0) > 0
+    ? ' Older container records remain stored for diagnostics and are excluded from this live-worker count.'
+    : ''
+  const message = `${messageText}${historicalNote}`
   const guidance = attention.kind === 'degraded'
     ? 'Check project diagnostics before retrying failed tasks.'
     : attention.kind === 'active-task'

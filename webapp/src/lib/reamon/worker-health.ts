@@ -2,6 +2,7 @@ import prisma from '@/lib/prisma'
 
 const DEFAULT_STALE_SECONDS = 90
 const MAX_STALE_SECONDS = 60 * 60
+const HISTORICAL_AFTER_SECONDS = 24 * 60 * 60
 // Task execution heartbeats default to 60 seconds. Allow two intervals plus
 // a small scheduling margin before treating a RUNNING task lease as stale.
 const TASK_LEASE_FRESH_SECONDS = 150
@@ -37,9 +38,12 @@ export function summarizeWorkerAttention(
   tasks: WorkerTaskLivenessInput[] = [],
   now = Date.now(),
 ) {
-  const responsive = workers.filter((worker) => worker.status !== 'STALE')
+  const responsive = workers.filter((worker) => worker.status !== 'STALE' && worker.status !== 'HISTORICAL')
   const degraded = responsive.filter((worker) => worker.status === 'DEGRADED')
-  if (responsive.length > 0) return degraded.length ? { kind: 'degraded' as const, workers: degraded } : null
+  const historicalWorkerCount = workers.filter((worker) => worker.status === 'HISTORICAL').length
+  const historicalSummary = historicalWorkerCount > 0 ? { historicalWorkerCount } : {}
+  const recentStaleWorkers = workers.filter((worker) => worker.status === 'STALE')
+  if (responsive.length > 0) return degraded.length ? { kind: 'degraded' as const, workers: degraded, ...historicalSummary } : null
 
   const freshRunningTasks = tasks.filter((task) => {
     if (task.status !== 'RUNNING' || !task.leaseHeartbeatAt) return false
@@ -48,18 +52,18 @@ export function summarizeWorkerAttention(
   }).length
   const queuedTasks = tasks.filter((task) => task.status === 'QUEUED').length
   if (freshRunningTasks > 0 && queuedTasks === 0) {
-    return { kind: 'active-task' as const, workers, activeTaskCount: freshRunningTasks }
+    return { kind: 'active-task' as const, workers: recentStaleWorkers, activeTaskCount: freshRunningTasks, ...historicalSummary }
   }
   if (freshRunningTasks > 0 && queuedTasks > 0) {
-    return { kind: 'queued-with-active-task' as const, workers, activeTaskCount: freshRunningTasks, queuedTaskCount: queuedTasks }
+    return { kind: 'queued-with-active-task' as const, workers: recentStaleWorkers, activeTaskCount: freshRunningTasks, queuedTaskCount: queuedTasks, ...historicalSummary }
   }
-  if (workers.length > 0) {
+  if (recentStaleWorkers.length > 0) {
     return queuedTasks > 0
-      ? { kind: 'stale' as const, workers, queuedTaskCount: queuedTasks }
-      : { kind: 'stale' as const, workers }
+      ? { kind: 'stale' as const, workers: recentStaleWorkers, queuedTaskCount: queuedTasks, ...historicalSummary }
+      : { kind: 'stale' as const, workers: recentStaleWorkers, ...historicalSummary }
   }
-  if (queuedTasks > 0) return { kind: 'unavailable' as const, workers: [], queuedTaskCount: queuedTasks }
-  return { kind: 'unavailable' as const, workers: [] }
+  if (queuedTasks > 0) return { kind: 'unavailable' as const, workers: [], queuedTaskCount: queuedTasks, ...historicalSummary }
+  return { kind: 'unavailable' as const, workers: [], ...historicalSummary }
 }
 
 export async function recordWorkerDispatch(input: WorkerDispatchHealthInput) {
@@ -125,10 +129,14 @@ export async function listWorkerHealth() {
       lastError: true,
     },
   })
-  const staleBefore = Date.now() - staleAfterSeconds() * 1000
+  const now = Date.now()
+  const staleBefore = now - staleAfterSeconds() * 1000
+  const historicalBefore = now - HISTORICAL_AFTER_SECONDS * 1000
   return workers.map((worker) => ({
     workerId: worker.workerId,
-    status: worker.lastSeenAt.getTime() < staleBefore ? 'STALE' : worker.status,
+    status: worker.lastSeenAt.getTime() < historicalBefore
+      ? 'HISTORICAL'
+      : worker.lastSeenAt.getTime() < staleBefore ? 'STALE' : worker.status,
     lastSeenAt: worker.lastSeenAt.toISOString(),
     lastDispatchAt: worker.lastDispatchAt?.toISOString() || null,
     lastDispatchDurationMs: worker.lastDispatchDurationMs,
