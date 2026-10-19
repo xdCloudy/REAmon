@@ -265,8 +265,8 @@ echo "== the body cap and the rate-limit log level =="
 for label in "https:$BLOCK" "http:$HTTP_BLOCK"; do
     name="${label%%:*}"; body="${label#*:}"
     grep -qF 'client_max_body_size 64k' <<<"$body" \
-        && ok "$name location caps the body at 64k (server default is 60m)" \
-        || bad "$name location caps the body at 64k" "inherits 60m" "64k"
+        && ok "$name location caps MCP requests at 64k (server has no body-size cap)" \
+        || bad "$name location caps MCP requests at 64k" "inherits no cap" "64k"
     # At [error] level the stock nginx-limit-req fail2ban jail bans a bursty but
     # legitimate MCP client, taking the operator's IP with it.
     grep -qF 'limit_req_log_level warn' <<<"$body" \

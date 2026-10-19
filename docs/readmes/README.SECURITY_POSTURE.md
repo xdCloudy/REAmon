@@ -116,7 +116,7 @@ nginx runs as a **host service** (not a container), sits **only at the edge** on
 
 **Operator gate.** The whole `443` server sits behind `GATE_MODE`: `ip_allowlist` (nginx `allow`/`deny` from `OPERATOR_ALLOW_CIDRS`), `basic_auth` (htpasswd via `openssl passwd -apr1`), or `none`. Leaving `OPERATOR_ALLOW_CIDRS` empty makes ufw open 443 (and SSH) to the world with a loud warning, so set it.
 
-**Rate limiting and anti-DoS.** `limit_req` of **5 requests/min** (burst 3) on `/api/auth/login` and **30 requests/sec** (burst 60) on `/api/`, both returning `429`; `limit_conn 20` per IP; slowloris timeouts (`client_body_timeout`/`client_header_timeout`/`send_timeout` 15s, `keepalive_timeout` 20s); `large_client_header_buffers 8 32k`; `client_max_body_size 60m`; a method filter returning `405` for anything outside `GET/HEAD/POST/PUT/PATCH/DELETE/OPTIONS`; `server_tokens off`; `autoindex off`.
+**Rate limiting and anti-DoS.** `limit_req` of **5 requests/min** (burst 3) on `/api/auth/login` and **30 requests/sec** (burst 60) on `/api/`, both returning `429`; `limit_conn 20` per IP; slowloris timeouts (`client_body_timeout`/`client_header_timeout`/`send_timeout` 15s, `keepalive_timeout` 20s); `large_client_header_buffers 8 32k`; no nginx request-body size ceiling (upload routes own their transfer strategy); a method filter returning `405` for anything outside `GET/HEAD/POST/PUT/PATCH/DELETE/OPTIONS`; `server_tokens off`; `autoindex off`.
 
 ---
 

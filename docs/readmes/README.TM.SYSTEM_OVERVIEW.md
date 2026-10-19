@@ -517,7 +517,7 @@ Applied by nginx on the `:443` origin (`redamon.conf.tmpl` + `nginx/snippets/`):
 - **Inbound header stripping** (`redamon-proxy-common.conf`): clears `X-Internal-Key`, `X-Scanner-Key`, `X-User-Id`, `X-User-Role` on every request (the webapp trusts these internally), pins `X-Forwarded-For`/`X-Real-IP` to the real peer, and hides `X-Powered-By`.
 - **Security headers added** (the webapp sets none of its own): HSTS (`max-age=63072000; includeSubDomains; preload`), CSP (no `unsafe-eval`; `object-src 'none'`; `frame-ancestors 'none'`; `base-uri`/`form-action 'self'`), `X-Frame-Options DENY`, `X-Content-Type-Options nosniff`, `Referrer-Policy`, `X-Robots-Tag`.
 - **TLS**: TLS 1.2/1.3 only, ECDHE ciphers, `ssl_session_tickets off`, OCSP stapling.
-- **Rate/connection limits**: `limit_req` (login 5/min, api 30/s), `limit_conn 20`/IP, slowloris timeouts (`client_body/header_timeout 15s`, `keepalive_timeout 20s`), `large_client_header_buffers 8 32k`, `client_max_body_size 60m`.
+- **Rate/connection limits**: `limit_req` (login 5/min, api 30/s), `limit_conn 20`/IP, slowloris timeouts (`client_body/header_timeout 15s`, `keepalive_timeout 20s`), `large_client_header_buffers 8 32k`; nginx does not impose a request-body size ceiling.
 - **Method filter**: only `GET/HEAD/POST/PUT/PATCH/DELETE/OPTIONS` (others → `405`).
 
 ### 6.4 Agent WebSocket endpoints

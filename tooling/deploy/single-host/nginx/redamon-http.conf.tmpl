@@ -46,7 +46,7 @@ server {
     gzip_types application/json application/javascript text/css text/plain
                text/javascript application/xml image/svg+xml;
 
-    client_max_body_size 60m;
+    client_max_body_size 0;
     autoindex off;
 
     if ($request_method !~ ^(GET|HEAD|POST|PUT|PATCH|DELETE|OPTIONS)$) { return 405; }

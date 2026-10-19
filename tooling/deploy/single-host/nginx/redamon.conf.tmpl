@@ -88,7 +88,7 @@ server {
     limit_conn conn 20;
     client_body_timeout 15s; client_header_timeout 15s; send_timeout 15s; keepalive_timeout 20s;
     large_client_header_buffers 8 32k;
-    client_max_body_size 60m;             # 50MB wordlist upload is the largest app-enforced cap
+    client_max_body_size 0;               # Do not cap request bodies at the proxy; upload routes own their transfer strategy.
     autoindex off;
 
     # Reject exotic methods (only what the app uses).
@@ -154,7 +154,7 @@ server {
         limit_req_log_level warn;
         # A tool call is a small JSON-RPC envelope. The route caps the body at
         # 64 KiB, but proxy_request_buffering is on by default, so without this
-        # nginx would buffer up to the server-level 60m FIRST and only then let
+        # nginx would buffer up to the server-level request limit FIRST and only then let
         # the app reject it.
         client_max_body_size 64k;
         # __MCP_GATE__
