@@ -79,7 +79,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     const sourceType = String(body.sourceType || 'BROWSER_DIRECTORY')
     let entries
     let totalBytes
-    let metadata: Record<string, unknown> = { browserSnapshot: true, maxFiles: workspaceImportLimits().maxFiles }
+    let metadata: Record<string, unknown> = { browserSnapshot: true }
     if (sourceType === 'BROWSER_DIRECTORY') {
       ({ entries, totalBytes } = parseImportManifest(body.files))
     } else if (sourceType === SERVER_DIRECTORY_SOURCE_TYPE) {
@@ -90,7 +90,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       if (!inventory.entries.length) throw new Error('At least one file is required')
       entries = inventory.entries
       totalBytes = inventory.totalBytes
-      metadata = { serverSourcePath: inventory.sourcePath, maxFiles: workspaceImportLimits().maxFiles }
+      metadata = { serverSourcePath: inventory.sourcePath }
     } else {
       return NextResponse.json({ error: 'Unsupported workspace source type' }, { status: 400, headers: { 'Cache-Control': 'no-store' } })
     }

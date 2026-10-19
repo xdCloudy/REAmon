@@ -1196,8 +1196,6 @@ services:
       REAMON_UNLUAC_URL: http://unluac-analyzer:8017
       REAMON_UNLUAC_RS_URL: http://unluac-rs-analyzer:8018
       REAMON_CRUBY_ISEQ_URL: http://cruby-iseq-analyzer:8030
-      REAMON_MAX_ARTIFACT_BYTES: ${REAMON_MAX_ARTIFACT_BYTES:-536870912}
-      REAMON_MAX_IMPORT_FILES: ${REAMON_MAX_IMPORT_FILES:-50000}
       # Bound the JSON envelope persisted for each provider task/evidence row.
       REAMON_MAX_RESULT_BYTES: ${REAMON_MAX_RESULT_BYTES:-2097152}
       # Historical completed snapshots are retained for this many days. The

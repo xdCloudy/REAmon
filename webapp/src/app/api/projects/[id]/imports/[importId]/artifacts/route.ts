@@ -14,18 +14,11 @@ import { resolveServerSourceArtifact, SERVER_DIRECTORY_SOURCE_TYPE, ServerSource
 
 interface RouteParams { params: Promise<{ id: string; importId: string }> }
 
-const DEFAULT_MAX_ARTIFACT_BYTES = 512 * 1024 * 1024
-
 class WorkspaceImportClosedError extends Error {
   constructor() {
     super('Import is no longer accepting artifacts')
     this.name = 'WorkspaceImportClosedError'
   }
-}
-
-function maxArtifactBytes(): number {
-  const value = Number.parseInt(process.env.REAMON_MAX_ARTIFACT_BYTES || '', 10)
-  return Number.isSafeInteger(value) && value > 0 ? value : DEFAULT_MAX_ARTIFACT_BYTES
 }
 
 function artifactRoot(): string {
@@ -63,16 +56,10 @@ export async function POST(request: Request, { params }: RouteParams) {
     try {
       form = await request.formData()
     } catch (error) {
-      const contentLength = Number(request.headers.get('content-length'))
-      const overheadAllowance = 1024 * 1024
-      const tooLarge = Number.isSafeInteger(contentLength)
-        && contentLength > maxArtifactBytes() + overheadAllowance
       console.warn('Could not parse REAmon workspace artifact multipart body:', error)
       return NextResponse.json({
-        error: tooLarge
-          ? `File exceeds the ${Math.round(maxArtifactBytes() / 1024 / 1024)} MiB limit`
-          : 'Could not parse the uploaded file. Check that the upload is complete and uses a supported file size.',
-      }, { status: tooLarge ? 413 : 400, headers: { 'Cache-Control': 'no-store' } })
+        error: 'Could not parse the uploaded file. Retry using the resumable chunked workspace import.',
+      }, { status: 400, headers: { 'Cache-Control': 'no-store' } })
     }
     const fileValue = form.get('file')
     const workspaceImport = await prisma.workspaceImport.findFirst({
@@ -127,9 +114,6 @@ export async function POST(request: Request, { params }: RouteParams) {
     let bytes: Uint8Array
     let mimeType = 'application/octet-stream'
     const file = fileValue as File
-    if (file.size > maxArtifactBytes()) {
-      return NextResponse.json({ error: `This compatibility upload endpoint accepts files up to ${Math.round(maxArtifactBytes() / 1024 / 1024)} MiB; use chunked workspace upload for larger files` }, { status: 413, headers: { 'Cache-Control': 'no-store' } })
-    }
     if (Number.isSafeInteger(declaredSize) && declaredSize !== file.size) {
       return NextResponse.json({ error: `Uploaded size does not match the manifest for ${relativePath}` }, { status: 400, headers: { 'Cache-Control': 'no-store' } })
     }

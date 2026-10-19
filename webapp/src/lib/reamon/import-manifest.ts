@@ -6,31 +6,22 @@ export interface ImportManifestEntry {
   lastModified: number | null
 }
 
-const DEFAULT_MAX_FILES = 50_000
-
 export interface WorkspaceImportLimits {
-  maxFiles: number
+  maxFiles: null
   maxImportBytes: number | null
   maxArtifactBytes: number | null
 }
 
-function configuredPositiveInt(name: string, fallback: number): number {
-  const value = Number.parseInt(process.env[name] || '', 10)
-  return Number.isSafeInteger(value) && value > 0 ? value : fallback
-}
-
 export function workspaceImportLimits(): WorkspaceImportLimits {
   return {
-    maxFiles: configuredPositiveInt('REAMON_MAX_IMPORT_FILES', DEFAULT_MAX_FILES),
+    maxFiles: null,
     maxImportBytes: null,
     maxArtifactBytes: null,
   }
 }
 
 export function parseImportManifest(value: unknown): { entries: ImportManifestEntry[]; totalBytes: number } {
-  const { maxFiles } = workspaceImportLimits()
   if (!Array.isArray(value) || value.length === 0) throw new Error('At least one file is required')
-  if (value.length > maxFiles) throw new Error(`Import exceeds the ${maxFiles.toLocaleString()} file limit`)
 
   const seen = new Set<string>()
   let totalBytes = 0

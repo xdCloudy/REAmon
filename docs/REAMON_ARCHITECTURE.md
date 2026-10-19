@@ -62,8 +62,9 @@ Project / Workspace
 
 `WorkspaceImport` is a resumable import session. Its manifest records inventory facts
 (`relativePath`, size, and client modification time), while the server calculates the
-authoritative hash from uploaded bytes. Uploads are bounded per request and can be
-retried against the same import ID. A failed import remains visible instead of silently
+authoritative hash from uploaded bytes. Uploads have no per-file, total-byte, or file-count
+cap; each request carries one bounded chunk and can be retried against the same import ID.
+A failed import remains visible instead of silently
 becoming a partial workspace. `relativePath` is normalised at one boundary and is
 always relative to the imported root; backend storage remains opaque and is never
 derived from user-controlled paths.
@@ -80,7 +81,7 @@ the import can be resumed or replaced by a later snapshot.
 Server-mounted imports use the same manifest and artifact lifecycle through the
 `SERVER_DIRECTORY` source type. They are disabled unless `REAMON_SERVER_SOURCE_ROOTS`
 contains configured absolute container paths. Inventory and reads resolve real paths,
-reject symbolic links and special files, enforce the same file/count/byte limits, and
+reject symbolic links and special files, and
 store the resolved source only in internal import metadata. API responses and logical
 artifact records never return the host path. Deployments must mount source directories
 read-only into the webapp and treat each mount as trusted input that may change between

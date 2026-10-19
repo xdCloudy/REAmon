@@ -1,7 +1,7 @@
 import { lstat, readdir, readFile, realpath } from 'node:fs/promises'
 import path from 'node:path'
 import { normalizeRelativePath } from './paths'
-import { workspaceImportLimits, type ImportManifestEntry } from './import-manifest'
+import type { ImportManifestEntry } from './import-manifest'
 
 export const SERVER_DIRECTORY_SOURCE_TYPE = 'SERVER_DIRECTORY'
 
@@ -122,7 +122,6 @@ async function inspectRegularFile(absolutePath: string, relativePath: string): P
 
 export async function inventoryServerSource(sourcePath: string): Promise<{ sourcePath: string; entries: ImportManifestEntry[]; totalBytes: number }> {
   const sourceRoot = await resolveSourceDirectory(sourcePath)
-  const { maxFiles } = workspaceImportLimits()
   const entries: ImportManifestEntry[] = []
   const pending = [sourceRoot]
 
@@ -152,7 +151,6 @@ export async function inventoryServerSource(sourcePath: string): Promise<{ sourc
       }
       const entry = await inspectRegularFile(absolutePath, relativePath)
       entries.push(entry)
-      if (entries.length > maxFiles) throw new ServerSourceError('LIMIT', `Import exceeds the ${maxFiles.toLocaleString()} file limit`)
     }
   }
 

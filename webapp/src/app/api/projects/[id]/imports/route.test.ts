@@ -146,14 +146,13 @@ describe('POST /api/projects/[id]/imports', () => {
     expect(mocks.transaction).not.toHaveBeenCalled()
   })
 
-  test('rejects an import over the configured file limit', async () => {
+  test('does not impose a configured file-count limit', async () => {
     vi.stubEnv('REAMON_MAX_IMPORT_FILES', '1')
 
     const response = await POST(requestFor({ rootName: 'ExampleApp', files }), params())
 
-    expect(response.status).toBe(400)
-    expect((await response.json()).error).toMatch(/file limit/i)
-    expect(mocks.transaction).not.toHaveBeenCalled()
+    expect(response.status).toBe(201)
+    expect(mocks.transaction).toHaveBeenCalled()
   })
 
   test('rejects unsupported source types', async () => {
@@ -220,7 +219,7 @@ describe('POST /api/projects/[id]/imports', () => {
 })
 
 describe('GET /api/projects/[id]/imports', () => {
-  test('reports effective server-side import limits', async () => {
+  test('reports that workspace imports have no file-count or byte limits', async () => {
     vi.stubEnv('REAMON_MAX_IMPORT_FILES', '123')
     vi.stubEnv('REAMON_MAX_IMPORT_BYTES', '456')
     vi.stubEnv('REAMON_MAX_ARTIFACT_BYTES', '789')
@@ -228,6 +227,6 @@ describe('GET /api/projects/[id]/imports', () => {
     const response = await GET(new Request('http://localhost/api/projects/project-1/imports'), params())
 
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ limits: { maxFiles: 123, maxImportBytes: 456, maxArtifactBytes: 789 } })
+    expect(await response.json()).toEqual({ limits: { maxFiles: null, maxImportBytes: null, maxArtifactBytes: null } })
   })
 })

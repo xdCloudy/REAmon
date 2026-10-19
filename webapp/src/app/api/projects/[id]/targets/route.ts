@@ -19,13 +19,6 @@ interface RouteParams {
   params: Promise<{ id: string }>
 }
 
-const defaultMaxBytes = 512 * 1024 * 1024
-
-function maxArtifactBytes(): number {
-  const configured = Number.parseInt(process.env.REAMON_MAX_ARTIFACT_BYTES || '', 10)
-  return Number.isFinite(configured) && configured > 0 ? configured : defaultMaxBytes
-}
-
 function artifactRoot(): string {
   return path.resolve(process.env.REAMON_ARTIFACTS_PATH || path.join(process.cwd(), 'data', 'reamon-artifacts'))
 }
@@ -72,11 +65,6 @@ export async function POST(request: Request, { params }: RouteParams) {
     if (!(fileValue instanceof File)) {
       return NextResponse.json({ error: 'A file is required' }, { status: 400, headers: { 'Cache-Control': 'no-store' } })
     }
-    const byteLimit = maxArtifactBytes()
-    if (fileValue.size > byteLimit) {
-      return NextResponse.json({ error: `File exceeds the ${Math.round(byteLimit / 1024 / 1024)} MiB limit` }, { status: 413, headers: { 'Cache-Control': 'no-store' } })
-    }
-
     const bytes = new Uint8Array(await fileValue.arrayBuffer())
     const originalName = fileValue.name.trim() || 'unnamed-artifact'
     const logicalPath = (() => {

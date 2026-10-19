@@ -23,8 +23,6 @@ services:
       AGENT_WS_URL: ws://host.docker.internal:8090/ws/agent
       WEBAPP_URL: http://localhost:3000
       REAMON_ARTIFACTS_PATH: /data/reamon-artifacts
-      REAMON_MAX_ARTIFACT_BYTES: ${REAMON_MAX_ARTIFACT_BYTES:-536870912}
-      REAMON_MAX_IMPORT_FILES: ${REAMON_MAX_IMPORT_FILES:-50000}
       REAMON_MAX_RESULT_BYTES: ${REAMON_MAX_RESULT_BYTES:-2097152}
       # Empty disables server-mounted imports. Configure absolute container
       # paths only after adding matching read-only mounts to this service.
