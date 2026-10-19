@@ -88,5 +88,7 @@ A slice is ready for wider use only when:
 Current implementation status is tracked in the [feature matrix](REAMON_FEATURE_MATRIX.md)
 and per-language status in the [language matrix](REAMON_LANGUAGE_MATRIX.md). The
 README's weighted full-goal progress estimate is generated from the committed
-[progress ledger](REAMON_PROGRESS.json) after pushes to `main`; it is separate from
-the narrower bootstrap release-readiness score.
+machine-readable [progress data](REAMON_PROGRESS.json). The human-readable
+[progress matrix](REAMON_PROGRESS.md) shows the workstream weights, estimates,
+evidence, and remaining gaps; both are refreshed after pushes to `main`. This is
+separate from the narrower bootstrap release-readiness score.

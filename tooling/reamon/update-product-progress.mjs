@@ -1,6 +1,7 @@
 import { readFile, writeFile } from 'node:fs/promises'
 
 const manifestPath = new URL('../../docs/REAMON_PROGRESS.json', import.meta.url)
+const ledgerPath = new URL('../../docs/REAMON_PROGRESS.md', import.meta.url)
 const readmePath = new URL('../../README.md', import.meta.url)
 const startMarker = '<!-- REAMON_PRODUCT_PROGRESS_START -->'
 const endMarker = '<!-- REAMON_PRODUCT_PROGRESS_END -->'
@@ -16,6 +17,8 @@ for (const workstream of manifest.workstreams) {
   if (typeof workstream.name !== 'string' || !workstream.name.trim()
       || !Number.isInteger(workstream.weight) || workstream.weight <= 0
       || !Number.isInteger(workstream.completion) || workstream.completion < 0 || workstream.completion > 100
+      || typeof workstream.summary !== 'string' || !workstream.summary.trim()
+      || typeof workstream.remaining !== 'string' || !workstream.remaining.trim()
       || typeof workstream.basis !== 'string' || !workstream.basis.trim()) {
     throw new Error(`Invalid progress workstream: ${JSON.stringify(workstream)}`)
   }
@@ -34,7 +37,7 @@ const sourceStamp = commit ? `pushed commit \`${commit.slice(0, 7)}\`` : 'the cu
 const generated = [
   startMarker,
   `<progress value="${displayedScore}" max="100">${displayedScore}%</progress> <strong>${displayedScore}%</strong> — weighted estimate **${score.toFixed(1)}%**.`,
-  `Refreshed from ${sourceStamp}. See the [progress ledger](docs/REAMON_PROGRESS.json) for workstream weights, evidence, and remaining gaps.`,
+  `Refreshed from ${sourceStamp}. See the [readable progress matrix](docs/REAMON_PROGRESS.md) for workstream weights, evidence, and remaining gaps.`,
   endMarker,
 ].join('\n')
 
@@ -44,4 +47,35 @@ const end = readme.indexOf(endMarker)
 if (start < 0 || end < start) throw new Error('README progress markers are missing or out of order')
 const updated = readme.slice(0, start) + generated + readme.slice(end + endMarker.length)
 if (updated !== readme) await writeFile(readmePath, updated)
+
+const rows = manifest.workstreams.map((workstream) =>
+  `| ${workstream.name} | ${workstream.weight}% | ${workstream.completion}% | ${(workstream.weight * workstream.completion / 100).toFixed(2)} pts |`,
+)
+const details = manifest.workstreams.map((workstream) => [
+  `### ${workstream.name}`,
+  '',
+  `**Current evidence:** ${workstream.summary}`,
+  '',
+  `**Remaining:** ${workstream.remaining}`,
+  '',
+].join('\n')).join('\n')
+const ledger = [
+  '# REAmon product progress',
+  '',
+  `Assessment date: ${manifest.assessmentDate} · Source: ${sourceStamp} · Weighted estimate: **${score.toFixed(1)}%**`,
+  '',
+  'This is an estimate of progress toward the long-term product goal, not a release-readiness score. Workstream weights total 100%; each contribution is weight × completion.',
+  '',
+  '| Workstream | Goal weight | Estimated complete | Weighted points |',
+  '| --- | ---: | ---: | ---: |',
+  ...rows,
+  '',
+  '## Evidence and remaining work',
+  '',
+  details,
+  'The machine-readable [`REAMON_PROGRESS.json`](REAMON_PROGRESS.json) feeds the README progress bar. Update it with evidence when the estimates change, then run `node tooling/reamon/update-product-progress.mjs <commit-sha>` to refresh both this matrix and the README.',
+  '',
+].join('\n')
+const currentLedger = await readFile(ledgerPath, 'utf8').catch(() => '')
+if (ledger !== currentLedger) await writeFile(ledgerPath, ledger)
 console.log(`REAmon product progress: ${displayedScore}% (weighted ${score.toFixed(1)}%), source ${sourceStamp}`)

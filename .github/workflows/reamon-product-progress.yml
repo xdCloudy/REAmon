@@ -24,7 +24,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Regenerate weighted progress block
+      - name: Regenerate weighted progress and readable matrix
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -33,16 +33,16 @@ jobs:
             git reset --hard origin/main
             latest_sha="$(git rev-parse origin/main)"
             node tooling/reamon/update-product-progress.mjs "$latest_sha"
-            if git diff --quiet -- README.md; then
-              echo "README progress is already current at $latest_sha"
+            if git diff --quiet -- README.md docs/REAMON_PROGRESS.md; then
+              echo "README progress and matrix are already current at $latest_sha"
               exit 0
             fi
-            git add README.md
-            git commit -m "docs: refresh weighted product progress"
+            git add README.md docs/REAMON_PROGRESS.md
+            git commit -m "docs: refresh product progress ledger"
             if git push origin HEAD:main; then
               exit 0
             fi
             echo "main advanced during progress update (attempt $attempt); retrying"
           done
-          echo "Could not publish README progress after five attempts" >&2
+          echo "Could not publish product progress after five attempts" >&2
           exit 1
