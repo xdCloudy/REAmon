@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { Prisma } from '@prisma/client'
+import { getArtifactVolumeCapacity } from '@/lib/reamon/artifact-storage'
 import prisma from '@/lib/prisma'
 import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
 import { buildWorkspaceProfile } from '@/lib/reamon/inventory'
@@ -17,7 +18,8 @@ export async function GET(_request: Request, { params }: RouteParams) {
     if (effectiveUser instanceof NextResponse) return effectiveUser
     const access = await requireProjectAccess(effectiveUser, projectId)
     if (access instanceof NextResponse) return access
-    return NextResponse.json({ limits: workspaceImportLimits() }, { headers: { 'Cache-Control': 'private, no-store' } })
+    const storage = await getArtifactVolumeCapacity()
+    return NextResponse.json({ limits: workspaceImportLimits(), storage }, { headers: { 'Cache-Control': 'private, no-store' } })
   } catch (error) {
     console.error('Failed to fetch REAmon workspace import limits:', error)
     return NextResponse.json({ error: 'Failed to fetch workspace import limits' }, { status: 500, headers: { 'Cache-Control': 'no-store' } })

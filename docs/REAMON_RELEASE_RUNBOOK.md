@@ -157,6 +157,13 @@ that must be resolved before declaring compaction complete; the database remains
 authoritative, and the affected volume should be inspected or restored from the
 matching artifact backup before the next release.
 
+The project import panel reports total, used, and available bytes for the shared
+artifact volume using filesystem statistics; it does not walk the artifact tree or
+enforce an application-level quota. The reading refreshes after an import attempt.
+If capacity is unavailable in the UI, inspect the mounted volume directly with
+`docker compose exec webapp df -h /data/reamon-artifacts`. Filesystem exhaustion
+can still interrupt imports and analysis even though REAmon imposes no upload cap.
+
 The private worker invokes the same endpoint on
 `REAMON_WORKER_RETENTION_INTERVAL_SECONDS` (default 24 hours). Keep
 `REAMON_WORKER_RETENTION_APPLY=false` until the dry-run report has been reviewed;
@@ -170,8 +177,8 @@ inactive past `REAMON_IMPORT_STAGING_RETENTION_DAYS`, then removes that import's
 staging directory; the run is bounded to 25 incomplete imports. Set the value to
 `0` to disable staging cleanup. The supported range is 7–365 days. The same dry-run
 response reports `stagingConsidered` and `stagingCutoff`; after applying, review
-`stagingCancelled` and `stagingCleanupFailures`. Shared artifact-volume capacity
-reporting remains a separate operational gap.
+`stagingCancelled` and `stagingCleanupFailures`. The capacity reading is for the
+shared volume as a whole and does not attribute use to individual projects.
 
 ## Upgrade
 

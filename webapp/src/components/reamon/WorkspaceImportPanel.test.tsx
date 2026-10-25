@@ -36,6 +36,19 @@ afterEach(() => {
 })
 
 describe('WorkspaceImportPanel', () => {
+  test('shows shared artifact storage capacity as an advisory', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ storage: {
+        available: true, totalBytes: '100', usedBytes: '95', freeBytes: '5', usedPercent: 95, checkedAt: '2026-10-25T00:00:00.000Z',
+      } }),
+    }))
+    render(<WorkspaceImportPanel projectId="project-1" onImported={vi.fn()} />)
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Shared artifact storage: 95 bytes used of 100 bytes · 5 bytes available.')
+    expect(screen.getByRole('status')).toHaveTextContent('Storage is running low; imports or analysis may fail if the volume fills.')
+  })
+
   test('distinguishes completed file transfer from reverse-engineering progress', async () => {
     mocks.selectionFromFiles.mockReturnValue(selection)
     mocks.runWorkspaceImport.mockImplementation(async (options: { onProgress?: (value: unknown) => void }) => {

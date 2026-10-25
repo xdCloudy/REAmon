@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   activityCreate: vi.fn(),
   requireEffectiveUser: vi.fn(),
   requireProjectAccess: vi.fn(),
+  artifactCapacity: vi.fn(),
 }))
 
 vi.mock('@/lib/prisma', () => ({
@@ -32,6 +33,8 @@ vi.mock('@/lib/access', () => ({
   requireEffectiveUser: mocks.requireEffectiveUser,
   requireProjectAccess: mocks.requireProjectAccess,
 }))
+
+vi.mock('@/lib/reamon/artifact-storage', () => ({ getArtifactVolumeCapacity: mocks.artifactCapacity }))
 
 import { GET, POST } from './route'
 
@@ -61,6 +64,9 @@ beforeEach(() => {
   mocks.requireProjectAccess.mockResolvedValue({ project: { id: 'project-1', userId: 'user-1' } })
   mocks.targetCreate.mockResolvedValue({ id: 'root-target-1' })
   mocks.activityCreate.mockResolvedValue({ id: 'activity-1' })
+  mocks.artifactCapacity.mockResolvedValue({
+    available: true, totalBytes: '1000', usedBytes: '600', freeBytes: '400', usedPercent: 60, checkedAt: '2026-10-25T00:00:00.000Z',
+  })
   mocks.importCreate.mockResolvedValue({
     id: 'import-1',
     sourceType: 'BROWSER_DIRECTORY',
@@ -227,6 +233,10 @@ describe('GET /api/projects/[id]/imports', () => {
     const response = await GET(new Request('http://localhost/api/projects/project-1/imports'), params())
 
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ limits: { maxFiles: null, maxImportBytes: null, maxArtifactBytes: null } })
+    expect(await response.json()).toEqual({
+      limits: { maxFiles: null, maxImportBytes: null, maxArtifactBytes: null },
+      storage: { available: true, totalBytes: '1000', usedBytes: '600', freeBytes: '400', usedPercent: 60, checkedAt: '2026-10-25T00:00:00.000Z' },
+    })
+    expect(mocks.artifactCapacity).toHaveBeenCalledOnce()
   })
 })

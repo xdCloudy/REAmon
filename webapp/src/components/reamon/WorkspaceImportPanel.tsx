@@ -11,6 +11,7 @@ import {
   type WorkspaceSelection,
 } from '@/lib/reamon/browser-import'
 import type { WorkspaceImportComparison } from '@/lib/reamon/imports'
+import type { ArtifactVolumeCapacity } from '@/lib/reamon/artifact-storage'
 import styles from './WorkspaceImportPanel.module.css'
 
 interface WorkspaceImportPanelProps {
@@ -70,6 +71,9 @@ export function WorkspaceImportPanel({ projectId, onImported }: WorkspaceImportP
   const [comparing, setComparing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [storageCapacity, setStorageCapacity] = useState<ArtifactVolumeCapacity | null>(null)
+  const [storageUnavailable, setStorageUnavailable] = useState(false)
+  const [capacityRefresh, setCapacityRefresh] = useState(0)
   const abortRef = useRef<AbortController | null>(null)
   const comparisonRequestRef = useRef(0)
 
@@ -79,6 +83,26 @@ export function WorkspaceImportPanel({ projectId, onImported }: WorkspaceImportP
     // TypeScript DOM types do not make Chromium's prefixed API a dependency.
     directoryInput.current?.setAttribute('webkitdirectory', '')
   }, [])
+
+  useEffect(() => {
+    let active = true
+    void fetch(`/api/projects/${projectId}/imports`)
+      .then(async (response) => {
+        if (!response.ok) throw new Error('Storage capacity request failed')
+        return await response.json() as { storage?: ArtifactVolumeCapacity }
+      })
+      .then((data) => {
+        if (!active) return
+        setStorageCapacity(data.storage?.available ? data.storage : null)
+        setStorageUnavailable(!data.storage?.available)
+      })
+      .catch(() => {
+        if (!active) return
+        setStorageCapacity(null)
+        setStorageUnavailable(true)
+      })
+    return () => { active = false }
+  }, [projectId, capacityRefresh])
 
   const compareSelection = async (nextSelection: WorkspaceSelection) => {
     const requestId = comparisonRequestRef.current + 1
@@ -167,6 +191,7 @@ export function WorkspaceImportPanel({ projectId, onImported }: WorkspaceImportP
     } finally {
       abortRef.current = null
       setBusy(false)
+      setCapacityRefresh((current) => current + 1)
     }
   }
 
@@ -227,6 +252,11 @@ export function WorkspaceImportPanel({ projectId, onImported }: WorkspaceImportP
       )}
       {error && <p className={styles.error} role="alert">{error}</p>}
       <p className={styles.limits}>Everything selected is included by default with no file-count or file-size cap. Large files transfer in resumable chunks. The browser never exposes your absolute local path.</p>
+      {storageCapacity && <p className={storageCapacity.usedPercent !== null && storageCapacity.usedPercent >= 90 ? styles.storageWarning : styles.storageCapacity} role="status">
+        Shared artifact storage: {formatBytes(Number(storageCapacity.usedBytes))} used of {formatBytes(Number(storageCapacity.totalBytes))} · {formatBytes(Number(storageCapacity.freeBytes))} available.
+        {storageCapacity.usedPercent !== null && storageCapacity.usedPercent >= 90 && ' Storage is running low; imports or analysis may fail if the volume fills.'}
+      </p>}
+      {storageUnavailable && <p className={styles.limits} role="status">Shared artifact storage capacity is temporarily unavailable. Imports remain uncapped by REAmon; available disk space still applies.</p>}
     </section>
   )
 }
