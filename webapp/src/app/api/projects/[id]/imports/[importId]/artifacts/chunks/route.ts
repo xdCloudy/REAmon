@@ -77,7 +77,12 @@ export async function PUT(request: Request, { params }: RouteParams) {
       position += chunk.byteLength
     }
     const result = await prisma.$transaction(async (tx) => {
-      await tx.$queryRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${importId}), hashtext(${relativePath}))`)
+      // Prisma cannot deserialize PostgreSQL's `void` lock result. Materialize
+      // the lock call, then return a supported scalar from the raw query.
+      await tx.$queryRaw(Prisma.sql`WITH artifact_lock AS MATERIALIZED (
+        SELECT pg_advisory_xact_lock(hashtext(${importId}), hashtext(${relativePath}))
+      )
+      SELECT 1::int AS locked FROM artifact_lock`)
       const accepted = await tx.workspaceImport.updateMany({
         where: {
           id: importId,
