@@ -126,9 +126,9 @@ The rewrite worker also runs a separate LLM evidence-review pass after it receiv
 a complete candidate. It compares the original and candidate against the same
 bounded supporting evidence and stores a structured result against the candidate's
 exact SHA-256. The reviewer can report a concrete discrepancy, uncertainty, no
-issue found, or an unavailable review. Its result is advisory and does not change
-syntax-validation status or acceptance; the generation and review passes currently
-use the same saved provider and model, so their judgments are not independent.
+issue found, or an unavailable review. The rewrite provider is used by default, and
+a different saved provider can be selected when independent review is desired. Its
+result is advisory and does not change syntax-validation status or acceptance.
 
 Most maintained-source acceptance checks remain structural. For a JVM JAR, the visualizer can separately compile one accepted Java class against the original archive and create an unsigned derived JAR. Generated class entries replace their prior versions, and stale nested-class entries missing from the new compile are removed under a bounded count limit. This compiler result validates that one source class against the bundled JDK and archive classpath; it does not use external project dependencies or prove runtime equivalence. For Universal Dreams `.ud` source, acceptance runs the pinned compiler and stores its compiled output under the originating analysis run, keyed by the exact source and output hashes. The immutable review receipt records the source hash, validator revision, output hash, and derived artifact path. This proves that the pinned compiler accepted the edited representation and produced bytes; byte identity against the original is recorded separately and neither result proves behavioral equivalence. REAmon does not yet run a general original-toolchain, function-level byte comparison. Projects such as Rebrew show
 the stronger path when the exact native compiler, flags, linker placement, and target

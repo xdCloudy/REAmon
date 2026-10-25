@@ -973,6 +973,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
   const [selectedAlternateId, setSelectedAlternateId] = useState('')
   const [assemblyCopyStatus, setAssemblyCopyStatus] = useState('')
   const [providerId, setProviderId] = useState('')
+  const [reviewerProviderId, setReviewerProviderId] = useState('')
   const [question, setQuestion] = useState('')
   const [projectNoteDraft, setProjectNoteDraft] = useState<{ unitId: string; note: string } | null>(null)
   const [savingProjectNote, setSavingProjectNote] = useState(false)
@@ -1520,6 +1521,9 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
   const selectedProviderId = explanationProviders.some((provider) => provider.id === providerId)
     ? providerId
     : explanationProviders[0]?.id || ''
+  const selectedReviewerProviderId = explanationProviders.some((provider) => provider.id === reviewerProviderId)
+    ? reviewerProviderId
+    : ''
   async function saveFunctionMatch(taskBId: string, functionBId: string, candidateKey: string) {
     if (!selectedSimilarityTaskId || !selectedSimilarityTarget) return
     setSavingFunctionMatchKey(candidateKey)
@@ -1824,7 +1828,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
       const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/deobfuscate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ unitId: selectedUnit.id, providerId: selectedProviderId, question: question.trim() }),
+        body: JSON.stringify({ unitId: selectedUnit.id, providerId: selectedProviderId, ...(selectedReviewerProviderId ? { reviewerProviderId: selectedReviewerProviderId } : {}), question: question.trim() }),
       })
       await queryClient.invalidateQueries({ queryKey: ['reamon-code-draft', projectId, selectedUnit.id] })
       const result = await waitForCodeRewrite(response, selectedUnit.id)
@@ -1990,7 +1994,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
     try {
       const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/deobfuscate`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ unitId: selectedUnit.id, providerId: selectedProviderId, question: question.trim(), scope: 'member', startByte: member.start_byte, endByte: member.end_byte, memberName: member.name }),
+        body: JSON.stringify({ unitId: selectedUnit.id, providerId: selectedProviderId, ...(selectedReviewerProviderId ? { reviewerProviderId: selectedReviewerProviderId } : {}), question: question.trim(), scope: 'member', startByte: member.start_byte, endByte: member.end_byte, memberName: member.name }),
       })
       await queryClient.invalidateQueries({ queryKey: ['reamon-code-draft', projectId, selectedUnit.id] })
       const result = await waitForCodeRewrite(response, selectedUnit.id)
@@ -2042,7 +2046,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
         const key = `${member.start_byte}:${member.end_byte}`
         const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/deobfuscate`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ unitId: selectedUnitId, providerId: selectedProviderId, question: question.trim(), scope: 'member', startByte: member.start_byte, endByte: member.end_byte, memberName: member.name, agentBatchId }),
+          body: JSON.stringify({ unitId: selectedUnitId, providerId: selectedProviderId, ...(selectedReviewerProviderId ? { reviewerProviderId: selectedReviewerProviderId } : {}), question: question.trim(), scope: 'member', startByte: member.start_byte, endByte: member.end_byte, memberName: member.name, agentBatchId }),
         })
         const result = await response.json().catch(() => ({})) as { attemptId?: string; status?: string; error?: string }
         if (!response.ok || !result.attemptId) throw new Error(`${member.name}: ${result.error || 'Could not queue function rewrite'}`)
@@ -3291,6 +3295,13 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
                 {explanationProviders.map((provider) => <option key={provider.id} value={provider.id}>{provider.name} · {provider.modelIdentifier}</option>)}
               </select>
             </label>
+            <label className={styles.explainField}>Evidence reviewer
+              <select value={selectedReviewerProviderId} onChange={(event) => setReviewerProviderId(event.target.value)}>
+                <option value="">Use rewrite provider</option>
+                {explanationProviders.map((provider) => <option key={provider.id} value={provider.id}>{provider.name} · {provider.modelIdentifier}</option>)}
+              </select>
+            </label>
+            <p className={styles.message}>The reviewer makes a separate advisory check after each rewrite. Choosing another provider uses an additional model call.</p>
             <label className={styles.explainField}>Reverse-engineering guidance (optional)
               <textarea value={question} onChange={(event) => setQuestion(event.target.value)} maxLength={1000} rows={3} placeholder="For example: recover the purpose of short names and simplify generated control flow." />
             </label>

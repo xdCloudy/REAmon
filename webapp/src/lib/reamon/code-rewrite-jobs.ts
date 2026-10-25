@@ -55,9 +55,14 @@ function validatedRewriteHistory(value: unknown): Prisma.InputJsonArray | undefi
   return entries
 }
 
-function validatedQualityReview(value: unknown, sourceCode: string): Prisma.InputJsonObject {
+function validatedQualityReview(value: unknown, sourceCode: string, requestPayload: Record<string, unknown>): Prisma.InputJsonObject {
   const review = record(value)
   const candidateSha256 = createHash('sha256').update(sourceCode, 'utf8').digest('hex')
+  const reviewProviderName = typeof requestPayload.review_provider_name === 'string' ? requestPayload.review_provider_name.slice(0, 128) : ''
+  const reviewModelIdentifier = typeof requestPayload.review_model_identifier === 'string' ? requestPayload.review_model_identifier.slice(0, 128) : ''
+  const modelUsed = reviewProviderName && reviewModelIdentifier
+    ? `${reviewProviderName} · ${reviewModelIdentifier}`.slice(0, 128)
+    : typeof review.model_used === 'string' ? review.model_used.slice(0, 128) : ''
   const status = review.status
   const summary = review.summary
   const findings = review.findings
@@ -70,7 +75,7 @@ function validatedQualityReview(value: unknown, sourceCode: string): Prisma.Inpu
       candidateSha256,
       summary: 'The AI evidence check was missing or did not match the saved candidate.',
       findings: [],
-      modelUsed: '',
+      modelUsed,
     }
   }
   const normalizedStatus = status as 'NO_ISSUE_FOUND' | 'NEEDS_REVIEW' | 'UNCERTAIN' | 'UNAVAILABLE'
@@ -79,7 +84,7 @@ function validatedQualityReview(value: unknown, sourceCode: string): Prisma.Inpu
     candidateSha256,
     summary,
     findings: findings as string[],
-    modelUsed: typeof review.model_used === 'string' ? review.model_used.slice(0, 128) : '',
+    modelUsed,
   }
 }
 
@@ -537,7 +542,7 @@ async function executeAttempt(attemptId: string, workerId: string) {
       return true
     }
     const rewrittenSource = result.source_code
-    const qualityReview = validatedQualityReview(result.quality_review, rewrittenSource)
+    const qualityReview = validatedQualityReview(result.quality_review, rewrittenSource, payload)
 
     const validationStatus = ['PASSED', 'FAILED', 'UNAVAILABLE'].includes(String(result.validation_status))
       ? String(result.validation_status)

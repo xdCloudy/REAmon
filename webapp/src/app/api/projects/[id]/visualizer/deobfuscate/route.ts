@@ -17,7 +17,7 @@ import { codeNoteText, REAMON_CODE_NOTE_SOURCE } from '@/lib/reamon/code-notes'
 import { loadAcceptedFunctionMatchContext } from '@/lib/reamon/accepted-function-match-context'
 
 interface RouteParams { params: Promise<{ id: string }> }
-interface DeobfuscateBody { unitId?: unknown; providerId?: unknown; question?: unknown; scope?: unknown; startByte?: unknown; endByte?: unknown; memberName?: unknown; sourceCode?: unknown; agentBatchId?: unknown }
+interface DeobfuscateBody { unitId?: unknown; providerId?: unknown; reviewerProviderId?: unknown; question?: unknown; scope?: unknown; startByte?: unknown; endByte?: unknown; memberName?: unknown; sourceCode?: unknown; agentBatchId?: unknown }
 
 const MAX_SOURCE_BYTES = 64 * 1024
 const MAX_ARTIFACT_BYTES = 2 * 1024 * 1024
@@ -545,6 +545,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     }
     if (!body || typeof body !== 'object' || Array.isArray(body) || !validId(body.unitId)
       || (body.scope !== 'outline' && !validId(body.providerId))
+      || (body.reviewerProviderId !== undefined && body.reviewerProviderId !== '' && !validId(body.reviewerProviderId))
       || (body.scope !== undefined && !['file', 'member', 'outline'].includes(String(body.scope)))) {
       return NextResponse.json({ error: 'A code unit and valid transformation scope are required' }, { status: 400 })
     }
@@ -665,6 +666,14 @@ export async function POST(request: Request, { params }: RouteParams) {
       select: { id: true, name: true, modelIdentifier: true, timeout: true },
     })
     if (!provider) return NextResponse.json({ error: 'Saved OpenAI-compatible provider not found' }, { status: 404 })
+    const reviewerProviderId = typeof body.reviewerProviderId === 'string' ? body.reviewerProviderId.trim() : ''
+    const reviewerProvider = reviewerProviderId
+      ? await prisma.userLlmProvider.findFirst({
+        where: { id: reviewerProviderId, userId: user.userId, providerType: 'openai_compatible' },
+        select: { id: true, name: true, modelIdentifier: true },
+      })
+      : provider
+    if (!reviewerProvider) return NextResponse.json({ error: 'Saved evidence-review provider not found' }, { status: 404 })
 
     // Give the model a small, same-run neighborhood so names can be inferred from
     // how this class interacts with its collaborators, rather than this file alone.
@@ -2567,6 +2576,9 @@ export async function POST(request: Request, { params }: RouteParams) {
 
     const requestPayload = {
       model: `custom/${provider.id}`,
+      review_model: `custom/${reviewerProvider.id}`,
+      review_provider_name: reviewerProvider.name.slice(0, 128),
+      review_model_identifier: reviewerProvider.modelIdentifier.slice(0, 128),
       user_id: user.userId,
       unit_name: String(unitName).slice(0, 500),
       language: language.slice(0, 80),
