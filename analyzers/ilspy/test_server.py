@@ -1,6 +1,9 @@
 import json
 import os
+import shutil
+import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -43,8 +46,15 @@ class IlspyServiceTests(unittest.TestCase):
             "runId": "run-1", "artifactPath": str(self.assembly),
         }
 
+    def unchanged_preprocessing(self, input_path, *_args, **_kwargs):
+        return Path(input_path), {"status": "unchanged", "inputSha256": server.sha256_file(input_path)}
+
     def emit_sources(self, args, **_kwargs):
         output = Path(args[args.index("-o") + 1])
+        if "--ilcode" in args:
+            output.mkdir(parents=True, exist_ok=True)
+            (output / f"{self.assembly.stem}.il").write_text(".method public static void Main() {\n}\n", encoding="utf-8")
+            return FakeProcess()
         (output / "Example" / "App").mkdir(parents=True)
         (output / "Example" / "App" / "Service.cs").write_text("namespace Example.App;\npublic class Service {}\n")
         (output / "Example" / "Model").mkdir(parents=True)
@@ -64,7 +74,9 @@ class IlspyServiceTests(unittest.TestCase):
     def test_decompiles_managed_assembly_and_stores_bounded_csharp_units(self):
         request = self.request()
         progress = []
-        with patch.object(server.subprocess, "Popen", side_effect=self.emit_sources):
+        with patch.object(server, "preprocess_dotnet", side_effect=self.unchanged_preprocessing), \
+                patch.object(server, "translate_csharp_to_vb", return_value=([], 0, None)), \
+                patch.object(server.subprocess, "Popen", side_effect=self.emit_sources):
             result = server.analyse(request, report_progress=progress.append)
 
         self.assertEqual(result["status"], "completed")
@@ -78,7 +90,10 @@ class IlspyServiceTests(unittest.TestCase):
         self.assertTrue(any("Decompiling managed assembly" in message for message in progress))
 
     def test_limits_returned_units_and_reports_the_partial_result(self):
-        with patch.object(server, "MAX_RETURNED_UNITS", 1), patch.object(server.subprocess, "Popen", side_effect=self.emit_sources):
+        with patch.object(server, "preprocess_dotnet", side_effect=self.unchanged_preprocessing), \
+                patch.object(server, "translate_csharp_to_vb", return_value=([], 0, None)), \
+                patch.object(server, "MAX_RETURNED_UNITS", 1), \
+                patch.object(server.subprocess, "Popen", side_effect=self.emit_sources):
             result = server.analyse(self.request())
 
         self.assertEqual(result["classCount"], 2)
@@ -87,12 +102,92 @@ class IlspyServiceTests(unittest.TestCase):
         self.assertIn("Only the first 1 of 2 discovered C# source files", result["warnings"])
 
     def test_marks_discovery_count_unknown_if_source_scan_hits_its_bound(self):
-        with patch.object(server, "MAX_SOURCE_FILES", 1), patch.object(server.subprocess, "Popen", side_effect=self.emit_sources):
+        with patch.object(server, "preprocess_dotnet", side_effect=self.unchanged_preprocessing), \
+                patch.object(server, "translate_csharp_to_vb", return_value=([], 0, None)), \
+                patch.object(server, "MAX_SOURCE_FILES", 1), \
+                patch.object(server.subprocess, "Popen", side_effect=self.emit_sources):
             result = server.analyse(self.request())
 
         self.assertIsNone(result["classCount"])
         self.assertTrue(result["truncated"])
         self.assertIn("source scan stopped at its configured limit", result["warnings"])
+
+    def test_persists_visual_basic_as_hash_linked_translation_units(self):
+        vb_source = "Namespace Example.App\n    Public Class Service\n    End Class\nEnd Namespace\n"
+        with patch.object(server, "preprocess_dotnet", side_effect=self.unchanged_preprocessing), \
+                patch.object(server, "translate_csharp_to_vb", return_value=([("Example/App/Service.cs", vb_source)], 0, None)), \
+                patch.object(server.subprocess, "Popen", side_effect=self.emit_sources):
+            result = server.analyse(self.request())
+
+        csharp = next(unit for unit in result["units"] if unit["relativePath"] == "Example/App/Service.cs")
+        visual_basic = next(unit for unit in result["units"] if unit["relativePath"] == "visual-basic/Example/App/Service.vb")
+        vb_path = self.derived / visual_basic["codeArtifactId"]
+
+        self.assertEqual(result["vbBridgeVersion"], server.VB_BRIDGE_VERSION)
+        self.assertEqual(result["returnedUnits"], 3)
+        self.assertEqual(visual_basic["language"], "Visual Basic")
+        self.assertEqual(visual_basic["decompiler"], "ICSharpCode.CodeConverter")
+        self.assertEqual(visual_basic["derivedFromRelativePath"], csharp["relativePath"])
+        self.assertEqual(visual_basic["derivedFromSha256"], csharp["sourceSha256"])
+        self.assertEqual(visual_basic["sourceSha256"], server.sha256_file(vb_path))
+        self.assertEqual(vb_path.read_text(encoding="utf-8"), vb_source)
+        self.assertIn("not recovered original Visual Basic source", visual_basic["representationSemantics"])
+        self.assertIn("not recovered original-language source", result["warnings"])
+
+    def test_vb_bridge_compiles_and_preserves_fixture_behavior(self):
+        bridge = Path(os.environ.get("REAMON_VB_BRIDGE", "/opt/reamon-vb-bridge/Reamon.VbBridge.dll"))
+        if not bridge.is_file() or not shutil.which(os.environ.get("DOTNET", "dotnet")):
+            self.skipTest("The pinned Visual Basic bridge and .NET SDK are required")
+
+        csharp = self.root / "Calculator.cs"
+        csharp.write_text("""namespace Fixture
+{
+    public sealed class Calculator
+    {
+        private readonly int _bias;
+        public Calculator(int bias) { _bias = bias; }
+        public int Compute(int input)
+        {
+            int total = 0;
+            for (int i = 0; i < input; i++) total += i;
+            return total + _bias;
+        }
+    }
+}
+""", encoding="utf-8")
+        unit = {"relativePath": "Calculator.cs"}
+        translated, skipped, warning = server.translate_csharp_to_vb(
+            [(unit, csharp)], lambda: False, time.monotonic() + 60, lambda _message: None,
+        )
+        self.assertEqual(skipped, 0, warning)
+        self.assertEqual(len(translated), 1)
+        relative_path, vb_source = translated[0]
+        self.assertEqual(relative_path, "Calculator.cs")
+
+        project = self.root / "vb-fixture"
+        project.mkdir()
+        (project / "Fixture.vbproj").write_text("""<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>ReamonVbFixture</RootNamespace>
+  </PropertyGroup>
+</Project>
+""", encoding="utf-8")
+        (project / "Calculator.vb").write_text(vb_source, encoding="utf-8")
+        (project / "Program.vb").write_text("""Module Program
+    Sub Main()
+        Dim actual = New ReamonVbFixture.Fixture.Calculator(4).Compute(5)
+        If actual <> 14 Then Throw New System.Exception("translated behavior changed")
+    End Sub
+End Module
+""", encoding="utf-8")
+        environment = {**os.environ, "DOTNET_CLI_TELEMETRY_OPTOUT": "1", "DOTNET_NOLOGO": "1"}
+        result = subprocess.run(
+            [os.environ.get("DOTNET", "dotnet"), "run", "--project", str(project / "Fixture.vbproj"), "--configuration", "Release", "--nologo"],
+            cwd=project, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=60, check=False, env=environment,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout.decode("utf-8", errors="replace")[-3000:])
 
     def test_health_endpoint_reports_pinned_ilspy_version(self):
         from http.server import ThreadingHTTPServer
