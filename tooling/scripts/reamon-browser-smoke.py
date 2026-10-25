@@ -62,7 +62,7 @@ with sync_playwright() as playwright:
         expect(page.get_by_text(re.compile(r"1 files?", re.IGNORECASE))).to_be_visible()
         page.get_by_role("button", name=re.compile(r"Create and import workspace", re.IGNORECASE)).click()
         page.wait_for_url(re.compile(r"/projects/[^/]+$"), wait_until="networkidle")
-        expect(page.get_by_role("heading", name="Workspace inventory")).to_be_visible()
+        expect(page.get_by_role("heading", name="Project files")).to_be_visible()
         expect(page.get_by_role("heading", name="Latest import")).to_be_visible()
         expect(page.locator("body")).to_contain_text("COMPLETED")
 

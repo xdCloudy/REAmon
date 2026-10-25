@@ -1,0 +1,3 @@
+[submodule "redamon.wiki"]
+	path = redamon.wiki
+	url = https://github.com/samugit83/redamon.wiki.git
