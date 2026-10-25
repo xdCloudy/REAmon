@@ -5,6 +5,9 @@ works for every artifact. “Implemented” means a workflow exists in the curre
 checkout; it does not imply broad fixture coverage or behavioral equivalence. See the
 [language matrix](REAMON_LANGUAGE_MATRIX.md) for format-level limits.
 
+The full artifact-to-export sequence, with evidence gaps for each stage, is in the
+[reconstruction stage matrix](REAMON_RECONSTRUCTION_STAGES.md).
+
 | Area | Current state | Product gap / next outcome |
 | --- | --- | --- |
 | Agent REST security boundary | Workspace, Metasploit session/job, individual agent-session stop, and emergency-stop REST controls require a configured master key. Webapp workspace proxies retain project guards and send service authentication; session controls remain behind login. Focused Docker authentication tests pass. | Validate session ownership across users, complete the deferred security audit, and run authenticated webapp-to-agent checks against the deployed LAN configuration. See the [readiness matrix](REAMON_READINESS_MATRIX.md). |

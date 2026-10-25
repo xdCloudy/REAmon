@@ -56,7 +56,7 @@ For LAN access, upgrades, backups, and internet-facing deployments, see the [dep
 
 Browser workspace imports transfer in resumable 8 MiB chunks, with no per-file or total-byte cap imposed by REAmon. Retries resume from the server's persisted byte offset, and progress reflects server-acknowledged data. Import size is limited by available storage; profiling samples a bounded prefix so large files do not need to fit in application memory.
 
-The intended workflow and evidence model are described in the [reverse-engineering workflow](docs/REAMON_WORKFLOW.md) and [architecture](docs/REAMON_ARCHITECTURE.md).
+The intended workflow and evidence model are described in the [reverse-engineering workflow](docs/REAMON_WORKFLOW.md), [stage matrix](docs/REAMON_RECONSTRUCTION_STAGES.md), and [architecture](docs/REAMON_ARCHITECTURE.md).
 
 For licensed local IDA Pro batch analysis, see the [IDA Pro integration guide](docs/REAMON_IDA_PRO.md). The optional Linux install is brought by the operator; REAmon does not require an IDA API key.
 
@@ -96,6 +96,7 @@ See the [developer guide](docs/readmes/README.DEV.md) for the development enviro
 - [Weighted product progress](docs/REAMON_PROGRESS.md) · [Progress data](docs/REAMON_PROGRESS.json)
 - [Production readiness matrix](docs/REAMON_READINESS_MATRIX.md)
 - [Feature matrix](docs/REAMON_FEATURE_MATRIX.md)
+- [End-to-end reconstruction stage matrix](docs/REAMON_RECONSTRUCTION_STAGES.md)
 - [Language and format support](docs/REAMON_LANGUAGE_MATRIX.md)
 - [IDA Pro integration](docs/REAMON_IDA_PRO.md)
 - [Ruby recovery plan](docs/REAMON_RUBY_RECOVERY.md)

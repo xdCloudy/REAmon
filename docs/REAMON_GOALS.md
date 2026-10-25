@@ -103,6 +103,11 @@ A slice is ready for wider use only when:
 Current implementation status is tracked in the [feature matrix](REAMON_FEATURE_MATRIX.md)
 and per-language status in the [language matrix](REAMON_LANGUAGE_MATRIX.md). The
 production gate status is tracked in the [readiness matrix](REAMON_READINESS_MATRIX.md).
+The artifact ingestion → analysis → disassembly → decompilation → IR lifting →
+deobfuscation → symbol recovery → source reconstruction → transpilation → compilation
+→ validation → iterative refinement → export path is tracked stage by stage in the
+[reconstruction stage matrix](REAMON_RECONSTRUCTION_STAGES.md); an integrated stage
+does not imply that every language or artifact has complete support.
 The README's weighted full-goal progress estimate is generated from the committed
 machine-readable [progress data](REAMON_PROGRESS.json). The human-readable
 [progress matrix](REAMON_PROGRESS.md) shows the workstream weights, estimates,

@@ -13,6 +13,7 @@ stay useful on mobile.
 - [Weighted progress data](REAMON_PROGRESS.json)
 - [Production readiness matrix](REAMON_READINESS_MATRIX.md)
 - [Feature matrix](REAMON_FEATURE_MATRIX.md)
+- [End-to-end reconstruction stage matrix](REAMON_RECONSTRUCTION_STAGES.md)
 - [Language and format matrix](REAMON_LANGUAGE_MATRIX.md)
 - [Workflow](REAMON_WORKFLOW.md)
 - [Architecture](REAMON_ARCHITECTURE.md)

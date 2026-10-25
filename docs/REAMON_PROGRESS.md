@@ -4,6 +4,8 @@ Assessment date: 2026-10-25 · Source: pushed commit `8a333f5` · Weighted estim
 
 This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.
 
+The weighted score remains 46.2%: this refresh documents the full reconstruction pipeline but adds no completed product capability. The Cross Stitch Joy Rust DEX decompilation retry is still running and will be reassessed when it settles.
+
 | Workstream | Goal weight | Estimated complete | Weighted points |
 | --- | ---: | ---: | ---: |
 | Core analysis and visualizer workflow | 16% | 76% | 12.16 pts |

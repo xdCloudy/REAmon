@@ -66,6 +66,7 @@ const ledger = [
   '',
   'This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.',
   '',
+  ...(manifest.assessmentNote ? [manifest.assessmentNote, ''] : []),
   '| Workstream | Goal weight | Estimated complete | Weighted points |',
   '| --- | ---: | ---: | ---: |',
   ...rows,

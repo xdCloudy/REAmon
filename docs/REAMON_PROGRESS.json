@@ -3,6 +3,7 @@
   "displayName": "REAmon production-ready reverse-engineering goal",
   "assessmentDate": "2026-10-25",
   "scopeNote": "This assessment expands the previous product-only scope to include secure, reliable production operation. The lower total reflects the wider goal, not a measured regression in reverse-engineering features.",
+  "assessmentNote": "The weighted score remains 46.2%: this refresh documents the full reconstruction pipeline but adds no completed product capability. The Cross Stitch Joy Rust DEX decompilation retry is still running and will be reassessed when it settles.",
   "workstreams": [
     {
       "name": "Core analysis and visualizer workflow",
