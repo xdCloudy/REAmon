@@ -48,9 +48,9 @@
       "name": "Security, reliability, and production operations",
       "weight": 20,
       "completion": 25,
-      "summary": "Sensitive agent REST controls now fail closed behind a configured master key, with authenticated webapp proxies and preserved project guards. Focused Docker and webapp checks pass; full security and release gates remain incomplete.",
-      "remaining": "The security scan is partial, broad test suites have unresolved failures or have not finished, multi-user session ownership is unverified, and deployment, worker, backup, and restore gates need end-to-end evidence.",
-      "basis": "The current patch protects 22 workspace, session, job, emergency-stop, and agent-session-stop REST routes. Focused Docker auth tests and existing graph-auth tests pass; 39 focused webapp tests pass and webapp type-check passes. The security scan remains partial, the full webapp suite reports unrelated failures, the full agent unit gate has not returned, and the live deployment has not been rebuilt or exercised with the new boundary. LAN WebSocket endpoints are unchanged."
+      "summary": "Sensitive agent REST controls now fail closed behind a configured master key, with authenticated webapp proxies and preserved project guards. Focused auth/proxy checks and type-check pass. Broad suites ran 3,733 agent tests and 9,545 webapp tests, with 2 agent files and 23 webapp files failing.",
+      "remaining": "The security scan is partial, broad test suites have unresolved failures, multi-user session ownership is unverified, and deployment, worker, backup, and restore gates need end-to-end evidence.",
+      "basis": "The current patch protects 22 workspace, session, job, emergency-stop, and agent-session-stop REST routes. Focused Docker auth tests and existing graph-auth tests pass; 39 focused webapp tests pass and webapp type-check passes. The full agent isolated unit run executed 3,733 tests across 179 files: 176 files passed, 2 failed, and 1 was empty/skipped. The full webapp suite reported 61 failed tests across 23 files, 9,346 passed, 2 expected failures, and 136 skipped. The security scan remains partial, and the live deployment has not been rebuilt or exercised with the new boundary. LAN WebSocket endpoints are unchanged."
     }
   ]
 }
