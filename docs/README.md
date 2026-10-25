@@ -12,6 +12,7 @@ stay useful on mobile.
 - [Weighted progress matrix](REAMON_PROGRESS.md)
 - [Weighted progress data](REAMON_PROGRESS.json)
 - [Production readiness matrix](REAMON_READINESS_MATRIX.md)
+- [Kali execution isolation decision](REAMON_KALI_ISOLATION.md)
 - [Feature matrix](REAMON_FEATURE_MATRIX.md)
 - [End-to-end reconstruction stage matrix](REAMON_RECONSTRUCTION_STAGES.md)
 - [Language and format matrix](REAMON_LANGUAGE_MATRIX.md)
