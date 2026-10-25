@@ -1,0 +1,55 @@
+services:
+  ai-lab-ollama:
+    image: ${AI_LAB_OLLAMA_IMAGE:-ollama/ollama:latest}
+    container_name: ai-lab-ollama
+    network_mode: host
+    environment:
+      OLLAMA_HOST: 0.0.0.0:11434
+    volumes:
+      - ai-lab-ollama-models:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  ai-lab-open-webui:
+    image: ${AI_LAB_OPEN_WEBUI_IMAGE:-ghcr.io/open-webui/open-webui:main}
+    container_name: ai-lab-open-webui
+    network_mode: host
+    environment:
+      WEBUI_AUTH: "false"
+      OLLAMA_BASE_URL: http://127.0.0.1:11434
+    volumes:
+      - ai-lab-open-webui-data:/app/backend/data
+    depends_on:
+      ai-lab-ollama:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+
+  ai-lab-chroma:
+    image: ${AI_LAB_CHROMA_IMAGE:-chromadb/chroma:latest}
+    container_name: ai-lab-chroma
+    network_mode: host
+    environment:
+      IS_PERSISTENT: "TRUE"
+      PERSIST_DIRECTORY: /chroma/chroma
+    volumes:
+      - ai-lab-chroma-data:/chroma/chroma
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/heartbeat', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+volumes:
+  ai-lab-ollama-models:
+  ai-lab-open-webui-data:
+  ai-lab-chroma-data:

@@ -26,7 +26,8 @@ from unittest.mock import MagicMock
 
 _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _ORCH = os.path.join(_REPO, "recon_orchestrator")
-for p in (_REPO, _ORCH):
+_SCANNERS = os.path.join(_REPO, "scanners")
+for p in (_REPO, _ORCH, _SCANNERS):
     if p not in sys.path:
         sys.path.insert(0, p)
 
@@ -275,13 +276,13 @@ class TestEcosystemListsDoNotDrift(unittest.TestCase):
         for eco in SEED_MANIFESTS:
             self.assertIn(eco, line, "%s missing from the compose default" % eco)
 
-    def test_install_and_update_populate_the_db(self):
-        """Cold-install must not leave the feature inert until someone finds
-        the supply-chain-sync subcommand."""
+    def test_update_sync_is_explicit_and_scan_refresh_remains_lazy(self):
+        """Updates can refresh explicitly; scan-time refresh is managed by the orchestrator."""
         src = open(self._repo("redamon.sh")).read()
         self.assertIn("ensure_osv_db()", src)
-        # called from install, update and up (plus the dev variant)
-        self.assertGreaterEqual(src.count("\n    ensure_osv_db\n"), 3)
+        self.assertEqual(src.count("\n    ensure_osv_db\n"), 1)
+        orchestrator = open(self._repo("recon_orchestrator", "container_manager.py")).read()
+        self.assertIn("ensure_osv_db_fresh_async", orchestrator)
 
 
 if __name__ == "__main__":

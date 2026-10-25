@@ -123,7 +123,8 @@ export function getScannerScope(request: NextRequest): ScannerScope | null {
   try {
     const expected = createHmac('sha256', secret).update(encoded).digest()
     const actual = Buffer.from(signature, 'base64url')
-    if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) return null
+    if (actual.length !== expected.length || actual.toString('base64url') !== signature
+        || !timingSafeEqual(actual, expected)) return null
 
     const payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')) as {
       v?: unknown; projectId?: unknown; userId?: unknown; iat?: unknown; exp?: unknown

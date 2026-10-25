@@ -271,7 +271,8 @@ describe('WorkspaceCodeVisualizer', () => {
     expect(screen.queryByRole('button', { name: 'Create maintainable version' })).not.toBeInTheDocument()
     fireEvent.click(await screen.findByRole('button', { name: /method a · line 1/ }))
 
-    expect(await screen.findByRole('textbox', { name: 'Editable maintained source' })).toHaveValue(source.replace(method, 'public String a() { return "x".trim(); }'))
+    const editable = await screen.findByRole('textbox', { name: 'Editable maintained source' })
+    await waitFor(() => expect(editable).toHaveValue(source.replace(method, 'public String a() { return "x".trim(); }')))
     expect(fetchMock).toHaveBeenCalledWith('/api/projects/project-1/visualizer/deobfuscate', expect.objectContaining({
       method: 'POST', body: expect.stringContaining('"scope":"member"'),
     }))

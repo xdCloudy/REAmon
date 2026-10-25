@@ -247,8 +247,10 @@ describe('getScannerScope', () => {
   test('rejects a modified signature and expired scope', () => {
     const now = Math.floor(Date.now() / 1000)
     const valid = scopedRequest({ v: 1, projectId: 'p1', userId: 'u1', iat: now, exp: now + 60 })
+    const [encoded, signature = ''] = (valid.headers.get('x-scanner-scope') || '').split('.')
+    const changedSignature = `${signature[0] === 'A' ? 'B' : 'A'}${signature.slice(1)}`
     const tampered = new NextRequest('http://x/api/projects/p1', {
-      headers: { 'x-scanner-scope': `${valid.headers.get('x-scanner-scope')?.slice(0, -1)}A` },
+      headers: { 'x-scanner-scope': `${encoded}.${changedSignature}` },
     })
     expect(getScannerScope(tampered)).toBeNull()
     expect(getScannerScope(scopedRequest({ v: 1, projectId: 'p1', userId: 'u1', iat: now - 120, exp: now - 1 }))).toBeNull()

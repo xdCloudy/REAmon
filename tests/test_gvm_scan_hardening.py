@@ -55,14 +55,14 @@ class ScannerTokenTest(unittest.TestCase):
         self.assertEqual(sent, "scoped-tok",
                          "the GVM scan must send SCANNER_API_KEY, not the master key")
 
-    def test_gvm_settings_fetch_falls_back_to_the_master_key(self):
-        """Pre-secret installs have no SCANNER_API_KEY; those must not break."""
+    def test_gvm_settings_fetch_never_falls_back_to_the_master_key(self):
+        """A scanner without a scoped key must not receive the master credential."""
         env = {"INTERNAL_API_KEY": "master-tok"}
         with mock.patch.dict("os.environ", env, clear=True), \
              mock.patch("requests.get", return_value=_json_response({})) as get:
             gvm_settings.fetch_gvm_settings("proj-1", "http://webapp:3000")
 
-        self.assertEqual(get.call_args.kwargs["headers"]["X-Internal-Key"], "master-tok")
+        self.assertEqual(get.call_args.kwargs["headers"]["X-Internal-Key"], "")
 
     def test_gvm_settings_are_applied_not_defaulted(self):
         """The 401 made every project value fall back to DEFAULT_GVM_SETTINGS."""

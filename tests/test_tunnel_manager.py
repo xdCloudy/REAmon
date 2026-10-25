@@ -254,7 +254,10 @@ class TestSettingsFieldConsistency:
 
         with open(route_path) as f:
             content = f.read()
-        for field in ['ngrokAuthtoken', 'chiselServerUrl', 'chiselAuth']:
+        assert "sanitizedChiselUrl" in content
+        assert "ngrokAuthtoken" not in content
+        assert "chiselAuth" not in content
+        for field in ['chiselServerUrl']:
             assert field in content, f"Field '{field}' missing from tunnel-config route"
 
     def test_frontend_settings_interface(self):
