@@ -1,10 +1,10 @@
 # REAmon product progress
 
-Assessment date: 2026-10-25 · Source: pushed commit `d05ff5e` · Weighted estimate: **49.6%**
+Assessment date: 2026-10-25 · Source: pushed commit `2d8a682` · Weighted estimate: **50.2%**
 
 This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.
 
-The weighted score is 49.6%. Seven of the eight distinct issues confirmed by the focused Standard security review now have source mitigations. Broker-created tools are denied NET_ADMIN while retaining NET_RAW for scanning; focused policy cases were added but have not yet run in the required Docker gate. The scanner boundary binds short-lived HMAC scopes to database-resolved project owners, with duplicate master/scanner keys rejected. Focused webapp coverage passes (99 tests), type-check and targeted lint pass, and 560 isolated orchestrator tests plus recon traffic and node-filter tests pass. Abandoned import cleanup and shared storage-capacity reporting remain open, and the deployed stack has not been rebuilt or checked against these changes.
+The weighted score is 50.2%. Seven of the eight distinct issues confirmed by the focused Standard security review now have source mitigations. Abandoned browser-import staging is cancelled after a configurable inactivity window (30 days by default); chunk activity refreshes updatedAt, cleanup conditionally claims expired rows, and removal is confined to that import. Three focused import files pass (16 tests), webapp type-check passes, and the Docker broker policy suite passes 57 checks. Shared artifact-volume capacity reporting remains open, and the deployed stack has not been rebuilt or checked against these changes.
 
 | Workstream | Goal weight | Estimated complete | Weighted points |
 | --- | ---: | ---: | ---: |
@@ -13,7 +13,7 @@ The weighted score is 49.6%. Seven of the eight distinct issues confirmed by the
 | Major-language and format decompilation fluency | 24% | 35% | 8.40 pts |
 | Maintainable editing, review, and export | 12% | 43% | 5.16 pts |
 | Fixture-backed validation and fidelity evidence | 12% | 15% | 1.80 pts |
-| Security, reliability, and production operations | 20% | 52% | 10.40 pts |
+| Security, reliability, and production operations | 20% | 55% | 11.00 pts |
 
 ## Evidence and remaining work
 
@@ -49,8 +49,8 @@ The weighted score is 49.6%. Seven of the eight distinct issues confirmed by the
 
 ### Security, reliability, and production operations
 
-**Current evidence:** Seven of eight distinct issues from the focused Standard security review now have source mitigations, including the broker NET_ADMIN restriction. Focused webapp, orchestrator, and recon tests pass; the new broker policy cases await the Docker gate. Abandoned import cleanup/capacity reporting remains open, and deployment validation is incomplete.
+**Current evidence:** Seven of eight distinct issues from the focused Standard security review now have source mitigations, including the broker NET_ADMIN restriction and bounded cleanup for abandoned browser-import staging. Three focused import files pass (16 tests), webapp type-check passes, and the Docker broker policy suite passes 57 checks. Shared storage-capacity reporting remains open, and deployment validation is incomplete.
 
-**Remaining:** Run the broker policy suite in Docker and close the remaining import finding by cleaning expired staging data and reporting shared storage capacity. Review deferred parser, persistence/recovery, provider, CI/deployment, and supply-chain surfaces; rebuild and validate services, complete worker lifecycle and backup/restore gates, and run the remaining Docker release checks.
+**Remaining:** Add shared artifact-volume capacity reporting and rebuild and validate the deployed services. Review deferred parser, persistence/recovery, provider, CI/deployment, and supply-chain surfaces; complete worker lifecycle and backup/restore gates and run the remaining Docker release checks.
 
 The machine-readable [`REAMON_PROGRESS.json`](REAMON_PROGRESS.json) feeds the README progress bar. The scope now includes the production hardening goal, so the total is not directly comparable with the previous product-only estimate. Update it with evidence when estimates change, then run `node tooling/reamon/update-product-progress.mjs <commit-sha>` to refresh this matrix and the README.
