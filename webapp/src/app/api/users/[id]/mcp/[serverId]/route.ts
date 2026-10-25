@@ -115,7 +115,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     })
 
     void fireReload(next)
-    return NextResponse.json({ servers: next })
+    return NextResponse.json({ servers: maskMcpServersForApi(next) })
   } catch (error) {
     console.error('Failed to delete MCP server:', error)
     return NextResponse.json({ error: 'Failed to delete MCP server' }, { status: 500 })
