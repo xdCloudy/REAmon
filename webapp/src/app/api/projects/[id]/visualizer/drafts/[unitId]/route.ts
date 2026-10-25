@@ -64,6 +64,22 @@ function rewriteContextSummary(value: unknown) {
   }
 }
 
+function safeQualityReview(value: unknown) {
+  const review = plainObject(value)
+  const statuses = ['NO_ISSUE_FOUND', 'NEEDS_REVIEW', 'UNCERTAIN', 'UNAVAILABLE'] as const
+  if (!statuses.includes(review.status as typeof statuses[number])
+      || typeof review.candidateSha256 !== 'string' || !/^[a-f0-9]{64}$/i.test(review.candidateSha256)
+      || typeof review.summary !== 'string' || typeof review.modelUsed !== 'string'
+      || !Array.isArray(review.findings) || !review.findings.every((item) => typeof item === 'string')) return null
+  return {
+    status: review.status as typeof statuses[number],
+    candidateSha256: review.candidateSha256.toLowerCase(),
+    summary: review.summary.slice(0, 1000),
+    findings: review.findings.slice(0, 8).map((item) => String(item).slice(0, 600)),
+    modelUsed: review.modelUsed.slice(0, 128),
+  }
+}
+
 function safeRenameProposals(value: unknown) {
   const renames = plainObject(value).renames
   if (!Array.isArray(renames)) return []
@@ -147,7 +163,7 @@ export async function GET(_request: Request, { params }: RouteParams) {
       where: { projectId, codeUnitId: unitId, artifactId: resolved.artifactId, runKey: resolved.runKey, sourceHash: resolved.sourceHash },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: 10,
-      select: { id: true, providerName: true, modelIdentifier: true, question: true, scope: true, status: true, cancelRequested: true, errorCode: true, errorMessage: true, resultSource: true, rewriteHistory: true, requestPayload: true, syntaxValidated: true, validationStatus: true, validationMethod: true, validationMessage: true, createdAt: true, completedAt: true },
+      select: { id: true, providerName: true, modelIdentifier: true, question: true, scope: true, status: true, cancelRequested: true, errorCode: true, errorMessage: true, resultSource: true, rewriteHistory: true, qualityReview: true, requestPayload: true, syntaxValidated: true, validationStatus: true, validationMethod: true, validationMessage: true, createdAt: true, completedAt: true },
     })
     const latestAgentBatchAttempt = await prisma.reamonCodeAttempt.findFirst({
       where: { projectId, codeUnitId: unitId, artifactId: resolved.artifactId, runKey: resolved.runKey, sourceHash: resolved.sourceHash, scope: 'member', agentBatchId: { not: null } },
@@ -158,7 +174,7 @@ export async function GET(_request: Request, { params }: RouteParams) {
       where: { projectId, codeUnitId: unitId, artifactId: resolved.artifactId, runKey: resolved.runKey, sourceHash: resolved.sourceHash, agentBatchId: latestAgentBatchAttempt.agentBatchId },
       orderBy: { createdAt: 'asc' },
       take: 10,
-      select: { id: true, agentBatchId: true, providerName: true, modelIdentifier: true, status: true, cancelRequested: true, errorMessage: true, resultSource: true, requestPayload: true, createdAt: true, completedAt: true },
+      select: { id: true, agentBatchId: true, providerName: true, modelIdentifier: true, status: true, cancelRequested: true, errorMessage: true, resultSource: true, qualityReview: true, requestPayload: true, createdAt: true, completedAt: true },
     }) : []
     let trustedDraftValidation = { syntaxValidated: null as boolean | null, validationStatus: null as string | null, validationMethod: null as string | null, validationMessage: null as string | null }
     const draftHashMatches = Boolean(draft?.draftHash
@@ -206,6 +222,7 @@ export async function GET(_request: Request, { params }: RouteParams) {
             errorMessage: attempt.errorMessage,
             resultSource: attempt.status === 'SUCCEEDED' ? attempt.resultSource : null,
             inputSource: attempt.status === 'SUCCEEDED' && typeof payload.source_code === 'string' ? payload.source_code : null,
+            qualityReview: safeQualityReview(attempt.qualityReview),
             context: rewriteContextSummary(attempt.requestPayload),
             createdAt: attempt.createdAt.toISOString(),
             completedAt: attempt.completedAt?.toISOString() ?? null,
@@ -229,6 +246,7 @@ export async function GET(_request: Request, { params }: RouteParams) {
         errorCode: attempt.errorCode,
         errorMessage: attempt.errorMessage,
         resultSource: attempt.resultSource,
+        qualityReview: safeQualityReview(attempt.qualityReview),
         context: rewriteContextSummary(attempt.requestPayload),
         rewriteHistoryRoundCount: Array.isArray(attempt.rewriteHistory) ? attempt.rewriteHistory.length : 0,
         syntaxValidated: attempt.syntaxValidated,

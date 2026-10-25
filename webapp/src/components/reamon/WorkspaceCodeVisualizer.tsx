@@ -173,8 +173,9 @@ interface CodeMaintenanceResponse { sourceCode: string; providerName: string; mo
 interface CodeDraftRecord { id: string; sourceCode: string; sourceAttemptId: string | null; providerName: string; modelIdentifier: string; question: string; scope: 'file' | 'member'; syntaxValidated: boolean | null; validationStatus: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod: string | null; validationMessage: string | null; updatedAt: string }
 interface RewriteHistoryEntry { round: number; sourceCode: string; sourceSha256: string; validationStatus: string; validationMethod: string; validationMessage: string }
 interface RewriteContextSummary { fingerprint: string; evidence: string[]; relatedUnits: Array<{ name: string; language: string; unitId: string; sourceSha256: string; sourceBytes: number }>; relatedUnitsTruncated: boolean }
-interface CodeAttemptRecord { id: string; providerName: string; modelIdentifier: string; question: string; scope: 'file' | 'member' | 'rename-suggestions'; status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'; cancelRequested: boolean; errorCode: string | null; errorMessage: string | null; resultSource: string | null; context?: RewriteContextSummary; rewriteHistoryRoundCount: number; renameProposals?: SafeRenameProposal[]; proposalSourceSha256?: string; proposalProviderId?: string; projectSymbolContextSha256?: string; proposalCandidateCount?: number; syntaxValidated: boolean | null; validationStatus: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod: string | null; validationMessage: string | null; createdAt: string; completedAt: string | null }
-interface CodeAgentBatchAttempt { id: string; providerName: string; modelIdentifier: string; memberName: string; memberStartByte: number | null; memberEndByte: number | null; status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'; cancelRequested: boolean; errorMessage: string | null; resultSource: string | null; inputSource: string | null; context?: RewriteContextSummary; createdAt: string; completedAt: string | null }
+interface CodeQualityReview { status: 'NO_ISSUE_FOUND' | 'NEEDS_REVIEW' | 'UNCERTAIN' | 'UNAVAILABLE'; candidateSha256: string; summary: string; findings: string[]; modelUsed: string }
+interface CodeAttemptRecord { id: string; providerName: string; modelIdentifier: string; question: string; scope: 'file' | 'member' | 'rename-suggestions'; status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'; cancelRequested: boolean; errorCode: string | null; errorMessage: string | null; resultSource: string | null; qualityReview?: CodeQualityReview | null; context?: RewriteContextSummary; rewriteHistoryRoundCount: number; renameProposals?: SafeRenameProposal[]; proposalSourceSha256?: string; proposalProviderId?: string; projectSymbolContextSha256?: string; proposalCandidateCount?: number; syntaxValidated: boolean | null; validationStatus: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod: string | null; validationMessage: string | null; createdAt: string; completedAt: string | null }
+interface CodeAgentBatchAttempt { id: string; providerName: string; modelIdentifier: string; memberName: string; memberStartByte: number | null; memberEndByte: number | null; status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'; cancelRequested: boolean; errorMessage: string | null; resultSource: string | null; inputSource: string | null; qualityReview?: CodeQualityReview | null; context?: RewriteContextSummary; createdAt: string; completedAt: string | null }
 interface CodeDraftResponse { exists: boolean; draft: CodeDraftRecord | null; agentBatch?: { id: string; attempts: CodeAgentBatchAttempt[] } | null; attempts?: CodeAttemptRecord[] }
 interface CodeUnitNoteResponse { unitId: string; note: string; stale: boolean; updatedAt: string | null }
 interface CodeReviewRecord {
@@ -298,6 +299,20 @@ function RewriteContextDetails({ context }: { context: RewriteContextSummary }) 
       </li>)}</ul>
       {context.relatedUnitsTruncated && <p>Additional related units were omitted from this summary.</p>}
     </>}
+  </details>
+}
+
+function CodeQualityReviewDetails({ review }: { review: CodeQualityReview }) {
+  const label = review.status === 'NO_ISSUE_FOUND' ? 'No issue identified'
+    : review.status === 'NEEDS_REVIEW' ? 'Needs review'
+      : review.status === 'UNCERTAIN' ? 'Uncertain' : 'Unavailable'
+  return <details className={styles.rewriteContext}>
+    <summary>AI evidence check · {label}</summary>
+    <p>{review.summary}</p>
+    {review.modelUsed && <p>Reviewer model: {review.modelUsed}</p>}
+    <p title={`SHA-256 ${review.candidateSha256}`}>Checked candidate snapshot {review.candidateSha256.slice(0, 12)}</p>
+    {review.findings.length > 0 && <ul>{review.findings.map((finding, index) => <li key={`${index}:${finding}`}>{finding}</li>)}</ul>}
+    <p>This is an advisory LLM review. “No issue identified” does not establish behavioral equivalence.</p>
   </details>
 }
 
@@ -3355,6 +3370,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
                   <strong>{attempt.memberName}</strong> · {attempt.status === 'QUEUED' ? 'Queued' : attempt.status === 'RUNNING' ? attempt.cancelRequested ? 'Cancelling' : 'Working' : attempt.status === 'SUCCEEDED' ? 'Ready to review' : attempt.status === 'CANCELLED' ? 'Cancelled' : 'Failed'}
                   {attempt.errorMessage && <p>{attempt.errorMessage}</p>}
                   {attempt.context && <RewriteContextDetails context={attempt.context} />}
+                  {attempt.qualityReview && <CodeQualityReviewDetails review={attempt.qualityReview} />}
                 </li>)}</ol>
                 {codeDraftQuery.data?.agentBatch && codeDraftQuery.data.agentBatch.attempts.some((attempt) => attempt.status === 'QUEUED' || attempt.status === 'RUNNING') && <button type="button" className={styles.copyButton} onClick={() => void cancelFunctionAgentBatch(codeDraftQuery.data!.agentBatch!.id)} disabled={agentTeamDispatching || cancellingAgentBatch}>
                   {cancellingAgentBatch ? 'Requesting batch cancellation…' : 'Cancel remaining function agents'}
@@ -3383,6 +3399,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
                 {codeDraftQuery.data?.draft?.sourceAttemptId === attempt.id && <p>This attempt produced the current saved draft.</p>}
                 {attempt.question && <p>Request: {attempt.question}</p>}
                 {attempt.context && <RewriteContextDetails context={attempt.context} />}
+                {attempt.qualityReview && <CodeQualityReviewDetails review={attempt.qualityReview} />}
                 {attempt.renameProposals && attempt.renameProposals.length > 0 && <ul>{attempt.renameProposals.map((proposal) => <li key={proposal.bindingId}><strong>{proposal.oldName} → {proposal.newName}</strong> · {proposal.kind} · {proposal.referenceCount} reference{proposal.referenceCount === 1 ? '' : 's'}<p>{proposal.rationale}</p></li>)}</ul>}
                 {attempt.scope === 'rename-suggestions' && attempt.renameProposals && attempt.renameProposals.length > 0 && <button type="button" className={styles.copyButton} onClick={() => void loadSavedSafeRenames(attempt)} disabled={!selectedProviderId || !attempt.proposalSourceSha256 || !attempt.proposalProviderId || !attempt.projectSymbolContextSha256 || !(maintainedDraft || sourceQuery.data)}>Load saved proposals into rename review</button>}
                 {attempt.validationStatus && <p>{validationSummary(attempt)}</p>}

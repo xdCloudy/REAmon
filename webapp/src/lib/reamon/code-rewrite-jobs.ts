@@ -55,6 +55,34 @@ function validatedRewriteHistory(value: unknown): Prisma.InputJsonArray | undefi
   return entries
 }
 
+function validatedQualityReview(value: unknown, sourceCode: string): Prisma.InputJsonObject {
+  const review = record(value)
+  const candidateSha256 = createHash('sha256').update(sourceCode, 'utf8').digest('hex')
+  const status = review.status
+  const summary = review.summary
+  const findings = review.findings
+  if (review.candidate_sha256 !== candidateSha256 || typeof summary !== 'string' || summary.length > 1000
+      || !Array.isArray(findings) || findings.length > 8
+      || !findings.every((finding) => typeof finding === 'string' && finding.length <= 600)
+      || !['NO_ISSUE_FOUND', 'NEEDS_REVIEW', 'UNCERTAIN', 'UNAVAILABLE'].includes(String(status))) {
+    return {
+      status: 'UNAVAILABLE',
+      candidateSha256,
+      summary: 'The AI evidence check was missing or did not match the saved candidate.',
+      findings: [],
+      modelUsed: '',
+    }
+  }
+  const normalizedStatus = status as 'NO_ISSUE_FOUND' | 'NEEDS_REVIEW' | 'UNCERTAIN' | 'UNAVAILABLE'
+  return {
+    status: normalizedStatus,
+    candidateSha256,
+    summary,
+    findings: findings as string[],
+    modelUsed: typeof review.model_used === 'string' ? review.model_used.slice(0, 128) : '',
+  }
+}
+
 function dependencyGroup(row: { projectId: string; artifactId: string; taskId: string | null; source: string }): string {
   return JSON.stringify([row.projectId, row.artifactId, row.taskId, row.source])
 }
@@ -509,6 +537,7 @@ async function executeAttempt(attemptId: string, workerId: string) {
       return true
     }
     const rewrittenSource = result.source_code
+    const qualityReview = validatedQualityReview(result.quality_review, rewrittenSource)
 
     const validationStatus = ['PASSED', 'FAILED', 'UNAVAILABLE'].includes(String(result.validation_status))
       ? String(result.validation_status)
@@ -527,6 +556,7 @@ async function executeAttempt(attemptId: string, workerId: string) {
         data: {
           status: 'SUCCEEDED', resultSource: rewrittenSource,
           ...(rewriteHistory ? { rewriteHistory } : {}),
+          qualityReview,
           syntaxValidated: result.syntax_validated === true,
           validationStatus,
           validationMethod: typeof result.validation_method === 'string' ? result.validation_method.slice(0, 80) : null,
