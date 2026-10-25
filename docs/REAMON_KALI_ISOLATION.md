@@ -22,6 +22,15 @@ read another project's temporary files or workspace files, and arbitrary code ca
 observe environment values passed to its process. This is a source-level finding;
 it is not a claim that any particular deployment has been exploited.
 
+The unused agent `/files?path=/tmp/...` endpoint has been removed; current browser
+downloads use the project-authorized workspace endpoint. This closes that direct
+download path only. It does not prevent a shell or code-execution tool in the
+shared Kali service from reading other projects' temporary files.
+
+The focused agent Docker regression verifies the unscoped route stays absent and
+the workspace download route remains protected by master-key authentication (2
+tests passed on 2026-10-25).
+
 ## Decision
 
 Run every arbitrary-code surface in a project-scoped sandbox worker with its own

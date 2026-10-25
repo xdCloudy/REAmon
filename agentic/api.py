@@ -19,7 +19,6 @@ import keyword
 import logging
 import os
 import re
-import shlex
 import shutil
 import subprocess
 import sys
@@ -4454,98 +4453,6 @@ async def test_llm_provider(body: LlmProviderTestRequest):
             content={"success": False, "error": "Provider test failed. Check the key, model, and base URL; see server logs for detail."},
             status_code=400,
         )
-
-
-@app.get("/files", tags=["Files"], dependencies=[Depends(require_internal_auth_only)])
-async def download_file(
-    path: str = Query(..., description="File path inside kali-sandbox (must be under /tmp/)"),
-):
-    """
-    Download a file from kali-sandbox via the kali_shell MCP tool.
-
-    Reads the file using base64 encoding through the existing MCP tool,
-    decodes it, and returns the binary content.
-    Security: Only paths under /tmp/ are allowed.
-    """
-    # Security: restrict to /tmp/ paths and prevent directory traversal
-    if not path.startswith("/tmp/"):
-        return Response(content="Forbidden: only /tmp/ paths allowed", status_code=403)
-    normalized = os.path.normpath(path)
-    if not normalized.startswith("/tmp/"):
-        return Response(content="Forbidden: path traversal detected", status_code=403)
-
-    # The file is read INSIDE kali-sandbox via kali_shell, which runs the command
-    # through `bash -c`, so `normalized` is interpolated into a shell string.
-    # `os.path.normpath` collapses `.`/`..`/`//` but does NOT strip shell
-    # metacharacters (`;`, `|`, `` ` ``, `$(...)`), so a path like `/tmp/x; id`
-    # would inject a second command. Quote it so it is always a single literal
-    # argument. This is the actual injection fix; the `/tmp/` prefix check above
-    # is not sufficient on its own.
-    safe_path = shlex.quote(normalized)
-
-    if not orchestrator or not orchestrator.tool_executor:
-        return Response(content="Agent not initialized", status_code=503)
-
-    try:
-        # Check file exists first
-        check_result = await orchestrator.tool_executor.execute(
-            "kali_shell",
-            {"command": f"test -f {safe_path} && stat -c '%s' {safe_path}"},
-            "informational",
-            skip_phase_check=True,
-        )
-        if not check_result.get("success") or not check_result.get("output", "").strip():
-            return Response(content="File not found", status_code=404)
-
-        # Read file as base64
-        b64_result = await orchestrator.tool_executor.execute(
-            "kali_shell",
-            {"command": f"base64 -w0 {safe_path}"},
-            "informational",
-            skip_phase_check=True,
-        )
-        if not b64_result.get("success"):
-            return Response(
-                content=f"Error reading file: {b64_result.get('error', 'unknown')}",
-                status_code=500,
-            )
-
-        b64_str = (b64_result.get("output") or "").strip()
-        file_bytes = base64.b64decode(b64_str)
-        filename = os.path.basename(normalized)
-
-        # Content type mapping for common payload/document types
-        ext = os.path.splitext(filename)[1].lower()
-        content_types = {
-            ".exe": "application/x-msdownload",
-            ".elf": "application/x-elf",
-            ".pdf": "application/pdf",
-            ".docm": "application/vnd.ms-word.document.macroEnabled.12",
-            ".xlsm": "application/vnd.ms-excel.sheet.macroEnabled.12",
-            ".apk": "application/vnd.android.package-archive",
-            ".war": "application/x-webarchive",
-            ".ps1": "text/plain",
-            ".py": "text/plain",
-            ".sh": "text/plain",
-            ".hta": "text/html",
-            ".lnk": "application/x-ms-shortcut",
-            ".rtf": "application/rtf",
-            ".vba": "text/plain",
-            ".macho": "application/x-mach-binary",
-        }
-        content_type = content_types.get(ext, "application/octet-stream")
-
-        return Response(
-            content=file_bytes,
-            media_type=content_type,
-            headers={
-                "Content-Disposition": f'attachment; filename="{filename}"',
-                "Content-Length": str(len(file_bytes)),
-            },
-        )
-    except Exception as e:
-        logger.error(f"File download error: {e}")
-        return Response(content=f"Error reading file: {str(e)}", status_code=500)
 
 
 # =============================================================================
