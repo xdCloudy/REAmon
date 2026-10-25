@@ -156,13 +156,21 @@ class IlspyServiceTests(unittest.TestCase):
     public sealed class Calculator
     {
         private readonly int _bias;
-        public Calculator(int bias) { _bias = bias; }
+        public Calculator(int bias) { _bias = BiasProvider.Normalize(bias); }
         public int Compute(int input)
         {
             int total = 0;
             for (int i = 0; i < input; i++) total += i;
             return total + _bias;
         }
+    }
+}
+""", encoding="utf-8")
+        (source / "BiasProvider.cs").write_text("""namespace Fixture
+{
+    public static class BiasProvider
+    {
+        public static int Normalize(int value) => value + 1;
     }
 }
 """, encoding="utf-8")
@@ -203,7 +211,7 @@ class IlspyServiceTests(unittest.TestCase):
             destination.write_bytes((self.derived / unit["codeArtifactId"]).read_bytes())
         (project / "Program.vb").write_text("""Module Program
     Sub Main()
-        Dim actual = New ReamonVbFixture.Fixture.Calculator(4).Compute(5)
+        Dim actual = New ReamonVbFixture.Fixture.Calculator(3).Compute(5)
         If actual <> 14 Then Throw New System.Exception("translated behavior changed")
     End Sub
 End Module
