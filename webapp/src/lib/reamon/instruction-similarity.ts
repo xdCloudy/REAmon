@@ -15,12 +15,12 @@ export interface SimilarFunctionControlFlowMetrics {
 }
 
 export interface SimilarFunctionControlFlowGraph {
-  version: 'ghidra-basic-block-graph-v1'
+  version: 'reamon-normalized-cfg-v1'
   entryBlock: number
   exitBlocks: number[]
   blockCount: number
   edgeCount: number
-  truncated: boolean
+  truncated: false
   blocks: Array<[number, string, number, number, string[], string[], string]>
   edges: Array<[number, number, string]>
 }
@@ -114,32 +114,72 @@ export function parseControlFlowMetrics(value: unknown): SimilarFunctionControlF
   }
 }
 
-export function parseControlFlowGraph(value: unknown): SimilarFunctionControlFlowGraph | undefined {
+export function parseControlFlowGraph(value: unknown, externallyTruncated?: unknown): SimilarFunctionControlFlowGraph | undefined {
   const parsed = parseBoundedJsonObject(value, 4_096)
-  if (!parsed || parsed.version !== 'ghidra-basic-block-graph-v1'
-      || typeof parsed.truncated !== 'boolean'
+  if (!parsed || (parsed.version !== undefined && parsed.version !== 'ghidra-basic-block-graph-v1')
+      || (parsed.version === 'ghidra-basic-block-graph-v1' && typeof parsed.truncated !== 'boolean')
+      || parsed.truncated === true || externallyTruncated === true
       || !Number.isSafeInteger(parsed.entryBlock) || typeof parsed.entryBlock !== 'number'
+      || !Number.isSafeInteger(parsed.exitBlock) || typeof parsed.exitBlock !== 'number'
       || !Number.isSafeInteger(parsed.blockCount) || typeof parsed.blockCount !== 'number'
       || !Number.isSafeInteger(parsed.edgeCount) || typeof parsed.edgeCount !== 'number'
-      || !Array.isArray(parsed.exitBlocks) || !Array.isArray(parsed.blocks) || !Array.isArray(parsed.edges)) return undefined
-  const { blocks, edges, exitBlocks } = parsed
-  if (parsed.truncated || blocks.length === 0 || blocks.length > MAX_CFG_BLOCKS || edges.length > MAX_CFG_EDGES
+      || !Array.isArray(parsed.blocks) || !Array.isArray(parsed.edges)) return undefined
+  const { blocks, edges } = parsed
+  if (blocks.length === 0 || blocks.length > MAX_CFG_BLOCKS || edges.length > MAX_CFG_EDGES
       || parsed.blockCount !== blocks.length || parsed.edgeCount !== edges.length
-      || parsed.entryBlock < 0 || parsed.entryBlock >= blocks.length
-      || exitBlocks.length > MAX_CFG_BLOCKS
-      || !exitBlocks.every((block) => Number.isSafeInteger(block) && typeof block === 'number' && block >= 0 && block < blocks.length)
-      || !blocks.every((block, index) => Array.isArray(block) && block.length === 7 && block[0] === index
-        && typeof block[1] === 'string' && block[1].length <= 128
-        && Number.isSafeInteger(block[2]) && typeof block[2] === 'number' && block[2] >= 0
-        && Number.isSafeInteger(block[3]) && typeof block[3] === 'number' && block[3] >= 0
-        && Array.isArray(block[4]) && block[4].length <= 16 && block[4].every((label) => typeof label === 'string' && label.length <= 256)
-        && Array.isArray(block[5]) && block[5].length <= 16 && block[5].every((label) => typeof label === 'string' && label.length <= 256)
-        && typeof block[6] === 'string' && /^[A-Za-z0-9:_-]{1,128}$/.test(block[6]))
-      || !edges.every((edge) => Array.isArray(edge) && edge.length === 3
-        && Number.isSafeInteger(edge[0]) && typeof edge[0] === 'number' && edge[0] >= 0 && edge[0] < blocks.length
-        && Number.isSafeInteger(edge[1]) && typeof edge[1] === 'number' && edge[1] >= 0 && edge[1] < blocks.length
-        && typeof edge[2] === 'string' && /^[A-Za-z0-9_]{1,40}$/.test(edge[2]))) return undefined
-  return parsed as unknown as SimilarFunctionControlFlowGraph
+      || (Array.isArray(parsed.exitBlocks) && parsed.exitBlocks.length > MAX_CFG_BLOCKS)) return undefined
+
+  const blockIndexes = new Map<number, number>()
+  const normalizedBlocks: SimilarFunctionControlFlowGraph['blocks'] = []
+  for (const [index, rawBlock] of blocks.entries()) {
+    if (!Array.isArray(rawBlock) || (rawBlock.length !== 4 && rawBlock.length !== 6 && rawBlock.length !== 7)
+        || (parsed.version === 'ghidra-basic-block-graph-v1' && rawBlock.length !== 7)) return undefined
+    const [id, kind, instructionCount, rawInstructionCount] = rawBlock
+    const instructionSamples = rawBlock.length >= 6 ? rawBlock[4] : []
+    const rawInstructionSamples = rawBlock.length >= 6 ? rawBlock[5] : []
+    const blockLabel = rawBlock.length === 7 ? rawBlock[6] : kind
+    if (!Number.isSafeInteger(id) || typeof id !== 'number' || id < 0 || blockIndexes.has(id)
+        || typeof kind !== 'string' || kind.length > 128
+        || !Number.isSafeInteger(instructionCount) || typeof instructionCount !== 'number' || instructionCount < 0
+        || !Number.isSafeInteger(rawInstructionCount) || typeof rawInstructionCount !== 'number' || rawInstructionCount < 0
+        || !Array.isArray(instructionSamples) || instructionSamples.length > 16
+        || !instructionSamples.every((label) => typeof label === 'string' && label.length <= 256)
+        || !Array.isArray(rawInstructionSamples) || rawInstructionSamples.length > 16
+        || !rawInstructionSamples.every((label) => typeof label === 'string' && label.length <= 256)
+        || typeof blockLabel !== 'string' || blockLabel.length > 128
+        || (rawBlock.length === 7 && !/^[A-Za-z0-9:_-]{1,128}$/.test(blockLabel))) return undefined
+    blockIndexes.set(id, index)
+    normalizedBlocks.push([index, kind, instructionCount, rawInstructionCount, instructionSamples, rawInstructionSamples, blockLabel])
+  }
+  const entryIndex = blockIndexes.get(parsed.entryBlock)
+  const exitIndex = blockIndexes.get(parsed.exitBlock)
+  if (entryIndex === undefined || exitIndex === undefined) return undefined
+  const rawExitBlocks = Array.isArray(parsed.exitBlocks) ? parsed.exitBlocks : [parsed.exitBlock]
+  if (!rawExitBlocks.every((block) => Number.isSafeInteger(block) && typeof block === 'number' && blockIndexes.has(block))) return undefined
+  const exitBlocks = [...new Set(rawExitBlocks.map((block) => blockIndexes.get(block as number) as number))]
+
+  const normalizedEdges: SimilarFunctionControlFlowGraph['edges'] = []
+  for (const edge of edges) {
+    if (Array.isArray(edge) && edge.length !== 3) return undefined
+    const source = Array.isArray(edge) ? edge[0] : edge && typeof edge === 'object' ? (edge as Record<string, unknown>).from : undefined
+    const target = Array.isArray(edge) ? edge[1] : edge && typeof edge === 'object' ? (edge as Record<string, unknown>).to : undefined
+    const kind = Array.isArray(edge) ? edge[2] : edge && typeof edge === 'object' ? (edge as Record<string, unknown>).kind : undefined
+    const sourceIndex = typeof source === 'number' ? blockIndexes.get(source) : undefined
+    const targetIndex = typeof target === 'number' ? blockIndexes.get(target) : undefined
+    if (!Number.isSafeInteger(source) || sourceIndex === undefined || !Number.isSafeInteger(target) || targetIndex === undefined
+        || typeof kind !== 'string' || !/^[A-Za-z0-9_]{1,40}$/.test(kind)) return undefined
+    normalizedEdges.push([sourceIndex, targetIndex, kind])
+  }
+  return {
+    version: 'reamon-normalized-cfg-v1',
+    entryBlock: entryIndex,
+    exitBlocks,
+    blockCount: normalizedBlocks.length,
+    edgeCount: normalizedEdges.length,
+    truncated: false,
+    blocks: normalizedBlocks,
+    edges: normalizedEdges,
+  }
 }
 
 function parseBoundedJsonObject(value: unknown, maxBytes: number): Record<string, unknown> | undefined {
@@ -233,7 +273,8 @@ function flowKindFamily(kind: string): string {
 
 // BinDiff documents normalized flow-graph structure as a useful function
 // matching feature. This bounded color-refinement summary is an independent
-// REAmon implementation, and remains a ranking signal rather than identity.
+// REAmon implementation across normalized provider graphs, and remains a
+// ranking signal rather than identity.
 function compactColor(signature: string): string {
   let hash = 0x811c9dc5
   for (let index = 0; index < signature.length; index += 1) {

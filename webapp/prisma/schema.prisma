@@ -2813,7 +2813,7 @@ model ReamonFunctionMatch {
   functionBFeatures   Json     @map("function_b_features")
   architecture       String
   matcher             String   @default("reamon-instruction-cfg-wl")
-  matcherVersion      String   @default("2") @map("matcher_version")
+    matcherVersion      String   @default("3") @map("matcher_version")
   similarity          Float
   instructionSimilarity Float @map("instruction_similarity")
   controlFlowSimilarity Float? @map("control_flow_similarity")

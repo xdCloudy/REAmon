@@ -33,7 +33,7 @@ function functionFeatures(row: { id: string; stableKey: string; label: string | 
     address: typeof attributes.address === 'string' ? attributes.address : null,
     mnemonics: instructionMnemonics(attributes.instructionMnemonics),
     controlFlowMetrics: parseControlFlowMetrics(attributes.controlFlowMetrics),
-    controlFlowGraph: parseControlFlowGraph(attributes.controlFlowGraph),
+    controlFlowGraph: parseControlFlowGraph(attributes.controlFlowGraph, attributes.cfgTruncated),
   }
 }
 

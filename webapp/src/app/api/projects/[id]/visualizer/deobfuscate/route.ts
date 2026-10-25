@@ -945,7 +945,7 @@ export async function POST(request: Request, { params }: RouteParams) {
             address: typeof candidateAttributes.address === 'string' ? candidateAttributes.address : null,
             mnemonics: boundedInstructionMnemonics(candidateAttributes.instructionMnemonics),
             controlFlowMetrics: parseControlFlowMetrics(candidateAttributes.controlFlowMetrics),
-            controlFlowGraph: parseControlFlowGraph(candidateAttributes.controlFlowGraph),
+            controlFlowGraph: parseControlFlowGraph(candidateAttributes.controlFlowGraph, candidateAttributes.cfgTruncated),
           }
         })
         const methodName = (signature: string) => {
@@ -979,7 +979,7 @@ export async function POST(request: Request, { params }: RouteParams) {
               address: typeof candidateAttributes.address === 'string' ? candidateAttributes.address : null,
               mnemonics: boundedInstructionMnemonics(candidateAttributes.instructionMnemonics),
               controlFlowMetrics: parseControlFlowMetrics(candidateAttributes.controlFlowMetrics),
-              controlFlowGraph: parseControlFlowGraph(candidateAttributes.controlFlowGraph),
+              controlFlowGraph: parseControlFlowGraph(candidateAttributes.controlFlowGraph, candidateAttributes.cfgTruncated),
             }
           }).filter((target) => target.mnemonics.length >= 4)
           : isLuaFunctionScopedRewrite
@@ -991,7 +991,7 @@ export async function POST(request: Request, { params }: RouteParams) {
                 address: typeof candidateAttributes.address === 'string' ? candidateAttributes.address : null,
                 mnemonics: boundedInstructionMnemonics(candidateAttributes.instructionMnemonics),
                 controlFlowMetrics: parseControlFlowMetrics(candidateAttributes.controlFlowMetrics),
-                controlFlowGraph: parseControlFlowGraph(candidateAttributes.controlFlowGraph),
+                controlFlowGraph: parseControlFlowGraph(candidateAttributes.controlFlowGraph, candidateAttributes.cfgTruncated),
               }
             }).filter((target) => target.mnemonics.length >= 4) : []
             : targetMnemonics.length >= 4 ? [{
@@ -1000,7 +1000,7 @@ export async function POST(request: Request, { params }: RouteParams) {
               address: typeof attributes.address === 'string' ? attributes.address : null,
               mnemonics: targetMnemonics,
               controlFlowMetrics: parseControlFlowMetrics(attributes.controlFlowMetrics),
-              controlFlowGraph: parseControlFlowGraph(attributes.controlFlowGraph),
+              controlFlowGraph: parseControlFlowGraph(attributes.controlFlowGraph, attributes.cfgTruncated),
             }] : []
         const similarFunctions = targets.flatMap((target) => rankSimilarInstructionFunctions(target, candidateFeatures, MAX_CONTEXT_UNITS))
           .reduce((matches, match) => {
