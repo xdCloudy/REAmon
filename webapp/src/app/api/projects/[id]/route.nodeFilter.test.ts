@@ -19,6 +19,7 @@ const mockProjectUpdate = vi.fn()
 const mockGetEffectiveUser = vi.fn()
 const mockIsInternal = vi.fn()
 const mockIsScanner = vi.fn()
+const mockGetScannerScope = vi.fn()
 
 vi.mock('@/lib/prisma', () => ({
   default: {
@@ -33,6 +34,7 @@ vi.mock('@/lib/orchestrator', () => ({ orchestratorFetch: vi.fn() }))
 vi.mock('@/lib/session', () => ({
   isInternalRequest: (...a: unknown[]) => mockIsInternal(...a),
   isScannerRequest: (...a: unknown[]) => mockIsScanner(...a),
+  getScannerScope: (...a: unknown[]) => mockGetScannerScope(...a),
 }))
 vi.mock('@/lib/access', async () => {
   const actual = await vi.importActual<typeof import('@/lib/access')>('@/lib/access')
@@ -71,6 +73,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   mockIsInternal.mockReturnValue(false)
   mockIsScanner.mockReturnValue(false)
+  mockGetScannerScope.mockReturnValue(null)
   mockGetEffectiveUser.mockResolvedValue({ userId: 'owner' })
   wireProject()
 })
@@ -109,7 +112,10 @@ describe('GET hands node filters to service callers only', () => {
 
   test.each([
     ['internal', () => mockIsInternal.mockReturnValue(true)],
-    ['scanner', () => mockIsScanner.mockReturnValue(true)],
+    ['scanner', () => {
+      mockIsScanner.mockReturnValue(true)
+      mockGetScannerScope.mockReturnValue({ projectId: 'proj-1', userId: 'owner' })
+    }],
   ])('%s caller gets the rules and the exemptions', async (_label, arrange) => {
     arrange()
     const body = await (await get()).json()
@@ -137,6 +143,7 @@ describe('GET hands node filters to service callers only', () => {
     // there as "not armed", and every scan silently stops filtering.
     // Regenerate with NODE_FILTER_CONTRACT_WRITE=1 after a deliberate change.
     mockIsScanner.mockReturnValue(true)
+    mockGetScannerScope.mockReturnValue({ projectId: 'proj-1', userId: 'owner' })
     mockProjectFindUnique.mockResolvedValue({
       id: 'proj-1', userId: 'owner', user: { id: 'owner' }, authProfile: null,
       nodeFilter: {
@@ -155,6 +162,7 @@ describe('GET hands node filters to service callers only', () => {
 
   test('a project with no filter row reads as null for a service caller', async () => {
     mockIsScanner.mockReturnValue(true)
+    mockGetScannerScope.mockReturnValue({ projectId: 'proj-1', userId: 'owner' })
     mockProjectFindUnique.mockResolvedValue({
       id: 'proj-1', userId: 'owner', user: { id: 'owner' }, authProfile: null,
       nodeFilter: null, nodeFilterExemptions: [],
