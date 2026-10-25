@@ -125,6 +125,9 @@ export async function POST(request: Request, { params }: RouteParams) {
     if (!taskA?.artifact || !taskB?.artifact || !taskA.provider || !taskB.provider) {
       return NextResponse.json({ error: 'Both functions must come from completed project analysis runs.' }, { status: 404, headers: NO_STORE })
     }
+    if (taskA.artifact.sha256 === taskB.artifact.sha256) {
+      return NextResponse.json({ error: 'Choose two different binary versions; identical artifact hashes do not need a cross-artifact comparison.' }, { status: 422, headers: NO_STORE })
+    }
     if (!NATIVE_PROVIDERS.has(taskA.provider.pluginId) || !NATIVE_PROVIDERS.has(taskB.provider.pluginId)) {
       return NextResponse.json({ error: 'Cross-artifact matching currently requires native function providers.' }, { status: 422, headers: NO_STORE })
     }

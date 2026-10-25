@@ -1543,7 +1543,12 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
       const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/explain`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ unitId: selectedUnit.id, providerId: selectedProviderId, question: question.trim() }),
+        body: JSON.stringify({
+          unitId: selectedUnit.id,
+          ...(selectedFunctionMapMember?.parentUnitId === selectedUnit.id ? { functionId: selectedFunctionMapMember.id } : {}),
+          providerId: selectedProviderId,
+          question: question.trim(),
+        }),
       })
       const result = await response.json().catch(() => ({})) as CodeExplanationResponse & { error?: string }
       if (!response.ok) throw new Error(result.error || 'Could not explain this code unit')

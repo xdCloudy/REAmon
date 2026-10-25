@@ -121,7 +121,12 @@ This is the selected-pair foundation, not whole-artifact QBinDiff integration.
 The UI currently saves candidates surfaced by REAmon's bounded instruction/CFG
 ranker, and only native functions with a matching recognized architecture qualify.
 The isolated QBinDiff adapter, full candidate-set snapshots, and reviewed-name
-context remain open. Upstream process reference: [decomp.wtf](https://github.com/i12bp8/decomp.wtf)
+context propagation beyond the AI explanation path remain open. An accepted pair
+whose exact binary and function are selected is now included as bounded context
+for AI explanations, with its counterpart name, artifact digest, provider, score,
+and review timestamp. This remains a naming hint; it does not establish behavioral
+equivalence or rewrite maintained source. Upstream process reference:
+[decomp.wtf](https://github.com/i12bp8/decomp.wtf)
 assigns work one function at a time and validates attempts with the original
 compiler and exact bytes; REAmon adopts the reviewable function unit while
 keeping its multi-language evidence and validation boundaries.
