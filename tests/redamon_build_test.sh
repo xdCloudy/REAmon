@@ -320,7 +320,11 @@ if bash "$REPO_ROOT/redamon.sh" help >/dev/null 2>&1; then pass "S2 direct 'help
 # `docker()` stub (which always returns 0) cannot make an absent daemon look up.
 if command -v docker >/dev/null 2>&1 && command docker info >/dev/null 2>&1; then
     # S3: webapp is a real, buildable compose service (Layer-1 target valid)
-    svcs="$(command docker compose -f "$REPO_ROOT/docker-compose.yml" config --services 2>/dev/null)"
+    # Compose requires these fail-closed credentials even though this smoke
+    # check only asks it to list service names. Use disposable values so CI
+    # does not depend on a developer's .env file.
+    svcs="$(env POSTGRES_PASSWORD=ci-test-password NEO4J_PASSWORD=ci-test-password \
+        docker compose -f "$REPO_ROOT/docker-compose.yml" config --services 2>/dev/null)"
     assert_contains "S3 webapp is a compose service" "$svcs" "webapp"
     assert_contains "S3 agent is a compose service"  "$svcs" "agent"
     # S4: real detection returns sane values via docker info
