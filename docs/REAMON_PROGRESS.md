@@ -1,10 +1,10 @@
 # REAmon product progress
 
-Assessment date: 2026-10-25 · Source: pushed commit `207e78c` · Weighted estimate: **50.2%**
+Assessment date: 2026-10-25 · Source: pushed commit `7b8107e` · Weighted estimate: **51.2%**
 
 This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.
 
-The weighted score is 50.2%. Seven of the eight distinct issues confirmed by the focused Standard security review now have source mitigations. Abandoned browser-import staging is cancelled after a configurable inactivity window (30 days by default); chunk activity refreshes updatedAt, cleanup conditionally claims expired rows, and removal is confined to that import. Three focused import files pass (16 tests), webapp type-check passes, and the Docker broker policy suite passes 57 checks. Shared artifact-volume capacity reporting remains open, and the deployed stack has not been rebuilt or checked against these changes.
+The weighted score is 51.2%. Source mitigations now address all eight distinct issues confirmed by the focused Standard security review. Abandoned browser-import staging expires after a configurable inactivity window (30 days by default), active chunks refresh the timestamp, cleanup claims expired rows conditionally, and only that import staging directory is removed. The project import panel reports shared artifact-volume total, used, and available bytes from filesystem statistics without walking stored files or enforcing a quota. Six focused import/capacity files pass 40 tests, the webapp type-check passes, and the Docker broker policy suite passes 57 checks. The LAN deployment has not been rebuilt or validated with these changes.
 
 | Workstream | Goal weight | Estimated complete | Weighted points |
 | --- | ---: | ---: | ---: |
@@ -13,7 +13,7 @@ The weighted score is 50.2%. Seven of the eight distinct issues confirmed by the
 | Major-language and format decompilation fluency | 24% | 35% | 8.40 pts |
 | Maintainable editing, review, and export | 12% | 43% | 5.16 pts |
 | Fixture-backed validation and fidelity evidence | 12% | 15% | 1.80 pts |
-| Security, reliability, and production operations | 20% | 55% | 11.00 pts |
+| Security, reliability, and production operations | 20% | 60% | 12.00 pts |
 
 ## Evidence and remaining work
 
@@ -49,8 +49,8 @@ The weighted score is 50.2%. Seven of the eight distinct issues confirmed by the
 
 ### Security, reliability, and production operations
 
-**Current evidence:** Seven of eight distinct issues from the focused Standard security review now have source mitigations, including the broker NET_ADMIN restriction and bounded cleanup for abandoned browser-import staging. Three focused import files pass (16 tests), webapp type-check passes, and the Docker broker policy suite passes 57 checks. Shared storage-capacity reporting remains open, and deployment validation is incomplete.
+**Current evidence:** Source mitigations now address all eight distinct issues from the focused Standard security review, including import staging cleanup, shared-volume capacity reporting, and broker NET_ADMIN denial. Six focused import/capacity files pass 40 tests, webapp type-check passes, and the Docker broker policy suite passes 57 checks. Deployment validation and the deferred security review surfaces remain open.
 
-**Remaining:** Add shared artifact-volume capacity reporting and rebuild and validate the deployed services. Review deferred parser, persistence/recovery, provider, CI/deployment, and supply-chain surfaces; complete worker lifecycle and backup/restore gates and run the remaining Docker release checks.
+**Remaining:** Rebuild and validate the webapp and broker on the LAN deployment, then review deferred parser, persistence/recovery, provider, CI/deployment, and supply-chain surfaces. Complete worker lifecycle and backup/restore gates and run the remaining Docker release checks.
 
 The machine-readable [`REAMON_PROGRESS.json`](REAMON_PROGRESS.json) feeds the README progress bar. The scope now includes the production hardening goal, so the total is not directly comparable with the previous product-only estimate. Update it with evidence when estimates change, then run `node tooling/reamon/update-product-progress.mjs <commit-sha>` to refresh this matrix and the README.
