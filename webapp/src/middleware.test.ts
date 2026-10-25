@@ -13,7 +13,7 @@ import { NextRequest, NextResponse } from 'next/server'
 vi.stubEnv('AUTH_SECRET', 'b'.repeat(64))
 vi.stubEnv('INTERNAL_API_KEY', 'internal-secret-abc')
 
-import { middleware, internalKeyRouteAllowed } from './middleware'
+import { middleware, internalKeyRouteAllowed, config } from './middleware'
 import { SignJWT } from 'jose'
 
 /* ------------------------------------------------------------------ */
@@ -57,6 +57,15 @@ describe('middleware - public paths', () => {
     // NextResponse.next() returns a response with no redirect
     expect(res.status).not.toBe(401)
     expect(res.headers.get('location')).toBeNull()
+  })
+})
+
+describe('middleware matcher', () => {
+  test('excludes only the route that streams large workspace uploads', () => {
+    const matcher = new RegExp(`^${config.matcher[0]}$`)
+    expect(matcher.test('/api/agent/workspace/upload')).toBe(false)
+    expect(matcher.test('/api/agent/workspace/upload/other')).toBe(true)
+    expect(matcher.test('/api/agent/workspace/list')).toBe(true)
   })
 })
 

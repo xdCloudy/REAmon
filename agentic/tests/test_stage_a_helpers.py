@@ -155,6 +155,53 @@ class TestUpload(StageABase):
         with self.assertRaises(ValueError):
             workspace_fs.upload_for_project("proj", "ghost-dir", b"v", "x.txt")
 
+    def test_stream_upload_reads_in_bounded_blocks_and_returns_size(self):
+        import io
+
+        self._seed_project()
+
+        class TrackingStream(io.BytesIO):
+            largest_read = 0
+
+            def read(self, size=-1):
+                self.largest_read = max(self.largest_read, size)
+                return super().read(size)
+
+        content = b"abc123" * (1024 * 1024)
+        source = TrackingStream(content)
+        new_path, size = workspace_fs.upload_stream_for_project(
+            "proj", "uploads", source, "large.bin",
+        )
+
+        target = Path(self.tmp) / "proj" / new_path
+        self.assertEqual(size, len(content))
+        self.assertEqual(target.read_bytes(), content)
+        self.assertEqual(source.largest_read, 1024 * 1024)
+
+    def test_stream_upload_failure_cleans_temp_and_preserves_destination(self):
+        import io
+
+        self._seed_project()
+        workspace_fs.upload_for_project("proj", "uploads", b"original", "x.txt")
+
+        class BrokenStream(io.BytesIO):
+            reads = 0
+
+            def read(self, size=-1):
+                self.reads += 1
+                if self.reads > 1:
+                    raise OSError("source failed")
+                return super().read(size)
+
+        with self.assertRaisesRegex(OSError, "source failed"):
+            workspace_fs.upload_stream_for_project(
+                "proj", "uploads", BrokenStream(b"partial"), "x.txt", overwrite=True,
+            )
+
+        folder = Path(self.tmp) / "proj" / "uploads"
+        self.assertEqual((folder / "x.txt").read_bytes(), b"original")
+        self.assertEqual(list(folder.glob("*.upload-tmp")), [])
+
     def test_upload_to_file_path_raises(self):
         self._seed_project()
         workspace_fs.upload_for_project("proj", "uploads", b"v", "a.txt")

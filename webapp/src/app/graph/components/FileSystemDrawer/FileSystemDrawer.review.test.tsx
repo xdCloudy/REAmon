@@ -167,10 +167,11 @@ describe('FileSystemDrawer: drag-and-drop upload', () => {
       const upload = fetchCalls.find(c => c.url.includes('/api/agent/workspace/upload'))
       expect(upload).toBeDefined()
       expect(upload?.init?.method).toBe('POST')
-      const fd = upload!.init!.body as FormData
-      expect(fd.get('path')).toBe('uploads')  // currentPath
-      expect((fd.get('file') as File).name).toBe('dropped.txt')
-      expect(fd.get('overwrite')).toBe('false')
+      const url = new URL(upload!.url, 'http://localhost')
+      expect(url.searchParams.get('path')).toBe('uploads')  // currentPath
+      expect(url.searchParams.get('filename')).toBe('dropped.txt')
+      expect(url.searchParams.get('overwrite')).toBe('false')
+      expect(upload!.init!.body).toBe(file)
     })
   })
 

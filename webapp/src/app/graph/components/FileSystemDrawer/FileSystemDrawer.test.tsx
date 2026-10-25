@@ -433,7 +433,7 @@ describe('FileSystemDrawer: new folder (mkdir)', () => {
 // ---------------------------------------------------------------------------
 
 describe('FileSystemDrawer: upload', () => {
-  test('upload POSTs FormData to /api/agent/workspace/upload', async () => {
+  test('upload streams the selected File to /api/agent/workspace/upload', async () => {
     // Track the most recent <input type="file"> created; the drawer creates
     // it on click and we need to fire `change` on it manually.
     let lastInput: HTMLInputElement | null = null
@@ -463,11 +463,12 @@ describe('FileSystemDrawer: upload', () => {
       const call = fetchCalls.find(c => c.url.includes('/api/agent/workspace/upload'))
       expect(call).toBeDefined()
       expect(call?.init?.method).toBe('POST')
-      const fd = call!.init!.body as FormData
-      expect(fd.get('projectId')).toBe('p1')
-      expect(fd.get('path')).toBe('.')
-      expect(fd.get('overwrite')).toBe('false')
-      expect((fd.get('file') as File).name).toBe('upload.txt')
+      const url = new URL(call!.url, 'http://localhost')
+      expect(url.searchParams.get('projectId')).toBe('p1')
+      expect(url.searchParams.get('path')).toBe('.')
+      expect(url.searchParams.get('overwrite')).toBe('false')
+      expect(url.searchParams.get('filename')).toBe('upload.txt')
+      expect(call!.init!.body).toBe(fakeFile)
     })
   })
 
@@ -552,8 +553,9 @@ describe('FileSystemDrawer: upload', () => {
       const uploadCalls = fetchCalls.filter(c => c.url.includes('/workspace/upload'))
       expect(uploadCalls.length).toBeGreaterThanOrEqual(2)
       const retry = uploadCalls[1]
-      const fd = retry.init?.body as FormData
-      expect(fd.get('overwrite')).toBe('true')
+      const retryUrl = new URL(retry.url, 'http://localhost')
+      expect(retryUrl.searchParams.get('overwrite')).toBe('true')
+      expect(retry.init?.body).toBe(fakeFile)
     })
   })
 })

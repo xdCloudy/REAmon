@@ -453,14 +453,16 @@ export function FileSystemDrawer({
   const doUpload = useCallback(async (file: File, destDir: string, overwrite = false) => {
     setUploadingCount((n) => n + 1)
     try {
-      const fd = new FormData()
-      fd.append('projectId', projectId)
-      fd.append('path', destDir)
-      fd.append('overwrite', overwrite ? 'true' : 'false')
-      fd.append('file', file)
-      const resp = await fetch('/api/agent/workspace/upload', {
+      const query = new URLSearchParams({
+        projectId,
+        path: destDir,
+        overwrite: overwrite ? 'true' : 'false',
+        filename: file.name,
+      })
+      const resp = await fetch(`/api/agent/workspace/upload?${query.toString()}`, {
         method: 'POST',
-        body: fd,
+        headers: { 'content-type': file.type || 'application/octet-stream' },
+        body: file,
       })
       if (resp.status === 409) {
         // Server reports name collision - queue an overwrite confirm

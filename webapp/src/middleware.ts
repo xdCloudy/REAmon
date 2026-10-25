@@ -208,5 +208,8 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|favicon.png|logo.png|js_logo.png).*)'],
+  // This route authenticates and authorizes with guardProject itself. Excluding
+  // it here prevents Next's proxy body handling from buffering/truncating large
+  // streaming uploads at proxyClientMaxBodySize.
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|favicon.png|logo.png|js_logo.png|api/agent/workspace/upload$).*)'],
 }

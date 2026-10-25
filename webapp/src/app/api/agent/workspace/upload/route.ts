@@ -3,29 +3,35 @@ import { agentFetch } from '@/lib/agentFetch'
 import { guardProject } from '@/lib/access'
 
 
-// Increase body size limit so this proxy can stream large uploads.
 export const runtime = 'nodejs'
-export const maxDuration = 60
 
 export async function POST(request: NextRequest) {
-  // Pass the original multipart body straight through; FastAPI parses it.
-  const formData = await request.formData()
-  const projectId = formData.get('projectId')
-  if (!projectId) {
-    return NextResponse.json({ error: 'projectId required' }, { status: 400 })
+  const { searchParams } = request.nextUrl
+  const projectId = searchParams.get('projectId')
+  const path = searchParams.get('path')
+  const overwrite = searchParams.get('overwrite')
+  const filename = searchParams.get('filename')
+  if (!projectId || filename === null || path === null || overwrite === null) {
+    return NextResponse.json({ error: 'projectId, path, overwrite, and filename are required' }, { status: 400 })
   }
-  const __denied = await guardProject(String(projectId))
+  const __denied = await guardProject(projectId)
   if (__denied) return __denied
-  const file = formData.get('file')
-  if (!(file instanceof File)) {
-    return NextResponse.json({ error: 'file required' }, { status: 400 })
+  if (!filename) {
+    return NextResponse.json({ error: 'filename required' }, { status: 400 })
   }
 
   try {
-    // Re-encode as multipart for upstream. fetch() handles this for FormData.
+    const upstreamQuery = new URLSearchParams({ projectId, path, overwrite, filename })
+    const init = {
+      method: 'POST',
+      headers: { 'content-type': request.headers.get('content-type') || 'application/octet-stream' },
+      body: request.body,
+      duplex: 'half' as const,
+      signal: request.signal,
+    } as RequestInit & { duplex: 'half' }
     const resp = await agentFetch(
-      '/workspace/upload',
-      { method: 'POST', body: formData },
+      `/workspace/upload?${upstreamQuery.toString()}`,
+      init,
       { timeoutMs: 0 },
     )
     const data = await resp.json()

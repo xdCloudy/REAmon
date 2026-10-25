@@ -17,6 +17,7 @@ import difflib
 import fnmatch
 import gzip
 import hashlib
+import io
 import logging
 import mimetypes
 import os
@@ -25,11 +26,12 @@ import shutil
 import stat as statlib
 import subprocess
 import tarfile
+import tempfile
 import time
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import BinaryIO, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -1382,6 +1384,24 @@ def upload_for_project(
     Raises ValueError on bad path/filename, FileExistsError if collision
     and overwrite=False.
     """
+    path, _ = upload_stream_for_project(
+        project_id, dest_dir, io.BytesIO(file_bytes), filename, overwrite,
+    )
+    return path
+
+
+def upload_stream_for_project(
+    project_id: str,
+    dest_dir: str,
+    source: BinaryIO,
+    filename: str,
+    overwrite: bool = False,
+) -> tuple[str, int]:
+    """Stream an upload to disk using bounded memory and an atomic publish.
+
+    The source is read in 1 MiB blocks. No total file size limit is imposed.
+    Returns the project-relative destination and byte count.
+    """
     if (not filename or "/" in filename or "\\" in filename
             or "\x00" in filename or filename in (".", "..")):
         raise ValueError(f"invalid filename: {filename!r}")
@@ -1391,16 +1411,41 @@ def upload_for_project(
     target = full_dir / filename
     if (target.exists() or target.is_symlink()) and not overwrite:
         raise FileExistsError(f"{filename} already exists in {dest_dir}")
-    # Atomic write (consistent with fs_write)
-    tmp = target.with_suffix(target.suffix + ".upload-tmp")
-    tmp.write_bytes(file_bytes)
-    os.replace(tmp, target)
+
+    fd, temp_name = tempfile.mkstemp(
+        prefix=f".{filename}.", suffix=".upload-tmp", dir=full_dir,
+    )
+    temp_path = Path(temp_name)
+    size = 0
     try:
-        os.chmod(target, 0o666)
-    except OSError:
-        pass
-    root = (WORKSPACE_ROOT / project_id).resolve()
-    return str(target.relative_to(root))
+        with os.fdopen(fd, "wb") as output:
+            while True:
+                block = source.read(1024 * 1024)
+                if not block:
+                    break
+                output.write(block)
+                size += len(block)
+            output.flush()
+            os.fsync(output.fileno())
+
+        if overwrite:
+            os.replace(temp_path, target)
+        else:
+            # A hard link publishes without replacing a file created after the
+            # collision check, closing the race while keeping the write atomic.
+            os.link(temp_path, target)
+            temp_path.unlink()
+        try:
+            os.chmod(target, 0o666)
+        except OSError:
+            pass
+        root = (WORKSPACE_ROOT / project_id).resolve()
+        return str(target.relative_to(root)), size
+    finally:
+        try:
+            temp_path.unlink()
+        except FileNotFoundError:
+            pass
 
 
 def mkdir_for_project(project_id: str, path: str) -> str:

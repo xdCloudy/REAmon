@@ -30,7 +30,7 @@ from typing import Any, List, Literal, Optional
 
 import httpx
 import websockets
-from fastapi import Depends, FastAPI, File, Form, Query, UploadFile, WebSocket
+from fastapi import Depends, FastAPI, File, Form, Query, Request, UploadFile, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, JSONResponse
 from langchain_core.messages import SystemMessage, HumanMessage
@@ -4696,24 +4696,32 @@ async def workspace_job_cancel(
 
 @app.post("/workspace/upload", tags=["Workspace"], dependencies=_AGENT_REST_AUTH)
 async def workspace_upload(
-    projectId: str = Form(...),
-    path: str = Form("."),
-    overwrite: bool = Form(False),
-    file: UploadFile = File(...),
+    request: Request,
+    projectId: str = Query(...),
+    path: str = Query("."),
+    overwrite: bool = Query(False),
+    filename: str = Query(...),
 ):
-    """Multipart file upload into a workspace directory.
+    """Stream a raw file upload into a workspace directory.
 
     409 (`code: exists`) on name collision when `overwrite=False` so the
     frontend can prompt for confirmation, then retry with `overwrite=true`.
     """
     if not projectId:
         return JSONResponse(content={"error": "projectId required"}, status_code=400)
+    if not filename:
+        return JSONResponse(content={"error": "filename required"}, status_code=400)
+    body = tempfile.SpooledTemporaryFile(max_size=1024 * 1024, mode="w+b")
     try:
-        file_bytes = await file.read()
-        new_path = workspace_fs.upload_for_project(
-            projectId, path, file_bytes, file.filename or "uploaded", overwrite=overwrite,
+        async for block in request.stream():
+            if block:
+                await asyncio.to_thread(body.write, block)
+        await asyncio.to_thread(body.seek, 0)
+        new_path, size = await asyncio.to_thread(
+            workspace_fs.upload_stream_for_project,
+            projectId, path, body, filename, overwrite,
         )
-        return {"projectId": projectId, "path": new_path, "size": len(file_bytes)}
+        return {"projectId": projectId, "path": new_path, "size": size}
     except FileExistsError as e:
         return JSONResponse(
             content={"error": str(e), "code": "exists"}, status_code=409,
@@ -4723,6 +4731,8 @@ async def workspace_upload(
     except Exception as e:
         logger.error(f"/workspace/upload failed: {e}")
         return JSONResponse(content={"error": str(e)}, status_code=500)
+    finally:
+        body.close()
 
 
 class WorkspaceMkdirRequest(BaseModel):

@@ -79,6 +79,43 @@ class ConfiguredMasterAuthTests(unittest.TestCase):
             response = asyncio.run(get_workspace())
         self.assertEqual(response.status_code, 503)
 
+    def test_workspace_upload_streams_raw_body_without_content_length(self):
+        import tempfile
+        import httpx
+        import api
+
+        async def upload(key, name, blocks):
+            async def body():
+                for block in blocks:
+                    yield block
+
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=api.app), base_url="http://agent.test"
+            ) as client:
+                return await client.post(
+                    "/workspace/upload",
+                    params={
+                        "projectId": "test", "path": "uploads",
+                        "overwrite": "false", "filename": name,
+                    },
+                    headers={"x-internal-key": key},
+                    content=body(),
+                )
+
+        env = {"INTERNAL_API_KEY": "master-secret"}
+        with tempfile.TemporaryDirectory() as workspace, patch.dict(os.environ, env, clear=True), \
+                patch.object(api.workspace_fs, "WORKSPACE_ROOT", Path(workspace)):
+            destination = Path(workspace) / "test" / "uploads"
+            destination.mkdir(parents=True)
+            response = asyncio.run(upload("master-secret", "large.bin", [b"first", b"-", b"second"]))
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json()["size"], 12)
+            self.assertEqual((destination / "large.bin").read_bytes(), b"first-second")
+
+            collision = asyncio.run(upload("master-secret", "large.bin", [b"replacement"]))
+            self.assertEqual(collision.status_code, 409)
+            self.assertEqual((destination / "large.bin").read_bytes(), b"first-second")
+
     def test_configured_master_key_keeps_session_proxy_available(self):
         import httpx
         import api
