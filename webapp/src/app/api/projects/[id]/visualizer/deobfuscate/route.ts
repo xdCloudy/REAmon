@@ -1614,7 +1614,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     const projectDraftContext = draftSymbolLines.length
       ? `Unreviewed draft naming evidence from this imported artifact (consistency hints only; behavior is not accepted):\n${draftSymbolLines.join('\n')}`
       : ''
-    const [priorAttempts, rejectedReviews] = await Promise.all([
+    const [priorAttempts, rejectedReviews, priorReviewedAttempts] = await Promise.all([
       prisma.reamonCodeAttempt.findMany({
         where: { projectId, artifactId: artifact.id, runKey: runPrefix.slice(0, -1), codeUnitId: observation.id, sourceHash },
         orderBy: { createdAt: 'desc' },
@@ -1626,6 +1626,16 @@ export async function POST(request: Request, { params }: RouteParams) {
         orderBy: { createdAt: 'desc' },
         take: 5,
         select: { rationale: true, maintainedSourceHash: true, createdAt: true },
+      }),
+      prisma.reamonCodeAttempt.findMany({
+        where: {
+          projectId, artifactId: artifact.id, runKey: runPrefix.slice(0, -1), codeUnitId: observation.id, sourceHash,
+          status: 'SUCCEEDED', scope,
+          qualityReview: { path: ['status'], equals: 'NEEDS_REVIEW' },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 3,
+        select: { scope: true, qualityReview: true, resultSource: true, requestPayload: true },
       }),
     ])
     const priorAttemptLines = priorAttempts.reverse().map((attempt, index) => {
@@ -1654,8 +1664,27 @@ export async function POST(request: Request, { params }: RouteParams) {
       const rationale = review.rationale.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 600)
       return `Reviewer rejected candidate sha256:${review.maintainedSourceHash.slice(0, 16)}: ${rationale}`
     })
+    const priorEvidenceReviewLines = priorReviewedAttempts.flatMap((attempt) => {
+      if (typeof attempt.resultSource !== 'string' || attempt.scope !== scope) return []
+      const payload = plainObject(attempt.requestPayload)
+      if (scope === 'member' && (payload.member_start_byte !== body.startByte
+          || payload.member_end_byte !== body.endByte || payload.member_name !== body.memberName)) return []
+      const review = plainObject(attempt.qualityReview)
+      const candidateHash = createHash('sha256').update(attempt.resultSource, 'utf8').digest('hex')
+      if (review.status !== 'NEEDS_REVIEW' || review.candidateSha256 !== candidateHash
+          || !Array.isArray(review.findings)) return []
+      return review.findings.flatMap((value) => {
+        if (typeof value !== 'string') return []
+        const finding = value.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 360)
+        return finding ? [`Prior advisory review concern for candidate sha256:${candidateHash.slice(0, 16)}: ${finding}`] : []
+      }).slice(0, 4)
+    })
     const priorAttemptContext = utf8Prefix([
       ...rejectedReviewLines,
+      ...(priorEvidenceReviewLines.length ? [
+        'Prior AI review concerns are untrusted leads. Recheck each against the original decompilation and project evidence; do not repeat a concern that the evidence disproves.',
+      ] : []),
+      ...priorEvidenceReviewLines,
       ...priorAttemptLines,
     ].join('\n'), 4 * 1024)
     const contextSources: Array<{ unit_name: string; language: string; source_code: string; unit_id?: string }> = []

@@ -128,7 +128,11 @@ bounded supporting evidence and stores a structured result against the candidate
 exact SHA-256. The reviewer can report a concrete discrepancy, uncertainty, no
 issue found, or an unavailable review. The rewrite provider is used by default, and
 a different saved provider can be selected when independent review is desired. Its
-result is advisory and does not change syntax-validation status or acceptance.
+result is advisory and does not change syntax-validation status or acceptance. When
+the same file or exact function is rewritten again, concrete concerns from a prior
+review are included only if the saved result hash still matches that candidate.
+Those concerns are labeled as untrusted leads and must be checked against the
+original decompilation and project evidence.
 
 Most maintained-source acceptance checks remain structural. For a JVM JAR, the visualizer can separately compile one accepted Java class against the original archive and create an unsigned derived JAR. Generated class entries replace their prior versions, and stale nested-class entries missing from the new compile are removed under a bounded count limit. This compiler result validates that one source class against the bundled JDK and archive classpath; it does not use external project dependencies or prove runtime equivalence. For Universal Dreams `.ud` source, acceptance runs the pinned compiler and stores its compiled output under the originating analysis run, keyed by the exact source and output hashes. The immutable review receipt records the source hash, validator revision, output hash, and derived artifact path. This proves that the pinned compiler accepted the edited representation and produced bytes; byte identity against the original is recorded separately and neither result proves behavioral equivalence. REAmon does not yet run a general original-toolchain, function-level byte comparison. Projects such as Rebrew show
 the stronger path when the exact native compiler, flags, linker placement, and target

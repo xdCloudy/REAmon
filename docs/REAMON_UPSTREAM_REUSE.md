@@ -530,6 +530,13 @@ symbol changes that protect already-accepted source. Keep REAmon's PostgreSQL
 records authoritative; do not transplant the game compiler, ROM adapters, or
 SQLite store.
 
+Following ReAgent's reverser-to-checker feedback loop, REAmon now passes concrete
+findings from a prior advisory review into a later attempt for the same source scope
+when the candidate hash still matches. Function retries also require the exact
+member name and byte range to match. These findings remain untrusted leads; they do
+not change validation or acceptance. Automatic bounded repair rounds and
+independent structural/binary verdicts remain future work.
+
 - `src/decompnet/server.py` shows small MCP operations for claiming one function,
   reporting attempts, shared notes, and live status. Map that lifecycle to
   REAmon tasks, evidence, drafts, approvals, and activity rather than transplanting
