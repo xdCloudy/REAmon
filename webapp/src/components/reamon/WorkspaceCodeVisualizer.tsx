@@ -651,6 +651,7 @@ function DenseFunctionMap({ cells, onSelect }: {
   const [activeIndex, setActiveIndex] = useState(0)
   const [hasFocus, setHasFocus] = useState(false)
   const [themeRevision, setThemeRevision] = useState(0)
+  const boundedActiveIndex = Math.min(activeIndex, Math.max(0, cells.length - 1))
 
   useEffect(() => {
     const viewport = viewportRef.current
@@ -686,10 +687,6 @@ function DenseFunctionMap({ cells, onSelect }: {
   }, [cells.length])
 
   useEffect(() => {
-    setActiveIndex((index) => Math.max(0, Math.min(index, cells.length - 1)))
-  }, [cells.length])
-
-  useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas || !layout) return
     canvas.width = Math.round(layout.width * layout.dpr)
@@ -720,17 +717,17 @@ function DenseFunctionMap({ cells, onSelect }: {
         context.lineWidth = 2
         context.strokeRect(x - 1, y - 1, layout.cellSize + 2, layout.cellSize + 2)
       }
-      if (hasFocus && index === activeIndex) {
+      if (hasFocus && index === boundedActiveIndex) {
         context.strokeStyle = colors.drafted
         context.lineWidth = 2
         context.strokeRect(x - 2, y - 2, layout.cellSize + 4, layout.cellSize + 4)
       }
     })
-  }, [activeIndex, cells, hasFocus, layout, themeRevision])
+  }, [boundedActiveIndex, cells, hasFocus, layout, themeRevision])
 
-  const activeCell = cells[activeIndex]
-  const activeRow = layout ? Math.floor(activeIndex / layout.columns) + 1 : 1
-  const activeColumn = layout ? activeIndex % layout.columns + 1 : 1
+  const activeCell = cells[boundedActiveIndex]
+  const activeRow = layout ? Math.floor(boundedActiveIndex / layout.columns) + 1 : 1
+  const activeColumn = layout ? boundedActiveIndex % layout.columns + 1 : 1
 
   function cellAtPointer(event: { clientX: number; clientY: number }): number {
     if (!layout) return -1
@@ -751,14 +748,14 @@ function DenseFunctionMap({ cells, onSelect }: {
   function moveActive(key: string) {
     if (!layout || !cells.length) return
     const rowStep = layout.columns
-    const nextIndex = key === 'ArrowRight' ? Math.min(cells.length - 1, activeIndex + 1)
-      : key === 'ArrowLeft' ? Math.max(0, activeIndex - 1)
-        : key === 'ArrowDown' ? Math.min(cells.length - 1, activeIndex + rowStep)
-          : key === 'ArrowUp' ? Math.max(0, activeIndex - rowStep)
+    const nextIndex = key === 'ArrowRight' ? Math.min(cells.length - 1, boundedActiveIndex + 1)
+      : key === 'ArrowLeft' ? Math.max(0, boundedActiveIndex - 1)
+        : key === 'ArrowDown' ? Math.min(cells.length - 1, boundedActiveIndex + rowStep)
+          : key === 'ArrowUp' ? Math.max(0, boundedActiveIndex - rowStep)
             : key === 'Home' ? 0
               : key === 'End' ? cells.length - 1
-                : key === 'PageDown' ? Math.min(cells.length - 1, activeIndex + rowStep * 10)
-                  : key === 'PageUp' ? Math.max(0, activeIndex - rowStep * 10) : activeIndex
+                : key === 'PageDown' ? Math.min(cells.length - 1, boundedActiveIndex + rowStep * 10)
+                  : key === 'PageUp' ? Math.max(0, boundedActiveIndex - rowStep * 10) : boundedActiveIndex
     setActiveIndex(nextIndex)
     if (key.startsWith('Arrow') || key.startsWith('Page')) {
       const row = Math.floor(nextIndex / rowStep)
@@ -770,7 +767,7 @@ function DenseFunctionMap({ cells, onSelect }: {
     }
   }
 
-  const activeCellId = `${mapId}-cell-${activeIndex}`
+  const activeCellId = `${mapId}-cell-${boundedActiveIndex}`
   return <>
     <p className={styles.functionMapNote}>Dense map: one cell per code unit or outlined function. Focus the map and use arrow keys, Home, End, or Page Up and Page Down; press Enter or Space to inspect the selected item. Hover a cell for its label.</p>
     <div
@@ -1146,7 +1143,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
       }
     })
     return [...units, ...members]
-  }, [folderUnits, languageLabel, mapLayer, selectedFunctionMapMember?.id, selectedId, visibleFunctionMapMembers])
+  }, [folderUnits, mapLayer, selectedFunctionMapMember?.id, selectedId, visibleFunctionMapMembers])
   const treemapEntries = useMemo(() => mapContent === 'folders'
     ? buildCodeUnitTreemapEntries(folderUnits, folderPath)
     : folderUnits.map((unit): CodeUnitTreemapEntry => ({
