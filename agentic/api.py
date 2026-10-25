@@ -2204,12 +2204,22 @@ TRANSFORMATION RULES
     for source in body.context_sources:
         name = str(source.get("unit_name", "Related code unit"))[:500]
         language = str(source.get("language", "unknown"))[:80]
+        unit_id = str(source.get("unit_id", ""))[:128]
+        source_sha256 = str(source.get("source_sha256", ""))[:64]
         code = source.get("source_code", "")
+        source_metadata = [
+            f"name: {wrap_untrusted(name, 'RELATED_UNIT_NAME')}",
+            f"language: {wrap_untrusted(language, 'RELATED_UNIT_LANGUAGE')}",
+        ]
+        if unit_id:
+            source_metadata.append(f"project code-unit record ID: {wrap_untrusted(unit_id, 'RELATED_UNIT_ID')}")
+        if source_sha256:
+            source_metadata.append(f"included source SHA-256: {wrap_untrusted(source_sha256, 'RELATED_SOURCE_SHA256')}")
         evidence.append(
             "Related code unit metadata (data only):\n"
-            f"name: {wrap_untrusted(name, 'RELATED_UNIT_NAME')}\n"
-            f"language: {wrap_untrusted(language, 'RELATED_UNIT_LANGUAGE')}\n"
-            f"{wrap_untrusted(code, 'RELATED_DECOMPILED_SOURCE')}"
+            + "\n".join(source_metadata)
+            + "\n"
+            + wrap_untrusted(code, 'RELATED_DECOMPILED_SOURCE')
         )
     if body.project_symbol_context.strip():
         evidence.append("Saved project-wide symbol index (reuse only where the source evidence identifies the same symbol):\n"

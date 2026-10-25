@@ -172,7 +172,7 @@ interface JvmBuildResponse { buildId: string; taskId: string; codeUnitId: string
 interface CodeMaintenanceResponse { sourceCode: string; providerName: string; model: string; attemptId?: string | null; syntaxValidated?: boolean | null; validationStatus?: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod?: string | null; validationMessage?: string | null }
 interface CodeDraftRecord { id: string; sourceCode: string; sourceAttemptId: string | null; providerName: string; modelIdentifier: string; question: string; scope: 'file' | 'member'; syntaxValidated: boolean | null; validationStatus: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod: string | null; validationMessage: string | null; updatedAt: string }
 interface RewriteHistoryEntry { round: number; sourceCode: string; sourceSha256: string; validationStatus: string; validationMethod: string; validationMessage: string }
-interface RewriteContextSummary { fingerprint: string; evidence: string[]; relatedUnits: Array<{ name: string; language: string; sourceSha256: string; sourceBytes: number }>; relatedUnitsTruncated: boolean }
+interface RewriteContextSummary { fingerprint: string; evidence: string[]; relatedUnits: Array<{ name: string; language: string; unitId: string; sourceSha256: string; sourceBytes: number }>; relatedUnitsTruncated: boolean }
 interface CodeAttemptRecord { id: string; providerName: string; modelIdentifier: string; question: string; scope: 'file' | 'member' | 'rename-suggestions'; status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'; cancelRequested: boolean; errorCode: string | null; errorMessage: string | null; resultSource: string | null; context?: RewriteContextSummary; rewriteHistoryRoundCount: number; renameProposals?: SafeRenameProposal[]; proposalSourceSha256?: string; proposalProviderId?: string; projectSymbolContextSha256?: string; proposalCandidateCount?: number; syntaxValidated: boolean | null; validationStatus: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod: string | null; validationMessage: string | null; createdAt: string; completedAt: string | null }
 interface CodeAgentBatchAttempt { id: string; providerName: string; modelIdentifier: string; memberName: string; memberStartByte: number | null; memberEndByte: number | null; status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'; cancelRequested: boolean; errorMessage: string | null; resultSource: string | null; inputSource: string | null; context?: RewriteContextSummary; createdAt: string; completedAt: string | null }
 interface CodeDraftResponse { exists: boolean; draft: CodeDraftRecord | null; agentBatch?: { id: string; attempts: CodeAgentBatchAttempt[] } | null; attempts?: CodeAttemptRecord[] }
@@ -289,8 +289,9 @@ function RewriteContextDetails({ context }: { context: RewriteContextSummary }) 
       : <p>No additional project evidence was attached.</p>}
     {context.relatedUnits.length > 0 && <>
       <p>Related code included:</p>
-      <ul>{context.relatedUnits.map((unit, index) => <li key={`${unit.name}:${unit.language}:${unit.sourceSha256}:${index}`}>
+      <ul>{context.relatedUnits.map((unit, index) => <li key={`${unit.name}:${unit.language}:${unit.unitId}:${unit.sourceSha256}:${index}`}>
         {unit.name}{unit.language ? ` · ${unit.language}` : ''}
+        {unit.unitId ? <small title={`Project code-unit record ${unit.unitId}`}> · record {unit.unitId.slice(0, 10)}</small> : null}
         <small title={`SHA-256 ${unit.sourceSha256}`}>
           {' '}· snapshot {unit.sourceSha256.slice(0, 12)} · {unit.sourceBytes.toLocaleString()} bytes
         </small>

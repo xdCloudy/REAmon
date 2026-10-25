@@ -44,12 +44,13 @@ function rewriteContextSummary(value: unknown) {
       return [{
         name: source.unit_name.slice(0, 180),
         language: typeof source.language === 'string' ? source.language.slice(0, 80) : '',
+        unitId: typeof source.unit_id === 'string' ? source.unit_id : '',
         sourceSha256: createHash('sha256').update(sourceCode, 'utf8').digest('hex'),
         sourceBytes: Buffer.byteLength(sourceCode, 'utf8'),
       }]
     })
     : []
-  const relatedUnits = [...new Map(relatedUnitCandidates.map((unit) => [`${unit.language}\0${unit.name}\0${unit.sourceSha256}`, unit])).values()]
+  const relatedUnits = [...new Map(relatedUnitCandidates.map((unit) => [`${unit.language}\0${unit.name}\0${unit.unitId}\0${unit.sourceSha256}`, unit])).values()]
   const fingerprintInput = labels.map(([key, alias]) => [key, payload[key] ?? payload[alias] ?? null])
   fingerprintInput.push(['context_sources', payload.context_sources ?? null])
   fingerprintInput.push(['bindings', payload.bindings ?? null])

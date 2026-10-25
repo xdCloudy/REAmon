@@ -1649,7 +1649,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       ...rejectedReviewLines,
       ...priorAttemptLines,
     ].join('\n'), 4 * 1024)
-    const contextSources: Array<{ unit_name: string; language: string; source_code: string }> = []
+    const contextSources: Array<{ unit_name: string; language: string; source_code: string; unit_id?: string }> = []
     let contextBytes = 0
     if (observation.source !== 'reamon-recurse' && currentNativeFunctionIdentity && artifact.sha256) {
       const recurseRows = await prisma.reamonObservation.findMany({
@@ -2305,6 +2305,7 @@ export async function POST(request: Request, { params }: RouteParams) {
           unit_name: `${name}${similarityHint} (${isDirectCallee ? 'direct callee from this analysis run; ' : ''}saved maintained version: ${maintainedSource.unitName}${validationEvidence}${methodExcerpt ? `; syntax-outlined method source${methodExcerpt.ambiguous ? '; same-name candidates may be ambiguous' : ''}${methodExcerpt.truncated ? '; outline truncated' : ''}` : ''})`,
           language: maintainedSource.language.slice(0, 80),
           source_code: source,
+          unit_id: relatedUnitId,
         })
         contextBytes += Buffer.byteLength(source, 'utf8')
         continue
@@ -2327,6 +2328,7 @@ export async function POST(request: Request, { params }: RouteParams) {
             unit_name: `${relatedDraft.unitName} (${relatedDraft.language}; direct callee from this analysis run; unreviewed saved draft sha256:${relatedDraft.draftHash!.slice(0, 16)}${excerptTruncated ? '; excerpt truncated' : ''}${validationEvidence}; provisional naming and behavior only)`,
             language: relatedDraft.language.slice(0, 80),
             source_code: source,
+            unit_id: relatedUnitId,
           })
           contextBytes += Buffer.byteLength(source, 'utf8')
           continue
@@ -2382,6 +2384,7 @@ export async function POST(request: Request, { params }: RouteParams) {
             : relatedAttributes?.language === 'IL' ? 'C#'
               : (typeof relatedAttributes?.language === 'string' ? relatedAttributes.language.slice(0, 80) : language),
           source_code: utf8Prefix(relatedSource, MAX_CONTEXT_BYTES - contextBytes),
+          ...(relatedUnitId ? { unit_id: relatedUnitId } : {}),
         })
         contextBytes += Buffer.byteLength(contextSources.at(-1)?.source_code || '', 'utf8')
       } catch {
@@ -2572,7 +2575,10 @@ export async function POST(request: Request, { params }: RouteParams) {
       representation_context: representationContext,
       scope,
       member_name: scope === 'member' ? String(body.memberName).slice(0, 500) : '',
-      context_sources: contextSources,
+      context_sources: contextSources.map((source) => ({
+        ...source,
+        source_sha256: createHash('sha256').update(source.source_code, 'utf8').digest('hex'),
+      })),
       disassembly_source: disassemblySource,
       binary_evidence: binaryEvidence,
       project_symbol_context: maintainedProjectContext,
