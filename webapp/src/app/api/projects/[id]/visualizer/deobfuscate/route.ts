@@ -14,6 +14,7 @@ import { flossRecoveredStringsOf, providerVariablesOf } from '@/lib/reamon/code-
 import { parseControlFlowGraph, parseControlFlowMetrics, rankSimilarInstructionFunctions, type RankedSimilarInstructionFunction } from '@/lib/reamon/instruction-similarity'
 import { codeRewriteLeaseGraceMs, failInterruptedCodeAttempts } from '@/lib/reamon/code-attempts'
 import { codeNoteText, REAMON_CODE_NOTE_SOURCE } from '@/lib/reamon/code-notes'
+import { loadAcceptedFunctionMatchContext } from '@/lib/reamon/accepted-function-match-context'
 
 interface RouteParams { params: Promise<{ id: string }> }
 interface DeobfuscateBody { unitId?: unknown; providerId?: unknown; question?: unknown; scope?: unknown; startByte?: unknown; endByte?: unknown; memberName?: unknown; sourceCode?: unknown; agentBatchId?: unknown }
@@ -862,6 +863,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     const isLuaFunctionScopedRewrite = observation.source === 'reamon-unluac-rs'
       && scope === 'member' && Boolean(selectedMemberName)
     const isFunctionScopedRewrite = isMethodScopedRewrite || isLuaFunctionScopedRewrite
+    let acceptedFunctionMatchContext = ''
     if ((observation.source === 'reamon-ghidra' || observation.source === 'reamon-ida' || observation.source === 'reamon-wabt' || observation.source === 'reamon-kuna' || isFunctionScopedRewrite) && observation.taskId && observation.stableKey) {
       const targetMnemonics = boundedInstructionMnemonics(attributes.instructionMnemonics)
       if (targetMnemonics.length >= 4 || isFunctionScopedRewrite) {
@@ -1002,6 +1004,21 @@ export async function POST(request: Request, { params }: RouteParams) {
               controlFlowMetrics: parseControlFlowMetrics(attributes.controlFlowMetrics),
               controlFlowGraph: parseControlFlowGraph(attributes.controlFlowGraph, attributes.cfgTruncated),
             }] : []
+        const selectedMatchIdentity = isMethodScopedRewrite && methodTargets.length === 1 && targets.length === 1
+          ? [{ id: methodTargets[0].id, stableKey: methodTargets[0].stableKey }]
+          : isLuaFunctionScopedRewrite && luaTargetRows.length === 1 && targets.length === 1
+            ? [{ id: luaTargetRows[0].id }]
+            : !isFunctionScopedRewrite && targets.length === 1
+              ? [{ id: observation.id, stableKey: observation.stableKey }]
+              : []
+        if (selectedMatchIdentity.length) {
+          acceptedFunctionMatchContext = await loadAcceptedFunctionMatchContext({
+            projectId,
+            artifactId: artifact.id,
+            artifactHash: artifact.sha256,
+            functionIdentities: selectedMatchIdentity,
+          })
+        }
         const similarFunctions = targets.flatMap((target) => rankSimilarInstructionFunctions(target, candidateFeatures, MAX_CONTEXT_UNITS))
           .reduce((matches, match) => {
             const prior = matches.get(match.key)
@@ -2548,6 +2565,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       disassembly_source: disassemblySource,
       binary_evidence: binaryEvidence,
       project_symbol_context: maintainedProjectContext,
+      accepted_function_match_context: acceptedFunctionMatchContext,
       imported_rea_evidence_context: importedReaEvidenceContext,
       provider_symbol_context: combinedProviderSymbolContext,
       project_draft_context: projectDraftContext,
