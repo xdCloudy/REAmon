@@ -1,6 +1,6 @@
 # REAmon product progress
 
-Assessment date: 2026-10-25 · Source: pushed commit `01a6a16` · Weighted estimate: **48.9%**
+Assessment date: 2026-10-25 · Source: pushed commit `381df37` · Weighted estimate: **49.0%**
 
 This is an estimate of progress toward the long-term product goal, not a release-readiness score. Workstream weights total 100%; each contribution is weight × completion.
 
@@ -9,7 +9,7 @@ This is an estimate of progress toward the long-term product goal, not a release
 | Core analysis and visualizer workflow | 20% | 76% | 15.20 pts |
 | Database-grounded project memory and provenance | 20% | 73% | 14.60 pts |
 | Major-language and format decompilation fluency | 30% | 35% | 10.50 pts |
-| Maintainable editing, review, and export | 15% | 42% | 6.30 pts |
+| Maintainable editing, review, and export | 15% | 43% | 6.45 pts |
 | Fixture-backed validation and fidelity evidence | 15% | 15% | 2.25 pts |
 
 ## Evidence and remaining work
@@ -34,9 +34,9 @@ This is an estimate of progress toward the long-term product goal, not a release
 
 ### Maintainable editing, review, and export
 
-**Current evidence:** Hash-bound drafts and immutable review receipts preserve lineage, with syntax validation and early Java rebuild and language-specific rename workflows.
+**Current evidence:** Hash-bound drafts and immutable review receipts preserve lineage, with syntax validation, an early Java rebuild, and language-specific rename workflows now extending to C/C++ local bindings.
 
-**Remaining:** Project-wide edits, cross-file builds, more target-format rebuilds, and runtime or behavior validation remain limited.
+**Remaining:** Project-wide edits, cross-file builds, more target-format rebuilds, and runtime or behavior validation remain limited; C/C++ rename fixture coverage is pending.
 
 ### Fixture-backed validation and fidelity evidence
 
