@@ -42,7 +42,7 @@ describe('WABT provider', () => {
 
   it('advertises WebAssembly disassembly', () => {
     expect(wasmManifest.acceptsFormats).toEqual(['wasm'])
-    expect(wasmManifest.capabilities).toEqual(['disassemble'])
+    expect(wasmManifest.capabilities).toEqual(['disassemble', 'decompile'])
   })
 
   it('converts returned WAT functions to linked code units', async () => {

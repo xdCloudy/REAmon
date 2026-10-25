@@ -43,7 +43,7 @@ describe('POST /api/internal/reamon/graph/project', () => {
 
     expect(response.status).toBe(200)
     expect(await response.json()).toMatchObject({ projectId: 'project-1', selected: 2, reconciled: true, deletedNodes: 1, deletedRelationships: 2, projectionRunId: expect.any(String) })
-    expect(mocks.project).toHaveBeenCalledWith('project-1', expect.anything(), 100, 25, undefined, expect.any(String))
+    expect(mocks.project).toHaveBeenCalledWith('project-1', expect.anything(), 100, 25, 0, expect.any(String))
     expect(mocks.close).toHaveBeenCalledOnce()
     expect(mocks.activityCreate).toHaveBeenCalledTimes(2)
     expect(mocks.activityCreate.mock.calls[0][0]).toMatchObject({ data: { projectId: 'project-1', eventType: 'analysis.graph_projection.started' } })

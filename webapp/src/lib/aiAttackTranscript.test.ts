@@ -24,6 +24,8 @@ describe('resolveTranscriptPath', () => {
   test('rejects refs outside any known root', () => {
     expect(resolveTranscriptPath('/etc/passwd')).toBeNull()
     expect(resolveTranscriptPath('/data/recon-output/x.json')).toBeNull()
+    expect(resolveTranscriptPath(`${CONTAINER_ROOT}-backup/run1/report.json`)).toBeNull()
+    expect(resolveTranscriptPath(`${WEBAPP_ROOT}-backup/run1/report.json`)).toBeNull()
   })
 
   test('rejects disallowed extensions', () => {

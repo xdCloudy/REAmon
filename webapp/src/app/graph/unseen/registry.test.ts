@@ -30,7 +30,7 @@ const SCHEMA_KEYS_PY = join(__dirname, '../../../../../graph_db/schema_keys.py')
 /** Every member of the `TableViewMode` union, read out of its declaration. */
 function tableViewModes(): string[] {
   const src = readFileSync(VIEW_TABS, 'utf8')
-  const union = src.match(/export type TableViewMode =([\s\S]*?)\n\n/)
+  const union = src.match(/export type TableViewMode =([\s\S]*?)\r?\n\r?\n/)
   if (!union) throw new Error('TableViewMode union not found in ViewTabs.tsx')
   return [...union[1].matchAll(/'([a-zA-Z]+)'/g)].map(m => m[1])
 }

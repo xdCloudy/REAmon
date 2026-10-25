@@ -5,16 +5,23 @@ import path from 'node:path'
 import { NextRequest } from 'next/server'
 
 const h = vi.hoisted(() => ({
-  user: vi.fn(), access: vi.fn(), selection: vi.fn(), provider: vi.fn(), observation: vi.fn(), observations: vi.fn(), artifact: vi.fn(),
+  user: vi.fn(), access: vi.fn(), selection: vi.fn(), provider: vi.fn(), observation: vi.fn(), observations: vi.fn(), observationCreateMany: vi.fn(), artifact: vi.fn(),
   artifacts: vi.fn(), maintainedSource: vi.fn(), drafts: vi.fn(), draft: vi.fn(), agentFetch: vi.fn(), root: vi.fn(), resolvePath: vi.fn(),
+  evidenceFindMany: vi.fn(),
+  attemptsFindMany: vi.fn(), attemptsCreate: vi.fn(), attemptsUpdateMany: vi.fn(),
+  reviewsFindMany: vi.fn(), reviewsFindFirst: vi.fn(), leaseCreate: vi.fn(), leaseDeleteMany: vi.fn(),
 }))
 
 vi.mock('@/lib/prisma', () => ({ default: {
   userLlmProvider: { findFirst: h.provider },
-  reamonObservation: { findFirst: h.observation, findMany: h.observations },
+  reamonObservation: { findFirst: h.observation, findMany: h.observations, createMany: h.observationCreateMany },
   artifact: { findFirst: h.artifact, findMany: h.artifacts },
   reamonMaintainedSource: { findMany: h.maintainedSource },
   reamonCodeDraft: { findMany: h.drafts, findFirst: h.draft },
+  reamonCodeAttempt: { findMany: h.attemptsFindMany, create: h.attemptsCreate, updateMany: h.attemptsUpdateMany },
+  reamonCodeReview: { findMany: h.reviewsFindMany, findFirst: h.reviewsFindFirst },
+  reamonCodeUnitLease: { create: h.leaseCreate, deleteMany: h.leaseDeleteMany },
+  evidence: { findMany: h.evidenceFindMany },
 } }))
 vi.mock('@/lib/access', () => ({ requireEffectiveUser: h.user, requireProjectAccess: h.access }))
 vi.mock('@/lib/reamon/inventory-query', () => ({ getActiveWorkspaceImportSelection: h.selection }))
@@ -52,9 +59,18 @@ beforeEach(async () => {
   h.artifact.mockResolvedValue({ id: 'artifact-1' })
   h.artifacts.mockResolvedValue([])
   h.observations.mockResolvedValue([])
+  h.observationCreateMany.mockResolvedValue({ count: 1 })
   h.maintainedSource.mockResolvedValue([])
   h.drafts.mockResolvedValue([])
   h.draft.mockResolvedValue(null)
+  h.evidenceFindMany.mockResolvedValue([])
+  h.attemptsFindMany.mockResolvedValue([])
+  h.attemptsCreate.mockResolvedValue({ id: 'attempt-1' })
+  h.attemptsUpdateMany.mockResolvedValue({ count: 0 })
+  h.reviewsFindMany.mockResolvedValue([])
+  h.reviewsFindFirst.mockResolvedValue(null)
+  h.leaseCreate.mockResolvedValue({ id: 'lease-1' })
+  h.leaseDeleteMany.mockResolvedValue({ count: 0 })
   testRoot = await mkdtemp(path.join(os.tmpdir(), 'reamon-explain-'))
   h.root.mockReturnValue(testRoot)
   h.resolvePath.mockImplementation((relativePath: string) => path.join(testRoot, relativePath))
@@ -105,12 +121,12 @@ describe('POST /api/projects/[id]/visualizer/deobfuscate', () => {
   it('builds a Java method outline without requiring a provider', async () => {
     const source = 'class Example { int value() { return 1; } }'
     await writeFile(path.join(testRoot, 'project-1/artifact-1/task-1/run-1/sources/MainActivity.java'), source)
-    h.agentFetch.mockResolvedValueOnce(new Response(JSON.stringify({ members: [{ name: 'value' }], truncated: false }), { status: 200 }))
+    h.agentFetch.mockResolvedValueOnce(new Response(JSON.stringify({ members: [{ name: 'value', kind: 'method', start_byte: 20, end_byte: 40, line: 1, source_bytes: 20 }], truncated: false, parserVersion: 'tree-sitter-test' }), { status: 200 }))
 
     const response = await deobfuscate(request({ unitId: 'unit-1', scope: 'outline' }), routeParams)
 
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ members: [{ name: 'value' }], truncated: false })
+    expect(await response.json()).toEqual({ members: [{ name: 'value', kind: 'method', start_byte: 20, end_byte: 40, line: 1, source_bytes: 20 }], truncated: false, parserVersion: 'tree-sitter-test', persistedMemberCount: 1 })
     expect(h.provider).not.toHaveBeenCalled()
     expect(h.agentFetch).toHaveBeenCalledWith('/reamon/code/outline', expect.objectContaining({
       body: JSON.stringify({ language: 'Java', source_code: source }),
@@ -123,14 +139,19 @@ describe('POST /api/projects/[id]/visualizer/deobfuscate', () => {
     const startByte = Buffer.byteLength('class Example { ', 'utf8')
     const endByte = startByte + Buffer.byteLength(method, 'utf8')
     await writeFile(path.join(testRoot, 'project-1/artifact-1/task-1/run-1/sources/MainActivity.java'), source)
-    h.agentFetch.mockResolvedValueOnce(new Response(JSON.stringify({ source_code: method, syntax_validated: true }), { status: 200 }))
+    h.agentFetch.mockResolvedValueOnce(new Response(JSON.stringify({ members: [{ name: 'label', kind: 'method', start_byte: startByte, end_byte: endByte, line: 1, source_bytes: Buffer.byteLength(method, 'utf8') }], truncated: false, parserVersion: 'tree-sitter-test' }), { status: 200 }))
 
     const response = await deobfuscate(request({ unitId: 'unit-1', providerId: 'provider-1', scope: 'member', startByte, endByte, memberName: 'label' }), routeParams)
 
-    expect(response.status).toBe(200)
-    expect(String(h.agentFetch.mock.calls.at(-1)?.[1]?.body)).toContain(`"source_code":${JSON.stringify(method)}`)
-    expect(String(h.agentFetch.mock.calls.at(-1)?.[1]?.body)).toContain('"scope":"member"')
-    expect(String(h.agentFetch.mock.calls.at(-1)?.[1]?.body)).toContain('"member_name":"label"')
+    expect(response.status).toBe(202)
+    expect(await response.json()).toEqual({ attemptId: 'attempt-1', status: 'QUEUED' })
+    const payload = h.attemptsCreate.mock.calls[0][0].data.requestPayload
+    expect(payload.source_code).toBe(method)
+    expect(payload.scope).toBe('member')
+    expect(payload.member_name).toBe('label')
+    expect(payload.member_start_byte).toBe(startByte)
+    expect(payload.member_end_byte).toBe(endByte)
+    expect(String(h.agentFetch.mock.calls[0][1].body)).toContain('"source_code"')
   })
 
   it('supplies only same-run direct Ghidra callers and callees as code context', async () => {
@@ -156,102 +177,97 @@ describe('POST /api/projects/[id]/visualizer/deobfuscate', () => {
       ]
       return []
     })
-    h.agentFetch.mockResolvedValueOnce(new Response(JSON.stringify({ source_code: 'int main(void) { return helper(); }' }), { status: 200 }))
-
     const response = await deobfuscate(request({ unitId: 'unit-main', providerId: 'provider-1' }), routeParams)
 
-    expect(response.status).toBe(200)
-    const payload = JSON.parse(String(h.agentFetch.mock.calls.at(-1)?.[1]?.body))
+    expect(response.status).toBe(202)
+    const payload = h.attemptsCreate.mock.calls[0][0].data.requestPayload
     expect(payload.context_sources).toEqual([
-      { unit_name: 'caller', language: 'C', source_code: 'int caller(void) { return main(); }' },
-      { unit_name: 'helper', language: 'C', source_code: 'int helper(void) { return 1; }' },
+      expect.objectContaining({ unit_name: 'caller', language: 'C', source_code: 'int caller(void) { return main(); }', unit_id: 'unit-caller' }),
+      expect.objectContaining({ unit_name: 'helper', language: 'C', source_code: 'int helper(void) { return 1; }', unit_id: 'unit-helper' }),
     ])
+    expect(payload.context_sources.every((source: { source_sha256?: string }) => /^[a-f0-9]{64}$/.test(source.source_sha256 ?? ''))).toBe(true)
     expect(h.observations).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({
-        taskId: 'task-1', artifactId: 'artifact-1', source: 'reamon-ghidra', type: 'calls',
-        OR: [{ fromKey: 'ghidra:function:main' }, { toKey: 'ghidra:function:main' }],
+        taskId: 'task-1', artifactId: 'artifact-1', source: 'reamon-ghidra', kind: 'relationship', type: 'calls',
       }),
     }))
   })
 
-  it('sends the selected source to the exact saved provider for a source transformation', async () => {
-    h.agentFetch.mockResolvedValueOnce(new Response(JSON.stringify({ source_code: 'return currentAccountName;' }), { status: 200 }))
+  it('persists the selected source and exact saved provider for an asynchronous source transformation', async () => {
     const response = await deobfuscate(request({ unitId: 'unit-1', providerId: 'provider-1', question: 'Use names based on actual behavior.' }), routeParams)
 
-    expect(response.status).toBe(200)
-    expect(await response.json()).toMatchObject({ sourceCode: 'return currentAccountName;', providerName: 'Local Qwen', model: 'Qwen3.5-0.8B' })
-    expect(h.agentFetch).toHaveBeenCalledWith('/reamon/code/deobfuscate', expect.objectContaining({
-      method: 'POST', body: expect.stringContaining('"model":"custom/provider-1"'),
-    }), { timeoutMs: 90_000 })
-    expect(String(h.agentFetch.mock.calls.at(-1)?.[1]?.body)).toContain('"source_code":"return state.value;"')
-    expect(String(h.agentFetch.mock.calls.at(-1)?.[1]?.body)).not.toContain('apiKey')
+    expect(response.status).toBe(202)
+    const { data } = h.attemptsCreate.mock.calls[0][0]
+    expect(data.providerName).toBe('Local Qwen')
+    expect(data.modelIdentifier).toBe('Qwen3.5-0.8B')
+    expect(data.requestPayload.model).toBe('custom/provider-1')
+    expect(data.requestPayload.source_code).toBe('return state.value;')
+    expect(data.requestPayload.question).toBe('Use names based on actual behavior.')
+    expect(JSON.stringify(data.requestPayload)).not.toContain('apiKey')
   })
 
   it('bounds project memory reads and still supplies saved symbol names to the model', async () => {
     h.maintainedSource.mockResolvedValueOnce([
-      { unitName: 'example.ProductStore', language: 'Java', symbolIndex: ['loadProduct', 'persistProduct'] },
+      { codeUnitId: 'unit-v1', artifactId: 'artifact-v1', unitName: 'example.ProductStore', language: 'Java', sourceHash: 'a'.repeat(64), acceptedReviewId: 'review-v1', symbolIndex: ['loadProduct', 'persistProduct'] },
     ])
-    h.agentFetch.mockResolvedValueOnce(new Response(JSON.stringify({ source_code: 'return productStore.loadProduct();' }), { status: 200 }))
-
+    h.reviewsFindMany.mockResolvedValueOnce([
+      { id: 'review-v1', artifactId: 'artifact-v1', codeUnitId: 'unit-v1', maintainedSourceHash: 'a'.repeat(64), symbolIndexSnapshot: ['loadProduct', 'persistProduct'] },
+    ])
     const response = await deobfuscate(request({ unitId: 'unit-1', providerId: 'provider-1' }), routeParams)
 
-    expect(response.status).toBe(200)
-    expect(h.maintainedSource).toHaveBeenCalledWith(expect.objectContaining({
-      where: { projectId: 'project-1' },
-      take: 256,
-      orderBy: { updatedAt: 'desc' },
-    }))
-    const payload = JSON.parse(String(h.agentFetch.mock.calls.at(-1)?.[1]?.body))
-    expect(payload.project_symbol_context).toContain('example.ProductStore (Java): loadProduct, persistProduct')
+    expect(response.status).toBe(202)
+    expect(h.maintainedSource).toHaveBeenCalledWith(expect.objectContaining({ where: { projectId: 'project-1', artifactId: 'artifact-1' }, take: 4097 }))
+    expect(h.maintainedSource).toHaveBeenCalledWith(expect.objectContaining({ where: { projectId: 'project-1', artifactId: { not: 'artifact-1' } }, take: 1024 }))
+    const payload = h.attemptsCreate.mock.calls[0][0].data.requestPayload
+    expect(payload.project_symbol_context).toContain('example.ProductStore (Java; other artifact artifact-v1; decompiler-output lineage was not recorded for this accepted source): symbols: loadProduct, persistProduct')
   })
 
   it('preserves artifact identity for same-named project memory entries', async () => {
     h.maintainedSource.mockResolvedValueOnce([
-      { codeUnitId: 'unit-v1', artifactId: 'artifact-v1', unitName: 'example.ProductStore', language: 'Java', symbolIndex: ['loadProduct'] },
-      { codeUnitId: 'unit-v2', artifactId: 'artifact-v2', unitName: 'example.ProductStore', language: 'Java', symbolIndex: ['fetchProduct'] },
+      { codeUnitId: 'unit-v1', artifactId: 'artifact-v1', unitName: 'example.ProductStore', language: 'Java', sourceHash: 'a'.repeat(64), acceptedReviewId: 'review-v1', symbolIndex: ['loadProduct'] },
+      { codeUnitId: 'unit-v2', artifactId: 'artifact-v2', unitName: 'example.ProductStore', language: 'Java', sourceHash: 'b'.repeat(64), acceptedReviewId: 'review-v2', symbolIndex: ['fetchProduct'] },
+    ])
+    h.reviewsFindMany.mockResolvedValueOnce([
+      { id: 'review-v1', artifactId: 'artifact-v1', codeUnitId: 'unit-v1', maintainedSourceHash: 'a'.repeat(64), symbolIndexSnapshot: ['loadProduct'] },
+      { id: 'review-v2', artifactId: 'artifact-v2', codeUnitId: 'unit-v2', maintainedSourceHash: 'b'.repeat(64), symbolIndexSnapshot: ['fetchProduct'] },
     ])
     h.artifacts.mockResolvedValueOnce([
       { id: 'artifact-v1', originalName: 'app.apk', sha256: '111111111111aaaaaaaa' },
       { id: 'artifact-v2', originalName: 'app.apk', sha256: '222222222222bbbbbbbb' },
     ])
-    h.agentFetch.mockResolvedValueOnce(new Response(JSON.stringify({ source_code: 'return productStore.fetchProduct();' }), { status: 200 }))
-
     const response = await deobfuscate(request({ unitId: 'unit-1', providerId: 'provider-1' }), routeParams)
 
-    expect(response.status).toBe(200)
-    const payload = JSON.parse(String(h.agentFetch.mock.calls.at(-1)?.[1]?.body))
-    expect(payload.project_symbol_context).toContain('example.ProductStore (Java; artifact app.apk #111111111111): loadProduct')
-    expect(payload.project_symbol_context).toContain('example.ProductStore (Java; artifact app.apk #222222222222): fetchProduct')
+    expect(response.status).toBe(202)
+    const payload = h.attemptsCreate.mock.calls[0][0].data.requestPayload
+    expect(payload.project_symbol_context).toContain('example.ProductStore (Java; other artifact app.apk #111111111111; decompiler-output lineage was not recorded for this accepted source): symbols: loadProduct')
+    expect(payload.project_symbol_context).toContain('example.ProductStore (Java; other artifact app.apk #222222222222; decompiler-output lineage was not recorded for this accepted source): symbols: fetchProduct')
   })
 
-  it('explains when a draft belongs to a different Java type', async () => {
-    h.agentFetch.mockResolvedValueOnce(new Response(JSON.stringify({ code: 'wrong_target' }), { status: 422 }))
+  it('queues rewrites so the worker can validate the returned Java type', async () => {
     const response = await deobfuscate(request({ unitId: 'unit-1', providerId: 'provider-1' }), routeParams)
 
-    expect(response.status).toBe(422)
-    expect(await response.json()).toEqual({
-      error: 'The model still returned a different Java type after retrying with the selected file only. Choose a stronger model.',
-    })
+    expect(response.status).toBe(202)
+    expect(await response.json()).toEqual({ attemptId: 'attempt-1', status: 'QUEUED' })
+    expect(h.attemptsCreate.mock.calls[0][0].data.requestPayload.source_code).toBe('return state.value;')
   })
 
-  it('explains when a draft removes executable Java logic', async () => {
-    h.agentFetch.mockResolvedValueOnce(new Response(JSON.stringify({ code: 'behavior_dropped' }), { status: 422 }))
+  it('queues rewrites so the worker can validate that executable Java logic is preserved', async () => {
     const response = await deobfuscate(request({ unitId: 'unit-1', providerId: 'provider-1' }), routeParams)
 
-    expect(response.status).toBe(422)
-    expect(await response.json()).toEqual({
-      error: 'The model removed executable Java logic. Choose a stronger model or retry with a narrower transformation.',
-    })
+    expect(response.status).toBe(202)
+    expect(await response.json()).toEqual({ attemptId: 'attempt-1', status: 'QUEUED' })
+    expect(h.attemptsCreate.mock.calls[0][0].data.status).toBe('QUEUED')
   })
 
-  it('shows a helpful error when the model context window is too small', async () => {
-    h.agentFetch.mockResolvedValueOnce(new Response(JSON.stringify({ code: 'context_exceeded' }), { status: 413 }))
+  it('persists the selected source and provider context for asynchronous rewrite processing', async () => {
     const response = await deobfuscate(request({ unitId: 'unit-1', providerId: 'provider-1' }), routeParams)
 
-    expect(response.status).toBe(413)
-    expect(await response.json()).toEqual({
-      error: 'This code unit exceeds the model context window even after related-code context was removed. Choose a larger-context model or a smaller code unit.',
-    })
+    expect(response.status).toBe(202)
+    const { data } = h.attemptsCreate.mock.calls[0][0]
+    expect(data.providerName).toBe('Local Qwen')
+    expect(data.modelIdentifier).toBe('Qwen3.5-0.8B')
+    expect(data.requestPayload.model).toBe('custom/provider-1')
+    expect(data.requestPayload.source_code).toBe('return state.value;')
   })
 
   it('rejects source paths outside the selected artifact before requesting AI', async () => {

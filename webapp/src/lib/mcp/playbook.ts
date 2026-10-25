@@ -53,7 +53,7 @@ export const CAPABILITY_AREAS: CapabilityArea[] = [
       'deterministic workspace summary, then page through logical paths and inspect the specific ' +
       'artifact details and compatible capabilities that matter. These tools describe stored ' +
       'workspace state; they do not run heavyweight analysis or expose host storage paths.',
-    tools: ['workspace_get_summary', 'workspace_list_files', 'workspace_get_artifact', 'workspace_list_code_units', 'workspace_get_code_unit', 'workspace_plan_analysis'],
+    tools: ['workspace_get_summary', 'workspace_list_files', 'workspace_get_artifact', 'workspace_list_code_units', 'workspace_get_code_unit', 'workspace_list_code_relationships', 'workspace_search_go_types', 'workspace_search_provider_types', 'workspace_plan_analysis'],
   },
   {
     id: 'graph',

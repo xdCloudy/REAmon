@@ -50,10 +50,10 @@ describe('maintained-source project memory', () => {
     const context = buildProjectSymbolContext([
       { codeUnitId: 'unrelated-unit', unitName: 'other.Unrelated', language: 'Java', symbolIndex: ['unrelatedMethod'] },
       { codeUnitId: 'related-unit', unitName: 'example.AccountStore', language: 'Java', symbolIndex: ['loadAccount', 'saveAccount'] },
-    ], new Set(['related-unit']), 100)
+    ], new Set(['related-unit']), 400)
 
     expect(context.split('\n')[0]).toContain('example.AccountStore')
-    expect(context.length).toBeLessThanOrEqual(100)
+    expect(context.length).toBeLessThanOrEqual(400)
   })
 
   it('keeps same-named units from different artifacts distinct', () => {
@@ -62,7 +62,7 @@ describe('maintained-source project memory', () => {
       { codeUnitId: 'unit-v2', artifactId: 'artifact-v2', artifactName: 'app.apk', artifactHash: '222222222222bbbb', unitName: 'example.ProductStore', language: 'Java', symbolIndex: ['fetchProduct', 'saveProduct'] },
     ], new Set())
 
-    expect(context).toContain('example.ProductStore (Java; artifact app.apk #111111111111): loadProduct')
-    expect(context).toContain('example.ProductStore (Java; artifact app.apk #222222222222): fetchProduct, saveProduct')
+    expect(context).toContain('example.ProductStore (Java; other artifact app.apk #111111111111; decompiler-output lineage was not recorded for this accepted source): symbols: loadProduct')
+    expect(context).toContain('example.ProductStore (Java; other artifact app.apk #222222222222; decompiler-output lineage was not recorded for this accepted source): symbols: fetchProduct, saveProduct')
   })
 })

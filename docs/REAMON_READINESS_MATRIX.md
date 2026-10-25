@@ -18,15 +18,15 @@ production.
 | Agent Python auth tests | Pass, focused | Docker run: `tests/test_rest_auth.py` and `tests/test_graph_exec.py` passed (6 tests plus 5 subtests). Cases cover missing, placeholder, wrong, scanner-only, and valid master credentials, route dependency coverage, and a working session proxy response. | Keep the focused auth coverage in the release gate. |
 | Webapp auth/proxy tests | Pass, focused | `agentFetch.test.ts`, `agentAuth.test.ts`, the purge ownership test, and conversation ownership tests passed (39 tests). The current-source session/job/emergency-stop guard suites and import-artifact route passed 22 tests; `npm run type-check` passed. | Keep the focused proxy coverage in the release gate and include the new admin-guard suites in CI. |
 | Full agent unit suite | Pass, current source | The isolated Docker unit suite passed 3,736 tests across 179 files; one additional file contained no tests and was reported empty/skipped. | Keep the isolated full agent suite in the release gate and rerun after changes to agent code. |
-| Full webapp suite | Fails, broad baseline; current patch not included | A completed run against a pre-patch source snapshot reported 9,545 tests: 9,349 passed, 60 failed across 19 files, 2 expected failures, and 134 skipped. It does not include the current admin-route tests or the latest import fixture update. | Complete current-source Docker/CI suite, triage failures, and record results against the exact tested commit. |
-| Full repository verification | Incomplete | The current-source full agent unit suite passes. The broad webapp suite remains unverified on current source; a pre-patch snapshot reported 60 failures across 19 files. Shell and service release sections were not run in this assessment. | Obtain clean, repeatable current-source gates across webapp, shell, and service sections. |
+| Full webapp suite | Pass, current working tree | On 2026-10-25, `npm run test` completed on the current webapp source: 597 files, 581 passed and 16 skipped; 9,475 tests passed, 2 expected failures, 138 skipped, and 0 failed. The run took 1,066 seconds on the Windows host. The two native `strings` process integration cases are explicitly skipped on Windows; they still require the Linux container gate. | Keep the full suite in CI and run the process-provider integration cases in the Linux webapp container. |
+| Full repository verification | Partial | The current-source full agent unit suite previously passed 3,736 tests across 179 files. The full current-source webapp suite now passes. TypeScript build checking and ESLint passed for all changed webapp files. Shell and other service release sections were not run in this assessment. | Run the remaining Docker shell and service gates against the same committed source state; keep the agent and webapp gates in CI. |
 | Deployment, upgrade, and restore | Not verified here | Docker Compose and a single-host deployment runbook exist. LAN WebSocket routes were not changed by the REST auth patch. | Validate the documented deployment, worker check-in, large-import recovery, upgrade, backup, and restore flows on a clean installation. |
 
 ## Release blockers
 
 1. Finish the security scan across the deferred surfaces and address validated P0
    findings.
-2. Resolve full unit-gate failures and make the repository's Docker checks repeatable.
+2. Keep the webapp and agent unit gates green in CI, then run the remaining Docker shell and service checks against the same release candidate.
 3. Add project/user ownership metadata for Metasploit sessions before enabling
    session and job controls for non-admin users.
 4. Rebuild the services and verify authenticated REST proxy access and LAN WebSocket

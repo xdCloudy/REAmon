@@ -7,11 +7,14 @@ const mocks = vi.hoisted(() => ({
   taskUpdateMany: vi.fn(),
   taskSettleUpdateMany: vi.fn(),
   taskFindUnique: vi.fn(),
+  taskProgressFindFirst: vi.fn(),
   evidenceCreate: vi.fn(),
   findingFindFirst: vi.fn(),
   findingUpdate: vi.fn(),
   findingCreate: vi.fn(),
   observationUpsert: vi.fn(),
+  observationRawExecute: vi.fn(),
+  observationCount: vi.fn(),
   activityCreate: vi.fn(),
   transaction: vi.fn(),
   getBuiltinProvider: vi.fn(),
@@ -58,14 +61,18 @@ beforeEach(() => {
   mocks.taskUpdateMany.mockResolvedValue({ count: 1 })
   mocks.taskSettleUpdateMany.mockResolvedValue({ count: 1 })
   mocks.taskFindUnique.mockResolvedValue(task({ status: 'COMPLETED', progress: 100, result: { strings: ['hello'] }, completedAt: new Date('2026-10-02T12:01:00Z') }))
+  mocks.taskProgressFindFirst.mockResolvedValue({ progressMessage: 'Provider failed' })
   mocks.evidenceCreate.mockResolvedValue({ id: 'evidence-1' })
   mocks.observationUpsert.mockResolvedValue({ id: 'observation-1' })
+  mocks.observationRawExecute.mockResolvedValue(1)
+  mocks.observationCount.mockResolvedValue(0)
   mocks.activityCreate.mockResolvedValue({ id: 'activity-1' })
   mocks.transaction.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) => callback({
-    task: { updateMany: mocks.taskSettleUpdateMany, findUnique: mocks.taskFindUnique },
+    task: { updateMany: mocks.taskSettleUpdateMany, findUnique: mocks.taskFindUnique, findFirst: mocks.taskProgressFindFirst, update: mocks.taskSettleUpdateMany },
     evidence: { create: mocks.evidenceCreate },
     finding: { findFirst: mocks.findingFindFirst, update: mocks.findingUpdate, create: mocks.findingCreate },
-    reamonObservation: { upsert: mocks.observationUpsert },
+    reamonObservation: { upsert: mocks.observationUpsert, count: mocks.observationCount },
+    $executeRaw: mocks.observationRawExecute,
     workspaceActivity: { create: mocks.activityCreate },
   }))
   mocks.getBuiltinProvider.mockReturnValue(provider)
@@ -85,7 +92,7 @@ describe('executeAnalysisTask', () => {
     expect(result).toMatchObject({ outcome: 'COMPLETED', task: { status: 'COMPLETED', progress: 100 } })
     expect(mocks.taskUpdateMany).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: 'task-1', projectId: 'project-1', status: 'QUEUED' },
-      data: expect.objectContaining({ status: 'RUNNING', progress: 10, leaseOwner: 'webapp' }),
+      data: expect.objectContaining({ status: 'RUNNING', progress: 0, progressMessage: 'Starting analysis', leaseOwner: 'webapp' }),
     }))
     expect(mocks.analyze).toHaveBeenCalledWith(expect.objectContaining({
       targetProfile: { targetType: 'FILE', format: 'source' }, artifactId: 'artifact-1', projectId: 'project-1', taskId: 'task-1', runToken: expect.any(String), artifactPath: expect.stringContaining(path.join('project-1', 'import-1', 'artifact-1')), options: { mode: 'conservative' }, signal: expect.any(AbortSignal), reportProgress: expect.any(Function),
@@ -93,9 +100,7 @@ describe('executeAnalysisTask', () => {
     expect(mocks.evidenceCreate).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ kind: 'analysis', source: provider.manifest.id, artifactId: 'artifact-1' }),
     }))
-    expect(mocks.observationUpsert).toHaveBeenCalledWith(expect.objectContaining({
-      where: { projectId_source_stableKey: { projectId: 'project-1', source: provider.manifest.id, stableKey: 'fn:main' } },
-    }))
+    expect(mocks.observationRawExecute).toHaveBeenCalledOnce()
     expect(mocks.activityCreate).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ eventType: 'analysis.task.completed', data: expect.objectContaining({
         taskId: 'task-1', observations: expect.objectContaining({ accepted: 1, rejected: 0, findingsAccepted: 0 }),
@@ -152,9 +157,7 @@ describe('executeAnalysisTask', () => {
     expect(mocks.evidenceCreate).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ data: persistedResult }),
     }))
-    expect(mocks.observationUpsert).toHaveBeenCalledWith(expect.objectContaining({
-      where: { projectId_source_stableKey: { projectId: 'project-1', source: provider.manifest.id, stableKey: 'fn:bounded' } },
-    }))
+    expect(mocks.observationRawExecute).toHaveBeenCalledOnce()
   })
 
   test('persists decompiler run metrics without duplicating large observation arrays', async () => {
@@ -179,7 +182,7 @@ describe('executeAnalysisTask', () => {
       warnings: '',
       normalizedObservationCount: 600,
     })
-    expect(mocks.observationUpsert).toHaveBeenCalledTimes(600)
+    expect(mocks.observationRawExecute).toHaveBeenCalledTimes(3)
     expect(mocks.transaction).toHaveBeenCalledWith(expect.any(Function), { maxWait: 10_000, timeout: 120_000 })
     expect(mocks.taskUpdateMany).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ progressMessage: 'Saving analyzer results to the workspace' }),
@@ -301,7 +304,7 @@ describe('executeAnalysisTask', () => {
     expect(executions.size).toBe(taskCount)
     expect([...executions.values()]).toEqual(Array(taskCount).fill(1))
     expect(mocks.evidenceCreate).toHaveBeenCalledTimes(taskCount)
-    expect(mocks.observationUpsert).toHaveBeenCalledTimes(taskCount)
+    expect(mocks.observationRawExecute).toHaveBeenCalledTimes(taskCount)
     expect(results.filter((result) => result?.outcome === 'COMPLETED')).toHaveLength(taskCount)
     expect(results.filter((result) => result?.outcome === 'SKIPPED')).toHaveLength(taskCount * (workerCount - 1))
   })

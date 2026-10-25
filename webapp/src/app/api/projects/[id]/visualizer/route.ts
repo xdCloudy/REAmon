@@ -388,8 +388,10 @@ export async function GET(request: Request, { params }: RouteParams) {
         id: task.id,
         title: task.title,
         status: task.status,
-        progressMessage: task.progressMessage === 'Analysis failed' ? '' : task.progressMessage.slice(0, 500),
-        error: task.error.slice(0, 2000),
+        progressMessage: typeof task.progressMessage === 'string' && task.progressMessage !== 'Analysis failed'
+        ? task.progressMessage.slice(0, 500)
+        : '',
+        error: typeof task.error === 'string' ? task.error.slice(0, 2000) : '',
         createdAt: task.createdAt.toISOString(),
         completedAt: task.completedAt?.toISOString() || null,
         artifactName: task.artifact?.relativePath || task.artifact?.originalName || 'Unknown artifact',

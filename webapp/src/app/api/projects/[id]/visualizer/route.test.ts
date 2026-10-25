@@ -1,5 +1,6 @@
 /** @vitest-environment node */
 import { beforeEach, describe, expect, test, vi } from 'vitest'
+import { createHash } from 'node:crypto'
 import { NextResponse } from 'next/server'
 
 const mocks = vi.hoisted(() => ({
@@ -8,6 +9,10 @@ const mocks = vi.hoisted(() => ({
   count: vi.fn(),
   groupBy: vi.fn(),
   taskFindMany: vi.fn(),
+  taskFindFirst: vi.fn(),
+  maintainedSourceFindMany: vi.fn(),
+  codeReviewFindMany: vi.fn(),
+  codeDraftFindMany: vi.fn(),
   getActiveWorkspaceImportSelection: vi.fn(),
   requireEffectiveUser: vi.fn(),
   requireProjectAccess: vi.fn(),
@@ -15,7 +20,10 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@/lib/prisma', () => ({ default: {
   reamonObservation: { findMany: mocks.findMany, findFirst: mocks.findFirst, count: mocks.count, groupBy: mocks.groupBy },
-  task: { findMany: mocks.taskFindMany },
+  reamonMaintainedSource: { findMany: mocks.maintainedSourceFindMany },
+  reamonCodeReview: { findMany: mocks.codeReviewFindMany },
+  reamonCodeDraft: { findMany: mocks.codeDraftFindMany },
+  task: { findMany: mocks.taskFindMany, findFirst: mocks.taskFindFirst },
 } }))
 vi.mock('@/lib/reamon/inventory-query', () => ({ getActiveWorkspaceImportSelection: mocks.getActiveWorkspaceImportSelection }))
 vi.mock('@/lib/access', () => ({
@@ -37,6 +45,10 @@ beforeEach(() => {
   mocks.count.mockResolvedValue(0)
   mocks.groupBy.mockResolvedValue([])
   mocks.taskFindMany.mockResolvedValue([])
+  mocks.taskFindFirst.mockResolvedValue(null)
+  mocks.maintainedSourceFindMany.mockResolvedValue([])
+  mocks.codeReviewFindMany.mockResolvedValue([])
+  mocks.codeDraftFindMany.mockResolvedValue([])
 })
 
 describe('GET /api/projects/[id]/visualizer', () => {
@@ -48,6 +60,23 @@ describe('GET /api/projects/[id]/visualizer', () => {
     expect(response.status).toBe(401)
     expect(mocks.findMany).not.toHaveBeenCalled()
     expect(mocks.taskFindMany).not.toHaveBeenCalled()
+  })
+
+  test('keeps failed-run output safe when optional task messages are null', async () => {
+    mocks.taskFindMany
+      .mockResolvedValueOnce([{
+        id: 'failed-run', title: 'Failed run', status: 'FAILED', progressMessage: null, error: null,
+        createdAt: new Date('2026-10-04T00:00:00.000Z'), completedAt: null,
+        artifact: { originalName: 'app.exe', relativePath: 'app.exe' },
+      }])
+      .mockResolvedValueOnce([])
+
+    const response = await GET(new Request('http://localhost/api/projects/project-1/visualizer'), params)
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      failedRuns: [{ id: 'failed-run', progressMessage: '', error: '' }],
+    })
   })
 
   test('returns the latest completed run and its normalized units from active artifacts', async () => {
@@ -132,16 +161,27 @@ describe('GET /api/projects/[id]/visualizer', () => {
   })
 
   test('marks saved maintained copies on their code units and reports workspace coverage', async () => {
+    const baseSourceHash = 'a'.repeat(64)
+    const maintainedSourceCode = 'class Main { void execute() {} }'
+    const maintainedSourceHash = createHash('sha256').update(maintainedSourceCode).digest('hex')
     mocks.taskFindMany.mockResolvedValue([{ id: 'run-1', title: 'Run', createdAt: new Date(), completedAt: new Date(), artifact: { originalName: 'app.apk', relativePath: 'app.apk' } }])
     mocks.groupBy.mockResolvedValue([{ taskId: 'run-1', _count: { _all: 1 } }])
     mocks.findMany
       .mockResolvedValueOnce([{
         id: 'observation-1', stableKey: 'class:app.Main', label: 'Main', source: 'jadx', artifactId: 'artifact-1',
         updatedAt: new Date('2026-10-04T00:00:00.000Z'),
-        attributes: { unitType: 'class', qualifiedName: 'app.Main', sizeBytes: 100, language: 'Java' },
+        attributes: { unitType: 'class', qualifiedName: 'app.Main', sizeBytes: 100, language: 'Java', codeArtifactSha256: baseSourceHash },
         artifact: { relativePath: 'app.apk', originalName: 'app.apk' },
       }])
       .mockResolvedValueOnce([{ stableKey: 'observation-1' }])
+    mocks.maintainedSourceFindMany.mockResolvedValueOnce([{
+      codeUnitId: 'observation-1', artifactId: 'artifact-1', sourceCode: maintainedSourceCode,
+      sourceHash: maintainedSourceHash, acceptedReviewId: 'review-1',
+      symbolIndex: { sourceLineage: { baseSourceHash } },
+    }])
+    mocks.codeReviewFindMany.mockResolvedValueOnce([{
+      id: 'review-1', codeUnitId: 'observation-1', artifactId: 'artifact-1', maintainedSourceHash,
+    }])
     mocks.count.mockResolvedValueOnce(1).mockResolvedValueOnce(1)
 
     const response = await GET(new Request('http://localhost/api/projects/project-1/visualizer'), params)
@@ -151,9 +191,12 @@ describe('GET /api/projects/[id]/visualizer', () => {
       maintainedCount: 1,
       units: [{ id: 'observation-1', maintainedSource: true }],
     })
-    expect(mocks.findMany).toHaveBeenLastCalledWith(expect.objectContaining({
-      where: expect.objectContaining({ source: 'reamon-maintained-source', type: 'maintained_source', stableKey: { in: ['observation-1'] } }),
-      select: { stableKey: true },
+    expect(mocks.maintainedSourceFindMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { projectId: 'project-1', artifactId: { in: ['artifact-1'] }, codeUnitId: { in: ['observation-1'] } },
+      select: { codeUnitId: true, sourceHash: true, acceptedReviewId: true, symbolIndex: true },
+    }))
+    expect(mocks.codeReviewFindMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { projectId: 'project-1', id: { in: ['review-1'] }, decision: 'ACCEPTED' },
     }))
   })
 
@@ -167,12 +210,19 @@ describe('GET /api/projects/[id]/visualizer', () => {
 
     expect(response.status).toBe(200)
     expect(await response.json()).toMatchObject({ total: 3, selectedRunId: 'run-1' })
-    const queryWhere = mocks.findMany.mock.calls[0][0].where
+    const codeUnitQuery = mocks.findMany.mock.calls
+      .map(([query]) => query)
+      .find((query) => query.where?.taskId === 'run-1' && query.where?.type === 'code_unit' && Array.isArray(query.where.OR))
+    expect(codeUnitQuery).toBeDefined()
+    const queryWhere = codeUnitQuery!.where
     expect(queryWhere).toMatchObject({
       taskId: 'run-1',
       OR: expect.arrayContaining([
         { label: { contains: 'com.example.Main', mode: 'insensitive' } },
+        { stableKey: { contains: 'com.example.Main', mode: 'insensitive' } },
+        { attributes: { path: ['name'], string_contains: 'com.example.Main', mode: 'insensitive' } },
         { attributes: { path: ['qualifiedName'], string_contains: 'com.example.Main', mode: 'insensitive' } },
+        { attributes: { path: ['address'], string_contains: 'com.example.Main', mode: 'insensitive' } },
         { artifact: { is: { OR: [
           { relativePath: { contains: 'com.example.Main', mode: 'insensitive' } },
           { originalName: { contains: 'com.example.Main', mode: 'insensitive' } },

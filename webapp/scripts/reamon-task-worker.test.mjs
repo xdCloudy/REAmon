@@ -95,8 +95,8 @@ describe('REAmon task worker', () => {
       { webappUrl: 'http://webapp:3000', internalKey: 'secret', workerId: 'worker-a', batchSize: 1, pollSeconds: 1, staleAfterMinutes: 30 },
       { fetchImpl, sleepImpl: async () => { stopped = true }, shouldStop: () => stopped, logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } },
     )
+    await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(3))
 
-    expect(fetchImpl).toHaveBeenCalledTimes(3)
     expect(fetchImpl.mock.calls[1][0]).toBe('http://webapp:3000/api/internal/reamon/graph/project')
     expect(JSON.parse(fetchImpl.mock.calls[2][1].body)).toEqual({ projectId: 'project-1', offset: 1, projectionRunId: 'run-1' })
   })

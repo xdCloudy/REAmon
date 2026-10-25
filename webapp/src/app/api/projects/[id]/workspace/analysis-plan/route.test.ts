@@ -6,6 +6,8 @@ const mocks = vi.hoisted(() => ({
   buildWorkspaceAnalysisPlan: vi.fn(),
   requireEffectiveUser: vi.fn(),
   requireProjectAccess: vi.fn(),
+  activityFindFirst: vi.fn(),
+  activityFindMany: vi.fn(),
 }))
 
 vi.mock('@/lib/reamon/inventory-query', () => ({ listWorkspaceFiles: mocks.listWorkspaceFiles }))
@@ -13,6 +15,15 @@ vi.mock('@/lib/reamon/analysis-plan', () => ({ buildWorkspaceAnalysisPlan: mocks
 vi.mock('@/lib/access', () => ({
   requireEffectiveUser: mocks.requireEffectiveUser,
   requireProjectAccess: mocks.requireProjectAccess,
+}))
+vi.mock('@/lib/prisma', () => ({
+  default: {
+    workspaceActivity: {
+      findFirst: mocks.activityFindFirst,
+      findMany: mocks.activityFindMany,
+    },
+    task: { findMany: vi.fn() },
+  },
 }))
 
 import { GET } from './route'
@@ -23,6 +34,8 @@ beforeEach(() => {
   vi.clearAllMocks()
   mocks.requireEffectiveUser.mockResolvedValue({ userId: 'user-1' })
   mocks.requireProjectAccess.mockResolvedValue({ project: { id: 'project-1', userId: 'user-1' } })
+  mocks.activityFindFirst.mockResolvedValue(null)
+  mocks.activityFindMany.mockResolvedValue([])
   mocks.listWorkspaceFiles.mockResolvedValue({ artifacts: [], total: 0, limit: 25, offset: 50, hasMore: false })
   mocks.buildWorkspaceAnalysisPlan.mockReturnValue({
     projectId: 'project-1', source: 'ACTIVE_WORKSPACE_INVENTORY', requestedCapability: 'disassemble',
@@ -43,6 +56,15 @@ describe('GET /api/projects/[id]/workspace/analysis-plan', () => {
     })
     expect(mocks.buildWorkspaceAnalysisPlan).toHaveBeenCalledWith('project-1', expect.any(Object), {
       search: undefined, format: undefined, kind: 'executables', capability: 'disassemble', limit: 25, offset: 50,
+    })
+    expect(mocks.activityFindFirst).toHaveBeenCalledWith({
+      where: { projectId: 'project-1', eventType: 'analysis.project.scanned' },
+      orderBy: { createdAt: 'desc' },
+      select: { data: true, createdAt: true },
+    })
+    expect(mocks.activityFindMany).toHaveBeenCalledWith({
+      where: { projectId: 'project-1', eventType: 'analysis.proposal.cleared' },
+      select: { data: true },
     })
   })
 

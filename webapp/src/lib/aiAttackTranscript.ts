@@ -3,6 +3,8 @@
 // root (§9c). Pure + dependency-light so the traversal guard is unit-testable.
 import path from 'path'
 
+const posixPath = path.posix
+
 // Where the scan container wrote the ref vs. where the webapp mounts it (ro).
 export const CONTAINER_ROOT = '/app/ai_attack_surface_scan/output'
 export const WEBAPP_ROOT = process.env.AI_ATTACK_OUTPUT_DIR || '/data/ai-attack-output'
@@ -17,19 +19,23 @@ const ALLOWED_EXT = new Set(['.json', '.jsonl', '.txt', '.html', '.log', '.md', 
  */
 export function resolveTranscriptPath(ref: string | null | undefined): string | null {
   if (!ref || typeof ref !== 'string') return null
-  let rel: string
-  if (ref.startsWith(CONTAINER_ROOT)) rel = ref.slice(CONTAINER_ROOT.length)
-  else if (ref.startsWith(WEBAPP_ROOT)) rel = ref.slice(WEBAPP_ROOT.length)
-  else return null                                   // unknown root -> reject
-  if (!ALLOWED_EXT.has(path.extname(rel).toLowerCase())) return null
+  const outputRoot = posixPath.resolve(WEBAPP_ROOT)
+  const relativeTo = (root: string): string | null => {
+    const normalizedRoot = posixPath.resolve(root)
+    if (ref === normalizedRoot) return ''
+    const prefix = normalizedRoot.endsWith('/') ? normalizedRoot : `${normalizedRoot}/`
+    return ref.startsWith(prefix) ? ref.slice(normalizedRoot.length) : null
+  }
+  const rel = relativeTo(CONTAINER_ROOT) ?? relativeTo(outputRoot)
+  if (rel === null || !ALLOWED_EXT.has(posixPath.extname(rel).toLowerCase())) return null
 
   // Resolve and confirm containment. path.resolve normalizes `.`/`..` lexically,
   // so any traversal collapses and the prefix check below rejects an escape.
   // (The mount is read-only and only holds tool output we write, so planted
   // symlinks are out of the threat model.)
-  const root = path.resolve(WEBAPP_ROOT)
-  const candidate = path.resolve(root, '.' + (rel.startsWith('/') ? rel : '/' + rel))
-  if (candidate !== root && !candidate.startsWith(root + path.sep)) return null
+  const candidate = posixPath.resolve(outputRoot, `.${rel.startsWith('/') ? rel : `/${rel}`}`)
+  const prefix = outputRoot.endsWith('/') ? outputRoot : `${outputRoot}/`
+  if (candidate !== outputRoot && !candidate.startsWith(prefix)) return null
   return candidate
 }
 
@@ -38,7 +44,7 @@ export function resolveTranscriptPath(ref: string | null | undefined): string | 
 // attacker-controlled markup (echoed prompt-injection payloads). We never serve
 // them as renderable text/html same-origin - see transcriptDisposition.
 export function transcriptContentType(p: string): string {
-  switch (path.extname(p).toLowerCase()) {
+  switch (posixPath.extname(p).toLowerCase()) {
     case '.json': return 'application/json'
     case '.csv': return 'text/csv'
     // .html is deliberately NOT 'text/html' - serve as text so it never renders.
@@ -49,5 +55,5 @@ export function transcriptContentType(p: string): string {
 // Renderable HTML is forced to download (attachment) so it cannot execute in the
 // webapp origin; inert types preview inline. Defends against transcript XSS.
 export function transcriptDisposition(p: string): 'inline' | 'attachment' {
-  return path.extname(p).toLowerCase() === '.html' ? 'attachment' : 'inline'
+  return posixPath.extname(p).toLowerCase() === '.html' ? 'attachment' : 'inline'
 }

@@ -16,7 +16,7 @@ describe('REAmon process source inspector', () => {
     ])
   })
 
-  test('runs the production strings adapter against a controlled artifact', async () => {
+  test.skipIf(process.platform === 'win32')('runs the production strings adapter against a controlled artifact', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'reamon-source-inspector-'))
     const filePath = path.join(root, 'source.txt')
     await writeFile(filePath, 'const endpoint = "https://api.example.test/v1"\nconst secret = "not-a-secret"\n')
@@ -34,7 +34,7 @@ describe('REAmon process source inspector', () => {
     }
   })
 
-  test('extracts strings from binary APK content', async () => {
+  test.skipIf(process.platform === 'win32')('extracts strings from binary APK content', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'reamon-apk-strings-'))
     const filePath = path.join(root, 'sample.apk')
     await writeFile(filePath, Buffer.from([0x50, 0x4b, 0x03, 0x04, 0, 0, ...Buffer.from('com.example.Main'), 0, ...Buffer.from('https://api.example.test/v1'), 0]))

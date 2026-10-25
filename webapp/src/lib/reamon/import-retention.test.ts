@@ -1,5 +1,6 @@
 /** @vitest-environment node */
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
+import path from 'node:path'
 
 const mocks = vi.hoisted(() => ({
   importFindMany: vi.fn(),
@@ -84,7 +85,7 @@ describe('applyImportRetention', () => {
     expect(mocks.artifactDeleteMany).toHaveBeenCalledWith({ where: { importId: 'import-old' } })
     expect(mocks.importDelete).toHaveBeenCalledWith({ where: { id: 'import-old' } })
     expect(mocks.targetDeleteMany).toHaveBeenCalledWith({ where: { id: 'target-root', projectId: 'project-1' } })
-    expect(mocks.unlink).toHaveBeenCalledWith(expect.stringContaining('project-1/import-old/artifact-1'))
+    expect(mocks.unlink).toHaveBeenCalledWith(expect.stringContaining(path.join('project-1', 'import-old', 'artifact-1')))
   })
 
   test('protects snapshots referenced by analysis or lineage records', async () => {

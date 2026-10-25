@@ -208,8 +208,9 @@ export function resolveCapabilities(
     .filter((plugin) => {
       const acceptsType = plugin.manifest.acceptsTargetTypes.includes(profile.targetType)
       const acceptsFormat = plugin.manifest.acceptsFormats.includes('*') || plugin.manifest.acceptsFormats.includes(profile.format)
+      const metadata = profile.metadata || {}
       const acceptsMetadata = Object.entries(plugin.manifest.acceptsMetadata || {})
-        .every(([key, value]) => profile.metadata[key] === value)
+        .every(([key, value]) => metadata[key] === value)
       return acceptsType && acceptsFormat && acceptsMetadata
     })
     .map((plugin) => ({

@@ -31,7 +31,7 @@ beforeEach(() => {
   mocks.artifactFindMany.mockResolvedValue([
     {
       id: 'artifact-1', name: 'crypto.dll', relativePath: 'bin/crypto.dll', parentPath: 'bin',
-      targetId: 'target-1', importId: 'old-complete', sizeBytes: 10, sha256: 'hash-1', extension: 'dll', status: 'IDENTIFIED', profile: { format: 'pe' },
+      targetId: 'target-1', importId: 'old-complete', sizeBytes: 10, sha256: 'hash-1', extension: 'dll', status: 'IDENTIFIED', profile: { targetType: 'FILE', format: 'pe', metadata: {} },
     },
   ])
   mocks.artifactCount.mockResolvedValue(1)
@@ -65,8 +65,8 @@ describe('workspace inventory queries', () => {
 
   test('keeps duplicate content at distinct workspace paths and reports more pages', async () => {
     mocks.artifactFindMany.mockResolvedValue([
-      { id: 'one', name: 'foo.dll', relativePath: 'x64/foo.dll', parentPath: 'x64', targetId: null, importId: 'old-complete', sizeBytes: 3, sha256: 'same', extension: 'dll', status: 'DISCOVERED', profile: {} },
-      { id: 'two', name: 'foo.dll', relativePath: 'plugins/foo.dll', parentPath: 'plugins', targetId: null, importId: 'old-complete', sizeBytes: 3, sha256: 'same', extension: 'dll', status: 'DISCOVERED', profile: {} },
+      { id: 'one', name: 'foo.dll', relativePath: 'x64/foo.dll', parentPath: 'x64', targetId: null, importId: 'old-complete', sizeBytes: 3, sha256: 'same', extension: 'dll', status: 'DISCOVERED', profile: { targetType: 'FILE', format: 'pe', metadata: {} } },
+      { id: 'two', name: 'foo.dll', relativePath: 'plugins/foo.dll', parentPath: 'plugins', targetId: null, importId: 'old-complete', sizeBytes: 3, sha256: 'same', extension: 'dll', status: 'DISCOVERED', profile: { targetType: 'FILE', format: 'pe', metadata: {} } },
     ])
     mocks.artifactCount.mockResolvedValue(3)
 
