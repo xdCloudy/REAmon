@@ -1,6 +1,9 @@
 using System.Text.Json;
-using ICSharpCode.CodeConverter;
+using ICSharpCode.CodeConverter.Common;
+using ICSharpCode.CodeConverter.VB;
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.Text;
 using Microsoft.CodeAnalysis.VisualBasic;
 
 const int maxInputBytes = 8 * 1024 * 1024;
@@ -17,8 +20,8 @@ try
         return 2;
     }
 
-    using var document = JsonDocument.Parse(input.ToArray());
-    if (!document.RootElement.TryGetProperty("sources", out var sourceArray)
+    using var inputDocument = JsonDocument.Parse(input.ToArray());
+    if (!inputDocument.RootElement.TryGetProperty("sources", out var sourceArray)
         || sourceArray.ValueKind != JsonValueKind.Array
         || sourceArray.GetArrayLength() > maxFiles)
     {
@@ -26,7 +29,22 @@ try
         return 2;
     }
 
-    var translated = new List<object>();
+    var projectId = ProjectId.CreateNewId("ReamonVbBridge");
+    var projectRoot = Path.Combine(Path.GetTempPath(), "reamon-vb-bridge-input");
+    var references = GetPlatformReferences();
+    using var workspace = new AdhocWorkspace();
+    workspace.AddProject(ProjectInfo.Create(
+        projectId,
+        VersionStamp.Create(),
+        "ReamonVbBridgeInput",
+        "ReamonVbBridgeInput",
+        LanguageNames.CSharp,
+        compilationOptions: new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary),
+        parseOptions: CSharpParseOptions.Default,
+        metadataReferences: references));
+
+    var sourcePaths = new Dictionary<string, string>(StringComparer.Ordinal);
+    var documents = new List<Document>();
     var skipped = 0;
     var totalInputBytes = 0;
     var totalOutputBytes = 0;
@@ -40,19 +58,48 @@ try
             continue;
         }
 
-        var inputBytes = System.Text.Encoding.UTF8.GetByteCount(code);
-        totalInputBytes += inputBytes;
-        if (inputBytes > 2 * 1024 * 1024 || totalInputBytes > maxInputBytes)
+        var pathSegments = relativePath.Replace('\\', '/').Split('/');
+        if (Path.IsPathRooted(relativePath) || pathSegments.Any(segment => segment is "" or "." or ".."))
         {
             skipped++;
             continue;
         }
 
-        try
+        var inputBytes = System.Text.Encoding.UTF8.GetByteCount(code);
+        if (inputBytes > 2 * 1024 * 1024 || totalInputBytes + inputBytes > maxInputBytes)
         {
-            var request = new CodeWithOptions(code).WithTypeReferences();
-            var result = await ICSharpCode.CodeConverter.CodeConverter.ConvertAsync(request);
-            if (!result.Success || string.IsNullOrWhiteSpace(result.ConvertedCode))
+            skipped++;
+            continue;
+        }
+        totalInputBytes += inputBytes;
+
+        var sourcePath = Path.GetFullPath(Path.Combine(projectRoot, Path.Combine(pathSegments)));
+        var projectRootWithSeparator = Path.GetFullPath(projectRoot) + Path.DirectorySeparatorChar;
+        if (!sourcePath.StartsWith(projectRootWithSeparator, StringComparison.Ordinal))
+        {
+            skipped++;
+            continue;
+        }
+
+        var documentId = DocumentId.CreateNewId(projectId, Path.GetFileName(relativePath));
+        var documentInfo = DocumentInfo.Create(
+            documentId,
+            Path.GetFileName(relativePath),
+            loader: TextLoader.From(TextAndVersion.Create(SourceText.From(code), VersionStamp.Create())),
+            filePath: sourcePath);
+        workspace.AddDocument(documentInfo);
+        sourcePaths[sourcePath] = relativePath;
+    }
+
+    documents.AddRange(workspace.CurrentSolution.GetProject(projectId)!.Documents);
+    var convertedSources = new List<object>();
+    if (documents.Count > 0)
+    {
+        await foreach (var result in ProjectConversion.ConvertDocumentsAsync<CSToVBConversion>(documents, new ConversionOptions()))
+        {
+            if (!result.Success || string.IsNullOrWhiteSpace(result.ConvertedCode)
+                || result.SourcePathOrNull is null
+                || !sourcePaths.TryGetValue(result.SourcePathOrNull, out var relativePath))
             {
                 skipped++;
                 continue;
@@ -73,20 +120,26 @@ try
             }
 
             totalOutputBytes += outputBytes;
-            translated.Add(new { relativePath, sourceCode = result.ConvertedCode });
-        }
-        catch
-        {
-            // A failed file remains available as the primary ILSpy C# output.
-            skipped++;
+            convertedSources.Add(new { relativePath, sourceCode = result.ConvertedCode });
         }
     }
 
-    Console.WriteLine(JsonSerializer.Serialize(new { sources = translated, skipped }));
+    Console.WriteLine(JsonSerializer.Serialize(new { sources = convertedSources, skipped }));
     return 0;
 }
+
 catch
 {
     Console.WriteLine(JsonSerializer.Serialize(new { error = "The VB translation request could not be processed" }));
     return 1;
+}
+
+static IReadOnlyCollection<PortableExecutableReference> GetPlatformReferences()
+{
+    var paths = (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string ?? "")
+        .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
+        .Where(File.Exists)
+        .Distinct(StringComparer.Ordinal)
+        .Take(512);
+    return paths.Select(path => MetadataReference.CreateFromFile(path)).ToArray();
 }
