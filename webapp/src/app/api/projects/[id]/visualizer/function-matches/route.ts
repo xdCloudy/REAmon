@@ -160,12 +160,12 @@ export async function POST(request: Request, { params }: RouteParams) {
     const existing = await prisma.reamonFunctionMatch.findFirst({
       where: {
         projectId,
-        taskAId,
-        taskBId,
-        functionAStableKey: functionA.stableKey,
-        functionBStableKey: functionB.stableKey,
         matcher: 'reamon-instruction-cfg-wl',
         matcherVersion: '4',
+        OR: [
+          { taskAId, taskBId, functionAStableKey: functionA.stableKey, functionBStableKey: functionB.stableKey },
+          { taskAId: taskBId, taskBId: taskAId, functionAStableKey: functionB.stableKey, functionBStableKey: functionA.stableKey },
+        ],
       },
       include: { reviews: { orderBy: { createdAt: 'desc' }, take: 10 } },
     })

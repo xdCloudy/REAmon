@@ -46,25 +46,48 @@ export async function loadAcceptedFunctionMatchContext(input: {
     include: { reviews: { orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 1, select: { decision: true, createdAt: true } } },
   })
 
-  const lines: string[] = []
-  const seen = new Set<string>()
-  for (const match of matches) {
-    const selectedIsA = identities.some(({ id, stableKey }) =>
-      match.functionAObservationId === id || Boolean(stableKey && match.functionAStableKey === stableKey))
-    const selectedIsB = identities.some(({ id, stableKey }) =>
-      match.functionBObservationId === id || Boolean(stableKey && match.functionBStableKey === stableKey))
-    if (match.reviews[0]?.decision !== 'ACCEPTED' || selectedIsA === selectedIsB) continue
+  const latestReviewByPair = new Map<string, (typeof matches)[number]>()
+  const reviewOrderedMatches = [...matches].sort((left, right) =>
+    (right.reviews[0]?.createdAt.getTime() ?? -1) - (left.reviews[0]?.createdAt.getTime() ?? -1)
+      || right.createdAt.getTime() - left.createdAt.getTime())
+  for (const match of reviewOrderedMatches) {
+    const selectedIdIsA = identities.some(({ id }) => match.functionAObservationId === id)
+    const selectedIdIsB = identities.some(({ id }) => match.functionBObservationId === id)
+    const selectedStableKeyIsA = identities.some(({ stableKey }) =>
+      Boolean(stableKey && match.functionAStableKey === stableKey))
+    const selectedStableKeyIsB = identities.some(({ stableKey }) =>
+      Boolean(stableKey && match.functionBStableKey === stableKey))
+    const selectedIsA = selectedIdIsA !== selectedIdIsB
+      ? selectedIdIsA
+      : selectedStableKeyIsA !== selectedStableKeyIsB ? selectedStableKeyIsA : null
+    if (selectedIsA === null) continue
     const currentSideIsA = selectedIsA
     if (currentSideIsA
       ? match.artifactAId !== input.artifactId || match.artifactASha256 !== input.artifactHash
       : match.artifactBId !== input.artifactId || match.artifactBSha256 !== input.artifactHash) continue
+    const sideAIdentity = JSON.stringify([match.taskAId, match.artifactASha256, match.providerAId, match.functionAStableKey])
+    const sideBIdentity = JSON.stringify([match.taskBId, match.artifactBSha256, match.providerBId, match.functionBStableKey])
+    const pairKey = [sideAIdentity, sideBIdentity].sort().join('::')
+    if (!latestReviewByPair.has(pairKey)) latestReviewByPair.set(pairKey, match)
+  }
+
+  const lines: string[] = []
+  const seen = new Set<string>()
+  for (const match of latestReviewByPair.values()) {
+    const latestReview = match.reviews[0]
+    if (latestReview?.decision !== 'ACCEPTED') continue
+    const currentSideIsA = identities.some(({ id }) => match.functionAObservationId === id)
+      ? true
+      : identities.some(({ id }) => match.functionBObservationId === id)
+        ? false
+        : identities.some(({ stableKey }) => Boolean(stableKey && match.functionAStableKey === stableKey))
     const counterpart = currentSideIsA
-      ? { hash: match.artifactBSha256, taskId: match.taskBId, name: match.functionBName, address: match.functionBAddress, provider: match.providerBId, version: match.providerBVersion }
-      : { hash: match.artifactASha256, taskId: match.taskAId, name: match.functionAName, address: match.functionAAddress, provider: match.providerAId, version: match.providerAVersion }
-    const dedupeKey = `${counterpart.hash}:${counterpart.provider}:${counterpart.address || counterpart.name}`
+      ? { hash: match.artifactBSha256, taskId: match.taskBId, observationId: match.functionBObservationId, stableKey: match.functionBStableKey, name: match.functionBName, address: match.functionBAddress, provider: match.providerBId, version: match.providerBVersion }
+      : { hash: match.artifactASha256, taskId: match.taskAId, observationId: match.functionAObservationId, stableKey: match.functionAStableKey, name: match.functionAName, address: match.functionAAddress, provider: match.providerAId, version: match.providerAVersion }
+    const dedupeKey = JSON.stringify([counterpart.taskId, counterpart.observationId, counterpart.stableKey, counterpart.hash, counterpart.provider])
     if (seen.has(dedupeKey)) continue
     seen.add(dedupeKey)
-    lines.push(`Accepted counterpart ${JSON.stringify(counterpart.name)}${counterpart.address ? ` at ${JSON.stringify(counterpart.address)}` : ''}; completed run ${counterpart.taskId}; provider ${counterpart.provider} ${counterpart.version}; artifact SHA-256 ${counterpart.hash}; pair scores ${match.similarity}% overall, ${match.instructionSimilarity}% instructions${match.controlFlowSimilarity === null ? '' : `, ${match.controlFlowSimilarity}% CFG counts`}${match.controlFlowTopologySimilarity === null ? '' : `, ${match.controlFlowTopologySimilarity}% CFG topology`}; accepted ${match.reviews[0].createdAt.toISOString()}.`)
+    lines.push(`Accepted counterpart ${JSON.stringify(counterpart.name)}${counterpart.address ? ` at ${JSON.stringify(counterpart.address)}` : ''}; completed run ${counterpart.taskId}; provider ${counterpart.provider} ${counterpart.version}; artifact SHA-256 ${counterpart.hash}; pair scores ${match.similarity}% overall, ${match.instructionSimilarity}% instructions${match.controlFlowSimilarity === null ? '' : `, ${match.controlFlowSimilarity}% CFG counts`}${match.controlFlowTopologySimilarity === null ? '' : `, ${match.controlFlowTopologySimilarity}% CFG topology`}; accepted ${latestReview.createdAt.toISOString()}.`)
     if (lines.length >= 8) break
   }
   if (!lines.length) return ''
