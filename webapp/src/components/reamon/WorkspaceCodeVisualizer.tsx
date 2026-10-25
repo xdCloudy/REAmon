@@ -172,8 +172,9 @@ interface JvmBuildResponse { buildId: string; taskId: string; codeUnitId: string
 interface CodeMaintenanceResponse { sourceCode: string; providerName: string; model: string; attemptId?: string | null; syntaxValidated?: boolean | null; validationStatus?: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod?: string | null; validationMessage?: string | null }
 interface CodeDraftRecord { id: string; sourceCode: string; sourceAttemptId: string | null; providerName: string; modelIdentifier: string; question: string; scope: 'file' | 'member'; syntaxValidated: boolean | null; validationStatus: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod: string | null; validationMessage: string | null; updatedAt: string }
 interface RewriteHistoryEntry { round: number; sourceCode: string; sourceSha256: string; validationStatus: string; validationMethod: string; validationMessage: string }
-interface CodeAttemptRecord { id: string; providerName: string; modelIdentifier: string; question: string; scope: 'file' | 'member' | 'rename-suggestions'; status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'; cancelRequested: boolean; errorCode: string | null; errorMessage: string | null; resultSource: string | null; rewriteHistoryRoundCount: number; renameProposals?: SafeRenameProposal[]; proposalSourceSha256?: string; proposalProviderId?: string; projectSymbolContextSha256?: string; proposalCandidateCount?: number; syntaxValidated: boolean | null; validationStatus: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod: string | null; validationMessage: string | null; createdAt: string; completedAt: string | null }
-interface CodeAgentBatchAttempt { id: string; providerName: string; modelIdentifier: string; memberName: string; memberStartByte: number | null; memberEndByte: number | null; status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'; cancelRequested: boolean; errorMessage: string | null; resultSource: string | null; inputSource: string | null; createdAt: string; completedAt: string | null }
+interface RewriteContextSummary { fingerprint: string; evidence: string[]; relatedUnits: Array<{ name: string; language: string }>; relatedUnitsTruncated: boolean }
+interface CodeAttemptRecord { id: string; providerName: string; modelIdentifier: string; question: string; scope: 'file' | 'member' | 'rename-suggestions'; status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'; cancelRequested: boolean; errorCode: string | null; errorMessage: string | null; resultSource: string | null; context?: RewriteContextSummary; rewriteHistoryRoundCount: number; renameProposals?: SafeRenameProposal[]; proposalSourceSha256?: string; proposalProviderId?: string; projectSymbolContextSha256?: string; proposalCandidateCount?: number; syntaxValidated: boolean | null; validationStatus: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod: string | null; validationMessage: string | null; createdAt: string; completedAt: string | null }
+interface CodeAgentBatchAttempt { id: string; providerName: string; modelIdentifier: string; memberName: string; memberStartByte: number | null; memberEndByte: number | null; status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'; cancelRequested: boolean; errorMessage: string | null; resultSource: string | null; inputSource: string | null; context?: RewriteContextSummary; createdAt: string; completedAt: string | null }
 interface CodeDraftResponse { exists: boolean; draft: CodeDraftRecord | null; agentBatch?: { id: string; attempts: CodeAgentBatchAttempt[] } | null; attempts?: CodeAttemptRecord[] }
 interface CodeUnitNoteResponse { unitId: string; note: string; stale: boolean; updatedAt: string | null }
 interface CodeReviewRecord {
@@ -278,6 +279,20 @@ function validationSummary(validation: Pick<CodeMaintenanceResponse, 'syntaxVali
   if (validation.syntaxValidated === true) return 'The source parser found no syntax errors. Review reconstructed logic and behavior before saving.'
   if (validation.syntaxValidated === false) return 'Syntax validation was unavailable for this language. Check syntax and behavior before saving.'
   return 'This draft has changed or predates saved validation metadata. Recheck its syntax and behavior before saving.'
+}
+
+function RewriteContextDetails({ context }: { context: RewriteContextSummary }) {
+  return <details className={styles.rewriteContext}>
+    <summary>Evidence context · {context.fingerprint.slice(0, 12)}</summary>
+    {context.evidence.length > 0
+      ? <ul>{context.evidence.map((source) => <li key={source}>{source}</li>)}</ul>
+      : <p>No additional project evidence was attached.</p>}
+    {context.relatedUnits.length > 0 && <>
+      <p>Related code included:</p>
+      <ul>{context.relatedUnits.map((unit, index) => <li key={`${unit.name}:${unit.language}:${index}`}>{unit.name}{unit.language ? ` · ${unit.language}` : ''}</li>)}</ul>
+      {context.relatedUnitsTruncated && <p>Additional related units were omitted from this summary.</p>}
+    </>}
+  </details>
 }
 
 function FunctionControlFlowPanel({
@@ -3333,6 +3348,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
                 <ol>{codeDraftQuery.data?.agentBatch?.attempts.map((attempt) => <li key={attempt.id}>
                   <strong>{attempt.memberName}</strong> · {attempt.status === 'QUEUED' ? 'Queued' : attempt.status === 'RUNNING' ? attempt.cancelRequested ? 'Cancelling' : 'Working' : attempt.status === 'SUCCEEDED' ? 'Ready to review' : attempt.status === 'CANCELLED' ? 'Cancelled' : 'Failed'}
                   {attempt.errorMessage && <p>{attempt.errorMessage}</p>}
+                  {attempt.context && <RewriteContextDetails context={attempt.context} />}
                 </li>)}</ol>
                 {codeDraftQuery.data?.agentBatch && codeDraftQuery.data.agentBatch.attempts.some((attempt) => attempt.status === 'QUEUED' || attempt.status === 'RUNNING') && <button type="button" className={styles.copyButton} onClick={() => void cancelFunctionAgentBatch(codeDraftQuery.data!.agentBatch!.id)} disabled={agentTeamDispatching || cancellingAgentBatch}>
                   {cancellingAgentBatch ? 'Requesting batch cancellation…' : 'Cancel remaining function agents'}
@@ -3360,6 +3376,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
                 </summary>
                 {codeDraftQuery.data?.draft?.sourceAttemptId === attempt.id && <p>This attempt produced the current saved draft.</p>}
                 {attempt.question && <p>Request: {attempt.question}</p>}
+                {attempt.context && <RewriteContextDetails context={attempt.context} />}
                 {attempt.renameProposals && attempt.renameProposals.length > 0 && <ul>{attempt.renameProposals.map((proposal) => <li key={proposal.bindingId}><strong>{proposal.oldName} → {proposal.newName}</strong> · {proposal.kind} · {proposal.referenceCount} reference{proposal.referenceCount === 1 ? '' : 's'}<p>{proposal.rationale}</p></li>)}</ul>}
                 {attempt.scope === 'rename-suggestions' && attempt.renameProposals && attempt.renameProposals.length > 0 && <button type="button" className={styles.copyButton} onClick={() => void loadSavedSafeRenames(attempt)} disabled={!selectedProviderId || !attempt.proposalSourceSha256 || !attempt.proposalProviderId || !attempt.projectSymbolContextSha256 || !(maintainedDraft || sourceQuery.data)}>Load saved proposals into rename review</button>}
                 {attempt.validationStatus && <p>{validationSummary(attempt)}</p>}

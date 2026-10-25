@@ -17,6 +17,46 @@ function plainObject(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
 }
 
+function rewriteContextSummary(value: unknown) {
+  const payload = plainObject(value)
+  const labels = [
+    ['project_symbol_context', 'projectSymbolContext', 'Reviewed project symbols'],
+    ['accepted_function_match_context', 'accepted_function_match_context', 'Accepted function correspondences'],
+    ['imported_rea_evidence_context', 'imported_rea_evidence_context', 'Imported REA Evidence'],
+    ['provider_symbol_context', 'provider_symbol_context', 'Provider symbol records'],
+    ['project_draft_context', 'project_draft_context', 'Hash-matched saved drafts'],
+    ['project_note_context', 'project_note_context', 'Project notes'],
+    ['prior_attempt_context', 'prior_attempt_context', 'Earlier AI attempts'],
+    ['prior_suggestion_context', 'priorSuggestionContext', 'Earlier rename suggestions'],
+    ['disassembly_source', 'disassembly_source', 'Disassembly evidence'],
+    ['binary_evidence', 'binary_evidence', 'Binary evidence'],
+    ['representation_context', 'representation_context', 'Code representation'],
+  ] as const
+  const evidence = labels.flatMap(([key, alias, label]) => {
+    const source = payload[key] ?? payload[alias]
+    return typeof source === 'string' && source.trim() ? [label] : []
+  })
+  const relatedUnitCandidates = Array.isArray(payload.context_sources)
+    ? payload.context_sources.flatMap((value) => {
+      const source = plainObject(value)
+      if (typeof source.unit_name !== 'string' || !source.unit_name.trim()) return []
+      return [{ name: source.unit_name.slice(0, 180), language: typeof source.language === 'string' ? source.language.slice(0, 80) : '' }]
+    })
+    : []
+  const relatedUnits = [...new Map(relatedUnitCandidates.map((unit) => [`${unit.language}\0${unit.name}`, unit])).values()]
+  const fingerprintInput = labels.map(([key, alias]) => [key, payload[key] ?? payload[alias] ?? null])
+  fingerprintInput.push(['context_sources', payload.context_sources ?? null])
+  fingerprintInput.push(['bindings', payload.bindings ?? null])
+  fingerprintInput.push(['inputSha256', payload.inputSha256 ?? null])
+  fingerprintInput.push(['artifactSourceSha256', payload.artifactSourceSha256 ?? null])
+  return {
+    fingerprint: createHash('sha256').update(JSON.stringify(fingerprintInput)).digest('hex'),
+    evidence,
+    relatedUnits: relatedUnits.slice(0, 16),
+    relatedUnitsTruncated: relatedUnits.length > 16,
+  }
+}
+
 function safeRenameProposals(value: unknown) {
   const renames = plainObject(value).renames
   if (!Array.isArray(renames)) return []
@@ -159,6 +199,7 @@ export async function GET(_request: Request, { params }: RouteParams) {
             errorMessage: attempt.errorMessage,
             resultSource: attempt.status === 'SUCCEEDED' ? attempt.resultSource : null,
             inputSource: attempt.status === 'SUCCEEDED' && typeof payload.source_code === 'string' ? payload.source_code : null,
+            context: rewriteContextSummary(attempt.requestPayload),
             createdAt: attempt.createdAt.toISOString(),
             completedAt: attempt.completedAt?.toISOString() ?? null,
           }
@@ -181,6 +222,7 @@ export async function GET(_request: Request, { params }: RouteParams) {
         errorCode: attempt.errorCode,
         errorMessage: attempt.errorMessage,
         resultSource: attempt.resultSource,
+        context: rewriteContextSummary(attempt.requestPayload),
         rewriteHistoryRoundCount: Array.isArray(attempt.rewriteHistory) ? attempt.rewriteHistory.length : 0,
         syntaxValidated: attempt.syntaxValidated,
         validationStatus: attempt.validationStatus,

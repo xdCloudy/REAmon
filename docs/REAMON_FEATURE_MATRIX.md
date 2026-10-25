@@ -40,6 +40,10 @@ Inspired by [ReVa's Ghidra cross-reference tools](https://github.com/cyberkaida/
 
 REAmon uses the MIT-licensed [Ghidra Deobfuscation Lab](https://github.com/xubin0903/ghidra-deobfuscation-lab) `CffCore` for read-only, confidence-labeled control-flow-flattening evidence and offers `BcfClean` and `CffDeflatten` as separate opt-in Ghidra passes. Each scan is capped at 32 function candidates, uses upstream's per-function emulation checks and mismatch reversion, and stores its own patch log and hash-checked cleaner pseudocode as a separate visualizer alternative. Exact-address output enters AI rewrite context only after the provider version, artifact hash, saved source, and successful audit all match. The imported binary and baseline decompilation are preserved. Both passes remain experimental pending REAmon fixture comparison; they target known OLLVM bogus predicates and CFF patterns rather than arbitrary obfuscation. See the [upstream reuse audit](REAMON_UPSTREAM_REUSE.md#additional-engines-evaluated).
 
+## AI attempt evidence snapshots
+
+The rewrite attempt history summarizes the saved context for each file or function attempt with a SHA-256 evidence-context fingerprint, the project-memory categories used, and up to 16 related unit names and languages. The summary reads the request payload persisted with the database attempt; it does not return related source snippets. Batch members show their own context so reviewers can compare the evidence used across parallel function work.
+
 ## Product-critical distinctions
 
 - Decompilation output and AI-maintained source are separate artifacts.
