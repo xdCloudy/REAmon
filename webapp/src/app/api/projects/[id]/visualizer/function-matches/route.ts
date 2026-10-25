@@ -9,6 +9,18 @@ import { nativeArchitectureGroup } from '@/lib/reamon/native-function-identity'
 interface RouteParams { params: Promise<{ id: string }> }
 const NO_STORE = { 'Cache-Control': 'private, no-store' }
 const NATIVE_PROVIDERS = new Set(['reamon-ghidra', 'reamon-ida', 'reamon-kuna', 'reamon-miasm', 'reamon-reko', 'reamon-retdec'])
+const BYTECODE_MATCH_PROVIDERS: Record<string, ReadonlySet<string>> = {
+  'bytecode:dex': new Set(['reamon-dex-decompiler', 'reamon-jadx']),
+  'bytecode:dotnet-il': new Set(['reamon-ilspy']),
+  'bytecode:wasm': new Set(['reamon-wabt']),
+  'bytecode:luajit': new Set(['reamon-unluac-rs']),
+  'bytecode:luau': new Set(['reamon-unluac-rs']),
+  'bytecode:lua51': new Set(['reamon-unluac-rs']),
+  'bytecode:lua52': new Set(['reamon-unluac-rs']),
+  'bytecode:lua53': new Set(['reamon-unluac-rs']),
+  'bytecode:lua54': new Set(['reamon-unluac-rs']),
+  'bytecode:lua55': new Set(['reamon-unluac-rs']),
+}
 
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
@@ -79,7 +91,7 @@ export async function GET(request: Request, { params }: RouteParams) {
     })
     return NextResponse.json({ matches }, { headers: NO_STORE })
   } catch (error) {
-    console.error('Could not load saved native function matches:', error)
+    console.error('Could not load saved function matches:', error)
     return NextResponse.json({ error: 'Could not load saved function comparisons' }, { status: 500, headers: NO_STORE })
   }
 }
@@ -110,12 +122,6 @@ export async function POST(request: Request, { params }: RouteParams) {
     if (!taskA?.artifact || !taskB?.artifact || !taskA.provider || !taskB.provider) {
       return NextResponse.json({ error: 'Both functions must come from completed project analysis runs.' }, { status: 404, headers: NO_STORE })
     }
-    if (taskA.artifact.sha256 === taskB.artifact.sha256) {
-      return NextResponse.json({ error: 'Choose two different binary versions; identical artifact hashes do not need a cross-artifact comparison.' }, { status: 422, headers: NO_STORE })
-    }
-    if (!NATIVE_PROVIDERS.has(taskA.provider.pluginId) || !NATIVE_PROVIDERS.has(taskB.provider.pluginId)) {
-      return NextResponse.json({ error: 'Cross-artifact matching currently requires native function providers.' }, { status: 422, headers: NO_STORE })
-    }
     const [functionA, functionB] = await Promise.all([
       prisma.reamonObservation.findFirst({ where: { projectId, taskId: taskAId, artifactId: taskA.artifactId, type: { in: ['code_unit', 'function'] }, OR: [{ id: functionAId }, { stableKey: functionAId }] }, select: { id: true, stableKey: true, label: true, attributes: true } }),
       prisma.reamonObservation.findFirst({ where: { projectId, taskId: taskBId, artifactId: taskB.artifactId, type: { in: ['code_unit', 'function'] }, OR: [{ id: functionBId }, { stableKey: functionBId }] }, select: { id: true, stableKey: true, label: true, attributes: true } }),
@@ -125,16 +131,29 @@ export async function POST(request: Request, { params }: RouteParams) {
     const featureB = feature(functionB)
     const attributesA = { ...record(taskA.artifact.profile), ...record(functionA.attributes) }
     const attributesB = { ...record(taskB.artifact.profile), ...record(functionB.attributes) }
-    if (!featureA || !featureB || !instructionSequencesAreCompatible({ providerId: taskA.provider.pluginId, artifactId: taskA.artifactId, attributes: attributesA }, { providerId: taskB.provider.pluginId, artifactId: taskB.artifactId, attributes: attributesB })) {
+    const identityA = { providerId: taskA.provider.pluginId, artifactId: taskA.artifactId, attributes: attributesA }
+    const identityB = { providerId: taskB.provider.pluginId, artifactId: taskB.artifactId, attributes: attributesB }
+    const familyA = instructionSequenceFamily(identityA)
+    const familyB = instructionSequenceFamily(identityB)
+    if (!featureA || !featureB || !instructionSequencesAreCompatible(identityA, identityB)) {
       return NextResponse.json({ error: 'These functions do not have compatible stored instruction evidence.' }, { status: 422, headers: NO_STORE })
     }
-    const architecture = nativeArchitectureGroup(attributesA)
-    const architectureB = nativeArchitectureGroup(attributesB)
     const endianA = endianness(attributesA)
     const endianB = endianness(attributesB)
-    if (!architecture || architecture !== architectureB || (endianA && endianB && endianA !== endianB)
-      || !instructionSequenceFamily({ providerId: taskA.provider.pluginId, artifactId: taskA.artifactId, attributes: attributesA })?.startsWith('native:')) {
-      return NextResponse.json({ error: 'The runs need matching, recognized native architectures.' }, { status: 422, headers: NO_STORE })
+    let comparisonDomain: string | null = null
+    if (familyA?.startsWith('native:')) {
+      const architecture = nativeArchitectureGroup(attributesA)
+      const architectureB = nativeArchitectureGroup(attributesB)
+      if (NATIVE_PROVIDERS.has(taskA.provider.pluginId) && NATIVE_PROVIDERS.has(taskB.provider.pluginId)
+          && architecture && architecture === architectureB && !(endianA && endianB && endianA !== endianB)) {
+        comparisonDomain = `native:${architecture}:${endianA || endianB || 'endianness-unknown'}`
+      }
+    } else if (familyA && BYTECODE_MATCH_PROVIDERS[familyA]?.has(taskA.provider.pluginId)
+        && BYTECODE_MATCH_PROVIDERS[familyA]?.has(taskB.provider.pluginId)) {
+      comparisonDomain = familyA
+    }
+    if (!comparisonDomain) {
+      return NextResponse.json({ error: 'These runs do not share a supported native architecture or bytecode instruction family.' }, { status: 422, headers: NO_STORE })
     }
     const score = scoreInstructionFunctionPair(featureA, featureB)
     if (!score || score.similarity < 0.6) return NextResponse.json({ error: 'The functions do not meet the matcher’s candidate threshold.' }, { status: 422, headers: NO_STORE })
@@ -163,7 +182,7 @@ export async function POST(request: Request, { params }: RouteParams) {
         taskBId, providerBId: taskB.provider.pluginId, providerBVersion: taskB.provider.version,
         functionBObservationId: functionB.id, functionBStableKey: functionB.stableKey,
         functionBName: featureB.name, functionBAddress: featureB.address, functionBFeatures: featureSnapshot(featureB) as unknown as Prisma.InputJsonValue,
-        architecture: `${architecture}:${endianA || endianB || 'endianness-unknown'}`,
+        architecture: comparisonDomain,
         matcher: 'reamon-instruction-cfg-wl',
         matcherVersion: '4',
         similarity: Math.round(score.similarity * 100),
@@ -175,7 +194,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     })
     return NextResponse.json({ match, reused: false }, { status: 201, headers: NO_STORE })
   } catch (error) {
-    console.error('Could not persist native function match:', error)
+    console.error('Could not persist function match:', error)
     return NextResponse.json({ error: 'Could not save this function comparison' }, { status: 500, headers: NO_STORE })
   }
 }

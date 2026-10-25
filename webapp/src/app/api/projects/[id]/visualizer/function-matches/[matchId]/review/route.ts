@@ -29,7 +29,7 @@ export async function POST(request: Request, { params }: RouteParams) {
           projectId,
           actor: 'Operator',
           eventType: `native-function-match.${decision.toLowerCase()}`,
-          message: `${decision === 'ACCEPTED' ? 'Accepted' : 'Rejected'} a proposed native function match`,
+          message: `${decision === 'ACCEPTED' ? 'Accepted' : 'Rejected'} a proposed function match`,
           data: { matchId, reviewId: created.id, reviewerId: user.userId },
         },
       })
@@ -37,7 +37,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     })
     return NextResponse.json({ review }, { status: 201, headers: NO_STORE })
   } catch (error) {
-    console.error('Could not save native function match review:', error)
+    console.error('Could not save function match review:', error)
     return NextResponse.json({ error: 'Could not save this function match review' }, { status: 500, headers: NO_STORE })
   }
 }
