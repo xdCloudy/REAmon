@@ -1500,12 +1500,15 @@ services:
     environment:
       REAMON_ARTIFACTS_PATH: /data/reamon-artifacts
       REAMON_DERIVED_PATH: /data/reamon-derived
+      REAMON_SCRATCH_PATH: /data/reamon-scratch
+      TMPDIR: /data/reamon-scratch
       DEX_DECOMPILER_TIMEOUT_SECONDS: ${REAMON_DEX_DECOMPILER_TIMEOUT_SECONDS:-900}
       DEX_DECOMPILER_MAX_OUTPUT_BYTES: ${REAMON_DEX_DECOMPILER_MAX_OUTPUT_BYTES:-536870912}
       DEX_DECOMPILER_MAX_RETURNED_UNITS: ${REAMON_DEX_DECOMPILER_MAX_RETURNED_UNITS:-500}
     volumes:
       - reamon_artifacts:/data/reamon-artifacts:ro
       - reamon_derived:/data/reamon-derived:rw
+      - reamon_dex_scratch:/data/reamon-scratch:rw
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8019/health', timeout=3)"]
@@ -2571,3 +2574,5 @@ volumes:
     name: reamon_artifacts
   reamon_derived:
     name: reamon_derived
+  reamon_dex_scratch:
+    name: reamon_dex_scratch

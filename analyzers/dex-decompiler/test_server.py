@@ -2,10 +2,12 @@ import unittest
 import tempfile
 import zipfile
 from pathlib import Path
+from unittest.mock import patch
 
 from server import (
     build_decompile_command,
     build_mapping_command,
+    create_analysis_tempdir,
     extract_dex_inputs,
     parse_dex_inventory,
     recover_batch_class_failures,
@@ -14,6 +16,18 @@ from server import (
 
 
 class DecompilerCommandTests(unittest.TestCase):
+    def test_request_scratch_directory_uses_configured_volume_path(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            scratch_root = Path(temporary) / "scratch"
+            stale = scratch_root / "reamon-dex-decompiler-abandoned"
+            stale.mkdir(parents=True)
+            (stale / "partial.dex").write_bytes(b"partial")
+            with patch("server.SCRATCH_ROOT", scratch_root):
+                with create_analysis_tempdir() as work_directory:
+                    self.assertEqual(Path(work_directory).parent, scratch_root)
+                    self.assertTrue(Path(work_directory).is_dir())
+                    self.assertFalse(stale.exists())
+
     def test_uses_batch_slicer_with_shared_mapping_and_structured_mode(self):
         command = build_decompile_command(Path("classes.dex"), Path("names.txt"), Path("java"), 128, 64)
 

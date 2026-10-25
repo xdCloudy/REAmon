@@ -20,6 +20,7 @@ from uuid import uuid4
 
 ARTIFACT_ROOT = Path(os.environ.get("REAMON_ARTIFACTS_PATH", "/data/reamon-artifacts")).resolve()
 DERIVED_ROOT = Path(os.environ.get("REAMON_DERIVED_PATH", "/data/reamon-derived")).resolve()
+SCRATCH_ROOT = Path(os.environ.get("REAMON_SCRATCH_PATH", "/tmp")).resolve()
 PORT = int(os.environ.get("PORT", "8019"))
 TIMEOUT_SECONDS = min(1800, max(60, int(os.environ.get("DEX_DECOMPILER_TIMEOUT_SECONDS", "900"))))
 MAX_OUTPUT_BYTES = min(1024**3, max(1024**2, int(os.environ.get("DEX_DECOMPILER_MAX_OUTPUT_BYTES", str(512 * 1024**2)))))
@@ -214,6 +215,17 @@ def safe_id(value: object) -> str:
     return value
 
 
+def create_analysis_tempdir() -> tempfile.TemporaryDirectory:
+    """Create request scratch outside the memory-backed container /tmp when configured."""
+    SCRATCH_ROOT.mkdir(parents=True, exist_ok=True)
+    # SLOTS serializes requests. Any previous matching directory is therefore an
+    # orphan left by a hard stop and safe to reclaim before starting this request.
+    for stale in SCRATCH_ROOT.glob("reamon-dex-decompiler-*"):
+        if stale.is_dir() and not stale.is_symlink():
+            shutil.rmtree(stale, ignore_errors=True)
+    return tempfile.TemporaryDirectory(prefix="reamon-dex-decompiler-", dir=SCRATCH_ROOT)
+
+
 def resolve_input(value: object) -> Path:
     if not isinstance(value, str) or not value or len(value) > 4096:
         raise AnalysisError("Invalid artifact path")
@@ -301,7 +313,7 @@ def analyse(body: dict[str, object], progress=None) -> dict[str, object]:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             artifact_hash.update(chunk)
 
-    with tempfile.TemporaryDirectory(prefix="reamon-dex-decompiler-") as temporary:
+    with create_analysis_tempdir() as temporary:
         temporary_root = Path(temporary)
         compiler_input = temporary_root / f"input{input_suffix}"
         compiler_input.symlink_to(source)

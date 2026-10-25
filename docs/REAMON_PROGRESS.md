@@ -4,7 +4,7 @@ Assessment date: 2026-10-25 · Source: pushed commit `88f16a4` · Weighted estim
 
 This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.
 
-The weighted score remains 46.2%: this refresh documents the full reconstruction pipeline but adds no completed product capability. The Cross Stitch Joy Rust DEX decompilation retry is still running and will be reassessed when it settles.
+The weighted score remains 46.2%: the DEX scratch-volume fix has focused Docker tests but no deployed end-to-end evidence yet. The Cross Stitch Joy Rust DEX decompilation retry is still running and will be reassessed when it settles.
 
 | Workstream | Goal weight | Estimated complete | Weighted points |
 | --- | ---: | ---: | ---: |
@@ -49,7 +49,7 @@ The weighted score remains 46.2%: this refresh documents the full reconstruction
 
 ### Security, reliability, and production operations
 
-**Current evidence:** Upload buffering findings are addressed in the current source patch: workspace file-browser transfers stream end to end, the legacy full-file artifact endpoint directs browser imports to resumable chunks, and chunk requests are bounded while being read even without Content-Length. Focused webapp and Docker Python tests pass. The broader source review, deployed-stack checks, and production operation gates remain open.
+**Current evidence:** Upload buffering findings are addressed in the current source patch: workspace file-browser transfers stream end to end, the legacy full-file artifact endpoint directs browser imports to resumable chunks, and chunk requests are bounded while being read even without Content-Length. DEX request scratch now uses a dedicated disk-backed volume in source, with crash-leftover cleanup; its focused Docker tests and root compose parsing pass, but the live analyzer has not been rebuilt. The broader source review, deployed-stack checks, and production operation gates remain open.
 
 **Remaining:** The security scan is partial, administrator session actions are not scoped to per-user ownership, and deployment, worker, backup, restore, and remaining Docker release gates need end-to-end evidence. Complete the repository-wide security review and deployment, worker, backup, and restore gates.
 
