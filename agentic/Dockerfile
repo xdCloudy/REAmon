@@ -34,6 +34,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     file \
     ca-certificates \
     gnupg \
+    golang-go \
     && rm -rf /var/lib/apt/lists/*
 
 # Retry helper for transient network failures
@@ -41,35 +42,19 @@ RUN printf '#!/bin/sh\nmax=5; n=0; until "$@"; do n=$((n+1)); [ $n -ge $max ] &&
     > /usr/local/bin/retry && chmod +x /usr/local/bin/retry
 
 # Install Node.js 20 LTS + npm (for JS/TS projects)
+# Pin the package managers; newer pnpm releases pull bundled executables for
+# multiple platforms, which slows this single-platform image build.
 RUN retry curl -fsSL --retry 5 --retry-delay 5 --retry-all-errors \
         -o /tmp/nodesource.sh https://deb.nodesource.com/setup_20.x \
     && bash /tmp/nodesource.sh \
     && rm /tmp/nodesource.sh \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/* \
-    && npm install -g yarn pnpm
+    && npm install -g --force yarn@1.22.22 pnpm@10.34.8
 
-# Install Go 1.22 (for Go projects)
-# Download to file first (not piped to tar) so `retry` can cleanly re-run on
-# a truncated HTTP/2 stream. curl's own --retry adds a second layer for
-# transient errors; sha256 check catches any silently-short download.
-# The tarball must match the image architecture: an amd64 Go extracts fine on
-# arm64 and only fails when the agent first runs it, so `go version` below
-# turns that into a build failure. Hashes are go.dev's published sha256s.
-ARG TARGETARCH
-RUN arch="${TARGETARCH:-$(dpkg --print-architecture)}" \
-    && case "$arch" in \
-         amd64) sha=736ce492a19d756a92719a6121226087ccd91b652ed5caec40ad6dbfb2252092 ;; \
-         arm64) sha=5213c5e32fde3bd7da65516467b7ffbfe40d2bb5a5f58105e387eef450583eec ;; \
-         *) echo "unsupported architecture: $arch" >&2; exit 1 ;; \
-       esac \
-    && retry curl -fsSL --retry 5 --retry-delay 5 --retry-all-errors \
-        -o /tmp/go.tgz "https://go.dev/dl/go1.22.10.linux-${arch}.tar.gz" \
-    && echo "${sha}  /tmp/go.tgz" | sha256sum -c - \
-    && tar -C /usr/local -xzf /tmp/go.tgz \
-    && rm /tmp/go.tgz \
-    && /usr/local/go/bin/go version
-ENV PATH="/usr/local/go/bin:/root/go/bin:${PATH}"
+# Install Debian's supported Go compiler so agent builds don't depend on
+# upstream archives that disappear after their supported release window.
+ENV PATH="/root/go/bin:${PATH}"
 
 # LuaLS provides semantic binding identity and rename edits for standard Lua.
 # Keep it pinned and checksum verified; Luau remains on its own grammar/toolchain.
