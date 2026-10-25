@@ -66,18 +66,17 @@ with sync_playwright() as playwright:
         expect(page.get_by_role("heading", name="Latest import")).to_be_visible()
         expect(page.locator("body")).to_contain_text("COMPLETED")
 
-    # The staging acceptance leaves one approval-gated recovery task. Approve
-    # it through the operator UI, then exercise the visible stale-recovery
-    # control before the deployment-level worker drill runs.
+    # The staging acceptance leaves one approval-gated recovery task inside
+    # the collapsed Tasks and findings section. Approve it through the current
+    # workspace controls; stale-task recovery is covered by the worker drill.
     if ACCEPTANCE_PROJECT_ID:
         page.goto(f"{BASE_URL}/projects/{ACCEPTANCE_PROJECT_ID}", wait_until="networkidle")
-        expect(page.get_by_role("heading", name="Operator approvals")).to_be_visible()
-        expect(page.get_by_role("button", name="Approve")).to_have_count(1)
-        page.get_by_role("button", name="Approve").click()
+        page.locator("summary").filter(has_text="Tasks and findings").click()
+        approve = page.get_by_role("button", name=re.compile(r"^Approve "))
+        expect(approve).to_have_count(1)
+        approve.click()
         expect(page.get_by_role("status")).to_contain_text(re.compile("approved", re.IGNORECASE))
-        page.get_by_role("button", name="Recover stale").click()
-        expect(page.get_by_role("status")).to_contain_text("No stale tasks needed recovery")
 
     browser.close()
 
-print("PASS: browser login, workspace import, operator approval, and recovery controls")
+print("PASS: browser login, workspace import, and operator approval controls")
