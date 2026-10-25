@@ -1,6 +1,6 @@
 # REAmon product progress
 
-Assessment date: 2026-10-25 · Source: pushed commit `8890379` · Weighted estimate: **46.2%**
+Assessment date: 2026-10-25 · Source: pushed commit `426ea9f` · Weighted estimate: **46.2%**
 
 This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.
 
@@ -47,8 +47,8 @@ This estimate covers the reverse-engineering product goal and secure production 
 
 ### Security, reliability, and production operations
 
-**Current evidence:** Sensitive agent REST controls, administrator-only shared session/job proxies, and the Metasploit/Hydra progress/session sidecars now have explicit authenticated boundaries. The production dependency audit is clean, and the current full webapp suite passes. Deployed-stack and remaining repository gates are open. An in-progress repository-wide source review has identified medium availability issues in workspace uploads: the agent file-browser endpoint and multipart artifact import buffer full files, while chunk requests without Content-Length are fully buffered before the 16 MiB check; broader audit coverage remains open.
+**Current evidence:** Upload buffering findings are addressed in the current source patch: workspace file-browser transfers stream end to end, the legacy full-file artifact endpoint directs browser imports to resumable chunks, and chunk requests are bounded while being read even without Content-Length. Focused webapp and Docker Python tests pass. The broader source review, deployed-stack checks, and production operation gates remain open.
 
-**Remaining:** The security scan is partial, administrator session actions are not scoped to per-user ownership, and deployment, worker, backup, restore, and remaining Docker release gates need end-to-end evidence. Stream direct and multipart uploads with bounded memory, enforce the chunk bound while reading, and preserve uncapped artifact sizes; then finish the repository-wide security review and deployment, worker, backup, and restore gates.
+**Remaining:** The security scan is partial, administrator session actions are not scoped to per-user ownership, and deployment, worker, backup, restore, and remaining Docker release gates need end-to-end evidence. Complete the repository-wide security review and deployment, worker, backup, and restore gates.
 
 The machine-readable [`REAMON_PROGRESS.json`](REAMON_PROGRESS.json) feeds the README progress bar. The scope now includes the production hardening goal, so the total is not directly comparable with the previous product-only estimate. Update it with evidence when estimates change, then run `node tooling/reamon/update-product-progress.mjs <commit-sha>` to refresh this matrix and the README.
