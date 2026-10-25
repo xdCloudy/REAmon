@@ -100,7 +100,16 @@ export async function runWorkspaceImport(options: {
   const totalFiles = selection.files.length
   const totalBytes = selection.totalBytes
   let completedFiles = selection.files.filter((entry) => completedPaths.has(entry.relativePath)).length
-  let uploadedBytes = selection.files.filter((entry) => completedPaths.has(entry.relativePath)).reduce((sum, entry) => sum + entry.size, 0)
+  const acknowledgedBytesByPath = new Map(
+    selection.files
+      .filter((entry) => completedPaths.has(entry.relativePath))
+      .map((entry) => [entry.relativePath, entry.size]),
+  )
+  let uploadedBytes = Array.from(acknowledgedBytesByPath.values()).reduce((sum, size) => sum + size, 0)
+  const updateAcknowledgedBytes = (relativePath: string, size: number) => {
+    uploadedBytes += size - (acknowledgedBytesByPath.get(relativePath) || 0)
+    acknowledgedBytesByPath.set(relativePath, size)
+  }
   const emit = (phase: ImportProgress['phase'], currentPath = '') => onProgress?.({ phase, completedFiles, totalFiles, uploadedBytes, totalBytes, currentPath, failedPaths: [...failedPaths] })
   const throwIfCancelled = () => {
     if (signal?.aborted) {
@@ -177,8 +186,12 @@ export async function runWorkspaceImport(options: {
             }
             throw new Error(message)
           }
-          confirmedOffset += chunk.size
-          uploadedBytes += chunk.size
+          const receivedBytes = Number(data.receivedBytes)
+          if (!Number.isSafeInteger(receivedBytes) || receivedBytes < end || receivedBytes > entry.size) {
+            throw new Error(`Server returned an invalid upload offset for ${entry.relativePath}`)
+          }
+          confirmedOffset = receivedBytes
+          updateAcknowledgedBytes(entry.relativePath, confirmedOffset)
           consecutiveFailures = 0
           emit('UPLOADING', entry.relativePath)
         }
@@ -193,6 +206,7 @@ export async function runWorkspaceImport(options: {
         const data = await response.json()
         if (!response.ok) throw new Error(data.error || `Could not finalize ${entry.relativePath}`)
         completedPaths.add(entry.relativePath)
+        updateAcknowledgedBytes(entry.relativePath, entry.size)
         onFileCompleted?.(entry.relativePath)
         completedFiles += 1
         emit('UPLOADING', entry.relativePath)

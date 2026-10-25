@@ -54,7 +54,7 @@ For LAN access, upgrades, backups, and internet-facing deployments, see the [dep
 4. Browse decompiled code and related instructions, functions, relationships, and saved analysis in the project visualizer.
 5. Use the saved project evidence to guide explanations and proposed edits. Review and validate edits before accepting or exporting them.
 
-Browser workspace imports transfer in resumable 8 MiB chunks, with no per-file or total-byte cap imposed by REAmon. Import size is limited by available storage; profiling samples a bounded prefix so large files do not need to fit in application memory.
+Browser workspace imports transfer in resumable 8 MiB chunks, with no per-file or total-byte cap imposed by REAmon. Retries resume from the server's persisted byte offset, and progress reflects server-acknowledged data. Import size is limited by available storage; profiling samples a bounded prefix so large files do not need to fit in application memory.
 
 The intended workflow and evidence model are described in the [reverse-engineering workflow](docs/REAMON_WORKFLOW.md) and [architecture](docs/REAMON_ARCHITECTURE.md).
 

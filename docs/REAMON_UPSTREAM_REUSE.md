@@ -7,6 +7,18 @@ separate so a plausible name is never treated as proof of behavior.
 
 ## Current direction
 
+### Large artifact transfer
+
+The [tus resumable upload protocol](https://tus.io/protocols/resumable-upload.html)
+uses a server-reported byte offset to continue an interrupted upload. REAmon's
+project-scoped chunk endpoint already persists bounded chunks and returns the
+confirmed file offset; the browser uploader now uses that response to skip any
+prefix persisted by a previous attempt and reports progress from acknowledged
+file positions. This is an adaptation of the protocol's offset-resume pattern;
+REAmon does not implement the complete tus protocol or depend on `tus-js-client`.
+The upstream JS client is MIT-licensed and remains a reference for retry and
+browser persistence behavior, not copied code.
+
 | Project | Useful contribution | REAmon direction | Constraints |
 | --- | --- | --- | --- |
 | [unwasm](https://github.com/oxidezap/unwasm) | MIT/Apache-2.0 dual-licensed Rust WebAssembly decompiler. The pinned `72844fd8848358e23abbeae232abf9b3d68817b2` source exposes function and source-line-to-byte-offset indexes in `names.json` and `offsets.json`, and supports bounded `--only` selection. | Added as an isolated companion to WABT: selected Wasm functions receive separate Rust level-0 translation artifacts keyed to their Wasm function addresses. Source lines link to an adjacent bounded raw-byte listing. The visualizer and MCP dossier both state that Rust and its names are generated evidence, not the original source. | The provider is resource-limited (90 CPU seconds, 512 MiB address space, 64 MiB generated source, and an 8 MiB byte listing). Unsupported modules produce no Rust view while preserving WAT results. The upstream's fidelity claims are not independently validated in REAmon; fixture comparison is still open. Function snippets may depend on module context. |
