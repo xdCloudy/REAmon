@@ -62,7 +62,7 @@ def _full_recon_env() -> dict:
     mgr.ensure_osv_db_fresh_async = _noop
     mgr.ensure_sca_intel_fresh_async = _noop
     mgr._get_container_name = lambda pid: f"redamon-recon-{pid}"
-    mgr._scanner_env = lambda: {}
+    mgr._scanner_env = lambda *_args: {}
     mgr._scanner_hardening = lambda drop_caps=True: {}
     mgr._container_mem_limit = lambda kind: None
     mgr._container_pids_limit = lambda: None
@@ -102,7 +102,11 @@ def _partial_recon_env() -> dict:
         )
         assert getattr(state, "error", None) in (None, ""), f"spawn failed: {state.error}"
 
-    asyncio.run(_go())
+    with mock.patch.dict(os.environ, {
+        "SCANNER_API_KEY": "test-scanner-key",
+        "INTERNAL_API_KEY": "test-internal-key",
+    }):
+        asyncio.run(_go())
     return captured["environment"]
 
 

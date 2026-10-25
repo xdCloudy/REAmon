@@ -56,10 +56,12 @@ def fetch_supply_chain_settings(project_id: str, webapp_url: str) -> dict[str, A
 
     url = f"{webapp_url.rstrip('/')}/api/projects/{project_id}"
     logger.info(f"Fetching Supply-Chain settings from {url}")
-    # S3/E6: scanners receive the SCOPED SCANNER_API_KEY; fall back to the master
-    # INTERNAL_API_KEY only on pre-secret installs. The webapp accepts either.
-    internal_key = os.environ.get("SCANNER_API_KEY") or os.environ.get("INTERNAL_API_KEY", "")
-    headers = {"X-Internal-Key": internal_key}
+    # The shared scanner key passes middleware; the signed scope binds these reads
+    # to the project and owner assigned by the orchestrator.
+    headers = {
+        "X-Internal-Key": os.environ.get("SCANNER_API_KEY", ""),
+        "X-Scanner-Scope": os.environ.get("SCANNER_SCOPE_TOKEN", ""),
+    }
     response = requests.get(url, timeout=30, headers=headers)
     response.raise_for_status()
     project = response.json()

@@ -11,8 +11,8 @@ def internal_key_headers() -> dict:
     """Header dict carrying the internal/scanner API key for agent /llm/* calls.
 
     Prefers the scoped ``SCANNER_API_KEY`` (S3/E6) and falls back to
-    ``INTERNAL_API_KEY``. An empty value is harmless before the secret is
-    generated -- the agent guard fails open until a key exists.
+    ``INTERNAL_API_KEY`` for trusted non-scan callers. Scan containers receive
+    only the scanner key; the orchestrator master key is never forwarded.
     """
     key = os.environ.get("SCANNER_API_KEY") or os.environ.get("INTERNAL_API_KEY") or ""
     return {"X-Internal-Key": key}

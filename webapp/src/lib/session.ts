@@ -1,5 +1,6 @@
 import { cookies } from 'next/headers'
 import { NextRequest, NextResponse } from 'next/server'
+import { createHmac, timingSafeEqual } from 'crypto'
 import { verifyToken, verifyActAsToken, AUTH_COOKIE_NAME, ACT_AS_COOKIE_NAME } from './auth'
 import { constantTimeEqual } from './constantTimeEqual'
 
@@ -84,23 +85,59 @@ export function isInternalRequest(request: NextRequest): boolean {
   const key = request.headers.get('x-internal-key')
   const expected = process.env.INTERNAL_API_KEY
   if (!key || !expected || expected === 'changeme') return false
+  // A duplicated scanner secret must never inherit master-key privileges.
+  const scanner = process.env.SCANNER_API_KEY
+  if (scanner && scanner !== 'changeme' && constantTimeEqual(expected, scanner)) return false
   return constantTimeEqual(key, expected)
 }
 
 /**
- * S3/E6: the LOWER-TIER scanner principal. Scan containers carry SCANNER_API_KEY
- * (not the master INTERNAL_API_KEY) and legitimately read only their OSINT
- * settings + project config. This returns true for a valid scanner key; callers
- * must scope it to exactly GET /api/users/[id]/settings and GET /api/projects/[id]
- * (the middleware allowlist enforces the route scope; these route handlers accept
- * the principal). It is deliberately NOT accepted on llm-providers, tradecraft,
- * or any user-CRUD route.
+ * Lower-tier scanner principal. Route handlers must combine this transport
+ * identity with getScannerScope() before returning or writing tenant data. The
+ * middleware also restricts the key to its small route/method allowlist.
  */
 export function isScannerRequest(request: NextRequest): boolean {
   const key = request.headers.get('x-internal-key')
   const expected = process.env.SCANNER_API_KEY
   if (!key || !expected || expected === 'changeme') return false
+  const master = process.env.INTERNAL_API_KEY
+  if (master && master !== 'changeme' && constantTimeEqual(expected, master)) return false
   return constantTimeEqual(key, expected)
+}
+
+export interface ScannerScope {
+  projectId: string
+  userId: string
+}
+
+/** Verify the orchestrator-signed tenant scope carried by each scan container. */
+export function getScannerScope(request: NextRequest): ScannerScope | null {
+  const token = request.headers.get('x-scanner-scope') || ''
+  const secret = process.env.INTERNAL_API_KEY
+  if (!token || token.length > 2048 || !secret || secret === 'changeme') return null
+
+  const [encoded, signature, extra] = token.split('.')
+  if (!encoded || !signature || extra !== undefined || !/^[A-Za-z0-9_-]+$/.test(encoded)
+      || !/^[A-Za-z0-9_-]{43}$/.test(signature)) return null
+
+  try {
+    const expected = createHmac('sha256', secret).update(encoded).digest()
+    const actual = Buffer.from(signature, 'base64url')
+    if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) return null
+
+    const payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')) as {
+      v?: unknown; projectId?: unknown; userId?: unknown; iat?: unknown; exp?: unknown
+    }
+    const now = Math.floor(Date.now() / 1000)
+    if (payload.v !== 1 || typeof payload.projectId !== 'string' || !payload.projectId
+        || payload.projectId.length > 255 || typeof payload.userId !== 'string' || !payload.userId
+        || payload.userId.length > 255 || !Number.isInteger(payload.iat) || !Number.isInteger(payload.exp)
+        || (payload.iat as number) > now + 60 || (payload.exp as number) <= now
+        || (payload.exp as number) - (payload.iat as number) > 7 * 24 * 60 * 60) return null
+    return { projectId: payload.projectId, userId: payload.userId }
+  } catch {
+    return null
+  }
 }
 
 /**

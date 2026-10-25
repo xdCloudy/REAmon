@@ -8,9 +8,9 @@ query real request/response data instead of only URLs + hashes.
 
 There is no capture proxy yet in Phase 0. Recon POSTs the transactions straight to
 the webapp ingest endpoint (`POST /api/traffic/{project_id}/ingest`) using the same
-`X-Internal-Key: SCANNER_API_KEY` it already uses to read project settings. The
-webapp is the sole Postgres writer and stamps the tenant (user_id/project_id) from
-the project owner — recon never sends tenant fields it could forge.
+`X-Internal-Key: SCANNER_API_KEY` plus its signed project scope. The webapp is
+the sole Postgres writer and stamps the tenant (user_id/project_id) from the
+project owner; recon never sends tenant fields it could forge.
 
 Gated by `CAPTURE_PROXY_ENABLED` (per-project). Best-effort / fail-open: any error
 here is logged and swallowed so it can never break a scan (§20.1).
@@ -20,6 +20,10 @@ import logging
 import os
 from datetime import datetime, timezone
 from urllib.parse import urlsplit
+try:
+    from recon.helpers.scanner_scope import scanner_request_headers
+except ImportError:  # pragma: no cover - the container's own layout
+    from helpers.scanner_scope import scanner_request_headers
 
 logger = logging.getLogger(__name__)
 
@@ -237,10 +241,7 @@ def capture_httpx_transactions(httpx_results, settings, phase="informational"):
 
         import requests
 
-        headers = {
-            "X-Internal-Key": (os.environ.get("SCANNER_API_KEY") or os.environ.get("INTERNAL_API_KEY", "")),
-            "Content-Type": "application/json",
-        }
+        headers = {**scanner_request_headers(), "Content-Type": "application/json"}
         url = f"{webapp_url.rstrip('/')}/api/traffic/{project_id}/ingest"
 
         stored = 0

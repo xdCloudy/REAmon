@@ -117,10 +117,12 @@ def fetch_gvm_settings(project_id: str, webapp_url: str) -> dict[str, Any]:
     url = f"{webapp_url.rstrip('/')}/api/projects/{project_id}"
     logger.info(f"Fetching GVM settings from {url}")
 
-    # S3/E6: scanners receive the SCOPED SCANNER_API_KEY; fall back to the master
-    # INTERNAL_API_KEY only on pre-secret installs. The webapp accepts either.
-    _internal_headers = {"X-Internal-Key": (os.environ.get("SCANNER_API_KEY")
-                                            or os.environ.get("INTERNAL_API_KEY", ""))}
+    # The shared scanner key passes middleware; the signed scope binds this read
+    # to the project and owner assigned by the orchestrator.
+    _internal_headers = {
+        "X-Internal-Key": os.environ.get("SCANNER_API_KEY", ""),
+        "X-Scanner-Scope": os.environ.get("SCANNER_SCOPE_TOKEN", ""),
+    }
     response = requests.get(url, timeout=30, headers=_internal_headers)
     response.raise_for_status()
     project = response.json()

@@ -5,8 +5,8 @@ Covers the four pure decision helpers added in the STRIDE D1 / S3-E6 wave:
   * _container_cpu_limit  — core-proportional nano_cpus, fraction + abs clamp,
     fail-open when governor off / fraction <= 0.
   * _container_pids_limit — fixed fork-bomb ceiling, env-overridable, fail-open.
-  * _scanner_env          — scoped SCANNER_API_KEY, falls back to master key only
-    when the scanner key is unset/placeholder.
+  * _scanner_env          — scanner key plus a signed project/user scope; never
+    passes the master key to a scan container.
   * _scanner_hardening    — cap_drop:[ALL] only when drop_caps=True.
 
 None of these touch the docker client, so we build a ContainerManager without
@@ -15,6 +15,10 @@ running __init__ (avoids docker.from_env).
 Run:  docker exec redamon-recon-orchestrator sh -c 'cd /app && python -m unittest tests.test_d1_resource_ceilings -v'
 """
 
+import base64
+import hashlib
+import hmac
+import json
 import os
 import unittest
 from unittest import mock
@@ -101,21 +105,34 @@ class TestScannerEnv(unittest.TestCase):
     def setUp(self):
         self.m = _mgr()
 
-    def test_uses_scoped_scanner_token(self):
+    def test_mints_project_bound_scope_without_passing_master_key(self):
         with _env(SCANNER_API_KEY="scan-tok", INTERNAL_API_KEY="master"):
-            env = self.m._scanner_env()
-            self.assertEqual(env, {"SCANNER_API_KEY": "scan-tok"})
-            # the master key must NOT be handed to the scan spawn
+            env = self.m._scanner_env("project-1", "owner-1")
+            self.assertEqual(env["SCANNER_API_KEY"], "scan-tok")
             self.assertNotIn("INTERNAL_API_KEY", env)
+            encoded, signature = env["SCANNER_SCOPE_TOKEN"].split(".")
+            expected = hmac.new(b"master", encoded.encode("ascii"), hashlib.sha256).digest()
+            self.assertEqual(base64.urlsafe_b64decode(signature + "="), expected)
+            payload = json.loads(base64.urlsafe_b64decode(encoded + "=="))
+            self.assertEqual((payload["projectId"], payload["userId"], payload["v"]),
+                             ("project-1", "owner-1", 1))
 
-    def test_falls_back_to_master_when_scanner_unset(self):
+    def test_fails_closed_when_scanner_key_is_unset(self):
         with _env(INTERNAL_API_KEY="master"):
             os.environ.pop("SCANNER_API_KEY", None)
-            self.assertEqual(self.m._scanner_env(), {"INTERNAL_API_KEY": "master"})
+            with self.assertRaisesRegex(RuntimeError, "SCANNER_API_KEY"):
+                self.m._scanner_env("project-1", "owner-1")
 
-    def test_falls_back_when_scanner_is_placeholder(self):
+    def test_fails_closed_when_scanner_key_is_placeholder(self):
         with _env(SCANNER_API_KEY="changeme", INTERNAL_API_KEY="master"):
-            self.assertEqual(self.m._scanner_env(), {"INTERNAL_API_KEY": "master"})
+            with self.assertRaisesRegex(RuntimeError, "SCANNER_API_KEY"):
+                self.m._scanner_env("project-1", "owner-1")
+
+    def test_fails_closed_when_master_signing_secret_is_unset(self):
+        with _env(SCANNER_API_KEY="scan-tok"):
+            os.environ.pop("INTERNAL_API_KEY", None)
+            with self.assertRaisesRegex(RuntimeError, "master-key"):
+                self.m._scanner_env("project-1", "owner-1")
 
 
 class TestScannerHardening(unittest.TestCase):

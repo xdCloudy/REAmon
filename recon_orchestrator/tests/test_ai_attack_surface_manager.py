@@ -126,8 +126,16 @@ class TestLlmLease(unittest.TestCase):
 
 class TestStartStop(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
+        self._scanner_env = patch.dict(os.environ, {
+            "SCANNER_API_KEY": "test-scanner-key",
+            "INTERNAL_API_KEY": "test-internal-key",
+        })
+        self._scanner_env.start()
         self.mgr = make_manager()
         self.mgr.client.containers.run.return_value = fake_container()
+
+    def tearDown(self):
+        self._scanner_env.stop()
 
     def tearDown(self):
         for f in glob.glob("/tmp/redamon/ai_attack_p_*.json"):

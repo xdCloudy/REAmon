@@ -37,8 +37,10 @@ def mock_docker_client():
 
 
 @pytest.fixture
-def manager(mock_docker_client):
+def manager(mock_docker_client, monkeypatch):
     """Create a ContainerManager with mocked Docker client."""
+    monkeypatch.setenv("SCANNER_API_KEY", "test-scanner-key")
+    monkeypatch.setenv("INTERNAL_API_KEY", "test-internal-key")
     with patch('container_manager.docker') as mock_docker_mod:
         mock_docker_mod.from_env.return_value = mock_docker_client
         mgr = ContainerManager()
@@ -363,7 +365,7 @@ class TestStartPartialRecon:
             mock_path.return_value = MagicMock()
             state = await manager.start_partial_recon(
                 project_id="proj-1", tool_id="Naabu",
-                config={"tool_id": "Naabu", "domain": "x.com", "user_id": "", "webapp_api_url": ""},
+                config={"tool_id": "Naabu", "domain": "x.com", "user_id": "u1", "webapp_api_url": ""},
                 recon_path="/app/recon",
             )
 
@@ -382,7 +384,7 @@ class TestStartPartialRecon:
         with pytest.raises(ValueError, match=f"Maximum {MAX_PARALLEL_PARTIAL_RECONS}"):
             await manager.start_partial_recon(
                 project_id="proj-1", tool_id="Naabu",
-                config={"tool_id": "Naabu", "domain": "x.com", "user_id": "", "webapp_api_url": ""},
+                config={"tool_id": "Naabu", "domain": "x.com", "user_id": "u1", "webapp_api_url": ""},
                 recon_path="/app/recon",
             )
 
@@ -404,7 +406,7 @@ class TestStartPartialRecon:
             mock_path.return_value = MagicMock()
             state = await manager.start_partial_recon(
                 project_id="proj-1", tool_id="Httpx",
-                config={"tool_id": "Httpx", "domain": "x.com", "user_id": "", "webapp_api_url": ""},
+                config={"tool_id": "Httpx", "domain": "x.com", "user_id": "u1", "webapp_api_url": ""},
                 recon_path="/app/recon",
             )
 
@@ -420,7 +422,7 @@ class TestStartPartialRecon:
         with pytest.raises(ValueError, match="Full recon is running"):
             await manager.start_partial_recon(
                 project_id="proj-1", tool_id="Naabu",
-                config={"tool_id": "Naabu", "domain": "x.com", "user_id": "", "webapp_api_url": ""},
+                config={"tool_id": "Naabu", "domain": "x.com", "user_id": "u1", "webapp_api_url": ""},
                 recon_path="/app/recon",
             )
 
@@ -442,7 +444,7 @@ class TestStartPartialRecon:
             mock_path.return_value = MagicMock()
             state = await manager.start_partial_recon(
                 project_id="proj-1", tool_id="Naabu",
-                config={"tool_id": "Naabu", "domain": "x.com", "user_id": "", "webapp_api_url": ""},
+                config={"tool_id": "Naabu", "domain": "x.com", "user_id": "u1", "webapp_api_url": ""},
                 recon_path="/app/recon",
             )
         assert state.status == PartialReconStatus.RUNNING

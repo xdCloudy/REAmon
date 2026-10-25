@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
-import { getSession, isInternalRequest, isScannerRequest, requireUserAccess } from '@/lib/session'
+import { getScannerScope, getSession, isInternalRequest, isScannerRequest, requireUserAccess } from '@/lib/session'
 import { orchestratorFetch } from '@/lib/orchestrator'
 import { sanitizeBodyRules } from '@/lib/captureBodyRules'
 import { isValidGithubHost } from '@/lib/github/ownerTarget'
@@ -126,10 +126,22 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     // account (or be admin) and NEVER receive unmasked secrets; unmasking is
     // gated on a valid X-Internal-Key header (the agent/scanners), not the
     // client-supplied ?internal=true query param.
-    // S3/E6: the scoped scanner token reads its OSINT settings here (recon needs
-    // Shodan/URLScan keys). It is accepted like the internal principal on THIS
-    // route only (middleware enforces the route scope) and gets unmasked values.
-    const scanner = isScannerRequest(request)
+    // Scanner calls need a signed scope whose project is still owned by the
+    // requested user. That project-owner check happens before reading secrets;
+    // the shared scanner key alone grants no user-settings access.
+    const scannerCredential = isScannerRequest(request)
+    const scannerScope = scannerCredential ? getScannerScope(request) : null
+    if (scannerCredential && (!scannerScope || scannerScope.userId !== id)) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    }
+    const scanner = scannerCredential && scannerScope !== null
+    if (scanner && scannerScope) {
+      const boundProject = await prisma.project.findFirst({
+        where: { id: scannerScope.projectId, userId: scannerScope.userId },
+        select: { id: true },
+      })
+      if (!boundProject) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    }
     const denied = scanner ? null : await requireUserAccess(request, id)
     if (denied) return denied
     const internal = (isInternalRequest(request) || scanner) && request.nextUrl.searchParams.get('internal') === 'true'

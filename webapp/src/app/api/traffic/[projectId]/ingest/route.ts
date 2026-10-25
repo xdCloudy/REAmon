@@ -1,20 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
-import { isInternalRequest, isScannerRequest } from '@/lib/session'
+import { getScannerScope, isInternalRequest, isScannerRequest } from '@/lib/session'
 import { iocColumns } from '@/lib/scaIntel'
 import type { Prisma } from '@prisma/client'
 
 // POST /api/traffic/[projectId]/ingest
 //
 // Phase 0 write path for captured HTTP transactions. Called by the recon
-// pipeline with `X-Internal-Key: SCANNER_API_KEY` (and, later, by the agent with
-// INTERNAL_API_KEY). There is NO browser-session path here - this route is
-// internal-only, gated in middleware to the internal/scanner allowlist.
+// pipeline with the scanner key plus a signed per-scan project scope (and by
+// the agent with INTERNAL_API_KEY). There is NO browser-session path here - this
+// route is internal-only, gated in middleware to the internal/scanner allowlist.
 //
 // Trust model: tenant fields are NEVER taken from the request body. `projectId`
 // comes from the route; `userId` is resolved to the project OWNER via a DB
-// lookup. A compromised/rogue scanner therefore cannot forge cross-tenant rows,
-// and the webapp remains the sole Prisma writer (per README.TM trust boundaries).
+// lookup. Scanner scope must match the route project and its database owner; a
+// compromised scanner cannot select another tenant, and the webapp remains the
+// sole Prisma writer (per README.TM trust boundaries).
 
 // Hard ceilings (defense-in-depth against DoS / Postgres bloat - §15.8).
 const MAX_INLINE_BODY_BYTES = (parseInt(process.env.CAPTURE_PROXY_MAX_BODY_KB || '64', 10) || 64) * 1024
@@ -93,7 +94,12 @@ export async function POST(
     const { projectId } = await params
 
     // Internal-only: recon (scanner key) or agent (internal key). No session path.
-    if (!isScannerRequest(request) && !isInternalRequest(request)) {
+    const scanner = isScannerRequest(request)
+    const scannerScope = scanner ? getScannerScope(request) : null
+    if (scanner && (!scannerScope || scannerScope.projectId !== projectId)) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    }
+    if (!scanner && !isInternalRequest(request)) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
@@ -103,6 +109,9 @@ export async function POST(
       select: { userId: true, captureProxyEnabled: true },
     })
     if (!project) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    }
+    if (scanner && project.userId !== scannerScope?.userId) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 })
     }
     // Defense in depth: silently no-op if capture is disabled for this project.

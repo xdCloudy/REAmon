@@ -8,6 +8,7 @@
 
 import { describe, test, expect, vi, beforeEach } from 'vitest'
 import { NextRequest, NextResponse } from 'next/server'
+import { createHmac } from 'crypto'
 
 // Mock environment
 vi.stubEnv('AUTH_SECRET', 'a'.repeat(64))
@@ -28,7 +29,7 @@ vi.mock('next/headers', () => ({
   })),
 }))
 
-import { getSession, requireSession, requireAdmin, isInternalRequest, isScannerRequest } from './session'
+import { getSession, requireSession, requireAdmin, isInternalRequest, isScannerRequest, getScannerScope } from './session'
 import { createToken } from './auth'
 
 /* ------------------------------------------------------------------ */
@@ -159,6 +160,14 @@ describe('isInternalRequest', () => {
     expect(isInternalRequest(req)).toBe(true)
   })
 
+  test('rejects a duplicated scanner key instead of treating it as the master key', () => {
+    const oldScannerKey = process.env.SCANNER_API_KEY
+    process.env.SCANNER_API_KEY = 'test-internal-key-12345'
+    const req = makeRequest({ 'x-internal-key': 'test-internal-key-12345' })
+    expect(isInternalRequest(req)).toBe(false)
+    process.env.SCANNER_API_KEY = oldScannerKey
+  })
+
   test('returns false when INTERNAL_API_KEY is "changeme"', () => {
     const originalKey = process.env.INTERNAL_API_KEY
     process.env.INTERNAL_API_KEY = 'changeme'
@@ -197,6 +206,14 @@ describe('isScannerRequest', () => {
     expect(isScannerRequest(makeRequest({ 'x-internal-key': 'test-scanner-key-98765' }))).toBe(true)
   })
 
+  test('rejects a scanner key duplicated from the master key', () => {
+    const oldScannerKey = process.env.SCANNER_API_KEY
+    process.env.SCANNER_API_KEY = 'test-internal-key-12345'
+    const req = makeRequest({ 'x-internal-key': 'test-internal-key-12345' })
+    expect(isScannerRequest(req)).toBe(false)
+    process.env.SCANNER_API_KEY = oldScannerKey
+  })
+
   test('returns false when SCANNER_API_KEY is "changeme"', () => {
     const original = process.env.SCANNER_API_KEY
     process.env.SCANNER_API_KEY = 'changeme'
@@ -209,6 +226,39 @@ describe('isScannerRequest', () => {
     delete process.env.SCANNER_API_KEY
     expect(isScannerRequest(makeRequest({ 'x-internal-key': 'anything' }))).toBe(false)
     process.env.SCANNER_API_KEY = original
+  })
+})
+
+describe('getScannerScope', () => {
+  function scopedRequest(payload: Record<string, unknown>, secret = 'test-internal-key-12345') {
+    const encoded = Buffer.from(JSON.stringify(payload)).toString('base64url')
+    const signature = createHmac('sha256', secret).update(encoded).digest('base64url')
+    return new NextRequest('http://x/api/projects/p1', {
+      headers: { 'x-scanner-scope': `${encoded}.${signature}` },
+    })
+  }
+
+  test('accepts a valid unexpired project and owner claim', () => {
+    const now = Math.floor(Date.now() / 1000)
+    const request = scopedRequest({ v: 1, projectId: 'p1', userId: 'u1', iat: now, exp: now + 60 })
+    expect(getScannerScope(request)).toEqual({ projectId: 'p1', userId: 'u1' })
+  })
+
+  test('rejects a modified signature and expired scope', () => {
+    const now = Math.floor(Date.now() / 1000)
+    const valid = scopedRequest({ v: 1, projectId: 'p1', userId: 'u1', iat: now, exp: now + 60 })
+    const tampered = new NextRequest('http://x/api/projects/p1', {
+      headers: { 'x-scanner-scope': `${valid.headers.get('x-scanner-scope')?.slice(0, -1)}A` },
+    })
+    expect(getScannerScope(tampered)).toBeNull()
+    expect(getScannerScope(scopedRequest({ v: 1, projectId: 'p1', userId: 'u1', iat: now - 120, exp: now - 1 }))).toBeNull()
+  })
+
+  test('rejects a token signed with a different master secret', () => {
+    const now = Math.floor(Date.now() / 1000)
+    expect(getScannerScope(scopedRequest(
+      { v: 1, projectId: 'p1', userId: 'u1', iat: now, exp: now + 60 }, 'other-secret',
+    ))).toBeNull()
   })
 })
 

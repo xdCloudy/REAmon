@@ -4,7 +4,8 @@
  * @vitest-environment node
  */
 import { describe, test, expect } from 'vitest'
-import { internalKeyRouteAllowed, scannerKeyRouteAllowed } from './middleware'
+import { NextRequest } from 'next/server'
+import { internalKeyRouteAllowed, middleware, scannerKeyRouteAllowed } from './middleware'
 
 describe('internalKeyRouteAllowed — enumerated internal routes pass', () => {
   test.each([
@@ -105,5 +106,26 @@ describe('traffic-capture ingest route allowlisting', () => {
   test('cannot smuggle a different route via the projectId segment', () => {
     // The [^/]+ segment cannot contain a slash, so no path traversal into other APIs.
     expect(scannerKeyRouteAllowed('POST', '/api/traffic/p1/ingest/../../users/x/settings')).toBe(false)
+  })
+})
+
+describe('duplicated service keys', () => {
+  test('equal master and scanner keys do not bypass middleware', async () => {
+    const oldInternal = process.env.INTERNAL_API_KEY
+    const oldScanner = process.env.SCANNER_API_KEY
+    process.env.INTERNAL_API_KEY = 'same-key'
+    process.env.SCANNER_API_KEY = 'same-key'
+    try {
+      const request = new NextRequest('http://localhost:3000/api/users/user-1/settings', {
+        headers: { 'x-internal-key': 'same-key' },
+      })
+      const response = await middleware(request)
+      expect(response.status).toBe(401)
+    } finally {
+      if (oldInternal === undefined) delete process.env.INTERNAL_API_KEY
+      else process.env.INTERNAL_API_KEY = oldInternal
+      if (oldScanner === undefined) delete process.env.SCANNER_API_KEY
+      else process.env.SCANNER_API_KEY = oldScanner
+    }
   })
 })

@@ -17,11 +17,15 @@ import { NextRequest, NextResponse } from 'next/server'
 
 const mockSettingsFindUnique = vi.fn()
 const mockRotationFindMany = vi.fn()
+const mockProjectFindFirst = vi.fn()
 const mockRequireUserAccess = vi.fn()
 const mockIsInternal = vi.fn()
+const mockIsScanner = vi.fn()
+const mockGetScannerScope = vi.fn()
 
 vi.mock('@/lib/prisma', () => ({
   default: {
+    project: { findFirst: (...a: unknown[]) => mockProjectFindFirst(...a) },
     userSettings: { findUnique: (...a: unknown[]) => mockSettingsFindUnique(...a) },
     apiKeyRotationConfig: { findMany: (...a: unknown[]) => mockRotationFindMany(...a) },
   },
@@ -30,7 +34,8 @@ vi.mock('@/lib/prisma', () => ({
 vi.mock('@/lib/session', () => ({
   requireUserAccess: (...a: unknown[]) => mockRequireUserAccess(...a),
   isInternalRequest: (...a: unknown[]) => mockIsInternal(...a),
-  isScannerRequest: () => false,  // S3/E6: browser/agent cases are not scanners
+  isScannerRequest: (...a: unknown[]) => mockIsScanner(...a),
+  getScannerScope: (...a: unknown[]) => mockGetScannerScope(...a),
 }))
 
 import { GET } from './route'
@@ -53,8 +58,11 @@ const params = (id: string) => ({ params: Promise.resolve({ id }) })
 beforeEach(() => {
   mockSettingsFindUnique.mockReset().mockResolvedValue({ ...SETTINGS })
   mockRotationFindMany.mockReset().mockResolvedValue([])
+  mockProjectFindFirst.mockReset().mockResolvedValue({ id: 'owned-project' })
   mockRequireUserAccess.mockReset()
   mockIsInternal.mockReset()
+  mockIsScanner.mockReset().mockReturnValue(false)
+  mockGetScannerScope.mockReset().mockReturnValue(null)
 })
 
 describe('GET /api/users/[id]/settings — I1 leak closure', () => {
@@ -92,6 +100,39 @@ describe('GET /api/users/[id]/settings — I1 leak closure', () => {
     mockIsInternal.mockReturnValue(true)
     const res = await GET(req('http://x/api/users/victim/settings'), params('victim'))
     expect(await res.text()).not.toContain(GH_TOKEN)
+  })
+
+  test('scanner key without a valid scope is denied before reading user settings', async () => {
+    mockIsScanner.mockReturnValue(true)
+    const res = await GET(req('http://x/api/users/victim/settings?internal=true'), params('victim'))
+    expect(res.status).toBe(404)
+    expect(mockSettingsFindUnique).not.toHaveBeenCalled()
+  })
+
+  test('scanner scope bound to another user is denied before reading user settings', async () => {
+    mockIsScanner.mockReturnValue(true)
+    mockGetScannerScope.mockReturnValue({ projectId: 'owned-project', userId: 'another-user' })
+    const res = await GET(req('http://x/api/users/victim/settings?internal=true'), params('victim'))
+    expect(res.status).toBe(404)
+    expect(mockSettingsFindUnique).not.toHaveBeenCalled()
+    expect(mockProjectFindFirst).not.toHaveBeenCalled()
+  })
+
+  test('scanner scope is denied if the bound project is no longer owned by that user', async () => {
+    mockIsScanner.mockReturnValue(true)
+    mockGetScannerScope.mockReturnValue({ projectId: 'owned-project', userId: 'victim' })
+    mockProjectFindFirst.mockResolvedValue(null)
+    const res = await GET(req('http://x/api/users/victim/settings?internal=true'), params('victim'))
+    expect(res.status).toBe(404)
+    expect(mockSettingsFindUnique).not.toHaveBeenCalled()
+  })
+
+  test('scanner with the signed project owner scope can read its own unmasked settings', async () => {
+    mockIsScanner.mockReturnValue(true)
+    mockGetScannerScope.mockReturnValue({ projectId: 'owned-project', userId: 'victim' })
+    const res = await GET(req('http://x/api/users/victim/settings?internal=true'), params('victim'))
+    expect(res.status).toBe(200)
+    expect(await res.text()).toContain(GH_TOKEN)
   })
 
   test('no session → 401 before any DB read', async () => {

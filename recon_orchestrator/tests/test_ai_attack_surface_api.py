@@ -40,8 +40,11 @@ class TestAiAttackRoutes(unittest.TestCase):
                                               status=AiAttackSurfaceStatus.RUNNING))
         self.mgr.get_all_ai_attack_surface_statuses = AsyncMock(return_value=[])
         api.container_manager = self.mgr
+        self._owner_patch = patch("api._fetch_project_for_preflight", return_value={"userId": "db-owner"})
+        self._owner_patch.start()
 
     def tearDown(self):
+        self._owner_patch.stop()
         api.container_manager = self._saved_mgr
         api.AI_ATTACK_SURFACE_PATH = self._saved_path
 
@@ -61,6 +64,8 @@ class TestAiAttackRoutes(unittest.TestCase):
         self.assertTrue(rc["roe_confirmed"])
         self.assertEqual(rc["bounds"], {"judge_model": "m"})
         self.assertEqual(len(rc["targets"]), 1)
+        self.assertEqual(rc["user_id"], "db-owner")
+        self.assertEqual(kwargs["user_id"], "db-owner")
         self.assertEqual(kwargs["ai_attack_path"], "/host/ai_attack_surface_scan")
 
     def test_start_503_when_uninitialized(self):

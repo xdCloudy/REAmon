@@ -36,7 +36,7 @@ class _BenignProjectResponse:
     status = 200
 
     def read(self):
-        return b'{"targetDomain": "example.com", "ipMode": false}'
+        return b'{"userId": "db-owner", "targetDomain": "example.com", "ipMode": false}'
 
     def __enter__(self):
         return self
@@ -71,6 +71,7 @@ def test_v2_attacker_webapp_url_is_not_forwarded(monkeypatch):
     # equals ATTACKER (the exploit) and the assertion fails.
     assert captured.get("webapp_api_url") == SAFE
     assert "attacker" not in captured.get("webapp_api_url", "")
+    assert captured.get("user_id") == "db-owner"
 
 
 def test_v2_request_field_is_fully_inert(monkeypatch):

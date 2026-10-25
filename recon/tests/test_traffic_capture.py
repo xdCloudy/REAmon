@@ -170,7 +170,10 @@ class TestRunIdFallback(unittest.TestCase):
         fake_resp.json.return_value = {"stored": 1}
         # clear=True gives a clean env so only the run-id vars we set are present;
         # unset ones return None (falsy) and exercise the fallback chain.
-        base_env = {"PROJECT_ID": "p", "WEBAPP_API_URL": "http://w:3000", "SCANNER_API_KEY": "k"}
+        base_env = {
+            "PROJECT_ID": "p", "WEBAPP_API_URL": "http://w:3000",
+            "SCANNER_API_KEY": "k", "SCANNER_SCOPE_TOKEN": "signed-scope",
+        }
         base_env.update(env)
         with mock.patch.dict("os.environ", base_env, clear=True), \
              mock.patch("requests.post", return_value=fake_resp) as post:
@@ -219,6 +222,7 @@ class TestGate(unittest.TestCase):
             "WEBAPP_API_URL": "http://webapp:3000",
             "RECON_RUN_ID": "run-abc",
             "SCANNER_API_KEY": "k",
+            "SCANNER_SCOPE_TOKEN": "signed-scope",
         }
         fake_resp = mock.Mock(status_code=201)
         fake_resp.json.return_value = {"stored": 1}
@@ -233,6 +237,7 @@ class TestGate(unittest.TestCase):
             self.assertEqual(payload["runId"], "run-abc")
             self.assertEqual(len(payload["transactions"]), 1)
             self.assertEqual(kwargs["headers"]["X-Internal-Key"], "k")
+            self.assertEqual(kwargs["headers"]["X-Scanner-Scope"], "signed-scope")
 
 
 if __name__ == "__main__":

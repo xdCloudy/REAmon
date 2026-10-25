@@ -8,7 +8,7 @@ import path from 'path'
 import { getGraphSession } from '@/app/api/graph/neo4j'
 import { clearProjectGraph } from '@/lib/graphRestore'
 import { orchestratorFetch } from '@/lib/orchestrator'
-import { isInternalRequest, isScannerRequest } from '@/lib/session'
+import { getScannerScope, isInternalRequest, isScannerRequest } from '@/lib/session'
 import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
 import { removeDerivedArtifactProject } from '@/lib/reamon/derived-storage'
 import { toAuthProfileMetadata } from '@/lib/authProfile'
@@ -70,12 +70,18 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { id } = await params
 
-    // Ownership: the agent/orchestrator (INTERNAL_API_KEY) and scanners
-    // (SCANNER_API_KEY, S3/E6) read projects with X-Internal-Key (carve-out);
+    // Ownership: the agent/orchestrator (INTERNAL_API_KEY) may read service data;
+    // scanner-key callers also need a signed project/owner scope minted at scan start;
     // every browser caller may only read a project owned by their effective user
     // (admin only while simulating that user). Closes the BOLA where any
-    // logged-in user could read another user's project by id (S15/E15).
-    const isServiceCaller = isInternalRequest(request) || isScannerRequest(request)
+    // logged-in user could read another user's project by id (S15/E15), and the
+    // signed scope closes the scanner-key cross-project read path.
+    const scanner = isScannerRequest(request)
+    const scannerScope = scanner ? getScannerScope(request) : null
+    if (scanner && (!scannerScope || scannerScope.projectId !== id)) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    }
+    const isServiceCaller = isInternalRequest(request) || scanner
     if (!isServiceCaller) {
       const eff = await requireEffectiveUser()
       if (eff instanceof NextResponse) return eff
@@ -108,6 +114,10 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         { error: 'Project not found' },
         { status: 404 }
       )
+    }
+
+    if (scanner && project.userId !== scannerScope?.userId) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 })
     }
 
     // Exclude binary document data from regular responses (use /roe/download instead).

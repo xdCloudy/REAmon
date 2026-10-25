@@ -22,6 +22,10 @@ except ImportError:  # pragma: no cover - the container's own layout
     import settings_registry as _registry
 
 from recon_settings.engagement import derive_roe_enabled
+try:
+    from recon.helpers.scanner_scope import scanner_request_headers
+except ImportError:  # pragma: no cover - the container's own layout
+    from helpers.scanner_scope import scanner_request_headers
 
 logger = logging.getLogger(__name__)
 
@@ -1097,7 +1101,7 @@ def _fetch_user_api_key(user_id: str, webapp_url: str, key_name: str) -> str:
     import requests as _req
     try:
         url = f"{webapp_url.rstrip('/')}/api/users/{user_id}/settings?internal=true"
-        _headers = {"X-Internal-Key": (os.environ.get("SCANNER_API_KEY") or os.environ.get("INTERNAL_API_KEY", ""))}
+        _headers = scanner_request_headers()
         resp = _req.get(url, timeout=10, headers=_headers)
         resp.raise_for_status()
         return resp.json().get(key_name, '')
@@ -1111,7 +1115,7 @@ def _fetch_user_settings_full(user_id: str, webapp_url: str) -> dict:
     import requests as _req
     try:
         url = f"{webapp_url.rstrip('/')}/api/users/{user_id}/settings?internal=true"
-        _headers = {"X-Internal-Key": (os.environ.get("SCANNER_API_KEY") or os.environ.get("INTERNAL_API_KEY", ""))}
+        _headers = scanner_request_headers()
         resp = _req.get(url, timeout=10, headers=_headers)
         resp.raise_for_status()
         return resp.json()
@@ -1225,7 +1229,7 @@ def fetch_project_settings(project_id: str, webapp_url: str) -> dict[str, Any]:
     url = f"{webapp_url.rstrip('/')}/api/projects/{project_id}"
     logger.info(f"Fetching project settings from {url}")
 
-    _internal_headers = {"X-Internal-Key": (os.environ.get("SCANNER_API_KEY") or os.environ.get("INTERNAL_API_KEY", ""))}
+    _internal_headers = scanner_request_headers()
     response = requests.get(url, timeout=30, headers=_internal_headers)
     response.raise_for_status()
     project = response.json()
@@ -2101,7 +2105,7 @@ def fetch_node_filters(project_id: str, webapp_url: str | None = None) -> dict |
     if not project_id or not webapp_url:
         return None
     url = f"{webapp_url.rstrip('/')}/api/projects/{project_id}"
-    headers = {"X-Internal-Key": (os.environ.get("SCANNER_API_KEY") or os.environ.get("INTERNAL_API_KEY", ""))}
+    headers = scanner_request_headers()
     response = requests.get(url, timeout=30, headers=headers)
     response.raise_for_status()
     node_filter = response.json().get('nodeFilter')

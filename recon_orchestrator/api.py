@@ -1077,12 +1077,17 @@ async def start_recon(project_id: str, request: ReconStartRequest):
     if not container_manager:
         raise HTTPException(status_code=503, detail="Service not initialized")
 
+    # Resolve the owner from the webapp database before minting this scan's
+    # signed tenant scope. Never trust request.user_id as an authorization claim.
+    project = _fetch_project_for_preflight(project_id)
+    scan_user_id = project.get("userId")
+    if not isinstance(scan_user_id, str) or not scan_user_id:
+        raise HTTPException(status_code=503, detail="Cannot verify project owner. Refusing to start.")
+
     # Guardrail / RoE pre-flight: fetch project settings and verify. Fails
     # CLOSED — a fetch failure refuses the start (503) rather than proceeding
     # unverified (mcp_plan.md P0-1).
     if request.webapp_api_url:
-        project = _fetch_project_for_preflight(project_id)
-
         # Hard guardrail: deterministic, non-disableable — always blocks
         # government/public domains.
         if not project.get('ipMode', False):
@@ -1116,7 +1121,7 @@ async def start_recon(project_id: str, request: ReconStartRequest):
     try:
         state = await container_manager.start_recon(
             project_id=project_id,
-            user_id=request.user_id,
+            user_id=scan_user_id,
             webapp_api_url=_spawned_webapp_url(),
             recon_path=RECON_PATH,
             custom_templates_path=CUSTOM_TEMPLATES_PATH,
@@ -1263,6 +1268,9 @@ async def start_partial_recon(project_id: str, request: PartialReconStartRequest
     try:
         overrides = validate_partial_overrides(request.settings_overrides)
         project = _fetch_project_for_preflight(project_id)
+        scan_user_id = project.get("userId")
+        if not isinstance(scan_user_id, str) or not scan_user_id:
+            raise HTTPException(status_code=503, detail="Cannot verify project owner. Refusing to start.")
         roots = narrow_partial_roots(
             partial_project_roots(project, project_id), request.graph_inputs)
     except PartialScopeError as e:
@@ -1292,7 +1300,7 @@ async def start_partial_recon(project_id: str, request: PartialReconStartRequest
         "user_targets": request.user_targets,
         "include_graph_targets": request.include_graph_targets,
         "settings_overrides": overrides,
-        "user_id": request.user_id,
+        "user_id": scan_user_id,
         "webapp_api_url": _spawned_webapp_url(),
     }
 
@@ -1608,6 +1616,11 @@ async def start_ai_attack_surface(project_id: str, request: AiAttackSurfaceStart
             detail="AI Attack Surface source not mounted into the orchestrator",
         )
 
+    project = _fetch_project_for_preflight(project_id)
+    scan_user_id = project.get("userId")
+    if not isinstance(scan_user_id, str) or not scan_user_id:
+        raise HTTPException(status_code=503, detail="Cannot verify project owner. Refusing to start.")
+
     run_config = {
         "tool": request.tool,
         "targets": request.targets,
@@ -1622,14 +1635,14 @@ async def start_ai_attack_surface(project_id: str, request: AiAttackSurfaceStart
         "api_key": request.api_key,
         "auth_header": request.auth_header,
         "auth_scheme": request.auth_scheme,
-        "user_id": request.user_id,
+        "user_id": scan_user_id,
         "webapp_api_url": _spawned_webapp_url(),
     }
 
     try:
         state = await container_manager.start_ai_attack_surface(
             project_id=project_id,
-            user_id=request.user_id,
+            user_id=scan_user_id,
             webapp_api_url=_spawned_webapp_url(),
             run_config=run_config,
             ai_attack_path=AI_ATTACK_SURFACE_PATH,
@@ -1719,10 +1732,15 @@ async def start_gvm_scan(project_id: str, request: GvmStartRequest):
             detail="Recon data required. Run reconnaissance first.",
         )
 
+    project = _fetch_project_for_preflight(project_id)
+    scan_user_id = project.get("userId")
+    if not isinstance(scan_user_id, str) or not scan_user_id:
+        raise HTTPException(status_code=503, detail="Cannot verify project owner. Refusing to start.")
+
     try:
         state = await container_manager.start_gvm_scan(
             project_id=project_id,
-            user_id=request.user_id,
+            user_id=scan_user_id,
             webapp_api_url=_spawned_webapp_url(),
             recon_path=RECON_PATH,
             gvm_scan_path=GVM_SCAN_PATH,
@@ -1844,10 +1862,15 @@ async def start_github_hunt(project_id: str, request: GithubHuntStartRequest):
             detail="Recon data required. Run reconnaissance first.",
         )
 
+    project = _fetch_project_for_preflight(project_id)
+    scan_user_id = project.get("userId")
+    if not isinstance(scan_user_id, str) or not scan_user_id:
+        raise HTTPException(status_code=503, detail="Cannot verify project owner. Refusing to start.")
+
     try:
         state = await container_manager.start_github_hunt(
             project_id=project_id,
-            user_id=request.user_id,
+            user_id=scan_user_id,
             webapp_api_url=_spawned_webapp_url(),
             github_hunt_path=GITHUB_HUNT_PATH,
         )
@@ -2079,10 +2102,14 @@ async def start_supply_chain(project_id: str, request: SupplyChainStartRequest):
     """Start a Supply-Chain scan (offline OSV audit of an uploaded SBOM/lockfile)."""
     if not container_manager:
         raise HTTPException(status_code=503, detail="Service not initialized")
+    project = _fetch_project_for_preflight(project_id)
+    scan_user_id = project.get("userId")
+    if not isinstance(scan_user_id, str) or not scan_user_id:
+        raise HTTPException(status_code=503, detail="Cannot verify project owner. Refusing to start.")
     try:
         return await container_manager.start_supply_chain(
             project_id=project_id,
-            user_id=request.user_id,
+            user_id=scan_user_id,
             webapp_api_url=_spawned_webapp_url(),
             supply_chain_path=SUPPLY_CHAIN_PATH,
             repo_override_url=request.repo_override_url,

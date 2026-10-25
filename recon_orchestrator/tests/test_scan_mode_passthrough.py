@@ -89,7 +89,7 @@ def _spawn(scan_mode):
 
     mgr.ensure_sca_intel_fresh_async = _sca_intel_fresh
     mgr._get_container_name = lambda pid: f"redamon-recon-{pid}"
-    mgr._scanner_env = lambda: {}
+    mgr._scanner_env = lambda *_args: {}
     mgr._scanner_hardening = lambda drop_caps=True: {}
     mgr._container_mem_limit = lambda kind: None
     mgr._container_pids_limit = lambda: None

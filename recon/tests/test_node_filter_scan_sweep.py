@@ -173,14 +173,20 @@ class TestFetchNodeFilters:
         resp.raise_for_status = mock.Mock(
             side_effect=None if status == 200 else RuntimeError(f'HTTP {status}'))
         with mock.patch('requests.get', return_value=resp) as get, \
-             mock.patch.dict('os.environ', {'SCANNER_API_KEY': 'scan-key'}):
+             mock.patch.dict('os.environ', {
+                 'SCANNER_API_KEY': 'scan-key',
+                 'SCANNER_SCOPE_TOKEN': 'signed-scope',
+             }):
             return project_settings.fetch_node_filters('p1', 'http://webapp:3000'), get
 
     def test_reads_the_project_with_the_scanner_key(self):
         out, get = self._fetch({'nodeFilter': ARMED})
         assert out == ARMED
         assert get.call_args[0][0] == 'http://webapp:3000/api/projects/p1'
-        assert get.call_args[1]['headers'] == {'X-Internal-Key': 'scan-key'}
+        assert get.call_args[1]['headers'] == {
+            'X-Internal-Key': 'scan-key',
+            'X-Scanner-Scope': 'signed-scope',
+        }
 
     def test_no_filter_row_is_none(self):
         assert self._fetch({'nodeFilter': None})[0] is None

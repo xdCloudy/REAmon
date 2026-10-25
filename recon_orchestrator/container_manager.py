@@ -2,7 +2,10 @@
 Docker container lifecycle management for recon processes
 """
 import asyncio
+import base64
 import functools
+import hashlib
+import hmac
 import json
 import logging
 import threading
@@ -63,6 +66,22 @@ def _env_unset_if_blank(name: str, default: str) -> str:
     so both analyzer spawn paths agree on what "unset" means."""
     raw = os.environ.get(name)
     return raw.strip() if raw and raw.strip() else default
+
+
+def _mint_scanner_scope_token(project_id: str, user_id: str, secret: str) -> str:
+    """Sign a short-lived tenant scope for one scan container."""
+    if (not isinstance(project_id, str) or not project_id or len(project_id) > 255
+            or not isinstance(user_id, str) or not user_id or len(user_id) > 255
+            or not secret or secret == "changeme"):
+        raise RuntimeError("Cannot mint scanner scope without valid project, user, and master-key values")
+    now = int(time.time())
+    payload = json.dumps(
+        {"v": 1, "projectId": project_id, "userId": user_id, "iat": now, "exp": now + 7 * 24 * 60 * 60},
+        separators=(",", ":"), sort_keys=True,
+    ).encode("utf-8")
+    encoded = base64.urlsafe_b64encode(payload).rstrip(b"=").decode("ascii")
+    signature = hmac.new(secret.encode("utf-8"), encoded.encode("ascii"), hashlib.sha256).digest()
+    return encoded + "." + base64.urlsafe_b64encode(signature).rstrip(b"=").decode("ascii")
 
 
 def sibling_host_path(host_path: str, name: str) -> str:
@@ -638,17 +657,20 @@ class ContainerManager:
         except (TypeError, ValueError):
             return 512
 
-    def _scanner_env(self) -> dict:
-        """S3/E6: give scan spawns the SCOPED scanner token instead of the master
-        INTERNAL_API_KEY, so a compromised scanner cannot mint an admin, harvest
-        LLM-provider keys, or reach the control plane. Falls back to the master
-        key ONLY when SCANNER_API_KEY is unset/placeholder (pre-secret installs),
-        so an operator who runs `up` before `update` is never hard-broken; the
-        scope closes automatically once redamon.sh generates the key."""
+    def _scanner_env(self, project_id: str, user_id: str) -> dict:
+        """Pass the scanner principal plus a signed, tenant-bound API scope.
+
+        Scan containers never receive INTERNAL_API_KEY. The shared scanner key
+        only passes middleware's route allowlist; project and user routes also
+        require this token, which is signed with the master secret kept here and
+        in the webapp.
+        """
         scanner = os.environ.get("SCANNER_API_KEY", "")
-        if scanner and scanner != "changeme":
-            return {"SCANNER_API_KEY": scanner}
-        return {"INTERNAL_API_KEY": os.environ.get("INTERNAL_API_KEY", "")}
+        master = os.environ.get("INTERNAL_API_KEY", "")
+        if not scanner or scanner == "changeme":
+            raise RuntimeError("SCANNER_API_KEY must be configured before starting a scan")
+        scope_token = _mint_scanner_scope_token(project_id, user_id, master)
+        return {"SCANNER_API_KEY": scanner, "SCANNER_SCOPE_TOKEN": scope_token}
 
     # The dirty-analyzer knobs an operator may pin in .env. They are read from
     # os.environ by BOTH spawn implementations (this module for the SDK path,
@@ -995,7 +1017,7 @@ class ContainerManager:
                     "NEO4J_URI": os.environ.get("NEO4J_URI", "bolt://localhost:7687"),
                     "NEO4J_USER": os.environ.get("NEO4J_USER", "neo4j"),
                     "NEO4J_PASSWORD": os.environ.get("NEO4J_PASSWORD", ""),
-                    **self._scanner_env(),  # S3/E6: scoped scanner token
+                    **self._scanner_env(project_id, user_id),  # signed project/user scope; never pass master key
                     # Agent API for AI hooks (FFuf AI extensions, etc.)
                     "AGENT_API_URL": os.environ.get("AGENT_API_URL", "http://localhost:8090"),
                     # The recon CLI (docker run/pull/info) honors DOCKER_HOST, so
@@ -2038,7 +2060,7 @@ class ContainerManager:
                     "NEO4J_URI": os.environ.get("NEO4J_URI", "bolt://localhost:7687"),
                     "NEO4J_USER": os.environ.get("NEO4J_USER", "neo4j"),
                     "NEO4J_PASSWORD": os.environ.get("NEO4J_PASSWORD", ""),
-                    **self._scanner_env(),  # S3/E6: scoped scanner token
+                    **self._scanner_env(project_id, config.get("user_id", "")),
                     # Agent API for AI hooks (FFuf AI extensions, etc.)
                     "AGENT_API_URL": os.environ.get("AGENT_API_URL", "http://localhost:8090"),
                     # The recon CLI (docker run/pull/info) honors DOCKER_HOST, so
@@ -2473,7 +2495,7 @@ class ContainerManager:
                     "NEO4J_URI": os.environ.get("NEO4J_URI", "bolt://localhost:7687"),
                     "NEO4J_USER": os.environ.get("NEO4J_USER", "neo4j"),
                     "NEO4J_PASSWORD": os.environ.get("NEO4J_PASSWORD", ""),
-                    **self._scanner_env(),  # S3/E6: scoped scanner token
+                    **self._scanner_env(project_id, user_id),
                 },
                 volumes={
                     "/tmp/redamon": {"bind": "/tmp/redamon", "mode": "rw"},
@@ -2851,7 +2873,7 @@ class ContainerManager:
                     "NEO4J_URI": os.environ.get("NEO4J_URI", "bolt://localhost:7687"),
                     "NEO4J_USER": os.environ.get("NEO4J_USER", "neo4j"),
                     "NEO4J_PASSWORD": os.environ.get("NEO4J_PASSWORD", ""),
-                    **self._scanner_env(),  # S3/E6: scoped scanner token
+                    **self._scanner_env(project_id, user_id),
                     # GVM connection settings
                     # Operator pin for the stall watchdog. Forwarded ONLY when set,
                     # so an unset knob reaches the scan as "use the shipped default"
@@ -3287,7 +3309,7 @@ class ContainerManager:
                     "NEO4J_URI": os.environ.get("NEO4J_URI", "bolt://localhost:7687"),
                     "NEO4J_USER": os.environ.get("NEO4J_USER", "neo4j"),
                     "NEO4J_PASSWORD": os.environ.get("NEO4J_PASSWORD", ""),
-                    **self._scanner_env(),  # S3/E6: scoped scanner token
+                    **self._scanner_env(project_id, user_id),
                 },
                 volumes={
                     # GitHub hunt output (read-write, for saving results)
@@ -4532,7 +4554,7 @@ exit $RC
                     "NEO4J_URI": os.environ.get("NEO4J_URI", "bolt://localhost:7687"),
                     "NEO4J_USER": os.environ.get("NEO4J_USER", "neo4j"),
                     "NEO4J_PASSWORD": os.environ.get("NEO4J_PASSWORD", ""),
-                    **self._scanner_env(),
+                    **self._scanner_env(project_id, user_id),
                     # Operator overrides for the dirty analyzer this scan spawns.
                     **self._analyzer_env(),
                     # Per-repo override for an org-batch item (Phase 6); empty otherwise.

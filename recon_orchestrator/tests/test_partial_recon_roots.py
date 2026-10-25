@@ -195,6 +195,7 @@ def spy(monkeypatch):
 
 def _project(monkeypatch, project):
     fetched = []
+    project = {"userId": "db-owner", **project}
 
     def _fetch(pid):
         fetched.append(pid)
@@ -215,6 +216,7 @@ class TestEndpoint:
         config = spy.calls[0]["config"]
         assert config["domains"] == ["alpha.test", "beta.test", "gamma.test"]
         assert config["domain"] == "alpha.test"
+        assert config["user_id"] == "db-owner"
         assert state.roots == ["alpha.test", "beta.test", "gamma.test"]
 
     def test_the_client_can_narrow_but_never_widen(self, monkeypatch, spy):

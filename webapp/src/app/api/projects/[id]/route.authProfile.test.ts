@@ -15,6 +15,7 @@ const mockProjectUpdate = vi.fn()
 const mockGetEffectiveUser = vi.fn()
 const mockIsInternal = vi.fn()
 const mockIsScanner = vi.fn()
+const mockGetScannerScope = vi.fn()
 
 vi.mock('@/lib/prisma', () => ({
   default: {
@@ -29,6 +30,7 @@ vi.mock('@/lib/orchestrator', () => ({ orchestratorFetch: vi.fn() }))
 vi.mock('@/lib/session', () => ({
   isInternalRequest: (...a: unknown[]) => mockIsInternal(...a),
   isScannerRequest: (...a: unknown[]) => mockIsScanner(...a),
+  getScannerScope: (...a: unknown[]) => mockGetScannerScope(...a),
 }))
 vi.mock('@/lib/access', async () => {
   const actual = await vi.importActual<typeof import('@/lib/access')>('@/lib/access')
@@ -63,6 +65,7 @@ beforeEach(() => {
   delete process.env.ACCESS_ENFORCE
   mockIsInternal.mockReturnValue(false)
   mockIsScanner.mockReturnValue(false)
+  mockGetScannerScope.mockReturnValue(null)
   mockGetEffectiveUser.mockResolvedValue({ userId: 'owner' })
 })
 
@@ -105,7 +108,10 @@ describe('GET /api/projects/[id] — auth profile boundary', () => {
 
   test.each([
     ['internal (agent/orchestrator)', () => mockIsInternal.mockReturnValue(true)],
-    ['scanner (recon)', () => mockIsScanner.mockReturnValue(true)],
+    ['scanner (recon)', () => {
+      mockIsScanner.mockReturnValue(true)
+      mockGetScannerScope.mockReturnValue({ projectId: 'proj-1', userId: 'owner' })
+    }],
   ])('%s caller receives the full profile', async (_label, arrange) => {
     arrange()
     wireProject(PROFILE)
@@ -113,6 +119,31 @@ describe('GET /api/projects/[id] — auth profile boundary', () => {
     expect(body.authProfile.authValue).toBe(SECRET)
     expect(body.authProfile.extraHeaders).toEqual({ 'X-CSRF-Token': CSRF })
     expect(mockGetEffectiveUser).not.toHaveBeenCalled()
+  })
+
+  test('scanner key without a valid scope is denied before project data is read', async () => {
+    mockIsScanner.mockReturnValue(true)
+    wireProject(PROFILE)
+    const res = await GET(get(), params)
+    expect(res.status).toBe(404)
+    expect(mockProjectFindUnique).not.toHaveBeenCalled()
+  })
+
+  test('scanner scope for a different project is denied before project data is read', async () => {
+    mockIsScanner.mockReturnValue(true)
+    mockGetScannerScope.mockReturnValue({ projectId: 'other-project', userId: 'owner' })
+    const res = await GET(get(), params)
+    expect(res.status).toBe(404)
+    expect(mockProjectFindUnique).not.toHaveBeenCalled()
+  })
+
+  test('scanner scope owner must match the database project owner', async () => {
+    mockIsScanner.mockReturnValue(true)
+    mockGetScannerScope.mockReturnValue({ projectId: 'proj-1', userId: 'attacker' })
+    wireProject(PROFILE)
+    const res = await GET(get(), params)
+    expect(res.status).toBe(404)
+    expect(await res.text()).not.toContain(SECRET)
   })
 })
 

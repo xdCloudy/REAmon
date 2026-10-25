@@ -74,7 +74,11 @@ def _spawn(graph_db_host_path: str, recon_path: str = RECON_PATH) -> dict:
         assert getattr(state, "error", None) in (None, ""), f"spawn failed: {state.error}"
         return captured
 
-    return asyncio.run(_go())
+    with mock.patch.dict(os.environ, {
+        "SCANNER_API_KEY": "test-scanner-key",
+        "INTERNAL_API_KEY": "test-internal-key",
+    }):
+        return asyncio.run(_go())
 
 
 def _graph_binds(volumes: dict) -> dict:

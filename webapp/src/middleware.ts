@@ -91,10 +91,9 @@ export function internalKeyRouteAllowed(method: string, pathname: string): boole
   )
 }
 
-// S3/E6: the scanner token is a strict SUBSET - only the two GET routes recon
-// legitimately reads (its OSINT settings + project config). Excluded from
-// llm-providers, tradecraft, and all user-CRUD. Enforced directly (SCANNER_API_KEY
-// is a brand-new principal with no legacy callers, so there is nothing to break).
+// Scanner-key middleware allowlist is only a coarse route/method boundary.
+// The project/settings/traffic handlers also require a signed per-scan project
+// scope; the shared key alone must not authorize any tenant data access.
 const SCANNER_ALLOWLIST: { method: string; pattern: RegExp }[] = [
   { method: 'GET', pattern: /^\/api\/users\/[^/]+\/settings$/ },
   { method: 'GET', pattern: /^\/api\/projects\/[^/]+$/ },
@@ -153,7 +152,9 @@ export async function middleware(request: NextRequest) {
   // compare + route allowlist so a valid key does not blanket-skip JWT.
   const internalKey = request.headers.get('x-internal-key')
   const expectedKey = process.env.INTERNAL_API_KEY
-  if (internalKey && expectedKey && expectedKey !== 'changeme' && constantTimeEqual(internalKey, expectedKey)) {
+  const scannerKey = process.env.SCANNER_API_KEY
+  const keysAreDistinct = !scannerKey || scannerKey === 'changeme' || !constantTimeEqual(expectedKey || '', scannerKey)
+  if (internalKey && expectedKey && expectedKey !== 'changeme' && keysAreDistinct && constantTimeEqual(internalKey, expectedKey)) {
     if (internalKeyRouteAllowed(request.method, pathname)) {
       return NextResponse.next()
     }
@@ -168,11 +169,10 @@ export async function middleware(request: NextRequest) {
     }
   }
 
-  // S3/E6: the scoped scanner token. Accepted ONLY on its two GET routes;
-  // any other route with the scanner key falls through to JWT (401 for a
-  // service). Enforced directly - no legacy callers hold this new token.
-  const scannerKey = process.env.SCANNER_API_KEY
-  if (internalKey && scannerKey && scannerKey !== 'changeme' && constantTimeEqual(internalKey, scannerKey)) {
+  // Scanner key is accepted only on these allowlisted routes. The GET project,
+  // GET user settings, and POST ingest handlers enforce tenant scope themselves.
+  // Other paths fall through to JWT (401 for a service caller).
+  if (internalKey && scannerKey && scannerKey !== 'changeme' && keysAreDistinct && constantTimeEqual(internalKey, scannerKey)) {
     if (scannerKeyRouteAllowed(request.method, pathname)) {
       return NextResponse.next()
     }
