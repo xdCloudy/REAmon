@@ -374,7 +374,7 @@ async function loadAcceptedFunctionMatchContext(input: {
     const dedupeKey = `${other.hash}:${other.address || other.name}`
     if (seen.has(dedupeKey)) continue
     seen.add(dedupeKey)
-    lines.push(`Accepted counterpart ${JSON.stringify(other.name)}${other.address ? ` at ${JSON.stringify(other.address)}` : ''} in artifact SHA-256 ${other.hash}; provider ${other.provider} ${other.version}; pair scores: ${match.similarity}% overall, ${match.instructionSimilarity}% instructions${match.controlFlowSimilarity === null ? '' : `, ${match.controlFlowSimilarity}% control flow`}. Analyst accepted this correspondence on ${match.reviews[0].createdAt.toISOString()}.`)
+    lines.push(`Accepted counterpart ${JSON.stringify(other.name)}${other.address ? ` at ${JSON.stringify(other.address)}` : ''} in artifact SHA-256 ${other.hash}; provider ${other.provider} ${other.version}; pair scores: ${match.similarity}% overall, ${match.instructionSimilarity}% instructions${match.controlFlowSimilarity === null ? '' : `, ${match.controlFlowSimilarity}% control-flow counts`}${match.controlFlowTopologySimilarity === null ? '' : `, ${match.controlFlowTopologySimilarity}% control-flow topology`}. Analyst accepted this correspondence on ${match.reviews[0].createdAt.toISOString()}.`)
     if (lines.length >= 8) break
   }
   if (!lines.length) return ''

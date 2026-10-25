@@ -11,7 +11,7 @@ import { buildProjectSymbolContext, buildProviderGoTypeContext, buildProviderTyp
 import { buildImportedReaEvidenceContext } from '@/lib/reamon/rea-evidence-context'
 import { nativeAddressAliases, nativeArchitectureGroup, nativeFunctionIdentity } from '@/lib/reamon/native-function-identity'
 import { flossRecoveredStringsOf, providerVariablesOf } from '@/lib/reamon/code-units'
-import { rankSimilarInstructionFunctions, type RankedSimilarInstructionFunction } from '@/lib/reamon/instruction-similarity'
+import { parseControlFlowGraph, parseControlFlowMetrics, rankSimilarInstructionFunctions, type RankedSimilarInstructionFunction } from '@/lib/reamon/instruction-similarity'
 import { codeRewriteLeaseGraceMs, failInterruptedCodeAttempts } from '@/lib/reamon/code-attempts'
 import { codeNoteText, REAMON_CODE_NOTE_SOURCE } from '@/lib/reamon/code-notes'
 
@@ -944,6 +944,8 @@ export async function POST(request: Request, { params }: RouteParams) {
               : (typeof candidateAttributes.qualifiedName === 'string' && candidateAttributes.qualifiedName) || row.label || 'Unknown function',
             address: typeof candidateAttributes.address === 'string' ? candidateAttributes.address : null,
             mnemonics: boundedInstructionMnemonics(candidateAttributes.instructionMnemonics),
+            controlFlowMetrics: parseControlFlowMetrics(candidateAttributes.controlFlowMetrics),
+            controlFlowGraph: parseControlFlowGraph(candidateAttributes.controlFlowGraph),
           }
         })
         const methodName = (signature: string) => {
@@ -971,7 +973,14 @@ export async function POST(request: Request, { params }: RouteParams) {
         const targets = isMethodScopedRewrite
           ? methodTargets.map((row) => {
             const candidateAttributes = plainObject(row.attributes)
-            return { key: row.id, name: row.label || selectedMemberName, address: typeof candidateAttributes.address === 'string' ? candidateAttributes.address : null, mnemonics: boundedInstructionMnemonics(candidateAttributes.instructionMnemonics) }
+            return {
+              key: row.id,
+              name: row.label || selectedMemberName,
+              address: typeof candidateAttributes.address === 'string' ? candidateAttributes.address : null,
+              mnemonics: boundedInstructionMnemonics(candidateAttributes.instructionMnemonics),
+              controlFlowMetrics: parseControlFlowMetrics(candidateAttributes.controlFlowMetrics),
+              controlFlowGraph: parseControlFlowGraph(candidateAttributes.controlFlowGraph),
+            }
           }).filter((target) => target.mnemonics.length >= 4)
           : isLuaFunctionScopedRewrite
             ? luaTargetRows.length === 1 ? luaTargetRows.map((row) => {
@@ -981,9 +990,18 @@ export async function POST(request: Request, { params }: RouteParams) {
                 name: selectedMemberName,
                 address: typeof candidateAttributes.address === 'string' ? candidateAttributes.address : null,
                 mnemonics: boundedInstructionMnemonics(candidateAttributes.instructionMnemonics),
+                controlFlowMetrics: parseControlFlowMetrics(candidateAttributes.controlFlowMetrics),
+                controlFlowGraph: parseControlFlowGraph(candidateAttributes.controlFlowGraph),
               }
             }).filter((target) => target.mnemonics.length >= 4) : []
-            : targetMnemonics.length >= 4 ? [{ key: observation.id, name: unitName, address: typeof attributes.address === 'string' ? attributes.address : null, mnemonics: targetMnemonics }] : []
+            : targetMnemonics.length >= 4 ? [{
+              key: observation.id,
+              name: unitName,
+              address: typeof attributes.address === 'string' ? attributes.address : null,
+              mnemonics: targetMnemonics,
+              controlFlowMetrics: parseControlFlowMetrics(attributes.controlFlowMetrics),
+              controlFlowGraph: parseControlFlowGraph(attributes.controlFlowGraph),
+            }] : []
         const similarFunctions = targets.flatMap((target) => rankSimilarInstructionFunctions(target, candidateFeatures, MAX_CONTEXT_UNITS))
           .reduce((matches, match) => {
             const prior = matches.get(match.key)
@@ -1027,6 +1045,7 @@ export async function POST(request: Request, { params }: RouteParams) {
             functionSimilarityPercent: match.similarity,
             instructionSequenceSimilarityPercent: match.instructionSimilarity,
             controlFlowCountSimilarityPercent: match.controlFlowSimilarity,
+            controlFlowTopologySimilarityPercent: match.controlFlowTopologySimilarity,
             similarityProvider: row.source,
             similarityAnalysisTaskId: row.taskId,
             similarityArtifactId: row.artifactId,
@@ -2194,6 +2213,9 @@ export async function POST(request: Request, { params }: RouteParams) {
       const controlFlowSimilarityPercent = typeof relatedAttributes?.controlFlowCountSimilarityPercent === 'number'
         ? relatedAttributes.controlFlowCountSimilarityPercent
         : null
+      const controlFlowTopologySimilarityPercent = typeof relatedAttributes?.controlFlowTopologySimilarityPercent === 'number'
+        ? relatedAttributes.controlFlowTopologySimilarityPercent
+        : null
       const similarityArtifactName = typeof relatedAttributes?.similarityArtifactName === 'string'
         ? relatedAttributes.similarityArtifactName.slice(0, 160)
         : ''
@@ -2223,8 +2245,11 @@ export async function POST(request: Request, { params }: RouteParams) {
       const similarityEvidence = [
         instructionSimilarityPercent === null ? '' : `instruction sequence ${instructionSimilarityPercent}%`,
         controlFlowSimilarityPercent === null ? '' : `control-flow counts ${controlFlowSimilarityPercent}%`,
+        controlFlowTopologySimilarityPercent === null ? '' : `control-flow topology ${controlFlowTopologySimilarityPercent}%`,
       ].filter(Boolean).join(', ')
-      const similarityMethod = controlFlowSimilarityPercent === null ? 'instruction-sequence' : 'instruction-sequence plus control-flow-count'
+      const similarityMethod = controlFlowTopologySimilarityPercent !== null
+        ? 'instruction-sequence plus control-flow graph'
+        : controlFlowSimilarityPercent === null ? 'instruction-sequence' : 'instruction-sequence plus control-flow-count'
       const similarityHint = similarityPercent === null
         ? ''
         : ` (${similarityMethod} candidate score ${similarityPercent}%${similarityEvidence ? `; ${similarityEvidence}` : ''}; ranking lead only, not identity or behavior proof${similarityProvenance ? `; ${similarityProvenance}` : ''})`

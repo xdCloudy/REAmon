@@ -3,7 +3,7 @@ import prisma from '@/lib/prisma'
 import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
 import { getActiveWorkspaceImportSelection } from '@/lib/reamon/inventory-query'
 import { normalizeCodeUnit } from '@/lib/reamon/code-units'
-import { instructionSequencesAreCompatible, rankSimilarInstructionFunctions, type SimilarInstructionFunction } from '@/lib/reamon/instruction-similarity'
+import { instructionSequencesAreCompatible, parseControlFlowGraph, parseControlFlowMetrics, rankSimilarInstructionFunctions, type SimilarInstructionFunction } from '@/lib/reamon/instruction-similarity'
 
 interface RouteParams { params: Promise<{ id: string }> }
 const MAX_FUNCTIONS = 2_000
@@ -25,24 +25,6 @@ function instructionMnemonics(value: unknown): string[] {
     .map((mnemonic) => mnemonic.toLowerCase())
 }
 
-function controlFlowMetrics(value: unknown): SimilarInstructionFunction['controlFlowMetrics'] {
-  if (typeof value !== 'string' || value.length > 512) return undefined
-  try {
-    const metrics = JSON.parse(value) as Record<string, unknown>
-    const counts = ['blockCount', 'edgeCount', 'entryBlockCount', 'exitBlockCount'] as const
-    if (metrics.version !== 'ghidra-basic-blocks-v1' || typeof metrics.truncated !== 'boolean'
-        || !counts.every((key) => Number.isSafeInteger(metrics[key])
-          && typeof metrics[key] === 'number' && (metrics[key] as number) >= 0 && (metrics[key] as number) <= 1_000_000)) return undefined
-    return {
-      blockCount: metrics.blockCount as number,
-      edgeCount: metrics.edgeCount as number,
-      entryBlockCount: metrics.entryBlockCount as number,
-      exitBlockCount: metrics.exitBlockCount as number,
-      truncated: metrics.truncated,
-    }
-  } catch { return undefined }
-}
-
 function functionFeatures(row: { id: string; stableKey: string; label: string | null; attributes: unknown }): SimilarInstructionFunction {
   const attributes = attributesRecord(row.attributes)
   return {
@@ -50,7 +32,8 @@ function functionFeatures(row: { id: string; stableKey: string; label: string | 
     name: (typeof attributes.qualifiedName === 'string' && attributes.qualifiedName) || row.label || 'Unknown function',
     address: typeof attributes.address === 'string' ? attributes.address : null,
     mnemonics: instructionMnemonics(attributes.instructionMnemonics),
-    controlFlowMetrics: controlFlowMetrics(attributes.controlFlowMetrics),
+    controlFlowMetrics: parseControlFlowMetrics(attributes.controlFlowMetrics),
+    controlFlowGraph: parseControlFlowGraph(attributes.controlFlowGraph),
   }
 }
 
@@ -156,6 +139,7 @@ export async function GET(request: Request, { params }: RouteParams) {
         similarity: match.similarity,
         instructionSimilarity: match.instructionSimilarity,
         controlFlowSimilarity: match.controlFlowSimilarity,
+        controlFlowTopologySimilarity: match.controlFlowTopologySimilarity,
       }] : []
     })
     const functionParentSources = [...new Set(rankedRows.flatMap(({ row }) =>
@@ -188,7 +172,7 @@ export async function GET(request: Request, { params }: RouteParams) {
       })
       : []
     const functionParentsByKey = new Map(functionParentRows.map((row) => [`${row.taskId}:${row.stableKey}`, row]))
-    const matches = rankedRows.flatMap(({ row, similarity, instructionSimilarity, controlFlowSimilarity }) => {
+    const matches = rankedRows.flatMap(({ row, similarity, instructionSimilarity, controlFlowSimilarity, controlFlowTopologySimilarity }) => {
       const attributes = attributesRecord(row.attributes)
       const artifact = {
         name: row.artifact?.originalName || 'Unknown artifact',
@@ -215,11 +199,12 @@ export async function GET(request: Request, { params }: RouteParams) {
           similarity,
           instructionSimilarity,
           controlFlowSimilarity,
+          controlFlowTopologySimilarity,
           artifact,
         }] : []
       }
       const codeUnit = normalizeCodeUnit(row)
-      return codeUnit ? [{ codeUnit, taskId: row.taskId, similarity, instructionSimilarity, controlFlowSimilarity, artifact }] : []
+      return codeUnit ? [{ codeUnit, taskId: row.taskId, similarity, instructionSimilarity, controlFlowSimilarity, controlFlowTopologySimilarity, artifact }] : []
     })
     return NextResponse.json({ focusId: focus.id, matches, truncated }, { headers: MAX_NO_STORE })
   } catch (error) {

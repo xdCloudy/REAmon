@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server'
 import { Prisma } from '@prisma/client'
 import prisma from '@/lib/prisma'
 import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
-import { instructionSequenceFamily, instructionSequencesAreCompatible, scoreInstructionFunctionPair, type SimilarInstructionFunction } from '@/lib/reamon/instruction-similarity'
+import { instructionSequenceFamily, instructionSequencesAreCompatible, parseControlFlowGraph, parseControlFlowMetrics, scoreInstructionFunctionPair, type SimilarInstructionFunction } from '@/lib/reamon/instruction-similarity'
 import { nativeArchitectureGroup } from '@/lib/reamon/native-function-identity'
 
 interface RouteParams { params: Promise<{ id: string }> }
@@ -35,37 +35,22 @@ function feature(row: { id: string; label: string | null; attributes: unknown })
   if (!Array.isArray(parsed)) return null
   const mnemonics = parsed.slice(0, 800).filter((item): item is string =>
     typeof item === 'string' && /^[A-Za-z][A-Za-z0-9_./-]{0,31}$/.test(item)).map((item) => item.toLowerCase())
-  let controlFlowMetrics: SimilarInstructionFunction['controlFlowMetrics']
-  if (typeof attributes.controlFlowMetrics === 'string' && attributes.controlFlowMetrics.length <= 512) {
-    try {
-      const metrics = JSON.parse(attributes.controlFlowMetrics) as Record<string, unknown>
-      const counts = ['blockCount', 'edgeCount', 'entryBlockCount', 'exitBlockCount'] as const
-      if (metrics.version === 'ghidra-basic-blocks-v1' && typeof metrics.truncated === 'boolean'
-        && counts.every((key) => typeof metrics[key] === 'number' && Number.isSafeInteger(metrics[key]) && (metrics[key] as number) >= 0)) {
-        controlFlowMetrics = {
-          blockCount: metrics.blockCount as number,
-          edgeCount: metrics.edgeCount as number,
-          entryBlockCount: metrics.entryBlockCount as number,
-          exitBlockCount: metrics.exitBlockCount as number,
-          truncated: metrics.truncated,
-        }
-      }
-    } catch { /* Invalid metrics are omitted from the comparison snapshot. */ }
-  }
   return {
     key: row.id,
     name: typeof attributes.qualifiedName === 'string' ? attributes.qualifiedName : row.label || 'Unknown function',
     address: typeof attributes.address === 'string' ? attributes.address : null,
     mnemonics,
-    controlFlowMetrics,
+    controlFlowMetrics: parseControlFlowMetrics(attributes.controlFlowMetrics),
+    controlFlowGraph: parseControlFlowGraph(attributes.controlFlowGraph),
   }
 }
 
 function featureSnapshot(value: SimilarInstructionFunction) {
   const snapshot = {
-    version: 'reamon-instruction-cfg-v1',
+    version: 'reamon-instruction-cfg-wl-v2',
     mnemonics: value.mnemonics,
     controlFlowMetrics: value.controlFlowMetrics || null,
+    controlFlowGraph: value.controlFlowGraph || null,
   }
   return { ...snapshot, sha256: createHash('sha256').update(JSON.stringify(snapshot)).digest('hex') }
 }
@@ -154,7 +139,15 @@ export async function POST(request: Request, { params }: RouteParams) {
     const score = scoreInstructionFunctionPair(featureA, featureB)
     if (!score || score.similarity < 0.6) return NextResponse.json({ error: 'The functions do not meet the matcher’s candidate threshold.' }, { status: 422, headers: NO_STORE })
     const existing = await prisma.reamonFunctionMatch.findFirst({
-      where: { projectId, taskAId, taskBId, functionAStableKey: functionA.stableKey, functionBStableKey: functionB.stableKey },
+      where: {
+        projectId,
+        taskAId,
+        taskBId,
+        functionAStableKey: functionA.stableKey,
+        functionBStableKey: functionB.stableKey,
+        matcher: 'reamon-instruction-cfg-wl',
+        matcherVersion: '2',
+      },
       include: { reviews: { orderBy: { createdAt: 'desc' }, take: 10 } },
     })
     if (existing) return NextResponse.json({ match: existing, reused: true }, { headers: NO_STORE })
@@ -171,9 +164,12 @@ export async function POST(request: Request, { params }: RouteParams) {
         functionBObservationId: functionB.id, functionBStableKey: functionB.stableKey,
         functionBName: featureB.name, functionBAddress: featureB.address, functionBFeatures: featureSnapshot(featureB) as unknown as Prisma.InputJsonValue,
         architecture: `${architecture}:${endianA || endianB || 'endianness-unknown'}`,
+        matcher: 'reamon-instruction-cfg-wl',
+        matcherVersion: '2',
         similarity: Math.round(score.similarity * 100),
         instructionSimilarity: Math.round(score.instructionSimilarity * 100),
         controlFlowSimilarity: score.controlFlowSimilarity === null ? null : Math.round(score.controlFlowSimilarity * 100),
+        controlFlowTopologySimilarity: score.controlFlowTopologySimilarity === null ? null : Math.round(score.controlFlowTopologySimilarity * 100),
       },
       include: { reviews: true },
     })
