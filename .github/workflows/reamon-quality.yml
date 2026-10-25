@@ -52,9 +52,6 @@ jobs:
       - name: Lint REAmon code
         run: npm run lint
 
-      - name: Run REAmon tests
-        run: npm run test -- --run
-
       - name: Build production webapp
         run: npm run build
 
@@ -74,6 +71,39 @@ jobs:
           NEO4J_PASSWORD: test-password
           REAMON_DB_PUSH_ACCEPT_DATA_LOSS: "false"
         run: docker compose config --quiet
+
+  unit:
+    name: Canonical Docker unit gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      REDAMON_TEST_PARALLEL: "2"
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: webapp/package-lock.json
+
+      - name: Install webapp test dependencies
+        working-directory: webapp
+        run: npm ci
+
+      - name: Build images required by the canonical runner
+        run: |
+          docker build --build-arg SKIP_KB=true --tag redamon-agent:latest --file agentic/Dockerfile .
+          docker build --tag redamon-recon:latest --file recon/Dockerfile .
+          docker build --tag redamon-recon-orchestrator:latest recon_orchestrator
+          docker build --tag redamon-ai-attack-surface:latest --file scanners/ai_attack_surface_scan/Dockerfile .
+          docker build --tag redamon-capture-proxy:latest --file scanners/capture_proxy/Dockerfile .
+          docker build --tag redamon-docker-broker:latest services/docker_broker
+
+      - name: Run the complete unit gate
+        run: ./redamon.sh test unit
 
   image:
     name: Production image smoke test
@@ -210,7 +240,7 @@ jobs:
         run: docker compose down --volumes --remove-orphans
 
   agentic:
-    name: Agentic Python unit checks
+    name: Agent dependency audit
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -228,8 +258,3 @@ jobs:
           docker run --rm redamon-agent:latest sh -lc
           'pip install --disable-pip-version-check --no-cache-dir pip-audit >/dev/null
           && pip-audit --strict'
-
-      - name: Run isolated Python unit gate
-        env:
-          REDAMON_TEST_PARALLEL: "2"
-        run: ./agentic/run_tests.sh unit
