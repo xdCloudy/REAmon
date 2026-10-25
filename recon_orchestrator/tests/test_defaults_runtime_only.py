@@ -31,10 +31,11 @@ for path in (str(REPO), str(REPO / "recon")):
 import pytest  # noqa: E402
 
 from recon import settings_registry as reg  # noqa: E402
-from recon.project_settings import DEFAULT_SETTINGS  # noqa: E402
 
 sys.path.insert(0, str(REPO / "tooling" / "scripts"))
 from parse_settings_mappings import parse_default_settings  # noqa: E402
+
+DEFAULT_SETTINGS = parse_default_settings(REPO / "recon" / "project_settings.py", "DEFAULT_SETTINGS")
 
 
 def agent_default_settings() -> set[str]:

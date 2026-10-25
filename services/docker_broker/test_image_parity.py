@@ -16,7 +16,17 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(     # repo r
     os.path.abspath(__file__)))))
 
 import broker  # noqa: E402
-from recon.project_settings import ALLOWED_TOOL_IMAGES  # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__)))), "tooling", "scripts"))
+from parse_settings_mappings import parse_default_settings  # noqa: E402
+
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_defaults = parse_default_settings(os.path.join(REPO_ROOT, "recon", "project_settings.py"))
+ALLOWED_TOOL_IMAGES = frozenset(
+    image
+    for key, image in _defaults.items()
+    if key.endswith("_DOCKER_IMAGE") and isinstance(image, str) and image
+)
 
 
 def test_every_recon_tool_image_is_broker_allowlisted():
