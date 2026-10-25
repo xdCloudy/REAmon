@@ -26,7 +26,16 @@ export async function GET() {
   }
 
   const ready = Object.values(checks).every((status) => status === 'ok')
-  return Response.json({ status: ready ? 'ready' : 'not_ready', checks }, {
+  const configuredRevision = process.env.REAMON_BUILD_SHA || ''
+  const revision = /^[a-f\d]{7,40}$/i.test(configuredRevision)
+    ? configuredRevision
+    : 'unknown'
+  const dirty = process.env.REAMON_BUILD_DIRTY === 'true'
+  return Response.json({
+    status: ready ? 'ready' : 'not_ready',
+    checks,
+    build: { revision, dirty },
+  }, {
     status: ready ? 200 : 503,
     headers: { 'Cache-Control': 'no-store' },
   })

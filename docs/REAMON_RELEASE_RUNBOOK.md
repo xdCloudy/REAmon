@@ -213,8 +213,11 @@ shared volume as a whole and does not attribute use to individual projects.
    ```
 
 The readiness endpoint must report both PostgreSQL and writable artifact storage as
-healthy. A failed readiness check is a release failure; do not route traffic to the
-new container while it is unhealthy.
+healthy. Its `build.revision` must match the reviewed commit, and `build.dirty` must
+be `false` for a release build. An `unknown` revision means the image was built
+without source metadata; rebuild it through `redamon.sh` or pass the revision build
+arguments explicitly. A failed readiness or revision check is a release failure;
+do not route traffic to the new container while either check fails.
 
 ## Multi-worker drill
 

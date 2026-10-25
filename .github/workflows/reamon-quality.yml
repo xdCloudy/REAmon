@@ -135,7 +135,11 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Build production image
-        run: docker build --tag reamon-webapp:ci webapp
+        run: >-
+          docker build
+          --build-arg REAMON_BUILD_SHA="$GITHUB_SHA"
+          --build-arg REAMON_BUILD_DIRTY=false
+          --tag reamon-webapp:ci webapp
 
       - name: Verify non-root runtime image
         run: >-
@@ -150,6 +154,12 @@ jobs:
           grep -R -q projectionRunId /app/.next/server;
           test -f /app/prisma/migrations/20261003000000_add_reamon_projection_runs/migration.sql;
           echo production-image-smoke-passed'
+
+      - name: Verify image source revision
+        run: >-
+          test "$(docker image inspect
+          --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}'
+          reamon-webapp:ci)" = "$GITHUB_SHA"
 
       - name: Scan production image
         uses: aquasecurity/trivy-action@v0.36.0
@@ -170,6 +180,17 @@ jobs:
           exit 0; fi; sleep 2; done;
           docker compose logs --tail=200 webapp postgres neo4j;
           exit 1
+
+      - name: Verify live build identity
+        run: >-
+          curl --fail --silent http://127.0.0.1:3000/api/health/ready |
+          node -e 'let data=""; process.stdin.on("data", chunk => data += chunk); process.stdin.on("end", () => {
+            const ready = JSON.parse(data);
+            if (ready.build?.revision !== process.env.GITHUB_SHA || ready.build?.dirty !== false) {
+              console.error("unexpected live build identity", ready.build);
+              process.exit(1);
+            }
+          })'
 
       - name: Seed disposable acceptance operator
         run: >-

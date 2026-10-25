@@ -1189,6 +1189,26 @@ _compose_build_targets() {
 #   compose_build --profile tools build recon vuln-scanner
 #   compose_build build recon-orchestrator kali-sandbox agent webapp docker-broker
 compose_build() {
+    if [[ -z "${REAMON_BUILD_SHA:-}" ]]; then
+        REAMON_BUILD_SHA="$(git -C "$SCRIPT_DIR" rev-parse --short=12 HEAD 2>/dev/null || true)"
+    fi
+    if [[ ! "$REAMON_BUILD_SHA" =~ ^[a-fA-F0-9]{7,40}$ ]]; then
+        REAMON_BUILD_SHA="unknown"
+    fi
+    if [[ -z "${REAMON_BUILD_DIRTY:-}" ]]; then
+        if git -C "$SCRIPT_DIR" diff --quiet -- webapp 2>/dev/null && \
+           git -C "$SCRIPT_DIR" diff --cached --quiet -- webapp 2>/dev/null && \
+           [[ -z "$(git -C "$SCRIPT_DIR" ls-files --others --exclude-standard -- webapp 2>/dev/null)" ]]; then
+            REAMON_BUILD_DIRTY="false"
+        else
+            REAMON_BUILD_DIRTY="true"
+        fi
+    fi
+    if [[ "$REAMON_BUILD_DIRTY" != "true" && "$REAMON_BUILD_DIRTY" != "false" ]]; then
+        REAMON_BUILD_DIRTY="true"
+    fi
+    export REAMON_BUILD_SHA REAMON_BUILD_DIRTY
+
     detect_build_resources
     local parallel; parallel="$(pick_parallelism)"
 

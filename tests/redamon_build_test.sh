@@ -150,6 +150,26 @@ section "INTEGRATION: compose_build orchestration (stubbed docker)"
 stub_resources 8192 8   # -> parallelism 2
 stub_targets
 
+# Build metadata is derived from the checked-out source so readiness and image
+# labels can identify which revision a normal installer build contains.
+reset_calls
+_saved_build_sha="${REAMON_BUILD_SHA-}"
+_saved_build_dirty="${REAMON_BUILD_DIRTY-}"
+unset REAMON_BUILD_SHA REAMON_BUILD_DIRTY
+compose_build build agent >/dev/null
+assert_eq "build metadata uses current source revision" \
+    "$REAMON_BUILD_SHA" "$(git -C "$SCRIPT_DIR" rev-parse --short=12 HEAD)"
+if git -C "$SCRIPT_DIR" diff --quiet -- webapp && \
+   git -C "$SCRIPT_DIR" diff --cached --quiet -- webapp && \
+   [[ -z "$(git -C "$SCRIPT_DIR" ls-files --others --exclude-standard -- webapp)" ]]; then
+    _expected_build_dirty=false
+else
+    _expected_build_dirty=true
+fi
+assert_eq "build metadata reports source dirtiness" "$REAMON_BUILD_DIRTY" "$_expected_build_dirty"
+if [[ -n "$_saved_build_sha" ]]; then REAMON_BUILD_SHA="$_saved_build_sha"; else unset REAMON_BUILD_SHA; fi
+if [[ -n "$_saved_build_dirty" ]]; then REAMON_BUILD_DIRTY="$_saved_build_dirty"; else unset REAMON_BUILD_DIRTY; fi
+
 # I1: install full build. Layer 1 (webapp alone) + one call per batch of the
 # resolved target set + Layer 3's build-cache prune. See the "build-cache
 # auto-prune" and "Layer 2 batching" sections below.
@@ -316,9 +336,10 @@ section "SMOKE: real script + docker/compose"
 if bash -n "$REPO_ROOT/redamon.sh"; then pass "S1 bash -n clean"; else fail "S1 syntax"; fi
 # S2: help dispatch runs when executed directly
 if bash "$REPO_ROOT/redamon.sh" help >/dev/null 2>&1; then pass "S2 direct 'help' dispatch ok"; else fail "S2 help dispatch"; fi
-# S3/S4 need a docker daemon. Probe with `command docker` so the integration
-# `docker()` stub (which always returns 0) cannot make an absent daemon look up.
-if command -v docker >/dev/null 2>&1 && command docker info >/dev/null 2>&1; then
+# S3/S4 need a docker daemon. Probe the executable with a timeout so the
+# integration `docker()` stub cannot fake availability or hang on a stale
+# Windows/WSL Docker Desktop connection.
+if command -v docker >/dev/null 2>&1 && timeout 10s docker info >/dev/null 2>&1; then
     # S3: webapp is a real, buildable compose service (Layer-1 target valid)
     # Compose requires these fail-closed credentials even though this smoke
     # check only asks it to list service names. Use disposable values so CI

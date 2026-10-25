@@ -1033,6 +1033,8 @@ services:
       context: ./webapp
       args:
         REAMON_VERSION: "${REAMON_VERSION:-0.0.0}"
+        REAMON_BUILD_SHA: "${REAMON_BUILD_SHA:-unknown}"
+        REAMON_BUILD_DIRTY: "${REAMON_BUILD_DIRTY:-false}"
     container_name: redamon-webapp
     mem_limit: ${WEBAPP_MEM:-1g}            # sized from host RAM by redamon.sh
     pids_limit: ${WEBAPP_PIDS:-512}         # D1: fork-bomb ceiling (generous)

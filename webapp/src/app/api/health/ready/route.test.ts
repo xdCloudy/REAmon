@@ -1,5 +1,5 @@
 /** @vitest-environment node */
-import { beforeEach, describe, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({ queryRaw: vi.fn(), access: vi.fn() }))
 vi.mock('@/lib/prisma', () => ({ default: { $queryRaw: mocks.queryRaw } }))
@@ -14,6 +14,10 @@ beforeEach(() => {
   mocks.access.mockResolvedValue(undefined)
 })
 
+afterEach(() => {
+  vi.unstubAllEnvs()
+})
+
 describe('GET /api/health/ready', () => {
   test('returns ready only when database and artifact storage are usable', async () => {
     const response = await GET()
@@ -22,6 +26,7 @@ describe('GET /api/health/ready', () => {
     await expect(response.json()).resolves.toEqual({
       status: 'ready',
       checks: { database: 'ok', artifacts: 'ok' },
+      build: { revision: 'unknown', dirty: false },
     })
     expect(mocks.access).toHaveBeenCalledWith('/data/reamon-artifacts', expect.any(Number))
   })
@@ -35,6 +40,18 @@ describe('GET /api/health/ready', () => {
     await expect(response.json()).resolves.toEqual({
       status: 'not_ready',
       checks: { database: 'unavailable', artifacts: 'ok' },
+      build: { revision: 'unknown', dirty: false },
+    })
+  })
+
+  test('reports the baked source revision and dirty state', async () => {
+    vi.stubEnv('REAMON_BUILD_SHA', 'abc123def456')
+    vi.stubEnv('REAMON_BUILD_DIRTY', 'true')
+
+    const response = await GET()
+
+    await expect(response.json()).resolves.toMatchObject({
+      build: { revision: 'abc123def456', dirty: true },
     })
   })
 })
