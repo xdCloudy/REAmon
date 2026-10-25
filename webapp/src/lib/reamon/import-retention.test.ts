@@ -7,21 +7,24 @@ const mocks = vi.hoisted(() => ({
   importFindFirst: vi.fn(),
   artifactDeleteMany: vi.fn(),
   importDelete: vi.fn(),
+  importUpdateMany: vi.fn(),
   targetDeleteMany: vi.fn(),
   activityCreate: vi.fn(),
   transaction: vi.fn(),
   unlink: vi.fn(),
+  rm: vi.fn(),
 }))
 
 vi.mock('@/lib/prisma', () => ({
   default: {
-    workspaceImport: { findMany: mocks.importFindMany },
+    workspaceImport: { findMany: mocks.importFindMany, updateMany: mocks.importUpdateMany },
     $transaction: mocks.transaction,
   },
 }))
-vi.mock('node:fs/promises', () => ({ unlink: mocks.unlink }))
+vi.mock('node:fs/promises', () => ({ unlink: mocks.unlink, rm: mocks.rm }))
+vi.mock('./artifact-storage', () => ({ artifactRoot: () => '/artifacts', resolveArtifactStoragePath: (value: string) => `/artifacts/${value}` }))
 
-import { applyImportRetention, importRetentionDays } from './import-retention'
+import { applyImportRetention, importRetentionDays, importStagingRetentionDays } from './import-retention'
 
 function artifact(overrides: Record<string, unknown> = {}) {
   return {
@@ -40,13 +43,15 @@ function candidate(overrides: Record<string, unknown> = {}) {
 beforeEach(() => {
   vi.clearAllMocks()
   vi.unstubAllEnvs()
-  mocks.importFindMany.mockResolvedValueOnce([{ id: 'import-latest' }]).mockResolvedValueOnce([candidate()])
+  mocks.importFindMany.mockResolvedValueOnce([{ id: 'import-latest' }]).mockResolvedValueOnce([candidate()]).mockResolvedValueOnce([])
   mocks.importFindFirst.mockResolvedValue({ id: 'import-old', rootTargetId: 'target-root', artifacts: [artifact()] })
   mocks.artifactDeleteMany.mockResolvedValue({ count: 1 })
   mocks.importDelete.mockResolvedValue({ id: 'import-old' })
+  mocks.importUpdateMany.mockResolvedValue({ count: 0 })
   mocks.targetDeleteMany.mockResolvedValue({ count: 1 })
   mocks.activityCreate.mockResolvedValue({ id: 'activity-1' })
   mocks.unlink.mockResolvedValue(undefined)
+  mocks.rm.mockResolvedValue(undefined)
   mocks.transaction.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) => callback({
     workspaceImport: { findFirst: mocks.importFindFirst, delete: mocks.importDelete },
     artifact: { deleteMany: mocks.artifactDeleteMany },
@@ -66,6 +71,16 @@ describe('importRetentionDays', () => {
     expect(importRetentionDays()).toBe(3650)
     vi.stubEnv('REAMON_IMPORT_RETENTION_DAYS', '0')
     expect(importRetentionDays()).toBe(0)
+  })
+
+  test('defaults and clamps the incomplete staging retention window', () => {
+    expect(importStagingRetentionDays()).toBe(30)
+    vi.stubEnv('REAMON_IMPORT_STAGING_RETENTION_DAYS', '2')
+    expect(importStagingRetentionDays()).toBe(7)
+    vi.stubEnv('REAMON_IMPORT_STAGING_RETENTION_DAYS', '99999')
+    expect(importStagingRetentionDays()).toBe(365)
+    vi.stubEnv('REAMON_IMPORT_STAGING_RETENTION_DAYS', '0')
+    expect(importStagingRetentionDays()).toBe(0)
   })
 })
 
@@ -90,11 +105,57 @@ describe('applyImportRetention', () => {
 
   test('protects snapshots referenced by analysis or lineage records', async () => {
     mocks.importFindMany.mockReset()
-    mocks.importFindMany.mockResolvedValueOnce([{ id: 'import-latest' }]).mockResolvedValueOnce([candidate({ artifacts: [artifact({ _count: { tasks: 1, findings: 0, evidence: 0, observations: 0, usedAsSource: 0, derivedFrom: 0 } })] })])
+    mocks.importFindMany.mockResolvedValueOnce([{ id: 'import-latest' }]).mockResolvedValueOnce([candidate({ artifacts: [artifact({ _count: { tasks: 1, findings: 0, evidence: 0, observations: 0, usedAsSource: 0, derivedFrom: 0 } })] })]).mockResolvedValueOnce([])
 
     const result = await applyImportRetention({ dryRun: false, now: new Date('2026-10-03T00:00:00Z') })
 
     expect(result).toMatchObject({ considered: 1, protected: 1, pruned: 0 })
     expect(mocks.transaction).not.toHaveBeenCalled()
+  })
+
+  test('dry-runs stale incomplete imports without touching their staged files', async () => {
+    mocks.importFindMany.mockReset()
+    mocks.importFindMany
+      .mockResolvedValueOnce([{ id: 'import-latest' }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: 'import-stale', projectId: 'project-1', updatedAt: new Date('2026-08-01T00:00:00Z') }])
+
+    const result = await applyImportRetention({ now: new Date('2026-10-03T00:00:00Z') })
+
+    expect(result).toMatchObject({ dryRun: true, stagingRetentionDays: 30, stagingConsidered: 1, stagingCancelled: 0 })
+    expect(mocks.importUpdateMany).not.toHaveBeenCalled()
+    expect(mocks.rm).not.toHaveBeenCalled()
+  })
+
+  test('cancels expired imports conditionally before removing their confined staging directory', async () => {
+    mocks.importFindMany.mockReset()
+    mocks.importFindMany
+      .mockResolvedValueOnce([{ id: 'import-latest' }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: 'import-stale', projectId: 'project-1', updatedAt: new Date('2026-08-01T00:00:00Z') }])
+    mocks.importUpdateMany.mockResolvedValueOnce({ count: 1 })
+
+    const result = await applyImportRetention({ dryRun: false, now: new Date('2026-10-03T00:00:00Z') })
+
+    expect(result).toMatchObject({ dryRun: false, stagingConsidered: 1, stagingCancelled: 1, stagingCleanupFailures: 0 })
+    expect(mocks.importUpdateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: 'import-stale', projectId: 'project-1', updatedAt: { lt: expect.any(Date) } }),
+      data: expect.objectContaining({ status: 'CANCELLED' }),
+    }))
+    expect(mocks.rm).toHaveBeenCalledWith('/artifacts/.uploads/project-1/import-stale', { recursive: true, force: true })
+  })
+
+  test('does not clean a staging directory when a concurrent chunk refreshed its import row', async () => {
+    mocks.importFindMany.mockReset()
+    mocks.importFindMany
+      .mockResolvedValueOnce([{ id: 'import-latest' }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: 'import-active', projectId: 'project-1', updatedAt: new Date('2026-08-01T00:00:00Z') }])
+    mocks.importUpdateMany.mockResolvedValueOnce({ count: 0 })
+
+    const result = await applyImportRetention({ dryRun: false, now: new Date('2026-10-03T00:00:00Z') })
+
+    expect(result).toMatchObject({ stagingConsidered: 1, stagingCancelled: 0 })
+    expect(mocks.rm).not.toHaveBeenCalled()
   })
 })

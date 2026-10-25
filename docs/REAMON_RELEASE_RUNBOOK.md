@@ -163,6 +163,16 @@ The private worker invokes the same endpoint on
 set it to `true` only for a deployment that has an approved backup and retention
 decision.
 
+Incomplete browser imports (`PENDING`, `UPLOADING`, `FAILED`, or `CANCELLED`)
+keep resumable staged bytes for 30 days by default. Each accepted chunk refreshes
+the import's activity timestamp. The retention job cancels only rows that remain
+inactive past `REAMON_IMPORT_STAGING_RETENTION_DAYS`, then removes that import's
+staging directory; the run is bounded to 25 incomplete imports. Set the value to
+`0` to disable staging cleanup. The supported range is 7–365 days. The same dry-run
+response reports `stagingConsidered` and `stagingCutoff`; after applying, review
+`stagingCancelled` and `stagingCleanupFailures`. Shared artifact-volume capacity
+reporting remains a separate operational gap.
+
 ## Upgrade
 
 1. Fetch and check out the reviewed release commit.

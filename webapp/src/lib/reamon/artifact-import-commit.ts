@@ -124,6 +124,7 @@ export async function commitArtifactFromPath(input: {
   if (!workspaceImport) throw new Error('Import not found')
   if (workspaceImport.sourceType !== input.sourceType) throw new Error('Upload source does not match the import')
   if (workspaceImport.status === 'COMPLETED') throw new Error('Import is already completed')
+  if (workspaceImport.status === 'CANCELLED' || workspaceImport.status === 'CANCELLING') throw new Error('Import is no longer accepting artifacts')
   const manifest = Array.isArray(workspaceImport.manifest) ? workspaceImport.manifest as Array<{ relativePath?: unknown; size?: unknown }> : []
   const manifestEntry = manifest.find((entry) => entry.relativePath === relativePath)
   const expectedSize = Number(manifestEntry?.size)
@@ -158,7 +159,7 @@ export async function commitArtifactFromPath(input: {
   try {
     const result = await prisma.$transaction(async (tx) => {
       const lockedImport = await tx.workspaceImport.updateMany({
-        where: { id: input.importId, status: { notIn: ['COMPLETED'] } },
+        where: { id: input.importId, status: { notIn: ['COMPLETED', 'CANCELLED', 'CANCELLING'] } },
         data: { status: 'UPLOADING' },
       })
       if (lockedImport.count !== 1) throw new Error('Import is no longer accepting artifacts')

@@ -1,18 +1,32 @@
-import { unlink } from 'node:fs/promises'
+import { rm, unlink } from 'node:fs/promises'
+import path from 'node:path'
 import prisma from '@/lib/prisma'
-import { resolveArtifactStoragePath } from './artifact-storage'
+import { artifactRoot, resolveArtifactStoragePath } from './artifact-storage'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 const DEFAULT_RETENTION_DAYS = 90
 const MIN_RETENTION_DAYS = 7
 const MAX_RETENTION_DAYS = 3650
 const MAX_IMPORTS_PER_RUN = 25
+const DEFAULT_STAGING_RETENTION_DAYS = 30
+const MIN_STAGING_RETENTION_DAYS = 7
+const MAX_STAGING_RETENTION_DAYS = 365
+const MAX_STALE_IMPORTS_PER_RUN = 25
+
+const INCOMPLETE_IMPORT_STATUSES = ['PENDING', 'UPLOADING', 'FAILED', 'CANCELLED']
 
 export function importRetentionDays(): number {
   const raw = Number(process.env.REAMON_IMPORT_RETENTION_DAYS)
   if (!Number.isFinite(raw)) return DEFAULT_RETENTION_DAYS
   if (raw <= 0) return 0
   return Math.min(MAX_RETENTION_DAYS, Math.max(MIN_RETENTION_DAYS, Math.floor(raw)))
+}
+
+export function importStagingRetentionDays(): number {
+  const raw = Number(process.env.REAMON_IMPORT_STAGING_RETENTION_DAYS)
+  if (!Number.isFinite(raw)) return DEFAULT_STAGING_RETENTION_DAYS
+  if (raw <= 0) return 0
+  return Math.min(MAX_STAGING_RETENTION_DAYS, Math.max(MIN_STAGING_RETENTION_DAYS, Math.floor(raw)))
 }
 
 interface RetentionArtifact {
@@ -49,14 +63,25 @@ export interface ImportRetentionCandidate {
 export interface ImportRetentionResult {
   dryRun: boolean
   retentionDays: number
+  stagingRetentionDays: number
   cutoff: string | null
+  stagingCutoff: string | null
   considered: number
+  stagingConsidered: number
   protected: number
   pruned: number
+  stagingCancelled: number
   deletedArtifacts: number
   deletedBytes: number
   storageCleanupFailures: number
+  stagingCleanupFailures: number
   candidates: ImportRetentionCandidate[]
+}
+
+interface StaleImportCandidate {
+  id: string
+  projectId: string
+  updatedAt: Date
 }
 
 const artifactSelect = {
@@ -93,6 +118,30 @@ async function findCandidates(projectId: string | undefined, cutoff: Date): Prom
   }) as unknown as Promise<RetentionCandidate[]>
 }
 
+async function findStaleImports(projectId: string | undefined, cutoff: Date): Promise<StaleImportCandidate[]> {
+  return prisma.workspaceImport.findMany({
+    where: {
+      ...(projectId ? { projectId } : {}),
+      status: { in: INCOMPLETE_IMPORT_STATUSES },
+      updatedAt: { lt: cutoff },
+    },
+    orderBy: { updatedAt: 'asc' },
+    take: MAX_STALE_IMPORTS_PER_RUN,
+    select: { id: true, projectId: true, updatedAt: true },
+  }) as unknown as Promise<StaleImportCandidate[]>
+}
+
+function resolveStagingDirectory(projectId: string, importId: string): string {
+  const root = path.resolve(artifactRoot(), '.uploads')
+  const directory = path.resolve(root, projectId, importId)
+  const relative = path.relative(root, directory)
+  if (!projectId || !importId || !relative || relative.startsWith('..') || path.isAbsolute(relative)
+    || path.dirname(relative) !== projectId || path.basename(relative) !== importId) {
+    throw new Error('Invalid staged import directory')
+  }
+  return directory
+}
+
 function candidateSummary(candidate: RetentionCandidate, protectedByReferences: boolean): ImportRetentionCandidate {
   return {
     id: candidate.id,
@@ -110,38 +159,67 @@ function hasReferences(candidate: RetentionCandidate): boolean {
 
 export async function applyImportRetention(input: { projectId?: string; dryRun?: boolean; now?: Date } = {}): Promise<ImportRetentionResult> {
   const retentionDays = importRetentionDays()
-  if (retentionDays === 0) {
-    return { dryRun: input.dryRun !== false, retentionDays, cutoff: null, considered: 0, protected: 0, pruned: 0, deletedArtifacts: 0, deletedBytes: 0, storageCleanupFailures: 0, candidates: [] }
-  }
-
-  const cutoff = new Date((input.now || new Date()).getTime() - retentionDays * DAY_MS)
-  const candidates = await findCandidates(input.projectId, cutoff)
+  const stagingRetentionDays = importStagingRetentionDays()
+  const now = input.now || new Date()
+  const cutoff = retentionDays > 0 ? new Date(now.getTime() - retentionDays * DAY_MS) : null
+  const stagingCutoff = stagingRetentionDays > 0 ? new Date(now.getTime() - stagingRetentionDays * DAY_MS) : null
+  const candidates = cutoff ? await findCandidates(input.projectId, cutoff) : []
+  const staleImports = stagingCutoff ? await findStaleImports(input.projectId, stagingCutoff) : []
   const summaries = candidates.map((candidate) => candidateSummary(candidate, hasReferences(candidate)))
   const protectedCount = summaries.filter((candidate) => candidate.protectedByReferences).length
   if (input.dryRun !== false) {
     return {
       dryRun: true,
       retentionDays,
-      cutoff: cutoff.toISOString(),
+      stagingRetentionDays,
+      cutoff: cutoff?.toISOString() || null,
+      stagingCutoff: stagingCutoff?.toISOString() || null,
       considered: candidates.length,
+      stagingConsidered: staleImports.length,
       protected: protectedCount,
       pruned: 0,
+      stagingCancelled: 0,
       deletedArtifacts: 0,
       deletedBytes: 0,
       storageCleanupFailures: 0,
+      stagingCleanupFailures: 0,
       candidates: summaries,
     }
   }
 
   let pruned = 0
+  let stagingCancelled = 0
   let deletedArtifacts = 0
   let deletedBytes = 0
   let storageCleanupFailures = 0
+  let stagingCleanupFailures = 0
+  for (const stale of staleImports) {
+    const claimed = await prisma.workspaceImport.updateMany({
+      where: {
+        id: stale.id,
+        projectId: stale.projectId,
+        status: { in: INCOMPLETE_IMPORT_STATUSES },
+        updatedAt: { lt: stagingCutoff! },
+      },
+      data: {
+        status: 'CANCELLED',
+        errorSummary: 'Incomplete import expired; staged upload data was cleaned up',
+      },
+    })
+    if (claimed.count !== 1) continue
+    stagingCancelled += 1
+    try {
+      await rm(resolveStagingDirectory(stale.projectId, stale.id), { recursive: true, force: true })
+    } catch (error) {
+      stagingCleanupFailures += 1
+      console.warn('Failed to remove expired REAmon staged upload bytes:', error)
+    }
+  }
   for (const candidate of candidates) {
     if (hasReferences(candidate)) continue
     const deleted = await prisma.$transaction(async (tx) => {
       const current = await tx.workspaceImport.findFirst({
-        where: { id: candidate.id, projectId: candidate.projectId, status: 'COMPLETED', completedAt: { lt: cutoff } },
+        where: { id: candidate.id, projectId: candidate.projectId, status: 'COMPLETED', completedAt: { lt: cutoff! } },
         select: { id: true, rootTargetId: true, artifacts: { select: { id: true, storagePath: true, sizeBytes: true } } },
       })
       if (!current) return null
@@ -177,13 +255,18 @@ export async function applyImportRetention(input: { projectId?: string; dryRun?:
   return {
     dryRun: false,
     retentionDays,
-    cutoff: cutoff.toISOString(),
+    stagingRetentionDays,
+    cutoff: cutoff?.toISOString() || null,
+    stagingCutoff: stagingCutoff?.toISOString() || null,
     considered: candidates.length,
+    stagingConsidered: staleImports.length,
     protected: protectedCount,
     pruned,
+    stagingCancelled,
     deletedArtifacts,
     deletedBytes,
     storageCleanupFailures,
+    stagingCleanupFailures,
     candidates: summaries,
   }
 }

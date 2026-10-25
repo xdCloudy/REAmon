@@ -1201,6 +1201,9 @@ services:
       # internal retention endpoint is dry-run by default and preserves the
       # newest snapshot plus anything referenced by analysis or lineage.
       REAMON_IMPORT_RETENTION_DAYS: ${REAMON_IMPORT_RETENTION_DAYS:-90}
+      # Abandoned browser-import staging data is cancelled and cleaned after
+      # this many inactive days; chunk writes refresh the inactivity timestamp.
+      REAMON_IMPORT_STAGING_RETENTION_DAYS: ${REAMON_IMPORT_STAGING_RETENTION_DAYS:-30}
       # Empty disables server-mounted imports. When enabled, mount the same
       # directories read-only into the webapp and list their container paths
       # here, one absolute path per line.

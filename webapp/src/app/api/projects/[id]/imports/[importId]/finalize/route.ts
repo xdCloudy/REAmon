@@ -29,7 +29,7 @@ export async function POST(_request: Request, { params }: RouteParams) {
     // the snapshot below cannot miss a commit that finished before finalizing.
     const outcome = await prisma.$transaction(async (tx) => {
       await tx.workspaceImport.updateMany({
-        where: { id: importId, projectId, status: { notIn: ['COMPLETED'] } },
+        where: { id: importId, projectId, status: { notIn: ['COMPLETED', 'CANCELLED'] } },
         data: { status: 'FINALIZING' },
       })
       const workspaceImport = await tx.workspaceImport.findFirst({
@@ -47,6 +47,7 @@ export async function POST(_request: Request, { params }: RouteParams) {
       })
       if (!workspaceImport) return { kind: 'NOT_FOUND' as const }
       if (workspaceImport.status === 'COMPLETED') return { kind: 'ALREADY_COMPLETED' as const }
+      if (workspaceImport.status === 'CANCELLED') return { kind: 'CANCELLED' as const }
       if (!workspaceImport.rootTarget?.id) return { kind: 'MISSING_ROOT' as const }
 
       const uploaded = new Set(workspaceImport.artifacts.map((artifact) => artifact.relativePath))
@@ -131,6 +132,7 @@ export async function POST(_request: Request, { params }: RouteParams) {
     if (outcome.kind === 'ALREADY_COMPLETED') {
       return NextResponse.json({ status: 'COMPLETED', importId, missingPaths: [] }, { headers: { 'Cache-Control': 'no-store' } })
     }
+    if (outcome.kind === 'CANCELLED') return NextResponse.json({ error: 'Cancelled imports cannot be finalized' }, { status: 409, headers: { 'Cache-Control': 'no-store' } })
 
     return NextResponse.json({
       status: outcome.workspaceImport.status,

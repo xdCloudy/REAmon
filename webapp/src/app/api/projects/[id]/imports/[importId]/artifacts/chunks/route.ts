@@ -34,6 +34,16 @@ export async function PUT(request: Request, { params }: RouteParams) {
     const manifest = Array.isArray(workspaceImport.manifest) ? workspaceImport.manifest as Array<{ relativePath?: unknown; size?: unknown }> : []
     const entry = manifest.find((candidate) => candidate.relativePath === relativePath)
     if (!entry || Number(entry.size) !== totalSize) return NextResponse.json({ error: 'File size or path does not match the import manifest' }, { status: 400, headers: { 'Cache-Control': 'no-store' } })
+    const activity = await prisma.workspaceImport.updateMany({
+      where: {
+        id: importId,
+        projectId,
+        sourceType: 'BROWSER_DIRECTORY',
+        status: { notIn: ['COMPLETED', 'CANCELLED', 'CANCELLING', 'FINALIZING'] },
+      },
+      data: { updatedAt: new Date() },
+    })
+    if (activity.count !== 1) return NextResponse.json({ error: 'Import is no longer accepting artifacts' }, { status: 409, headers: { 'Cache-Control': 'no-store' } })
     if (!request.body) {
       return NextResponse.json({ error: 'Upload chunk body is required' }, { status: 400, headers: { 'Cache-Control': 'no-store' } })
     }

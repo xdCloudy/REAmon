@@ -102,7 +102,7 @@ describe('POST /api/projects/[id]/imports/[importId]/finalize', () => {
       missingPaths: ['plugins/audio.dll'],
     })
     expect(mocks.workspaceImportUpdateMany).toHaveBeenCalledWith({
-      where: { id: 'import-1', projectId: 'project-1', status: { notIn: ['COMPLETED'] } },
+      where: { id: 'import-1', projectId: 'project-1', status: { notIn: ['COMPLETED', 'CANCELLED'] } },
       data: { status: 'FINALIZING' },
     })
     expect(mocks.workspaceImportUpdate).toHaveBeenCalledWith(expect.objectContaining({
@@ -172,6 +172,18 @@ describe('POST /api/projects/[id]/imports/[importId]/finalize', () => {
 
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({ status: 'COMPLETED', importId: 'import-1', missingPaths: [] })
+    expect(mocks.workspaceImportUpdate).not.toHaveBeenCalled()
+    expect(mocks.targetUpdate).not.toHaveBeenCalled()
+  })
+
+  test('does not reopen a cancelled import during finalization', async () => {
+    mocks.workspaceImportUpdateMany.mockResolvedValueOnce({ count: 0 })
+    mocks.workspaceImportFindFirst.mockResolvedValueOnce({ id: 'import-1', status: 'CANCELLED' })
+
+    const response = await POST(request(), params())
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({ error: 'Cancelled imports cannot be finalized' })
     expect(mocks.workspaceImportUpdate).not.toHaveBeenCalled()
     expect(mocks.targetUpdate).not.toHaveBeenCalled()
   })

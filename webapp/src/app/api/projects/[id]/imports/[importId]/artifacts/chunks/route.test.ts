@@ -3,13 +3,14 @@ import { beforeEach, describe, expect, test, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   workspaceImportFindFirst: vi.fn(),
+  workspaceImportUpdateMany: vi.fn(),
   requireEffectiveUser: vi.fn(),
   requireProjectAccess: vi.fn(),
   receiveArtifactChunk: vi.fn(),
 }))
 
 vi.mock('@/lib/prisma', () => ({
-  default: { workspaceImport: { findFirst: mocks.workspaceImportFindFirst } },
+  default: { workspaceImport: { findFirst: mocks.workspaceImportFindFirst, updateMany: mocks.workspaceImportUpdateMany } },
 }))
 vi.mock('@/lib/access', () => ({
   requireEffectiveUser: mocks.requireEffectiveUser,
@@ -48,6 +49,7 @@ beforeEach(() => {
     status: 'PENDING', sourceType: 'BROWSER_DIRECTORY',
     manifest: [{ relativePath: 'bin/app.exe', size: 3 }],
   })
+  mocks.workspaceImportUpdateMany.mockResolvedValue({ count: 1 })
   mocks.receiveArtifactChunk.mockResolvedValue(3)
 })
 
@@ -56,6 +58,10 @@ describe('PUT /api/projects/[id]/imports/[importId]/artifacts/chunks', () => {
     const response = await PUT(request([new Uint8Array([1]), new Uint8Array([2, 3])]), params())
 
     expect(response.status).toBe(200)
+    expect(mocks.workspaceImportUpdateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ status: { notIn: ['COMPLETED', 'CANCELLED', 'CANCELLING', 'FINALIZING'] } }),
+      data: { updatedAt: expect.any(Date) },
+    }))
     expect(mocks.receiveArtifactChunk).toHaveBeenCalledWith(expect.objectContaining({
       relativePath: 'bin/app.exe', offset: 0, totalSize: 3,
       bytes: new Uint8Array([1, 2, 3]),
@@ -66,6 +72,19 @@ describe('PUT /api/projects/[id]/imports/[importId]/artifacts/chunks', () => {
     const response = await PUT(request([new Uint8Array(16 * 1024 * 1024 + 1)]), params())
 
     expect(response.status).toBe(413)
+    expect(mocks.receiveArtifactChunk).not.toHaveBeenCalled()
+  })
+
+  test('does not accept a chunk after an import was cancelled', async () => {
+    mocks.workspaceImportFindFirst.mockResolvedValueOnce({
+      status: 'CANCELLED', sourceType: 'BROWSER_DIRECTORY',
+      manifest: [{ relativePath: 'bin/app.exe', size: 3 }],
+    })
+    mocks.workspaceImportUpdateMany.mockResolvedValueOnce({ count: 0 })
+
+    const response = await PUT(request([new Uint8Array([1, 2, 3])]), params())
+
+    expect(response.status).toBe(409)
     expect(mocks.receiveArtifactChunk).not.toHaveBeenCalled()
   })
 })
