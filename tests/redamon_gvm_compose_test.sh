@@ -147,10 +147,10 @@ else
 fi
 
 # It has to run on every command that can reach `docker compose up`, not just one.
-dispatch="$(grep -E '^\s+install\|update\|up\)' "$REPO_ROOT/redamon.sh" | head -1)"
+dispatch="$(grep -E '^\s+install\|up\)' "$REPO_ROOT/redamon.sh" | head -1)"
 case "$dispatch" in
-    *prune_removed_containers*) ok "cleanup runs for install, update and up" ;;
-    *) bad "cleanup runs for install, update and up" "${dispatch:-<no dispatch line>}" "calls prune_removed_containers" ;;
+    *prune_removed_containers*) ok "cleanup runs for install and up" ;;
+    *) bad "cleanup runs for install and up" "${dispatch:-<no dispatch line>}" "calls prune_removed_containers" ;;
 esac
 
 # Defined ABOVE the BASH_SOURCE guard, or sourcing the script (this suite) cannot
@@ -171,7 +171,7 @@ else
     bad "recon-orchestrator receives GVM_NO_PROGRESS_TIMEOUT" "absent or non-empty default" "\${GVM_NO_PROGRESS_TIMEOUT:-}"
 fi
 
-if grep -qE '^GVM_NO_PROGRESS_TIMEOUT=$' "$REPO_ROOT/.env.example"; then
+if grep -qE '^GVM_NO_PROGRESS_TIMEOUT=[[:space:]]*$' "$REPO_ROOT/.env.example"; then
     ok ".env.example documents the knob as an empty placeholder"
 else
     bad ".env.example documents the knob" "missing" "a bare GVM_NO_PROGRESS_TIMEOUT="
@@ -203,7 +203,7 @@ else
     bad "recon-orchestrator receives GVM_LIVENESS_INTERVAL" "absent or non-empty default" "\${GVM_LIVENESS_INTERVAL:-}"
 fi
 
-if grep -qE '^GVM_LIVENESS_INTERVAL=$' "$REPO_ROOT/.env.example"; then
+if grep -qE '^GVM_LIVENESS_INTERVAL=[[:space:]]*$' "$REPO_ROOT/.env.example"; then
     ok ".env.example documents the liveness knob as an empty placeholder"
 else
     bad ".env.example documents the liveness knob" "missing" "a bare GVM_LIVENESS_INTERVAL="

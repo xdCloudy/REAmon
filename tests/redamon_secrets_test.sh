@@ -380,12 +380,8 @@ else
 fi
 
 # =============================================================================
-# GVM/OpenVAS admin credential provisioning (parity with the DB secrets).
-# Root cause it locks in: the deploy used to rotate gvmd's admin to a random
-# password WITHOUT persisting GVM_PASSWORD, so the app stayed on admin/admin and
-# every GVM scan failed to authenticate. The fix: generate+pin GVM_PASSWORD
-# pre-up (ensure_gvm_secret) and apply it to the live gvmd post-up
-# (reconcile_gvm_admin_password), only when GVM is enabled.
+# GVM/OpenVAS is not a REAmon runtime feature. Legacy markers must not reactivate
+# credential writes or scanner administration during install/reconciliation.
 # =============================================================================
 
 echo "== ensure_gvm_secret: GVM disabled -> no-op =="
@@ -395,30 +391,15 @@ ensure_gvm_secret >/dev/null 2>&1
 assert_false "no GVM_PASSWORD written when GVM disabled" "grep -q '^GVM_PASSWORD=' '$TMP/.env'"
 rm -rf "$TMP"
 
-echo "== ensure_gvm_secret: GVM enabled -> generate + pin (48 hex), idempotent =="
+echo "== ensure_gvm_secret: stale legacy marker remains disabled =="
 TMP=$(mktemp -d); SCRIPT_DIR="$TMP"; : > "$TMP/.env"
 GVM_FLAG_FILE="$TMP/.gvm-enabled"; touch "$GVM_FLAG_FILE"
 ensure_gvm_secret >/dev/null 2>&1
-assert_true  "GVM_PASSWORD generated (48 hex)" "grep -qE '^GVM_PASSWORD=[0-9a-f]{48}\$' '$TMP/.env'"
-ensure_gvm_secret >/dev/null 2>&1
-assert_eq    "GVM_PASSWORD not duplicated" "$(grep -c '^GVM_PASSWORD=' "$TMP/.env")" "1"
+assert_false "legacy marker does not write GVM_PASSWORD" "grep -q '^GVM_PASSWORD=' '$TMP/.env'"
 rm -rf "$TMP"
 
-echo "== ensure_gvm_secret: operator-pinned GVM_PASSWORD respected =="
-TMP=$(mktemp -d); SCRIPT_DIR="$TMP"; printf 'GVM_PASSWORD=custom-gvm-pw\n' > "$TMP/.env"
-GVM_FLAG_FILE="$TMP/.gvm-enabled"; touch "$GVM_FLAG_FILE"
-before=$(md5sum "$TMP/.env" | awk '{print $1}')
-ensure_gvm_secret >/dev/null 2>&1
-after=$(md5sum "$TMP/.env" | awk '{print $1}')
-assert_eq    ".env unchanged when GVM_PASSWORD pinned" "$before" "$after"
-rm -rf "$TMP"
-
-echo "== reconcile_gvm_admin_password behaviour (stubbed gvmd) =="
-# Fast + hermetic: sleep is a no-op so the health-wait loop never blocks; docker
-# is only consulted for `inspect` (health); _env_get and the gvmd write are
-# stubbed (an earlier test unset the real _env_get, and stubbing lets us control
-# the password) so we assert whether/what got applied. Output is captured to a
-# FILE, NOT $(...), so reconcile runs in THIS shell and the call counters survive.
+echo "== reconcile_gvm_admin_password: stale legacy marker is inert =="
+# Capture counters in this shell to prove that legacy config cannot reach Docker.
 CAP="$(mktemp)"
 sleep() { :; }
 GVMD_HEALTH="healthy"; GVM_ROTATE_CALLS=0; GVM_ROTATE_RC=0; DOCKER_CALLS=0; RECON_GVM_PW="envpw"
@@ -427,43 +408,14 @@ _rotate_gvm_admin_password() { GVM_ROTATE_CALLS=$((GVM_ROTATE_CALLS+1)); return 
 _env_get() { [[ "$1" == "GVM_PASSWORD" ]] && echo "$RECON_GVM_PW"; return 0; }
 _reset_gvm() { GVMD_HEALTH="healthy"; GVM_ROTATE_CALLS=0; GVM_ROTATE_RC=0; DOCKER_CALLS=0; RECON_GVM_PW="envpw"; }
 
-# (a) GVM disabled -> immediate 0, touches nothing.
-_reset_gvm; TMP=$(mktemp -d); SCRIPT_DIR="$TMP"; GVM_FLAG_FILE="$TMP/.gvm-enabled"   # absent
-reconcile_gvm_admin_password >"$CAP" 2>&1; rc=$?
-assert_eq "reconcile: disabled -> 0"                 "$rc" "0"
-assert_eq "reconcile: disabled touches no docker"    "$DOCKER_CALLS" "0"
-assert_eq "reconcile: disabled does not rotate"      "$GVM_ROTATE_CALLS" "0"
-rm -rf "$TMP"
-
-# (b) enabled but no GVM_PASSWORD -> 0, no rotate (guard).
-_reset_gvm; RECON_GVM_PW=""; TMP=$(mktemp -d); SCRIPT_DIR="$TMP"; GVM_FLAG_FILE="$TMP/.gvm-enabled"; touch "$GVM_FLAG_FILE"
-reconcile_gvm_admin_password >"$CAP" 2>&1; rc=$?
-assert_eq "reconcile: no GVM_PASSWORD -> 0"          "$rc" "0"
-assert_eq "reconcile: no GVM_PASSWORD does not rotate" "$GVM_ROTATE_CALLS" "0"
-rm -rf "$TMP"
-
-# (c) enabled, gvmd healthy, apply succeeds -> 0, rotated once.
 _reset_gvm; TMP=$(mktemp -d); SCRIPT_DIR="$TMP"; GVM_FLAG_FILE="$TMP/.gvm-enabled"; touch "$GVM_FLAG_FILE"
+printf 'GVM_PASSWORD=legacy-password\n' > "$TMP/.env"
+ensure_gvm_secret >/dev/null 2>&1
 reconcile_gvm_admin_password >"$CAP" 2>&1; rc=$?
-assert_eq   "reconcile: healthy+apply-ok -> 0"       "$rc" "0"
-assert_eq   "reconcile: applied exactly once"        "$GVM_ROTATE_CALLS" "1"
-assert_true "reconcile: reports it set the password"  "grep -qi 'GVM admin password set' '$CAP'"
-rm -rf "$TMP"
-
-# (d) enabled, gvmd NEVER healthy -> fail-safe 0, warns, never rotates.
-_reset_gvm; GVMD_HEALTH="starting"; TMP=$(mktemp -d); SCRIPT_DIR="$TMP"; GVM_FLAG_FILE="$TMP/.gvm-enabled"; touch "$GVM_FLAG_FILE"
-reconcile_gvm_admin_password >"$CAP" 2>&1; rc=$?
-assert_eq   "reconcile: gvmd never healthy -> fail-safe 0" "$rc" "0"
-assert_eq   "reconcile: never healthy does not rotate"     "$GVM_ROTATE_CALLS" "0"
-assert_true "reconcile: warns gvmd not healthy"            "grep -qi 'gvmd not healthy' '$CAP'"
-rm -rf "$TMP"
-
-# (e) enabled, healthy, apply fails all retries -> fail-safe 0, retried, warns.
-_reset_gvm; GVM_ROTATE_RC=1; TMP=$(mktemp -d); SCRIPT_DIR="$TMP"; GVM_FLAG_FILE="$TMP/.gvm-enabled"; touch "$GVM_FLAG_FILE"
-reconcile_gvm_admin_password >"$CAP" 2>&1; rc=$?
-assert_eq   "reconcile: apply fails -> fail-safe 0"  "$rc" "0"
-assert_true "reconcile: retried the apply"           "[ '$GVM_ROTATE_CALLS' -ge 2 ]"
-assert_true "reconcile: warns it could not set"      "grep -qi 'Could not set the GVM admin password' '$CAP'"
+assert_eq "reconcile: stale marker -> 0" "$rc" "0"
+assert_eq "reconcile: stale marker touches no docker" "$DOCKER_CALLS" "0"
+assert_eq "reconcile: stale marker does not rotate" "$GVM_ROTATE_CALLS" "0"
+assert_eq "reconcile: legacy password stays unchanged" "$(cat "$TMP/.env")" "GVM_PASSWORD=legacy-password"
 rm -rf "$TMP"
 unset -f sleep docker _rotate_gvm_admin_password _env_get _reset_gvm; rm -f "$CAP"
 

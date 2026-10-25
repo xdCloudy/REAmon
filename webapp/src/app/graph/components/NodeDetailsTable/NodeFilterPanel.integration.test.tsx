@@ -151,11 +151,11 @@ describe('the export follows the filter', () => {
     await filterToLive()
     await screen.findByRole('button', { name: /Remove filter: status is live/ })
 
-    for (const name of [/CSV/i, /JSON/i, /^MD$|Markdown/i]) {
+    const formats = [/CSV/i, /JSON/i, /^MD$|Markdown/i]
+    for (const [index, name] of formats.entries()) {
       fireEvent.click(screen.getByRole('button', { name }))
-      await waitFor(() => expect(exportCalls.length).toBeGreaterThan(0))
+      await waitFor(() => expect(exportCalls).toHaveLength(index + 1))
     }
-    await waitFor(() => expect(exportCalls).toHaveLength(3))
     expect(new Set(exportCalls.map(c => c.input.rows.length))).toEqual(new Set([LIVE]))
   })
 

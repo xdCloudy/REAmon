@@ -73,7 +73,7 @@ assert_contains "names the dead service"            "$OUT" "agent"
 assert_contains "reports its actual state"          "$OUT" "exited"
 assert_contains "explains the ENOTFOUND symptom"    "$OUT" "ENOTFOUND"
 assert_contains "gives the logs command"            "$OUT" "docker compose logs"
-assert_contains "gives the recovery command"        "$OUT" "./redamon.sh up"
+assert_contains "gives the recovery command"        "$OUT" "./reamon.sh up"
 assert_not_contains "does not name healthy services" "$OUT" "postgres"
 
 # ---------------------------------------------------------------------------
@@ -111,14 +111,14 @@ assert_contains "CORE_SERVICES includes webapp" " $CORE_SERVICES " " webapp "
 # ---------------------------------------------------------------------------
 section "regression: a never-installed clone is told to install, not to 'up'"
 # Before install NOTHING has a container, so every service reads "not created".
-# Telling that user to run `./redamon.sh up` is wrong advice - there are no
+# Telling that user to run `./reamon.sh up` is wrong advice - there are no
 # images to start. This is a fresh clone, not an outage.
 
 STATES=()
 OUT="$(_status_core_service_report 2>&1)"
 assert_contains "points a fresh clone at install" "$OUT" "install"
 assert_not_contains "does not call a fresh clone an outage" "$OUT" "Core services NOT running"
-assert_not_contains "does not tell a fresh clone to run up" "$OUT" "./redamon.sh up"
+assert_not_contains "does not tell a fresh clone to run up" "$OUT" "./reamon.sh up"
 
 # One container existing is enough to prove the stack WAS installed, so a
 # missing service there is a real outage again.

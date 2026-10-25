@@ -4618,10 +4618,11 @@ _test_run_shell() {
         return $?
     fi
     info "=== section: shell (bash) ==="
-    local f name rc shell_failed=0 passed=0
+    local f name rc output_file shell_failed=0 passed=0
     for f in "${files[@]}"; do
         name="$(basename "$f")"
-        if bash "$f" >/dev/null 2>&1; then
+        output_file="$(mktemp)"
+        if bash "$f" >"$output_file" 2>&1; then
             rc=0
         else
             rc=$?
@@ -4629,9 +4630,13 @@ _test_run_shell() {
         if [[ $rc -eq 0 ]]; then
             passed=$(( passed + 1 ))
             echo -e "  ${GREEN}ok${NC}    $name"
+            rm -f "$output_file"
         else
             shell_failed=1
             echo -e "  ${RED}FAIL${NC}  $name (exit $rc) — re-run: bash tests/$name"
+            echo "  --- $name output (last 200 lines) ---"
+            tail -n 200 "$output_file"
+            rm -f "$output_file"
         fi
     done
     if [[ $shell_failed -eq 0 ]]; then
