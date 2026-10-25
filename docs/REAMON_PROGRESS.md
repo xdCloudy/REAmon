@@ -1,10 +1,10 @@
 # REAmon product progress
 
-Assessment date: 2026-10-25 · Source: pushed commit `049fa13` · Weighted estimate: **50.2%**
+Assessment date: 2026-10-25 · Source: pushed commit `1c601d1` · Weighted estimate: **48.8%**
 
 This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.
 
-The weighted estimate is 50.2% after reducing the security and reliability workstream to reflect three validated issues in the repository-wide source review: high-severity stdio MCP command execution in the shared root agent, medium-severity cross-user exposure of global tunnel credentials, and medium-severity shared storage exhaustion through repeated workspace imports. The review remains in discovery; broad repository coverage, deployment configuration, and runtime validation are incomplete. A conditional CodeFix host-network reachability candidate is deferred because runtime routing is unverified and the production overlay loopback-binds published services. The import finding does not call for a fixed product upload cap; capacity-aware admission can protect the shared volume while preserving large imports when storage is available. The focused security review against e124cc69 identified eight distinct issues after one duplicate was reconciled, and source mitigations were implemented. Current quality run 40203489236 is pending. In run 40202795405, image build, readiness, authenticated artifact acceptance, webapp checks, Compose configuration, and dependency audits passed; the browser login smoke failed and the canonical Docker unit gate remained in progress. The webapp from 0eb199f9 is healthy with database and artifact readiness on localhost and the LAN. Broker and analysis service rebuilds and broader LAN validation remain open.
+The weighted estimate is recalculated after a repository-wide source-only security review validated five findings: one high, three medium, and one low. Review coverage is partial; exhaustive source discovery and deployment/runtime validation remain open. CodeFix host-gateway reachability and scanner Neo4j credential isolation remain deferred pending deployment and execution-path evidence. Preserve unlimited import sizing with capacity-aware storage admission. The focused review against e124cc69 identified eight distinct issues after one duplicate was reconciled, with source mitigations implemented. Latest quality run 40204560134 passed webapp checks, Compose configuration, dependency audit, production image build, readiness, and authenticated acceptance; its browser login smoke failed, and its canonical Docker unit gate was still running at the latest check. The prior webapp build from 0eb199f9 was healthy on localhost and LAN; broker and analysis service rebuilds and broader LAN validation remain open.
 
 | Workstream | Goal weight | Estimated complete | Weighted points |
 | --- | ---: | ---: | ---: |
@@ -13,7 +13,7 @@ The weighted estimate is 50.2% after reducing the security and reliability works
 | Major-language and format decompilation fluency | 24% | 35% | 8.40 pts |
 | Maintainable editing, review, and export | 12% | 43% | 5.16 pts |
 | Fixture-backed validation and fidelity evidence | 12% | 15% | 1.80 pts |
-| Security, reliability, and production operations | 20% | 55% | 11.00 pts |
+| Security, reliability, and production operations | 20% | 48% | 9.60 pts |
 
 ## Evidence and remaining work
 
@@ -49,8 +49,8 @@ The weighted estimate is 50.2% after reducing the security and reliability works
 
 ### Security, reliability, and production operations
 
-**Current evidence:** The focused Standard security review against e124cc69 produced eight distinct findings after one duplicate was reconciled, with source mitigations implemented. A new repository-wide source review has validated one high-severity issue (user-controlled stdio MCP command execution in the shared root agent) and two medium-severity issues (cross-user tunnel credential disclosure and unbounded shared-storage use through repeated workspace imports). Discovery remains incomplete; a CodeFix host-network reachability candidate is deferred pending deployment evidence. The canonical Docker gate remains in progress and the browser login smoke failed; deployment and service rebuild checks remain open.
+**Current evidence:** The focused Standard security review against e124cc69 produced eight distinct findings after one duplicate was reconciled, with source mitigations implemented. A repository-wide source-only review validated five current findings: one high (user-controlled stdio MCP execution in the shared root agent), three medium (global tunnel credential disclosure, shared storage exhaustion, and cross-user Kali temporary-file disclosure), and one low (nested MCP secret masking bypass in admin settings). Coverage is partial; CodeFix host-gateway reachability and scanner Neo4j credential isolation remain deferred. Latest quality run 40204560134 passed webapp checks, Compose configuration, dependency audit, production image build, readiness, and authenticated acceptance; browser login smoke failed and canonical Docker unit gate was still running at last check. Deployment and service rebuild checks remain open.
 
-**Remaining:** Close the three validated findings while preserving the requested no-fixed-upload-cap behavior through capacity-aware storage admission; complete repository-wide source discovery and deployment review; resolve canonical CI and browser login smoke failures; rebuild the broker and affected analysis services; and verify recovery, load, backup, and restore on the release candidate.
+**Remaining:** Remediate the five validated findings, preserving unlimited import sizing through capacity-aware shared-storage admission; complete repository and deployment review; diagnose and pass the browser login smoke and canonical Docker unit gate; rebuild the broker and affected analysis services; and verify recovery, load, backup, and restore on the release candidate.
 
 The machine-readable [`REAMON_PROGRESS.json`](REAMON_PROGRESS.json) feeds the README progress bar. The scope now includes the production hardening goal, so the total is not directly comparable with the previous product-only estimate. Update it with evidence when estimates change, then run `node tooling/reamon/update-product-progress.mjs <commit-sha>` to refresh this matrix and the README.
