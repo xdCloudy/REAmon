@@ -18,7 +18,7 @@ concurrency:
 jobs:
   webapp:
     name: Webapp checks
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: webapp
@@ -31,10 +31,10 @@ jobs:
       REAMON_DB_PUSH_ACCEPT_DATA_LOSS: "false"
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 20
           cache: npm
@@ -57,10 +57,10 @@ jobs:
 
   compose:
     name: Compose configuration
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Render Compose configuration
         env:
@@ -74,16 +74,16 @@ jobs:
 
   unit:
     name: Canonical Docker unit gate
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
     env:
       REDAMON_TEST_PARALLEL: "2"
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 20
           cache: npm
@@ -107,7 +107,7 @@ jobs:
 
   image:
     name: Production image smoke test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: webapp
     env:
       COMPOSE_PROJECT_NAME: reamon-ci
@@ -132,7 +132,7 @@ jobs:
       REAMON_WORKER_RETENTION_INTERVAL_SECONDS: "0"
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Build production image
         run: docker build --tag reamon-webapp:ci webapp
@@ -241,11 +241,11 @@ jobs:
 
   agentic:
     name: Agent dependency audit
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Build test agent image without optional KB models
         run: >-

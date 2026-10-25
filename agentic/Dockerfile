@@ -204,10 +204,11 @@ RUN mkdir -p /opt/phpactor \
 COPY analyzers/phpactor/LICENSE.md /usr/share/licenses/phpactor/LICENSE.md
 
 # Install .NET 8 SDK (for C# projects)
+ARG REAMON_DOTNET_SDK_VERSION=8.0.426
 RUN apt-get update && apt-get install -y --no-install-recommends libicu-dev && rm -rf /var/lib/apt/lists/* \
     && retry curl -fsSL --retry 5 --retry-delay 5 --retry-all-errors \
         -o /tmp/dotnet-install.sh https://dot.net/v1/dotnet-install.sh \
-    && bash /tmp/dotnet-install.sh --channel 8.0 --install-dir /usr/share/dotnet \
+    && bash /tmp/dotnet-install.sh --version "$REAMON_DOTNET_SDK_VERSION" --install-dir /usr/share/dotnet \
     && rm /tmp/dotnet-install.sh \
     && ln -s /usr/share/dotnet/dotnet /usr/local/bin/dotnet
 ENV DOTNET_ROOT="/usr/share/dotnet"
@@ -314,7 +315,7 @@ RUN mkdir -p /opt/reamon-javarefactor \
     && chmod 0555 /usr/local/bin/reamon-javarefactor
 
 # Make knowledge_base and graph_db importable as top-level packages
-ENV PYTHONPATH="/app:${PYTHONPATH}"
+ENV PYTHONPATH="/app"
 
 # Ensure KB data + cache directories exist (mounted as a volume at runtime).
 # Created BEFORE the chmod -R a-w below so the volume mountpoint exists when
