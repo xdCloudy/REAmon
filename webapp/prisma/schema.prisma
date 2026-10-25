@@ -2818,6 +2818,7 @@ model ReamonFunctionMatch {
   instructionSimilarity Float @map("instruction_similarity")
   controlFlowSimilarity Float? @map("control_flow_similarity")
   controlFlowTopologySimilarity Float? @map("control_flow_topology_similarity")
+  stringReferenceSimilarity Float? @map("string_reference_similarity")
   reviews             ReamonFunctionMatchReview[]
   createdAt           DateTime @default(now()) @map("created_at")
 

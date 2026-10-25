@@ -3,7 +3,7 @@ import prisma from '@/lib/prisma'
 import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
 import { getActiveWorkspaceImportSelection } from '@/lib/reamon/inventory-query'
 import { normalizeCodeUnit } from '@/lib/reamon/code-units'
-import { instructionSequencesAreCompatible, parseControlFlowGraph, parseControlFlowMetrics, rankSimilarInstructionFunctions, type SimilarInstructionFunction } from '@/lib/reamon/instruction-similarity'
+import { instructionSequencesAreCompatible, parseControlFlowGraph, parseControlFlowMetrics, parseReferencedStrings, rankSimilarInstructionFunctions, type SimilarInstructionFunction } from '@/lib/reamon/instruction-similarity'
 
 interface RouteParams { params: Promise<{ id: string }> }
 const MAX_FUNCTIONS = 2_000
@@ -32,6 +32,7 @@ function functionFeatures(row: { id: string; stableKey: string; label: string | 
     name: (typeof attributes.qualifiedName === 'string' && attributes.qualifiedName) || row.label || 'Unknown function',
     address: typeof attributes.address === 'string' ? attributes.address : null,
     mnemonics: instructionMnemonics(attributes.instructionMnemonics),
+    referencedStrings: parseReferencedStrings(attributes.referencedStrings, attributes.referencedStringsTruncated),
     controlFlowMetrics: parseControlFlowMetrics(attributes.controlFlowMetrics),
     controlFlowGraph: parseControlFlowGraph(attributes.controlFlowGraph, attributes.cfgTruncated),
   }
@@ -140,6 +141,7 @@ export async function GET(request: Request, { params }: RouteParams) {
         instructionSimilarity: match.instructionSimilarity,
         controlFlowSimilarity: match.controlFlowSimilarity,
         controlFlowTopologySimilarity: match.controlFlowTopologySimilarity,
+        stringReferenceSimilarity: match.stringReferenceSimilarity,
       }] : []
     })
     const functionParentSources = [...new Set(rankedRows.flatMap(({ row }) =>
@@ -172,7 +174,7 @@ export async function GET(request: Request, { params }: RouteParams) {
       })
       : []
     const functionParentsByKey = new Map(functionParentRows.map((row) => [`${row.taskId}:${row.stableKey}`, row]))
-    const matches = rankedRows.flatMap(({ row, similarity, instructionSimilarity, controlFlowSimilarity, controlFlowTopologySimilarity }) => {
+    const matches = rankedRows.flatMap(({ row, similarity, instructionSimilarity, controlFlowSimilarity, controlFlowTopologySimilarity, stringReferenceSimilarity }) => {
       const attributes = attributesRecord(row.attributes)
       const artifact = {
         name: row.artifact?.originalName || 'Unknown artifact',
@@ -200,11 +202,12 @@ export async function GET(request: Request, { params }: RouteParams) {
           instructionSimilarity,
           controlFlowSimilarity,
           controlFlowTopologySimilarity,
+          stringReferenceSimilarity,
           artifact,
         }] : []
       }
       const codeUnit = normalizeCodeUnit(row)
-      return codeUnit ? [{ codeUnit, taskId: row.taskId, similarity, instructionSimilarity, controlFlowSimilarity, controlFlowTopologySimilarity, artifact }] : []
+      return codeUnit ? [{ codeUnit, taskId: row.taskId, similarity, instructionSimilarity, controlFlowSimilarity, controlFlowTopologySimilarity, stringReferenceSimilarity, artifact }] : []
     })
     return NextResponse.json({ focusId: focus.id, matches, truncated }, { headers: MAX_NO_STORE })
   } catch (error) {

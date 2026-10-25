@@ -11,7 +11,7 @@ import { buildProjectSymbolContext, buildProviderGoTypeContext, buildProviderTyp
 import { buildImportedReaEvidenceContext } from '@/lib/reamon/rea-evidence-context'
 import { nativeAddressAliases, nativeArchitectureGroup, nativeFunctionIdentity } from '@/lib/reamon/native-function-identity'
 import { flossRecoveredStringsOf, providerVariablesOf } from '@/lib/reamon/code-units'
-import { parseControlFlowGraph, parseControlFlowMetrics, rankSimilarInstructionFunctions, type RankedSimilarInstructionFunction } from '@/lib/reamon/instruction-similarity'
+import { parseControlFlowGraph, parseControlFlowMetrics, parseReferencedStrings, rankSimilarInstructionFunctions, type RankedSimilarInstructionFunction } from '@/lib/reamon/instruction-similarity'
 import { codeRewriteLeaseGraceMs, failInterruptedCodeAttempts } from '@/lib/reamon/code-attempts'
 import { codeNoteText, REAMON_CODE_NOTE_SOURCE } from '@/lib/reamon/code-notes'
 import { loadAcceptedFunctionMatchContext } from '@/lib/reamon/accepted-function-match-context'
@@ -946,6 +946,7 @@ export async function POST(request: Request, { params }: RouteParams) {
               : (typeof candidateAttributes.qualifiedName === 'string' && candidateAttributes.qualifiedName) || row.label || 'Unknown function',
             address: typeof candidateAttributes.address === 'string' ? candidateAttributes.address : null,
             mnemonics: boundedInstructionMnemonics(candidateAttributes.instructionMnemonics),
+            referencedStrings: parseReferencedStrings(candidateAttributes.referencedStrings, candidateAttributes.referencedStringsTruncated),
             controlFlowMetrics: parseControlFlowMetrics(candidateAttributes.controlFlowMetrics),
             controlFlowGraph: parseControlFlowGraph(candidateAttributes.controlFlowGraph, candidateAttributes.cfgTruncated),
           }
@@ -980,6 +981,7 @@ export async function POST(request: Request, { params }: RouteParams) {
               name: row.label || selectedMemberName,
               address: typeof candidateAttributes.address === 'string' ? candidateAttributes.address : null,
               mnemonics: boundedInstructionMnemonics(candidateAttributes.instructionMnemonics),
+              referencedStrings: parseReferencedStrings(candidateAttributes.referencedStrings, candidateAttributes.referencedStringsTruncated),
               controlFlowMetrics: parseControlFlowMetrics(candidateAttributes.controlFlowMetrics),
               controlFlowGraph: parseControlFlowGraph(candidateAttributes.controlFlowGraph, candidateAttributes.cfgTruncated),
             }
@@ -992,6 +994,7 @@ export async function POST(request: Request, { params }: RouteParams) {
                 name: selectedMemberName,
                 address: typeof candidateAttributes.address === 'string' ? candidateAttributes.address : null,
                 mnemonics: boundedInstructionMnemonics(candidateAttributes.instructionMnemonics),
+                referencedStrings: parseReferencedStrings(candidateAttributes.referencedStrings, candidateAttributes.referencedStringsTruncated),
                 controlFlowMetrics: parseControlFlowMetrics(candidateAttributes.controlFlowMetrics),
                 controlFlowGraph: parseControlFlowGraph(candidateAttributes.controlFlowGraph, candidateAttributes.cfgTruncated),
               }
@@ -1001,6 +1004,7 @@ export async function POST(request: Request, { params }: RouteParams) {
               name: unitName,
               address: typeof attributes.address === 'string' ? attributes.address : null,
               mnemonics: targetMnemonics,
+              referencedStrings: parseReferencedStrings(attributes.referencedStrings, attributes.referencedStringsTruncated),
               controlFlowMetrics: parseControlFlowMetrics(attributes.controlFlowMetrics),
               controlFlowGraph: parseControlFlowGraph(attributes.controlFlowGraph, attributes.cfgTruncated),
             }] : []
@@ -1063,6 +1067,7 @@ export async function POST(request: Request, { params }: RouteParams) {
             instructionSequenceSimilarityPercent: match.instructionSimilarity,
             controlFlowCountSimilarityPercent: match.controlFlowSimilarity,
             controlFlowTopologySimilarityPercent: match.controlFlowTopologySimilarity,
+            stringReferenceSimilarityPercent: match.stringReferenceSimilarity,
             similarityProvider: row.source,
             similarityAnalysisTaskId: row.taskId,
             similarityArtifactId: row.artifactId,
@@ -2233,6 +2238,9 @@ export async function POST(request: Request, { params }: RouteParams) {
       const controlFlowTopologySimilarityPercent = typeof relatedAttributes?.controlFlowTopologySimilarityPercent === 'number'
         ? relatedAttributes.controlFlowTopologySimilarityPercent
         : null
+      const stringReferenceSimilarityPercent = typeof relatedAttributes?.stringReferenceSimilarityPercent === 'number'
+        ? relatedAttributes.stringReferenceSimilarityPercent
+        : null
       const similarityArtifactName = typeof relatedAttributes?.similarityArtifactName === 'string'
         ? relatedAttributes.similarityArtifactName.slice(0, 160)
         : ''
@@ -2263,10 +2271,13 @@ export async function POST(request: Request, { params }: RouteParams) {
         instructionSimilarityPercent === null ? '' : `instruction sequence ${instructionSimilarityPercent}%`,
         controlFlowSimilarityPercent === null ? '' : `control-flow counts ${controlFlowSimilarityPercent}%`,
         controlFlowTopologySimilarityPercent === null ? '' : `control-flow topology ${controlFlowTopologySimilarityPercent}%`,
+        stringReferenceSimilarityPercent === null ? '' : `referenced strings ${stringReferenceSimilarityPercent}%`,
       ].filter(Boolean).join(', ')
-      const similarityMethod = controlFlowTopologySimilarityPercent !== null
-        ? 'instruction-sequence plus control-flow graph'
-        : controlFlowSimilarityPercent === null ? 'instruction-sequence' : 'instruction-sequence plus control-flow-count'
+      const similarityMethod = [
+        'instruction sequence',
+        controlFlowTopologySimilarityPercent !== null ? 'control-flow graph' : controlFlowSimilarityPercent !== null ? 'control-flow counts' : '',
+        stringReferenceSimilarityPercent !== null ? 'referenced strings' : '',
+      ].filter(Boolean).join(' plus ')
       const similarityHint = similarityPercent === null
         ? ''
         : ` (${similarityMethod} candidate score ${similarityPercent}%${similarityEvidence ? `; ${similarityEvidence}` : ''}; ranking lead only, not identity or behavior proof${similarityProvenance ? `; ${similarityProvenance}` : ''})`

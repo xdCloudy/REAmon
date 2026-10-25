@@ -30,6 +30,7 @@ export interface SimilarInstructionFunction {
   name: string
   address: string | null
   mnemonics: string[]
+  referencedStrings?: string[]
   controlFlowMetrics?: SimilarFunctionControlFlowMetrics
   controlFlowGraph?: SimilarFunctionControlFlowGraph
 }
@@ -39,6 +40,7 @@ export interface RankedSimilarInstructionFunction extends SimilarInstructionFunc
   instructionSimilarity: number
   controlFlowSimilarity: number | null
   controlFlowTopologySimilarity: number | null
+  stringReferenceSimilarity: number | null
 }
 
 export interface InstructionSequenceIdentity {
@@ -96,6 +98,15 @@ function cosineSimilarity(left: string[], right: string[]): number {
     dot += count * (leftCounts.get(mnemonic) || 0)
   }
   return leftNorm && rightNorm ? dot / Math.sqrt(leftNorm * rightNorm) : 0
+}
+
+function stringReferenceSimilarity(left: string[] | undefined, right: string[] | undefined): number | null {
+  if (!left?.length || !right?.length) return null
+  const leftValues = new Set(left)
+  const rightValues = new Set(right)
+  let shared = 0
+  for (const value of leftValues) if (rightValues.has(value)) shared += 1
+  return (2 * shared) / (leftValues.size + rightValues.size)
 }
 
 export function parseControlFlowMetrics(value: unknown): SimilarFunctionControlFlowMetrics | undefined {
@@ -190,6 +201,22 @@ function parseBoundedJsonObject(value: unknown, maxBytes: number): Record<string
   return value && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
     : undefined
+}
+
+/** Parse bounded exact strings referenced by a function in provider metadata. */
+export function parseReferencedStrings(value: unknown, truncated?: unknown): string[] | undefined {
+  if (truncated === true) return undefined
+  if (typeof value === 'string') {
+    if (Buffer.byteLength(value, 'utf8') > 20 * 1024) return undefined
+    try { value = JSON.parse(value) as unknown } catch { return undefined }
+  }
+  if (!Array.isArray(value) || value.length > 100) return undefined
+  const strings = [...new Set(value.flatMap((entry) => {
+    if (typeof entry !== 'string' || entry.length > 512) return []
+    const normalized = entry.trim()
+    return normalized.length >= 4 ? [normalized] : []
+  }))].slice(0, 32)
+  return strings.length ? strings : undefined
 }
 
 function orderedSimilarity(leftInput: string[], rightInput: string[]): number {
@@ -358,13 +385,17 @@ export function rankSimilarInstructionFunctions(
     if (candidate.key === target.key || candidateLength < MIN_FUNCTION_LENGTH) return []
     const controlFlow = controlFlowSimilarity(target.controlFlowMetrics, candidate.controlFlowMetrics)
     const topology = controlFlowTopologySimilarity(target.controlFlowGraph, candidate.controlFlowGraph)
+    const strings = stringReferenceSimilarity(target.referencedStrings, candidate.referencedStrings)
     if (controlFlow === null
         && topology === null
         && (candidateLength / targetLength < 0.6 || candidateLength / targetLength > 1 / 0.6)) return []
     const frequency = cosineSimilarity(target.mnemonics, candidate.mnemonics)
     const structural = controlFlow === null ? topology : topology === null ? controlFlow : 0.4 * controlFlow + 0.6 * topology
-    const shortlistScore = structural === null ? frequency : 0.6 * frequency + 0.4 * structural
-    const minimumShortlistScore = structural === null ? 0.6 : 0.5
+    const baseShortlistScore = structural === null ? frequency : 0.6 * frequency + 0.4 * structural
+    const shortlistScore = strings === null ? baseShortlistScore : 0.8 * baseShortlistScore + 0.2 * strings
+    const minimumShortlistScore = strings !== null && strings >= 0.75 && frequency >= 0.25
+      ? 0.45
+      : structural === null ? 0.6 : 0.5
     return shortlistScore >= minimumShortlistScore ? [{ candidate, shortlistScore }] : []
   }).sort((left, right) => right.shortlistScore - left.shortlistScore).slice(0, MAX_ORDERED_CANDIDATES)
 
@@ -384,6 +415,9 @@ export function rankSimilarInstructionFunctions(
       controlFlowTopologySimilarity: candidate.controlFlowTopologySimilarity === null
         ? null
         : Math.round(candidate.controlFlowTopologySimilarity * 100),
+      stringReferenceSimilarity: candidate.stringReferenceSimilarity === null
+        ? null
+        : Math.round(candidate.stringReferenceSimilarity * 100),
     }))
 }
 
@@ -396,23 +430,30 @@ export function scoreInstructionFunctionPair(
   instructionSimilarity: number
   controlFlowSimilarity: number | null
   controlFlowTopologySimilarity: number | null
+  stringReferenceSimilarity: number | null
 } | null {
   if (target.mnemonics.length < MIN_FUNCTION_LENGTH || candidate.mnemonics.length < MIN_FUNCTION_LENGTH) return null
   const instructionSimilarity = orderedSimilarity(target.mnemonics, candidate.mnemonics)
   const controlFlowSimilarity = controlFlowSimilarityForPair(target.controlFlowMetrics, candidate.controlFlowMetrics)
   const controlFlowTopologySimilarity = controlFlowTopologySimilarityForPair(target.controlFlowGraph, candidate.controlFlowGraph)
+  const stringReferenceSimilarityScore = stringReferenceSimilarity(target.referencedStrings, candidate.referencedStrings)
   const structuralSimilarity = controlFlowSimilarity === null
     ? controlFlowTopologySimilarity
     : controlFlowTopologySimilarity === null
       ? controlFlowSimilarity
       : 0.4 * controlFlowSimilarity + 0.6 * controlFlowTopologySimilarity
+  const baseSimilarity = structuralSimilarity === null
+    ? instructionSimilarity
+    : 0.6 * instructionSimilarity + 0.4 * structuralSimilarity
+  const similarity = stringReferenceSimilarityScore === null
+    ? baseSimilarity
+    : 0.8 * baseSimilarity + 0.2 * stringReferenceSimilarityScore
   return {
-    similarity: structuralSimilarity === null
-      ? instructionSimilarity
-      : 0.6 * instructionSimilarity + 0.4 * structuralSimilarity,
+    similarity,
     instructionSimilarity,
     controlFlowSimilarity,
     controlFlowTopologySimilarity,
+    stringReferenceSimilarity: stringReferenceSimilarityScore,
   }
 }
 

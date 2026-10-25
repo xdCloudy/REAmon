@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server'
 import { Prisma } from '@prisma/client'
 import prisma from '@/lib/prisma'
 import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
-import { instructionSequenceFamily, instructionSequencesAreCompatible, parseControlFlowGraph, parseControlFlowMetrics, scoreInstructionFunctionPair, type SimilarInstructionFunction } from '@/lib/reamon/instruction-similarity'
+import { instructionSequenceFamily, instructionSequencesAreCompatible, parseControlFlowGraph, parseControlFlowMetrics, parseReferencedStrings, scoreInstructionFunctionPair, type SimilarInstructionFunction } from '@/lib/reamon/instruction-similarity'
 import { nativeArchitectureGroup } from '@/lib/reamon/native-function-identity'
 
 interface RouteParams { params: Promise<{ id: string }> }
@@ -52,6 +52,7 @@ function feature(row: { id: string; label: string | null; attributes: unknown })
     name: typeof attributes.qualifiedName === 'string' ? attributes.qualifiedName : row.label || 'Unknown function',
     address: typeof attributes.address === 'string' ? attributes.address : null,
     mnemonics,
+    referencedStrings: parseReferencedStrings(attributes.referencedStrings, attributes.referencedStringsTruncated),
     controlFlowMetrics: parseControlFlowMetrics(attributes.controlFlowMetrics),
     controlFlowGraph: parseControlFlowGraph(attributes.controlFlowGraph, attributes.cfgTruncated),
   }
@@ -59,8 +60,9 @@ function feature(row: { id: string; label: string | null; attributes: unknown })
 
 function featureSnapshot(value: SimilarInstructionFunction) {
   const snapshot = {
-    version: 'reamon-instruction-cfg-wl-v4',
+    version: 'reamon-instruction-cfg-wl-v5',
     mnemonics: value.mnemonics,
+    referencedStrings: value.referencedStrings || null,
     controlFlowMetrics: value.controlFlowMetrics || null,
     controlFlowGraph: value.controlFlowGraph || null,
   }
@@ -161,7 +163,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       where: {
         projectId,
         matcher: 'reamon-instruction-cfg-wl',
-        matcherVersion: '4',
+        matcherVersion: '5',
         OR: [
           { taskAId, taskBId, functionAStableKey: functionA.stableKey, functionBStableKey: functionB.stableKey },
           { taskAId: taskBId, taskBId: taskAId, functionAStableKey: functionB.stableKey, functionBStableKey: functionA.stableKey },
@@ -184,11 +186,12 @@ export async function POST(request: Request, { params }: RouteParams) {
         functionBName: featureB.name, functionBAddress: featureB.address, functionBFeatures: featureSnapshot(featureB) as unknown as Prisma.InputJsonValue,
         architecture: comparisonDomain,
         matcher: 'reamon-instruction-cfg-wl',
-        matcherVersion: '4',
+        matcherVersion: '5',
         similarity: Math.round(score.similarity * 100),
         instructionSimilarity: Math.round(score.instructionSimilarity * 100),
         controlFlowSimilarity: score.controlFlowSimilarity === null ? null : Math.round(score.controlFlowSimilarity * 100),
         controlFlowTopologySimilarity: score.controlFlowTopologySimilarity === null ? null : Math.round(score.controlFlowTopologySimilarity * 100),
+        stringReferenceSimilarity: score.stringReferenceSimilarity === null ? null : Math.round(score.stringReferenceSimilarity * 100),
       },
       include: { reviews: true },
     })

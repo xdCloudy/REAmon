@@ -87,7 +87,7 @@ export async function loadAcceptedFunctionMatchContext(input: {
     const dedupeKey = JSON.stringify([counterpart.taskId, counterpart.observationId, counterpart.stableKey, counterpart.hash, counterpart.provider])
     if (seen.has(dedupeKey)) continue
     seen.add(dedupeKey)
-    lines.push(`Accepted counterpart ${JSON.stringify(counterpart.name)}${counterpart.address ? ` at ${JSON.stringify(counterpart.address)}` : ''}; completed run ${counterpart.taskId}; provider ${counterpart.provider} ${counterpart.version}; artifact SHA-256 ${counterpart.hash}; pair scores ${match.similarity}% overall, ${match.instructionSimilarity}% instructions${match.controlFlowSimilarity === null ? '' : `, ${match.controlFlowSimilarity}% CFG counts`}${match.controlFlowTopologySimilarity === null ? '' : `, ${match.controlFlowTopologySimilarity}% CFG topology`}; accepted ${latestReview.createdAt.toISOString()}.`)
+    lines.push(`Accepted counterpart ${JSON.stringify(counterpart.name)}${counterpart.address ? ` at ${JSON.stringify(counterpart.address)}` : ''}; completed run ${counterpart.taskId}; provider ${counterpart.provider} ${counterpart.version}; artifact SHA-256 ${counterpart.hash}; pair scores ${match.similarity}% overall, ${match.instructionSimilarity}% instructions${match.controlFlowSimilarity === null ? '' : `, ${match.controlFlowSimilarity}% CFG counts`}${match.controlFlowTopologySimilarity === null ? '' : `, ${match.controlFlowTopologySimilarity}% CFG topology`}${match.stringReferenceSimilarity === null ? '' : `, ${match.stringReferenceSimilarity}% referenced strings`}; accepted ${latestReview.createdAt.toISOString()}.`)
     if (lines.length >= 8) break
   }
   if (!lines.length) return ''
