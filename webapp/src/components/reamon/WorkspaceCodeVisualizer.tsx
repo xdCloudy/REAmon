@@ -127,8 +127,9 @@ interface MaintainedCoverageResponse {
 }
 
 interface SimilarFunctionsResponse {
-  matches: Array<{ codeUnit: CodeUnit; taskId?: string | null; function?: { id: string; taskId?: string; name: string; address: string | null; hasControlFlowGraph: boolean }; similarity: number; instructionSimilarity: number; controlFlowSimilarity: number | null; controlFlowTopologySimilarity: number | null; stringReferenceSimilarity: number | null; artifact: { name: string; sha256: string | null; provider: string } }>
+  matches: Array<{ codeUnit: CodeUnit; taskId?: string | null; function?: { id: string; taskId?: string; name: string; address: string | null; hasControlFlowGraph: boolean }; similarity: number; instructionSimilarity: number; controlFlowSimilarity: number | null; controlFlowTopologySimilarity: number | null; stringReferenceSimilarity: number | null; graphAnchorSupport: { acceptedMatchCount: number; relations: Array<'caller' | 'callee'> } | null; artifact: { name: string; sha256: string | null; provider: string } }>
   truncated: boolean
+  graphAnchorEvidenceTruncated?: boolean
   unavailableReason?: string
 }
 
@@ -3155,11 +3156,12 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
             : <p className={styles.message}>This provider has not attached a viewable code artifact to the unit.</p>}
         </div>}
         {selectedUnit?.source === currentRun?.providerId && Boolean(selectedSimilarityTarget) && <section className={styles.similarFunctions} aria-labelledby="similar-functions-heading">
-          <div className={styles.similarFunctionsHeading}><h3 id="similar-functions-heading">Similar functions</h3><span>Instruction order, CFG shape, and referenced strings where available</span></div>
+          <div className={styles.similarFunctionsHeading}><h3 id="similar-functions-heading">Similar functions</h3><span>Instructions, CFG, strings, and accepted caller/callee matches can guide ranking</span></div>
           {similarFunctionsQuery.isLoading && <p className={styles.message}>Comparing this function with stored evidence from completed analyses…</p>}
           {similarFunctionsQuery.isError && <p className={styles.error}>{similarFunctionsQuery.error instanceof Error ? similarFunctionsQuery.error.message : 'Unable to find similar functions'}</p>}
           {!similarFunctionsQuery.isLoading && !similarFunctionsQuery.isError && similarFunctionsQuery.data?.matches.length === 0 && <p className={styles.message}>{similarFunctionsQuery.data.unavailableReason || 'No close function matches were found in this project.'}</p>}
-          {similarFunctionsQuery.data?.matches.map(({ codeUnit, taskId: matchTaskId, function: matchedFunction, similarity, instructionSimilarity, controlFlowSimilarity, controlFlowTopologySimilarity, stringReferenceSimilarity, artifact }) => {
+          {similarFunctionsQuery.data?.graphAnchorEvidenceTruncated && <p className={styles.message}>Call-graph support was skipped because the bounded evidence scan was incomplete; function scores are unaffected.</p>}
+          {similarFunctionsQuery.data?.matches.map(({ codeUnit, taskId: matchTaskId, function: matchedFunction, similarity, instructionSimilarity, controlFlowSimilarity, controlFlowTopologySimilarity, stringReferenceSimilarity, graphAnchorSupport, artifact }) => {
             const functionBId = matchedFunction?.id || codeUnit.id
             const candidateKey = `${matchTaskId || ''}:${functionBId}`
             const savedMatch = savedFunctionMatchesQuery.data?.matches.find((match) =>
@@ -3184,7 +3186,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
                 setExplanation(null)
                 setExplainError('')
               }}>
-                <span><strong>{matchedFunction?.name || codeUnit.name}</strong><small>{matchedFunction?.address || codeUnit.address || codeUnit.artifactPath || 'Function'}</small><small>{artifact.name}{artifact.sha256 ? ` · ${artifact.sha256.slice(0, 12)}` : ''} · {artifact.provider}{matchedFunction ? ` · in ${codeUnit.name}` : ''}</small><small>Candidate score {similarity}% · instructions {instructionSimilarity}%{controlFlowSimilarity === null ? '' : ` · CFG counts ${controlFlowSimilarity}%`}{controlFlowTopologySimilarity === null ? '' : ` · CFG topology ${controlFlowTopologySimilarity}%`}{stringReferenceSimilarity === null ? '' : ` · string refs ${stringReferenceSimilarity}%`} · ranking signal, not proof of identity</small></span>
+                <span><strong>{matchedFunction?.name || codeUnit.name}</strong><small>{matchedFunction?.address || codeUnit.address || codeUnit.artifactPath || 'Function'}</small><small>{artifact.name}{artifact.sha256 ? ` · ${artifact.sha256.slice(0, 12)}` : ''} · {artifact.provider}{matchedFunction ? ` · in ${codeUnit.name}` : ''}</small><small>Candidate score {similarity}% · instructions {instructionSimilarity}%{controlFlowSimilarity === null ? '' : ` · CFG counts ${controlFlowSimilarity}%`}{controlFlowTopologySimilarity === null ? '' : ` · CFG topology ${controlFlowTopologySimilarity}%`}{stringReferenceSimilarity === null ? '' : ` · string refs ${stringReferenceSimilarity}%`}{graphAnchorSupport ? ` · supported by ${graphAnchorSupport.acceptedMatchCount} accepted graph neighbor${graphAnchorSupport.acceptedMatchCount === 1 ? '' : 's'} (${graphAnchorSupport.relations.join(' and ')})` : ''} · ranking signal, not proof of identity</small></span>
                 <b aria-label={`Candidate similarity score ${similarity} percent, not an identity confidence`}>{similarity}%</b>
               </button>
               <div className={styles.functionMatchActions}>

@@ -3,11 +3,13 @@ import prisma from '@/lib/prisma'
 import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
 import { getActiveWorkspaceImportSelection } from '@/lib/reamon/inventory-query'
 import { normalizeCodeUnit } from '@/lib/reamon/code-units'
+import { loadAcceptedCallGraphNeighborSupport } from '@/lib/reamon/accepted-callgraph-neighbors'
 import { instructionSequencesAreCompatible, parseControlFlowGraph, parseControlFlowMetrics, parseReferencedStrings, rankSimilarInstructionFunctions, type SimilarInstructionFunction } from '@/lib/reamon/instruction-similarity'
 
 interface RouteParams { params: Promise<{ id: string }> }
 const MAX_FUNCTIONS = 2_000
 const MAX_FUNCTION_OBSERVATIONS = 8_000
+const MAX_RANKED_CANDIDATES = 32
 const MAX_NO_STORE = { 'Cache-Control': 'private, no-store' }
 
 function attributesRecord(value: unknown): Record<string, unknown> {
@@ -62,10 +64,11 @@ export async function GET(request: Request, { params }: RouteParams) {
         status: 'COMPLETED',
         artifact: { is: selection.artifactWhere },
       },
-      select: { id: true, artifactId: true, provider: { select: { pluginId: true } } },
+      select: { id: true, artifactId: true, artifact: { select: { sha256: true } }, provider: { select: { pluginId: true } } },
     })
     const providerId = task?.provider?.pluginId
-    if (!task?.artifactId || !providerId) {
+    const artifactSha256 = task?.artifact?.sha256
+    if (!task?.artifactId || !artifactSha256 || !providerId) {
       return NextResponse.json({ error: 'Similar-function matches are unavailable for this analysis run' }, { status: 404, headers: MAX_NO_STORE })
     }
 
@@ -131,9 +134,9 @@ export async function GET(request: Request, { params }: RouteParams) {
     const boundedRows = distinctRows.slice(0, MAX_FUNCTIONS)
       .filter((row) => row.artifactId !== focus.artifactId || row.canonicalKey !== focus.canonicalKey)
     const features = boundedRows.map(functionFeatures)
-    const ranked = rankSimilarInstructionFunctions(target, features)
+    const ranked = rankSimilarInstructionFunctions(target, features, MAX_RANKED_CANDIDATES)
     const byKey = new Map(boundedRows.map((row) => [row.id, row]))
-    const rankedRows = ranked.flatMap((match) => {
+    const baseRankedRows = ranked.flatMap((match) => {
       const row = byKey.get(match.key)
       return row ? [{
         row,
@@ -144,6 +147,35 @@ export async function GET(request: Request, { params }: RouteParams) {
         stringReferenceSimilarity: match.stringReferenceSimilarity,
       }] : []
     })
+    const graphSupport = await loadAcceptedCallGraphNeighborSupport({
+      projectId,
+      focus: {
+        id: focus.id,
+        taskId,
+        artifactId: focus.artifactId,
+        artifactSha256,
+        source: focus.source,
+        stableKey: focus.stableKey,
+      },
+      candidates: baseRankedRows.map(({ row }) => ({
+        id: row.id,
+        taskId: row.taskId,
+        artifactId: row.artifactId,
+        artifactSha256: row.artifact?.sha256 || null,
+        source: row.source,
+        stableKey: row.stableKey,
+      })),
+    })
+    const rankedRows = baseRankedRows.map((match) => ({
+      ...match,
+      graphAnchorSupport: graphSupport.byCandidateId.get(match.row.id) || null,
+    })).sort((left, right) => {
+      const leftSupport = left.graphAnchorSupport?.acceptedMatchCount || 0
+      const rightSupport = right.graphAnchorSupport?.acceptedMatchCount || 0
+      const leftRank = left.similarity + Math.min(8, leftSupport * 2)
+      const rightRank = right.similarity + Math.min(8, rightSupport * 2)
+      return rightRank - leftRank || right.similarity - left.similarity
+    }).slice(0, 8)
     const functionParentSources = [...new Set(rankedRows.flatMap(({ row }) =>
       typeof attributesRecord(row.attributes).parentCodeUnitKey === 'string' ? [row.source] : []
     ))]
@@ -174,7 +206,7 @@ export async function GET(request: Request, { params }: RouteParams) {
       })
       : []
     const functionParentsByKey = new Map(functionParentRows.map((row) => [`${row.taskId}:${row.stableKey}`, row]))
-    const matches = rankedRows.flatMap(({ row, similarity, instructionSimilarity, controlFlowSimilarity, controlFlowTopologySimilarity, stringReferenceSimilarity }) => {
+    const matches = rankedRows.flatMap(({ row, similarity, instructionSimilarity, controlFlowSimilarity, controlFlowTopologySimilarity, stringReferenceSimilarity, graphAnchorSupport }) => {
       const attributes = attributesRecord(row.attributes)
       const artifact = {
         name: row.artifact?.originalName || 'Unknown artifact',
@@ -203,13 +235,14 @@ export async function GET(request: Request, { params }: RouteParams) {
           controlFlowSimilarity,
           controlFlowTopologySimilarity,
           stringReferenceSimilarity,
+          graphAnchorSupport,
           artifact,
         }] : []
       }
       const codeUnit = normalizeCodeUnit(row)
-      return codeUnit ? [{ codeUnit, taskId: row.taskId, similarity, instructionSimilarity, controlFlowSimilarity, controlFlowTopologySimilarity, stringReferenceSimilarity, artifact }] : []
+      return codeUnit ? [{ codeUnit, taskId: row.taskId, similarity, instructionSimilarity, controlFlowSimilarity, controlFlowTopologySimilarity, stringReferenceSimilarity, graphAnchorSupport, artifact }] : []
     })
-    return NextResponse.json({ focusId: focus.id, matches, truncated }, { headers: MAX_NO_STORE })
+    return NextResponse.json({ focusId: focus.id, matches, truncated, graphAnchorEvidenceTruncated: graphSupport.truncated }, { headers: MAX_NO_STORE })
   } catch (error) {
     console.error('Failed to load similar functions:', error)
     return NextResponse.json({ error: 'Failed to load similar functions' }, { status: 500, headers: MAX_NO_STORE })
