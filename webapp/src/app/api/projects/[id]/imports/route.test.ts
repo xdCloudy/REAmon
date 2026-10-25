@@ -17,6 +17,8 @@ const mocks = vi.hoisted(() => ({
   transaction: vi.fn(),
   targetCreate: vi.fn(),
   importCreate: vi.fn(),
+  activeImportsFindMany: vi.fn(),
+  queryRaw: vi.fn(),
   activityCreate: vi.fn(),
   requireEffectiveUser: vi.fn(),
   requireProjectAccess: vi.fn(),
@@ -34,7 +36,10 @@ vi.mock('@/lib/access', () => ({
   requireProjectAccess: mocks.requireProjectAccess,
 }))
 
-vi.mock('@/lib/reamon/artifact-storage', () => ({ getArtifactVolumeCapacity: mocks.artifactCapacity }))
+vi.mock('@/lib/reamon/artifact-storage', () => ({
+  artifactRoot: () => path.join(os.tmpdir(), 'reamon-import-test-artifacts'),
+  getArtifactVolumeCapacity: mocks.artifactCapacity,
+}))
 
 import { GET, POST } from './route'
 
@@ -64,6 +69,8 @@ beforeEach(() => {
   mocks.requireProjectAccess.mockResolvedValue({ project: { id: 'project-1', userId: 'user-1' } })
   mocks.targetCreate.mockResolvedValue({ id: 'root-target-1' })
   mocks.activityCreate.mockResolvedValue({ id: 'activity-1' })
+  mocks.activeImportsFindMany.mockResolvedValue([])
+  mocks.queryRaw.mockResolvedValue([])
   mocks.artifactCapacity.mockResolvedValue({
     available: true, totalBytes: '1000', usedBytes: '600', freeBytes: '400', usedPercent: 60, checkedAt: '2026-10-25T00:00:00.000Z',
   })
@@ -88,8 +95,9 @@ beforeEach(() => {
     artifacts: [],
   })
   mocks.transaction.mockImplementation(async (callback: (tx: unknown) => unknown) => callback({
+    $queryRaw: mocks.queryRaw,
     target: { create: mocks.targetCreate },
-    workspaceImport: { create: mocks.importCreate },
+    workspaceImport: { create: mocks.importCreate, findMany: mocks.activeImportsFindMany },
     workspaceActivity: { create: mocks.activityCreate },
   }))
 })
@@ -159,6 +167,25 @@ describe('POST /api/projects/[id]/imports', () => {
 
     expect(response.status).toBe(201)
     expect(mocks.transaction).toHaveBeenCalled()
+  })
+
+  test('reserves active import bytes and rejects only when the shared volume cannot fit the request', async () => {
+    mocks.activeImportsFindMany.mockResolvedValueOnce([{ totalBytes: 400n, uploadedBytes: 0n }])
+
+    const response = await POST(requestFor({ rootName: 'ExampleApp', files }), params())
+
+    expect(response.status).toBe(507)
+    expect(await response.json()).toMatchObject({ availableBytes: '400', requiredBytes: '405' })
+    expect(mocks.targetCreate).not.toHaveBeenCalled()
+  })
+
+  test('reports unavailable storage capacity without creating import rows', async () => {
+    mocks.artifactCapacity.mockResolvedValueOnce({ available: false, freeBytes: null })
+
+    const response = await POST(requestFor({ rootName: 'ExampleApp', files }), params())
+
+    expect(response.status).toBe(503)
+    expect(mocks.targetCreate).not.toHaveBeenCalled()
   })
 
   test('rejects unsupported source types', async () => {

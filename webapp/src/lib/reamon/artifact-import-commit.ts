@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { createReadStream } from 'node:fs'
-import { copyFile, mkdir, open, stat, unlink } from 'node:fs/promises'
+import { copyFile, mkdir, open, rename, stat, unlink } from 'node:fs/promises'
 import path from 'node:path'
 import { Prisma } from '@prisma/client'
 import prisma from '@/lib/prisma'
@@ -27,7 +27,7 @@ export async function receiveArtifactChunk(input: {
   offset: number
   totalSize: number
   bytes: Uint8Array
-}): Promise<number> {
+}): Promise<{ receivedBytes: number; addedBytes: number; previousBytes: number }> {
   const relativePath = normalizeRelativePath(input.relativePath)
   const destination = stagedArtifactPath(input.projectId, input.importId, relativePath)
   await mkdir(path.dirname(destination), { recursive: true })
@@ -53,24 +53,34 @@ export async function receiveArtifactChunk(input: {
       if (bytesRead !== overlap || !prior.equals(Buffer.from(input.bytes.subarray(0, overlap)))) {
         throw new Error('Retried upload chunk conflicts with bytes already received')
       }
-      if (overlap === input.bytes.byteLength) return currentSize
+      if (overlap === input.bytes.byteLength) return { receivedBytes: currentSize, addedBytes: 0, previousBytes: currentSize }
       const tail = input.bytes.subarray(overlap)
       let written = 0
-      while (written < tail.byteLength) {
-        const result = await handle.write(tail, written, tail.byteLength - written, currentSize + written)
-        if (result.bytesWritten <= 0) throw new Error('Could not persist the uploaded chunk')
-        written += result.bytesWritten
+      try {
+        while (written < tail.byteLength) {
+          const result = await handle.write(tail, written, tail.byteLength - written, currentSize + written)
+          if (result.bytesWritten <= 0) throw new Error('Could not persist the uploaded chunk')
+          written += result.bytesWritten
+        }
+      } catch (error) {
+        await handle.truncate(currentSize).catch(() => {})
+        throw error
       }
-      return currentSize + written
+      return { receivedBytes: currentSize + written, addedBytes: written, previousBytes: currentSize }
     }
     if (input.offset !== currentSize) throw new Error('Upload chunk offset does not match the received file bytes')
     let written = 0
-    while (written < input.bytes.byteLength) {
-      const result = await handle.write(input.bytes, written, input.bytes.byteLength - written, input.offset + written)
-      if (result.bytesWritten <= 0) throw new Error('Could not persist the uploaded chunk')
-      written += result.bytesWritten
+    try {
+      while (written < input.bytes.byteLength) {
+        const result = await handle.write(input.bytes, written, input.bytes.byteLength - written, input.offset + written)
+        if (result.bytesWritten <= 0) throw new Error('Could not persist the uploaded chunk')
+        written += result.bytesWritten
+      }
+    } catch (error) {
+      await handle.truncate(currentSize).catch(() => {})
+      throw error
     }
-    return input.offset + written
+    return { receivedBytes: input.offset + written, addedBytes: written, previousBytes: currentSize }
   } finally {
     await handle.close()
   }
@@ -153,8 +163,14 @@ export async function commitArtifactFromPath(input: {
   const candidateArtifactId = randomUUID()
   const storage = confinedStoragePath(path.join(input.projectId, input.importId, candidateArtifactId, sha256))
   let databaseCommitted = false
+  let stagedSourceMoved = false
   await mkdir(path.dirname(storage.absolute), { recursive: true })
-  await copyFile(stagedPath, storage.absolute)
+  if (input.cleanupSource) {
+    await rename(stagedPath, storage.absolute)
+    stagedSourceMoved = true
+  } else {
+    await copyFile(stagedPath, storage.absolute)
+  }
 
   try {
     const result = await prisma.$transaction(async (tx) => {
@@ -219,7 +235,7 @@ export async function commitArtifactFromPath(input: {
           data: { importId: input.importId, artifactId: artifact.id, targetId, relativePath, format: profile.format },
         },
       })
-      if (!existing) {
+      if (!existing && input.sourceType !== 'BROWSER_DIRECTORY') {
         await tx.workspaceImport.update({
           where: { id: input.importId },
           data: {
@@ -231,7 +247,6 @@ export async function commitArtifactFromPath(input: {
       return { artifact, previousStoragePath: existing?.storagePath || null }
     })
     databaseCommitted = true
-    if (input.cleanupSource) await unlink(stagedPath).catch(() => {})
     if (result.previousStoragePath && result.previousStoragePath !== storage.relative) {
       await unlink(confinedStoragePath(result.previousStoragePath).absolute).catch(() => {})
     }
@@ -241,7 +256,10 @@ export async function commitArtifactFromPath(input: {
       capabilities,
     }
   } finally {
-    if (!databaseCommitted) await unlink(storage.absolute).catch(() => {})
+    if (!databaseCommitted) {
+      if (stagedSourceMoved) await rename(storage.absolute, stagedPath).catch(() => {})
+      else await unlink(storage.absolute).catch(() => {})
+    }
   }
 }
 

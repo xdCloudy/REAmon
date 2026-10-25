@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { Prisma } from '@prisma/client'
-import { getArtifactVolumeCapacity } from '@/lib/reamon/artifact-storage'
+import { mkdir } from 'node:fs/promises'
+import { artifactRoot, getArtifactVolumeCapacity } from '@/lib/reamon/artifact-storage'
 import prisma from '@/lib/prisma'
 import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
 import { buildWorkspaceProfile } from '@/lib/reamon/inventory'
@@ -10,6 +11,18 @@ import { normalizeRootName } from '@/lib/reamon/paths'
 import { inventoryServerSource, SERVER_DIRECTORY_SOURCE_TYPE, ServerSourceError } from '@/lib/reamon/server-import'
 
 interface RouteParams { params: Promise<{ id: string }> }
+
+class ArtifactCapacityError extends Error {
+  constructor(readonly availableBytes: string, readonly requiredBytes: string) {
+    super('The artifact volume does not have enough free space for this import and active imports')
+  }
+}
+
+class ArtifactCapacityUnavailableError extends Error {
+  constructor() {
+    super('Artifact volume capacity could not be checked; retry when storage is available')
+  }
+}
 
 export async function GET(_request: Request, { params }: RouteParams) {
   try {
@@ -97,7 +110,22 @@ export async function POST(request: Request, { params }: RouteParams) {
       return NextResponse.json({ error: 'Unsupported workspace source type' }, { status: 400, headers: { 'Cache-Control': 'no-store' } })
     }
     const profile = buildWorkspaceProfile([])
+    await mkdir(artifactRoot(), { recursive: true })
     const result = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw(Prisma.sql`SELECT pg_advisory_xact_lock(1380008769, 1)`)
+      const capacity = await getArtifactVolumeCapacity()
+      if (!capacity.available || capacity.freeBytes === null) throw new ArtifactCapacityUnavailableError()
+      const activeImports = await tx.workspaceImport.findMany({
+        where: { status: { notIn: ['COMPLETED', 'CANCELLED', 'CANCELLING', 'FINALIZING'] } },
+        select: { totalBytes: true, uploadedBytes: true },
+      })
+      const reservedBytes = activeImports.reduce((total, active) => {
+        const remaining = active.totalBytes - active.uploadedBytes
+        return total + (remaining > 0n ? remaining : 0n)
+      }, 0n)
+      const availableBytes = BigInt(capacity.freeBytes)
+      const requiredBytes = reservedBytes + BigInt(totalBytes)
+      if (requiredBytes > availableBytes) throw new ArtifactCapacityError(availableBytes.toString(), requiredBytes.toString())
       const rootTarget = await tx.target.create({
         data: {
           projectId,
@@ -137,6 +165,16 @@ export async function POST(request: Request, { params }: RouteParams) {
     return NextResponse.json(serializeImport(result), { status: 201, headers: { 'Cache-Control': 'no-store' } })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to create workspace import'
+    if (error instanceof ArtifactCapacityError) {
+      return NextResponse.json({
+        error: message,
+        availableBytes: error.availableBytes,
+        requiredBytes: error.requiredBytes,
+      }, { status: 507, headers: { 'Cache-Control': 'no-store' } })
+    }
+    if (error instanceof ArtifactCapacityUnavailableError) {
+      return NextResponse.json({ error: message }, { status: 503, headers: { 'Cache-Control': 'no-store' } })
+    }
     const status = error instanceof ServerSourceError ? error.status : /limit|path|manifest|file|required|invalid|duplicate/i.test(message) ? 400 : 500
     console.error('Failed to create REAmon workspace import:', error)
     return NextResponse.json({ error: status === 400 ? message : 'Failed to create workspace import' }, { status, headers: { 'Cache-Control': 'no-store' } })

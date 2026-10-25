@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server'
+import { Prisma } from '@prisma/client'
+import { truncate } from 'node:fs/promises'
 import prisma from '@/lib/prisma'
 import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
 import { normalizeRelativePath } from '@/lib/reamon/paths'
-import { receiveArtifactChunk } from '@/lib/reamon/artifact-import-commit'
+import { receiveArtifactChunk, stagedArtifactPath } from '@/lib/reamon/artifact-import-commit'
 
 interface RouteParams { params: Promise<{ id: string; importId: string }> }
 const MAX_CHUNK_BYTES = 16 * 1024 * 1024
@@ -74,8 +76,38 @@ export async function PUT(request: Request, { params }: RouteParams) {
       bytes.set(chunk, position)
       position += chunk.byteLength
     }
-    const receivedBytes = await receiveArtifactChunk({ projectId, importId, relativePath, offset, totalSize, bytes })
-    return NextResponse.json({ receivedBytes }, { headers: { 'Cache-Control': 'no-store' } })
+    const result = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${importId}), hashtext(${relativePath}))`)
+      const accepted = await tx.workspaceImport.updateMany({
+        where: {
+          id: importId,
+          projectId,
+          sourceType: 'BROWSER_DIRECTORY',
+          status: { notIn: ['COMPLETED', 'CANCELLED', 'CANCELLING', 'FINALIZING'] },
+        },
+        data: { updatedAt: new Date() },
+      })
+      if (accepted.count !== 1) throw new Error('Import is no longer accepting artifacts')
+      const committed = await tx.artifact.findFirst({
+        where: { projectId, importId, relativePath },
+        select: { id: true },
+      })
+      if (committed) return { receivedBytes: totalSize, addedBytes: 0 }
+      const received = await receiveArtifactChunk({ projectId, importId, relativePath, offset, totalSize, bytes })
+      if (received.addedBytes > 0) {
+        try {
+          await tx.workspaceImport.update({
+            where: { id: importId },
+            data: { uploadedBytes: { increment: BigInt(received.addedBytes) } },
+          })
+        } catch (error) {
+          await truncate(stagedArtifactPath(projectId, importId, relativePath), received.previousBytes).catch(() => {})
+          throw error
+        }
+      }
+      return received
+    })
+    return NextResponse.json({ receivedBytes: result.receivedBytes }, { headers: { 'Cache-Control': 'no-store' } })
   } catch (error) {
     console.error('Failed to receive REAmon artifact chunk:', error)
     return NextResponse.json({ error: error instanceof Error ? error.message.slice(0, 500) : 'Failed to receive upload chunk' }, { status: 400, headers: { 'Cache-Control': 'no-store' } })
