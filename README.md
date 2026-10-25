@@ -95,6 +95,7 @@ See the [developer guide](docs/readmes/README.DEV.md) for the development enviro
 - [Goals and roadmap](docs/REAMON_GOALS.md)
 - [Weighted product progress](docs/REAMON_PROGRESS.md) · [Progress data](docs/REAMON_PROGRESS.json)
 - [Production readiness matrix](docs/REAMON_READINESS_MATRIX.md)
+- [Kali execution isolation decision](docs/REAMON_KALI_ISOLATION.md)
 - [Feature matrix](docs/REAMON_FEATURE_MATRIX.md)
 - [End-to-end reconstruction stage matrix](docs/REAMON_RECONSTRUCTION_STAGES.md)
 - [Language and format support](docs/REAMON_LANGUAGE_MATRIX.md)
