@@ -100,6 +100,21 @@ async def test_source_validation_uses_native_compiler(language: str, valid: str,
     assert failed["source_sha256"] != passed["source_sha256"]
 
 
+@pytest.mark.asyncio
+async def test_visual_basic_source_validation_uses_roslyn() -> None:
+    from api import ReamonCodeValidateRequest, validate_reamon_code
+
+    valid = "Module Sample\n    Function Add(left As Integer, right As Integer) As Integer\n        Return left + right\n    End Function\nEnd Module\n"
+    invalid = "Module Sample\n    Function Add(left As Integer, right As Integer) As Integer\n        Return left +\n    End Function\nEnd Module\n"
+    passed = await validate_reamon_code(ReamonCodeValidateRequest(language="Visual Basic", source_code=valid))
+    failed = await validate_reamon_code(ReamonCodeValidateRequest(language="Visual Basic", source_code=invalid))
+
+    assert passed["validation_status"] == "PASSED"
+    assert passed["validation_method"].startswith("roslyn-visual-basic-")
+    assert failed["validation_status"] == "FAILED"
+    assert failed["source_sha256"] != passed["source_sha256"]
+
+
 def test_macro_and_template_sources_are_explicitly_excluded() -> None:
     from reamon_cpp_refactor import _pattern_declarations
 

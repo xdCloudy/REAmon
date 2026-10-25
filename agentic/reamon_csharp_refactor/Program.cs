@@ -16,7 +16,7 @@ internal static class Program
     private static readonly Regex Identifier = new(@"^[A-Za-z_][A-Za-z0-9_]{0,127}$", RegexOptions.CultureInvariant);
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
-    private sealed record Request(string Operation, string SourceCode, string ExpectedSha256, Rename[] Renames);
+    private sealed record Request(string Operation, string SourceCode, string ExpectedSha256, Rename[] Renames, string Language);
     private sealed record Rename(string BindingId, string NewName);
     private sealed record Binding(
         string Id,
@@ -41,7 +41,8 @@ internal static class Program
                 GetString(root, "operation"),
                 GetString(root, "source_code"),
                 GetString(root, "expected_sha256"),
-                ReadRenames(root));
+                ReadRenames(root),
+                GetString(root, "language"));
             var result = Run(request);
             Console.Out.WriteLine(JsonSerializer.Serialize(result, JsonOptions));
             return 0;
@@ -76,6 +77,26 @@ internal static class Program
     private static object Run(Request request)
     {
         var sourceBytes = Encoding.UTF8.GetBytes(request.SourceCode);
+        if (request.Operation == "validate" && request.Language.Trim().ToLowerInvariant() is "vb" or "visual basic" or "visual basic .net" or "vb.net")
+        {
+            if (sourceBytes.Length > MaxSourceBytes)
+                throw new RefactorException("Visual Basic source exceeds the 512 KiB syntax-validation limit");
+            var visualBasicSourceHash = Hash(sourceBytes);
+            var tree = Microsoft.CodeAnalysis.VisualBasic.VisualBasicSyntaxTree.ParseText(request.SourceCode,
+                new Microsoft.CodeAnalysis.VisualBasic.VisualBasicParseOptions(languageVersion: Microsoft.CodeAnalysis.VisualBasic.LanguageVersion.Latest), path: "unit.vb");
+            var errors = tree.GetDiagnostics().Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error).Take(5).ToArray();
+            var version = RoslynVersion();
+            var detail = string.Join("; ", errors.Select(error => error.GetMessage()).Select(message => message.Replace('\n', ' '))).Trim();
+            return new
+            {
+                source_sha256 = visualBasicSourceHash,
+                validation_status = errors.Length == 0 ? "PASSED" : "FAILED",
+                validation_method = $"roslyn-visual-basic-{version}-parse",
+                validation_message = errors.Length == 0
+                    ? $"Roslyn {version} parsed this Visual Basic source without executing it. This is structural evidence; project references, compilation, and runtime behavior were not checked."
+                    : $"Roslyn {version} rejected the Visual Basic source: {detail}",
+            };
+        }
         if (sourceBytes.Length > MaxSourceBytes)
             throw new RefactorException("C# source exceeds the 512 KiB safe-rename limit");
         var sourceHash = Hash(sourceBytes);

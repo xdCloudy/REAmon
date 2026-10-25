@@ -988,14 +988,16 @@ async def validate_reamon_code(body: ReamonCodeValidateRequest):
             discard_lint_stdout=True,
         )
         return {"source_sha256": source_sha256, **result}
-    if normalized_language in {"c#", "csharp", "cs"}:
-        validation_method = "roslyn-csharp-parse"
+    if normalized_language in {"c#", "csharp", "cs", "visual basic", "visual basic .net", "vb.net", "vb"}:
+        is_visual_basic = normalized_language in {"visual basic", "visual basic .net", "vb.net", "vb"}
+        language_argument = "visual basic" if is_visual_basic else "csharp"
+        validation_method = "roslyn-visual-basic-parse" if is_visual_basic else "roslyn-csharp-parse"
         if len(encoded) > 512 * 1024:
             return {
                 "source_sha256": source_sha256,
                 "validation_status": "UNAVAILABLE",
                 "validation_method": validation_method,
-                "validation_message": "The Roslyn C# parser has a 512 KiB per-source limit; the source was not validated.",
+                "validation_message": f"The Roslyn {'Visual Basic' if is_visual_basic else 'C#'} parser has a 512 KiB per-source limit; the source was not validated.",
             }
         try:
             process = await asyncio.create_subprocess_exec(
@@ -1005,21 +1007,21 @@ async def validate_reamon_code(body: ReamonCodeValidateRequest):
                 stderr=asyncio.subprocess.PIPE,
             )
             stdout, stderr = await asyncio.wait_for(process.communicate(json.dumps({
-                "operation": "validate", "source_code": body.source_code,
+                "operation": "validate", "language": language_argument, "source_code": body.source_code,
             }).encode("utf-8")), timeout=25)
             payload = json.loads(stdout)
             if process.returncode != 0 or not isinstance(payload, dict) or payload.get("source_sha256") != source_sha256:
                 raise ValueError("Roslyn returned a mismatched validation result")
             return payload
         except FileNotFoundError:
-            detail = "The Roslyn C# parser is unavailable; syntax validation was not recorded."
+            detail = f"The Roslyn {'Visual Basic' if is_visual_basic else 'C#'} parser is unavailable; syntax validation was not recorded."
         except asyncio.TimeoutError:
             process.kill()
             await process.communicate()
-            detail = "Roslyn C# parsing exceeded its time limit; syntax validation was not recorded."
+            detail = f"Roslyn {'Visual Basic' if is_visual_basic else 'C#'} parsing exceeded its time limit; syntax validation was not recorded."
         except Exception as exc:  # noqa: BLE001
-            logger.debug(f"REAmon C# source validation unavailable: {exc}")
-            detail = "Roslyn could not complete C# source validation; syntax validation was not recorded."
+            logger.debug(f"REAmon managed source validation unavailable: {exc}")
+            detail = f"Roslyn could not complete {'Visual Basic' if is_visual_basic else 'C#'} source validation; syntax validation was not recorded."
         return {
             "source_sha256": source_sha256,
             "validation_status": "UNAVAILABLE",
