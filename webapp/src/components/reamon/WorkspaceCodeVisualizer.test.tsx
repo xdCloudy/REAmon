@@ -267,7 +267,7 @@ describe('WorkspaceCodeVisualizer', () => {
     renderVisualizer()
 
     fireEvent.click(await screen.findByRole('button', { name: /app\.MainActivity\.onCreate/ }))
-    expect(await screen.findByText('Reverse engineer one function or method at a time')).toBeInTheDocument()
+    expect(await screen.findByText('Reverse engineer functions and methods with AI agents')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Create maintainable version' })).not.toBeInTheDocument()
     fireEvent.click(await screen.findByRole('button', { name: /method a · line 1/ }))
 

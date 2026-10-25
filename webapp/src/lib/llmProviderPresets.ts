@@ -1,5 +1,5 @@
 import type { ComponentType, SVGProps } from 'react'
-import { SiOpenai, SiAnthropic, SiGooglegemini } from 'react-icons/si'
+import { SiAnthropic, SiGooglegemini } from 'react-icons/si'
 import { FaAws } from 'react-icons/fa6'
 import { LuSettings, LuSparkles } from 'react-icons/lu'
 import { SiDeepseek, SiOpenrouter, SiMoonshot, SiQwen, SiXai, SiMistral } from '@/components/icons/ProviderBrandIcons'
@@ -64,7 +64,7 @@ export const OPENAI_COMPAT_PRESETS: LlmProviderPreset[] = [
 ]
 
 export const PROVIDER_TYPES = [
-  { id: 'openai', name: 'OpenAI', description: 'Direct OpenAI API access', Icon: SiOpenai as ProviderIcon, apiKeyUrl: 'https://platform.openai.com/api-keys' },
+  { id: 'openai', name: 'OpenAI', description: 'Direct OpenAI API access', Icon: LuSparkles as ProviderIcon, apiKeyUrl: 'https://platform.openai.com/api-keys' },
   { id: 'anthropic', name: 'Anthropic', description: 'Direct Anthropic API access', Icon: SiAnthropic as ProviderIcon, apiKeyUrl: 'https://console.anthropic.com/settings/keys' },
   { id: 'openrouter', name: 'OpenRouter', description: 'Access 200+ models via OpenRouter', Icon: SiOpenrouter as ProviderIcon, apiKeyUrl: 'https://openrouter.ai/settings/keys' },
   { id: 'deepseek', name: 'DeepSeek', description: 'Direct DeepSeek API access', Icon: SiDeepseek as ProviderIcon, apiKeyUrl: 'https://platform.deepseek.com/api_keys' },
