@@ -49,6 +49,7 @@ NAABU = "projectdiscovery/naabu:latest"
 print("=== ALLOW: legitimate tool runs ===")
 allow("plain tool image", {"Image": NAABU})
 allow("net=host (needed for SYN/loopback)", {"Image": NAABU, "HostConfig": {"NetworkMode": "host"}})
+allow("net=host with NET_RAW", {"Image": NAABU, "HostConfig": {"NetworkMode": "host", "CapAdd": ["NET_RAW"]}})
 allow("bind under allowed prefix", {"Image": NAABU, "HostConfig": {"Binds": ["/tmp/redamon/x:/targets:ro"]}})
 allow("named volume on allowlist", {"Image": "projectdiscovery/nuclei:latest",
       "HostConfig": {"Mounts": [{"Type": "volume", "Source": "nuclei-templates", "Target": "/root/nuclei-templates"}]}})
@@ -72,6 +73,10 @@ deny("mount docker.sock via Mounts", {"Image": NAABU,
 deny("privileged", {"Image": NAABU, "HostConfig": {"Privileged": True}}, "Privileged")
 deny("cap SYS_ADMIN", {"Image": NAABU, "HostConfig": {"CapAdd": ["SYS_ADMIN"]}}, "capability")
 deny("cap ALL", {"Image": NAABU, "HostConfig": {"CapAdd": ["ALL"]}}, "capability")
+deny("cap NET_ADMIN", {"Image": NAABU, "HostConfig": {"CapAdd": ["NET_ADMIN"]}}, "capability")
+deny("cap CAP_NET_ADMIN", {"Image": NAABU, "HostConfig": {"CapAdd": ["CAP_NET_ADMIN"]}}, "capability")
+deny("net=host with NET_ADMIN", {"Image": NAABU,
+     "HostConfig": {"NetworkMode": "host", "CapAdd": ["NET_ADMIN"]}}, "capability")
 deny("device passthrough", {"Image": NAABU, "HostConfig": {"Devices": [{"PathOnHost": "/dev/sda"}]}}, "device")
 deny("pid=host", {"Image": NAABU, "HostConfig": {"PidMode": "host"}}, "PidMode")
 deny("pid=container:other (join another ns)", {"Image": NAABU, "HostConfig": {"PidMode": "container:redamon-recon-orchestrator"}}, "PidMode")

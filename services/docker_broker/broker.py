@@ -138,9 +138,10 @@ _DEFAULT_RW_PREFIXES = ["/tmp/redamon"]
 ALLOWED_RW_PREFIXES = _DEFAULT_RW_PREFIXES + _csv_env("DOCKER_BROKER_ALLOWED_RW_PREFIXES")
 ALLOWED_RW_VOLUMES = set(_csv_env("DOCKER_BROKER_ALLOWED_RW_VOLUMES"))
 
-# Capabilities a tool container may request (naabu SYN etc.). Everything else
-# (SYS_ADMIN, SYS_PTRACE, ALL, ...) is denied.
-ALLOWED_CAPS = {"NET_RAW", "NET_ADMIN", "CAP_NET_RAW", "CAP_NET_ADMIN"}
+# Capabilities a tool container may request (naabu SYN etc.). NET_ADMIN is
+# deliberately excluded: combined with host networking it can alter the host
+# network namespace. Everything else (SYS_ADMIN, SYS_PTRACE, ALL, ...) is denied.
+ALLOWED_CAPS = {"NET_RAW", "CAP_NET_RAW"}
 
 _CREATE_RE = re.compile(r"^/(v[\d.]+/)?containers/create$")
 _HIJACK_RE = re.compile(r"^/(v[\d.]+/)?(containers/[^/]+/attach|exec/[^/]+/start)$")
