@@ -924,6 +924,28 @@ async def validate_reamon_code(body: ReamonCodeValidateRequest):
             "validation_method": validation_method,
             "validation_message": f"CPython {python_version} compiled the module without executing it. This confirms syntax for this interpreter only, not behavior or target-version compatibility.",
         }
+    if normalized_language in {"c", "c source"}:
+        result = _reamon_cli_syntax_validation(
+            body.source_code,
+            label="gcc",
+            executable="gcc",
+            version_args=["--version"],
+            lint_args=["-x", "c", "-fsyntax-only", "-fno-diagnostics-color", "-"],
+            version_pattern=r"^gcc .*?(\d+\.\d+(?:\.\d+)?)",
+            ignored_environment={"CPATH", "C_INCLUDE_PATH", "CPLUS_INCLUDE_PATH", "GCC_EXEC_PREFIX", "COMPILER_PATH"},
+        )
+        return {"source_sha256": source_sha256, **result}
+    if normalized_language in {"c++", "c++ source", "cpp"}:
+        result = _reamon_cli_syntax_validation(
+            body.source_code,
+            label="g++",
+            executable="g++",
+            version_args=["--version"],
+            lint_args=["-x", "c++", "-fsyntax-only", "-fno-diagnostics-color", "-"],
+            version_pattern=r"^g\+\+ .*?(\d+\.\d+(?:\.\d+)?)",
+            ignored_environment={"CPATH", "C_INCLUDE_PATH", "CPLUS_INCLUDE_PATH", "GCC_EXEC_PREFIX", "COMPILER_PATH"},
+        )
+        return {"source_sha256": source_sha256, **result}
     if normalized_language in {"php", "php source"}:
         if not re.search(r"<\?(?:php\b|=)", body.source_code, re.IGNORECASE):
             return {

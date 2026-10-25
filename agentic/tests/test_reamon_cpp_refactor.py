@@ -81,6 +81,25 @@ async def test_rename_rejects_stale_source_and_name_capture() -> None:
         )
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("language", "valid", "invalid"),
+    [
+        ("c", "int add(int a, int b) { return a + b; }", "int add(int a, int b) { return a + ; }"),
+        ("cpp", "int add(int a, int b) { return a + b; }", "int add(int a, int b) { return a + ; }"),
+    ],
+)
+async def test_source_validation_uses_native_compiler(language: str, valid: str, invalid: str) -> None:
+    from api import ReamonCodeValidateRequest, validate_reamon_code
+
+    passed = await validate_reamon_code(ReamonCodeValidateRequest(language=language, source_code=valid))
+    failed = await validate_reamon_code(ReamonCodeValidateRequest(language=language, source_code=invalid))
+    assert passed["validation_status"] == "PASSED"
+    assert passed["validation_method"].startswith(("gcc-", "g++-"))
+    assert failed["validation_status"] == "FAILED"
+    assert failed["source_sha256"] != passed["source_sha256"]
+
+
 def test_macro_and_template_sources_are_explicitly_excluded() -> None:
     from reamon_cpp_refactor import _pattern_declarations
 
