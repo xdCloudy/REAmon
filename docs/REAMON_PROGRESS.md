@@ -1,16 +1,17 @@
 # REAmon product progress
 
-Assessment date: 2026-10-25 · Source: pushed commit `ef83801` · Weighted estimate: **49.0%**
+Assessment date: 2026-10-25 · Source: the current local worktree · Weighted estimate: **44.2%**
 
-This is an estimate of progress toward the long-term product goal, not a release-readiness score. Workstream weights total 100%; each contribution is weight × completion.
+This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.
 
 | Workstream | Goal weight | Estimated complete | Weighted points |
 | --- | ---: | ---: | ---: |
-| Core analysis and visualizer workflow | 20% | 76% | 15.20 pts |
-| Database-grounded project memory and provenance | 20% | 73% | 14.60 pts |
-| Major-language and format decompilation fluency | 30% | 35% | 10.50 pts |
-| Maintainable editing, review, and export | 15% | 43% | 6.45 pts |
-| Fixture-backed validation and fidelity evidence | 15% | 15% | 2.25 pts |
+| Core analysis and visualizer workflow | 16% | 76% | 12.16 pts |
+| Database-grounded project memory and provenance | 16% | 73% | 11.68 pts |
+| Major-language and format decompilation fluency | 24% | 35% | 8.40 pts |
+| Maintainable editing, review, and export | 12% | 43% | 5.16 pts |
+| Fixture-backed validation and fidelity evidence | 12% | 15% | 1.80 pts |
+| Security, reliability, and production operations | 20% | 25% | 5.00 pts |
 
 ## Evidence and remaining work
 
@@ -44,4 +45,10 @@ This is an estimate of progress toward the long-term product goal, not a release
 
 **Remaining:** Build a broad, versioned fixture suite for clean, optimized, stripped, and obfuscated inputs and compare recovered behavior and fidelity.
 
-The machine-readable [`REAMON_PROGRESS.json`](REAMON_PROGRESS.json) feeds the README progress bar. Update it with evidence when the estimates change, then run `node tooling/reamon/update-product-progress.mjs <commit-sha>` to refresh both this matrix and the README.
+### Security, reliability, and production operations
+
+**Current evidence:** Sensitive agent REST controls now fail closed behind a configured master key, with authenticated webapp proxies and preserved project guards. Focused Docker and webapp checks pass; full security and release gates remain incomplete.
+
+**Remaining:** The security scan is partial, broad test suites have unresolved failures or have not finished, multi-user session ownership is unverified, and deployment, worker, backup, and restore gates need end-to-end evidence.
+
+The machine-readable [`REAMON_PROGRESS.json`](REAMON_PROGRESS.json) feeds the README progress bar. The scope now includes the production hardening goal, so the total is not directly comparable with the previous product-only estimate. Update it with evidence when estimates change, then run `node tooling/reamon/update-product-progress.mjs <commit-sha>` to refresh this matrix and the README.

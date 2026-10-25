@@ -37,7 +37,7 @@ const sourceStamp = commit ? `pushed commit \`${commit.slice(0, 7)}\`` : 'the cu
 const generated = [
   startMarker,
   `<progress value="${displayedScore}" max="100">${displayedScore}%</progress> <strong>${displayedScore}%</strong> — weighted estimate **${score.toFixed(1)}%**.`,
-  `Refreshed from ${sourceStamp}. See the [readable progress matrix](docs/REAMON_PROGRESS.md) for workstream weights, evidence, and remaining gaps.`,
+  `Refreshed from ${sourceStamp}. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.`,
   endMarker,
 ].join('\n')
 
@@ -64,7 +64,7 @@ const ledger = [
   '',
   `Assessment date: ${manifest.assessmentDate} · Source: ${sourceStamp} · Weighted estimate: **${score.toFixed(1)}%**`,
   '',
-  'This is an estimate of progress toward the long-term product goal, not a release-readiness score. Workstream weights total 100%; each contribution is weight × completion.',
+  'This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.',
   '',
   '| Workstream | Goal weight | Estimated complete | Weighted points |',
   '| --- | ---: | ---: | ---: |',
@@ -73,7 +73,7 @@ const ledger = [
   '## Evidence and remaining work',
   '',
   details,
-  'The machine-readable [`REAMON_PROGRESS.json`](REAMON_PROGRESS.json) feeds the README progress bar. Update it with evidence when the estimates change, then run `node tooling/reamon/update-product-progress.mjs <commit-sha>` to refresh both this matrix and the README.',
+  'The machine-readable [`REAMON_PROGRESS.json`](REAMON_PROGRESS.json) feeds the README progress bar. The scope now includes the production hardening goal, so the total is not directly comparable with the previous product-only estimate. Update it with evidence when estimates change, then run `node tooling/reamon/update-product-progress.mjs <commit-sha>` to refresh this matrix and the README.',
   '',
 ].join('\n')
 const currentLedger = await readFile(ledgerPath, 'utf8').catch(() => '')

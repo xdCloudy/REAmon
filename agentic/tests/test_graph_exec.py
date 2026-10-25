@@ -129,8 +129,8 @@ def main():
     check("apoc.atomic.* rejected 403", resp.status_code == 403)
 
     print("=== S8/I8/D7: /graph/exec and /emergency-stop-all require internal auth ===")
-    # Both use the AUTH-ONLY dependency (no LLM rate-limit / daily cap) — graph
-    # reads are cheap high-frequency, not billed LLM calls (regression guard).
+    # Graph reads use AUTH-ONLY (no LLM rate limit); the emergency control also
+    # requires a configured master key so it fails closed on bare deployments.
     from llm_guard import require_internal_auth, require_internal_auth_only
 
     def _route_deps(path):
@@ -142,7 +142,8 @@ def main():
     ge_deps = _route_deps("/graph/exec")
     es_deps = _route_deps("/emergency-stop-all")
     check("/graph/exec requires internal auth (auth-only)", ge_deps is not None and require_internal_auth_only in ge_deps)
-    check("/emergency-stop-all requires internal auth (auth-only)", es_deps is not None and require_internal_auth_only in es_deps)
+    from llm_guard import require_configured_master_internal_auth
+    check("/emergency-stop-all requires configured master auth", es_deps is not None and require_configured_master_internal_auth in es_deps)
     check("/graph/exec is NOT LLM-rate-limited (no require_internal_auth)", require_internal_auth not in (ge_deps or []))
 
     # Regression: auth-only dependency authenticates but never throttles, even

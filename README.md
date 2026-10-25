@@ -69,11 +69,12 @@ REAmon's goal is language-universal recovery of maintainable code. The language 
 ## Project status
 
 <!-- REAMON_PRODUCT_PROGRESS_START -->
-<progress value="49" max="100">49%</progress> <strong>49%</strong> — weighted estimate **49.0%**.
-Refreshed from pushed commit `ef83801`. See the [readable progress matrix](docs/REAMON_PROGRESS.md) for workstream weights, evidence, and remaining gaps.
+<progress value="44" max="100">44%</progress> <strong>44%</strong> — weighted estimate **44.2%**.
+Refreshed from the current local worktree. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
 [Goals and roadmap](docs/REAMON_GOALS.md) · [Feature matrix](docs/REAMON_FEATURE_MATRIX.md)
+· [Production readiness matrix](docs/REAMON_READINESS_MATRIX.md) · [Weighted progress details](docs/REAMON_PROGRESS.md)
 
 ## Development
 
@@ -89,8 +90,11 @@ See the [developer guide](docs/readmes/README.DEV.md) for the development enviro
 
 ## Documentation
 
+- [Full documentation index](docs/README.md)
 - [Product vision and principles](docs/REAMON_PRODUCT_VISION.md)
 - [Goals and roadmap](docs/REAMON_GOALS.md)
+- [Weighted product progress](docs/REAMON_PROGRESS.md) · [Progress data](docs/REAMON_PROGRESS.json)
+- [Production readiness matrix](docs/REAMON_READINESS_MATRIX.md)
 - [Feature matrix](docs/REAMON_FEATURE_MATRIX.md)
 - [Language and format support](docs/REAMON_LANGUAGE_MATRIX.md)
 - [IDA Pro integration](docs/REAMON_IDA_PRO.md)

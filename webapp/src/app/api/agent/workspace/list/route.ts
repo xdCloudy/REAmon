@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { agentFetch } from '@/lib/agentFetch'
 import { guardProject } from '@/lib/access'
 
-const AGENT_API_URL = process.env.AGENT_API_URL || process.env.NEXT_PUBLIC_AGENT_API_URL || 'http://localhost:8080'
 
 export async function GET(request: NextRequest) {
   const projectId = request.nextUrl.searchParams.get('projectId')
@@ -14,8 +14,8 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const url = `${AGENT_API_URL}/workspace/list?projectId=${encodeURIComponent(projectId)}&path=${encodeURIComponent(path)}`
-    const resp = await fetch(url, { cache: 'no-store' })
+    const url = `/workspace/list?projectId=${encodeURIComponent(projectId)}&path=${encodeURIComponent(path)}`
+    const resp = await agentFetch(url, { cache: 'no-store' })
     if (!resp.ok) {
       const text = await resp.text()
       return NextResponse.json({ error: text }, { status: resp.status })

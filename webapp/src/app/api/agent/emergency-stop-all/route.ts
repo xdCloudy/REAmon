@@ -1,15 +1,12 @@
 import { NextResponse } from 'next/server'
-import { internalKeyHeaders } from '@/lib/agentAuth'
-
-const AGENT_API_BASE_URL = process.env.AGENT_API_URL || process.env.NEXT_PUBLIC_AGENT_API_URL || 'http://localhost:8080'
+import { agentFetch } from '@/lib/agentFetch'
 
 export async function POST() {
   try {
     // D7/S8: /emergency-stop-all now requires internal auth; present the master
     // INTERNAL_API_KEY the webapp already holds.
-    const response = await fetch(`${AGENT_API_BASE_URL}/emergency-stop-all`, {
+    const response = await agentFetch('/emergency-stop-all', {
       method: 'POST',
-      headers: internalKeyHeaders(),
     })
 
     if (!response.ok) {

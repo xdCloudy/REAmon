@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { agentFetch } from '@/lib/agentFetch'
 import { guardProject } from '@/lib/access'
 
-const AGENT_API_URL = process.env.AGENT_API_URL || process.env.NEXT_PUBLIC_AGENT_API_URL || 'http://localhost:8080'
 
 export async function POST(
   request: NextRequest,
@@ -20,8 +20,8 @@ export async function POST(
   }
 
   try {
-    const url = `${AGENT_API_URL}/workspace/jobs/${encodeURIComponent(jobId)}/cancel?projectId=${encodeURIComponent(projectId)}`
-    const resp = await fetch(url, { method: 'POST' })
+    const url = `/workspace/jobs/${encodeURIComponent(jobId)}/cancel?projectId=${encodeURIComponent(projectId)}`
+    const resp = await agentFetch(url, { method: 'POST' })
     if (!resp.ok) {
       const text = await resp.text()
       return NextResponse.json({ error: text }, { status: resp.status })

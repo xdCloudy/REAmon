@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { agentFetch } from '@/lib/agentFetch'
 
-const AGENT_API_URL = process.env.AGENT_API_URL || process.env.NEXT_PUBLIC_AGENT_API_URL || 'http://localhost:8080'
 
 export async function POST(
   _request: NextRequest,
@@ -8,7 +8,7 @@ export async function POST(
 ) {
   const { id } = await params
   try {
-    const resp = await fetch(`${AGENT_API_URL}/sessions/${id}/kill`, {
+    const resp = await agentFetch(`/sessions/${id}/kill`, {
       method: 'POST',
     })
     if (!resp.ok) {

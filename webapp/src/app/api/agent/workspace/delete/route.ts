@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { agentFetch } from '@/lib/agentFetch'
 import { guardProject } from '@/lib/access'
 
-const AGENT_API_URL = process.env.AGENT_API_URL || process.env.NEXT_PUBLIC_AGENT_API_URL || 'http://localhost:8080'
 
 export async function DELETE(request: NextRequest) {
   const projectId = request.nextUrl.searchParams.get('projectId')
@@ -15,8 +15,8 @@ export async function DELETE(request: NextRequest) {
   }
 
   try {
-    const url = `${AGENT_API_URL}/workspace?projectId=${encodeURIComponent(projectId)}&path=${encodeURIComponent(path)}&recursive=${recursive}`
-    const resp = await fetch(url, { method: 'DELETE' })
+    const url = `/workspace?projectId=${encodeURIComponent(projectId)}&path=${encodeURIComponent(path)}&recursive=${recursive}`
+    const resp = await agentFetch(url, { method: 'DELETE' })
     if (!resp.ok) {
       const text = await resp.text()
       return NextResponse.json({ error: text }, { status: resp.status })

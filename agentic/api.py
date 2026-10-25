@@ -36,7 +36,8 @@ from fastapi.responses import Response, JSONResponse
 from langchain_core.messages import SystemMessage, HumanMessage
 from pydantic import BaseModel, Field
 
-from llm_guard import (master_key_is_weak, require_internal_auth,
+from llm_guard import (master_key_is_weak, require_configured_master_internal_auth,
+                       require_internal_auth,
                        require_internal_auth_only, require_master_internal_auth)
 from logging_config import setup_logging
 from orchestrator import AgentOrchestrator
@@ -3520,7 +3521,7 @@ async def llm_takeover_classify(body: TakeoverClassifyRequest):
     }
 
 
-@app.post("/emergency-stop-all", tags=["System"], dependencies=[Depends(require_internal_auth_only)])
+@app.post("/emergency-stop-all", tags=["System"], dependencies=[Depends(require_configured_master_internal_auth)])
 async def emergency_stop_all():
     """Emergency stop: cancel every running agent task immediately."""
     if not ws_manager:
@@ -3536,7 +3537,7 @@ class SessionStopRequest(BaseModel):
     session_id: str
 
 
-@app.post("/agent-session/stop", tags=["Sessions"])
+@app.post("/agent-session/stop", tags=["Sessions"], dependencies=[Depends(require_configured_master_internal_auth)])
 async def stop_agent_session(body: SessionStopRequest):
     """Cancel the running agent task for ONE session (by user/project/session).
 
@@ -4531,9 +4532,10 @@ async def download_file(
 # _resolve_safe validator as the fs_* tools, so path traversal and symlink
 # escape attempts are rejected at the boundary. The webapp drawer + AI panel
 # both consume these.
+_AGENT_REST_AUTH = [Depends(require_configured_master_internal_auth)]
 
 
-@app.get("/workspace/list", tags=["Workspace"])
+@app.get("/workspace/list", tags=["Workspace"], dependencies=_AGENT_REST_AUTH)
 async def workspace_list(
     projectId: str = Query(..., description="Project UUID"),
     path: str = Query(".", description="Subdir relative to /workspace/<projectId>/"),
@@ -4551,7 +4553,7 @@ async def workspace_list(
         return JSONResponse(content={"error": str(e)}, status_code=500)
 
 
-@app.get("/workspace/tree", tags=["Workspace"])
+@app.get("/workspace/tree", tags=["Workspace"], dependencies=_AGENT_REST_AUTH)
 async def workspace_tree(
     projectId: str = Query(...),
     path: str = Query("."),
@@ -4571,7 +4573,7 @@ async def workspace_tree(
         return JSONResponse(content={"error": str(e)}, status_code=500)
 
 
-@app.get("/workspace/download", tags=["Workspace"])
+@app.get("/workspace/download", tags=["Workspace"], dependencies=_AGENT_REST_AUTH)
 async def workspace_download(
     projectId: str = Query(...),
     path: str = Query(...),
@@ -4603,7 +4605,7 @@ class WorkspaceRenameRequest(BaseModel):
     newName: str
 
 
-@app.post("/workspace/rename", tags=["Workspace"])
+@app.post("/workspace/rename", tags=["Workspace"], dependencies=_AGENT_REST_AUTH)
 async def workspace_rename(req: WorkspaceRenameRequest):
     """Rename a single entry within its parent (no cross-dir moves)."""
     if not req.projectId:
@@ -4618,7 +4620,7 @@ async def workspace_rename(req: WorkspaceRenameRequest):
         return JSONResponse(content={"error": str(e)}, status_code=500)
 
 
-@app.delete("/workspace", tags=["Workspace"])
+@app.delete("/workspace", tags=["Workspace"], dependencies=_AGENT_REST_AUTH)
 async def workspace_delete(
     projectId: str = Query(...),
     path: str = Query(...),
@@ -4641,7 +4643,7 @@ class WorkspaceResetRequest(BaseModel):
     projectId: str
 
 
-@app.post("/workspace/reset", tags=["Workspace"])
+@app.post("/workspace/reset", tags=["Workspace"], dependencies=_AGENT_REST_AUTH)
 async def workspace_reset(req: WorkspaceResetRequest):
     """Wipe the workspace back to its initial state (4 empty default folders)."""
     if not req.projectId:
@@ -4656,7 +4658,7 @@ async def workspace_reset(req: WorkspaceResetRequest):
         return JSONResponse(content={"error": str(e)}, status_code=500)
 
 
-@app.get("/workspace/jobs", tags=["Workspace"])
+@app.get("/workspace/jobs", tags=["Workspace"], dependencies=_AGENT_REST_AUTH)
 async def workspace_jobs_list(
     projectId: str = Query(...),
     active: Optional[bool] = Query(None, description="True=running only, False=terminal only, omit for all"),
@@ -4668,7 +4670,7 @@ async def workspace_jobs_list(
     return {"projectId": projectId, "jobs": reg.list(projectId, active=active)}
 
 
-@app.post("/workspace/jobs/{job_id}/cancel", tags=["Workspace"])
+@app.post("/workspace/jobs/{job_id}/cancel", tags=["Workspace"], dependencies=_AGENT_REST_AUTH)
 async def workspace_job_cancel(
     job_id: str,
     projectId: str = Query(...),
@@ -4681,7 +4683,7 @@ async def workspace_job_cancel(
     return result
 
 
-@app.post("/workspace/upload", tags=["Workspace"])
+@app.post("/workspace/upload", tags=["Workspace"], dependencies=_AGENT_REST_AUTH)
 async def workspace_upload(
     projectId: str = Form(...),
     path: str = Form("."),
@@ -4717,7 +4719,7 @@ class WorkspaceMkdirRequest(BaseModel):
     path: str
 
 
-@app.post("/workspace/mkdir", tags=["Workspace"])
+@app.post("/workspace/mkdir", tags=["Workspace"], dependencies=_AGENT_REST_AUTH)
 async def workspace_mkdir(req: WorkspaceMkdirRequest):
     """Create a new directory (parents created automatically)."""
     if not req.projectId:
@@ -4739,7 +4741,7 @@ class WorkspaceBulkArchiveRequest(BaseModel):
     archiveName: str = "bundle"
 
 
-@app.post("/workspace/bulk-archive", tags=["Workspace"])
+@app.post("/workspace/bulk-archive", tags=["Workspace"], dependencies=_AGENT_REST_AUTH)
 async def workspace_bulk_archive(req: WorkspaceBulkArchiveRequest):
     """Bundle N workspace entries into one tar.gz/zip; stream back to client.
 
@@ -4768,7 +4770,7 @@ async def workspace_bulk_archive(req: WorkspaceBulkArchiveRequest):
     )
 
 
-@app.get("/workspace/archive-download", tags=["Workspace"])
+@app.get("/workspace/archive-download", tags=["Workspace"], dependencies=_AGENT_REST_AUTH)
 async def workspace_archive_download(
     projectId: str = Query(...),
     path: str = Query(...),
@@ -4797,7 +4799,7 @@ async def workspace_archive_download(
     )
 
 
-@app.get("/workspace/preview", tags=["Workspace"])
+@app.get("/workspace/preview", tags=["Workspace"], dependencies=_AGENT_REST_AUTH)
 async def workspace_preview(
     projectId: str = Query(...),
     path: str = Query(...),
@@ -4815,7 +4817,7 @@ async def workspace_preview(
         return JSONResponse(content={"error": str(e)}, status_code=500)
 
 
-@app.get("/workspace/properties", tags=["Workspace"])
+@app.get("/workspace/properties", tags=["Workspace"], dependencies=_AGENT_REST_AUTH)
 async def workspace_properties(
     projectId: str = Query(...),
     path: str = Query(...),
@@ -4918,7 +4920,7 @@ async def get_tunnel_status():
     }
 
 
-@app.get("/sessions", tags=["Sessions"])
+@app.get("/sessions", tags=["Sessions"], dependencies=_AGENT_REST_AUTH)
 async def get_sessions():
     """List all active Metasploit sessions, background jobs, and non-MSF sessions."""
     try:
@@ -4932,7 +4934,7 @@ async def get_sessions():
         return JSONResponse(content={"error": str(e)}, status_code=502)
 
 
-@app.post("/sessions/{session_id}/interact", tags=["Sessions"])
+@app.post("/sessions/{session_id}/interact", tags=["Sessions"], dependencies=_AGENT_REST_AUTH)
 async def interact_session(session_id: int, body: dict):
     """Send a command to a specific Metasploit session."""
     try:
@@ -4948,7 +4950,7 @@ async def interact_session(session_id: int, body: dict):
         return JSONResponse(content={"error": str(e)}, status_code=502)
 
 
-@app.post("/sessions/{session_id}/kill", tags=["Sessions"])
+@app.post("/sessions/{session_id}/kill", tags=["Sessions"], dependencies=_AGENT_REST_AUTH)
 async def kill_session(session_id: int):
     """Kill a specific Metasploit session."""
     try:
@@ -4960,7 +4962,7 @@ async def kill_session(session_id: int):
         return JSONResponse(content={"error": str(e)}, status_code=502)
 
 
-@app.post("/jobs/{job_id}/kill", tags=["Sessions"])
+@app.post("/jobs/{job_id}/kill", tags=["Sessions"], dependencies=_AGENT_REST_AUTH)
 async def kill_job(job_id: int):
     """Kill a background Metasploit job."""
     try:
@@ -4972,7 +4974,7 @@ async def kill_job(job_id: int):
         return JSONResponse(content={"error": str(e)}, status_code=502)
 
 
-@app.post("/session-chat-map", tags=["Sessions"])
+@app.post("/session-chat-map", tags=["Sessions"], dependencies=_AGENT_REST_AUTH)
 async def session_chat_map(body: dict):
     """Register a mapping between a Metasploit session ID and agent chat session ID."""
     try:
@@ -4984,7 +4986,7 @@ async def session_chat_map(body: dict):
         return JSONResponse(content={"error": str(e)}, status_code=502)
 
 
-@app.post("/non-msf-sessions", tags=["Sessions"])
+@app.post("/non-msf-sessions", tags=["Sessions"], dependencies=_AGENT_REST_AUTH)
 async def register_non_msf_session(body: dict):
     """Register a non-Metasploit session (netcat, socat, etc.)."""
     try:

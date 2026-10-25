@@ -246,6 +246,24 @@ async def require_master_internal_auth(request: Request) -> None:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
 
+async def require_configured_master_internal_auth(request: Request) -> None:
+    """Require a configured master key and reject every other credential.
+
+    Use this for REST controls that must never be exposed by an unconfigured
+    agent. Unlike the compatibility dependency above, missing or placeholder
+    configuration fails closed, and the scoped scanner key is never accepted.
+    """
+    master = os.environ.get("INTERNAL_API_KEY", "")
+    if not master or master == _CHANGEME:
+        raise HTTPException(
+            status_code=503,
+            detail="Internal API authentication is not configured",
+        )
+    provided = request.headers.get("x-internal-key", "")
+    if not hmac.compare_digest(provided.encode(), master.encode()):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+
 async def require_internal_auth_only(request: Request) -> None:
     """FastAPI dependency: AUTH ONLY (no LLM rate-limit / daily spend cap).
 

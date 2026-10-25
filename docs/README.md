@@ -1,0 +1,79 @@
+# REAmon documentation index
+
+Start with the [product vision](REAMON_PRODUCT_VISION.md), [goals and roadmap](REAMON_GOALS.md),
+[workflow](REAMON_WORKFLOW.md), and [production readiness matrix](REAMON_READINESS_MATRIX.md).
+This index links every Markdown guide under `docs/` so the short top-level README can
+stay useful on mobile.
+
+## Product, reverse engineering, and operations
+
+- [Product vision](REAMON_PRODUCT_VISION.md)
+- [Goals and roadmap](REAMON_GOALS.md)
+- [Weighted progress matrix](REAMON_PROGRESS.md)
+- [Weighted progress data](REAMON_PROGRESS.json)
+- [Production readiness matrix](REAMON_READINESS_MATRIX.md)
+- [Feature matrix](REAMON_FEATURE_MATRIX.md)
+- [Language and format matrix](REAMON_LANGUAGE_MATRIX.md)
+- [Workflow](REAMON_WORKFLOW.md)
+- [Architecture](REAMON_ARCHITECTURE.md)
+- [Release, backup, and recovery runbook](REAMON_RELEASE_RUNBOOK.md)
+- [Migration from RedAmon](REAMON_MIGRATION.md)
+- [IDA Pro integration](REAMON_IDA_PRO.md)
+- [Ruby recovery plan](REAMON_RUBY_RECOVERY.md)
+- [Reference portfolio](REAMON_REFERENCE_PORTFOLIO.md)
+- [Upstream reuse and licensing](REAMON_UPSTREAM_REUSE.md)
+- [Native function matching ADR](REAMON_NATIVE_FUNCTION_MATCHING_ADR.md)
+- [ToCode adapter](REAMON_TOCODE_ADAPTER.md)
+
+## Engineering and subsystem guides
+
+- [Developer guide](readmes/README.DEV.md)
+- [Testing guide](readmes/README.TESTING.md)
+- [Webapp](readmes/README.WEBAPP.md)
+- [Agentic system](readmes/README.AGENTIC_SYSTEM.md)
+- [Tradecraft](readmes/README.TRADECRAFT.md)
+- [Tradecraft system overview](readmes/README.TM.SYSTEM_OVERVIEW.md)
+- [CypherFix agents](readmes/README.CYPHERFIX_AGENTS.md)
+- [MCP](readmes/README.MCP.md)
+- [MCP server](readmes/README.MCP.SERVER.md)
+- [Graph database](readmes/README.GRAPH_DB.md)
+- [Graph schema](readmes/GRAPH.SCHEMA.md)
+- [PostgreSQL](readmes/README.POSTGRES.md)
+- [Knowledge base](readmes/README.KBASE.md)
+- [Recon](readmes/README.RECON.md)
+- [Recon orchestrator](readmes/README.RECON_ORCHESTRATOR.md)
+- [WCP recon module](readmes/README.WCP_RECON_MODULE.md)
+- [AI surface recon module](readmes/AI_SURFACE_RECON_MODULE.md)
+- [AI gauntlet technical guide](readmes/AI_GAUNTLET_TECH_DOC.md)
+- [Vulnerability scanning](readmes/README.VULN_SCAN.md)
+- [Supply chain scanning](readmes/README.SUPPLY_CHAIN.md)
+- [Traffic capture](readmes/README.TRAFFIC.md)
+- [Port scanning](readmes/README.PORT_SCAN.md)
+- [HTTP probing](readmes/README.HTTP_PROBE.md)
+- [GVM](readmes/README.GVM.md)
+- [MITRE data](readmes/README.MITRE.md)
+- [GPIGS](readmes/README.GPIGS.md)
+- [Resource enumeration](readmes/README.RESOURCE_ENUM.md)
+- [Memory governor](readmes/README.MEMORY_GOVERNOR.md)
+- [Settings registry](readmes/README.SETTINGS_REGISTRY.md)
+- [Security posture](readmes/README.SECURITY_POSTURE.md)
+- [Technology stack](readmes/TECH_STACK.md)
+- [Troubleshooting](readmes/TROUBLESHOOTING.md)
+
+## Coding-agent prompts and skill system
+
+- [Provider integration guidelines](readmes/coding_agent_prompts/PROVIDER_INTEGRATION_GUIDELINES.md)
+- [Add an agent tool](readmes/coding_agent_prompts/PROMPT.ADD_AGENTIC_TOOL.md)
+- [Add an AI feature to recon](readmes/coding_agent_prompts/PROMPT.ADD_AI_IN_RECON.md)
+- [Add a built-in agent skill](readmes/coding_agent_prompts/PROMPT.ADD_BUILTIN_AGENT_SKILL.md)
+- [Add a community agent skill](readmes/coding_agent_prompts/PROMPT.ADD_COMMUNITY_AGENT_SKILL.md)
+- [Add a community chat skill](readmes/coding_agent_prompts/PROMPT.ADD_COMMUNITY_CHAT_SKILL.md)
+- [Add partial recon](readmes/coding_agent_prompts/PROMPT.ADD_PARTIAL_RECON.md)
+- [Add a recon tool](readmes/coding_agent_prompts/PROMPT.ADD_RECON_TOOL.md)
+- [Skill management](readmes/skills_management/SKILLS_MANAGEMENT.md)
+- [Skill template](readmes/skills_management/templates/SKILL.template.md)
+- [Example skill](readmes/skills_management/templates/SKILL.example.md)
+- [Skill README template](readmes/skills_management/templates/README.md)
+- [Hook registration template](readmes/skills_management/templates/hook-registration.md)
+- [Agent rules template](readmes/skills_management/templates/AGENTS.template.md)
+- [General architecture](readmes/ARCHITECTURE.md)

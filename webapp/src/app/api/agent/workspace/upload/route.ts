@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { agentFetch } from '@/lib/agentFetch'
 import { guardProject } from '@/lib/access'
 
-const AGENT_API_URL = process.env.AGENT_API_URL || process.env.NEXT_PUBLIC_AGENT_API_URL || 'http://localhost:8080'
 
 // Increase body size limit so this proxy can stream large uploads.
 export const runtime = 'nodejs'
@@ -23,10 +23,11 @@ export async function POST(request: NextRequest) {
 
   try {
     // Re-encode as multipart for upstream. fetch() handles this for FormData.
-    const resp = await fetch(`${AGENT_API_URL}/workspace/upload`, {
-      method: 'POST',
-      body: formData,
-    })
+    const resp = await agentFetch(
+      '/workspace/upload',
+      { method: 'POST', body: formData },
+      { timeoutMs: 0 },
+    )
     const data = await resp.json()
     return NextResponse.json(data, { status: resp.status })
   } catch (error) {

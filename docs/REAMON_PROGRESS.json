@@ -1,11 +1,12 @@
 {
   "schemaVersion": 1,
-  "displayName": "REAmon long-term product goal",
+  "displayName": "REAmon production-ready reverse-engineering goal",
   "assessmentDate": "2026-10-25",
+  "scopeNote": "This assessment expands the previous product-only scope to include secure, reliable production operation. The lower total reflects the wider goal, not a measured regression in reverse-engineering features.",
   "workstreams": [
     {
       "name": "Core analysis and visualizer workflow",
-      "weight": 20,
+      "weight": 16,
       "completion": 76,
       "summary": "Imports, provider execution, database-backed code units, source navigation, and a multi-provider visualizer are established across several language and binary workflows. A worker-run SLB2 inspection of the 1.26 GB PS5 QA artifact completed and persisted two bounded container facts; wider fixture validation remains open.",
       "remaining": "Provider runtime and fidelity vary by format. Broad real-world fixture comparison, remaining provider validation, and consistent recovery across large projects are still open.",
@@ -13,7 +14,7 @@
     },
     {
       "name": "Database-grounded project memory and provenance",
-      "weight": 20,
+      "weight": 16,
       "completion": 73,
       "summary": "Project observations, symbols, relationships, source drafts, review receipts, hashes, provider versions, and run evidence ground AI context and cross-provider name reuse. Analyst-reviewed cross-artifact function matches now persist exact pair evidence and supply bounded naming context to explanations and rewrites for exact matched functions, with duplicate pair records resolved by their latest analyst review. Their matcher includes a separately stored, low-weight exact string-reference overlap when both providers supply complete lists. A bounded REA Evidence v2 bundle importer validates canonical identities and manifests, stores complete provider-attributed records idempotently, links only exact artifact hashes, and supplies a bounded untrusted subset to rewrite context.",
       "remaining": "Coverage and consistency still need validation across all formats, providers, and long-running project histories.",
@@ -21,7 +22,7 @@
     },
     {
       "name": "Major-language and format decompilation fluency",
-      "weight": 30,
+      "weight": 24,
       "completion": 35,
       "summary": "Useful Java, Android, .NET, Python, WebAssembly, native, and additional format paths exist at different maturity levels.",
       "remaining": "Major languages need idiomatic source recovery, broader project-level coverage, and versioned validation; several formats remain alternate views or early experiments.",
@@ -29,7 +30,7 @@
     },
     {
       "name": "Maintainable editing, review, and export",
-      "weight": 15,
+      "weight": 12,
       "completion": 43,
       "summary": "Hash-bound drafts and immutable review receipts preserve lineage, with syntax validation, an early Java rebuild, and language-specific rename workflows now extending to C/C++ local bindings.",
       "remaining": "Project-wide edits, cross-file builds, more target-format rebuilds, and runtime or behavior validation remain limited; representative C/C++ projects and compiler-version coverage still need evaluation.",
@@ -37,11 +38,19 @@
     },
     {
       "name": "Fixture-backed validation and fidelity evidence",
-      "weight": 15,
+      "weight": 12,
       "completion": 15,
       "summary": "Provider smoke checks, structural validators, and a small number of synthetic round-trip cases provide early evidence.",
       "remaining": "Build a broad, versioned fixture suite for clean, optimized, stripped, and obfuscated inputs and compare recovered behavior and fidelity.",
       "basis": "Provider smoke checks and structural validators exist, but broad versioned clean, optimized, stripped, and obfuscated fixture comparisons are still missing."
+    },
+    {
+      "name": "Security, reliability, and production operations",
+      "weight": 20,
+      "completion": 25,
+      "summary": "Sensitive agent REST controls now fail closed behind a configured master key, with authenticated webapp proxies and preserved project guards. Focused Docker and webapp checks pass; full security and release gates remain incomplete.",
+      "remaining": "The security scan is partial, broad test suites have unresolved failures or have not finished, multi-user session ownership is unverified, and deployment, worker, backup, and restore gates need end-to-end evidence.",
+      "basis": "The current patch protects 22 workspace, session, job, emergency-stop, and agent-session-stop REST routes. Focused Docker auth tests and existing graph-auth tests pass; 39 focused webapp tests pass and webapp type-check passes. The security scan remains partial, the full webapp suite reports unrelated failures, the full agent unit gate has not returned, and the live deployment has not been rebuilt or exercised with the new boundary. LAN WebSocket endpoints are unchanged."
     }
   ]
 }

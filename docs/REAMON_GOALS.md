@@ -57,6 +57,16 @@ available method, and export the accepted result with its provenance.
 - Keep the visualizer useful across source, bytecode, native code, resources, and
   mixed projects.
 
+### G6. Reach secure, reliable production operation
+
+- Require configured authentication for sensitive agent REST controls and preserve
+  project ownership checks at the webapp boundary.
+- Establish passing, repeatable Docker and webapp test gates for the supported stack.
+- Verify worker availability, large-import recovery, upgrades, backups, and restore
+  procedures against a running deployment.
+- Track security-audit coverage and deployment assumptions; do not treat an incomplete
+  scan or a passing focused test as production certification.
+
 “100% fluency” is a direction to cover the major languages and their important
 toolchains, formats, and idioms. Completion is measured by declared input coverage,
 unit recovery, identifier/type/relationship recovery, readable source output,
@@ -69,6 +79,7 @@ recovery of source details erased by compilation or obfuscation.
 | --- | --- | --- |
 | P0 | Reliable unit inventory, evidence provenance, and truthful coverage | The agent and operator need to agree on what exists and what has been processed. |
 | P0 | Database-backed project memory and consistent symbol identity | Every later draft depends on project-wide context that does not contradict itself. |
+| P0 | Secure service boundaries and repeatable release checks | Direct agent controls, tenant boundaries, worker availability, and recovery need evidence before production claims. |
 | P1 | One-unit work lifecycle with attempts, review, and validation records | This adapts decomp.wtf's most valuable process and bounds agent mistakes. |
 | P1 | Visualizer connects artifact, unit, relationships, draft, and review state | Results need to be understandable and actionable in one workspace. |
 | P2 | Language-specific validators and repeatable fixture corpora | Confidence should grow from measured provider behavior, not broad claims. |
@@ -91,8 +102,10 @@ A slice is ready for wider use only when:
 
 Current implementation status is tracked in the [feature matrix](REAMON_FEATURE_MATRIX.md)
 and per-language status in the [language matrix](REAMON_LANGUAGE_MATRIX.md). The
-README's weighted full-goal progress estimate is generated from the committed
+production gate status is tracked in the [readiness matrix](REAMON_READINESS_MATRIX.md).
+The README's weighted full-goal progress estimate is generated from the committed
 machine-readable [progress data](REAMON_PROGRESS.json). The human-readable
 [progress matrix](REAMON_PROGRESS.md) shows the workstream weights, estimates,
-evidence, and remaining gaps; both are refreshed after pushes to `main`. This is
-separate from the narrower bootstrap release-readiness score.
+evidence, and remaining gaps; both are refreshed after pushes to `main`. The weighted
+estimate now includes security and production operations. It is a progress estimate,
+not a release-readiness certification; use the readiness matrix for release gates.

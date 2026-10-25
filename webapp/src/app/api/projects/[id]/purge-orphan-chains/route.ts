@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
 import { getGraphSession } from '../../../graph/neo4j'
 import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
+import { agentFetch } from '@/lib/agentFetch'
 
 // POST /api/projects/[id]/purge-orphan-chains
 //
@@ -46,10 +47,9 @@ export async function POST(
         .filter(c => c.chainId && !liveSessionIds.has(c.chainId))
 
       // Stop each orphan's running agent task (best-effort) so it can't re-seed.
-      const AGENT_API_URL = process.env.AGENT_API_URL || process.env.NEXT_PUBLIC_AGENT_API_URL || 'http://agent:8080'
       for (const orphan of orphans) {
         try {
-          await fetch(`${AGENT_API_URL}/agent-session/stop`, {
+          await agentFetch('/agent-session/stop', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ user_id: orphan.userId, project_id: projectId, session_id: orphan.chainId }),

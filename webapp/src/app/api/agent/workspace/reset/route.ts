@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { agentFetch } from '@/lib/agentFetch'
 import { guardProject } from '@/lib/access'
 
-const AGENT_API_URL = process.env.AGENT_API_URL || process.env.NEXT_PUBLIC_AGENT_API_URL || 'http://localhost:8080'
 
 export async function POST(request: NextRequest) {
   let body: { projectId?: string }
@@ -17,7 +17,7 @@ export async function POST(request: NextRequest) {
   if (__denied) return __denied
 
   try {
-    const resp = await fetch(`${AGENT_API_URL}/workspace/reset`, {
+    const resp = await agentFetch(`/workspace/reset`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
