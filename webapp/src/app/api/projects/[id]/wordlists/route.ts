@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { mkdir, readdir, stat, unlink, writeFile } from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
+import { guardProjectStrict } from '@/lib/access'
 
 const WORDLIST_UPLOAD_PATH = process.env.WORDLIST_UPLOAD_PATH || '/data/recon-wordlists'
 const MAX_FILE_SIZE = 50 * 1024 * 1024 // 50 MB
@@ -54,6 +55,8 @@ async function listWordlists(projectId: string) {
 export async function GET(_request: NextRequest, { params }: RouteParams) {
   try {
     const { id } = await params
+    const denied = await guardProjectStrict(id)
+    if (denied) return denied
     const wordlists = await listWordlists(id)
     return NextResponse.json({ wordlists })
   } catch (error) {
@@ -69,6 +72,8 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     const { id } = await params
+    const denied = await guardProjectStrict(id)
+    if (denied) return denied
     const formData = await request.formData()
     const file = formData.get('file') as File | null
 
@@ -116,6 +121,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
     const { id } = await params
+    const denied = await guardProjectStrict(id)
+    if (denied) return denied
     const name = request.nextUrl.searchParams.get('name')
 
     if (!name) {

@@ -32,6 +32,8 @@ import {
   requireConversationAccess,
   accessEnforced,
   guardProject,
+  requireProjectAccessStrict,
+  guardProjectStrict,
 } from './access'
 
 beforeEach(() => {
@@ -126,6 +128,47 @@ describe('requireProjectAccess', () => {
   test('empty projectId -> 400', async () => {
     const r = await requireProjectAccess({ userId: 'u1' }, '')
     expect((r as NextResponse).status).toBe(400)
+  })
+})
+
+describe('guardProjectStrict', () => {
+  test('requires an effective user', async () => {
+    mockGetEffectiveUser.mockResolvedValue(null)
+    const r = await guardProjectStrict('p1')
+    expect((r as NextResponse).status).toBe(401)
+    expect(mockProjectFindUnique).not.toHaveBeenCalled()
+  })
+  test('blocks a different owner even when ACCESS_ENFORCE is disabled', async () => {
+    process.env.ACCESS_ENFORCE = 'false'
+    mockGetEffectiveUser.mockResolvedValue({ userId: 'attacker' })
+    mockProjectFindUnique.mockResolvedValue({ id: 'p1', userId: 'victim' })
+    const r = await guardProjectStrict('p1')
+    expect((r as NextResponse).status).toBe(404)
+  })
+  test('allows the project owner', async () => {
+    mockGetEffectiveUser.mockResolvedValue({ userId: 'u1' })
+    mockProjectFindUnique.mockResolvedValue({ id: 'p1', userId: 'u1' })
+    expect(await guardProjectStrict('p1')).toBeNull()
+  })
+})
+
+describe('requireProjectAccessStrict', () => {
+  test('owner -> returns project', async () => {
+    mockProjectFindUnique.mockResolvedValue({ id: 'p1', userId: 'u1' })
+    expect(await requireProjectAccessStrict({ userId: 'u1' }, 'p1')).toEqual({
+      project: { id: 'p1', userId: 'u1' },
+    })
+  })
+  test('non-owner -> 404 even when ACCESS_ENFORCE is off', async () => {
+    process.env.ACCESS_ENFORCE = '0'
+    mockProjectFindUnique.mockResolvedValue({ id: 'p1', userId: 'victim' })
+    const r = await requireProjectAccessStrict({ userId: 'attacker' }, 'p1')
+    expect((r as NextResponse).status).toBe(404)
+  })
+  test('missing project -> 404', async () => {
+    mockProjectFindUnique.mockResolvedValue(null)
+    const r = await requireProjectAccessStrict({ userId: 'u1' }, 'p1')
+    expect((r as NextResponse).status).toBe(404)
   })
 })
 

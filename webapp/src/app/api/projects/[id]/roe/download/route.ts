@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
+import { guardProjectStrict } from '@/lib/access'
 
 // GET /api/projects/[id]/roe/download - Download the original RoE document
 export async function GET(
@@ -8,6 +9,8 @@ export async function GET(
 ) {
   try {
     const { id } = await params
+    const denied = await guardProjectStrict(id)
+    if (denied) return denied
 
     const project = await prisma.project.findUnique({
       where: { id },

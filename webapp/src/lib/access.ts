@@ -81,6 +81,15 @@ export async function guardProject(projectId: string): Promise<NextResponse | nu
   return null
 }
 
+/** Project guard for sensitive data and file controls that must always block cross-user access. */
+export async function guardProjectStrict(projectId: string): Promise<NextResponse | null> {
+  const eff = await requireEffectiveUser()
+  if (eff instanceof NextResponse) return eff
+  const access = await requireProjectAccessStrict(eff, projectId)
+  if (access instanceof NextResponse) return access
+  return null
+}
+
 /**
  * Load a Project and verify the effective user owns it. 404 when the project does
  * not exist (always hard); ownership violation is log-only-aware. On success (or
@@ -107,6 +116,24 @@ export async function requireProjectAccess(
       eff: eff.userId,
     })
     if (denied) return denied
+  }
+  return { project }
+}
+
+/** Project access check that cannot be relaxed by the rollout's log-only setting. */
+export async function requireProjectAccessStrict(
+  eff: EffectiveUser,
+  projectId: string
+): Promise<{ project: { id: string; userId: string } } | NextResponse> {
+  if (!projectId) {
+    return NextResponse.json({ error: 'projectId is required' }, { status: 400 })
+  }
+  const project = await prisma.project.findUnique({
+    where: { id: projectId },
+    select: { id: true, userId: true },
+  })
+  if (!project || project.userId !== eff.userId) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }
   return { project }
 }
