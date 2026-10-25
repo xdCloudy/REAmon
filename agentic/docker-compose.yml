@@ -26,6 +26,8 @@ services:
       MCP_PLAYWRIGHT_URL: http://host.docker.internal:8005/sse
       MCP_METASPLOIT_PROGRESS_URL: http://host.docker.internal:${MSF_PROGRESS_HOST_PORT:-8013}/progress
       MCP_HYDRA_PROGRESS_URL: http://host.docker.internal:${HYDRA_PROGRESS_HOST_PORT:-8014}/progress
+      # Shared with the Kali MCP servers; used to authenticate progress sidecars.
+      MCP_AUTH_TOKEN: "${MCP_AUTH_TOKEN:-}"
       # Webapp API (via host network)
       WEBAPP_API_URL: http://host.docker.internal:3000
     extra_hosts:

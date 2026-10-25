@@ -449,7 +449,8 @@ ports:
   - "8003:8003"   # metasploit
   - "8004:8004"   # nmap
   - "8005:8005"   # playwright (browser automation)
-  - "8013:8013"   # metasploit progress endpoint
+  - "127.0.0.1:8013:8013"   # authenticated Metasploit progress endpoint
+  - "127.0.0.1:8014:8014"   # authenticated Hydra progress endpoint
 ```
 
 To change ports or settings, edit `docker-compose.yml` directly.
@@ -472,14 +473,16 @@ default:
 - **Loopback-only host publish.** The MCP servers (`8000/8002/8003/8004/8005`),
   progress streams (`8013/8014`), tunnel-manager (`8015`) and ngrok API (`4040`)
   are published on `127.0.0.1` — never on the LAN. The agent reaches them over
-  the internal `redamon` Docker bridge, so no functionality depends on host
-  reachability. (`4444`, the reverse-shell catcher, is intentionally left
+  the internal `redamon` Docker bridge in the full stack; the standalone
+  development compose uses the loopback host mapping. (`4444`, the reverse-shell catcher, is intentionally left
   routable so a real target can connect back in direct/no-tunnel mode.)
-- **Bearer-token auth.** Every MCP SSE request must carry
+- **Bearer-token auth.** Every MCP SSE request and every Metasploit/Hydra
+  progress or session-control request on ports 8013/8014 must carry
   `Authorization: Bearer $MCP_AUTH_TOKEN`. `redamon.sh` generates the token into
-  `.env`; the agent sends it automatically. If the token is unset (e.g. a manual
+  `.env`; the agent sends it automatically. Health checks remain public and
+  return no session or progress data. If the token is unset (e.g. a manual
   `docker compose up` without running `redamon.sh`), the servers **fail closed**
-  and reject every request (a token-less request gets 401/1008), and a
+  and reject protected requests (401), and a
   wrapper-build error no longer degrades to serving unauthenticated; the
   loopback bind is defense-in-depth on top of the mandatory bearer. To run the
   stack at all, set `MCP_AUTH_TOKEN` in `.env` (or just run `redamon.sh`).
@@ -516,7 +519,8 @@ docker-compose exec kali-sandbox capsh --print
 
 ### Progress Endpoint Not Working
 
-If `curl http://localhost:8013/progress` returns "Connection refused":
+If `curl -H "Authorization: Bearer $MCP_AUTH_TOKEN" http://localhost:8013/progress`
+returns "Connection refused":
 
 1. **Check port mapping**: Port changes require container recreation, not just restart:
    ```bash

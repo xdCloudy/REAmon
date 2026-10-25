@@ -254,7 +254,8 @@ flowchart TB
 > API (`8090`) and the reverse-shell listener (`4444`) are published on all
 > interfaces. Everything else in this table is bound to **`127.0.0.1` only** —
 > reachable from the host for debugging, not from the LAN. The MCP servers
-> (`8000-8005`) additionally require `Authorization: Bearer $MCP_AUTH_TOKEN`;
+> (`8000-8005`) and the MSF/Hydra progress/session endpoints (`8013-8014`)
+> require `Authorization: Bearer $MCP_AUTH_TOKEN`;
 > the agent supplies it automatically over the internal Docker bridge. See
 > [README.MCP.md](README.MCP.md#security-notice) and STRIDE S10/E1/I9/S13.
 

@@ -427,7 +427,7 @@ Host-published listeners (from `docker-compose.yml`), shown for the **local** po
 | MCP metasploit | kali-sandbox | SSE/HTTP | `127.0.0.1:8003` | Bearer `MCP_AUTH_TOKEN` | **Loopback only** |
 | MCP nmap | kali-sandbox | SSE/HTTP | `127.0.0.1:8004` | Bearer `MCP_AUTH_TOKEN` | **Loopback only** |
 | MCP playwright | kali-sandbox | SSE/HTTP | `127.0.0.1:8005` | Bearer `MCP_AUTH_TOKEN` | **Loopback only** |
-| MSF / Hydra progress | kali-sandbox | HTTP | `127.0.0.1:8013` / `8014` | None (loopback + agent-internal) | **Loopback only** (2026-07-05) |
+| MSF / Hydra progress and session control | kali-sandbox | HTTP | `127.0.0.1:8013` / `8014` | Bearer `MCP_AUTH_TOKEN`; public health only | **Loopback only** |
 | Tunnel manager | kali-sandbox | HTTP | `127.0.0.1:8015` | Push-config trigger (loopback) | **Loopback only** (2026-07-05) |
 | Interactive terminal WS | kali-sandbox | WS | `127.0.0.1:8016` | Init-frame tenant ctx | **Loopback only** |
 | Reverse-shell / ngrok | kali-sandbox | TCP/HTTP | `4444` / `127.0.0.1:4040` | None | 4444 LAN (direct reverse shells) local; **public: `127.0.0.1`, `ufw`-opened to target CIDRs per engagement**; 4040 loopback |

@@ -91,13 +91,16 @@ class ConfiguredMasterAuthTests(unittest.TestCase):
                 return {"sessions": []}
 
         class UpstreamClient:
+            headers_seen = None
+
             async def __aenter__(self):
                 return self
 
             async def __aexit__(self, *_args):
                 return False
 
-            async def get(self, _url):
+            async def get(self, _url, headers=None):
+                type(self).headers_seen = headers
                 return UpstreamResponse()
 
         async def get_sessions():
@@ -109,10 +112,17 @@ class ConfiguredMasterAuthTests(unittest.TestCase):
                         "/sessions", headers={"x-internal-key": "master-secret"}
                     )
 
-        with patch.dict(os.environ, {"INTERNAL_API_KEY": "master-secret"}, clear=True):
+        with patch.dict(os.environ, {
+            "INTERNAL_API_KEY": "master-secret",
+            "MCP_AUTH_TOKEN": "progress-secret",
+        }, clear=True):
             response = asyncio.run(get_sessions())
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"sessions": []})
+        self.assertEqual(
+            UpstreamClient.headers_seen,
+            {"Authorization": "Bearer progress-secret"},
+        )
 
 
 if __name__ == "__main__":

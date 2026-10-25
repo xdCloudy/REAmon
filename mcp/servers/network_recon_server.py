@@ -32,6 +32,7 @@ import subprocess
 import threading
 import time
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from _progress_auth import AuthenticatedProgressHandler
 
 # Strip ANSI escape codes (terminal colors) from output
 ANSI_ESCAPE = re.compile(r'\x1b\[[0-9;]*[a-zA-Z]')
@@ -1517,10 +1518,12 @@ def cve_intel(args: str, api_key: str = "") -> str:
         return f"[ERROR] {str(e)}"
 
 
-class HydraProgressHandler(BaseHTTPRequestHandler):
+class HydraProgressHandler(AuthenticatedProgressHandler, BaseHTTPRequestHandler):
     """HTTP handler for Hydra progress endpoint."""
 
     def do_GET(self):
+        if not self._require_progress_auth(public_health=True):
+            return
         if self.path == '/progress':
             try:
                 progress = get_hydra_progress()

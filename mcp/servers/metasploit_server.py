@@ -25,6 +25,7 @@ import json
 import atexit
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from typing import Optional, Set, List, Dict, Tuple
+from _progress_auth import AuthenticatedProgressHandler
 
 # Server configuration
 SERVER_NAME = "metasploit"
@@ -1061,7 +1062,7 @@ def msf_restart() -> str:
 PROGRESS_PORT = int(os.getenv("MSF_PROGRESS_PORT", "8013"))
 
 
-class SessionProgressHandler(BaseHTTPRequestHandler):
+class SessionProgressHandler(AuthenticatedProgressHandler, BaseHTTPRequestHandler):
     """HTTP handler for progress + session management endpoints."""
 
     def _parse_route(self) -> Tuple[str, Optional[int], Optional[str]]:
@@ -1134,6 +1135,8 @@ class SessionProgressHandler(BaseHTTPRequestHandler):
             pass
 
     def do_GET(self):
+        if not self._require_progress_auth(public_health=True):
+            return
         resource, res_id, action = self._parse_route()
 
         if resource == 'progress':
@@ -1159,6 +1162,8 @@ class SessionProgressHandler(BaseHTTPRequestHandler):
             self._send_status(404)
 
     def do_POST(self):
+        if not self._require_progress_auth():
+            return
         resource, res_id, action = self._parse_route()
         body = self._read_json_body()
 
@@ -1203,6 +1208,8 @@ class SessionProgressHandler(BaseHTTPRequestHandler):
             self._send_json(500, {"error": str(e)})
 
     def do_DELETE(self):
+        if not self._require_progress_auth():
+            return
         resource, res_id, action = self._parse_route()
 
         if resource == 'non-msf-sessions' and res_id is not None:
@@ -1216,6 +1223,8 @@ class SessionProgressHandler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         """Preflight: no CORS allowance (I9). Cross-origin browser reads of this
         server-side-only endpoint are intentionally rejected."""
+        if not self._require_progress_auth():
+            return
         self._send_status(204)
 
     def log_message(self, format, *args):

@@ -16,6 +16,7 @@ import httpx
 from state import AgentState
 from orchestrator_helpers.config import get_identifiers
 from tools import set_tenant_context, set_phase_context, set_graph_view_context
+from progress_auth import internal_mcp_headers
 
 logger = logging.getLogger(__name__)
 
@@ -292,7 +293,8 @@ async def _execute_single_step(
                 async with httpx.AsyncClient(timeout=5.0) as client:
                     await client.post(
                         f"{session_manager_base}/session-chat-map",
-                        json={"msf_session_id": msf_session_id, "chat_session_id": session_id}
+                        json={"msf_session_id": msf_session_id, "chat_session_id": session_id},
+                        headers=internal_mcp_headers(),
                     )
             except Exception:
                 pass
@@ -306,7 +308,8 @@ async def _execute_single_step(
                     await client.post(
                         f"{session_manager_base}/non-msf-sessions",
                         json={"type": "listener", "tool": "netcat", "command": cmd,
-                              "chat_session_id": session_id}
+                               "chat_session_id": session_id},
+                        headers=internal_mcp_headers(),
                     )
             except Exception:
                 pass

@@ -23,12 +23,13 @@ services:
     security_opt:
       - seccomp:unconfined
     ports:
-      - "8000:8000"  # network_recon MCP server (curl + naabu)
-      - "8002:8002"  # nuclei MCP server
-      - "8003:8003"  # metasploit MCP server
-      - "8004:8004"  # nmap MCP server
-      - "8005:8005"  # playwright MCP server
-      - "8013:8013"  # metasploit progress HTTP endpoint
+      - "127.0.0.1:8000:8000"  # network_recon MCP server (curl + naabu)
+      - "127.0.0.1:8002:8002"  # nuclei MCP server
+      - "127.0.0.1:8003:8003"  # metasploit MCP server
+      - "127.0.0.1:8004:8004"  # nmap MCP server
+      - "127.0.0.1:8005:8005"  # playwright MCP server
+      - "127.0.0.1:${MSF_PROGRESS_HOST_PORT:-8013}:8013"  # authenticated Metasploit progress endpoint
+      - "127.0.0.1:${HYDRA_PROGRESS_HOST_PORT:-8014}:8014"  # authenticated Hydra progress endpoint
       - "4444:4444"  # Metasploit reverse shell listener
     volumes:
       # Mount servers directory for development (hot reload)
@@ -49,6 +50,9 @@ services:
       - NMAP_PORT=8004
       - PLAYWRIGHT_PORT=8005
       - MSF_PROGRESS_PORT=8013
+      - HYDRA_PROGRESS_PORT=8014
+      # Shared with the agent for authenticated progress and session requests.
+      - MCP_AUTH_TOKEN=${MCP_AUTH_TOKEN:-}
       # Auto-update toggles (set to "false" for faster startup)
       - MSF_AUTO_UPDATE=true
       - NUCLEI_AUTO_UPDATE=true

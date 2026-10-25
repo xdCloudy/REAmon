@@ -39,6 +39,7 @@ from pydantic import BaseModel, Field
 from llm_guard import (master_key_is_weak, require_configured_master_internal_auth,
                        require_internal_auth,
                        require_internal_auth_only, require_master_internal_auth)
+from progress_auth import internal_mcp_headers
 from logging_config import setup_logging
 from orchestrator import AgentOrchestrator
 from orchestrator_helpers import normalize_content
@@ -4935,7 +4936,7 @@ async def get_sessions():
     """List all active Metasploit sessions, background jobs, and non-MSF sessions."""
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(f"{_SESSION_BASE}/sessions")
+            resp = await client.get(f"{_SESSION_BASE}/sessions", headers=internal_mcp_headers())
             return JSONResponse(content=resp.json(), status_code=resp.status_code)
     except httpx.TimeoutException:
         return JSONResponse(content={"error": "Session manager timeout"}, status_code=504)
@@ -4950,7 +4951,8 @@ async def interact_session(session_id: int, body: dict):
     try:
         async with httpx.AsyncClient(timeout=40.0) as client:
             resp = await client.post(
-                f"{_SESSION_BASE}/sessions/{session_id}/interact", json=body
+                f"{_SESSION_BASE}/sessions/{session_id}/interact", json=body,
+                headers=internal_mcp_headers(),
             )
             return JSONResponse(content=resp.json(), status_code=resp.status_code)
     except httpx.TimeoutException:
@@ -4965,7 +4967,10 @@ async def kill_session(session_id: int):
     """Kill a specific Metasploit session."""
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.post(f"{_SESSION_BASE}/sessions/{session_id}/kill")
+            resp = await client.post(
+                f"{_SESSION_BASE}/sessions/{session_id}/kill",
+                headers=internal_mcp_headers(),
+            )
             return JSONResponse(content=resp.json(), status_code=resp.status_code)
     except Exception as e:
         logger.error(f"Session kill proxy error: {e}")
@@ -4977,7 +4982,10 @@ async def kill_job(job_id: int):
     """Kill a background Metasploit job."""
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.post(f"{_SESSION_BASE}/jobs/{job_id}/kill")
+            resp = await client.post(
+                f"{_SESSION_BASE}/jobs/{job_id}/kill",
+                headers=internal_mcp_headers(),
+            )
             return JSONResponse(content=resp.json(), status_code=resp.status_code)
     except Exception as e:
         logger.error(f"Job kill proxy error: {e}")
@@ -4989,7 +4997,10 @@ async def session_chat_map(body: dict):
     """Register a mapping between a Metasploit session ID and agent chat session ID."""
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.post(f"{_SESSION_BASE}/session-chat-map", json=body)
+            resp = await client.post(
+                f"{_SESSION_BASE}/session-chat-map", json=body,
+                headers=internal_mcp_headers(),
+            )
             return JSONResponse(content=resp.json(), status_code=resp.status_code)
     except Exception as e:
         logger.error(f"Session chat map proxy error: {e}")
@@ -5001,7 +5012,10 @@ async def register_non_msf_session(body: dict):
     """Register a non-Metasploit session (netcat, socat, etc.)."""
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.post(f"{_SESSION_BASE}/non-msf-sessions", json=body)
+            resp = await client.post(
+                f"{_SESSION_BASE}/non-msf-sessions", json=body,
+                headers=internal_mcp_headers(),
+            )
             return JSONResponse(content=resp.json(), status_code=resp.status_code)
     except Exception as e:
         logger.error(f"Non-MSF session register proxy error: {e}")

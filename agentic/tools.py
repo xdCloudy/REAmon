@@ -18,6 +18,7 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_neo4j import Neo4jGraph
 
 from project_settings import get_setting, is_tool_allowed_in_phase
+from progress_auth import internal_mcp_headers
 from graph_db.tenant_filter import (
     find_disallowed_write_operation as _shared_find_disallowed_write_operation,
     inject_tenant_filter as _shared_inject_tenant_filter,
@@ -2598,7 +2599,7 @@ class PhaseAwareToolExecutor:
                     break
 
                 try:
-                    resp = await client.get(url)
+                    resp = await client.get(url, headers=internal_mcp_headers())
                     if resp.status_code == 200:
                         progress = resp.json()
 

@@ -963,7 +963,7 @@ These use Docker Compose's `${VAR:-default}` syntax. Override them in `.env` if 
 | `POSTGRES_PASSWORD` | *(required, no fallback; Postgres refuses to start if unset)* | PostgreSQL password, **auto-generated on fresh install** |
 | `POSTGRES_DB` | `redamon` | PostgreSQL database name |
 | `NEO4J_PASSWORD` | *(required, no fallback; Neo4j refuses to start if unset)* | Neo4j password, **auto-generated on fresh install** |
-| `MCP_AUTH_TOKEN` | *(required; empty ⇒ MCP servers fail closed / reject)* | Bearer token the agent presents to the Kali MCP servers, **auto-generated on fresh install** |
+| `MCP_AUTH_TOKEN` | *(required; empty ⇒ MCP and progress/session endpoints fail closed / reject)* | Bearer token the agent presents to Kali MCP servers and progress/session sidecars, **auto-generated on fresh install** |
 | `POSTGRES_PORT` | `5432` | Host port for PostgreSQL (bound to `127.0.0.1`) |
 | `NEO4J_HTTP_PORT` | `7474` | Host port for Neo4j Browser UI (bound to `127.0.0.1`) |
 | `NEO4J_BOLT_PORT` | `7687` | Host port for Neo4j Bolt protocol (bound to `127.0.0.1`) |
