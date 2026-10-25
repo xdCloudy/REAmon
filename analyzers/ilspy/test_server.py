@@ -214,6 +214,83 @@ End Module
         )
         self.assertEqual(result.returncode, 0, result.stdout.decode("utf-8", errors="replace")[-3000:])
 
+    def test_vb_origin_fixture_round_trips_through_ilspy_and_bridge(self):
+        bridge = Path(os.environ.get("REAMON_VB_BRIDGE", "/opt/reamon-vb-bridge/Reamon.VbBridge.dll"))
+        ilspy = Path(os.environ.get("ILSPYCMD", "/opt/ilspycmd/ilspycmd"))
+        dotnet = os.environ.get("DOTNET", "dotnet")
+        if not bridge.is_file() or not ilspy.is_file() or not shutil.which(dotnet):
+            self.skipTest("The pinned ILSpy and Visual Basic bridge with the .NET SDK are required")
+
+        source = self.artifacts / "vb-origin-fixture"
+        source.mkdir()
+        (source / "Fixture.vbproj").write_text("""<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Fixture</RootNamespace>
+  </PropertyGroup>
+</Project>
+""", encoding="utf-8")
+        (source / "Calculator.vb").write_text("""Public NotInheritable Class Calculator
+    Private ReadOnly _bias As Integer
+    Public Sub New(bias As Integer)
+        _bias = bias
+    End Sub
+    Public Function Compute(input As Integer) As Integer
+        Dim total As Integer = 0
+        For i As Integer = 0 To input - 1
+            total += i
+        Next
+        Return total + _bias
+    End Function
+End Class
+""", encoding="utf-8")
+        environment = {**os.environ, "DOTNET_CLI_TELEMETRY_OPTOUT": "1", "DOTNET_NOLOGO": "1"}
+        build = subprocess.run(
+            [dotnet, "build", str(source / "Fixture.vbproj"), "--configuration", "Release", "--nologo", "--verbosity", "quiet"],
+            cwd=source, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=60, check=False, env=environment,
+        )
+        self.assertEqual(build.returncode, 0, build.stdout.decode("utf-8", errors="replace")[-3000:])
+        assembly = source / "bin" / "Release" / "net10.0" / "Fixture.dll"
+        self.assertTrue(assembly.is_file())
+        request = self.request()
+        request["artifactPath"] = str(assembly)
+        with patch.object(server, "preprocess_dotnet", side_effect=self.unchanged_preprocessing):
+            analysis = server.analyse(request)
+
+        self.assertEqual(analysis["status"], "completed")
+        visual_basic = [unit for unit in analysis["units"] if unit["language"] == "Visual Basic"]
+        self.assertTrue(visual_basic, analysis["warnings"])
+
+        project = self.root / "vb-origin-round-trip"
+        project.mkdir()
+        (project / "Fixture.vbproj").write_text("""<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>ReamonVbFixture</RootNamespace>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+  </PropertyGroup>
+</Project>
+""", encoding="utf-8")
+        for unit in visual_basic:
+            relative = Path(unit["relativePath"])
+            self.assertEqual(relative.parts[0], "visual-basic")
+            destination = project.joinpath(*relative.parts[1:])
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes((self.derived / unit["codeArtifactId"]).read_bytes())
+        (project / "Program.vb").write_text("""Module Program
+    Sub Main()
+        Dim actual = New ReamonVbFixture.Fixture.Calculator(4).Compute(5)
+        If actual <> 14 Then Throw New System.Exception("VB-origin behavior changed")
+    End Sub
+End Module
+""", encoding="utf-8")
+        result = subprocess.run(
+            [dotnet, "run", "--project", str(project / "Fixture.vbproj"), "--configuration", "Release", "--nologo"],
+            cwd=project, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=60, check=False, env=environment,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout.decode("utf-8", errors="replace")[-3000:])
+
     def test_health_endpoint_reports_pinned_ilspy_version(self):
         from http.server import ThreadingHTTPServer
         from threading import Thread
