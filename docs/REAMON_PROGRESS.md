@@ -1,10 +1,10 @@
 # REAmon product progress
 
-Assessment date: 2026-10-25 · Source: pushed commit `80c07b9` · Weighted estimate: **47.2%**
+Assessment date: 2026-10-25 · Source: pushed commit `f46cc3b` · Weighted estimate: **47.8%**
 
 This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.
 
-The weighted score is now 47.2% after source-level fixes for the two highest-impact issues confirmed by the completed Standard security review: unauthenticated agent command execution when master-key configuration is missing or placeholder, and Docker inspection of non-broker-owned containers. Focused regression tests pass. Six distinct findings remain open, and the deployed stack has not been rebuilt or checked against these changes. DEX scratch storage and the active Cross Stitch Joy Rust DEX retry still need their stated runtime evidence.
+The weighted score is 47.8% after source fixes for four of the eight distinct issues confirmed by the focused Standard security review: agent command controls fail closed, Docker inspection is restricted to broker-owned containers, and project ownership is enforced before RoE document or wordlist access. Focused Docker/webapp tests, type checking, and lint pass. Four findings remain open, and the deployed stack has not been rebuilt or checked against these changes. DEX scratch storage and the Cross Stitch Joy Rust DEX retry still need runtime evidence.
 
 | Workstream | Goal weight | Estimated complete | Weighted points |
 | --- | ---: | ---: | ---: |
@@ -13,7 +13,7 @@ The weighted score is now 47.2% after source-level fixes for the two highest-imp
 | Major-language and format decompilation fluency | 24% | 35% | 8.40 pts |
 | Maintainable editing, review, and export | 12% | 43% | 5.16 pts |
 | Fixture-backed validation and fidelity evidence | 12% | 15% | 1.80 pts |
-| Security, reliability, and production operations | 20% | 40% | 8.00 pts |
+| Security, reliability, and production operations | 20% | 43% | 8.60 pts |
 
 ## Evidence and remaining work
 
@@ -49,8 +49,8 @@ The weighted score is now 47.2% after source-level fixes for the two highest-imp
 
 ### Security, reliability, and production operations
 
-**Current evidence:** The completed Standard security review confirmed eight distinct issues across the focused attack surfaces. Source fixes now make Kali command execution/job controls and MCP test/reload require a configured master key, and scope Docker container inspection to broker-owned containers; focused agent and broker regressions pass. Six issues remain open, including project-ownership gaps and storage/report integrity or availability risks. Deployment and broader release-gate evidence remain incomplete.
+**Current evidence:** The focused Standard security review confirmed eight distinct issues. Source fixes close four: command controls require a configured master key, Docker inspection is scoped to broker-owned containers, and strict project ownership now protects RoE downloads and wordlist listing/upload/deletion even when the optional log-only setting is enabled. Focused tests pass; four findings remain open, and deployment validation is incomplete.
 
-**Remaining:** Address the six remaining validated findings, including service-token cross-project reads, RoE and wordlist ownership checks, abandoned import staging cleanup/capacity alerting, report-path collision protection, and the NET_ADMIN plus host-network policy. Rebuild and validate the services, complete worker lifecycle and backup/restore gates, and run the remaining Docker release checks.
+**Remaining:** Close the four remaining findings: constrain service-token reads to the scan tenant, clean up abandoned import staging data and report storage pressure, isolate imported report paths by tenant, and remove or validate the broker NET_ADMIN plus host-network combination. Rebuild and validate the services, complete worker lifecycle and backup/restore gates, and run the remaining Docker release checks.
 
 The machine-readable [`REAMON_PROGRESS.json`](REAMON_PROGRESS.json) feeds the README progress bar. The scope now includes the production hardening goal, so the total is not directly comparable with the previous product-only estimate. Update it with evidence when estimates change, then run `node tooling/reamon/update-product-progress.mjs <commit-sha>` to refresh this matrix and the README.
