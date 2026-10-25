@@ -44,6 +44,7 @@ export interface FileDownloadItem {
   type: 'file_download'
   id: string
   timestamp: Date
+  projectId?: string
   filepath: string
   filename: string
   description: string

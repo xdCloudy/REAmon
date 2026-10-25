@@ -826,6 +826,7 @@ export function useWebSocketHandler(deps: WebSocketHandlerDeps) {
           type: 'file_download',
           id: `file-${Date.now()}`,
           timestamp: new Date(),
+          projectId: message.payload.projectId,
           filepath: message.payload.filepath,
           filename: message.payload.filename,
           description: message.payload.description,

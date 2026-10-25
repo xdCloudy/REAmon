@@ -69,15 +69,13 @@ class TestNoHardcodedX86Downloads(unittest.TestCase):
         self.assertIn("sha256sum -c -", text)
         self.assertIn("/usr/local/bin/trufflehog --version", text)
 
-    def test_agent_go_toolchain_follows_the_build_architecture(self):
+    def test_agent_go_toolchain_uses_the_build_architecture(self):
         with open(os.path.join(REPO, "agentic", "Dockerfile")) as fh:
             text = fh.read()
-        self.assertIn('"https://go.dev/dl/go1.22.10.linux-${arch}.tar.gz"', text)
-        self.assertRegex(text, r"amd64\) sha=[0-9a-f]{64}")
-        self.assertRegex(text, r"arm64\) sha=[0-9a-f]{64}")
-        # Without an exec of the toolchain an arm64 build would pass with an
-        # x86 Go inside it.
-        self.assertIn("/usr/local/go/bin/go version", text)
+        # Debian resolves golang-go for the target platform; executing it in
+        # the image build catches a package/architecture mismatch.
+        self.assertIn("    golang-go \\", text)
+        self.assertIn("&& go version", text)
 
 
 if __name__ == "__main__":

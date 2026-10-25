@@ -540,13 +540,15 @@ class StreamingCallback:
     get wrong sequenceNum values.
     """
 
-    def __init__(self, connection: WebSocketConnection, ws_manager: Optional['WebSocketManager'] = None):
+    def __init__(self, connection: WebSocketConnection, ws_manager: Optional['WebSocketManager'] = None,
+                 tool_executor=None):
         self._original_connection = connection
         self._session_key = connection.get_key()
         self._ws_manager = ws_manager
         self._session_id = connection.session_id
         self._project_id = connection.project_id
         self._user_id = connection.user_id
+        self._tool_executor = tool_executor
         # Response and task_complete are truly once-per-session events
         self._task_complete_sent = False
         self._response_sent = False
@@ -1130,10 +1132,19 @@ class StreamingCallback:
             logger.debug(f"Duplicate task_complete blocked for session {self.connection.session_id}")
 
     async def on_file_ready(self, file_info: dict):
-        """Called when agent has created a downloadable file."""
-        await self.connection.send_message(MessageType.FILE_READY, file_info)
-        self._persist("file_ready", file_info)
-        logger.info(f"File ready notification sent: {file_info.get('filename')}")
+        """Publish a generated file only after copying it into this project's workspace."""
+        if not self._tool_executor or not self._project_id:
+            logger.warning("Cannot publish generated file without project-scoped storage")
+            return
+        try:
+            from orchestrator_helpers.streaming import persist_generated_file
+            stored = await persist_generated_file(file_info, self._project_id, self._tool_executor)
+        except Exception as e:
+            logger.warning("Failed to persist generated download for project %s: %s", self._project_id, e)
+            return
+        await self.connection.send_message(MessageType.FILE_READY, stored)
+        self._persist("file_ready", stored)
+        logger.info("Project-scoped file ready: %s", stored.get("filename"))
 
     # ------------------------------------------------------------------
     # Per-tool task registry helpers
@@ -1286,7 +1297,7 @@ class WebSocketHandler:
                 return
 
             # Create streaming callback with ws_manager for dynamic connection resolution
-            callback = StreamingCallback(connection, self.ws_manager)
+            callback = StreamingCallback(connection, self.ws_manager, self.orchestrator.tool_executor)
             connection._is_stopped = False
             # Drain stale guidance from previous runs
             connection.drain_guidance()
@@ -1359,7 +1370,7 @@ class WebSocketHandler:
                 })
                 return
 
-            callback = StreamingCallback(connection, self.ws_manager)
+            callback = StreamingCallback(connection, self.ws_manager, self.orchestrator.tool_executor)
             connection._is_stopped = False
 
             logger.info(f"Processing approval for session {connection.session_id}: {approval_msg.decision}")
@@ -1429,7 +1440,7 @@ class WebSocketHandler:
                 })
                 return
 
-            callback = StreamingCallback(connection, self.ws_manager)
+            callback = StreamingCallback(connection, self.ws_manager, self.orchestrator.tool_executor)
             connection._is_stopped = False
 
             logger.info(f"Processing answer for session {connection.session_id}")
@@ -1549,7 +1560,7 @@ class WebSocketHandler:
                 })
                 return
 
-            callback = StreamingCallback(connection, self.ws_manager)
+            callback = StreamingCallback(connection, self.ws_manager, self.orchestrator.tool_executor)
             connection._is_stopped = False
 
             logger.info(f"Processing tool confirmation for session {connection.session_id}: {confirmation_msg.decision}")
@@ -1788,7 +1799,7 @@ class WebSocketHandler:
             return
 
         connection._is_stopped = False
-        callback = StreamingCallback(connection, self.ws_manager)
+        callback = StreamingCallback(connection, self.ws_manager, self.orchestrator.tool_executor)
 
         asyncio.create_task(update_conversation(connection.session_id, {"agentRunning": True}))
 

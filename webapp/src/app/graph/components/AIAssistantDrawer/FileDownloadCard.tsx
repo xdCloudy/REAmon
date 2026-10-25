@@ -5,13 +5,14 @@ import { Download, FileCode, Loader2, AlertCircle, CheckCircle } from 'lucide-re
 import styles from './FileDownloadCard.module.css'
 
 interface FileDownloadCardProps {
+  projectId?: string
   filepath: string
   filename: string
   description: string
   source: string
 }
 
-export function FileDownloadCard({ filepath, filename, description, source }: FileDownloadCardProps) {
+export function FileDownloadCard({ projectId, filepath, filename, description, source }: FileDownloadCardProps) {
   const [downloading, setDownloading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [downloaded, setDownloaded] = useState(false)
@@ -21,7 +22,9 @@ export function FileDownloadCard({ filepath, filename, description, source }: Fi
     setError(null)
 
     try {
-      const resp = await fetch(`/api/agent/files?path=${encodeURIComponent(filepath)}`)
+      if (!projectId) throw new Error('This saved download predates project-scoped storage. Ask the agent to recreate it.')
+      const query = new URLSearchParams({ projectId, path: filepath })
+      const resp = await fetch(`/api/agent/files?${query.toString()}`)
 
       if (!resp.ok) {
         const text = await resp.text()

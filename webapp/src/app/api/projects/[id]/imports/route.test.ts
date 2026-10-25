@@ -116,6 +116,10 @@ describe('POST /api/projects/[id]/imports', () => {
     const response = await POST(requestFor({ rootName: 'ExampleApp', files }), params())
 
     expect(response.status).toBe(201)
+    expect(mocks.queryRaw).toHaveBeenCalledOnce()
+    const lockQuery = mocks.queryRaw.mock.calls[0][0].sql as string
+    expect(lockQuery).toContain('pg_advisory_xact_lock')
+    expect(lockQuery).toContain('SELECT 1::int AS locked')
     expect(await response.json()).toMatchObject({
       id: 'import-1',
       rootName: 'ExampleApp',

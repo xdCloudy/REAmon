@@ -277,6 +277,7 @@ export function ChatArea({
             return (
               <FileDownloadCard
                 key={file.id}
+                projectId={file.projectId}
                 filepath={file.filepath}
                 filename={file.filename}
                 description={file.description}

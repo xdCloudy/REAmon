@@ -36,6 +36,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gnupg \
     golang-go \
     clangd \
+    && go version \
     && rm -rf /var/lib/apt/lists/*
 
 # Retry helper for transient network failures

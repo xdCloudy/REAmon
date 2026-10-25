@@ -3,8 +3,50 @@
 import os
 import re
 import logging
+import shlex
+import uuid
 
 logger = logging.getLogger(__name__)
+
+
+async def persist_generated_file(file_info: dict, project_id: str, tool_executor):
+    """Copy a generated Kali /tmp file into an opaque project workspace path."""
+    from workspace_fs import resolve_for_project
+
+    source = os.path.normpath(str(file_info.get("filepath") or ""))
+    if not source.startswith("/tmp/") or source == "/tmp/":
+        raise ValueError("generated file must be inside /tmp")
+    if not project_id:
+        raise ValueError("generated file has no attested project")
+
+    original_name = os.path.basename(source)
+    safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", original_name).strip("._")[:120]
+    safe_name = safe_name or "download"
+    stored_name = f"{uuid.uuid4().hex}-{safe_name}"
+    relative_path = f"tool-outputs/{stored_name}"
+    target = resolve_for_project(project_id, relative_path)
+    temporary_target = target.with_name(f".{stored_name}.partial")
+
+    command = " && ".join((
+        f"mkdir -p -- {shlex.quote(str(target.parent))}",
+        f"test -f {shlex.quote(source)}",
+        f"test ! -L {shlex.quote(source)}",
+        f"cp -- {shlex.quote(source)} {shlex.quote(str(temporary_target))}",
+        f"chmod 0644 -- {shlex.quote(str(temporary_target))}",
+        f"mv -- {shlex.quote(str(temporary_target))} {shlex.quote(str(target))}",
+    ))
+    result = await tool_executor.execute(
+        "kali_shell", {"command": command}, "informational", skip_phase_check=True,
+    )
+    if not result.get("success"):
+        raise RuntimeError("Kali workspace copy failed")
+
+    return {
+        **file_info,
+        "filepath": relative_path,
+        "filename": safe_name,
+        "projectId": project_id,
+    }
 
 
 _STREAMING_TRANSIENT_FIELDS = (

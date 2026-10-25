@@ -112,7 +112,12 @@ export async function POST(request: Request, { params }: RouteParams) {
     const profile = buildWorkspaceProfile([])
     await mkdir(artifactRoot(), { recursive: true })
     const result = await prisma.$transaction(async (tx) => {
-      await tx.$queryRaw(Prisma.sql`SELECT pg_advisory_xact_lock(1380008769, 1)`)
+      // Prisma cannot deserialize PostgreSQL's `void` result from the lock
+      // function. Keep the lock in a materialized CTE and return a scalar.
+      await tx.$queryRaw(Prisma.sql`WITH capacity_lock AS MATERIALIZED (
+        SELECT pg_advisory_xact_lock(1380008769, 1)
+      )
+      SELECT 1::int AS locked FROM capacity_lock`)
       const capacity = await getArtifactVolumeCapacity()
       if (!capacity.available || capacity.freeBytes === null) throw new ArtifactCapacityUnavailableError()
       const activeImports = await tx.workspaceImport.findMany({

@@ -287,6 +287,7 @@ export function useConversationRestoration(deps: ConversationRestorationDeps) {
           type: 'file_download',
           id: msg.id,
           timestamp: new Date(msg.createdAt),
+          projectId: data.projectId,
           filepath: data.filepath || '',
           filename: data.filename || '',
           description: data.description || '',

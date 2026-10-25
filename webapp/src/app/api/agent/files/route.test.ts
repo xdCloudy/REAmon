@@ -1,11 +1,4 @@
-/**
- * agent/files download proxy — the projectId is OPTIONAL:
- *  - with projectId: enforce project ownership (guardProject)
- *  - without projectId: legacy /tmp in-chat download must still work (no 400 from
- *    the project guard)  <- regression for the scripted-guard over-block bug
- *
- * @vitest-environment node
- */
+/** @vitest-environment node */
 import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest'
 import { NextRequest, NextResponse } from 'next/server'
 
@@ -34,19 +27,21 @@ afterEach(() => {
 })
 
 describe('GET /api/agent/files', () => {
-  test('LEGACY: no projectId + valid path → guard skipped, proxies to /files', async () => {
+  test('requires project identity before accessing any agent file', async () => {
     const res = await GET(new NextRequest('http://x/api/agent/files?path=/tmp/out.txt'))
-    expect(res.status).toBe(200)
+    expect(res.status).toBe(400)
     expect(mockGuardProject).not.toHaveBeenCalled()
-    expect(fetchCalls.some(u => u.includes('/files?path='))).toBe(true)
+    expect(fetchCalls).toHaveLength(0)
   })
 
-  test('with projectId, owner → guard passes, proxies to workspace/download', async () => {
+  test('with projectId, owner → guard passes and proxies only to workspace/download', async () => {
     mockGuardProject.mockResolvedValue(null)
-    const res = await GET(new NextRequest('http://x/api/agent/files?projectId=p1&path=/a'))
+    const res = await GET(new NextRequest('http://x/api/agent/files?projectId=p1&path=tool-outputs%2Fout.txt'))
     expect(res.status).toBe(200)
     expect(mockGuardProject).toHaveBeenCalledWith('p1')
-    expect(fetchCalls.some(u => u.includes('/workspace/download?projectId=p1'))).toBe(true)
+    expect(fetchCalls).toHaveLength(1)
+    expect(fetchCalls[0]).toContain('/workspace/download?projectId=p1&path=tool-outputs%2Fout.txt')
+    expect(fetchCalls[0]).not.toContain('/files?path=')
   })
 
   test('EXPLOIT: with projectId, cross-user → 404, no proxy', async () => {
@@ -56,11 +51,10 @@ describe('GET /api/agent/files', () => {
     expect(fetchCalls).toHaveLength(0)
   })
 
-  test('forwards the internal API key to the now-authenticated /files endpoint', async () => {
-    // The legacy /files endpoint now requires require_internal_auth_only, so the
-    // proxy must attach x-internal-key or it 401s once the secret is set.
+  test('forwards the internal API key to the project workspace endpoint', async () => {
     vi.stubEnv('INTERNAL_API_KEY', 'test-key-123')
-    const res = await GET(new NextRequest('http://x/api/agent/files?path=/tmp/out.txt'))
+    mockGuardProject.mockResolvedValue(null)
+    const res = await GET(new NextRequest('http://x/api/agent/files?projectId=p1&path=tool-outputs%2Fout.txt'))
     expect(res.status).toBe(200)
     const headers = (fetchInits[0]?.headers ?? {}) as Record<string, string>
     expect(headers['x-internal-key']).toBe('test-key-123')

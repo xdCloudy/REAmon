@@ -7,29 +7,14 @@ const AGENT_API_URL = process.env.AGENT_API_URL || process.env.NEXT_PUBLIC_AGENT
 export async function GET(request: NextRequest) {
   const path = request.nextUrl.searchParams.get('path')
   const projectId = request.nextUrl.searchParams.get('projectId')
-  // projectId is optional here: when present we enforce project ownership; when
-  // absent this is the legacy /tmp-only in-chat download flow (session-gated by
-  // middleware), which has no project to scope to.
-  if (projectId) {
-    const __denied = await guardProject(projectId)
-    if (__denied) return __denied
+  if (!projectId || !path) {
+    return NextResponse.json({ error: 'Missing projectId or path parameter' }, { status: 400 })
   }
-
-  if (!path) {
-    return NextResponse.json({ error: 'Missing path parameter' }, { status: 400 })
-  }
+  const __denied = await guardProject(projectId)
+  if (__denied) return __denied
 
   try {
-    // When projectId is provided, use the project-scoped workspace download
-    // (direct bind-mount read, no kali_shell base64 round-trip). Falls back
-    // to the legacy /files endpoint for the existing /tmp/-only flow so we
-    // don't break in-chat downloads from older messages.
-    const agentUrl = projectId
-      ? `${AGENT_API_URL}/workspace/download?projectId=${encodeURIComponent(projectId)}&path=${encodeURIComponent(path)}`
-      : `${AGENT_API_URL}/files?path=${encodeURIComponent(path)}`
-    // The legacy /files endpoint now requires the internal key (it was an
-    // unauthenticated command-injection surface). /workspace/download ignores
-    // the header today, so sending it on both paths is safe and future-proof.
+    const agentUrl = `${AGENT_API_URL}/workspace/download?projectId=${encodeURIComponent(projectId)}&path=${encodeURIComponent(path)}`
     const resp = await fetch(agentUrl, { headers: internalKeyHeaders() })
 
     if (!resp.ok) {
