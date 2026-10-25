@@ -70,7 +70,7 @@ REAmon's goal is language-universal recovery of maintainable code. Decompilers a
 
 <!-- REAMON_PRODUCT_PROGRESS_START -->
 <progress value="49" max="100">49%</progress> <strong>49%</strong> — weighted estimate **48.9%**.
-Refreshed from pushed commit `0011bd3`. See the [readable progress matrix](docs/REAMON_PROGRESS.md) for workstream weights, evidence, and remaining gaps.
+Refreshed from pushed commit `48c01aa`. See the [readable progress matrix](docs/REAMON_PROGRESS.md) for workstream weights, evidence, and remaining gaps.
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
 [Goals and roadmap](docs/REAMON_GOALS.md) · [Feature matrix](docs/REAMON_FEATURE_MATRIX.md)
