@@ -3880,6 +3880,18 @@ async def test_mcp_server(server: dict):
             "warnings": [],
         }
 
+    if srv_obj.transport == "stdio":
+        return {
+            "ok": False,
+            "elapsed_ms": int((time.monotonic() - started) * 1000),
+            "discovered_tools": [],
+            "error": (
+                "stdio MCP servers are disabled until they can run in an "
+                "isolated per-user worker"
+            ),
+            "warnings": [],
+        }
+
     config_dict, env_warnings = mcp_registry.to_mcp_servers_dict([srv_obj])
     if not config_dict:
         return {

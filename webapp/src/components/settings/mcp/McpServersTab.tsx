@@ -485,18 +485,20 @@ export default function McpServersTab({ userId, onDirtyChange }: Props) {
             <div className={styles.presetsHeader}>
               <strong>Quick add</strong>
               <span className={styles.muted} style={{ fontSize: '11px', marginLeft: 'var(--space-2)' }}>
-                click a preset → form opens prefilled (paste your API key if needed, then Save)
+                click an available preset → form opens prefilled (paste your API key if needed, then Save)
               </span>
             </div>
             <div className={styles.presetsGrid}>
               {MCP_PRESETS.map(preset => {
                 const alreadyAdded = servers.some(s => s.id === preset.template.id)
+                const unavailable = preset.template.transport === 'stdio'
                 return (
                   <button
                     key={preset.key}
-                    className={styles.presetCard}
+                    className={`${styles.presetCard} ${unavailable ? styles.presetUnavailable : ''}`}
                     onClick={() => startFromPreset(preset)}
-                    title={preset.whyForRedamon}
+                    disabled={unavailable}
+                    title={unavailable ? 'stdio MCP servers are unavailable until isolated workers are supported.' : preset.whyForRedamon}
                   >
                     <div className={styles.presetCardTop}>
                       <span className={styles.presetCardLabel}>{preset.label}</span>
@@ -507,6 +509,9 @@ export default function McpServersTab({ userId, onDirtyChange }: Props) {
                       <span className={styles.presetTransportTag}>{preset.template.transport}</span>
                       {preset.authRequired && (
                         <span className={styles.presetAuthTag}>auth</span>
+                      )}
+                      {unavailable && (
+                        <span className={styles.presetUnavailableTag}>unavailable</span>
                       )}
                       {alreadyAdded && (
                         <span className={styles.presetAddedTag}>already added</span>
@@ -542,8 +547,9 @@ export default function McpServersTab({ userId, onDirtyChange }: Props) {
                     <div className={styles.cellSub}>{srv.id}{srv.description ? ` - ${srv.description}` : ''}</div>
                   </td>
                   <td>
-                    <span className={styles.transportPill}>
+                    <span className={styles.transportPill} title={srv.transport === 'stdio' ? 'This saved server is disabled until isolated workers are supported.' : undefined}>
                       {transportIcon(srv.transport)} {srv.transport}
+                      {srv.transport === 'stdio' && <span className={styles.presetUnavailableTag}>unavailable</span>}
                     </span>
                   </td>
                   <td>{srv.tools.length}</td>
@@ -553,6 +559,8 @@ export default function McpServersTab({ userId, onDirtyChange }: Props) {
                         type="checkbox"
                         checked={srv.enabled}
                         onChange={() => onToggleEnabled(srv)}
+                        disabled={srv.transport === 'stdio'}
+                        aria-label={srv.transport === 'stdio' ? `${srv.name || srv.id} unavailable` : `${srv.name || srv.id} enabled`}
                       />
                       <span></span>
                     </label>
@@ -602,6 +610,12 @@ export default function McpServersTab({ userId, onDirtyChange }: Props) {
         <div className={styles.errorBanner}>
           <AlertTriangle size={14} /> {topLevelError}
         </div>
+      )}
+
+      {editing.transport === 'stdio' && (
+        <p className={styles.unavailableNotice} role="status">
+          This saved stdio server cannot run while MCP processes share the agent worker. Switch it to an HTTP transport or delete it. stdio support will return with per-user process isolation.
+        </p>
       )}
 
       {testResult && (
@@ -711,7 +725,11 @@ export default function McpServersTab({ userId, onDirtyChange }: Props) {
         <label className={styles.field}>
           <span>transport</span>
           <select value={editing.transport} onChange={e => updateField('transport', e.target.value as Transport)}>
-            {TRANSPORTS.map(t => <option key={t} value={t}>{t}</option>)}
+            {TRANSPORTS.map(t => (
+              <option key={t} value={t} disabled={t === 'stdio'}>
+                {t === 'stdio' ? 'stdio (requires isolated worker)' : t}
+              </option>
+            ))}
           </select>
         </label>
 
@@ -892,7 +910,7 @@ export default function McpServersTab({ userId, onDirtyChange }: Props) {
                 spellCheck={false}
               />
               <span className={styles.muted} style={{ fontSize: '11px' }}>
-                Passed to the spawned process as environment variables. Used by stdio MCPs that read API keys from env (Shodan, VirusTotal, Snyk, etc.). Stored as plaintext in the DB.
+                Stored as plaintext in the database. stdio servers are unavailable until they can run in isolated workers.
               </span>
             </label>
           </>

@@ -100,6 +100,11 @@ export const mcpServerSchema = z.object({
       if (!srv.command) {
         ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['command'], message: 'command is required for stdio transport' })
       }
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['transport'],
+        message: 'stdio MCP servers are disabled until they can run in an isolated per-user worker',
+      })
     }
 
     // Tool name uniqueness within server

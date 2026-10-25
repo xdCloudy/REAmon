@@ -24,7 +24,7 @@ vi.mock('@/lib/prisma', () => ({
 
 import { POST } from './route'
 
-const SERVER = { id: 's1', name: 'probe', transport: 'stdio', command: 'echo' }
+const SERVER = { id: 's1', name: 'probe', transport: 'streamable_http', url: 'https://mcp.example.test/mcp' }
 
 function req(): NextRequest {
   return new NextRequest('http://x/api/mcp/test', {

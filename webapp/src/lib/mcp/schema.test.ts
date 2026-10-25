@@ -92,9 +92,12 @@ describe('mcpServerSchema — http transports', () => {
 })
 
 describe('mcpServerSchema — stdio transport', () => {
-  test('valid stdio server passes', () => {
+  test('user-configured stdio is rejected until isolated execution is available', () => {
     const r = mcpServerSchema.safeParse(stdioServer())
-    expect(r.success).toBe(true)
+    expect(r.success).toBe(false)
+    if (!r.success) {
+      expect(r.error.issues.some(i => i.message.includes('isolated per-user worker'))).toBe(true)
+    }
   })
 
   test('stdio requires command', () => {

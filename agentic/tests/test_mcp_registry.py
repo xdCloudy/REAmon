@@ -89,6 +89,17 @@ class SchemaValidationTests(unittest.TestCase):
 
 class CrossServerValidationTests(unittest.TestCase):
 
+    def test_user_server_parser_rejects_stdio_but_keeps_http(self):
+        valid, errors = reg.parse_user_servers([
+            _http_server(id="kept"),
+            _stdio_server(id="blocked"),
+        ])
+        self.assertEqual([server.id for server in valid], ["kept"])
+        self.assertTrue(any(
+            error.server_id == "blocked" and error.code == "stdio_disabled"
+            for error in errors
+        ))
+
     def test_duplicate_id_rejected(self):
         a = reg.MCPServer.model_validate(_http_server(id="dup"))
         b = reg.MCPServer.model_validate(_http_server(id="dup"))

@@ -404,6 +404,16 @@ def parse_user_servers(raw: Any) -> Tuple[List[MCPServer], List[ValidationError]
     errors: List[ValidationError] = []
 
     for i, entry in enumerate(raw):
+        if isinstance(entry, dict) and entry.get("transport") == "stdio":
+            errors.append(ValidationError(
+                server_id=str(entry.get("id", f"<index {i}>")),
+                code="stdio_disabled",
+                message=(
+                    "stdio MCP servers are disabled until they can run in an "
+                    "isolated per-user worker"
+                ),
+            ))
+            continue
         try:
             parsed.append(MCPServer.model_validate(entry))
         except Exception as exc:

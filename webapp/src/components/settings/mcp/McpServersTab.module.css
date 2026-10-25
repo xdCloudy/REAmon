@@ -363,6 +363,14 @@
   transform: translateY(-1px);
 }
 
+.presetUnavailable,
+.presetUnavailable:hover {
+  border-color: var(--border-default);
+  cursor: not-allowed;
+  opacity: 0.62;
+  transform: none;
+}
+
 .presetCardTop {
   display: flex;
   align-items: center;
@@ -425,6 +433,25 @@
 .presetAddedTag {
   background: rgba(60, 160, 100, 0.15);
   color: rgb(60, 130, 80);
+}
+
+.presetUnavailableTag {
+  margin-left: 5px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(190, 90, 70, 0.14);
+  color: var(--text-tertiary);
+  font-size: 9px;
+  font-weight: var(--font-medium);
+  text-transform: lowercase;
+}
+
+.unavailableNotice {
+  padding: var(--space-2) var(--space-3);
+  border-left: 3px solid var(--border-default);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 12px;
 }
 
 .tokenInputRow {

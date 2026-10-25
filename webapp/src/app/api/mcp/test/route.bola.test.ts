@@ -47,7 +47,7 @@ beforeEach(() => {
 describe('POST /api/mcp/test — ownership + secret echo', () => {
   test('cross-user userId is rejected before any DB lookup or upstream call', async () => {
     mockRequireUserAccess.mockResolvedValue(NextResponse.json({ error: 'forbidden' }, { status: 403 }))
-    const server = { id: 's1', name: 's1', transport: 'stdio', command: 'node', auth: { token: 'whatever' } }
+    const server = { id: 's1', name: 's1', transport: 'streamable_http', url: 'https://mcp.example.test/mcp', auth: { token: 'whatever' } }
     const res = await POST(req(server, 'victim'))
     expect(res.status).toBe(403)
     expect(mockRequireUserAccess).toHaveBeenCalledWith(expect.anything(), 'victim')
@@ -60,7 +60,7 @@ describe('POST /api/mcp/test — ownership + secret echo', () => {
     mockUserSettingsFindUnique.mockResolvedValue({
       mcpServers: [{ id: 's1', auth: { token: 'REALTOKEN' } }],
     })
-    const server = { id: 's1', name: 's1', transport: 'stdio', command: 'node', auth: { token: `${MASK}1234` } }
+    const server = { id: 's1', name: 's1', transport: 'streamable_http', url: 'https://mcp.example.test/mcp', auth: { token: `${MASK}1234` } }
     const res = await POST(req(server, 'u1'))
     expect(res.status).toBe(200)
     expect(mockFetch).toHaveBeenCalledTimes(1)
@@ -70,7 +70,7 @@ describe('POST /api/mcp/test — ownership + secret echo', () => {
   })
 
   test('no userId + literal token forwards directly (no ownership lookup)', async () => {
-    const server = { id: 's1', name: 's1', transport: 'stdio', command: 'node', auth: { token: 'literal' } }
+    const server = { id: 's1', name: 's1', transport: 'streamable_http', url: 'https://mcp.example.test/mcp', auth: { token: 'literal' } }
     const res = await POST(req(server, undefined))
     expect(res.status).toBe(200)
     expect(mockRequireUserAccess).not.toHaveBeenCalled()
@@ -81,10 +81,17 @@ describe('POST /api/mcp/test — ownership + secret echo', () => {
 
   test('masked token with a foreign userId never reaches the DB (denied first)', async () => {
     mockRequireUserAccess.mockResolvedValue(NextResponse.json({ error: 'forbidden' }, { status: 403 }))
-    const server = { id: 's1', name: 's1', transport: 'stdio', command: 'node', auth: { token: `${MASK}9999` } }
+    const server = { id: 's1', name: 's1', transport: 'streamable_http', url: 'https://mcp.example.test/mcp', auth: { token: `${MASK}9999` } }
     const res = await POST(req(server, 'victim'))
     expect(res.status).toBe(403)
     expect(mockUserSettingsFindUnique).not.toHaveBeenCalled()
+    expect(mockFetch).not.toHaveBeenCalled()
+  })
+
+  test('stdio requests are rejected without reaching the agent', async () => {
+    const res = await POST(req({ id: 's1', name: 's1', transport: 'stdio', command: 'node' }))
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toContain('isolated per-user worker')
     expect(mockFetch).not.toHaveBeenCalled()
   })
 })

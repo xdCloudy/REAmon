@@ -33,6 +33,14 @@ export async function POST(request: NextRequest) {
       if (denied) return denied
     }
 
+    if (body.transport === 'stdio') {
+      return NextResponse.json({
+        ok: false,
+        error: 'stdio MCP servers are disabled until they can run in an isolated per-user worker',
+        discovered_tools: [], warnings: [], elapsed_ms: 0,
+      }, { status: 400 })
+    }
+
     // If the user clicked Test on a saved server, the token field is the
     // mask. Substitute the real token from the DB before forwarding.
     if (body.auth?.token?.startsWith(MASK_PREFIX)) {

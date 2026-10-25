@@ -212,10 +212,7 @@ class McpTestEndpointTests(unittest.TestCase):
         self.assertFalse(data["ok"])
         self.assertIn("disabled", data["error"])
 
-    def test_stdio_missing_cwd_returns_actionable_error(self):
-        # Regression for issue #165: a stdio preset (e.g. CVE Intel) whose
-        # `cwd` was never git-cloned must fail with a clear "install first"
-        # message, NOT a bare FileNotFoundError.
+    def test_stdio_test_is_rejected_before_any_process_can_spawn(self):
         client = self.TestClient(self.api_module.app)
         r = client.post("/mcp/test", json={
             "id": "cve_intel_extra",
@@ -229,9 +226,7 @@ class McpTestEndpointTests(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
         data = r.json()
         self.assertFalse(data["ok"])
-        self.assertIn("does not exist", data["error"])
-        self.assertIn("/tmp/does-not-exist-redamon-165", data["error"])
-        self.assertNotIn("FileNotFoundError", data["error"])
+        self.assertIn("isolated per-user worker", data["error"])
         self.assertEqual(data["discovered_tools"], [])
 
     def _patch_session_with_tools(self, mcp_tools):
