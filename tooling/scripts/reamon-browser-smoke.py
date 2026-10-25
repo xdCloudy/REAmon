@@ -75,7 +75,8 @@ with sync_playwright() as playwright:
         approve = page.get_by_role("button", name=re.compile(r"^Approve "))
         expect(approve).to_have_count(1)
         approve.click()
-        expect(page.get_by_role("status")).to_contain_text(re.compile("approved", re.IGNORECASE))
+        approval_feedback = page.get_by_role("status").filter(has_text=re.compile("approved", re.IGNORECASE))
+        expect(approval_feedback).to_be_visible()
 
     browser.close()
 
