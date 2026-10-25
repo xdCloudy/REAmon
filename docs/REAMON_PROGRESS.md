@@ -1,10 +1,10 @@
 # REAmon product progress
 
-Assessment date: 2026-10-25 · Source: pushed commit `0eb199f` · Weighted estimate: **51.2%**
+Assessment date: 2026-10-25 · Source: pushed commit `8302d82` · Weighted estimate: **51.2%**
 
 This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.
 
-The weighted score is 51.2%. Source mitigations now address all eight distinct issues confirmed by the focused Standard security review. Abandoned browser-import staging expires after a configurable inactivity window (30 days by default), active chunks refresh the timestamp, cleanup claims expired rows conditionally, and only that import staging directory is removed. The project import panel reports shared artifact-volume total, used, and available bytes from filesystem statistics without walking stored files or enforcing a quota. Six focused import/capacity files pass 40 tests, the webapp type-check passes, and the Docker broker policy suite passes 57 checks. The LAN deployment has not been rebuilt or validated with these changes.
+The weighted score is 51.2%. Source mitigations now address all eight distinct issues confirmed by the focused Standard security review. Abandoned browser-import staging expires after a configurable inactivity window (30 days by default), active chunks refresh the timestamp, cleanup claims expired rows conditionally, and only that import staging directory is removed. The project import panel reports shared artifact-volume total, used, and available bytes from filesystem statistics without walking stored files or enforcing a quota. Six focused import/capacity files pass 40 tests, the webapp type-check passes, and the Docker broker policy suite passes 57 checks. The webapp image was rebuilt from commit 0eb199f9 and readiness checks on localhost and the LAN report the database and artifact volume as ready. The first CI release acceptance failed because its client used the retired multipart endpoint; the client now uploads resumable chunks and the corrected workflow result is pending. The broker has not been rebuilt, and broader LAN validation remains open.
 
 | Workstream | Goal weight | Estimated complete | Weighted points |
 | --- | ---: | ---: | ---: |
