@@ -786,7 +786,7 @@ The eleven `captureEgress*` fields are pushed to the orchestrator on save (as th
 | `CAPTURE_QUEUE_MAX` | 2000 | proxy | backpressure queue size |
 | `CAPTURE_PROXY_MAX_ROWS_PER_PROJECT` | 200000 | maintenance | per-project quota eviction |
 | `TRAFFIC_INGEST_DATABASE_URL` | (empty) | ingest | scoped INSERT-only DSN |
-| `SCANNER_API_KEY` | changeme | recon minter + ingest verify | recon-source key |
+| `SCANNER_API_KEY` | changeme | scanner transport identity for project/settings reads and traffic ingest | recon-source key; ingest additionally requires signed project scope |
 | `INTERNAL_API_KEY` | (env) | agent minter + ingest verify | agent-source key |
 | `CAPTURE_PROXY_MEM` | 384m | proxy | proxy memory limit |
 | `TRAFFIC_INGEST_MEM` | 256m | ingest | ingest memory limit |

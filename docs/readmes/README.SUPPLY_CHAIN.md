@@ -533,7 +533,7 @@ sequenceDiagram
     WEBROUTE->>ORCH: POST /supply-chain/PID/start
     ORCH->>ORCH: _admit_scan (memory governor, 1.75 GB envelope)
     ORCH->>SCAN: spawn (network=host, Neo4j creds, mounts uploads/osv-db/graph_db/sc_common)
-    SCAN->>WEBROUTE: GET /api/projects/PID (X-Internal-Key: SCANNER_API_KEY)
+    SCAN->>WEBROUTE: GET /api/projects/PID (scanner key + signed project scope)
     SCAN->>SCAN: resolve_input_path (basename-only, ext allowlist)
     SCAN->>OSVDB: osv-scanner scan source --offline -L uploaded-file
     OSVDB-->>SCAN: JSON verdicts
@@ -879,7 +879,7 @@ budgeted: GuardDog runs the packages sequentially, so that knob bounds wall-cloc
 | **Graph tables** | The **Supply-Chain SCA** table (`/api/analytics/redzone/supplyChainSca`) reads this model directly: three sheets (Verdicts / Packages / Advisories) over `Package`, `MalPackageFinding` and `Vulnerability {source:'osv'}`. Not to be confused with **JS Dep Signals** (formerly labelled "Supply-Chain"), which reads `JsReconFinding` nodes. See [the table section](#the-supply-chain-sca-table). |
 | **Settings (5 layers)** | Prisma default -> `recon/project_settings.py` (L2) / `scanners/supply_chain_scan/project_settings.py` (L1) -> `/defaults` -> webapp section, using the `x_enabled` / `xEnabled` / `X_ENABLED` naming. |
 | **redamon.sh** | `supply-chain-sync` populates the DB; `TOOL_IMAGES` + `cmd_update` build/rebuild the two images; `cmd_install`/`up` build them via `--profile tools`. |
-| **SCANNER_API_KEY (S3/E6)** | The L1 scan container fetches settings with the scoped `SCANNER_API_KEY` (falling back to `INTERNAL_API_KEY` on pre-secret installs); the analyzer holds no key at all. |
+| **SCANNER_API_KEY (S3/E6)** | The L1 scan container fetches settings and project configuration with `SCANNER_API_KEY` plus its signed `SCANNER_SCOPE_TOKEN`, bound to the database-resolved project owner; the analyzer holds no key at all. |
 
 ---
 

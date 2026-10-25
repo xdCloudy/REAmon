@@ -341,11 +341,11 @@ When starting a recon, the orchestrator:
      volume (mounted at `/var/run/broker`) and selected via the `DOCKER_HOST`
      env var; a named volume is used so the unix socket is shareable across
      containers on both macOS (Docker Desktop) and native Linux
-   - Environment variables: `PROJECT_ID`, `USER_ID`, `WEBAPP_API_URL`, and a
-     scoped **`SCANNER_API_KEY`** (STRIDE S3/E6) injected INSTEAD of the master
-     `INTERNAL_API_KEY` (falls back to the master key only pre-secret). It is
-     accepted by the webapp on GET settings + GET projects and by the agent on
-     `/llm/*`; it cannot mint admins or read llm-provider keys.
+   - Environment variables: `PROJECT_ID`, the database-resolved `USER_ID`,
+     `WEBAPP_API_URL`, `SCANNER_API_KEY`, and an orchestrator-signed
+     `SCANNER_SCOPE_TOKEN` bound to that project and owner. Scan containers
+     never receive `INTERNAL_API_KEY`; the webapp checks the scope on settings,
+     project, and traffic-ingest routes before tenant data access.
 
 ### Log Streaming Implementation
 
