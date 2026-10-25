@@ -1,6 +1,6 @@
 # REAmon product progress
 
-Assessment date: 2026-10-25 · Source: pushed commit `381df37` · Weighted estimate: **49.0%**
+Assessment date: 2026-10-25 · Source: pushed commit `d263de1` · Weighted estimate: **49.0%**
 
 This is an estimate of progress toward the long-term product goal, not a release-readiness score. Workstream weights total 100%; each contribution is weight × completion.
 
@@ -36,7 +36,7 @@ This is an estimate of progress toward the long-term product goal, not a release
 
 **Current evidence:** Hash-bound drafts and immutable review receipts preserve lineage, with syntax validation, an early Java rebuild, and language-specific rename workflows now extending to C/C++ local bindings.
 
-**Remaining:** Project-wide edits, cross-file builds, more target-format rebuilds, and runtime or behavior validation remain limited; C/C++ rename fixture coverage is pending.
+**Remaining:** Project-wide edits, cross-file builds, more target-format rebuilds, and runtime or behavior validation remain limited; representative C/C++ projects and compiler-version coverage still need evaluation.
 
 ### Fixture-backed validation and fidelity evidence
 
