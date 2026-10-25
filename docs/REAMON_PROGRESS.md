@@ -1,6 +1,6 @@
 # REAmon product progress
 
-Assessment date: 2026-10-25 · Source: pushed commit `866ce75` · Weighted estimate: **48.9%**
+Assessment date: 2026-10-25 · Source: pushed commit `2d19def` · Weighted estimate: **48.9%**
 
 This is an estimate of progress toward the long-term product goal, not a release-readiness score. Workstream weights total 100%; each contribution is weight × completion.
 
@@ -22,7 +22,7 @@ This is an estimate of progress toward the long-term product goal, not a release
 
 ### Database-grounded project memory and provenance
 
-**Current evidence:** Project observations, symbols, relationships, source drafts, review receipts, hashes, provider versions, and run evidence ground AI context and cross-provider name reuse. Analyst-reviewed cross-artifact function matches now persist exact pair evidence and supply bounded naming context to explanations for the matching function and binary. A bounded REA Evidence v2 bundle importer validates canonical identities and manifests, stores complete provider-attributed records idempotently, links only exact artifact hashes, and supplies a bounded untrusted subset to rewrite context.
+**Current evidence:** Project observations, symbols, relationships, source drafts, review receipts, hashes, provider versions, and run evidence ground AI context and cross-provider name reuse. Analyst-reviewed cross-artifact function matches now persist exact pair evidence and supply bounded naming context to explanations and rewrites for exact matched functions, with duplicate pair records resolved by their latest analyst review. A bounded REA Evidence v2 bundle importer validates canonical identities and manifests, stores complete provider-attributed records idempotently, links only exact artifact hashes, and supplies a bounded untrusted subset to rewrite context.
 
 **Remaining:** Coverage and consistency still need validation across all formats, providers, and long-running project histories.
 
