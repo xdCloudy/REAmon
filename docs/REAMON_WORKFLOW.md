@@ -39,9 +39,10 @@ Select a function or another maintainable unit. Provide the AI with:
 
 Context is read from the project database and capped. A similar function can suggest a
 search path, but it is never treated as behavioral proof. Exact-run direct-callee
-source snippets and accepted symbols are prioritized and labeled ahead of weaker
-look-alike context. The AI must distinguish provider syntax from the binary's likely
-original language.
+source snippets, accepted symbols, and the latest human rejection rationale for each
+exact direct callee are prioritized and labeled ahead of weaker look-alike context.
+Rejection notes apply only to their cited candidate and stay untrusted; the AI must
+distinguish provider syntax from the binary's likely original language.
 
 Ghidra native functions now retain bounded basic-block, intra-function edge, entry,
 and exit counts from its `BasicBlockModel`. The rewrite prompt and MCP code-unit
