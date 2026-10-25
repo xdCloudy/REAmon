@@ -1,6 +1,6 @@
 # REAmon product progress
 
-Assessment date: 2026-10-25 · Source: pushed commit `249b0a9` · Weighted estimate: **45.2%**
+Assessment date: 2026-10-25 · Source: pushed commit `160a423` · Weighted estimate: **45.8%**
 
 This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.
 
@@ -11,7 +11,7 @@ This estimate covers the reverse-engineering product goal and secure production 
 | Major-language and format decompilation fluency | 24% | 35% | 8.40 pts |
 | Maintainable editing, review, and export | 12% | 43% | 5.16 pts |
 | Fixture-backed validation and fidelity evidence | 12% | 15% | 1.80 pts |
-| Security, reliability, and production operations | 20% | 30% | 6.00 pts |
+| Security, reliability, and production operations | 20% | 33% | 6.60 pts |
 
 ## Evidence and remaining work
 
@@ -47,8 +47,8 @@ This estimate covers the reverse-engineering product goal and secure production 
 
 ### Security, reliability, and production operations
 
-**Current evidence:** Sensitive agent REST controls fail closed behind a configured master key; webapp proxies for shared sessions, jobs, and emergency stop now require administrator access. Production dependency lockfile updates resolve the reported advisories, and targeted auth tests pass. Full-suite and deployment gates remain open.
+**Current evidence:** Sensitive agent REST controls, administrator-only shared session/job proxies, and the Metasploit/Hydra progress/session sidecars now have explicit authenticated boundaries. The production dependency audit is clean. Full-suite and deployed-stack verification remain open.
 
-**Remaining:** The security scan is partial, broad suites still have unresolved failures, administrator actions are not yet scoped to per-user session ownership, and deployment, worker, backup, and restore gates need end-to-end evidence.
+**Remaining:** The security scan is partial, the broad webapp suite still has unresolved baseline failures, administrator session actions are not scoped to per-user ownership, and deployment, worker, backup, and restore gates need end-to-end evidence.
 
 The machine-readable [`REAMON_PROGRESS.json`](REAMON_PROGRESS.json) feeds the README progress bar. The scope now includes the production hardening goal, so the total is not directly comparable with the previous product-only estimate. Update it with evidence when estimates change, then run `node tooling/reamon/update-product-progress.mjs <commit-sha>` to refresh this matrix and the README.
