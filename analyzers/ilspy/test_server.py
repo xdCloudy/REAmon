@@ -134,13 +134,24 @@ class IlspyServiceTests(unittest.TestCase):
         self.assertIn("not recovered original Visual Basic source", visual_basic["representationSemantics"])
         self.assertIn("not recovered original-language source", result["warnings"])
 
-    def test_vb_bridge_compiles_and_preserves_fixture_behavior(self):
+    def test_ilspy_reconstruction_translates_and_preserves_fixture_behavior(self):
         bridge = Path(os.environ.get("REAMON_VB_BRIDGE", "/opt/reamon-vb-bridge/Reamon.VbBridge.dll"))
-        if not bridge.is_file() or not shutil.which(os.environ.get("DOTNET", "dotnet")):
-            self.skipTest("The pinned Visual Basic bridge and .NET SDK are required")
+        ilspy = Path(os.environ.get("ILSPYCMD", "/opt/ilspycmd/ilspycmd"))
+        dotnet = os.environ.get("DOTNET", "dotnet")
+        if not bridge.is_file() or not ilspy.is_file() or not shutil.which(dotnet):
+            self.skipTest("The pinned ILSpy and Visual Basic bridge with the .NET SDK are required")
 
-        csharp = self.root / "Calculator.cs"
-        csharp.write_text("""namespace Fixture
+        source = self.artifacts / "managed-fixture"
+        source.mkdir()
+        (source / "Fixture.csproj").write_text("""<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+</Project>
+""", encoding="utf-8")
+        (source / "Calculator.cs").write_text("""namespace Fixture
 {
     public sealed class Calculator
     {
@@ -155,14 +166,23 @@ class IlspyServiceTests(unittest.TestCase):
     }
 }
 """, encoding="utf-8")
-        unit = {"relativePath": "Calculator.cs"}
-        translated, skipped, warning = server.translate_csharp_to_vb(
-            [(unit, csharp)], lambda: False, time.monotonic() + 60, lambda _message: None,
+        environment = {**os.environ, "DOTNET_CLI_TELEMETRY_OPTOUT": "1", "DOTNET_NOLOGO": "1"}
+        build = subprocess.run(
+            [dotnet, "build", str(source / "Fixture.csproj"), "--configuration", "Release", "--nologo", "--verbosity", "quiet"],
+            cwd=source, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=60, check=False, env=environment,
         )
-        self.assertEqual(skipped, 0, warning)
-        self.assertEqual(len(translated), 1)
-        relative_path, vb_source = translated[0]
-        self.assertEqual(relative_path, "Calculator.cs")
+        self.assertEqual(build.returncode, 0, build.stdout.decode("utf-8", errors="replace")[-3000:])
+        assembly = source / "bin" / "Release" / "net10.0" / "Fixture.dll"
+        self.assertTrue(assembly.is_file())
+        request = self.request()
+        request["artifactPath"] = str(assembly)
+        with patch.object(server, "preprocess_dotnet", side_effect=self.unchanged_preprocessing):
+            analysis = server.analyse(request)
+
+        self.assertEqual(analysis["status"], "completed")
+        self.assertEqual(analysis["vbBridgeVersion"], server.VB_BRIDGE_VERSION)
+        visual_basic = [unit for unit in analysis["units"] if unit["language"] == "Visual Basic"]
+        self.assertTrue(visual_basic, analysis["warnings"])
 
         project = self.root / "vb-fixture"
         project.mkdir()
@@ -171,10 +191,16 @@ class IlspyServiceTests(unittest.TestCase):
     <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
     <RootNamespace>ReamonVbFixture</RootNamespace>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
   </PropertyGroup>
 </Project>
 """, encoding="utf-8")
-        (project / "Calculator.vb").write_text(vb_source, encoding="utf-8")
+        for unit in visual_basic:
+            relative = Path(unit["relativePath"])
+            self.assertEqual(relative.parts[0], "visual-basic")
+            destination = project.joinpath(*relative.parts[1:])
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes((self.derived / unit["codeArtifactId"]).read_bytes())
         (project / "Program.vb").write_text("""Module Program
     Sub Main()
         Dim actual = New ReamonVbFixture.Fixture.Calculator(4).Compute(5)
@@ -182,9 +208,8 @@ class IlspyServiceTests(unittest.TestCase):
     End Sub
 End Module
 """, encoding="utf-8")
-        environment = {**os.environ, "DOTNET_CLI_TELEMETRY_OPTOUT": "1", "DOTNET_NOLOGO": "1"}
         result = subprocess.run(
-            [os.environ.get("DOTNET", "dotnet"), "run", "--project", str(project / "Fixture.vbproj"), "--configuration", "Release", "--nologo"],
+            [dotnet, "run", "--project", str(project / "Fixture.vbproj"), "--configuration", "Release", "--nologo"],
             cwd=project, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=60, check=False, env=environment,
         )
         self.assertEqual(result.returncode, 0, result.stdout.decode("utf-8", errors="replace")[-3000:])
