@@ -67,6 +67,38 @@ function expect(condition, message) {
   if (!condition) fail(message)
 }
 
+async function uploadArtifact(projectId, importId, cookie, entry, bytes, mimeType) {
+  const chunkSize = 8 * 1024 * 1024
+  let offset = 0
+  while (offset < bytes.length) {
+    const end = Math.min(offset + chunkSize, bytes.length)
+    const query = new URLSearchParams({ relativePath: entry.relativePath })
+    const uploaded = await request(
+      `/api/projects/${projectId}/imports/${importId}/artifacts/chunks?${query}`,
+      {
+        method: 'PUT',
+        headers: {
+          cookie,
+          'x-reamon-upload-offset': String(offset),
+          'x-reamon-upload-size': String(bytes.length),
+        },
+        body: bytes.subarray(offset, end),
+      },
+    )
+    const receivedBytes = Number(uploaded.body?.receivedBytes)
+    expect(Number.isSafeInteger(receivedBytes) && receivedBytes >= end && receivedBytes <= bytes.length,
+      `upload returned an invalid offset for ${entry.relativePath}`)
+    offset = receivedBytes
+  }
+
+  const completed = await request(
+    `/api/projects/${projectId}/imports/${importId}/artifacts/complete`,
+    jsonOptions('POST', { relativePath: entry.relativePath, mimeType }, cookie),
+    [201],
+  )
+  expect(completed.body?.artifact?.id, `artifact upload failed for ${entry.relativePath}`)
+}
+
 async function writeState(state) {
   if (!stateFile) return
   const { writeFile } = await import('node:fs/promises')
@@ -123,15 +155,7 @@ async function main() {
     [manifest[1], sourceBytes, 'text/plain'],
     [manifest[2], recoveryBytes, 'application/json'],
   ]) {
-    const form = new FormData()
-    form.set('relativePath', entry.relativePath)
-    form.set('file', new Blob([bytes], { type: mime }), entry.relativePath.split('/').pop())
-    const uploaded = await request(`/api/projects/${projectId}/imports/${importId}/artifacts`, {
-      method: 'POST',
-      headers: { cookie },
-      body: form,
-    }, [201])
-    expect(uploaded.body?.artifact?.id, `artifact upload failed for ${entry.relativePath}`)
+    await uploadArtifact(projectId, importId, cookie, entry, bytes, mime)
   }
   const finalized = await request(`/api/projects/${projectId}/imports/${importId}/finalize`, {
     method: 'POST',
