@@ -4,7 +4,7 @@ Assessment date: 2026-10-25 · Source: pushed commit `e124cc6` · Weighted estim
 
 This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.
 
-The weighted score remains 46.2%: the DEX scratch-volume fix has focused Docker tests but no deployed end-to-end evidence yet. The Cross Stitch Joy Rust DEX decompilation retry is still running and will be reassessed when it settles.
+The weighted score remains 46.2%: the DEX scratch-volume fix has focused Docker tests but no deployed end-to-end evidence yet. The Cross Stitch Joy Rust DEX decompilation retry is still active and will be reassessed when it settles. A repository-wide security scan is in progress against source revision e124cc69; its findings are not available yet.
 
 | Workstream | Goal weight | Estimated complete | Weighted points |
 | --- | ---: | ---: | ---: |
@@ -49,8 +49,8 @@ The weighted score remains 46.2%: the DEX scratch-volume fix has focused Docker 
 
 ### Security, reliability, and production operations
 
-**Current evidence:** Upload buffering findings are addressed in the current source patch: workspace file-browser transfers stream end to end, the legacy full-file artifact endpoint directs browser imports to resumable chunks, and chunk requests are bounded while being read even without Content-Length. DEX request scratch now uses a dedicated disk-backed volume in source, with crash-leftover cleanup; its focused Docker tests and root compose parsing pass, but the live analyzer has not been rebuilt. The broader source review, deployed-stack checks, and production operation gates remain open.
+**Current evidence:** Upload buffering findings are addressed in source: workspace file-browser transfers stream end to end, the legacy full-file artifact endpoint directs browser imports to resumable chunks, and chunk requests are bounded while being read even without Content-Length. DEX request scratch now uses a dedicated disk-backed volume in source, with crash-leftover cleanup; focused Docker tests and root compose parsing pass, but the live analyzer has not been rebuilt. A repository-wide security scan is in progress against source revision e124cc69; the review and deployed-stack checks remain incomplete.
 
-**Remaining:** The security scan is partial, administrator session actions are not scoped to per-user ownership, and deployment, worker, backup, restore, and remaining Docker release gates need end-to-end evidence. Complete the repository-wide security review and deployment, worker, backup, and restore gates.
+**Remaining:** The current security scan is still in progress, administrator session actions are not scoped to per-user ownership, and deployment, worker, backup, restore, and remaining Docker release gates need end-to-end evidence. Complete the repository-wide review and deployment, worker, backup, and restore gates.
 
 The machine-readable [`REAMON_PROGRESS.json`](REAMON_PROGRESS.json) feeds the README progress bar. The scope now includes the production hardening goal, so the total is not directly comparable with the previous product-only estimate. Update it with evidence when estimates change, then run `node tooling/reamon/update-product-progress.mjs <commit-sha>` to refresh this matrix and the README.
