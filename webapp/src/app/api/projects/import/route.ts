@@ -47,6 +47,11 @@ export const maxDuration = 300
 const RECON_ORCHESTRATOR_URL = process.env.RECON_ORCHESTRATOR_URL || 'http://localhost:8010'
 const REPORT_OUTPUT_PATH = process.env.REPORT_OUTPUT_PATH || '/data/reports'
 
+/** Keep imported report bytes isolated from reports belonging to other projects. */
+export function importedReportStoragePath(projectId: string, filename: string, storageId = randomUUID()): string {
+  return path.join(REPORT_OUTPUT_PATH, projectId, `${storageId}-${filename}`)
+}
+
 
 
 interface Manifest {
@@ -400,7 +405,11 @@ export async function POST(request: NextRequest) {
           if (!htmlFile) continue
 
           const htmlContent = await htmlFile.async('nodebuffer')
-          const filePath = path.join(REPORT_OUTPUT_PATH, safeName)
+          const projectReportPath = path.join(REPORT_OUTPUT_PATH, newProject.id)
+          if (!existsSync(projectReportPath)) {
+            mkdirSync(projectReportPath, { recursive: true })
+          }
+          const filePath = importedReportStoragePath(newProject.id, safeName)
           writeFileSync(filePath, htmlContent)
 
           await prisma.report.create({

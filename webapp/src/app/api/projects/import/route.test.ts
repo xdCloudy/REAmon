@@ -8,6 +8,7 @@
 import { describe, test, expect, vi, beforeEach } from 'vitest'
 import { NextRequest, NextResponse } from 'next/server'
 import JSZip from 'jszip'
+import path from 'path'
 
 vi.mock('@/lib/access', () => ({
   requireEffectiveUser: vi.fn().mockResolvedValue({ userId: 'u1', role: 'user' }),
@@ -16,7 +17,7 @@ vi.mock('@/lib/prisma', () => ({ default: {} }))
 vi.mock('@/app/api/graph/neo4j', () => ({ getGraphSession: vi.fn() }))
 vi.mock('@/lib/orchestrator', () => ({ orchestratorFetch: vi.fn() }))
 
-import { POST } from './route'
+import { importedReportStoragePath, POST } from './route'
 
 function formReq(file: File): NextRequest {
   const fd = new FormData()
@@ -71,5 +72,17 @@ describe('POST /api/projects/import (D10 caps)', () => {
     // NOT a cap rejection: the caps passed, so the error is the manifest check.
     expect(res.status).toBe(400)
     expect((await res.json()).error).toMatch(/manifest/i)
+  })
+})
+
+describe('imported report storage paths', () => {
+  test('isolates identical report names across projects and rows', () => {
+    const firstProject = importedReportStoragePath('project-a', 'report.html', 'row-a')
+    const secondProject = importedReportStoragePath('project-b', 'report.html', 'row-b')
+    const duplicateInFirstProject = importedReportStoragePath('project-a', 'report.html', 'row-c')
+
+    expect(path.dirname(firstProject)).not.toBe(path.dirname(secondProject))
+    expect(firstProject).not.toBe(duplicateInFirstProject)
+    expect(path.basename(firstProject)).toBe('row-a-report.html')
   })
 })
