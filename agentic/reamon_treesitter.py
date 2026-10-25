@@ -41,7 +41,22 @@ def _configure_language_cache(configure, pack_config) -> None:
         cache_dir = os.environ.get("REAMON_TREE_SITTER_CACHE_DIR")
         if not cache_dir:
             cache_dir = str(Path(__file__).resolve().parent / "logs" / "tree-sitter-language-pack")
-        Path(cache_dir).mkdir(parents=True, exist_ok=True)
+        cache_path = Path(cache_dir)
+        cache_path.mkdir(parents=True, exist_ok=True)
+        # tree-sitter-language-pack rejects a cache directory that other users
+        # can modify. The default lives under the shared logs mount, which may
+        # be mode 0777; make the cache and existing version directories private
+        # before the package inspects them.
+        try:
+            os.chmod(cache_path, 0o700)
+            for root, directories, _files in os.walk(cache_path, followlinks=False):
+                root_path = Path(root)
+                for name in directories:
+                    child = root_path / name
+                    if not child.is_symlink():
+                        os.chmod(child, 0o700)
+        except OSError as exc:
+            raise RuntimeError("The Tree-sitter language cache must be private") from exc
         configure(pack_config(cache_dir=cache_dir))
         _configured = True
 
