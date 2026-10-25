@@ -217,13 +217,16 @@ def safe_id(value: object) -> str:
 
 def create_analysis_tempdir() -> tempfile.TemporaryDirectory:
     """Create request scratch outside the memory-backed container /tmp when configured."""
-    SCRATCH_ROOT.mkdir(parents=True, exist_ok=True)
-    # SLOTS serializes requests. Any previous matching directory is therefore an
-    # orphan left by a hard stop and safe to reclaim before starting this request.
-    for stale in SCRATCH_ROOT.glob("reamon-dex-decompiler-*"):
-        if stale.is_dir() and not stale.is_symlink():
-            shutil.rmtree(stale, ignore_errors=True)
-    return tempfile.TemporaryDirectory(prefix="reamon-dex-decompiler-", dir=SCRATCH_ROOT)
+    try:
+        SCRATCH_ROOT.mkdir(parents=True, exist_ok=True)
+        # SLOTS serializes requests. Any previous matching directory is therefore
+        # an orphan left by a hard stop and safe to reclaim before this request.
+        for stale in SCRATCH_ROOT.glob("reamon-dex-decompiler-*"):
+            if stale.is_dir() and not stale.is_symlink():
+                shutil.rmtree(stale, ignore_errors=True)
+        return tempfile.TemporaryDirectory(prefix="reamon-dex-decompiler-", dir=SCRATCH_ROOT)
+    except OSError as error:
+        raise AnalysisError("DEX analyzer scratch storage is unavailable or full") from error
 
 
 def resolve_input(value: object) -> Path:

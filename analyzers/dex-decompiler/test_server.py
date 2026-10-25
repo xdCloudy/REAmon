@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from server import (
+    AnalysisError,
     build_decompile_command,
     build_mapping_command,
     create_analysis_tempdir,
@@ -27,6 +28,11 @@ class DecompilerCommandTests(unittest.TestCase):
                     self.assertEqual(Path(work_directory).parent, scratch_root)
                     self.assertTrue(Path(work_directory).is_dir())
                     self.assertFalse(stale.exists())
+
+    def test_request_scratch_capacity_failure_is_actionable(self):
+        with patch("server.tempfile.TemporaryDirectory", side_effect=OSError("no space left")):
+            with self.assertRaisesRegex(AnalysisError, "scratch storage is unavailable or full"):
+                create_analysis_tempdir()
 
     def test_uses_batch_slicer_with_shared_mapping_and_structured_mode(self):
         command = build_decompile_command(Path("classes.dex"), Path("names.txt"), Path("java"), 128, 64)
