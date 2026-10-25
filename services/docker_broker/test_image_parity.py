@@ -10,6 +10,7 @@ Run: cd services/docker_broker && python3 -m pytest test_image_parity.py
 
 import os
 import sys
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))          # broker
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(     # repo root
@@ -20,8 +21,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__)))), "tooling", "scripts"))
 from parse_settings_mappings import parse_default_settings  # noqa: E402
 
-REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-_defaults = parse_default_settings(os.path.join(REPO_ROOT, "recon", "project_settings.py"))
+REPO_ROOT = Path(__file__).resolve().parents[2]
+_defaults = parse_default_settings(REPO_ROOT / "recon" / "project_settings.py")
 ALLOWED_TOOL_IMAGES = frozenset(
     image
     for key, image in _defaults.items()
