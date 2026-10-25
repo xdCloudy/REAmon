@@ -51,6 +51,9 @@ available method, and export the accepted result with its provenance.
   language-aware source recovery rather than treating generic pseudocode as support.
 - Add formats based on actual engines and validators; publish measured coverage,
   fidelity, and gaps instead of a perfect-recovery claim.
+- Evaluate source-to-source transpilers and architecture-neutral binary lifters as
+  explicit stages in source recovery. Track their mappings, coverage, unsupported
+  operations, versions, and validation separately from original decompiler output.
 - Keep the visualizer useful across source, bytecode, native code, resources, and
   mixed projects.
 
@@ -71,6 +74,7 @@ recovery of source details erased by compilation or obfuscation.
 | P2 | Language-specific validators and repeatable fixture corpora | Confidence should grow from measured provider behavior, not broad claims. |
 | P2 | Concurrent agents with atomic leases and conflict protection | Parallel work is useful after unit ownership and promotion rules are sound. |
 | P2 | Major-language capability portfolio and fidelity tracking | Breadth should grow with language-aware engines, validators, and measured evidence. |
+| P2 | Transpiler and binary-lifting evaluation | Validate the existing C#-to-Visual-Basic bridge and experimental Recurse lift, then evaluate a broader source-language bridge and architecture-neutral lifter only against the provenance, coverage, and fixture acceptance criteria. |
 | P3 | More formats, alternate providers, dynamic analysis, and collaborative sharing | Extend breadth without weakening persistence, provenance, or review. |
 
 ## Completion checks for a reverse-engineering slice

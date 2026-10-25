@@ -266,6 +266,47 @@ async function refactorRustBindings(
   return { sourceCode: output, sourceSha256: expectedSha256, outputSha256, parserVersion: '2026-10-12', renamedBindings: renamed as SafeRenameResult['renamedBindings'] }
 }
 
+async function refactorCppBindings(
+  sourceCode: string,
+  language: 'c' | 'cpp',
+  operation: 'bindings' | 'rename',
+  expectedSha256 = '',
+  renames: Array<{ bindingId: string; newName: string }> = [],
+): Promise<SafeRenameCatalog | SafeRenameResult> {
+  const response = await agentFetch('/reamon/code/cpp/refactor', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ operation, language, source_code: sourceCode, expected_sha256: expectedSha256,
+      renames: renames.map((rename) => ({ binding_id: rename.bindingId, new_name: rename.newName })) }),
+  }, { timeoutMs: 120_000 })
+  const payload = await response.json().catch(() => null) as Record<string, unknown> | null
+  if (operation === 'bindings') {
+    const bindings = Array.isArray(payload?.bindings) ? payload.bindings : []
+    if (!response.ok || payload?.source_sha256 !== digest(Buffer.from(sourceCode, 'utf8'))
+        || typeof payload?.truncated !== 'boolean' || bindings.length > 2_000
+        || !/^clangd-\d+\.\d+\.\d+$/.test(String(payload?.parser_version || ''))
+        || !bindings.every((value) => {
+          const binding = plainObject(value)
+          return /^[a-f0-9]{24}$/i.test(String(binding.id || ''))
+            && typeof binding.name === 'string' && /^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(binding.name)
+            && ['parameter', 'local variable'].includes(String(binding.kind))
+            && binding.scopeType === 'clangd same-file semantic binding'
+            && Number.isSafeInteger(binding.declarationStart) && Number(binding.declarationStart) >= 0
+            && Number.isSafeInteger(binding.referenceCount) && Number(binding.referenceCount) > 0
+            && binding.exported === false
+        })) throw new Error(typeof payload?.error === 'string' ? payload.error : 'clangd returned an invalid C/C++ binding catalog')
+    return { sourceSha256: String(payload.source_sha256), bindings: bindings as SafeRenameBinding[], truncated: Boolean(payload.truncated) }
+  }
+  const output = typeof payload?.source_code === 'string' ? payload.source_code : ''
+  const renamed = Array.isArray(payload?.renamed_bindings) ? payload.renamed_bindings : []
+  const outputSha256 = typeof payload?.output_sha256 === 'string' ? payload.output_sha256 : ''
+  const parserVersion = typeof payload?.parser_version === 'string' ? payload.parser_version : ''
+  if (!response.ok || payload?.source_sha256 !== expectedSha256 || !/^[a-f0-9]{64}$/i.test(outputSha256)
+      || digest(Buffer.from(output, 'utf8')) !== outputSha256 || !/^clangd-\d+\.\d+\.\d+$/.test(parserVersion)
+      || Buffer.byteLength(output, 'utf8') > MAX_SOURCE_BYTES || renamed.length !== renames.length)
+    throw new Error(typeof payload?.error === 'string' ? payload.error : 'clangd returned invalid transformed C/C++ source')
+  return { sourceCode: output, sourceSha256: expectedSha256, outputSha256, parserVersion, renamedBindings: renamed as SafeRenameResult['renamedBindings'] }
+}
+
 async function refactorLuaBindings(
   sourceCode: string,
   operation: 'bindings' | 'rename',
@@ -427,6 +468,8 @@ export async function POST(request: Request, { params }: RouteParams) {
     const isPhp = ['php', 'php source'].includes(normalizedLanguage)
     const isRuby = ['ruby', 'ruby source', 'rb'].includes(normalizedLanguage)
     const isRust = ['rust', 'rust source', 'rustlang'].includes(normalizedLanguage)
+    const isCpp = ['c', 'c source', 'c++', 'c++ source', 'cpp', 'c/c++'].includes(normalizedLanguage)
+    const cppLanguage: 'c' | 'cpp' = normalizedLanguage === 'c' || normalizedLanguage === 'c source' ? 'c' : 'cpp'
     const isJava = ['java', 'java source'].includes(normalizedLanguage)
     const isCSharp = ['c#', 'csharp', 'cs'].includes(normalizedLanguage)
     const isGo = ['go', 'golang'].includes(normalizedLanguage)
@@ -439,8 +482,8 @@ export async function POST(request: Request, { params }: RouteParams) {
       return NextResponse.json({ error: 'LuaLS scope-safe renaming supports Lua 5.1–5.5 and LuaJIT; this source dialect is not supported' }, { status: 415 })
     }
     if (!['javascript', 'typescript', 'jsx', 'tsx', 'python', 'python 3', 'python3', 'php', 'php source', 'ruby', 'ruby source', 'rb', 'go', 'golang', 'lua', 'lua source'].includes(normalizedLanguage)
-        && !isLua && !isLuau && !isCSharp && !isJava && !isRust) {
-      return NextResponse.json({ error: 'Scope-safe renaming currently supports JavaScript, TypeScript, Python, PHP, Ruby, Go, Lua, Luau, Java, C#, and Rust source' }, { status: 415 })
+        && !isLua && !isLuau && !isCSharp && !isJava && !isRust && !isCpp) {
+      return NextResponse.json({ error: 'Scope-safe renaming currently supports JavaScript, TypeScript, Python, PHP, Ruby, Go, Lua, Luau, Java, C#, Rust, C, and C++ source' }, { status: 415 })
     }
     const codeArtifactId = typeof attributes.codeArtifactId === 'string' ? attributes.codeArtifactId : ''
     const selection = await getActiveWorkspaceImportSelection(projectId)
@@ -490,6 +533,7 @@ export async function POST(request: Request, { params }: RouteParams) {
         : isPhp ? await refactorPhpBindings(workingSource, 'bindings') as SafeRenameCatalog
         : isRuby ? await refactorRubyBindings(workingSource, 'bindings') as SafeRenameCatalog
         : isRust ? await refactorRustBindings(workingSource, 'bindings') as SafeRenameCatalog
+        : isCpp ? await refactorCppBindings(workingSource, cppLanguage, 'bindings') as SafeRenameCatalog
         : isPython ? await listPythonRenameBindings(workingSource)
         : isLuau ? await refactorLuaBindings(workingSource, 'bindings', luaRuntime) as SafeRenameCatalog
           : isLua ? await refactorLuaBindings(workingSource, 'bindings', luaRuntime) as SafeRenameCatalog
@@ -731,6 +775,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       : isPhp ? await refactorPhpBindings(workingSource, 'bindings') as SafeRenameCatalog
       : isRuby ? await refactorRubyBindings(workingSource, 'bindings') as SafeRenameCatalog
       : isRust ? await refactorRustBindings(workingSource, 'bindings') as SafeRenameCatalog
+      : isCpp ? await refactorCppBindings(workingSource, cppLanguage, 'bindings') as SafeRenameCatalog
       : isPython ? await listPythonRenameBindings(workingSource)
         : isLua ? await refactorLuaBindings(workingSource, 'bindings', luaRuntime) as SafeRenameCatalog
           : await listSafeRenameBindings(workingSource)
@@ -758,6 +803,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       : isPhp ? await refactorPhpBindings(workingSource, 'rename', workingSourceSha256, selectedRenames) as SafeRenameResult
       : isRuby ? await refactorRubyBindings(workingSource, 'rename', workingSourceSha256, selectedRenames) as SafeRenameResult
       : isRust ? await refactorRustBindings(workingSource, 'rename', workingSourceSha256, selectedRenames) as SafeRenameResult
+      : isCpp ? await refactorCppBindings(workingSource, cppLanguage, 'rename', workingSourceSha256, selectedRenames) as SafeRenameResult
       : isPython ? await applyPythonRenameBindings(workingSource, workingSourceSha256, selectedRenames)
         : isLuau ? await refactorLuaBindings(workingSource, 'rename', luaRuntime, workingSourceSha256, selectedRenames) as SafeRenameResult
         : isLua ? await refactorLuaBindings(workingSource, 'rename', luaRuntime, workingSourceSha256, selectedRenames) as SafeRenameResult
@@ -772,6 +818,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       ? `roslyn-${transformed.parserVersion}+csharp-scope-safe-rename`
       : isGo
       ? `${transformed.parserVersion}+go-ast-types-scope-safe-rename`
+      : isCpp ? `${transformed.parserVersion}+c-cpp-lsp-semantic-local-rename`
       : isRust ? `rust-analyzer-${transformed.parserVersion}+lsp-semantic-local-rename`
       : isPython ? `libcst-${transformed.parserVersion}+scope-safe-rename`
         : isLuau ? `luau-lsp-${transformed.parserVersion}+scope-safe-rename`
@@ -787,6 +834,8 @@ export async function POST(request: Request, { params }: RouteParams) {
       ? `Roslyn ${transformed.parserVersion} resolved selected C# local bindings and parsed the renamed output. This confirms syntax only; it does not validate project references, compilation, or runtime equivalence.`
       : isGo
       ? `Go ${transformed.parserVersion} parsed the output after object-identity-based local binding renames. This confirms syntax only; missing package dependencies, build behavior, and runtime equivalence are not validated.`
+      : isCpp
+      ? `${transformed.parserVersion} resolved local C/C++ bindings and returned the complete same-file reference set. Macros, conditional compilation, templates, project dependencies, builds, and runtime equivalence are not validated.`
       : isRust
       ? `rust-analyzer ${transformed.parserVersion} resolved the selected local binding and returned the complete same-file reference set; Tree-sitter parsed the output. This does not validate project dependencies, build behavior, or runtime equivalence.`
       : isPython
@@ -812,8 +861,8 @@ export async function POST(request: Request, { params }: RouteParams) {
         scope: 'file',
         status: 'SUCCEEDED',
         requestPayload: {
-          operation: isPhp ? 'phpactor-php-lsp-scope-safe-renames' : isRuby ? 'solargraph-ruby-semantic-local-renames' : isJava ? 'javac-java-scope-safe-renames' : isCSharp ? 'roslyn-csharp-scope-safe-renames' : isGo ? 'go-types-scope-safe-renames' : isRust ? 'rust-analyzer-rust-lsp-semantic-local-renames' : isPython ? 'libcst-scope-safe-renames' : isLuau ? 'luau-lsp-semantic-local-renames' : isLua ? 'luals-scope-safe-renames' : 'humanify-style-scope-safe-renames',
-          engine: isPhp ? `Phpactor ${transformed.parserVersion} LSP semantic rename; PHP lint` : isRuby ? `Solargraph ${transformed.parserVersion} references resolved by binding path; Ripper token allowlist; ruby -c` : isJava ? `JDK javac ${transformed.parserVersion} --release 17 Trees/Element symbol identity` : isCSharp ? `Roslyn ${transformed.parserVersion} semantic model and symbol identity` : isGo ? `Go ${transformed.parserVersion} AST and go/types object identity` : isRust ? `rust-analyzer ${transformed.parserVersion} LSP references + rename` : isPython ? `LibCST ${transformed.parserVersion} ScopeProvider/RenameCommand` : isLuau ? `Luau LSP ${transformed.parserVersion} semantic rename + Luau compiler parse` : isLua ? `LuaLS ${transformed.parserVersion} LSP rename + Tree-sitter Lua parse` : `Babel ${transformed.parserVersion} scope.rename (Humanify two-stage design)`,
+          operation: isCpp ? 'clangd-c-cpp-lsp-semantic-local-renames' : isPhp ? 'phpactor-php-lsp-scope-safe-renames' : isRuby ? 'solargraph-ruby-semantic-local-renames' : isJava ? 'javac-java-scope-safe-renames' : isCSharp ? 'roslyn-csharp-scope-safe-renames' : isGo ? 'go-types-scope-safe-renames' : isRust ? 'rust-analyzer-rust-lsp-semantic-local-renames' : isPython ? 'libcst-scope-safe-renames' : isLuau ? 'luau-lsp-scope-safe-renames' : isLua ? 'luals-scope-safe-renames' : 'humanify-style-scope-safe-renames',
+          engine: isCpp ? `clangd ${transformed.parserVersion} LSP semantic references and rename` : isPhp ? `Phpactor ${transformed.parserVersion} LSP semantic rename; PHP lint` : isRuby ? `Solargraph ${transformed.parserVersion} references resolved by binding path; Ripper token allowlist; ruby -c` : isJava ? `JDK javac ${transformed.parserVersion} --release 17 Trees/Element symbol identity` : isCSharp ? `Roslyn ${transformed.parserVersion} semantic model and symbol identity` : isGo ? `Go ${transformed.parserVersion} AST and go/types object identity` : isRust ? `rust-analyzer ${transformed.parserVersion} LSP references + rename` : isPython ? `LibCST ${transformed.parserVersion} ScopeProvider/RenameCommand` : isLuau ? `Luau LSP ${transformed.parserVersion} semantic rename + Luau compiler parse` : isLua ? `LuaLS ${transformed.parserVersion} LSP rename + Tree-sitter Lua parse` : `Babel ${transformed.parserVersion} scope.rename (Humanify two-stage design)`,
           inputSha256: workingSourceSha256,
           artifactSourceSha256,
           inputSource: workingSource,
