@@ -299,6 +299,7 @@ function colorHistogramSimilarity(left: string[], right: string[]): number {
 function graphNodeColors(graph: SimilarFunctionControlFlowGraph): string[][] {
   const outgoing = graph.blocks.map((): Array<{ target: number; kind: string }> => [])
   const incoming = graph.blocks.map((): Array<{ source: number; kind: string }> => [])
+  const totalInstructions = graph.blocks.reduce((total, block) => total + block[2], 0)
   for (const [source, target, rawKind] of graph.edges) {
     const kind = flowKindFamily(rawKind)
     outgoing[source].push({ target, kind })
@@ -310,6 +311,7 @@ function graphNodeColors(graph: SimilarFunctionControlFlowGraph): string[][] {
     exits.has(index),
     incoming[index].length,
     outgoing[index].length,
+    instructionShareClass(graph.blocks[index][2], totalInstructions),
   ])))
   const levels = [colors]
   for (let depth = 0; depth < 3; depth += 1) {
@@ -321,6 +323,17 @@ function graphNodeColors(graph: SimilarFunctionControlFlowGraph): string[][] {
     levels.push(colors)
   }
   return levels
+}
+
+function instructionShareClass(instructionCount: number, functionInstructionCount: number): number {
+  if (instructionCount <= 0 || functionInstructionCount <= 0) return 0
+  const share = instructionCount / functionInstructionCount
+  if (share <= 0.025) return 1
+  if (share <= 0.05) return 2
+  if (share <= 0.1) return 3
+  if (share <= 0.2) return 4
+  if (share <= 0.4) return 5
+  return 6
 }
 
 function controlFlowTopologySimilarity(

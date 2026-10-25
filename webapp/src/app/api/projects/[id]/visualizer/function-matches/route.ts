@@ -47,7 +47,7 @@ function feature(row: { id: string; label: string | null; attributes: unknown })
 
 function featureSnapshot(value: SimilarInstructionFunction) {
   const snapshot = {
-    version: 'reamon-instruction-cfg-wl-v3',
+    version: 'reamon-instruction-cfg-wl-v4',
     mnemonics: value.mnemonics,
     controlFlowMetrics: value.controlFlowMetrics || null,
     controlFlowGraph: value.controlFlowGraph || null,
@@ -146,7 +146,7 @@ export async function POST(request: Request, { params }: RouteParams) {
         functionAStableKey: functionA.stableKey,
         functionBStableKey: functionB.stableKey,
         matcher: 'reamon-instruction-cfg-wl',
-        matcherVersion: '3',
+        matcherVersion: '4',
       },
       include: { reviews: { orderBy: { createdAt: 'desc' }, take: 10 } },
     })
@@ -165,7 +165,7 @@ export async function POST(request: Request, { params }: RouteParams) {
         functionBName: featureB.name, functionBAddress: featureB.address, functionBFeatures: featureSnapshot(featureB) as unknown as Prisma.InputJsonValue,
         architecture: `${architecture}:${endianA || endianB || 'endianness-unknown'}`,
         matcher: 'reamon-instruction-cfg-wl',
-        matcherVersion: '3',
+        matcherVersion: '4',
         similarity: Math.round(score.similarity * 100),
         instructionSimilarity: Math.round(score.instructionSimilarity * 100),
         controlFlowSimilarity: score.controlFlowSimilarity === null ? null : Math.round(score.controlFlowSimilarity * 100),
