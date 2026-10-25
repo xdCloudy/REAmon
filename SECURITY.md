@@ -2,15 +2,15 @@
 
 ## Supported Versions
 
-REAmon follows a rolling-release model. Only the **current release** on the
-`reamon/bootstrap` branch receives security updates.
+REAmon currently follows the rolling `main` branch; there is no published REAmon release at this time. Security fixes are made against `main`. Historical tags and artifacts labeled RedAmon do not represent supported REAmon releases.
 
-| Version                       | Supported          |
-| ----------------------------- | ------------------ |
-| `v6.23.0` / current `reamon/bootstrap` | :white_check_mark: |
-| Any older release or branch             | :x:                |
+| Version | Supported |
+| --- | --- |
+| Current `main` branch | :white_check_mark: |
+| Historical tags and other branches | :x: |
+| Published release | None currently available |
 
-If you are running an older version, please update to the latest release before reporting issues. See the [Updating to a New Version](README.md#updating-to-a-new-version) section.
+Please update to the latest commit on `main` before reporting an issue. Installation and update instructions are in the [README](README.md).
 
 ## Reporting a Vulnerability
 
