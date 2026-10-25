@@ -445,14 +445,8 @@ class TestAgenticCrawlBounds(unittest.TestCase):
             }
         html_map.update(make_link_chain())
 
-        class StubPw:
-            name = "execute_playwright"
-            def __init__(self, m): self.m = m
-            async def ainvoke(self, args):
-                return [{"text": self.m.get(args["url"], "")}]
-        class StubMcp:
-            def __init__(self, m): self.t = StubPw(m)
-            async def get_tools(self): return [self.t]
+        async def fake_fetch(url, _mcp_manager):
+            return html_map.get(url, ""), 2
 
         # Always follow the only available child.
         try:  # sibling-test helper; robust to namespace-package shadowing
@@ -462,17 +456,21 @@ class TestAgenticCrawlBounds(unittest.TestCase):
         llm = _ScriptedLLM([
             '{"action":"follow","indices":[1],"reason":"go"}',
         ] * 5)
-        result = run_async(agentic_crawl(
-            base,
-            bounds={"max_pages": 10, "max_llm_calls": 10,
-                    "time_budget_sec": 60, "max_depth": 2},
-            llm=llm, mcp_manager=StubMcp(html_map),
-        ))
+        # Keep this depth-bound test hermetic: the production fetcher tries
+        # live HTTP before falling back to the Playwright MCP stub.
+        with mock.patch("orchestrator_helpers.tradecraft_crawl._crawl_fetch", fake_fetch):
+            result = run_async(agentic_crawl(
+                base,
+                bounds={"max_pages": 10, "max_llm_calls": 10,
+                        "time_budget_sec": 60, "max_depth": 2},
+                llm=llm, mcp_manager=None,
+            ))
         # Visited pages should not exceed depth+1 = 3 (home depth 0, p1 depth 1, p2 depth 2).
         # p3 (depth 3) must NOT be visited because depth+1 > max_depth on p2's iteration
         # short-circuits the enqueue.
         visited_paths = sorted(e["path"] for e in result.sitemap_entries)
         self.assertNotIn(f"{base}/p3", visited_paths)
+        self.assertEqual(result.stats["pages_fetched"], 3)
         # And we did get the first three.
         for u in [f"{base}/", f"{base}/p1", f"{base}/p2"]:
             self.assertIn(u, visited_paths, f"missing {u}")

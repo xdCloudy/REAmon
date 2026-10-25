@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { agentFetch } from '@/lib/agentFetch'
+import { requireAdmin } from '@/lib/session'
 
 
 export async function POST(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const auth = await requireAdmin()
+  if (auth instanceof NextResponse) return auth
+
   const { id } = await params
   try {
     const resp = await agentFetch(`/sessions/${id}/kill`, {

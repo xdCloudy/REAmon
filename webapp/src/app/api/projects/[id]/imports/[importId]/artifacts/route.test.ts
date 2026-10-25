@@ -241,7 +241,7 @@ describe('POST /api/projects/[id]/imports/[importId]/artifacts', () => {
     await mkdir(path.join(sourceRoot, 'bin'), { recursive: true })
     await writeFile(path.join(sourceRoot, 'bin', 'app.exe'), 'abc')
     vi.stubEnv('REAMON_SERVER_SOURCE_ROOTS', sourceRoot)
-    mocks.workspaceImportFindFirst.mockResolvedValueOnce({
+    mocks.workspaceImportFindFirst.mockResolvedValue({
       id: 'import-1',
       projectId: 'project-1',
       rootTargetId: 'root-target-1',
@@ -256,6 +256,6 @@ describe('POST /api/projects/[id]/imports/[importId]/artifacts', () => {
     expect(response.status).toBe(201)
     const storagePath = mocks.artifactCreate.mock.calls[0][0].data.storagePath as string
     expect(await readFile(path.join(storageRoot, storagePath), 'utf8')).toBe('abc')
-    expect(mocks.profileArtifact).toHaveBeenCalledWith(expect.any(Uint8Array), 'bin/app.exe', 'application/octet-stream')
+    expect(mocks.profileArtifact).toHaveBeenCalledWith(expect.any(Uint8Array), 'bin/app.exe', 'application/octet-stream', 3)
   })
 })

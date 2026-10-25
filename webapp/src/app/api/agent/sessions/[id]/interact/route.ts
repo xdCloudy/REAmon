@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { agentFetch } from '@/lib/agentFetch'
+import { requireAdmin } from '@/lib/session'
 
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const auth = await requireAdmin()
+  if (auth instanceof NextResponse) return auth
+
   const { id } = await params
   try {
     const body = await request.json()

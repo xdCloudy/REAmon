@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server'
 import { agentFetch } from '@/lib/agentFetch'
+import { requireAdmin } from '@/lib/session'
 
 export async function POST() {
+  const admin = await requireAdmin()
+  if (admin instanceof NextResponse) return admin
+
   try {
     // D7/S8: /emergency-stop-all now requires internal auth; present the master
     // INTERNAL_API_KEY the webapp already holds.

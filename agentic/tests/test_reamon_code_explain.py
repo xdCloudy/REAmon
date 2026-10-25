@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -34,6 +35,16 @@ class _Llm:
     async def ainvoke(self, messages):
         self.messages = messages
         return _Answer()
+
+
+class _ReviewAnswer:
+    content = '{"status":"UNCERTAIN","summary":"Available evidence is insufficient to establish equivalence.","findings":[]}'
+
+
+def _review_answer_for(messages):
+    if messages and "separate review pass" in getattr(messages[0], "content", "").lower():
+        return _ReviewAnswer()
+    return None
 
 
 def test_code_explanation_uses_the_exact_saved_provider(api, monkeypatch):
@@ -119,10 +130,13 @@ def test_code_deobfuscation_returns_complete_source_and_uses_exact_provider(api,
         response_metadata = {'finish_reason': 'stop'}
 
     class TransformLlm:
-        messages = None
+        messages = []
 
         async def ainvoke(self, messages):
-            self.messages = messages
+            self.messages.append(messages)
+            review = _review_answer_for(messages)
+            if review:
+                return review
             return TransformAnswer()
 
     provider = {'id': 'provider-1', 'providerType': 'openai_compatible', 'modelIdentifier': 'Qwen3.5-0.8B'}
@@ -137,21 +151,96 @@ def test_code_deobfuscation_returns_complete_source_and_uses_exact_provider(api,
         })
 
     assert response.status_code == 200, response.text
-    assert response.json() == {'source_code': 'class Example { String read(String accountName) { return accountName; } }', 'syntax_validated': True, 'model_used': 'custom/provider-1'}
+    candidate = 'class Example { String read(String accountName) { return accountName; } }'
+    assert response.json() == {
+        'source_code': candidate,
+        'rewrite_history': [],
+        'quality_review': {
+            'status': 'UNCERTAIN',
+            'candidate_sha256': hashlib.sha256(candidate.encode('utf-8')).hexdigest(),
+            'summary': 'Available evidence is insufficient to establish equivalence.',
+            'findings': [],
+            'model_used': 'custom/provider-1',
+        },
+        'syntax_validated': True,
+        'validation_status': 'PASSED',
+        'validation_method': 'tree-sitter+callable-count+java-contract',
+        'validation_message': 'The parser accepted the source, recognized callable count was preserved, and Java declaration structure remained stable. This is structural evidence, not a behavior-equivalence check.',
+        'model_used': 'custom/provider-1',
+    }
     fetch.assert_called_once_with('user-1')
     assert setup.call_args.kwargs['custom_llm_config'] == provider
-    assert 'preserve' in llm.messages[0].content.lower()
-    assert 'DECOMPILED_SOURCE' in llm.messages[1].content
-    assert 'never output these files' in llm.messages[1].content
-    assert 'PROJECT_SYMBOL_INDEX' in llm.messages[1].content
-    assert 'loadAccount, saveAccount' in llm.messages[1].content
-    assert 'UNREVIEWED_PROJECT_DRAFT_INDEX' in llm.messages[1].content
-    assert 'loadPendingAccount' in llm.messages[1].content
-    assert 'consistency hint' in llm.messages[1].content
-    assert 'EVIDENCE RULES' in llm.messages[0].content
-    assert 'keep its original name' in llm.messages[0].content
-    assert 'tentative names only' in llm.messages[0].content
-    assert 'Do not add comments, Javadocs, TODOs' in llm.messages[0].content
+    assert len(llm.messages) == 2
+    rewrite_messages, review_messages = llm.messages
+    assert 'preserve' in rewrite_messages[0].content.lower()
+    assert 'DECOMPILED_SOURCE' in rewrite_messages[1].content
+    assert 'never output these files' in rewrite_messages[1].content
+    assert 'PROJECT_SYMBOL_INDEX' in rewrite_messages[1].content
+    assert 'loadAccount, saveAccount' in rewrite_messages[1].content
+    assert 'UNREVIEWED_PROJECT_DRAFT_INDEX' in rewrite_messages[1].content
+    assert 'loadPendingAccount' in rewrite_messages[1].content
+    assert 'consistency hint' in rewrite_messages[1].content
+    assert 'EVIDENCE RULES' in rewrite_messages[0].content
+    assert 'keep its original name' in rewrite_messages[0].content
+    assert 'tentative names only' in rewrite_messages[0].content
+    assert 'Do not add comments, Javadocs, TODOs' in rewrite_messages[0].content
+    assert 'separate review pass' in review_messages[0].content
+    assert 'REVIEW_CANDIDATE_SOURCE' in review_messages[1].content
+
+
+def test_code_deobfuscation_uses_a_separate_requested_evidence_review_model(api, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    monkeypatch.delenv('INTERNAL_API_KEY', raising=False)
+    monkeypatch.delenv('SCANNER_API_KEY', raising=False)
+
+    class DraftAnswer:
+        content = 'class Example { String read() { return "ready"; } }'
+        response_metadata = {'finish_reason': 'stop'}
+
+    class DraftLlm:
+        calls = 0
+
+        async def ainvoke(self, _messages):
+            self.calls += 1
+            return DraftAnswer()
+
+    class ReviewAnswer:
+        content = '{"status":"UNCERTAIN","summary":"Available evidence is insufficient.","findings":[]}'
+
+    class ReviewLlm:
+        messages = None
+
+        async def ainvoke(self, messages):
+            self.messages = messages
+            return ReviewAnswer()
+
+    providers = [
+        {'id': 'provider-1', 'providerType': 'openai_compatible', 'modelIdentifier': 'draft-model'},
+        {'id': 'reviewer-1', 'providerType': 'openai_compatible', 'modelIdentifier': 'review-model'},
+    ]
+    draft_llm = DraftLlm()
+    review_llm = ReviewLlm()
+    with patch.object(api, 'fetch_user_providers', return_value=providers), patch(
+        'orchestrator_helpers.llm_setup.setup_llm', side_effect=[draft_llm, review_llm]
+    ):
+        response = TestClient(api.app).post('/reamon/code/deobfuscate', json={
+            'model': 'custom/provider-1', 'review_model': 'custom/reviewer-1',
+            'user_id': 'user-1', 'unit_name': 'Example', 'language': 'Java',
+            'source_code': 'class Example { String read() { return a; } }',
+        })
+
+    assert response.status_code == 200, response.text
+    assert response.json()['quality_review'] == {
+        'status': 'UNCERTAIN',
+        'candidate_sha256': hashlib.sha256(DraftAnswer.content.encode('utf-8')).hexdigest(),
+        'summary': 'Available evidence is insufficient.',
+        'findings': [],
+        'model_used': 'custom/reviewer-1',
+    }
+    assert response.json()['validation_status'] == 'PASSED'
+    assert draft_llm.calls == 1
+    assert 'REVIEW_CANDIDATE_SOURCE' in review_llm.messages[1].content
 
 
 def test_code_deobfuscation_rewrites_one_java_member_and_preserves_its_signature(api, monkeypatch):
@@ -165,10 +254,13 @@ def test_code_deobfuscation_rewrites_one_java_member_and_preserves_its_signature
         response_metadata = {'finish_reason': 'stop'}
 
     class MemberLlm:
-        messages = None
+        messages = []
 
         async def ainvoke(self, messages):
-            self.messages = messages
+            self.messages.append(messages)
+            review = _review_answer_for(messages)
+            if review:
+                return review
             return MemberAnswer()
 
     provider = {'id': 'provider-1', 'providerType': 'openai_compatible', 'modelIdentifier': 'Qwen3.5-0.8B'}
@@ -185,7 +277,9 @@ def test_code_deobfuscation_rewrites_one_java_member_and_preserves_its_signature
     assert response.status_code == 200, response.text
     assert response.json()['source_code'] == MemberAnswer.content
     assert response.json()['syntax_validated'] is True
-    assert 'MEMBER SCOPE' in llm.messages[0].content
+    assert len(llm.messages) == 2
+    assert 'MEMBER SCOPE' in llm.messages[0][0].content
+    assert 'separate review pass' in llm.messages[1][0].content
 
 
 def test_code_deobfuscation_rejects_a_member_signature_change(api, monkeypatch):
@@ -395,6 +489,9 @@ def test_code_deobfuscation_retries_without_context_after_a_different_java_type(
 
         async def ainvoke(self, _messages):
             self.messages.append(_messages)
+            review = _review_answer_for(_messages)
+            if review:
+                return review
             class Answer:
                 content = ('class RelatedHttpResponse { void close() {} }'
                            if len(self.messages) == 1
@@ -414,8 +511,9 @@ def test_code_deobfuscation_retries_without_context_after_a_different_java_type(
 
     assert response.status_code == 200
     assert response.json()['source_code'] == 'package zc; public interface p { a0 intercept(o value); }'
-    assert len(llm.messages) == 2
+    assert len(llm.messages) == 3
     assert 'RELATED_DECOMPILED_SOURCE' not in llm.messages[1][1].content
+    assert 'separate review pass' in llm.messages[2][0].content
 
 
 def test_code_deobfuscation_retries_without_optional_context_when_local_model_context_is_too_small(api, monkeypatch):
@@ -433,6 +531,9 @@ def test_code_deobfuscation_retries_without_optional_context_when_local_model_co
 
         async def ainvoke(self, messages):
             self.messages.append(messages)
+            review = _review_answer_for(messages)
+            if review:
+                return review
             if len(self.messages) == 1:
                 raise RuntimeError('request exceeds the available context size (8192 tokens)')
             return Answer()
@@ -450,12 +551,13 @@ def test_code_deobfuscation_retries_without_optional_context_when_local_model_co
 
     assert response.status_code == 200, response.text
     assert response.json()['source_code'] == Answer.content
-    assert len(llm.messages) == 2
+    assert len(llm.messages) == 3
     assert 'RELATED_DECOMPILED_SOURCE' in llm.messages[0][1].content
     assert 'BYTECODE_EVIDENCE' in llm.messages[0][1].content
     assert 'RELATED_DECOMPILED_SOURCE' not in llm.messages[1][1].content
     assert 'BYTECODE_EVIDENCE' not in llm.messages[1][1].content
     assert 'DECOMPILED_SOURCE' in llm.messages[1][1].content
+    assert 'separate review pass' in llm.messages[2][0].content
 
 
 def test_code_deobfuscation_retries_truncated_output_without_optional_context(api, monkeypatch):
@@ -477,6 +579,9 @@ def test_code_deobfuscation_retries_truncated_output_without_optional_context(ap
 
         async def ainvoke(self, messages):
             self.messages.append(messages)
+            review = _review_answer_for(messages)
+            if review:
+                return review
             return TruncatedAnswer() if len(self.messages) == 1 else CompleteAnswer()
 
     provider = {'id': 'provider-1', 'providerType': 'openai_compatible', 'modelIdentifier': 'Qwen3.5-0.8B'}
@@ -492,12 +597,13 @@ def test_code_deobfuscation_retries_truncated_output_without_optional_context(ap
 
     assert response.status_code == 200, response.text
     assert response.json()['source_code'] == CompleteAnswer.content
-    assert len(llm.messages) == 2
+    assert len(llm.messages) == 3
     assert 'RELATED_DECOMPILED_SOURCE' in llm.messages[0][1].content
     assert 'BYTECODE_EVIDENCE' in llm.messages[0][1].content
     assert 'RELATED_DECOMPILED_SOURCE' not in llm.messages[1][1].content
     assert 'BYTECODE_EVIDENCE' not in llm.messages[1][1].content
     assert 'DECOMPILED_SOURCE' in llm.messages[1][1].content
+    assert 'separate review pass' in llm.messages[2][0].content
 
 
 def test_code_deobfuscation_continues_truncated_output_before_validating(api, monkeypatch):
@@ -519,6 +625,9 @@ def test_code_deobfuscation_continues_truncated_output_before_validating(api, mo
 
         async def ainvoke(self, messages):
             self.messages.append(messages)
+            review = _review_answer_for(messages)
+            if review:
+                return review
             return PartialAnswer() if len(self.messages) == 1 else FinalChunk()
 
     provider = {'id': 'provider-1', 'providerType': 'openai_compatible', 'modelIdentifier': 'Qwen3.5-0.8B'}
@@ -531,15 +640,20 @@ def test_code_deobfuscation_continues_truncated_output_before_validating(api, mo
         })
 
     assert response.status_code == 200, response.text
-    assert response.json() == {
-        'source_code': 'class Example { String read() { return "account"; } }',
-        'syntax_validated': True,
-        'model_used': 'custom/provider-1',
-    }
-    assert len(llm.messages) == 2
+    result = response.json()
+    candidate = 'class Example { String read() { return "account"; } }'
+    assert result['source_code'] == candidate
+    assert result['rewrite_history'] == []
+    assert result['quality_review']['status'] == 'UNCERTAIN'
+    assert result['quality_review']['candidate_sha256'] == hashlib.sha256(candidate.encode('utf-8')).hexdigest()
+    assert result['syntax_validated'] is True
+    assert result['validation_status'] == 'PASSED'
+    assert result['model_used'] == 'custom/provider-1'
+    assert len(llm.messages) == 3
     continuation_prompt = llm.messages[1][1].content
     assert 'PARTIAL_SOURCE_OUTPUT' in continuation_prompt
     assert 'Continue immediately after its final character' in continuation_prompt
+    assert 'separate review pass' in llm.messages[2][0].content
 
 
 def test_code_deobfuscation_reports_when_selected_source_alone_exceeds_model_context(api, monkeypatch):
