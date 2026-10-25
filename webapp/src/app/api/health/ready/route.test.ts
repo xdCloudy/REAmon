@@ -26,7 +26,7 @@ describe('GET /api/health/ready', () => {
     await expect(response.json()).resolves.toEqual({
       status: 'ready',
       checks: { database: 'ok', artifacts: 'ok' },
-      build: { revision: 'unknown', dirty: false },
+      build: { revision: 'unknown', dirty: null },
     })
     expect(mocks.access).toHaveBeenCalledWith('/data/reamon-artifacts', expect.any(Number))
   })
@@ -40,7 +40,7 @@ describe('GET /api/health/ready', () => {
     await expect(response.json()).resolves.toEqual({
       status: 'not_ready',
       checks: { database: 'unavailable', artifacts: 'ok' },
-      build: { revision: 'unknown', dirty: false },
+      build: { revision: 'unknown', dirty: null },
     })
   })
 

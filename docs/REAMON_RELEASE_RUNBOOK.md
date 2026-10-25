@@ -188,7 +188,8 @@ shared volume as a whole and does not attribute use to individual projects.
 
    ```bash
    docker compose config --quiet
-   docker compose build webapp
+   REAMON_BUILD_SHA="$(git rev-parse --short=12 HEAD)" \
+     REAMON_BUILD_DIRTY=false docker compose build webapp
    docker compose up -d --no-deps webapp reamon-worker
    ```
 

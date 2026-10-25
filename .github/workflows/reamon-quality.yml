@@ -124,6 +124,8 @@ jobs:
       AUTH_SECRET: ci-auth-secret
       INTERNAL_API_KEY: ci-internal-key
       REAMON_WEBAPP_IMAGE: reamon-webapp:ci
+      REAMON_BUILD_SHA: ${{ github.sha }}
+      REAMON_BUILD_DIRTY: "false"
       WEBAPP_PORT: "3000"
       WEBAPP_CPUS: "1"
       REAMON_WORKER_POLL_SECONDS: "5"

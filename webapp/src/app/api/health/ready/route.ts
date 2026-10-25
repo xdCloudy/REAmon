@@ -30,7 +30,8 @@ export async function GET() {
   const revision = /^[a-f\d]{7,40}$/i.test(configuredRevision)
     ? configuredRevision
     : 'unknown'
-  const dirty = process.env.REAMON_BUILD_DIRTY === 'true'
+  const dirtyValue = process.env.REAMON_BUILD_DIRTY
+  const dirty = dirtyValue === 'true' ? true : dirtyValue === 'false' ? false : null
   return Response.json({
     status: ready ? 'ready' : 'not_ready',
     checks,

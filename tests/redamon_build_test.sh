@@ -31,6 +31,28 @@ assert_contains() { if [[ "$2" == *"$3"* ]]; then pass "$1"; else fail "$1 (miss
 assert_not_contains() { if [[ "$2" != *"$3"* ]]; then pass "$1"; else fail "$1 (unexpected '$3' in: $2)"; fi; }
 section() { printf '\n\033[1m== %s ==\033[0m\n' "$1"; }
 
+_docker_daemon_available() {
+    command -v docker >/dev/null 2>&1 || return 1
+    if command -v timeout >/dev/null 2>&1; then
+        timeout 10s docker info >/dev/null 2>&1
+        return $?
+    fi
+
+    command docker info >/dev/null 2>&1 &
+    local probe_pid=$! elapsed=0
+    while (( elapsed < 10 )); do
+        if ! kill -0 "$probe_pid" 2>/dev/null; then
+            wait "$probe_pid"
+            return $?
+        fi
+        sleep 1
+        elapsed=$((elapsed + 1))
+    done
+    kill "$probe_pid" 2>/dev/null || true
+    wait "$probe_pid" 2>/dev/null || true
+    return 1
+}
+
 # Silence info/warn during tests unless a test opts in (they write to stdout and
 # would pollute captured output). Re-defined AFTER source, overriding redamon's.
 info() { :; }
@@ -339,7 +361,7 @@ if bash "$REPO_ROOT/redamon.sh" help >/dev/null 2>&1; then pass "S2 direct 'help
 # S3/S4 need a docker daemon. Probe the executable with a timeout so the
 # integration `docker()` stub cannot fake availability or hang on a stale
 # Windows/WSL Docker Desktop connection.
-if command -v docker >/dev/null 2>&1 && timeout 10s docker info >/dev/null 2>&1; then
+if _docker_daemon_available; then
     # S3: webapp is a real, buildable compose service (Layer-1 target valid)
     # Compose requires these fail-closed credentials even though this smoke
     # check only asks it to list service names. Use disposable values so CI
