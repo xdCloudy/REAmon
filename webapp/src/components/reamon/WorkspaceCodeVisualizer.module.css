@@ -309,6 +309,7 @@ button.flowNode:hover, button.flowNode:focus-visible { border-color: #86c8ff; ou
 .rewriteContext > summary { width: fit-content; color: var(--accent-secondary); cursor: pointer; }
 .rewriteContext ul { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); margin: var(--space-1) 0 0; padding-left: 1.1rem; color: var(--text-secondary); }
 .rewriteContext li { min-width: 0; overflow-wrap: anywhere; }
+.rewriteContext li small { color: var(--text-muted); font-size: 0.82em; }
 .attemptSource { max-height: 320px; margin: var(--space-2) 0 0; overflow: auto; border: 1px solid var(--border-default); border-radius: var(--radius-sm); padding: var(--space-3); background: #111722; color: #d4deed; font: .72rem/1.5 var(--font-mono); white-space: pre; }
 .maintainedComparison { display: grid; width: 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); }
 .maintainedComparisonStale { grid-template-columns: repeat(3, minmax(0, 1fr)); }
