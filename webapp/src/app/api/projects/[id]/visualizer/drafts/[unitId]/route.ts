@@ -64,11 +64,13 @@ function rewriteContextSummary(value: unknown) {
   }
 }
 
-function safeQualityReview(value: unknown) {
+function safeQualityReview(value: unknown, candidateSource: string | null) {
   const review = plainObject(value)
   const statuses = ['NO_ISSUE_FOUND', 'NEEDS_REVIEW', 'UNCERTAIN', 'UNAVAILABLE'] as const
   if (!statuses.includes(review.status as typeof statuses[number])
       || typeof review.candidateSha256 !== 'string' || !/^[a-f0-9]{64}$/i.test(review.candidateSha256)
+      || typeof candidateSource !== 'string'
+      || createHash('sha256').update(candidateSource, 'utf8').digest('hex') !== review.candidateSha256.toLowerCase()
       || typeof review.summary !== 'string' || typeof review.modelUsed !== 'string'
       || !Array.isArray(review.findings) || !review.findings.every((item) => typeof item === 'string')) return null
   return {
@@ -222,7 +224,7 @@ export async function GET(_request: Request, { params }: RouteParams) {
             errorMessage: attempt.errorMessage,
             resultSource: attempt.status === 'SUCCEEDED' ? attempt.resultSource : null,
             inputSource: attempt.status === 'SUCCEEDED' && typeof payload.source_code === 'string' ? payload.source_code : null,
-            qualityReview: safeQualityReview(attempt.qualityReview),
+            qualityReview: safeQualityReview(attempt.qualityReview, attempt.status === 'SUCCEEDED' ? attempt.resultSource : null),
             context: rewriteContextSummary(attempt.requestPayload),
             createdAt: attempt.createdAt.toISOString(),
             completedAt: attempt.completedAt?.toISOString() ?? null,
@@ -246,7 +248,7 @@ export async function GET(_request: Request, { params }: RouteParams) {
         errorCode: attempt.errorCode,
         errorMessage: attempt.errorMessage,
         resultSource: attempt.resultSource,
-        qualityReview: safeQualityReview(attempt.qualityReview),
+        qualityReview: safeQualityReview(attempt.qualityReview, attempt.status === 'SUCCEEDED' ? attempt.resultSource : null),
         context: rewriteContextSummary(attempt.requestPayload),
         rewriteHistoryRoundCount: Array.isArray(attempt.rewriteHistory) ? attempt.rewriteHistory.length : 0,
         syntaxValidated: attempt.syntaxValidated,
