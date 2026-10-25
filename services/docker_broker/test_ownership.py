@@ -4,7 +4,7 @@
 Runs the broker against a MOCK upstream that answers GET /containers/<id>/json
 with a marker label iff the id contains "owned", and asserts:
   * create injects the broker-owned marker label,
-  * exec/attach/kill/archive on an UNLABELLED container -> 403, not forwarded,
+  * exec/attach/kill/archive/inspect on an UNLABELLED container -> 403,
   * the same verbs on a LABELLED container -> forwarded,
   * GET /containers/json is rewritten to force the ownership label filter.
 
@@ -142,6 +142,16 @@ async def main():
         received.clear()
         resp = await send(make_request("GET", "/v1.43/containers/redamon-agent/archive?path=/etc"))
         check("archive on unlabelled infra -> 403", b"403" in resp)
+
+        # Inspect responses expose container environment variables and metadata.
+        # Require the same ownership check used for other container operations.
+        received.clear()
+        resp = await send(make_request("GET", "/v1.43/containers/redamon-recon-orchestrator/json"))
+        check("inspect on unlabelled infra -> 403", b"403" in resp)
+        check("inspect on unlabelled infra -> ownership probe only", len(received) == 1)
+        received.clear()
+        resp = await send(make_request("GET", "/v1.43/containers/owned-scan-10/json"))
+        check("inspect on labelled container -> forwarded", len(received) == 2)
 
         # test_list_scoped_to_owned
         received.clear()

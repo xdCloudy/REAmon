@@ -3831,7 +3831,7 @@ async def get_mcp_manifest():
     }
 
 
-@app.post("/mcp/reload", tags=["MCP"], dependencies=[Depends(require_internal_auth_only)])
+@app.post("/mcp/reload", tags=["MCP"], dependencies=[Depends(require_configured_master_internal_auth)])
 async def reload_mcp_manifest(payload: dict = None):
     """
     Re-merge system + user MCP servers and reconnect the MCP client.
@@ -3855,7 +3855,7 @@ async def reload_mcp_manifest(payload: dict = None):
         return JSONResponse({"error": str(exc)}, status_code=500)
 
 
-@app.post("/mcp/test", tags=["MCP"], dependencies=[Depends(require_internal_auth_only)])
+@app.post("/mcp/test", tags=["MCP"], dependencies=[Depends(require_configured_master_internal_auth)])
 async def test_mcp_server(server: dict):
     """
     Test connectivity to a single MCP server draft (NOT yet persisted).
@@ -7120,11 +7120,11 @@ def _kali_job_view(state: dict, cursor: int, project_id: str, job_id: str) -> di
     return view
 
 
-# Master key only. require_internal_auth_only also accepts SCANNER_API_KEY, which
+# Configured master key only. require_internal_auth_only also accepts SCANNER_API_KEY, which
 # the kali-sandbox and every spawned scan container hold - the least-trusted
 # tier. A leaked scanner token must not be able to run commands, the same
 # reasoning that gave /graph/triage the stricter dependency.
-@app.post("/kali/exec", tags=["Kali"], dependencies=[Depends(require_master_internal_auth)])
+@app.post("/kali/exec", tags=["Kali"], dependencies=[Depends(require_configured_master_internal_auth)])
 async def kali_exec(body: KaliExecRequest):
     """Run a command in the Kali sandbox and answer with what it produced.
 
@@ -7197,7 +7197,7 @@ async def kali_exec(body: KaliExecRequest):
     return JSONResponse(content=view)
 
 
-@app.get("/kali/exec/{job_id}", tags=["Kali"], dependencies=[Depends(require_master_internal_auth)])
+@app.get("/kali/exec/{job_id}", tags=["Kali"], dependencies=[Depends(require_configured_master_internal_auth)])
 async def kali_exec_status(
     job_id: str,
     project_id: str = Query(...),
@@ -7215,7 +7215,7 @@ async def kali_exec_status(
     return JSONResponse(content=_kali_job_view(state, cursor, project_id, job_id))
 
 
-@app.post("/kali/exec/{job_id}/cancel", tags=["Kali"], dependencies=[Depends(require_master_internal_auth)])
+@app.post("/kali/exec/{job_id}/cancel", tags=["Kali"], dependencies=[Depends(require_configured_master_internal_auth)])
 async def kali_exec_cancel(job_id: str, project_id: str = Query(...)):
     """Stop a running command. An agent that can start one must be able to."""
     if not _KALI_JOB_ID_RE.match(job_id or ""):

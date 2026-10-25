@@ -48,6 +48,8 @@ class ConfiguredMasterAuthTests(unittest.TestCase):
             "/sessions", "/sessions/{session_id}/interact", "/sessions/{session_id}/kill",
             "/jobs/{job_id}/kill", "/session-chat-map", "/non-msf-sessions",
             "/agent-session/stop", "/emergency-stop-all",
+            "/kali/exec", "/kali/exec/{job_id}", "/kali/exec/{job_id}/cancel",
+            "/mcp/test", "/mcp/reload",
         }
         routes = {route.path: route for route in api.app.routes if hasattr(route, "dependant")}
         missing = {
@@ -58,6 +60,42 @@ class ConfiguredMasterAuthTests(unittest.TestCase):
             }
         }
         self.assertEqual(missing, set())
+
+    def test_command_and_mcp_controls_reject_unconfigured_and_scanner_keys(self):
+        import httpx
+        import api
+
+        requests = (
+            ("POST", "/kali/exec", {}),
+            ("GET", "/kali/exec/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa?project_id=test", None),
+            ("POST", "/kali/exec/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/cancel?project_id=test", None),
+            ("POST", "/mcp/test", {}),
+            ("POST", "/mcp/reload", {}),
+        )
+
+        async def send(method, path, body, key=""):
+            headers = {"x-internal-key": key} if key else {}
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=api.app), base_url="http://agent.test"
+            ) as client:
+                return await client.request(method, path, json=body, headers=headers)
+
+        for method, path, body in requests:
+            with self.subTest(path=path), patch.dict(os.environ, {}, clear=True):
+                response = asyncio.run(send(method, path, body))
+                self.assertEqual(response.status_code, 503)
+
+            env = {"INTERNAL_API_KEY": "master-secret", "SCANNER_API_KEY": "scanner-secret"}
+            with self.subTest(path=path, credential="scanner"), patch.dict(os.environ, env, clear=True):
+                response = asyncio.run(send(method, path, body, "scanner-secret"))
+                self.assertEqual(response.status_code, 401)
+
+            with self.subTest(path=path, credential="master"), patch.dict(os.environ, env, clear=True):
+                response = asyncio.run(send(method, path, body, "master-secret"))
+                self.assertNotEqual(
+                    response.json().get("detail"),
+                    "Internal API authentication is not configured",
+                )
 
     def test_workspace_route_rejects_direct_unauthenticated_and_scanner_requests(self):
         import httpx

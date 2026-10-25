@@ -137,10 +137,8 @@ class _Base(unittest.IsolatedAsyncioTestCase):
 
 
 class RouteRegistrationTests(unittest.TestCase):
-    def test_all_three_routes_are_registered_and_master_key_gated(self):
-        """require_internal_auth_only also accepts SCANNER_API_KEY, which the
-        kali-sandbox and every spawned scan container hold. A leaked scanner
-        token must not be able to run commands."""
+    def test_all_three_routes_require_a_configured_master_key(self):
+        """Command execution and job controls fail closed without a real master key."""
         for path, method in (
             ("/kali/exec", "POST"),
             ("/kali/exec/{job_id}", "GET"),
@@ -149,7 +147,7 @@ class RouteRegistrationTests(unittest.TestCase):
             route = _route(path, method)
             self.assertIsNotNone(route, f"{method} {path} is not registered")
             deps = _dep_names(route)
-            self.assertIn("require_master_internal_auth", deps, f"{method} {path}")
+            self.assertIn("require_configured_master_internal_auth", deps, f"{method} {path}")
             self.assertNotIn("require_internal_auth_only", deps, f"{method} {path}")
 
 

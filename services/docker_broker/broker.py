@@ -158,7 +158,7 @@ _OWNER_LABEL = "redamon.broker-owned"
 # exec never yields an exec id to start.
 _CONTAINER_OP_RE = re.compile(
     r"^/(v[\d.]+/)?containers/([^/]+)/"
-    r"(exec|start|stop|kill|restart|wait|logs|archive|pause|unpause|update|rename|resize)$"
+    r"(exec|start|stop|kill|restart|wait|logs|archive|pause|unpause|update|rename|resize|json)$"
 )
 _CONTAINER_ATTACH_RE = re.compile(r"^/(v[\d.]+/)?containers/([^/]+)/attach$")
 _CONTAINERS_LIST_RE = re.compile(r"^/(v[\d.]+/)?containers/json$")

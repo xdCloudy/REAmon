@@ -1,10 +1,10 @@
 # REAmon product progress
 
-Assessment date: 2026-10-25 · Source: pushed commit `07c7496` · Weighted estimate: **46.2%**
+Assessment date: 2026-10-25 · Source: the current local worktree · Weighted estimate: **47.2%**
 
 This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.
 
-The weighted score remains 46.2%: the DEX scratch-volume fix has focused Docker tests but no deployed end-to-end evidence yet. The Cross Stitch Joy Rust DEX decompilation retry is still active and will be reassessed when it settles. A repository-wide security scan is in progress against source revision e124cc69; its findings are not available yet.
+The weighted score is now 47.2% after source-level fixes for the two highest-impact issues confirmed by the completed Standard security review: unauthenticated agent command execution when master-key configuration is missing or placeholder, and Docker inspection of non-broker-owned containers. Focused regression tests pass. Six distinct findings remain open, and the deployed stack has not been rebuilt or checked against these changes. DEX scratch storage and the active Cross Stitch Joy Rust DEX retry still need their stated runtime evidence.
 
 | Workstream | Goal weight | Estimated complete | Weighted points |
 | --- | ---: | ---: | ---: |
@@ -13,7 +13,7 @@ The weighted score remains 46.2%: the DEX scratch-volume fix has focused Docker 
 | Major-language and format decompilation fluency | 24% | 35% | 8.40 pts |
 | Maintainable editing, review, and export | 12% | 43% | 5.16 pts |
 | Fixture-backed validation and fidelity evidence | 12% | 15% | 1.80 pts |
-| Security, reliability, and production operations | 20% | 35% | 7.00 pts |
+| Security, reliability, and production operations | 20% | 40% | 8.00 pts |
 
 ## Evidence and remaining work
 
@@ -49,8 +49,8 @@ The weighted score remains 46.2%: the DEX scratch-volume fix has focused Docker 
 
 ### Security, reliability, and production operations
 
-**Current evidence:** Upload buffering findings are addressed in source: workspace file-browser transfers stream end to end, the legacy full-file artifact endpoint directs browser imports to resumable chunks, and chunk requests are bounded while being read even without Content-Length. DEX request scratch now uses a dedicated disk-backed volume in source, with crash-leftover cleanup; focused Docker tests and root compose parsing pass, but the live analyzer has not been rebuilt. A repository-wide security scan is in progress against source revision e124cc69; the review and deployed-stack checks remain incomplete.
+**Current evidence:** The completed Standard security review confirmed eight distinct issues across the focused attack surfaces. Source fixes now make Kali command execution/job controls and MCP test/reload require a configured master key, and scope Docker container inspection to broker-owned containers; focused agent and broker regressions pass. Six issues remain open, including project-ownership gaps and storage/report integrity or availability risks. Deployment and broader release-gate evidence remain incomplete.
 
-**Remaining:** The current security scan is still in progress, administrator session actions are not scoped to per-user ownership, and deployment, worker, backup, restore, and remaining Docker release gates need end-to-end evidence. Complete the repository-wide review and deployment, worker, backup, and restore gates.
+**Remaining:** Address the six remaining validated findings, including service-token cross-project reads, RoE and wordlist ownership checks, abandoned import staging cleanup/capacity alerting, report-path collision protection, and the NET_ADMIN plus host-network policy. Rebuild and validate the services, complete worker lifecycle and backup/restore gates, and run the remaining Docker release checks.
 
 The machine-readable [`REAMON_PROGRESS.json`](REAMON_PROGRESS.json) feeds the README progress bar. The scope now includes the production hardening goal, so the total is not directly comparable with the previous product-only estimate. Update it with evidence when estimates change, then run `node tooling/reamon/update-product-progress.mjs <commit-sha>` to refresh this matrix and the README.

@@ -51,6 +51,9 @@ class McpManifestEndpointTests(unittest.TestCase):
             cls.TestClient = TestClient
 
     def setUp(self):
+        from llm_guard import require_configured_master_internal_auth
+        self.api_module.app.dependency_overrides[require_configured_master_internal_auth] = lambda: None
+        self.addCleanup(self.api_module.app.dependency_overrides.pop, require_configured_master_internal_auth, None)
         # Reset registry to a known state for /mcp/manifest tests.
         import mcp_registry as reg
         srv = reg.MCPServer.model_validate({
@@ -131,6 +134,11 @@ class McpReloadEndpointTests(unittest.TestCase):
             from fastapi.testclient import TestClient
             cls.TestClient = TestClient
 
+    def setUp(self):
+        from llm_guard import require_configured_master_internal_auth
+        self.api_module.app.dependency_overrides[require_configured_master_internal_auth] = lambda: None
+        self.addCleanup(self.api_module.app.dependency_overrides.pop, require_configured_master_internal_auth, None)
+
     def test_reload_503_when_orchestrator_not_ready(self):
         # api.orchestrator is None at import-time; no lifespan ran in tests.
         self.api_module.orchestrator = None
@@ -175,6 +183,11 @@ class McpTestEndpointTests(unittest.TestCase):
             cls.api_module = api_module
             from fastapi.testclient import TestClient
             cls.TestClient = TestClient
+
+    def setUp(self):
+        from llm_guard import require_configured_master_internal_auth
+        self.api_module.app.dependency_overrides[require_configured_master_internal_auth] = lambda: None
+        self.addCleanup(self.api_module.app.dependency_overrides.pop, require_configured_master_internal_auth, None)
 
     def test_invalid_schema_returns_ok_false(self):
         client = self.TestClient(self.api_module.app)
