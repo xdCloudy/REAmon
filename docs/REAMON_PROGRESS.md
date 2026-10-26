@@ -1,10 +1,10 @@
 # REAmon product progress
 
-Assessment date: 2026-10-26 · Source: pushed commit `5344125` · Weighted estimate: **51.4%**
+Assessment date: 2026-10-26 · Source: pushed commit `e89385d` · Weighted estimate: **51.6%**
 
 This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.
 
-Quality run [40247230850](https://github.com/xdCloudy/REAmon/actions/runs/40247230850) passed on commit `baa5634a`: all five jobs passed, including the canonical Docker unit gate and production-stack smoke with authenticated acceptance, browser login, worker recovery/load, and PostgreSQL/artifact plus Neo4j restore drills. On 2026-10-26, both local and LAN readiness endpoints returned ready with database and artifact checks ok. The running webapp image has no source revision label, and the healthy Kali container still runs as root with a read/write shared workspace mount. Source review also found that signed project context is not injected into every arbitrary-code tool, and Docker broker ownership is global rather than tenant-scoped. Four of five validated security findings have source mitigations; shared Kali shell and `/tmp` cross-project access remains open. The legacy unscoped agent file-download route has been removed, and terminal identity spoofing is fixed, but neither closes shared execution exposure. Weighted progress remains an evidence-based estimate, not release certification.
+On 2026-10-26, both local and LAN readiness endpoints returned ready with database and artifact checks ok, but the deployed webapp revision remains unverified. Quality run [40247230850](https://github.com/xdCloudy/REAmon/actions/runs/40247230850) passed the full Docker unit gate and production-stack acceptance on commit `baa5634a`. Current source hardens model-authored shell and code children to UID/GID 65534 with a fixed credential-free environment and unique cleaned source paths. Shared Kali `/tmp` and workspace access, terminal isolation, missing signed context for arbitrary tools, and tenant-scoped broker ownership remain open. This weighted estimate is evidence-backed progress, not release certification.
 
 | Workstream | Goal weight | Estimated complete | Weighted points |
 | --- | ---: | ---: | ---: |
@@ -13,7 +13,7 @@ Quality run [40247230850](https://github.com/xdCloudy/REAmon/actions/runs/402472
 | Major-language and format decompilation fluency | 24% | 35% | 8.40 pts |
 | Maintainable editing, review, and export | 12% | 43% | 5.16 pts |
 | Fixture-backed validation and fidelity evidence | 12% | 15% | 1.80 pts |
-| Security, reliability, and production operations | 20% | 61% | 12.20 pts |
+| Security, reliability, and production operations | 20% | 62% | 12.40 pts |
 
 ## Evidence and remaining work
 
@@ -49,8 +49,8 @@ Quality run [40247230850](https://github.com/xdCloudy/REAmon/actions/runs/402472
 
 ### Security, reliability, and production operations
 
-**Current evidence:** Four of five findings validated in the repository-wide source review have source mitigations. User-configured stdio MCP execution remains disabled at webapp and agent boundaries pending isolation; global tunnel credential access is restricted to the master key and returns a sanitized origin; shared artifact-volume exhaustion has dynamic free-space admission and active-import reservations; MCP deletion responses mask retained credential values. Shared Kali shell and `/tmp` cross-project disclosure remains open. Quality run [40247230850](https://github.com/xdCloudy/REAmon/actions/runs/40247230850) passed all five CI jobs, including the full Docker unit gate and production-stack acceptance. On 2026-10-26, local and LAN health checks passed but the webapp revision was unverified. The Kali container still runs as root with a read/write shared workspace mount. Signed project context is not injected into every arbitrary-code tool, and broker ownership is not tenant-scoped. The legacy agent `/files?path=/tmp/...` endpoint is removed and terminal identity spoofing is fixed, but neither change isolates the shared shell or temporary directory.
+**Current evidence:** Four of five validated security findings have source mitigations. User-configured stdio MCP execution remains disabled pending isolation; global tunnel credential access is restricted to the master key; shared artifact storage has reservation-based capacity admission; and MCP deletion responses mask retained credentials. The shared Kali finding remains open, but model-authored proxy_brain, kali_shell, and execute_code children now run as UID/GID 65534 with fixed credential-free environments. execute_code uses unique, cleaned temporary paths. The MCP controller and terminal remain in the shared container, and /tmp plus the complete workspace mount remain shared across projects.
 
-**Remaining:** Remediate cross-user Kali temporary-file disclosure; independently review storage admission; validate service rebuilds and controls on the LAN deployment; implement per-user process isolation before restoring user-configured MCP stdio; and complete broader security, upgrade, backup, and restore review on the deployed release candidate.
+**Remaining:** Implement authenticated project scope and per-project worker isolation for every arbitrary-code surface; isolate /tmp and workspace storage; independently review storage admission; validate service rebuilds and controls on the LAN deployment; and complete broader security, upgrade, backup, and restore review on the release candidate.
 
 The machine-readable [`REAMON_PROGRESS.json`](REAMON_PROGRESS.json) feeds the README progress bar. The scope now includes the production hardening goal, so the total is not directly comparable with the previous product-only estimate. Update it with evidence when estimates change, then run `node tooling/reamon/update-product-progress.mjs <commit-sha>` to refresh this matrix and the README.

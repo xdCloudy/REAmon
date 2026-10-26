@@ -4,11 +4,14 @@ Status: required production security work; implementation is still open.
 
 ## Current exposure
 
-The legacy Kali deployment is one shared `redamon-kali` container. Its Dockerfile
-does not select a non-root user, and the `kali_shell` MCP tool runs arbitrary
-commands with `bash -c` in the MCP server process environment. The `execute_code`
-and `proxy_brain` tools also execute caller-provided code in that shared container;
-`proxy_brain` explicitly copies the server environment into the child process.
+The legacy Kali deployment is one shared `redamon-kali` container whose MCP
+controller still runs as root. The `kali_shell` and `execute_code` handlers now
+start model-authored commands as UID/GID 65534 with a small environment that
+omits MCP, scanner, tunnel, database, and agent credentials. `execute_code` uses
+unique temporary source and binary paths and removes them after execution.
+`proxy_brain` also runs as UID/GID 65534 with a small environment. These changes
+reduce child-process privilege and credential exposure, but do not create a
+project-scoped filesystem or process boundary.
 
 The container also mounts the complete `agentic/agent-workspace` at `/workspace`.
 Project ownership is enforced by the webapp and agent workspace APIs, but those
@@ -17,9 +20,9 @@ make files and directories writable by all local users to accommodate the shared
 container, so filesystem permissions do not restore the project boundary.
 
 As a result, the existing project-scoped download route protects browser access
-but does not isolate arbitrary Kali execution. A process in the shared service can
-read another project's temporary files or workspace files, and arbitrary code can
-observe environment values passed to its process. This is a source-level finding;
+but does not isolate arbitrary Kali execution. The unprivileged command children
+still share `/tmp` and can read the complete mounted workspace; other MCP server
+processes also retain the service environment. This remains a source-level finding;
 it is not a claim that any particular deployment has been exploited.
 
 The unused agent `/files?path=/tmp/...` endpoint has been removed; current browser
@@ -58,18 +61,22 @@ mounted into scan infrastructure, so a worker controller needs a separate
 scoped broker API or equivalent per-worker authorization before project workers
 can share that broker.
 
-On 2026-10-26, the proxy_brain traffic path was tightened: agent contexts now
+On 2026-10-26, the `proxy_brain` traffic path was tightened: agent contexts now
 expire after five minutes, and the traffic read, replay, and browser routes
-require the signed context to name `proxy_brain`. Those routes now authenticate
-the context directly, so the shared scanner transport key is not copied into
-the proxy_brain child. That child runs as UID/GID 65534 with a small environment
-that excludes the MCP, tunnel, and scanner tokens. Its Playwright browser cache
-is installed at `/ms-playwright` so the unprivileged child can use it.
+require the signed context to name `proxy_brain`. Those routes authenticate the
+context directly, so the shared scanner transport key is not copied into the
+`proxy_brain` child. Its Playwright browser cache is installed at `/ms-playwright`
+for unprivileged access.
 
-This change applies only to proxy_brain and its traffic API. `kali_shell`,
-`execute_code`, custom Playwright scripts, and the interactive terminal still
-execute in the shared Kali container. The full project-worker isolation finding
-remains open.
+The `kali_shell` and `execute_code` children now use the same unprivileged UID/GID
+and a fixed environment allowlist. Go tools installed under `/root/go/bin` are
+copied to `/usr/local/bin` so those commands can still invoke them without access
+to root's home directory. `execute_code` writes each source file to a unique path
+without shell interpolation, makes it read-only to the child, and cleans up its
+source and compiled output after the run. These controls reduce process privilege
+and prevent inherited service variables from reaching those children. Context
+verification, custom Playwright, terminal isolation, and project-scoped `/tmp` and
+workspace storage remain open; the full project-worker finding is not closed.
 
 The live local deployment was checked on 2026-10-26: both the localhost and LAN
 readiness endpoints returned `ready` with database and artifact checks `ok`.
