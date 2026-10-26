@@ -11,11 +11,13 @@ from orchestrator import AgentOrchestrator
 class _Pool:
     def __init__(self, **_kwargs):
         self.closed = False
+        self.close_calls = 0
 
     async def open(self):
         return None
 
     async def close(self):
+        self.close_calls += 1
         self.closed = True
 
 
@@ -66,6 +68,16 @@ class CheckpointerStartupTests(unittest.IsolatedAsyncioTestCase):
         with patch("orchestrator.get_setting", return_value=False):
             await self.orchestrator._setup_checkpointer()
 
+        self.assertIsNone(self.orchestrator._checkpoint_pool)
+
+    async def test_shutdown_closes_persistent_checkpoint_pool(self):
+        pool = _Pool()
+        self.orchestrator._checkpoint_pool = pool
+
+        await self.orchestrator.close()
+
+        self.assertTrue(pool.closed)
+        self.assertEqual(pool.close_calls, 1)
         self.assertIsNone(self.orchestrator._checkpoint_pool)
 
 

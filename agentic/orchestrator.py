@@ -1475,5 +1475,14 @@ class AgentOrchestrator:
             except Exception as e:
                 logger.warning(f"Error closing KB Neo4j driver: {e}")
 
+        pool = getattr(self, "_checkpoint_pool", None)
+        if pool is not None:
+            try:
+                await pool.close()
+            except Exception as exc:
+                logger.warning("Error closing PostgreSQL checkpoint pool (%s)", type(exc).__name__)
+            finally:
+                self._checkpoint_pool = None
+
         self._initialized = False
         logger.info("AgentOrchestrator closed")
