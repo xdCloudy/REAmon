@@ -301,7 +301,10 @@ describe('GET /api/projects/[id]/visualizer', () => {
     mocks.taskFindMany.mockResolvedValue([{
       id: 'run-dex', title: 'Decompile app.apk', createdAt: new Date(), completedAt: new Date(),
       provider: { pluginId: 'reamon-dex-decompiler' },
-      result: { discoveredClassCount: 1, returnedClassCount: 1, discoveredMethodCount: 12_400, returnedMethodCount: 10_000, methodsTruncated: true },
+      result: {
+        discoveredClassCount: 1, returnedClassCount: 1, discoveredMethodCount: 12_400, returnedMethodCount: 10_000, methodsTruncated: true,
+        returnedCallCount: 4_000, callGraphTruncated: true, returnedReferenceCount: 4_000, referencesTruncated: true,
+      },
       artifact: { originalName: 'app.apk', relativePath: 'app.apk' },
     }])
     mocks.groupBy.mockResolvedValue([
@@ -314,7 +317,10 @@ describe('GET /api/projects/[id]/visualizer', () => {
 
     expect(response.status).toBe(200)
     expect(await response.json()).toMatchObject({
-      runs: [{ discoveredMethodCount: 12_400, returnedMethodCount: 10_000, indexedMethodCount: 9_950, methodsTruncated: true }],
+      runs: [{
+        discoveredMethodCount: 12_400, returnedMethodCount: 10_000, indexedMethodCount: 9_950, methodsTruncated: true,
+        returnedCallCount: 4_000, callGraphTruncated: true, returnedReferenceCount: 4_000, referencesTruncated: true,
+      }],
     })
     expect(mocks.groupBy).toHaveBeenCalledWith(expect.objectContaining({
       by: ['taskId', 'type'],

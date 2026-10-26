@@ -154,12 +154,13 @@ describe('WorkspaceCodeVisualizer', () => {
     expect(screen.getByText(/Partial index\. The counts below describe stored output/)).toBeInTheDocument()
   })
 
-  test('shows method evidence coverage separately from decompiled class coverage', async () => {
+  test('shows method and relationship evidence coverage separately from decompiled class coverage', async () => {
     const partialRun = {
       id: 'run-dex-methods', title: 'Rust DEX run', createdAt: '2026-10-04T00:00:00.000Z', completedAt: '2026-10-04T00:01:00.000Z',
       artifactName: 'app.apk', providerId: 'reamon-dex-decompiler', codeUnitCount: 1, unitLabel: 'code units', discoveredUnitCount: 1,
       returnedUnitCount: 1, indexedUnitCount: 1, linkPercent: 100, codeBytes: 4096, truncated: false, warnings: '', failedUnitCount: null,
       visitedUnitCount: null, discoveredMethodCount: 12_400, returnedMethodCount: 10_000, indexedMethodCount: 9_950, methodsTruncated: true,
+      returnedCallCount: 4_000, callGraphTruncated: true, returnedReferenceCount: 4_000, referencesTruncated: true,
     }
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({
       units: [unit()], total: 1, hasMore: false, runs: [partialRun], selectedRunId: partialRun.id,
@@ -169,6 +170,8 @@ describe('WorkspaceCodeVisualizer', () => {
     openDetails('Run diagnostics')
     expect(await screen.findByText('9,950 of 12,400 discovered methods indexed (10,000 returned by the analyzer).')).toBeInTheDocument()
     expect(screen.getByText('Method evidence is incomplete; the analyzer or result ingestion reached a method limit.')).toBeInTheDocument()
+    expect(screen.getByText('4,000 call edges returned; the call graph is truncated.')).toBeInTheDocument()
+    expect(screen.getByText('4,000 field/string references returned; reference evidence is truncated.')).toBeInTheDocument()
   })
   test('offers a direct route to decompilation when an artifact is ready but has no code units', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ units: [], total: 0, hasMore: false }) }))
@@ -559,7 +562,7 @@ describe('WorkspaceCodeVisualizer', () => {
     await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({ block: 'start', behavior: 'smooth' }))
 
     if (original) Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', original)
-    else delete (HTMLElement.prototype as HTMLElement & { scrollIntoView?: () => void }).scrollIntoView
+    else Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView')
   })
 
   test('compares Ghidra decompiled source with its linked disassembly', async () => {

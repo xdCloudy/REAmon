@@ -50,6 +50,10 @@ interface CodeUnitResponse {
     returnedMethodCount?: number | null
     indexedMethodCount?: number
     methodsTruncated?: boolean
+    returnedCallCount?: number | null
+    returnedReferenceCount?: number | null
+    callGraphTruncated?: boolean
+    referencesTruncated?: boolean
     failedUnitCount: number | null
     visitedUnitCount: number | null
     notVisitedUnitCount: number | null
@@ -2595,9 +2599,11 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
         </div>}
         {maintainedCoverageQuery.data?.decompilationCoveragePercent === null && <p className={styles.runSummaryMeta}>The analyzer did not provide enough measurements to calculate decompilation completeness. Indexed records and viewable source are counted separately.</p>}
         <details className={styles.runDiagnostics}>
-          <summary>Run diagnostics{currentRun.truncated || currentRun.methodsTruncated || currentRun.notObservedUnitCount > 0 || currentRun.notIndexedUnitCount > 0 || currentRun.failedUnitCount !== null && currentRun.failedUnitCount > 0 ? ' · issues reported' : ''}</summary>
+          <summary>Run diagnostics{currentRun.truncated || currentRun.methodsTruncated || currentRun.callGraphTruncated || currentRun.referencesTruncated || currentRun.notObservedUnitCount > 0 || currentRun.notIndexedUnitCount > 0 || currentRun.failedUnitCount !== null && currentRun.failedUnitCount > 0 ? ' · issues reported' : ''}</summary>
         {(currentRun.truncated || currentRun.notObservedUnitCount > 0 || currentRun.notIndexedUnitCount > 0 || (currentRun.failedUnitCount !== null && currentRun.failedUnitCount > 0)
           || currentRun.methodsTruncated
+          || currentRun.callGraphTruncated
+          || currentRun.referencesTruncated
           || (currentRun.notVisitedUnitCount !== null && currentRun.notVisitedUnitCount > 0)
           || (currentRun.skippedUnitCount !== null && currentRun.skippedUnitCount > 0)
           || (currentRun.unsupportedUnitCount !== null && currentRun.unsupportedUnitCount > 0)
@@ -2609,6 +2615,10 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
           {currentRun.notIndexedUnitCount > 0 && <span>{currentRun.notIndexedUnitCount.toLocaleString()} provider-returned code units could not be indexed.</span>}
           {currentRun.discoveredMethodCount !== null && currentRun.discoveredMethodCount !== undefined && <span>{currentRun.indexedMethodCount?.toLocaleString() ?? 0} of {currentRun.discoveredMethodCount.toLocaleString()} discovered methods indexed{currentRun.returnedMethodCount !== null && currentRun.returnedMethodCount !== undefined && currentRun.returnedMethodCount < currentRun.discoveredMethodCount ? ` (${currentRun.returnedMethodCount.toLocaleString()} returned by the analyzer)` : ''}.</span>}
           {currentRun.methodsTruncated && <span>Method evidence is incomplete; the analyzer or result ingestion reached a method limit.</span>}
+          {currentRun.returnedCallCount !== null && currentRun.returnedCallCount !== undefined && <span>{currentRun.returnedCallCount.toLocaleString()} call edges returned{currentRun.callGraphTruncated ? '; the call graph is truncated.' : '.'}</span>}
+          {currentRun.returnedReferenceCount !== null && currentRun.returnedReferenceCount !== undefined && <span>{currentRun.returnedReferenceCount.toLocaleString()} field/string references returned{currentRun.referencesTruncated ? '; reference evidence is truncated.' : '.'}</span>}
+          {currentRun.callGraphTruncated && currentRun.returnedCallCount === null && <span>The analyzer marked call graph evidence as truncated.</span>}
+          {currentRun.referencesTruncated && currentRun.returnedReferenceCount === null && <span>The analyzer marked field/string reference evidence as truncated.</span>}
           {currentRun.notVisitedUnitCount !== null && currentRun.notVisitedUnitCount > 0 && <span>{currentRun.notVisitedUnitCount.toLocaleString()} discovered units were not visited by the analyzer.</span>}
           {currentRun.failedUnitCount !== null && currentRun.failedUnitCount > 0 && <span>{currentRun.failedUnitCount.toLocaleString()} functions could not be decompiled{currentRun.visitedUnitCount !== null ? ` of ${currentRun.visitedUnitCount.toLocaleString()} visited` : ''}</span>}
           {currentRun.skippedUnitCount !== null && currentRun.skippedUnitCount > 0 && <span>{currentRun.skippedUnitCount.toLocaleString()} units were reported skipped.</span>}

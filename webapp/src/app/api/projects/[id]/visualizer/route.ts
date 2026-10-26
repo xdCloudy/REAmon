@@ -186,6 +186,8 @@ export async function GET(request: Request, { params }: RouteParams) {
         const discoveredMethodCount = finiteCount(result.discoveredMethodCount)
         const returnedMethodCount = finiteCount(result.returnedMethodCount)
         const indexedMethodCount = methodCountByTaskId.get(task.id) || 0
+        const returnedCallCount = finiteCount(result.returnedCallCount ?? result.callCount)
+        const returnedReferenceCount = finiteCount(result.returnedReferenceCount ?? result.referenceCount)
         return {
           id: task.id,
           title: task.title,
@@ -222,6 +224,10 @@ export async function GET(request: Request, { params }: RouteParams) {
           methodsTruncated: result.methodsTruncated === true
             || (discoveredMethodCount !== null && returnedMethodCount !== null && returnedMethodCount < discoveredMethodCount)
             || (returnedMethodCount !== null && indexedMethodCount < returnedMethodCount),
+          returnedCallCount,
+          returnedReferenceCount,
+          callGraphTruncated: result.callGraphTruncated === true,
+          referencesTruncated: result.referencesTruncated === true,
           failedUnitCount: hasPersistedInventory ? finiteCount(inventory.failedUnitCount) : finiteCount(result.failedFunctionCount),
           visitedUnitCount: hasPersistedInventory ? finiteCount(inventory.visitedUnitCount) : finiteCount(result.visitedFunctionCount),
           notVisitedUnitCount: hasPersistedInventory ? finiteCount(inventory.notVisitedUnitCount) : null,
