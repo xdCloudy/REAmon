@@ -117,6 +117,30 @@ describe('GET /api/projects/[id]/visualizer', () => {
     }))
   })
 
+  test('returns bounded DEX failure identities from saved run diagnostics', async () => {
+    const failedClassDetails = Array.from({ length: 101 }, (_, classIndex) => ({
+      dexEntry: 'classes2.dex', classIndex, descriptor: `Lcom/example/Failed${classIndex};`, reason: 'class reconstruction failed',
+    }))
+    mocks.taskFindMany.mockResolvedValue([{
+      id: 'run-dex', title: 'Decompile app.apk', createdAt: new Date('2026-10-04T00:00:00.000Z'),
+      completedAt: new Date('2026-10-04T00:01:00.000Z'), provider: { pluginId: 'reamon-dex-decompiler' },
+      result: { discoveredClassCount: 102, returnedClassCount: 1, failedClassDetails: [...failedClassDetails, { dexEntry: 'invalid', classIndex: -1, reason: 'bad record' }] },
+      artifact: { originalName: 'app.apk', relativePath: 'app.apk' },
+    }])
+    mocks.groupBy.mockResolvedValue([{ taskId: 'run-dex', _count: { _all: 1 } }])
+    mocks.findMany.mockResolvedValue([])
+    mocks.count.mockResolvedValue(1)
+
+    const response = await GET(new Request('http://localhost/api/projects/project-1/visualizer'), params)
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.runs[0].failedClassDetails).toHaveLength(100)
+    expect(body.runs[0].failedClassDetails[0]).toEqual(failedClassDetails[0])
+    expect(body.runs[0].failedClassDetailsTruncated).toBe(true)
+    expect(body.runs[0].failedClassDetails.some((detail: { classIndex: number }) => detail.classIndex === -1)).toBe(false)
+  })
+
   test('paginates large code-unit maps with a run-scoped cursor', async () => {
     const row = {
       id: 'observation-1000', stableKey: 'function:1000', label: 'fn1000', source: 'ghidra', artifactId: 'artifact-1',

@@ -18,6 +18,23 @@ function resultRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
 }
 
+function failedClassDetails(value: unknown): { entries: Array<{ dexEntry: string; classIndex: number; descriptor: string | null; reason: string }>; truncated: boolean } {
+  if (!Array.isArray(value)) return { entries: [], truncated: false }
+  const candidates = value.slice(0, 1_000)
+  const valid = candidates.flatMap((entry) => {
+    const detail = resultRecord(entry)
+    if (typeof detail.dexEntry !== 'string' || !detail.dexEntry || !Number.isSafeInteger(detail.classIndex)
+      || (detail.classIndex as number) < 0 || typeof detail.reason !== 'string') return []
+    return [{
+      dexEntry: detail.dexEntry.slice(0, 256),
+      classIndex: detail.classIndex as number,
+      descriptor: typeof detail.descriptor === 'string' ? detail.descriptor.slice(0, 512) : null,
+      reason: detail.reason.slice(0, 256),
+    }]
+  })
+  return { entries: valid.slice(0, 100), truncated: value.length > candidates.length || valid.length > 100 }
+}
+
 function finiteCount(value: unknown): number | null {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null
 }
@@ -159,6 +176,7 @@ export async function GET(request: Request, { params }: RouteParams) {
         const linkPercent = hasPersistedInventory ? finiteCount(inventory.coveragePercent)
           : discoveredUnitCount ? Math.min(100, Math.round((indexedUnitCount / discoveredUnitCount) * 100)) : null
         const unitLabel = ['reamon-ghidra', 'reamon-ida', 'reamon-recurse', 'reamon-miasm', 'reamon-wabt', 'reamon-glaurung', 'reamon-kuna', 'reamon-fission', 'reamon-oxidizer', 'reamon-reko'].includes(task.provider?.pluginId || '') ? 'functions' : 'code units'
+        const failedClasses = failedClassDetails(result.failedClassDetails)
         return {
           id: task.id,
           title: task.title,
@@ -187,6 +205,8 @@ export async function GET(request: Request, { params }: RouteParams) {
           inventoryAvailable: hasPersistedInventory,
           truncated: coverageTruncated,
           warnings: typeof result.warnings === 'string' ? result.warnings.slice(0, 4000) : '',
+          failedClassDetails: failedClasses.entries,
+          failedClassDetailsTruncated: failedClasses.truncated,
           failedUnitCount: hasPersistedInventory ? finiteCount(inventory.failedUnitCount) : finiteCount(result.failedFunctionCount),
           visitedUnitCount: hasPersistedInventory ? finiteCount(inventory.visitedUnitCount) : finiteCount(result.visitedFunctionCount),
           notVisitedUnitCount: hasPersistedInventory ? finiteCount(inventory.notVisitedUnitCount) : null,

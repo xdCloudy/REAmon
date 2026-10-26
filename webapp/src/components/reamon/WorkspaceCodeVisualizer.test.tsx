@@ -115,6 +115,29 @@ describe('WorkspaceCodeVisualizer', () => {
     expect(screen.getByText(/Partial index\. The counts below describe stored output/)).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'View analysis proposals' })).toHaveAttribute('href', '#analysis-next-step')
   })
+
+  test('shows unreconstructed DEX class identities and reasons in run diagnostics', async () => {
+    const run = {
+      id: 'run-dex', title: 'Rust DEX run', createdAt: '2026-10-04T00:00:00.000Z', completedAt: '2026-10-04T00:01:00.000Z',
+      artifactName: 'app.apk', providerId: 'reamon-dex-decompiler', codeUnitCount: 1, unitLabel: 'code units', discoveredUnitCount: 2,
+      returnedUnitCount: 1, indexedUnitCount: 1, notObservedUnitCount: 1, notIndexedUnitCount: 0, unreturnedDiscoveredUnitCount: 1,
+      skippedUnitCount: 0, unsupportedUnitCount: 0, excludedUnitCount: 0, omittedUnitCount: 0, linkPercent: 50,
+      codeBytes: 32, truncated: true, inventoryAvailable: true, warnings: '', failedUnitCount: null, visitedUnitCount: null,
+      notVisitedUnitCount: null, failedClassDetails: [{ dexEntry: 'classes2.dex', classIndex: 8, descriptor: 'Lcom/example/Broken;', reason: 'class reconstruction timed out' }],
+      failedClassDetailsTruncated: false,
+    }
+    vi.stubGlobal('fetch', vi.fn((input: string) => input.includes('/visualizer/coverage')
+      ? Promise.resolve({ ok: true, json: async () => ({ taskId: run.id, codeUnitCount: 1, maintainedUnitCount: 0, coveragePercent: 0, decompilationCoveragePercent: null, sourceLinkedPercent: 100, codeBytes: 32, measuredBytes: 0 }) })
+      : Promise.resolve({ ok: true, json: async () => ({ units: [unit()], total: 1, hasMore: false, runs: [run], selectedRunId: run.id }) })))
+    renderVisualizer()
+
+    await screen.findByText(/Run diagnostics · issues reported/)
+    openDetails('Run diagnostics')
+    expect(await screen.findByText('Unreconstructed DEX classes')).toBeInTheDocument()
+    expect(screen.getByText('Lcom/example/Broken;')).toBeInTheDocument()
+    expect(screen.getByText(/class reconstruction timed out/)).toBeInTheDocument()
+  })
+
   test('does not show a percentage when the analyzer reached its scan limit', async () => {
     const partialRun = {
       id: 'run-unknown-count', title: 'Limited JADX run', createdAt: '2026-10-04T00:00:00.000Z', completedAt: '2026-10-04T00:01:00.000Z', artifactName: 'app.apk', codeUnitCount: 5000, unitLabel: 'classes', discoveredUnitCount: null,

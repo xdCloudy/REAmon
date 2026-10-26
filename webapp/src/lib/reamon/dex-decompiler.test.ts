@@ -44,6 +44,17 @@ describe('Rust DEX-to-Java provider', () => {
 
     expect(result.status).toBe('completed')
     expect(result.data.failedClassDetails).toEqual(details)
+    expect(result.data.observations).toEqual(expect.arrayContaining([expect.objectContaining({
+      kind: 'fact',
+      type: 'decompilation_failure',
+      label: 'Lcom/example/Broken; could not be reconstructed',
+      attributes: expect.objectContaining({
+        identity: 'artifact-1:classes2.dex:8:Lcom/example/Broken;',
+        dexEntry: 'classes2.dex',
+        classIndex: 8,
+        reason: 'structured decompilation panicked',
+      }),
+    })]))
   })
 
   it('rejects malformed failed-class identities from the analyzer', async () => {

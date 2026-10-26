@@ -270,6 +270,29 @@ export async function executeDexDecompiler(input: ToolExecutionInput): Promise<T
         },
       }
     })
+    for (const detail of payload.failedClassDetails || []) {
+      const identity = `${input.artifactId}:${detail.dexEntry}:${detail.classIndex}:${detail.descriptor || 'unknown'}`
+      const digest = createHash('sha256').update(identity).digest('hex').slice(0, 32)
+      const label = detail.descriptor || `${detail.dexEntry} class #${detail.classIndex + 1}`
+      observations.push({
+        kind: 'fact',
+        type: 'decompilation_failure',
+        key: `dex-decompiler:failure:${digest}`,
+        label: `${label} could not be reconstructed`.slice(0, 500),
+        attributes: {
+          identity,
+          identityKey: `dex-failure:${detail.dexEntry}:${detail.classIndex}:${detail.descriptor || 'unknown'}`,
+          artifactId: input.artifactId,
+          dexEntry: detail.dexEntry,
+          classIndex: detail.classIndex,
+          descriptor: detail.descriptor,
+          reason: detail.reason,
+          decompilationEngine: 'androguard/dex-decompiler',
+          decompilationEngineVersion: payload.toolVersion,
+          sourceSha256: payload.input.sha256,
+        },
+      })
+    }
     const unitsByPath = new Map(payload.units.map((unit) => [unit.relativePath, unit]))
     const classKeysByPath = new Map(payload.units.map((unit) => [unit.relativePath,
       `dex-decompiler:class:${createHash('sha256').update(`${input.artifactId}:${unit.relativePath}`).digest('hex').slice(0, 32)}`,

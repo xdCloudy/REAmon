@@ -44,6 +44,8 @@ interface CodeUnitResponse {
     truncated: boolean
     inventoryAvailable: boolean
     warnings: string
+    failedClassDetails?: Array<{ dexEntry: string; classIndex: number; descriptor: string | null; reason: string }>
+    failedClassDetailsTruncated?: boolean
     failedUnitCount: number | null
     visitedUnitCount: number | null
     notVisitedUnitCount: number | null
@@ -2610,6 +2612,16 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
         {currentRun.inventoryAvailable && currentRun.unreturnedDiscoveredUnitCount !== null && currentRun.unreturnedDiscoveredUnitCount > 0 && <p className={styles.runSummaryMeta}>
           {currentRun.unreturnedDiscoveredUnitCount.toLocaleString()} discovered {currentRun.unitLabel} were not returned by the provider. Reported failures, omissions, skips, unsupported units, and exclusions are breakdowns where available; the remaining units are not assigned a cause.
         </p>}
+        {(currentRun.failedClassDetails?.length || 0) > 0 && <div className={styles.runSummaryMeta}>
+          <strong>Unreconstructed DEX classes</strong>
+          <ul>
+            {currentRun.failedClassDetails?.map((detail) => <li key={`${detail.dexEntry}:${detail.classIndex}`}>
+              <code>{detail.descriptor || `${detail.dexEntry} class #${detail.classIndex + 1}`}</code>
+              {` · ${detail.reason}`}
+            </li>)}
+          </ul>
+          {currentRun.failedClassDetailsTruncated && <span>Additional failed-class identities are saved with the run result.</span>}
+        </div>}
         {!currentRun.inventoryAvailable && currentRun.discoveredUnitCount !== null && currentRun.discoveredUnitCount > currentRun.indexedUnitCount && <p className={styles.runSummaryMeta}>
           {(currentRun.discoveredUnitCount - currentRun.indexedUnitCount).toLocaleString()} discovered {currentRun.unitLabel} have no indexed code-unit record; this older run did not save separate returned and indexed counts.
         </p>}
