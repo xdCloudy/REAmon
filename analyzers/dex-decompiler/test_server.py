@@ -8,15 +8,29 @@ from server import (
     AnalysisError,
     build_decompile_command,
     build_mapping_command,
+    clamp_class_batch_size,
     create_analysis_tempdir,
     extract_dex_inputs,
     parse_dex_inventory,
     recover_batch_class_failures,
     reconcile_dex_inventory,
+    should_report_class_batch,
 )
 
 
 class DecompilerCommandTests(unittest.TestCase):
+    def test_class_batch_size_can_isolate_single_classes_with_safe_bounds(self):
+        self.assertEqual(clamp_class_batch_size(1), 1)
+        self.assertEqual(clamp_class_batch_size(0), 1)
+        self.assertEqual(clamp_class_batch_size(64), 64)
+        self.assertEqual(clamp_class_batch_size(10_000), 256)
+
+    def test_single_class_progress_is_throttled_and_batch_retries_remain_visible(self):
+        self.assertFalse(should_report_class_batch(1, 1, 128))
+        self.assertTrue(should_report_class_batch(64, 1, 128))
+        self.assertTrue(should_report_class_batch(127, 1, 128))
+        self.assertTrue(should_report_class_batch(1, 2, 128))
+
     def test_request_scratch_directory_uses_configured_volume_path(self):
         with tempfile.TemporaryDirectory() as temporary:
             scratch_root = Path(temporary) / "scratch"

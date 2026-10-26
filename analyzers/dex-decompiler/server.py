@@ -32,7 +32,22 @@ MAX_STRUCTURED_REFERENCES = 4_000
 MAX_STRUCTURED_OUTPUT_BYTES = 64 * 1024 * 1024
 MAX_DEX_ENTRIES = 64
 MAX_TOTAL_DEX_BYTES = 512 * 1024 * 1024
-CLASS_BATCH_SIZE = min(256, max(8, int(os.environ.get("DEX_DECOMPILER_CLASS_BATCH_SIZE", "64"))))
+PROGRESS_CLASS_INTERVAL = 64
+
+
+def clamp_class_batch_size(value: int) -> int:
+    return min(256, max(1, value))
+
+
+def should_report_class_batch(start: int, limit: int, discovered: int | None) -> bool:
+    return limit > 1 or start % PROGRESS_CLASS_INTERVAL == 0 or (
+        discovered is not None and start + limit >= discovered
+    )
+
+
+# Isolate class decompilation: the Rust process can retain substantial memory
+# across classes, while its single-class retries recover panics and OOMs.
+CLASS_BATCH_SIZE = clamp_class_batch_size(int(os.environ.get("DEX_DECOMPILER_CLASS_BATCH_SIZE", "1")))
 CLASS_BATCH_TIMEOUT_SECONDS = min(
     600,
     max(30, int(os.environ.get("DEX_DECOMPILER_CLASS_BATCH_TIMEOUT_SECONDS", "60"))),
@@ -419,7 +434,7 @@ def analyse(body: dict[str, object], progress=None) -> dict[str, object]:
                 def run_range(start: int, limit: int) -> tuple[int | None, int, int]:
                     try:
                         description = f"DEX {dex_index} of {len(dex_inputs)} · classes {start + 1}–{start + limit}"
-                        if progress:
+                        if progress and should_report_class_batch(start, limit, dex_discovered):
                             progress(f"Decompiling {description}")
                         result = run_with_progress(
                             build_decompile_command(dex_path, active_mapping, output_root, start, limit),
@@ -505,7 +520,7 @@ def analyse(body: dict[str, object], progress=None) -> dict[str, object]:
                 if dex_discovered is None and discovered is None:
                     raise AnalysisError(f"Could not inventory classes in {dex_entry} after a memory-limited batch")
                 offset += CLASS_BATCH_SIZE
-                if progress:
+                if progress and (offset % PROGRESS_CLASS_INTERVAL == 0 or offset >= (dex_discovered or offset)):
                     progress(f"Decompiled {dex_entry}: {min(offset, dex_discovered or offset)} of {dex_discovered or offset} classes · {returned_classes} reconstructed so far")
         stderr = "\n".join(diagnostic_lines)[-4000:]
         sources, total_source_bytes, source_truncated = collect_sources(output_root)
