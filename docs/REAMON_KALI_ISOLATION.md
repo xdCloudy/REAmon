@@ -37,6 +37,39 @@ focused Docker tests cover claim serialization, forged-frame detection, and the
 proxy behavior. This prevents the browser from selecting another shell identity,
 but each terminal shell still runs in the shared Kali container.
 
+## Implementation seams verified
+
+The current agent signs a project context tag from its `user_id`, `project_id`,
+session, tool, and phase context. The MCP server receives that tag only for
+`proxy_brain`, and for selected target-facing tools when capture routing is
+enabled. `kali_shell` and `execute_code` are not in that injection set;
+`execute_playwright` is conditional on capture routing. The MCP bearer token is
+shared across the Kali service and does not identify a project. Therefore these
+execution routes currently have no authenticated project identity to present to
+a worker controller.
+
+The context tag is signed with the agent's internal key, which is deliberately
+absent from the shared Kali container. A future controller can forward the
+opaque tag to a trusted verifier, but must not make the signing key or Docker
+socket available to processes that run model-authored code. The current Docker
+broker also applies one global broker-owned label; its ownership checks do not
+bind container operations to a user or project. The global filtered socket is
+mounted into scan infrastructure, so a worker controller needs a separate
+scoped broker API or equivalent per-worker authorization before project workers
+can share that broker.
+
+The live local deployment was checked on 2026-10-26: both the localhost and LAN
+readiness endpoints returned `ready` with database and artifact checks `ok`.
+`redamon-kali` was healthy, ran as the image's default user, and had
+a read/write `/workspace` bind mount. The `reamon-webapp:latest` image had no
+`org.opencontainers.image.revision` label, so the deployed source revision could
+not be confirmed.
+
+These observations make context propagation and the broker ownership model
+implementation prerequisites, in addition to moving the shell into a separate
+worker. They do not change the isolation decision or close the shared-container
+finding.
+
 ## Decision
 
 Run every arbitrary-code surface in a project-scoped sandbox worker with its own
