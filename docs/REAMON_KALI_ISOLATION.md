@@ -21,11 +21,13 @@ Generic Docker creates and signed project/terminal workers use the same POSIX
 deployed and healthy with the lock volume mounted. Its Docker unit section
 passes 50 tests across six files, including regressions that start separate
 processes and confirm they serialize on the shared lock file, and that cancel a
-waiting acquisition without leaking the lock. A live smoke against the mounted
-named volume also confirmed separate-process serialization. The deployment
-used a temporary network overlay because the active stack has legacy network
-names. End-to-end quota contention across separate broker instances remains an
-acceptance gate.
+waiting acquisition without leaking the lock. A separate-process admission
+integration test against a fake Docker Engine confirms a global cap of one
+creates exactly one worker and rejects the competing request with 429. A live
+smoke against the mounted named volume also confirmed separate-process
+serialization. The deployment used a temporary network overlay because the
+active stack has legacy network names. Live quota contention across multiple
+broker containers remains an acceptance gate.
 
 The active `redamon-kali` service was recreated from the current image. Its
 shared Python environment passes `pip check` with no broken requirements, and

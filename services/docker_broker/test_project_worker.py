@@ -113,6 +113,109 @@ class SharedAdmissionLockCancellationTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(await asyncio.wait_for(acquire_once(), timeout=2))
 
 
+class CrossProcessWorkerQuotaTests(unittest.IsolatedAsyncioTestCase):
+    async def test_global_worker_cap_allows_only_one_concurrent_cross_process_admission(self):
+        with tempfile.TemporaryDirectory() as directory:
+            socket_path = os.path.join(directory, "docker.sock")
+            lock_path = os.path.join(directory, "admission.lock")
+            workspace = os.path.join(directory, "workspace")
+            os.makedirs(os.path.join(workspace, "project-qa"))
+            workers = []
+            networks = []
+
+            async def docker_api(reader, writer):
+                try:
+                    head = await reader.readuntil(b"\r\n\r\n")
+                    lines = head.decode("latin1").split("\r\n")
+                    method, path, _version = lines[0].split(" ", 2)
+                    headers = {}
+                    for line in lines[1:]:
+                        if ":" in line:
+                            key, value = line.split(":", 1)
+                            headers[key.lower()] = value.strip()
+                    length = int(headers.get("content-length", "0"))
+                    body = await reader.readexactly(length) if length else b""
+                    status = 200
+                    if method == "GET" and path.startswith("/containers/json?"):
+                        query = parse_qs(urlsplit(path).query)
+                        filters = json.loads(query.get("filters", ["{}"])[0])
+                        labels = filters.get("label", [])
+                        if "reamon.project-worker=1" in labels:
+                            response = workers
+                        else:
+                            response = []
+                    elif method == "GET" and path == "/containers/redamon-agent/json":
+                        response = {"Mounts": [{"Destination": "/workspace", "Source": workspace}]}
+                    elif method == "GET" and path.startswith("/images/"):
+                        response = {"Id": "sha256:" + "a" * 64}
+                    elif method == "POST" and path == "/networks/create":
+                        network_id = f"network-{len(networks) + 1}"
+                        networks.append(network_id)
+                        status = 201
+                        response = {"Id": network_id}
+                    elif method == "POST" and path.startswith("/containers/create?"):
+                        config = json.loads(body)
+                        worker_id = f"worker-{len(workers) + 1}"
+                        workers.append({"Id": worker_id, "Labels": config.get("Labels", {})})
+                        status = 201
+                        response = {"Id": worker_id}
+                    else:
+                        status = 404
+                        response = {"message": f"unexpected Docker API request: {method} {path}"}
+                    payload = json.dumps(response).encode("utf-8")
+                    reason = "Created" if status == 201 else "OK" if status == 200 else "Not Found"
+                    writer.write(
+                        f"HTTP/1.1 {status} {reason}\r\nContent-Length: {len(payload)}\r\n"
+                        "Connection: close\r\nContent-Type: application/json\r\n\r\n".encode("ascii")
+                        + payload
+                    )
+                    await writer.drain()
+                finally:
+                    writer.close()
+                    await writer.wait_closed()
+
+            server = await asyncio.start_unix_server(docker_api, path=socket_path)
+            child = "\n".join((
+                "import asyncio, json, sys",
+                "import broker, project_worker as worker",
+                "async def main():",
+                "    broker.BROKER_MAX_CONTAINERS = 1",
+                "    result = await worker._create_admitted_worker('project-qa', ['/bin/true'], [], 'execute_code')",
+                "    print(json.dumps({'status': result[0], 'network': result[1], 'container': result[2], 'error': result[3]}))",
+                "asyncio.run(main())",
+            ))
+            env = os.environ.copy()
+            env.update({
+                "DOCKER_BROKER_UPSTREAM": socket_path,
+                "REAMON_ADMISSION_LOCK_PATH": lock_path,
+                "REAMON_WORKSPACE_ROOT": workspace,
+                "REAMON_WORKSPACE_HOST_PATH": workspace,
+                "PYTHONPATH": os.pathsep.join((os.path.dirname(__file__), os.environ.get("PYTHONPATH", ""))),
+            })
+            try:
+                async with server:
+                    processes = [
+                        await asyncio.create_subprocess_exec(
+                            sys.executable, "-c", child,
+                            cwd=os.path.dirname(__file__), env=env,
+                            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+                        )
+                        for _ in range(2)
+                    ]
+                    results = []
+                    for process in processes:
+                        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=15)
+                        self.assertEqual(process.returncode, 0, stderr.decode("utf-8", "replace"))
+                        results.append(json.loads(stdout.decode("utf-8").strip()))
+            finally:
+                server.close()
+                await server.wait_closed()
+
+            self.assertEqual(sorted(result["status"] for result in results), [200, 429])
+            self.assertEqual(len(workers), 1)
+            self.assertEqual(len(networks), 1)
+
+
 def log_frame(stream: int, data: bytes) -> bytes:
     return bytes([stream, 0, 0, 0]) + len(data).to_bytes(4, "big") + data
 
