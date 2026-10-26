@@ -7,6 +7,7 @@ from unittest.mock import patch
 from server import (
     AnalysisError,
     build_decompile_command,
+    build_class_descriptor_command,
     build_mapping_command,
     clamp_class_batch_size,
     create_analysis_tempdir,
@@ -73,6 +74,14 @@ class DecompilerCommandTests(unittest.TestCase):
         self.assertEqual(
             command,
             ["/usr/local/bin/reamon-dex-map", "classes2.dex", "project-map.txt"],
+        )
+
+    def test_builds_a_descriptor_only_lookup_for_failed_class_identity(self):
+        command = build_class_descriptor_command(Path("classes2.dex"), 17)
+
+        self.assertEqual(
+            command,
+            ["/usr/local/bin/reamon-dex-batch", "--describe-class", "classes2.dex", "17"],
         )
 
     def test_reads_inventory_even_when_map_generation_fails_after_inventory(self):

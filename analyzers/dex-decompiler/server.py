@@ -32,6 +32,7 @@ MAX_STRUCTURED_REFERENCES = 4_000
 MAX_STRUCTURED_OUTPUT_BYTES = 64 * 1024 * 1024
 MAX_CLASS_SUMMARY_BYTES = 1024 * 1024
 MAX_FAILED_CLASS_DETAILS = 1000
+CLASS_DESCRIPTOR_LOOKUP_TIMEOUT_SECONDS = 30
 MAX_DEX_ENTRIES = 64
 MAX_TOTAL_DEX_BYTES = 512 * 1024 * 1024
 PROGRESS_CLASS_INTERVAL = 64
@@ -124,6 +125,10 @@ def build_decompile_command(
 def build_mapping_command(input_path: Path, mapping_path: Path) -> list[str]:
     """Accumulate a project map from one DEX at a time to bound parser memory."""
     return ["/usr/local/bin/reamon-dex-map", str(input_path), str(mapping_path)]
+
+
+def build_class_descriptor_command(input_path: Path, class_index: int) -> list[str]:
+    return ["/usr/local/bin/reamon-dex-batch", "--describe-class", str(input_path), str(class_index)]
 
 
 def parse_dex_inventory(stdout: bytes) -> int | None:
@@ -437,6 +442,22 @@ def analyse(body: dict[str, object], progress=None) -> dict[str, object]:
                     diagnostic_lines.append(
                         f"Class index {start} in {dex_entry} was skipped after {reason}; all output modes failed."
                     )
+                    if class_descriptor is None:
+                        try:
+                            identified = run_with_progress(
+                                build_class_descriptor_command(dex_path, start),
+                                CLASS_DESCRIPTOR_LOOKUP_TIMEOUT_SECONDS,
+                                f"Identifying failed class {start + 1} in {dex_entry}",
+                                progress,
+                                temporary_root,
+                            )
+                            if identified.returncode == 0 and len(identified.stdout) <= MAX_CLASS_SUMMARY_BYTES:
+                                summary = json.loads(identified.stdout)
+                                descriptor = summary.get("descriptor")
+                                if summary.get("classIndex") == start and isinstance(descriptor, str):
+                                    class_descriptor = descriptor[:512]
+                        except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError, AttributeError):
+                            pass
                     if len(failed_class_details) < MAX_FAILED_CLASS_DETAILS:
                         failed_class_details.append({
                             "dexEntry": dex_entry[:256],

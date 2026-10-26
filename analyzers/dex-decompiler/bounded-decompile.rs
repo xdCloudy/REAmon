@@ -30,10 +30,44 @@ fn record_failed_class(
     failed_descriptors.push(descriptor.chars().take(512).collect());
 }
 
+fn describe_class(input: &Path, class_index: usize) -> Result<()> {
+    let bytes = fs::read(input).with_context(|| format!("read {}", input.display()))?;
+    let dex = parse_dex(&bytes).context("parse DEX")?;
+    let class = dex
+        .class_defs()
+        .nth(class_index)
+        .context("class index is outside the DEX inventory")?
+        .context("read DEX class definition")?;
+    let descriptor = dex
+        .get_type(class.class_idx)
+        .context("read class descriptor")?;
+    println!(
+        "{}",
+        json!({
+            "classIndex": class_index,
+            "descriptor": descriptor.chars().take(512).collect::<String>(),
+        })
+    );
+    Ok(())
+}
+
 fn run() -> Result<()> {
     let mut args = env::args_os().skip(1);
     let usage = "usage: reamon-dex-batch <dex> <mapping> <output-dir> <start-index> <class-limit> [restructure|simple|fallback]";
     let input = args.next().context(usage)?;
+    if input.to_string_lossy() == "--describe-class" {
+        let dex = PathBuf::from(args.next().context("--describe-class requires a DEX path")?);
+        let class_index = args
+            .next()
+            .context("--describe-class requires a class index")?
+            .to_string_lossy()
+            .parse()
+            .context("invalid class index")?;
+        if args.next().is_some() {
+            anyhow::bail!("usage: reamon-dex-batch --describe-class <dex> <class-index>");
+        }
+        return describe_class(&dex, class_index);
+    }
     let mapping_path = args.next().context(usage)?;
     let output_root = args.next().context(usage)?;
     let start_index: usize = args
