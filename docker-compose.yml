@@ -423,6 +423,7 @@ services:
       DOCKER_BROKER_UPSTREAM: /var/run/docker.sock
       DOCKER_BROKER_LISTEN: /var/run/broker/docker.sock
       REAMON_WORKER_API_PORT: "8081"
+      REAMON_WORKER_MAX_ACTIVE_PER_PROJECT: ${REAMON_WORKER_MAX_ACTIVE_PER_PROJECT:-2}
       SCANNER_API_KEY: ${SCANNER_API_KEY:-changeme}
       AGENT_EXECUTION_SCOPE_URL: http://agent:8080/execution/resolve-context
       REAMON_WORKSPACE_CONTAINER: redamon-kali

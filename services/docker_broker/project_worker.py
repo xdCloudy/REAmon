@@ -27,6 +27,10 @@ WORKER_PIDS = max(64, int(os.environ.get("REAMON_WORKER_PIDS", "512")))
 WORKER_NANO_CPUS = max(500_000_000, int(os.environ.get("REAMON_WORKER_NANO_CPUS", "2000000000")))
 WORKER_OUTPUT_LIMIT = 2 * 1024 * 1024
 WORKER_MAX_ACTIVE = min(64, max(1, int(os.environ.get("REAMON_WORKER_MAX_ACTIVE", "4"))))
+WORKER_MAX_ACTIVE_PER_PROJECT = min(
+    WORKER_MAX_ACTIVE,
+    max(1, int(os.environ.get("REAMON_WORKER_MAX_ACTIVE_PER_PROJECT", "2"))),
+)
 _WORKER_ADMISSION_LOCK = asyncio.Lock()
 WORKER_TOOLS = frozenset({"kali_shell", "execute_code", "execute_playwright", "proxy_brain"})
 _PROJECT_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,200}$")
@@ -214,6 +218,32 @@ async def _active_worker_count() -> int | None:
     return len(containers) if isinstance(containers, list) else None
 
 
+def _project_scope_label(project_id: str) -> str:
+    """Stable label for per-project admission without storing project IDs in Docker metadata."""
+    return hashlib.sha256(project_id.encode("utf-8")).hexdigest()
+
+
+async def _active_project_worker_count(project_id: str) -> int | None:
+    from urllib.parse import urlencode
+    filters = json.dumps({
+        "label": [
+            "reamon.project-worker=1",
+            f"reamon.project-scope={_project_scope_label(project_id)}",
+        ],
+        "status": ["created", "restarting", "running", "paused"],
+    })
+    status, raw = await _docker_request(
+        "GET", f"/containers/json?all=1&{urlencode({'filters': filters})}",
+    )
+    if status != 200:
+        return None
+    try:
+        containers = json.loads(raw or b"[]")
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    return len(containers) if isinstance(containers, list) else None
+
+
 async def _create_worker_container(
     project_id: str,
     network_id: str,
@@ -236,7 +266,11 @@ async def _create_worker_container(
         "AttachStdout": True,
         "AttachStderr": True,
         "Tty": False,
-        "Labels": {"reamon.project-worker": "1", "redamon.broker-owned": "1"},
+        "Labels": {
+            "reamon.project-worker": "1",
+            "reamon.project-scope": _project_scope_label(project_id),
+            "redamon.broker-owned": "1",
+        },
         "HostConfig": {
             "AutoRemove": False,
             "ReadonlyRootfs": True,
@@ -370,6 +404,11 @@ async def execute(request: Any) -> tuple[int, dict[str, Any]]:
                 return 503, {"error": "worker capacity is unavailable; execution denied"}
             if active >= WORKER_MAX_ACTIVE:
                 return 429, {"error": "project worker capacity is full; retry later"}
+            project_active = await _active_project_worker_count(project_id)
+            if project_active is None:
+                return 503, {"error": "project worker capacity is unavailable; execution denied"}
+            if project_active >= WORKER_MAX_ACTIVE_PER_PROJECT:
+                return 429, {"error": "this project has reached its active worker limit; retry later"}
             network_id = await _create_worker_network(project_id)
             container_id = await _create_worker_container(project_id, network_id, argv, env)
         code, stdout, stderr, timed_out = await _run_worker(container_id, timeout)

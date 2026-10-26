@@ -1,10 +1,12 @@
 """Focused policy and protocol checks for disposable project workers."""
 import asyncio
 import base64
+import hashlib
 import json
 import os
 import sys
 import unittest
+from urllib.parse import parse_qs, urlsplit
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -96,6 +98,26 @@ class ProjectWorkerRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(mounts[2]["Target"], "/workspace/.reamon-tmp")
         self.assertEqual(mounts[3]["Target"], "/workspace/tool-outputs")
 
+    async def test_project_worker_count_uses_hashed_project_label(self):
+        calls = []
+
+        async def docker(method, path, **_kwargs):
+            calls.append((method, path))
+            filters = json.loads(parse_qs(urlsplit(path).query)["filters"][0])
+            self.assertIn("reamon.project-worker=1", filters["label"])
+            self.assertIn(
+                "reamon.project-scope=" + hashlib.sha256(b"p1").hexdigest(),
+                filters["label"],
+            )
+            self.assertIn("running", filters["status"])
+            return 200, b'[{"Id":"worker"}]'
+
+        with mock.patch.object(worker, "_docker_request", side_effect=docker):
+            count = await worker._active_project_worker_count("p1")
+
+        self.assertEqual(count, 1)
+        self.assertEqual(calls[0][0], "GET")
+
     async def test_create_uses_pinned_image_and_restrictive_container_profile(self):
         digest = "sha256:" + "b" * 64
         mounts = [{"Type": "bind", "Source": "/projects/p1", "Target": "/workspace", "ReadOnly": True}]
@@ -119,6 +141,11 @@ class ProjectWorkerRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(body["HostConfig"]["CapAdd"], ["NET_RAW"])
         self.assertTrue(body["HostConfig"]["ReadonlyRootfs"])
         self.assertEqual(body["HostConfig"]["Mounts"], mounts)
+        self.assertEqual(
+            body["Labels"]["reamon.project-scope"],
+            hashlib.sha256(b"p1").hexdigest(),
+        )
+        self.assertNotIn("p1", body["Labels"].values())
         self.assertFalse(body["Tty"])
         self.assertEqual(body["HostConfig"]["LogConfig"]["Config"]["max-size"], "8m")
 
@@ -152,11 +179,45 @@ class ProjectWorkerRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("capacity is full", result["error"])
         create_network.assert_not_awaited()
 
+    async def test_project_cap_preserves_global_capacity_for_other_projects(self):
+        with (
+            mock.patch.object(worker, "SCANNER_API_KEY", "scanner-key"),
+            mock.patch.object(worker, "WORKER_MAX_ACTIVE_PER_PROJECT", 2),
+            mock.patch.object(worker.asyncio, "to_thread", return_value="p1"),
+            mock.patch.object(worker, "_active_worker_count", return_value=3),
+            mock.patch.object(worker, "_active_project_worker_count", return_value=2),
+            mock.patch.object(worker, "_create_worker_network") as create_network,
+        ):
+            status, result = await worker.execute({
+                "ctx": "signed", "tool": "kali_shell", "argv": ["id"], "timeout": 10,
+            })
+
+        self.assertEqual(status, 429)
+        self.assertIn("project has reached", result["error"])
+        create_network.assert_not_awaited()
+
+    async def test_fails_closed_when_project_worker_count_cannot_be_read(self):
+        with (
+            mock.patch.object(worker, "SCANNER_API_KEY", "scanner-key"),
+            mock.patch.object(worker.asyncio, "to_thread", return_value="p1"),
+            mock.patch.object(worker, "_active_worker_count", return_value=0),
+            mock.patch.object(worker, "_active_project_worker_count", return_value=None),
+            mock.patch.object(worker, "_create_worker_network") as create_network,
+        ):
+            status, result = await worker.execute({
+                "ctx": "signed", "tool": "kali_shell", "argv": ["id"], "timeout": 10,
+            })
+
+        self.assertEqual(status, 503)
+        self.assertIn("capacity is unavailable", result["error"])
+        create_network.assert_not_awaited()
+
     async def test_successful_run_always_cleans_up_container_and_network(self):
         with (
             mock.patch.object(worker, "SCANNER_API_KEY", "scanner-key"),
             mock.patch.object(worker.asyncio, "to_thread", return_value="p1"),
             mock.patch.object(worker, "_active_worker_count", return_value=0),
+            mock.patch.object(worker, "_active_project_worker_count", return_value=0),
             mock.patch.object(worker, "_create_worker_network", return_value="net-1"),
             mock.patch.object(worker, "_create_worker_container", return_value="ctr-1"),
             mock.patch.object(worker, "_run_worker", return_value=(0, b"ok", b"", False)),
