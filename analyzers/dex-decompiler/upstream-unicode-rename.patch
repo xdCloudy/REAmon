@@ -41,3 +41,35 @@ index 8c065b0..8cb19f1 100644
 +    }
 +
      #[test]
+diff --git a/src/decompile/simplify/expr.rs b/src/decompile/simplify/expr.rs
+--- a/src/decompile/simplify/expr.rs
++++ b/src/decompile/simplify/expr.rs
+@@ -230,7 +230,7 @@ pub(crate) fn split_leading_cast(expr: &str) -> Option<(String, String)> {
+     }
+     let mut depth = 0i32;
+     let mut end = None;
+-    for (i, c) in e.chars().enumerate() {
++    for (i, c) in e.char_indices() {
+         match c {
+             '(' => depth += 1,
+             ')' => {
+@@ -1284,8 +1284,19 @@ fn parse_copy_from(line: &str, from: &str) -> Option<String> {
+ fn parse_copy_from(line: &str, from: &str) -> Option<String> {
+     let (var, rhs) = parse_simple_assign_line(line)?;
+     if rhs.trim() == from {
+         Some(var)
+     } else {
+         None
+     }
+ }
++
++#[cfg(test)]
++mod reamon_utf8_cast_tests {
++    use super::split_leading_cast;
++
++    #[test]
++    fn split_leading_cast_does_not_panic_when_cast_expression_contains_unicode() {
++        let outcome = std::panic::catch_unwind(|| split_leading_cast("(é) value"));
++        assert!(outcome.is_ok());
++    }
++}
