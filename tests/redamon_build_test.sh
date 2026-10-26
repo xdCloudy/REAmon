@@ -416,6 +416,10 @@ pass "R5 service-set coverage verified in B2/I2"
 # removes either, Layer 2 is back to handing bake the whole list at once (#171).
 if grep -q '_compose_build_targets' "$rd"; then pass "R6 target resolver present"; else fail "R6 target resolver missing"; fi
 if grep -qF 'batch_svcs[@]:i:parallel' "$rd"; then pass "R6 batching slice present"; else fail "R6 batching slice missing"; fi
+# R7: the build-only project worker service is profile-gated; install and
+# source-driven updates must activate that profile or they silently skip it.
+if grep -qF 'compose_build --profile project-worker-image build agent webapp docker-broker project-worker-image' "$rd"; then pass "R7 install builds the project worker under its profile"; else fail "R7 install omits the project-worker profile"; fi
+if grep -qF 'compose_build --profile project-worker-image build "${rebuild_core[@]}"' "$rd"; then pass "R7 source updates build core images under the project-worker profile"; else fail "R7 source updates omit the project-worker profile"; fi
 
 # =============================================================================
 printf '\n\033[1m==================== RESULTS ====================\033[0m\n'
