@@ -1,10 +1,10 @@
 # REAmon product progress
 
-Assessment date: 2026-10-26 · Source: pushed commit `a9aca13` · Weighted estimate: **52.8%**
+Assessment date: 2026-10-26 · Source: pushed commit `5fb31dd` · Weighted estimate: **53.2%**
 
 This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.
 
-On 2026-10-26, both local and LAN readiness endpoints returned ready with database and artifact checks ok, but the deployed webapp revision remains unverified. Quality run [40247230850](https://github.com/xdCloudy/REAmon/actions/runs/40247230850) passed the full Docker unit gate and production-stack acceptance on commit `baa5634a`. Current source runs model-authored shell, code, proxy_brain, custom Playwright, and terminal shells as UID/GID 65534 with fixed environments and empty supplementary groups; terminal shells receive no scanner key and use a two-hour signed graph scope derived from the verified WebSocket ticket. Arbitrary-code output is bounded and child process groups are cleaned up. Shared Kali `/tmp` and workspace access, legacy body-identity graph scope, missing signed context for other arbitrary tools, and tenant-scoped broker ownership remain open. This weighted estimate is evidence-backed progress, not release certification.
+On 2026-10-26, both local and LAN readiness endpoints returned ready with database and artifact checks ok, but the deployed webapp revision remains unverified. Quality run [40247230850](https://github.com/xdCloudy/REAmon/actions/runs/40247230850) passed the full Docker unit gate and production-stack acceptance on commit `baa5634a`. Current source runs model-authored shell, code, proxy_brain, custom Playwright, and terminal shells as UID/GID 65534 with fixed environments and empty supplementary groups; terminal shells receive no scanner key and use a two-hour signed graph scope derived from the verified WebSocket ticket. `/graph/exec`, `/text-to-cypher`, and `/graph/nl-query` reject scanner-only auth, and the agent rejects identical master and scanner keys. Arbitrary-code output is bounded and child process groups are cleaned up. Shared Kali `/tmp` and workspace access, signed context for other arbitrary tools, and tenant-scoped broker ownership remain open. This weighted estimate is evidence-backed progress, not release certification.
 
 | Workstream | Goal weight | Estimated complete | Weighted points |
 | --- | ---: | ---: | ---: |
@@ -13,7 +13,7 @@ On 2026-10-26, both local and LAN readiness endpoints returned ready with databa
 | Major-language and format decompilation fluency | 24% | 35% | 8.40 pts |
 | Maintainable editing, review, and export | 12% | 43% | 5.16 pts |
 | Fixture-backed validation and fidelity evidence | 12% | 15% | 1.80 pts |
-| Security, reliability, and production operations | 20% | 68% | 13.60 pts |
+| Security, reliability, and production operations | 20% | 70% | 14.00 pts |
 
 ## Evidence and remaining work
 
@@ -49,7 +49,7 @@ On 2026-10-26, both local and LAN readiness endpoints returned ready with databa
 
 ### Security, reliability, and production operations
 
-**Current evidence:** Four of five validated security findings have source mitigations. User-configured stdio MCP execution remains disabled pending isolation; global tunnel credential access is restricted to the master key; shared artifact storage has reservation-based capacity admission; and MCP deletion responses mask retained credentials. The shared Kali finding remains open, but model-authored proxy_brain, kali_shell, execute_code, custom Playwright, and terminal shells now drop to UID/GID 65534 with empty supplementary groups. MCP controllers remain root; child environments omit master, MCP, tunnel, and scanner keys. Terminal graph queries use two-hour signed scope derived from the WebSocket ticket; legacy body-identity graph reads remain. Arbitrary execution output is capped at 2 MiB per stream, and request process groups are killed after completion or timeout. The controller and shells remain in the shared container, and /tmp plus the complete workspace mount remain shared across projects.
+**Current evidence:** Four of five validated security findings have source mitigations. User-configured stdio MCP execution remains disabled pending isolation; global tunnel credential access is restricted to the master key; shared artifact storage has reservation-based capacity admission; and MCP deletion responses mask retained credentials. The shared Kali finding remains open, but model-authored proxy_brain, kali_shell, execute_code, custom Playwright, and terminal shells now drop to UID/GID 65534 with empty supplementary groups. MCP controllers remain root; child environments omit master, MCP, tunnel, and scanner keys. Terminal graph queries use two-hour signed scope derived from the WebSocket ticket. The legacy graph, Cypher generation, and NL-query routes require configured master auth; scanner-only workers cannot assert body-selected tenant IDs, and identical master/scanner credentials fail closed. Arbitrary execution output is capped at 2 MiB per stream, and request process groups are killed after completion or timeout. The controller and shells remain in the shared container, and /tmp plus the complete workspace mount remain shared across projects.
 
 **Remaining:** Implement authenticated project scope and per-project worker isolation for every arbitrary-code surface; isolate /tmp and workspace storage; independently review storage admission; validate service rebuilds and controls on the LAN deployment; and complete broader security, upgrade, backup, and restore review on the release candidate.
 
