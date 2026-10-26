@@ -286,6 +286,7 @@ def _terminal_sandbox_command(tenant_env: dict) -> list[str]:
         f"--nofile={UNTRUSTED_EXEC_NOFILE_LIMIT}:{UNTRUSTED_EXEC_NOFILE_LIMIT}",
         "--",
         "/usr/bin/unshare", "--user", "--map-root-user", "--mount",
+        "--pid", "--fork", "--mount-proc",
         "/bin/sh", "-c",
         _TERMINAL_SANDBOX_SCRIPT, "reamon-terminal", project_id,
     ]

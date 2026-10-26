@@ -66,16 +66,16 @@ class TestTerminalPrivileges(unittest.TestCase):
             "REDAMON_PROJECT_ID": "project-1",
         })
 
-        self.assertEqual(command[:8], [
+        self.assertEqual(command[:11], [
             terminal_server.UNTRUSTED_EXEC_PRLIMIT, "--core=0:0",
             f"--nofile={terminal_server.UNTRUSTED_EXEC_NOFILE_LIMIT}:"
             f"{terminal_server.UNTRUSTED_EXEC_NOFILE_LIMIT}", "--",
             "/usr/bin/unshare", "--user", "--map-root-user", "--mount",
+            "--pid", "--fork", "--mount-proc",
         ])
-        self.assertEqual(command[8:10], ["/bin/sh", "-c"])
+        self.assertEqual(command[11:13], ["/bin/sh", "-c"])
         self.assertEqual(command[-2:], ["reamon-terminal", "project-1"])
-        self.assertNotIn("--pid", command)
-        script = command[10]
+        script = command[13]
         self.assertIn('mount --bind "$project" /workspace', script)
         self.assertIn('mount -t tmpfs -o mode=1777,nosuid,nodev tmpfs /tmp', script)
         self.assertIn('tmpfs /var/tmp', script)
@@ -88,7 +88,7 @@ class TestTerminalPrivileges(unittest.TestCase):
         })
 
         self.assertEqual(command[-1], project_id)
-        self.assertNotIn(project_id, command[10])
+        self.assertNotIn(project_id, command[13])
 
     def test_terminal_command_rejects_workspace_path_traversal(self):
         for project_id in ("../other", "..", ".hidden", "nested/project"):

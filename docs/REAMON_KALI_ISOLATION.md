@@ -128,11 +128,12 @@ the shared temporary paths, and maps namespace UID 0 to host UID 65534. A
 disconnect smoke with a running background job confirmed the job and shell are
 removed without leaving a Bash zombie. The terminal server uses Linux
 child-subreaper behavior and signals all processes in the PTY session, including
-jobs that move to a separate process group. The namespace deliberately does not
-create a PID namespace; PID isolation remains part of the project-worker design
-below. The shared Kali container still hosts the controller and other execution
-tools, so this is an incremental terminal boundary rather than the per-project
-worker architecture selected below.
+jobs that move to a separate process group. The terminal now creates a private
+PID namespace and mounts its own `/proc`, so the interactive shell cannot
+enumerate controller or sibling-session processes. The shared Kali container
+still hosts the controller and other execution tools, so this is an incremental
+terminal boundary rather than the per-project worker architecture selected
+below.
 
 The live local deployment was checked on 2026-10-26: both the localhost and LAN
 readiness endpoints returned `ready` with database and artifact checks `ok`.
