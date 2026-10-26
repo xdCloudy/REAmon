@@ -1,6 +1,6 @@
 # REAmon product progress
 
-Assessment date: 2026-10-26 · Source: pushed commit `79cc547` · Weighted estimate: **63.4%**
+Assessment date: 2026-10-26 · Source: pushed commit `99f4f61` · Weighted estimate: **63.6%**
 
 This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.
 
@@ -11,7 +11,7 @@ Quality run [40247230850](https://github.com/xdCloudy/REAmon/actions/runs/402472
 | Core analysis and visualizer workflow | 16% | 92% | 14.72 pts |
 | Database-grounded project memory and provenance | 16% | 78% | 12.48 pts |
 | Major-language and format decompilation fluency | 24% | 36% | 8.64 pts |
-| Maintainable editing, review, and export | 12% | 49% | 5.88 pts |
+| Maintainable editing, review, and export | 12% | 50% | 6.00 pts |
 | Fixture-backed validation and fidelity evidence | 12% | 16% | 1.92 pts |
 | Security, reliability, and production operations | 20% | 99% | 19.80 pts |
 
@@ -37,9 +37,9 @@ Quality run [40247230850](https://github.com/xdCloudy/REAmon/actions/runs/402472
 
 ### Maintainable editing, review, and export
 
-**Current evidence:** Hash-bound drafts and immutable review receipts preserve lineage, with syntax validation, an early Java rebuild, and language-specific rename workflows now extending to C/C++ local bindings. Kotlin functions are now outlined and can be rewritten one at a time with grammar-aware member signature validation; focused isolated Docker coverage passes. DEX member rewrites now fetch direct callers/callees through the selected method observation keys instead of filtering a bounded run-wide edge prefix; focused route coverage verifies direct-callee source reaches rewrite context. The project function queue creates independently reviewable per-file drafts and keeps cross-file results separate; it does not auto-accept edits. Current source validation now uses the installed GCC/G++ compiler with `-fsyntax-only` for C/C++ maintained source; isolated Docker coverage confirms valid source passes and malformed source fails, with exact source hashes recorded. The authenticated endpoint was exercised on the rebuilt LAN agent: GCC 14.2.0 and G++ 14.2.0 accepted valid samples, rejected malformed samples, and returned matching SHA-256 values. Bounded project-level C# builds now compile up to 32 review-accepted files from one completed run together with Roslyn without executing the result; a PASSED or FAILED receipt records the exact artifact, run, source hashes, accepted review IDs, compiler version, and output assembly hash in project observations. The visualizer exposes the run-level action. Docker checks pass for cross-file symbol resolution, compiler rejection, stale hashes, receipt persistence routing, and the UI result state.
+**Current evidence:** Hash-bound drafts and immutable review receipts preserve lineage, with syntax validation, an early Java rebuild, and language-specific rename workflows now extending to C/C++ local bindings. Kotlin functions are now outlined and can be rewritten one at a time with grammar-aware member signature validation; focused isolated Docker coverage passes. DEX member rewrites now fetch direct callers/callees through the selected method observation keys instead of filtering a bounded run-wide edge prefix; focused route coverage verifies direct-callee source reaches rewrite context. The project function queue creates independently reviewable per-file drafts and keeps cross-file results separate; it does not auto-accept edits. Current source validation now uses the installed GCC/G++ compiler with `-fsyntax-only` for C/C++ maintained source; isolated Docker coverage confirms valid source passes and malformed source fails, with exact source hashes recorded. The authenticated endpoint was exercised on the rebuilt LAN agent: GCC 14.2.0 and G++ 14.2.0 accepted valid samples, rejected malformed samples, and returned matching SHA-256 values. Bounded project-level C# builds now compile up to 32 review-accepted files from one completed run together with Roslyn without executing the result; a PASSED or FAILED receipt records the exact artifact, run, source hashes, accepted review IDs, compiler version, and output assembly hash in project observations. The visualizer exposes the run-level action. Docker checks pass for cross-file symbol resolution, compiler rejection, stale hashes, receipt persistence routing, and the UI result state. Saved build receipts now reload from project observations only while the active completed run has the same complete accepted C# file set, review IDs, paths, and source hashes; edits or newly accepted files invalidate stale receipts. The UI restores the verified receipt after reload and guards against an earlier lookup overwriting a newly started build. Focused Docker coverage passes 9 route/component tests, Docker type-check passes, and targeted ESLint passes.
 
-**Remaining:** Validate projects with external package references and target-specific build flags; exercise receipt retrieval and export on a database-backed project; broaden project builds and fixture-backed behavior checks to more languages and target formats.
+**Remaining:** Exercise receipt retrieval and source export on a database-backed project; validate projects with external package references and target-specific build flags; broaden project builds and fixture-backed behavior checks to more languages and target formats.
 
 ### Fixture-backed validation and fidelity evidence
 
