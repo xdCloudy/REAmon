@@ -3,10 +3,10 @@
 MCP Server Runner - Launches all MCP servers for RedAmon Agentic AI
 
 This script starts all MCP servers (naabu, nuclei, curl, metasploit) either
-in stdio mode (for direct integration) or SSE mode (for network access).
+in stdio mode (for direct integration) or their configured network transports.
 
 Usage:
-    python run_servers.py              # Run in SSE mode (default for container)
+    python run_servers.py              # Run network MCP servers (container default)
     python run_servers.py --stdio      # Run single server in stdio mode
     python run_servers.py --server naabu --stdio  # Run specific server
 """
@@ -105,7 +105,7 @@ def run_server(name: str, config: dict, transport: str = "sse"):
         # Import and run the server module
         module = importlib.import_module(config["module"])
 
-        if transport == "sse":
+        if transport in ("sse", "streamable_http"):
             # Start progress server for metasploit (for live progress updates)
             if name == "metasploit" and hasattr(module, 'start_progress_server'):
                 progress_port = int(os.getenv("MSF_PROGRESS_PORT", "8013"))
@@ -126,14 +126,22 @@ def run_server(name: str, config: dict, transport: str = "sse"):
             # we REFUSE to start this server (fail-closed) instead of serving it
             # plaintext, so a broken auth wiring is loud, not silent.
             try:
-                from _auth_middleware import serve_sse_with_auth
+                from _auth_middleware import (
+                    serve_sse_with_auth,
+                    serve_streamable_http_with_auth,
+                )
             except Exception as e:  # noqa: BLE001
                 logger.error(
                     f"[{name}] _auth_middleware import failed ({e}); REFUSING to "
                     f"start this MCP server without bearer auth (fail-closed)."
                 )
                 raise
-            serve_sse_with_auth(module.mcp, host="0.0.0.0", port=config["port"])
+            if transport == "streamable_http":
+                serve_streamable_http_with_auth(
+                    module.mcp, host="0.0.0.0", port=config["port"]
+                )
+            else:
+                serve_sse_with_auth(module.mcp, host="0.0.0.0", port=config["port"])
         else:
             module.mcp.run(transport="stdio")
 
@@ -144,7 +152,7 @@ def run_server(name: str, config: dict, transport: str = "sse"):
 
 def run_all_servers_sse():
     """
-    Run all MCP servers in SSE mode, with supervision.
+    Run all network MCP servers with supervision.
 
     Each server runs in its own child process. If a server crashes (seen
     previously with network_recon dying under heavy fireteam concurrency and
@@ -158,7 +166,8 @@ def run_all_servers_sse():
     shutting_down = False
 
     def spawn(name: str, config: dict) -> Process:
-        p = Process(target=run_server, args=(name, config, "sse"), name=f"mcp-{name}")
+        transport = "streamable_http" if name == "network_recon" else "sse"
+        p = Process(target=run_server, args=(name, config, transport), name=f"mcp-{name}")
         p.start()
         processes[name] = p
         logger.info(f"Started {name} server (PID: {p.pid}, port {config['port']})")
@@ -273,7 +282,7 @@ def main():
             sys.exit(1)
         run_single_server_stdio(args.server)
     else:
-        # Default: run all servers in SSE mode
+        # Default: run all network servers with their configured transports.
         run_all_servers_sse()
 
 

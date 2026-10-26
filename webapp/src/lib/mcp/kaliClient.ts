@@ -179,6 +179,7 @@ async function agentJson(
 }
 
 export async function kaliExec(
+  userId: string,
   projectId: string,
   command: string,
   waitSeconds?: number
@@ -188,6 +189,7 @@ export async function kaliExec(
     {
       method: 'POST',
       body: JSON.stringify({
+        user_id: userId,
         project_id: projectId,
         command,
         ...(waitSeconds === undefined ? {} : { wait_seconds: waitSeconds }),

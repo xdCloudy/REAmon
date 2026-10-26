@@ -10,7 +10,7 @@ const h = vi.hoisted(() => ({ fetch: vi.fn() }))
 vi.mock('@/lib/agentFetch', () => ({ agentBaseUrl: () => 'http://agent:8080' }))
 vi.mock('@/lib/agentAuth', () => ({ internalKeyHeaders: (x?: object) => ({ ...(x ?? {}) }) }))
 
-import { kaliJobCancel, kaliJobStatus } from './kaliClient'
+import { kaliExec, kaliJobCancel, kaliJobStatus } from './kaliClient'
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -56,5 +56,25 @@ describe('an agent 4xx reaches the caller', () => {
     agentSays(404, 'no such command')
     await expect(kaliJobStatus('p1', 'a'.repeat(32), 0))
       .rejects.toThrow(/^No such command\.$/)
+  })
+})
+
+describe('execution identity propagation', () => {
+  test('sends the authenticated user and project to the agent', async () => {
+    h.fetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ job_id: 'j1', status: 'done', exit_code: 0, output: 'ok' }),
+    })
+
+    await kaliExec('owner-1', 'project-1', 'sleep 1', 0)
+
+    const [url, init] = h.fetch.mock.calls[0]
+    expect(url).toBe('http://agent:8080/kali/exec')
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      user_id: 'owner-1',
+      project_id: 'project-1',
+      command: 'sleep 1',
+      wait_seconds: 0,
+    })
   })
 })

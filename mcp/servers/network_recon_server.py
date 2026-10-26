@@ -1782,5 +1782,7 @@ if __name__ == "__main__":
     if transport == "sse":
         start_hydra_progress_server(HYDRA_PROGRESS_PORT)
         mcp.run(transport="sse", host=SERVER_HOST, port=SERVER_PORT)
+    elif transport in ("streamable_http", "streamable-http"):
+        mcp.run(transport="streamable-http", host=SERVER_HOST, port=SERVER_PORT)
     else:
         mcp.run(transport="stdio")

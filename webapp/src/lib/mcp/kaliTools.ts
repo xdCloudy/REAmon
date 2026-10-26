@@ -163,7 +163,7 @@ export async function execCommand(
 
   let job: KaliJob
   try {
-    job = await kaliExec(projectId, trimmed, waitSeconds)
+    job = await kaliExec(ctx.token.userId, projectId, trimmed, waitSeconds)
   } catch (err) {
     // Audited BEFORE rethrowing: a refusal is the only record that someone
     // tried to reach outside their scope, and it is the more interesting half.

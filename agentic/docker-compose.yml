@@ -20,7 +20,7 @@ services:
       WS_TIMEOUT: "300"
       WS_MAX_MESSAGE_SIZE: "10485760"
       # MCP tool servers (via host network)
-      MCP_NETWORK_RECON_URL: http://host.docker.internal:8000/sse
+      MCP_NETWORK_RECON_URL: http://host.docker.internal:8000/mcp
       MCP_NMAP_URL: http://host.docker.internal:8004/sse
       MCP_METASPLOIT_URL: http://host.docker.internal:8003/sse
       MCP_PLAYWRIGHT_URL: http://host.docker.internal:8005/sse

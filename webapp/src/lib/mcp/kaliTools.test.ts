@@ -168,12 +168,12 @@ describe('kali_exec', () => {
     // copy of the rules, and the copy that drifts is the one that lets
     // something through.
     await execCommand(ctx(), 'p1', "curl -A 'Mozilla 5.0' https://acme.tld")
-    expect(h.exec).toHaveBeenCalledWith('p1', "curl -A 'Mozilla 5.0' https://acme.tld", undefined)
+    expect(h.exec).toHaveBeenCalledWith('owner', 'p1', "curl -A 'Mozilla 5.0' https://acme.tld", undefined)
   })
 
   test('trims but does not otherwise alter the command', async () => {
     await execCommand(ctx(), 'p1', '  curl https://acme.tld  ')
-    expect(h.exec).toHaveBeenCalledWith('p1', 'curl https://acme.tld', undefined)
+    expect(h.exec).toHaveBeenCalledWith('owner', 'p1', 'curl https://acme.tld', undefined)
   })
 
   test('returns the job with the cursor needed to read on', async () => {

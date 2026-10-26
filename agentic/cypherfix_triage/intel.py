@@ -234,11 +234,11 @@ class CveIntel:
             from langchain_mcp_adapters.client import MultiServerMCPClient
 
             url = os.environ.get(
-                "MCP_NETWORK_RECON_URL", "http://host.docker.internal:8000/sse")
+                "MCP_NETWORK_RECON_URL", "http://host.docker.internal:8000/mcp")
             token = os.environ.get("MCP_AUTH_TOKEN", "")
             config = {
                 "network_recon": {
-                    "transport": "sse",
+                    "transport": "streamable_http",
                     "url": url,
                     **({"headers": {"Authorization": f"Bearer {token}"}}
                        if token else {}),

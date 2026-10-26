@@ -909,7 +909,7 @@ services:
       FS_EXTRACT_MAX_ENTRIES: ${FS_EXTRACT_MAX_ENTRIES:-5000}
       FS_EXTRACT_MAX_TOTAL_BYTES: ${FS_EXTRACT_MAX_TOTAL_BYTES:-524288000}
       # MCP tool servers (internal docker network)
-      MCP_NETWORK_RECON_URL: http://kali-sandbox:8000/sse
+      MCP_NETWORK_RECON_URL: http://kali-sandbox:8000/mcp
       MCP_NUCLEI_URL: http://kali-sandbox:8002/sse
       MCP_NMAP_URL: http://kali-sandbox:8004/sse
       MCP_METASPLOIT_URL: http://kali-sandbox:8003/sse

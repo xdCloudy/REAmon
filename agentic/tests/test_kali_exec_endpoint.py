@@ -52,7 +52,12 @@ class _FakeExecutor:
         self._success = success
 
     async def execute(self, name, args, phase, skip_phase_check=False):
-        self.calls.append({"name": name, "args": args, "phase": phase})
+        from agent_context import current_project_id, current_user_id
+        self.calls.append({
+            "name": name, "args": args, "phase": phase,
+            "project_id": current_project_id.get(),
+            "user_id": current_user_id.get(),
+        })
         return {"success": self._success, "output": self._output, "error": None}
 
 
@@ -123,7 +128,7 @@ class _Base(unittest.IsolatedAsyncioTestCase):
         self.addCleanup(lambda: [p.stop() for p in patches])
 
     async def _exec(self, command, **kw):
-        return await api.kali_exec(api.KaliExecRequest(project_id="p1", command=command, **kw))
+        return await api.kali_exec(api.KaliExecRequest(user_id="u1", project_id="p1", command=command, **kw))
 
     def _seed(self, project_id, job_id, text):
         d = Path(self.root) / project_id / "jobs"
@@ -195,6 +200,11 @@ class ExecTests(_Base):
         self.assertEqual(body["status"], "done")
         self.assertEqual(body["exit_code"], 0)
         self.assertIn("HTTP/1.1 200 OK", body["output"])
+        self.assertEqual(self.executor.calls[0]["user_id"], "u1")
+        self.assertEqual(self.executor.calls[0]["project_id"], "p1")
+        from agent_context import current_project_id, current_user_id
+        self.assertEqual(current_user_id.get(), "")
+        self.assertEqual(current_project_id.get(), "")
 
     async def test_the_sandbox_only_ever_receives_a_requoted_command(self):
         await self._exec("curl -A 'Mozilla 5.0' https://acme.tld")
@@ -230,7 +240,7 @@ class ExecTests(_Base):
     async def test_an_empty_command_is_still_refused(self):
         # The one check that survives: there is nothing to run.
         for cmd in ("", "   "):
-            resp = await api.kali_exec(api.KaliExecRequest(project_id="p1", command=cmd))
+            resp = await api.kali_exec(api.KaliExecRequest(user_id="u1", project_id="p1", command=cmd))
             self.assertEqual(resp.status_code, 400)
 
     async def test_an_uninitialised_sandbox_is_unavailable_not_silent(self):
@@ -239,8 +249,13 @@ class ExecTests(_Base):
         self.assertEqual(resp.status_code, 503)
 
     async def test_a_missing_project_id_is_refused(self):
-        resp = await api.kali_exec(api.KaliExecRequest(project_id="", command="curl https://acme.tld"))
+        resp = await api.kali_exec(api.KaliExecRequest(user_id="u1", project_id="", command="curl https://acme.tld"))
         self.assertEqual(resp.status_code, 400)
+
+    async def test_a_missing_user_id_is_refused_before_job_creation(self):
+        resp = await api.kali_exec(api.KaliExecRequest(user_id=" ", project_id="p1", command="sleep 1"))
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(self.registry.spawned, [])
 
     async def test_the_job_cap_is_reported_as_a_retryable_limit(self):
         self.registry.spawn_error = "Too many background jobs running"

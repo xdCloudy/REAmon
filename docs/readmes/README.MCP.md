@@ -159,8 +159,8 @@ docker-compose ps
 # View logs
 docker-compose logs -f kali-sandbox
 
-# Test a server (SSE servers require the bearer token; without it you get 401)
-curl -H "Authorization: Bearer $MCP_AUTH_TOKEN" http://127.0.0.1:8000/sse
+# List the network-recon MCP tools over authenticated Streamable HTTP
+python -c 'import asyncio,os; from langchain_mcp_adapters.client import MultiServerMCPClient; c=MultiServerMCPClient({"recon":{"transport":"streamable_http","url":"http://127.0.0.1:8000/mcp","headers":{"Authorization":"Bearer "+os.environ["MCP_AUTH_TOKEN"]}}}); print([t.name for t in asyncio.run(c.get_tools())])'
 
 # Test commmands run for each server:
 python mcp/test_mcp.py https://testphp.vulnweb.com
@@ -169,14 +169,14 @@ python mcp/test_mcp.py https://testphp.vulnweb.com
 ### 3. Connect AI Agent
 
 > **Host ports are loopback-only + token-authenticated (since 5.3.1).** The MCP
-> servers are published on `127.0.0.1` (not the LAN) and every SSE request must
+> servers are published on `127.0.0.1` (not the LAN) and every request must
 > carry `Authorization: Bearer $MCP_AUTH_TOKEN`. The agent connects to them over
-> the internal Docker network (`http://kali-sandbox:PORT/sse`) with the token
+> the internal Docker network with the token
 > attached automatically — the `localhost` URLs below are for **local debugging
 > only**. See the [Security Notice](#security-notice).
 
 The MCP servers are available (on the host, loopback + bearer token) at:
-- **network_recon**: `http://127.0.0.1:8000/sse` (HTTP requests + port scanning)
+- **network_recon**: `http://127.0.0.1:8000/mcp` (Streamable HTTP; HTTP requests + port scanning)
 - **nuclei**: `http://127.0.0.1:8002/sse` (vulnerability scanning)
 - **metasploit**: `http://127.0.0.1:8003/sse` (exploitation)
 - **nmap**: `http://127.0.0.1:8004/sse` (service detection, OS fingerprinting, NSE scripts)

@@ -1,7 +1,7 @@
-"""Shared bearer-token authentication for the Kali MCP SSE servers.
+"""Shared bearer-token authentication for the Kali MCP HTTP servers.
 
 STRIDE S10 defense-in-depth. The MCP tool servers are consumed ONLY by the agent
-over the internal Docker bridge (``http://kali-sandbox:PORT/sse``); their host
+over the internal Docker bridge; their host
 ports are loopback-only (see docker-compose.yml). This middleware adds a second
 control: every HTTP/WebSocket request must carry
 ``Authorization: Bearer <MCP_AUTH_TOKEN>`` when ``MCP_AUTH_TOKEN`` is set.
@@ -18,7 +18,7 @@ Behaviour:
                                server can boot.
 
 Implemented as a pure-ASGI wrapper (no Starlette/FastMCP-version coupling) so it
-composes with whatever SSE app the installed FastMCP builds. ``lifespan`` and any
+composes with whichever HTTP app the installed FastMCP builds. ``lifespan`` and any
 non-http/websocket scope pass straight through untouched.
 """
 
@@ -124,6 +124,17 @@ def _build_sse_app(mcp):
     raise RuntimeError(f"no usable SSE app builder on this FastMCP: {last_err}")
 
 
+def _build_streamable_http_app(mcp):
+    """Build the Streamable HTTP app across supported FastMCP versions."""
+    builder = getattr(mcp, "http_app", None)
+    if not callable(builder):
+        raise RuntimeError("FastMCP has no HTTP app builder for Streamable HTTP")
+    try:
+        return builder(transport="streamable-http")
+    except (AttributeError, TypeError) as exc:
+        raise RuntimeError(f"cannot build FastMCP Streamable HTTP app: {exc}") from exc
+
+
 def serve_sse_with_auth(mcp, host: str, port: int) -> None:
     """Serve a FastMCP instance over SSE with the bearer wrapper applied.
 
@@ -138,4 +149,20 @@ def serve_sse_with_auth(mcp, host: str, port: int) -> None:
     wrapped = BearerAuthASGI(app)
     token_state = "enforced" if configured_token() else "fail-closed (no token)"
     logger.info("MCP SSE server on %s:%s - bearer auth %s", host, port, token_state)
+    uvicorn.run(wrapped, host=host, port=port, log_level="info")
+
+
+def serve_streamable_http_with_auth(mcp, host: str, port: int) -> None:
+    """Serve FastMCP Streamable HTTP with the same fail-closed bearer auth."""
+    import uvicorn
+
+    app = _build_streamable_http_app(mcp)
+    wrapped = BearerAuthASGI(app)
+    token_state = "enforced" if configured_token() else "fail-closed (no token)"
+    logger.info(
+        "MCP Streamable HTTP server on %s:%s - bearer auth %s",
+        host,
+        port,
+        token_state,
+    )
     uvicorn.run(wrapped, host=host, port=port, log_level="info")

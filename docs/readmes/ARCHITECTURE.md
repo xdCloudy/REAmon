@@ -267,7 +267,7 @@ flowchart TB
 | Neo4j Bolt | 127.0.0.1:7687 | Loopback | Neo4j driver protocol (used by agent) |
 | Recon Orchestrator | http://127.0.0.1:8010 | Loopback | Manages recon pipeline containers. **Network-isolated:** on its own `redamon-orchestrator-net` (not `redamon`) — reachable from the host and the webapp, but not from the worker. |
 | Agent API | http://localhost:8090 | LAN | AI agent WebSocket + REST API |
-| MCP Network Recon | http://127.0.0.1:8000/sse | Loopback + token | curl + naabu (HTTP probing, port scanning) |
+| MCP Network Recon | http://127.0.0.1:8000/mcp | Loopback + token | Streamable HTTP; curl + naabu (HTTP probing, port scanning) |
 | MCP Nuclei | http://127.0.0.1:8002/sse | Loopback + token | Nuclei vulnerability scanner |
 | MCP Metasploit | http://127.0.0.1:8003/sse | Loopback + token | Metasploit Framework RPC |
 | MCP Nmap | http://127.0.0.1:8004/sse | Loopback + token | Nmap network scanner |

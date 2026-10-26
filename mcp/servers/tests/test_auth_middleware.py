@@ -150,6 +150,17 @@ def run():
     check("serve raises (fail-closed) when app build fails", raised is True)
     check("serve does NOT fall back to unwrapped mcp.run", fake.ran is False)
 
+    class _StreamableMcp:
+        def http_app(self, transport=None):
+            if transport != "streamable-http":
+                raise AssertionError(f"unexpected transport: {transport}")
+            return "streamable-app"
+
+    check(
+        "Streamable HTTP app builder selects FastMCP streamable transport",
+        mw._build_streamable_http_app(_StreamableMcp()) == "streamable-app",
+    )
+
     # report
     failed = [n for n, ok in results if not ok]
     for n, ok in results:

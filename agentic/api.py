@@ -7241,7 +7241,9 @@ KALI_EXEC_MAX_OUTPUT_BYTES = 100_000
 
 class KaliExecRequest(BaseModel):
     """webapp MCP -> agent. The tenant is the caller's, already resolved from
-    the access token and ownership-checked before this is sent."""
+    the access token and ownership-checked before this is sent. The agent uses
+    this trusted internal identity to scope the downstream project worker."""
+    user_id: str
     project_id: str
     command: str
     wait_seconds: float = KALI_EXEC_DEFAULT_WAIT
@@ -7372,6 +7374,8 @@ async def kali_exec(body: KaliExecRequest):
         return JSONResponse(status_code=400, content={"error": "project_id is required"})
     if not body.command or not body.command.strip():
         return JSONResponse(status_code=400, content={"error": "a command is required"})
+    if not body.user_id or not body.user_id.strip():
+        return JSONResponse(status_code=400, content={"error": "user_id is required"})
     if not orchestrator or not getattr(orchestrator, "tool_executor", None):
         return JSONResponse(status_code=503, content={"error": "the sandbox is not available"})
 
@@ -7402,20 +7406,32 @@ async def kali_exec(body: KaliExecRequest):
         }
 
     reg = job_runner.get_registry()
-    spawned = await reg.spawn(
-        body.project_id, "kali_shell", {"command": safe_command}, runner,
-        label=safe_command.split()[0][:40] if safe_command.split() else "kali_shell",
-    )
-    if isinstance(spawned, dict) and spawned.get("error"):
-        return JSONResponse(status_code=429, content={"error": spawned["error"]})
+    from agent_context import current_project_id, current_user_id
 
-    job_id = spawned["job_id"]
-    wait = max(0.0, min(float(body.wait_seconds or 0), KALI_EXEC_MAX_WAIT))
-    state = await reg.wait(body.project_id, job_id, timeout_sec=wait)
+    # The trusted webapp has already checked token scope and project ownership.
+    # The scoped worker signer reads these ContextVars when the background job
+    # invokes the MCP tool, so bind the authenticated tenant before spawn; the
+    # task inherits the values while this request resets its own context below.
+    user_token = current_user_id.set(body.user_id)
+    project_token = current_project_id.set(body.project_id)
+    try:
+        spawned = await reg.spawn(
+            body.project_id, "kali_shell", {"command": safe_command}, runner,
+            label=safe_command.split()[0][:40] if safe_command.split() else "kali_shell",
+        )
+        if isinstance(spawned, dict) and spawned.get("error"):
+            return JSONResponse(status_code=429, content={"error": spawned["error"]})
 
-    view = _kali_job_view(state, 0, body.project_id, job_id)
-    view["command"] = safe_command
-    return JSONResponse(content=view)
+        job_id = spawned["job_id"]
+        wait = max(0.0, min(float(body.wait_seconds or 0), KALI_EXEC_MAX_WAIT))
+        state = await reg.wait(body.project_id, job_id, timeout_sec=wait)
+
+        view = _kali_job_view(state, 0, body.project_id, job_id)
+        view["command"] = safe_command
+        return JSONResponse(content=view)
+    finally:
+        current_project_id.reset(project_token)
+        current_user_id.reset(user_token)
 
 
 @app.get("/kali/exec/{job_id}", tags=["Kali"], dependencies=[Depends(require_configured_master_internal_auth)])

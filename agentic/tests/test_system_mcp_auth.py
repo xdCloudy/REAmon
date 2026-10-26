@@ -61,6 +61,13 @@ def main():
     else:
         servers = _build_system_mcp_servers()
         check("exactly 5 system MCP servers", len(servers) == 5)
+        recon = next((s for s in servers if s.id == "network_recon"), None)
+        check(
+            "network_recon uses Streamable HTTP cancellation transport",
+            recon is not None
+            and recon.transport == "streamable_http"
+            and recon.url.endswith("/mcp"),
+        )
         for s in servers:
             check(
                 f"{s.id} carries MCP_AUTH_TOKEN bearer",

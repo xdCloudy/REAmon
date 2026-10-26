@@ -433,7 +433,7 @@ Phase transitions happen automatically — the agent classifies its own actions 
 
 **Tool execution:**
 
-- **MCP tools** — Security tools (Nmap, Nuclei, Metasploit, Network Recon) run in the `kali-sandbox` container and are accessed via the MCP protocol through `langchain-mcp-adapters`. The connection URL is `http://kali-sandbox:8000/sse`.
+- **MCP tools** — Security tools run in the `kali-sandbox` container and are accessed through `langchain-mcp-adapters`. Network Recon uses authenticated Streamable HTTP at `http://kali-sandbox:8000/mcp` so task cancellation reaches long-running tool requests; Nmap, Nuclei, Metasploit, and Playwright retain SSE endpoints.
 - **Native tools** — Neo4j Cypher queries (text-to-Cypher via LLM), Tavily web search, Shodan API, and Google Dork are implemented directly in Python within `tools.py`.
 
 **WebSocket streaming:**
@@ -568,7 +568,7 @@ All REST endpoints live in `webapp/src/app/api/`. There are 17 route groups:
 | Agent | `http://agent:8080` |
 | Recon Orchestrator | `http://recon-orchestrator:8010` (reachable **only from the webapp** — on `orchestrator-net`, not `redamon`) |
 | Webapp | `http://webapp:3000` (the orchestrator reaches it via its own `WEBAPP_API_URL` for RoE/guardrail pre-flight) |
-| Kali Sandbox (MCP) | `http://kali-sandbox:8000/sse` (requires `Authorization: Bearer $MCP_AUTH_TOKEN`) |
+| Kali Sandbox Network Recon MCP | `http://kali-sandbox:8000/mcp` (Streamable HTTP; requires `Authorization: Bearer $MCP_AUTH_TOKEN`) |
 | Neo4j | `bolt://neo4j:7687` |
 | PostgreSQL | `postgresql://redamon:<POSTGRES_PASSWORD>@postgres:5432/redamon` (password from `.env`, generated on fresh install) |
 

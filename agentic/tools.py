@@ -40,6 +40,52 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+
+def _enable_mcp_request_cancellation_notifications() -> None:
+    """Forward asyncio cancellation as MCP ``notifications/cancelled``.
+
+    The MCP Python client currently closes its local response stream when an
+    ``ainvoke`` task is cancelled, but does not notify the server. Long-running
+    tools therefore keep executing remotely after their local job is marked
+    cancelled. MCP defines a cancellation notification for this exact case.
+    Install this small compatibility wrapper before clients/sessions are made.
+    """
+    from mcp import types
+    from mcp.shared.session import BaseSession
+
+    if getattr(BaseSession, "_reamon_cancel_notifications", False):
+        return
+
+    original_send_request = BaseSession.send_request
+
+    async def send_request_with_cancellation(self, request, *args, **kwargs):
+        request_id = self._request_id
+        try:
+            return await original_send_request(self, request, *args, **kwargs)
+        except asyncio.CancelledError:
+            notification = types.CancelledNotification(
+                params=types.CancelledNotificationParams(
+                    requestId=request_id,
+                    reason="The caller cancelled this tool execution.",
+                )
+            )
+            try:
+                # Let the MCP notification reach the server before the session
+                # context closes its transport in the caller's finally block.
+                await asyncio.wait_for(
+                    asyncio.shield(self.send_notification(notification)),
+                    timeout=1.0,
+                )
+            except BaseException:  # cancellation must continue even if notify fails
+                pass
+            raise
+
+    BaseSession.send_request = send_request_with_cancellation
+    BaseSession._reamon_cancel_notifications = True
+
+
+_enable_mcp_request_cancellation_notifications()
+
 # Graph properties carrying THIRD-PARTY free text: incident write-ups from the
 # supplychainattack.org catalog, attached to findings by the supply-chain
 # enrichment step. Anyone can get an advisory published, so this text is
@@ -202,8 +248,8 @@ def _build_system_mcp_servers():
             id="network_recon",
             name="Network Recon (kali-sandbox)",
             description="curl, naabu, hydra, command exec",
-            transport="sse",
-            url=os.environ.get("MCP_NETWORK_RECON_URL", "http://host.docker.internal:8000/sse"),
+            transport="streamable_http",
+            url=os.environ.get("MCP_NETWORK_RECON_URL", "http://host.docker.internal:8000/mcp"),
             connect_timeout=60,
             read_timeout=1800,
             tools=[],
