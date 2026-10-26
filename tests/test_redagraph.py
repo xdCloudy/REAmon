@@ -527,9 +527,16 @@ def _fake_resp(status, payload):
 
 
 class TestExecuteProxy(unittest.TestCase):
-    """_execute proxies to the agent's /graph/exec; the agent enforces read-only
-    + tenant scoping. The CLI must send the right op and surface the agent's
+    """_execute proxies through signed terminal context; the agent enforces
+    read-only tenant scoping. The CLI must send the right op and surface the agent's
     rejections with the right exit codes (write/label = 3, transport = 4)."""
+
+    def setUp(self):
+        self.ctx_patch = mock.patch.dict(os.environ, {"REDAMON_CTX": "signed-terminal-context"})
+        self.ctx_patch.start()
+
+    def tearDown(self):
+        self.ctx_patch.stop()
 
     def test_sends_cypher_op_and_returns_records(self):
         with mock.patch("requests.post", return_value=_fake_resp(200, {"records": [{"x": 1}]})) as post:
@@ -538,10 +545,11 @@ class TestExecuteProxy(unittest.TestCase):
         body = post.call_args.kwargs["json"]
         self.assertEqual(body["op"], "cypher")
         self.assertEqual(body["cypher"], "MATCH (n:Foo) RETURN n.x AS x")
-        self.assertEqual(body["user_id"], "U")
-        self.assertEqual(body["project_id"], "P")
-        # The URL must hit the agent's /graph/exec, NEVER a database.
-        self.assertIn("/graph/exec", post.call_args.args[0])
+        self.assertEqual(body["ctx"], "signed-terminal-context")
+        self.assertNotIn("user_id", body)
+        self.assertNotIn("project_id", body)
+        # The URL must hit the agent's signed-context route, NEVER a database.
+        self.assertIn("/graph/terminal-exec", post.call_args.args[0])
 
     def test_server_write_rejection_exits_3(self):
         with mock.patch("requests.post", return_value=_fake_resp(403, {"error": "write operation rejected (CREATE); read-only"})):
@@ -572,6 +580,13 @@ class TestExecuteProxy(unittest.TestCase):
 class TestCmdTypesProxied(unittest.TestCase):
     """cmd_types / cmd_schema run as fixed server-side ops (no client Cypher)."""
 
+    def setUp(self):
+        self.ctx_patch = mock.patch.dict(os.environ, {"REDAMON_CTX": "signed-terminal-context"})
+        self.ctx_patch.start()
+
+    def tearDown(self):
+        self.ctx_patch.stop()
+
     def test_types_sends_types_op(self):
         with mock.patch("requests.post", return_value=_fake_resp(200, {"records": []})) as post:
             args = types.SimpleNamespace(format="plain")
@@ -579,8 +594,9 @@ class TestCmdTypesProxied(unittest.TestCase):
                 rg.cmd_types(args, "U", "P")
         body = post.call_args.kwargs["json"]
         self.assertEqual(body["op"], "types")
-        self.assertEqual(body["user_id"], "U")
-        self.assertEqual(body["project_id"], "P")
+        self.assertEqual(body["ctx"], "signed-terminal-context")
+        self.assertNotIn("user_id", body)
+        self.assertNotIn("project_id", body)
         self.assertNotIn("cypher", body)  # worker does not supply the query
 
     def test_schema_sends_schema_op(self):
@@ -652,8 +668,8 @@ class TestReadInitFrame(unittest.TestCase):
         self.assertEqual(replay, b"")
 
 
-class TestRedagraphSendsScannerKey(unittest.TestCase):
-    """S8/I8: redagraph presents X-Internal-Key: SCANNER_API_KEY on /graph/exec."""
+class TestRedagraphUsesSignedTerminalContext(unittest.TestCase):
+    """The shell uses ticket-derived scope, not a reusable scanner secret."""
 
     def _capture_post(self):
         captured = {}
@@ -666,24 +682,29 @@ class TestRedagraphSendsScannerKey(unittest.TestCase):
         def fake_post(url, json=None, headers=None, timeout=None):
             captured["url"] = url
             captured["headers"] = headers or {}
+            captured["json"] = json or {}
             return _Resp()
 
         return captured, fake_post
 
-    def test_sends_scanner_key_when_set(self):
+    def test_sends_signed_context_without_an_internal_key(self):
         captured, fake_post = self._capture_post()
         with mock.patch("requests.post", fake_post), \
-             mock.patch.dict(os.environ, {"SCANNER_API_KEY": "scoped-key-xyz"}):
+             mock.patch.dict(os.environ, {"REDAMON_CTX": "signed-terminal-context"}, clear=False):
             rg._agent_post({"op": "types", "user_id": "u", "project_id": "p"})
-        self.assertEqual(captured["headers"].get("X-Internal-Key"), "scoped-key-xyz")
+        self.assertIn("/graph/terminal-exec", captured["url"])
+        self.assertEqual(captured["json"], {"op": "types", "ctx": "signed-terminal-context"})
+        self.assertNotIn("X-Internal-Key", captured["headers"])
 
-    def test_no_header_when_unset(self):
+    def test_missing_context_fails_before_network_call(self):
         captured, fake_post = self._capture_post()
-        env = {k: v for k, v in os.environ.items() if k != "SCANNER_API_KEY"}
+        env = {k: v for k, v in os.environ.items() if k != "REDAMON_CTX"}
         with mock.patch("requests.post", fake_post), \
              mock.patch.dict(os.environ, env, clear=True):
-            rg._agent_post({"op": "types", "user_id": "u", "project_id": "p"})
-        self.assertNotIn("X-Internal-Key", captured["headers"])
+            with self.assertRaises(SystemExit) as raised:
+                rg._agent_post({"op": "types", "user_id": "u", "project_id": "p"})
+        self.assertEqual(raised.exception.code, 2)
+        self.assertEqual(captured, {})
 
 
 if __name__ == "__main__":

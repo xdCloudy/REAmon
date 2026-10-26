@@ -5,9 +5,9 @@ redagraph — Tenant-scoped CLI for the RedAmon graph database.
 Runs inside kali-sandbox. Reads REDAMON_USER_ID and REDAMON_PROJECT_ID from
 the environment (injected by the terminal server when launched from the
 webapp Graph -> Terminal tab) and queries the graph THROUGH THE AGENT — it
-holds no Neo4j credentials of its own. The agent's `/graph/exec` endpoint
-enforces read-only + tenant scoping server-side, so a compromised worker
-cannot write, tamper, or escape the tenant filter. Supports raw Cypher,
+holds no Neo4j credentials of its own. The agent's terminal graph endpoints
+derive tenant scope from a short-lived signed session context, so request-body
+IDs cannot escape the project. Supports raw Cypher,
 natural-language questions (text-to-cypher via the agent), and shorthand
 commands like `ls <NodeType>`.
 
@@ -39,21 +39,24 @@ def _require_tenant() -> tuple[str, str]:
 
 
 def _agent_post(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """POST a graph operation to the agent's /graph/exec endpoint and return the
-    coerced records. The agent holds the Neo4j credentials and enforces read-only
-    + tenant scoping; this CLI never touches the database directly."""
+    """POST using signed terminal context. The agent holds Neo4j credentials and
+    enforces read-only tenant scope; this CLI never touches the database directly."""
     import requests
 
     agent_url = os.environ.get("REDAMON_AGENT_URL", "http://agent:8080").rstrip("/")
-    # S8/I8: /graph/exec now requires internal auth. The worker presents the
-    # SCOPED SCANNER_API_KEY (never a master secret), which the agent's llm_guard
-    # accepts. Empty header in a token-less dev stack (agent fails open there).
-    headers = {}
-    scanner_key = os.environ.get("SCANNER_API_KEY", "").strip()
-    if scanner_key:
-        headers["X-Internal-Key"] = scanner_key
+    graph_ctx = os.environ.get("REDAMON_CTX", "").strip()
+    if not graph_ctx:
+        _eprint("redagraph: this terminal has no signed graph context; reopen it from a project.")
+        sys.exit(2)
+    scoped_payload = {
+        key: value for key, value in payload.items()
+        if key not in {"user_id", "project_id", "source"}
+    }
+    scoped_payload["ctx"] = graph_ctx
     try:
-        resp = requests.post(f"{agent_url}/graph/exec", json=payload, headers=headers, timeout=120)
+        resp = requests.post(
+            f"{agent_url}/graph/terminal-exec", json=scoped_payload, timeout=120
+        )
     except requests.RequestException as e:
         _eprint(f"redagraph: cannot reach agent at {agent_url}: {e}")
         sys.exit(4)
@@ -160,9 +163,7 @@ def _emit(records: List, fmt: str, out) -> None:
 
 
 def _execute(cypher: str, user_id: str, project_id: str) -> List[Dict[str, Any]]:
-    """Run a labelled, read-only Cypher query via the agent. The agent enforces
-    the read-only guard, the labelled-pattern requirement, and the tenant filter
-    server-side (op="cypher"), so this CLI cannot bypass them."""
+    """Run read-only Cypher through the agent's signed terminal scope route."""
     return _agent_post({
         "op": "cypher",
         "cypher": cypher,
@@ -224,24 +225,17 @@ def cmd_ask(args, user_id: str, project_id: str) -> int:
 
     agent_url = os.environ.get("REDAMON_AGENT_URL", "http://agent:8080").rstrip("/")
     question = " ".join(args.question) if isinstance(args.question, list) else args.question
-    # /text-to-cypher is a BILLED endpoint and now requires internal auth, like
-    # /graph/exec above. Without this header `ask` returns 401 (mcp_plan P0-3).
-    headers = {}
-    scanner_key = os.environ.get("SCANNER_API_KEY", "").strip()
-    if scanner_key:
-        headers["X-Internal-Key"] = scanner_key
+    graph_ctx = os.environ.get("REDAMON_CTX", "").strip()
+    if not graph_ctx:
+        _eprint("redagraph: this terminal has no signed graph context; reopen it from a project.")
+        return 2
     try:
         resp = requests.post(
-            f"{agent_url}/text-to-cypher",
+            f"{agent_url}/graph/terminal-query",
             json={
+                "ctx": graph_ctx,
                 "question": question,
-                "user_id": user_id,
-                "project_id": project_id,
-                # Tell the agent we want scalar values, not whole nodes — so a
-                # question like "subdomain names only" yields RETURN s.name.
-                "for_graph_view": False,
             },
-            headers=headers,
             timeout=120,
         )
     except requests.RequestException as e:

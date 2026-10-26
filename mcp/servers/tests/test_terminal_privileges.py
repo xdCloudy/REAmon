@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import os
+import asyncio
+import json
 import subprocess
 import sys
 import unittest
@@ -15,7 +17,30 @@ if str(SERVERS) not in sys.path:
 import terminal_server  # noqa: E402
 
 
+class _FirstFrameSocket:
+    def __init__(self, frame):
+        self.frame = frame
+
+    async def recv(self):
+        return self.frame
+
+
 class TestTerminalPrivileges(unittest.TestCase):
+    def test_init_frame_keeps_only_bounded_graph_context(self):
+        env, replay = asyncio.run(terminal_server._read_init_frame(_FirstFrameSocket(
+            json.dumps({
+                "type": "init", "user_id": "u1", "project_id": "p1",
+                "session_id": "s1", "graph_ctx": "signed.context",
+            })
+        )))
+        self.assertEqual(replay, b"")
+        self.assertEqual(env["REDAMON_CTX"], "signed.context")
+
+        oversized, _ = asyncio.run(terminal_server._read_init_frame(_FirstFrameSocket(
+            json.dumps({"type": "init", "graph_ctx": "x" * 4097})
+        )))
+        self.assertNotIn("REDAMON_CTX", oversized)
+
     def test_shell_environment_excludes_controller_secrets(self):
         with mock.patch.dict(os.environ, {
             "INTERNAL_API_KEY": "master",

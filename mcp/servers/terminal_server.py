@@ -105,10 +105,15 @@ async def _read_init_frame(ws, timeout: float = 0.5):
             if isinstance(msg, dict) and msg.get("type") == "init":
                 user_id = str(msg.get("user_id", "")).strip()
                 project_id = str(msg.get("project_id", "")).strip()
+                graph_ctx = str(msg.get("graph_ctx", "")).strip()
                 if user_id:
                     tenant_env["REDAMON_USER_ID"] = user_id
                 if project_id:
                     tenant_env["REDAMON_PROJECT_ID"] = project_id
+                if graph_ctx and len(graph_ctx) <= 4096 and not any(
+                    ord(char) < 32 for char in graph_ctx
+                ):
+                    tenant_env["REDAMON_CTX"] = graph_ctx
                 logger.info(
                     "Init frame received (user=%s project=%s)",
                     user_id or "<none>", project_id or "<none>",
@@ -138,9 +143,11 @@ def _terminal_shell_env(tenant_env: dict) -> dict[str, str]:
         "PLAYWRIGHT_BROWSERS_PATH": "/ms-playwright",
         "REDAMON_AGENT_URL": os.environ.get("REDAMON_AGENT_URL", "http://agent:8080"),
     }
-    # /graph/exec accepts this key but still trusts tenant ids in the request
-    # body (R12). Do not expose it to an interactive shell until scope is
-    # derived and enforced server-side.
+    # Do not expose the reusable scanner key. The agent's terminal proxy can
+    # instead pass a short-lived signed context bound to this project's session.
+    graph_ctx = str(tenant_env.get("REDAMON_CTX", ""))[:4096]
+    if graph_ctx and not any(ord(char) < 32 for char in graph_ctx):
+        env["REDAMON_CTX"] = graph_ctx
     for name in ("REDAMON_USER_ID", "REDAMON_PROJECT_ID"):
         value = str(tenant_env.get(name, ""))[:200]
         if value and not any(ord(char) < 32 for char in value):

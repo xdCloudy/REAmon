@@ -6367,6 +6367,49 @@ class GraphExecRequest(BaseModel):
     source: str = ""
 
 
+class TerminalGraphExecRequest(BaseModel):
+    """A PTY read authenticated by the agent's ticket-derived signed context."""
+    ctx: str
+    op: str
+    cypher: Optional[str] = None
+
+
+class TerminalGraphQueryRequest(BaseModel):
+    """Natural-language graph query scoped to an authenticated PTY session."""
+    ctx: str
+    question: str = Field(min_length=1, max_length=4000)
+
+
+def _verify_terminal_graph_ctx(ctx: str) -> Optional[dict]:
+    """Accept only short-lived graph scope minted for a verified terminal ticket."""
+    if not isinstance(ctx, str) or len(ctx) > 4096:
+        return None
+    key = os.environ.get("INTERNAL_API_KEY", "")
+    if not key or key == "changeme":
+        return None
+    try:
+        from redamon_ctx import verify_tag
+        claims = verify_tag(ctx, {"agent": key})
+    except Exception:  # noqa: BLE001
+        return None
+    if not claims or claims.get("source") != "agent":
+        return None
+    if claims.get("tool") != "kali_terminal" or claims.get("phase") != "interactive":
+        return None
+    if not all(isinstance(claims.get(field), str) and claims[field]
+               for field in ("user_id", "project_id", "session_id")):
+        return None
+    if any(len(claims[field]) > 200 for field in ("user_id", "project_id", "session_id")):
+        return None
+    expiry = claims.get("exp")
+    if isinstance(expiry, bool) or not isinstance(expiry, int):
+        return None
+    now = int(time.time())
+    if expiry <= now or expiry > now + 2 * 60 * 60 + 30:
+        return None
+    return claims
+
+
 @app.post("/graph/exec", tags=["Graph"], dependencies=[Depends(require_internal_auth_only)])
 async def graph_exec(body: GraphExecRequest):
     from graph_db.tenant_filter import (
@@ -6436,6 +6479,53 @@ async def graph_exec(body: GraphExecRequest):
         async with _graph_exec_mcp_semaphore():
             return await asyncio.to_thread(_graph_exec_respond, final, params)
     return await asyncio.to_thread(_graph_exec_respond, final, params)
+
+
+@app.post("/graph/terminal-exec", tags=["Graph"])
+async def graph_terminal_exec(body: TerminalGraphExecRequest):
+    """Read the graph using a short-lived scope derived from the PTY ticket.
+
+    The interactive shell deliberately receives no reusable scanner key. The
+    signed context is bound to one tenant, session, and terminal tool; request
+    body identity fields are not accepted on this path.
+    """
+    claims = _verify_terminal_graph_ctx(body.ctx)
+    if not claims:
+        return JSONResponse(status_code=401, content={"error": "invalid or expired terminal graph context"})
+    return await graph_exec(GraphExecRequest(
+        op=body.op,
+        user_id=claims["user_id"],
+        project_id=claims["project_id"],
+        cypher=body.cypher,
+        source="terminal",
+    ))
+
+
+@app.post("/graph/terminal-query", tags=["Graph"])
+async def graph_terminal_query(body: TerminalGraphQueryRequest, request: Request):
+    """Generate a project-scoped graph query for an authenticated PTY session."""
+    claims = _verify_terminal_graph_ctx(body.ctx)
+    if not claims:
+        return JSONResponse(status_code=401, content={"error": "invalid or expired terminal graph context"})
+
+    # Reuse the normal billed-endpoint limits, keyed from the verified tenant
+    # rather than caller-controlled JSON identity.
+    from llm_guard import _daily_cap, _rate_limiter
+    user_id = claims["user_id"]
+    client_ip = request.client.host if request.client else "unknown"
+    if not _rate_limiter.allow(f"{user_id}|{client_ip}"):
+        return JSONResponse(status_code=429, content={"error": "Rate limit exceeded"})
+    if not _daily_cap.allow(user_id):
+        return JSONResponse(status_code=429, content={"error": "Daily LLM call cap exceeded"})
+
+    try:
+        manager = await _build_cypher_manager(user_id, claims["project_id"])
+        cypher = await _generate_validated_cypher(
+            manager, body.question, user_id, claims["project_id"], False
+        )
+    except _CypherSetupError as e:
+        return JSONResponse(content={"error": e.message}, status_code=e.status)
+    return JSONResponse(content={"cypher": cypher})
 
 
 def _graph_exec_summary(params: dict) -> JSONResponse:
@@ -7169,13 +7259,26 @@ _KALI_TERMINAL_WS_URL = os.environ.get("KALI_TERMINAL_WS_URL", "ws://kali-sandbo
 
 
 def _kali_terminal_identity_frame(claims: dict) -> str:
-    """Serialize the tenant identity authenticated by the WebSocket ticket."""
-    return json.dumps({
+    """Serialize ticket identity and a short-lived, graph-only shell context."""
+    frame = {
         "type": "init",
         "user_id": str(claims["sub"]),
         "project_id": str(claims["pid"]),
         "session_id": str(claims["sid"]),
-    })
+    }
+    key = os.environ.get("INTERNAL_API_KEY", "")
+    if key and key != "changeme":
+        from redamon_ctx import sign_tag
+        frame["graph_ctx"] = sign_tag({
+            "source": "agent",
+            "user_id": frame["user_id"],
+            "project_id": frame["project_id"],
+            "session_id": frame["session_id"],
+            "tool": "kali_terminal",
+            "phase": "interactive",
+            "exp": int(time.time()) + 2 * 60 * 60,
+        }, key)
+    return json.dumps(frame)
 
 
 def _is_kali_terminal_identity_frame(data: Any) -> bool:
