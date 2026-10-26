@@ -23,6 +23,12 @@ logger = logging.getLogger("terminal-server")
 
 PORT = int(os.getenv("TERMINAL_WS_PORT", "8016"))
 MAX_SESSIONS = int(os.getenv("TERMINAL_MAX_SESSIONS", "5"))
+_TERMINAL_UID = 65534
+_TERMINAL_GID = 65534
+_TERMINAL_PATH = (
+    "/opt/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    ":/usr/local/go/bin"
+)
 
 _active_sessions = 0
 _session_lock = asyncio.Lock()
@@ -117,6 +123,38 @@ async def _read_init_frame(ws, timeout: float = 0.5):
     return tenant_env, replay
 
 
+def _terminal_shell_env(tenant_env: dict) -> dict[str, str]:
+    """Build the small environment needed by the interactive unprivileged shell."""
+    env = {
+        "PATH": _TERMINAL_PATH,
+        "HOME": "/tmp",
+        "TMPDIR": "/tmp",
+        "LANG": "C.UTF-8",
+        "TERM": "xterm-256color",
+        "SHELL": "/bin/bash",
+        "PS1": r"\[\033[1;31m\]redamon\[\033[0m\]@\[\033[1;36m\]kali\[\033[0m\]:\[\033[1;33m\]\w\[\033[0m\]$ ",
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "PYTHONNOUSERSITE": "1",
+        "PLAYWRIGHT_BROWSERS_PATH": "/ms-playwright",
+        "REDAMON_AGENT_URL": os.environ.get("REDAMON_AGENT_URL", "http://agent:8080"),
+    }
+    # /graph/exec accepts this key but still trusts tenant ids in the request
+    # body (R12). Do not expose it to an interactive shell until scope is
+    # derived and enforced server-side.
+    for name in ("REDAMON_USER_ID", "REDAMON_PROJECT_ID"):
+        value = str(tenant_env.get(name, ""))[:200]
+        if value and not any(ord(char) < 32 for char in value):
+            env[name] = value
+    return env
+
+
+def _drop_terminal_privileges() -> None:
+    """Drop the PTY child from the root controller account to nobody."""
+    os.setgroups([])
+    os.setgid(_TERMINAL_GID)
+    os.setuid(_TERMINAL_UID)
+
+
 async def _run_pty_session(ws):
     """Run the actual PTY session for a WebSocket connection."""
     tenant_env, replay_bytes = await _read_init_frame(ws)
@@ -138,11 +176,12 @@ async def _run_pty_session(ws):
         if slave_fd > 2:
             os.close(slave_fd)
 
-        env = os.environ.copy()
-        env["TERM"] = "xterm-256color"
-        env["SHELL"] = "/bin/bash"
-        env["PS1"] = r"\[\033[1;31m\]redamon\[\033[0m\]@\[\033[1;36m\]kali\[\033[0m\]:\[\033[1;33m\]\w\[\033[0m\]$ "
-        env.update(tenant_env)
+        env = _terminal_shell_env(tenant_env)
+        try:
+            _drop_terminal_privileges()
+        except Exception as e:
+            logger.error("Could not drop terminal shell privileges: %s", e)
+            os._exit(126)
 
         os.execvpe("/bin/bash", ["/bin/bash", "--login"], env)
         # Never reached
