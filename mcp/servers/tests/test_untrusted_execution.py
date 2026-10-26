@@ -113,6 +113,25 @@ class TestUntrustedExecution(unittest.TestCase):
         self.assertEqual(result.stderr, "y")
         killpg.assert_called_once_with(child.pid, recon.signal.SIGKILL)
 
+    def test_untrusted_child_allows_only_explicit_proxy_context_overrides(self):
+        child = _FakeChild("ok", "")
+        with mock.patch.dict(os.environ, {"INTERNAL_API_KEY": "master-secret"}, clear=False), \
+                mock.patch.object(recon.subprocess, "Popen", return_value=child) as popen, \
+                mock.patch.object(recon.os, "killpg"):
+            recon._run_untrusted_child(
+                ["python3", "script.py"], timeout=10,
+                env_overrides={"REDAMON_CTX": "signed-context"},
+            )
+
+        env = popen.call_args.kwargs["env"]
+        self.assertEqual(env["REDAMON_CTX"], "signed-context")
+        self.assertNotIn("INTERNAL_API_KEY", env)
+        with self.assertRaisesRegex(ValueError, "not allowed"):
+            recon._run_untrusted_child(
+                ["python3", "script.py"], timeout=10,
+                env_overrides={"INTERNAL_API_KEY": "master-secret"},
+            )
+
     def test_untrusted_child_kills_process_group_after_timeout(self):
         child = _FakeChild("partial", "")
         child.timeout_once = True

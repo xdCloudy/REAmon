@@ -53,6 +53,10 @@ _UNTRUSTED_EXEC_PATH = (
 )
 _UNTRUSTED_OUTPUT_LIMIT_BYTES = 2 * 1024 * 1024
 _UNTRUSTED_OUTPUT_TRUNCATION = "\n[output truncated after 2 MiB]"
+_UNTRUSTED_ENV_OVERRIDES = frozenset({
+    "REDAMON_AGENT_URL", "REDAMON_CTX", "CAPTURE_PROXY_URL",
+    "SSL_CERT_FILE", "SSL_CERT_DIR", "LC_ALL", "PLAYWRIGHT_BROWSERS_PATH",
+})
 
 
 def _untrusted_exec_env() -> dict[str, str]:
@@ -68,13 +72,20 @@ def _untrusted_exec_env() -> dict[str, str]:
     }
 
 
-def _run_untrusted_child(argv: list[str], *, timeout: int) -> subprocess.CompletedProcess:
+def _run_untrusted_child(
+    argv: list[str], *, timeout: int, env_overrides: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess:
     """Run untrusted code with bounded output and kill its process tree on timeout."""
+    env = _untrusted_exec_env()
+    for name, value in (env_overrides or {}).items():
+        if name not in _UNTRUSTED_ENV_OVERRIDES:
+            raise ValueError(f"Environment override is not allowed: {name}")
+        env[name] = value
     child = subprocess.Popen(
         argv,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        env=_untrusted_exec_env(),
+        env=env,
         user=_UNTRUSTED_EXEC_UID,
         group=_UNTRUSTED_EXEC_GID,
         extra_groups=(),
@@ -827,22 +838,29 @@ def proxy_brain(code: str, _redamon_ctx: str = "") -> str:
     if not code or not code.strip():
         return "[ERROR] No code provided to execute"
 
-    import uuid
-    # Unique per-invocation path: kali-sandbox is shared across sessions/tenants,
-    # so a fixed filename would let concurrent runs overwrite each other's code.
-    filepath = f"/tmp/pb_{uuid.uuid4().hex}.py"
+    filepath = None
 
     # `redamon` is PRE-IMPORTED for the agent (the tool description promises this):
     # prepend a one-line preamble that puts the SDK on the path and imports it, so
     # the agent's code can use `redamon.*` directly. One physical line keeps the
     # agent's traceback line numbers off by only 1.
     preamble = "import sys as _s; _s.path.insert(0, '/opt/mcp_servers'); import redamon\n"
-    write_cmd = f"cat << 'REDAMON_PB_EOF' > {filepath}\n{preamble}{code}\nREDAMON_PB_EOF"
     try:
-        w = subprocess.run(["bash", "-c", write_cmd], capture_output=True, text=True, timeout=10)
-        if w.returncode != 0:
-            return f"[ERROR] Failed to write code file: {w.stderr}"
+        fd, filepath = tempfile.mkstemp(
+            prefix="pb_", suffix=".py", dir=tempfile.gettempdir(), text=True,
+        )
+        with os.fdopen(fd, "w", encoding="utf-8") as code_file:
+            code_file.write(preamble)
+            code_file.write(code)
+            if not code.endswith("\n"):
+                code_file.write("\n")
+        os.chmod(filepath, 0o444)
     except Exception as e:  # noqa: BLE001
+        if filepath:
+            try:
+                os.remove(filepath)
+            except OSError:
+                pass
         return f"[ERROR] Failed to write code file: {str(e)}"
 
     # The model-authored program gets a small environment and an unprivileged
@@ -850,13 +868,8 @@ def proxy_brain(code: str, _redamon_ctx: str = "") -> str:
     # /proc, and it receives no MCP, tunnel, scanner, database, or agent key.
     # The signed project context is the only per-call authorization it gets.
     child_env = {
-        "PATH": os.environ.get("PATH", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"),
-        "HOME": "/tmp",
-        "LANG": os.environ.get("LANG", "C.UTF-8"),
         "REDAMON_AGENT_URL": os.environ.get("REDAMON_AGENT_URL", "http://agent:8080"),
         "REDAMON_CTX": _redamon_ctx or "",
-        "PYTHONDONTWRITEBYTECODE": "1",
-        "PYTHONNOUSERSITE": "1",
     }
     for env_name in (
         "LC_ALL", "CAPTURE_PROXY_URL", "PLAYWRIGHT_BROWSERS_PATH",
@@ -866,9 +879,8 @@ def proxy_brain(code: str, _redamon_ctx: str = "") -> str:
             child_env[env_name] = os.environ[env_name]
 
     try:
-        result = subprocess.run(
-            ["python3", filepath], capture_output=True, text=True, timeout=180, env=child_env,
-            user=65534, group=65534, extra_groups=(),
+        result = _run_untrusted_child(
+            ["python3", filepath], timeout=180, env_overrides=child_env,
         )
         output = result.stdout
         if result.stderr:
@@ -881,10 +893,11 @@ def proxy_brain(code: str, _redamon_ctx: str = "") -> str:
     except Exception as e:  # noqa: BLE001
         return f"[ERROR] {str(e)}"
     finally:
-        try:
-            os.remove(filepath)
-        except OSError:
-            pass
+        if filepath:
+            try:
+                os.remove(filepath)
+            except OSError:
+                pass
 
 
 @mcp.tool()

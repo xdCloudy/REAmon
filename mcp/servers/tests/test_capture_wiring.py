@@ -126,16 +126,20 @@ class _RoutingTestBase(unittest.TestCase):
         old = {name: os.environ.get(name) for name in secret_names}
         for name in secret_names:
             os.environ[name] = f"{name.lower()}-test-secret"
-        results = [_FakeResult(), _FakeResult()]
         calls = []
+        authored_code = "print('ok')\nREDAMON_PB_EOF\nprint('still source code')"
 
-        def fake_run(cmd, *args, **kwargs):
-            calls.append((list(cmd), kwargs))
-            return results.pop(0)
+        def fake_run(cmd, *, timeout, env_overrides):
+            calls.append((list(cmd), timeout, env_overrides))
+            with open(cmd[1], encoding="utf-8") as source_file:
+                source = source_file.read()
+            self.assertTrue(source.startswith("import sys as _s;"))
+            self.assertTrue(source.endswith(authored_code + "\n"))
+            return _FakeResult()
 
         try:
-            with mock.patch.object(nrs.subprocess, "run", side_effect=fake_run):
-                nrs.proxy_brain("print('ok')", "signed-short-lived-context")
+            with mock.patch.object(nrs, "_run_untrusted_child", side_effect=fake_run):
+                nrs.proxy_brain(authored_code, "signed-short-lived-context")
         finally:
             for name, value in old.items():
                 if value is None:
@@ -143,15 +147,14 @@ class _RoutingTestBase(unittest.TestCase):
                 else:
                     os.environ[name] = value
 
-        self.assertEqual(len(calls), 2)
-        child_env = calls[1][1]["env"]
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][0][0], "python3")
+        self.assertEqual(calls[0][1], 180)
+        child_env = calls[0][2]
         for name in secret_names:
             self.assertNotIn(name, child_env)
         self.assertEqual(child_env["REDAMON_CTX"], "signed-short-lived-context")
         self.assertEqual(child_env["CAPTURE_PROXY_URL"], _TEST_URL)
-        self.assertEqual(calls[1][1]["user"], 65534)
-        self.assertEqual(calls[1][1]["group"], 65534)
-        self.assertEqual(calls[1][1]["extra_groups"], ())
 
     def test_proxy_brain_sdk_does_not_send_shared_transport_key(self):
         with mock.patch.dict(os.environ, {"SCANNER_API_KEY": "scanner-test-key"}):
