@@ -61,6 +61,40 @@ class TestTerminalPrivileges(unittest.TestCase):
         ):
             self.assertNotIn(secret, env)
 
+    def test_terminal_command_uses_project_scoped_namespaces_and_private_scratch(self):
+        command = terminal_server._terminal_sandbox_command({
+            "REDAMON_PROJECT_ID": "project-1",
+        })
+
+        self.assertEqual(command[:4], [
+            "/usr/bin/unshare", "--user", "--map-root-user", "--mount",
+        ])
+        self.assertEqual(command[4:6], ["/bin/sh", "-c"])
+        self.assertEqual(command[-2:], ["reamon-terminal", "project-1"])
+        self.assertNotIn("--pid", command)
+        script = command[6]
+        self.assertIn('mount --bind "$project" /workspace', script)
+        self.assertIn('mount -t tmpfs -o mode=1777,nosuid,nodev tmpfs /tmp', script)
+        self.assertIn('tmpfs /var/tmp', script)
+        self.assertIn('tmpfs /opt/output', script)
+
+    def test_terminal_project_id_is_passed_as_argument_not_shell_source(self):
+        project_id = "project;touch-terminal-injection"
+        command = terminal_server._terminal_sandbox_command({
+            "REDAMON_PROJECT_ID": project_id,
+        })
+
+        self.assertEqual(command[-1], project_id)
+        self.assertNotIn(project_id, command[6])
+
+    def test_terminal_command_rejects_workspace_path_traversal(self):
+        for project_id in ("../other", "..", ".hidden", "nested/project"):
+            with self.subTest(project_id=project_id):
+                with self.assertRaises(ValueError):
+                    terminal_server._terminal_sandbox_command({
+                        "REDAMON_PROJECT_ID": project_id,
+                    })
+
     def test_shell_child_drops_root_and_supplementary_groups(self):
         if os.name != "posix" or os.geteuid() != 0:
             self.skipTest("requires a POSIX test container running as root")

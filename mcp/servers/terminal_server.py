@@ -8,6 +8,7 @@ Runs on port 8016 inside the kali-sandbox container.
 """
 
 import asyncio
+import ctypes
 import fcntl
 import os
 import sys
@@ -53,6 +54,85 @@ exec /bin/bash --login
 
 _active_sessions = 0
 _session_lock = asyncio.Lock()
+_PR_SET_CHILD_SUBREAPER = 36
+
+
+def _enable_terminal_child_reaper() -> None:
+    """Let the PTY server reap descendants orphaned during session shutdown."""
+    libc = ctypes.CDLL(None, use_errno=True)
+    if libc.prctl(_PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) != 0:
+        error = ctypes.get_errno()
+        raise OSError(error, os.strerror(error))
+
+
+def _terminal_session_pids(session_id: int) -> list[int]:
+    """Return visible process IDs that still belong to this PTY session."""
+    members: list[int] = []
+    try:
+        entries = os.scandir("/proc")
+    except OSError:
+        return members
+    with entries:
+        for entry in entries:
+            if not entry.name.isdecimal():
+                continue
+            process_id = int(entry.name)
+            if process_id == os.getpid():
+                continue
+            try:
+                if os.getsid(process_id) == session_id:
+                    members.append(process_id)
+            except (ProcessLookupError, PermissionError):
+                continue
+    return members
+
+
+def _signal_terminal_session(session_id: int, signum: int) -> None:
+    for process_id in _terminal_session_pids(session_id):
+        try:
+            os.kill(process_id, signum)
+        except (ProcessLookupError, PermissionError):
+            continue
+
+
+def _reap_terminal_session_descendants(session_id: int, direct_child_pid: int) -> None:
+    for process_id in _terminal_session_pids(session_id):
+        if process_id == direct_child_pid:
+            continue
+        try:
+            os.waitpid(process_id, os.WNOHANG)
+        except (ChildProcessError, ProcessLookupError):
+            continue
+
+
+async def _terminate_terminal_session(session_id: int) -> None:
+    """Stop every process in the PTY session and reap adopted descendants."""
+    _signal_terminal_session(session_id, signal.SIGTERM)
+    direct_child_reaped = False
+    for _ in range(10):
+        _reap_terminal_session_descendants(session_id, session_id)
+        if not direct_child_reaped:
+            try:
+                result = os.waitpid(session_id, os.WNOHANG)
+                direct_child_reaped = result[0] == session_id
+            except ChildProcessError:
+                direct_child_reaped = True
+        if direct_child_reaped and not _terminal_session_pids(session_id):
+            return
+        await asyncio.sleep(0.1)
+
+    _signal_terminal_session(session_id, signal.SIGKILL)
+    for _ in range(10):
+        _reap_terminal_session_descendants(session_id, session_id)
+        if not direct_child_reaped:
+            try:
+                result = os.waitpid(session_id, os.WNOHANG)
+                direct_child_reaped = result[0] == session_id
+            except ChildProcessError:
+                direct_child_reaped = True
+        if direct_child_reaped and not _terminal_session_pids(session_id):
+            return
+        await asyncio.sleep(0.1)
 
 
 def _effective_max_sessions() -> int:
@@ -189,6 +269,8 @@ def _terminal_sandbox_command(tenant_env: dict) -> list[str]:
     The outer shell process is already nobody. ``--map-root-user`` maps the
     namespace's root back to that unprivileged host UID, so mount operations
     are allowed without granting capabilities in the container's host namespace.
+    Avoiding a PID namespace keeps the shell attached to the PTY process tree;
+    session cleanup handles descendants and reaps orphans in the server process.
     """
     project_id = str(tenant_env.get("REDAMON_PROJECT_ID", "")).strip()
     if project_id:
@@ -199,7 +281,7 @@ def _terminal_sandbox_command(tenant_env: dict) -> list[str]:
             raise ValueError("invalid project id for terminal workspace")
     return [
         "/usr/bin/unshare", "--user", "--map-root-user", "--mount",
-        "--pid", "--fork", "--mount-proc", "/bin/sh", "-c",
+        "/bin/sh", "-c",
         _TERMINAL_SANDBOX_SCRIPT, "reamon-terminal", project_id,
     ]
 
@@ -333,30 +415,13 @@ async def _run_pty_session(ws):
         )
     finally:
         close_event.set()
-        # Kill entire process group (child calls os.setsid())
-        try:
-            os.killpg(pid, signal.SIGTERM)
-        except (ProcessLookupError, PermissionError):
-            pass
+        # Interactive jobs can move to another process group but stay in this
+        # session; stop and reap the session as a whole on disconnect.
+        await _terminate_terminal_session(pid)
         try:
             os.close(master_fd)
         except OSError:
             pass
-        # Wait briefly for child to exit, then force-kill if still alive
-        for _ in range(10):
-            try:
-                result = os.waitpid(pid, os.WNOHANG)
-                if result[0] != 0:
-                    break
-            except ChildProcessError:
-                break
-            await asyncio.sleep(0.1)
-        else:
-            try:
-                os.killpg(pid, signal.SIGKILL)
-                os.waitpid(pid, 0)
-            except (ProcessLookupError, ChildProcessError, PermissionError):
-                pass
 
 
 def _set_pty_size(fd: int, rows: int, cols: int):
@@ -373,6 +438,8 @@ def _set_pty_size(fd: int, rows: int, cols: int):
 def main():
     """Start the WebSocket terminal server."""
     import websockets
+
+    _enable_terminal_child_reaper()
 
     logger.info(f"Starting terminal WebSocket server on port {PORT}")
 

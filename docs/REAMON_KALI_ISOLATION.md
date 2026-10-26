@@ -29,8 +29,8 @@ exploited.
 
 The unused agent `/files?path=/tmp/...` endpoint has been removed; current browser
 downloads use the project-authorized workspace endpoint. This closes that direct
-download path only. It does not prevent a shell or code-execution tool in the
-shared Kali service from reading other projects' temporary files.
+download path only. Non-terminal shell and code-execution tools in the shared
+Kali service can still read other projects' temporary files.
 
 The focused agent Docker regression verifies the unscoped route stays absent and
 the workspace download route remains protected by master-key authentication (2
@@ -109,16 +109,23 @@ Context verification for non-terminal tools, custom Playwright project scoping,
 and project-worker ownership remain open; the full shared-Kali finding is not
 closed.
 
-The terminal PTY now starts through an unprivileged user, mount, and PID
-namespace. Inside it, `/workspace` is a bind mount of only the ticket-bound
-project directory, while `/tmp`, `/var/tmp`, and `/opt/output` are private tmpfs
-mounts. A session without a project identity receives an empty private
-workspace. The namespace maps its root back to the already-unprivileged UID
-65534, and mount propagation is made private before changing mounts. This
-reduces terminal cross-project file access and prevents shared temporary files
-from crossing terminal sessions. The shared Kali container still hosts the
-controller and other execution tools, so this is an incremental terminal
-boundary rather than the per-project worker architecture selected below.
+The terminal PTY now starts through unprivileged user and mount namespaces.
+Inside it, `/workspace` is a bind mount of only the ticket-bound project
+directory, while `/tmp`, `/var/tmp`, and `/opt/output` are private tmpfs mounts.
+A session without a project identity receives an empty private workspace. The
+namespace maps its root back to the already-unprivileged UID 65534, and mount
+propagation is made private before changing mounts. Docker unit coverage passes
+for command construction and path validation; a smoke through the running Kali
+PTY confirmed the shell starts, sees only its project, cannot see markers in
+the shared temporary paths, and maps namespace UID 0 to host UID 65534. A
+disconnect smoke with a running background job confirmed the job and shell are
+removed without leaving a Bash zombie. The terminal server uses Linux
+child-subreaper behavior and signals all processes in the PTY session, including
+jobs that move to a separate process group. The namespace deliberately does not
+create a PID namespace; PID isolation remains part of the project-worker design
+below. The shared Kali container still hosts the controller and other execution
+tools, so this is an incremental terminal boundary rather than the per-project
+worker architecture selected below.
 
 The live local deployment was checked on 2026-10-26: both the localhost and LAN
 readiness endpoints returned `ready` with database and artifact checks `ok`.
