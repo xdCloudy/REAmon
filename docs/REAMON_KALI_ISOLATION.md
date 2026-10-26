@@ -5,13 +5,13 @@ Status: required production security work; implementation is still open.
 ## Current exposure
 
 The legacy Kali deployment is one shared `redamon-kali` container whose MCP
-controller still runs as root. The `kali_shell`, `execute_code`, and `proxy_brain`
-handlers run model-authored commands as UID/GID 65534 with a small environment
-that omits MCP, scanner, tunnel, database, and agent credentials. `execute_code`
-and `proxy_brain` use unique temporary source paths; execute_code also uses a
-unique binary path and removes its files after execution. These changes reduce
-child-process privilege and credential exposure, but do not create a
-project-scoped filesystem or process boundary.
+controller still runs as root. The `kali_shell`, `execute_code`, `proxy_brain`,
+and custom Playwright handlers run model-authored commands as UID/GID 65534 with
+a small environment that omits MCP, scanner, tunnel, database, and agent
+credentials. `execute_code`, `proxy_brain`, and Playwright use unique temporary
+source paths; execute_code also uses a unique binary path and removes its files
+after execution. These changes reduce child-process privilege and credential
+exposure, but do not create a project-scoped filesystem or process boundary.
 
 The container also mounts the complete `agentic/agent-workspace` at `/workspace`.
 Project ownership is enforced by the webapp and agent workspace APIs, but those
@@ -42,14 +42,16 @@ but each terminal shell still runs in the shared Kali container.
 
 ## Implementation seams verified
 
-The current agent signs a project context tag from its `user_id`, `project_id`,
-session, tool, and phase context. The MCP server receives that tag only for
-`proxy_brain`, and for selected target-facing tools when capture routing is
-enabled. `kali_shell` and `execute_code` are not in that injection set;
-`execute_playwright` is conditional on capture routing. The MCP bearer token is
-shared across the Kali service and does not identify a project. Therefore these
-execution routes currently have no authenticated project identity to present to
-a worker controller.
+The agent signs a project context tag from its `user_id`, `project_id`, session,
+tool, and phase context. The MCP server receives that tag unconditionally for
+`proxy_brain` and for selected target-facing tools when capture routing is
+enabled. `kali_shell` and `execute_code` do not receive it; `execute_playwright`
+receives it only when capture routing is enabled. `proxy_brain` uses its tag for
+traffic broker requests, but no arbitrary-code route currently verifies a scope
+for worker selection. The MCP bearer token is shared across Kali and does not
+identify a project. Shell/code calls, and Playwright calls without capture
+routing, therefore have no authenticated project identity to present to a
+worker controller.
 
 The context tag is signed with the agent's internal key, which is deliberately
 absent from the shared Kali container. A future controller can forward the
@@ -76,17 +78,22 @@ without shell interpolation, makes it read-only to the child, and cleans up its
 source and compiled output after the run. `proxy_brain` now writes its source file
 directly instead of interpolating model-authored code into a root shell heredoc,
 then uses the same bounded unprivileged runner with an explicit environment
-override allowlist for its signed context and service endpoints. Shell and code
-execution cap captured stdout and stderr at 2 MiB per stream, drain excess output
-without retaining it, and terminate the request's process group on completion or
-timeout so background descendants cannot outlive the request. A delimiter-like
-source line is covered to ensure it remains code rather than shell syntax.
-Forty-six focused Docker tests pass for credential filtering, unprivileged
+override allowlist for its signed context and service endpoints. All four
+arbitrary-code routes cap captured stdout and stderr at 2 MiB per stream, drain
+excess output without retaining it, and terminate the request's process group on
+completion or timeout so background descendants cannot outlive the request.
+Custom Playwright
+scripts now use the same process runner; their source is made readable to the
+unprivileged child, and output filtering remains in place. A Docker smoke
+confirmed a custom script sees UID 65534 and no `INTERNAL_API_KEY`. A
+delimiter-like source line is covered to ensure it remains code rather than shell
+syntax. Sixty focused Docker tests pass for credential filtering, unprivileged
 execution, bounded output, process-group cleanup, unique paths, proxy context
-handling, and existing wrapper formatting. These controls reduce process
-privilege and resource abuse but do not add project boundaries. Context
-verification, custom Playwright, terminal isolation, and project-scoped `/tmp` and
-workspace storage remain open; the full project-worker finding is not closed.
+handling, Playwright capture wiring, and wrapper formatting. These controls
+reduce process privilege and resource abuse but do not add project boundaries.
+Context verification, custom Playwright project scoping, terminal isolation, and
+project-scoped `/tmp` and workspace storage remain open; the full project-worker
+finding is not closed.
 
 The live local deployment was checked on 2026-10-26: both the localhost and LAN
 readiness endpoints returned `ready` with database and artifact checks `ok`.
