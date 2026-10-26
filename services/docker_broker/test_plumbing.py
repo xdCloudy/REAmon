@@ -215,6 +215,24 @@ async def main():
         check("non-create (GET /info) -> forwarded", len(received) == 1 and b"/info" in received[0])
         check("non-create -> response relayed", b"200 OK" in resp)
 
+        # Project-worker networks are private. The restricted generic API must
+        # neither reveal their IDs nor let callers attach containers or disrupt
+        # active workers through network lifecycle routes.
+        for method, path in (
+            ("GET", "/v1.43/networks"),
+            ("GET", "/v1.43/networks/worker-network-id"),
+            ("GET", "/v1.43/events"),
+            ("GET", "/v1.43/system/df"),
+            ("POST", "/v1.43/networks/worker-network-id/connect"),
+            ("POST", "/v1.43/networks/worker-network-id/disconnect"),
+            ("DELETE", "/v1.43/networks/worker-network-id"),
+            ("POST", "/v1.43/networks/create"),
+            ("POST", "/v1.43/networks/prune"),
+        ):
+            received.clear()
+            resp = await send(make_request(method, path, {"Container": "other"}))
+            check(f"network API {method} {path} -> denied before Docker", b"403" in resp and not received)
+
         # 5. denied pull -> blocked
         received.clear()
         resp = await send(make_request("POST", "/v1.43/images/create?fromImage=attacker/evil&tag=latest"))

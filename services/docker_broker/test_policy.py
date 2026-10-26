@@ -77,6 +77,8 @@ deny("cap NET_ADMIN", {"Image": NAABU, "HostConfig": {"CapAdd": ["NET_ADMIN"]}},
 deny("cap CAP_NET_ADMIN", {"Image": NAABU, "HostConfig": {"CapAdd": ["CAP_NET_ADMIN"]}}, "capability")
 deny("net=host with NET_ADMIN", {"Image": NAABU,
      "HostConfig": {"NetworkMode": "host", "CapAdd": ["NET_ADMIN"]}}, "capability")
+deny("join project worker network", {"Image": NAABU,
+     "HostConfig": {"NetworkMode": "reamon-w-a1b2c3d4e5-12345678"}}, "project-worker")
 deny("device passthrough", {"Image": NAABU, "HostConfig": {"Devices": [{"PathOnHost": "/dev/sda"}]}}, "device")
 deny("pid=host", {"Image": NAABU, "HostConfig": {"PidMode": "host"}}, "PidMode")
 deny("pid=container:other (join another ns)", {"Image": NAABU, "HostConfig": {"PidMode": "container:redamon-recon-orchestrator"}}, "PidMode")

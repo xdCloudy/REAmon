@@ -167,6 +167,7 @@ _CONTAINER_OP_RE = re.compile(
 )
 _CONTAINER_ATTACH_RE = re.compile(r"^/(v[\d.]+/)?containers/([^/]+)/attach$")
 _CONTAINERS_LIST_RE = re.compile(r"^/(v[\d.]+/)?containers/json$")
+_NETWORK_API_RE = re.compile(r"^/(v[\d.]+/)?(?:networks(?:/.*)?|events|system/df)$")
 
 
 def _normalize_path(path: str) -> str:
@@ -254,8 +255,11 @@ def validate_create(body: dict) -> tuple[bool, str]:
             return False, f"{ns}={v} denied"
     # NetworkMode host is needed (loopback/raw); but joining another container's
     # netns (e.g. the orchestrator's, to reach its loopback API) is denied.
-    if str(hc.get("NetworkMode", "")).startswith("container:"):
-        return False, f"NetworkMode={hc.get('NetworkMode')} denied"
+    network_mode = str(hc.get("NetworkMode", ""))
+    if network_mode.startswith("container:"):
+        return False, f"NetworkMode={network_mode} denied"
+    if network_mode.startswith("reamon-w-"):
+        return False, "joining a project-worker network is denied"
     # VolumesFrom would inherit ANOTHER container's mounts (e.g. the orchestrator's
     # /var/run/docker.sock) -> host root. Recon tools never use it.
     if hc.get("VolumesFrom"):
@@ -646,6 +650,17 @@ async def handle_client(client_reader, client_writer):
 
         def _reject(reason: str):
             client_writer.write(_deny(reason))
+
+        # Network APIs and network-bearing metadata endpoints would reveal
+        # private project-worker networks or permit callers to connect
+        # containers or disrupt a running worker. Recon tools use their
+        # configured NetworkMode at container creation; these APIs are not
+        # needed through this restricted proxy.
+        if _NETWORK_API_RE.match(path_only):
+            _log("DENY network metadata/API operation through restricted broker")
+            client_writer.write(_deny("network metadata and API operations are disabled through docker-broker"))
+            await client_writer.drain()
+            return
 
         # ---- E1: gate operate-on-EXISTING-container verbs to broker-owned targets.
         # A compromised recon container must not be able to exec/attach/kill/etc.
