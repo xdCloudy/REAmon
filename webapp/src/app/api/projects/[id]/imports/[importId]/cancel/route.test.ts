@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   updateMany: vi.fn(),
   update: vi.fn(),
   activityCreate: vi.fn(),
+  removeStagedImport: vi.fn(),
   requireEffectiveUser: vi.fn(),
   requireProjectAccess: vi.fn(),
 }))
@@ -20,6 +21,9 @@ vi.mock('@/lib/prisma', () => ({
 vi.mock('@/lib/access', () => ({
   requireEffectiveUser: mocks.requireEffectiveUser,
   requireProjectAccess: mocks.requireProjectAccess,
+}))
+vi.mock('@/lib/reamon/artifact-storage', () => ({
+  removeStagedImport: mocks.removeStagedImport,
 }))
 
 import { POST } from './route'
@@ -35,6 +39,7 @@ beforeEach(() => {
   mocks.update.mockResolvedValue({ id: 'import-1', status: 'CANCELLED' })
   mocks.updateMany.mockResolvedValue({ count: 1 })
   mocks.activityCreate.mockResolvedValue({ id: 'activity-1' })
+  mocks.removeStagedImport.mockResolvedValue(undefined)
   mocks.transaction.mockImplementation(async (callback: (tx: unknown) => unknown) => callback({
     workspaceImport: { findFirst: mocks.findFirst, updateMany: mocks.updateMany, update: mocks.update },
     workspaceActivity: { create: mocks.activityCreate },
@@ -48,7 +53,8 @@ describe('POST /api/projects/[id]/imports/[importId]/cancel', () => {
     const response = await POST(new Request('http://localhost', { method: 'POST' }), params())
 
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ status: 'CANCELLED', importId: 'import-1' })
+    expect(await response.json()).toEqual({ status: 'CANCELLED', importId: 'import-1', stagingCleanup: 'complete' })
+    expect(mocks.removeStagedImport).toHaveBeenCalledWith('project-1', 'import-1')
     expect(mocks.update).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ status: 'CANCELLED', failedFiles: 6 }),
     }))
@@ -90,7 +96,18 @@ describe('POST /api/projects/[id]/imports/[importId]/cancel', () => {
     const response = await POST(new Request('http://localhost', { method: 'POST' }), params())
 
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ status: 'CANCELLED', importId: 'import-1' })
+    expect(await response.json()).toEqual({ status: 'CANCELLED', importId: 'import-1', stagingCleanup: 'complete' })
+    expect(mocks.removeStagedImport).toHaveBeenCalledWith('project-1', 'import-1')
     expect(mocks.activityCreate).not.toHaveBeenCalled()
+  })
+
+  test('reports pending staging cleanup when cancelled bytes cannot be removed', async () => {
+    mocks.findFirst.mockResolvedValue({ id: 'import-1', status: 'CANCELLING', totalFiles: 10, completedFiles: 4, rootName: 'ExampleApp' })
+    mocks.removeStagedImport.mockRejectedValueOnce(new Error('permission denied'))
+
+    const response = await POST(new Request('http://localhost', { method: 'POST' }), params())
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ status: 'CANCELLED', importId: 'import-1', stagingCleanup: 'pending' })
   })
 })

@@ -91,7 +91,7 @@ describe('WorkspaceImportPanel', () => {
       })
       .mockImplementationOnce(async (options: { importId?: string }) => {
         expect(options.importId).toBe('import-1')
-        return { importId: 'import-1', failedPaths: [] }
+        return { importId: 'import-2', failedPaths: [] }
       })
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,
@@ -145,18 +145,22 @@ describe('WorkspaceImportPanel', () => {
     await waitFor(() => expect(onImported).toHaveBeenCalledOnce())
   })
 
-  test('resumes the same import after cancellation', async () => {
+  test('starts a fresh import after cancellation is confirmed', async () => {
     mocks.selectionFromFiles.mockReturnValue(selection)
     mocks.runWorkspaceImport
       .mockImplementationOnce(async (options: { onImportReady?: (id: string) => void }) => {
         options.onImportReady?.('import-1')
         throw new WorkspaceImportCancelledError('import-1')
       })
-      .mockImplementationOnce(async (options: { importId?: string }) => {
-        expect(options.importId).toBe('import-1')
+      .mockImplementationOnce(async (options: { importId?: string; completedPaths?: Set<string> }) => {
+        expect(options.importId).toBeUndefined()
+        expect(options.completedPaths).toEqual(new Set())
         return { importId: 'import-1', failedPaths: [] }
       })
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ comparison: null }) })
+    const fetchMock = vi.fn().mockImplementation(async (input: string) => ({
+      ok: true,
+      json: async () => input.endsWith('/cancel') ? { stagingCleanup: 'complete' } : { comparison: null },
+    }))
     vi.stubGlobal('fetch', fetchMock)
     const onImported = vi.fn()
     render(<WorkspaceImportPanel projectId="project-1" onImported={onImported} />)
@@ -164,10 +168,50 @@ describe('WorkspaceImportPanel', () => {
     fireEvent.change(screen.getByLabelText('Add files'), { target: { files: [new File(['a'], 'app.apk')] } })
     fireEvent.click(screen.getByRole('button', { name: 'Import workspace' }))
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Import cancelled. Resume it to continue uploading the remaining paths.')
+    expect(await screen.findByRole('alert')).toHaveTextContent('Import cancelled. Start a new import to upload the selected files.')
     expect(fetchMock).toHaveBeenCalledWith('/api/projects/project-1/imports/import-1/cancel', { method: 'POST' })
-    fireEvent.click(screen.getByRole('button', { name: 'Retry failed files' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Import workspace' }))
     await waitFor(() => expect(onImported).toHaveBeenCalledOnce())
+  })
+
+  test('warns when cancellation succeeded but staged data cleanup is pending', async () => {
+    mocks.selectionFromFiles.mockReturnValue(selection)
+    mocks.runWorkspaceImport.mockImplementationOnce(async (options: { onImportReady?: (id: string) => void }) => {
+      options.onImportReady?.('import-1')
+      throw new WorkspaceImportCancelledError('import-1')
+    })
+    const fetchMock = vi.fn().mockImplementation(async (input: string) => ({
+      ok: true,
+      json: async () => input.endsWith('/cancel') ? { stagingCleanup: 'pending' } : { comparison: null },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+    render(<WorkspaceImportPanel projectId="project-1" onImported={vi.fn()} />)
+
+    fireEvent.change(screen.getByLabelText('Add files'), { target: { files: [new File(['a'], 'app.apk')] } })
+    fireEvent.click(screen.getByRole('button', { name: 'Import workspace' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('temporary upload data could not be removed')
+    expect(screen.getByRole('button', { name: 'Import workspace' })).toBeInTheDocument()
+  })
+
+  test('retains a retryable import when cancellation cannot be confirmed', async () => {
+    mocks.selectionFromFiles.mockReturnValue(selection)
+    mocks.runWorkspaceImport.mockImplementationOnce(async (options: { onImportReady?: (id: string) => void }) => {
+      options.onImportReady?.('import-1')
+      throw new WorkspaceImportCancelledError('import-1')
+    })
+    const fetchMock = vi.fn().mockImplementation(async (input: string) => ({
+      ok: !input.endsWith('/cancel'),
+      json: async () => ({ comparison: null }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+    render(<WorkspaceImportPanel projectId="project-1" onImported={vi.fn()} />)
+
+    fireEvent.change(screen.getByLabelText('Add files'), { target: { files: [new File(['a'], 'app.apk')] } })
+    fireEvent.click(screen.getByRole('button', { name: 'Import workspace' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('cancellation could not be confirmed')
+    expect(screen.getByRole('button', { name: 'Retry failed files' })).toBeInTheDocument()
   })
 
   test('explains that setup must restart when cancellation happened before an import ID existed', async () => {

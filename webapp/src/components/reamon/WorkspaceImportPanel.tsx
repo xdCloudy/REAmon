@@ -177,13 +177,33 @@ export function WorkspaceImportPanel({ projectId, onImported }: WorkspaceImportP
     } catch (importError) {
       if (importError instanceof WorkspaceImportCancelledError) {
         const cancelledImportId = importError.importId || importId
+        let cancellationConfirmed = false
+        let stagingCleanupPending = false
         if (cancelledImportId) {
-          await fetch(`/api/projects/${projectId}/imports/${cancelledImportId}/cancel`, { method: 'POST' }).catch(() => {})
-          setImportId(cancelledImportId)
+          try {
+            const response = await fetch(`/api/projects/${projectId}/imports/${cancelledImportId}/cancel`, { method: 'POST' })
+            cancellationConfirmed = response.ok
+            if (response.ok) {
+              const result = await response.json() as { stagingCleanup?: 'complete' | 'pending' }
+              stagingCleanupPending = result.stagingCleanup !== 'complete'
+            }
+          } catch {
+            cancellationConfirmed = false
+          }
+          if (cancellationConfirmed) {
+            setImportId(undefined)
+            setCompletedPaths(new Set<string>())
+          } else {
+            setImportId(cancelledImportId)
+          }
         }
         setProgress((current) => current ? { ...current, phase: 'CANCELLED' } : null)
-        setError(cancelledImportId
-          ? 'Import cancelled. Resume it to continue uploading the remaining paths.'
+        setError(cancelledImportId && cancellationConfirmed
+          ? stagingCleanupPending
+            ? 'Import cancelled, but temporary upload data could not be removed. Check available storage before retrying.'
+            : 'Import cancelled. Start a new import to upload the selected files.'
+          : cancelledImportId
+            ? 'Upload stopped, but cancellation could not be confirmed. Retry to continue this import or try cancelling again.'
           : 'Import cancelled before setup completed. Start the import again to retry.')
       } else {
         setError(importError instanceof Error ? importError.message : 'Workspace import failed')

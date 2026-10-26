@@ -1,7 +1,6 @@
-import { rm, unlink } from 'node:fs/promises'
-import path from 'node:path'
+import { unlink } from 'node:fs/promises'
 import prisma from '@/lib/prisma'
-import { artifactRoot, resolveArtifactStoragePath } from './artifact-storage'
+import { removeStagedImport, resolveArtifactStoragePath } from './artifact-storage'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 const DEFAULT_RETENTION_DAYS = 90
@@ -131,17 +130,6 @@ async function findStaleImports(projectId: string | undefined, cutoff: Date): Pr
   }) as unknown as Promise<StaleImportCandidate[]>
 }
 
-function resolveStagingDirectory(projectId: string, importId: string): string {
-  const root = path.resolve(artifactRoot(), '.uploads')
-  const directory = path.resolve(root, projectId, importId)
-  const relative = path.relative(root, directory)
-  if (!projectId || !importId || !relative || relative.startsWith('..') || path.isAbsolute(relative)
-    || path.dirname(relative) !== projectId || path.basename(relative) !== importId) {
-    throw new Error('Invalid staged import directory')
-  }
-  return directory
-}
-
 function candidateSummary(candidate: RetentionCandidate, protectedByReferences: boolean): ImportRetentionCandidate {
   return {
     id: candidate.id,
@@ -209,7 +197,7 @@ export async function applyImportRetention(input: { projectId?: string; dryRun?:
     if (claimed.count !== 1) continue
     stagingCancelled += 1
     try {
-      await rm(resolveStagingDirectory(stale.projectId, stale.id), { recursive: true, force: true })
+      await removeStagedImport(stale.projectId, stale.id)
     } catch (error) {
       stagingCleanupFailures += 1
       console.warn('Failed to remove expired REAmon staged upload bytes:', error)

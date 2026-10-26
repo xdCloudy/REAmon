@@ -4,6 +4,7 @@ import { copyFile, mkdir, open, rename, stat, unlink } from 'node:fs/promises'
 import path from 'node:path'
 import { Prisma } from '@prisma/client'
 import prisma from '@/lib/prisma'
+import { removeStagedImport, resolveArtifactStoragePath, resolveStagedImportDirectory } from './artifact-storage'
 import { resolveCapabilities } from './capabilities'
 import { isLogicalTargetCandidate } from './inventory'
 import { parentPathOf, normalizeRelativePath } from './paths'
@@ -11,13 +12,9 @@ import { profileArtifact } from './profiler'
 
 const PROFILE_SAMPLE_BYTES = 4 * 1024 * 1024
 
-export function artifactRoot(): string {
-  return path.resolve(process.env.REAMON_ARTIFACTS_PATH || path.join(process.cwd(), 'data', 'reamon-artifacts'))
-}
-
 export function stagedArtifactPath(projectId: string, importId: string, relativePath: string): string {
   const key = createHash('sha256').update(relativePath).digest('hex')
-  return path.join(artifactRoot(), '.uploads', projectId, importId, `${key}.part`)
+  return path.join(resolveStagedImportDirectory(projectId, importId), `${key}.part`)
 }
 
 export async function receiveArtifactChunk(input: {
@@ -110,11 +107,7 @@ async function sampleFile(filePath: string, size: number): Promise<Uint8Array> {
 }
 
 function confinedStoragePath(relative: string): { relative: string; absolute: string } {
-  const root = artifactRoot()
-  const absolute = path.resolve(root, relative)
-  const confined = path.relative(root, absolute)
-  if (!confined || confined.startsWith('..') || path.isAbsolute(confined)) throw new Error('Invalid artifact storage path')
-  return { relative, absolute }
+  return { relative, absolute: resolveArtifactStoragePath(relative) }
 }
 
 export async function commitArtifactFromPath(input: {
@@ -257,8 +250,29 @@ export async function commitArtifactFromPath(input: {
     }
   } finally {
     if (!databaseCommitted) {
-      if (stagedSourceMoved) await rename(storage.absolute, stagedPath).catch(() => {})
-      else await unlink(storage.absolute).catch(() => {})
+      const isCancelled = async () => {
+        try {
+          const current = await prisma.workspaceImport.findFirst({
+            where: { id: input.importId, projectId: input.projectId },
+            select: { status: true },
+          })
+          return current?.status === 'CANCELLED'
+        } catch {
+          return false
+        }
+      }
+      if (await isCancelled()) {
+        await unlink(storage.absolute).catch(() => {})
+        if (stagedSourceMoved) await unlink(stagedPath).catch(() => {})
+      } else if (stagedSourceMoved) {
+        await rename(storage.absolute, stagedPath).catch(() => {})
+        // Cancellation may commit and remove the staging directory while this
+        // failed completion is rolling its staged file back. Check again after
+        // restoration so whichever operation finishes last removes the bytes.
+        if (await isCancelled()) await removeStagedImport(input.projectId, input.importId).catch(() => {})
+      } else {
+        await unlink(storage.absolute).catch(() => {})
+      }
     }
   }
 }

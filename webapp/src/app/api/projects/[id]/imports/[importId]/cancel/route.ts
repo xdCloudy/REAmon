@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
 import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
+import { removeStagedImport } from '@/lib/reamon/artifact-storage'
 
 interface RouteParams { params: Promise<{ id: string; importId: string }> }
 
@@ -50,7 +51,14 @@ export async function POST(_request: Request, { params }: RouteParams) {
 
     if (outcome.kind === 'NOT_FOUND') return NextResponse.json({ error: 'Import not found' }, { status: 404, headers: { 'Cache-Control': 'no-store' } })
     if (outcome.kind === 'COMPLETED') return NextResponse.json({ error: 'Completed imports cannot be cancelled' }, { status: 409, headers: { 'Cache-Control': 'no-store' } })
-    return NextResponse.json({ status: 'CANCELLED', importId }, { headers: { 'Cache-Control': 'no-store' } })
+    let stagingCleanup: 'complete' | 'pending' = 'complete'
+    try {
+      await removeStagedImport(projectId, importId)
+    } catch (error) {
+      stagingCleanup = 'pending'
+      console.error('Failed to remove cancelled REAmon import staging data:', error)
+    }
+    return NextResponse.json({ status: 'CANCELLED', importId, stagingCleanup }, { headers: { 'Cache-Control': 'no-store' } })
   } catch (error) {
     console.error('Failed to cancel REAmon workspace import:', error)
     return NextResponse.json({ error: 'Failed to cancel workspace import' }, { status: 500, headers: { 'Cache-Control': 'no-store' } })

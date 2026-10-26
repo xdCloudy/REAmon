@@ -1,5 +1,5 @@
 import path from 'node:path'
-import { statfs } from 'node:fs/promises'
+import { rm, statfs } from 'node:fs/promises'
 
 export class InvalidArtifactStoragePathError extends Error {
   constructor(message = 'Invalid artifact storage path') {
@@ -10,6 +10,25 @@ export class InvalidArtifactStoragePathError extends Error {
 
 export function artifactRoot(): string {
   return path.resolve(process.env.REAMON_ARTIFACTS_PATH || path.join(process.cwd(), 'data', 'reamon-artifacts'))
+}
+
+/** Resolve one import's staging directory without allowing IDs to escape `.uploads`. */
+export function resolveStagedImportDirectory(projectId: string, importId: string): string {
+  if (!projectId || !importId || projectId.includes('\u0000') || importId.includes('\u0000')) {
+    throw new InvalidArtifactStoragePathError('Invalid staged import directory')
+  }
+  const root = path.resolve(artifactRoot(), '.uploads')
+  const directory = path.resolve(root, projectId, importId)
+  const relative = path.relative(root, directory)
+  if (!relative || relative.startsWith(`..${path.sep}`) || relative === '..' || path.isAbsolute(relative)
+    || path.dirname(relative) !== projectId || path.basename(relative) !== importId) {
+    throw new InvalidArtifactStoragePathError('Invalid staged import directory')
+  }
+  return directory
+}
+
+export async function removeStagedImport(projectId: string, importId: string): Promise<void> {
+  await rm(resolveStagedImportDirectory(projectId, importId), { recursive: true, force: true })
 }
 
 export interface ArtifactVolumeCapacity {

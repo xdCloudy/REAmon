@@ -22,7 +22,10 @@ vi.mock('@/lib/prisma', () => ({
   },
 }))
 vi.mock('node:fs/promises', () => ({ unlink: mocks.unlink, rm: mocks.rm }))
-vi.mock('./artifact-storage', () => ({ artifactRoot: () => '/artifacts', resolveArtifactStoragePath: (value: string) => `/artifacts/${value}` }))
+vi.mock('./artifact-storage', () => ({
+  resolveArtifactStoragePath: (value: string) => `/artifacts/${value}`,
+  removeStagedImport: (projectId: string, importId: string) => mocks.rm(`/artifacts/.uploads/${projectId}/${importId}`, { recursive: true, force: true }),
+}))
 
 import { applyImportRetention, importRetentionDays, importStagingRetentionDays } from './import-retention'
 
