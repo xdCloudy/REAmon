@@ -11,7 +11,6 @@ import subprocess
 import tempfile
 import threading
 import time
-import time
 import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path, PurePosixPath
@@ -33,7 +32,7 @@ MAX_STRUCTURED_REFERENCES = 4_000
 MAX_STRUCTURED_OUTPUT_BYTES = 64 * 1024 * 1024
 MAX_DEX_ENTRIES = 64
 MAX_TOTAL_DEX_BYTES = 512 * 1024 * 1024
-CLASS_BATCH_SIZE = min(256, max(8, int(os.environ.get("DEX_DECOMPILER_CLASS_BATCH_SIZE", "64"))))
+CLASS_BATCH_SIZE = min(256, max(8, int(os.environ.get("DEX_DECOMPILER_CLASS_BATCH_SIZE", "128"))))
 CLASS_BATCH_TIMEOUT_SECONDS = min(
     600,
     max(30, int(os.environ.get("DEX_DECOMPILER_CLASS_BATCH_TIMEOUT_SECONDS", "60"))),
@@ -629,6 +628,7 @@ def analyse(body: dict[str, object], progress=None) -> dict[str, object]:
         "units": units,
         "warnings": "\n".join(filter(None, [
             "This is an alternate DEX-to-Java reconstruction; review it against JADX and bytecode evidence.",
+            f"The alternate output contains {len(units)} of {len(sources)} reconstructed Java files; the per-run result limit is {MAX_RETURNED_UNITS}." if len(sources) > len(units) else "",
             f"The DEX provider could not reconstruct {failed_classes} of {discovered_classes} classes." if failed_classes else "",
             method_warning,
             stderr[:2000],

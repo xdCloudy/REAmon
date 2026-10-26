@@ -1539,6 +1539,9 @@ services:
       REAMON_SCRATCH_PATH: /data/reamon-scratch
       TMPDIR: /data/reamon-scratch
       DEX_DECOMPILER_TIMEOUT_SECONDS: ${REAMON_DEX_DECOMPILER_TIMEOUT_SECONDS:-900}
+      # Larger batches reduce repeat DEX parsing while recursive split/retry
+      # keeps memory failures recoverable within the analyzer's memory limit.
+      DEX_DECOMPILER_CLASS_BATCH_SIZE: ${REAMON_DEX_DECOMPILER_CLASS_BATCH_SIZE:-128}
       DEX_DECOMPILER_MAX_OUTPUT_BYTES: ${REAMON_DEX_DECOMPILER_MAX_OUTPUT_BYTES:-536870912}
       DEX_DECOMPILER_MAX_RETURNED_UNITS: ${REAMON_DEX_DECOMPILER_MAX_RETURNED_UNITS:-500}
     volumes:
