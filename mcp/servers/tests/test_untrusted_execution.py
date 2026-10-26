@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import signal
 import sys
 import types
 import unittest
@@ -32,6 +33,8 @@ if "fastmcp" not in sys.modules:
     sys.modules["fastmcp"] = _fastmcp
 
 import network_recon_server as recon  # noqa: E402
+import playwright_server as playwright  # noqa: E402
+import untrusted_process as exec_utils  # noqa: E402
 
 
 class TestUntrustedExecution(unittest.TestCase):
@@ -111,7 +114,7 @@ class TestUntrustedExecution(unittest.TestCase):
         ))
         self.assertTrue(result.stdout.endswith(recon._UNTRUSTED_OUTPUT_TRUNCATION))
         self.assertEqual(result.stderr, "y")
-        killpg.assert_called_once_with(child.pid, recon.signal.SIGKILL)
+        killpg.assert_called_once_with(child.pid, signal.SIGKILL)
 
     def test_untrusted_child_allows_only_explicit_proxy_context_overrides(self):
         child = _FakeChild("ok", "")
@@ -140,7 +143,7 @@ class TestUntrustedExecution(unittest.TestCase):
             with self.assertRaises(recon.subprocess.TimeoutExpired):
                 recon._run_untrusted_child(["test"], timeout=1)
 
-        killpg.assert_called_once_with(child.pid, recon.signal.SIGKILL)
+        killpg.assert_called_once_with(child.pid, signal.SIGKILL)
 
     def test_real_untrusted_child_is_unprivileged_and_output_is_bounded(self):
         if os.name != "posix" or os.geteuid() != 0:
@@ -150,7 +153,18 @@ class TestUntrustedExecution(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0)
         self.assertTrue(result.stdout.endswith(recon._UNTRUSTED_OUTPUT_TRUNCATION))
-        self.assertIn(str(recon._UNTRUSTED_EXEC_UID), result.stderr)
+        self.assertIn(str(exec_utils.UNTRUSTED_EXEC_UID), result.stderr)
+
+    def test_playwright_script_runs_unprivileged_without_service_environment(self):
+        if os.name != "posix" or os.geteuid() != 0:
+            self.skipTest("requires a POSIX test container running as root")
+        with mock.patch.dict(os.environ, {"INTERNAL_API_KEY": "master-secret"}, clear=False):
+            result = playwright._run_playwright_script(
+                "import os; print(os.getuid()); print(os.environ.get('INTERNAL_API_KEY'))",
+                timeout=10,
+            )
+
+        self.assertEqual(result.splitlines(), [str(exec_utils.UNTRUSTED_EXEC_UID), "None"])
 
 
 class _FakeChild:

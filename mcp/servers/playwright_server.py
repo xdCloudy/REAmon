@@ -18,6 +18,7 @@ import os
 # Chromium launch constants live in browser_launch so this server and the
 # in-process `redamon` SDK cannot drift on the root/Docker flags.
 from browser_launch import BROWSER_ARGS, CHROME_UA
+from untrusted_process import run_untrusted_child
 
 # Strip ANSI escape codes (terminal colors) from output
 ANSI_ESCAPE = re.compile(r'\x1b\[[0-9;]*[a-zA-Z]')
@@ -40,13 +41,9 @@ def _run_playwright_script(script: str, timeout: int = 45) -> str:
             f.write(script)
             f.flush()
             script_path = f.name
+        os.chmod(script_path, 0o444)
 
-        result = subprocess.run(
-            ['python3', script_path],
-            capture_output=True,
-            text=True,
-            timeout=timeout
-        )
+        result = run_untrusted_child(['python3', script_path], timeout=timeout)
 
         output = ANSI_ESCAPE.sub('', result.stdout)
         if result.returncode != 0 and result.stderr:

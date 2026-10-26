@@ -28,7 +28,6 @@ import json
 import os
 import re
 import shlex
-import signal
 import subprocess
 import tempfile
 import threading
@@ -36,120 +35,14 @@ import time
 import uuid
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from _progress_auth import AuthenticatedProgressHandler
+from untrusted_process import (
+    UNTRUSTED_OUTPUT_LIMIT_BYTES as _UNTRUSTED_OUTPUT_LIMIT_BYTES,
+    UNTRUSTED_OUTPUT_TRUNCATION as _UNTRUSTED_OUTPUT_TRUNCATION,
+    run_untrusted_child as _run_untrusted_child,
+)
 
 # Strip ANSI escape codes (terminal colors) from output
 ANSI_ESCAPE = re.compile(r'\x1b\[[0-9;]*[a-zA-Z]')
-
-# Model-authored shell/code is untrusted. Run it as the unprivileged nobody
-# account with a deliberately small environment; the MCP controller keeps its
-# service credentials in its own root-owned process. Project filesystem
-# isolation is handled separately by the project-worker design and remains an
-# open production gate.
-_UNTRUSTED_EXEC_UID = 65534
-_UNTRUSTED_EXEC_GID = 65534
-_UNTRUSTED_EXEC_PATH = (
-    "/opt/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-    ":/usr/local/go/bin"
-)
-_UNTRUSTED_OUTPUT_LIMIT_BYTES = 2 * 1024 * 1024
-_UNTRUSTED_OUTPUT_TRUNCATION = "\n[output truncated after 2 MiB]"
-_UNTRUSTED_ENV_OVERRIDES = frozenset({
-    "REDAMON_AGENT_URL", "REDAMON_CTX", "CAPTURE_PROXY_URL",
-    "SSL_CERT_FILE", "SSL_CERT_DIR", "LC_ALL", "PLAYWRIGHT_BROWSERS_PATH",
-})
-
-
-def _untrusted_exec_env() -> dict[str, str]:
-    """Return a minimal environment for model-authored code and shell commands."""
-    return {
-        "PATH": _UNTRUSTED_EXEC_PATH,
-        "HOME": "/tmp",
-        "TMPDIR": "/tmp",
-        "LANG": "C.UTF-8",
-        "PYTHONDONTWRITEBYTECODE": "1",
-        "PYTHONNOUSERSITE": "1",
-        "PLAYWRIGHT_BROWSERS_PATH": "/ms-playwright",
-    }
-
-
-def _run_untrusted_child(
-    argv: list[str], *, timeout: int, env_overrides: dict[str, str] | None = None,
-) -> subprocess.CompletedProcess:
-    """Run untrusted code with bounded output and kill its process tree on timeout."""
-    env = _untrusted_exec_env()
-    for name, value in (env_overrides or {}).items():
-        if name not in _UNTRUSTED_ENV_OVERRIDES:
-            raise ValueError(f"Environment override is not allowed: {name}")
-        env[name] = value
-    child = subprocess.Popen(
-        argv,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        env=env,
-        user=_UNTRUSTED_EXEC_UID,
-        group=_UNTRUSTED_EXEC_GID,
-        extra_groups=(),
-        start_new_session=(os.name == "posix"),
-    )
-
-    captured: dict[str, bytearray] = {"stdout": bytearray(), "stderr": bytearray()}
-    truncated = {"stdout": False, "stderr": False}
-
-    def drain(name: str, stream) -> None:
-        while True:
-            chunk = stream.read(64 * 1024)
-            if not chunk:
-                return
-            remaining = _UNTRUSTED_OUTPUT_LIMIT_BYTES - len(captured[name])
-            if remaining > 0:
-                captured[name].extend(chunk[:remaining])
-            if len(chunk) > remaining:
-                truncated[name] = True
-
-    readers = [
-        threading.Thread(target=drain, args=(name, stream), daemon=True)
-        for name, stream in (("stdout", child.stdout), ("stderr", child.stderr))
-    ]
-    for reader in readers:
-        reader.start()
-
-    timed_out = False
-    try:
-        child.wait(timeout=timeout)
-        # Shell scripts may leave background descendants that inherit these
-        # pipes. The process group belongs to this request, so clean it up as
-        # soon as the top-level command finishes too.
-        if os.name == "posix":
-            try:
-                os.killpg(child.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-    except subprocess.TimeoutExpired:
-        timed_out = True
-        try:
-            if os.name == "posix":
-                os.killpg(child.pid, signal.SIGKILL)
-            else:
-                child.kill()
-        except ProcessLookupError:
-            pass
-        child.wait()
-    finally:
-        for reader in readers:
-            reader.join()
-        child.stdout.close()
-        child.stderr.close()
-
-    stdout = captured["stdout"].decode("utf-8", errors="replace")
-    stderr = captured["stderr"].decode("utf-8", errors="replace")
-    if truncated["stdout"]:
-        stdout += _UNTRUSTED_OUTPUT_TRUNCATION
-    if truncated["stderr"]:
-        stderr += _UNTRUSTED_OUTPUT_TRUNCATION
-    if timed_out:
-        raise subprocess.TimeoutExpired(argv, timeout, output=stdout, stderr=stderr)
-    return subprocess.CompletedProcess(argv, child.returncode, stdout, stderr)
-
 
 def _format_subprocess_result(
     result: subprocess.CompletedProcess,
