@@ -70,7 +70,7 @@ REAmon's goal is language-universal recovery of maintainable code. The language 
 
 <!-- REAMON_PRODUCT_PROGRESS_START -->
 <progress value="60" max="100">60%</progress> <strong>60%</strong> — weighted estimate **60.4%**.
-Refreshed from pushed commit `20dbafc`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+Refreshed from pushed commit `d2d0cb4`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
 [Goals and roadmap](docs/REAMON_GOALS.md) · [Feature matrix](docs/REAMON_FEATURE_MATRIX.md)
