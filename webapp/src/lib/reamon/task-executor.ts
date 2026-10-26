@@ -108,19 +108,26 @@ function reportedCount(record: Record<string, unknown>, keys: string[]): number 
   return null
 }
 
+function providerUnitKind(providerId: string | null): 'function' | 'code-unit' {
+  return ['reamon-ghidra', 'reamon-ida', 'reamon-recurse', 'reamon-miasm', 'reamon-wabt', 'reamon-glaurung', 'reamon-kuna', 'reamon-fission', 'reamon-oxidizer', 'reamon-reko', 'reamon-dex-decompiler'].includes(providerId || '')
+    ? 'function'
+    : 'code-unit'
+}
+
 function buildCoverageInventory(data: unknown, providerId: string | null, indexedUnitCount: number): Prisma.InputJsonValue {
   const result = asOptions(data)
   const rawObservations = Array.isArray(result.observations) ? result.observations : []
+  const unitKind = providerUnitKind(providerId)
   const observedUnitCount = rawObservations.reduce((count, value) => {
     const observation = asOptions(value)
-    if (observation.type !== 'code_unit') return count
+    if (observation.type !== (unitKind === 'function' ? 'function' : 'code_unit')) return count
     if (providerId === 'reamon-wabt' && asOptions(observation.attributes).language !== 'WebAssembly Text (WAT)') return count
     return count + 1
   }, 0)
   const discoveredUnitCount = reportedCount(result, providerId === 'reamon-wabt'
     ? ['wasmFunctionCount', 'discoveredUnitCount', 'decompiledFunctionCount']
-    : ['decompiledCodeUnitCount', 'discoveredCodeUnitCount', 'decompiledClassCount', 'discoveredClassCount', 'classCount', 'decompiledFunctionCount', 'functionCount', 'batchResultCount', 'discoveredUnitCount'])
-  const providerReturnedUnitCount = reportedCount(result, ['returnedCodeUnitCount', 'returnedUnitCount', 'returnedClassCount', 'returnedFunctionCount'])
+    : ['decompiledCodeUnitCount', 'discoveredCodeUnitCount', 'decompiledClassCount', 'discoveredClassCount', 'classCount', 'discoveredMethodCount', 'decompiledFunctionCount', 'functionCount', 'batchResultCount', 'discoveredUnitCount'])
+  const providerReturnedUnitCount = reportedCount(result, ['returnedCodeUnitCount', 'returnedUnitCount', 'returnedClassCount', 'returnedMethodCount', 'returnedFunctionCount'])
     ?? observedUnitCount
   const indexedCoverageUnitCount = Math.min(indexedUnitCount, observedUnitCount, providerReturnedUnitCount)
   const failedUnitCount = reportedCount(result, ['failedFunctionCount', 'failedUnitCount'])
@@ -132,7 +139,7 @@ function buildCoverageInventory(data: unknown, providerId: string | null, indexe
   return {
     schemaVersion: 2,
     denominatorSource: discoveredUnitCount === null ? 'unavailable' : 'provider-reported-discovered-units',
-    unitKind: ['reamon-ghidra', 'reamon-ida', 'reamon-recurse', 'reamon-miasm', 'reamon-wabt', 'reamon-glaurung', 'reamon-kuna', 'reamon-fission', 'reamon-oxidizer', 'reamon-reko'].includes(providerId || '') ? 'function' : 'code-unit',
+    unitKind,
     discoveredUnitCount,
     providerReturnedUnitCount,
     observedUnitCount,
@@ -367,8 +374,9 @@ async function settleTask(
           : MAX_OBSERVATIONS_PER_RESULT,
       })
       if (persistedResult && (result.capabilities.includes('decompile') || result.capabilities.includes('disassemble'))) {
+        const indexedType = providerUnitKind(task.provider?.pluginId || null) === 'function' ? 'function' : 'code_unit'
         const indexedUnitCount = await tx.reamonObservation.count({
-          where: { projectId: task.projectId, taskId: task.id, type: 'code_unit' },
+          where: { projectId: task.projectId, taskId: task.id, type: indexedType },
         })
         persistedResult = persistedResultWithCoverage(persistedResult, buildCoverageInventory(result.data, task.provider?.pluginId || null, indexedUnitCount))
         await tx.task.update({ where: { id: task.id }, data: { result: persistedResult } })
