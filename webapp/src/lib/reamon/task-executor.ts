@@ -548,7 +548,12 @@ export async function executeAnalysisTask(projectId: string, taskId: string, lea
       if (!ownsLease) throw new Error('Analysis task no longer owns its execution lease')
       if (!streamedObservationSourceReady) {
         await tx.reamonObservation.deleteMany({
-          where: { projectId: task.projectId, taskId: task.id, source: pendingSource, type: 'function' },
+          where: {
+            projectId: task.projectId,
+            taskId: task.id,
+            source: { startsWith: `${plugin.manifest.id}:pending:` },
+            type: 'function',
+          },
         })
         streamedObservationSourceReady = true
       }

@@ -183,12 +183,14 @@ describe('executeAnalysisTask', () => {
     const result = await executeAnalysisTask('project-1', 'task-1')
 
     expect(result?.outcome).toBe('COMPLETED')
-    const pendingSource = mocks.observationDeleteMany.mock.calls[0][0].where.source
+    const pendingSourceFilter = mocks.observationDeleteMany.mock.calls[0][0].where.source
+    const pendingSource = typeof pendingSourceFilter === 'string' ? pendingSourceFilter : pendingSourceFilter.startsWith
+    expect(pendingSourceFilter).toMatchObject({ startsWith: expect.stringMatching(/^reamon-dex-decompiler:pending:/) })
     expect(pendingSource).toMatch(/^reamon-dex-decompiler:pending:/)
     const promotion = mocks.observationRawExecute.mock.calls
       .map(([statement]) => statement as { sql?: string; values?: unknown[] })
       .find((statement) => statement.sql?.includes('md5(pending."id"'))
-    expect(promotion?.values).toContain(pendingSource)
+    expect(promotion?.values?.some((value) => typeof value === 'string' && value.startsWith(pendingSource))).toBe(true)
   })
 
   test('persists bounded progress messages under the active run lease', async () => {
