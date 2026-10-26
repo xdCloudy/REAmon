@@ -8,6 +8,7 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { mergeDiff3 } from 'node-diff3'
 import { buildCodeUnitTreemapEntries, filterCodeUnits, filterCodeUnitsByFolder, layoutCodeUnitTreemap, parseCodeUnitFilter, summarizeCodeUnits, type CodeUnit, type CodeUnitTreemapEntry } from '@/lib/reamon/code-units'
+import { ProjectFunctionAgentQueue } from './ProjectFunctionAgentQueue'
 import { sourceSyntaxLanguage } from './source-language'
 import styles from './WorkspaceCodeVisualizer.module.css'
 
@@ -2680,6 +2681,13 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
         </>}
       </div>}
       </div>}
+
+      {currentRun && <ProjectFunctionAgentQueue
+        projectId={projectId}
+        taskId={currentRun.id}
+        providerId={selectedProviderId}
+        reviewerProviderId={selectedReviewerProviderId}
+      />}
 
       {query.isLoading && <p className={styles.message}>Loading code units…</p>}
       {query.isError && <p className={styles.error}>Could not load code units. Refresh the workspace and try again.</p>}
