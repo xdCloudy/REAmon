@@ -304,6 +304,9 @@ class _BrowserSocket:
             return self.frames.pop(0)
         raise RuntimeError("browser disconnected")
 
+    async def close(self, **_kwargs):
+        return None
+
 
 class _UpstreamSocket:
     def __init__(self):
@@ -330,20 +333,45 @@ class _UpstreamConnection:
         return False
 
 
-def test_terminal_proxy_uses_ticket_identity_before_browser_frames(monkeypatch):
+def test_terminal_proxy_sends_ticket_identity_to_isolated_worker(monkeypatch):
     import api
     import ws_ticket
+    from redamon_ctx import verify_tag
 
     claims = {"sub": "owner-1", "pid": "project-1", "sid": "session-1"}
+    monkeypatch.setenv("INTERNAL_API_KEY", "terminal-test-signing-key")
+    monkeypatch.setenv("SCANNER_API_KEY", "terminal-scanner-key")
+    monkeypatch.setattr(api, "_REAMON_TERMINAL_WORKER_URL", "tcp://broker:8081/worker/terminal")
     monkeypatch.setattr(
         ws_ticket, "authorize_ws", lambda *_args: (True, claims, "ok")
     )
-    upstream = _UpstreamSocket()
-    monkeypatch.setattr(
-        api.websockets,
-        "connect",
-        lambda *_args, **_kwargs: _UpstreamConnection(upstream),
-    )
+    reader = asyncio.StreamReader()
+    reader.feed_data(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")
+    reader.feed_eof()
+
+    class WorkerWriter:
+        def __init__(self):
+            self.data = bytearray()
+            self.closed = False
+
+        def write(self, data):
+            self.data.extend(data)
+
+        async def drain(self):
+            return None
+
+        def close(self):
+            self.closed = True
+
+        async def wait_closed(self):
+            return None
+
+    worker_writer = WorkerWriter()
+
+    async def open_connection(*_args):
+        return reader, worker_writer
+
+    monkeypatch.setattr(api.asyncio, "open_connection", open_connection)
     browser = _BrowserSocket([
         {"text": json.dumps({
             "type": "init",
@@ -356,7 +384,15 @@ def test_terminal_proxy_uses_ticket_identity_before_browser_frames(monkeypatch):
 
     asyncio.run(api.kali_terminal_proxy(browser))
 
-    assert upstream.sent == [
-        api._kali_terminal_identity_frame(claims),
-        "id\n",
-    ]
+    request_head, request_body = bytes(worker_writer.data).split(b"\r\n\r\n", 1)
+    request = json.loads(request_body[:int(next(
+        line.split(b":", 1)[1].strip() for line in request_head.split(b"\r\n")
+        if line.lower().startswith(b"content-length:")
+    ))])
+    context = verify_tag(request["ctx"], {"agent": "terminal-test-signing-key"})
+    assert context["user_id"] == "owner-1"
+    assert context["project_id"] == "project-1"
+    assert context["session_id"] == "session-1"
+    assert context["tool"] == "kali_terminal"
+    assert context["phase"] == "interactive"
+    assert api._verify_terminal_graph_ctx(context["graph_ctx"])["project_id"] == "project-1"

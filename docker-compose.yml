@@ -427,6 +427,7 @@ services:
       SCANNER_API_KEY: ${SCANNER_API_KEY:-changeme}
       AGENT_EXECUTION_SCOPE_URL: http://agent:8080/execution/resolve-context
       REAMON_WORKSPACE_CONTAINER: redamon-kali
+      REAMON_TERMINAL_AGENT_CONTAINER: redamon-agent
       # Tool images the recon pipeline may run (V3 set is the broker default;
       # operator extras flow through to keep parity with RECON_EXTRA_ALLOWED_IMAGES).
       DOCKER_BROKER_ALLOWED_IMAGES: ${RECON_EXTRA_ALLOWED_IMAGES:-}
@@ -839,6 +840,7 @@ services:
       # with this reusable key removed.
       SCANNER_API_KEY: "${SCANNER_API_KEY:-}"
       REAMON_PROJECT_WORKER_URL: http://docker-broker:8081/worker/execute
+      REAMON_TERMINAL_WORKER_URL: tcp://docker-broker:8081/worker/terminal
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python3", "-c", "import socket; s=socket.socket(); s.connect(('localhost', 8000)); s.close()"]
@@ -886,7 +888,6 @@ services:
       MCP_PLAYWRIGHT_URL: http://kali-sandbox:8005/sse
       MCP_METASPLOIT_PROGRESS_URL: http://kali-sandbox:8013/progress
       MCP_HYDRA_PROGRESS_URL: http://kali-sandbox:8014/progress
-      KALI_TERMINAL_WS_URL: ws://kali-sandbox:8016
       # Bearer token sent on every MCP SSE and progress/session request. Must
       # match kali-sandbox; missing configuration disables these internal calls.
       MCP_AUTH_TOKEN: "${MCP_AUTH_TOKEN:-}"

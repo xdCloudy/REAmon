@@ -6415,7 +6415,7 @@ class ExecutionContextRequest(BaseModel):
 )
 async def resolve_execution_context(body: ExecutionContextRequest):
     """Verify a short-lived agent tag and reveal only its project mount scope."""
-    if body.tool not in {"kali_shell", "execute_code", "proxy_brain", "execute_playwright"}:
+    if body.tool not in {"kali_shell", "execute_code", "proxy_brain", "execute_playwright", "kali_terminal"}:
         return JSONResponse(status_code=403, content={"error": "unsupported execution tool"})
     key = os.environ.get("INTERNAL_API_KEY", "")
     scanner_key = os.environ.get("SCANNER_API_KEY", "")
@@ -6430,6 +6430,16 @@ async def resolve_execution_context(body: ExecutionContextRequest):
         return JSONResponse(status_code=401, content={"error": "invalid execution context"})
     if claims.get("tool") != body.tool:
         return JSONResponse(status_code=403, content={"error": "context tool mismatch"})
+    if body.tool == "kali_terminal":
+        if claims.get("phase") != "interactive":
+            return JSONResponse(status_code=403, content={"error": "terminal context phase mismatch"})
+        graph_ctx = claims.get("graph_ctx")
+        graph_claims = _verify_terminal_graph_ctx(graph_ctx)
+        if not graph_claims:
+            return JSONResponse(status_code=401, content={"error": "invalid terminal graph context"})
+        for outer, inner in (("project_id", "project_id"), ("user_id", "user_id"), ("session_id", "session_id")):
+            if claims.get(outer) != graph_claims.get(inner):
+                return JSONResponse(status_code=403, content={"error": "terminal context identity mismatch"})
     project_id = claims.get("project_id")
     user_id = claims.get("user_id")
     if (not isinstance(project_id, str) or not project_id or len(project_id) > 200
@@ -6480,6 +6490,13 @@ async def resolve_execution_context(body: ExecutionContextRequest):
     except Exception:  # noqa: BLE001
         logger.exception("Could not prepare project workspace for scoped Kali shell")
         return JSONResponse(status_code=503, content={"error": "project workspace unavailable"})
+    if body.tool == "kali_terminal":
+        return {
+            "project_id": project_id,
+            "user_id": user_id,
+            "session_id": claims["session_id"],
+            "graph_ctx": claims["graph_ctx"],
+        }
     return {"project_id": project_id}
 
 
@@ -7360,7 +7377,7 @@ async def kali_exec_cancel(job_id: str, project_id: str = Query(...)):
 # KALI TERMINAL — WebSocket PTY proxy to kali-sandbox terminal server
 # =============================================================================
 
-_KALI_TERMINAL_WS_URL = os.environ.get("KALI_TERMINAL_WS_URL", "ws://kali-sandbox:8016")
+_REAMON_TERMINAL_WORKER_URL = os.environ.get("REAMON_TERMINAL_WORKER_URL", "")
 
 
 def _kali_terminal_identity_frame(claims: dict) -> str:
@@ -7406,9 +7423,10 @@ def _is_kali_terminal_identity_frame(data: Any) -> bool:
 @app.websocket("/ws/kali-terminal")
 async def kali_terminal_proxy(websocket: WebSocket):
     """
-    Proxy WebSocket connection to the kali-sandbox PTY terminal server.
+    Bridge the ticket-authenticated browser socket to an isolated project worker.
 
-    Bridges the browser ↔ agent ↔ kali-sandbox terminal for interactive shell access.
+    Each terminal session receives a short-lived worker container through the
+    Docker broker. The shared Kali controller is not used for interactive shells.
 
     STRIDE S3: this proxy is the authentication chokepoint. Before accepting the
     handshake or dialing the upstream PTY it requires a valid ws-ticket (query
@@ -7428,67 +7446,121 @@ async def kali_terminal_proxy(websocket: WebSocket):
         await websocket.close(code=1008)
         return
 
-    # Identity from the VERIFIED ticket, forwarded to the upstream PTY as query
-    # params (never from the browser's self-asserted frame).
-    from urllib.parse import urlencode, urlparse
-    _tenant = urlencode({
-        "user_id": str(claims["sub"]),
-        "project_id": str(claims["pid"]),
-        "session_id": str(claims["sid"]),
-    })
-    _sep = "&" if urlparse(_KALI_TERMINAL_WS_URL).query else "?"
-    upstream_url = f"{_KALI_TERMINAL_WS_URL}{_sep}{_tenant}"
-
     await websocket.accept()
-
+    terminal_reader = terminal_writer = None
     try:
-        async with websockets.connect(
-            upstream_url,
-            ping_interval=30,
-            ping_timeout=60,
-            max_size=2**20,
-        ) as kali_ws:
-            # The terminal server consumes its first frame as shell identity.
-            # Send the verified ticket claims before relaying any browser data.
-            await kali_ws.send(_kali_terminal_identity_frame(claims))
+        from urllib.parse import urlparse
+        from redamon_ctx import sign_tag
 
-            async def browser_to_kali():
-                try:
-                    while True:
-                        data = await websocket.receive()
-                        if "text" in data:
-                            if not _is_kali_terminal_identity_frame(data["text"]):
-                                await kali_ws.send(data["text"])
-                        elif "bytes" in data:
-                            if not _is_kali_terminal_identity_frame(data["bytes"]):
-                                await kali_ws.send(data["bytes"])
-                except Exception as e:
-                    logger.debug("Browser→Kali stream ended: %s", e)
+        parsed = urlparse(_REAMON_TERMINAL_WORKER_URL)
+        worker_key = os.environ.get("SCANNER_API_KEY", "")
+        signing_key = os.environ.get("INTERNAL_API_KEY", "")
+        if (parsed.scheme != "tcp" or not parsed.hostname or not parsed.port
+                or parsed.path != "/worker/terminal" or not worker_key or worker_key == "changeme"
+                or not signing_key or signing_key == "changeme" or signing_key == worker_key):
+            raise RuntimeError("isolated terminal worker is not configured")
 
-            async def kali_to_browser():
-                try:
-                    async for message in kali_ws:
-                        if isinstance(message, bytes):
-                            await websocket.send_bytes(message)
-                        else:
-                            await websocket.send_text(message)
-                except Exception as e:
-                    logger.debug("Kali→Browser stream ended: %s", e)
+        identity = json.loads(_kali_terminal_identity_frame(claims))
+        graph_ctx = identity.get("graph_ctx")
+        if not isinstance(graph_ctx, str) or not graph_ctx:
+            raise RuntimeError("terminal identity signing is unavailable")
+        worker_ctx = sign_tag({
+            "source": "agent",
+            "user_id": identity["user_id"],
+            "project_id": identity["project_id"],
+            "session_id": identity["session_id"],
+            "graph_ctx": graph_ctx,
+            "tool": "kali_terminal",
+            "phase": "interactive",
+            "exp": int(time.time()) + 300,
+        }, signing_key)
+        terminal_reader, terminal_writer = await asyncio.open_connection(parsed.hostname, parsed.port)
+        request_body = json.dumps({"ctx": worker_ctx, "rows": 24, "cols": 80}, separators=(",", ":")).encode()
+        terminal_writer.write((
+            f"POST {parsed.path} HTTP/1.1\r\nHost: {parsed.hostname}:{parsed.port}\r\n"
+            f"X-Internal-Key: {worker_key}\r\nContent-Type: application/json\r\n"
+            f"Content-Length: {len(request_body)}\r\nConnection: keep-alive\r\n\r\n"
+        ).encode("ascii") + request_body)
+        await terminal_writer.drain()
+        response_head = await asyncio.wait_for(terminal_reader.readuntil(b"\r\n\r\n"), timeout=15)
+        status_line = response_head.split(b"\r\n", 1)[0]
+        if b" 200 " not in status_line:
+            length = 0
+            for line in response_head.split(b"\r\n"):
+                if line.lower().startswith(b"content-length:"):
+                    try:
+                        length = min(int(line.split(b":", 1)[1].strip()), 8192)
+                    except ValueError:
+                        pass
+            error_body = await terminal_reader.readexactly(length) if length else b""
+            raise RuntimeError("isolated terminal worker rejected session: " + error_body.decode("utf-8", "replace"))
 
-            upstream = asyncio.create_task(browser_to_kali())
-            downstream = asyncio.create_task(kali_to_browser())
-            try:
-                await asyncio.wait(
-                    [upstream, downstream], return_when=asyncio.FIRST_COMPLETED
-                )
-            finally:
-                upstream.cancel()
-                downstream.cancel()
-                await asyncio.gather(upstream, downstream, return_exceptions=True)
+        async def send_frame(kind: bytes, payload: bytes = b""):
+            if len(payload) > 1024 * 1024:
+                raise ValueError("terminal frame exceeded size limit")
+            terminal_writer.write(kind + len(payload).to_bytes(4, "big") + payload)
+            await terminal_writer.drain()
 
+        async def browser_to_worker():
+            while True:
+                data = await websocket.receive()
+                if data.get("type") == "websocket.disconnect":
+                    return
+                if "text" in data:
+                    message = data["text"]
+                    if _is_kali_terminal_identity_frame(message):
+                        continue
+                    try:
+                        control = json.loads(message)
+                    except (TypeError, json.JSONDecodeError):
+                        control = None
+                    if isinstance(control, dict) and control.get("type") == "resize":
+                        await send_frame(b"R", json.dumps({
+                            "rows": control.get("rows"), "cols": control.get("cols"),
+                        }, separators=(",", ":")).encode())
+                    elif isinstance(control, dict) and control.get("type") == "ping":
+                        await send_frame(b"P")
+                    else:
+                        await send_frame(b"D", message.encode("utf-8"))
+                elif "bytes" in data:
+                    if not _is_kali_terminal_identity_frame(data["bytes"]):
+                        await send_frame(b"D", data["bytes"])
+
+        async def worker_to_browser():
+            while True:
+                header = await terminal_reader.readexactly(5)
+                kind, size = header[:1], int.from_bytes(header[1:], "big")
+                if size > 1024 * 1024:
+                    raise ValueError("terminal output frame exceeded size limit")
+                payload = await terminal_reader.readexactly(size)
+                if kind == b"O":
+                    await websocket.send_bytes(payload)
+                elif kind == b"C":
+                    return
+                else:
+                    raise ValueError("invalid terminal worker frame")
+
+        upstream = asyncio.create_task(browser_to_worker())
+        downstream = asyncio.create_task(worker_to_browser())
+        try:
+            done, pending = await asyncio.wait((upstream, downstream), return_when=asyncio.FIRST_COMPLETED)
+            for task in done:
+                error = task.exception()
+                if error:
+                    raise error
+        finally:
+            upstream.cancel()
+            downstream.cancel()
+            await asyncio.gather(upstream, downstream, return_exceptions=True)
     except Exception as e:
-        logger.error("Kali terminal proxy error: %s", e)
+        logger.error("Isolated terminal proxy error: %s", e)
     finally:
+        if terminal_writer is not None:
+            terminal_writer.close()
+            try:
+                await terminal_writer.wait_closed()
+            except Exception:
+                pass
         try:
             await websocket.close()
         except Exception:

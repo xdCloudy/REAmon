@@ -807,7 +807,8 @@ async def handle_worker_client(reader, writer):
             if ":" in line:
                 name, value = line.split(":", 1)
                 headers[name.strip().lower()] = value.strip()
-        if len(request) != 3 or request[0] != "POST" or request[1] != "/worker/execute":
+        if (len(request) != 3 or request[0] != "POST"
+                or request[1] not in {"/worker/execute", "/worker/terminal"}):
             status, payload = 404, {"error": "not found"}
         elif not WORKER_API_KEY or WORKER_API_KEY == "changeme" or not hmac.compare_digest(
             headers.get("x-internal-key", ""), WORKER_API_KEY,
@@ -820,7 +821,8 @@ async def handle_worker_client(reader, writer):
                 length = int(headers.get("content-length", "0"))
             except ValueError:
                 length = -1
-            if length < 1 or length > 1024 * 1024:
+            max_length = 16 * 1024 if request[1] == "/worker/terminal" else 1024 * 1024
+            if length < 1 or length > max_length:
                 status, payload = 413, {"error": "invalid worker request size"}
             else:
                 raw = await asyncio.wait_for(reader.readexactly(length), timeout=10)
@@ -829,8 +831,16 @@ async def handle_worker_client(reader, writer):
                 except (json.JSONDecodeError, UnicodeDecodeError):
                     status, payload = 400, {"error": "invalid JSON"}
                 else:
-                    from project_worker import execute
-                    status, payload = await execute(body)
+                    if request[1] == "/worker/terminal":
+                        from project_worker import serve_terminal
+                        if not isinstance(body, dict) or not isinstance(body.get("ctx"), str):
+                            status, payload = 400, {"error": "terminal context is required"}
+                        else:
+                            await serve_terminal(body["ctx"], body.get("rows", 24), body.get("cols", 80), reader, writer)
+                            return
+                    else:
+                        from project_worker import execute
+                        status, payload = await execute(body)
         body_bytes = json.dumps(payload, separators=(",", ":")).encode("utf-8")
         reasons = {200: "OK", 400: "Bad Request", 401: "Unauthorized", 403: "Forbidden", 404: "Not Found", 413: "Payload Too Large", 429: "Too Many Requests", 503: "Service Unavailable"}
         response_head = (

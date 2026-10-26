@@ -1,6 +1,6 @@
 # Kali execution isolation decision
 
-Status: a broker-managed project worker is wired for `kali_shell`, `execute_code`, `execute_playwright`, and `proxy_brain`; local service rebuild and signed shell dispatch are verified. The full MCP client/webapp flow and remaining operations controls are open.
+Status: broker-managed project workers are wired for `kali_shell`, `execute_code`, `execute_playwright`, and `proxy_brain`. The ticket-authenticated terminal now has a source path to a short-lived broker-created PTY worker. That terminal path has not yet passed its Docker integration suite or a live shell smoke; deployment and the remaining operations controls are open.
 
 ## Current deployment update (2026-10-26)
 
@@ -213,15 +213,21 @@ selection, project-only mounting, read-only root, writable scratch, separate
 output streams, and worker/network cleanup. The rebuilt local agent, Kali, and
 broker containers report healthy. A valid agent-signed shell request completed
 in a disposable worker, and Chromium launched in the active Kali container.
-Terminal session workers, full MCP client/webapp flow, tenant-scoped broker
-ownership, cancellation and restart recovery, generated-file transfer, and
-worker storage, disk, and egress limits remain open.
+The terminal worker source path has been added since that smoke: the agent now
+uses the authenticated broker endpoint, which verifies ticket-derived session
+context and creates an admitted per-session PTY container. It uses a project-only
+read-only workspace plus writable project scratch/output mounts, resource limits,
+bounded input/output frames, and cleanup when the stream ends. This new path is
+source-only until its Docker integration suite and live end-to-end smoke pass.
+Full MCP client/webapp flow, tenant-scoped broker ownership, cancellation and
+restart recovery, generated-file transfer, and worker storage, disk, and egress
+limits remain open.
 
 ## Decision
 
 Keep the four non-terminal tools on the verified disposable worker path. The
-interactive terminal still needs a long-lived project worker with ticket-bound
-identity and disconnect cleanup. The MCP service remains the trusted controller:
+interactive terminal now creates a ticket-bound project worker in source; its
+tests, live smoke, and recovery behavior remain to be verified. The MCP service remains the trusted controller:
 it authenticates the agent, verifies signed scope, routes work to the matching
 worker, and publishes selected artifacts through a project-authorized transfer
 path. Tenant-scoped broker ownership, output quotas, egress policy, and restart
@@ -246,7 +252,7 @@ Route all arbitrary execution through this boundary:
 - `execute_code`
 - `proxy_brain`
 - custom Playwright scripts
-- the Kali interactive terminal
+- the Kali interactive terminal (source route implemented; acceptance pending)
 
 Missing scope, failed verification, an unavailable broker, or an invalid worker
 must fail closed. Fixed-argument scanner tools can stay in the shared controller
