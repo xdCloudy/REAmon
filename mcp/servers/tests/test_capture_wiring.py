@@ -133,8 +133,8 @@ class _RoutingTestBase(unittest.TestCase):
         os.chmod(workspace, 0o777)
         authored_code = "print('ok')\nREDAMON_PB_EOF\nprint('still source code')"
 
-        def fake_run(cmd, *, timeout, env_overrides, workspace_project_id):
-            calls.append((list(cmd), timeout, env_overrides, workspace_project_id))
+        def fake_run(cmd, *, timeout, ctx, tool_name, env):
+            calls.append((list(cmd), timeout, ctx, tool_name, env))
             source_path = os.path.join(workspace, os.path.basename(cmd[1]))
             with open(source_path, encoding="utf-8") as source_file:
                 source = source_file.read()
@@ -145,7 +145,8 @@ class _RoutingTestBase(unittest.TestCase):
         try:
             with mock.patch.object(nrs, "_resolve_execution_project", return_value="project-123"), \
                     mock.patch.object(nrs, "_execution_workspace_root", return_value=workspace), \
-                    mock.patch.object(nrs, "_run_untrusted_child", side_effect=fake_run):
+                    mock.patch.object(nrs, "_prepare_project_worker_paths"), \
+                    mock.patch.object(nrs, "_run_project_worker", side_effect=fake_run):
                 nrs.proxy_brain(authored_code, "signed-short-lived-context")
         finally:
             shutil.rmtree(workspace, ignore_errors=True)
@@ -158,7 +159,9 @@ class _RoutingTestBase(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0][0][0], "python3")
         self.assertEqual(calls[0][1], 180)
-        child_env = calls[0][2]
+        self.assertEqual(calls[0][2], "signed-short-lived-context")
+        self.assertEqual(calls[0][3], "proxy_brain")
+        child_env = calls[0][4]
         for name in secret_names:
             self.assertNotIn(name, child_env)
         self.assertEqual(child_env["REDAMON_CTX"], "signed-short-lived-context")

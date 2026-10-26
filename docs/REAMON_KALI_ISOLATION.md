@@ -1,6 +1,6 @@
 # Kali execution isolation decision
 
-Status: all four non-terminal arbitrary-code tools now have interim project scope; dedicated worker isolation remains open.
+Status: a broker-managed project worker is wired for `kali_shell`, `execute_code`, `execute_playwright`, and `proxy_brain` in source; deployment and end-to-end validation remain open.
 
 ## Current exposure
 
@@ -176,6 +176,30 @@ The running agent has not been rebuilt against this source. The live image lacks
 Chromium at `/ms-playwright`, so an actual browser launch remains unverified.
 The global broker ownership model remains open, so the shared-container finding
 is not closed.
+
+## Dedicated project workers
+
+The source now routes `kali_shell`, `execute_code`, `execute_playwright`, and
+`proxy_brain` through an authenticated broker endpoint. The broker verifies the
+opaque agent-signed context and exact tool name, applies a four-worker admission
+cap, and creates a disposable Kali container with memory, CPU, PID,
+read-only-root, dropped-capability, and no-new-privileges controls. The worker
+receives only the verified project's read-only workspace, with project scratch
+and `tool-outputs` as writable mounts. It is attached to a per-run bridge
+network and removed with that network when the command ends. The endpoint is on
+the internal Compose networks and also requires the scanner transport key; it
+exposes no general Docker API. `proxy_brain` receives only its short-lived
+signed project context and configured agent URL, not the reusable scanner key.
+
+The broker image builds, 13 focused worker tests and 14 MCP execution tests
+pass in Docker, and a live Docker Engine smoke verified immutable image
+selection, project-only mounting, read-only root, writable scratch, separate
+output streams, and worker/network cleanup. Full signed dispatch is not yet
+available on the installed stack because its agent returns 404 for
+`/execution/resolve-context`. Playwright browser launch also needs validation
+after rebuilding the Kali image. Terminal sessions, tenant-scoped broker
+ownership, cancellation and restart recovery, and worker storage, disk, and
+egress limits remain open.
 
 ## Decision
 

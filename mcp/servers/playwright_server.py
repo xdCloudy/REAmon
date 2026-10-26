@@ -18,8 +18,8 @@ import os
 # Chromium launch constants live in browser_launch so this server and the
 # in-process `redamon` SDK cannot drift on the root/Docker flags.
 from browser_launch import BROWSER_ARGS, CHROME_UA
-from untrusted_process import run_untrusted_child
 from execution_scope import resolve_execution_project, execution_workspace_root
+from project_worker_client import prepare_project_worker_paths, run_project_worker
 
 # Strip ANSI escape codes (terminal colors) from output
 ANSI_ESCAPE = re.compile(r'\x1b\[[0-9;]*[a-zA-Z]')
@@ -41,6 +41,7 @@ def _run_playwright_script(
     try:
         project_id = resolve_execution_project(ctx_token, "execute_playwright")
         workspace_root = execution_workspace_root(project_id)
+        prepare_project_worker_paths(workspace_root)
         with tempfile.NamedTemporaryFile(
             mode='w', prefix='playwright_', suffix='.py', delete=False, dir=workspace_root
         ) as f:
@@ -50,9 +51,9 @@ def _run_playwright_script(
         os.chmod(script_path, 0o444)
 
         sandbox_script_path = f"/workspace/{os.path.basename(script_path)}"
-        result = run_untrusted_child(
+        result = run_project_worker(
             ['python3', sandbox_script_path], timeout=timeout,
-            workspace_project_id=project_id,
+            ctx=ctx_token, tool_name="execute_playwright",
         )
 
         output = ANSI_ESCAPE.sub('', result.stdout)

@@ -422,6 +422,10 @@ services:
     environment:
       DOCKER_BROKER_UPSTREAM: /var/run/docker.sock
       DOCKER_BROKER_LISTEN: /var/run/broker/docker.sock
+      REAMON_WORKER_API_PORT: "8081"
+      SCANNER_API_KEY: ${SCANNER_API_KEY:-changeme}
+      AGENT_EXECUTION_SCOPE_URL: http://agent:8080/execution/resolve-context
+      REAMON_WORKSPACE_CONTAINER: redamon-kali
       # Tool images the recon pipeline may run (V3 set is the broker default;
       # operator extras flow through to keep parity with RECON_EXTRA_ALLOWED_IMAGES).
       DOCKER_BROKER_ALLOWED_IMAGES: ${RECON_EXTRA_ALLOWED_IMAGES:-}
@@ -444,6 +448,9 @@ services:
       # every other source-tree bind is forced :ro. Wired here (broker has no
       # env_file) so setting it in .env actually reaches the broker.
       DOCKER_BROKER_ALLOWED_RW_PREFIXES: ${DOCKER_BROKER_ALLOWED_RW_PREFIXES:-}
+    networks:
+      - pentest-net
+      - redamon
     healthcheck:
       test: ["CMD-SHELL", "test -S /var/run/broker/docker.sock"]
       interval: 15s
@@ -830,6 +837,7 @@ services:
       # own allowlisted APIs. Interactive PTY shells receive an allowlisted env
       # with this reusable key removed.
       SCANNER_API_KEY: "${SCANNER_API_KEY:-}"
+      REAMON_PROJECT_WORKER_URL: http://docker-broker:8081/worker/execute
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python3", "-c", "import socket; s=socket.socket(); s.connect(('localhost', 8000)); s.close()"]

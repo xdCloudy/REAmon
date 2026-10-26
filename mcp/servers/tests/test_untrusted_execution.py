@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import json
 import signal
 import shutil
 import sys
@@ -36,55 +37,112 @@ if "fastmcp" not in sys.modules:
 
 import network_recon_server as recon  # noqa: E402
 import playwright_server as playwright  # noqa: E402
+import project_worker_client as worker_client  # noqa: E402
 import untrusted_process as exec_utils  # noqa: E402
 
 
 class TestUntrustedExecution(unittest.TestCase):
-    def assert_untrusted_child(self, call):
-        kwargs = call.kwargs
-        self.assertEqual(kwargs["user"], 65534)
-        self.assertEqual(kwargs["group"], 65534)
-        self.assertEqual(kwargs["extra_groups"], ())
-        self.assertEqual(kwargs["start_new_session"], True)
-        self.assertEqual(kwargs["env"]["HOME"], "/tmp")
-        self.assertEqual(kwargs["env"]["TMPDIR"], "/tmp")
-        self.assertEqual(kwargs["env"]["PLAYWRIGHT_BROWSERS_PATH"], "/ms-playwright")
-        for secret_name in (
-            "INTERNAL_API_KEY",
-            "MCP_AUTH_TOKEN",
-            "SCANNER_API_KEY",
-            "TUNNEL_AUTH_TOKEN",
-        ):
-            self.assertNotIn(secret_name, kwargs["env"])
+    def test_project_worker_client_uses_transport_auth_and_decodes_bounded_output(self):
+        class Response:
+            def __enter__(self):
+                return self
 
-    def test_kali_shell_runs_without_root_or_inherited_service_secrets(self):
-        def popen(*args, **kwargs):
-            return _FakeChild("uid=65534\n", "")
+            def __exit__(self, *_args):
+                return False
 
-        with mock.patch.dict(os.environ, {
-            "INTERNAL_API_KEY": "master-secret",
-            "MCP_AUTH_TOKEN": "mcp-secret",
-            "SCANNER_API_KEY": "scanner-secret",
-            "TUNNEL_AUTH_TOKEN": "tunnel-secret",
-        }, clear=False), mock.patch.object(
-            recon.subprocess, "Popen", side_effect=popen
-        ) as run, mock.patch.object(recon.os, "killpg"), mock.patch.object(
+            def read(self, _limit):
+                import base64
+                import json
+                return json.dumps({
+                    "exit_code": 0,
+                    "stdout_b64": base64.b64encode(b"worker output").decode("ascii"),
+                    "stderr_b64": base64.b64encode(b"compiler warning").decode("ascii"),
+                    "timed_out": False,
+                }).encode()
+
+        with mock.patch.dict(os.environ, {"SCANNER_API_KEY": "scanner-transport-key"}), \
+                mock.patch.object(worker_client.urllib.request, "urlopen", return_value=Response()) as urlopen:
+            result = worker_client.run_project_worker(
+                ["python3", "-c", "print('ok')"], timeout=10,
+                ctx="signed-context", tool_name="execute_code",
+            )
+
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "worker output")
+        self.assertEqual(result.stderr, "compiler warning")
+        request = urlopen.call_args.args[0]
+        self.assertEqual(request.get_header("X-internal-key"), "scanner-transport-key")
+        self.assertEqual(json.loads(request.data)["ctx"], "signed-context")
+
+    def test_kali_shell_uses_verified_project_worker_context(self):
+        completed = recon.subprocess.CompletedProcess([], 0, "uid=65534\n", "")
+        with mock.patch.object(
             recon, "_resolve_execution_project", return_value="project-123"
-        ) as resolve_scope:
+        ) as resolve_scope, mock.patch.object(
+            recon, "_execution_workspace_root", return_value="/workspace/project-123"
+        ), mock.patch.object(
+            recon, "_prepare_project_worker_paths"
+        ) as prepare_paths, mock.patch.object(
+            recon, "_run_project_worker", return_value=completed
+        ) as run:
             result = recon.kali_shell("id", "signed-context")
 
         self.assertIn("uid=65534", result)
-        self.assert_untrusted_child(run.call_args)
-        self.assertEqual(run.call_args.args[0][0:12], [
-            exec_utils.UNTRUSTED_EXEC_PRLIMIT, "--core=0:0",
-            f"--nofile={exec_utils.UNTRUSTED_EXEC_NOFILE_LIMIT}:"
-            f"{exec_utils.UNTRUSTED_EXEC_NOFILE_LIMIT}", "--",
-            "/usr/bin/unshare", "--user", "--map-root-user", "--mount",
-            "--pid", "--fork", "--mount-proc", "/bin/sh",
-        ])
-        self.assertIn("project-123", run.call_args.args[0])
-        self.assertIn("bash", run.call_args.args[0])
+        prepare_paths.assert_called_once_with("/workspace/project-123")
+        run.assert_called_once_with(
+            ["bash", "-c", "id"], timeout=300, ctx="signed-context",
+            tool_name="kali_shell",
+        )
         resolve_scope.assert_called_once_with("signed-context", "kali_shell")
+
+    def test_kali_shell_preserves_partial_output_after_timeout(self):
+        timeout = recon.subprocess.TimeoutExpired(
+            ["bash", "-c", "long-task"], 300, output="partial stdout", stderr="partial stderr",
+        )
+        with mock.patch.object(
+            recon, "_resolve_execution_project", return_value="project-123"
+        ), mock.patch.object(
+            recon, "_execution_workspace_root", return_value="/workspace/project-123"
+        ), mock.patch.object(
+            recon, "_prepare_project_worker_paths"
+        ), mock.patch.object(
+            recon, "_run_project_worker", side_effect=timeout
+        ):
+            result = recon.kali_shell("long-task", "signed-context")
+        self.assertIn("Command timed out", result)
+        self.assertIn("partial stdout", result)
+        self.assertIn("partial stderr", result)
+
+    def test_proxy_brain_uses_worker_with_signed_context_and_sdk_environment(self):
+        workspace = tempfile.mkdtemp(prefix="reamon-proxy-brain-test-")
+        os.chmod(workspace, 0o777)
+        try:
+            completed = recon.subprocess.CompletedProcess([], 0, "finding summary", "")
+            with mock.patch.dict(os.environ, {"REDAMON_AGENT_URL": "http://agent.test:8080"}), \
+                    mock.patch.object(recon, "_resolve_execution_project", return_value="project-123"), \
+                    mock.patch.object(recon, "_execution_workspace_root", return_value=workspace), \
+                    mock.patch.object(recon, "_prepare_project_worker_paths") as prepare_paths, \
+                    mock.patch.object(recon, "_run_project_worker", return_value=completed) as run:
+                result = recon.proxy_brain("print('safe')", "signed-proxy-context")
+
+            self.assertEqual(result, "finding summary")
+            prepare_paths.assert_called_once_with(workspace)
+            argv = run.call_args.args[0]
+            self.assertEqual(argv[0], "python3")
+            self.assertTrue(argv[1].startswith("/workspace/pb_"))
+            self.assertEqual(run.call_args.kwargs["timeout"], 180)
+            self.assertEqual(run.call_args.kwargs["ctx"], "signed-proxy-context")
+            self.assertEqual(run.call_args.kwargs["tool_name"], "proxy_brain")
+            self.assertEqual(
+                run.call_args.kwargs["env"]["REDAMON_AGENT_URL"],
+                "http://agent.test:8080",
+            )
+            self.assertEqual(
+                run.call_args.kwargs["env"]["REDAMON_CTX"],
+                "signed-proxy-context",
+            )
+        finally:
+            shutil.rmtree(workspace, ignore_errors=True)
 
     def test_execute_code_uses_unique_readable_file_and_cleans_it_up(self):
         code = "print('before')\nREDAMON_CODE_EOF\nprint('after')"
@@ -100,27 +158,21 @@ class TestUntrustedExecution(unittest.TestCase):
             calls.append((args, kwargs, source_path))
             return recon.subprocess.CompletedProcess(args[0], 0, "ok", "")
 
-        def popen(*args, **kwargs):
-            source_arg = next(arg for arg in args[0] if arg.startswith("/workspace/") and arg.endswith(".py"))
-            source_path = os.path.join(workspace, os.path.basename(source_arg))
-            with open(source_path, encoding="utf-8") as source_file:
-                self.assertEqual(source_file.read(), code + "\n")
-            calls.append((args, kwargs, source_path))
-            return _FakeChild("ok", "")
-
         with mock.patch.dict(os.environ, {"INTERNAL_API_KEY": "master-secret"}, clear=False), \
                 mock.patch.object(recon, "_resolve_execution_project", return_value="project-123"), \
                 mock.patch.object(recon, "_execution_workspace_root", return_value=workspace), \
-                mock.patch.object(recon.subprocess, "Popen", side_effect=popen), \
-                mock.patch.object(recon.os, "killpg"):
+                mock.patch.object(recon, "_prepare_project_worker_paths"), \
+                mock.patch.object(recon, "_run_project_worker", side_effect=run) as run_worker:
             self.assertEqual(recon.execute_code(code, filename="same-name", _redamon_ctx="signed"), "ok")
             self.assertEqual(recon.execute_code(code, filename="same-name", _redamon_ctx="signed"), "ok")
 
+        self.assertEqual(run_worker.call_count, 2)
         self.assertEqual(len(calls), 2)
         self.assertNotEqual(calls[0][2], calls[1][2])
         for args, kwargs, source_path in calls:
-            self.assert_untrusted_child(mock.call(*args, **kwargs))
-            self.assertIn("project-123", args[0])
+            self.assertEqual(kwargs["ctx"], "signed")
+            self.assertEqual(kwargs["tool_name"], "execute_code")
+            self.assertTrue(any(arg.startswith("/workspace/") for arg in args[0]))
             self.assertFalse(os.path.exists(source_path))
         os.rmdir(workspace)
 
@@ -129,14 +181,14 @@ class TestUntrustedExecution(unittest.TestCase):
         os.chmod(workspace, 0o755)
         calls = []
 
-        def popen(*args, **kwargs):
-            calls.append(args[0])
-            return _FakeChild("compiled output", "")
+        def run_worker(argv, **kwargs):
+            calls.append(argv)
+            return recon.subprocess.CompletedProcess(argv, 0, "compiled output", "")
 
         with mock.patch.object(recon, "_resolve_execution_project", return_value="project-123"), \
                 mock.patch.object(recon, "_execution_workspace_root", return_value=workspace), \
-                mock.patch.object(recon.subprocess, "Popen", side_effect=popen), \
-                mock.patch.object(recon.os, "killpg"):
+                mock.patch.object(recon, "_prepare_project_worker_paths"), \
+                mock.patch.object(recon, "_run_project_worker", side_effect=run_worker):
             result = recon.execute_code(
                 "int main(void) { return 0; }", language="c", _redamon_ctx="signed",
             )
@@ -239,7 +291,9 @@ class TestUntrustedExecution(unittest.TestCase):
             ), mock.patch.object(
                 playwright, "execution_workspace_root", return_value=workspace
             ), mock.patch.object(
-                playwright, "run_untrusted_child", return_value=completed
+                playwright, "prepare_project_worker_paths"
+            ), mock.patch.object(
+                playwright, "run_project_worker", return_value=completed
             ) as run:
                 result = playwright._run_playwright_script(
                     "import os; print(os.getuid()); print(os.environ.get('INTERNAL_API_KEY'))",
@@ -251,10 +305,11 @@ class TestUntrustedExecution(unittest.TestCase):
         self.assertEqual(result.splitlines(), [str(exec_utils.UNTRUSTED_EXEC_UID), "None"])
         self.assertEqual(run.call_args.args[0][0], "python3")
         self.assertTrue(run.call_args.args[0][1].startswith("/workspace/playwright_"))
-        self.assertEqual(run.call_args.kwargs["workspace_project_id"], "project-123")
+        self.assertEqual(run.call_args.kwargs["ctx"], "signed-context")
+        self.assertEqual(run.call_args.kwargs["tool_name"], "execute_playwright")
 
     def test_playwright_script_fails_closed_without_signed_scope(self):
-        with mock.patch.object(playwright, "run_untrusted_child") as run:
+        with mock.patch.object(playwright, "run_project_worker") as run:
             result = playwright._run_playwright_script("print('must not run')")
 
         self.assertIn("Scoped Playwright authorization failed", result)

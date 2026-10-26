@@ -9,7 +9,7 @@
 FROM python:3.12-alpine
 
 WORKDIR /app
-COPY broker.py .
+COPY broker.py project_worker.py ./
 
 ENV PYTHONUNBUFFERED=1
 

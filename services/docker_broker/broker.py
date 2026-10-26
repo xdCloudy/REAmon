@@ -37,6 +37,7 @@ smuggling). For each connection:
 Stdlib only (asyncio + json) so it runs in a tiny image with no dependencies.
 """
 import asyncio
+import hmac
 import json
 import os
 import re
@@ -48,6 +49,8 @@ import urllib.parse
 # --------------------------------------------------------------------------
 UPSTREAM_SOCK = os.environ.get("DOCKER_BROKER_UPSTREAM", "/var/run/docker.sock")
 LISTEN_SOCK = os.environ.get("DOCKER_BROKER_LISTEN", "/run/broker/docker.sock")
+WORKER_API_PORT = int(os.environ.get("REAMON_WORKER_API_PORT", "8081"))
+WORKER_API_KEY = os.environ.get("SCANNER_API_KEY", "")
 
 # Tool images the recon pipeline is allowed to run (the V3 set + cleanup helpers).
 _DEFAULT_ALLOWED_IMAGES = [
@@ -758,6 +761,64 @@ async def handle_client(client_reader, client_writer):
                     pass
 
 
+async def handle_worker_client(reader, writer):
+    """Expose only the signed-scope project worker, never the Docker API."""
+    try:
+        head = await asyncio.wait_for(reader.readuntil(b"\r\n\r\n"), timeout=5)
+        if len(head) > 16 * 1024:
+            raise ValueError("headers too large")
+        lines = head[:-4].decode("latin1").split("\r\n")
+        request = lines[0].split(" ")
+        headers = {}
+        for line in lines[1:]:
+            if ":" in line:
+                name, value = line.split(":", 1)
+                headers[name.strip().lower()] = value.strip()
+        if len(request) != 3 or request[0] != "POST" or request[1] != "/worker/execute":
+            status, payload = 404, {"error": "not found"}
+        elif not WORKER_API_KEY or WORKER_API_KEY == "changeme" or not hmac.compare_digest(
+            headers.get("x-internal-key", ""), WORKER_API_KEY,
+        ):
+            status, payload = 403, {"error": "worker authorization failed"}
+        elif "transfer-encoding" in headers:
+            status, payload = 400, {"error": "transfer encoding is not supported"}
+        else:
+            try:
+                length = int(headers.get("content-length", "0"))
+            except ValueError:
+                length = -1
+            if length < 1 or length > 1024 * 1024:
+                status, payload = 413, {"error": "invalid worker request size"}
+            else:
+                raw = await asyncio.wait_for(reader.readexactly(length), timeout=10)
+                try:
+                    body = json.loads(raw)
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    status, payload = 400, {"error": "invalid JSON"}
+                else:
+                    from project_worker import execute
+                    status, payload = await execute(body)
+        body_bytes = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+        reasons = {200: "OK", 400: "Bad Request", 401: "Unauthorized", 403: "Forbidden", 404: "Not Found", 413: "Payload Too Large", 429: "Too Many Requests", 503: "Service Unavailable"}
+        response_head = (
+            f"HTTP/1.1 {status} {reasons.get(status, 'Error')}\r\n"
+            "Content-Type: application/json\r\n"
+            f"Content-Length: {len(body_bytes)}\r\nConnection: close\r\n\r\n"
+        ).encode("ascii")
+        writer.write(response_head + body_bytes)
+        await writer.drain()
+    except (asyncio.IncompleteReadError, asyncio.LimitOverrunError, asyncio.TimeoutError, ValueError) as exc:
+        _log(f"worker API request rejected: {exc}")
+    except Exception as exc:
+        _log(f"worker API error: {exc}")
+    finally:
+        writer.close()
+        try:
+            await writer.wait_closed()
+        except Exception:
+            pass
+
+
 async def main():
     # fresh socket
     try:
@@ -768,6 +829,7 @@ async def main():
         os.unlink(LISTEN_SOCK)
 
     server = await asyncio.start_unix_server(handle_client, path=LISTEN_SOCK)
+    worker_server = await asyncio.start_server(handle_worker_client, "0.0.0.0", WORKER_API_PORT)
     try:
         os.chmod(LISTEN_SOCK, 0o660)
     except Exception:
@@ -775,8 +837,8 @@ async def main():
     _log(f"listening on {LISTEN_SOCK} -> upstream {UPSTREAM_SOCK}")
     _log(f"allowed images: {sorted(ALLOWED_IMAGES)}")
     _log(f"allowed bind prefixes: {ALLOWED_BIND_PREFIXES}; volumes: {sorted(ALLOWED_VOLUMES)}")
-    async with server:
-        await server.serve_forever()
+    async with server, worker_server:
+        await asyncio.gather(server.serve_forever(), worker_server.serve_forever())
 
 
 if __name__ == "__main__":

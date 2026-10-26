@@ -44,6 +44,10 @@ from execution_scope import (
     resolve_execution_project as _resolve_execution_project,
     execution_workspace_root as _execution_workspace_root,
 )
+from project_worker_client import (
+    prepare_project_worker_paths as _prepare_project_worker_paths,
+    run_project_worker as _run_project_worker,
+)
 
 # Strip ANSI escape codes (terminal colors) from output
 ANSI_ESCAPE = re.compile(r'\x1b\[[0-9;]*[a-zA-Z]')
@@ -96,6 +100,16 @@ def _format_subprocess_result(
     if kept_stderr:
         output += f"\n[STDERR]: {chr(10).join(kept_stderr)}"
     return output if output.strip() else no_match_msg
+
+
+def _format_timeout_error(message: str, error: subprocess.TimeoutExpired) -> str:
+    partial = []
+    for value in (error.output, error.stderr):
+        if isinstance(value, bytes):
+            value = value.decode("utf-8", errors="replace")
+        if isinstance(value, str) and value.strip():
+            partial.append(value.strip())
+    return message + ("\n" + "\n".join(partial) if partial else "")
 
 # Server configuration
 SERVER_NAME = "network_recon"
@@ -531,17 +545,19 @@ def kali_shell(command: str, _redamon_ctx: str = "") -> str:
     """
     try:
         project_id = _resolve_execution_project(_redamon_ctx, "kali_shell")
-        result = _run_untrusted_child(
+        workspace_root = _execution_workspace_root(project_id)
+        _prepare_project_worker_paths(workspace_root)
+        result = _run_project_worker(
             ["bash", "-c", command], timeout=300,
-            workspace_project_id=project_id,
+            ctx=_redamon_ctx, tool_name="kali_shell",
         )
         return _format_subprocess_result(
             result,
             tool_name="kali_shell",
             no_match_msg="[INFO] Command completed with no output",
         )
-    except subprocess.TimeoutExpired:
-        return "[ERROR] Command timed out after 300 seconds."
+    except subprocess.TimeoutExpired as e:
+        return _format_timeout_error("[ERROR] Command timed out after 300 seconds.", e)
     except PermissionError as e:
         return f"[ERROR] Scoped shell authorization failed: {e}"
     except Exception as e:
@@ -623,6 +639,7 @@ def execute_code(
     try:
         project_id = _resolve_execution_project(_redamon_ctx, "execute_code")
         workspace_root = _execution_workspace_root(project_id)
+        _prepare_project_worker_paths(workspace_root)
     except (PermissionError, ValueError) as e:
         return f"[ERROR] Scoped code authorization failed: {e}"
 
@@ -659,23 +676,23 @@ def execute_code(
     try:
         if interpreter:
             # Interpreted language — run directly
-            result = _run_untrusted_child(
+            result = _run_project_worker(
                 [interpreter, sandbox_filepath], timeout=120,
-                workspace_project_id=project_id,
+                ctx=_redamon_ctx, tool_name="execute_code",
             )
         else:
             # Compiled language — compile first, then execute
             compiler = "gcc" if ext == "c" else "g++"
-            compile_result = _run_untrusted_child(
+            compile_result = _run_project_worker(
                 [compiler, sandbox_filepath, "-o", sandbox_binary_path], timeout=60,
-                workspace_project_id=project_id,
+                ctx=_redamon_ctx, tool_name="execute_code",
             )
             if compile_result.returncode != 0:
                 return f"[ERROR] Compilation failed:\n{compile_result.stderr}"
 
-            result = _run_untrusted_child(
+            result = _run_project_worker(
                 [sandbox_binary_path], timeout=120,
-                workspace_project_id=project_id,
+                ctx=_redamon_ctx, tool_name="execute_code",
             )
 
         output = result.stdout
@@ -685,8 +702,8 @@ def execute_code(
             return f"[ERROR] Code exited with code {result.returncode}"
         return output if output.strip() else "[INFO] Code executed with no output"
 
-    except subprocess.TimeoutExpired:
-        return "[ERROR] Code execution timed out after 120 seconds."
+    except subprocess.TimeoutExpired as e:
+        return _format_timeout_error("[ERROR] Code execution timed out.", e)
     except FileNotFoundError as e:
         return f"[ERROR] Interpreter/compiler not found: {str(e)}"
     except Exception as e:
@@ -780,6 +797,7 @@ def proxy_brain(code: str, _redamon_ctx: str = "") -> str:
     try:
         project_id = _resolve_execution_project(_redamon_ctx, "proxy_brain")
         workspace_root = _execution_workspace_root(project_id)
+        _prepare_project_worker_paths(workspace_root)
         fd, filepath = tempfile.mkstemp(
             prefix="pb_", suffix=".py", dir=workspace_root, text=True,
         )
@@ -814,9 +832,9 @@ def proxy_brain(code: str, _redamon_ctx: str = "") -> str:
             child_env[env_name] = os.environ[env_name]
 
     try:
-        result = _run_untrusted_child(
-            ["python3", sandbox_filepath], timeout=180, env_overrides=child_env,
-            workspace_project_id=project_id,
+        result = _run_project_worker(
+            ["python3", sandbox_filepath], timeout=180, ctx=_redamon_ctx,
+            tool_name="proxy_brain", env=child_env,
         )
         output = result.stdout
         if result.stderr:
@@ -824,8 +842,8 @@ def proxy_brain(code: str, _redamon_ctx: str = "") -> str:
         if result.returncode != 0 and not output.strip():
             output = f"[ERROR] proxy_brain exited with code {result.returncode}"
         return output if output.strip() else "[INFO] proxy_brain ran with no output"
-    except subprocess.TimeoutExpired:
-        return "[ERROR] proxy_brain timed out after 180 seconds."
+    except subprocess.TimeoutExpired as e:
+        return _format_timeout_error("[ERROR] proxy_brain timed out after 180 seconds.", e)
     except Exception as e:  # noqa: BLE001
         return f"[ERROR] {str(e)}"
     finally:
