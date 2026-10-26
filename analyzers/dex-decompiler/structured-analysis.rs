@@ -50,6 +50,7 @@ fn run() -> Result<()> {
     let dexes = load_dexes_from_bytes(&bytes, &input)
         .map_err(|error| anyhow::anyhow!(error.to_string()))?;
     let mut defined_methods = HashMap::new();
+    let mut discovered = 0usize;
     for (dex_index, dex) in dexes.iter().enumerate() {
         for class_result in dex.class_defs() {
             let class = class_result.map_err(|error| anyhow::anyhow!(error.to_string()))?;
@@ -67,6 +68,7 @@ fn run() -> Result<()> {
                 if method.code_off == 0 {
                     continue;
                 }
+                discovered += 1;
                 let info = dex
                     .get_method_info(method.method_idx)
                     .map_err(|error| anyhow::anyhow!(error.to_string()))?;
@@ -85,7 +87,6 @@ fn run() -> Result<()> {
         }
     }
     let mut methods = Vec::new();
-    let mut discovered = 0usize;
     let mut truncated = false;
     let mut total_evidence_bytes = 0usize;
     let mut calls = Vec::new();
@@ -115,7 +116,6 @@ fn run() -> Result<()> {
                 if method.code_off == 0 {
                     continue;
                 }
-                discovered += 1;
                 if methods.len() >= MAX_METHODS {
                     truncated = true;
                     break 'dexes;
