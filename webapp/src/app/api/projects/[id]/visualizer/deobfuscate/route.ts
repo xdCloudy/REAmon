@@ -786,6 +786,31 @@ export async function POST(request: Request, { params }: RouteParams) {
     // Analyzer call relationships are run-scoped observations. Use direct
     // neighbors from this exact task and artifact as rewrite evidence.
     if (observation.taskId && observation.stableKey) {
+      const requestedMemberName = body.scope === 'member' && typeof body.memberName === 'string'
+        ? body.memberName.trim().slice(0, 500)
+        : ''
+      const simpleClassName = unitName.split('.').at(-1)?.split('$').at(-1) || unitName
+      const selectedMethodName = requestedMemberName === simpleClassName ? '<init>' : requestedMemberName
+      const functionScopedProviders = ['reamon-jadx', 'reamon-ilspy', 'reamon-dex-decompiler']
+      const selectedFunctionRows = selectedMethodName && functionScopedProviders.includes(observation.source)
+        ? await prisma.reamonObservation.findMany({
+          where: {
+            projectId,
+            taskId: observation.taskId,
+            artifactId: artifact.id,
+            source: observation.source,
+            type: 'function',
+            AND: [
+              { attributes: { path: ['parentCodeUnitKey'], equals: observation.stableKey } },
+              { attributes: { path: ['name'], equals: selectedMethodName } },
+            ],
+          },
+          select: { stableKey: true },
+          orderBy: { stableKey: 'asc' },
+          take: 101,
+        })
+        : []
+      const selectedFunctionKeys = new Set(selectedFunctionRows.flatMap((row) => row.stableKey ? [row.stableKey] : []))
       const callEdges = await prisma.reamonObservation.findMany({
         where: {
           projectId,
@@ -794,6 +819,14 @@ export async function POST(request: Request, { params }: RouteParams) {
           kind: 'relationship',
           type: 'calls',
           source: observation.source,
+          ...(selectedFunctionKeys.size
+            ? { OR: [{ fromKey: { in: [...selectedFunctionKeys] } }, { toKey: { in: [...selectedFunctionKeys] } }] }
+            : { OR: [
+              { fromKey: observation.stableKey },
+              { toKey: observation.stableKey },
+              { attributes: { path: ['fromCodeUnitKey'], equals: observation.stableKey } },
+              { attributes: { path: ['toCodeUnitKey'], equals: observation.stableKey } },
+            ] }),
         },
         select: { fromKey: true, toKey: true, attributes: true },
         orderBy: { stableKey: 'asc' },
@@ -802,11 +835,6 @@ export async function POST(request: Request, { params }: RouteParams) {
       const calleeStableKeys = new Set<string>()
       const calleeNeighborKeys: string[] = []
       const callerNeighborKeys: string[] = []
-      const requestedMemberName = body.scope === 'member' && typeof body.memberName === 'string'
-        ? body.memberName.trim().slice(0, 500)
-        : ''
-      const simpleClassName = unitName.split('.').at(-1)?.split('$').at(-1) || unitName
-      const selectedMethodName = requestedMemberName === simpleClassName ? '<init>' : requestedMemberName
       const methodNameFromSignature = (value: unknown) => typeof value === 'string'
         ? value.split('->').at(-1)?.split('(')[0] || ''
         : ''
@@ -814,9 +842,9 @@ export async function POST(request: Request, { params }: RouteParams) {
         const edgeAttributes = plainObject(edge.attributes)
         const fromClassKey = typeof edgeAttributes.fromCodeUnitKey === 'string' ? edgeAttributes.fromCodeUnitKey : ''
         const toClassKey = typeof edgeAttributes.toCodeUnitKey === 'string' ? edgeAttributes.toCodeUnitKey : ''
-        const fromMatches = edge.fromKey === observation.stableKey
+        const fromMatches = selectedFunctionKeys.has(edge.fromKey || '') || edge.fromKey === observation.stableKey
           || (fromClassKey === observation.stableKey && (!selectedMethodName || methodNameFromSignature(edgeAttributes.fromSignature) === selectedMethodName))
-        const toMatches = edge.toKey === observation.stableKey
+        const toMatches = selectedFunctionKeys.has(edge.toKey || '') || edge.toKey === observation.stableKey
           || (toClassKey === observation.stableKey && (!selectedMethodName || methodNameFromSignature(edgeAttributes.toSignature) === selectedMethodName))
         if (!fromMatches && !toMatches) continue
         const neighborKey = fromMatches ? toClassKey || edge.toKey : fromClassKey || edge.fromKey

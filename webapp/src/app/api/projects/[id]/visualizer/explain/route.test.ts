@@ -231,6 +231,61 @@ describe('POST /api/projects/[id]/visualizer/deobfuscate', () => {
     }))
   })
 
+  it('loads DEX rewrite callees through the selected method keys instead of scanning the run edge prefix', async () => {
+    const mainPath = 'project-1/artifact-1/task-1/run-1/sources/MainActivity.java'
+    const storePath = 'project-1/artifact-1/task-1/run-1/sources/UserStore.java'
+    const source = 'class MainActivity { void onCreate() { UserStore.loadProfile(); } }'
+    await writeFile(path.join(testRoot, mainPath), source)
+    await writeFile(path.join(testRoot, storePath), 'class UserStore { static void loadProfile() {} }')
+    h.artifact.mockResolvedValueOnce({ id: 'artifact-1', sha256: 'a'.repeat(64), originalName: 'app.apk' })
+    h.agentFetch.mockResolvedValueOnce(new Response(JSON.stringify({
+      members: [{ name: 'onCreate', kind: 'method', start_byte: 0, end_byte: Buffer.byteLength(source), line: 1, source_bytes: Buffer.byteLength(source) }],
+      truncated: false,
+      parserVersion: 'tree-sitter-test',
+    }), { status: 200 }))
+    h.observation.mockResolvedValueOnce({
+      id: 'unit-main', artifactId: 'artifact-1', taskId: 'task-1', stableKey: 'dex:class:main', source: 'reamon-dex-decompiler',
+      label: 'MainActivity',
+      attributes: { name: 'MainActivity', language: 'Java', codeArtifactId: mainPath, relativePath: 'MainActivity.java', classReferences: [] },
+    })
+    h.observations.mockImplementation(async (args: { where?: Record<string, unknown> }) => {
+      const where = args.where || {}
+      if (where.type === 'function') return [{ stableKey: 'dex:function:main:onCreate' }]
+      if (where.type === 'calls') return [{
+        fromKey: 'dex:function:main:onCreate', toKey: 'dex:function:store:loadProfile',
+        attributes: {
+          fromCodeUnitKey: 'dex:class:main', toCodeUnitKey: 'dex:class:store',
+          fromSignature: 'Lapp/MainActivity;->onCreate()V', toSignature: 'Lapp/UserStore;->loadProfile()V',
+        },
+      }]
+      if (where.type === 'code_unit' && typeof where.stableKey === 'object' && where.stableKey !== null) return [{
+        id: 'unit-store', stableKey: 'dex:class:store', label: 'UserStore',
+        attributes: { name: 'UserStore', language: 'Java', codeArtifactId: storePath, relativePath: 'UserStore.java' },
+      }]
+      return []
+    })
+
+    const response = await deobfuscate(request({
+      unitId: 'unit-main', providerId: 'provider-1', scope: 'member', memberName: 'onCreate', startByte: 0, endByte: Buffer.byteLength(source),
+    }), routeParams)
+
+    expect(response.status).toBe(202)
+    const payload = h.attemptsCreate.mock.calls[0][0].data.requestPayload
+    expect(payload.context_sources).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        unit_name: expect.stringContaining('direct callee from this analysis run'),
+        source_code: 'class UserStore { static void loadProfile() {} }',
+      }),
+    ]))
+    expect(h.observations).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        type: 'calls',
+        OR: [{ fromKey: { in: ['dex:function:main:onCreate'] } }, { toKey: { in: ['dex:function:main:onCreate'] } }],
+      }),
+      take: 401,
+    }))
+  })
+
   it('persists the selected source and exact saved provider for an asynchronous source transformation', async () => {
     const response = await deobfuscate(request({ unitId: 'unit-1', providerId: 'provider-1', question: 'Use names based on actual behavior.' }), routeParams)
 
