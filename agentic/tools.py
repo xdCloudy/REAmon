@@ -9,6 +9,7 @@ import os
 import re
 import asyncio
 import logging
+import time
 from typing import List, Optional, Dict, Callable, Awaitable, TYPE_CHECKING
 from contextvars import ContextVar
 
@@ -2186,6 +2187,7 @@ class PhaseAwareToolExecutor:
                 "session_id": current_session_id.get() or None,
                 "tool": tool_name,
                 "phase": current_phase.get(),
+                "exp": int(time.time()) + 300,
             }
             if not payload["project_id"] or not payload["user_id"]:
                 return ""

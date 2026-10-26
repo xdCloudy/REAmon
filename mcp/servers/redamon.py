@@ -8,12 +8,13 @@ is an authenticated HTTP call to the agent's `/traffic/exec` (read) and
 `/traffic/replay` (active PREPARE) endpoints — the mirror of the redagraph ->
 /graph/exec broker. Tenant identity is carried by the signed `REDAMON_CTX` tag
 (minted by the agent, which holds INTERNAL_API_KEY; this worker does not), so a
-foothold here cannot read or send for a tenant it was not issued for.
+foothold here cannot read or send for a tenant it was not issued for. Traffic
+contexts are short-lived and tool-scoped; model-authored proxy_brain code does
+not receive a reusable scanner transport key.
 
 Env (injected per-invocation by the proxy_brain MCP tool):
   REDAMON_AGENT_URL  - the agent base URL (default http://agent:8080)
-  SCANNER_API_KEY    - scoped transport auth (X-Internal-Key)
-  REDAMON_CTX        - the signed agent tag (tenant/session/phase claims)
+  REDAMON_CTX        - short-lived signed agent tag (tenant/session/tool/phase claims)
 """
 from __future__ import annotations
 
@@ -51,11 +52,9 @@ def _ctx() -> str:
 
 
 def _headers() -> Dict[str, str]:
-    h = {}
-    key = os.environ.get("SCANNER_API_KEY", "").strip()
-    if key:
-        h["X-Internal-Key"] = key
-    return h
+    # Traffic endpoints authenticate the short-lived signed context in the
+    # request body. Do not copy a shared transport secret into model code.
+    return {}
 
 
 def _die(msg: str) -> None:

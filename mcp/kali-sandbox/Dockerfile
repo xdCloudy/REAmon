@@ -5,6 +5,8 @@
 FROM golang:1-bookworm AS osv-builder
 RUN GOBIN=/out go install github.com/google/osv-scanner/v2/cmd/osv-scanner@v2.4.0
 
+FROM golang:1.25.7-bookworm AS go-runtime
+
 FROM kalilinux/kali-rolling:latest
 
 LABEL maintainer="RedAmon Project"
@@ -132,13 +134,10 @@ RUN mkdir -p /usr/share/ysoserial \
        > /usr/local/bin/ysoserial \
     && chmod +x /usr/local/bin/ysoserial
 
-# Install Go (required for naabu and nuclei)
-# Handle ARM64 (Apple Silicon) vs AMD64 automatically
-RUN ARCH=$(dpkg --print-architecture) && \
-    if [ "$ARCH" = "arm64" ]; then GO_ARCH="arm64"; else GO_ARCH="amd64"; fi && \
-    retry wget -q https://go.dev/dl/go1.25.7.linux-${GO_ARCH}.tar.gz && \
-    tar -C /usr/local -xzf go1.25.7.linux-${GO_ARCH}.tar.gz && \
-    rm go1.25.7.linux-${GO_ARCH}.tar.gz
+# Install the pinned Go release required for naabu and nuclei. Copying from the
+# official versioned image avoids a second download path that can fail even when
+# Docker Hub pulls succeed, and preserves automatic ARM64/AMD64 selection.
+COPY --from=go-runtime /usr/local/go /usr/local/go
 
 ENV PATH="${PATH}:/usr/local/go/bin:/root/go/bin"
 ENV GOPATH="/root/go"
@@ -260,9 +259,12 @@ RUN retry git clone https://github.com/swisskyrepo/GraphQLmap.git /opt/graphqlma
     && pip install --no-cache-dir -e .
 
 # Playwright browser automation (for web application recon & interaction)
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+RUN mkdir -p /ms-playwright && chmod 0755 /ms-playwright
 RUN pip install --no-cache-dir playwright \
     && playwright install chromium \
     && playwright install-deps chromium \
+    && chmod -R a+rX /ms-playwright \
     && rm -rf /var/lib/apt/lists/*
 
 # Install SecLists wordlists for ffuf/gobuster directory fuzzing

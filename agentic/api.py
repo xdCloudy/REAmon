@@ -23,6 +23,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from importlib.metadata import PackageNotFoundError, version as package_version
 from contextlib import asynccontextmanager
 from typing import Any, List, Literal, Optional
@@ -6590,9 +6591,9 @@ class TrafficReplayRequest(BaseModel):
 def _verify_traffic_ctx(ctx: str) -> Optional[dict]:
     """Verify the signed agent tag and return its claims, or None (fail closed).
 
-    The tag is HMAC-signed with INTERNAL_API_KEY, which the kali worker does not
-    hold, so it can present the scoped SCANNER_API_KEY for transport auth yet
-    cannot mint a tag for a tenant it was not issued for."""
+    The tag is HMAC-signed with INTERNAL_API_KEY, which the Kali service does not
+    hold. Traffic operations use this short-lived, project-bound tag as their
+    authorization; proxy_brain code does not need a reusable scanner key."""
     try:
         from redamon_ctx import verify_tag
     except Exception:  # noqa: BLE001
@@ -6604,6 +6605,9 @@ def _verify_traffic_ctx(ctx: str) -> Optional[dict]:
         return None
     payload = verify_tag(ctx, {"agent": key})
     if not payload or not payload.get("user_id") or not payload.get("project_id"):
+        return None
+    expiry = payload.get("exp")
+    if isinstance(expiry, bool) or not isinstance(expiry, int) or expiry <= int(time.time()):
         return None
     return payload
 
@@ -6623,7 +6627,7 @@ def _apply_traffic_tenant(claims: dict) -> None:
         current_phase.set(claims["phase"])
 
 
-@app.post("/traffic/exec", tags=["Traffic"], dependencies=[Depends(require_internal_auth_only)])
+@app.post("/traffic/exec", tags=["Traffic"])
 async def traffic_exec(body: TrafficExecRequest):
     """Read-only corpus access for the kali `redamon` SDK. Constrained ops only;
     tenant from the verified tag; every underlying query hard-injects the tenant
@@ -6631,6 +6635,8 @@ async def traffic_exec(body: TrafficExecRequest):
     claims = _verify_traffic_ctx(body.ctx)
     if not claims:
         return JSONResponse(status_code=401, content={"error": "invalid or missing traffic ctx"})
+    if claims.get("tool") != "proxy_brain":
+        return JSONResponse(status_code=403, content={"error": "traffic read requires proxy_brain context"})
     _apply_traffic_tenant(claims)
 
     import json as _json
@@ -6665,7 +6671,7 @@ async def traffic_exec(body: TrafficExecRequest):
     return JSONResponse(content={"result": out})
 
 
-@app.post("/traffic/replay", tags=["Traffic"], dependencies=[Depends(require_internal_auth_only)])
+@app.post("/traffic/replay", tags=["Traffic"])
 async def traffic_replay(body: TrafficReplayRequest):
     """ACTIVE replay PREPARE. Validates tenant + phase, reads the origin
     (tenant-scoped), builds the host-pinned curl and signs the replay lineage
@@ -6674,6 +6680,8 @@ async def traffic_replay(body: TrafficReplayRequest):
     claims = _verify_traffic_ctx(body.ctx)
     if not claims:
         return JSONResponse(status_code=401, content={"error": "invalid or missing traffic ctx"})
+    if claims.get("tool") != "proxy_brain":
+        return JSONResponse(status_code=403, content={"error": "traffic replay requires proxy_brain context"})
 
     # Per-send phase gate (the tag carries the session phase). Active sends are
     # confined to the exploitation phases, mirroring TOOL_PHASE_MAP for the old
@@ -6703,6 +6711,7 @@ async def traffic_replay(body: TrafficReplayRequest):
             "phase": phase,
             "is_replay": True,
             "origin_id": str(body.id),
+            "exp": int(time.time()) + 300,
         }, os.environ.get("INTERNAL_API_KEY", ""))
     except Exception:  # noqa: BLE001
         replay_tag = ""
@@ -6768,7 +6777,7 @@ class TrafficBrowserRequest(BaseModel):
     url: Optional[str] = None  # navigate only (for the host-pin check)
 
 
-@app.post("/traffic/browser", tags=["Traffic"], dependencies=[Depends(require_internal_auth_only)])
+@app.post("/traffic/browser", tags=["Traffic"])
 async def traffic_browser(body: TrafficBrowserRequest):
     """Browser PREPARE for the kali `redamon.browser` SDK. Mirrors /traffic/replay:
     validates tenant + phase, re-reads the origin transaction tenant-scoped to pin
@@ -6778,6 +6787,8 @@ async def traffic_browser(body: TrafficBrowserRequest):
     claims = _verify_traffic_ctx(body.ctx)
     if not claims:
         return JSONResponse(status_code=401, content={"error": "invalid or missing traffic ctx"})
+    if claims.get("tool") != "proxy_brain":
+        return JSONResponse(status_code=403, content={"error": "traffic browser requires proxy_brain context"})
 
     # Browsing emits live traffic; confine it to the exploitation phases exactly
     # like /traffic/replay. Fail closed on anything else.
@@ -6843,6 +6854,7 @@ async def traffic_browser(body: TrafficBrowserRequest):
                 "tool": "proxy_brain_browser",
                 "phase": phase,
                 "origin_id": str(body.origin_id),
+                "exp": int(time.time()) + 300,
             }, os.environ.get("INTERNAL_API_KEY", ""))
         except Exception:  # noqa: BLE001
             cap_tag = ""

@@ -744,15 +744,30 @@ def proxy_brain(code: str, _redamon_ctx: str = "") -> str:
     except Exception as e:  # noqa: BLE001
         return f"[ERROR] Failed to write code file: {str(e)}"
 
-    # Per-invocation env: the signed tenant/session tag is set ONLY on this child,
-    # never on the container/global env, so concurrent tenants never see each
-    # other's context. REDAMON_AGENT_URL + SCANNER_API_KEY are inherited.
-    child_env = dict(os.environ)
-    child_env["REDAMON_CTX"] = _redamon_ctx or ""
+    # The model-authored program gets a small environment and an unprivileged
+    # UID. In particular, it cannot read the root MCP process environment via
+    # /proc, and it receives no MCP, tunnel, scanner, database, or agent key.
+    # The signed project context is the only per-call authorization it gets.
+    child_env = {
+        "PATH": os.environ.get("PATH", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"),
+        "HOME": "/tmp",
+        "LANG": os.environ.get("LANG", "C.UTF-8"),
+        "REDAMON_AGENT_URL": os.environ.get("REDAMON_AGENT_URL", "http://agent:8080"),
+        "REDAMON_CTX": _redamon_ctx or "",
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "PYTHONNOUSERSITE": "1",
+    }
+    for env_name in (
+        "LC_ALL", "CAPTURE_PROXY_URL", "PLAYWRIGHT_BROWSERS_PATH",
+        "SSL_CERT_FILE", "SSL_CERT_DIR",
+    ):
+        if os.environ.get(env_name):
+            child_env[env_name] = os.environ[env_name]
 
     try:
         result = subprocess.run(
             ["python3", filepath], capture_output=True, text=True, timeout=180, env=child_env,
+            user=65534, group=65534, extra_groups=(),
         )
         output = result.stdout
         if result.stderr:

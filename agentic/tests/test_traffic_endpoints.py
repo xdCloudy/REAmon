@@ -12,6 +12,7 @@ import asyncio
 import json
 import os
 import sys
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -27,10 +28,12 @@ os.environ["INTERNAL_API_KEY"] = KEY
 from redamon_ctx import sign_tag  # noqa: E402
 
 
-def _tag(user_id="u1", project_id="p1", phase="exploitation", key=None):
+def _tag(user_id="u1", project_id="p1", phase="exploitation", key=None,
+         tool="proxy_brain", exp=None):
     return sign_tag({
         "source": "agent", "user_id": user_id, "project_id": project_id,
-        "session_id": "s1", "tool": "proxy_brain", "phase": phase,
+        "session_id": "s1", "tool": tool, "phase": phase,
+        "exp": int(time.time()) + 300 if exp is None else exp,
     }, key or KEY)
 
 
@@ -48,6 +51,40 @@ def test_exec_missing_ctx_401():
     import api
     resp = _run(api.traffic_exec(api.TrafficExecRequest(ctx="", op="sitemap")))
     assert resp.status_code == 401
+
+
+def test_exec_expired_ctx_401():
+    import api
+    resp = _run(api.traffic_exec(api.TrafficExecRequest(
+        ctx=_tag(exp=int(time.time()) - 1), op="sitemap")))
+    assert resp.status_code == 401
+
+
+def test_exec_wrong_tool_context_403():
+    import api
+    resp = _run(api.traffic_exec(api.TrafficExecRequest(
+        ctx=_tag(tool="execute_curl"), op="sitemap")))
+    assert resp.status_code == 403
+
+
+def test_exec_signed_context_auth_does_not_need_transport_key():
+    import httpx
+    import api
+    import traffic_tools
+
+    async def _post_without_internal_key():
+        transport = httpx.ASGITransport(app=api.app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            return await client.post("/traffic/exec", json={"ctx": _tag(), "op": "sitemap"})
+
+    class _SitemapTool:
+        async def ainvoke(self, *_args, **_kwargs):
+            return "tenant sitemap"
+
+    with mock.patch.object(traffic_tools, "proxy_sitemap", _SitemapTool()):
+        response = _run(_post_without_internal_key())
+    assert response.status_code == 200
+    assert response.json()["result"] == "tenant sitemap"
 
 
 def test_replay_missing_ctx_401():

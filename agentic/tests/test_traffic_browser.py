@@ -13,12 +13,13 @@ import asyncio
 import json
 import os
 import sys
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from unittest import mock
 
-KEY = "test-internal-key-browser"
+KEY = "test-internal-key-proxybrain"
 os.environ["INTERNAL_API_KEY"] = KEY
 
 from redamon_ctx import sign_tag  # noqa: E402
@@ -28,6 +29,7 @@ def _tag(user_id="u1", project_id="p1", phase="exploitation", key=None):
     return sign_tag({
         "source": "agent", "user_id": user_id, "project_id": project_id,
         "session_id": "s1", "tool": "proxy_brain", "phase": phase,
+        "exp": int(time.time()) + 300,
     }, key or KEY)
 
 

@@ -58,6 +58,19 @@ mounted into scan infrastructure, so a worker controller needs a separate
 scoped broker API or equivalent per-worker authorization before project workers
 can share that broker.
 
+On 2026-10-26, the proxy_brain traffic path was tightened: agent contexts now
+expire after five minutes, and the traffic read, replay, and browser routes
+require the signed context to name `proxy_brain`. Those routes now authenticate
+the context directly, so the shared scanner transport key is not copied into
+the proxy_brain child. That child runs as UID/GID 65534 with a small environment
+that excludes the MCP, tunnel, and scanner tokens. Its Playwright browser cache
+is installed at `/ms-playwright` so the unprivileged child can use it.
+
+This change applies only to proxy_brain and its traffic API. `kali_shell`,
+`execute_code`, custom Playwright scripts, and the interactive terminal still
+execute in the shared Kali container. The full project-worker isolation finding
+remains open.
+
 The live local deployment was checked on 2026-10-26: both the localhost and LAN
 readiness endpoints returned `ready` with database and artifact checks `ok`.
 `redamon-kali` was healthy, ran as the image's default user, and had

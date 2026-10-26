@@ -58,6 +58,7 @@ except Exception:  # pragma: no cover
 import capture_routing  # noqa: E402
 import network_recon_server as nrs  # noqa: E402
 import nuclei_server as ns  # noqa: E402
+import redamon as redamon_sdk  # noqa: E402
 
 _TEST_URL = "http://redamon-capture-proxy:8888"
 _TAG = "eyJhIjoxfQ.c2ln"  # opaque, header-safe (no spaces)
@@ -119,6 +120,42 @@ class _RoutingTestBase(unittest.TestCase):
         if env is not None:
             self.assertNotEqual(env.get("HTTP_PROXY"), _TEST_URL)
             self.assertNotEqual(env.get("HTTPS_PROXY"), _TEST_URL)
+
+    def test_proxy_brain_child_does_not_receive_scanner_transport_key(self):
+        secret_names = ("SCANNER_API_KEY", "MCP_AUTH_TOKEN", "TUNNEL_AUTH_TOKEN")
+        old = {name: os.environ.get(name) for name in secret_names}
+        for name in secret_names:
+            os.environ[name] = f"{name.lower()}-test-secret"
+        results = [_FakeResult(), _FakeResult()]
+        calls = []
+
+        def fake_run(cmd, *args, **kwargs):
+            calls.append((list(cmd), kwargs))
+            return results.pop(0)
+
+        try:
+            with mock.patch.object(nrs.subprocess, "run", side_effect=fake_run):
+                nrs.proxy_brain("print('ok')", "signed-short-lived-context")
+        finally:
+            for name, value in old.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
+
+        self.assertEqual(len(calls), 2)
+        child_env = calls[1][1]["env"]
+        for name in secret_names:
+            self.assertNotIn(name, child_env)
+        self.assertEqual(child_env["REDAMON_CTX"], "signed-short-lived-context")
+        self.assertEqual(child_env["CAPTURE_PROXY_URL"], _TEST_URL)
+        self.assertEqual(calls[1][1]["user"], 65534)
+        self.assertEqual(calls[1][1]["group"], 65534)
+        self.assertEqual(calls[1][1]["extra_groups"], ())
+
+    def test_proxy_brain_sdk_does_not_send_shared_transport_key(self):
+        with mock.patch.dict(os.environ, {"SCANNER_API_KEY": "scanner-test-key"}):
+            self.assertEqual(redamon_sdk._headers(), {})
 
 
 class TestAgentCaptureRoutingGate(unittest.TestCase):

@@ -39,7 +39,7 @@ from typing import Any, Dict, Mapping, Optional
 # ingest stamps them from the VERIFIED tag, so a target/proxy cannot forge them.
 _ALLOWED_FIELDS = (
     "source", "project_id", "user_id", "run_id", "session_id",
-    "tool", "phase", "step", "member_id", "is_replay", "origin_id",
+    "tool", "phase", "step", "member_id", "is_replay", "origin_id", "exp",
 )
 
 VALID_SOURCES = frozenset({"recon", "agent", "operator"})
