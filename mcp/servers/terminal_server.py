@@ -18,6 +18,7 @@ import struct
 import termios
 import json
 import logging
+from untrusted_process import UNTRUSTED_EXEC_NOFILE_LIMIT, UNTRUSTED_EXEC_PRLIMIT
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [terminal] %(message)s")
 logger = logging.getLogger("terminal-server")
@@ -280,6 +281,10 @@ def _terminal_sandbox_command(tenant_env: dict) -> list[str]:
         if project_id in (".", "..") or project_id.startswith("."):
             raise ValueError("invalid project id for terminal workspace")
     return [
+        UNTRUSTED_EXEC_PRLIMIT,
+        "--core=0:0",
+        f"--nofile={UNTRUSTED_EXEC_NOFILE_LIMIT}:{UNTRUSTED_EXEC_NOFILE_LIMIT}",
+        "--",
         "/usr/bin/unshare", "--user", "--map-root-user", "--mount",
         "/bin/sh", "-c",
         _TERMINAL_SANDBOX_SCRIPT, "reamon-terminal", project_id,
@@ -315,11 +320,8 @@ async def _run_pty_session(ws):
             os._exit(126)
 
         try:
-            os.execvpe(
-                "/usr/bin/unshare",
-                _terminal_sandbox_command(tenant_env),
-                env,
-            )
+            command = _terminal_sandbox_command(tenant_env)
+            os.execvpe(command[0], command, env)
         except Exception as e:
             logger.error("Could not start isolated terminal namespace: %s", e)
             os._exit(126)
