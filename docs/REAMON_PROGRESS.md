@@ -1,10 +1,10 @@
 # REAmon product progress
 
-Assessment date: 2026-10-26 · Source: pushed commit `a3de8f2` · Weighted estimate: **51.6%**
+Assessment date: 2026-10-26 · Source: pushed commit `aafdb68` · Weighted estimate: **51.8%**
 
 This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.
 
-On 2026-10-26, both local and LAN readiness endpoints returned ready with database and artifact checks ok, but the deployed webapp revision remains unverified. Quality run [40247230850](https://github.com/xdCloudy/REAmon/actions/runs/40247230850) passed the full Docker unit gate and production-stack acceptance on commit `baa5634a`. Current source hardens model-authored shell and code children to UID/GID 65534 with a fixed credential-free environment and unique cleaned source paths. Shared Kali `/tmp` and workspace access, terminal isolation, missing signed context for arbitrary tools, and tenant-scoped broker ownership remain open. This weighted estimate is evidence-backed progress, not release certification.
+On 2026-10-26, both local and LAN readiness endpoints returned ready with database and artifact checks ok, but the deployed webapp revision remains unverified. Quality run [40247230850](https://github.com/xdCloudy/REAmon/actions/runs/40247230850) passed the full Docker unit gate and production-stack acceptance on commit `baa5634a`. Current source hardens model-authored shell and code children to UID/GID 65534 with a fixed credential-free environment, unique cleaned source paths, bounded output capture, and request-scoped process-group cleanup. Shared Kali `/tmp` and workspace access, terminal isolation, missing signed context for arbitrary tools, and tenant-scoped broker ownership remain open. This weighted estimate is evidence-backed progress, not release certification.
 
 | Workstream | Goal weight | Estimated complete | Weighted points |
 | --- | ---: | ---: | ---: |
@@ -13,7 +13,7 @@ On 2026-10-26, both local and LAN readiness endpoints returned ready with databa
 | Major-language and format decompilation fluency | 24% | 35% | 8.40 pts |
 | Maintainable editing, review, and export | 12% | 43% | 5.16 pts |
 | Fixture-backed validation and fidelity evidence | 12% | 15% | 1.80 pts |
-| Security, reliability, and production operations | 20% | 62% | 12.40 pts |
+| Security, reliability, and production operations | 20% | 63% | 12.60 pts |
 
 ## Evidence and remaining work
 
@@ -49,7 +49,7 @@ On 2026-10-26, both local and LAN readiness endpoints returned ready with databa
 
 ### Security, reliability, and production operations
 
-**Current evidence:** Four of five validated security findings have source mitigations. User-configured stdio MCP execution remains disabled pending isolation; global tunnel credential access is restricted to the master key; shared artifact storage has reservation-based capacity admission; and MCP deletion responses mask retained credentials. The shared Kali finding remains open, but model-authored proxy_brain, kali_shell, and execute_code children now run as UID/GID 65534 with fixed credential-free environments. execute_code uses unique, cleaned temporary paths. The MCP controller and terminal remain in the shared container, and /tmp plus the complete workspace mount remain shared across projects.
+**Current evidence:** Four of five validated security findings have source mitigations. User-configured stdio MCP execution remains disabled pending isolation; global tunnel credential access is restricted to the master key; shared artifact storage has reservation-based capacity admission; and MCP deletion responses mask retained credentials. The shared Kali finding remains open, but model-authored proxy_brain, kali_shell, and execute_code children now run as UID/GID 65534 with fixed credential-free environments. execute_code uses unique, cleaned temporary paths. Shell and code output capture is capped at 2 MiB per stream, and request process groups are killed after completion or timeout. The MCP controller and terminal remain in the shared container, and /tmp plus the complete workspace mount remain shared across projects.
 
 **Remaining:** Implement authenticated project scope and per-project worker isolation for every arbitrary-code surface; isolate /tmp and workspace storage; independently review storage admission; validate service rebuilds and controls on the LAN deployment; and complete broader security, upgrade, backup, and restore review on the release candidate.
 

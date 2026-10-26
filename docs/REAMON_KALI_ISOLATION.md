@@ -73,8 +73,13 @@ and a fixed environment allowlist. Go tools installed under `/root/go/bin` are
 copied to `/usr/local/bin` so those commands can still invoke them without access
 to root's home directory. `execute_code` writes each source file to a unique path
 without shell interpolation, makes it read-only to the child, and cleans up its
-source and compiled output after the run. These controls reduce process privilege
-and prevent inherited service variables from reaching those children. Context
+source and compiled output after the run. Shell and code execution now cap captured
+stdout and stderr at 2 MiB per stream, drain excess output without retaining it,
+and terminate the request's process group on completion or timeout so background
+descendants cannot outlive the request. Fourteen focused Docker tests pass for
+credential filtering, unprivileged execution, bounded output, process-group
+cleanup, unique paths, and existing wrapper formatting. These controls reduce
+process privilege and resource abuse but do not add project boundaries. Context
 verification, custom Playwright, terminal isolation, and project-scoped `/tmp` and
 workspace storage remain open; the full project-worker finding is not closed.
 
