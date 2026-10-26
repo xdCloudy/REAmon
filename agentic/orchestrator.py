@@ -166,6 +166,8 @@ class AgentOrchestrator:
         if not get_setting("PERSISTENT_CHECKPOINTER", False):
             logger.info("PERSISTENT_CHECKPOINTER=false; using MemorySaver (non-persistent)")
             self._checkpoint_pool = None
+            checkpointer = MemorySaver()
+            set_checkpointer(checkpointer)
             return
         pool = None
         try:
@@ -1464,6 +1466,7 @@ class AgentOrchestrator:
 
     async def close(self) -> None:
         """Clean up resources."""
+        global checkpointer
         # Close KB Neo4j driver if it was created
         kb = getattr(self, '_knowledge_base', None)
         if kb is not None and getattr(kb, 'neo4j', None) is not None:
@@ -1483,6 +1486,11 @@ class AgentOrchestrator:
                 logger.warning("Error closing PostgreSQL checkpoint pool (%s)", type(exc).__name__)
             finally:
                 self._checkpoint_pool = None
+                # The global saver and helper config must not retain a saver
+                # backed by the pool that has just been closed. A subsequent
+                # initialize() will select persistent storage again if enabled.
+                checkpointer = MemorySaver()
+                set_checkpointer(checkpointer)
 
         self._initialized = False
         logger.info("AgentOrchestrator closed")

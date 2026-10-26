@@ -5,7 +5,9 @@ import types
 import unittest
 from unittest.mock import patch
 
+import orchestrator
 from orchestrator import AgentOrchestrator
+from orchestrator_helpers import get_checkpointer
 
 
 class _Pool:
@@ -65,20 +67,33 @@ class CheckpointerStartupTests(unittest.IsolatedAsyncioTestCase):
         set_checkpointer.assert_not_called()
 
     async def test_explicit_nonpersistent_mode_keeps_memory_saver_path(self):
+        stale_saver = object()
+        orchestrator.checkpointer = stale_saver
+        orchestrator.set_checkpointer(stale_saver)
+
         with patch("orchestrator.get_setting", return_value=False):
             await self.orchestrator._setup_checkpointer()
 
         self.assertIsNone(self.orchestrator._checkpoint_pool)
+        self.assertIsInstance(orchestrator.checkpointer, orchestrator.MemorySaver)
+        self.assertIs(orchestrator.checkpointer, get_checkpointer())
+        self.assertIsNot(orchestrator.checkpointer, stale_saver)
 
     async def test_shutdown_closes_persistent_checkpoint_pool(self):
         pool = _Pool()
         self.orchestrator._checkpoint_pool = pool
+        stale_saver = object()
+        orchestrator.checkpointer = stale_saver
+        orchestrator.set_checkpointer(stale_saver)
 
         await self.orchestrator.close()
 
         self.assertTrue(pool.closed)
         self.assertEqual(pool.close_calls, 1)
         self.assertIsNone(self.orchestrator._checkpoint_pool)
+        self.assertIsInstance(orchestrator.checkpointer, orchestrator.MemorySaver)
+        self.assertIs(orchestrator.checkpointer, get_checkpointer())
+        self.assertIsNot(orchestrator.checkpointer, stale_saver)
 
 
 if __name__ == "__main__":
