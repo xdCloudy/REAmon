@@ -997,7 +997,7 @@ things make it safe:
 `proxy_brain` runs in the **least-trusted** container (the Kali sandbox, which talks
 to targets) and holds **no database credential**. It reaches the corpus only through
 two authenticated endpoints on the trusted agent, mirroring how the graph terminal
-reaches Neo4j (`redagraph` -> `/graph/exec`): the worker that could be compromised by
+reaches Neo4j (`redagraph` -> `/graph/terminal-exec`): the worker that could be compromised by
 a target never has a direct line to the store.
 
 ```mermaid

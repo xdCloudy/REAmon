@@ -84,10 +84,12 @@ excess output without retaining it, and terminate the request's process group on
 completion or timeout so background descendants cannot outlive the request.
 The terminal PTY child clears supplementary groups and drops to UID/GID 65534
 before it executes Bash. Its environment is allowlisted and omits the master,
-MCP, tunnel, and scanner keys. This also prevents a shell user from changing
-body-supplied tenant IDs on `/graph/exec` while presenting the scanner key; the
-`redagraph` CLI must wait for server-enforced tenant scope. A signed terminal
-context has not been wired into the graph endpoint. Custom Playwright scripts now use the same
+MCP, tunnel, and scanner keys. The agent mints a two-hour graph context from
+the verified WebSocket ticket, and terminal graph reads plus `redagraph ask`
+derive tenant IDs from that signed context. Request-body identity cannot select
+another tenant on these terminal routes. The legacy `/graph/exec` path still
+accepts authenticated body identity and remains a separate R12 gap. Custom
+Playwright scripts now use the same
 process runner; their source is made readable to the
 unprivileged child, and output filtering remains in place. A Docker smoke
 confirmed a custom script sees UID 65534 and no `INTERNAL_API_KEY`. A
@@ -97,6 +99,8 @@ credential filtering, unprivileged execution, bounded output, process-group
 cleanup, unique paths, proxy context handling, Playwright capture wiring, and
 wrapper formatting. These controls
 reduce process privilege and resource abuse but do not add project boundaries.
+The expanded terminal identity, signed graph-context, graph authorization, and
+CLI regression run passes 84 Docker tests plus 45 script-style subchecks.
 Context verification, custom Playwright project scoping, terminal project
 scoping, and project-scoped `/tmp` and workspace storage remain open; the full
 project-worker finding is not closed.
