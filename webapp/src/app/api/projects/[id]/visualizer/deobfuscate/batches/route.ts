@@ -45,14 +45,15 @@ export async function GET(request: Request, { params }: RouteParams) {
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     select: { agentBatchId: true, runKey: true, createdAt: true },
   })
-  if (!latest?.agentBatchId) return NextResponse.json({ batch: null }, { headers: { 'Cache-Control': 'no-store' } })
+  const agentBatchId = latest?.agentBatchId
+  if (!agentBatchId) return NextResponse.json({ batch: null }, { headers: { 'Cache-Control': 'no-store' } })
 
   const attempts = await prisma.reamonCodeAttempt.findMany({
     where: {
       projectId,
       artifactId: task.artifactId,
       runKey: latest.runKey,
-      agentBatchId: latest.agentBatchId,
+      agentBatchId,
       scope: 'member',
     },
     orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
@@ -74,7 +75,7 @@ export async function GET(request: Request, { params }: RouteParams) {
   })
   return NextResponse.json({
     batch: {
-      id: latest.agentBatchId,
+      id: agentBatchId,
       createdAt: latest.createdAt.toISOString(),
       attempts: attempts.map((attempt) => {
         const payload = plainObject(attempt.requestPayload)
