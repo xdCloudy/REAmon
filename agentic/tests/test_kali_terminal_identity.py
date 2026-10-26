@@ -43,6 +43,8 @@ def test_terminal_graph_context_rejects_tampering_and_wrong_tool(monkeypatch):
     assert api._verify_terminal_graph_ctx(token)["project_id"] == "project-1"
     assert api._verify_terminal_graph_ctx(token + "x") is None
     assert api._verify_terminal_graph_ctx(sign_tag({**base, "tool": "proxy_brain"}, key)) is None
+    monkeypatch.setenv("SCANNER_API_KEY", key)
+    assert api._verify_terminal_graph_ctx(token) is None
 
 
 def test_terminal_graph_exec_uses_signed_tenant_not_body_identity(monkeypatch):

@@ -46,6 +46,7 @@ class TextToCypherAuthTests(unittest.TestCase):
             deps,
             f"/text-to-cypher is not gated by the BILLED dependency (deps: {deps})",
         )
+        self.assertIn("require_configured_master_internal_auth", deps)
 
     def test_not_merely_auth_only(self):
         # require_internal_auth_only skips the token bucket and the daily spend
@@ -65,6 +66,23 @@ class TextToCypherAuthTests(unittest.TestCase):
             resp = client.post(
                 "/text-to-cypher",
                 json={"question": "list ips", "user_id": "u1", "project_id": "p1"},
+            )
+        self.assertEqual(resp.status_code, 401)
+
+    def test_scanner_key_cannot_select_a_users_provider_key(self):
+        import os
+        from unittest import mock
+        from fastapi.testclient import TestClient
+
+        with mock.patch.dict(os.environ, {
+            "INTERNAL_API_KEY": "master-secret",
+            "SCANNER_API_KEY": "scanner-secret",
+        }, clear=False):
+            client = TestClient(api.app)
+            resp = client.post(
+                "/text-to-cypher",
+                headers={"X-Internal-Key": "scanner-secret"},
+                json={"question": "list ips", "user_id": "victim", "project_id": "victim-project"},
             )
         self.assertEqual(resp.status_code, 401)
 

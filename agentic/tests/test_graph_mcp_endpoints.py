@@ -47,8 +47,10 @@ class RoutesRegisteredTests(unittest.TestCase):
         route = _route("/graph/nl-query", "POST")
         self.assertIsNotNone(route)
         # It spends the project owner's LLM key, so it needs the token bucket
-        # and daily cap, not just a key check.
+        # and daily cap, and only the trusted webapp master identity may select
+        # the project whose provider key is used.
         self.assertIn("require_internal_auth", _dep_names(route))
+        self.assertIn("require_configured_master_internal_auth", _dep_names(route))
 
     def test_schema_doc_is_registered_and_auth_gated(self):
         route = _route("/graph/schema-doc", "GET")

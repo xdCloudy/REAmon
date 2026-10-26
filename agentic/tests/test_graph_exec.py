@@ -128,10 +128,11 @@ def main():
     resp = run(api.graph_exec(req(op="cypher", cypher="MATCH (n:Foo) CALL apoc.atomic.add(n,'x',1) RETURN n", user_id="U", project_id="P")))
     check("apoc.atomic.* rejected 403", resp.status_code == 403)
 
-    print("=== S8/I8/D7: /graph/exec and /emergency-stop-all require internal auth ===")
-    # Graph reads use AUTH-ONLY (no LLM rate limit); the emergency control also
-    # requires a configured master key so it fails closed on bare deployments.
+    print("=== Graph reads require configured master auth or signed terminal scope ===")
+    # Webapp graph APIs use the configured master key. The terminal uses its
+    # separate ticket-derived route; scanner credentials cannot assert tenants.
     from llm_guard import require_internal_auth, require_internal_auth_only
+    from llm_guard import require_configured_master_internal_auth
 
     def _route_deps(path):
         for r in api.app.routes:
@@ -141,8 +142,10 @@ def main():
 
     ge_deps = _route_deps("/graph/exec")
     es_deps = _route_deps("/emergency-stop-all")
-    check("/graph/exec requires internal auth (auth-only)", ge_deps is not None and require_internal_auth_only in ge_deps)
-    from llm_guard import require_configured_master_internal_auth
+    check("/graph/exec requires configured master auth",
+          ge_deps is not None and require_configured_master_internal_auth in ge_deps)
+    check("/graph/exec does not accept scanner-only auth",
+          require_internal_auth_only not in (ge_deps or []))
     check("/emergency-stop-all requires configured master auth", es_deps is not None and require_configured_master_internal_auth in es_deps)
     check("/graph/exec is NOT LLM-rate-limited (no require_internal_auth)", require_internal_auth not in (ge_deps or []))
 
@@ -167,36 +170,31 @@ def main():
     check("auth-only rejects a bad key (401)", run(_call_auth_only("wrong")) is False)
     os.environ.pop("SCANNER_API_KEY", None)
 
-    print("=== /graph/triage is MASTER-key only (the sandbox must not reach it) ===")
-    # The kali-sandbox holds SCANNER_API_KEY by design and NOT INTERNAL_API_KEY
-    # (docker-compose.yml). require_internal_auth_only accepts both, which is
-    # right for the read-only fixed-op /graph/exec and wrong for an endpoint
-    # that WRITES suppression state: a compromised worker could hide findings
-    # from the operator and the agent, or stamp triage_source='human' so a later
-    # AI pass would refuse to correct it.
+    print("=== /graph/triage and /graph/exec reject scanner-only auth ===")
     from llm_guard import require_master_internal_auth
     tri_deps = _route_deps("/graph/triage")
     check("/graph/triage exists", tri_deps is not None)
     check("/graph/triage requires the MASTER key", require_master_internal_auth in (tri_deps or []))
     check("/graph/triage does NOT accept the scoped scanner key",
           require_internal_auth_only not in (tri_deps or []))
-    check("/graph/exec still accepts the scanner key (the worker needs reads)",
-          require_internal_auth_only in (ge_deps or []))
+    check("/graph/exec never accepts scanner-only auth",
+          require_internal_auth_only not in (ge_deps or []))
 
     os.environ["INTERNAL_API_KEY"] = "master-key"
     os.environ["SCANNER_API_KEY"] = "scanner-key"
+    from llm_guard import require_configured_master_internal_auth
 
     async def _call_master(hdr):
         scope = {"type": "http", "headers": [(b"x-internal-key", hdr.encode())] if hdr else [], "client": ("1.2.3.4", 9)}
         try:
-            await require_master_internal_auth(_Req(scope))
+            await require_configured_master_internal_auth(_Req(scope))
             return True
         except Exception:
             return False
 
-    check("master key accepted", run(_call_master("master-key")) is True)
-    check("SCANNER key REJECTED on the triage endpoint", run(_call_master("scanner-key")) is False)
-    check("no key rejected", run(_call_master("")) is False)
+    check("master key accepted by graph/exec guard", run(_call_master("master-key")) is True)
+    check("SCANNER key rejected by graph/exec guard", run(_call_master("scanner-key")) is False)
+    check("no key rejected by graph/exec guard", run(_call_master("")) is False)
     os.environ.pop("INTERNAL_API_KEY", None)
     os.environ.pop("SCANNER_API_KEY", None)
 

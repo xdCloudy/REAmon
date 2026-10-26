@@ -63,6 +63,15 @@ class TestKeyAuth(unittest.TestCase):
             self.assertTrue(_key_ok("scoped"))
             self.assertFalse(_key_ok("neither"))
 
+    def test_equal_master_and_scanner_keys_reject_all_authentication(self):
+        with mock.patch.dict(
+            os.environ,
+            {"INTERNAL_API_KEY": "same-secret", "SCANNER_API_KEY": "same-secret"},
+            clear=False,
+        ):
+            self.assertFalse(_key_ok("same-secret"))
+            self.assertFalse(_key_ok("anything"))
+
     def test_changeme_placeholder_excluded(self):
         with mock.patch.dict(
             os.environ, {"INTERNAL_API_KEY": "changeme"}, clear=False

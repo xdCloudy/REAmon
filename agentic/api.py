@@ -5158,7 +5158,10 @@ async def _generate_validated_cypher(
 @app.post(
     "/text-to-cypher",
     tags=["Graph"],
-    dependencies=[Depends(require_internal_auth)],
+    dependencies=[
+        Depends(require_configured_master_internal_auth),
+        Depends(require_internal_auth),
+    ],
 )
 async def text_to_cypher(body: TextToCypherRequest):
     """
@@ -5203,7 +5206,10 @@ class GraphNlQueryRequest(BaseModel):
 @app.post(
     "/graph/nl-query",
     tags=["Graph"],
-    dependencies=[Depends(require_internal_auth)],
+    dependencies=[
+        Depends(require_configured_master_internal_auth),
+        Depends(require_internal_auth),
+    ],
 )
 async def graph_nl_query(body: GraphNlQueryRequest):
     """Natural language -> tenant-scoped rows, in one call.
@@ -5829,12 +5835,11 @@ async def graph_triage(body: GraphTriageRequest):
     own Neo4j driver, so the tenant scoping and the muteable-label guard have
     exactly one implementation (`graph_db/mixins/recon/triage_mixin.py`).
 
-    Auth is the MASTER key only, deliberately stricter than `/graph/exec`.
-    `/graph/exec` accepts the scoped SCANNER_API_KEY because the kali-sandbox
-    holds it and needs read-only graph access; this endpoint WRITES suppression
-    state, and the sandbox is the least-trusted, target-facing component. It
-    stays outside the LLM rate-limit bucket either way: these are cheap graph
-    operations, not billed LLM calls.
+    Auth is the MASTER key only. The terminal graph routes accept a signed,
+    ticket-derived scope for read-only operations; this endpoint WRITES
+    suppression state, so it never accepts that worker context. It stays
+    outside the LLM rate-limit bucket: these are cheap graph operations, not
+    billed LLM calls.
     """
     # `require_master_internal_auth` fails open with no key so a bare dev
     # install still boots. This route writes suppression and verdict state, so
@@ -6355,8 +6360,8 @@ async def node_filters_apply(body: NodeFilterApplyRequest):
 
 
 class GraphExecRequest(BaseModel):
-    """Worker (redagraph) -> agent graph query. `op` selects a fixed operation
-    so arbitrary unscoped queries are impossible."""
+    """Trusted webapp -> agent graph query. `op` selects a fixed operation
+    and tenant-filtered Cypher is still required for caller-supplied queries."""
     op: str  # "cypher" | "types" | "schema" | "summary"
     user_id: str
     project_id: str
@@ -6385,7 +6390,8 @@ def _verify_terminal_graph_ctx(ctx: str) -> Optional[dict]:
     if not isinstance(ctx, str) or len(ctx) > 4096:
         return None
     key = os.environ.get("INTERNAL_API_KEY", "")
-    if not key or key == "changeme":
+    scanner_key = os.environ.get("SCANNER_API_KEY", "")
+    if not key or key == "changeme" or (scanner_key and key == scanner_key):
         return None
     try:
         from redamon_ctx import verify_tag
@@ -6410,7 +6416,11 @@ def _verify_terminal_graph_ctx(ctx: str) -> Optional[dict]:
     return claims
 
 
-@app.post("/graph/exec", tags=["Graph"], dependencies=[Depends(require_internal_auth_only)])
+@app.post(
+    "/graph/exec",
+    tags=["Graph"],
+    dependencies=[Depends(require_configured_master_internal_auth)],
+)
 async def graph_exec(body: GraphExecRequest):
     from graph_db.tenant_filter import (
         find_disallowed_write_operation,
@@ -6422,14 +6432,11 @@ async def graph_exec(body: GraphExecRequest):
     if not body.user_id or not body.project_id:
         return JSONResponse(status_code=400, content={"error": "missing tenant identity"})
 
-    # R12 (phased): the caller is now authenticated (require_internal_auth), but
-    # the tenant is still derived from the request BODY. Log the legacy body-
-    # identity use so the migration surface is observable; the enforce-flip
-    # (claim-derived tenant threaded from terminal->redagraph) is a tracked
-    # follow-on. A foothold inside the authenticated worker can still assert a
-    # tenant here — a strictly smaller surface than the prior anonymous LAN read.
+    # This legacy service route is master-key-only: webapp callers resolve the
+    # owner/project before forwarding the request. Untrusted terminal shells use
+    # /graph/terminal-exec, which replaces body identity with signed ticket claims.
     logger.info(
-        "graph/exec: authenticated caller, body-identity tenant (R12 legacy path) "
+        "graph/exec: master-authenticated caller, body-identity tenant "
         "user=%s project=%s op=%s", body.user_id, body.project_id, body.op)
 
     op = body.op
@@ -7267,7 +7274,8 @@ def _kali_terminal_identity_frame(claims: dict) -> str:
         "session_id": str(claims["sid"]),
     }
     key = os.environ.get("INTERNAL_API_KEY", "")
-    if key and key != "changeme":
+    scanner_key = os.environ.get("SCANNER_API_KEY", "")
+    if key and key != "changeme" and key != scanner_key:
         from redamon_ctx import sign_tag
         frame["graph_ctx"] = sign_tag({
             "source": "agent",

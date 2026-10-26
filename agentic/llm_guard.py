@@ -83,6 +83,11 @@ def _valid_keys() -> list[str]:
 
 def _key_ok(provided: str) -> bool:
     global _warned_failopen
+    master = os.environ.get("INTERNAL_API_KEY", "")
+    scanner = os.environ.get("SCANNER_API_KEY", "")
+    if master and scanner and hmac.compare_digest(master.encode(), scanner.encode()):
+        logger.error("llm_guard: INTERNAL_API_KEY and SCANNER_API_KEY must be distinct")
+        return False
     keys = _valid_keys()
     if not keys:
         if not _warned_failopen:
@@ -201,7 +206,7 @@ async def require_internal_auth(request: Request) -> None:
 
 
 def master_key_is_weak() -> bool:
-    """True when INTERNAL_API_KEY is absent or still the compose default.
+    """True when master auth is absent, weak, or shares the scanner key.
 
     `require_master_internal_auth` fails OPEN in that case so a dev install with
     no secrets keeps working, which is right for the endpoints that existed when
@@ -209,28 +214,31 @@ def master_key_is_weak() -> bool:
     this and refuses for itself, without changing that global behaviour.
     """
     master = os.environ.get("INTERNAL_API_KEY", "")
-    return not master or master == _CHANGEME
+    scanner = os.environ.get("SCANNER_API_KEY", "")
+    return (
+        not master
+        or master == _CHANGEME
+        or bool(scanner and hmac.compare_digest(master.encode(), scanner.encode()))
+    )
 
 
 async def require_master_internal_auth(request: Request) -> None:
     """FastAPI dependency: the MASTER key only. Rejects the scanner token.
 
-    `require_internal_auth_only` accepts SCANNER_API_KEY as well, which is
-    correct for the read-only, fixed-op `/graph/exec`: the kali-sandbox holds
-    that token by design and needs graph reads.
-
-    It is NOT correct for an endpoint that MUTATES triage state. The worker is
-    the least-trusted, target-facing component and deliberately does not hold
-    INTERNAL_API_KEY (see docker-compose.yml). Without this stricter dependency
-    a compromised worker could suppress findings so neither the operator nor the
-    agent ever sees them, or stamp `triage_source='human'` so a later AI pass
-    would refuse to correct it -- an integrity attack on the product's own
-    output, mounted with a token we hand the worker on purpose.
+    Use this for endpoints whose caller must be the trusted webapp/agent. The
+    worker is the least-trusted, target-facing component and deliberately does
+    not hold INTERNAL_API_KEY (see docker-compose.yml). A scanner credential is
+    not an owner identity and must never authorize caller-supplied tenant IDs.
+    This also protects operations that mutate triage state from a compromised
+    worker hiding findings or stamping human decisions.
 
     Fail-open when no master key exists mirrors `_key_ok`, so a dev install with
     no secrets behaves as documented rather than bricking.
     """
     master = os.environ.get("INTERNAL_API_KEY", "")
+    scanner = os.environ.get("SCANNER_API_KEY", "")
+    if master and scanner and hmac.compare_digest(master.encode(), scanner.encode()):
+        raise HTTPException(status_code=503, detail="Internal and scanner API keys must be distinct")
     if not master or master == _CHANGEME:
         global _warned_failopen_master
         if not _warned_failopen_master:
@@ -259,6 +267,12 @@ async def require_configured_master_internal_auth(request: Request) -> None:
             status_code=503,
             detail="Internal API authentication is not configured",
         )
+    scanner = os.environ.get("SCANNER_API_KEY", "")
+    if scanner and hmac.compare_digest(master.encode(), scanner.encode()):
+        raise HTTPException(
+            status_code=503,
+            detail="Internal and scanner API keys must be distinct",
+        )
     provided = request.headers.get("x-internal-key", "")
     if not hmac.compare_digest(provided.encode(), master.encode()):
         raise HTTPException(status_code=401, detail="Unauthorized")
@@ -267,9 +281,10 @@ async def require_configured_master_internal_auth(request: Request) -> None:
 async def require_internal_auth_only(request: Request) -> None:
     """FastAPI dependency: AUTH ONLY (no LLM rate-limit / daily spend cap).
 
-    For NON-LLM internal endpoints that authenticate the same way but are cheap
-    high-frequency calls (e.g. /graph/exec graph reads) or rare control actions
-    (/emergency-stop-all). Applying the LLM token bucket / 5000-per-day cap to
+    For NON-LLM internal endpoints that authenticate either service key and are
+    cheap high-frequency calls or rare control actions. Tenant-sensitive graph
+    routes use stricter master-key or signed-context authorization. Applying the
+    LLM token bucket / 5000-per-day cap to
     these would throttle a legitimate bulk graph walk and let graph reads exhaust
     the LLM budget, which they must not (STRIDE S8 non-breaking requirement)."""
     provided = request.headers.get("x-internal-key", "")

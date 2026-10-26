@@ -36,6 +36,14 @@ class ConfiguredMasterAuthTests(unittest.TestCase):
                     asyncio.run(require_configured_master_internal_auth(_request(rejected)))
                 self.assertEqual(raised.exception.status_code, 401)
 
+    def test_equal_master_and_scanner_keys_fail_closed(self):
+        env = {"INTERNAL_API_KEY": "same-secret", "SCANNER_API_KEY": "same-secret"}
+        with patch.dict(os.environ, env, clear=True):
+            with self.assertRaises(HTTPException) as raised:
+                asyncio.run(require_configured_master_internal_auth(_request("same-secret")))
+        self.assertEqual(raised.exception.status_code, 503)
+        self.assertEqual(raised.exception.detail, "Internal and scanner API keys must be distinct")
+
     def test_workspace_and_session_controls_all_require_strict_auth(self):
         import api
 
@@ -96,6 +104,30 @@ class ConfiguredMasterAuthTests(unittest.TestCase):
                     response.json().get("detail"),
                     "Internal API authentication is not configured",
                 )
+
+    def test_graph_exec_rejects_scanner_identity_and_accepts_master_service(self):
+        import httpx
+        import api
+
+        async def post(key):
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=api.app), base_url="http://agent.test"
+            ) as client:
+                return await client.post(
+                    "/graph/exec",
+                    headers={"x-internal-key": key},
+                    json={"op": "invalid", "user_id": "u1", "project_id": "p1"},
+                )
+
+        env = {"INTERNAL_API_KEY": "master-secret", "SCANNER_API_KEY": "scanner-secret"}
+        with patch.dict(os.environ, env, clear=True):
+            scanner_response = asyncio.run(post("scanner-secret"))
+            master_response = asyncio.run(post("master-secret"))
+        self.assertEqual(scanner_response.status_code, 401)
+        # Unknown op is returned by the handler, proving the trusted service key
+        # passed auth without invoking Neo4j.
+        self.assertEqual(master_response.status_code, 400)
+        self.assertIn("unknown op", master_response.json()["error"])
 
     def test_workspace_route_rejects_direct_unauthenticated_and_scanner_requests(self):
         import httpx
