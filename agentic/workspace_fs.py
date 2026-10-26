@@ -98,7 +98,7 @@ def is_protected_path(rel_path: str) -> bool:
     return len(parts) == 1 and parts[0] in PROTECTED_SUBDIRS
 
 # Dirs skipped by fs_tree.
-_SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv"}
+_SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv", ".reamon-tmp"}
 
 
 # =============================================================================

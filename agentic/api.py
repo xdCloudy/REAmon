@@ -6398,7 +6398,7 @@ class ExecutionContextRequest(BaseModel):
 )
 async def resolve_execution_context(body: ExecutionContextRequest):
     """Verify a short-lived agent tag and reveal only its project mount scope."""
-    if body.tool not in {"kali_shell", "execute_code", "proxy_brain"}:
+    if body.tool not in {"kali_shell", "execute_code", "proxy_brain", "execute_playwright"}:
         return JSONResponse(status_code=403, content={"error": "unsupported execution tool"})
     key = os.environ.get("INTERNAL_API_KEY", "")
     scanner_key = os.environ.get("SCANNER_API_KEY", "")

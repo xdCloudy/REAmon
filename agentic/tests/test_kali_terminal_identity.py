@@ -94,6 +94,16 @@ def test_scoped_shell_context_resolves_only_verified_project(monkeypatch, tmp_pa
     ))
     assert proxy_scope == {"project_id": "project-1"}
 
+    playwright_token = sign_tag({
+        "source": "agent", "user_id": "owner-1", "project_id": "project-1",
+        "tool": "execute_playwright", "phase": "informational",
+        "exp": int(api.time.time()) + 60,
+    }, key)
+    playwright_scope = asyncio.run(api.resolve_execution_context(
+        api.ExecutionContextRequest(ctx=playwright_token, tool="execute_playwright")
+    ))
+    assert playwright_scope == {"project_id": "project-1"}
+
 
 def test_scoped_shell_context_rejects_expired_and_unsafe_project_claims(monkeypatch):
     import api

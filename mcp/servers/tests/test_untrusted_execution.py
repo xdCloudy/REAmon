@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import signal
+import shutil
 import sys
 import tempfile
 import types
@@ -74,8 +75,9 @@ class TestUntrustedExecution(unittest.TestCase):
 
         self.assertIn("uid=65534", result)
         self.assert_untrusted_child(run.call_args)
-        self.assertEqual(run.call_args.args[0][0:5], [
-            "/usr/bin/unshare", "--user", "--map-root-user", "--mount", "/bin/sh"
+        self.assertEqual(run.call_args.args[0][0:8], [
+            "/usr/bin/unshare", "--user", "--map-root-user", "--mount",
+            "--pid", "--fork", "--mount-proc", "/bin/sh",
         ])
         self.assertIn("project-123", run.call_args.args[0])
         self.assertIn("bash", run.call_args.args[0])
@@ -181,16 +183,36 @@ class TestUntrustedExecution(unittest.TestCase):
         self.assertTrue(result.stdout.endswith(recon._UNTRUSTED_OUTPUT_TRUNCATION))
         self.assertIn(str(exec_utils.UNTRUSTED_EXEC_UID), result.stderr)
 
-    def test_playwright_script_runs_unprivileged_without_service_environment(self):
-        if os.name != "posix" or os.geteuid() != 0:
-            self.skipTest("requires a POSIX test container running as root")
-        with mock.patch.dict(os.environ, {"INTERNAL_API_KEY": "master-secret"}, clear=False):
-            result = playwright._run_playwright_script(
-                "import os; print(os.getuid()); print(os.environ.get('INTERNAL_API_KEY'))",
-                timeout=10,
-            )
+    def test_playwright_script_uses_verified_project_workspace(self):
+        workspace = tempfile.mkdtemp(prefix="reamon-playwright-test-")
+        os.chmod(workspace, 0o777)
+        completed = recon.subprocess.CompletedProcess([], 0, "65534\nNone", "")
+        try:
+            with mock.patch.object(
+                playwright, "resolve_execution_project", return_value="project-123"
+            ), mock.patch.object(
+                playwright, "execution_workspace_root", return_value=workspace
+            ), mock.patch.object(
+                playwright, "run_untrusted_child", return_value=completed
+            ) as run:
+                result = playwright._run_playwright_script(
+                    "import os; print(os.getuid()); print(os.environ.get('INTERNAL_API_KEY'))",
+                    timeout=10, ctx_token="signed-context",
+                )
+        finally:
+            shutil.rmtree(workspace, ignore_errors=True)
 
         self.assertEqual(result.splitlines(), [str(exec_utils.UNTRUSTED_EXEC_UID), "None"])
+        self.assertEqual(run.call_args.args[0][0], "python3")
+        self.assertTrue(run.call_args.args[0][1].startswith("/workspace/playwright_"))
+        self.assertEqual(run.call_args.kwargs["workspace_project_id"], "project-123")
+
+    def test_playwright_script_fails_closed_without_signed_scope(self):
+        with mock.patch.object(playwright, "run_untrusted_child") as run:
+            result = playwright._run_playwright_script("print('must not run')")
+
+        self.assertIn("Scoped Playwright authorization failed", result)
+        run.assert_not_called()
 
 
 class _FakeChild:

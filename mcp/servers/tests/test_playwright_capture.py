@@ -76,7 +76,7 @@ class TestCaptureLaunchPatch(_PwBase):
 
     def test_patch_is_valid_python_and_complete(self):
         self._reachable(True)
-        patch = pw._capture_launch_patch(_TAG)
+        patch = pw._capture_launch_patch(_TAG, capture_enabled=True)
         self.assertTrue(patch, "expected a non-empty patch when routing")
         ast.parse(patch)  # raises if the generated code is malformed
         # proxy forced + tag stamped
@@ -90,14 +90,14 @@ class TestCaptureLaunchPatch(_PwBase):
     def test_tag_is_header_safe(self):
         # A tag with a space would break the header line; the real tag is b64url.
         self._reachable(True)
-        patch = pw._capture_launch_patch(_TAG)
+        patch = pw._capture_launch_patch(_TAG, capture_enabled=True)
         self.assertNotIn("X-Redamon-Ctx:  ", patch)
 
 
 class TestCaptureArgsWrappedMode(_PwBase):
     def test_routed_returns_kwargs(self):
         self._reachable(True)
-        proxy_kw, hdr_kw = pw._capture_playwright_args(_TAG)
+        proxy_kw, hdr_kw = pw._capture_playwright_args(_TAG, capture_enabled=True)
         self.assertIn(_TEST_URL, proxy_kw)
         self.assertIn("proxy=", proxy_kw)
         self.assertIn("X-Redamon-Ctx", hdr_kw)
@@ -106,20 +106,22 @@ class TestCaptureArgsWrappedMode(_PwBase):
     def test_direct_returns_empty(self):
         self._reachable(True)
         self.assertEqual(pw._capture_playwright_args(""), ("", ""))
-        self._reachable(False)
         self.assertEqual(pw._capture_playwright_args(_TAG), ("", ""))
+        self.assertEqual(pw._capture_launch_patch(_TAG), "")
+        self._reachable(False)
+        self.assertEqual(pw._capture_playwright_args(_TAG, capture_enabled=True), ("", ""))
 
 
 class TestScriptModeIntegration(_PwBase):
     def _run_capture(self, script, token):
         captured = {}
 
-        def fake_run(final_script, timeout=60):
+        def fake_run(final_script, timeout=60, **kwargs):
             captured["script"] = final_script
             return "ok"
 
         with mock.patch.object(pw, "_run_playwright_script", fake_run):
-            pw._execute_script_mode(script, ctx_token=token)
+            pw._execute_script_mode(script, ctx_token=token, capture_enabled=True)
         return captured.get("script", "")
 
     def test_self_contained_routed_injects_capture_patch(self):

@@ -19,6 +19,7 @@ import os
 # in-process `redamon` SDK cannot drift on the root/Docker flags.
 from browser_launch import BROWSER_ARGS, CHROME_UA
 from untrusted_process import run_untrusted_child
+from execution_scope import resolve_execution_project, execution_workspace_root
 
 # Strip ANSI escape codes (terminal colors) from output
 ANSI_ESCAPE = re.compile(r'\x1b\[[0-9;]*[a-zA-Z]')
@@ -31,19 +32,28 @@ SERVER_PORT = int(os.getenv("PLAYWRIGHT_PORT", "8005"))
 mcp = FastMCP(SERVER_NAME)
 
 
-def _run_playwright_script(script: str, timeout: int = 45) -> str:
+def _run_playwright_script(
+    script: str, timeout: int = 45, ctx_token: str = "",
+    capture_enabled: bool = False,
+) -> str:
     """Run a Playwright Python script in a subprocess and return its stdout."""
     script_path = None
     try:
+        project_id = resolve_execution_project(ctx_token, "execute_playwright")
+        workspace_root = execution_workspace_root(project_id)
         with tempfile.NamedTemporaryFile(
-            mode='w', suffix='.py', delete=False, dir='/tmp'
+            mode='w', prefix='playwright_', suffix='.py', delete=False, dir=workspace_root
         ) as f:
             f.write(script)
             f.flush()
             script_path = f.name
         os.chmod(script_path, 0o444)
 
-        result = run_untrusted_child(['python3', script_path], timeout=timeout)
+        sandbox_script_path = f"/workspace/{os.path.basename(script_path)}"
+        result = run_untrusted_child(
+            ['python3', sandbox_script_path], timeout=timeout,
+            workspace_project_id=project_id,
+        )
 
         output = ANSI_ESCAPE.sub('', result.stdout)
         if result.returncode != 0 and result.stderr:
@@ -60,6 +70,10 @@ def _run_playwright_script(script: str, timeout: int = 45) -> str:
 
     except subprocess.TimeoutExpired:
         return f"[ERROR] Script timed out after {timeout} seconds."
+    except PermissionError as e:
+        return f"[ERROR] Scoped Playwright authorization failed: {e}"
+    except ValueError as e:
+        return f"[ERROR] Scoped Playwright workspace failed: {e}"
     except Exception as e:
         return f"[ERROR] {str(e)}"
     finally:
@@ -71,7 +85,10 @@ def _run_playwright_script(script: str, timeout: int = 45) -> str:
 
 
 @mcp.tool()
-def execute_playwright(url: str = "", script: str = "", selector: str = "", format: str = "text", _redamon_ctx: str = "") -> str:
+def execute_playwright(
+    url: str = "", script: str = "", selector: str = "", format: str = "text",
+    _redamon_ctx: str = "", _capture_enabled: bool = False,
+) -> str:
     """
     Browser automation tool with two modes: content extraction or custom scripting.
 
@@ -108,17 +125,19 @@ def execute_playwright(url: str = "", script: str = "", selector: str = "", form
         - script="page.goto('http://10.0.0.5/search')\\npage.fill('input[name=q]', '<script>alert(1)</script>')\\npage.click('button[type=submit]')\\npage.wait_for_load_state('networkidle')\\nprint(page.content()[:5000])"
     """
     if script.strip():
-        return _execute_script_mode(script, _redamon_ctx)
+        return _execute_script_mode(script, _redamon_ctx, _capture_enabled)
     elif url.strip():
-        return _execute_content_mode(url, selector, format, _redamon_ctx)
+        return _execute_content_mode(url, selector, format, _redamon_ctx, _capture_enabled)
     else:
         return "[ERROR] Provide either 'url' (content extraction) or 'script' (custom automation)."
 
 
-def _capture_playwright_args(ctx_token: str):
+def _capture_playwright_args(ctx_token: str, capture_enabled: bool = False):
     """Return (proxy_kwarg, header_kwarg) f-string fragments for the browser
     launch/context when routing through the capture proxy, else ('', ''). §20.2:
     both are added together, only when reachable."""
+    if not capture_enabled:
+        return ("", "")
     try:
         from capture_routing import agent_capture_routing
         cap_url, cap_tok = agent_capture_routing(ctx_token)
@@ -136,13 +155,15 @@ def _capture_playwright_args(ctx_token: str):
     )
 
 
-def _capture_launch_patch(ctx_token: str) -> str:
+def _capture_launch_patch(ctx_token: str, capture_enabled: bool = False) -> str:
     """Monkeypatch fragment for SELF-CONTAINED scripts (they bring their own
     `sync_playwright()`, so the wrapper's proxy=/extra_http_headers kwargs never
     apply). Forces every browser launch through the capture proxy and stamps the
     X-Redamon-Ctx header on every context (new_context also backs Browser.new_page
     in playwright-python) and persistent context. Empty when not routing (§20.2:
     proxy + header added together, only when reachable)."""
+    if not capture_enabled:
+        return ""
     try:
         from capture_routing import agent_capture_routing
         cap_url, cap_tok = agent_capture_routing(ctx_token)
@@ -177,11 +198,14 @@ def _capture_launch_patch(ctx_token: str) -> str:
     """)
 
 
-def _execute_content_mode(url: str, selector: str, format: str, ctx_token: str = "") -> str:
+def _execute_content_mode(
+    url: str, selector: str, format: str, ctx_token: str = "",
+    capture_enabled: bool = False,
+) -> str:
     """Mode 1: Navigate to URL and extract rendered content."""
     use_html = format.lower() == "html"
     max_chars = 40000
-    _proxy_kw, _hdr_kw = _capture_playwright_args(ctx_token)
+    _proxy_kw, _hdr_kw = _capture_playwright_args(ctx_token, capture_enabled)
 
     script = textwrap.dedent(f"""\
         from playwright.sync_api import sync_playwright
@@ -238,7 +262,9 @@ def _execute_content_mode(url: str, selector: str, format: str, ctx_token: str =
                 browser.close()
     """)
 
-    return _run_playwright_script(script, timeout=45)
+    return _run_playwright_script(
+        script, timeout=45, ctx_token=ctx_token, capture_enabled=capture_enabled,
+    )
 
 
 _FORBIDDEN_ASYNC_PATTERNS = [
@@ -276,9 +302,11 @@ _LAUNCH_PATCH = textwrap.dedent(f"""\
 """)
 
 
-def _execute_script_mode(user_script: str, ctx_token: str = "") -> str:
+def _execute_script_mode(
+    user_script: str, ctx_token: str = "", capture_enabled: bool = False,
+) -> str:
     """Mode 2: Run arbitrary Playwright Python script with pre-initialized browser."""
-    _proxy_kw, _hdr_kw = _capture_playwright_args(ctx_token)
+    _proxy_kw, _hdr_kw = _capture_playwright_args(ctx_token, capture_enabled)
     for pattern, name in _FORBIDDEN_ASYNC_PATTERNS:
         if pattern.search(user_script):
             return (
@@ -296,7 +324,9 @@ def _execute_script_mode(user_script: str, ctx_token: str = "") -> str:
     # so self-contained scripts are captured like the wrapped path.
     if _SELF_CONTAINED_RE.search(user_script):
         return _run_playwright_script(
-            _LAUNCH_PATCH + _capture_launch_patch(ctx_token) + user_script, timeout=60)
+            _LAUNCH_PATCH + _capture_launch_patch(ctx_token, capture_enabled) + user_script,
+            timeout=60, ctx_token=ctx_token, capture_enabled=capture_enabled,
+        )
 
     # Build wrapper script with correct indentation
     lines = [
@@ -325,7 +355,9 @@ def _execute_script_mode(user_script: str, ctx_token: str = "") -> str:
     ])
     wrapper = "\n".join(lines) + "\n"
 
-    return _run_playwright_script(wrapper, timeout=60)
+    return _run_playwright_script(
+        wrapper, timeout=60, ctx_token=ctx_token, capture_enabled=capture_enabled,
+    )
 
 
 if __name__ == "__main__":

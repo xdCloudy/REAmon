@@ -33,14 +33,16 @@ import tempfile
 import threading
 import time
 import uuid
-import urllib.error
-import urllib.request
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from _progress_auth import AuthenticatedProgressHandler
 from untrusted_process import (
     UNTRUSTED_OUTPUT_LIMIT_BYTES as _UNTRUSTED_OUTPUT_LIMIT_BYTES,
     UNTRUSTED_OUTPUT_TRUNCATION as _UNTRUSTED_OUTPUT_TRUNCATION,
     run_untrusted_child as _run_untrusted_child,
+)
+from execution_scope import (
+    resolve_execution_project as _resolve_execution_project,
+    execution_workspace_root as _execution_workspace_root,
 )
 
 # Strip ANSI escape codes (terminal colors) from output
@@ -497,7 +499,9 @@ def kali_shell(command: str, _redamon_ctx: str = "") -> str:
     Runs as an unprivileged child in the Kali Linux environment with the
     installed tools available. The controller verifies the signed project
     context and runs the command in a private mount namespace with that
-    project's workspace as /workspace and private temporary storage.
+    project's workspace as /workspace. /tmp is project-scoped scratch shared
+    by that project's commands; keep generated files in /workspace or use the
+    generated-file download flow. Other temporary paths are private to each run.
 
     Args:
         command: The full shell command to execute (run via bash -c)
@@ -543,49 +547,6 @@ def kali_shell(command: str, _redamon_ctx: str = "") -> str:
         return f"[ERROR] {str(e)}"
 
 
-def _resolve_execution_project(ctx: str, tool_name: str) -> str:
-    """Ask the agent to verify an opaque context tag and return its project id.
-
-    The Kali service has only the scanner credential. The agent checks the HMAC
-    with its master key and returns the minimum claim needed for the mount; no
-    tenant identity is trusted from tool arguments or decoded in this process.
-    """
-    token = str(ctx or "").strip()
-    scanner_key = os.environ.get("SCANNER_API_KEY", "")
-    if not token or not scanner_key or scanner_key == "changeme":
-        raise PermissionError("missing signed context or scanner credential")
-    payload = json.dumps({"ctx": token, "tool": tool_name}).encode("utf-8")
-    request = urllib.request.Request(
-        os.environ.get("REDAMON_AGENT_URL", "http://agent:8080").rstrip("/")
-        + "/execution/resolve-context",
-        data=payload,
-        headers={"Content-Type": "application/json", "X-Internal-Key": scanner_key},
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=5) as response:
-            result = json.loads(response.read(4096).decode("utf-8"))
-    except (urllib.error.URLError, TimeoutError, ValueError) as exc:
-        raise PermissionError("agent context verification unavailable") from exc
-    project_id = result.get("project_id") if isinstance(result, dict) else None
-    if not isinstance(project_id, str) or not project_id:
-        raise PermissionError("agent rejected the execution context")
-    return project_id
-
-
-def _execution_workspace_root(project_id: str) -> str:
-    """Return a canonical project path on the shared workspace mount."""
-    if (not project_id or len(project_id) > 200
-            or any(char in project_id for char in ("/", "\\", "\x00"))
-            or project_id in (".", "..") or project_id.startswith(".")):
-        raise ValueError("invalid project id for workspace access")
-    workspace_root = "/workspace"
-    project_root = os.path.join(workspace_root, project_id)
-    if not os.path.isdir(project_root) or os.path.realpath(project_root) != project_root:
-        raise ValueError("project workspace is unavailable or not a real directory")
-    return project_root
-
-
 @mcp.tool()
 def execute_code(
     code: str, language: str = "python", filename: str = "exploit",
@@ -598,6 +559,8 @@ def execute_code(
     Eliminates shell escaping issues by receiving code as a clean string parameter,
     writing it to a unique temporary file, and executing the file as an
     unprivileged user. Use this instead of kali_shell for multi-line scripts.
+    /tmp is project-scoped scratch shared by that project's commands; preserve
+    generated files in /workspace or through the generated-file download flow.
 
     Args:
         code: The source code to execute. Multi-line code with proper indentation

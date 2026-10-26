@@ -24,16 +24,18 @@ async def persist_generated_file(file_info: dict, project_id: str, tool_executor
     safe_name = safe_name or "download"
     stored_name = f"{uuid.uuid4().hex}-{safe_name}"
     relative_path = f"tool-outputs/{stored_name}"
-    target = resolve_for_project(project_id, relative_path)
-    temporary_target = target.with_name(f".{stored_name}.partial")
+    resolve_for_project(project_id, relative_path)
+    target = f"/workspace/{relative_path}"
+    temporary_target = f"/workspace/tool-outputs/.{stored_name}.partial"
 
     command = " && ".join((
-        f"mkdir -p -- {shlex.quote(str(target.parent))}",
+        "mkdir -p -- /workspace/tool-outputs",
         f"test -f {shlex.quote(source)}",
         f"test ! -L {shlex.quote(source)}",
-        f"cp -- {shlex.quote(source)} {shlex.quote(str(temporary_target))}",
-        f"chmod 0644 -- {shlex.quote(str(temporary_target))}",
-        f"mv -- {shlex.quote(str(temporary_target))} {shlex.quote(str(target))}",
+        f"cp -- {shlex.quote(source)} {shlex.quote(temporary_target)}",
+        f"chmod 0644 -- {shlex.quote(temporary_target)}",
+        f"mv -- {shlex.quote(temporary_target)} {shlex.quote(target)}",
+        f"rm -f -- {shlex.quote(source)}",
     ))
     result = await tool_executor.execute(
         "kali_shell", {"command": command}, "informational", skip_phase_check=True,

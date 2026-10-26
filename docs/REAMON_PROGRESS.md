@@ -1,10 +1,10 @@
 # REAmon product progress
 
-Assessment date: 2026-10-26 · Source: pushed commit `06bb534` · Weighted estimate: **54.2%**
+Assessment date: 2026-10-26 · Source: the current local worktree · Weighted estimate: **54.6%**
 
 This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.
 
-Quality run [40247230850](https://github.com/xdCloudy/REAmon/actions/runs/40247230850) passed the full Docker unit gate and production-stack acceptance on commit `baa5634a`; local and LAN readiness endpoints returned ready with database and artifact checks ok, but the deployed webapp revision remains unverified. On 2026-10-26, kali_shell, execute_code, and proxy_brain gained verified signed project scope and private user/mount namespaces covering /tmp, /var/tmp, and /opt/output. Focused Docker suites passed 35 MCP execution/capture-wiring tests plus 5 subtests and 9 agent identity tests. Live Kali smokes hid sibling workspace and shared temporary files; Python, compiled C, and proxy_brain execution succeeded with cleanup. Terminal shells retain ticket-derived project scope and cleanup behavior. Legacy graph routes reject scanner-only auth and the agent rejects identical master and scanner keys. Custom Playwright, tenant-scoped broker ownership, and LAN rebuild validation remain open. This weighted estimate is evidence-backed progress, not release certification.
+Quality run [40247230850](https://github.com/xdCloudy/REAmon/actions/runs/40247230850) passed the full Docker unit gate and production-stack acceptance on commit `baa5634a`; local and LAN readiness endpoints returned ready with database and artifact checks ok, but the deployed webapp revision remains unverified. On 2026-10-26, kali_shell, execute_code, proxy_brain, and execute_playwright gained verified signed project scope, user/mount/PID namespaces, project-only workspaces, and per-project /tmp scratch. /var/tmp, /dev/shm, and /opt/output remain per-run private mounts. Generated files are transferred to a unique project tool-outputs path then removed from scratch. Focused Docker suites passed 45 MCP execution/capture/Playwright tests plus 5 subtests and 13 agent identity/generated-file tests. Live Kali smokes hid sibling workspace, scratch files, and processes; shell, Python, compiled C, proxy_brain, and Playwright namespace execution succeeded with cleanup. Chromium launch could not be validated because the running image lacks its binary at /ms-playwright; rebuild and verify the Kali image. Terminal shells retain ticket-derived project scope and cleanup behavior. Legacy graph routes reject scanner-only auth and the agent rejects identical master and scanner keys. Dedicated per-project workers, broker ownership, and LAN rebuild validation remain open. This weighted estimate is evidence-backed progress, not release certification.
 
 | Workstream | Goal weight | Estimated complete | Weighted points |
 | --- | ---: | ---: | ---: |
@@ -13,7 +13,7 @@ Quality run [40247230850](https://github.com/xdCloudy/REAmon/actions/runs/402472
 | Major-language and format decompilation fluency | 24% | 35% | 8.40 pts |
 | Maintainable editing, review, and export | 12% | 43% | 5.16 pts |
 | Fixture-backed validation and fidelity evidence | 12% | 15% | 1.80 pts |
-| Security, reliability, and production operations | 20% | 75% | 15.00 pts |
+| Security, reliability, and production operations | 20% | 77% | 15.40 pts |
 
 ## Evidence and remaining work
 
@@ -49,8 +49,8 @@ Quality run [40247230850](https://github.com/xdCloudy/REAmon/actions/runs/402472
 
 ### Security, reliability, and production operations
 
-**Current evidence:** Five validated findings have source mitigations in progress. Model-authored kali_shell, execute_code, and proxy_brain now receive verified signed project scope and use private project-only mount namespaces; terminal shells also have project-only mounts and private temporary storage. Custom Playwright and the shared Kali controller remain unisolated.
+**Current evidence:** Five validated findings have source mitigations in progress. Model-authored kali_shell, execute_code, proxy_brain, and custom Playwright now receive verified signed project scope and use project-only user, mount, and PID namespaces with project scratch; terminal shells also have project-only mounts and private temporary storage. The shared Kali controller, root filesystem, and broker ownership remain unisolated.
 
-**Remaining:** Extend authenticated scope and private worker isolation to custom Playwright; scope the Docker broker; verify cancellation, generated-file transfer, and cleanup; rebuild and validate services on the LAN; and complete independent security, upgrade, backup, and restore review.
+**Remaining:** Move all execution surfaces into dedicated project workers with scoped broker ownership; validate cancellation, generated-file transfer, cleanup, and resource limits; rebuild and verify the Kali browser cache and agent services on the LAN; and complete independent security, upgrade, backup, and restore review.
 
 The machine-readable [`REAMON_PROGRESS.json`](REAMON_PROGRESS.json) feeds the README progress bar. The scope now includes the production hardening goal, so the total is not directly comparable with the previous product-only estimate. Update it with evidence when estimates change, then run `node tooling/reamon/update-product-progress.mjs <commit-sha>` to refresh this matrix and the README.

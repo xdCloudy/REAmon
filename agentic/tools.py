@@ -2391,7 +2391,7 @@ class PhaseAwareToolExecutor:
         # MCP tool turns it into the proxy flag + header ONLY when the proxy is
         # reachable (§20.2 no-leak). Gated on the per-project capture flag; NEVER
         # added to API-key/OSINT tools (§15.4).
-        if (tool_name in _CAPTURE_ROUTED_TOOLS
+        if (tool_name in (_CAPTURE_ROUTED_TOOLS - {"execute_playwright"})
                 and bool(get_setting('CAPTURE_PROXY_ENABLED', False))):
             _redamon_ctx = self._build_redamon_ctx(tool_name)
             if _redamon_ctx:
@@ -2400,7 +2400,7 @@ class PhaseAwareToolExecutor:
         # Arbitrary shell/code execution needs tenant scope regardless of HTTP
         # capture. The Kali controller verifies this short-lived tag before it
         # mounts the selected project workspace.
-        if tool_name in {"kali_shell", "execute_code"}:
+        if tool_name in {"kali_shell", "execute_code", "execute_playwright"}:
             _execution_ctx = self._build_redamon_ctx(tool_name)
             if not _execution_ctx:
                 return {
@@ -2408,6 +2408,12 @@ class PhaseAwareToolExecutor:
                     "error": f"{tool_name}: no tenant context — cannot start scoped execution.",
                 }
             tool_args = {**tool_args, "_redamon_ctx": _execution_ctx}
+            if tool_name == "execute_playwright":
+                # Scope verification is unconditional; target capture remains a
+                # separate per-project opt-in and must not be enabled by scope.
+                tool_args["_capture_enabled"] = bool(
+                    get_setting("CAPTURE_PROXY_ENABLED", False)
+                )
 
         # Opt-in authenticated identity for execute_curl. Injected here so the raw
         # session value never reaches the LLM (mirrors the ctx tag), and only for

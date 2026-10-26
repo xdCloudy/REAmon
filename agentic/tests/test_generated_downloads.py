@@ -41,8 +41,10 @@ class GeneratedDownloadStorageTests(unittest.IsolatedAsyncioTestCase):
                 self.assertNotIn("/tmp/", stored["filepath"])
                 command = executor.execute.await_args.args[1]["command"]
                 self.assertIn("'/tmp/payload;touch-owned'", command)
-                self.assertIn(str(Path(temp_dir) / "project-1" / "tool-outputs"), command)
+                self.assertIn("/workspace/tool-outputs", command)
+                self.assertNotIn(str(Path(temp_dir) / "project-1"), command)
                 self.assertIn(" && ", command)
+                self.assertTrue(command.endswith("rm -f -- '/tmp/payload;touch-owned'"))
 
     async def test_rejects_non_tmp_source_and_invalid_project_before_execution(self):
         executor = AsyncMock()

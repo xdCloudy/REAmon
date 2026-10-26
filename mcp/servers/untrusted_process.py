@@ -9,8 +9,8 @@ import threading
 _SCOPED_EXEC_SCRIPT = """\
 set -eu
 mount --make-rprivate /
-mount -t tmpfs -o mode=1777,nosuid,nodev tmpfs /tmp
 mount -t tmpfs -o mode=1777,nosuid,nodev tmpfs /var/tmp
+mount -t tmpfs -o mode=1777,nosuid,nodev tmpfs /dev/shm
 mount -t tmpfs -o mode=1777,nosuid,nodev tmpfs /opt/output
 project="/workspace/$1"
 [ -d "$project" ] || { echo "Project workspace is unavailable" >&2; exit 1; }
@@ -18,6 +18,17 @@ project="/workspace/$1"
     echo "Project workspace must be a real directory" >&2
     exit 1
 }
+scratch="$project/.reamon-tmp"
+[ ! -L "$scratch" ] || { echo "Project scratch path must not be a symlink" >&2; exit 1; }
+mkdir -p -- "$scratch"
+[ "$(readlink -f -- "$scratch")" = "$scratch" ] || {
+    echo "Project scratch path must be a real directory" >&2
+    exit 1
+}
+chmod 0700 -- "$scratch"
+find "$scratch" -type f -mmin +1440 -delete
+mount --bind "$scratch" /tmp
+mount -o remount,bind,nodev,nosuid /tmp
 mount --bind "$project" /workspace
 mount -o remount,bind,nodev,nosuid /workspace
 shift
@@ -68,6 +79,7 @@ def run_untrusted_child(
             raise RuntimeError("project-scoped execution requires Linux namespaces")
         command = [
             "/usr/bin/unshare", "--user", "--map-root-user", "--mount",
+            "--pid", "--fork", "--mount-proc",
             "/bin/sh", "-c", _SCOPED_EXEC_SCRIPT,
             "reamon-exec", project_id, *argv,
         ]
