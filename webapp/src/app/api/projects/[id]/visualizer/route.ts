@@ -13,6 +13,7 @@ import {
 
 interface RouteParams { params: Promise<{ id: string }> }
 const MAX_FUNCTION_MAP_MEMBERS = 20_000
+const NOT_PENDING_ANALYSIS = { NOT: { attributes: { path: ['analysisPending'], equals: true } } }
 
 function resultRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
@@ -237,6 +238,7 @@ export async function GET(request: Request, { params }: RouteParams) {
         artifact: { is: selection.artifactWhere },
         kind: 'entity',
         type: 'function',
+        ...NOT_PENDING_ANALYSIS,
         OR: [
           { label: { contains: search, mode: 'insensitive' } },
           ...['name', 'qualifiedName', 'address'].map((key) => ({
@@ -361,6 +363,7 @@ export async function GET(request: Request, { params }: RouteParams) {
         artifact: { is: selection.artifactWhere },
         kind: 'entity',
         type: 'function',
+        ...NOT_PENDING_ANALYSIS,
         OR: parentKeys.map((parentCodeUnitKey) => ({
           attributes: { path: ['parentCodeUnitKey'], equals: parentCodeUnitKey },
         })),

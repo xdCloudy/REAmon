@@ -1,9 +1,16 @@
 const MAX_ANALYZER_EVENT_CHARS = 32 * 1024 * 1024
-const MAX_ANALYZER_RESULT_ITEMS = 100_000
+const MAX_ANALYZER_RESULT_ITEMS = 4_300_000
+
+export type AnalyzerResultChunkConsumer = (
+  field: string,
+  items: unknown[],
+  metadata: Record<string, unknown>,
+) => boolean | void | Promise<boolean | void>
 
 export async function readAnalyzerResponse<T>(
   response: Response,
   reportProgress?: (message: string) => Promise<void> | void,
+  consumeResultChunk?: AnalyzerResultChunkConsumer,
 ): Promise<T> {
   if (!response.headers?.get('content-type')?.toLowerCase().includes('application/x-ndjson')) {
     return response.json() as Promise<T>
@@ -16,6 +23,7 @@ export async function readAnalyzerResponse<T>(
   let result: T | undefined
   let streamedResult: Record<string, unknown> | undefined
   let streamedItemCount = 0
+  let consumedMethodCount = 0
   let streamedResultComplete = false
   let streamError: string | undefined
 
@@ -55,10 +63,16 @@ export async function readAnalyzerResponse<T>(
       }
       streamedItemCount += items.length
       if (streamedItemCount > MAX_ANALYZER_RESULT_ITEMS) throw new Error('Analyzer result exceeded the item limit')
+      const consumed = await consumeResultChunk?.(field, items, streamedResult)
+      if (consumed) {
+        if (field === 'methods') consumedMethodCount += items.length
+        return
+      }
       const target = streamedResult[field] as unknown[]
       for (const item of items) target.push(item)
     } else if (record.type === 'result_end') {
       if (!streamedResult || streamedResultComplete) throw new Error('Analyzer returned an invalid result stream')
+      if (consumedMethodCount > 0) streamedResult.streamedMethodCount = consumedMethodCount
       result = streamedResult as T
       streamedResultComplete = true
     } else if (record.type === 'error' && typeof record.error === 'string') {

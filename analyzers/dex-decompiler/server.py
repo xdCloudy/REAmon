@@ -26,10 +26,11 @@ MAX_OUTPUT_BYTES = min(1024**3, max(1024**2, int(os.environ.get("DEX_DECOMPILER_
 MAX_RETURNED_UNITS = min(80_000, max(1, int(os.environ.get("DEX_DECOMPILER_MAX_RETURNED_UNITS", "80_000"))))
 MAX_SOURCE_FILES = 80_000
 MAX_SOURCE_BYTES = 4 * 1024 * 1024
-MAX_STRUCTURED_METHODS = 10_000
 MAX_STRUCTURED_CALLS = 4_000
 MAX_STRUCTURED_REFERENCES = 4_000
 MAX_STRUCTURED_OUTPUT_BYTES = 64 * 1024 * 1024
+MAX_METHOD_PAGES = 4_200
+MAX_METHODS_PER_PAGE = 1_000
 MAX_CLASS_SUMMARY_BYTES = 1024 * 1024
 MAX_FAILED_CLASS_DETAILS = 1000
 CLASS_DESCRIPTOR_LOOKUP_TIMEOUT_SECONDS = 30
@@ -328,6 +329,34 @@ def collect_sources(root: Path) -> tuple[list[tuple[Path, PurePosixPath, int]], 
     return sources, total_bytes, truncated
 
 
+def copy_method_evidence(
+    methods: list[object], method_evidence_root: Path, staging: Path, destination: Path,
+) -> None:
+    for method in methods:
+        if not isinstance(method, dict):
+            continue
+        relative_evidence = method.get("bytecodeArtifactPath")
+        if not isinstance(relative_evidence, str) or not relative_evidence:
+            continue
+        relative = PurePosixPath(relative_evidence)
+        if relative.is_absolute() or ".." in relative.parts or "\\" in relative_evidence:
+            continue
+        try:
+            evidence_source = (method_evidence_root.joinpath(*relative.parts)).resolve(strict=True)
+            evidence_source.relative_to(method_evidence_root.resolve())
+            evidence_size = evidence_source.stat().st_size
+        except (OSError, RuntimeError, ValueError):
+            continue
+        if not evidence_source.is_file() or evidence_size <= 0 or evidence_size > 1024 * 1024:
+            continue
+        target_relative = PurePosixPath("method-evidence") / relative
+        target = staging.joinpath(*target_relative.parts)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(evidence_source, target)
+        method["bytecodeArtifactId"] = destination.joinpath(*target_relative.parts).relative_to(DERIVED_ROOT).as_posix()
+        method["bytecodeArtifactSizeBytes"] = evidence_size
+
+
 def analyse(body: dict[str, object], progress=None) -> dict[str, object]:
     project_id = safe_id(body.get("projectId"))
     artifact_id = safe_id(body.get("artifactId"))
@@ -622,40 +651,37 @@ def analyse(body: dict[str, object], progress=None) -> dict[str, object]:
                     "outputSha256": output_sha256,
                 })
                 returned_bytes += size
-            method_rows = method_result.get("methods", [])
-            if isinstance(method_rows, list):
-                for method in method_rows[:MAX_STRUCTURED_METHODS]:
-                    if not isinstance(method, dict):
-                        continue
-                    relative_evidence = method.get("bytecodeArtifactPath")
-                    if not isinstance(relative_evidence, str) or not relative_evidence:
-                        continue
-                    relative = PurePosixPath(relative_evidence)
-                    if relative.is_absolute() or ".." in relative.parts or "\\" in relative_evidence:
-                        continue
-                    try:
-                        evidence_source = (method_evidence_root.joinpath(*relative.parts)).resolve(strict=True)
-                        evidence_source.relative_to(method_evidence_root.resolve())
-                        evidence_size = evidence_source.stat().st_size
-                    except (OSError, RuntimeError, ValueError):
-                        continue
-                    if not evidence_source.is_file() or evidence_size <= 0 or evidence_size > 1024 * 1024:
-                        continue
-                    target_relative = PurePosixPath("method-evidence") / relative
-                    target = staging.joinpath(*target_relative.parts)
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copyfile(evidence_source, target)
-                    method["bytecodeArtifactId"] = destination.joinpath(*target_relative.parts).relative_to(DERIVED_ROOT).as_posix()
-                    method["bytecodeArtifactSizeBytes"] = evidence_size
+            method_page_names = method_result.get("methodPages", [])
+            if not isinstance(method_page_names, list) or len(method_page_names) > MAX_METHOD_PAGES:
+                raise AnalysisError("Structured DEX method pages exceeded the configured limit")
+            method_page_output = staging / ".method-pages"
+            method_page_output.mkdir()
+            for page_index, page_name in enumerate(method_page_names):
+                if not isinstance(page_name, str) or page_name != f"method-page-{page_index:06}.json":
+                    raise AnalysisError("Structured DEX method page index is invalid")
+                page_source = (method_evidence_root / "method-pages" / page_name).resolve(strict=True)
+                page_source.relative_to((method_evidence_root / "method-pages").resolve())
+                page = json.loads(page_source.read_bytes())
+                page_methods = page.get("methods") if isinstance(page, dict) else None
+                if not isinstance(page_methods, list) or len(page_methods) > MAX_METHODS_PER_PAGE:
+                    raise AnalysisError("Structured DEX method page has an invalid shape")
+                copy_method_evidence(page_methods, method_evidence_root, staging, destination)
+                page_target = method_page_output / page_name
+                page_target.write_text(json.dumps(page, separators=(",", ":")), encoding="utf-8")
+            if method_result.get("methodPageCount", len(method_page_names)) != len(method_page_names):
+                raise AnalysisError("Structured DEX method page count is inconsistent")
             staging.replace(destination)
         except Exception:
             shutil.rmtree(staging, ignore_errors=True)
             raise
 
     method_rows = method_result.get("methods", [])
-    methods = [row for row in method_rows[:MAX_STRUCTURED_METHODS] if isinstance(row, dict)] if isinstance(method_rows, list) else []
+    methods = [row for row in method_rows if isinstance(row, dict)] if isinstance(method_rows, list) else []
     discovered_methods = method_result.get("discoveredMethodCount", len(method_rows) if isinstance(method_rows, list) else 0)
-    method_truncated = method_result.get("truncated") is True or (isinstance(discovered_methods, int) and discovered_methods > len(methods))
+    returned_methods = method_result.get("returnedMethodCount", len(methods))
+    method_truncated = method_result.get("truncated") is True or (
+        isinstance(discovered_methods, int) and isinstance(returned_methods, int) and discovered_methods > returned_methods
+    )
     call_rows = method_result.get("calls", [])
     calls = [row for row in call_rows[:MAX_STRUCTURED_CALLS] if isinstance(row, dict)] if isinstance(call_rows, list) else []
     call_graph_truncated = method_result.get("callGraphTruncated") is True or (isinstance(call_rows, list) and len(call_rows) > len(calls))
@@ -671,9 +697,13 @@ def analyse(body: dict[str, object], progress=None) -> dict[str, object]:
         "returnedClassCount": len(units),
         "failedClassDetails": failed_class_details,
         "discoveredMethodCount": discovered_methods if isinstance(discovered_methods, int) and discovered_methods >= 0 else len(methods),
-        "returnedMethodCount": len(methods),
+        "returnedMethodCount": returned_methods if isinstance(returned_methods, int) and returned_methods >= 0 else len(methods),
         "methodsTruncated": method_truncated,
         "methods": methods,
+        "_methodPagePaths": [
+            destination.joinpath(".method-pages", page_name).relative_to(DERIVED_ROOT).as_posix()
+            for page_name in method_page_names
+        ] if isinstance(method_page_names, list) else [],
         "calls": calls,
         "callGraphTruncated": call_graph_truncated,
         "references": references,
@@ -733,15 +763,44 @@ class Handler(BaseHTTPRequestHandler):
         self._stream_line({"type": "progress", "message": message[:500]})
 
     def _stream_result(self, result: dict[str, object]) -> None:
+        method_page_paths = result.pop("_methodPagePaths", [])
+        if not isinstance(method_page_paths, list) or len(method_page_paths) > MAX_METHOD_PAGES:
+            raise AnalysisError("DEX method page list is invalid")
         array_fields = [field for field in ("units", "methods", "calls", "references") if isinstance(result.get(field), list)]
         metadata = {key: value for key, value in result.items() if key not in array_fields}
         self._stream_line({"type": "result_start", "data": metadata, "arrayFields": array_fields})
-        for field in array_fields:
-            items = result[field]
-            assert isinstance(items, list)
-            for start in range(0, len(items), 10):
-                self._stream_line({"type": "result_chunk", "field": field, "items": items[start:start + 10]})
-        self._stream_line({"type": "result_end"})
+        page_directories: set[Path] = set()
+        try:
+            for field in array_fields:
+                items = result[field]
+                assert isinstance(items, list)
+                for start in range(0, len(items), 100):
+                    self._stream_line({"type": "result_chunk", "field": field, "items": items[start:start + 100]})
+            for page_index, page_id in enumerate(method_page_paths):
+                if not isinstance(page_id, str):
+                    raise AnalysisError("DEX method page identifier is invalid")
+                relative = PurePosixPath(page_id)
+                if relative.is_absolute() or ".." in relative.parts or "\\" in page_id:
+                    raise AnalysisError("DEX method page path is invalid")
+                page_path = DERIVED_ROOT.joinpath(*relative.parts).resolve(strict=True)
+                page_path.relative_to(DERIVED_ROOT)
+                if page_path.parent.name != ".method-pages" or page_path.name != f"method-page-{page_index:06}.json":
+                    raise AnalysisError("DEX method page location is invalid")
+                page_directories.add(page_path.parent)
+                page = json.loads(page_path.read_bytes())
+                methods = page.get("methods") if isinstance(page, dict) else None
+                if not isinstance(methods, list) or len(methods) > MAX_METHODS_PER_PAGE:
+                    raise AnalysisError("DEX method page content is invalid")
+                for start in range(0, len(methods), 100):
+                    self._stream_line({"type": "result_chunk", "field": "methods", "items": methods[start:start + 100]})
+            self._stream_line({"type": "result_end"})
+        finally:
+            for directory in page_directories:
+                try:
+                    directory.resolve(strict=True).relative_to(DERIVED_ROOT)
+                except (OSError, ValueError):
+                    continue
+                shutil.rmtree(directory, ignore_errors=True)
 
     def _finish_stream(self) -> None:
         self.wfile.write(b"0\r\n\r\n")

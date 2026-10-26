@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   findingUpdate: vi.fn(),
   findingCreate: vi.fn(),
   observationUpsert: vi.fn(),
+  observationDeleteMany: vi.fn(),
   observationRawExecute: vi.fn(),
   observationCount: vi.fn(),
   activityCreate: vi.fn(),
@@ -25,6 +26,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/lib/prisma', () => ({
   default: {
     task: { findFirst: mocks.taskFindFirst, updateMany: mocks.taskUpdateMany },
+    reamonObservation: { deleteMany: mocks.observationDeleteMany },
     $transaction: mocks.transaction,
   },
 }))
@@ -64,6 +66,7 @@ beforeEach(() => {
   mocks.taskProgressFindFirst.mockResolvedValue({ progressMessage: 'Provider failed' })
   mocks.evidenceCreate.mockResolvedValue({ id: 'evidence-1' })
   mocks.observationUpsert.mockResolvedValue({ id: 'observation-1' })
+  mocks.observationDeleteMany.mockResolvedValue({ count: 0 })
   mocks.observationRawExecute.mockResolvedValue(1)
   mocks.observationCount.mockResolvedValue(0)
   mocks.activityCreate.mockResolvedValue({ id: 'activity-1' })
@@ -71,7 +74,7 @@ beforeEach(() => {
     task: { updateMany: mocks.taskSettleUpdateMany, findUnique: mocks.taskFindUnique, findFirst: mocks.taskProgressFindFirst, update: mocks.taskSettleUpdateMany },
     evidence: { create: mocks.evidenceCreate },
     finding: { findFirst: mocks.findingFindFirst, update: mocks.findingUpdate, create: mocks.findingCreate },
-    reamonObservation: { upsert: mocks.observationUpsert, count: mocks.observationCount },
+    reamonObservation: { upsert: mocks.observationUpsert, count: mocks.observationCount, deleteMany: mocks.observationDeleteMany },
     $executeRaw: mocks.observationRawExecute,
     workspaceActivity: { create: mocks.activityCreate },
   }))
@@ -144,6 +147,48 @@ describe('executeAnalysisTask', () => {
       methodsTruncated: true,
       coverageInventory: { discoveredUnitCount: 1, indexedUnitCount: 1 },
     })
+  })
+
+  test('keeps streamed methods under a run-scoped source until successful promotion', async () => {
+    const dexProvider = {
+      ...provider,
+      manifest: { ...provider.manifest, id: 'reamon-dex-decompiler', name: 'Rust DEX-to-Java Decompiler', capabilities: ['decompile'] },
+    }
+    mocks.getBuiltinProvider.mockReturnValue(dexProvider)
+    mocks.taskFindFirst.mockResolvedValue(task({
+      capability: 'decompile',
+      provider: { id: 'provider-dex', pluginId: dexProvider.manifest.id, name: dexProvider.manifest.name, enabled: true },
+      artifact: { ...task().artifact, profile: { targetType: 'FILE', format: 'apk' } },
+    }))
+    mocks.resolveCapabilities.mockReturnValue([{ capabilities: ['decompile'] }])
+    mocks.observationCount.mockResolvedValue(1)
+    mocks.analyze.mockImplementation(async ({ persistObservationBatch }: {
+      persistObservationBatch: (observations: Array<{
+        kind: 'entity'; type: 'function'; key: string; label: string; attributes: Record<string, string | number | boolean | null>
+      }>) => Promise<number>
+    }) => {
+      const streamedFunctionObservationCount = await persistObservationBatch([{
+        kind: 'entity',
+        type: 'function',
+        key: 'dex-decompiler:method:one',
+        label: 'Main#start',
+        attributes: { identity: 'artifact-1:0:1:Main#start():void' },
+      }])
+      return {
+        status: 'completed', toolId: dexProvider.manifest.id, capabilities: ['decompile'], produced: ['CodeUnit'],
+        data: { observations: [], discoveredMethodCount: 1, returnedMethodCount: 1, streamedFunctionObservationCount },
+      }
+    })
+
+    const result = await executeAnalysisTask('project-1', 'task-1')
+
+    expect(result?.outcome).toBe('COMPLETED')
+    const pendingSource = mocks.observationDeleteMany.mock.calls[0][0].where.source
+    expect(pendingSource).toMatch(/^reamon-dex-decompiler:pending:/)
+    const promotion = mocks.observationRawExecute.mock.calls
+      .map(([statement]) => statement as { sql?: string; values?: unknown[] })
+      .find((statement) => statement.sql?.includes('md5(pending."id"'))
+    expect(promotion?.values).toContain(pendingSource)
   })
 
   test('persists bounded progress messages under the active run lease', async () => {

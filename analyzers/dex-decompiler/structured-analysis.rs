@@ -6,7 +6,7 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-const MAX_METHODS: usize = 10_000;
+const METHOD_PAGE_SIZE: usize = 1_000;
 const MAX_ROWS_PER_METHOD: usize = 4_000;
 const MAX_CFG_BLOCKS: usize = 12;
 const MAX_CFG_EDGES: usize = 16;
@@ -36,6 +36,19 @@ fn resolved_invoke_method_index(
     dex_parser::DexCallSites::impl_method_id(&call_site).map(u32::from)
 }
 
+fn flush_method_page(root: &PathBuf, page: usize, methods: &mut Vec<Value>, pages: &mut Vec<String>) -> Result<()> {
+    if methods.is_empty() {
+        return Ok(());
+    }
+    let name = format!("method-page-{page:06}.json");
+    let path = root.join(&name);
+    fs::write(&path, serde_json::to_vec(&json!({"methods": methods}))?)
+        .with_context(|| format!("write method page {page}"))?;
+    pages.push(name);
+    methods.clear();
+    Ok(())
+}
+
 fn run() -> Result<()> {
     let input = env::args_os()
         .nth(1)
@@ -46,6 +59,8 @@ fn run() -> Result<()> {
     let input = PathBuf::from(input);
     let evidence_root = PathBuf::from(evidence_root);
     fs::create_dir_all(&evidence_root).context("create evidence output directory")?;
+    let method_pages_root = evidence_root.join("method-pages");
+    fs::create_dir_all(&method_pages_root).context("create method page directory")?;
     let bytes = fs::read(&input).context("read input")?;
     let dexes = load_dexes_from_bytes(&bytes, &input)
         .map_err(|error| anyhow::anyhow!(error.to_string()))?;
@@ -87,14 +102,15 @@ fn run() -> Result<()> {
         }
     }
     let mut methods = Vec::new();
-    let mut truncated = false;
+    let mut method_pages = Vec::new();
+    let mut returned_methods = 0usize;
     let mut total_evidence_bytes = 0usize;
     let mut calls = Vec::new();
     let mut call_graph_truncated = false;
     let mut references = Vec::new();
     let mut references_truncated = false;
 
-    'dexes: for (dex_index, dex) in dexes.iter().enumerate() {
+    for (dex_index, dex) in dexes.iter().enumerate() {
         let decompiler = Decompiler::new(dex);
         for class_result in dex.class_defs() {
             let class = class_result.map_err(|error| anyhow::anyhow!(error.to_string()))?;
@@ -115,10 +131,6 @@ fn run() -> Result<()> {
             {
                 if method.code_off == 0 {
                     continue;
-                }
-                if methods.len() >= MAX_METHODS {
-                    truncated = true;
-                    break 'dexes;
                 }
                 let info = dex
                     .get_method_info(method.method_idx)
@@ -370,15 +382,23 @@ fn run() -> Result<()> {
                     "bytecodeArtifactPath": evidence_relative_path,
                     "cfgTruncated": nodes.len() > MAX_CFG_BLOCKS || edges.len() > MAX_CFG_EDGES,
                 }));
+                returned_methods += 1;
+                if methods.len() >= METHOD_PAGE_SIZE {
+                    flush_method_page(&method_pages_root, method_pages.len(), &mut methods, &mut method_pages)?;
+                }
             }
         }
     }
+    flush_method_page(&method_pages_root, method_pages.len(), &mut methods, &mut method_pages)?;
     println!(
         "{}",
         json!({
-            "methods": methods,
+            "methods": [],
+            "methodPageCount": method_pages.len(),
+            "methodPages": method_pages,
+            "returnedMethodCount": returned_methods,
             "discoveredMethodCount": discovered,
-            "truncated": truncated,
+            "truncated": returned_methods < discovered,
             "evidenceBytes": total_evidence_bytes,
             "calls": calls,
             "callGraphTruncated": call_graph_truncated,

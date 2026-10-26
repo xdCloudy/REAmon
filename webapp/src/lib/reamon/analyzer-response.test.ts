@@ -52,6 +52,25 @@ describe('readAnalyzerResponse', () => {
     })
   })
 
+  test('consumes selected result arrays without retaining their pages', async () => {
+    const response = new Response([
+      JSON.stringify({ type: 'result_start', data: { status: 'completed', returnedMethodCount: 2 }, arrayFields: ['units', 'methods'] }),
+      JSON.stringify({ type: 'result_chunk', field: 'units', items: [{ relativePath: 'A.java' }] }),
+      JSON.stringify({ type: 'result_chunk', field: 'methods', items: [{ methodName: 'first' }, { methodName: 'second' }] }),
+      JSON.stringify({ type: 'result_end' }),
+    ].join('\n'), { headers: { 'Content-Type': 'application/x-ndjson' } })
+    const consumed: Array<{ field: string; count: number }> = []
+
+    await expect(readAnalyzerResponse(response, undefined, (field, items) => {
+      if (field !== 'methods') return false
+      consumed.push({ field, count: items.length })
+      return true
+    })).resolves.toEqual({
+      status: 'completed', returnedMethodCount: 2, units: [{ relativePath: 'A.java' }], methods: [], streamedMethodCount: 2,
+    })
+    expect(consumed).toEqual([{ field: 'methods', count: 2 }])
+  })
+
   test('rejects an incomplete chunked result instead of treating it as a completed analysis', async () => {
     const response = new Response([
       JSON.stringify({ type: 'result_start', data: { status: 'completed' }, arrayFields: ['units'] }),

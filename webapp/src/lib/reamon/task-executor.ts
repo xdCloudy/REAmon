@@ -10,7 +10,7 @@ import { ingestToolResult, MAX_CODE_UNITS_PER_RESULT, MAX_OBSERVATIONS_PER_RESUL
 import { boundResultData } from './result-bounds'
 import { taskRequiresApproval } from './task-approval'
 import { resolveDerivedArtifactPath } from './derived-storage'
-import type { TargetProfile, ToolResult } from './types'
+import type { TargetProfile, ToolObservation, ToolResult } from './types'
 
 const DEFAULT_LEASE_OWNER = 'webapp'
 const MAX_LEASE_OWNER_LENGTH = 128
@@ -124,6 +124,7 @@ function buildCoverageInventory(data: unknown, providerId: string | null, indexe
     if (providerId === 'reamon-wabt' && asOptions(observation.attributes).language !== 'WebAssembly Text (WAT)') return count
     return count + 1
   }, 0)
+  const streamedUnitCount = unitKind === 'function' ? reportedCount(result, ['streamedFunctionObservationCount']) || 0 : 0
   const discoveredUnitCount = reportedCount(result, providerId === 'reamon-wabt'
     ? ['wasmFunctionCount', 'discoveredUnitCount', 'decompiledFunctionCount']
     : ['decompiledCodeUnitCount', 'discoveredCodeUnitCount', 'decompiledClassCount', 'discoveredClassCount', 'classCount', 'discoveredMethodCount', 'decompiledFunctionCount', 'functionCount', 'batchResultCount', 'discoveredUnitCount'])
@@ -142,10 +143,10 @@ function buildCoverageInventory(data: unknown, providerId: string | null, indexe
     unitKind,
     discoveredUnitCount,
     providerReturnedUnitCount,
-    observedUnitCount,
+    observedUnitCount: observedUnitCount + streamedUnitCount,
     indexedUnitCount: indexedCoverageUnitCount,
-    notObservedUnitCount: Math.max(0, providerReturnedUnitCount - observedUnitCount),
-    notIndexedUnitCount: Math.max(0, observedUnitCount - indexedCoverageUnitCount),
+    notObservedUnitCount: Math.max(0, providerReturnedUnitCount - observedUnitCount - streamedUnitCount),
+    notIndexedUnitCount: Math.max(0, observedUnitCount + streamedUnitCount - indexedCoverageUnitCount),
     unreturnedDiscoveredUnitCount: discoveredUnitCount === null ? null : Math.max(0, discoveredUnitCount - providerReturnedUnitCount),
     failedUnitCount,
     visitedUnitCount,
@@ -173,6 +174,10 @@ function persistedResultWithCoverage(value: Prisma.InputJsonValue | undefined, i
 
 function boundedError(value: string): string {
   return value.trim().slice(0, 4000) || 'Provider execution failed'
+}
+
+function pendingObservationSource(toolId: string, runToken: string): string {
+  return `${toolId}:pending:${runToken}`
 }
 
 function boundedTaskResultData(value: unknown): Prisma.InputJsonValue {
@@ -331,6 +336,7 @@ async function settleTask(
   providerName: string,
   result?: ToolResult,
   failure?: string,
+  streamedObservationCount = 0,
 ): Promise<ExecutedAnalysisTask> {
   const error = boundedError(failure || result?.error || '')
   let persistedResult = outcome === 'COMPLETED' && result ? boundedTaskResultData(result.data) : undefined
@@ -373,6 +379,46 @@ async function settleTask(
           ? MAX_CODE_UNITS_PER_RESULT
           : MAX_OBSERVATIONS_PER_RESULT,
       })
+      observationSummary.accepted += streamedObservationCount
+      if (result.toolId === 'reamon-dex-decompiler' && streamedObservationCount > 0) {
+        const pendingSource = pendingObservationSource(result.toolId, runToken)
+        await tx.$executeRaw(Prisma.sql`
+          INSERT INTO "reamon_observations" (
+            "id", "project_id", "task_id", "target_id", "artifact_id", "kind", "type",
+            "stable_key", "canonical_key", "label", "source", "relation", "from_key", "to_key",
+            "from_canonical_key", "to_canonical_key", "attributes", "created_at", "updated_at"
+          )
+          SELECT
+            'c' || md5(pending."id" || ${runToken}), pending."project_id", pending."task_id", pending."target_id",
+            pending."artifact_id", pending."kind", pending."type", pending."stable_key", pending."canonical_key",
+            pending."label", ${result.toolId}, pending."relation", pending."from_key", pending."to_key",
+            pending."from_canonical_key", pending."to_canonical_key", pending."attributes" - 'analysisPending',
+            pending."created_at", CURRENT_TIMESTAMP
+          FROM "reamon_observations" AS pending
+          WHERE pending."project_id" = ${task.projectId}
+            AND pending."task_id" = ${task.id}
+            AND pending."source" = ${pendingSource}
+            AND pending."type" = 'function'
+          ON CONFLICT ("project_id", "source", "stable_key") DO UPDATE SET
+            "task_id" = EXCLUDED."task_id",
+            "target_id" = EXCLUDED."target_id",
+            "artifact_id" = EXCLUDED."artifact_id",
+            "kind" = EXCLUDED."kind",
+            "type" = EXCLUDED."type",
+            "canonical_key" = EXCLUDED."canonical_key",
+            "label" = EXCLUDED."label",
+            "relation" = EXCLUDED."relation",
+            "from_key" = EXCLUDED."from_key",
+            "to_key" = EXCLUDED."to_key",
+            "from_canonical_key" = EXCLUDED."from_canonical_key",
+            "to_canonical_key" = EXCLUDED."to_canonical_key",
+            "attributes" = EXCLUDED."attributes",
+            "updated_at" = CURRENT_TIMESTAMP
+        `)
+        await tx.reamonObservation.deleteMany({
+          where: { projectId: task.projectId, taskId: task.id, source: pendingSource, type: 'function' },
+        })
+      }
       if (persistedResult && (result.capabilities.includes('decompile') || result.capabilities.includes('disassemble'))) {
         const indexedType = providerUnitKind(task.provider?.pluginId || null) === 'function' ? 'function' : 'code_unit'
         const indexedUnitCount = await tx.reamonObservation.count({
@@ -473,6 +519,8 @@ export async function executeAnalysisTask(projectId: string, taskId: string, lea
   }
 
   let result: ToolResult
+  let streamedObservationCount = 0
+  let streamedObservationSourceReady = false
   const controller = new AbortController()
   const stopHeartbeat = startTaskHeartbeat(projectId, task.id, runToken, controller)
   const reportProgress = async (message: string) => {
@@ -488,6 +536,50 @@ export async function executeAnalysisTask(projectId: string, taskId: string, lea
       console.warn('Could not persist REAmon analyzer progress:', error)
     }
   }
+  const pendingSource = pendingObservationSource(plugin.manifest.id, runToken)
+  const persistObservationBatch = async (batch: ToolObservation[]): Promise<number> => {
+    if (!batch.length) return 0
+    if (controller.signal.aborted) throw new Error('Analysis was cancelled before observations could be saved')
+    const summary = await prisma.$transaction(async (tx) => {
+      const ownsLease = await tx.task.findFirst({
+        where: { id: task.id, projectId: task.projectId, status: 'RUNNING', runToken },
+        select: { id: true },
+      })
+      if (!ownsLease) throw new Error('Analysis task no longer owns its execution lease')
+      if (!streamedObservationSourceReady) {
+        await tx.reamonObservation.deleteMany({
+          where: { projectId: task.projectId, taskId: task.id, source: pendingSource, type: 'function' },
+        })
+        streamedObservationSourceReady = true
+      }
+      const pendingBatch = batch.map((observation) => ({
+        ...observation,
+        attributes: { ...observation.attributes, analysisPending: true },
+      }))
+      return ingestToolResult(tx, {
+        projectId: task.projectId,
+        taskId: task.id,
+        targetId: task.targetId,
+        artifactId: task.artifactId,
+        source: pendingSource,
+        data: { observations: pendingBatch },
+        maxObservations: pendingBatch.length,
+      })
+    })
+    streamedObservationCount += summary.accepted
+    return summary.accepted
+  }
+  const discardStreamedObservations = async () => {
+    if (!streamedObservationSourceReady) return
+    const activeRun = await prisma.task.findFirst({
+      where: { id: task.id, projectId: task.projectId, status: { in: ['RUNNING', 'CANCELLED', 'FAILED'] }, runToken },
+      select: { id: true },
+    }).catch(() => null)
+    if (!activeRun) return
+    await prisma.reamonObservation.deleteMany({
+      where: { projectId: task.projectId, taskId: task.id, source: pendingSource, type: 'function' },
+    }).catch((error) => console.warn('Could not discard incomplete streamed DEX observations:', error))
+  }
   try {
     result = await plugin.analyze({
       targetProfile: profile,
@@ -500,17 +592,31 @@ export async function executeAnalysisTask(projectId: string, taskId: string, lea
       options: asOptions(task.options),
       signal: controller.signal,
       reportProgress,
+      persistObservationBatch,
     })
   } catch (error) {
     stopHeartbeat()
+    await discardStreamedObservations()
     return failTask(task, runToken, error instanceof Error ? error.message : 'Provider execution failed')
   }
   if (result.status !== 'completed') {
     stopHeartbeat()
+    await discardStreamedObservations()
     return settleTask(task, runToken, 'FAILED', plugin.manifest.name, result, result.error)
   }
-  result = await attachCodeArtifactProvenance(task, runToken, result)
+  try {
+    result = await attachCodeArtifactProvenance(task, runToken, result)
+  } catch (error) {
+    stopHeartbeat()
+    await discardStreamedObservations()
+    return failTask(task, runToken, error instanceof Error ? error.message : 'Could not attach analysis provenance')
+  }
   stopHeartbeat()
   await reportProgress('Saving analyzer results to the workspace')
-  return settleTask(task, runToken, 'COMPLETED', plugin.manifest.name, result)
+  try {
+    return await settleTask(task, runToken, 'COMPLETED', plugin.manifest.name, result, undefined, streamedObservationCount)
+  } catch (error) {
+    await discardStreamedObservations()
+    return failTask(task, runToken, error instanceof Error ? error.message : 'Could not save analyzer results')
+  }
 }

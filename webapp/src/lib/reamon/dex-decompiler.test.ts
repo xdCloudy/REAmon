@@ -90,6 +90,49 @@ describe('Rust DEX-to-Java provider', () => {
     expect(result.data.observations).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'function' })]))
   })
 
+  it('persists streamed method pages while keeping them out of the final task payload', async () => {
+    const method = {
+      signature: 'com.example.Main#start():void',
+      className: 'com.example.Main',
+      methodName: 'start',
+      relativePath: 'com/example/Main.java',
+      dexIndex: 0,
+      methodIndex: 3,
+      instructionCount: 2,
+      instructionMnemonics: ['invoke-virtual', 'return-void'],
+      controlFlowGraph: {},
+      bytecodeRowsTruncated: false,
+      cfgTruncated: false,
+    }
+    const body = responseBody([])
+    const metadata = Object.fromEntries(Object.entries(body).filter(([key]) => !['units', 'methods', 'calls', 'references'].includes(key)))
+    const events = [
+      { type: 'result_start', data: { ...metadata, discoveredMethodCount: 1, returnedMethodCount: 1 }, arrayFields: ['units', 'methods', 'calls', 'references'] },
+      { type: 'result_chunk', field: 'units', items: body.units },
+      { type: 'result_chunk', field: 'methods', items: [method] },
+      { type: 'result_end' },
+    ].map((event) => JSON.stringify(event)).join('\n')
+    vi.mocked(fetch).mockResolvedValue(new Response(events, {
+      status: 200,
+      headers: { 'content-type': 'application/x-ndjson' },
+    }))
+    const persistObservationBatch = vi.fn(async (observations) => observations.length)
+
+    const result = await executeDexDecompiler({ ...input, persistObservationBatch })
+
+    expect(result.status).toBe('completed')
+    expect(result.data).toMatchObject({ returnedMethodCount: 1, streamedFunctionObservationCount: 1 })
+    expect(result.data.observations).not.toEqual(expect.arrayContaining([expect.objectContaining({ type: 'function' })]))
+    expect(persistObservationBatch).toHaveBeenCalledWith([expect.objectContaining({
+      type: 'function',
+      label: 'com.example.Main#start',
+      attributes: expect.objectContaining({
+        decompilationEngineVersion: 'd'.repeat(40),
+        sourceSha256: 'a'.repeat(64),
+      }),
+    })])
+  })
+
   it('rejects malformed failed-class identities from the analyzer', async () => {
     const details = [{ dexEntry: 'classes2.dex', classIndex: -1, descriptor: 'Lcom/example/Broken;', reason: 'failed' }]
     vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify(responseBody(details)), { status: 200 }))

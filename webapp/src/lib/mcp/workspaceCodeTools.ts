@@ -24,6 +24,7 @@ const MAX_RELATIONSHIPS = 100
 const MAX_PROVIDER_ALTERNATES = 3
 const MAX_PROVIDER_ALTERNATE_BYTES = 16 * 1024
 const MAX_PROJECT_MEMORY_MATCHES = 100
+const NOT_PENDING_ANALYSIS = { NOT: { attributes: { path: ['analysisPending'], equals: true } } }
 const CODE_UNIT_TYPES = [CODE_UNIT_OBSERVATION_TYPE, 'function']
 const REFERENCE_RELATIONSHIP_TYPES = ['reads_field', 'writes_field', 'references_field', 'references_string']
 const REIPA_PROVIDER_VERSION = 'ReIPA@b0d4759451ed20796892a059fa53d9dbb130af61'
@@ -601,6 +602,7 @@ export async function listWorkspaceCodeRelationships(ctx: McpContext, args: Work
       projectId: args.projectId,
       type: { in: CODE_UNIT_TYPES },
       artifact: { is: selection.artifactWhere },
+      ...NOT_PENDING_ANALYSIS,
     },
     select: {
       id: true,
@@ -728,6 +730,7 @@ export async function listWorkspaceCodeUnits(ctx: McpContext, args: WorkspaceLis
     projectId: args.projectId,
     type: { in: CODE_UNIT_TYPES },
     artifact: { is: selection.artifactWhere },
+    ...NOT_PENDING_ANALYSIS,
     ...(args.taskId ? { taskId: args.taskId } : {}),
     ...(search ? {
       OR: [
@@ -806,6 +809,7 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
       projectId: args.projectId,
       type: { in: CODE_UNIT_TYPES },
       artifact: { is: selection.artifactWhere },
+      ...NOT_PENDING_ANALYSIS,
     },
     select: {
       id: true, stableKey: true, canonicalKey: true, type: true, label: true, source: true, taskId: true, artifactId: true, updatedAt: true, attributes: true,

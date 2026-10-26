@@ -7,6 +7,7 @@ from unittest.mock import patch
 from server import (
     AnalysisError,
     DEFAULT_CLASS_BATCH_SIZE,
+    Handler,
     build_decompile_command,
     build_class_descriptor_command,
     build_mapping_command,
@@ -151,6 +152,37 @@ class DecompilerCommandTests(unittest.TestCase):
 
             self.assertEqual([name for _, name in extracted], ["classes.dex", "classes2.dex", "classes10.dex"])
             self.assertEqual([path.read_bytes() for path, _ in extracted], [b"dex-one", b"dex-two", b"dex-ten"])
+
+    def test_streams_method_pages_and_removes_the_temporary_page_directory(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            page_directory = root / "project" / "artifact" / "task" / "run" / "dex-decompiler" / ".method-pages"
+            page_directory.mkdir(parents=True)
+            (page_directory / "method-page-000000.json").write_text(
+                '{"methods":[{"methodName":"first"},{"methodName":"second"}]}',
+                encoding="utf-8",
+            )
+            events = []
+            handler = Handler.__new__(Handler)
+            handler._stream_line = events.append
+
+            with patch("server.DERIVED_ROOT", root):
+                handler._stream_result({
+                    "status": "completed",
+                    "methods": [],
+                    "_methodPagePaths": [
+                        "project/artifact/task/run/dex-decompiler/.method-pages/method-page-000000.json",
+                    ],
+                })
+
+            method_events = [event for event in events if event.get("field") == "methods"]
+            self.assertEqual(method_events, [{
+                "type": "result_chunk",
+                "field": "methods",
+                "items": [{"methodName": "first"}, {"methodName": "second"}],
+            }])
+            self.assertEqual(events[-1], {"type": "result_end"})
+            self.assertFalse(page_directory.exists())
 
 
 if __name__ == "__main__":

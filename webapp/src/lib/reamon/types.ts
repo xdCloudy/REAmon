@@ -109,6 +109,7 @@ export interface ToolExecutionInput {
   options?: Record<string, unknown>
   signal?: AbortSignal
   reportProgress?: (message: string) => Promise<void> | void
+  persistObservationBatch?: (observations: ToolObservation[]) => Promise<number>
 }
 
 export interface ToolResult {
