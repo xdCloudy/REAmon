@@ -332,13 +332,13 @@ class PollAndCancelTests(_Base):
         self.assertEqual(body["output"], "")
 
     async def test_cancel_stops_the_job_and_says_what_that_means(self):
-        """The note matters: cancelling the asyncio task does not stop the
-        subprocess in the sandbox, so promising "stopped" would be a lie."""
+        """The note reflects broker cancellation and asynchronous cleanup."""
         self._seed("p1", JOB, "partial")
         body = _body(await api.kali_exec_cancel(JOB, project_id="p1"))
         self.assertEqual(self.registry.cancelled, [JOB])
         self.assertEqual(body["status"], "cancelled")
-        self.assertIn("may still be running", body["note"])
+        self.assertIn("project worker", body["note"])
+        self.assertIn("cleanup may finish", body["note"])
 
     async def test_cancelling_another_projects_job_is_not_found(self):
         self._seed("p1", JOB, "x")

@@ -504,22 +504,50 @@ class ProjectWorkerRuntimeTests(unittest.IsolatedAsyncioTestCase):
         ])
         self.assertEqual(image, digest)
         self.assertEqual(mounts[0]["Target"], "/workspace")
-        self.assertEqual(mounts[0]["Source"], r"C:\REAmon\workspace\project-1")
+        self.assertEqual(mounts[0]["Source"], "/run/desktop/mnt/host/c/REAmon/workspace/project-1")
         self.assertTrue(mounts[0]["ReadOnly"])
         self.assertEqual(mounts[1]["Target"], "/tmp")
         self.assertFalse(mounts[1]["ReadOnly"])
         self.assertEqual(mounts[2]["Target"], "/workspace/.reamon-tmp")
         self.assertEqual(mounts[3]["Target"], "/workspace/tool-outputs")
 
+    async def test_workspace_host_path_overrides_docker_desktop_shim_path(self):
+        digest = "sha256:" + "c" * 64
+
+        async def docker(method, path, body=None, **_kwargs):
+            self.assertEqual(method, "GET")
+            if path == "/containers/redamon-agent/json":
+                data = {"Mounts": [{
+                    "Destination": "/workspace",
+                    "Source": "/run/desktop/mnt/host/wsl/docker-desktop-bind-mounts/Ubuntu-24.04/shim",
+                }]}
+            else:
+                data = {"Id": digest}
+            return 200, json.dumps(data).encode()
+
+        with tempfile.TemporaryDirectory() as workspace_root:
+            os.mkdir(os.path.join(workspace_root, "project-1"))
+            with (
+                mock.patch.object(worker, "WORKSPACE_ROOT", workspace_root),
+                mock.patch.object(worker, "WORKSPACE_HOST_PATH", r"C:\REAmon\workspace"),
+                mock.patch.object(worker, "_docker_request", side_effect=docker),
+            ):
+                mounts, _ = await worker._workspace_project_runtime("project-1")
+
+        self.assertEqual(
+            mounts[0]["Source"],
+            "/run/desktop/mnt/host/c/REAmon/workspace/project-1",
+        )
+
     async def test_worker_image_selection_keeps_pentest_tools_separate(self):
         with (
             mock.patch.object(worker, "PROJECT_WORKER_IMAGE", "reamon-project-worker:unit"),
-            mock.patch.object(worker, "PENTEST_WORKER_IMAGE", "redamon-kali:unit"),
+            mock.patch.object(worker, "PENTEST_WORKER_IMAGE", "reamon-kali-sandbox:unit"),
         ):
             self.assertEqual(worker._worker_image_for_tool("execute_code"), "reamon-project-worker:unit")
-            self.assertEqual(worker._worker_image_for_tool("kali_shell"), "redamon-kali:unit")
-            self.assertEqual(worker._worker_image_for_tool("execute_playwright"), "redamon-kali:unit")
-            self.assertEqual(worker._worker_image_for_tool("proxy_brain"), "redamon-kali:unit")
+            self.assertEqual(worker._worker_image_for_tool("kali_shell"), "reamon-kali-sandbox:unit")
+            self.assertEqual(worker._worker_image_for_tool("execute_playwright"), "reamon-kali-sandbox:unit")
+            self.assertEqual(worker._worker_image_for_tool("proxy_brain"), "reamon-kali-sandbox:unit")
 
     async def test_project_worker_count_uses_hashed_project_label(self):
         calls = []

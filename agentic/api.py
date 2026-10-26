@@ -7330,13 +7330,13 @@ def _kali_job_view(state: dict, cursor: int, project_id: str, job_id: str) -> di
     if state.get("error"):
         view["error"] = str(state["error"])
     if view["status"] == "cancelled":
-        # Honest wording. reg.cancel() cancels the asyncio task awaiting the MCP
-        # call; kali_shell is a blocking subprocess.run in the SANDBOX process,
-        # and nothing propagates the cancellation to it, so the command itself
-        # can keep running against the target for up to its own 300s timeout.
+        # Cancellation closes the async MCP worker request. The broker observes
+        # that disconnect, cancels execution, and removes the disposable worker;
+        # remote cleanup can finish just after this response is returned.
         view["note"] = (
-            "Cancelled on RedAmon's side. The sandbox command may still be running at "
-            "the target until its own timeout; output after this point is not collected."
+            "Cancellation was sent to the project worker through the broker. "
+            "Worker and network cleanup may finish just after this response; output "
+            "after cancellation is not collected."
         )
     return view
 

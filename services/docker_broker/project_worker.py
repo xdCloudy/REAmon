@@ -24,8 +24,12 @@ SCANNER_API_KEY = os.environ.get("SCANNER_API_KEY", "")
 WORKSPACE_CONTAINER = os.environ.get("REAMON_WORKSPACE_CONTAINER", "redamon-agent")
 WORKER_BROKER_CONTAINER = os.environ.get("REAMON_DOCKER_BROKER_CONTAINER", "reamon-docker-broker")
 WORKSPACE_ROOT = os.environ.get("REAMON_WORKSPACE_ROOT", "")
+WORKSPACE_HOST_PATH = os.environ.get("REAMON_WORKSPACE_HOST_PATH", "")
+DOCKER_DESKTOP_HOST_PREFIX = os.environ.get(
+    "REAMON_DOCKER_DESKTOP_HOST_PREFIX", "/run/desktop/mnt/host",
+).rstrip("/")
 PROJECT_WORKER_IMAGE = os.environ.get("REAMON_PROJECT_WORKER_IMAGE", "reamon-project-worker:latest")
-PENTEST_WORKER_IMAGE = os.environ.get("REAMON_PENTEST_WORKER_IMAGE", "redamon-kali:latest")
+PENTEST_WORKER_IMAGE = os.environ.get("REAMON_PENTEST_WORKER_IMAGE", "reamon-kali-sandbox:latest")
 TERMINAL_AGENT_CONTAINER = os.environ.get("REAMON_TERMINAL_AGENT_CONTAINER", "redamon-agent")
 WORKER_MEMORY = max(256 * 1024**2, int(os.environ.get("REAMON_WORKER_MEMORY_BYTES", str(1024**3))))
 WORKER_PIDS = max(64, int(os.environ.get("REAMON_WORKER_PIDS", "512")))
@@ -189,7 +193,7 @@ async def _workspace_project_runtime(
     container = _json_body(raw, "workspace inspect")
     mounts = container.get("Mounts")
     workspace = next((m for m in mounts or [] if m.get("Destination") == "/workspace"), None)
-    source = workspace.get("Source") if isinstance(workspace, dict) else None
+    source = WORKSPACE_HOST_PATH or (workspace.get("Source") if isinstance(workspace, dict) else None)
     if not isinstance(source, str) or not source:
         raise DockerAPIError("project workspace mount source is unavailable")
 
@@ -206,10 +210,11 @@ async def _workspace_project_runtime(
 
     _prepare_project_worker_paths(project_id)
 
-    scratch = pathmod.join(project_root, ".reamon-tmp")
-    outputs = pathmod.join(project_root, "tool-outputs")
+    docker_project_root = _docker_daemon_path(project_root, pathmod)
+    scratch = os.path.join(docker_project_root, ".reamon-tmp")
+    outputs = os.path.join(docker_project_root, "tool-outputs")
     mounts = [
-        {"Type": "bind", "Source": project_root, "Target": "/workspace", "ReadOnly": True},
+        {"Type": "bind", "Source": docker_project_root, "Target": "/workspace", "ReadOnly": True},
         {"Type": "bind", "Source": scratch, "Target": "/tmp", "ReadOnly": False},
         {"Type": "bind", "Source": scratch, "Target": "/workspace/.reamon-tmp", "ReadOnly": False},
         {"Type": "bind", "Source": outputs, "Target": "/workspace/tool-outputs", "ReadOnly": False},
@@ -350,6 +355,18 @@ async def reap_orphaned_workers() -> tuple[int, int] | None:
 def _project_scope_label(project_id: str) -> str:
     """Stable label for per-project admission without storing project IDs in Docker metadata."""
     return hashlib.sha256(project_id.encode("utf-8")).hexdigest()
+
+
+def _docker_daemon_path(path: str, pathmod) -> str:
+    """Translate a Windows bind source into Docker Desktop's Linux host path."""
+    if pathmod is not ntpath:
+        return path
+    drive, tail = ntpath.splitdrive(path)
+    if not re.fullmatch(r"[A-Za-z]:", drive):
+        raise DockerAPIError("Docker Desktop workspace source must use a local drive")
+    prefix = DOCKER_DESKTOP_HOST_PREFIX or "/run/desktop/mnt/host"
+    tail = tail.replace("\\", "/")
+    return f"{prefix}/{drive[0].lower()}{tail}"
 
 
 def _prepare_project_worker_paths(project_id: str) -> None:

@@ -431,8 +431,10 @@ services:
       AGENT_EXECUTION_SCOPE_URL: http://agent:8080/execution/resolve-context
       REAMON_WORKSPACE_CONTAINER: redamon-agent
       REAMON_WORKSPACE_ROOT: /workspace
+      REAMON_WORKSPACE_HOST_PATH: ${REAMON_WORKSPACE_HOST_PATH:-${PWD:-.}/agentic/agent-workspace}
+      REAMON_DOCKER_DESKTOP_HOST_PREFIX: ${REAMON_DOCKER_DESKTOP_HOST_PREFIX:-/run/desktop/mnt/host}
       REAMON_PROJECT_WORKER_IMAGE: reamon-project-worker:latest
-      REAMON_PENTEST_WORKER_IMAGE: redamon-kali:latest
+      REAMON_PENTEST_WORKER_IMAGE: ${REAMON_PENTEST_WORKER_IMAGE:-reamon-kali-sandbox:latest}
       REAMON_TERMINAL_AGENT_CONTAINER: redamon-agent
       # Tool images the recon pipeline may run (V3 set is the broker default;
       # operator extras flow through to keep parity with RECON_EXTRA_ALLOWED_IMAGES).
@@ -744,6 +746,7 @@ services:
 
   kali-sandbox:
     profiles: ["legacy-pentest"]
+    image: ${REAMON_PENTEST_WORKER_IMAGE:-reamon-kali-sandbox:latest}
     build:
       context: ./mcp
       dockerfile: kali-sandbox/Dockerfile
