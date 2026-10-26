@@ -14,6 +14,7 @@ import io
 import json
 import os
 import sys
+import threading
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -235,6 +236,122 @@ class TestProjectScopedSessions(unittest.TestCase):
                 else:
                     console.kill_session.assert_called_once_with(4)
                 self.assertEqual(h._send_json.call_args.args[0], 200)
+
+    def test_project_listing_includes_only_jobs_with_matching_owner(self):
+        console = mock.Mock()
+        console.get_sessions_data.return_value = {
+            "sessions": [],
+            "non_msf_sessions": [],
+            "jobs": [{"id": 7, "name": "handler"}, {"id": 8, "name": "listener"}, {"id": 9}],
+        }
+        console.snapshot_job_ownership.return_value = {
+            7: {"project_id": "p1", "user_id": "u1"},
+            8: {"project_id": "p2", "user_id": "u2"},
+        }
+        h = self._authorized_handler("/sessions?project_id=p1")
+        h._send_json = mock.Mock()
+
+        with mock.patch.object(msf, "get_msf_console", return_value=console):
+            h.do_GET()
+
+        response = h._send_json.call_args.args[1]
+        self.assertEqual(response["jobs"], [
+            {"id": 7, "name": "handler", "project_id": "p1", "user_id": "u1"},
+        ])
+        console.snapshot_job_ownership.assert_called_once_with()
+
+    def test_live_job_can_be_registered_to_its_project(self):
+        console = mock.Mock()
+        console.job_exists.return_value = True
+        console.register_job_owner.return_value = True
+        owner = {"chat_session_id": "chat-1", "project_id": "p1", "user_id": "u1"}
+        h = self._authorized_handler("/job-chat-map", {"msf_job_id": 7, **owner})
+        h._send_json = mock.Mock()
+
+        with mock.patch.object(msf, "get_msf_console", return_value=console):
+            h.do_POST()
+
+        console.job_exists.assert_called_once_with(7)
+        console.register_job_owner.assert_called_once_with(7, owner)
+        h._send_json.assert_called_once_with(200, {"ok": True})
+
+    def test_job_registration_rejects_missing_metadata_and_non_live_jobs(self):
+        cases = (
+            {"msf_job_id": 7, "chat_session_id": "chat-1", "project_id": "p1"},
+            {"msf_job_id": 7, "chat_session_id": "chat-1", "project_id": "p1", "user_id": "u1"},
+            {"msf_job_id": True, "chat_session_id": "chat-1", "project_id": "p1", "user_id": "u1"},
+        )
+        for body in cases:
+            with self.subTest(body=body):
+                console = mock.Mock()
+                console.job_exists.return_value = False
+                h = self._authorized_handler("/job-chat-map", body)
+                h._send_json = mock.Mock()
+
+                with mock.patch.object(msf, "get_msf_console", return_value=console):
+                    h.do_POST()
+
+                h._send_json.assert_called_once_with(400, {"error": "Missing job ownership metadata"})
+                console.register_job_owner.assert_not_called()
+                if body["msf_job_id"] is True:
+                    console.job_exists.assert_not_called()
+
+    def test_job_registration_rejects_cross_project_reassignment(self):
+        console = mock.Mock()
+        console.job_exists.return_value = True
+        console.register_job_owner.return_value = False
+        h = self._authorized_handler("/job-chat-map", {
+            "msf_job_id": 7,
+            "chat_session_id": "chat-2",
+            "project_id": "p2",
+            "user_id": "u2",
+        })
+        h._send_json = mock.Mock()
+
+        with mock.patch.object(msf, "get_msf_console", return_value=console):
+            h.do_POST()
+
+        h._send_json.assert_called_once_with(409, {"error": "Job ownership is already assigned"})
+
+    def test_job_kill_rejects_jobs_not_owned_by_requested_project(self):
+        console = mock.Mock()
+        console.job_belongs_to_project.return_value = False
+        h = self._authorized_handler("/jobs/7/kill", {"project_id": "p1"})
+        h._send_json = mock.Mock()
+
+        with mock.patch.object(msf, "get_msf_console", return_value=console):
+            h.do_POST()
+
+        console.job_belongs_to_project.assert_called_once_with(7, "p1")
+        h._send_json.assert_called_once_with(404, {"error": "Job not found"})
+        console.kill_job.assert_not_called()
+
+    def test_project_owned_job_can_be_killed(self):
+        console = mock.Mock()
+        console.job_belongs_to_project.return_value = True
+        console.kill_job.return_value = {"ok": True}
+        h = self._authorized_handler("/jobs/7/kill", {"project_id": "p1"})
+        h._send_json = mock.Mock()
+
+        with mock.patch.object(msf, "get_msf_console", return_value=console):
+            h.do_POST()
+
+        console.kill_job.assert_called_once_with(7)
+        h._send_json.assert_called_once_with(200, {"ok": True})
+
+
+class TestJobOwnershipMap(unittest.TestCase):
+    def test_job_id_cannot_be_reassigned_across_projects(self):
+        console = msf.PersistentMsfConsole.__new__(msf.PersistentMsfConsole)
+        console._detail_lock = threading.Lock()
+        console._chat_job_map = {}
+        owner = {"project_id": "p1", "user_id": "u1", "chat_session_id": "chat-1"}
+
+        self.assertTrue(console.register_job_owner(7, owner))
+        self.assertFalse(console.register_job_owner(7, {
+            "project_id": "p2", "user_id": "u2", "chat_session_id": "chat-2",
+        }))
+        self.assertEqual(console.snapshot_job_ownership(), {7: owner})
 
 
 if __name__ == "__main__":
