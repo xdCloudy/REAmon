@@ -13,7 +13,7 @@ import {
 
 interface RouteParams { params: Promise<{ id: string }> }
 const MAX_FUNCTION_MAP_MEMBERS = 20_000
-const NOT_PENDING_ANALYSIS = { NOT: { attributes: { path: ['analysisPending'], equals: true } } }
+const NOT_PENDING_ANALYSIS = { isPending: false }
 
 function resultRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}

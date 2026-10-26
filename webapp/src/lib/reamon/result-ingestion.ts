@@ -215,6 +215,7 @@ export interface ObservationIngestionInput {
   source: string
   data: unknown
   maxObservations?: number
+  isPending?: boolean
 }
 
 export interface ObservationIngestionSummary {
@@ -239,13 +240,14 @@ export async function ingestToolResult(
       ${observation.relation ?? null}, ${observation.fromKey ?? null}, ${observation.toKey ?? null},
       ${observation.fromCanonicalKey ?? null}, ${observation.toCanonicalKey ?? null},
       ${JSON.stringify(observation.attributes)}::jsonb,
+      ${input.isPending === true},
       CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
     )`)
     await tx.$executeRaw(Prisma.sql`
       INSERT INTO "reamon_observations" (
         "id", "project_id", "task_id", "target_id", "artifact_id", "kind", "type",
         "stable_key", "canonical_key", "label", "source", "relation", "from_key", "to_key",
-        "from_canonical_key", "to_canonical_key", "attributes", "created_at", "updated_at"
+        "from_canonical_key", "to_canonical_key", "attributes", "is_pending", "created_at", "updated_at"
       ) VALUES ${Prisma.join(rows)}
       ON CONFLICT ("project_id", "source", "stable_key") DO UPDATE SET
         "task_id" = EXCLUDED."task_id",
@@ -261,6 +263,7 @@ export async function ingestToolResult(
         "from_canonical_key" = EXCLUDED."from_canonical_key",
         "to_canonical_key" = EXCLUDED."to_canonical_key",
         "attributes" = EXCLUDED."attributes",
+        "is_pending" = EXCLUDED."is_pending",
         "updated_at" = CURRENT_TIMESTAMP
     `)
   }

@@ -2771,6 +2771,7 @@ model ReamonObservation {
   fromCanonicalKey String? @map("from_canonical_key")
   toCanonicalKey   String? @map("to_canonical_key")
   attributes  Json     @default("{}")
+  isPending   Boolean  @default(false) @map("is_pending")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
@@ -2778,6 +2779,7 @@ model ReamonObservation {
   @@index([projectId, canonicalKey])
   @@index([projectId, kind, type])
   @@index([projectId, taskId])
+  @@index([projectId, taskId, isPending])
   @@index([projectId, artifactId])
   @@map("reamon_observations")
 }

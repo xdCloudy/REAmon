@@ -386,13 +386,13 @@ async function settleTask(
           INSERT INTO "reamon_observations" (
             "id", "project_id", "task_id", "target_id", "artifact_id", "kind", "type",
             "stable_key", "canonical_key", "label", "source", "relation", "from_key", "to_key",
-            "from_canonical_key", "to_canonical_key", "attributes", "created_at", "updated_at"
+            "from_canonical_key", "to_canonical_key", "attributes", "is_pending", "created_at", "updated_at"
           )
           SELECT
             'c' || md5(pending."id" || ${runToken}), pending."project_id", pending."task_id", pending."target_id",
             pending."artifact_id", pending."kind", pending."type", pending."stable_key", pending."canonical_key",
             pending."label", ${result.toolId}, pending."relation", pending."from_key", pending."to_key",
-            pending."from_canonical_key", pending."to_canonical_key", pending."attributes" - 'analysisPending',
+            pending."from_canonical_key", pending."to_canonical_key", pending."attributes" - 'analysisPending', FALSE,
             pending."created_at", CURRENT_TIMESTAMP
           FROM "reamon_observations" AS pending
           WHERE pending."project_id" = ${task.projectId}
@@ -413,6 +413,7 @@ async function settleTask(
             "from_canonical_key" = EXCLUDED."from_canonical_key",
             "to_canonical_key" = EXCLUDED."to_canonical_key",
             "attributes" = EXCLUDED."attributes",
+            "is_pending" = FALSE,
             "updated_at" = CURRENT_TIMESTAMP
         `)
         await tx.reamonObservation.deleteMany({
@@ -557,18 +558,15 @@ export async function executeAnalysisTask(projectId: string, taskId: string, lea
         })
         streamedObservationSourceReady = true
       }
-      const pendingBatch = batch.map((observation) => ({
-        ...observation,
-        attributes: { ...observation.attributes, analysisPending: true },
-      }))
       return ingestToolResult(tx, {
         projectId: task.projectId,
         taskId: task.id,
         targetId: task.targetId,
         artifactId: task.artifactId,
         source: pendingSource,
-        data: { observations: pendingBatch },
-        maxObservations: pendingBatch.length,
+        data: { observations: batch },
+        maxObservations: batch.length,
+        isPending: true,
       })
     })
     streamedObservationCount += summary.accepted
