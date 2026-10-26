@@ -20,10 +20,12 @@ make files and directories writable by all local users to accommodate the shared
 container, so filesystem permissions do not restore the project boundary.
 
 As a result, the existing project-scoped download route protects browser access
-but does not isolate arbitrary Kali execution. The unprivileged command children
-still share `/tmp` and can read the complete mounted workspace; other MCP server
-processes also retain the service environment. This remains a source-level finding;
-it is not a claim that any particular deployment has been exploited.
+but does not isolate arbitrary Kali execution. Non-terminal unprivileged command
+children still share `/tmp` and can read the complete mounted workspace; other
+MCP server processes also retain the service environment. The terminal PTY now
+has a narrower namespace-backed boundary described below. This remains a
+source-level finding; it is not a claim that any particular deployment has been
+exploited.
 
 The unused agent `/files?path=/tmp/...` endpoint has been removed; current browser
 downloads use the project-authorized workspace endpoint. This closes that direct
@@ -37,8 +39,8 @@ tests passed on 2026-10-25).
 The terminal WebSocket proxy now passes ticket-verified user, project, and session
 claims to Kali as its first frame and discards browser-supplied `init` frames. Three
 focused Docker tests cover claim serialization, forged-frame detection, and the
-proxy behavior. This prevents the browser from selecting another shell identity,
-but terminal shells still use the shared Kali container and filesystem.
+proxy behavior. This prevents the browser from selecting another shell identity
+or context.
 
 ## Implementation seams verified
 
@@ -103,9 +105,20 @@ reduce process privilege and resource abuse but do not add project boundaries.
 The expanded terminal identity, signed graph-context, graph authorization, and
 CLI regression run passes 130 Docker tests plus 65 script-style subchecks,
 including scanner-only rejection and equal-key fail-closed behavior.
-Context verification, custom Playwright project scoping, terminal project
-scoping, and project-scoped `/tmp` and workspace storage remain open; the full
-project-worker finding is not closed.
+Context verification for non-terminal tools, custom Playwright project scoping,
+and project-worker ownership remain open; the full shared-Kali finding is not
+closed.
+
+The terminal PTY now starts through an unprivileged user, mount, and PID
+namespace. Inside it, `/workspace` is a bind mount of only the ticket-bound
+project directory, while `/tmp`, `/var/tmp`, and `/opt/output` are private tmpfs
+mounts. A session without a project identity receives an empty private
+workspace. The namespace maps its root back to the already-unprivileged UID
+65534, and mount propagation is made private before changing mounts. This
+reduces terminal cross-project file access and prevents shared temporary files
+from crossing terminal sessions. The shared Kali container still hosts the
+controller and other execution tools, so this is an incremental terminal
+boundary rather than the per-project worker architecture selected below.
 
 The live local deployment was checked on 2026-10-26: both the localhost and LAN
 readiness endpoints returned `ready` with database and artifact checks `ok`.
@@ -122,7 +135,9 @@ finding.
 ## Decision
 
 Run every arbitrary-code surface in a project-scoped sandbox worker with its own
-filesystem, process namespace, and temporary directory. The shared MCP service
+filesystem, process namespace, and temporary directory. The terminal namespace
+is an interim boundary; other arbitrary-code surfaces still need this worker
+architecture. The shared MCP service
 will remain a controller: it will authenticate the agent, verify the signed
 project scope, route work to the matching worker, and publish selected artifacts
 through a project-authorized transfer path.

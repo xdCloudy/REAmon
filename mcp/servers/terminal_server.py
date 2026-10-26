@@ -29,6 +29,27 @@ _TERMINAL_PATH = (
     "/opt/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
     ":/usr/local/go/bin"
 )
+_TERMINAL_SANDBOX_SCRIPT = """\
+set -eu
+mount --make-rprivate /
+mount -t tmpfs -o mode=1777,nosuid,nodev tmpfs /tmp
+mount -t tmpfs -o mode=1777,nosuid,nodev tmpfs /var/tmp
+mount -t tmpfs -o mode=1777,nosuid,nodev tmpfs /opt/output
+if [ -n "$1" ]; then
+    project="/workspace/$1"
+    [ -d "$project" ] || { echo "Project workspace is unavailable" >&2; exit 1; }
+    [ "$(readlink -f -- "$project")" = "$project" ] || {
+        echo "Project workspace must be a real directory" >&2
+        exit 1
+    }
+    mount --bind "$project" /workspace
+    mount -o remount,bind,nodev,nosuid /workspace
+else
+    mount -t tmpfs -o mode=1777,nosuid,nodev tmpfs /workspace
+fi
+cd /workspace
+exec /bin/bash --login
+"""
 
 _active_sessions = 0
 _session_lock = asyncio.Lock()
@@ -162,6 +183,27 @@ def _drop_terminal_privileges() -> None:
     os.setuid(_TERMINAL_UID)
 
 
+def _terminal_sandbox_command(tenant_env: dict) -> list[str]:
+    """Build the namespace wrapper that confines the shell to one project.
+
+    The outer shell process is already nobody. ``--map-root-user`` maps the
+    namespace's root back to that unprivileged host UID, so mount operations
+    are allowed without granting capabilities in the container's host namespace.
+    """
+    project_id = str(tenant_env.get("REDAMON_PROJECT_ID", "")).strip()
+    if project_id:
+        invalid_separator = any(char in project_id for char in ("/", "\\", "\x00"))
+        if len(project_id) > 200 or invalid_separator:
+            raise ValueError("invalid project id for terminal workspace")
+        if project_id in (".", "..") or project_id.startswith("."):
+            raise ValueError("invalid project id for terminal workspace")
+    return [
+        "/usr/bin/unshare", "--user", "--map-root-user", "--mount",
+        "--pid", "--fork", "--mount-proc", "/bin/sh", "-c",
+        _TERMINAL_SANDBOX_SCRIPT, "reamon-terminal", project_id,
+    ]
+
+
 async def _run_pty_session(ws):
     """Run the actual PTY session for a WebSocket connection."""
     tenant_env, replay_bytes = await _read_init_frame(ws)
@@ -190,7 +232,15 @@ async def _run_pty_session(ws):
             logger.error("Could not drop terminal shell privileges: %s", e)
             os._exit(126)
 
-        os.execvpe("/bin/bash", ["/bin/bash", "--login"], env)
+        try:
+            os.execvpe(
+                "/usr/bin/unshare",
+                _terminal_sandbox_command(tenant_env),
+                env,
+            )
+        except Exception as e:
+            logger.error("Could not start isolated terminal namespace: %s", e)
+            os._exit(126)
         # Never reached
         os._exit(1)
 
