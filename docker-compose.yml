@@ -436,9 +436,8 @@ services:
       # D1: fork-bomb ceiling injected into every sibling tool container
       # (katana/nuclei/httpx/...). Was 0 (unlimited); 512 is generous per tool.
       BROKER_TOOL_PIDS: ${BROKER_TOOL_PIDS:-512}
-      # Phase 7: cap the NUMBER of concurrently-running broker-owned containers the
-      # memory governor cannot see. Generous backstop; 0 disables. Raise if legit
-      # parallel scans (each spawns a dozen tools) hit it.
+      # Phase 7: cap active broker-owned containers the memory governor cannot
+      # see, including created-but-not-started tools. Zero disables the cap.
       BROKER_MAX_CONTAINERS: ${BROKER_MAX_CONTAINERS:-48}
       # T1/T2: extra host prefixes a tool bind may mount READ-WRITE. Empty passes
       # through so broker.py keeps its restrictive default (["/tmp/redamon"] only);

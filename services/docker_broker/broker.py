@@ -369,8 +369,9 @@ BROKER_TOOL_PIDS = max(0, _parse_int(os.environ.get("BROKER_TOOL_PIDS", "0"), 0)
 # Phase 7: sibling tool containers had NO count cap, so a runaway scan (or many
 # concurrent scans) could spawn unbounded containers the memory governor never
 # sees. A generous backstop; 0 disables it. A create is denied once this many
-# broker-owned containers are already running.
+# broker-owned containers are active, including created-but-not-started workers.
 BROKER_MAX_CONTAINERS = max(0, _parse_int(os.environ.get("BROKER_MAX_CONTAINERS", "0"), 0))
+_CREATE_COUNT_LOCK = asyncio.Lock()
 
 
 def inject_limits(cfg: dict) -> dict:
@@ -466,13 +467,14 @@ async def _is_broker_owned(cid: str) -> bool:
     return bool(labels) and labels.get(_OWNER_LABEL) == "1"
 
 
-async def _count_broker_owned_running() -> int:
-    """Count currently-running broker-owned containers via an upstream
+async def _count_broker_owned_active() -> int:
+    """Count active broker-owned containers via an upstream
     GET /containers/json filtered by the ownership label (Phase 7 count cap).
-    Returns -1 if the count cannot be determined, so the caller can fail OPEN
-    (never block a legitimate spawn on a transient upstream hiccup)."""
+    Returns -1 if the count cannot be determined; callers must fail closed when
+    the configured cap is enabled."""
     from urllib.parse import quote
-    filt = quote(json.dumps({"label": [f"{_OWNER_LABEL}=1"], "status": ["running"]}))
+    active_states = ["created", "restarting", "running", "paused"]
+    filt = quote(json.dumps({"label": [f"{_OWNER_LABEL}=1"], "status": active_states}))
     r = w = None
     try:
         r, w = await asyncio.open_unix_connection(UPSTREAM_SOCK)
@@ -611,6 +613,7 @@ async def handle_client(client_reader, client_writer):
     request is allowed — so a denied request never touches the real daemon at all
     (not even a connection)."""
     up_writer = None
+    create_count_lock_held = False
     try:
         head, request_line, headers = await _read_headers(client_reader)
         if not request_line:
@@ -685,13 +688,20 @@ async def handle_client(client_reader, client_writer):
                 _reject(reason)
                 await client_writer.drain()
                 return
-            # Phase 7: sibling-container count cap. Fail OPEN on an unknown count so
-            # a transient upstream hiccup never blocks a legitimate spawn.
+            # An enabled count cap must not silently disappear during a Docker
+            # API outage or a burst of concurrent creates.
             if BROKER_MAX_CONTAINERS > 0:
-                running = await _count_broker_owned_running()
-                if running >= BROKER_MAX_CONTAINERS:
-                    _log(f"DENY create: container count cap reached ({running}/{BROKER_MAX_CONTAINERS})")
-                    _reject(f"broker container count cap reached ({running}/{BROKER_MAX_CONTAINERS})")
+                await _CREATE_COUNT_LOCK.acquire()
+                create_count_lock_held = True
+                active = await _count_broker_owned_active()
+                if active < 0:
+                    _log("DENY create: unable to verify broker container count cap")
+                    _reject("broker container count unavailable; create denied")
+                    await client_writer.drain()
+                    return
+                if active >= BROKER_MAX_CONTAINERS:
+                    _log(f"DENY create: container count cap reached ({active}/{BROKER_MAX_CONTAINERS})")
+                    _reject(f"broker container count cap reached ({active}/{BROKER_MAX_CONTAINERS})")
                     await client_writer.drain()
                     return
             # Memory governor (Part 4d): inject the hard mem cap; E1: stamp the
@@ -738,6 +748,8 @@ async def handle_client(client_reader, client_writer):
     except Exception as e:
         _log(f"error: {e}")
     finally:
+        if create_count_lock_held:
+            _CREATE_COUNT_LOCK.release()
         for w in (client_writer, up_writer):
             if w is not None:
                 try:

@@ -15,6 +15,7 @@ import json
 import os
 import sys
 import tempfile
+import urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import broker  # noqa: E402
@@ -24,6 +25,8 @@ MOCK_SOCK = os.path.join(TMP, "upstream.sock")
 BROKER_SOCK = os.path.join(TMP, "broker.sock")
 
 received = []  # requests the mock upstream actually saw
+hold_create_response = None
+create_request_received = None
 PASS = 0
 FAIL = 0
 
@@ -43,7 +46,10 @@ async def mock_upstream(reader, writer):
     except asyncio.TimeoutError:
         data = b""
     received.append(data)
-    body = b'{"Id":"deadbeef"}'
+    if hold_create_response is not None and b"/containers/create" in data:
+        create_request_received.set()
+        await hold_create_response.wait()
+    body = b"[]" if b"GET /containers/json?" in data else b'{"Id":"deadbeef"}'
     writer.write(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
                  b"Content-Length: " + str(len(body)).encode() + b"\r\n"
                  b"Connection: close\r\n\r\n" + body)
@@ -81,6 +87,7 @@ async def send(raw):
 
 
 async def main():
+    global hold_create_response, create_request_received
     broker.UPSTREAM_SOCK = MOCK_SOCK
     broker.ALLOWED_BIND_PREFIXES = ["/tmp/redamon"]
 
@@ -88,6 +95,75 @@ async def main():
     br = await asyncio.start_unix_server(broker.handle_client, path=BROKER_SOCK)
 
     async with up, br:
+        received.clear()
+        active_count = await broker._count_broker_owned_active()
+        decoded_query = urllib.parse.unquote(received[0].decode("latin1")) if received else ""
+        check("container cap counts active states, including created workers",
+              active_count == 0 and all(
+                  f'"{state}"' in decoded_query
+                  for state in ("created", "restarting", "running", "paused")
+              ))
+
+        # An enabled resource cap must reject a create if Docker cannot report
+        # the current count; otherwise transient daemon errors disable the cap.
+        original_max = broker.BROKER_MAX_CONTAINERS
+        original_count = broker._count_broker_owned_active
+
+        async def unknown_running_count():
+            return -1
+
+        broker.BROKER_MAX_CONTAINERS = 1
+        broker._count_broker_owned_active = unknown_running_count
+        received.clear()
+        resp = await send(make_request(
+            "POST", "/v1.43/containers/create", {"Image": "projectdiscovery/naabu:latest"}
+        ))
+        check("enabled count cap denies create when count is unavailable", b"403" in resp)
+        check("unverified count cap denies without contacting Docker", not received)
+
+        # Hold the first Docker create response while a second request arrives.
+        # The admission lock must keep the second count check behind the first
+        # create, so a burst cannot exceed the configured cap.
+        count_calls = 0
+
+        async def count_one_then_full():
+            nonlocal count_calls
+            count_calls += 1
+            return 0 if count_calls == 1 else 1
+
+        hold_create_response = asyncio.Event()
+        create_request_received = asyncio.Event()
+        broker._count_broker_owned_active = count_one_then_full
+        received.clear()
+        first = asyncio.create_task(send(make_request(
+            "POST", "/v1.43/containers/create", {"Image": "projectdiscovery/naabu:latest"}
+        )))
+        second = None
+        try:
+            await asyncio.wait_for(create_request_received.wait(), timeout=2)
+            second = asyncio.create_task(send(make_request(
+                "POST", "/v1.43/containers/create", {"Image": "projectdiscovery/naabu:latest"}
+            )))
+            await asyncio.sleep(0.05)
+            serialized_admission = count_calls == 1
+            hold_create_response.set()
+            first_response, second_response = await asyncio.gather(first, second)
+        finally:
+            hold_create_response.set()
+            if second is None:
+                await asyncio.gather(first, return_exceptions=True)
+            else:
+                await asyncio.gather(first, second, return_exceptions=True)
+            hold_create_response = None
+            create_request_received = None
+
+        check("concurrent create waits for the prior capped create", serialized_admission)
+        check("count cap admits only one concurrent create",
+              b"200 OK" in first_response and b"403 Forbidden" in second_response
+              and len(received) == 1)
+        broker.BROKER_MAX_CONTAINERS = original_max
+        broker._count_broker_owned_active = original_count
+
         # 1. allowed create -> forwarded, response relayed
         received.clear()
         resp = await send(make_request("POST", "/v1.43/containers/create",
