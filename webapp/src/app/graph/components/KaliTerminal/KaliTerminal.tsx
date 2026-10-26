@@ -163,7 +163,7 @@ export const KaliTerminal = memo(function KaliTerminal({ userId, projectId }: Ka
     terminal.writeln('\x1b[1;36m  \u2502\x1b[0m  \x1b[2;37mmetasploit \u2022 nmap \u2022 nuclei \u2022 hydra \u2022 sqlmap\x1b[0m \x1b[1;36m\u2502\x1b[0m')
     terminal.writeln('\x1b[1;36m  \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518\x1b[0m')
     terminal.writeln('')
-    terminal.writeln('\x1b[2;37m  Connecting to kali-sandbox...\x1b[0m')
+    terminal.writeln('\x1b[2;37m  Connecting to the isolated terminal worker...\x1b[0m')
 
     // STRIDE S3: mint a ws-ticket (bound to the effective user + project) before
     // dialing. Without a valid ticket the agent proxy now closes the socket.
@@ -257,7 +257,7 @@ export const KaliTerminal = memo(function KaliTerminal({ userId, projectId }: Ka
     ws.onerror = () => {
       if (!mountedRef.current) return
       setStatus('error')
-      terminal.writeln('\n\x1b[1;31mWebSocket connection failed. Is the kali-sandbox running?\x1b[0m')
+      terminal.writeln('\n\x1b[1;31mTerminal connection failed. Check that the optional isolated worker stack is configured and running.\x1b[0m')
     }
 
     ws.onclose = () => {
@@ -270,7 +270,7 @@ export const KaliTerminal = memo(function KaliTerminal({ userId, projectId }: Ka
       }
 
       setStatus('disconnected')
-      terminal.writeln('\n\x1b[1;31m\u2717 Disconnected from kali-sandbox\x1b[0m')
+      terminal.writeln('\n\x1b[1;31m\u2717 Disconnected from the isolated terminal worker\x1b[0m')
 
       // Auto-reconnect with exponential backoff
       const attempt = reconnectAttemptRef.current

@@ -3,10 +3,16 @@
 Status: broker-managed project workers are wired for `kali_shell`, `execute_code`, `execute_playwright`, and `proxy_brain`. The ticket-authenticated terminal now uses a short-lived broker-created PTY worker in source. Focused Docker tests and a Docker Engine PTY smoke passed, including shell output and container/network cleanup. The browser-to-agent-to-broker flow, LAN deployment, and remaining operations controls are open.
 
 The current `redamon.sh` core lifecycle does not start `docker-broker` or
-`kali-sandbox`; both remain in the optional `legacy-pentest` profile. The active
-agent and broker on this PC also belong to different Compose projects and do not
-share a network. I rebuilt the source images but left those running services
-untouched, so this terminal feature is not installed in the active application.
+`kali-sandbox`; both remain in the optional `legacy-pentest` profile. Worker
+URLs are therefore empty by default. To enable the broker-backed worker routes,
+an operator must configure `REAMON_PROJECT_WORKER_URL` and
+`REAMON_TERMINAL_WORKER_URL` for a broker reachable from the agent, then start
+the compatible broker and workspace image. A configured URL alone does not
+prove the worker is healthy; the agent routes fail closed when the broker is
+unavailable. The active agent and broker on this PC also belong to different
+Compose projects and do not share a network. I rebuilt the source images but
+left those running services untouched, so this terminal feature is not installed
+in the active application.
 
 ## Current deployment update (2026-10-26)
 

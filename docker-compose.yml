@@ -839,8 +839,12 @@ services:
       # own allowlisted APIs. Interactive PTY shells receive an allowlisted env
       # with this reusable key removed.
       SCANNER_API_KEY: "${SCANNER_API_KEY:-}"
-      REAMON_PROJECT_WORKER_URL: http://docker-broker:8081/worker/execute
-      REAMON_TERMINAL_WORKER_URL: tcp://docker-broker:8081/worker/terminal
+      # Project workers are an optional execution integration. The default
+      # REAmon lifecycle does not start the legacy Docker broker/Kali stack, so
+      # never advertise an unreachable worker endpoint unless an operator has
+      # explicitly configured that stack.
+      REAMON_PROJECT_WORKER_URL: ${REAMON_PROJECT_WORKER_URL:-}
+      REAMON_TERMINAL_WORKER_URL: ${REAMON_TERMINAL_WORKER_URL:-}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python3", "-c", "import socket; s=socket.socket(); s.connect(('localhost', 8000)); s.close()"]
