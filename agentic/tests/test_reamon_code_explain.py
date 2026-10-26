@@ -119,6 +119,26 @@ def test_code_outline_keeps_valid_methods_from_partially_malformed_java(api, mon
     assert {member['name'] for member in response.json()['members']} == {'first', 'second'}
 
 
+def test_code_outline_returns_kotlin_function_ranges(api, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    monkeypatch.delenv('INTERNAL_API_KEY', raising=False)
+    monkeypatch.delenv('SCANNER_API_KEY', raising=False)
+    source = 'fun d0(v0: Int): Int { return v0 + 1 }\nfun next() = 2'
+    response = TestClient(api.app).post('/reamon/code/outline', json={
+        'language': 'Kotlin', 'source_code': source,
+    })
+
+    assert response.status_code == 200, response.text
+    members = response.json()['members']
+    assert [(member['name'], member['kind']) for member in members] == [
+        ('d0', 'function'), ('next', 'function'),
+    ]
+    assert source.encode('utf-8')[members[0]['start_byte']:members[0]['end_byte']].decode('utf-8') == (
+        'fun d0(v0: Int): Int { return v0 + 1 }'
+    )
+
+
 def test_code_deobfuscation_returns_complete_source_and_uses_exact_provider(api, monkeypatch):
     from fastapi.testclient import TestClient
 
@@ -280,6 +300,37 @@ def test_code_deobfuscation_rewrites_one_java_member_and_preserves_its_signature
     assert len(llm.messages) == 2
     assert 'MEMBER SCOPE' in llm.messages[0][0].content
     assert 'separate review pass' in llm.messages[1][0].content
+
+
+def test_code_deobfuscation_rewrites_one_kotlin_function(api, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    monkeypatch.delenv('INTERNAL_API_KEY', raising=False)
+    monkeypatch.delenv('SCANNER_API_KEY', raising=False)
+
+    class KotlinAnswer:
+        content = 'fun d0(v0: Int): Int { val result = v0 + 1; return result }'
+        response_metadata = {'finish_reason': 'stop'}
+
+    class KotlinLlm:
+        async def ainvoke(self, messages):
+            review = _review_answer_for(messages)
+            return review or KotlinAnswer()
+
+    provider = {'id': 'provider-1', 'providerType': 'openai_compatible', 'modelIdentifier': 'Qwen3.5-0.8B'}
+    with patch.object(api, 'fetch_user_providers', return_value=[provider]), patch(
+        'orchestrator_helpers.llm_setup.setup_llm', return_value=KotlinLlm()
+    ):
+        response = TestClient(api.app).post('/reamon/code/deobfuscate', json={
+            'model': 'custom/provider-1', 'user_id': 'user-1', 'unit_name': 'd0',
+            'language': 'Kotlin', 'scope': 'member', 'member_name': 'd0',
+            'source_code': 'fun d0(v0: Int): Int { return v0 + 1 }',
+        })
+
+    assert response.status_code == 200, response.text
+    assert response.json()['source_code'] == KotlinAnswer.content
+    assert response.json()['syntax_validated'] is True
+    assert response.json()['validation_method'] == 'tree-sitter+member-contract'
 
 
 def test_code_deobfuscation_rejects_a_member_signature_change(api, monkeypatch):

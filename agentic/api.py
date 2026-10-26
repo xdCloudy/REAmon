@@ -1106,7 +1106,15 @@ def _reamon_member_name(node, language: str) -> str | None:
     name = _reamon_declared_name(node)
     if name:
         return name
-    if language.strip().lower() not in {"lua", "luau"}:
+    normalized = language.strip().lower()
+    if normalized == "kotlin" and node.type == "function_declaration":
+        # The Kotlin grammar exposes the function identifier as a direct
+        # simple_identifier child rather than a named `name` field.
+        for child in node.named_children:
+            if child.type == "simple_identifier":
+                return child.text.decode("utf-8", errors="ignore")
+        return None
+    if normalized not in {"lua", "luau"}:
         return None
 
     qualified_name = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(?:[.:][A-Za-z_][A-Za-z0-9_]*)*$")
@@ -1137,6 +1145,13 @@ def _reamon_member_name(node, language: str) -> str | None:
         targets = target_values[0]
     candidate = targets.text.decode("utf-8", errors="ignore").strip()
     return candidate if qualified_name.fullmatch(candidate) else None
+
+
+def _reamon_member_body(node, language: str):
+    body = node.child_by_field_name("body")
+    if body is None and language.strip().lower() == "kotlin" and node.type == "function_declaration":
+        body = next((child for child in node.named_children if child.type == "function_body"), None)
+    return body
 
 
 def _reamon_tree_sitter_symbols(source_code: str, language: str) -> list[str] | None:
@@ -1182,7 +1197,7 @@ def _reamon_tree_sitter_source_index(
                     symbols.add(name)
             if include_members:
                 kind = _reamon_member_kind(node, language)
-                body = node.child_by_field_name("body") if kind else None
+                body = _reamon_member_body(node, language) if kind else None
                 if kind and body is not None:
                     name = _reamon_member_name(node, language)
                     if name:
@@ -1490,7 +1505,7 @@ def _reamon_callable_count(parser, source: str, language: str) -> int | None:
         while stack:
             node = stack.pop()
             kind = _reamon_member_kind(node, language)
-            body = node.child_by_field_name("body") if kind else None
+            body = _reamon_member_body(node, language) if kind else None
             if kind and body is not None and _reamon_member_name(node, language):
                 count += 1
             stack.extend(reversed(node.named_children))
@@ -1607,7 +1622,7 @@ def _reamon_callable_contract(parser, source: str, language: str) -> dict[str, A
         while stack:
             node = stack.pop()
             kind = _reamon_member_kind(node, language)
-            body = node.child_by_field_name("body") if kind else None
+            body = _reamon_member_body(node, language) if kind else None
             if kind and body is not None and node.start_byte == 0 and node.end_byte == len(encoded):
                 name = _reamon_member_name(node, language)
                 if not name:
