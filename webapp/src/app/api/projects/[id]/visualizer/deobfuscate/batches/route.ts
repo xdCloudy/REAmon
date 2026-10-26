@@ -31,7 +31,7 @@ export async function GET(request: Request, { params }: RouteParams) {
     },
     select: { artifactId: true },
   })
-  if (!task) return NextResponse.json({ error: 'Analysis run not found' }, { status: 404, headers: { 'Cache-Control': 'no-store' } })
+  if (!task?.artifactId) return NextResponse.json({ error: 'Analysis run not found' }, { status: 404, headers: { 'Cache-Control': 'no-store' } })
 
   const runKeyPrefix = `${projectId}/${task.artifactId}/${taskId}/`
   const latest = await prisma.reamonCodeAttempt.findFirst({
