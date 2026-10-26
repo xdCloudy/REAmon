@@ -5,6 +5,7 @@ import os
 import sys
 import types
 import unittest
+from io import BytesIO
 from pathlib import Path
 from unittest import mock
 
@@ -39,6 +40,7 @@ class TestUntrustedExecution(unittest.TestCase):
         self.assertEqual(kwargs["user"], 65534)
         self.assertEqual(kwargs["group"], 65534)
         self.assertEqual(kwargs["extra_groups"], ())
+        self.assertEqual(kwargs["start_new_session"], True)
         self.assertEqual(kwargs["env"]["HOME"], "/tmp")
         self.assertEqual(kwargs["env"]["TMPDIR"], "/tmp")
         self.assertEqual(kwargs["env"]["PLAYWRIGHT_BROWSERS_PATH"], "/ms-playwright")
@@ -51,15 +53,17 @@ class TestUntrustedExecution(unittest.TestCase):
             self.assertNotIn(secret_name, kwargs["env"])
 
     def test_kali_shell_runs_without_root_or_inherited_service_secrets(self):
-        completed = recon.subprocess.CompletedProcess(["bash"], 0, "uid=65534\n", "")
+        def popen(*args, **kwargs):
+            return _FakeChild("uid=65534\n", "")
+
         with mock.patch.dict(os.environ, {
             "INTERNAL_API_KEY": "master-secret",
             "MCP_AUTH_TOKEN": "mcp-secret",
             "SCANNER_API_KEY": "scanner-secret",
             "TUNNEL_AUTH_TOKEN": "tunnel-secret",
         }, clear=False), mock.patch.object(
-            recon.subprocess, "run", return_value=completed
-        ) as run:
+            recon.subprocess, "Popen", side_effect=popen
+        ) as run, mock.patch.object(recon.os, "killpg"):
             result = recon.kali_shell("id")
 
         self.assertIn("uid=65534", result)
@@ -77,8 +81,16 @@ class TestUntrustedExecution(unittest.TestCase):
             calls.append((args, kwargs, source_path))
             return recon.subprocess.CompletedProcess(args[0], 0, "ok", "")
 
+        def popen(*args, **kwargs):
+            source_path = args[0][1]
+            with open(source_path, encoding="utf-8") as source_file:
+                self.assertEqual(source_file.read(), code + "\n")
+            calls.append((args, kwargs, source_path))
+            return _FakeChild("ok", "")
+
         with mock.patch.dict(os.environ, {"INTERNAL_API_KEY": "master-secret"}, clear=False), \
-                mock.patch.object(recon.subprocess, "run", side_effect=run):
+                mock.patch.object(recon.subprocess, "Popen", side_effect=popen), \
+                mock.patch.object(recon.os, "killpg"):
             self.assertEqual(recon.execute_code(code, filename="same-name"), "ok")
             self.assertEqual(recon.execute_code(code, filename="same-name"), "ok")
 
@@ -87,6 +99,55 @@ class TestUntrustedExecution(unittest.TestCase):
         for args, kwargs, source_path in calls:
             self.assert_untrusted_child(mock.call(*args, **kwargs))
             self.assertFalse(os.path.exists(source_path))
+
+    def test_untrusted_child_caps_stdout_and_stderr(self):
+        child = _FakeChild("x" * (recon._UNTRUSTED_OUTPUT_LIMIT_BYTES + 10), "y")
+        with mock.patch.object(recon.subprocess, "Popen", return_value=child), \
+                mock.patch.object(recon.os, "killpg") as killpg:
+            result = recon._run_untrusted_child(["test"], timeout=1)
+
+        self.assertLessEqual(len(result.stdout), recon._UNTRUSTED_OUTPUT_LIMIT_BYTES + len(
+            recon._UNTRUSTED_OUTPUT_TRUNCATION
+        ))
+        self.assertTrue(result.stdout.endswith(recon._UNTRUSTED_OUTPUT_TRUNCATION))
+        self.assertEqual(result.stderr, "y")
+        killpg.assert_called_once_with(child.pid, recon.signal.SIGKILL)
+
+    def test_untrusted_child_kills_process_group_after_timeout(self):
+        child = _FakeChild("partial", "")
+        child.timeout_once = True
+        with mock.patch.object(recon.subprocess, "Popen", return_value=child), \
+                mock.patch.object(recon.os, "killpg") as killpg:
+            with self.assertRaises(recon.subprocess.TimeoutExpired):
+                recon._run_untrusted_child(["test"], timeout=1)
+
+        killpg.assert_called_once_with(child.pid, recon.signal.SIGKILL)
+
+    def test_real_untrusted_child_is_unprivileged_and_output_is_bounded(self):
+        if os.name != "posix" or os.geteuid() != 0:
+            self.skipTest("requires a POSIX test container running as root")
+        code = "import os; print('x' * (3 * 1024 * 1024)); print(os.getuid(), file=__import__('sys').stderr)"
+        result = recon._run_untrusted_child([sys.executable, "-c", code], timeout=10)
+
+        self.assertEqual(result.returncode, 0)
+        self.assertTrue(result.stdout.endswith(recon._UNTRUSTED_OUTPUT_TRUNCATION))
+        self.assertIn(str(recon._UNTRUSTED_EXEC_UID), result.stderr)
+
+
+class _FakeChild:
+    pid = 123
+    returncode = 0
+
+    def __init__(self, stdout: str, stderr: str):
+        self.stdout = BytesIO(stdout.encode())
+        self.stderr = BytesIO(stderr.encode())
+        self.timeout_once = False
+
+    def wait(self, timeout=None):
+        if self.timeout_once:
+            self.timeout_once = False
+            raise recon.subprocess.TimeoutExpired("test", timeout)
+        return self.returncode
 
 
 if __name__ == "__main__":

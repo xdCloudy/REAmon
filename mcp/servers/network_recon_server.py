@@ -28,6 +28,7 @@ import json
 import os
 import re
 import shlex
+import signal
 import subprocess
 import tempfile
 import threading
@@ -50,6 +51,8 @@ _UNTRUSTED_EXEC_PATH = (
     "/opt/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
     ":/usr/local/go/bin"
 )
+_UNTRUSTED_OUTPUT_LIMIT_BYTES = 2 * 1024 * 1024
+_UNTRUSTED_OUTPUT_TRUNCATION = "\n[output truncated after 2 MiB]"
 
 
 def _untrusted_exec_env() -> dict[str, str]:
@@ -66,17 +69,75 @@ def _untrusted_exec_env() -> dict[str, str]:
 
 
 def _run_untrusted_child(argv: list[str], *, timeout: int) -> subprocess.CompletedProcess:
-    """Run untrusted code without root, inherited credentials, or extra groups."""
-    return subprocess.run(
+    """Run untrusted code with bounded output and kill its process tree on timeout."""
+    child = subprocess.Popen(
         argv,
-        capture_output=True,
-        text=True,
-        timeout=timeout,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         env=_untrusted_exec_env(),
         user=_UNTRUSTED_EXEC_UID,
         group=_UNTRUSTED_EXEC_GID,
         extra_groups=(),
+        start_new_session=(os.name == "posix"),
     )
+
+    captured: dict[str, bytearray] = {"stdout": bytearray(), "stderr": bytearray()}
+    truncated = {"stdout": False, "stderr": False}
+
+    def drain(name: str, stream) -> None:
+        while True:
+            chunk = stream.read(64 * 1024)
+            if not chunk:
+                return
+            remaining = _UNTRUSTED_OUTPUT_LIMIT_BYTES - len(captured[name])
+            if remaining > 0:
+                captured[name].extend(chunk[:remaining])
+            if len(chunk) > remaining:
+                truncated[name] = True
+
+    readers = [
+        threading.Thread(target=drain, args=(name, stream), daemon=True)
+        for name, stream in (("stdout", child.stdout), ("stderr", child.stderr))
+    ]
+    for reader in readers:
+        reader.start()
+
+    timed_out = False
+    try:
+        child.wait(timeout=timeout)
+        # Shell scripts may leave background descendants that inherit these
+        # pipes. The process group belongs to this request, so clean it up as
+        # soon as the top-level command finishes too.
+        if os.name == "posix":
+            try:
+                os.killpg(child.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+    except subprocess.TimeoutExpired:
+        timed_out = True
+        try:
+            if os.name == "posix":
+                os.killpg(child.pid, signal.SIGKILL)
+            else:
+                child.kill()
+        except ProcessLookupError:
+            pass
+        child.wait()
+    finally:
+        for reader in readers:
+            reader.join()
+        child.stdout.close()
+        child.stderr.close()
+
+    stdout = captured["stdout"].decode("utf-8", errors="replace")
+    stderr = captured["stderr"].decode("utf-8", errors="replace")
+    if truncated["stdout"]:
+        stdout += _UNTRUSTED_OUTPUT_TRUNCATION
+    if truncated["stderr"]:
+        stderr += _UNTRUSTED_OUTPUT_TRUNCATION
+    if timed_out:
+        raise subprocess.TimeoutExpired(argv, timeout, output=stdout, stderr=stderr)
+    return subprocess.CompletedProcess(argv, child.returncode, stdout, stderr)
 
 
 def _format_subprocess_result(
