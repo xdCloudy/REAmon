@@ -145,7 +145,13 @@ describe('executeAnalysisTask', () => {
       discoveredMethodCount: 12_400,
       returnedMethodCount: 10_000,
       methodsTruncated: true,
-      coverageInventory: { discoveredUnitCount: 1, indexedUnitCount: 1 },
+      coverageInventory: {
+        unitKind: 'function',
+        discoveredUnitCount: 12_400,
+        providerReturnedUnitCount: 10_000,
+        observedUnitCount: 1,
+        indexedUnitCount: 1,
+      },
     })
   })
 
@@ -183,6 +189,17 @@ describe('executeAnalysisTask', () => {
     const result = await executeAnalysisTask('project-1', 'task-1')
 
     expect(result?.outcome).toBe('COMPLETED')
+    const persistedResult = mocks.taskSettleUpdateMany.mock.calls.at(-1)?.[0].data.result
+    expect(persistedResult).toMatchObject({
+      coverageInventory: {
+        unitKind: 'function',
+        discoveredUnitCount: 1,
+        providerReturnedUnitCount: 1,
+        observedUnitCount: 1,
+        indexedUnitCount: 1,
+        notIndexedUnitCount: 0,
+      },
+    })
     const pendingSourceFilter = mocks.observationDeleteMany.mock.calls[0][0].where.source
     const pendingSource = typeof pendingSourceFilter === 'string' ? pendingSourceFilter : pendingSourceFilter.startsWith
     expect(pendingSourceFilter).toMatchObject({ startsWith: expect.stringMatching(/^reamon-dex-decompiler:pending:/) })

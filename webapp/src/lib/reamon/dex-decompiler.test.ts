@@ -101,6 +101,7 @@ describe('Rust DEX-to-Java provider', () => {
       instructionCount: 2,
       instructionMnemonics: ['invoke-virtual', 'return-void'],
       controlFlowGraph: {},
+      bytecodeArtifactPath: 'dex-0/method-3.json',
       bytecodeRowsTruncated: false,
       cfgTruncated: false,
     }
@@ -131,6 +132,7 @@ describe('Rust DEX-to-Java provider', () => {
         sourceSha256: 'a'.repeat(64),
       }),
     })])
+    expect(persistObservationBatch.mock.calls[0]?.[0][0]?.attributes).not.toHaveProperty('bytecodeArtifactPath')
   })
 
   it('persists paged call and symbol-reference evidence through the task batch writer', async () => {
@@ -147,11 +149,7 @@ describe('Rust DEX-to-Java provider', () => {
       bytecodeRowsTruncated: false,
       cfgTruncated: false,
     }
-    const body = {
-      ...responseBody([]),
-      returnedCallCount: 1,
-      returnedReferenceCount: 1,
-    }
+    const body = responseBody([])
     const metadata = Object.fromEntries(Object.entries(body).filter(([key]) => !['units', 'methods', 'calls', 'references'].includes(key)))
     const call = {
       fromSignature: method.signature,

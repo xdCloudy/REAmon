@@ -5,6 +5,7 @@ import { MAX_CODE_UNITS_PER_RESULT } from './result-ingestion'
 
 const MAX_CLASSES = 80_000
 const MAX_METHODS = 10_000
+const MAX_SIGNATURE_CHARS = 8_000
 const MAX_STREAMED_METHODS = 4_200_000
 const MAX_STREAMED_EDGES = 4_200_000
 const MAX_CALL_EDGES = 4_000
@@ -24,6 +25,7 @@ interface DexMethod {
   instructionCount: number
   instructionMnemonics: string[]
   controlFlowGraph: Record<string, unknown>
+  bytecodeArtifactPath?: string
   bytecodeArtifactId?: string
   bytecodeArtifactSizeBytes?: number
   bytecodeRowsTruncated: boolean
@@ -69,10 +71,16 @@ interface DexUnit {
   outputSha256?: string
 }
 
+function isSafeMethodEvidencePath(value: unknown): boolean {
+  if (value === undefined) return true
+  if (typeof value !== 'string' || !value || value.length > 2_000 || value.startsWith('/') || value.includes('\\')) return false
+  return !value.split('/').some((part) => part === '' || part === '.' || part === '..')
+}
+
 function isStreamedMethod(value: unknown): value is DexMethod {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const method = value as Record<string, unknown>
-  return typeof method.signature === 'string' && method.signature.length > 0 && method.signature.length <= 1_000
+  return typeof method.signature === 'string' && method.signature.length > 0 && method.signature.length <= MAX_SIGNATURE_CHARS
     && typeof method.className === 'string' && method.className.length > 0 && method.className.length <= 500
     && typeof method.methodName === 'string' && method.methodName.length > 0 && method.methodName.length <= 500
     && typeof method.relativePath === 'string' && method.relativePath.length > 0 && method.relativePath.length <= 1_000
@@ -85,6 +93,7 @@ function isStreamedMethod(value: unknown): value is DexMethod {
     && ((method.bytecodeArtifactId === undefined && method.bytecodeArtifactSizeBytes === undefined)
       || (typeof method.bytecodeArtifactId === 'string' && method.bytecodeArtifactId.length > 0 && method.bytecodeArtifactId.length <= 2_000
         && Number.isSafeInteger(method.bytecodeArtifactSizeBytes) && (method.bytecodeArtifactSizeBytes as number) > 0))
+    && isSafeMethodEvidencePath(method.bytecodeArtifactPath)
     && typeof method.bytecodeRowsTruncated === 'boolean' && typeof method.cfgTruncated === 'boolean'
 }
 
@@ -96,6 +105,14 @@ function isStreamedUnit(value: unknown): value is DexUnit {
     && typeof unit.codeArtifactId === 'string' && unit.codeArtifactId.length > 0 && unit.codeArtifactId.length <= 2_000
     && Number.isSafeInteger(unit.sizeBytes) && (unit.sizeBytes as number) > 0
     && (unit.outputSha256 === undefined || (typeof unit.outputSha256 === 'string' && /^[a-f0-9]{64}$/i.test(unit.outputSha256)))
+}
+
+function returnedCallCountOf(response: DexDecompilerResponse): number {
+  return response.returnedCallCount ?? response.calls.length + (response.streamedCallCount ?? 0)
+}
+
+function returnedReferenceCountOf(response: DexDecompilerResponse): number {
+  return response.returnedReferenceCount ?? response.references.length + (response.streamedReferenceCount ?? 0)
 }
 
 function functionObservation(
@@ -205,8 +222,8 @@ class RecentObservationKeys {
 function isDexCall(value: unknown): value is DexCall {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const call = value as Record<string, unknown>
-  return typeof call.fromSignature === 'string' && call.fromSignature.length > 0 && call.fromSignature.length <= 1_000
-    && typeof call.toSignature === 'string' && call.toSignature.length > 0 && call.toSignature.length <= 1_000
+  return typeof call.fromSignature === 'string' && call.fromSignature.length > 0 && call.fromSignature.length <= MAX_SIGNATURE_CHARS
+    && typeof call.toSignature === 'string' && call.toSignature.length > 0 && call.toSignature.length <= MAX_SIGNATURE_CHARS
     && typeof call.fromRelativePath === 'string' && call.fromRelativePath.length > 0 && call.fromRelativePath.length <= 1_000
     && typeof call.toRelativePath === 'string' && call.toRelativePath.length > 0 && call.toRelativePath.length <= 1_000
     && typeof call.fromAddress === 'string' && call.fromAddress.length <= 128
@@ -224,12 +241,12 @@ function isDexReference(value: unknown): value is DexReference {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const reference = value as Record<string, unknown>
   return ['field_read', 'field_write', 'string_literal'].includes(String(reference.kind))
-    && typeof reference.fromSignature === 'string' && reference.fromSignature.length > 0 && reference.fromSignature.length <= 1_000
+    && typeof reference.fromSignature === 'string' && reference.fromSignature.length > 0 && reference.fromSignature.length <= MAX_SIGNATURE_CHARS
     && typeof reference.fromRelativePath === 'string' && reference.fromRelativePath.length > 0 && reference.fromRelativePath.length <= 1_000
     && Number.isSafeInteger(reference.fromDexIndex) && (reference.fromDexIndex as number) >= 0
     && Number.isSafeInteger(reference.fromMethodIndex) && (reference.fromMethodIndex as number) >= 0
     && typeof reference.fromAddress === 'string' && reference.fromAddress.length <= 128
-    && typeof reference.targetSignature === 'string' && reference.targetSignature.length > 0 && reference.targetSignature.length <= 1_000
+    && typeof reference.targetSignature === 'string' && reference.targetSignature.length > 0 && reference.targetSignature.length <= MAX_SIGNATURE_CHARS
     && typeof reference.targetName === 'string' && reference.targetName.length <= 512
     && typeof reference.targetNameTruncated === 'boolean'
     && Number.isSafeInteger(reference.targetDexIndex) && (reference.targetDexIndex as number) >= 0
@@ -276,9 +293,9 @@ function isResponse(value: unknown): value is DexDecompilerResponse {
   const streamedCallCount = typeof response.streamedCallCount === 'number' ? response.streamedCallCount : 0
   const streamedReferenceCount = typeof response.streamedReferenceCount === 'number' ? response.streamedReferenceCount : 0
   const returnedCallCount = typeof response.returnedCallCount === 'number'
-    ? response.returnedCallCount : Array.isArray(response.calls) ? response.calls.length : -1
+    ? response.returnedCallCount : Array.isArray(response.calls) ? response.calls.length + streamedCallCount : -1
   const returnedReferenceCount = typeof response.returnedReferenceCount === 'number'
-    ? response.returnedReferenceCount : Array.isArray(response.references) ? response.references.length : -1
+    ? response.returnedReferenceCount : Array.isArray(response.references) ? response.references.length + streamedReferenceCount : -1
   return response.status === 'completed'
     && typeof response.toolVersion === 'string' && /^[a-f0-9]{40}$/i.test(response.toolVersion)
     && !!input && typeof input === 'object' && !Array.isArray(input)
@@ -298,7 +315,7 @@ function isResponse(value: unknown): value is DexDecompilerResponse {
     && response.returnedMethodCount === response.methods.length + streamedMethodCount
     && (response.discoveredMethodCount as number) >= (response.returnedMethodCount as number)
     && response.methods.every((method: DexMethod) => !!method && typeof method === 'object' && !Array.isArray(method)
-      && typeof method.signature === 'string' && method.signature.length > 0 && method.signature.length <= 1_000
+      && typeof method.signature === 'string' && method.signature.length > 0 && method.signature.length <= MAX_SIGNATURE_CHARS
       && typeof method.className === 'string' && method.className.length > 0 && method.className.length <= 500
       && typeof method.methodName === 'string' && method.methodName.length > 0 && method.methodName.length <= 500
       && typeof method.relativePath === 'string' && method.relativePath.length > 0 && method.relativePath.length <= 1_000
@@ -311,6 +328,7 @@ function isResponse(value: unknown): value is DexDecompilerResponse {
       && ((method.bytecodeArtifactId === undefined && method.bytecodeArtifactSizeBytes === undefined)
         || (typeof method.bytecodeArtifactId === 'string' && method.bytecodeArtifactId.length > 0 && method.bytecodeArtifactId.length <= 2_000
           && Number.isSafeInteger(method.bytecodeArtifactSizeBytes) && (method.bytecodeArtifactSizeBytes as number) > 0))
+      && isSafeMethodEvidencePath(method.bytecodeArtifactPath)
       && typeof method.bytecodeRowsTruncated === 'boolean' && typeof method.cfgTruncated === 'boolean')
     && Array.isArray(response.calls) && response.calls.length <= MAX_CALL_EDGES
     && Number.isSafeInteger(returnedCallCount) && returnedCallCount >= 0 && returnedCallCount <= MAX_STREAMED_EDGES
@@ -318,8 +336,8 @@ function isResponse(value: unknown): value is DexDecompilerResponse {
     && returnedCallCount === response.calls.length + streamedCallCount
     && typeof response.callGraphTruncated === 'boolean'
     && response.calls.every((call: DexCall) => !!call && typeof call === 'object' && !Array.isArray(call)
-      && typeof call.fromSignature === 'string' && call.fromSignature.length > 0 && call.fromSignature.length <= 1_000
-      && typeof call.toSignature === 'string' && call.toSignature.length > 0 && call.toSignature.length <= 1_000
+      && typeof call.fromSignature === 'string' && call.fromSignature.length > 0 && call.fromSignature.length <= MAX_SIGNATURE_CHARS
+      && typeof call.toSignature === 'string' && call.toSignature.length > 0 && call.toSignature.length <= MAX_SIGNATURE_CHARS
       && typeof call.fromRelativePath === 'string' && call.fromRelativePath.length > 0 && call.fromRelativePath.length <= 1_000
       && typeof call.toRelativePath === 'string' && call.toRelativePath.length > 0 && call.toRelativePath.length <= 1_000
       && typeof call.fromAddress === 'string' && call.fromAddress.length <= 128
@@ -338,12 +356,12 @@ function isResponse(value: unknown): value is DexDecompilerResponse {
     && typeof response.referencesTruncated === 'boolean'
     && response.references.every((reference: DexReference) => !!reference && typeof reference === 'object' && !Array.isArray(reference)
       && ['field_read', 'field_write', 'string_literal'].includes(reference.kind)
-      && typeof reference.fromSignature === 'string' && reference.fromSignature.length > 0 && reference.fromSignature.length <= 1_000
+      && typeof reference.fromSignature === 'string' && reference.fromSignature.length > 0 && reference.fromSignature.length <= MAX_SIGNATURE_CHARS
       && typeof reference.fromRelativePath === 'string' && reference.fromRelativePath.length > 0 && reference.fromRelativePath.length <= 1_000
       && Number.isSafeInteger(reference.fromDexIndex) && reference.fromDexIndex >= 0
       && Number.isSafeInteger(reference.fromMethodIndex) && reference.fromMethodIndex >= 0
       && typeof reference.fromAddress === 'string' && reference.fromAddress.length <= 128
-      && typeof reference.targetSignature === 'string' && reference.targetSignature.length > 0 && reference.targetSignature.length <= 1_000
+      && typeof reference.targetSignature === 'string' && reference.targetSignature.length > 0 && reference.targetSignature.length <= MAX_SIGNATURE_CHARS
       && typeof reference.targetName === 'string' && reference.targetName.length <= 512
       && typeof reference.targetNameTruncated === 'boolean'
       && Number.isSafeInteger(reference.targetDexIndex) && reference.targetDexIndex >= 0
@@ -808,10 +826,10 @@ export async function executeDexDecompiler(input: ToolExecutionInput): Promise<T
         returnedMethodCount: payload.returnedMethodCount,
         streamedFunctionObservationCount,
         methodsTruncated: payload.methodsTruncated || observedMethodCount < payload.returnedMethodCount,
-        callCount: payload.returnedCallCount ?? seenCalls.size,
-        returnedCallCount: payload.returnedCallCount ?? seenCalls.size,
+        callCount: returnedCallCountOf(payload),
+        returnedCallCount: returnedCallCountOf(payload),
         callGraphTruncated,
-        referenceCount: payload.returnedReferenceCount ?? seenReferenceEdges.size,
+        referenceCount: returnedReferenceCountOf(payload),
         referencesTruncated,
         failedClassDetails: payload.failedClassDetails || [],
         codeBytes: payload.codeBytes,

@@ -127,10 +127,14 @@ function buildCoverageInventory(data: unknown, providerId: string | null, indexe
   const streamedUnitCount = unitKind === 'function' ? reportedCount(result, ['streamedFunctionObservationCount']) || 0 : 0
   const discoveredUnitCount = reportedCount(result, providerId === 'reamon-wabt'
     ? ['wasmFunctionCount', 'discoveredUnitCount', 'decompiledFunctionCount']
-    : ['decompiledCodeUnitCount', 'discoveredCodeUnitCount', 'decompiledClassCount', 'discoveredClassCount', 'classCount', 'discoveredMethodCount', 'decompiledFunctionCount', 'functionCount', 'batchResultCount', 'discoveredUnitCount'])
-  const providerReturnedUnitCount = reportedCount(result, ['returnedCodeUnitCount', 'returnedUnitCount', 'returnedClassCount', 'returnedMethodCount', 'returnedFunctionCount'])
+    : unitKind === 'function'
+      ? ['discoveredMethodCount', 'decompiledFunctionCount', 'functionCount', 'discoveredUnitCount', 'decompiledCodeUnitCount', 'discoveredCodeUnitCount', 'decompiledClassCount', 'discoveredClassCount', 'classCount', 'batchResultCount']
+      : ['decompiledCodeUnitCount', 'discoveredCodeUnitCount', 'decompiledClassCount', 'discoveredClassCount', 'classCount', 'discoveredUnitCount', 'batchResultCount'])
+  const providerReturnedUnitCount = reportedCount(result, unitKind === 'function'
+    ? ['returnedMethodCount', 'returnedFunctionCount', 'returnedUnitCount', 'returnedCodeUnitCount', 'returnedClassCount']
+    : ['returnedCodeUnitCount', 'returnedUnitCount', 'returnedClassCount', 'returnedFunctionCount', 'returnedMethodCount'])
     ?? observedUnitCount
-  const indexedCoverageUnitCount = Math.min(indexedUnitCount, observedUnitCount, providerReturnedUnitCount)
+  const indexedCoverageUnitCount = Math.min(indexedUnitCount, observedUnitCount + streamedUnitCount, providerReturnedUnitCount)
   const failedUnitCount = reportedCount(result, ['failedFunctionCount', 'failedUnitCount'])
   const visitedUnitCount = reportedCount(result, ['visitedFunctionCount', 'visitedUnitCount'])
   const skippedUnitCount = reportedCount(result, ['skippedCodeUnitCount', 'skippedClassCount', 'skippedFunctionCount', 'skippedUnitCount'])
