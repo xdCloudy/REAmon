@@ -398,7 +398,6 @@ async function settleTask(
           WHERE pending."project_id" = ${task.projectId}
             AND pending."task_id" = ${task.id}
             AND pending."source" = ${pendingSource}
-            AND pending."type" = 'function'
           ON CONFLICT ("project_id", "source", "stable_key") DO UPDATE SET
             "task_id" = EXCLUDED."task_id",
             "target_id" = EXCLUDED."target_id",
@@ -417,7 +416,7 @@ async function settleTask(
             "updated_at" = CURRENT_TIMESTAMP
         `)
         await tx.reamonObservation.deleteMany({
-          where: { projectId: task.projectId, taskId: task.id, source: pendingSource, type: 'function' },
+          where: { projectId: task.projectId, taskId: task.id, source: pendingSource },
         })
       }
       if (persistedResult && (result.capabilities.includes('decompile') || result.capabilities.includes('disassemble'))) {
@@ -553,7 +552,6 @@ export async function executeAnalysisTask(projectId: string, taskId: string, lea
             projectId: task.projectId,
             taskId: task.id,
             source: { startsWith: `${plugin.manifest.id}:pending:` },
-            type: 'function',
           },
         })
         streamedObservationSourceReady = true
@@ -580,7 +578,7 @@ export async function executeAnalysisTask(projectId: string, taskId: string, lea
     }).catch(() => null)
     if (!activeRun) return
     await prisma.reamonObservation.deleteMany({
-      where: { projectId: task.projectId, taskId: task.id, source: pendingSource, type: 'function' },
+      where: { projectId: task.projectId, taskId: task.id, source: pendingSource },
     }).catch((error) => console.warn('Could not discard incomplete streamed DEX observations:', error))
   }
   try {

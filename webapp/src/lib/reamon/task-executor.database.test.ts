@@ -29,7 +29,7 @@ vi.mock('./capabilities', () => ({
 }))
 
 import prisma from '@/lib/prisma'
-import { listWorkspaceCodeUnits } from '@/lib/mcp/workspaceCodeTools'
+import { listWorkspaceCodeRelationships, listWorkspaceCodeUnits } from '@/lib/mcp/workspaceCodeTools'
 import { executeAnalysisTask } from './task-executor'
 import type { ToolObservation } from './types'
 
@@ -102,7 +102,7 @@ describeDatabase('DEX streamed task persistence with PostgreSQL', () => {
   })
 
   test('promotes the complete run batch and exposes it through MCP code lookup', async () => {
-    const methods: ToolObservation[] = [
+    const observations: ToolObservation[] = [
       {
         kind: 'entity',
         type: 'function',
@@ -117,12 +117,39 @@ describeDatabase('DEX streamed task persistence with PostgreSQL', () => {
         label: 'Main#resume',
         attributes: { identity: 'input.apk:0:2:LMain;->resume()V', name: 'resume', unitType: 'function' },
       },
+      {
+        kind: 'entity',
+        type: 'symbol',
+        key: 'dex:field:1',
+        label: 'Main.state',
+        attributes: { name: 'state', qualifiedName: 'LMain;->state:I', unitType: 'field' },
+      },
+      {
+        kind: 'relationship',
+        type: 'calls',
+        relation: 'calls',
+        key: 'dex:call:1-2',
+        fromKey: 'dex:method:1',
+        toKey: 'dex:method:2',
+        label: 'Main#start calls Main#resume',
+        attributes: {},
+      },
+      {
+        kind: 'relationship',
+        type: 'reads_field',
+        relation: 'reads_field',
+        key: 'dex:reference:1-state',
+        fromKey: 'dex:method:1',
+        toKey: 'dex:field:1',
+        label: 'Main#start reads Main.state',
+        attributes: { referenceKind: 'field_read', targetName: 'state' },
+      },
     ]
     mocks.analyze.mockImplementation(async (input: {
       persistObservationBatch?: (observations: ToolObservation[]) => Promise<number>
     }) => {
       if (!input.persistObservationBatch) throw new Error('Task executor omitted the streamed-observation callback')
-      const streamedFunctionObservationCount = await input.persistObservationBatch(methods)
+      const streamedObservationCount = await input.persistObservationBatch(observations)
       return {
         status: 'completed',
         toolId: 'reamon-dex-decompiler',
@@ -130,9 +157,9 @@ describeDatabase('DEX streamed task persistence with PostgreSQL', () => {
         produced: ['CodeUnit'],
         data: {
           observations: [],
-          discoveredMethodCount: methods.length,
-          returnedMethodCount: methods.length,
-          streamedFunctionObservationCount,
+          discoveredMethodCount: 2,
+          returnedMethodCount: 2,
+          streamedObservationCount,
         },
       }
     })
@@ -141,11 +168,17 @@ describeDatabase('DEX streamed task persistence with PostgreSQL', () => {
 
     expect(result?.outcome).toBe('COMPLETED')
     const rows = await prisma.reamonObservation.findMany({
-      where: { projectId, taskId, source: 'reamon-dex-decompiler', type: 'function' },
+      where: { projectId, taskId, source: 'reamon-dex-decompiler' },
       orderBy: { stableKey: 'asc' },
       select: { stableKey: true, isPending: true, attributes: true },
     })
-    expect(rows).toHaveLength(2)
+    expect(rows.map((row) => row.stableKey)).toEqual([
+      'dex:call:1-2',
+      'dex:field:1',
+      'dex:method:1',
+      'dex:method:2',
+      'dex:reference:1-state',
+    ])
     expect(rows.every((row) => !row.isPending && !('analysisPending' in (row.attributes as Record<string, unknown>)))).toBe(true)
     expect(await prisma.reamonObservation.count({ where: { projectId, taskId, source: { startsWith: 'reamon-dex-decompiler:pending:' } } })).toBe(0)
 
@@ -156,6 +189,18 @@ describeDatabase('DEX streamed task persistence with PostgreSQL', () => {
     expect(listed.units.map((unit) => unit.name)).toEqual([
       'start',
       'resume',
+    ])
+    const relationships = await listWorkspaceCodeRelationships({
+      token: { tokenId: `db-test-${suffix}`, userId, tokenPrefix: 'db-test', name: 'DB test', scopes: ['recon:read'] },
+    }, { projectId, codeUnitId: listed.units[0].id, relationshipKind: 'calls', direction: 'outgoing', limit: 10 })
+    expect(relationships.relationships).toEqual([
+      expect.objectContaining({ type: 'calls', from: expect.objectContaining({ key: 'dex:method:1' }), to: expect.objectContaining({ key: 'dex:method:2' }) }),
+    ])
+    const references = await listWorkspaceCodeRelationships({
+      token: { tokenId: `db-test-${suffix}`, userId, tokenPrefix: 'db-test', name: 'DB test', scopes: ['recon:read'] },
+    }, { projectId, codeUnitId: listed.units[0].id, relationshipKind: 'references', direction: 'outgoing', limit: 10 })
+    expect(references.relationships).toEqual([
+      expect.objectContaining({ type: 'reads_field', from: expect.objectContaining({ key: 'dex:method:1' }), to: expect.objectContaining({ key: 'dex:field:1', name: 'LMain;->state:I' }) }),
     ])
   })
 })
