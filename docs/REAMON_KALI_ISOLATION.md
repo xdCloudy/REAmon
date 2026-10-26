@@ -5,12 +5,12 @@ Status: required production security work; implementation is still open.
 ## Current exposure
 
 The legacy Kali deployment is one shared `redamon-kali` container whose MCP
-controller still runs as root. The `kali_shell` and `execute_code` handlers now
-start model-authored commands as UID/GID 65534 with a small environment that
-omits MCP, scanner, tunnel, database, and agent credentials. `execute_code` uses
-unique temporary source and binary paths and removes them after execution.
-`proxy_brain` also runs as UID/GID 65534 with a small environment. These changes
-reduce child-process privilege and credential exposure, but do not create a
+controller still runs as root. The `kali_shell`, `execute_code`, and `proxy_brain`
+handlers run model-authored commands as UID/GID 65534 with a small environment
+that omits MCP, scanner, tunnel, database, and agent credentials. `execute_code`
+and `proxy_brain` use unique temporary source paths; execute_code also uses a
+unique binary path and removes its files after execution. These changes reduce
+child-process privilege and credential exposure, but do not create a
 project-scoped filesystem or process boundary.
 
 The container also mounts the complete `agentic/agent-workspace` at `/workspace`.
@@ -73,13 +73,18 @@ and a fixed environment allowlist. Go tools installed under `/root/go/bin` are
 copied to `/usr/local/bin` so those commands can still invoke them without access
 to root's home directory. `execute_code` writes each source file to a unique path
 without shell interpolation, makes it read-only to the child, and cleans up its
-source and compiled output after the run. Shell and code execution now cap captured
-stdout and stderr at 2 MiB per stream, drain excess output without retaining it,
-and terminate the request's process group on completion or timeout so background
-descendants cannot outlive the request. Fourteen focused Docker tests pass for
-credential filtering, unprivileged execution, bounded output, process-group
-cleanup, unique paths, and existing wrapper formatting. These controls reduce
-process privilege and resource abuse but do not add project boundaries. Context
+source and compiled output after the run. `proxy_brain` now writes its source file
+directly instead of interpolating model-authored code into a root shell heredoc,
+then uses the same bounded unprivileged runner with an explicit environment
+override allowlist for its signed context and service endpoints. Shell and code
+execution cap captured stdout and stderr at 2 MiB per stream, drain excess output
+without retaining it, and terminate the request's process group on completion or
+timeout so background descendants cannot outlive the request. A delimiter-like
+source line is covered to ensure it remains code rather than shell syntax.
+Forty-six focused Docker tests pass for credential filtering, unprivileged
+execution, bounded output, process-group cleanup, unique paths, proxy context
+handling, and existing wrapper formatting. These controls reduce process
+privilege and resource abuse but do not add project boundaries. Context
 verification, custom Playwright, terminal isolation, and project-scoped `/tmp` and
 workspace storage remain open; the full project-worker finding is not closed.
 
