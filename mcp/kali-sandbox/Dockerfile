@@ -515,5 +515,13 @@ EXPOSE 8000 8002 8003 8004 8005 8014 8015 8016 4040
 # Initialize Metasploit database (speeds up first run)
 RUN msfdb init || true
 
+# Go tools are installed under root's GOPATH during image construction. Model-
+# authored commands run unprivileged, so publish executable copies on the normal
+# system PATH instead of granting them traversal access to /root.
+RUN set -eu; for tool in /root/go/bin/*; do \
+      [ -f "$tool" ] || continue; \
+      install -m 0755 "$tool" "/usr/local/bin/$(basename "$tool")"; \
+    done
+
 # Entrypoint handles updates + launches MCP servers
 ENTRYPOINT ["/opt/entrypoint.sh"]

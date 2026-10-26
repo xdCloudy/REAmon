@@ -29,13 +29,54 @@ import os
 import re
 import shlex
 import subprocess
+import tempfile
 import threading
 import time
+import uuid
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from _progress_auth import AuthenticatedProgressHandler
 
 # Strip ANSI escape codes (terminal colors) from output
 ANSI_ESCAPE = re.compile(r'\x1b\[[0-9;]*[a-zA-Z]')
+
+# Model-authored shell/code is untrusted. Run it as the unprivileged nobody
+# account with a deliberately small environment; the MCP controller keeps its
+# service credentials in its own root-owned process. Project filesystem
+# isolation is handled separately by the project-worker design and remains an
+# open production gate.
+_UNTRUSTED_EXEC_UID = 65534
+_UNTRUSTED_EXEC_GID = 65534
+_UNTRUSTED_EXEC_PATH = (
+    "/opt/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    ":/usr/local/go/bin"
+)
+
+
+def _untrusted_exec_env() -> dict[str, str]:
+    """Return a minimal environment for model-authored code and shell commands."""
+    return {
+        "PATH": _UNTRUSTED_EXEC_PATH,
+        "HOME": "/tmp",
+        "TMPDIR": "/tmp",
+        "LANG": "C.UTF-8",
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "PYTHONNOUSERSITE": "1",
+        "PLAYWRIGHT_BROWSERS_PATH": "/ms-playwright",
+    }
+
+
+def _run_untrusted_child(argv: list[str], *, timeout: int) -> subprocess.CompletedProcess:
+    """Run untrusted code without root, inherited credentials, or extra groups."""
+    return subprocess.run(
+        argv,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        env=_untrusted_exec_env(),
+        user=_UNTRUSTED_EXEC_UID,
+        group=_UNTRUSTED_EXEC_GID,
+        extra_groups=(),
+    )
 
 
 def _format_subprocess_result(
@@ -486,9 +527,9 @@ def kali_shell(command: str) -> str:
     """
     Execute any shell command in the Kali Linux sandbox.
 
-    Full access to the Kali Linux environment including all installed tools.
-    Use for running exploit scripts, downloading PoCs, encoding payloads,
-    or using any Kali tool not exposed as a dedicated MCP tool.
+    Runs as an unprivileged child in the Kali Linux environment with the
+    installed tools available. Use for commands not exposed as a dedicated
+    MCP tool; project filesystem isolation is still provided by a future worker.
 
     Args:
         command: The full shell command to execute (run via bash -c)
@@ -516,12 +557,7 @@ def kali_shell(command: str) -> str:
         - "which sqlmap nikto wfuzz ffuf hydra"
     """
     try:
-        result = subprocess.run(
-            ["bash", "-c", command],
-            capture_output=True,
-            text=True,
-            timeout=300
-        )
+        result = _run_untrusted_child(["bash", "-c", command], timeout=300)
         return _format_subprocess_result(
             result,
             tool_name="kali_shell",
@@ -539,8 +575,8 @@ def execute_code(code: str, language: str = "python", filename: str = "exploit")
     Write code to a file and execute it with the appropriate interpreter.
 
     Eliminates shell escaping issues by receiving code as a clean string parameter,
-    writing it to a file using a heredoc, and executing the file directly.
-    Use this instead of kali_shell when running multi-line scripts.
+    writing it to a unique temporary file, and executing the file as an
+    unprivileged user. Use this instead of kali_shell for multi-line scripts.
 
     Args:
         code: The source code to execute. Multi-line code with proper indentation
@@ -548,7 +584,7 @@ def execute_code(code: str, language: str = "python", filename: str = "exploit")
         language: Programming language (default: "python"). Determines file extension
                   and interpreter. Supported: python, bash, ruby, perl, c, cpp
         filename: Base filename without extension (default: "exploit").
-                  File is created at /tmp/{filename}.{ext}
+                  Used as a readable prefix for a unique temporary filename.
 
     Returns:
         Combined stdout + stderr from execution, or compilation error for compiled languages.
@@ -594,53 +630,51 @@ def execute_code(code: str, language: str = "python", filename: str = "exploit")
 
     ext, interpreter = LANG_MAP[language]
 
-    # Sanitize filename to prevent path traversal / shell injection
+    # Sanitize the display name, then use a random suffix so concurrent calls
+    # cannot overwrite one another's code or compiled output.
     safe_filename = re.sub(r'[^a-zA-Z0-9_-]', '_', filename)
-    filepath = f"/tmp/{safe_filename}.{ext}"
-    binary_path = f"/tmp/{safe_filename}"
+    safe_filename = safe_filename or "exploit"
+    unique_name = f"{safe_filename}_{uuid.uuid4().hex}"
+    binary_path = os.path.join(tempfile.gettempdir(), unique_name)
+    filepath = f"{binary_path}.{ext}"
 
-    # Step 1: Write code to file using single-quoted heredoc (no shell interpretation)
-    write_cmd = f"cat << 'REDAMON_CODE_EOF' > {filepath}\n{code}\nREDAMON_CODE_EOF"
+    # Write the source directly instead of interpolating it into a shell
+    # heredoc. The file is readable by the unprivileged runner; its random path
+    # avoids collisions between concurrent calls that choose the same filename.
     try:
-        write_result = subprocess.run(
-            ["bash", "-c", write_cmd],
-            capture_output=True,
+        fd, filepath = tempfile.mkstemp(
+            prefix=f"{unique_name}_",
+            suffix=f".{ext}",
+            dir=tempfile.gettempdir(),
             text=True,
-            timeout=10
         )
-        if write_result.returncode != 0:
-            return f"[ERROR] Failed to write code file: {write_result.stderr}"
+        with os.fdopen(fd, "w", encoding="utf-8") as source_file:
+            source_file.write(code)
+            if not code.endswith("\n"):
+                source_file.write("\n")
+        os.chmod(filepath, 0o444)
     except Exception as e:
+        try:
+            os.remove(filepath)
+        except OSError:
+            pass
         return f"[ERROR] Failed to write code file: {str(e)}"
 
     # Step 2: Execute (interpreted) or compile+execute (compiled)
     try:
         if interpreter:
             # Interpreted language — run directly
-            result = subprocess.run(
-                [interpreter, filepath],
-                capture_output=True,
-                text=True,
-                timeout=120
-            )
+            result = _run_untrusted_child([interpreter, filepath], timeout=120)
         else:
             # Compiled language — compile first, then execute
             compiler = "gcc" if ext == "c" else "g++"
-            compile_result = subprocess.run(
-                [compiler, filepath, "-o", binary_path],
-                capture_output=True,
-                text=True,
-                timeout=60
+            compile_result = _run_untrusted_child(
+                [compiler, filepath, "-o", binary_path], timeout=60
             )
             if compile_result.returncode != 0:
                 return f"[ERROR] Compilation failed:\n{compile_result.stderr}"
 
-            result = subprocess.run(
-                [binary_path],
-                capture_output=True,
-                text=True,
-                timeout=120
-            )
+            result = _run_untrusted_child([binary_path], timeout=120)
 
         output = result.stdout
         if result.stderr:
@@ -655,6 +689,12 @@ def execute_code(code: str, language: str = "python", filename: str = "exploit")
         return f"[ERROR] Interpreter/compiler not found: {str(e)}"
     except Exception as e:
         return f"[ERROR] {str(e)}"
+    finally:
+        for path in (filepath, binary_path):
+            try:
+                os.remove(path)
+            except OSError:
+                pass
 
 
 @mcp.tool()
