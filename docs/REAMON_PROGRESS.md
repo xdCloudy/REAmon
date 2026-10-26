@@ -1,6 +1,6 @@
 # REAmon product progress
 
-Assessment date: 2026-10-26 · Source: pushed commit `4d33244` · Weighted estimate: **58.6%**
+Assessment date: 2026-10-26 · Source: pushed commit `ba8106e` · Weighted estimate: **58.7%**
 
 This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.
 
@@ -11,7 +11,7 @@ Quality run [40247230850](https://github.com/xdCloudy/REAmon/actions/runs/402472
 | Core analysis and visualizer workflow | 16% | 76% | 12.16 pts |
 | Database-grounded project memory and provenance | 16% | 73% | 11.68 pts |
 | Major-language and format decompilation fluency | 24% | 35% | 8.40 pts |
-| Maintainable editing, review, and export | 12% | 43% | 5.16 pts |
+| Maintainable editing, review, and export | 12% | 44% | 5.28 pts |
 | Fixture-backed validation and fidelity evidence | 12% | 15% | 1.80 pts |
 | Security, reliability, and production operations | 20% | 97% | 19.40 pts |
 
@@ -37,7 +37,7 @@ Quality run [40247230850](https://github.com/xdCloudy/REAmon/actions/runs/402472
 
 ### Maintainable editing, review, and export
 
-**Current evidence:** Hash-bound drafts and immutable review receipts preserve lineage, with syntax validation, an early Java rebuild, and language-specific rename workflows now extending to C/C++ local bindings.
+**Current evidence:** Hash-bound drafts and immutable review receipts preserve lineage, with syntax validation, an early Java rebuild, and language-specific rename workflows now extending to C/C++ local bindings. Kotlin functions are now outlined and can be rewritten one at a time with grammar-aware member signature validation; focused isolated Docker coverage passes.
 
 **Remaining:** Project-wide edits, cross-file builds, more target-format rebuilds, and runtime or behavior validation remain limited; representative C/C++ projects and compiler-version coverage still need evaluation.
 
