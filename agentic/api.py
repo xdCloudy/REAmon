@@ -4877,12 +4877,14 @@ async def get_tunnel_status():
 
 
 @app.get("/sessions", tags=["Sessions"], dependencies=_AGENT_REST_AUTH)
-async def get_sessions(project_id: Optional[str] = Query(None)):
-    """List active sessions, optionally scoped to one project."""
+async def get_sessions(project_id: str = Query(...)):
+    """List sessions and background jobs owned by the requested project."""
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            params = {"project_id": project_id} if project_id else None
-            resp = await client.get(f"{_SESSION_BASE}/sessions", params=params, headers=internal_mcp_headers())
+            resp = await client.get(
+                f"{_SESSION_BASE}/sessions", params={"project_id": project_id},
+                headers=internal_mcp_headers(),
+            )
             return JSONResponse(content=resp.json(), status_code=resp.status_code)
     except httpx.TimeoutException:
         return JSONResponse(content={"error": "Session manager timeout"}, status_code=504)
@@ -4925,12 +4927,13 @@ async def kill_session(session_id: int, project_id: str = Query(...)):
 
 
 @app.post("/jobs/{job_id}/kill", tags=["Sessions"], dependencies=_AGENT_REST_AUTH)
-async def kill_job(job_id: int):
+async def kill_job(job_id: int, project_id: str = Query(...)):
     """Kill a background Metasploit job."""
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.post(
                 f"{_SESSION_BASE}/jobs/{job_id}/kill",
+                json={"project_id": project_id},
                 headers=internal_mcp_headers(),
             )
             return JSONResponse(content=resp.json(), status_code=resp.status_code)

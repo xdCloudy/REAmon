@@ -341,6 +341,18 @@ async def execute_tool_node(
                     )
             except Exception:
                 pass  # Best effort, don't break execution
+        for match in re.finditer(r'\bbackground job\s+#?(\d+)\b', tool_output, re.IGNORECASE):
+            msf_job_id = int(match.group(1))
+            try:
+                async with httpx.AsyncClient(timeout=5.0) as client:
+                    await client.post(
+                        f"{session_manager_base}/job-chat-map",
+                        json={"msf_job_id": msf_job_id, "chat_session_id": session_id,
+                              "user_id": user_id, "project_id": project_id},
+                        headers=internal_mcp_headers(),
+                    )
+            except Exception:
+                pass  # Best effort, don't break execution
 
     # Register non-MSF listeners (netcat, socat) created via kali_shell
     if tool_name == "kali_shell" and tool_args:

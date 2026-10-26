@@ -342,6 +342,12 @@ RUN chmod -R a-w /app/knowledge_base \
     && ( chmod -R u+w /app/knowledge_base/__pycache__ 2>/dev/null || true )
 
 # Expose API port
+ARG REAMON_BUILD_SHA=unknown
+ARG REAMON_BUILD_DIRTY=unknown
+LABEL org.opencontainers.image.revision=$REAMON_BUILD_SHA
+ENV REAMON_BUILD_SHA=$REAMON_BUILD_SHA \
+    REAMON_BUILD_DIRTY=$REAMON_BUILD_DIRTY
+
 EXPOSE 8080
 
 # Health check

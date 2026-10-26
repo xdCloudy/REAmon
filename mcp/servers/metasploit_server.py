@@ -27,7 +27,7 @@ from urllib.parse import parse_qs, urlparse
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from typing import Optional, Set, List, Dict, Tuple
 from _progress_auth import AuthenticatedProgressHandler
-from session_scope import filter_sessions_for_project, session_belongs_to_project
+from session_scope import filter_sessions_for_project, job_belongs_to_project, session_belongs_to_project
 
 # Server configuration
 SERVER_NAME = "metasploit"
@@ -82,6 +82,10 @@ class PersistentMsfConsole:
         # when it observes a session-opened event. Sessions without an entry
         # (including pre-upgrade sessions) remain unavailable to project users.
         self._chat_session_map: Dict[int, dict] = {}
+        # Job ownership is registered by the trusted agent orchestrator after
+        # Metasploit reports a newly-created background job. Unknown jobs stay
+        # hidden and cannot be killed through project-scoped REST controls.
+        self._chat_job_map: Dict[int, dict] = {}
         self._non_msf_sessions: Dict[str, dict] = {}
         self._detail_thread_started = False
 
@@ -497,6 +501,11 @@ class PersistentMsfConsole:
                 with self._detail_lock:
                     self._session_details = parsed_sessions
                     self._job_details = parsed_jobs
+                    active_job_ids = {job["id"] for job in parsed_jobs}
+                    self._chat_job_map = {
+                        job_id: owner for job_id, owner in self._chat_job_map.items()
+                        if job_id in active_job_ids
+                    }
                     self._detail_cache_time = time.time()
             except Exception as e:
                 print(f"[MSF] Session detail refresh error: {e}")
@@ -649,6 +658,36 @@ class PersistentMsfConsole:
                 "cache_age_seconds": round(time.time() - self._detail_cache_time, 1) if self._detail_cache_time > 0 else -1,
                 "agent_busy": self._execution_active,
             }
+
+    def snapshot_job_ownership(self) -> Dict[int, dict]:
+        """Return a stable ownership-map snapshot for project filtering."""
+        with self._detail_lock:
+            return {job_id: dict(owner) for job_id, owner in self._chat_job_map.items()}
+
+    def job_belongs_to_project(self, job_id: int, project_id: str) -> bool:
+        """Check job ownership atomically with the periodic ownership prune."""
+        with self._detail_lock:
+            return job_belongs_to_project(self._chat_job_map, job_id, project_id)
+
+    def register_job_owner(self, job_id: int, owner: dict) -> bool:
+        """Register a live job owner without allowing cross-project reassignment."""
+        with self._detail_lock:
+            existing_owner = self._chat_job_map.get(job_id)
+            if existing_owner and existing_owner.get("project_id") != owner.get("project_id"):
+                return False
+            self._chat_job_map[job_id] = dict(owner)
+            return True
+
+    def job_exists(self, job_id: int) -> bool:
+        """Confirm a job is live before accepting project ownership metadata."""
+        acquired = self.lock.acquire(timeout=5)
+        if not acquired:
+            return False
+        try:
+            raw_jobs = self._quick_execute("jobs -l", timeout=10, quiet_period=1.0)
+            return any(job["id"] == job_id for job in self._parse_jobs_output(raw_jobs))
+        finally:
+            self.lock.release()
 
     def interact_session(self, session_id: int, command: str) -> dict:
         """Send a command to a specific session. Uses try-with-timeout on lock.
@@ -1083,6 +1122,7 @@ class SessionProgressHandler(AuthenticatedProgressHandler, BaseHTTPRequestHandle
             /sessions         -> ('sessions', None, None)
             /sessions/1/interact -> ('sessions', 1, 'interact')
             /session-chat-map -> ('session-chat-map', None, None)
+            /job-chat-map -> ('job-chat-map', None, None)
             /non-msf-sessions -> ('non-msf-sessions', None, None)
         """
         parts = [p for p in self.path.strip('/').split('/') if p]
@@ -1163,7 +1203,7 @@ class SessionProgressHandler(AuthenticatedProgressHandler, BaseHTTPRequestHandle
                 data = msf.get_sessions_data()
                 project_id = parse_qs(urlparse(self.path).query).get('project_id', [None])[0]
                 if project_id:
-                    data = filter_sessions_for_project(data, project_id)
+                    data = filter_sessions_for_project(data, project_id, msf.snapshot_job_ownership())
                 self._send_json(200, data)
             except Exception as e:
                 self._send_json(500, {"error": str(e)})
@@ -1204,8 +1244,31 @@ class SessionProgressHandler(AuthenticatedProgressHandler, BaseHTTPRequestHandle
                 self._send_json(200, result)
 
             elif resource == 'jobs' and res_id is not None and action == 'kill':
+                project_id = str(body.get('project_id') or '')
+                if not msf.job_belongs_to_project(res_id, project_id):
+                    self._send_json(404, {"error": "Job not found"})
+                    return
                 result = msf.kill_job(res_id)
                 self._send_json(200, result)
+
+            elif resource == 'job-chat-map':
+                job_id = body.get("msf_job_id")
+                chat_sid = body.get("chat_session_id")
+                project_id = body.get("project_id")
+                user_id = body.get("user_id")
+                if (type(job_id) is int and job_id >= 0 and chat_sid and project_id and user_id
+                        and msf.job_exists(job_id)):
+                    owner = {
+                        "chat_session_id": str(chat_sid),
+                        "project_id": str(project_id),
+                        "user_id": str(user_id),
+                    }
+                    if not msf.register_job_owner(job_id, owner):
+                        self._send_json(409, {"error": "Job ownership is already assigned"})
+                        return
+                    self._send_json(200, {"ok": True})
+                else:
+                    self._send_json(400, {"error": "Missing job ownership metadata"})
 
             elif resource == 'session-chat-map':
                 msf_sid = body.get("msf_session_id")

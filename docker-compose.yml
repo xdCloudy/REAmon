@@ -879,6 +879,8 @@ services:
       args:
         SKIP_KB: "${SKIP_KB:-true}"
         TORCH_INDEX_URL: "${TORCH_INDEX_URL:-https://download.pytorch.org/whl/cpu}"
+        REAMON_BUILD_SHA: "${REAMON_BUILD_SHA:-${GITHUB_SHA:-unknown}}"
+        REAMON_BUILD_DIRTY: "${REAMON_BUILD_DIRTY:-unknown}"
     container_name: redamon-agent
     mem_limit: ${AGENT_MEM:-3g}             # sized from host RAM by redamon.sh
     pids_limit: ${AGENT_PIDS:-1024}         # D1: fork-bomb ceiling (generous)

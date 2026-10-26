@@ -2,13 +2,9 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { NextRequest, NextResponse } from 'next/server'
 
-const mockRequireAdmin = vi.fn()
 const mockGuardProjectStrict = vi.fn()
 const mockAgentFetch = vi.fn()
 
-vi.mock('@/lib/session', () => ({
-  requireAdmin: (...args: unknown[]) => mockRequireAdmin(...args),
-}))
 vi.mock('@/lib/access', () => ({
   guardProjectStrict: (...args: unknown[]) => mockGuardProjectStrict(...args),
 }))
@@ -21,25 +17,19 @@ import { POST as interactWithSession } from './sessions/[id]/interact/route'
 import { POST as killSession } from './sessions/[id]/kill/route'
 import { POST as killJob } from './jobs/[id]/kill/route'
 
-const unauthorized = NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-const forbidden = NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-const admin = { userId: 'admin-user', role: 'admin' }
 const projectId = 'project-1'
 const params = (id: string) => ({ params: Promise.resolve({ id }) })
 
-const cases = [
+const projectCases = [
   {
     name: 'kill job',
     invoke: () => killJob(
-      new NextRequest('http://x/api/agent/jobs/j-1/kill', { method: 'POST' }),
+      new NextRequest(`http://x/api/agent/jobs/j-1/kill?projectId=${projectId}`, { method: 'POST' }),
       params('j-1'),
     ),
-    expectedPath: '/jobs/j-1/kill',
+    expectedPath: `/jobs/j-1/kill?project_id=${projectId}`,
     expectedInit: { method: 'POST' },
   },
-]
-
-const projectCases = [
   {
     name: 'list sessions',
     invoke: () => listSessions(new NextRequest(`http://x/api/agent/sessions?projectId=${projectId}`)),
@@ -75,45 +65,12 @@ const projectCases = [
 ]
 
 beforeEach(() => {
-  mockRequireAdmin.mockReset()
   mockGuardProjectStrict.mockReset().mockResolvedValue(null)
   mockAgentFetch.mockReset().mockResolvedValue(Response.json({ ok: true }))
 })
 
 afterEach(() => {
   vi.restoreAllMocks()
-})
-
-describe('global agent job controls require admin', () => {
-  for (const route of cases) {
-    test(`${route.name}: unauthenticated request gets 401 without proxying`, async () => {
-      mockRequireAdmin.mockResolvedValue(unauthorized)
-
-      const response = await route.invoke()
-
-      expect(response.status).toBe(401)
-      expect(mockAgentFetch).not.toHaveBeenCalled()
-    })
-
-    test(`${route.name}: standard user gets 403 without proxying`, async () => {
-      mockRequireAdmin.mockResolvedValue(forbidden)
-
-      const response = await route.invoke()
-
-      expect(response.status).toBe(403)
-      expect(mockAgentFetch).not.toHaveBeenCalled()
-    })
-
-    test(`${route.name}: admin reaches the intended agent endpoint`, async () => {
-      mockRequireAdmin.mockResolvedValue(admin)
-
-      const response = await route.invoke()
-
-      expect(response.status).toBe(200)
-      expect(mockAgentFetch).toHaveBeenCalledWith(route.expectedPath, route.expectedInit)
-      expect(await response.json()).toEqual({ ok: true })
-    })
-  }
 })
 
 describe('project session controls enforce strict project ownership', () => {

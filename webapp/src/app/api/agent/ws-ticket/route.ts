@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getEffectiveUser, getSession } from '@/lib/session'
-import { requireProjectAccess } from '@/lib/access'
+import { requireProjectAccessStrict } from '@/lib/access'
 import { createWsTicket } from '@/lib/auth'
 import { assertGraphNotActivating } from '@/lib/activationLock'
 
@@ -29,8 +29,9 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  // The effective user must own the project the ticket is scoped to.
-  const access = await requireProjectAccess(eff, projectId)
+  // This ticket is a credential for direct access to the agent, so its project
+  // scope must remain strict even while REST ownership checks are in log-only mode.
+  const access = await requireProjectAccessStrict(eff, projectId)
   if (access instanceof NextResponse) return access
 
   // Scan Timeline 4A.3: the ticket is the chokepoint for starting an agent

@@ -13,14 +13,14 @@ import { describe, test, expect, beforeEach, vi } from 'vitest'
 import { NextRequest, NextResponse } from 'next/server'
 
 const mockGetEffectiveUser = vi.fn()
-const mockRequireProjectAccess = vi.fn()
+const mockRequireProjectAccessStrict = vi.fn()
 const mockCreateWsTicket = vi.fn()
 
 vi.mock('@/lib/session', () => ({
   getEffectiveUser: (...a: unknown[]) => mockGetEffectiveUser(...a),
 }))
 vi.mock('@/lib/access', () => ({
-  requireProjectAccess: (...a: unknown[]) => mockRequireProjectAccess(...a),
+  requireProjectAccessStrict: (...a: unknown[]) => mockRequireProjectAccessStrict(...a),
 }))
 vi.mock('@/lib/auth', () => ({
   createWsTicket: (...a: unknown[]) => mockCreateWsTicket(...a),
@@ -40,7 +40,7 @@ const NOT_FOUND = NextResponse.json({ error: 'Not found' }, { status: 404 })
 
 beforeEach(() => {
   mockGetEffectiveUser.mockReset()
-  mockRequireProjectAccess.mockReset().mockResolvedValue({ project: { id: 'p', userId: 'real-user' } })
+  mockRequireProjectAccessStrict.mockReset().mockResolvedValue({ project: { id: 'p', userId: 'real-user' } })
   mockCreateWsTicket.mockReset().mockResolvedValue('signed.ticket.value')
 })
 
@@ -69,7 +69,7 @@ describe('POST /api/agent/ws-ticket — S6 + impersonation', () => {
 
   test('admin simulating X → ticket minted for X (impersonation-consistent)', async () => {
     mockGetEffectiveUser.mockResolvedValue({ userId: 'user-X' })
-    mockRequireProjectAccess.mockResolvedValue({ project: { id: 'p', userId: 'user-X' } })
+    mockRequireProjectAccessStrict.mockResolvedValue({ project: { id: 'p', userId: 'user-X' } })
     const res = await POST(req({ projectId: 'p', sessionId: 's' }))
     expect(res.status).toBe(200)
     expect(mockCreateWsTicket).toHaveBeenCalledWith('user-X', 'p', 's')
@@ -77,7 +77,7 @@ describe('POST /api/agent/ws-ticket — S6 + impersonation', () => {
 
   test('EXPLOIT: minting a ticket for a project the effective user does not own → blocked, no ticket', async () => {
     mockGetEffectiveUser.mockResolvedValue({ userId: 'attacker' })
-    mockRequireProjectAccess.mockResolvedValue(NOT_FOUND)
+    mockRequireProjectAccessStrict.mockResolvedValue(NOT_FOUND)
     const res = await POST(req({ projectId: 'victimProj', sessionId: 's' }))
     expect(res.status).toBe(404)
     expect(mockCreateWsTicket).not.toHaveBeenCalled()

@@ -113,12 +113,12 @@ export function useActiveSessions({
     killedJobsRef.current.add(jobId)
     setJobs(prev => prev.filter(j => j.id !== jobId))
     try {
-      await fetch(`/api/agent/jobs/${jobId}/kill`, { method: 'POST' })
+      await fetch(`/api/agent/jobs/${jobId}/kill?projectId=${encodeURIComponent(projectId)}`, { method: 'POST' })
     } catch {
       // Optimistic removal stays - will self-correct if job is still alive
       killedJobsRef.current.delete(jobId)
     }
-  }, [])
+  }, [projectId])
 
   // Initial fetch
   useEffect(() => {
