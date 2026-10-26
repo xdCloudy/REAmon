@@ -38,6 +38,8 @@ exec "$@"
 
 UNTRUSTED_EXEC_UID = 65534
 UNTRUSTED_EXEC_GID = 65534
+UNTRUSTED_EXEC_NOFILE_LIMIT = 256
+UNTRUSTED_EXEC_PRLIMIT = "/usr/bin/prlimit"
 UNTRUSTED_EXEC_PATH = (
     "/opt/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
     ":/usr/local/go/bin"
@@ -68,7 +70,14 @@ def run_untrusted_child(
     workspace_project_id: str | None = None,
 ) -> subprocess.CompletedProcess:
     """Run as nobody, cap output, and optionally isolate one project workspace."""
-    command = argv
+    # Use an exec wrapper because Python pre-exec hooks can deadlock in this
+    # threaded server between fork and exec.
+    limits = [
+        UNTRUSTED_EXEC_PRLIMIT,
+        "--core=0:0",
+        f"--nofile={UNTRUSTED_EXEC_NOFILE_LIMIT}:{UNTRUSTED_EXEC_NOFILE_LIMIT}",
+        "--",
+    ]
     if workspace_project_id is not None:
         project_id = str(workspace_project_id)
         if (not project_id or len(project_id) > 200
@@ -77,12 +86,14 @@ def run_untrusted_child(
             raise ValueError("invalid project id for scoped execution")
         if os.name != "posix":
             raise RuntimeError("project-scoped execution requires Linux namespaces")
-        command = [
+        command = limits + [
             "/usr/bin/unshare", "--user", "--map-root-user", "--mount",
             "--pid", "--fork", "--mount-proc",
             "/bin/sh", "-c", _SCOPED_EXEC_SCRIPT,
             "reamon-exec", project_id, *argv,
         ]
+    else:
+        command = limits + argv
     env = untrusted_exec_env()
     for name, value in (env_overrides or {}).items():
         if name not in UNTRUSTED_ENV_OVERRIDES:

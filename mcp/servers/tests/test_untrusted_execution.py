@@ -75,7 +75,10 @@ class TestUntrustedExecution(unittest.TestCase):
 
         self.assertIn("uid=65534", result)
         self.assert_untrusted_child(run.call_args)
-        self.assertEqual(run.call_args.args[0][0:8], [
+        self.assertEqual(run.call_args.args[0][0:12], [
+            exec_utils.UNTRUSTED_EXEC_PRLIMIT, "--core=0:0",
+            f"--nofile={exec_utils.UNTRUSTED_EXEC_NOFILE_LIMIT}:"
+            f"{exec_utils.UNTRUSTED_EXEC_NOFILE_LIMIT}", "--",
             "/usr/bin/unshare", "--user", "--map-root-user", "--mount",
             "--pid", "--fork", "--mount-proc", "/bin/sh",
         ])
@@ -208,6 +211,23 @@ class TestUntrustedExecution(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertTrue(result.stdout.endswith(recon._UNTRUSTED_OUTPUT_TRUNCATION))
         self.assertIn(str(exec_utils.UNTRUSTED_EXEC_UID), result.stderr)
+
+    def test_real_untrusted_child_inherits_tight_file_and_core_limits(self):
+        if os.name != "posix" or os.geteuid() != 0:
+            self.skipTest("requires a POSIX test container running as root")
+        code = (
+            "import resource; "
+            "print(resource.getrlimit(resource.RLIMIT_NOFILE)); "
+            "print(resource.getrlimit(resource.RLIMIT_CORE))"
+        )
+        result = recon._run_untrusted_child([sys.executable, "-c", code], timeout=10)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            result.stdout.splitlines(),
+            [f"({exec_utils.UNTRUSTED_EXEC_NOFILE_LIMIT}, "
+             f"{exec_utils.UNTRUSTED_EXEC_NOFILE_LIMIT})", "(0, 0)"],
+        )
 
     def test_playwright_script_uses_verified_project_workspace(self):
         workspace = tempfile.mkdtemp(prefix="reamon-playwright-test-")

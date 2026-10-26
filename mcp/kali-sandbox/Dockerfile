@@ -37,6 +37,7 @@ RUN apt-get update && apt-get install -y --fix-missing \
     curl \
     wget \
     git \
+    util-linux \
     # Python
     python3 \
     python3-pip \
