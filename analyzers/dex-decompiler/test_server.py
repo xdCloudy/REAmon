@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from server import (
     AnalysisError,
+    DEFAULT_CLASS_BATCH_SIZE,
     build_decompile_command,
     build_class_descriptor_command,
     build_mapping_command,
@@ -20,6 +21,10 @@ from server import (
 
 
 class DecompilerCommandTests(unittest.TestCase):
+    def test_default_class_batch_size_uses_bounded_batches(self):
+        self.assertEqual(DEFAULT_CLASS_BATCH_SIZE, 8)
+        self.assertEqual(clamp_class_batch_size(DEFAULT_CLASS_BATCH_SIZE), 8)
+
     def test_class_batch_size_can_isolate_single_classes_with_safe_bounds(self):
         self.assertEqual(clamp_class_batch_size(1), 1)
         self.assertEqual(clamp_class_batch_size(0), 1)

@@ -36,6 +36,7 @@ CLASS_DESCRIPTOR_LOOKUP_TIMEOUT_SECONDS = 30
 MAX_DEX_ENTRIES = 64
 MAX_TOTAL_DEX_BYTES = 512 * 1024 * 1024
 PROGRESS_CLASS_INTERVAL = 64
+DEFAULT_CLASS_BATCH_SIZE = 8
 
 
 def clamp_class_batch_size(value: int) -> int:
@@ -50,7 +51,9 @@ def should_report_class_batch(start: int, limit: int, discovered: int | None) ->
 
 # Isolate class decompilation: the Rust process can retain substantial memory
 # across classes, while its single-class retries recover panics and OOMs.
-CLASS_BATCH_SIZE = clamp_class_batch_size(int(os.environ.get("DEX_DECOMPILER_CLASS_BATCH_SIZE", "1")))
+CLASS_BATCH_SIZE = clamp_class_batch_size(int(os.environ.get(
+    "DEX_DECOMPILER_CLASS_BATCH_SIZE", str(DEFAULT_CLASS_BATCH_SIZE),
+)))
 CLASS_BATCH_TIMEOUT_SECONDS = min(
     600,
     max(30, int(os.environ.get("DEX_DECOMPILER_CLASS_BATCH_TIMEOUT_SECONDS", "60"))),
