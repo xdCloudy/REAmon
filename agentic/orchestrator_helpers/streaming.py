@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 async def persist_generated_file(file_info: dict, project_id: str, tool_executor):
-    """Copy a generated Kali /tmp file into an opaque project workspace path."""
+    """Move a generated Kali /tmp file into an opaque project workspace path."""
     from workspace_fs import resolve_for_project
 
     source = os.path.normpath(str(file_info.get("filepath") or ""))
@@ -25,23 +25,28 @@ async def persist_generated_file(file_info: dict, project_id: str, tool_executor
     stored_name = f"{uuid.uuid4().hex}-{safe_name}"
     relative_path = f"tool-outputs/{stored_name}"
     resolve_for_project(project_id, relative_path)
+    relative_source = os.path.relpath(source, "/tmp")
+    if relative_source in (".", "..") or relative_source.startswith("../"):
+        raise ValueError("generated file must remain inside project scratch")
+    scratch_source = f"/workspace/.reamon-tmp/{relative_source}"
     target = f"/workspace/{relative_path}"
-    temporary_target = f"/workspace/tool-outputs/.{stored_name}.partial"
 
     command = " && ".join((
-        "mkdir -p -- /workspace/tool-outputs",
-        f"test -f {shlex.quote(source)}",
-        f"test ! -L {shlex.quote(source)}",
-        f"cp -- {shlex.quote(source)} {shlex.quote(temporary_target)}",
-        f"chmod 0644 -- {shlex.quote(temporary_target)}",
-        f"mv -- {shlex.quote(temporary_target)} {shlex.quote(target)}",
-        f"rm -f -- {shlex.quote(source)}",
+        "set -eu",
+        "scratch_root=$(realpath -e -- /workspace/.reamon-tmp)",
+        f"source_path=$(realpath -e -- {shlex.quote(scratch_source)})",
+        'case "$source_path" in "$scratch_root"/*) ;; *) echo "generated file escapes project scratch" >&2; exit 1;; esac',
+        "test -f \"$source_path\"",
+        f"test ! -L {shlex.quote(scratch_source)}",
+        f"test ! -e {shlex.quote(target)}",
+        "chmod 0644 -- \"$source_path\"",
+        f"mv -- \"$source_path\" {shlex.quote(target)}",
     ))
     result = await tool_executor.execute(
         "kali_shell", {"command": command}, "informational", skip_phase_check=True,
     )
     if not result.get("success"):
-        raise RuntimeError("Kali workspace copy failed")
+        raise RuntimeError("Kali workspace transfer failed")
 
     return {
         **file_info,

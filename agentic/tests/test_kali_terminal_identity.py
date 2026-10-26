@@ -66,7 +66,12 @@ def test_scoped_shell_context_resolves_only_verified_project(monkeypatch, tmp_pa
         api.ExecutionContextRequest(ctx=token, tool="kali_shell")
     ))
     assert response == {"project_id": "project-1"}
-    assert (tmp_path / "project-1").stat().st_mode & 0o777 == 0o777
+    project_root = tmp_path / "project-1"
+    assert project_root.stat().st_mode & 0o777 == 0o755
+    assert (project_root / ".reamon-tmp").stat().st_mode & 0o777 == 0o700
+    assert (project_root / ".reamon-tmp").stat().st_uid == 65534
+    assert (project_root / "tool-outputs").stat().st_mode & 0o777 == 0o777
+    assert (project_root / "tool-outputs").stat().st_uid == 65534
 
     wrong_tool = asyncio.run(api.resolve_execution_context(
         api.ExecutionContextRequest(ctx=token, tool="execute_code")
@@ -103,6 +108,64 @@ def test_scoped_shell_context_resolves_only_verified_project(monkeypatch, tmp_pa
         api.ExecutionContextRequest(ctx=playwright_token, tool="execute_playwright")
     ))
     assert playwright_scope == {"project_id": "project-1"}
+
+
+def test_scoped_shell_context_rejects_symlink_output_directory(monkeypatch, tmp_path):
+    import api
+    import workspace_fs
+    from fastapi.responses import JSONResponse
+    from redamon_ctx import sign_tag
+
+    key = "execution-test-signing-key"
+    monkeypatch.setenv("INTERNAL_API_KEY", key)
+    monkeypatch.setenv("SCANNER_API_KEY", "execution-scanner-key")
+    monkeypatch.setattr(workspace_fs, "WORKSPACE_ROOT", tmp_path)
+    project_root = tmp_path / "project-1"
+    project_root.mkdir()
+    external = tmp_path / "external"
+    external.mkdir()
+    (project_root / "tool-outputs").symlink_to(external, target_is_directory=True)
+    token = sign_tag({
+        "source": "agent", "user_id": "owner-1", "project_id": "project-1",
+        "tool": "kali_shell", "phase": "informational",
+        "exp": int(api.time.time()) + 60,
+    }, key)
+
+    response = asyncio.run(api.resolve_execution_context(
+        api.ExecutionContextRequest(ctx=token, tool="kali_shell")
+    ))
+
+    assert isinstance(response, JSONResponse)
+    assert response.status_code == 503
+    assert external.stat().st_mode & 0o777 == 0o755
+
+
+def test_scoped_shell_context_rejects_symlink_project_root(monkeypatch, tmp_path):
+    import api
+    import workspace_fs
+    from fastapi.responses import JSONResponse
+    from redamon_ctx import sign_tag
+
+    key = "execution-test-signing-key"
+    monkeypatch.setenv("INTERNAL_API_KEY", key)
+    monkeypatch.setenv("SCANNER_API_KEY", "execution-scanner-key")
+    monkeypatch.setattr(workspace_fs, "WORKSPACE_ROOT", tmp_path)
+    external = tmp_path / "external"
+    external.mkdir()
+    (tmp_path / "project-1").symlink_to(external, target_is_directory=True)
+    token = sign_tag({
+        "source": "agent", "user_id": "owner-1", "project_id": "project-1",
+        "tool": "kali_shell", "phase": "informational",
+        "exp": int(api.time.time()) + 60,
+    }, key)
+
+    response = asyncio.run(api.resolve_execution_context(
+        api.ExecutionContextRequest(ctx=token, tool="kali_shell")
+    ))
+
+    assert isinstance(response, JSONResponse)
+    assert response.status_code == 503
+    assert not (external / "tool-outputs").exists()
 
 
 def test_scoped_shell_context_rejects_expired_and_unsafe_project_claims(monkeypatch):

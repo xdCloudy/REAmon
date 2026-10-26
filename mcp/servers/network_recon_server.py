@@ -499,9 +499,10 @@ def kali_shell(command: str, _redamon_ctx: str = "") -> str:
     Runs as an unprivileged child in the Kali Linux environment with the
     installed tools available. The controller verifies the signed project
     context and runs the command in a private mount namespace with that
-    project's workspace as /workspace. /tmp is project-scoped scratch shared
-    by that project's commands; keep generated files in /workspace or use the
-    generated-file download flow. Other temporary paths are private to each run.
+    project's workspace as /workspace. The project root is read-only; /tmp is
+    project-scoped scratch shared by that project's commands. Generate files
+    under /tmp to make them available through the project download flow. Other
+    temporary paths are private to each run.
 
     Args:
         command: The full shell command to execute (run via bash -c)
@@ -559,8 +560,8 @@ def execute_code(
     Eliminates shell escaping issues by receiving code as a clean string parameter,
     writing it to a unique temporary file, and executing the file as an
     unprivileged user. Use this instead of kali_shell for multi-line scripts.
-    /tmp is project-scoped scratch shared by that project's commands; preserve
-    generated files in /workspace or through the generated-file download flow.
+    /tmp is project-scoped scratch shared by that project's commands; generate
+    persistent files there to make them available through the download flow.
 
     Args:
         code: The source code to execute. Multi-line code with proper indentation
@@ -625,10 +626,10 @@ def execute_code(
     except (PermissionError, ValueError) as e:
         return f"[ERROR] Scoped code authorization failed: {e}"
 
-    binary_path = os.path.join(workspace_root, unique_name)
+    binary_path = os.path.join(workspace_root, ".reamon-tmp", unique_name)
     filepath = None
     sandbox_filepath = None
-    sandbox_binary_path = f"/workspace/{unique_name}"
+    sandbox_binary_path = f"/workspace/.reamon-tmp/{unique_name}"
 
     # Write the source directly instead of interpolating it into a shell
     # heredoc. The file is readable by the unprivileged runner; its random path

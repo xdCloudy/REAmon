@@ -6425,12 +6425,41 @@ async def resolve_execution_context(body: ExecutionContextRequest):
     if isinstance(expiry, bool) or not isinstance(expiry, int) or expiry <= now or expiry > now + 330:
         return JSONResponse(status_code=401, content={"error": "expired execution context"})
     # The Kali controller mounts this same volume. Ensure a newly created
-    # project has a root directory and that the unprivileged namespace user can
-    # write command output back into that project.
+    # project has a root directory. Keep that root read-only to the sandbox
+    # identity; grant write access only to its scratch and output directories.
     try:
         import workspace_fs
-        project_root = workspace_fs._workspace_root_for(project_id)
-        os.chmod(project_root, 0o777)
+        workspace_root = os.path.realpath(workspace_fs.WORKSPACE_ROOT)
+        project_root = os.path.join(workspace_root, project_id)
+        if os.path.islink(project_root):
+            raise ValueError("project workspace must not be a symlink")
+        workspace_fs._workspace_root_for(project_id)
+        if os.path.realpath(project_root) != project_root:
+            raise ValueError("project workspace escaped its root")
+        project_fd = os.open(
+            project_root,
+            os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0),
+        )
+        try:
+            os.fchmod(project_fd, 0o755)
+        finally:
+            os.close(project_fd)
+
+        for directory, mode in ((".reamon-tmp", 0o700), ("tool-outputs", 0o777)):
+            path = os.path.join(project_root, directory)
+            try:
+                os.mkdir(path, mode)
+            except FileExistsError:
+                pass
+            descriptor = os.open(
+                path,
+                os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0),
+            )
+            try:
+                os.fchown(descriptor, 65534, 65534)
+                os.fchmod(descriptor, mode)
+            finally:
+                os.close(descriptor)
     except Exception:  # noqa: BLE001
         logger.exception("Could not prepare project workspace for scoped Kali shell")
         return JSONResponse(status_code=503, content={"error": "project workspace unavailable"})

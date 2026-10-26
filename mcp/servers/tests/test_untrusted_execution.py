@@ -121,6 +121,32 @@ class TestUntrustedExecution(unittest.TestCase):
             self.assertFalse(os.path.exists(source_path))
         os.rmdir(workspace)
 
+    def test_compiled_output_is_written_inside_project_scratch(self):
+        workspace = tempfile.mkdtemp(prefix="reamon-compiled-test-")
+        os.chmod(workspace, 0o755)
+        calls = []
+
+        def popen(*args, **kwargs):
+            calls.append(args[0])
+            return _FakeChild("compiled output", "")
+
+        with mock.patch.object(recon, "_resolve_execution_project", return_value="project-123"), \
+                mock.patch.object(recon, "_execution_workspace_root", return_value=workspace), \
+                mock.patch.object(recon.subprocess, "Popen", side_effect=popen), \
+                mock.patch.object(recon.os, "killpg"):
+            result = recon.execute_code(
+                "int main(void) { return 0; }", language="c", _redamon_ctx="signed",
+            )
+
+        self.assertEqual(result, "compiled output")
+        self.assertEqual(len(calls), 2)
+        self.assertTrue(any(
+            "-o" in argv and argv[argv.index("-o") + 1].startswith("/workspace/.reamon-tmp/")
+            for argv in calls
+        ))
+        self.assertTrue(any(arg.startswith("/workspace/.reamon-tmp/") for arg in calls[-1]))
+        shutil.rmtree(workspace)
+
     def test_untrusted_child_caps_stdout_and_stderr(self):
         child = _FakeChild("x" * (recon._UNTRUSTED_OUTPUT_LIMIT_BYTES + 10), "y")
         with mock.patch.object(recon.subprocess, "Popen", return_value=child), \

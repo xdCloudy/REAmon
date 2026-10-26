@@ -14,7 +14,9 @@ user, mount, and PID namespaces with only that project's workspace. `/tmp` is
 bound to a per-project `.reamon-tmp` directory so generated-file handoff can
 continue between commands in one project without exposing another project's
 scratch files. Other temporary paths (`/var/tmp`, `/dev/shm`, and `/opt/output`)
-are private tmpfs mounts for each run.
+are private tmpfs mounts for each run. The project root is read-only to the
+untrusted UID; only `.reamon-tmp` and `tool-outputs` are writable, with ownership
+and symlink checks performed by the trusted agent before execution.
 
 The container also mounts the complete `agentic/agent-workspace` at `/workspace`.
 Project ownership is enforced by the webapp and agent workspace APIs; the four
@@ -146,16 +148,23 @@ project-only `/workspace` plus a PID namespace. `/tmp` maps to project scratch
 at `.reamon-tmp`, allowing generated files to survive across commands in the
 same project; files older than 24 hours are pruned when a scoped run starts.
 `/var/tmp`, `/dev/shm`, and `/opt/output` are per-run private tmpfs mounts.
+The selected project root is mode 0755, while the trusted agent prepares
+`.reamon-tmp` as mode 0700 and `tool-outputs` as mode 0777 for the mapped
+unprivileged UID. The agent rejects a symlinked project root or output
+directory. Compiled C/C++ binaries are written under project scratch so the
+child does not need write access to the project root.
 `execute_code` stages its unique source and compiled binary in the active
 project, then removes both after execution. `proxy_brain` stages its Python source
 in that project and cleans it after the namespaced run; its signed traffic SDK
-context remains available to the broker. Generated `/tmp` outputs are copied to
-the project's `tool-outputs` directory and removed from scratch after a
-successful transfer. Focused Docker suites passed 45 MCP execution, capture,
-and Playwright tests plus 5 subtests, and 13 agent identity and generated-file
-tests. Live Kali smokes confirmed sibling workspace, temporary files, and
-processes are invisible; shell, Python, compiled C, proxy_brain, and Playwright
-scripts ran and cleaned up their source or binary files.
+context remains available to the broker. Generated `/tmp` outputs are
+canonicalized under project scratch, then moved within the project mount to
+`tool-outputs`, avoiding a second full-size copy. The operation rejects
+escaping paths and symbolic-link outputs. Focused Docker suites passed 46 MCP
+execution, capture, and Playwright tests plus 5 subtests, and 15 agent identity
+and generated-file tests. Live Kali smokes confirmed the project root is
+read-only to the sandbox while scratch and `tool-outputs` are writable;
+generated-file transfer and compiled C output work, and sibling workspace,
+scratch files, and processes remain invisible.
 The running agent has not been rebuilt against this source. The live image lacks
 Chromium at `/ms-playwright`, so an actual browser launch remains unverified.
 The global broker ownership model remains open, so the shared-container finding

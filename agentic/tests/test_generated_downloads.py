@@ -40,11 +40,13 @@ class GeneratedDownloadStorageTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIn("payload_touch-owned", stored["filepath"])
                 self.assertNotIn("/tmp/", stored["filepath"])
                 command = executor.execute.await_args.args[1]["command"]
-                self.assertIn("'/tmp/payload;touch-owned'", command)
+                self.assertIn("'/workspace/.reamon-tmp/payload;touch-owned'", command)
                 self.assertIn("/workspace/tool-outputs", command)
                 self.assertNotIn(str(Path(temp_dir) / "project-1"), command)
-                self.assertIn(" && ", command)
-                self.assertTrue(command.endswith("rm -f -- '/tmp/payload;touch-owned'"))
+                self.assertIn("realpath -e", command)
+                self.assertIn("mv -- \"$source_path\"", command)
+                self.assertNotIn("cp --", command)
+                self.assertNotIn("rm -f --", command)
 
     async def test_rejects_non_tmp_source_and_invalid_project_before_execution(self):
         executor = AsyncMock()
@@ -52,6 +54,8 @@ class GeneratedDownloadStorageTests(unittest.IsolatedAsyncioTestCase):
             await persist_generated_file({"filepath": "/etc/passwd"}, "project-1", executor)
         with self.assertRaises(ValueError):
             await persist_generated_file({"filepath": "/tmp/file"}, "../other", executor)
+        with self.assertRaises(ValueError):
+            await persist_generated_file({"filepath": "/tmp/../../etc/passwd"}, "project-1", executor)
         executor.execute.assert_not_awaited()
 
     async def test_failed_copy_does_not_publish_file_metadata(self):
@@ -59,7 +63,7 @@ class GeneratedDownloadStorageTests(unittest.IsolatedAsyncioTestCase):
             with patch.object(workspace_fs, "WORKSPACE_ROOT", Path(temp_dir)):
                 executor = AsyncMock()
                 executor.execute.return_value = {"success": False, "error": "copy failed"}
-                with self.assertRaisesRegex(RuntimeError, "workspace copy failed"):
+                with self.assertRaisesRegex(RuntimeError, "workspace transfer failed"):
                     await persist_generated_file({"filepath": "/tmp/output.bin"}, "project-1", executor)
 
     async def test_file_ready_event_and_persisted_message_use_project_scoped_path(self):
