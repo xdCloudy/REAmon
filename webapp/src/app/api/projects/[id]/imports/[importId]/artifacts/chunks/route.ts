@@ -118,6 +118,10 @@ export async function PUT(request: Request, { params }: RouteParams) {
     return NextResponse.json({ receivedBytes: result.receivedBytes }, { headers: { 'Cache-Control': 'no-store' } })
   } catch (error) {
     console.error('Failed to receive REAmon artifact chunk:', error)
+    const errorCode = error && typeof error === 'object' && 'code' in error ? error.code : null
+    if (errorCode === 'ENOSPC' || errorCode === 'EDQUOT') {
+      return NextResponse.json({ error: 'Artifact storage is full; free space or increase the available volume capacity, then retry' }, { status: 507, headers: { 'Cache-Control': 'no-store' } })
+    }
     return NextResponse.json({ error: error instanceof Error ? error.message.slice(0, 500) : 'Failed to receive upload chunk' }, { status: 400, headers: { 'Cache-Control': 'no-store' } })
   }
 }

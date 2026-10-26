@@ -91,6 +91,15 @@ describe('PUT /api/projects/[id]/imports/[importId]/artifacts/chunks', () => {
     expect(mocks.receiveArtifactChunk).not.toHaveBeenCalled()
   })
 
+  test('reports exhausted artifact storage as 507 instead of invalid input', async () => {
+    mocks.receiveArtifactChunk.mockRejectedValueOnce(Object.assign(new Error('no space left on device'), { code: 'ENOSPC' }))
+
+    const response = await PUT(request([new Uint8Array([1, 2, 3])]), params())
+
+    expect(response.status).toBe(507)
+    expect(await response.json()).toMatchObject({ error: expect.stringMatching(/storage is full/i) })
+  })
+
   test('does not accept a chunk after an import was cancelled', async () => {
     mocks.workspaceImportFindFirst.mockResolvedValueOnce({
       status: 'CANCELLED', sourceType: 'BROWSER_DIRECTORY',
