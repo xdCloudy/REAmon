@@ -10,6 +10,7 @@ import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
 import { getActiveWorkspaceImportSelection } from '@/lib/reamon/inventory-query'
 import { derivedArtifactRoot, resolveDerivedArtifactPath } from '@/lib/reamon/derived-storage'
 import { CODE_UNIT_OBSERVATION_TYPE, MAINTAINED_SOURCE_OBSERVATION_SOURCE, MAINTAINED_SOURCE_OBSERVATION_TYPE } from '@/lib/reamon/code-units'
+import { getVerifiedCSharpProjectBuildReceipt } from '@/lib/reamon/project-build-receipt'
 
 interface RouteParams { params: Promise<{ id: string }> }
 const MAX_CODE_UNITS = 25_000
@@ -133,6 +134,7 @@ export async function GET(request: Request, { params }: RouteParams) {
       },
     })
     if (!task?.artifactId) return NextResponse.json({ error: 'Completed analysis run not found in the active workspace import.' }, { status: 404 })
+    const csharpBuildReceipt = await getVerifiedCSharpProjectBuildReceipt(projectId, task.id, task.artifactId)
 
     const codeUnits = await prisma.reamonObservation.findMany({
       where: {
@@ -521,7 +523,7 @@ export async function GET(request: Request, { params }: RouteParams) {
       '',
       'decompiled/ contains the analyzer output. maintained/ contains saved edited or AI-assisted copies when available.',
       'The two trees are kept separate; maintained source never overwrites the decompilation.',
-      'See manifest.json for artifact and file hashes, maintained-source receipt verification, matching draft and attempt lineage, validation metadata, missing files, and export status.',
+      'See manifest.json for artifact and file hashes, maintained-source receipt verification, matching draft and attempt lineage, validation metadata, missing files, export status, and any current verified project build evidence.',
       ...(nativeAnnotationsBuffer ? ['A Ghidra source bundle also contains native-annotations.json with accepted evidence tied to the exact input binary hash. It does not authorize address rebasing.'] : []),
       ...(ghidraImporterBuffer ? ['To apply unique native function names, add tools/ to Ghidra Script Manager, run ImportReamonAnnotations.py, and select this bundle root manifest.json. The script verifies the sidecar hash, exact loaded executable SHA-256, and each original function name; it never rebases addresses. Review its reported skips before saving the Ghidra project.'] : []),
       'This bundle does not include build scripts or dependencies. Review and build with the appropriate toolchain before relying on it.',
@@ -546,6 +548,26 @@ export async function GET(request: Request, { params }: RouteParams) {
       draftSearchTruncated,
       skippedFiles,
       sourceBytes: totalSourceBytes,
+      ...(csharpBuildReceipt ? { buildEvidence: {
+        csharpProject: {
+          schema: csharpBuildReceipt.version,
+          validationStatus: csharpBuildReceipt.validationStatus,
+          validationMethod: csharpBuildReceipt.validationMethod,
+          compilerVersion: csharpBuildReceipt.compilerVersion,
+          sourceSetSha256: csharpBuildReceipt.sourceSha256,
+          compiledAssemblySha256: csharpBuildReceipt.compiledSha256,
+          compiledAssemblyIncluded: false,
+          createdAt: csharpBuildReceipt.createdAt,
+          files: [...csharpBuildReceipt.files]
+            .sort((a, b) => a.relativePath < b.relativePath ? -1 : a.relativePath > b.relativePath ? 1 : 0)
+            .map((file) => ({
+              codeUnitId: file.codeUnitId,
+              acceptedReviewId: file.acceptedReviewId,
+              relativePath: file.relativePath,
+              sourceSha256: file.sourceSha256,
+            })),
+        },
+      } } : {}),
       ...(nativeAnnotationsBuffer ? {
         nativeAnnotations: {
           schema: 'reamon.native-annotations.v1',

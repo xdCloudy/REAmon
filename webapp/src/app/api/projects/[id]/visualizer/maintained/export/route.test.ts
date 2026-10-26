@@ -1,3 +1,4 @@
+/** @vitest-environment node */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createHash } from 'node:crypto'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
@@ -6,13 +7,15 @@ import os from 'node:os'
 import path from 'node:path'
 
 const h = vi.hoisted(() => ({
-  user: vi.fn(), access: vi.fn(), selection: vi.fn(), task: vi.fn(), observations: vi.fn(), root: vi.fn(), resolvePath: vi.fn(), maintainedSources: vi.fn(),
+  user: vi.fn(), access: vi.fn(), selection: vi.fn(), task: vi.fn(), observations: vi.fn(), findBuildReceipt: vi.fn(), reviews: vi.fn(), drafts: vi.fn(), root: vi.fn(), resolvePath: vi.fn(), maintainedSources: vi.fn(),
 }))
 
 vi.mock('@/lib/prisma', () => ({ default: {
   task: { findFirst: h.task },
-  reamonObservation: { findMany: h.observations },
+  reamonObservation: { findMany: h.observations, findFirst: h.findBuildReceipt },
   reamonMaintainedSource: { findMany: h.maintainedSources },
+  reamonCodeReview: { findMany: h.reviews },
+  reamonCodeDraft: { findMany: h.drafts },
 } }))
 vi.mock('@/lib/access', () => ({ requireEffectiveUser: h.user, requireProjectAccess: h.access }))
 vi.mock('@/lib/reamon/inventory-query', () => ({ getActiveWorkspaceImportSelection: h.selection }))
@@ -40,6 +43,9 @@ beforeEach(async () => {
     codeUnitId: 'unit-1', artifactId: 'artifact-1', sourceCode: 'package com.example;\npublic class DatabaseMaintained { }\n',
     updatedAt: new Date('2026-10-04T00:00:00.000Z'),
   }])
+  h.findBuildReceipt.mockResolvedValue(null)
+  h.reviews.mockResolvedValue([])
+  h.drafts.mockResolvedValue([])
   testRoot = await mkdtemp(path.join(os.tmpdir(), 'reamon-source-bundle-'))
   h.root.mockReturnValue(testRoot)
   h.resolvePath.mockImplementation((relativePath: string) => path.join(testRoot, relativePath))
@@ -124,5 +130,87 @@ describe('GET /api/projects/[id]/visualizer/maintained/export', () => {
 
     expect(response.status).toBe(404)
     expect(h.observations).not.toHaveBeenCalled()
+  })
+
+  it('exports a currently verified C# build receipt as whitelisted manifest evidence', async () => {
+    const sourceCode = 'namespace Sample; public class Pair { public static int Sum() => 42; }\n'
+    const sourceHash = createHash('sha256').update(sourceCode).digest('hex')
+    const relativePath = 'Core/Pair.cs'
+    const sourceSetHash = createHash('sha256').update(relativePath).update('\0').update(sourceHash).update('\n').digest('hex')
+    h.observations.mockImplementation(async (args: { where: { type?: string } }) => args.where.type === 'maintained_source'
+      ? [{ stableKey: 'unit-1', artifactId: 'artifact-1', updatedAt: new Date('2026-10-04T00:00:00.000Z') }]
+      : [{ id: 'unit-1', stableKey: 'jadx:Pair', artifactId: 'artifact-1', label: 'Pair', attributes: {
+        qualifiedName: 'Pair', language: 'C#', codeArtifactId: 'project-1/artifact-1/task-1/run-1/sources/Core/Pair.cs',
+      } }])
+    h.maintainedSources.mockResolvedValue([{
+      codeUnitId: 'unit-1', artifactId: 'artifact-1', sourceCode, sourceHash,
+      acceptedReviewId: 'review-1', relativePath, symbolIndex: [],
+      updatedAt: new Date('2026-10-04T00:00:00.000Z'),
+    }])
+    h.reviews.mockResolvedValue([{
+      id: 'review-1', artifactId: 'artifact-1', codeUnitId: 'unit-1', reviewerId: 'user-1',
+      decision: 'ACCEPTED', maintainedSourceHash: sourceHash, symbolIndexSnapshot: [],
+      validationStatus: 'PASSED', validationMethod: 'roslyn-parse', createdAt: new Date('2026-10-04T00:00:00.000Z'),
+    }])
+    h.findBuildReceipt.mockResolvedValue({
+      stableKey: `csharp-build:${taskId}:${sourceSetHash}`,
+      attributes: {
+        version: 'reamon-csharp-project-build-v1', taskId, artifactId: 'artifact-1',
+        sourceSha256: sourceSetHash, validationStatus: 'FAILED',
+        validationMethod: 'roslyn-csharp-project-4.11.0-compile', compilerVersion: '4.11.0',
+        validationMessage: 'Do not export diagnostic source context.', compiledSha256: 'b'.repeat(64),
+        createdAt: '2026-10-04T00:00:00.000Z',
+        files: [{ codeUnitId: 'unit-1', acceptedReviewId: 'review-1', relativePath, sourceSha256: sourceHash }],
+      },
+    })
+
+    const response = await GET(new Request(`http://localhost?taskId=${taskId}`), routeParams)
+    const zip = await JSZip.loadAsync(await response.arrayBuffer())
+    const manifest = JSON.parse(await zip.file('manifest.json')!.async('string')) as Record<string, unknown>
+
+    expect(response.status).toBe(200)
+    expect(manifest.buildEvidence).toEqual({ csharpProject: {
+      schema: 'reamon-csharp-project-build-v1',
+      validationStatus: 'FAILED',
+      validationMethod: 'roslyn-csharp-project-4.11.0-compile',
+      compilerVersion: '4.11.0',
+      sourceSetSha256: sourceSetHash,
+      compiledAssemblySha256: 'b'.repeat(64),
+      compiledAssemblyIncluded: false,
+      createdAt: '2026-10-04T00:00:00.000Z',
+      files: [{ codeUnitId: 'unit-1', acceptedReviewId: 'review-1', relativePath, sourceSha256: sourceHash }],
+    } })
+    expect(JSON.stringify(manifest.buildEvidence)).not.toContain('Do not export diagnostic')
+  })
+
+  it('omits a stale C# build receipt when another accepted source is present', async () => {
+    const sourceCode = 'namespace Sample; public class Pair { }\n'
+    const sourceHash = createHash('sha256').update(sourceCode).digest('hex')
+    const relativePath = 'Core/Pair.cs'
+    const sourceSetHash = createHash('sha256').update(relativePath).update('\0').update(sourceHash).update('\n').digest('hex')
+    h.observations.mockImplementation(async (args: { where: { type?: string } }) => args.where.type === 'maintained_source'
+      ? []
+      : [
+        { id: 'unit-1', stableKey: 'pair', artifactId: 'artifact-1', label: 'Pair', attributes: { language: 'C#' } },
+        { id: 'unit-2', stableKey: 'extra', artifactId: 'artifact-1', label: 'Extra', attributes: { language: 'C#' } },
+      ])
+    h.maintainedSources.mockResolvedValue([
+      { codeUnitId: 'unit-1', artifactId: 'artifact-1', sourceCode, sourceHash, acceptedReviewId: 'review-1', relativePath },
+      { codeUnitId: 'unit-2', artifactId: 'artifact-1', sourceCode, sourceHash, acceptedReviewId: 'review-2', relativePath: 'Core/Extra.cs' },
+    ])
+    h.findBuildReceipt.mockResolvedValue({
+      stableKey: `csharp-build:${taskId}:${sourceSetHash}`,
+      attributes: {
+        version: 'reamon-csharp-project-build-v1', taskId, artifactId: 'artifact-1', sourceSha256: sourceSetHash,
+        validationStatus: 'PASSED', files: [{ codeUnitId: 'unit-1', acceptedReviewId: 'review-1', relativePath, sourceSha256: sourceHash }],
+      },
+    })
+
+    const response = await GET(new Request(`http://localhost?taskId=${taskId}`), routeParams)
+    const zip = await JSZip.loadAsync(await response.arrayBuffer())
+    const manifest = JSON.parse(await zip.file('manifest.json')!.async('string')) as Record<string, unknown>
+
+    expect(response.status).toBe(200)
+    expect(manifest).not.toHaveProperty('buildEvidence')
   })
 })

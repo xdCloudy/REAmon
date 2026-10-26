@@ -276,6 +276,68 @@ class ProjectWorkerRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(b"O" + len(b"terminal output").to_bytes(4, "big") + b"terminal output", tunnel_writer.data)
         cleanup.assert_awaited_once_with("ctr-1", "net-1")
 
+    async def _assert_terminal_deadline_cleans_up(self, idle_timeout, session_timeout):
+        identity = {
+            "project_id": "project-1", "user_id": "owner-1",
+            "session_id": "session-1", "graph_ctx": "signed-graph-context",
+        }
+        browser_reader = asyncio.StreamReader()
+        attach_reader = asyncio.StreamReader()
+
+        class Writer:
+            def __init__(self):
+                self.data = bytearray()
+                self.closed = False
+
+            def is_closing(self):
+                return self.closed
+
+            def write(self, data):
+                self.data.extend(data)
+
+            async def drain(self):
+                return None
+
+            def close(self):
+                self.closed = True
+
+            async def wait_closed(self):
+                return None
+
+        tunnel_writer = Writer()
+
+        class AttachWriter:
+            def __init__(self):
+                self.closed = False
+
+            def close(self):
+                self.closed = True
+
+            async def wait_closed(self):
+                return None
+
+        attach_writer = AttachWriter()
+        with (
+            mock.patch.object(worker, "TERMINAL_IDLE_TIMEOUT_SECONDS", idle_timeout),
+            mock.patch.object(worker, "TERMINAL_MAX_SESSION_SECONDS", session_timeout),
+            mock.patch.object(worker.asyncio, "to_thread", return_value=identity),
+            mock.patch.object(worker, "_create_admitted_terminal", return_value=("net-1", "ctr-1")),
+            mock.patch.object(worker, "_open_terminal_attach", return_value=(attach_reader, attach_writer)),
+            mock.patch.object(worker, "_docker_request", return_value=(204, b"")),
+            mock.patch.object(worker, "_remove_worker") as cleanup,
+        ):
+            await worker.serve_terminal("signed-context", 24, 80, browser_reader, tunnel_writer)
+
+        self.assertTrue(tunnel_writer.closed)
+        cleanup.assert_awaited_once_with("ctr-1", "net-1")
+        self.assertTrue(attach_writer.closed)
+
+    async def test_idle_terminal_session_is_closed_and_worker_removed(self):
+        await self._assert_terminal_deadline_cleans_up(idle_timeout=0.01, session_timeout=1)
+
+    async def test_terminal_absolute_lifetime_is_closed_and_worker_removed(self):
+        await self._assert_terminal_deadline_cleans_up(idle_timeout=1, session_timeout=0.01)
+
     async def test_worker_preserves_exit_code_and_separate_streams(self):
         frames = log_frame(1, b"out") + log_frame(2, b"err")
         with mock.patch.object(

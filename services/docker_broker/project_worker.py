@@ -39,6 +39,8 @@ _WORKER_ADMISSION_LOCK = asyncio.Lock()
 WORKER_TOOLS = frozenset({"kali_shell", "execute_code", "execute_playwright", "proxy_brain"})
 TERMINAL_TOOL = "kali_terminal"
 TERMINAL_MAX_FRAME = 1024 * 1024
+TERMINAL_IDLE_TIMEOUT_SECONDS = max(60, min(86_400, int(os.environ.get("REAMON_TERMINAL_IDLE_TIMEOUT_SECONDS", "1800"))))
+TERMINAL_MAX_SESSION_SECONDS = max(300, min(6_900, int(os.environ.get("REAMON_TERMINAL_MAX_SESSION_SECONDS", "6900"))))
 _PROJECT_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,200}$")
 _IMAGE_REF_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,255}$")
 _EGRESS_TOOLS = frozenset({"kali_shell", "execute_playwright", "proxy_brain"})
@@ -544,6 +546,7 @@ async def serve_terminal(ctx: str, rows: int, cols: int, reader, writer) -> None
                 if size > TERMINAL_MAX_FRAME:
                     raise ValueError("terminal frame exceeded size limit")
                 payload = await reader.readexactly(size)
+                activity[0] = asyncio.get_running_loop().time()
                 if kind == b"D":
                     attach_writer.write(payload)
                     await attach_writer.drain()
@@ -563,20 +566,38 @@ async def serve_terminal(ctx: str, rows: int, cols: int, reader, writer) -> None
                 chunk = await attach_reader.read(64 * 1024)
                 if not chunk:
                     return
+                activity[0] = asyncio.get_running_loop().time()
                 writer.write(b"O" + len(chunk).to_bytes(4, "big") + chunk)
                 await writer.drain()
 
         # Set initial dimensions once Docker has started the PTY.
         from urllib.parse import urlencode
         await _docker_request("POST", f"/containers/{container_id}/resize?{urlencode({'h': rows, 'w': cols})}")
+        loop = asyncio.get_running_loop()
+        activity = [loop.time()]
+        session_deadline = activity[0] + TERMINAL_MAX_SESSION_SECONDS
         incoming = asyncio.create_task(input_to_terminal())
         outgoing = asyncio.create_task(terminal_to_output())
         try:
-            done, pending = await asyncio.wait((incoming, outgoing), return_when=asyncio.FIRST_COMPLETED)
-            for task in done:
-                error = task.exception()
-                if error:
-                    raise error
+            while True:
+                now = loop.time()
+                timeout = min(
+                    session_deadline - now,
+                    TERMINAL_IDLE_TIMEOUT_SECONDS - (now - activity[0]),
+                )
+                if timeout <= 0:
+                    raise asyncio.TimeoutError("terminal worker session limit reached")
+                done, pending = await asyncio.wait(
+                    (incoming, outgoing), timeout=timeout, return_when=asyncio.FIRST_COMPLETED,
+                )
+                if not done:
+                    raise asyncio.TimeoutError("terminal worker idle or lifetime limit reached")
+                for task in done:
+                    error = task.exception()
+                    if error:
+                        raise error
+                if incoming in done or outgoing in done:
+                    break
         finally:
             incoming.cancel()
             outgoing.cancel()
@@ -604,6 +625,13 @@ async def serve_terminal(ctx: str, rows: int, cols: int, reader, writer) -> None
         elif network_id:
             try:
                 await _docker_request("DELETE", f"/networks/{network_id}")
+            except Exception:
+                pass
+        close = getattr(writer, "close", None)
+        if not writer.is_closing() and callable(close):
+            close()
+            try:
+                await writer.wait_closed()
             except Exception:
                 pass
 

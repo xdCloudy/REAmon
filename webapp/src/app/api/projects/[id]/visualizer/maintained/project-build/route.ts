@@ -5,6 +5,7 @@ import prisma from '@/lib/prisma'
 import { agentFetch } from '@/lib/agentFetch'
 import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
 import { getActiveWorkspaceImportSelection } from '@/lib/reamon/inventory-query'
+import { getVerifiedCSharpProjectBuildReceipt } from '@/lib/reamon/project-build-receipt'
 import { CODE_UNIT_OBSERVATION_TYPE } from '@/lib/reamon/code-units'
 
 interface RouteParams { params: Promise<{ id: string }> }
@@ -66,90 +67,7 @@ export async function GET(request: Request, { params }: RouteParams) {
     })
     if (!task?.artifactId) return NextResponse.json({ error: 'Completed analysis run was not found in the active workspace import.' }, { status: 404 })
 
-    const stored = await prisma.reamonObservation.findFirst({
-      where: { projectId, taskId: task.id, artifactId: task.artifactId, source: BUILD_SOURCE, type: 'project_build_receipt' },
-      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
-      select: { stableKey: true, attributes: true },
-    })
-    if (!stored) return NextResponse.json({ receipt: null })
-
-    const receipt = plainObject(stored.attributes)
-    if (receipt.version !== 'reamon-csharp-project-build-v1' || receipt.taskId !== task.id
-        || receipt.artifactId !== task.artifactId || !Array.isArray(receipt.files)
-        || receipt.files.length < 1 || receipt.files.length > MAX_BUILD_FILES
-        || !['PASSED', 'FAILED'].includes(String(receipt.validationStatus))
-        || typeof receipt.sourceSha256 !== 'string' || !/^[a-f0-9]{64}$/.test(receipt.sourceSha256)) {
-      return NextResponse.json({ receipt: null })
-    }
-    const receiptFiles = receipt.files.map((item) => plainObject(item))
-    if (receiptFiles.some((file) => typeof file.codeUnitId !== 'string' || typeof file.acceptedReviewId !== 'string'
-        || typeof file.relativePath !== 'string' || !safeRelativePath(file.relativePath)
-        || typeof file.sourceSha256 !== 'string' || !/^[a-f0-9]{64}$/.test(file.sourceSha256))) {
-      return NextResponse.json({ receipt: null })
-    }
-    const receiptUnitIds = receiptFiles.map((file) => file.codeUnitId as string)
-    if (new Set(receiptUnitIds).size !== receiptUnitIds.length
-        || new Set(receiptFiles.map((file) => String(file.relativePath).toLowerCase())).size !== receiptFiles.length) {
-      return NextResponse.json({ receipt: null })
-    }
-
-    const units = await prisma.reamonObservation.findMany({
-      where: { projectId, taskId: task.id, artifactId: task.artifactId, type: CODE_UNIT_OBSERVATION_TYPE },
-      take: MAX_INVENTORY_UNITS + 1,
-      select: { id: true, attributes: true },
-    })
-    if (units.length > MAX_INVENTORY_UNITS) return NextResponse.json({ receipt: null })
-    const csharpUnitIds = units.filter((unit) => csharpLanguage(plainObject(unit.attributes).language)).map((unit) => unit.id)
-    if (!csharpUnitIds.length || receiptUnitIds.some((unitId) => !csharpUnitIds.includes(unitId))) {
-      return NextResponse.json({ receipt: null })
-    }
-    const sources = await prisma.reamonMaintainedSource.findMany({
-      where: { projectId, artifactId: task.artifactId, codeUnitId: { in: csharpUnitIds }, acceptedReviewId: { not: null } },
-      orderBy: [{ relativePath: 'asc' }, { codeUnitId: 'asc' }],
-      take: MAX_BUILD_FILES + 1,
-      select: { codeUnitId: true, sourceCode: true, sourceHash: true, acceptedReviewId: true, relativePath: true },
-    })
-    if (sources.length > MAX_BUILD_FILES || sources.length !== receiptFiles.length) {
-      return NextResponse.json({ receipt: null })
-    }
-    const sourceUnitIds = sources.map((source) => source.codeUnitId)
-    const reviewIds = sources.flatMap((source) => source.acceptedReviewId ? [source.acceptedReviewId] : [])
-    if (new Set(sourceUnitIds).size !== sourceUnitIds.length
-        || sourceUnitIds.some((unitId) => !receiptUnitIds.includes(unitId))) return NextResponse.json({ receipt: null })
-    const reviews = await prisma.reamonCodeReview.findMany({
-      where: { projectId, artifactId: task.artifactId, id: { in: reviewIds }, decision: 'ACCEPTED' },
-      select: { id: true, codeUnitId: true, maintainedSourceHash: true },
-    })
-    const unitsById = new Map(units.map((unit) => [unit.id, unit]))
-    const sourcesById = new Map(sources.map((source) => [source.codeUnitId, source]))
-    const reviewsById = new Map(reviews.map((review) => [review.id, review]))
-    const receiptFilesById = new Map(receiptFiles.map((file) => [file.codeUnitId as string, file]))
-    for (const file of receiptFiles) {
-      const unitId = file.codeUnitId as string
-      const reviewId = file.acceptedReviewId as string
-      const source = sourcesById.get(unitId)
-      const review = reviewsById.get(reviewId)
-      if (!unitsById.has(unitId) || !csharpLanguage(plainObject(unitsById.get(unitId)?.attributes).language)
-          || !source || source.acceptedReviewId !== reviewId || source.relativePath !== file.relativePath
-          || !source.sourceHash || source.sourceHash !== file.sourceSha256 || sha256(source.sourceCode) !== file.sourceSha256
-          || !review || review.codeUnitId !== unitId || review.maintainedSourceHash !== file.sourceSha256) {
-        return NextResponse.json({ receipt: null })
-      }
-    }
-    const currentProjectHash = projectSourceSetHash(sources.map((source) => ({
-      relativePath: source.relativePath,
-      sourceHash: source.sourceHash ?? '',
-    })))
-    const sourceSetMatches = sources.every((source) => {
-      const file = receiptFilesById.get(source.codeUnitId)
-      return !!file && file.acceptedReviewId === source.acceptedReviewId
-        && file.relativePath === source.relativePath && file.sourceSha256 === source.sourceHash
-    })
-    if (!sourceSetMatches || currentProjectHash !== receipt.sourceSha256) return NextResponse.json({ receipt: null })
-    if (stored.stableKey !== `csharp-build:${task.id}:${currentProjectHash}`) {
-      return NextResponse.json({ receipt: null })
-    }
-
+    const receipt = await getVerifiedCSharpProjectBuildReceipt(projectId, task.id, task.artifactId)
     return NextResponse.json({ receipt })
   } catch (error) {
     console.error('C# project build receipt lookup failed:', error)

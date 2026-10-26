@@ -116,7 +116,7 @@ describe('GET /api/projects/[id]/visualizer/maintained/project-build', () => {
     const response = await GET(new Request('http://localhost?taskId=task-1'), params)
 
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ receipt: savedReceipt })
+    expect(await response.json()).toMatchObject({ receipt: savedReceipt })
     expect(h.sources).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ codeUnitId: { in: ['unit-1'] } }) }))
   })
 
