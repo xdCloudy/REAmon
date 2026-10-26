@@ -639,6 +639,8 @@ async def handle_client(client_reader, client_writer):
     (not even a connection)."""
     up_writer = None
     create_count_lock_held = False
+    shared_create_lock = None
+    shared_create_lock_held = False
     try:
         head, request_line, headers = await _read_headers(client_reader)
         if not request_line:
@@ -727,6 +729,11 @@ async def handle_client(client_reader, client_writer):
             # An enabled count cap must not silently disappear during a Docker
             # API outage or a burst of concurrent creates.
             if BROKER_MAX_CONTAINERS > 0:
+                from admission_lock import admission_lock
+
+                shared_create_lock = admission_lock()
+                await shared_create_lock.__aenter__()
+                shared_create_lock_held = True
                 await _CREATE_COUNT_LOCK.acquire()
                 create_count_lock_held = True
                 active = await _count_broker_owned_active()
@@ -786,6 +793,8 @@ async def handle_client(client_reader, client_writer):
     finally:
         if create_count_lock_held:
             _CREATE_COUNT_LOCK.release()
+        if shared_create_lock_held and shared_create_lock is not None:
+            await shared_create_lock.__aexit__(None, None, None)
         for w in (client_writer, up_writer):
             if w is not None:
                 try:

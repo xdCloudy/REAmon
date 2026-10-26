@@ -15,6 +15,14 @@ those running services, so local deployment acceptance remains open.
 
 ## Current deployment update (2026-10-26)
 
+Broker admission now has a source-level cross-process lock backed by a named
+Docker volume. Generic Docker creates and signed project/terminal workers use
+the same POSIX `flock` while checking capacity and creating containers. The
+Compose model validates and the broker image builds, but the active local broker
+was not replaced: Compose could not reconcile a stale network that still has
+webapp and Neo4j endpoints. Multi-process contention and the mounted-volume path
+remain unverified deployment gates.
+
 The active `redamon-kali` service was recreated from the current image. Its
 shared Python environment passes `pip check` with no broken requirements, and
 the active MCP stack imports with `requests` 2.34.2, `urllib3` 2.8.0, and the

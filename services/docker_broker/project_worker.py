@@ -550,39 +550,42 @@ async def _create_admitted_terminal(identity: dict[str, str]) -> tuple[str, str]
     import broker
 
     project_id = identity["project_id"]
-    async with _WORKER_ADMISSION_LOCK:
-        async def create() -> tuple[str, str]:
-            active = await _active_worker_count()
-            project_active = await _active_project_worker_count(project_id)
-            if active is None or project_active is None:
-                raise WorkerAdmissionError(503, "terminal worker capacity is unavailable")
-            if active >= WORKER_MAX_ACTIVE:
-                raise WorkerAdmissionError(429, "worker capacity is full; retry later")
-            if project_active >= WORKER_MAX_ACTIVE_PER_PROJECT:
-                raise WorkerAdmissionError(429, "this project has reached its active worker limit; retry later")
-            network_id = await _create_worker_network(project_id)
-            try:
-                status, _ = await _docker_request("POST", f"/networks/{network_id}/connect", {
-                    "Container": TERMINAL_AGENT_CONTAINER,
-                    "EndpointConfig": {"Aliases": ["agent"]},
-                })
-                if status not in (200, 201):
-                    raise DockerAPIError("could not attach the trusted agent endpoint to terminal network")
-                container_id = await _create_terminal_container(identity, network_id)
-            except Exception:
-                await _docker_request("DELETE", f"/networks/{network_id}")
-                raise
-            return network_id, container_id
+    from admission_lock import admission_lock
 
-        if broker.BROKER_MAX_CONTAINERS <= 0:
-            return await create()
-        async with broker._CREATE_COUNT_LOCK:
-            host_active = await broker._count_broker_owned_active()
-            if host_active < 0:
-                raise WorkerAdmissionError(503, "host container capacity is unavailable")
-            if host_active >= broker.BROKER_MAX_CONTAINERS:
-                raise WorkerAdmissionError(429, "host container capacity is full; retry later")
-            return await create()
+    async with _WORKER_ADMISSION_LOCK:
+        async with admission_lock():
+            async def create() -> tuple[str, str]:
+                active = await _active_worker_count()
+                project_active = await _active_project_worker_count(project_id)
+                if active is None or project_active is None:
+                    raise WorkerAdmissionError(503, "terminal worker capacity is unavailable")
+                if active >= WORKER_MAX_ACTIVE:
+                    raise WorkerAdmissionError(429, "worker capacity is full; retry later")
+                if project_active >= WORKER_MAX_ACTIVE_PER_PROJECT:
+                    raise WorkerAdmissionError(429, "this project has reached its active worker limit; retry later")
+                network_id = await _create_worker_network(project_id)
+                try:
+                    status, _ = await _docker_request("POST", f"/networks/{network_id}/connect", {
+                        "Container": TERMINAL_AGENT_CONTAINER,
+                        "EndpointConfig": {"Aliases": ["agent"]},
+                    })
+                    if status not in (200, 201):
+                        raise DockerAPIError("could not attach the trusted agent endpoint to terminal network")
+                    container_id = await _create_terminal_container(identity, network_id)
+                except Exception:
+                    await _docker_request("DELETE", f"/networks/{network_id}")
+                    raise
+                return network_id, container_id
+
+            if broker.BROKER_MAX_CONTAINERS <= 0:
+                return await create()
+            async with broker._CREATE_COUNT_LOCK:
+                host_active = await broker._count_broker_owned_active()
+                if host_active < 0:
+                    raise WorkerAdmissionError(503, "host container capacity is unavailable")
+                if host_active >= broker.BROKER_MAX_CONTAINERS:
+                    raise WorkerAdmissionError(429, "host container capacity is full; retry later")
+                return await create()
 
 
 async def _open_terminal_attach(container_id: str) -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
@@ -839,16 +842,19 @@ async def _create_admitted_worker(
             raise
         return 200, network_id, container_id, ""
 
+    from admission_lock import admission_lock
+
     async with _WORKER_ADMISSION_LOCK:
-        if broker.BROKER_MAX_CONTAINERS <= 0:
-            return await check_worker_limits()
-        async with broker._CREATE_COUNT_LOCK:
-            host_active = await broker._count_broker_owned_active()
-            if host_active < 0:
-                return 503, None, None, "host container capacity is unavailable; execution denied"
-            if host_active >= broker.BROKER_MAX_CONTAINERS:
-                return 429, None, None, "host container capacity is full; retry later"
-            return await check_worker_limits()
+        async with admission_lock():
+            if broker.BROKER_MAX_CONTAINERS <= 0:
+                return await check_worker_limits()
+            async with broker._CREATE_COUNT_LOCK:
+                host_active = await broker._count_broker_owned_active()
+                if host_active < 0:
+                    return 503, None, None, "host container capacity is unavailable; execution denied"
+                if host_active >= broker.BROKER_MAX_CONTAINERS:
+                    return 429, None, None, "host container capacity is full; retry later"
+                return await check_worker_limits()
 
 
 async def execute(request: Any) -> tuple[int, dict[str, Any]]:

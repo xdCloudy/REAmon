@@ -417,6 +417,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock          # real socket (forward target)
       - reamon_broker_socket:/var/run/broker              # named volume; lives in the Linux VM so the unix socket is shareable on macOS + Linux
+      - reamon_broker_admission:/run/reamon-admission     # shared flock serializes quotas across broker processes
       - /tmp/redamon:/tmp/redamon                           # shared scratch dir (recon output, temp files)
       - ./agentic/agent-workspace:/workspace                # trusted path setup for project worker mounts
     environment:
@@ -2584,6 +2585,8 @@ volumes:
     name: redamon_cypherfix_work
   reamon_broker_socket:  # Holds the REAmon docker-broker filtered socket
     name: reamon_broker_socket
+  reamon_broker_admission:
+    name: reamon_broker_admission
   # HTTP traffic capture (Phase 1): the append-only spool (proxy writes, ingest
   # drains), the content-addressed body store (deduped blobs), and the proxy's
   # restricted mitmproxy CA dir (private key never leaves the proxy, §15.9).
