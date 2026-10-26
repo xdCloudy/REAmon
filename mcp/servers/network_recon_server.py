@@ -33,6 +33,8 @@ import tempfile
 import threading
 import time
 import uuid
+import urllib.error
+import urllib.request
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from _progress_auth import AuthenticatedProgressHandler
 from untrusted_process import (
@@ -488,13 +490,14 @@ def execute_gau(args: str, urlscan_api_key: str = "") -> str:
 
 
 @mcp.tool()
-def kali_shell(command: str) -> str:
+def kali_shell(command: str, _redamon_ctx: str = "") -> str:
     """
     Execute any shell command in the Kali Linux sandbox.
 
     Runs as an unprivileged child in the Kali Linux environment with the
-    installed tools available. Use for commands not exposed as a dedicated
-    MCP tool; project filesystem isolation is still provided by a future worker.
+    installed tools available. The controller verifies the signed project
+    context and runs the command in a private mount namespace with that
+    project's workspace as /workspace and private temporary storage.
 
     Args:
         command: The full shell command to execute (run via bash -c)
@@ -522,7 +525,11 @@ def kali_shell(command: str) -> str:
         - "which sqlmap nikto wfuzz ffuf hydra"
     """
     try:
-        result = _run_untrusted_child(["bash", "-c", command], timeout=300)
+        project_id = _resolve_execution_project(_redamon_ctx, "kali_shell")
+        result = _run_untrusted_child(
+            ["bash", "-c", command], timeout=300,
+            workspace_project_id=project_id,
+        )
         return _format_subprocess_result(
             result,
             tool_name="kali_shell",
@@ -530,8 +537,40 @@ def kali_shell(command: str) -> str:
         )
     except subprocess.TimeoutExpired:
         return "[ERROR] Command timed out after 300 seconds."
+    except PermissionError as e:
+        return f"[ERROR] Scoped shell authorization failed: {e}"
     except Exception as e:
         return f"[ERROR] {str(e)}"
+
+
+def _resolve_execution_project(ctx: str, tool_name: str) -> str:
+    """Ask the agent to verify an opaque context tag and return its project id.
+
+    The Kali service has only the scanner credential. The agent checks the HMAC
+    with its master key and returns the minimum claim needed for the mount; no
+    tenant identity is trusted from tool arguments or decoded in this process.
+    """
+    token = str(ctx or "").strip()
+    scanner_key = os.environ.get("SCANNER_API_KEY", "")
+    if not token or not scanner_key or scanner_key == "changeme":
+        raise PermissionError("missing signed context or scanner credential")
+    payload = json.dumps({"ctx": token, "tool": tool_name}).encode("utf-8")
+    request = urllib.request.Request(
+        os.environ.get("REDAMON_AGENT_URL", "http://agent:8080").rstrip("/")
+        + "/execution/resolve-context",
+        data=payload,
+        headers={"Content-Type": "application/json", "X-Internal-Key": scanner_key},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=5) as response:
+            result = json.loads(response.read(4096).decode("utf-8"))
+    except (urllib.error.URLError, TimeoutError, ValueError) as exc:
+        raise PermissionError("agent context verification unavailable") from exc
+    project_id = result.get("project_id") if isinstance(result, dict) else None
+    if not isinstance(project_id, str) or not project_id:
+        raise PermissionError("agent rejected the execution context")
+    return project_id
 
 
 @mcp.tool()

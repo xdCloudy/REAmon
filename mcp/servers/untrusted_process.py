@@ -6,6 +6,25 @@ import signal
 import subprocess
 import threading
 
+_SCOPED_EXEC_SCRIPT = """\
+set -eu
+mount --make-rprivate /
+mount -t tmpfs -o mode=1777,nosuid,nodev tmpfs /tmp
+mount -t tmpfs -o mode=1777,nosuid,nodev tmpfs /var/tmp
+mount -t tmpfs -o mode=1777,nosuid,nodev tmpfs /opt/output
+project="/workspace/$1"
+[ -d "$project" ] || { echo "Project workspace is unavailable" >&2; exit 1; }
+[ "$(readlink -f -- "$project")" = "$project" ] || {
+    echo "Project workspace must be a real directory" >&2
+    exit 1
+}
+mount --bind "$project" /workspace
+mount -o remount,bind,nodev,nosuid /workspace
+shift
+cd /workspace
+exec "$@"
+"""
+
 UNTRUSTED_EXEC_UID = 65534
 UNTRUSTED_EXEC_GID = 65534
 UNTRUSTED_EXEC_PATH = (
@@ -35,8 +54,23 @@ def untrusted_exec_env() -> dict[str, str]:
 
 def run_untrusted_child(
     argv: list[str], *, timeout: int, env_overrides: dict[str, str] | None = None,
+    workspace_project_id: str | None = None,
 ) -> subprocess.CompletedProcess:
-    """Run as nobody, cap retained output, and terminate the request process group."""
+    """Run as nobody, cap output, and optionally isolate one project workspace."""
+    command = argv
+    if workspace_project_id is not None:
+        project_id = str(workspace_project_id)
+        if (not project_id or len(project_id) > 200
+                or any(char in project_id for char in ("/", "\\", "\x00"))
+                or project_id in (".", "..") or project_id.startswith(".")):
+            raise ValueError("invalid project id for scoped execution")
+        if os.name != "posix":
+            raise RuntimeError("project-scoped execution requires Linux namespaces")
+        command = [
+            "/usr/bin/unshare", "--user", "--map-root-user", "--mount",
+            "/bin/sh", "-c", _SCOPED_EXEC_SCRIPT,
+            "reamon-exec", project_id, *argv,
+        ]
     env = untrusted_exec_env()
     for name, value in (env_overrides or {}).items():
         if name not in UNTRUSTED_ENV_OVERRIDES:
@@ -44,7 +78,7 @@ def run_untrusted_child(
         env[name] = value
 
     child = subprocess.Popen(
-        argv,
+        command,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         env=env,
@@ -99,8 +133,8 @@ def run_untrusted_child(
     if truncated["stderr"]:
         stderr += UNTRUSTED_OUTPUT_TRUNCATION
     if timed_out:
-        raise subprocess.TimeoutExpired(argv, timeout, output=stdout, stderr=stderr)
-    return subprocess.CompletedProcess(argv, child.returncode, stdout, stderr)
+        raise subprocess.TimeoutExpired(command, timeout, output=stdout, stderr=stderr)
+    return subprocess.CompletedProcess(command, child.returncode, stdout, stderr)
 
 
 def _kill_process_group(pid: int) -> None:

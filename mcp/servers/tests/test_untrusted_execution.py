@@ -66,12 +66,19 @@ class TestUntrustedExecution(unittest.TestCase):
             "TUNNEL_AUTH_TOKEN": "tunnel-secret",
         }, clear=False), mock.patch.object(
             recon.subprocess, "Popen", side_effect=popen
-        ) as run, mock.patch.object(recon.os, "killpg"):
-            result = recon.kali_shell("id")
+        ) as run, mock.patch.object(recon.os, "killpg"), mock.patch.object(
+            recon, "_resolve_execution_project", return_value="project-123"
+        ) as resolve_scope:
+            result = recon.kali_shell("id", "signed-context")
 
         self.assertIn("uid=65534", result)
         self.assert_untrusted_child(run.call_args)
-        self.assertEqual(run.call_args.args[0], ["bash", "-c", "id"])
+        self.assertEqual(run.call_args.args[0][0:5], [
+            "/usr/bin/unshare", "--user", "--map-root-user", "--mount", "/bin/sh"
+        ])
+        self.assertIn("project-123", run.call_args.args[0])
+        self.assertIn("bash", run.call_args.args[0])
+        resolve_scope.assert_called_once_with("signed-context", "kali_shell")
 
     def test_execute_code_uses_unique_readable_file_and_cleans_it_up(self):
         code = "print('before')\nREDAMON_CODE_EOF\nprint('after')"
@@ -134,6 +141,16 @@ class TestUntrustedExecution(unittest.TestCase):
                 ["python3", "script.py"], timeout=10,
                 env_overrides={"INTERNAL_API_KEY": "master-secret"},
             )
+
+    def test_project_scoped_execution_rejects_unsafe_project_ids(self):
+        for project_id in ("../other", "..", ".hidden", "a/b", "a\\b"):
+            with self.subTest(project_id=project_id), self.assertRaisesRegex(
+                ValueError, "invalid project id"
+            ):
+                recon._run_untrusted_child(
+                    ["bash", "-c", "id"], timeout=1,
+                    workspace_project_id=project_id,
+                )
 
     def test_untrusted_child_kills_process_group_after_timeout(self):
         child = _FakeChild("partial", "")

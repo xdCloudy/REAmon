@@ -47,6 +47,58 @@ def test_terminal_graph_context_rejects_tampering_and_wrong_tool(monkeypatch):
     assert api._verify_terminal_graph_ctx(token) is None
 
 
+def test_scoped_shell_context_resolves_only_verified_project(monkeypatch, tmp_path):
+    import api
+    import workspace_fs
+    from fastapi.responses import JSONResponse
+    from redamon_ctx import sign_tag
+
+    key = "execution-test-signing-key"
+    monkeypatch.setenv("INTERNAL_API_KEY", key)
+    monkeypatch.setenv("SCANNER_API_KEY", "execution-scanner-key")
+    monkeypatch.setattr(workspace_fs, "WORKSPACE_ROOT", tmp_path)
+    token = sign_tag({
+        "source": "agent", "user_id": "owner-1", "project_id": "project-1",
+        "tool": "kali_shell", "phase": "informational",
+        "exp": int(api.time.time()) + 60,
+    }, key)
+    response = asyncio.run(api.resolve_execution_context(
+        api.ExecutionContextRequest(ctx=token, tool="kali_shell")
+    ))
+    assert response == {"project_id": "project-1"}
+    assert (tmp_path / "project-1").stat().st_mode & 0o777 == 0o777
+
+    wrong_tool = asyncio.run(api.resolve_execution_context(
+        api.ExecutionContextRequest(ctx=token, tool="execute_code")
+    ))
+    assert isinstance(wrong_tool, JSONResponse)
+    assert wrong_tool.status_code == 403
+
+
+def test_scoped_shell_context_rejects_expired_and_unsafe_project_claims(monkeypatch):
+    import api
+    from fastapi.responses import JSONResponse
+    from redamon_ctx import sign_tag
+
+    key = "execution-test-signing-key"
+    monkeypatch.setenv("INTERNAL_API_KEY", key)
+    monkeypatch.setenv("SCANNER_API_KEY", "execution-scanner-key")
+    cases = (
+        ("project-1", int(api.time.time()) - 1),
+        ("../outside", int(api.time.time()) + 60),
+    )
+    for project_id, expiry in cases:
+        token = sign_tag({
+            "source": "agent", "user_id": "owner-1", "project_id": project_id,
+            "tool": "kali_shell", "phase": "informational", "exp": expiry,
+        }, key)
+        response = asyncio.run(api.resolve_execution_context(
+            api.ExecutionContextRequest(ctx=token, tool="kali_shell")
+        ))
+        assert isinstance(response, JSONResponse)
+        assert response.status_code == 401
+
+
 def test_terminal_graph_exec_uses_signed_tenant_not_body_identity(monkeypatch):
     import api
     from fastapi.responses import JSONResponse

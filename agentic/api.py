@@ -6385,6 +6385,58 @@ class TerminalGraphQueryRequest(BaseModel):
     question: str = Field(min_length=1, max_length=4000)
 
 
+class ExecutionContextRequest(BaseModel):
+    """Opaque signed context presented by a trusted Kali MCP controller."""
+    ctx: str = Field(min_length=1, max_length=4096)
+    tool: str = Field(min_length=1, max_length=64)
+
+
+@app.post(
+    "/execution/resolve-context",
+    tags=["Execution"],
+    dependencies=[Depends(require_internal_auth_only)],
+)
+async def resolve_execution_context(body: ExecutionContextRequest):
+    """Verify a short-lived agent tag and reveal only its project mount scope."""
+    if body.tool != "kali_shell":
+        return JSONResponse(status_code=403, content={"error": "unsupported execution tool"})
+    key = os.environ.get("INTERNAL_API_KEY", "")
+    scanner_key = os.environ.get("SCANNER_API_KEY", "")
+    if not key or key == "changeme" or (scanner_key and key == scanner_key):
+        return JSONResponse(status_code=503, content={"error": "execution scope verification unavailable"})
+    try:
+        from redamon_ctx import verify_tag
+        claims = verify_tag(body.ctx, {"agent": key})
+    except Exception:  # noqa: BLE001
+        claims = None
+    if not isinstance(claims, dict) or claims.get("source") != "agent":
+        return JSONResponse(status_code=401, content={"error": "invalid execution context"})
+    if claims.get("tool") != body.tool:
+        return JSONResponse(status_code=403, content={"error": "context tool mismatch"})
+    project_id = claims.get("project_id")
+    user_id = claims.get("user_id")
+    if (not isinstance(project_id, str) or not project_id or len(project_id) > 200
+            or any(char in project_id for char in ("/", "\\", "\x00"))
+            or project_id in (".", "..") or project_id.startswith(".")
+            or not isinstance(user_id, str) or not user_id or len(user_id) > 200):
+        return JSONResponse(status_code=401, content={"error": "invalid execution scope"})
+    expiry = claims.get("exp")
+    now = int(time.time())
+    if isinstance(expiry, bool) or not isinstance(expiry, int) or expiry <= now or expiry > now + 330:
+        return JSONResponse(status_code=401, content={"error": "expired execution context"})
+    # The Kali controller mounts this same volume. Ensure a newly created
+    # project has a root directory and that the unprivileged namespace user can
+    # write command output back into that project.
+    try:
+        import workspace_fs
+        project_root = workspace_fs._workspace_root_for(project_id)
+        os.chmod(project_root, 0o777)
+    except Exception:  # noqa: BLE001
+        logger.exception("Could not prepare project workspace for scoped Kali shell")
+        return JSONResponse(status_code=503, content={"error": "project workspace unavailable"})
+    return {"project_id": project_id}
+
+
 def _verify_terminal_graph_ctx(ctx: str) -> Optional[dict]:
     """Accept only short-lived graph scope minted for a verified terminal ticket."""
     if not isinstance(ctx, str) or len(ctx) > 4096:

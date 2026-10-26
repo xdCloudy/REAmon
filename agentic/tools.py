@@ -2397,6 +2397,18 @@ class PhaseAwareToolExecutor:
             if _redamon_ctx:
                 tool_args = {**tool_args, "_redamon_ctx": _redamon_ctx}
 
+        # kali_shell runs arbitrary commands, so its tenant scope is mandatory
+        # even when HTTP capture is disabled. The Kali controller verifies this
+        # short-lived tag with the agent before starting a project-scoped shell.
+        if tool_name == "kali_shell":
+            _shell_ctx = self._build_redamon_ctx("kali_shell")
+            if not _shell_ctx:
+                return {
+                    "success": False, "output": None,
+                    "error": "kali_shell: no tenant context — cannot start a scoped shell.",
+                }
+            tool_args = {**tool_args, "_redamon_ctx": _shell_ctx}
+
         # Opt-in authenticated identity for execute_curl. Injected here so the raw
         # session value never reaches the LLM (mirrors the ctx tag), and only for
         # an in-scope host so a curl the model points off-target cannot leak it.
