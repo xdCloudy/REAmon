@@ -46,7 +46,7 @@ from execution_scope import (
 )
 from project_worker_client import (
     prepare_project_worker_paths as _prepare_project_worker_paths,
-    run_project_worker as _run_project_worker,
+    run_project_worker_async as _run_project_worker_async,
 )
 
 # Strip ANSI escape codes (terminal colors) from output
@@ -506,7 +506,7 @@ def execute_gau(args: str, urlscan_api_key: str = "") -> str:
 
 
 @mcp.tool()
-def kali_shell(command: str, _redamon_ctx: str = "") -> str:
+async def kali_shell(command: str, _redamon_ctx: str = "") -> str:
     """
     Execute any shell command in the Kali Linux sandbox.
 
@@ -547,7 +547,7 @@ def kali_shell(command: str, _redamon_ctx: str = "") -> str:
         project_id = _resolve_execution_project(_redamon_ctx, "kali_shell")
         workspace_root = _execution_workspace_root(project_id)
         _prepare_project_worker_paths(workspace_root)
-        result = _run_project_worker(
+        result = await _run_project_worker_async(
             ["bash", "-c", command], timeout=300,
             ctx=_redamon_ctx, tool_name="kali_shell",
         )
@@ -565,7 +565,7 @@ def kali_shell(command: str, _redamon_ctx: str = "") -> str:
 
 
 @mcp.tool()
-def execute_code(
+async def execute_code(
     code: str, language: str = "python", filename: str = "exploit",
     _redamon_ctx: str = "",
 ) -> str:
@@ -676,21 +676,21 @@ def execute_code(
     try:
         if interpreter:
             # Interpreted language — run directly
-            result = _run_project_worker(
+            result = await _run_project_worker_async(
                 [interpreter, sandbox_filepath], timeout=120,
                 ctx=_redamon_ctx, tool_name="execute_code",
             )
         else:
             # Compiled language — compile first, then execute
             compiler = "gcc" if ext == "c" else "g++"
-            compile_result = _run_project_worker(
+            compile_result = await _run_project_worker_async(
                 [compiler, sandbox_filepath, "-o", sandbox_binary_path], timeout=60,
                 ctx=_redamon_ctx, tool_name="execute_code",
             )
             if compile_result.returncode != 0:
                 return f"[ERROR] Compilation failed:\n{compile_result.stderr}"
 
-            result = _run_project_worker(
+            result = await _run_project_worker_async(
                 [sandbox_binary_path], timeout=120,
                 ctx=_redamon_ctx, tool_name="execute_code",
             )
@@ -719,7 +719,7 @@ def execute_code(
 
 
 @mcp.tool()
-def proxy_brain(code: str, _redamon_ctx: str = "") -> str:
+async def proxy_brain(code: str, _redamon_ctx: str = "") -> str:
     """
     Write and run Python to HUNT and EXPLOIT over the captured HTTP corpus (the
     "Burp history"). ONE tool replacing proxy_search/get/sitemap/params/grep/diff/
@@ -832,7 +832,7 @@ def proxy_brain(code: str, _redamon_ctx: str = "") -> str:
             child_env[env_name] = os.environ[env_name]
 
     try:
-        result = _run_project_worker(
+        result = await _run_project_worker_async(
             ["python3", sandbox_filepath], timeout=180, ctx=_redamon_ctx,
             tool_name="proxy_brain", env=child_env,
         )

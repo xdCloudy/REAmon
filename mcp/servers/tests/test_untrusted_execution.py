@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import asyncio
 import json
 import signal
 import shutil
@@ -41,7 +42,42 @@ import project_worker_client as worker_client  # noqa: E402
 import untrusted_process as exec_utils  # noqa: E402
 
 
-class TestUntrustedExecution(unittest.TestCase):
+class TestUntrustedExecution(unittest.IsolatedAsyncioTestCase):
+    async def test_async_project_worker_disconnects_on_cancellation(self):
+        request_received = asyncio.Event()
+        client_disconnected = asyncio.Event()
+
+        async def handle(reader, writer):
+            try:
+                head = await reader.readuntil(b"\r\n\r\n")
+                headers = {}
+                for line in head.decode("latin1").split("\r\n")[1:]:
+                    if ":" in line:
+                        name, value = line.split(":", 1)
+                        headers[name.lower()] = value.strip()
+                await reader.readexactly(int(headers["content-length"]))
+                request_received.set()
+                await reader.read()
+                client_disconnected.set()
+            finally:
+                writer.close()
+                await writer.wait_closed()
+
+        server = await asyncio.start_server(handle, "127.0.0.1", 0)
+        port = server.sockets[0].getsockname()[1]
+        with mock.patch.dict(os.environ, {"SCANNER_API_KEY": "transport-test-key"}), \
+                mock.patch.object(worker_client, "WORKER_URL", f"http://127.0.0.1:{port}/worker/execute"):
+            task = asyncio.create_task(worker_client.run_project_worker_async(
+                ["sleep", "300"], timeout=300, ctx="signed", tool_name="kali_shell",
+            ))
+            await asyncio.wait_for(request_received.wait(), timeout=2)
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+            await asyncio.wait_for(client_disconnected.wait(), timeout=2)
+        server.close()
+        await server.wait_closed()
+
     def test_project_worker_client_uses_transport_auth_and_decodes_bounded_output(self):
         class Response:
             def __enter__(self):
@@ -74,7 +110,7 @@ class TestUntrustedExecution(unittest.TestCase):
         self.assertEqual(request.get_header("X-internal-key"), "scanner-transport-key")
         self.assertEqual(json.loads(request.data)["ctx"], "signed-context")
 
-    def test_kali_shell_uses_verified_project_worker_context(self):
+    async def test_kali_shell_uses_verified_project_worker_context(self):
         completed = recon.subprocess.CompletedProcess([], 0, "uid=65534\n", "")
         with mock.patch.object(
             recon, "_resolve_execution_project", return_value="project-123"
@@ -83,9 +119,9 @@ class TestUntrustedExecution(unittest.TestCase):
         ), mock.patch.object(
             recon, "_prepare_project_worker_paths"
         ) as prepare_paths, mock.patch.object(
-            recon, "_run_project_worker", return_value=completed
+            recon, "_run_project_worker_async", new=mock.AsyncMock(return_value=completed)
         ) as run:
-            result = recon.kali_shell("id", "signed-context")
+            result = await recon.kali_shell("id", "signed-context")
 
         self.assertIn("uid=65534", result)
         prepare_paths.assert_called_once_with("/workspace/project-123")
@@ -95,7 +131,7 @@ class TestUntrustedExecution(unittest.TestCase):
         )
         resolve_scope.assert_called_once_with("signed-context", "kali_shell")
 
-    def test_kali_shell_preserves_partial_output_after_timeout(self):
+    async def test_kali_shell_preserves_partial_output_after_timeout(self):
         timeout = recon.subprocess.TimeoutExpired(
             ["bash", "-c", "long-task"], 300, output="partial stdout", stderr="partial stderr",
         )
@@ -106,14 +142,14 @@ class TestUntrustedExecution(unittest.TestCase):
         ), mock.patch.object(
             recon, "_prepare_project_worker_paths"
         ), mock.patch.object(
-            recon, "_run_project_worker", side_effect=timeout
+            recon, "_run_project_worker_async", new=mock.AsyncMock(side_effect=timeout)
         ):
-            result = recon.kali_shell("long-task", "signed-context")
+            result = await recon.kali_shell("long-task", "signed-context")
         self.assertIn("Command timed out", result)
         self.assertIn("partial stdout", result)
         self.assertIn("partial stderr", result)
 
-    def test_proxy_brain_uses_worker_with_signed_context_and_sdk_environment(self):
+    async def test_proxy_brain_uses_worker_with_signed_context_and_sdk_environment(self):
         workspace = tempfile.mkdtemp(prefix="reamon-proxy-brain-test-")
         os.chmod(workspace, 0o777)
         try:
@@ -122,8 +158,8 @@ class TestUntrustedExecution(unittest.TestCase):
                     mock.patch.object(recon, "_resolve_execution_project", return_value="project-123"), \
                     mock.patch.object(recon, "_execution_workspace_root", return_value=workspace), \
                     mock.patch.object(recon, "_prepare_project_worker_paths") as prepare_paths, \
-                    mock.patch.object(recon, "_run_project_worker", return_value=completed) as run:
-                result = recon.proxy_brain("print('safe')", "signed-proxy-context")
+                    mock.patch.object(recon, "_run_project_worker_async", new=mock.AsyncMock(return_value=completed)) as run:
+                result = await recon.proxy_brain("print('safe')", "signed-proxy-context")
 
             self.assertEqual(result, "finding summary")
             prepare_paths.assert_called_once_with(workspace)
@@ -144,13 +180,13 @@ class TestUntrustedExecution(unittest.TestCase):
         finally:
             shutil.rmtree(workspace, ignore_errors=True)
 
-    def test_execute_code_uses_unique_readable_file_and_cleans_it_up(self):
+    async def test_execute_code_uses_unique_readable_file_and_cleans_it_up(self):
         code = "print('before')\nREDAMON_CODE_EOF\nprint('after')"
         calls = []
         workspace = tempfile.mkdtemp(prefix="reamon-code-test-")
         os.chmod(workspace, 0o777)
 
-        def run(*args, **kwargs):
+        async def run(*args, **kwargs):
             source_arg = next(arg for arg in args[0] if arg.startswith("/workspace/") and arg.endswith(".py"))
             source_path = os.path.join(workspace, os.path.basename(source_arg))
             with open(source_path, encoding="utf-8") as source_file:
@@ -162,9 +198,9 @@ class TestUntrustedExecution(unittest.TestCase):
                 mock.patch.object(recon, "_resolve_execution_project", return_value="project-123"), \
                 mock.patch.object(recon, "_execution_workspace_root", return_value=workspace), \
                 mock.patch.object(recon, "_prepare_project_worker_paths"), \
-                mock.patch.object(recon, "_run_project_worker", side_effect=run) as run_worker:
-            self.assertEqual(recon.execute_code(code, filename="same-name", _redamon_ctx="signed"), "ok")
-            self.assertEqual(recon.execute_code(code, filename="same-name", _redamon_ctx="signed"), "ok")
+                mock.patch.object(recon, "_run_project_worker_async", side_effect=run) as run_worker:
+            self.assertEqual(await recon.execute_code(code, filename="same-name", _redamon_ctx="signed"), "ok")
+            self.assertEqual(await recon.execute_code(code, filename="same-name", _redamon_ctx="signed"), "ok")
 
         self.assertEqual(run_worker.call_count, 2)
         self.assertEqual(len(calls), 2)
@@ -176,20 +212,20 @@ class TestUntrustedExecution(unittest.TestCase):
             self.assertFalse(os.path.exists(source_path))
         os.rmdir(workspace)
 
-    def test_compiled_output_is_written_inside_project_scratch(self):
+    async def test_compiled_output_is_written_inside_project_scratch(self):
         workspace = tempfile.mkdtemp(prefix="reamon-compiled-test-")
         os.chmod(workspace, 0o755)
         calls = []
 
-        def run_worker(argv, **kwargs):
+        async def run_worker(argv, **kwargs):
             calls.append(argv)
             return recon.subprocess.CompletedProcess(argv, 0, "compiled output", "")
 
         with mock.patch.object(recon, "_resolve_execution_project", return_value="project-123"), \
                 mock.patch.object(recon, "_execution_workspace_root", return_value=workspace), \
                 mock.patch.object(recon, "_prepare_project_worker_paths"), \
-                mock.patch.object(recon, "_run_project_worker", side_effect=run_worker):
-            result = recon.execute_code(
+                mock.patch.object(recon, "_run_project_worker_async", side_effect=run_worker):
+            result = await recon.execute_code(
                 "int main(void) { return 0; }", language="c", _redamon_ctx="signed",
             )
 
@@ -281,7 +317,7 @@ class TestUntrustedExecution(unittest.TestCase):
              f"{exec_utils.UNTRUSTED_EXEC_NOFILE_LIMIT})", "(0, 0)"],
         )
 
-    def test_playwright_script_uses_verified_project_workspace(self):
+    async def test_playwright_script_uses_verified_project_workspace(self):
         workspace = tempfile.mkdtemp(prefix="reamon-playwright-test-")
         os.chmod(workspace, 0o777)
         completed = recon.subprocess.CompletedProcess([], 0, "65534\nNone", "")
@@ -293,9 +329,9 @@ class TestUntrustedExecution(unittest.TestCase):
             ), mock.patch.object(
                 playwright, "prepare_project_worker_paths"
             ), mock.patch.object(
-                playwright, "run_project_worker", return_value=completed
+                playwright, "run_project_worker_async", new=mock.AsyncMock(return_value=completed)
             ) as run:
-                result = playwright._run_playwright_script(
+                result = await playwright._run_playwright_script(
                     "import os; print(os.getuid()); print(os.environ.get('INTERNAL_API_KEY'))",
                     timeout=10, ctx_token="signed-context",
                 )
@@ -308,9 +344,9 @@ class TestUntrustedExecution(unittest.TestCase):
         self.assertEqual(run.call_args.kwargs["ctx"], "signed-context")
         self.assertEqual(run.call_args.kwargs["tool_name"], "execute_playwright")
 
-    def test_playwright_script_fails_closed_without_signed_scope(self):
-        with mock.patch.object(playwright, "run_project_worker") as run:
-            result = playwright._run_playwright_script("print('must not run')")
+    async def test_playwright_script_fails_closed_without_signed_scope(self):
+        with mock.patch.object(playwright, "run_project_worker_async") as run:
+            result = await playwright._run_playwright_script("print('must not run')")
 
         self.assertIn("Scoped Playwright authorization failed", result)
         run.assert_not_called()

@@ -86,7 +86,7 @@ class _RunSpy:
         return _FakeResult()
 
 
-class _RoutingTestBase(unittest.TestCase):
+class _RoutingTestBase(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         # Force the proxy "reachable" and pin the URL deterministically.
         self._orig_reachable = capture_routing._reachable
@@ -123,7 +123,7 @@ class _RoutingTestBase(unittest.TestCase):
             self.assertNotEqual(env.get("HTTP_PROXY"), _TEST_URL)
             self.assertNotEqual(env.get("HTTPS_PROXY"), _TEST_URL)
 
-    def test_proxy_brain_child_does_not_receive_scanner_transport_key(self):
+    async def test_proxy_brain_child_does_not_receive_scanner_transport_key(self):
         secret_names = ("SCANNER_API_KEY", "MCP_AUTH_TOKEN", "TUNNEL_AUTH_TOKEN")
         old = {name: os.environ.get(name) for name in secret_names}
         for name in secret_names:
@@ -133,7 +133,7 @@ class _RoutingTestBase(unittest.TestCase):
         os.chmod(workspace, 0o777)
         authored_code = "print('ok')\nREDAMON_PB_EOF\nprint('still source code')"
 
-        def fake_run(cmd, *, timeout, ctx, tool_name, env):
+        async def fake_run(cmd, *, timeout, ctx, tool_name, env):
             calls.append((list(cmd), timeout, ctx, tool_name, env))
             source_path = os.path.join(workspace, os.path.basename(cmd[1]))
             with open(source_path, encoding="utf-8") as source_file:
@@ -146,8 +146,8 @@ class _RoutingTestBase(unittest.TestCase):
             with mock.patch.object(nrs, "_resolve_execution_project", return_value="project-123"), \
                     mock.patch.object(nrs, "_execution_workspace_root", return_value=workspace), \
                     mock.patch.object(nrs, "_prepare_project_worker_paths"), \
-                    mock.patch.object(nrs, "_run_project_worker", side_effect=fake_run):
-                nrs.proxy_brain(authored_code, "signed-short-lived-context")
+                    mock.patch.object(nrs, "_run_project_worker_async", side_effect=fake_run):
+                await nrs.proxy_brain(authored_code, "signed-short-lived-context")
         finally:
             shutil.rmtree(workspace, ignore_errors=True)
             for name, value in old.items():

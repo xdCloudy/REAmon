@@ -48,7 +48,7 @@ _TAG = "eyJhIjoxfQ.c2ln"
 _SELF_CONTAINED = "with sync_playwright() as p:\n    page = p.chromium.launch().new_page()\n    page.goto('http://t/')\n"
 
 
-class _PwBase(unittest.TestCase):
+class _PwBase(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self._orig_reach = capture_routing._reachable
         self._orig_env = os.environ.get("CAPTURE_PROXY_URL")
@@ -113,34 +113,34 @@ class TestCaptureArgsWrappedMode(_PwBase):
 
 
 class TestScriptModeIntegration(_PwBase):
-    def _run_capture(self, script, token):
+    async def _run_capture(self, script, token):
         captured = {}
 
-        def fake_run(final_script, timeout=60, **kwargs):
+        async def fake_run(final_script, timeout=60, **kwargs):
             captured["script"] = final_script
             return "ok"
 
         with mock.patch.object(pw, "_run_playwright_script", fake_run):
-            pw._execute_script_mode(script, ctx_token=token, capture_enabled=True)
+            await pw._execute_script_mode(script, ctx_token=token, capture_enabled=True)
         return captured.get("script", "")
 
-    def test_self_contained_routed_injects_capture_patch(self):
+    async def test_self_contained_routed_injects_capture_patch(self):
         self._reachable(True)
-        final = self._run_capture(_SELF_CONTAINED, _TAG)
+        final = await self._run_capture(_SELF_CONTAINED, _TAG)
         self.assertIn("_pw_orig_launch", final)          # the base _LAUNCH_PATCH
         self.assertIn("X-Redamon-Ctx", final)            # capture patch present
         self.assertIn(_TEST_URL, final)
         self.assertIn(_SELF_CONTAINED.strip(), final)    # user script preserved
 
-    def test_self_contained_direct_no_leak(self):
+    async def test_self_contained_direct_no_leak(self):
         self._reachable(False)  # proxy unreachable -> fail open
-        final = self._run_capture(_SELF_CONTAINED, _TAG)
+        final = await self._run_capture(_SELF_CONTAINED, _TAG)
         self.assertNotIn("X-Redamon-Ctx", final)
         self.assertNotIn(_TEST_URL, final)
 
-    def test_self_contained_no_token_no_leak(self):
+    async def test_self_contained_no_token_no_leak(self):
         self._reachable(True)
-        final = self._run_capture(_SELF_CONTAINED, "")
+        final = await self._run_capture(_SELF_CONTAINED, "")
         self.assertNotIn("X-Redamon-Ctx", final)
 
 

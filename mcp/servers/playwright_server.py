@@ -19,7 +19,7 @@ import os
 # in-process `redamon` SDK cannot drift on the root/Docker flags.
 from browser_launch import BROWSER_ARGS, CHROME_UA
 from execution_scope import resolve_execution_project, execution_workspace_root
-from project_worker_client import prepare_project_worker_paths, run_project_worker
+from project_worker_client import prepare_project_worker_paths, run_project_worker_async
 
 # Strip ANSI escape codes (terminal colors) from output
 ANSI_ESCAPE = re.compile(r'\x1b\[[0-9;]*[a-zA-Z]')
@@ -32,7 +32,7 @@ SERVER_PORT = int(os.getenv("PLAYWRIGHT_PORT", "8005"))
 mcp = FastMCP(SERVER_NAME)
 
 
-def _run_playwright_script(
+async def _run_playwright_script(
     script: str, timeout: int = 45, ctx_token: str = "",
     capture_enabled: bool = False,
 ) -> str:
@@ -51,7 +51,7 @@ def _run_playwright_script(
         os.chmod(script_path, 0o444)
 
         sandbox_script_path = f"/workspace/{os.path.basename(script_path)}"
-        result = run_project_worker(
+        result = await run_project_worker_async(
             ['python3', sandbox_script_path], timeout=timeout,
             ctx=ctx_token, tool_name="execute_playwright",
         )
@@ -86,7 +86,7 @@ def _run_playwright_script(
 
 
 @mcp.tool()
-def execute_playwright(
+async def execute_playwright(
     url: str = "", script: str = "", selector: str = "", format: str = "text",
     _redamon_ctx: str = "", _capture_enabled: bool = False,
 ) -> str:
@@ -126,9 +126,9 @@ def execute_playwright(
         - script="page.goto('http://10.0.0.5/search')\\npage.fill('input[name=q]', '<script>alert(1)</script>')\\npage.click('button[type=submit]')\\npage.wait_for_load_state('networkidle')\\nprint(page.content()[:5000])"
     """
     if script.strip():
-        return _execute_script_mode(script, _redamon_ctx, _capture_enabled)
+        return await _execute_script_mode(script, _redamon_ctx, _capture_enabled)
     elif url.strip():
-        return _execute_content_mode(url, selector, format, _redamon_ctx, _capture_enabled)
+        return await _execute_content_mode(url, selector, format, _redamon_ctx, _capture_enabled)
     else:
         return "[ERROR] Provide either 'url' (content extraction) or 'script' (custom automation)."
 
@@ -199,7 +199,7 @@ def _capture_launch_patch(ctx_token: str, capture_enabled: bool = False) -> str:
     """)
 
 
-def _execute_content_mode(
+async def _execute_content_mode(
     url: str, selector: str, format: str, ctx_token: str = "",
     capture_enabled: bool = False,
 ) -> str:
@@ -263,7 +263,7 @@ def _execute_content_mode(
                 browser.close()
     """)
 
-    return _run_playwright_script(
+    return await _run_playwright_script(
         script, timeout=45, ctx_token=ctx_token, capture_enabled=capture_enabled,
     )
 
@@ -303,7 +303,7 @@ _LAUNCH_PATCH = textwrap.dedent(f"""\
 """)
 
 
-def _execute_script_mode(
+async def _execute_script_mode(
     user_script: str, ctx_token: str = "", capture_enabled: bool = False,
 ) -> str:
     """Mode 2: Run arbitrary Playwright Python script with pre-initialized browser."""
@@ -324,7 +324,7 @@ def _execute_script_mode(
     # and (when capture is on) force the proxy + X-Redamon-Ctx via _capture_launch_patch
     # so self-contained scripts are captured like the wrapped path.
     if _SELF_CONTAINED_RE.search(user_script):
-        return _run_playwright_script(
+        return await _run_playwright_script(
             _LAUNCH_PATCH + _capture_launch_patch(ctx_token, capture_enabled) + user_script,
             timeout=60, ctx_token=ctx_token, capture_enabled=capture_enabled,
         )
@@ -356,7 +356,7 @@ def _execute_script_mode(
     ])
     wrapper = "\n".join(lines) + "\n"
 
-    return _run_playwright_script(
+    return await _run_playwright_script(
         wrapper, timeout=60, ctx_token=ctx_token, capture_enabled=capture_enabled,
     )
 
