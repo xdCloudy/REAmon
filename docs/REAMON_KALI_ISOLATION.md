@@ -8,11 +8,11 @@ The legacy Kali deployment is one shared `redamon-kali` container whose MCP
 controller still runs as root. The `kali_shell`, `execute_code`, `proxy_brain`,
 and custom Playwright handlers run model-authored commands as UID/GID 65534 with
 a small environment that omits MCP, scanner, tunnel, database, and agent
-credentials. `kali_shell` receives a short-lived signed project tag, asks the
-agent to verify it, and enters a private user and mount namespace with only
-that project's workspace and private `/tmp`, `/var/tmp`, and `/opt/output`. `execute_code`,
-`proxy_brain`, and custom Playwright still use the shared Kali filesystem and
-have no equivalent project boundary.
+credentials. `kali_shell`, `execute_code`, and `proxy_brain` receive a short-lived signed
+project tag, ask the agent to verify it, and enter a private user and mount
+namespace with only that project's workspace and private `/tmp`, `/var/tmp`,
+and `/opt/output`. Custom Playwright still uses the shared Kali filesystem and has no equivalent
+project boundary.
 
 The container also mounts the complete `agentic/agent-workspace` at `/workspace`.
 Project ownership is enforced by the webapp and agent workspace APIs, but those
@@ -22,17 +22,17 @@ container, so filesystem permissions do not restore the project boundary for
 the still-unscoped execution tools.
 
 As a result, the existing project-scoped download route protects browser
-access and `kali_shell` has a narrower source-level boundary, but arbitrary
-Kali execution as a whole is not isolated. `execute_code`, `proxy_brain`, and
-custom Playwright children still share `/tmp` and can read the complete mounted
-workspace; other MCP server processes also retain the service environment.
+access; `kali_shell` and `execute_code` now have narrower source-level
+boundaries, but arbitrary Kali execution as a whole is not isolated.
+Custom Playwright children still share `/tmp` and can read the complete mounted
+workspace; other MCP server processes also retain the
+service environment.
 This remains a source-level finding; it is not a claim that any particular
 deployment has been exploited.
 
 The unused agent `/files?path=/tmp/...` endpoint has been removed; current browser
-downloads use the project-authorized workspace endpoint. `kali_shell` now has
-private temporary storage; `execute_code`, `proxy_brain`, and custom Playwright
-can still read other projects' temporary files.
+downloads use the project-authorized workspace endpoint. `kali_shell`, `execute_code`, and `proxy_brain` now have private temporary
+storage; custom Playwright can still read other projects' temporary files.
 
 The focused agent Docker regression verifies the unscoped route stays absent and
 the workspace download route remains protected by master-key authentication (2
@@ -48,14 +48,14 @@ or context.
 
 The agent signs a project context tag from its `user_id`, `project_id`, session,
 tool, and phase context. The MCP server receives that tag unconditionally for
-`proxy_brain` and `kali_shell`, and for selected target-facing tools when
-capture routing is enabled. `execute_code` does not receive it;
-`execute_playwright` receives it only when capture routing is enabled.
-`proxy_brain` uses its tag for traffic broker requests. The new
-`/execution/resolve-context` route accepts the scanner service credential,
-verifies the signed tag with the agent master key, requires an exact `kali_shell`
-tool match, checks expiry and project ID shape, and returns only the project ID.
-The shared MCP bearer token is not treated as project identity.
+`proxy_brain`, `kali_shell`, and `execute_code`, and for selected target-facing
+tools when capture routing is enabled. `execute_playwright` receives it only
+when capture routing is enabled. `proxy_brain` uses its tag for traffic broker
+requests. The new `/execution/resolve-context` route accepts the scanner service
+credential, verifies the signed tag with the agent master key, requires an exact
+`kali_shell`, `execute_code`, or `proxy_brain` tool match, checks expiry and project ID shape,
+and returns only the project ID. The shared MCP bearer token is not treated as
+project identity.
 
 The context tag is signed with the agent's internal key, which is deliberately
 absent from the shared Kali container. A future controller can forward the
@@ -136,23 +136,26 @@ a read/write `/workspace` bind mount. The `reamon-webapp:latest` image had no
 `org.opencontainers.image.revision` label, so the deployed source revision could
 not be confirmed.
 
-On 2026-10-26, `kali_shell` became the first non-terminal execution path with a
-verified project scope. The trusted executor injects the signed tag; the agent
-verifies it through `/execution/resolve-context`; and the runner enters a
-user/mount namespace with project-only `/workspace` and private `/tmp`,
-`/var/tmp`, and `/opt/output`. Focused Docker suites passed 8 MCP execution tests and 9 agent
-identity tests (including subtests). A smoke in the running Kali container
-confirmed a sibling project and shared temporary marker are invisible. This is
-an interim source change; the running agent has not been rebuilt against it.
-`execute_code`, `proxy_brain`, Playwright, and the global broker ownership model
-remain open, so the shared-container finding is not closed.
+On 2026-10-26, `kali_shell`, `execute_code`, and `proxy_brain` gained verified project scope.
+The trusted executor injects a signed tag; the agent verifies it through
+`/execution/resolve-context`; and each run uses a user/mount namespace with
+project-only `/workspace` and private `/tmp`, `/var/tmp`, and `/opt/output`.
+`execute_code` stages its unique source and compiled binary in the active
+project, then removes both after execution. `proxy_brain` stages its Python source
+in that project and cleans it after the namespaced run; its signed traffic SDK
+context remains available to the broker. Focused Docker suites passed 8 MCP
+execution tests and 9 agent identity tests (including subtests). Live Kali
+smokes confirmed sibling workspace and shared temporary markers are invisible;
+Python and compiled C code both ran and left no source/binary files behind.
+The running agent has not been rebuilt against this source. custom Playwright and the global broker ownership model remain open, so the
+shared-container finding is not closed.
 
 ## Decision
 
 Run every arbitrary-code surface in a project-scoped sandbox worker with its own
-filesystem, process namespace, and temporary directory. The `kali_shell` and
-terminal namespaces are interim boundaries; other arbitrary-code surfaces
-still need this worker architecture. The shared MCP service
+filesystem, process namespace, and temporary directory. The `kali_shell`, `execute_code`, `proxy_brain`,
+and terminal namespaces are interim boundaries; custom Playwright still needs
+this worker architecture. The shared MCP service
 will remain a controller: it will authenticate the agent, verify the signed
 project scope, route work to the matching worker, and publish selected artifacts
 through a project-authorized transfer path.

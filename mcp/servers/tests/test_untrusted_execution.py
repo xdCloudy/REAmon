@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import signal
 import sys
+import tempfile
 import types
 import unittest
 from io import BytesIO
@@ -83,32 +84,40 @@ class TestUntrustedExecution(unittest.TestCase):
     def test_execute_code_uses_unique_readable_file_and_cleans_it_up(self):
         code = "print('before')\nREDAMON_CODE_EOF\nprint('after')"
         calls = []
+        workspace = tempfile.mkdtemp(prefix="reamon-code-test-")
+        os.chmod(workspace, 0o777)
 
         def run(*args, **kwargs):
-            source_path = args[0][1]
+            source_arg = next(arg for arg in args[0] if arg.startswith("/workspace/") and arg.endswith(".py"))
+            source_path = os.path.join(workspace, os.path.basename(source_arg))
             with open(source_path, encoding="utf-8") as source_file:
                 self.assertEqual(source_file.read(), code + "\n")
             calls.append((args, kwargs, source_path))
             return recon.subprocess.CompletedProcess(args[0], 0, "ok", "")
 
         def popen(*args, **kwargs):
-            source_path = args[0][1]
+            source_arg = next(arg for arg in args[0] if arg.startswith("/workspace/") and arg.endswith(".py"))
+            source_path = os.path.join(workspace, os.path.basename(source_arg))
             with open(source_path, encoding="utf-8") as source_file:
                 self.assertEqual(source_file.read(), code + "\n")
             calls.append((args, kwargs, source_path))
             return _FakeChild("ok", "")
 
         with mock.patch.dict(os.environ, {"INTERNAL_API_KEY": "master-secret"}, clear=False), \
+                mock.patch.object(recon, "_resolve_execution_project", return_value="project-123"), \
+                mock.patch.object(recon, "_execution_workspace_root", return_value=workspace), \
                 mock.patch.object(recon.subprocess, "Popen", side_effect=popen), \
                 mock.patch.object(recon.os, "killpg"):
-            self.assertEqual(recon.execute_code(code, filename="same-name"), "ok")
-            self.assertEqual(recon.execute_code(code, filename="same-name"), "ok")
+            self.assertEqual(recon.execute_code(code, filename="same-name", _redamon_ctx="signed"), "ok")
+            self.assertEqual(recon.execute_code(code, filename="same-name", _redamon_ctx="signed"), "ok")
 
         self.assertEqual(len(calls), 2)
         self.assertNotEqual(calls[0][2], calls[1][2])
         for args, kwargs, source_path in calls:
             self.assert_untrusted_child(mock.call(*args, **kwargs))
+            self.assertIn("project-123", args[0])
             self.assertFalse(os.path.exists(source_path))
+        os.rmdir(workspace)
 
     def test_untrusted_child_caps_stdout_and_stderr(self):
         child = _FakeChild("x" * (recon._UNTRUSTED_OUTPUT_LIMIT_BYTES + 10), "y")

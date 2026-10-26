@@ -573,10 +573,27 @@ def _resolve_execution_project(ctx: str, tool_name: str) -> str:
     return project_id
 
 
+def _execution_workspace_root(project_id: str) -> str:
+    """Return a canonical project path on the shared workspace mount."""
+    if (not project_id or len(project_id) > 200
+            or any(char in project_id for char in ("/", "\\", "\x00"))
+            or project_id in (".", "..") or project_id.startswith(".")):
+        raise ValueError("invalid project id for workspace access")
+    workspace_root = "/workspace"
+    project_root = os.path.join(workspace_root, project_id)
+    if not os.path.isdir(project_root) or os.path.realpath(project_root) != project_root:
+        raise ValueError("project workspace is unavailable or not a real directory")
+    return project_root
+
+
 @mcp.tool()
-def execute_code(code: str, language: str = "python", filename: str = "exploit") -> str:
+def execute_code(
+    code: str, language: str = "python", filename: str = "exploit",
+    _redamon_ctx: str = "",
+) -> str:
     """
-    Write code to a file and execute it with the appropriate interpreter.
+    Write code into the verified project workspace and execute it in a private
+    project-scoped mount namespace with the appropriate interpreter.
 
     Eliminates shell escaping issues by receiving code as a clean string parameter,
     writing it to a unique temporary file, and executing the file as an
@@ -639,8 +656,16 @@ def execute_code(code: str, language: str = "python", filename: str = "exploit")
     safe_filename = re.sub(r'[^a-zA-Z0-9_-]', '_', filename)
     safe_filename = safe_filename or "exploit"
     unique_name = f"{safe_filename}_{uuid.uuid4().hex}"
-    binary_path = os.path.join(tempfile.gettempdir(), unique_name)
-    filepath = f"{binary_path}.{ext}"
+    try:
+        project_id = _resolve_execution_project(_redamon_ctx, "execute_code")
+        workspace_root = _execution_workspace_root(project_id)
+    except (PermissionError, ValueError) as e:
+        return f"[ERROR] Scoped code authorization failed: {e}"
+
+    binary_path = os.path.join(workspace_root, unique_name)
+    filepath = None
+    sandbox_filepath = None
+    sandbox_binary_path = f"/workspace/{unique_name}"
 
     # Write the source directly instead of interpolating it into a shell
     # heredoc. The file is readable by the unprivileged runner; its random path
@@ -649,7 +674,7 @@ def execute_code(code: str, language: str = "python", filename: str = "exploit")
         fd, filepath = tempfile.mkstemp(
             prefix=f"{unique_name}_",
             suffix=f".{ext}",
-            dir=tempfile.gettempdir(),
+            dir=workspace_root,
             text=True,
         )
         with os.fdopen(fd, "w", encoding="utf-8") as source_file:
@@ -658,27 +683,36 @@ def execute_code(code: str, language: str = "python", filename: str = "exploit")
                 source_file.write("\n")
         os.chmod(filepath, 0o444)
     except Exception as e:
-        try:
-            os.remove(filepath)
-        except OSError:
-            pass
-        return f"[ERROR] Failed to write code file: {str(e)}"
+        if filepath:
+            try:
+                os.remove(filepath)
+            except OSError:
+                pass
+        return f"[ERROR] Scoped proxy_brain authorization or staging failed: {str(e)}"
+    sandbox_filepath = f"/workspace/{os.path.basename(filepath)}"
 
     # Step 2: Execute (interpreted) or compile+execute (compiled)
     try:
         if interpreter:
             # Interpreted language — run directly
-            result = _run_untrusted_child([interpreter, filepath], timeout=120)
+            result = _run_untrusted_child(
+                [interpreter, sandbox_filepath], timeout=120,
+                workspace_project_id=project_id,
+            )
         else:
             # Compiled language — compile first, then execute
             compiler = "gcc" if ext == "c" else "g++"
             compile_result = _run_untrusted_child(
-                [compiler, filepath, "-o", binary_path], timeout=60
+                [compiler, sandbox_filepath, "-o", sandbox_binary_path], timeout=60,
+                workspace_project_id=project_id,
             )
             if compile_result.returncode != 0:
                 return f"[ERROR] Compilation failed:\n{compile_result.stderr}"
 
-            result = _run_untrusted_child([binary_path], timeout=120)
+            result = _run_untrusted_child(
+                [sandbox_binary_path], timeout=120,
+                workspace_project_id=project_id,
+            )
 
         output = result.stdout
         if result.stderr:
@@ -695,6 +729,8 @@ def execute_code(code: str, language: str = "python", filename: str = "exploit")
         return f"[ERROR] {str(e)}"
     finally:
         for path in (filepath, binary_path):
+            if not path:
+                continue
             try:
                 os.remove(path)
             except OSError:
@@ -778,8 +814,10 @@ def proxy_brain(code: str, _redamon_ctx: str = "") -> str:
     # agent's traceback line numbers off by only 1.
     preamble = "import sys as _s; _s.path.insert(0, '/opt/mcp_servers'); import redamon\n"
     try:
+        project_id = _resolve_execution_project(_redamon_ctx, "proxy_brain")
+        workspace_root = _execution_workspace_root(project_id)
         fd, filepath = tempfile.mkstemp(
-            prefix="pb_", suffix=".py", dir=tempfile.gettempdir(), text=True,
+            prefix="pb_", suffix=".py", dir=workspace_root, text=True,
         )
         with os.fdopen(fd, "w", encoding="utf-8") as code_file:
             code_file.write(preamble)
@@ -787,6 +825,7 @@ def proxy_brain(code: str, _redamon_ctx: str = "") -> str:
             if not code.endswith("\n"):
                 code_file.write("\n")
         os.chmod(filepath, 0o444)
+        sandbox_filepath = f"/workspace/{os.path.basename(filepath)}"
     except Exception as e:  # noqa: BLE001
         if filepath:
             try:
@@ -812,7 +851,8 @@ def proxy_brain(code: str, _redamon_ctx: str = "") -> str:
 
     try:
         result = _run_untrusted_child(
-            ["python3", filepath], timeout=180, env_overrides=child_env,
+            ["python3", sandbox_filepath], timeout=180, env_overrides=child_env,
+            workspace_project_id=project_id,
         )
         output = result.stdout
         if result.stderr:

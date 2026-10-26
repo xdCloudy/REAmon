@@ -16,7 +16,9 @@ Run: python3 mcp/servers/tests/test_capture_wiring.py
 from __future__ import annotations
 
 import os
+import shutil
 import sys
+import tempfile
 import types
 import unittest
 from pathlib import Path
@@ -127,20 +129,26 @@ class _RoutingTestBase(unittest.TestCase):
         for name in secret_names:
             os.environ[name] = f"{name.lower()}-test-secret"
         calls = []
+        workspace = tempfile.mkdtemp(prefix="reamon-proxy-brain-test-")
+        os.chmod(workspace, 0o777)
         authored_code = "print('ok')\nREDAMON_PB_EOF\nprint('still source code')"
 
-        def fake_run(cmd, *, timeout, env_overrides):
-            calls.append((list(cmd), timeout, env_overrides))
-            with open(cmd[1], encoding="utf-8") as source_file:
+        def fake_run(cmd, *, timeout, env_overrides, workspace_project_id):
+            calls.append((list(cmd), timeout, env_overrides, workspace_project_id))
+            source_path = os.path.join(workspace, os.path.basename(cmd[1]))
+            with open(source_path, encoding="utf-8") as source_file:
                 source = source_file.read()
             self.assertTrue(source.startswith("import sys as _s;"))
             self.assertTrue(source.endswith(authored_code + "\n"))
             return _FakeResult()
 
         try:
-            with mock.patch.object(nrs, "_run_untrusted_child", side_effect=fake_run):
+            with mock.patch.object(nrs, "_resolve_execution_project", return_value="project-123"), \
+                    mock.patch.object(nrs, "_execution_workspace_root", return_value=workspace), \
+                    mock.patch.object(nrs, "_run_untrusted_child", side_effect=fake_run):
                 nrs.proxy_brain(authored_code, "signed-short-lived-context")
         finally:
+            shutil.rmtree(workspace, ignore_errors=True)
             for name, value in old.items():
                 if value is None:
                     os.environ.pop(name, None)

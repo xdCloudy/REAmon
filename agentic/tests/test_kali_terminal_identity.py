@@ -74,6 +74,26 @@ def test_scoped_shell_context_resolves_only_verified_project(monkeypatch, tmp_pa
     assert isinstance(wrong_tool, JSONResponse)
     assert wrong_tool.status_code == 403
 
+    code_token = sign_tag({
+        "source": "agent", "user_id": "owner-1", "project_id": "project-1",
+        "tool": "execute_code", "phase": "informational",
+        "exp": int(api.time.time()) + 60,
+    }, key)
+    code_scope = asyncio.run(api.resolve_execution_context(
+        api.ExecutionContextRequest(ctx=code_token, tool="execute_code")
+    ))
+    assert code_scope == {"project_id": "project-1"}
+
+    proxy_token = sign_tag({
+        "source": "agent", "user_id": "owner-1", "project_id": "project-1",
+        "tool": "proxy_brain", "phase": "informational",
+        "exp": int(api.time.time()) + 60,
+    }, key)
+    proxy_scope = asyncio.run(api.resolve_execution_context(
+        api.ExecutionContextRequest(ctx=proxy_token, tool="proxy_brain")
+    ))
+    assert proxy_scope == {"project_id": "project-1"}
+
 
 def test_scoped_shell_context_rejects_expired_and_unsafe_project_claims(monkeypatch):
     import api
