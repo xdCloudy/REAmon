@@ -101,6 +101,30 @@ async def test_source_validation_uses_native_compiler(language: str, valid: str,
 
 
 @pytest.mark.asyncio
+async def test_go_source_validation_type_checks_without_running_or_downloading_modules() -> None:
+    from api import ReamonCodeValidateRequest, validate_reamon_code
+
+    if not shutil.which("go"):
+        pytest.skip("Go toolchain is unavailable")
+
+    valid = 'package sample\nimport "strings"\nfunc normalize(value string) string { return strings.TrimSpace(value) }\n'
+    type_error = "package sample\nfunc normalize(value string) string { return value + 1 }\n"
+    external_module = 'package sample\nimport "example.invalid/reamon-test/module"\nfunc normalize() {}\n'
+
+    passed = await validate_reamon_code(ReamonCodeValidateRequest(language="Go", source_code=valid))
+    failed = await validate_reamon_code(ReamonCodeValidateRequest(language="golang", source_code=type_error))
+    unavailable = await validate_reamon_code(ReamonCodeValidateRequest(language="go", source_code=external_module))
+
+    assert passed["validation_status"] == "PASSED"
+    assert passed["validation_method"].startswith("go-")
+    assert "without executing" in passed["validation_message"]
+    assert failed["validation_status"] == "FAILED"
+    assert "rejected the source" in failed["validation_message"]
+    assert unavailable["validation_status"] == "UNAVAILABLE"
+    assert "external module" in unavailable["validation_message"]
+
+
+@pytest.mark.asyncio
 async def test_csharp_project_compiler_resolves_types_across_accepted_files() -> None:
     from api import ReamonCodeProjectCompileFile, ReamonCodeProjectCompileRequest, compile_reamon_csharp_project
 

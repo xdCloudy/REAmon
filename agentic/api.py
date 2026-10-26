@@ -825,6 +825,108 @@ def _reamon_cli_syntax_validation(
     }
 
 
+def _reamon_go_source_validation(source_code: str, source_sha256: str) -> dict[str, str]:
+    """Type-check one Go source file without running it or fetching modules."""
+    go_binary = shutil.which("go")
+    if not go_binary:
+        return {
+            "source_sha256": source_sha256,
+            "validation_status": "UNAVAILABLE",
+            "validation_method": "go-source-build",
+            "validation_message": "The Go toolchain is not installed in the analysis service.",
+        }
+
+    environment = os.environ.copy()
+    for variable in ("GOFLAGS", "GOTOOLCHAIN", "GOENV", "GOWORK", "GOPROXY", "GOSUMDB", "GOVCS", "CGO_ENABLED"):
+        environment.pop(variable, None)
+    environment.update({
+        "GOFLAGS": "",
+        "GOTOOLCHAIN": "local",
+        "GOENV": "off",
+        "GOWORK": "off",
+        "GOPROXY": "off",
+        "GOSUMDB": "off",
+        "GOVCS": "*:off",
+        "CGO_ENABLED": "0",
+    })
+    try:
+        version_result = subprocess.run(
+            [go_binary, "version"], stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            timeout=5, check=False, env=environment,
+        )
+        version_text = version_result.stdout.decode("utf-8", errors="replace").splitlines()
+        match = re.search(r"^go version go(\d+\.\d+(?:\.\d+)?)", version_text[0] if version_text else "")
+        if version_result.returncode != 0 or not match:
+            return {
+                "source_sha256": source_sha256,
+                "validation_status": "UNAVAILABLE",
+                "validation_method": "go-source-build",
+                "validation_message": "The installed Go toolchain version could not be determined.",
+            }
+        tool_version = match.group(1)
+        validation_method = f"go-{tool_version}-source-build"[:80]
+        with tempfile.TemporaryDirectory(prefix="reamon-go-validate-") as temp_dir:
+            environment.update({
+                "GOCACHE": os.path.join(temp_dir, "cache"),
+                "GOMODCACHE": os.path.join(temp_dir, "module-cache"),
+                "GOPATH": os.path.join(temp_dir, "gopath"),
+                "GOTMPDIR": os.path.join(temp_dir, "tmp"),
+            })
+            for directory in (environment["GOCACHE"], environment["GOMODCACHE"], environment["GOTMPDIR"]):
+                os.makedirs(directory)
+            source_path = os.path.join(temp_dir, "source.go")
+            with open(source_path, "wb") as source_file:
+                source_file.write(source_code.encode("utf-8"))
+            with open(os.path.join(temp_dir, "go.mod"), "w", encoding="utf-8") as module_file:
+                module_file.write("module reamon.local/validation\n\ngo 1.18\n")
+            result = subprocess.run(
+                [go_binary, "build", "-mod=mod", "-trimpath", "-buildvcs=false", "-o",
+                 os.path.join(temp_dir, "validation-output"), "."],
+                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                timeout=15, check=False, env=environment, cwd=temp_dir,
+            )
+    except subprocess.TimeoutExpired:
+        return {
+            "source_sha256": source_sha256,
+            "validation_status": "UNAVAILABLE",
+            "validation_method": "go-source-build",
+            "validation_message": "The Go source check did not complete within its time limit.",
+        }
+    except OSError as exc:
+        logger.debug(f"REAmon Go source validation unavailable: {exc}")
+        return {
+            "source_sha256": source_sha256,
+            "validation_status": "UNAVAILABLE",
+            "validation_method": "go-source-build",
+            "validation_message": "The Go source checker could not be started.",
+        }
+
+    output = (result.stderr or result.stdout).decode("utf-8", errors="replace")
+    output = re.sub(r"[\r\n\t ]+", " ", output.replace("\x00", " ")).strip()[:1_000]
+    if result.returncode == 0:
+        return {
+            "source_sha256": source_sha256,
+            "validation_status": "PASSED",
+            "validation_method": validation_method,
+            "validation_message": f"Go {tool_version} compiled the source without executing it. This single-file check does not resolve project files or external modules.",
+        }
+    if any(marker in output.lower() for marker in (
+        "module lookup disabled", "no required module provides package", "updates to go.mod needed",
+    )):
+        status = "UNAVAILABLE"
+        message = "Go source compilation needs an external module that is unavailable to the offline validator."
+    else:
+        status = "FAILED"
+        message = f"Go {tool_version} rejected the source: {output or 'compilation failed without diagnostic output'}"
+    return {
+        "source_sha256": source_sha256,
+        "validation_status": status,
+        "validation_method": validation_method,
+        "validation_message": message,
+    }
+
+
 def _reamon_luau_syntax_validation(source_code: str, source_sha256: str) -> dict[str, str] | None:
     """Use the pinned Luau compiler for syntax-only validation when installed."""
     binary = shutil.which("luau-compile")
@@ -990,18 +1092,7 @@ async def validate_reamon_code(body: ReamonCodeValidateRequest):
         )
         return {"source_sha256": source_sha256, **result}
     if normalized_language in {"go", "golang"}:
-        result = _reamon_cli_syntax_validation(
-            body.source_code,
-            label="gofmt",
-            executable="gofmt",
-            version_executable="go",
-            version_args=["version"],
-            lint_args=["-e"],
-            version_pattern=r"^go version go(\d+\.\d+(?:\.\d+)?)",
-            ignored_environment={"GOFLAGS", "GOTOOLCHAIN"},
-            discard_lint_stdout=True,
-        )
-        return {"source_sha256": source_sha256, **result}
+        return _reamon_go_source_validation(body.source_code, source_sha256)
     if normalized_language in {"c#", "csharp", "cs", "visual basic", "visual basic .net", "vb.net", "vb"}:
         is_visual_basic = normalized_language in {"visual basic", "visual basic .net", "vb.net", "vb"}
         language_argument = "visual basic" if is_visual_basic else "csharp"
