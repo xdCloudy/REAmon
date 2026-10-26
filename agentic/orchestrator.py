@@ -157,25 +157,24 @@ class AgentOrchestrator:
             logger.warning("recover_orphaned_fireteams failed: %s", exc)
 
     async def _setup_checkpointer(self) -> None:
-        """Optionally replace MemorySaver with AsyncPostgresSaver.
+        """Select in-memory or PostgreSQL checkpointing from configuration.
 
-        Driven by the PERSISTENT_CHECKPOINTER setting. Failure to connect
-        is logged and falls back to MemorySaver so the app still starts.
+        A configured persistent deployment must not silently lose state by
+        starting with MemorySaver when PostgreSQL initialization fails.
         """
         global checkpointer
         if not get_setting("PERSISTENT_CHECKPOINTER", False):
             logger.info("PERSISTENT_CHECKPOINTER=false; using MemorySaver (non-persistent)")
             self._checkpoint_pool = None
             return
+        pool = None
         try:
             from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
             from psycopg_pool import AsyncConnectionPool
 
             dsn = os.environ.get("DATABASE_URL")
             if not dsn:
-                logger.warning("PERSISTENT_CHECKPOINTER=true but DATABASE_URL missing; falling back to MemorySaver")
-                self._checkpoint_pool = None
-                return
+                raise RuntimeError("DATABASE_URL is required for persistent checkpointing")
 
             pool = AsyncConnectionPool(
                 conninfo=dsn,
@@ -192,8 +191,19 @@ class AgentOrchestrator:
             self._checkpoint_pool = pool
             logger.info("Using AsyncPostgresSaver for persistent checkpointing")
         except Exception as exc:
-            logger.warning("AsyncPostgresSaver setup failed (%s); falling back to MemorySaver", exc)
             self._checkpoint_pool = None
+            if pool is not None:
+                try:
+                    await pool.close()
+                except Exception:
+                    logger.warning("Failed to close PostgreSQL checkpoint pool after initialization error")
+            logger.error(
+                "Persistent PostgreSQL checkpointing could not be initialized (%s); refusing to use volatile state",
+                type(exc).__name__,
+            )
+            raise RuntimeError(
+                "Persistent PostgreSQL checkpointing is enabled but unavailable; startup refused"
+            ) from exc
 
     # =========================================================================
     # METASPLOIT PREWARM
