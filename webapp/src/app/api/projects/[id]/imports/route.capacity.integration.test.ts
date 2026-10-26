@@ -1,17 +1,19 @@
 /** @vitest-environment node */
 /**
- * Opt-in PostgreSQL acceptance for import reservations. Set `DATABASE_URL` and
- * `REAMON_IMPORT_CAPACITY_INTEGRATION=1`; this test simulates capacity and never
- * writes artifact bytes.
+ * Opt-in PostgreSQL acceptance for import reservations. Set `DATABASE_URL`,
+ * `REAMON_ARTIFACTS_PATH`, and `REAMON_IMPORT_CAPACITY_INTEGRATION=1`; capacity
+ * rejection uses a size-limited test mount and never writes artifact bytes.
  */
 import { afterAll, beforeAll, describe, expect, test, vi } from 'vitest'
 import { randomUUID } from 'node:crypto'
+import { mkdir } from 'node:fs/promises'
 import prisma from '@/lib/prisma'
 
 const mocks = vi.hoisted(() => ({
   requireEffectiveUser: vi.fn(),
   requireProjectAccess: vi.fn(),
   artifactCapacity: vi.fn(),
+  realArtifactCapacity: vi.fn(),
 }))
 
 vi.mock('@/lib/access', () => ({
@@ -19,26 +21,29 @@ vi.mock('@/lib/access', () => ({
   requireProjectAccess: mocks.requireProjectAccess,
 }))
 
-vi.mock('@/lib/reamon/artifact-storage', () => ({
-  artifactRoot: () => '/tmp/reamon-import-capacity-integration',
-  getArtifactVolumeCapacity: mocks.artifactCapacity,
-}))
+vi.mock('@/lib/reamon/artifact-storage', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/reamon/artifact-storage')>()
+  mocks.realArtifactCapacity.mockImplementation(actual.getArtifactVolumeCapacity)
+  return { ...actual, getArtifactVolumeCapacity: mocks.artifactCapacity }
+})
 
 import { POST } from './route'
+import { artifactRoot } from '@/lib/reamon/artifact-storage'
 
 const enabled = process.env.REAMON_IMPORT_CAPACITY_INTEGRATION === '1'
   && Boolean(process.env.DATABASE_URL)
+  && Boolean(process.env.REAMON_ARTIFACTS_PATH)
 let projectId = ''
 let projectOwnerId = ''
 let rootName = ''
 
-function requestFor(name: string): Request {
+function requestFor(name: string, size = 60): Request {
   return new Request(`http://localhost/api/projects/${projectId}/imports`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       rootName: name,
-      files: [{ relativePath: 'probe.bin', size: 60 }],
+      files: [{ relativePath: 'probe.bin', size }],
     }),
   })
 }
@@ -49,6 +54,7 @@ function params() {
 
 describe.skipIf(!enabled)('POST workspace import capacity admission against PostgreSQL', () => {
   beforeAll(async () => {
+    await mkdir(artifactRoot(), { recursive: true })
     const user = await prisma.user.findFirst({ select: { id: true } })
     if (!user) throw new Error('Capacity integration requires an existing database user')
     projectOwnerId = user.id
@@ -124,5 +130,35 @@ describe.skipIf(!enabled)('POST workspace import capacity admission against Post
     } finally {
       releaseFirstCapacityCheck()
     }
+  })
+
+  test('rejects a manifest request one byte above actual filesystem capacity', async () => {
+    mocks.artifactCapacity.mockImplementation(mocks.realArtifactCapacity)
+    const storage = await mocks.realArtifactCapacity()
+    if (!storage.available || storage.freeBytes === null) {
+      throw new Error('The artifact test volume must report filesystem capacity')
+    }
+    const active = await prisma.workspaceImport.findMany({
+      where: { status: { notIn: ['COMPLETED', 'CANCELLED', 'CANCELLING', 'FINALIZING'] } },
+      select: { totalBytes: true, uploadedBytes: true },
+    })
+    const reserved = active.reduce((sum, item) => {
+      const remaining = item.totalBytes - item.uploadedBytes
+      return sum + (remaining > 0n ? remaining : 0n)
+    }, 0n)
+    const freeBytes = BigInt(storage.freeBytes)
+    const declaredBytes = freeBytes >= reserved ? freeBytes - reserved + 1n : 1n
+    if (declaredBytes > BigInt(Number.MAX_SAFE_INTEGER)) {
+      throw new Error('The filesystem capacity probe exceeds the manifest numeric range')
+    }
+    const response = await POST(requestFor(`${rootName}-filesystem-full`, Number(declaredBytes)), params())
+    const body = await response.json()
+
+    expect(response.status).toBe(507)
+    expect(body).toMatchObject({
+      availableBytes: freeBytes.toString(),
+      requiredBytes: (reserved + declaredBytes).toString(),
+    })
+    expect(await prisma.workspaceImport.count({ where: { projectId } })).toBe(1)
   })
 })
