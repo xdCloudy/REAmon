@@ -1,4 +1,5 @@
 import path from 'node:path'
+import { lstatSync } from 'node:fs'
 import { rm, statfs } from 'node:fs/promises'
 
 export class InvalidArtifactStoragePathError extends Error {
@@ -10,6 +11,24 @@ export class InvalidArtifactStoragePathError extends Error {
 
 export function artifactRoot(): string {
   return path.resolve(process.env.REAMON_ARTIFACTS_PATH || path.join(process.cwd(), 'data', 'reamon-artifacts'))
+}
+
+function rejectSymlinkedStorageComponents(root: string, absolute: string): void {
+  const relative = path.relative(root, absolute)
+  let current = root
+  for (const segment of relative.split(path.sep)) {
+    if (!segment || segment === '.') continue
+    current = path.join(current, segment)
+    try {
+      if (lstatSync(current).isSymbolicLink()) {
+        throw new InvalidArtifactStoragePathError('Artifact storage paths must not traverse symbolic links')
+      }
+    } catch (error) {
+      if (error instanceof InvalidArtifactStoragePathError) throw error
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
+      throw error
+    }
+  }
 }
 
 /** Resolve one import's staging directory without allowing IDs to escape `.uploads`. */
@@ -24,6 +43,7 @@ export function resolveStagedImportDirectory(projectId: string, importId: string
     || path.dirname(relative) !== projectId || path.basename(relative) !== importId) {
     throw new InvalidArtifactStoragePathError('Invalid staged import directory')
   }
+  rejectSymlinkedStorageComponents(root, directory)
   return directory
 }
 
@@ -75,5 +95,6 @@ export function resolveArtifactStoragePath(storagePath: string): string {
   if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
     throw new InvalidArtifactStoragePathError()
   }
+  rejectSymlinkedStorageComponents(root, absolute)
   return absolute
 }

@@ -1,5 +1,7 @@
 /** @vitest-environment node */
 import { beforeEach, describe, expect, test, vi } from 'vitest'
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 const mocks = vi.hoisted(() => ({ statfs: vi.fn(), rm: vi.fn() }))
 
@@ -42,6 +44,57 @@ describe('REAmon artifact storage boundary', () => {
     ['project-1', 'import\u0000bad'],
   ])('rejects escaped staging identifiers (%s, %s)', (projectId, importId) => {
     expect(() => resolveStagedImportDirectory(projectId, importId)).toThrow(InvalidArtifactStoragePathError)
+  })
+
+  test('rejects a symlinked directory inside the staged import path', () => {
+    const fixtureRoot = mkdtempSync(path.join(os.tmpdir(), 'reamon-artifact-symlink-'))
+    const outside = path.join(fixtureRoot, 'outside')
+    const uploads = path.join(fixtureRoot, 'artifacts', '.uploads')
+    mkdirSync(outside)
+    mkdirSync(uploads, { recursive: true })
+    symlinkSync(outside, path.join(uploads, 'project-1'), process.platform === 'win32' ? 'junction' : 'dir')
+    vi.stubEnv('REAMON_ARTIFACTS_PATH', path.join(fixtureRoot, 'artifacts'))
+
+    try {
+      expect(() => resolveStagedImportDirectory('project-1', 'import-1')).toThrow(InvalidArtifactStoragePathError)
+    } finally {
+      vi.unstubAllEnvs()
+      rmSync(fixtureRoot, { recursive: true, force: true })
+    }
+  })
+
+  test('rejects a symlinked stored-artifact parent before resolving a database path', () => {
+    const fixtureRoot = mkdtempSync(path.join(os.tmpdir(), 'reamon-artifact-symlink-'))
+    const outside = path.join(fixtureRoot, 'outside')
+    const artifactDirectory = path.join(fixtureRoot, 'artifacts', 'project-1')
+    mkdirSync(outside)
+    mkdirSync(artifactDirectory, { recursive: true })
+    symlinkSync(outside, path.join(artifactDirectory, 'import-1'), process.platform === 'win32' ? 'junction' : 'dir')
+    vi.stubEnv('REAMON_ARTIFACTS_PATH', path.join(fixtureRoot, 'artifacts'))
+
+    try {
+      expect(() => resolveArtifactStoragePath('project-1/import-1/artifact-1')).toThrow(InvalidArtifactStoragePathError)
+    } finally {
+      vi.unstubAllEnvs()
+      rmSync(fixtureRoot, { recursive: true, force: true })
+    }
+  })
+
+  test('rejects a stored-artifact path that is itself a symlink', () => {
+    const fixtureRoot = mkdtempSync(path.join(os.tmpdir(), 'reamon-artifact-symlink-'))
+    const outsideFile = path.join(fixtureRoot, 'outside.bin')
+    const artifactDirectory = path.join(fixtureRoot, 'artifacts', 'project-1', 'import-1')
+    mkdirSync(artifactDirectory, { recursive: true })
+    writeFileSync(outsideFile, 'outside')
+    symlinkSync(outsideFile, path.join(artifactDirectory, 'artifact-1'))
+    vi.stubEnv('REAMON_ARTIFACTS_PATH', path.join(fixtureRoot, 'artifacts'))
+
+    try {
+      expect(() => resolveArtifactStoragePath('project-1/import-1/artifact-1')).toThrow(InvalidArtifactStoragePathError)
+    } finally {
+      vi.unstubAllEnvs()
+      rmSync(fixtureRoot, { recursive: true, force: true })
+    }
   })
 
   test('removes only the validated import staging directory', async () => {
