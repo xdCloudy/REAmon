@@ -242,12 +242,17 @@ RUN pip install --no-cache-dir pycryptodomex termcolor ratelimit \
     && ln -s /opt/jwt_tool/jwt_tool.py /usr/local/bin/jwt_tool
 
 # graphql-cop - GraphQL security auditor
+# Its pinned requests and termcolor releases conflict with the MCP server and
+# guarddog environment, so keep this CLI's requirements in a private venv.
 # Source: https://github.com/dolevf/graphql-cop (BSD-3-Clause)
 RUN retry git clone https://github.com/dolevf/graphql-cop.git /opt/graphql-cop \
     && git -C /opt/graphql-cop -c advice.detachedHead=false checkout 2b7e086efae672f28b419c7fcdfe6b48d846c9dc \
-    && pip install --no-cache-dir -r /opt/graphql-cop/requirements.txt \
+    && python3 -m venv /opt/graphql-cop/venv \
+    && PIP_CONSTRAINT= /opt/graphql-cop/venv/bin/pip install --no-cache-dir -r /opt/graphql-cop/requirements.txt \
     && chmod +x /opt/graphql-cop/graphql-cop.py \
-    && ln -s /opt/graphql-cop/graphql-cop.py /usr/local/bin/graphql-cop
+    && printf '#!/bin/sh\nexec /opt/graphql-cop/venv/bin/python /opt/graphql-cop/graphql-cop.py "$@"\n' \
+       > /usr/local/bin/graphql-cop \
+    && chmod +x /usr/local/bin/graphql-cop
 
 # GraphQLmap - GraphQL exploitation engine
 # Source: https://github.com/swisskyrepo/GraphQLmap (MIT)
@@ -352,18 +357,27 @@ RUN mkdir -p /opt/tools/windows \
 # ldapdomaindump: LDAP enumeration (users, groups, password policies)
 # bloodyAD: live AD abuse primitives (password reset, group add, SPN set) driven by BloodHound edges
 # networkx + orjson: power the /opt/adkc/bhgraph helper (BloodHound JSON → in-memory graph, no Neo4j)
-RUN pip install --no-cache-dir hashID bloodhound certipy-ad ldapdomaindump \
-    bloodyAD networkx orjson
+# These CLI stacks can downgrade cryptography, pyasn1, and OpenSSL dependencies
+# used by MCP services. Keep their imports private and publish only executables.
+RUN python3 -m venv /opt/ad-tools/venv \
+    && PIP_CONSTRAINT= /opt/ad-tools/venv/bin/pip install --no-cache-dir \
+       hashID bloodhound certipy-ad ldapdomaindump bloodyAD networkx orjson ldap3 pyasn1 \
+    && set -e && for f in /opt/ad-tools/venv/bin/*; do \
+         base=$(basename "$f"); \
+         case "$base" in python|python[0-9]*|pip|pip[0-9]*|activate|activate.*|easy_install*) continue ;; esac; \
+         ln -sf "$f" "/usr/local/bin/$base"; \
+       done
 
 # gMSADumper: read gMSA passwords when BloodHound flags ReadGMSAPassword edge.
 # Not on PyPI — install from git. Source: https://github.com/micahvandeusen/gMSADumper
 # (GPL-3.0; invoked as separate-process CLI, mere aggregation)
 RUN retry git clone https://github.com/micahvandeusen/gMSADumper.git /opt/gMSADumper \
     && git -C /opt/gMSADumper -c advice.detachedHead=false checkout e03187ca5c2b38b8742a20b919ebe38633c0b084 \
-    && pip install --no-cache-dir ldap3 pyasn1 \
     && chmod +x /opt/gMSADumper/gMSADumper.py \
-    && ln -sf /opt/gMSADumper/gMSADumper.py /usr/local/bin/gMSADumper.py \
-    && ln -sf /opt/gMSADumper/gMSADumper.py /usr/local/bin/gMSADumper
+    && printf '#!/bin/sh\nexec /opt/ad-tools/venv/bin/python /opt/gMSADumper/gMSADumper.py "$@"\n' \
+       > /usr/local/bin/gMSADumper.py \
+    && chmod +x /usr/local/bin/gMSADumper.py \
+    && ln -sf /usr/local/bin/gMSADumper.py /usr/local/bin/gMSADumper
 
 # kerbrute — fast Kerberos pre-auth based user enumeration + password spray
 # Source: https://github.com/ropnop/kerbrute (Apache-2.0)
@@ -372,7 +386,9 @@ RUN retry go install -v github.com/ropnop/kerbrute@latest
 # AD kill-chain helper: BloodHound JSON → NetworkX path-finder (Option A, no Neo4j)
 COPY kali-sandbox/adkc/bhgraph.py /opt/adkc/bhgraph.py
 RUN chmod +x /opt/adkc/bhgraph.py \
-    && ln -s /opt/adkc/bhgraph.py /usr/local/bin/bhgraph
+    && printf '#!/bin/sh\nexec /opt/ad-tools/venv/bin/python /opt/adkc/bhgraph.py "$@"\n' \
+       > /usr/local/bin/bhgraph \
+    && chmod +x /usr/local/bin/bhgraph
 
 # gpp-decrypt: one-shot decrypt of GPP cpassword blobs (public AES key, MS14-025 legacy)
 COPY kali-sandbox/adkc/gpp-decrypt.py /opt/adkc/gpp-decrypt.py
@@ -418,12 +434,17 @@ RUN apt-get update \
         -o /usr/share/seclists/Usernames/xato-net-10-million-usernames.txt
 
 # SSTImap — Server-Side Template Injection detection & exploitation
+# Its pinned dependencies include an older requests release. Keep them out of
+# /opt/venv so this standalone CLI cannot downgrade the MCP and browser stack.
 # Source: https://github.com/vladko312/SSTImap (GPL-3.0; invoked as separate-process CLI, mere aggregation)
 RUN retry git clone https://github.com/vladko312/SSTImap.git /opt/sstimap \
     && git -C /opt/sstimap -c advice.detachedHead=false checkout d4f09055b15967b0e2265f20eb348a7ec2f25a2c \
-    && pip install --no-cache-dir -r /opt/sstimap/requirements.txt \
+    && python3 -m venv /opt/sstimap/venv \
+    && PIP_CONSTRAINT= /opt/sstimap/venv/bin/pip install --no-cache-dir -r /opt/sstimap/requirements.txt \
     && chmod +x /opt/sstimap/sstimap.py \
-    && ln -s /opt/sstimap/sstimap.py /usr/local/bin/sstimap
+    && printf '#!/bin/sh\nexec /opt/sstimap/venv/bin/python /opt/sstimap/sstimap.py "$@"\n' \
+       > /usr/local/bin/sstimap \
+    && chmod +x /usr/local/bin/sstimap
 
 # tplmap: SSTI scanner that complements SSTImap by covering Smarty and Velocity
 # engines that the SSTImap plugin set does not currently fingerprint.

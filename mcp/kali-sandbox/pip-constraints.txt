@@ -9,6 +9,14 @@
 # exited 0). Constraints turn such a skew into a hard build-time error instead.
 #
 # A constraint only binds a package if something else pulls it in; it never
-# installs a package on its own. Keep this in sync with requirements.txt.
+# installs a package on its own. Keep these bounds aligned with both the MCP
+# requirements and the shared Guarddog HTTP dependencies.
 mcp==1.29.0
 fastmcp==3.2.4
+# Guarddog and the MCP services depend on these shared HTTP libraries. Legacy
+# standalone tools with older pins must use private virtual environments instead
+# of downgrading the server/browser runtime.
+requests>=2.34.0
+urllib3>=2.7.0
+termcolor>=3.3.0
+opentelemetry-api==1.37.0

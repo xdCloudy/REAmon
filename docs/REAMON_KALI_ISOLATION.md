@@ -1,6 +1,19 @@
 # Kali execution isolation decision
 
-Status: a broker-managed project worker is wired for `kali_shell`, `execute_code`, `execute_playwright`, and `proxy_brain` in source; deployment and end-to-end validation remain open.
+Status: a broker-managed project worker is wired for `kali_shell`, `execute_code`, `execute_playwright`, and `proxy_brain`; local service rebuild and signed shell dispatch are verified. The full MCP client/webapp flow and remaining operations controls are open.
+
+## Current deployment update (2026-10-26)
+
+The active `redamon-kali` service was recreated from the current image. Its
+shared Python environment passes `pip check` with no broken requirements, and
+the active MCP stack imports with `requests` 2.34.2, `urllib3` 2.8.0, and the
+Semgrep-compatible OpenTelemetry 1.37.0 API. GraphQL-Cop, SSTImap, and the
+BloodHound/Certipy/BloodyAD helper suite now install into separate virtual
+environments so their older pins cannot alter MCP dependencies. The active
+container smoke confirmed those command entry points, `bhgraph`, and
+`gMSADumper.py` still launch. This repairs shared Python dependency integrity;
+it does not close the shared controller/broker ownership finding or verify the
+complete MCP client-to-worker workflow.
 
 ## Current exposure
 
@@ -72,8 +85,8 @@ On 2026-10-26, the `proxy_brain` traffic path was tightened: agent contexts now
 expire after five minutes, and the traffic read, replay, and browser routes
 require the signed context to name `proxy_brain`. Those routes authenticate the
 context directly, so the shared scanner transport key is not copied into the
-`proxy_brain` child. The Kali Dockerfile installs Playwright Chromium at
-`/ms-playwright`; the currently running image lacks that path and needs a rebuild.
+`proxy_brain` child. Earlier images lacked Playwright Chromium at
+`/ms-playwright`; the rebuilt service now launches Chromium, as recorded above.
 
 The `kali_shell`, `execute_code`, `proxy_brain`, and Playwright children now use
 the same unprivileged UID/GID, a fixed environment allowlist, and user, mount,
@@ -99,9 +112,9 @@ auth, so scanner-only workers cannot select a tenant there; the trusted webapp
 still supplies owner-checked IDs. Custom Playwright scripts now stage source in
 the verified project workspace and execute in the same project mount namespace;
 output filtering remains in place. A live Kali smoke confirmed project and
-temporary-path isolation at host UID 65534. Chromium could not launch because
-the running image lacks the browser at `/ms-playwright`; the Dockerfile installs
-it there, but the service must be rebuilt before browser behavior is verified.
+temporary-path isolation at host UID 65534. Chromium did not launch in the
+older image at that time; the current deployment update above records the
+successful launch in the rebuilt image.
 A delimiter-like source line is covered to ensure it remains code rather than
 shell syntax. Focused Docker tests pass for terminal privilege dropping,
 credential filtering, unprivileged execution, bounded output, process-group
@@ -112,8 +125,8 @@ controller, root filesystem, or broker lifecycle.
 The expanded terminal identity, signed graph-context, graph authorization, and
 CLI regression run passes 130 Docker tests plus 65 script-style subchecks,
 including scanner-only rejection and equal-key fail-closed behavior.
-Context verification for non-terminal tools is now wired in source, but the
-agent is not rebuilt and project-worker ownership remains open; the full
+Context verification for non-terminal tools is deployed and signed shell
+dispatch passed locally; project-worker ownership remains open, so the full
 shared-Kali finding is not closed.
 
 The terminal PTY now starts through unprivileged user and mount namespaces.
@@ -172,8 +185,11 @@ entering their command or namespace. The Kali image explicitly installs
 `util-linux`; focused Docker coverage passed 54 tests plus 9 subtests, and a
 live Kali namespace smoke confirmed the inherited limits. These per-process
 limits do not replace worker-level CPU, memory, disk, network, or lifetime caps.
-The running agent has not been rebuilt against this source. The live image lacks
-Chromium at `/ms-playwright`, so an actual browser launch remains unverified.
+The local agent, Kali, and broker images were rebuilt from the pushed source on
+2026-10-26 and all report healthy. A valid agent-signed `kali_shell` request
+completed through the broker in a disposable worker with exit code 0; the worker
+container and network were removed. Chromium launched in the active Kali image
+at version 156.0.8078.4. The full MCP client/webapp flow remains unverified.
 The global broker ownership model remains open, so the shared-container finding
 is not closed.
 
@@ -194,22 +210,22 @@ signed project context and configured agent URL, not the reusable scanner key.
 The broker image builds, 13 focused worker tests and 14 MCP execution tests
 pass in Docker, and a live Docker Engine smoke verified immutable image
 selection, project-only mounting, read-only root, writable scratch, separate
-output streams, and worker/network cleanup. Full signed dispatch is not yet
-available on the installed stack because its agent returns 404 for
-`/execution/resolve-context`. Playwright browser launch also needs validation
-after rebuilding the Kali image. Terminal sessions, tenant-scoped broker
-ownership, cancellation and restart recovery, and worker storage, disk, and
-egress limits remain open.
+output streams, and worker/network cleanup. The rebuilt local agent, Kali, and
+broker containers report healthy. A valid agent-signed shell request completed
+in a disposable worker, and Chromium launched in the active Kali container.
+Terminal session workers, full MCP client/webapp flow, tenant-scoped broker
+ownership, cancellation and restart recovery, generated-file transfer, and
+worker storage, disk, and egress limits remain open.
 
 ## Decision
 
-Run every arbitrary-code surface in a project-scoped sandbox worker with its own
-filesystem, process namespace, and temporary directory. The `kali_shell`, `execute_code`, `proxy_brain`, custom Playwright, and terminal
-namespaces are interim boundaries; each still needs the dedicated worker
-architecture and scoped broker ownership. The shared MCP service
-will remain a controller: it will authenticate the agent, verify the signed
-project scope, route work to the matching worker, and publish selected artifacts
-through a project-authorized transfer path.
+Keep the four non-terminal tools on the verified disposable worker path. The
+interactive terminal still needs a long-lived project worker with ticket-bound
+identity and disconnect cleanup. The MCP service remains the trusted controller:
+it authenticates the agent, verifies signed scope, routes work to the matching
+worker, and publishes selected artifacts through a project-authorized transfer
+path. Tenant-scoped broker ownership, output quotas, egress policy, and restart
+recovery are still required to close the shared Kali finding.
 
 Use the existing Docker socket broker as the only container-management boundary.
 Extend it with a fixed Kali worker profile that enforces the pinned worker image,
