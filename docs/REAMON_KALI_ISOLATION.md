@@ -165,6 +165,12 @@ and generated-file tests. Live Kali smokes confirmed the project root is
 read-only to the sandbox while scratch and `tool-outputs` are writable;
 generated-file transfer and compiled C output work, and sibling workspace,
 scratch files, and processes remain invisible.
+All arbitrary-code command children and the ticket-bound terminal PTY now pass
+through `/usr/bin/prlimit` with `RLIMIT_NOFILE=256` and `RLIMIT_CORE=0` before
+entering their command or namespace. The Kali image explicitly installs
+`util-linux`; focused Docker coverage passed 54 tests plus 9 subtests, and a
+live Kali namespace smoke confirmed the inherited limits. These per-process
+limits do not replace worker-level CPU, memory, disk, network, or lifetime caps.
 The running agent has not been rebuilt against this source. The live image lacks
 Chromium at `/ms-playwright`, so an actual browser launch remains unverified.
 The global broker ownership model remains open, so the shared-container finding
