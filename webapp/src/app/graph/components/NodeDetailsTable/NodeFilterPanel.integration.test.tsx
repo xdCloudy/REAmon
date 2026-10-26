@@ -153,7 +153,9 @@ describe('the export follows the filter', () => {
 
     const formats = [/CSV/i, /JSON/i, /^MD$|Markdown/i]
     for (const [index, name] of formats.entries()) {
-      fireEvent.click(screen.getByRole('button', { name }))
+      const button = screen.getByRole('button', { name })
+      await waitFor(() => expect(button).toBeEnabled())
+      fireEvent.click(button)
       await waitFor(() => expect(exportCalls).toHaveLength(index + 1))
     }
     expect(new Set(exportCalls.map(c => c.input.rows.length))).toEqual(new Set([LIVE]))
