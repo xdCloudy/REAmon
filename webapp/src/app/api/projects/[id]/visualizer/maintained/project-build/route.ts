@@ -22,6 +22,13 @@ function sha256(value: string): string {
   return createHash('sha256').update(value, 'utf8').digest('hex')
 }
 
+function projectSourceSetHash(files: Array<{ relativePath: string; sourceHash: string }>): string {
+  const ordered = [...files].sort((a, b) => a.relativePath < b.relativePath ? -1 : a.relativePath > b.relativePath ? 1 : 0)
+  const hash = createHash('sha256')
+  for (const file of ordered) hash.update(file.relativePath).update('\0').update(file.sourceHash).update('\n')
+  return hash.digest('hex')
+}
+
 function csharpLanguage(value: unknown): boolean {
   return typeof value === 'string' && ['c#', 'csharp', 'c# source', 'cs'].includes(value.trim().toLowerCase())
 }
@@ -34,6 +41,120 @@ function safeRelativePath(value: string): string | null {
   const path = normalized.join('/')
   if (!path.toLowerCase().endsWith('.cs')) return null
   return path
+}
+
+export async function GET(request: Request, { params }: RouteParams) {
+  try {
+    const { id: projectId } = await params
+    const user = await requireEffectiveUser()
+    if (user instanceof NextResponse) return user
+    const access = await requireProjectAccess(user, projectId)
+    if (access instanceof NextResponse) return access
+
+    const taskId = new URL(request.url).searchParams.get('taskId')?.trim() || ''
+    if (!taskId || taskId.length > 128) return NextResponse.json({ error: 'Choose a completed analysis run first.' }, { status: 400 })
+    const selection = await getActiveWorkspaceImportSelection(projectId)
+    const task = await prisma.task.findFirst({
+      where: {
+        id: taskId,
+        projectId,
+        capability: { in: ['decompile', 'disassemble'] },
+        status: 'COMPLETED',
+        artifact: { is: selection.artifactWhere },
+      },
+      select: { id: true, artifactId: true },
+    })
+    if (!task?.artifactId) return NextResponse.json({ error: 'Completed analysis run was not found in the active workspace import.' }, { status: 404 })
+
+    const stored = await prisma.reamonObservation.findFirst({
+      where: { projectId, taskId: task.id, artifactId: task.artifactId, source: BUILD_SOURCE, type: 'project_build_receipt' },
+      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+      select: { stableKey: true, attributes: true },
+    })
+    if (!stored) return NextResponse.json({ receipt: null })
+
+    const receipt = plainObject(stored.attributes)
+    if (receipt.version !== 'reamon-csharp-project-build-v1' || receipt.taskId !== task.id
+        || receipt.artifactId !== task.artifactId || !Array.isArray(receipt.files)
+        || receipt.files.length < 1 || receipt.files.length > MAX_BUILD_FILES
+        || !['PASSED', 'FAILED'].includes(String(receipt.validationStatus))
+        || typeof receipt.sourceSha256 !== 'string' || !/^[a-f0-9]{64}$/.test(receipt.sourceSha256)) {
+      return NextResponse.json({ receipt: null })
+    }
+    const receiptFiles = receipt.files.map((item) => plainObject(item))
+    if (receiptFiles.some((file) => typeof file.codeUnitId !== 'string' || typeof file.acceptedReviewId !== 'string'
+        || typeof file.relativePath !== 'string' || !safeRelativePath(file.relativePath)
+        || typeof file.sourceSha256 !== 'string' || !/^[a-f0-9]{64}$/.test(file.sourceSha256))) {
+      return NextResponse.json({ receipt: null })
+    }
+    const receiptUnitIds = receiptFiles.map((file) => file.codeUnitId as string)
+    if (new Set(receiptUnitIds).size !== receiptUnitIds.length
+        || new Set(receiptFiles.map((file) => String(file.relativePath).toLowerCase())).size !== receiptFiles.length) {
+      return NextResponse.json({ receipt: null })
+    }
+
+    const units = await prisma.reamonObservation.findMany({
+      where: { projectId, taskId: task.id, artifactId: task.artifactId, type: CODE_UNIT_OBSERVATION_TYPE },
+      take: MAX_INVENTORY_UNITS + 1,
+      select: { id: true, attributes: true },
+    })
+    if (units.length > MAX_INVENTORY_UNITS) return NextResponse.json({ receipt: null })
+    const csharpUnitIds = units.filter((unit) => csharpLanguage(plainObject(unit.attributes).language)).map((unit) => unit.id)
+    if (!csharpUnitIds.length || receiptUnitIds.some((unitId) => !csharpUnitIds.includes(unitId))) {
+      return NextResponse.json({ receipt: null })
+    }
+    const sources = await prisma.reamonMaintainedSource.findMany({
+      where: { projectId, artifactId: task.artifactId, codeUnitId: { in: csharpUnitIds }, acceptedReviewId: { not: null } },
+      orderBy: [{ relativePath: 'asc' }, { codeUnitId: 'asc' }],
+      take: MAX_BUILD_FILES + 1,
+      select: { codeUnitId: true, sourceCode: true, sourceHash: true, acceptedReviewId: true, relativePath: true },
+    })
+    if (sources.length > MAX_BUILD_FILES || sources.length !== receiptFiles.length) {
+      return NextResponse.json({ receipt: null })
+    }
+    const sourceUnitIds = sources.map((source) => source.codeUnitId)
+    const reviewIds = sources.flatMap((source) => source.acceptedReviewId ? [source.acceptedReviewId] : [])
+    if (new Set(sourceUnitIds).size !== sourceUnitIds.length
+        || sourceUnitIds.some((unitId) => !receiptUnitIds.includes(unitId))) return NextResponse.json({ receipt: null })
+    const reviews = await prisma.reamonCodeReview.findMany({
+      where: { projectId, artifactId: task.artifactId, id: { in: reviewIds }, decision: 'ACCEPTED' },
+      select: { id: true, codeUnitId: true, maintainedSourceHash: true },
+    })
+    const unitsById = new Map(units.map((unit) => [unit.id, unit]))
+    const sourcesById = new Map(sources.map((source) => [source.codeUnitId, source]))
+    const reviewsById = new Map(reviews.map((review) => [review.id, review]))
+    const receiptFilesById = new Map(receiptFiles.map((file) => [file.codeUnitId as string, file]))
+    for (const file of receiptFiles) {
+      const unitId = file.codeUnitId as string
+      const reviewId = file.acceptedReviewId as string
+      const source = sourcesById.get(unitId)
+      const review = reviewsById.get(reviewId)
+      if (!unitsById.has(unitId) || !csharpLanguage(plainObject(unitsById.get(unitId)?.attributes).language)
+          || !source || source.acceptedReviewId !== reviewId || source.relativePath !== file.relativePath
+          || !source.sourceHash || source.sourceHash !== file.sourceSha256 || sha256(source.sourceCode) !== file.sourceSha256
+          || !review || review.codeUnitId !== unitId || review.maintainedSourceHash !== file.sourceSha256) {
+        return NextResponse.json({ receipt: null })
+      }
+    }
+    const currentProjectHash = projectSourceSetHash(sources.map((source) => ({
+      relativePath: source.relativePath,
+      sourceHash: source.sourceHash ?? '',
+    })))
+    const sourceSetMatches = sources.every((source) => {
+      const file = receiptFilesById.get(source.codeUnitId)
+      return !!file && file.acceptedReviewId === source.acceptedReviewId
+        && file.relativePath === source.relativePath && file.sourceSha256 === source.sourceHash
+    })
+    if (!sourceSetMatches || currentProjectHash !== receipt.sourceSha256) return NextResponse.json({ receipt: null })
+    if (stored.stableKey !== `csharp-build:${task.id}:${currentProjectHash}`) {
+      return NextResponse.json({ receipt: null })
+    }
+
+    return NextResponse.json({ receipt })
+  } catch (error) {
+    console.error('C# project build receipt lookup failed:', error)
+    return NextResponse.json({ error: 'The C# project build receipt could not be loaded.' }, { status: 500 })
+  }
 }
 
 export async function POST(request: Request, { params }: RouteParams) {
@@ -195,7 +316,11 @@ export async function POST(request: Request, { params }: RouteParams) {
         sourceSha256: source.sourceHash,
       })),
     }
-    const stableKey = `csharp-build:${task.id}:${result.source_sha256}`
+    const expectedProjectHash = projectSourceSetHash(expectedFiles)
+    if (result.source_sha256 !== expectedProjectHash) {
+      return NextResponse.json({ error: 'The project compiler returned a receipt hash that does not match the accepted source set.' }, { status: 503 })
+    }
+    const stableKey = `csharp-build:${task.id}:${expectedProjectHash}`
     await prisma.reamonObservation.upsert({
       where: { projectId_source_stableKey: { projectId, source: BUILD_SOURCE, stableKey } },
       create: {
@@ -205,7 +330,7 @@ export async function POST(request: Request, { params }: RouteParams) {
         kind: 'build_evidence',
         type: 'project_build_receipt',
         stableKey,
-        canonicalKey: `artifact:${task.artifactId}:task:${task.id}:csharp-build:${result.source_sha256}`,
+        canonicalKey: `artifact:${task.artifactId}:task:${task.id}:csharp-build:${expectedProjectHash}`,
         label: `C# project build ${result.validation_status}`,
         source: BUILD_SOURCE,
         attributes: receipt as unknown as Prisma.InputJsonValue,

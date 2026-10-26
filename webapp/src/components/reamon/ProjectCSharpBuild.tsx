@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 interface ProjectBuildReceipt {
   sourceSha256: string
@@ -19,8 +19,27 @@ export function ProjectCSharpBuild({ projectId, taskId, className }: {
   const [building, setBuilding] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [receipt, setReceipt] = useState<ProjectBuildReceipt | null>(null)
+  const buildStarted = useRef(false)
+
+  useEffect(() => {
+    let ignore = false
+    buildStarted.current = false
+    setReceipt(null)
+    setError(null)
+    void fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/maintained/project-build?taskId=${encodeURIComponent(taskId)}`)
+      .then(async (response) => {
+        const payload = await response.json().catch(() => null) as { error?: unknown; receipt?: ProjectBuildReceipt | null } | null
+        if (!response.ok) throw new Error(typeof payload?.error === 'string' ? payload.error : 'The saved C# project build receipt could not be loaded.')
+        if (!ignore && !buildStarted.current) setReceipt(payload?.receipt ?? null)
+      })
+      .catch((loadError) => {
+        if (!ignore && !buildStarted.current) setError(loadError instanceof Error ? loadError.message : 'The saved C# project build receipt could not be loaded.')
+      })
+    return () => { ignore = true }
+  }, [projectId, taskId])
 
   async function buildProject() {
+    buildStarted.current = true
     setBuilding(true)
     setError(null)
     setReceipt(null)

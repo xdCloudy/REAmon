@@ -10,7 +10,7 @@ afterEach(() => {
 
 describe('ProjectCSharpBuild', () => {
   test('builds the selected run and displays a hash-bound receipt', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
+    const fetchMock = vi.fn().mockResolvedValueOnce({ ok: true, json: async () => ({ receipt: null }) }).mockResolvedValue({
       ok: true,
       json: async () => ({ receipt: {
         sourceSha256: 'a'.repeat(64),
@@ -37,7 +37,7 @@ describe('ProjectCSharpBuild', () => {
   })
 
   test('keeps compiler failures distinct from request errors', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce({ ok: true, json: async () => ({ receipt: null }) }).mockResolvedValue({
       ok: true,
       json: async () => ({ receipt: {
         sourceSha256: 'a'.repeat(64),
@@ -54,5 +54,22 @@ describe('ProjectCSharpBuild', () => {
 
     expect(await screen.findByRole('status')).toHaveTextContent('Project build failed · 1 file')
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  test('restores a saved receipt for the selected run', async () => {
+    const receipt = {
+      sourceSha256: 'e'.repeat(64),
+      validationStatus: 'PASSED' as const,
+      validationMethod: 'roslyn-csharp-project-4.11.0-compile',
+      validationMessage: 'Compiled without executing.',
+      compiledSha256: 'f'.repeat(64),
+      files: [{ relativePath: 'Core/Pair.cs', sourceSha256: 'a'.repeat(64), acceptedReviewId: 'review-1' }],
+    }
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ receipt }) })
+    vi.stubGlobal('fetch', fetchMock)
+    render(<ProjectCSharpBuild projectId="project 1" taskId="task 1" />)
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Project build passed · 1 file · receipt eeeeeeeeeeee')
+    expect(fetchMock).toHaveBeenCalledWith('/api/projects/project%201/visualizer/maintained/project-build?taskId=task%201')
   })
 })

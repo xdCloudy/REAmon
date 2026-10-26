@@ -9,6 +9,7 @@ const h = vi.hoisted(() => ({
   selection: vi.fn(),
   task: vi.fn(),
   observations: vi.fn(),
+  findReceipt: vi.fn(),
   sources: vi.fn(),
   reviews: vi.fn(),
   receipt: vi.fn(),
@@ -17,7 +18,7 @@ const h = vi.hoisted(() => ({
 
 vi.mock('@/lib/prisma', () => ({ default: {
   task: { findFirst: h.task },
-  reamonObservation: { findMany: h.observations, upsert: h.receipt },
+  reamonObservation: { findMany: h.observations, findFirst: h.findReceipt, upsert: h.receipt },
   reamonMaintainedSource: { findMany: h.sources },
   reamonCodeReview: { findMany: h.reviews },
 } }))
@@ -25,12 +26,12 @@ vi.mock('@/lib/access', () => ({ requireEffectiveUser: h.user, requireProjectAcc
 vi.mock('@/lib/reamon/inventory-query', () => ({ getActiveWorkspaceImportSelection: h.selection }))
 vi.mock('@/lib/agentFetch', () => ({ agentFetch: h.agentFetch }))
 
-import { POST } from './route'
+import { GET, POST } from './route'
 
 const params = { params: Promise.resolve({ id: 'project-1' }) }
 const sourceCode = 'namespace Sample; public class Pair { public static int Sum(int left, int right) => left + right; }\n'
 const sourceHash = createHash('sha256').update(sourceCode).digest('hex')
-const receiptHash = 'a'.repeat(64)
+const receiptHash = createHash('sha256').update('Core/Pair.cs').update('\0').update(sourceHash).update('\n').digest('hex')
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -44,6 +45,7 @@ beforeEach(() => {
   }])
   h.reviews.mockResolvedValue([{ id: 'review-1', codeUnitId: 'unit-1', maintainedSourceHash: sourceHash }])
   h.receipt.mockResolvedValue({ id: 'receipt-observation-1' })
+  h.findReceipt.mockResolvedValue(null)
   h.agentFetch.mockResolvedValue(new Response(JSON.stringify({
     source_sha256: receiptHash,
     validation_status: 'PASSED',
@@ -99,5 +101,63 @@ describe('POST /api/projects/[id]/visualizer/maintained/build', () => {
 
     expect(response.status).toBe(401)
     expect(h.task).not.toHaveBeenCalled()
+  })
+})
+
+describe('GET /api/projects/[id]/visualizer/maintained/project-build', () => {
+  it('returns a persisted receipt only while its accepted sources still match', async () => {
+    const savedReceipt = {
+      version: 'reamon-csharp-project-build-v1', taskId: 'task-1', artifactId: 'artifact-1',
+      sourceSha256: receiptHash, validationStatus: 'PASSED',
+      files: [{ codeUnitId: 'unit-1', acceptedReviewId: 'review-1', relativePath: 'Core/Pair.cs', sourceSha256: sourceHash }],
+    }
+    h.findReceipt.mockResolvedValue({ stableKey: `csharp-build:task-1:${receiptHash}`, attributes: savedReceipt })
+
+    const response = await GET(new Request('http://localhost?taskId=task-1'), params)
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ receipt: savedReceipt })
+    expect(h.sources).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ codeUnitId: { in: ['unit-1'] } }) }))
+  })
+
+  it('hides receipts after their accepted source changes', async () => {
+    h.findReceipt.mockResolvedValue({
+      stableKey: `csharp-build:task-1:${receiptHash}`,
+      attributes: {
+        version: 'reamon-csharp-project-build-v1', taskId: 'task-1', artifactId: 'artifact-1',
+        sourceSha256: receiptHash, validationStatus: 'PASSED',
+        files: [{ codeUnitId: 'unit-1', acceptedReviewId: 'review-1', relativePath: 'Core/Pair.cs', sourceSha256: sourceHash }],
+      },
+    })
+    h.sources.mockResolvedValue([{ codeUnitId: 'unit-1', sourceCode: 'edited', sourceHash, acceptedReviewId: 'review-1', relativePath: 'Core/Pair.cs' }])
+
+    const response = await GET(new Request('http://localhost?taskId=task-1'), params)
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ receipt: null })
+  })
+
+  it('hides a receipt after another C# source is accepted into the project', async () => {
+    h.observations.mockResolvedValue([
+      { id: 'unit-1', attributes: { language: 'C#' } },
+      { id: 'unit-2', attributes: { language: 'C#' } },
+    ])
+    h.sources.mockResolvedValue([
+      { codeUnitId: 'unit-1', sourceCode, sourceHash, acceptedReviewId: 'review-1', relativePath: 'Core/Pair.cs' },
+      { codeUnitId: 'unit-2', sourceCode, sourceHash, acceptedReviewId: 'review-2', relativePath: 'Core/Extra.cs' },
+    ])
+    h.findReceipt.mockResolvedValue({
+      stableKey: `csharp-build:task-1:${receiptHash}`,
+      attributes: {
+        version: 'reamon-csharp-project-build-v1', taskId: 'task-1', artifactId: 'artifact-1',
+        sourceSha256: receiptHash, validationStatus: 'PASSED',
+        files: [{ codeUnitId: 'unit-1', acceptedReviewId: 'review-1', relativePath: 'Core/Pair.cs', sourceSha256: sourceHash }],
+      },
+    })
+
+    const response = await GET(new Request('http://localhost?taskId=task-1'), params)
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ receipt: null })
   })
 })
