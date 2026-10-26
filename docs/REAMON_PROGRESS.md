@@ -1,6 +1,6 @@
 # REAmon product progress
 
-Assessment date: 2026-10-26 · Source: pushed commit `a2c6f43` · Weighted estimate: **59.6%**
+Assessment date: 2026-10-26 · Source: pushed commit `1011915` · Weighted estimate: **59.7%**
 
 This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.
 
@@ -8,7 +8,7 @@ Quality run [40247230850](https://github.com/xdCloudy/REAmon/actions/runs/402472
 
 | Workstream | Goal weight | Estimated complete | Weighted points |
 | --- | ---: | ---: | ---: |
-| Core analysis and visualizer workflow | 16% | 78% | 12.48 pts |
+| Core analysis and visualizer workflow | 16% | 79% | 12.64 pts |
 | Database-grounded project memory and provenance | 16% | 73% | 11.68 pts |
 | Major-language and format decompilation fluency | 24% | 35% | 8.40 pts |
 | Maintainable editing, review, and export | 12% | 44% | 5.28 pts |
@@ -19,9 +19,9 @@ Quality run [40247230850](https://github.com/xdCloudy/REAmon/actions/runs/402472
 
 ### Core analysis and visualizer workflow
 
-**Current evidence:** Imports, provider execution, database-backed code units, source navigation, and a multi-provider visualizer are established across several language and binary workflows. A worker-run SLB2 inspection of the 1.26 GB PS5 QA artifact completed and persisted two bounded container facts. The 65,195-class QA APK completed all 10 DEX files in an isolated run in 6,924 seconds: 65,190 Java units were returned and all 65,190 were copied to derived storage (183,388,129 bytes). The 80,000-unit response cap did not truncate class output; five classes remained unreconstructed, and method evidence remains capped at 10,000. Failed classes now retain bounded DEX/index/descriptor/reason evidence, with a bounded descriptor-only lookup for timeout and memory-killed classes; a real QA APK class lookup passed.
+**Current evidence:** Imports, provider execution, database-backed code units, source navigation, and a multi-provider visualizer are established across several language and binary workflows. A worker-run SLB2 inspection of the 1.26 GB PS5 QA artifact completed and persisted two bounded container facts. The 65,195-class QA APK completed all 10 DEX files in an isolated run in 6,924 seconds: 65,190 Java units were returned and all 65,190 were copied to derived storage (183,388,129 bytes). The 80,000-unit response cap did not truncate class output; five classes remained unreconstructed, and method evidence remains capped at 10,000. Failed classes now retain bounded DEX/index/descriptor/reason evidence, with a bounded descriptor-only lookup for timeout and memory-killed classes; a real QA APK class lookup passed. On 2026-10-26, the DEX provider emitted stable artifact-scoped facts for failed classes, and the visualizer presents up to 100 validated identities with reasons. Focused provider, API, and component checks passed (44), with TypeScript and ESLint clean. Full database ingestion and AI retrieval remain unverified.
 
-**Remaining:** Persist and browse all returned sources and failure details through the project database/visualizer; add method pagination, derived-storage quotas, and compare source fidelity against JADX and bytecode evidence.
+**Remaining:** Persist and retrieve failure facts through project database and AI context; browse all 65,190 Java units through the database and visualizer; add method pagination and derived-storage quotas; compare source fidelity against JADX and bytecode evidence.
 
 ### Database-grounded project memory and provenance
 
