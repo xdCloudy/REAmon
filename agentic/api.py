@@ -7156,6 +7156,32 @@ async def kali_exec_cancel(job_id: str, project_id: str = Query(...)):
 _KALI_TERMINAL_WS_URL = os.environ.get("KALI_TERMINAL_WS_URL", "ws://kali-sandbox:8016")
 
 
+def _kali_terminal_identity_frame(claims: dict) -> str:
+    """Serialize the tenant identity authenticated by the WebSocket ticket."""
+    return json.dumps({
+        "type": "init",
+        "user_id": str(claims["sub"]),
+        "project_id": str(claims["pid"]),
+        "session_id": str(claims["sid"]),
+    })
+
+
+def _is_kali_terminal_identity_frame(data: Any) -> bool:
+    """Identify browser init frames so they cannot replace ticket identity."""
+    if isinstance(data, bytes):
+        try:
+            data = data.decode("utf-8")
+        except UnicodeDecodeError:
+            return False
+    if not isinstance(data, str):
+        return False
+    try:
+        message = json.loads(data)
+    except (TypeError, json.JSONDecodeError):
+        return False
+    return isinstance(message, dict) and message.get("type") == "init"
+
+
 @app.websocket("/ws/kali-terminal")
 async def kali_terminal_proxy(websocket: WebSocket):
     """
@@ -7201,15 +7227,20 @@ async def kali_terminal_proxy(websocket: WebSocket):
             ping_timeout=60,
             max_size=2**20,
         ) as kali_ws:
+            # The terminal server consumes its first frame as shell identity.
+            # Send the verified ticket claims before relaying any browser data.
+            await kali_ws.send(_kali_terminal_identity_frame(claims))
 
             async def browser_to_kali():
                 try:
                     while True:
                         data = await websocket.receive()
                         if "text" in data:
-                            await kali_ws.send(data["text"])
+                            if not _is_kali_terminal_identity_frame(data["text"]):
+                                await kali_ws.send(data["text"])
                         elif "bytes" in data:
-                            await kali_ws.send(data["bytes"])
+                            if not _is_kali_terminal_identity_frame(data["bytes"]):
+                                await kali_ws.send(data["bytes"])
                 except Exception as e:
                     logger.debug("Browser→Kali stream ended: %s", e)
 

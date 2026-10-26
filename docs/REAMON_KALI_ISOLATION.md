@@ -31,6 +31,12 @@ The focused agent Docker regression verifies the unscoped route stays absent and
 the workspace download route remains protected by master-key authentication (2
 tests passed on 2026-10-25).
 
+The terminal WebSocket proxy now passes ticket-verified user, project, and session
+claims to Kali as its first frame and discards browser-supplied `init` frames. Three
+focused Docker tests cover claim serialization, forged-frame detection, and the
+proxy behavior. This prevents the browser from selecting another shell identity,
+but each terminal shell still runs in the shared Kali container.
+
 ## Decision
 
 Run every arbitrary-code surface in a project-scoped sandbox worker with its own
