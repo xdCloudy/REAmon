@@ -15,13 +15,17 @@ those running services, so local deployment acceptance remains open.
 
 ## Current deployment update (2026-10-26)
 
-Broker admission now has a source-level cross-process lock backed by a named
-Docker volume. Generic Docker creates and signed project/terminal workers use
-the same POSIX `flock` while checking capacity and creating containers. The
-Compose model validates and the broker image builds, but the active local broker
-was not replaced: Compose could not reconcile a stale network that still has
-webapp and Neo4j endpoints. Multi-process contention and the mounted-volume path
-remain unverified deployment gates.
+Broker admission has a cross-process lock backed by a named Docker volume.
+Generic Docker creates and signed project/terminal workers use the same POSIX
+`flock` while checking capacity and creating containers. The updated broker is
+deployed and healthy with the lock volume mounted. Its Docker unit section
+passes 50 tests across six files, including regressions that start separate
+processes and confirm they serialize on the shared lock file, and that cancel a
+waiting acquisition without leaking the lock. A live smoke against the mounted
+named volume also confirmed separate-process serialization. The deployment
+used a temporary network overlay because the active stack has legacy network
+names. End-to-end quota contention across separate broker instances remains an
+acceptance gate.
 
 The active `redamon-kali` service was recreated from the current image. Its
 shared Python environment passes `pip check` with no broken requirements, and

@@ -4,8 +4,11 @@ import base64
 import hashlib
 import json
 import os
+import subprocess
 import sys
+import threading
 import tempfile
+import time
 import unittest
 from urllib.parse import parse_qs, urlsplit
 from unittest import mock
@@ -13,6 +16,101 @@ from unittest import mock
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import broker
 import project_worker as worker
+
+
+class SharedAdmissionLockTests(unittest.TestCase):
+    def test_separate_processes_serialize_on_the_shared_lock_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            lock_path = os.path.join(directory, "admission.lock")
+            events_path = os.path.join(directory, "events.txt")
+            child = "\n".join((
+                "import asyncio, sys, time",
+                "from admission_lock import admission_lock",
+                "async def main():",
+                "    name, lock_path, events_path = sys.argv[1:]",
+                "    async with admission_lock(lock_path):",
+                "        with open(events_path, 'a', encoding='utf-8') as events:",
+                "            events.write(name + ':enter\\n'); events.flush()",
+                "        time.sleep(0.25)",
+                "        with open(events_path, 'a', encoding='utf-8') as events:",
+                "            events.write(name + ':leave\\n'); events.flush()",
+                "asyncio.run(main())",
+            ))
+            first = subprocess.Popen(
+                [sys.executable, "-c", child, "first", lock_path, events_path],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            )
+            second = None
+            try:
+                deadline = time.monotonic() + 5
+                while time.monotonic() < deadline:
+                    if os.path.exists(events_path):
+                        with open(events_path, encoding="utf-8") as events:
+                            if "first:enter\n" in events.read():
+                                break
+                    if first.poll() is not None:
+                        self.fail(f"first lock process exited early: {first.stderr.read()}")
+                    time.sleep(0.01)
+                else:
+                    self.fail("first process did not acquire the shared lock")
+
+                second = subprocess.Popen(
+                    [sys.executable, "-c", child, "second", lock_path, events_path],
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                )
+                first_out, first_err = first.communicate(timeout=10)
+                second_out, second_err = second.communicate(timeout=10)
+                self.assertEqual(first.returncode, 0, first_err or first_out)
+                self.assertEqual(second.returncode, 0, second_err or second_out)
+                with open(events_path, encoding="utf-8") as events:
+                    self.assertEqual(
+                        events.read().splitlines(),
+                        ["first:enter", "first:leave", "second:enter", "second:leave"],
+                    )
+            finally:
+                for process in (first, second):
+                    if process is not None and process.poll() is None:
+                        process.kill()
+                        process.wait(timeout=5)
+
+
+class SharedAdmissionLockCancellationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_cancelling_a_waiter_does_not_leak_the_lock(self):
+        import admission_lock as lock_module
+
+        with tempfile.TemporaryDirectory() as directory:
+            lock_path = os.path.join(directory, "admission.lock")
+            held = asyncio.Event()
+            release = asyncio.Event()
+            acquire_started = threading.Event()
+            acquire = lock_module._acquire
+
+            def observe_acquire(path):
+                acquire_started.set()
+                return acquire(path)
+
+            async def hold_lock():
+                async with lock_module.admission_lock(lock_path):
+                    held.set()
+                    await release.wait()
+
+            holder = asyncio.create_task(hold_lock())
+            await asyncio.wait_for(held.wait(), timeout=2)
+            acquire_started.clear()
+            with mock.patch.object(lock_module, "_acquire", side_effect=observe_acquire):
+                waiter = asyncio.create_task(hold_lock())
+                self.assertTrue(await asyncio.to_thread(acquire_started.wait, 2))
+                waiter.cancel()
+                release.set()
+                await holder
+                with self.assertRaises(asyncio.CancelledError):
+                    await waiter
+
+            async def acquire_once():
+                async with lock_module.admission_lock(lock_path):
+                    return True
+
+            self.assertTrue(await asyncio.wait_for(acquire_once(), timeout=2))
 
 
 def log_frame(stream: int, data: bytes) -> bytes:
