@@ -38,7 +38,7 @@ The terminal WebSocket proxy now passes ticket-verified user, project, and sessi
 claims to Kali as its first frame and discards browser-supplied `init` frames. Three
 focused Docker tests cover claim serialization, forged-frame detection, and the
 proxy behavior. This prevents the browser from selecting another shell identity,
-but each terminal shell still runs in the shared Kali container.
+but terminal shells still use the shared Kali container and filesystem.
 
 ## Implementation seams verified
 
@@ -82,18 +82,24 @@ override allowlist for its signed context and service endpoints. All four
 arbitrary-code routes cap captured stdout and stderr at 2 MiB per stream, drain
 excess output without retaining it, and terminate the request's process group on
 completion or timeout so background descendants cannot outlive the request.
-Custom Playwright
-scripts now use the same process runner; their source is made readable to the
+The terminal PTY child clears supplementary groups and drops to UID/GID 65534
+before it executes Bash. Its environment is allowlisted and omits the master,
+MCP, tunnel, and scanner keys. This also prevents a shell user from changing
+body-supplied tenant IDs on `/graph/exec` while presenting the scanner key; the
+`redagraph` CLI must wait for server-enforced tenant scope. A signed terminal
+context has not been wired into the graph endpoint. Custom Playwright scripts now use the same
+process runner; their source is made readable to the
 unprivileged child, and output filtering remains in place. A Docker smoke
 confirmed a custom script sees UID 65534 and no `INTERNAL_API_KEY`. A
 delimiter-like source line is covered to ensure it remains code rather than shell
-syntax. Sixty focused Docker tests pass for credential filtering, unprivileged
-execution, bounded output, process-group cleanup, unique paths, proxy context
-handling, Playwright capture wiring, and wrapper formatting. These controls
+syntax. Twenty-three focused Docker tests pass for terminal privilege dropping,
+credential filtering, unprivileged execution, bounded output, process-group
+cleanup, unique paths, proxy context handling, Playwright capture wiring, and
+wrapper formatting. These controls
 reduce process privilege and resource abuse but do not add project boundaries.
-Context verification, custom Playwright project scoping, terminal isolation, and
-project-scoped `/tmp` and workspace storage remain open; the full project-worker
-finding is not closed.
+Context verification, custom Playwright project scoping, terminal project
+scoping, and project-scoped `/tmp` and workspace storage remain open; the full
+project-worker finding is not closed.
 
 The live local deployment was checked on 2026-10-26: both the localhost and LAN
 readiness endpoints returned `ready` with database and artifact checks `ok`.
