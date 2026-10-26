@@ -1,22 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { agentFetch } from '@/lib/agentFetch'
-import { requireAdmin } from '@/lib/session'
+import { guardProjectStrict } from '@/lib/access'
 
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = await requireAdmin()
-  if (auth instanceof NextResponse) return auth
+  const projectId = request.nextUrl.searchParams.get('projectId') || ''
+  const denied = await guardProjectStrict(projectId)
+  if (denied) return denied
 
   const { id } = await params
   try {
     const body = await request.json()
-    const resp = await agentFetch(`/sessions/${id}/interact`, {
+    const resp = await agentFetch(`/sessions/${id}/interact?project_id=${encodeURIComponent(projectId)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      body: JSON.stringify({ ...body, project_id: projectId }),
     })
     if (!resp.ok) {
       const text = await resp.text()

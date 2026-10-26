@@ -4862,11 +4862,12 @@ async def get_tunnel_status():
 
 
 @app.get("/sessions", tags=["Sessions"], dependencies=_AGENT_REST_AUTH)
-async def get_sessions():
-    """List all active Metasploit sessions, background jobs, and non-MSF sessions."""
+async def get_sessions(project_id: Optional[str] = Query(None)):
+    """List active sessions, optionally scoped to one project."""
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(f"{_SESSION_BASE}/sessions", headers=internal_mcp_headers())
+            params = {"project_id": project_id} if project_id else None
+            resp = await client.get(f"{_SESSION_BASE}/sessions", params=params, headers=internal_mcp_headers())
             return JSONResponse(content=resp.json(), status_code=resp.status_code)
     except httpx.TimeoutException:
         return JSONResponse(content={"error": "Session manager timeout"}, status_code=504)
@@ -4876,12 +4877,12 @@ async def get_sessions():
 
 
 @app.post("/sessions/{session_id}/interact", tags=["Sessions"], dependencies=_AGENT_REST_AUTH)
-async def interact_session(session_id: int, body: dict):
+async def interact_session(session_id: int, body: dict, project_id: str = Query(...)):
     """Send a command to a specific Metasploit session."""
     try:
         async with httpx.AsyncClient(timeout=40.0) as client:
             resp = await client.post(
-                f"{_SESSION_BASE}/sessions/{session_id}/interact", json=body,
+                f"{_SESSION_BASE}/sessions/{session_id}/interact", json={**body, "project_id": project_id},
                 headers=internal_mcp_headers(),
             )
             return JSONResponse(content=resp.json(), status_code=resp.status_code)
@@ -4893,12 +4894,13 @@ async def interact_session(session_id: int, body: dict):
 
 
 @app.post("/sessions/{session_id}/kill", tags=["Sessions"], dependencies=_AGENT_REST_AUTH)
-async def kill_session(session_id: int):
+async def kill_session(session_id: int, project_id: str = Query(...)):
     """Kill a specific Metasploit session."""
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.post(
                 f"{_SESSION_BASE}/sessions/{session_id}/kill",
+                json={"project_id": project_id},
                 headers=internal_mcp_headers(),
             )
             return JSONResponse(content=resp.json(), status_code=resp.status_code)

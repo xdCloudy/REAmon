@@ -554,6 +554,7 @@ export default function GraphPage() {
 
   // Active sessions hook - polls kali-sandbox session list
   const activeSessions = useActiveSessions({
+    projectId: projectId || '',
     enabled: true,
     fastPoll: activeView === 'sessions',
   })

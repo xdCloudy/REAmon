@@ -23,9 +23,11 @@ import os
 import re
 import json
 import atexit
+from urllib.parse import parse_qs, urlparse
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from typing import Optional, Set, List, Dict, Tuple
 from _progress_auth import AuthenticatedProgressHandler
+from session_scope import filter_sessions_for_project, session_belongs_to_project
 
 # Server configuration
 SERVER_NAME = "metasploit"
@@ -76,7 +78,10 @@ class PersistentMsfConsole:
         self._job_details: List[dict] = []
         self._detail_cache_time: float = 0
         self._detail_lock = threading.Lock()
-        self._chat_session_map: Dict[int, str] = {}
+        # Ownership metadata is registered by the trusted agent orchestrator
+        # when it observes a session-opened event. Sessions without an entry
+        # (including pre-upgrade sessions) remain unavailable to project users.
+        self._chat_session_map: Dict[int, dict] = {}
         self._non_msf_sessions: Dict[str, dict] = {}
         self._detail_thread_started = False
 
@@ -529,6 +534,9 @@ class PersistentMsfConsole:
                 continue
 
             sid = int(parts[0])
+            ownership = self._chat_session_map.get(sid)
+            if not isinstance(ownership, dict):
+                ownership = {}
 
             # Determine fields based on part count
             # 3 parts: Id, Type, Connection (no Info)
@@ -564,7 +572,8 @@ class PersistentMsfConsole:
                     "info": stripped,
                     "connection": "",
                     "target_ip": "",
-                    "chat_session_id": self._chat_session_map.get(sid),
+                    "chat_session_id": ownership.get("chat_session_id"),
+                    "project_id": ownership.get("project_id"),
                 })
                 continue
 
@@ -582,7 +591,8 @@ class PersistentMsfConsole:
                 "info": info,
                 "connection": connection,
                 "target_ip": target_ip,
-                "chat_session_id": self._chat_session_map.get(sid),
+                "chat_session_id": ownership.get("chat_session_id"),
+                "project_id": ownership.get("project_id"),
             }
             sessions.append(session)
 
@@ -1151,6 +1161,9 @@ class SessionProgressHandler(AuthenticatedProgressHandler, BaseHTTPRequestHandle
             try:
                 msf = get_msf_console()
                 data = msf.get_sessions_data()
+                project_id = parse_qs(urlparse(self.path).query).get('project_id', [None])[0]
+                if project_id:
+                    data = filter_sessions_for_project(data, project_id)
                 self._send_json(200, data)
             except Exception as e:
                 self._send_json(500, {"error": str(e)})
@@ -1171,6 +1184,10 @@ class SessionProgressHandler(AuthenticatedProgressHandler, BaseHTTPRequestHandle
             msf = get_msf_console()
 
             if resource == 'sessions' and res_id is not None and action == 'interact':
+                project_id = str(body.get('project_id') or '')
+                if not session_belongs_to_project(msf._chat_session_map, res_id, project_id):
+                    self._send_json(404, {"error": "Session not found"})
+                    return
                 command = body.get("command", "")
                 if not command:
                     self._send_json(400, {"error": "Missing 'command' in request body"})
@@ -1179,6 +1196,10 @@ class SessionProgressHandler(AuthenticatedProgressHandler, BaseHTTPRequestHandle
                 self._send_json(200, result)
 
             elif resource == 'sessions' and res_id is not None and action == 'kill':
+                project_id = str(body.get('project_id') or '')
+                if not session_belongs_to_project(msf._chat_session_map, res_id, project_id):
+                    self._send_json(404, {"error": "Session not found"})
+                    return
                 result = msf.kill_session(res_id)
                 self._send_json(200, result)
 
@@ -1189,14 +1210,23 @@ class SessionProgressHandler(AuthenticatedProgressHandler, BaseHTTPRequestHandle
             elif resource == 'session-chat-map':
                 msf_sid = body.get("msf_session_id")
                 chat_sid = body.get("chat_session_id")
-                if msf_sid is not None and chat_sid:
-                    msf._chat_session_map[int(msf_sid)] = str(chat_sid)
+                project_id = body.get("project_id")
+                user_id = body.get("user_id")
+                if msf_sid is not None and chat_sid and project_id and user_id:
+                    msf._chat_session_map[int(msf_sid)] = {
+                        "chat_session_id": str(chat_sid),
+                        "project_id": str(project_id),
+                        "user_id": str(user_id),
+                    }
                     self._send_json(200, {"ok": True})
                 else:
-                    self._send_json(400, {"error": "Missing msf_session_id or chat_session_id"})
+                    self._send_json(400, {"error": "Missing session ownership metadata"})
 
             elif resource == 'non-msf-sessions':
                 sid = f"raw-{int(time.time()*1000)}"
+                if not body.get('project_id') or not body.get('user_id'):
+                    self._send_json(400, {"error": "Missing session ownership metadata"})
+                    return
                 body["id"] = sid
                 msf._non_msf_sessions[sid] = body
                 self._send_json(200, {"ok": True, "id": sid})

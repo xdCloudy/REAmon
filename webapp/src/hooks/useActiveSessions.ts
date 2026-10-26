@@ -1,9 +1,10 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react'
 import type { MsfSession, MsfJob, NonMsfSession, SessionInteractResult } from '@/lib/websocket-types'
 
 interface UseActiveSessionsOptions {
+  projectId?: string
   enabled?: boolean
   fastPoll?: boolean // 3s when true, 10s when false
 }
@@ -26,6 +27,7 @@ const FAST_INTERVAL = 3000
 const SLOW_INTERVAL = 10000
 
 export function useActiveSessions({
+  projectId = '',
   enabled = true,
   fastPoll = false,
 }: UseActiveSessionsOptions = {}): UseActiveSessionsReturn {
@@ -40,9 +42,19 @@ export function useActiveSessions({
   const killedSessionsRef = useRef<Set<number>>(new Set())
   const killedJobsRef = useRef<Set<number>>(new Set())
 
+  useLayoutEffect(() => {
+    setSessions([])
+    setJobs([])
+    setNonMsfSessions([])
+    setError(null)
+    killedSessionsRef.current.clear()
+    killedJobsRef.current.clear()
+  }, [projectId])
+
   const fetchSessions = useCallback(async () => {
+    if (!projectId) return
     try {
-      const resp = await fetch('/api/agent/sessions', { cache: 'no-store' })
+      const resp = await fetch(`/api/agent/sessions?projectId=${encodeURIComponent(projectId)}`, { cache: 'no-store' })
       if (!resp.ok) {
         throw new Error(`HTTP ${resp.status}`)
       }
@@ -66,11 +78,11 @@ export function useActiveSessions({
       // Don't clear sessions on transient errors - keep showing last known state
       setError(err instanceof Error ? err.message : 'Failed to fetch sessions')
     }
-  }, [])
+  }, [projectId])
 
   const interactWithSession = useCallback(async (sessionId: number, command: string): Promise<SessionInteractResult> => {
     try {
-      const resp = await fetch(`/api/agent/sessions/${sessionId}/interact`, {
+      const resp = await fetch(`/api/agent/sessions/${sessionId}/interact?projectId=${encodeURIComponent(projectId)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ command }),
@@ -82,19 +94,19 @@ export function useActiveSessions({
     } catch (err) {
       return { busy: false, output: `[ERROR] ${err instanceof Error ? err.message : 'Unknown error'}` }
     }
-  }, [])
+  }, [projectId])
 
   const killSession = useCallback(async (sessionId: number) => {
     // Mark as killed immediately so polls don't re-add it
     killedSessionsRef.current.add(sessionId)
     setSessions(prev => prev.filter(s => s.id !== sessionId))
     try {
-      await fetch(`/api/agent/sessions/${sessionId}/kill`, { method: 'POST' })
+      await fetch(`/api/agent/sessions/${sessionId}/kill?projectId=${encodeURIComponent(projectId)}`, { method: 'POST' })
     } catch {
       // Optimistic removal stays - will self-correct if session is still alive
       killedSessionsRef.current.delete(sessionId)
     }
-  }, [])
+  }, [projectId])
 
   const killJob = useCallback(async (jobId: number) => {
     // Mark as killed immediately so polls don't re-add it

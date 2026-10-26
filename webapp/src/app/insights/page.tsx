@@ -103,7 +103,7 @@ export default function InsightsPage() {
   const activity = useActivity(projectId)
   const attackChains = useAttackChains(projectId)
   const pipeline = usePipelineStatus(projectId)
-  const sessions = useActiveSessions()
+  const sessions = useActiveSessions(projectId)
   const triageRisks = useTriageRisks(projectId)
 
   const isAnyLoading = graphOverview.isLoading || vulns.isLoading || surface.isLoading || activity.isLoading

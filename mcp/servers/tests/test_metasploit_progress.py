@@ -10,6 +10,8 @@ Run: python3 -m pytest mcp/servers/tests/test_metasploit_progress.py -q
   or python3 mcp/servers/tests/test_metasploit_progress.py
 """
 import importlib.util
+import io
+import json
 import os
 import sys
 import unittest
@@ -153,6 +155,86 @@ class TestProgressHttpAuthentication(unittest.TestCase):
         get_console.assert_not_called()
         read_body.assert_not_called()
         h.send_response.assert_called_once_with(401)
+
+
+class TestProjectScopedSessions(unittest.TestCase):
+    def setUp(self):
+        os.environ["MCP_AUTH_TOKEN"] = "progress-secret"
+
+    def tearDown(self):
+        os.environ.pop("MCP_AUTH_TOKEN", None)
+
+    def _authorized_handler(self, path, body=None):
+        h = _handler(
+            path=path,
+            headers={"Authorization": "Bearer progress-secret"},
+        )
+        encoded = json.dumps(body or {}).encode()
+        h.headers["Content-Length"] = str(len(encoded))
+        h.rfile = io.BytesIO(encoded)
+        return h
+
+    def test_project_listing_filters_legacy_sessions_and_global_jobs(self):
+        console = mock.Mock()
+        console.get_sessions_data.return_value = {
+            "sessions": [
+                {"id": 1, "project_id": "p1"},
+                {"id": 2, "project_id": "p2"},
+                {"id": 3},
+            ],
+            "non_msf_sessions": [{"id": "n1", "project_id": "p1"}, {"id": "n2"}],
+            "jobs": [{"id": 7}],
+        }
+        h = self._authorized_handler("/sessions?project_id=p1")
+        h._send_json = mock.Mock()
+
+        with mock.patch.object(msf, "get_msf_console", return_value=console):
+            h.do_GET()
+
+        self.assertEqual(h._send_json.call_args.args[0], 200)
+        self.assertEqual(h._send_json.call_args.args[1]["sessions"], [{"id": 1, "project_id": "p1"}])
+        self.assertEqual(h._send_json.call_args.args[1]["non_msf_sessions"], [{"id": "n1", "project_id": "p1"}])
+        self.assertEqual(h._send_json.call_args.args[1]["jobs"], [])
+
+    def test_interaction_rejects_other_project_and_legacy_session(self):
+        for owner in ({"project_id": "p2"}, "legacy-chat-id", None):
+            with self.subTest(owner=owner):
+                console = mock.Mock()
+                if owner is not None:
+                    console._chat_session_map = {4: owner}
+                else:
+                    console._chat_session_map = {}
+                h = self._authorized_handler(
+                    "/sessions/4/interact",
+                    {"project_id": "p1", "command": "whoami"},
+                )
+                h._send_json = mock.Mock()
+
+                with mock.patch.object(msf, "get_msf_console", return_value=console):
+                    h.do_POST()
+
+                h._send_json.assert_called_once_with(404, {"error": "Session not found"})
+                console.interact_session.assert_not_called()
+
+    def test_owned_session_can_be_interacted_with_and_stopped(self):
+        for action in ("interact", "kill"):
+            with self.subTest(action=action):
+                console = mock.Mock()
+                console._chat_session_map = {4: {"project_id": "p1", "chat_session_id": "chat"}}
+                h = self._authorized_handler(
+                    f"/sessions/4/{action}",
+                    {"project_id": "p1", "command": "whoami"},
+                )
+                h._send_json = mock.Mock()
+
+                with mock.patch.object(msf, "get_msf_console", return_value=console):
+                    h.do_POST()
+
+                if action == "interact":
+                    console.interact_session.assert_called_once_with(4, "whoami")
+                else:
+                    console.kill_session.assert_called_once_with(4)
+                self.assertEqual(h._send_json.call_args.args[0], 200)
 
 
 if __name__ == "__main__":

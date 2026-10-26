@@ -293,7 +293,8 @@ async def _execute_single_step(
                 async with httpx.AsyncClient(timeout=5.0) as client:
                     await client.post(
                         f"{session_manager_base}/session-chat-map",
-                        json={"msf_session_id": msf_session_id, "chat_session_id": session_id},
+                        json={"msf_session_id": msf_session_id, "chat_session_id": session_id,
+                              "user_id": user_id, "project_id": project_id},
                         headers=internal_mcp_headers(),
                     )
             except Exception:
@@ -308,7 +309,8 @@ async def _execute_single_step(
                     await client.post(
                         f"{session_manager_base}/non-msf-sessions",
                         json={"type": "listener", "tool": "netcat", "command": cmd,
-                               "chat_session_id": session_id},
+                               "chat_session_id": session_id, "user_id": user_id,
+                               "project_id": project_id},
                         headers=internal_mcp_headers(),
                     )
             except Exception:

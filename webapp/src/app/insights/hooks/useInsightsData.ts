@@ -71,10 +71,11 @@ export function usePipelineStatus(projectId: string | null) {
   })
 }
 
-export function useActiveSessions() {
+export function useActiveSessions(projectId: string | null) {
   return useQuery({
-    queryKey: ['insights', 'sessions'],
-    queryFn: () => fetchJson<SessionsData>('/api/agent/sessions'),
+    queryKey: ['insights', 'sessions', projectId],
+    queryFn: () => fetchJson<SessionsData>(`/api/agent/sessions?projectId=${encodeURIComponent(projectId || '')}`),
+    enabled: !!projectId,
     staleTime: 10_000,
     refetchInterval: 15_000,
   })

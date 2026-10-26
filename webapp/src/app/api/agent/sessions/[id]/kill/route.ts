@@ -1,18 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { agentFetch } from '@/lib/agentFetch'
-import { requireAdmin } from '@/lib/session'
+import { guardProjectStrict } from '@/lib/access'
 
 
 export async function POST(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = await requireAdmin()
-  if (auth instanceof NextResponse) return auth
+  const projectId = _request.nextUrl.searchParams.get('projectId') || ''
+  const denied = await guardProjectStrict(projectId)
+  if (denied) return denied
 
   const { id } = await params
   try {
-    const resp = await agentFetch(`/sessions/${id}/kill`, {
+    const resp = await agentFetch(`/sessions/${id}/kill?project_id=${encodeURIComponent(projectId)}`, {
       method: 'POST',
     })
     if (!resp.ok) {

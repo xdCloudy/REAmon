@@ -199,6 +199,7 @@ class ConfiguredMasterAuthTests(unittest.TestCase):
 
         class UpstreamClient:
             headers_seen = None
+            params_seen = None
 
             async def __aenter__(self):
                 return self
@@ -206,8 +207,9 @@ class ConfiguredMasterAuthTests(unittest.TestCase):
             async def __aexit__(self, *_args):
                 return False
 
-            async def get(self, _url, headers=None):
+            async def get(self, _url, params=None, headers=None):
                 type(self).headers_seen = headers
+                type(self).params_seen = params
                 return UpstreamResponse()
 
         async def get_sessions():
@@ -216,7 +218,8 @@ class ConfiguredMasterAuthTests(unittest.TestCase):
             ) as client:
                 with patch.object(api.httpx, "AsyncClient", return_value=UpstreamClient()):
                     return await client.get(
-                        "/sessions", headers={"x-internal-key": "master-secret"}
+                        "/sessions", params={"project_id": "project-1"},
+                        headers={"x-internal-key": "master-secret"}
                     )
 
         with patch.dict(os.environ, {
@@ -230,6 +233,64 @@ class ConfiguredMasterAuthTests(unittest.TestCase):
             UpstreamClient.headers_seen,
             {"Authorization": "Bearer progress-secret"},
         )
+        self.assertEqual(UpstreamClient.params_seen, {"project_id": "project-1"})
+
+    def test_session_controls_forward_project_scope_to_the_session_manager(self):
+        import httpx
+        import api
+
+        class UpstreamResponse:
+            status_code = 200
+
+            @staticmethod
+            def json():
+                return {"ok": True}
+
+        class UpstreamClient:
+            calls = []
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_args):
+                return False
+
+            async def post(self, url, json=None, headers=None):
+                type(self).calls.append((url, json, headers))
+                return UpstreamResponse()
+
+        async def exercise():
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=api.app), base_url="http://agent.test"
+            ) as client:
+                with patch.object(api.httpx, "AsyncClient", return_value=UpstreamClient()):
+                    interacted = await client.post(
+                        "/sessions/4/interact?project_id=project-1",
+                        json={"command": "whoami"},
+                        headers={"x-internal-key": "master-secret"},
+                    )
+                    killed = await client.post(
+                        "/sessions/4/kill?project_id=project-1",
+                        headers={"x-internal-key": "master-secret"},
+                    )
+            return interacted, killed
+
+        UpstreamClient.calls = []
+        with patch.dict(os.environ, {
+            "INTERNAL_API_KEY": "master-secret",
+            "MCP_AUTH_TOKEN": "progress-secret",
+        }, clear=True):
+            interacted, killed = asyncio.run(exercise())
+
+        self.assertEqual(interacted.status_code, 200)
+        self.assertEqual(killed.status_code, 200)
+        self.assertEqual(UpstreamClient.calls[0][0], f"{api._SESSION_BASE}/sessions/4/interact")
+        self.assertEqual(
+            UpstreamClient.calls[0][1],
+            {"command": "whoami", "project_id": "project-1"},
+        )
+        self.assertEqual(UpstreamClient.calls[1][0], f"{api._SESSION_BASE}/sessions/4/kill")
+        self.assertEqual(UpstreamClient.calls[1][1], {"project_id": "project-1"})
 
 
 if __name__ == "__main__":

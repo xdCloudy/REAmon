@@ -1,14 +1,14 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { agentFetch } from '@/lib/agentFetch'
-import { requireAdmin } from '@/lib/session'
+import { guardProjectStrict } from '@/lib/access'
 
-
-export async function GET() {
-  const auth = await requireAdmin()
-  if (auth instanceof NextResponse) return auth
+export async function GET(request: NextRequest) {
+  const projectId = request.nextUrl.searchParams.get('projectId') || ''
+  const denied = await guardProjectStrict(projectId)
+  if (denied) return denied
 
   try {
-    const resp = await agentFetch(`/sessions`, { cache: 'no-store' })
+    const resp = await agentFetch(`/sessions?project_id=${encodeURIComponent(projectId)}`, { cache: 'no-store' })
     if (!resp.ok) {
       const text = await resp.text()
       return NextResponse.json({ error: text }, { status: resp.status })
