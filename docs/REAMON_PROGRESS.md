@@ -1,6 +1,6 @@
 # REAmon product progress
 
-Assessment date: 2026-10-26 · Source: pushed commit `34d4105` · Weighted estimate: **59.9%**
+Assessment date: 2026-10-26 · Source: pushed commit `1aa8cd2` · Weighted estimate: **60.0%**
 
 This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.
 
@@ -8,7 +8,7 @@ Quality run [40247230850](https://github.com/xdCloudy/REAmon/actions/runs/402472
 
 | Workstream | Goal weight | Estimated complete | Weighted points |
 | --- | ---: | ---: | ---: |
-| Core analysis and visualizer workflow | 16% | 80% | 12.80 pts |
+| Core analysis and visualizer workflow | 16% | 81% | 12.96 pts |
 | Database-grounded project memory and provenance | 16% | 73% | 11.68 pts |
 | Major-language and format decompilation fluency | 24% | 35% | 8.40 pts |
 | Maintainable editing, review, and export | 12% | 44% | 5.28 pts |
@@ -19,7 +19,7 @@ Quality run [40247230850](https://github.com/xdCloudy/REAmon/actions/runs/402472
 
 ### Core analysis and visualizer workflow
 
-**Current evidence:** Imports, provider execution, database-backed code units, source navigation, and a multi-provider visualizer are established across several language and binary workflows. A worker-run SLB2 inspection of the 1.26 GB PS5 QA artifact completed and persisted two bounded container facts. The 65,195-class QA APK completed all 10 DEX files in an isolated run in 6,924 seconds: 65,190 Java units were returned and all 65,190 were copied to derived storage (183,388,129 bytes). The 80,000-unit response cap did not truncate class output; five classes remained unreconstructed, and method evidence remains capped at 10,000. Failed classes now retain bounded DEX/index/descriptor/reason evidence, with a bounded descriptor-only lookup for timeout and memory-killed classes; a real QA APK class lookup passed. On 2026-10-26, the DEX provider emitted stable artifact-scoped facts for failed classes, and the visualizer presents up to 100 validated identities with reasons. The DEX provider now retains discovered and returned method counts and truncation status; task settlement persists class, method, and failure observations; and the visualizer separately shows discovered, returned, and database-indexed method counts. Focused provider, task-executor, API, and component checks pass (59), with TypeScript and ESLint clean. The path is verified with database calls mocked; real-project ingestion and AI retrieval remain unverified.
+**Current evidence:** Imports, provider execution, database-backed code units, source navigation, and a multi-provider visualizer are established across several language and binary workflows. A worker-run SLB2 inspection of the 1.26 GB PS5 QA artifact completed and persisted two bounded container facts. The 65,195-class QA APK completed all 10 DEX files in an isolated run in 6,924 seconds: 65,190 Java units were returned and all 65,190 were copied to derived storage (183,388,129 bytes). The 80,000-unit response cap did not truncate class output; five classes remained unreconstructed, and method evidence remains capped at 10,000. Failed classes now retain bounded DEX/index/descriptor/reason evidence, with a bounded descriptor-only lookup for timeout and memory-killed classes; a real QA APK class lookup passed. On 2026-10-26, the DEX provider emitted stable artifact-scoped facts for failed classes, and the visualizer presents up to 100 validated identities with reasons. The DEX provider now retains discovered and returned method counts and truncation status; task settlement persists class, method, and failure observations; and the visualizer separately shows discovered, returned, and database-indexed method counts. Focused provider, task-executor, API, and component checks pass (59), with TypeScript and ESLint clean. The live QA project has two older completed runs that stored only 500 of 65,195 class identities and no method rows; a fresh run is still needed to verify current database ingestion and AI retrieval. The pinned Rust DEX decompiler Unicode cast-parser panic is fixed with UTF-8 byte indexing, covered by a Rust regression test, and deployed in the healthy LAN analyzer.
 
 **Remaining:** Verify failure facts through real project storage and AI retrieval; ingest and browse all 65,190 units in the project database/visualizer; remove the 10,000-method analyzer cap with bounded paging; enforce derived-storage quotas; compare source fidelity against JADX and bytecode evidence.
 
