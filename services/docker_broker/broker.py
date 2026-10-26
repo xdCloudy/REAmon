@@ -863,6 +863,17 @@ async def handle_worker_client(reader, writer):
 
 
 async def main():
+    from project_worker import reap_orphaned_workers
+
+    try:
+        cleanup = await reap_orphaned_workers()
+        if cleanup is None:
+            _log("startup worker cleanup skipped; Docker could not confirm a single broker instance")
+        else:
+            _log(f"startup cleanup removed {cleanup[0]} orphaned workers and {cleanup[1]} worker networks")
+    except Exception as exc:
+        _log(f"startup worker cleanup failed: {exc}")
+
     # fresh socket
     try:
         os.makedirs(os.path.dirname(LISTEN_SOCK), exist_ok=True)

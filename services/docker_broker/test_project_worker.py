@@ -42,6 +42,66 @@ class ProjectWorkerLogsTests(unittest.TestCase):
         self.assertEqual(stderr, b"123\n[output truncated after 2 MiB]")
 
 class ProjectWorkerRuntimeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_startup_reaper_removes_workers_and_networks_when_single_broker_is_verified(self):
+        calls = []
+
+        async def docker(method, path, body=None, **_kwargs):
+            calls.append((method, path))
+            if method == "GET" and path.startswith("/containers/json?"):
+                if "reamon-docker-broker" in path:
+                    return 200, b'[{"Id":"broker-id"}]'
+                return 200, b'[{"Id":"worker-a"},{"Id":"worker-b"}]'
+            if method == "GET" and path.startswith("/networks?"):
+                return 200, b'[{"Id":"network-a"}]'
+            if method == "DELETE":
+                return 204, b""
+            self.fail(f"Unexpected Docker request: {method} {path}")
+
+        with mock.patch.object(worker, "_docker_request", side_effect=docker):
+            result = await worker.reap_orphaned_workers()
+
+        self.assertEqual(result, (2, 1))
+        self.assertEqual(sum(method == "DELETE" and path.startswith("/containers/") for method, path in calls), 2)
+        self.assertEqual(sum(method == "DELETE" and path.startswith("/networks/") for method, path in calls), 1)
+
+    async def test_startup_reaper_leaves_workers_alone_when_multiple_brokers_exist(self):
+        async def docker(method, path, body=None, **_kwargs):
+            self.assertEqual(method, "GET")
+            self.assertTrue(path.startswith("/containers/json?"))
+            return 200, b'[{"Id":"broker-a"},{"Id":"broker-b"}]'
+
+        with mock.patch.object(worker, "_docker_request", side_effect=docker) as request:
+            result = await worker.reap_orphaned_workers()
+
+        self.assertIsNone(result)
+        request.assert_awaited_once()
+
+    async def test_startup_reaper_fails_closed_when_container_inventory_is_unavailable(self):
+        with mock.patch.object(worker, "_docker_request", return_value=(503, b"")) as request:
+            result = await worker.reap_orphaned_workers()
+
+        self.assertIsNone(result)
+        request.assert_awaited_once()
+
+    async def test_startup_reaper_preflights_networks_before_removing_any_worker(self):
+        calls = []
+
+        async def docker(method, path, body=None, **_kwargs):
+            calls.append((method, path))
+            if method == "GET" and path.startswith("/containers/json?"):
+                if "reamon-docker-broker" in path:
+                    return 200, b'[{"Id":"broker-id"}]'
+                return 200, b'[{"Id":"worker-id"}]'
+            if method == "GET" and path.startswith("/networks?"):
+                return 503, b""
+            self.fail(f"Unexpected Docker mutation after failed inventory: {method} {path}")
+
+        with mock.patch.object(worker, "_docker_request", side_effect=docker):
+            result = await worker.reap_orphaned_workers()
+
+        self.assertIsNone(result)
+        self.assertFalse(any(method == "DELETE" for method, _path in calls))
+
     async def test_networks_are_internal_unless_a_pentest_tool_needs_egress(self):
         bodies = []
 

@@ -22,6 +22,7 @@ AGENT_SCOPE_URL = os.environ.get(
 )
 SCANNER_API_KEY = os.environ.get("SCANNER_API_KEY", "")
 WORKSPACE_CONTAINER = os.environ.get("REAMON_WORKSPACE_CONTAINER", "redamon-agent")
+WORKER_BROKER_CONTAINER = os.environ.get("REAMON_DOCKER_BROKER_CONTAINER", "reamon-docker-broker")
 WORKSPACE_ROOT = os.environ.get("REAMON_WORKSPACE_ROOT", "")
 PROJECT_WORKER_IMAGE = os.environ.get("REAMON_PROJECT_WORKER_IMAGE", "reamon-project-worker:latest")
 PENTEST_WORKER_IMAGE = os.environ.get("REAMON_PENTEST_WORKER_IMAGE", "redamon-kali:latest")
@@ -280,6 +281,64 @@ async def _active_worker_count() -> int | None:
     except (UnicodeDecodeError, json.JSONDecodeError):
         return None
     return len(containers) if isinstance(containers, list) else None
+
+
+async def reap_orphaned_workers() -> tuple[int, int] | None:
+    """Clean broker workers after restart only when this is the sole broker."""
+    from urllib.parse import quote, urlencode
+
+    broker_filters = json.dumps({"name": [f"/{WORKER_BROKER_CONTAINER}"]})
+    status, raw = await _docker_request(
+        "GET", f"/containers/json?all=1&{urlencode({'filters': broker_filters})}",
+    )
+    if status != 200:
+        return None
+    try:
+        brokers = json.loads(raw or b"[]")
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(brokers, list) or len(brokers) != 1:
+        return None
+
+    worker_filters = json.dumps({"label": ["reamon.project-worker=1"]})
+    status, raw = await _docker_request(
+        "GET", f"/containers/json?all=1&{urlencode({'filters': worker_filters})}",
+    )
+    if status != 200:
+        return None
+    try:
+        workers = json.loads(raw or b"[]")
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(workers, list) or any(not isinstance(item, dict)
+                                            or not isinstance(item.get("Id"), str) for item in workers):
+        return None
+
+    network_filters = json.dumps({"label": ["reamon.project-worker=1"]})
+    status, raw = await _docker_request(
+        "GET", f"/networks?{urlencode({'filters': network_filters})}",
+    )
+    if status != 200:
+        return None
+    try:
+        networks = json.loads(raw or b"[]")
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(networks, list) or any(not isinstance(item, dict)
+                                             or not isinstance(item.get("Id"), str) for item in networks):
+        return None
+
+    for worker in workers:
+        status, _ = await _docker_request(
+            "DELETE", f"/containers/{quote(worker['Id'], safe='')}?force=true&v=true",
+        )
+        if status not in (200, 204, 404):
+            return None
+    for network in networks:
+        status, _ = await _docker_request("DELETE", f"/networks/{quote(network['Id'], safe='')}")
+        if status not in (200, 204, 404):
+            return None
+    return len(workers), len(networks)
 
 
 def _project_scope_label(project_id: str) -> str:
