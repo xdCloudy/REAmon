@@ -1,6 +1,6 @@
 # REAmon product progress
 
-Assessment date: 2026-10-26 · Source: pushed commit `daa31e6` · Weighted estimate: **63.7%**
+Assessment date: 2026-10-26 · Source: pushed commit `d3c6dc1` · Weighted estimate: **63.7%**
 
 This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.
 
@@ -49,7 +49,7 @@ Quality run [40247230850](https://github.com/xdCloudy/REAmon/actions/runs/402472
 
 ### Security, reliability, and production operations
 
-**Current evidence:** Project-scoped execution workers cover the four arbitrary-code tools, and the ticket-scoped terminal path is wired into the normal REAmon lifecycle. The dedicated language/compiler image builds and passes a constrained no-network runtime smoke; 36 focused broker worker tests pass. The restart-recovery path is deployed and passed a live isolated orphan-cleanup probe; end-to-end job flows and other worker controls remain open. The broker now closes interactive terminal sessions after 30 minutes idle by default and imposes a configurable hard session cap no greater than 115 minutes, below the signed graph-context lifetime; focused Docker tests verify both deadlines force worker/network cleanup. The broker image rebuild and 36 project-worker tests pass, including startup orphan-cleanup safety checks. On broker startup, REAmon now reaps labelled project-worker containers and networks before accepting work only when the Docker API confirms a single configured broker; multiple-broker or unavailable-inventory states skip destructive cleanup. The updated broker image builds and its 35 focused worker tests pass.
+**Current evidence:** Project-scoped execution workers cover the four arbitrary-code tools, and the ticket-scoped terminal path is wired into the normal REAmon lifecycle. The dedicated language/compiler image builds and passes a constrained no-network runtime smoke; 36 focused broker worker tests pass. The restart-recovery path is deployed and passed a live isolated orphan-cleanup probe; end-to-end job flows and other worker controls remain open. The broker now closes interactive terminal sessions after 30 minutes idle by default and imposes a configurable hard session cap no greater than 115 minutes, below the signed graph-context lifetime; focused Docker tests verify both deadlines force worker/network cleanup. The broker image rebuild and 36 project-worker tests pass, including startup orphan-cleanup safety checks. On broker startup, REAmon now reaps labelled project-worker containers and networks before accepting work only when the Docker API confirms a single configured broker; multiple-broker or unavailable-inventory states skip destructive cleanup. The focused Docker worker suite now passes 41 tests, including client-disconnect cancellation, cancellation during Docker create calls, and cleanup.
 
 **Remaining:** Verify worker cancellation on the LAN deployment; complete browser-to-agent-to-broker source and terminal acceptance; coordinate multi-replica admission; add disk and destination-aware egress quotas; complete independent capacity review and release backup/restore drills.
 
