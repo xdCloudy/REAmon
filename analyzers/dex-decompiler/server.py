@@ -30,6 +30,8 @@ MAX_STRUCTURED_METHODS = 10_000
 MAX_STRUCTURED_CALLS = 4_000
 MAX_STRUCTURED_REFERENCES = 4_000
 MAX_STRUCTURED_OUTPUT_BYTES = 64 * 1024 * 1024
+MAX_CLASS_SUMMARY_BYTES = 1024 * 1024
+MAX_FAILED_CLASS_DETAILS = 1000
 MAX_DEX_ENTRIES = 64
 MAX_TOTAL_DEX_BYTES = 512 * 1024 * 1024
 PROGRESS_CLASS_INTERVAL = 64
@@ -342,6 +344,7 @@ def analyse(body: dict[str, object], progress=None) -> dict[str, object]:
             temporary_root / "dex-inputs",
         )
         diagnostic_lines: list[str] = []
+        failed_class_details: list[dict[str, object]] = []
         discovered_classes = 0
         returned_classes = 0
         failed_classes = 0
@@ -385,6 +388,7 @@ def analyse(body: dict[str, object], progress=None) -> dict[str, object]:
                 discovered_classes += dex_discovered
             while dex_discovered is None or offset < dex_discovered:
                 def retry_single_class(start: int, reason: str) -> tuple[int | None, int, int]:
+                    class_descriptor: str | None = None
                     for mode in ("simple", "fallback"):
                         description = f"Retrying DEX {dex_index} class {start + 1} with {mode} output"
                         try:
@@ -402,7 +406,7 @@ def analyse(body: dict[str, object], progress=None) -> dict[str, object]:
                             diagnostic_lines.append(f"{description} could not start: {error}.")
                             continue
 
-                        stdout = result.stdout[-2000:].decode("utf-8", errors="replace").strip()
+                        stdout = result.stdout[-MAX_CLASS_SUMMARY_BYTES:].decode("utf-8", errors="replace").strip()
                         stderr = result.stderr[-2000:].decode("utf-8", errors="replace").strip()
                         if result.returncode != 0:
                             diagnostic_lines.append(
@@ -415,6 +419,10 @@ def analyse(body: dict[str, object], progress=None) -> dict[str, object]:
                             discovered = summary.get("discoveredClassCount")
                             returned = summary.get("returnedClassCount")
                             failed = summary.get("failedClassCount")
+                            descriptors = summary.get("failedClassDescriptors")
+                            if isinstance(descriptors, list) and len(descriptors) == 1 \
+                                    and isinstance(descriptors[0], str):
+                                class_descriptor = descriptors[0][:512]
                             if not all(isinstance(value, int) and value >= 0
                                        for value in (discovered, returned, failed)):
                                 raise ValueError("invalid class counts")
@@ -429,6 +437,13 @@ def analyse(body: dict[str, object], progress=None) -> dict[str, object]:
                     diagnostic_lines.append(
                         f"Class index {start} in {dex_entry} was skipped after {reason}; all output modes failed."
                     )
+                    if len(failed_class_details) < MAX_FAILED_CLASS_DETAILS:
+                        failed_class_details.append({
+                            "dexEntry": dex_entry[:256],
+                            "classIndex": start,
+                            "descriptor": class_descriptor,
+                            "reason": reason[:256],
+                        })
                     return None, 0, 1
 
                 def run_range(start: int, limit: int) -> tuple[int | None, int, int]:
@@ -454,7 +469,7 @@ def analyse(body: dict[str, object], progress=None) -> dict[str, object]:
                         return discovered, left[1] + right[1], left[2] + right[2]
                     except OSError as error:
                         raise AnalysisError(f"Could not start the DEX decompiler for {dex_entry}: {error}") from error
-                    stdout = result.stdout[-2000:].decode("utf-8", errors="replace").strip()
+                    stdout = result.stdout[-MAX_CLASS_SUMMARY_BYTES:].decode("utf-8", errors="replace").strip()
                     stderr = result.stderr[-2000:].decode("utf-8", errors="replace").strip()
                     if stderr:
                         diagnostic_lines.append(stderr)
@@ -630,6 +645,7 @@ def analyse(body: dict[str, object], progress=None) -> dict[str, object]:
         "input": {"sha256": artifact_hash.hexdigest(), "relativePath": source.relative_to(ARTIFACT_ROOT).as_posix()},
         "discoveredClassCount": discovered_classes,
         "returnedClassCount": len(units),
+        "failedClassDetails": failed_class_details,
         "discoveredMethodCount": discovered_methods if isinstance(discovered_methods, int) and discovered_methods >= 0 else len(methods),
         "returnedMethodCount": len(methods),
         "methodsTruncated": method_truncated,
@@ -645,6 +661,14 @@ def analyse(body: dict[str, object], progress=None) -> dict[str, object]:
             "This is an alternate DEX-to-Java reconstruction; review it against JADX and bytecode evidence.",
             f"The alternate output contains {len(units)} of {len(sources)} reconstructed Java files; the per-run result limit is {MAX_RETURNED_UNITS}." if len(sources) > len(units) else "",
             f"The DEX provider could not reconstruct {failed_classes} of {discovered_classes} classes." if failed_classes else "",
+            ("Unreconstructed class identities: " + "; ".join(
+                f"{detail['dexEntry']} class #{detail['classIndex'] + 1} (zero-based index {detail['classIndex']}) "
+                + (str(detail["descriptor"]) if detail.get("descriptor") else "(descriptor unavailable)")
+                + f" — {detail['reason']}"
+                for detail in failed_class_details
+            )) if failed_class_details else "",
+            (f"Class identity details are unavailable for {failed_classes - len(failed_class_details)} additional failures."
+             if failed_classes > len(failed_class_details) else ""),
             method_warning,
             stderr[:2000],
         ]))[:4000],

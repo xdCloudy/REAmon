@@ -18,9 +18,16 @@ fn parse_mode(value: &str) -> Result<DecompilationMode> {
     }
 }
 
-fn record_failed_class(failed: &mut usize, failed_indices: &mut Vec<usize>, class_index: usize) {
+fn record_failed_class(
+    failed: &mut usize,
+    failed_indices: &mut Vec<usize>,
+    failed_descriptors: &mut Vec<String>,
+    class_index: usize,
+    descriptor: &str,
+) {
     *failed += 1;
     failed_indices.push(class_index);
+    failed_descriptors.push(descriptor.chars().take(512).collect());
 }
 
 fn run() -> Result<()> {
@@ -74,6 +81,7 @@ fn run() -> Result<()> {
     let mut returned = 0usize;
     let mut failed = 0usize;
     let mut failed_indices = Vec::new();
+    let mut failed_descriptors = Vec::new();
     for (class_index, class_result) in dex.class_defs().enumerate() {
         discovered += 1;
         if class_index < start_index || class_index >= start_index.saturating_add(class_limit) {
@@ -87,26 +95,50 @@ fn run() -> Result<()> {
         let sliced = match slicer.slice_class(&descriptor) {
             Ok(sliced) => sliced,
             Err(_) => {
-                record_failed_class(&mut failed, &mut failed_indices, class_index);
+                record_failed_class(
+                    &mut failed,
+                    &mut failed_indices,
+                    &mut failed_descriptors,
+                    class_index,
+                    &descriptor,
+                );
                 continue;
             }
         };
         let sliced_dex = match parse_dex(&sliced) {
             Ok(sliced_dex) => sliced_dex,
             Err(_) => {
-                record_failed_class(&mut failed, &mut failed_indices, class_index);
+                record_failed_class(
+                    &mut failed,
+                    &mut failed_indices,
+                    &mut failed_descriptors,
+                    class_index,
+                    &descriptor,
+                );
                 continue;
             }
         };
         let Some(Ok(sliced_class)) = sliced_dex.class_defs().next() else {
-            record_failed_class(&mut failed, &mut failed_indices, class_index);
+            record_failed_class(
+                &mut failed,
+                &mut failed_indices,
+                &mut failed_descriptors,
+                class_index,
+                &descriptor,
+            );
             continue;
         };
         let decompiler = Decompiler::with_options(&sliced_dex, options.clone());
         let source = match decompiler.decompile_class(&sliced_class) {
             Ok(source) => source,
             Err(_) => {
-                record_failed_class(&mut failed, &mut failed_indices, class_index);
+                record_failed_class(
+                    &mut failed,
+                    &mut failed_indices,
+                    &mut failed_descriptors,
+                    class_index,
+                    &descriptor,
+                );
                 continue;
             }
         };
@@ -129,6 +161,7 @@ fn run() -> Result<()> {
             "returnedClassCount": returned,
             "failedClassCount": failed,
             "failedClassIndices": failed_indices,
+            "failedClassDescriptors": failed_descriptors,
             "startIndex": start_index,
             "classLimit": class_limit,
         })
@@ -167,10 +200,32 @@ mod tests {
     fn failed_summary_tracks_exact_class_indexes() {
         let mut failed = 0;
         let mut indices = Vec::new();
-        record_failed_class(&mut failed, &mut indices, 3);
-        record_failed_class(&mut failed, &mut indices, 9);
+        let mut descriptors = Vec::new();
+        record_failed_class(
+            &mut failed,
+            &mut indices,
+            &mut descriptors,
+            3,
+            "Lexample/First;",
+        );
+        record_failed_class(
+            &mut failed,
+            &mut indices,
+            &mut descriptors,
+            9,
+            "Lexample/Second;",
+        );
+        record_failed_class(
+            &mut failed,
+            &mut indices,
+            &mut descriptors,
+            11,
+            &"X".repeat(600),
+        );
 
-        assert_eq!(failed, 2);
-        assert_eq!(indices, vec![3, 9]);
+        assert_eq!(failed, 3);
+        assert_eq!(indices, vec![3, 9, 11]);
+        assert_eq!(descriptors[0..2], ["Lexample/First;", "Lexample/Second;"]);
+        assert_eq!(descriptors[2].len(), 512);
     }
 }

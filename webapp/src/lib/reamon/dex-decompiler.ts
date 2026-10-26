@@ -42,6 +42,12 @@ interface DexDecompilerResponse {
   callGraphTruncated: boolean
   references: DexReference[]
   referencesTruncated: boolean
+  failedClassDetails?: Array<{
+    dexEntry: string
+    classIndex: number
+    descriptor: string | null
+    reason: string
+  }>
   codeBytes: number
   truncated: boolean
   units: Array<{ name: string; relativePath: string; codeArtifactId: string; sizeBytes: number; outputSha256?: string }>
@@ -178,6 +184,13 @@ function isResponse(value: unknown): value is DexDecompilerResponse {
       && reference.offsets.every((offset) => Number.isSafeInteger(offset) && offset >= 0))
     && typeof response.codeBytes === 'number' && Number.isSafeInteger(response.codeBytes) && response.codeBytes >= 0
     && typeof response.truncated === 'boolean'
+    && (response.failedClassDetails === undefined || (Array.isArray(response.failedClassDetails)
+      && response.failedClassDetails.length <= 1000
+      && response.failedClassDetails.every((detail) => !!detail && typeof detail === 'object' && !Array.isArray(detail)
+        && typeof detail.dexEntry === 'string' && detail.dexEntry.length > 0 && detail.dexEntry.length <= 256
+        && Number.isSafeInteger(detail.classIndex) && detail.classIndex >= 0
+        && (detail.descriptor === null || (typeof detail.descriptor === 'string' && detail.descriptor.length <= 512))
+        && typeof detail.reason === 'string' && detail.reason.length <= 256)))
     && Array.isArray(response.units) && response.units.length <= MAX_CLASSES
     && response.returnedClassCount === response.units.length
     && (response.discoveredClassCount as number) >= response.units.length
@@ -467,6 +480,7 @@ export async function executeDexDecompiler(input: ToolExecutionInput): Promise<T
         callGraphTruncated,
         referenceCount: seenReferenceEdges.size,
         referencesTruncated,
+        failedClassDetails: payload.failedClassDetails || [],
         codeBytes: payload.codeBytes,
         truncated: payload.truncated || payload.discoveredClassCount > payload.returnedClassCount || payload.methodsTruncated || methodsAdded < payload.returnedMethodCount || callGraphTruncated || referencesTruncated,
         decompilationEngine: 'androguard/dex-decompiler',
