@@ -145,14 +145,79 @@ class ProjectWorkerRuntimeTests(unittest.IsolatedAsyncioTestCase):
             body["Labels"]["reamon.project-scope"],
             hashlib.sha256(b"p1").hexdigest(),
         )
+        self.assertNotIn("redamon.broker-owned", body["Labels"])
         self.assertNotIn("p1", body["Labels"].values())
         self.assertFalse(body["Tty"])
         self.assertEqual(body["HostConfig"]["LogConfig"]["Config"]["max-size"], "8m")
+
+    async def test_project_workers_are_included_in_shared_host_capacity(self):
+        with (
+            mock.patch.object(worker, "SCANNER_API_KEY", "scanner-key"),
+            mock.patch.object(worker.asyncio, "to_thread", return_value="p1"),
+            mock.patch.object(broker, "BROKER_MAX_CONTAINERS", 1),
+            mock.patch.object(broker, "_count_broker_owned_active", return_value=1),
+            mock.patch.object(worker, "_active_worker_count") as active_workers,
+            mock.patch.object(worker, "_create_worker_network") as create_network,
+        ):
+            status, result = await worker.execute({
+                "ctx": "signed", "tool": "kali_shell", "argv": ["id"], "timeout": 10,
+            })
+
+        self.assertEqual(status, 429)
+        self.assertIn("host container capacity is full", result["error"])
+        active_workers.assert_not_awaited()
+        create_network.assert_not_awaited()
+
+    async def test_fails_closed_when_shared_host_capacity_is_unavailable(self):
+        with (
+            mock.patch.object(worker, "SCANNER_API_KEY", "scanner-key"),
+            mock.patch.object(worker.asyncio, "to_thread", return_value="p1"),
+            mock.patch.object(broker, "BROKER_MAX_CONTAINERS", 1),
+            mock.patch.object(broker, "_count_broker_owned_active", return_value=-1),
+            mock.patch.object(worker, "_active_worker_count") as active_workers,
+            mock.patch.object(worker, "_create_worker_network") as create_network,
+        ):
+            status, result = await worker.execute({
+                "ctx": "signed", "tool": "kali_shell", "argv": ["id"], "timeout": 10,
+            })
+
+        self.assertEqual(status, 503)
+        self.assertIn("host container capacity is unavailable", result["error"])
+        active_workers.assert_not_awaited()
+        create_network.assert_not_awaited()
+
+    async def test_worker_admission_waits_for_generic_container_creation_lock(self):
+        with (
+            mock.patch.object(worker, "SCANNER_API_KEY", "scanner-key"),
+            mock.patch.object(worker.asyncio, "to_thread", return_value="p1"),
+            mock.patch.object(broker, "BROKER_MAX_CONTAINERS", 2),
+            mock.patch.object(broker, "_count_broker_owned_active", return_value=0),
+            mock.patch.object(worker, "_active_worker_count", return_value=0),
+            mock.patch.object(worker, "_active_project_worker_count", return_value=0),
+            mock.patch.object(worker, "_create_worker_network", return_value="net-1") as create_network,
+            mock.patch.object(worker, "_create_worker_container", return_value="ctr-1"),
+            mock.patch.object(worker, "_run_worker", return_value=(0, b"ok", b"", False)),
+            mock.patch.object(worker, "_remove_worker"),
+        ):
+            await broker._CREATE_COUNT_LOCK.acquire()
+            try:
+                pending = asyncio.create_task(worker.execute({
+                    "ctx": "signed", "tool": "kali_shell", "argv": ["id"], "timeout": 10,
+                }))
+                await asyncio.sleep(0)
+                create_network.assert_not_awaited()
+            finally:
+                broker._CREATE_COUNT_LOCK.release()
+            status, _result = await pending
+
+        self.assertEqual(status, 200)
+        create_network.assert_awaited_once()
 
     async def test_fails_closed_when_worker_capacity_cannot_be_read(self):
         with (
             mock.patch.object(worker, "SCANNER_API_KEY", "scanner-key"),
             mock.patch.object(worker.asyncio, "to_thread", return_value="p1"),
+            mock.patch.object(broker, "BROKER_MAX_CONTAINERS", 0),
             mock.patch.object(worker, "_active_worker_count", return_value=None),
             mock.patch.object(worker, "_create_worker_network") as create_network,
         ):
@@ -168,6 +233,7 @@ class ProjectWorkerRuntimeTests(unittest.IsolatedAsyncioTestCase):
         with (
             mock.patch.object(worker, "SCANNER_API_KEY", "scanner-key"),
             mock.patch.object(worker.asyncio, "to_thread", return_value="p1"),
+            mock.patch.object(broker, "BROKER_MAX_CONTAINERS", 0),
             mock.patch.object(worker, "_active_worker_count", return_value=worker.WORKER_MAX_ACTIVE),
             mock.patch.object(worker, "_create_worker_network") as create_network,
         ):
@@ -184,6 +250,7 @@ class ProjectWorkerRuntimeTests(unittest.IsolatedAsyncioTestCase):
             mock.patch.object(worker, "SCANNER_API_KEY", "scanner-key"),
             mock.patch.object(worker, "WORKER_MAX_ACTIVE_PER_PROJECT", 2),
             mock.patch.object(worker.asyncio, "to_thread", return_value="p1"),
+            mock.patch.object(broker, "BROKER_MAX_CONTAINERS", 0),
             mock.patch.object(worker, "_active_worker_count", return_value=3),
             mock.patch.object(worker, "_active_project_worker_count", return_value=2),
             mock.patch.object(worker, "_create_worker_network") as create_network,
@@ -200,6 +267,7 @@ class ProjectWorkerRuntimeTests(unittest.IsolatedAsyncioTestCase):
         with (
             mock.patch.object(worker, "SCANNER_API_KEY", "scanner-key"),
             mock.patch.object(worker.asyncio, "to_thread", return_value="p1"),
+            mock.patch.object(broker, "BROKER_MAX_CONTAINERS", 0),
             mock.patch.object(worker, "_active_worker_count", return_value=0),
             mock.patch.object(worker, "_active_project_worker_count", return_value=None),
             mock.patch.object(worker, "_create_worker_network") as create_network,
@@ -216,6 +284,7 @@ class ProjectWorkerRuntimeTests(unittest.IsolatedAsyncioTestCase):
         with (
             mock.patch.object(worker, "SCANNER_API_KEY", "scanner-key"),
             mock.patch.object(worker.asyncio, "to_thread", return_value="p1"),
+            mock.patch.object(broker, "BROKER_MAX_CONTAINERS", 0),
             mock.patch.object(worker, "_active_worker_count", return_value=0),
             mock.patch.object(worker, "_active_project_worker_count", return_value=0),
             mock.patch.object(worker, "_create_worker_network", return_value="net-1"),

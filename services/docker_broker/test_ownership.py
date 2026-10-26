@@ -47,7 +47,12 @@ async def mock_upstream(reader, writer):
     m = re.match(r"GET /(?:v[\d.]+/)?containers/([^/]+)/json", line)
     if m:
         cid = m.group(1)
-        labels = {"redamon.broker-owned": "1"} if "owned" in cid else {"role": "infra"}
+        if "worker" in cid:
+            labels = {"redamon.broker-owned": "1", "reamon.project-worker": "1"}
+        elif "owned" in cid:
+            labels = {"redamon.broker-owned": "1"}
+        else:
+            labels = {"role": "infra"}
         body = json.dumps({"Config": {"Labels": labels}}).encode()
     else:
         body = b'{"Id":"deadbeef"}'
@@ -152,6 +157,18 @@ async def main():
         received.clear()
         resp = await send(make_request("GET", "/v1.43/containers/owned-scan-10/json"))
         check("inspect on labelled container -> forwarded", len(received) == 2)
+
+        # Project workers are never generic Docker API targets, including
+        # previously-created containers carrying both labels during upgrade.
+        received.clear()
+        resp = await send(make_request("POST", "/v1.43/containers/worker-owned-11/exec",
+                                       {"Cmd": ["sh"]}))
+        check("exec create on project worker -> 403", b"403" in resp)
+        check("exec create on project worker -> ownership probe only", len(received) == 1)
+        received.clear()
+        resp = await send(make_request("GET", "/v1.43/containers/worker-owned-11/json"))
+        check("inspect on project worker -> 403", b"403" in resp)
+        check("inspect on project worker -> ownership probe only", len(received) == 1)
 
         # test_list_scoped_to_owned
         received.clear()

@@ -269,7 +269,6 @@ async def _create_worker_container(
         "Labels": {
             "reamon.project-worker": "1",
             "reamon.project-scope": _project_scope_label(project_id),
-            "redamon.broker-owned": "1",
         },
         "HostConfig": {
             "AutoRemove": False,
@@ -366,6 +365,45 @@ async def _worker_logs(container_id: str) -> tuple[bytes, bytes]:
     return _decode_worker_logs(raw)
 
 
+async def _create_admitted_worker(
+    project_id: str,
+    argv: list[str],
+    env: list[str],
+) -> tuple[int, str | None, str | None, str]:
+    """Apply the worker cap and shared host cap before creating a worker."""
+    import broker
+
+    async def check_worker_limits() -> tuple[int, str | None, str | None, str]:
+        active = await _active_worker_count()
+        if active is None:
+            return 503, None, None, "worker capacity is unavailable; execution denied"
+        if active >= WORKER_MAX_ACTIVE:
+            return 429, None, None, "worker capacity is full; retry later"
+        project_active = await _active_project_worker_count(project_id)
+        if project_active is None:
+            return 503, None, None, "project worker capacity is unavailable; execution denied"
+        if project_active >= WORKER_MAX_ACTIVE_PER_PROJECT:
+            return 429, None, None, "this project has reached its active worker limit; retry later"
+        network_id = await _create_worker_network(project_id)
+        try:
+            container_id = await _create_worker_container(project_id, network_id, argv, env)
+        except Exception:
+            await _docker_request("DELETE", f"/networks/{network_id}")
+            raise
+        return 200, network_id, container_id, ""
+
+    async with _WORKER_ADMISSION_LOCK:
+        if broker.BROKER_MAX_CONTAINERS <= 0:
+            return await check_worker_limits()
+        async with broker._CREATE_COUNT_LOCK:
+            host_active = await broker._count_broker_owned_active()
+            if host_active < 0:
+                return 503, None, None, "host container capacity is unavailable; execution denied"
+            if host_active >= broker.BROKER_MAX_CONTAINERS:
+                return 429, None, None, "host container capacity is full; retry later"
+            return await check_worker_limits()
+
+
 async def execute(request: Any) -> tuple[int, dict[str, Any]]:
     """Verify the agent scope, execute once in a private container, then remove it."""
     if not isinstance(request, dict):
@@ -398,19 +436,11 @@ async def execute(request: Any) -> tuple[int, dict[str, Any]]:
     container_id = None
     network_id = None
     try:
-        async with _WORKER_ADMISSION_LOCK:
-            active = await _active_worker_count()
-            if active is None:
-                return 503, {"error": "worker capacity is unavailable; execution denied"}
-            if active >= WORKER_MAX_ACTIVE:
-                return 429, {"error": "project worker capacity is full; retry later"}
-            project_active = await _active_project_worker_count(project_id)
-            if project_active is None:
-                return 503, {"error": "project worker capacity is unavailable; execution denied"}
-            if project_active >= WORKER_MAX_ACTIVE_PER_PROJECT:
-                return 429, {"error": "this project has reached its active worker limit; retry later"}
-            network_id = await _create_worker_network(project_id)
-            container_id = await _create_worker_container(project_id, network_id, argv, env)
+        admitted, network_id, container_id, admission_error = await _create_admitted_worker(
+            project_id, argv, env,
+        )
+        if admitted != 200 or not network_id or not container_id:
+            return admitted, {"error": admission_error or "worker admission failed"}
         code, stdout, stderr, timed_out = await _run_worker(container_id, timeout)
         return 200, {
             "exit_code": code,

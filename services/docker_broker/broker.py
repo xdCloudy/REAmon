@@ -155,6 +155,7 @@ _IMAGES_CREATE_RE = re.compile(r"^/(v[\d.]+/)?images/create$")  # docker pull
 # create-time allowlist is irrelevant to a hijack of a trusted infra container
 # (exec/attach into the orchestrator/broker -> host root).
 _OWNER_LABEL = "redamon.broker-owned"
+_PROJECT_WORKER_LABEL = "reamon.project-worker"
 
 # Operate-on-EXISTING-container verbs (capture group 2 = the container id/name).
 # Gated to broker-owned targets. attach + exec-start are hijack endpoints handled
@@ -467,17 +468,18 @@ async def _upstream_inspect_labels(cid: str):
 
 async def _is_broker_owned(cid: str) -> bool:
     labels = await _upstream_inspect_labels(cid)
-    return bool(labels) and labels.get(_OWNER_LABEL) == "1"
+    return (
+        bool(labels)
+        and labels.get(_OWNER_LABEL) == "1"
+        and labels.get(_PROJECT_WORKER_LABEL) != "1"
+    )
 
 
-async def _count_broker_owned_active() -> int:
-    """Count active broker-owned containers via an upstream
-    GET /containers/json filtered by the ownership label (Phase 7 count cap).
-    Returns -1 if the count cannot be determined; callers must fail closed when
-    the configured cap is enabled."""
+async def _count_active_with_label(label: str) -> int:
+    """Count active containers carrying one exact label; return -1 on failure."""
     from urllib.parse import quote
     active_states = ["created", "restarting", "running", "paused"]
-    filt = quote(json.dumps({"label": [f"{_OWNER_LABEL}=1"], "status": active_states}))
+    filt = quote(json.dumps({"label": [f"{label}=1"], "status": active_states}))
     r = w = None
     try:
         r, w = await asyncio.open_unix_connection(UPSTREAM_SOCK)
@@ -507,6 +509,22 @@ async def _count_broker_owned_active() -> int:
         return len(arr) if isinstance(arr, list) else -1
     except Exception:
         return -1
+
+
+async def _count_broker_owned_active() -> int:
+    """Count generic broker containers and project workers for the host cap.
+
+    These classes use separate labels so generic Docker API clients can only
+    enumerate or operate generic broker containers. Return -1 if either count
+    cannot be determined so an enabled cap fails closed.
+    """
+    generic_count = await _count_active_with_label(_OWNER_LABEL)
+    if generic_count < 0:
+        return -1
+    worker_count = await _count_active_with_label(_PROJECT_WORKER_LABEL)
+    if worker_count < 0:
+        return -1
+    return generic_count + worker_count
 
 
 def _rewrite_list_filters(head: bytes, path: str) -> bytes:

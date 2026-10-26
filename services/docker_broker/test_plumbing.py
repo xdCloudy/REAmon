@@ -97,12 +97,34 @@ async def main():
     async with up, br:
         received.clear()
         active_count = await broker._count_broker_owned_active()
-        decoded_query = urllib.parse.unquote(received[0].decode("latin1")) if received else ""
-        check("container cap counts active states, including created workers",
-              active_count == 0 and all(
-                  f'"{state}"' in decoded_query
-                  for state in ("created", "restarting", "running", "paused")
+        decoded_queries = [urllib.parse.unquote(request.decode("latin1")) for request in received]
+        check("container cap counts generic and project-worker labels",
+              active_count == 0 and len(decoded_queries) == 2 and any(
+                  '"label": ["redamon.broker-owned=1"]' in query for query in decoded_queries
+              ) and any(
+                  '"label": ["reamon.project-worker=1"]' in query for query in decoded_queries
               ))
+        check("both capacity counts include all active states",
+              all(all(f'"{state}"' in query for state in
+                      ("created", "restarting", "running", "paused"))
+                  for query in decoded_queries))
+
+        original_label_count = broker._count_active_with_label
+
+        async def count_separate_labels(label):
+            return {broker._OWNER_LABEL: 3, broker._PROJECT_WORKER_LABEL: 2}[label]
+
+        broker._count_active_with_label = count_separate_labels
+        combined_count = await broker._count_broker_owned_active()
+        check("shared host cap sums disjoint worker and generic container classes", combined_count == 5)
+
+        async def unreadable_worker_count(label):
+            return 3 if label == broker._OWNER_LABEL else -1
+
+        broker._count_active_with_label = unreadable_worker_count
+        check("shared host cap fails closed if worker count is unavailable",
+              await broker._count_broker_owned_active() == -1)
+        broker._count_active_with_label = original_label_count
 
         # An enabled resource cap must reject a create if Docker cannot report
         # the current count; otherwise transient daemon errors disable the cap.
