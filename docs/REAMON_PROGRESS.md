@@ -1,6 +1,6 @@
 # REAmon product progress
 
-Assessment date: 2026-10-26 · Source: pushed commit `6e39974` · Weighted estimate: **58.4%**
+Assessment date: 2026-10-26 · Source: pushed commit `b8f3847` · Weighted estimate: **58.6%**
 
 This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.
 
@@ -13,7 +13,7 @@ Quality run [40247230850](https://github.com/xdCloudy/REAmon/actions/runs/402472
 | Major-language and format decompilation fluency | 24% | 35% | 8.40 pts |
 | Maintainable editing, review, and export | 12% | 43% | 5.16 pts |
 | Fixture-backed validation and fidelity evidence | 12% | 15% | 1.80 pts |
-| Security, reliability, and production operations | 20% | 96% | 19.20 pts |
+| Security, reliability, and production operations | 20% | 97% | 19.40 pts |
 
 ## Evidence and remaining work
 
@@ -49,7 +49,7 @@ Quality run [40247230850](https://github.com/xdCloudy/REAmon/actions/runs/402472
 
 ### Security, reliability, and production operations
 
-**Current evidence:** Broker-managed project workers isolate the four non-terminal execution tools behind signed project scope. Generic Docker API clients cannot inspect, operate, discover, or attach to project workers or their private networks; generic and worker containers share a fail-closed host cap. Metasploit sessions now carry process-lifetime project ownership metadata, and strict project-owner routes list, interact with, and stop only sessions in the selected project. Persistent agent mode now refuses startup rather than silently falling back to volatile checkpoints when PostgreSQL is unavailable and closes the pool cleanly on shutdown. The active broker is healthy, signed dispatch passes, and the Kali shared Python environment passes pip check.
+**Current evidence:** Broker-managed project workers isolate the four non-terminal execution tools behind signed project scope. Generic Docker API clients cannot inspect, operate, discover, or attach to project workers or their private networks; generic and worker containers share a fail-closed host cap. Metasploit sessions now carry process-lifetime project ownership metadata, and strict project-owner routes list, interact with, and stop only sessions in the selected project. Persistent agent mode now refuses startup rather than silently falling back to volatile checkpoints when PostgreSQL is unavailable and closes the pool cleanly on shutdown. The active broker is healthy, signed dispatch passes, and the Kali shared Python environment passes pip check. Checkpointer reinitialization now replaces stale PostgreSQL saver references with a fresh MemorySaver when persistence is disabled and after its pool closes; focused isolated Docker regression coverage passes.
 
 **Remaining:** Validate the complete MCP-to-worker and project-session flows on LAN; test conversation recovery across agent restart; scope Metasploit jobs; coordinate admission across multiple broker replicas; add worker disk, egress, and idle-lifetime quotas; route terminal execution through project workers; validate upgrades, backup, and restore.
 
