@@ -1,10 +1,10 @@
 # REAmon product progress
 
-Assessment date: 2026-10-26 · Source: pushed commit `e677a8f` · Weighted estimate: **53.8%**
+Assessment date: 2026-10-26 · Source: pushed commit `06bb534` · Weighted estimate: **54.2%**
 
 This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.
 
-Quality run [40247230850](https://github.com/xdCloudy/REAmon/actions/runs/40247230850) passed the full Docker unit gate and production-stack acceptance on commit `baa5634a`; local and LAN readiness endpoints returned ready with database and artifact checks ok, but the deployed webapp revision remains unverified. On 2026-10-26, kali_shell gained a verified signed project scope and private user/mount namespace covering /tmp, /var/tmp, and /opt/output. Focused Docker suites passed 8 MCP execution tests and 9 agent identity tests plus subtests, and a live Kali smoke confirmed sibling workspace and shared temporary files are hidden. Terminal shells retain their ticket-derived project scope and cleanup behavior. Legacy graph routes reject scanner-only auth and the agent rejects identical master and scanner keys. execute_code, proxy_brain, custom Playwright, tenant-scoped broker ownership, and LAN rebuild validation remain open. This weighted estimate is evidence-backed progress, not release certification.
+Quality run [40247230850](https://github.com/xdCloudy/REAmon/actions/runs/40247230850) passed the full Docker unit gate and production-stack acceptance on commit `baa5634a`; local and LAN readiness endpoints returned ready with database and artifact checks ok, but the deployed webapp revision remains unverified. On 2026-10-26, kali_shell, execute_code, and proxy_brain gained verified signed project scope and private user/mount namespaces covering /tmp, /var/tmp, and /opt/output. Focused Docker suites passed 35 MCP execution/capture-wiring tests plus 5 subtests and 9 agent identity tests. Live Kali smokes hid sibling workspace and shared temporary files; Python, compiled C, and proxy_brain execution succeeded with cleanup. Terminal shells retain ticket-derived project scope and cleanup behavior. Legacy graph routes reject scanner-only auth and the agent rejects identical master and scanner keys. Custom Playwright, tenant-scoped broker ownership, and LAN rebuild validation remain open. This weighted estimate is evidence-backed progress, not release certification.
 
 | Workstream | Goal weight | Estimated complete | Weighted points |
 | --- | ---: | ---: | ---: |
@@ -13,7 +13,7 @@ Quality run [40247230850](https://github.com/xdCloudy/REAmon/actions/runs/402472
 | Major-language and format decompilation fluency | 24% | 35% | 8.40 pts |
 | Maintainable editing, review, and export | 12% | 43% | 5.16 pts |
 | Fixture-backed validation and fidelity evidence | 12% | 15% | 1.80 pts |
-| Security, reliability, and production operations | 20% | 73% | 14.60 pts |
+| Security, reliability, and production operations | 20% | 75% | 15.00 pts |
 
 ## Evidence and remaining work
 
@@ -49,8 +49,8 @@ Quality run [40247230850](https://github.com/xdCloudy/REAmon/actions/runs/402472
 
 ### Security, reliability, and production operations
 
-**Current evidence:** Five validated findings have source mitigations in progress. The model-authored kali_shell now receives verified signed project scope and uses a private project-only mount namespace; terminal shells also have project-only mounts and private temporary storage. Other arbitrary-code surfaces and the shared Kali controller remain unisolated.
+**Current evidence:** Five validated findings have source mitigations in progress. Model-authored kali_shell, execute_code, and proxy_brain now receive verified signed project scope and use private project-only mount namespaces; terminal shells also have project-only mounts and private temporary storage. Custom Playwright and the shared Kali controller remain unisolated.
 
-**Remaining:** Extend authenticated scope and private worker isolation to execute_code, proxy_brain, and custom Playwright; scope the Docker broker; verify cancellation, generated-file transfer, and cleanup; rebuild and validate services on the LAN; and complete independent security, upgrade, backup, and restore review.
+**Remaining:** Extend authenticated scope and private worker isolation to custom Playwright; scope the Docker broker; verify cancellation, generated-file transfer, and cleanup; rebuild and validate services on the LAN; and complete independent security, upgrade, backup, and restore review.
 
 The machine-readable [`REAMON_PROGRESS.json`](REAMON_PROGRESS.json) feeds the README progress bar. The scope now includes the production hardening goal, so the total is not directly comparable with the previous product-only estimate. Update it with evidence when estimates change, then run `node tooling/reamon/update-product-progress.mjs <commit-sha>` to refresh this matrix and the README.
