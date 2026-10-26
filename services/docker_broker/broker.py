@@ -794,6 +794,42 @@ async def handle_client(client_reader, client_writer):
                     pass
 
 
+async def _wait_for_worker_client_disconnect(reader):
+    """Wait for the one-shot worker caller to close its request connection."""
+    while await reader.read(4096):
+        # One request is accepted per connection; drain unexpected trailing data
+        # and keep waiting so a later caller disconnect still cancels execution.
+        pass
+
+
+async def _execute_for_worker_client(reader, body):
+    """Cancel execution on disconnect; execute() owns container cleanup."""
+    from project_worker import execute
+
+    execution = asyncio.create_task(execute(body))
+    disconnected = asyncio.create_task(_wait_for_worker_client_disconnect(reader))
+    try:
+        done, _pending = await asyncio.wait(
+            {execution, disconnected}, return_when=asyncio.FIRST_COMPLETED,
+        )
+        if execution in done:
+            return execution.result()
+
+        disconnect_error = disconnected.exception()
+        execution.cancel()
+        try:
+            await execution
+        except asyncio.CancelledError:
+            pass
+        if disconnect_error is not None:
+            raise disconnect_error
+        raise ConnectionResetError("worker client disconnected; execution cancelled")
+    finally:
+        if not disconnected.done():
+            disconnected.cancel()
+        await asyncio.gather(disconnected, return_exceptions=True)
+
+
 async def handle_worker_client(reader, writer):
     """Expose only the signed-scope project worker, never the Docker API."""
     try:
@@ -839,8 +875,7 @@ async def handle_worker_client(reader, writer):
                             await serve_terminal(body["ctx"], body.get("rows", 24), body.get("cols", 80), reader, writer)
                             return
                     else:
-                        from project_worker import execute
-                        status, payload = await execute(body)
+                        status, payload = await _execute_for_worker_client(reader, body)
         body_bytes = json.dumps(payload, separators=(",", ":")).encode("utf-8")
         reasons = {200: "OK", 400: "Bad Request", 401: "Unauthorized", 403: "Forbidden", 404: "Not Found", 413: "Payload Too Large", 429: "Too Many Requests", 503: "Service Unavailable"}
         response_head = (
@@ -852,6 +887,9 @@ async def handle_worker_client(reader, writer):
         await writer.drain()
     except (asyncio.IncompleteReadError, asyncio.LimitOverrunError, asyncio.TimeoutError, ValueError) as exc:
         _log(f"worker API request rejected: {exc}")
+    except ConnectionResetError:
+        # Expected when a caller cancels its request while a worker is running.
+        pass
     except Exception as exc:
         _log(f"worker API error: {exc}")
     finally:

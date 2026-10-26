@@ -256,7 +256,13 @@ async def _create_worker_network(project_id: str, *, allow_egress: bool = False)
         "Attachable": False,
         "Labels": {"reamon.project-worker": "1"},
     }
-    status, raw = await _docker_request("POST", "/networks/create", body)
+    try:
+        status, raw = await _docker_request("POST", "/networks/create", body)
+    except asyncio.CancelledError:
+        # The daemon may finish creating the named network after the caller has
+        # gone away, before this coroutine receives its ID.
+        await asyncio.shield(_docker_request("DELETE", f"/networks/{network_name}"))
+        raise
     if status not in (201, 200):
         raise DockerAPIError("could not create isolated worker network")
     result = _json_body(raw, "network create")
@@ -437,7 +443,17 @@ async def _create_worker_container(
         },
     }
     from urllib.parse import urlencode
-    status, raw = await _docker_request("POST", f"/containers/create?{urlencode({'name': name})}", body)
+    try:
+        status, raw = await _docker_request(
+            "POST", f"/containers/create?{urlencode({'name': name})}", body,
+        )
+    except asyncio.CancelledError:
+        # A timed-out create can still complete inside Docker. The unique name
+        # lets cancellation remove it even when the response ID was never read.
+        await asyncio.shield(
+            _docker_request("DELETE", f"/containers/{name}?force=true&v=true"),
+        )
+        raise
     if status not in (201, 200):
         raise DockerAPIError("could not create project worker")
     result = _json_body(raw, "container create")
@@ -798,6 +814,9 @@ async def _create_admitted_worker(
         )
         try:
             container_id = await _create_worker_container(project_id, network_id, argv, env, tool)
+        except asyncio.CancelledError:
+            await asyncio.shield(_docker_request("DELETE", f"/networks/{network_id}"))
+            raise
         except Exception:
             await _docker_request("DELETE", f"/networks/{network_id}")
             raise
@@ -864,7 +883,12 @@ async def execute(request: Any) -> tuple[int, dict[str, Any]]:
     finally:
         if container_id:
             try:
-                await _remove_worker(container_id, network_id or "")
+                cleanup = asyncio.create_task(_remove_worker(container_id, network_id or ""))
+                try:
+                    await asyncio.shield(cleanup)
+                except asyncio.CancelledError:
+                    await cleanup
+                    raise
             except Exception:
                 pass
         elif network_id:

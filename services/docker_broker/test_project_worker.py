@@ -42,6 +42,55 @@ class ProjectWorkerLogsTests(unittest.TestCase):
         self.assertEqual(stderr, b"123\n[output truncated after 2 MiB]")
 
 class ProjectWorkerRuntimeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_cancelled_network_create_deletes_by_unique_name(self):
+        started = asyncio.Event()
+        calls = []
+
+        async def docker(method, path, body=None, **_kwargs):
+            calls.append((method, path))
+            if method == "POST":
+                started.set()
+                await asyncio.Event().wait()
+            return 204, b""
+
+        with mock.patch.object(worker, "_docker_request", side_effect=docker):
+            task = asyncio.create_task(worker._create_worker_network("project-1"))
+            await asyncio.wait_for(started.wait(), timeout=1)
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[1][0], "DELETE")
+        self.assertRegex(calls[1][1], r"^/networks/reamon-w-[a-f0-9]{10}-[a-f0-9]{8}$")
+
+    async def test_cancelled_container_create_removes_by_unique_name(self):
+        started = asyncio.Event()
+        calls = []
+
+        async def docker(method, path, body=None, **_kwargs):
+            calls.append((method, path))
+            if method == "POST":
+                started.set()
+                await asyncio.Event().wait()
+            return 204, b""
+
+        with (
+            mock.patch.object(worker, "_workspace_project_runtime", return_value=([], "sha256:" + "a" * 64)),
+            mock.patch.object(worker, "_docker_request", side_effect=docker),
+        ):
+            task = asyncio.create_task(worker._create_worker_container(
+                "project-1", "network-1", ["id"], [], "execute_code",
+            ))
+            await asyncio.wait_for(started.wait(), timeout=1)
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[1][0], "DELETE")
+        self.assertRegex(calls[1][1], r"^/containers/reamon-w-[a-f0-9]{20}\?force=true&v=true$")
+
     async def test_startup_reaper_removes_workers_and_networks_when_single_broker_is_verified(self):
         calls = []
 
@@ -690,6 +739,34 @@ class ProjectWorkerRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(base64.b64decode(result["stdout_b64"]), b"ok")
         cleanup.assert_awaited_once_with("ctr-1", "net-1")
 
+    async def test_cancelled_run_removes_worker_and_network(self):
+        started = asyncio.Event()
+
+        async def wait_for_cancel(_container_id, _timeout):
+            started.set()
+            await asyncio.Event().wait()
+
+        with (
+            mock.patch.object(worker, "SCANNER_API_KEY", "scanner-key"),
+            mock.patch.object(worker.asyncio, "to_thread", return_value="p1"),
+            mock.patch.object(broker, "BROKER_MAX_CONTAINERS", 0),
+            mock.patch.object(worker, "_active_worker_count", return_value=0),
+            mock.patch.object(worker, "_active_project_worker_count", return_value=0),
+            mock.patch.object(worker, "_create_worker_network", return_value="net-1"),
+            mock.patch.object(worker, "_create_worker_container", return_value="ctr-1"),
+            mock.patch.object(worker, "_run_worker", side_effect=wait_for_cancel),
+            mock.patch.object(worker, "_remove_worker") as cleanup,
+        ):
+            task = asyncio.create_task(worker.execute({
+                "ctx": "signed", "tool": "kali_shell", "argv": ["id"], "timeout": 10,
+            }))
+            await asyncio.wait_for(started.wait(), timeout=1)
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+
+        cleanup.assert_awaited_once_with("ctr-1", "net-1")
+
 
 class BrokerWorkerEndpointTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
@@ -733,6 +810,54 @@ class BrokerWorkerEndpointTests(unittest.IsolatedAsyncioTestCase):
         with mock.patch.object(broker, "WORKER_API_KEY", "secret"):
             response = await self.request("GET", "/containers/json", key="secret")
         self.assertIn(b"404 Not Found", response)
+
+    async def test_worker_disconnect_cancels_execution(self):
+        started = asyncio.Event()
+        cancelled = asyncio.Event()
+
+        async def wait_for_disconnect(_body):
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancelled.set()
+
+        payload = json.dumps({"ctx": "signed", "tool": "kali_shell", "argv": ["id"]}).encode()
+        with (
+            mock.patch.object(broker, "WORKER_API_KEY", "secret"),
+            mock.patch.object(worker, "execute", side_effect=wait_for_disconnect),
+        ):
+            reader, writer = await asyncio.open_connection("127.0.0.1", self.port)
+            writer.write(
+                f"POST /worker/execute HTTP/1.1\r\nHost: localhost\r\n"
+                f"X-Internal-Key: secret\r\nContent-Length: {len(payload)}\r\n\r\n".encode()
+                + payload
+            )
+            await writer.drain()
+            await asyncio.wait_for(started.wait(), timeout=1)
+            writer.close()
+            await writer.wait_closed()
+            await asyncio.wait_for(cancelled.wait(), timeout=1)
+
+    async def test_completed_worker_request_returns_response_without_cancelling(self):
+        result = {
+            "exit_code": 0,
+            "stdout_b64": base64.b64encode(b"done").decode(),
+            "stderr_b64": "",
+            "timed_out": False,
+        }
+        with (
+            mock.patch.object(broker, "WORKER_API_KEY", "secret"),
+            mock.patch.object(worker, "execute", new=mock.AsyncMock(return_value=(200, result))) as execute,
+        ):
+            response = await self.request(
+                "POST", "/worker/execute", key="secret",
+                payload=json.dumps({"ctx": "signed"}).encode(),
+            )
+
+        self.assertIn(b"200 OK", response)
+        self.assertIn(b'"exit_code":0', response)
+        execute.assert_awaited_once_with({"ctx": "signed"})
 
 
 if __name__ == "__main__":
