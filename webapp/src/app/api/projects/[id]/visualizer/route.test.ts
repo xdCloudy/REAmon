@@ -88,7 +88,7 @@ describe('GET /api/projects/[id]/visualizer', () => {
       result: { decompiledFunctionCount: 2, returnedFunctionCount: 1, codeBytes: 4096, truncated: true, warnings: 'Function cap reached.', failedFunctionCount: 1, visitedFunctionCount: 3 },
       artifact: { originalName: 'app.apk', relativePath: 'app.apk' },
     }])
-    mocks.groupBy.mockResolvedValue([{ taskId: 'run-1', _count: { _all: 1 } }])
+    mocks.groupBy.mockResolvedValue([{ taskId: 'run-1', type: 'code_unit', _count: { _all: 1 } }])
     mocks.findMany.mockResolvedValue([{
       id: 'observation-1', stableKey: 'function:0x401000', label: 'main', source: 'ghidra', artifactId: 'artifact-1',
       updatedAt: new Date('2026-10-04T00:00:00.000Z'),
@@ -127,7 +127,7 @@ describe('GET /api/projects/[id]/visualizer', () => {
       result: { discoveredClassCount: 102, returnedClassCount: 1, failedClassDetails: [...failedClassDetails, { dexEntry: 'invalid', classIndex: -1, reason: 'bad record' }] },
       artifact: { originalName: 'app.apk', relativePath: 'app.apk' },
     }])
-    mocks.groupBy.mockResolvedValue([{ taskId: 'run-dex', _count: { _all: 1 } }])
+    mocks.groupBy.mockResolvedValue([{ taskId: 'run-dex', type: 'code_unit', _count: { _all: 1 } }])
     mocks.findMany.mockResolvedValue([])
     mocks.count.mockResolvedValue(1)
 
@@ -149,7 +149,7 @@ describe('GET /api/projects/[id]/visualizer', () => {
       artifact: { relativePath: 'bin/app.exe', originalName: 'app.exe' },
     }
     mocks.taskFindMany.mockResolvedValue([{ id: 'run-1', title: 'Run', createdAt: new Date(), completedAt: new Date(), artifact: { originalName: 'app.exe', relativePath: 'app.exe' } }])
-    mocks.groupBy.mockResolvedValue([{ taskId: 'run-1', _count: { _all: 2 } }])
+    mocks.groupBy.mockResolvedValue([{ taskId: 'run-1', type: 'code_unit', _count: { _all: 2 } }])
     mocks.findFirst.mockResolvedValue({ id: 'observation-999' })
     mocks.findMany.mockResolvedValue([row])
     mocks.count.mockResolvedValue(1001)
@@ -170,7 +170,7 @@ describe('GET /api/projects/[id]/visualizer', () => {
       artifact: { relativePath: 'app.apk', originalName: 'app.apk' },
     }
     mocks.taskFindMany.mockResolvedValue([{ id: 'run-1', title: 'Run', createdAt: new Date(), completedAt: new Date(), artifact: { originalName: 'app.apk', relativePath: 'app.apk' } }])
-    mocks.groupBy.mockResolvedValue([{ taskId: 'run-1', _count: { _all: 1200 } }])
+    mocks.groupBy.mockResolvedValue([{ taskId: 'run-1', type: 'code_unit', _count: { _all: 1200 } }])
     mocks.findMany.mockResolvedValueOnce([row])
     mocks.count.mockResolvedValue(1)
 
@@ -189,7 +189,7 @@ describe('GET /api/projects/[id]/visualizer', () => {
     const maintainedSourceCode = 'class Main { void execute() {} }'
     const maintainedSourceHash = createHash('sha256').update(maintainedSourceCode).digest('hex')
     mocks.taskFindMany.mockResolvedValue([{ id: 'run-1', title: 'Run', createdAt: new Date(), completedAt: new Date(), artifact: { originalName: 'app.apk', relativePath: 'app.apk' } }])
-    mocks.groupBy.mockResolvedValue([{ taskId: 'run-1', _count: { _all: 1 } }])
+    mocks.groupBy.mockResolvedValue([{ taskId: 'run-1', type: 'code_unit', _count: { _all: 1 } }])
     mocks.findMany
       .mockResolvedValueOnce([{
         id: 'observation-1', stableKey: 'class:app.Main', label: 'Main', source: 'jadx', artifactId: 'artifact-1',
@@ -226,7 +226,7 @@ describe('GET /api/projects/[id]/visualizer', () => {
 
   test('searches the whole selected run before returning a page and count', async () => {
     mocks.taskFindMany.mockResolvedValue([{ id: 'run-1', title: 'Run', createdAt: new Date(), completedAt: new Date(), artifact: { originalName: 'app.apk', relativePath: 'app.apk' } }])
-    mocks.groupBy.mockResolvedValue([{ taskId: 'run-1', _count: { _all: 1200 } }])
+    mocks.groupBy.mockResolvedValue([{ taskId: 'run-1', type: 'code_unit', _count: { _all: 1200 } }])
     mocks.findMany.mockResolvedValue([])
     mocks.count.mockResolvedValue(3)
 
@@ -265,7 +265,7 @@ describe('GET /api/projects/[id]/visualizer', () => {
 
   test('rejects cursors outside the selected run before reading another page', async () => {
     mocks.taskFindMany.mockResolvedValue([{ id: 'run-1', title: 'Run', createdAt: new Date(), completedAt: new Date(), artifact: { originalName: 'app.exe', relativePath: 'app.exe' } }])
-    mocks.groupBy.mockResolvedValue([{ taskId: 'run-1', _count: { _all: 1 } }])
+    mocks.groupBy.mockResolvedValue([{ taskId: 'run-1', type: 'code_unit', _count: { _all: 1 } }])
     mocks.findFirst.mockResolvedValue(null)
 
     const response = await GET(new Request('http://localhost/api/projects/project-1/visualizer?taskId=run-1&cursor=other-run-row'), params)
@@ -280,8 +280,8 @@ describe('GET /api/projects/[id]/visualizer', () => {
       { id: 'run-old', title: 'Old', createdAt: new Date(), completedAt: new Date(), artifact: { originalName: 'app.apk', relativePath: 'app.apk' } },
     ])
     mocks.groupBy.mockResolvedValue([
-      { taskId: 'run-new', _count: { _all: 2 } },
-      { taskId: 'run-old', _count: { _all: 1 } },
+      { taskId: 'run-new', type: 'code_unit', _count: { _all: 2 } },
+      { taskId: 'run-old', type: 'code_unit', _count: { _all: 1 } },
     ])
 
     const response = await GET(new Request('http://localhost/api/projects/project-1/visualizer?taskId=run-old'), params)
@@ -295,5 +295,30 @@ describe('GET /api/projects/[id]/visualizer', () => {
 
     expect(missing.status).toBe(404)
     expect(mocks.findMany).not.toHaveBeenCalled()
+  })
+
+  test('reports discovered, returned, and database-indexed DEX methods separately', async () => {
+    mocks.taskFindMany.mockResolvedValue([{
+      id: 'run-dex', title: 'Decompile app.apk', createdAt: new Date(), completedAt: new Date(),
+      provider: { pluginId: 'reamon-dex-decompiler' },
+      result: { discoveredClassCount: 1, returnedClassCount: 1, discoveredMethodCount: 12_400, returnedMethodCount: 10_000, methodsTruncated: true },
+      artifact: { originalName: 'app.apk', relativePath: 'app.apk' },
+    }])
+    mocks.groupBy.mockResolvedValue([
+      { taskId: 'run-dex', type: 'code_unit', _count: { _all: 1 } },
+      { taskId: 'run-dex', type: 'function', _count: { _all: 9_950 } },
+    ])
+    mocks.findMany.mockResolvedValue([])
+
+    const response = await GET(new Request('http://localhost/api/projects/project-1/visualizer'), params)
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      runs: [{ discoveredMethodCount: 12_400, returnedMethodCount: 10_000, indexedMethodCount: 9_950, methodsTruncated: true }],
+    })
+    expect(mocks.groupBy).toHaveBeenCalledWith(expect.objectContaining({
+      by: ['taskId', 'type'],
+      where: expect.objectContaining({ type: { in: ['code_unit', 'function'] } }),
+    }))
   })
 })

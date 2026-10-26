@@ -135,17 +135,22 @@ export async function GET(request: Request, { params }: RouteParams) {
     const decompileTaskIds = decompileTasks.map((task) => task.id)
     const observationCounts = decompileTaskIds.length
       ? await prisma.reamonObservation.groupBy({
-        by: ['taskId'],
+        by: ['taskId', 'type'],
         where: {
           projectId,
-          type: CODE_UNIT_OBSERVATION_TYPE,
+          type: { in: [CODE_UNIT_OBSERVATION_TYPE, 'function'] },
           taskId: { in: decompileTaskIds },
           artifact: { is: selection.artifactWhere },
         },
         _count: { _all: true },
       })
       : []
-    const countByTaskId = new Map(observationCounts.map((row) => [row.taskId, row._count._all]))
+    const countByTaskId = new Map(observationCounts
+      .filter((row) => row.type === CODE_UNIT_OBSERVATION_TYPE)
+      .map((row) => [row.taskId, row._count._all]))
+    const methodCountByTaskId = new Map(observationCounts
+      .filter((row) => row.type === 'function')
+      .map((row) => [row.taskId, row._count._all]))
     const runs = decompileTasks
       .map((task) => {
         const result = resultRecord(task.result)
@@ -177,6 +182,9 @@ export async function GET(request: Request, { params }: RouteParams) {
           : discoveredUnitCount ? Math.min(100, Math.round((indexedUnitCount / discoveredUnitCount) * 100)) : null
         const unitLabel = ['reamon-ghidra', 'reamon-ida', 'reamon-recurse', 'reamon-miasm', 'reamon-wabt', 'reamon-glaurung', 'reamon-kuna', 'reamon-fission', 'reamon-oxidizer', 'reamon-reko'].includes(task.provider?.pluginId || '') ? 'functions' : 'code units'
         const failedClasses = failedClassDetails(result.failedClassDetails)
+        const discoveredMethodCount = finiteCount(result.discoveredMethodCount)
+        const returnedMethodCount = finiteCount(result.returnedMethodCount)
+        const indexedMethodCount = methodCountByTaskId.get(task.id) || 0
         return {
           id: task.id,
           title: task.title,
@@ -207,6 +215,12 @@ export async function GET(request: Request, { params }: RouteParams) {
           warnings: typeof result.warnings === 'string' ? result.warnings.slice(0, 4000) : '',
           failedClassDetails: failedClasses.entries,
           failedClassDetailsTruncated: failedClasses.truncated,
+          discoveredMethodCount,
+          returnedMethodCount,
+          indexedMethodCount,
+          methodsTruncated: result.methodsTruncated === true
+            || (discoveredMethodCount !== null && returnedMethodCount !== null && returnedMethodCount < discoveredMethodCount)
+            || (returnedMethodCount !== null && indexedMethodCount < returnedMethodCount),
           failedUnitCount: hasPersistedInventory ? finiteCount(inventory.failedUnitCount) : finiteCount(result.failedFunctionCount),
           visitedUnitCount: hasPersistedInventory ? finiteCount(inventory.visitedUnitCount) : finiteCount(result.visitedFunctionCount),
           notVisitedUnitCount: hasPersistedInventory ? finiteCount(inventory.notVisitedUnitCount) : null,

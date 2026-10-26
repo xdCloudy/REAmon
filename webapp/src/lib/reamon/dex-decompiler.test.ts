@@ -57,6 +57,39 @@ describe('Rust DEX-to-Java provider', () => {
     })]))
   })
 
+  it('preserves discovered and returned method counts when method evidence is capped', async () => {
+    const body = {
+      ...responseBody([]),
+      discoveredMethodCount: 12_400,
+      returnedMethodCount: 1,
+      methodsTruncated: true,
+      methods: [{
+        signature: 'com.example.Main#start():void',
+        className: 'com.example.Main',
+        methodName: 'start',
+        relativePath: 'com/example/Main.java',
+        dexIndex: 0,
+        methodIndex: 3,
+        instructionCount: 2,
+        instructionMnemonics: ['invoke-virtual', 'return-void'],
+        controlFlowGraph: {},
+        bytecodeRowsTruncated: false,
+        cfgTruncated: false,
+      }],
+    }
+    vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify(body), { status: 200 }))
+
+    const result = await executeDexDecompiler(input)
+
+    expect(result.status).toBe('completed')
+    expect(result.data).toMatchObject({
+      discoveredMethodCount: 12_400,
+      returnedMethodCount: 1,
+      methodsTruncated: true,
+    })
+    expect(result.data.observations).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'function' })]))
+  })
+
   it('rejects malformed failed-class identities from the analyzer', async () => {
     const details = [{ dexEntry: 'classes2.dex', classIndex: -1, descriptor: 'Lcom/example/Broken;', reason: 'failed' }]
     vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify(responseBody(details)), { status: 200 }))

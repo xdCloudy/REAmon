@@ -108,6 +108,44 @@ describe('executeAnalysisTask', () => {
     }))
   })
 
+  test('persists DEX method coverage and failure facts in the project observation batch', async () => {
+    mocks.taskFindFirst.mockResolvedValue(task({
+      capability: 'decompile',
+      provider: { id: 'provider-dex', pluginId: 'reamon-dex-decompiler', name: 'Rust DEX-to-Java Decompiler', enabled: true },
+    }))
+    mocks.resolveCapabilities.mockReturnValue([{ capabilities: ['decompile'] }])
+    mocks.observationCount.mockResolvedValue(1)
+    mocks.analyze.mockResolvedValue({
+      status: 'completed', toolId: 'reamon-dex-decompiler', capabilities: ['decompile'], produced: ['CodeUnit'], data: {
+        discoveredClassCount: 1,
+        returnedClassCount: 1,
+        discoveredMethodCount: 12_400,
+        returnedMethodCount: 10_000,
+        methodsTruncated: true,
+        observations: [
+          { kind: 'entity', type: 'code_unit', key: 'class:main', label: 'Main', attributes: { unitType: 'class', name: 'Main' } },
+          { kind: 'entity', type: 'function', key: 'method:start', label: 'Main#start', attributes: { unitType: 'function', parentCodeUnitKey: 'class:main' } },
+          { kind: 'fact', type: 'decompilation_failure', key: 'failure:broken', label: 'Broken could not be reconstructed', attributes: { descriptor: 'LBroken;' } },
+        ],
+      },
+    })
+
+    await executeAnalysisTask('project-1', 'task-1')
+
+    expect(mocks.observationRawExecute).toHaveBeenCalledOnce()
+    const persistedRows = mocks.observationRawExecute.mock.calls[0][0].values
+    expect(persistedRows).toContain('code_unit')
+    expect(persistedRows).toContain('function')
+    expect(persistedRows).toContain('decompilation_failure')
+    const persistedResult = mocks.taskSettleUpdateMany.mock.calls.at(-1)?.[0].data.result
+    expect(persistedResult).toMatchObject({
+      discoveredMethodCount: 12_400,
+      returnedMethodCount: 10_000,
+      methodsTruncated: true,
+      coverageInventory: { discoveredUnitCount: 1, indexedUnitCount: 1 },
+    })
+  })
+
   test('persists bounded progress messages under the active run lease', async () => {
     mocks.analyze.mockImplementation(async (input: { reportProgress?: (message: string) => Promise<void> | void }) => {
       await input.reportProgress?.('  Indexing Java source 4 of 12  ')
