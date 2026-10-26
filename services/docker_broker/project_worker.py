@@ -50,6 +50,12 @@ class DockerAPIError(RuntimeError):
     pass
 
 
+class WorkerAdmissionError(DockerAPIError):
+    def __init__(self, status_code: int, message: str):
+        super().__init__(message)
+        self.status_code = status_code
+
+
 class _UnixHTTPConnection(http.client.HTTPConnection):
     def __init__(self, path: str, timeout: float):
         super().__init__("docker", timeout=timeout)
@@ -407,11 +413,11 @@ async def _create_admitted_terminal(identity: dict[str, str]) -> tuple[str, str]
             active = await _active_worker_count()
             project_active = await _active_project_worker_count(project_id)
             if active is None or project_active is None:
-                raise DockerAPIError("terminal worker capacity is unavailable")
+                raise WorkerAdmissionError(503, "terminal worker capacity is unavailable")
             if active >= WORKER_MAX_ACTIVE:
-                raise DockerAPIError("worker capacity is full; retry later")
+                raise WorkerAdmissionError(429, "worker capacity is full; retry later")
             if project_active >= WORKER_MAX_ACTIVE_PER_PROJECT:
-                raise DockerAPIError("this project has reached its active worker limit; retry later")
+                raise WorkerAdmissionError(429, "this project has reached its active worker limit; retry later")
             network_id = await _create_worker_network(project_id)
             try:
                 status, _ = await _docker_request("POST", f"/networks/{network_id}/connect", {
@@ -431,9 +437,9 @@ async def _create_admitted_terminal(identity: dict[str, str]) -> tuple[str, str]
         async with broker._CREATE_COUNT_LOCK:
             host_active = await broker._count_broker_owned_active()
             if host_active < 0:
-                raise DockerAPIError("host container capacity is unavailable")
+                raise WorkerAdmissionError(503, "host container capacity is unavailable")
             if host_active >= broker.BROKER_MAX_CONTAINERS:
-                raise DockerAPIError("host container capacity is full; retry later")
+                raise WorkerAdmissionError(429, "host container capacity is full; retry later")
             return await create()
 
 
@@ -531,7 +537,8 @@ async def serve_terminal(ctx: str, rows: int, cols: int, reader, writer) -> None
         if not writer.is_closing():
             try:
                 if container_id is None:
-                    await _send_worker_error(writer, 503, str(exc))
+                    status_code = exc.status_code if isinstance(exc, WorkerAdmissionError) else 503
+                    await _send_worker_error(writer, status_code, str(exc))
             except Exception:
                 pass
     finally:
@@ -555,7 +562,10 @@ async def serve_terminal(ctx: str, rows: int, cols: int, reader, writer) -> None
 
 async def _send_worker_error(writer, status: int, message: str) -> None:
     body = json.dumps({"error": message}, separators=(",", ":")).encode("utf-8")
-    reason = {400: "Bad Request", 403: "Forbidden", 503: "Service Unavailable"}.get(status, "Error")
+    reason = {
+        400: "Bad Request", 403: "Forbidden", 429: "Too Many Requests",
+        503: "Service Unavailable",
+    }.get(status, "Error")
     writer.write(
         f"HTTP/1.1 {status} {reason}\r\nContent-Type: application/json\r\n"
         f"Content-Length: {len(body)}\r\nConnection: close\r\n\r\n".encode("ascii") + body

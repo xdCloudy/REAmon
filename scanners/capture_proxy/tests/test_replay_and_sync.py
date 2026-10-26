@@ -87,6 +87,19 @@ class TestCrossCopyReplayFlow(unittest.TestCase):
         self.assertIs(out["is_replay"], True)
         self.assertEqual(out["origin_id"], "o-9")
 
+    def test_agent_signed_terminal_context_round_trips_nested_graph_scope(self):
+        rc_agent = _load("agent", _COPIES["agent"])
+        rc_capture = _load("capture", _COPIES["capture"])
+        payload = {
+            "source": "agent", "project_id": "p", "user_id": "u",
+            "session_id": "s", "tool": "kali_terminal", "phase": "interactive",
+            "graph_ctx": "nested-signed-graph-context",
+        }
+        token = rc_agent.sign_tag(payload, self.KEY)
+        out = rc_capture.verify_tag(token, {"agent": self.KEY})
+        self.assertIsNotNone(out)
+        self.assertEqual(out["graph_ctx"], payload["graph_ctx"])
+
 
 class TestThreeCopySync(unittest.TestCase):
     def test_copies_are_byte_identical(self):

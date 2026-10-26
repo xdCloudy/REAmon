@@ -109,6 +109,34 @@ def test_scoped_shell_context_resolves_only_verified_project(monkeypatch, tmp_pa
     ))
     assert playwright_scope == {"project_id": "project-1"}
 
+    graph_ctx = sign_tag({
+        "source": "agent", "user_id": "owner-1", "project_id": "project-1",
+        "session_id": "session-1", "tool": "kali_terminal", "phase": "interactive",
+        "exp": int(api.time.time()) + 120,
+    }, key)
+    terminal_claims = {
+        "source": "agent", "user_id": "owner-1", "project_id": "project-1",
+        "session_id": "session-1", "graph_ctx": graph_ctx,
+        "tool": "kali_terminal", "phase": "interactive",
+        "exp": int(api.time.time()) + 120,
+    }
+    terminal_scope = asyncio.run(api.resolve_execution_context(
+        api.ExecutionContextRequest(ctx=sign_tag(terminal_claims, key), tool="kali_terminal")
+    ))
+    assert terminal_scope == {
+        "project_id": "project-1", "user_id": "owner-1",
+        "session_id": "session-1", "graph_ctx": graph_ctx,
+    }
+
+    mismatched_terminal = asyncio.run(api.resolve_execution_context(
+        api.ExecutionContextRequest(
+            ctx=sign_tag({**terminal_claims, "session_id": "other-session"}, key),
+            tool="kali_terminal",
+        )
+    ))
+    assert isinstance(mismatched_terminal, JSONResponse)
+    assert mismatched_terminal.status_code == 403
+
 
 def test_scoped_shell_context_rejects_symlink_output_directory(monkeypatch, tmp_path):
     import api
@@ -306,31 +334,6 @@ class _BrowserSocket:
 
     async def close(self, **_kwargs):
         return None
-
-
-class _UpstreamSocket:
-    def __init__(self):
-        self.sent = []
-
-    async def send(self, data):
-        self.sent.append(data)
-
-    def __aiter__(self):
-        async def wait_for_close():
-            await asyncio.Future()
-            yield ""
-        return wait_for_close()
-
-
-class _UpstreamConnection:
-    def __init__(self, socket):
-        self.socket = socket
-
-    async def __aenter__(self):
-        return self.socket
-
-    async def __aexit__(self, *_args):
-        return False
 
 
 def test_terminal_proxy_sends_ticket_identity_to_isolated_worker(monkeypatch):

@@ -1,6 +1,12 @@
 # Kali execution isolation decision
 
-Status: broker-managed project workers are wired for `kali_shell`, `execute_code`, `execute_playwright`, and `proxy_brain`. The ticket-authenticated terminal now has a source path to a short-lived broker-created PTY worker. That terminal path has not yet passed its Docker integration suite or a live shell smoke; deployment and the remaining operations controls are open.
+Status: broker-managed project workers are wired for `kali_shell`, `execute_code`, `execute_playwright`, and `proxy_brain`. The ticket-authenticated terminal now uses a short-lived broker-created PTY worker in source. Focused Docker tests and a Docker Engine PTY smoke passed, including shell output and container/network cleanup. The browser-to-agent-to-broker flow, LAN deployment, and remaining operations controls are open.
+
+The current `redamon.sh` core lifecycle does not start `docker-broker` or
+`kali-sandbox`; both remain in the optional `legacy-pentest` profile. The active
+agent and broker on this PC also belong to different Compose projects and do not
+share a network. I rebuilt the source images but left those running services
+untouched, so this terminal feature is not installed in the active application.
 
 ## Current deployment update (2026-10-26)
 
@@ -213,21 +219,22 @@ selection, project-only mounting, read-only root, writable scratch, separate
 output streams, and worker/network cleanup. The rebuilt local agent, Kali, and
 broker containers report healthy. A valid agent-signed shell request completed
 in a disposable worker, and Chromium launched in the active Kali container.
-The terminal worker source path has been added since that smoke: the agent now
-uses the authenticated broker endpoint, which verifies ticket-derived session
-context and creates an admitted per-session PTY container. It uses a project-only
-read-only workspace plus writable project scratch/output mounts, resource limits,
-bounded input/output frames, and cleanup when the stream ends. This new path is
-source-only until its Docker integration suite and live end-to-end smoke pass.
-Full MCP client/webapp flow, tenant-scoped broker ownership, cancellation and
-restart recovery, generated-file transfer, and worker storage, disk, and egress
-limits remain open.
+The terminal worker path uses the authenticated broker endpoint, which verifies
+ticket-derived session context and creates an admitted per-session PTY container.
+It uses a project-only read-only workspace plus writable project scratch/output
+mounts, resource limits, bounded input/output frames, and cleanup when the stream
+ends. Focused Docker tests and a Docker Engine shell smoke passed with a patched
+scope verifier; the real agent-ticket-to-broker flow and LAN deployment remain
+unverified. Full MCP client/webapp flow, tenant-scoped broker ownership,
+cancellation and restart recovery, generated-file transfer, and worker storage,
+disk, and egress limits remain open.
 
 ## Decision
 
 Keep the four non-terminal tools on the verified disposable worker path. The
-interactive terminal now creates a ticket-bound project worker in source; its
-tests, live smoke, and recovery behavior remain to be verified. The MCP service remains the trusted controller:
+interactive terminal now creates a ticket-bound project worker; focused tests
+and a broker-level live shell smoke pass, while the agent/browser flow and recovery
+behavior remain to be verified. The MCP service remains the trusted controller:
 it authenticates the agent, verifies signed scope, routes work to the matching
 worker, and publishes selected artifacts through a project-authorized transfer
 path. Tenant-scoped broker ownership, output quotas, egress policy, and restart

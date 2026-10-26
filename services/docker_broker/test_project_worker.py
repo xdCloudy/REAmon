@@ -50,6 +50,217 @@ class ProjectWorkerRuntimeTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(ValueError, "not allowed"):
             worker._worker_environment({"INTERNAL_API_KEY": "master-secret"})
 
+    async def test_terminal_context_requires_agent_resolved_identity_and_graph_scope(self):
+        payload = {
+            "project_id": "project-1", "user_id": "owner-1",
+            "session_id": "session-1", "graph_ctx": "signed-graph-context",
+        }
+
+        class Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self, _limit):
+                return json.dumps(payload).encode()
+
+        with (
+            mock.patch.object(worker, "SCANNER_API_KEY", "scanner-key"),
+            mock.patch.object(worker.urllib.request, "urlopen", return_value=Response()) as urlopen,
+        ):
+            result = worker._verify_terminal_context_sync("signed-terminal-context")
+
+        self.assertEqual(result, payload)
+        request = urlopen.call_args.args[0]
+        self.assertEqual(request.full_url, worker.AGENT_SCOPE_URL)
+        self.assertEqual(request.get_header("X-internal-key"), "scanner-key")
+        self.assertEqual(json.loads(request.data), {
+            "ctx": "signed-terminal-context", "tool": "kali_terminal",
+        })
+
+    async def test_terminal_context_rejects_incomplete_scope(self):
+        class Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self, _limit):
+                return b'{"project_id":"project-1","user_id":"owner-1"}'
+
+        with (
+            mock.patch.object(worker, "SCANNER_API_KEY", "scanner-key"),
+            mock.patch.object(worker.urllib.request, "urlopen", return_value=Response()),
+        ):
+            with self.assertRaisesRegex(PermissionError, "rejected"):
+                worker._verify_terminal_context_sync("signed-terminal-context")
+
+    async def test_terminal_container_uses_project_mounts_and_interactive_limits(self):
+        digest = "sha256:" + "c" * 64
+        mounts = [{"Type": "bind", "Source": "/projects/project-1", "Target": "/workspace", "ReadOnly": True}]
+        calls = []
+
+        async def docker(method, path, body=None, **_kwargs):
+            calls.append((method, path, body))
+            return 201, b'{"Id":"terminal-worker"}'
+
+        identity = {
+            "project_id": "project-1", "user_id": "owner-1",
+            "session_id": "session-1", "graph_ctx": "signed-graph-context",
+        }
+        with (
+            mock.patch.object(worker, "_workspace_project_runtime", return_value=(mounts, digest)),
+            mock.patch.object(worker, "_docker_request", side_effect=docker),
+        ):
+            result = await worker._create_terminal_container(identity, "terminal-network")
+
+        self.assertEqual(result, "terminal-worker")
+        body = calls[0][2]
+        self.assertEqual(body["Image"], digest)
+        self.assertEqual(body["User"], "65534:65534")
+        self.assertTrue(body["Tty"])
+        self.assertTrue(body["OpenStdin"])
+        self.assertTrue(body["StdinOnce"])
+        self.assertTrue(body["HostConfig"]["ReadonlyRootfs"])
+        self.assertEqual(body["HostConfig"]["Mounts"], mounts)
+        self.assertEqual(body["HostConfig"]["PidsLimit"], worker.WORKER_PIDS)
+        self.assertEqual(body["HostConfig"]["NanoCpus"], worker.WORKER_NANO_CPUS)
+        self.assertEqual(body["Labels"]["reamon.terminal-worker"], "1")
+        self.assertEqual(body["Labels"]["reamon.project-scope"], hashlib.sha256(b"project-1").hexdigest())
+        self.assertIn("REDAMON_CTX=signed-graph-context", body["Env"])
+        self.assertNotIn("SCANNER_API_KEY", " ".join(body["Env"]))
+
+    async def test_terminal_admission_denies_full_project_before_network_creation(self):
+        identity = {
+            "project_id": "project-1", "user_id": "owner-1",
+            "session_id": "session-1", "graph_ctx": "signed-graph-context",
+        }
+        with (
+            mock.patch.object(broker, "BROKER_MAX_CONTAINERS", 0),
+            mock.patch.object(worker, "_active_worker_count", return_value=1),
+            mock.patch.object(worker, "_active_project_worker_count", return_value=worker.WORKER_MAX_ACTIVE_PER_PROJECT),
+            mock.patch.object(worker, "_create_worker_network") as create_network,
+        ):
+            with self.assertRaisesRegex(worker.WorkerAdmissionError, "project has reached") as raised:
+                await worker._create_admitted_terminal(identity)
+        self.assertEqual(raised.exception.status_code, 429)
+        create_network.assert_not_awaited()
+
+    async def test_terminal_admission_denies_full_global_cap(self):
+        identity = {
+            "project_id": "project-1", "user_id": "owner-1",
+            "session_id": "session-1", "graph_ctx": "signed-graph-context",
+        }
+        with (
+            mock.patch.object(broker, "BROKER_MAX_CONTAINERS", 0),
+            mock.patch.object(worker, "_active_worker_count", return_value=worker.WORKER_MAX_ACTIVE),
+            mock.patch.object(worker, "_active_project_worker_count", return_value=0),
+            mock.patch.object(worker, "_create_worker_network") as create_network,
+        ):
+            with self.assertRaisesRegex(worker.WorkerAdmissionError, "worker capacity is full") as raised:
+                await worker._create_admitted_terminal(identity)
+        self.assertEqual(raised.exception.status_code, 429)
+        create_network.assert_not_awaited()
+
+    async def test_terminal_capacity_denial_returns_retryable_http_status(self):
+        identity = {
+            "project_id": "project-1", "user_id": "owner-1",
+            "session_id": "session-1", "graph_ctx": "signed-graph-context",
+        }
+
+        class Writer:
+            def __init__(self):
+                self.data = bytearray()
+
+            def is_closing(self):
+                return False
+
+            def write(self, data):
+                self.data.extend(data)
+
+            async def drain(self):
+                return None
+
+        writer = Writer()
+        with (
+            mock.patch.object(worker.asyncio, "to_thread", return_value=identity),
+            mock.patch.object(
+                worker, "_create_admitted_terminal",
+                side_effect=worker.WorkerAdmissionError(429, "worker capacity is full"),
+            ),
+        ):
+            await worker.serve_terminal("signed-context", 24, 80, None, writer)
+
+        self.assertTrue(bytes(writer.data).startswith(b"HTTP/1.1 429 Too Many Requests"))
+
+    async def test_terminal_stream_relays_input_output_and_cleans_up(self):
+        identity = {
+            "project_id": "project-1", "user_id": "owner-1",
+            "session_id": "session-1", "graph_ctx": "signed-graph-context",
+        }
+        browser_reader = asyncio.StreamReader()
+        input_bytes = b"id\n"
+        resize_bytes = json.dumps({"rows": 40, "cols": 120}).encode()
+        browser_reader.feed_data(
+            b"D" + len(input_bytes).to_bytes(4, "big") + input_bytes
+            + b"R" + len(resize_bytes).to_bytes(4, "big") + resize_bytes
+        )
+        attach_reader = asyncio.StreamReader()
+        attach_reader.feed_data(b"terminal output")
+        attach_reader.feed_eof()
+
+        class Writer:
+            def __init__(self):
+                self.data = bytearray()
+
+            def is_closing(self):
+                return False
+
+            def write(self, data):
+                self.data.extend(data)
+
+            async def drain(self):
+                return None
+
+        class AttachWriter:
+            def __init__(self):
+                self.data = bytearray()
+                self.closed = False
+
+            def write(self, data):
+                self.data.extend(data)
+
+            async def drain(self):
+                return None
+
+            def close(self):
+                self.closed = True
+
+            async def wait_closed(self):
+                return None
+
+        tunnel_writer = Writer()
+        attach_writer = AttachWriter()
+        with (
+            mock.patch.object(worker.asyncio, "to_thread", return_value=identity),
+            mock.patch.object(worker, "_create_admitted_terminal", return_value=("net-1", "ctr-1")),
+            mock.patch.object(worker, "_open_terminal_attach", return_value=(attach_reader, attach_writer)),
+            mock.patch.object(worker, "_docker_request", return_value=(204, b"")) as docker_request,
+            mock.patch.object(worker, "_remove_worker") as cleanup,
+        ):
+            await worker.serve_terminal("signed-context", 24, 80, browser_reader, tunnel_writer)
+
+        self.assertEqual(bytes(attach_writer.data), input_bytes)
+        resize_calls = [call for call in docker_request.await_args_list if "/resize?" in call.args[1]]
+        self.assertTrue(any("h=40&w=120" in call.args[1] for call in resize_calls))
+        self.assertTrue(attach_writer.closed)
+        self.assertTrue(bytes(tunnel_writer.data).startswith(b"HTTP/1.1 200 OK"))
+        self.assertIn(b"O" + len(b"terminal output").to_bytes(4, "big") + b"terminal output", tunnel_writer.data)
+        cleanup.assert_awaited_once_with("ctr-1", "net-1")
+
     async def test_worker_preserves_exit_code_and_separate_streams(self):
         frames = log_frame(1, b"out") + log_frame(2, b"err")
         with mock.patch.object(
@@ -330,6 +541,12 @@ class BrokerWorkerEndpointTests(unittest.IsolatedAsyncioTestCase):
     async def test_worker_endpoint_rejects_missing_transport_key(self):
         with mock.patch.object(broker, "WORKER_API_KEY", "secret"):
             response = await self.request("POST", "/worker/execute")
+        self.assertIn(b"403 Forbidden", response)
+        self.assertIn(b"worker authorization failed", response)
+
+    async def test_terminal_endpoint_rejects_missing_transport_key(self):
+        with mock.patch.object(broker, "WORKER_API_KEY", "secret"):
+            response = await self.request("POST", "/worker/terminal")
         self.assertIn(b"403 Forbidden", response)
         self.assertIn(b"worker authorization failed", response)
 
