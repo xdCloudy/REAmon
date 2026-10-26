@@ -101,6 +101,55 @@ async def test_source_validation_uses_native_compiler(language: str, valid: str,
 
 
 @pytest.mark.asyncio
+async def test_csharp_project_compiler_resolves_types_across_accepted_files() -> None:
+    from api import ReamonCodeProjectCompileFile, ReamonCodeProjectCompileRequest, compile_reamon_csharp_project
+
+    files = [
+        ReamonCodeProjectCompileFile(
+            relative_path="Core/Pair.cs",
+            source_code="namespace Sample; public static class Pair { public static int Sum(int left, int right) => left + right; }\n",
+            expected_sha256=hashlib.sha256(b"namespace Sample; public static class Pair { public static int Sum(int left, int right) => left + right; }\n").hexdigest(),
+        ),
+        ReamonCodeProjectCompileFile(
+            relative_path="App/Runner.cs",
+            source_code="namespace Sample; public sealed class Runner { public int Compute() => Pair.Sum(2, 3); }\n",
+            expected_sha256=hashlib.sha256(b"namespace Sample; public sealed class Runner { public int Compute() => Pair.Sum(2, 3); }\n").hexdigest(),
+        ),
+    ]
+    result = await compile_reamon_csharp_project(ReamonCodeProjectCompileRequest(files=files))
+
+    assert result["validation_status"] == "PASSED"
+    assert result["validation_method"].startswith("roslyn-csharp-project-")
+    assert result["file_count"] == 2
+    assert len(result["source_sha256"]) == 64
+    assert len(result["compiled_sha256"]) == 64
+    assert [file["relative_path"] for file in result["files"]] == ["App/Runner.cs", "Core/Pair.cs"]
+
+
+@pytest.mark.asyncio
+async def test_csharp_project_compiler_rejects_cross_file_errors_and_stale_hashes() -> None:
+    from fastapi.responses import JSONResponse
+    from api import ReamonCodeProjectCompileFile, ReamonCodeProjectCompileRequest, compile_reamon_csharp_project
+
+    source = "namespace Sample; public sealed class Runner { public int Compute() => Missing.Sum(); }\n"
+    result = await compile_reamon_csharp_project(ReamonCodeProjectCompileRequest(files=[
+        ReamonCodeProjectCompileFile(
+            relative_path="Runner.cs", source_code=source,
+            expected_sha256=hashlib.sha256(source.encode()).hexdigest(),
+        ),
+    ]))
+    assert result["validation_status"] == "FAILED"
+    assert result["compiled_sha256"] is None
+    assert result["diagnostics"]
+
+    stale = await compile_reamon_csharp_project(ReamonCodeProjectCompileRequest(files=[
+        ReamonCodeProjectCompileFile(relative_path="Runner.cs", source_code=source, expected_sha256="0" * 64),
+    ]))
+    assert isinstance(stale, JSONResponse)
+    assert stale.status_code == 409
+
+
+@pytest.mark.asyncio
 async def test_visual_basic_source_validation_uses_roslyn() -> None:
     from api import ReamonCodeValidateRequest, validate_reamon_code
 

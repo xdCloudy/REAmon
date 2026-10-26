@@ -11,12 +11,15 @@ using Microsoft.CodeAnalysis.Text;
 internal static class Program
 {
     private const int MaxSourceBytes = 512 * 1024;
+    private const int MaxProjectFiles = 64;
+    private const int MaxProjectSourceBytes = 8 * 1024 * 1024;
     private const int MaxBindings = 5000;
     private const int MaxRenames = 80;
     private static readonly Regex Identifier = new(@"^[A-Za-z_][A-Za-z0-9_]{0,127}$", RegexOptions.CultureInvariant);
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
     private sealed record Request(string Operation, string SourceCode, string ExpectedSha256, Rename[] Renames, string Language);
+    private sealed record ProjectBuildFile(string RelativePath, string SourceCode, string ExpectedSha256);
     private sealed record Rename(string BindingId, string NewName);
     private sealed record Binding(
         string Id,
@@ -37,6 +40,11 @@ internal static class Program
             var requestJson = Console.In.ReadToEnd();
             using var document = JsonDocument.Parse(requestJson);
             var root = document.RootElement;
+            if (GetString(root, "operation") == "compile-project")
+            {
+                Console.Out.WriteLine(JsonSerializer.Serialize(CompileProject(root), JsonOptions));
+                return 0;
+            }
             var request = new Request(
                 GetString(root, "operation"),
                 GetString(root, "source_code"),
@@ -57,6 +65,94 @@ internal static class Program
             Console.Out.WriteLine(JsonSerializer.Serialize(new { error = "Roslyn could not safely analyze this C# source" }));
             return 0;
         }
+    }
+
+    private static object CompileProject(JsonElement root)
+    {
+        if (!root.TryGetProperty("files", out var filesElement) || filesElement.ValueKind != JsonValueKind.Array)
+            throw new RefactorException("A C# project build requires a files array");
+        var inputFiles = filesElement.EnumerateArray().Take(MaxProjectFiles + 1).Select(item => new ProjectBuildFile(
+            GetString(item, "relative_path"),
+            GetString(item, "source_code"),
+            GetString(item, "expected_sha256").ToLowerInvariant())).ToArray();
+        if (inputFiles.Length is < 1 or > MaxProjectFiles)
+            throw new RefactorException($"A C# project build must contain between 1 and {MaxProjectFiles} files");
+
+        var totalBytes = 0;
+        var hashes = new List<(string Path, string Hash)>();
+        foreach (var file in inputFiles)
+        {
+            var normalizedPath = file.RelativePath.Replace('\\', '/');
+            if (normalizedPath != file.RelativePath || normalizedPath.StartsWith('/')
+                || !Regex.IsMatch(normalizedPath, @"^[A-Za-z0-9_][A-Za-z0-9_./-]{0,199}$", RegexOptions.CultureInvariant)
+                || normalizedPath.Split('/').Any(segment => segment is "" or "." or "..")
+                || !normalizedPath.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
+                throw new RefactorException("C# project paths must be safe relative .cs paths");
+            var bytes = Encoding.UTF8.GetBytes(file.SourceCode);
+            if (bytes.Length > MaxSourceBytes)
+                throw new RefactorException("A C# project source file exceeds the 512 KiB limit");
+            totalBytes += bytes.Length;
+            if (totalBytes > MaxProjectSourceBytes)
+                throw new RefactorException("The C# project exceeds the 8 MiB combined source limit");
+            var actualHash = Hash(bytes);
+            if (!Regex.IsMatch(file.ExpectedSha256, "^[a-f0-9]{64}$", RegexOptions.CultureInvariant)
+                || !CryptographicOperations.FixedTimeEquals(
+                    Encoding.ASCII.GetBytes(actualHash), Encoding.ASCII.GetBytes(file.ExpectedSha256)))
+                throw new RefactorException($"The source hash does not match project file {normalizedPath}");
+            hashes.Add((normalizedPath, actualHash));
+        }
+        if (hashes.Select(item => item.Path).Distinct(StringComparer.OrdinalIgnoreCase).Count() != hashes.Count)
+            throw new RefactorException("C# project file paths must be unique");
+
+        var orderedFiles = inputFiles.OrderBy(file => file.RelativePath, StringComparer.Ordinal).ToArray();
+        var orderedHashes = hashes.OrderBy(item => item.Path, StringComparer.Ordinal).ToArray();
+        using var projectHashInput = new MemoryStream();
+        foreach (var item in orderedHashes)
+        {
+            var pathBytes = Encoding.UTF8.GetBytes(item.Path);
+            projectHashInput.Write(pathBytes);
+            projectHashInput.WriteByte(0);
+            projectHashInput.Write(Encoding.ASCII.GetBytes(item.Hash));
+            projectHashInput.WriteByte((byte)'\n');
+        }
+        var projectHash = Hash(projectHashInput.ToArray());
+        var trees = orderedFiles.Select(file => CSharpSyntaxTree.ParseText(
+            SourceText.From(file.SourceCode, Encoding.UTF8),
+            new CSharpParseOptions(languageVersion: LanguageVersion.Latest, documentationMode: DocumentationMode.Parse),
+            path: file.RelativePath)).ToArray();
+        var compilation = CSharpCompilation.Create(
+            "ReamonMaintainedProject",
+            trees,
+            PlatformReferences(),
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true, nullableContextOptions: NullableContextOptions.Enable));
+        using var assembly = new MemoryStream();
+        var emit = compilation.Emit(assembly);
+        var diagnostics = emit.Diagnostics
+            .Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)
+            .Take(20)
+            .Select(diagnostic =>
+            {
+                var line = diagnostic.Location.GetLineSpan();
+                var path = line.Path.Replace('\\', '/');
+                return $"{path}:{line.StartLinePosition.Line + 1}: {diagnostic.Id} {diagnostic.GetMessage()}";
+            })
+            .ToArray();
+        var version = RoslynVersion();
+        var passed = emit.Success;
+        return new
+        {
+            source_sha256 = projectHash,
+            validation_status = passed ? "PASSED" : "FAILED",
+            validation_method = $"roslyn-csharp-project-{version}-compile",
+            validation_message = passed
+                ? $"Roslyn {version} compiled {orderedFiles.Length} maintained C# files together as a library without executing them. External package references and runtime behavior were not checked."
+                : $"Roslyn {version} rejected the maintained C# project: {string.Join("; ", diagnostics).Replace('\n', ' ').Replace('\r', ' ')}"[..Math.Min(1800, $"Roslyn {version} rejected the maintained C# project: {string.Join("; ", diagnostics).Replace('\n', ' ').Replace('\r', ' ')}".Length)],
+            compiler_version = version,
+            compiled_sha256 = passed ? Hash(assembly.ToArray()) : null,
+            file_count = orderedFiles.Length,
+            files = orderedHashes.Select(item => new { relative_path = item.Path, source_sha256 = item.Hash }).ToArray(),
+            diagnostics,
+        };
     }
 
     private static string GetString(JsonElement root, string name)

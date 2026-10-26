@@ -9,6 +9,7 @@ import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { mergeDiff3 } from 'node-diff3'
 import { buildCodeUnitTreemapEntries, filterCodeUnits, filterCodeUnitsByFolder, layoutCodeUnitTreemap, parseCodeUnitFilter, summarizeCodeUnits, type CodeUnit, type CodeUnitTreemapEntry } from '@/lib/reamon/code-units'
 import { ProjectFunctionAgentQueue } from './ProjectFunctionAgentQueue'
+import { ProjectCSharpBuild } from './ProjectCSharpBuild'
 import { sourceSyntaxLanguage } from './source-language'
 import styles from './WorkspaceCodeVisualizer.module.css'
 
@@ -2779,6 +2780,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
           {currentRun && <a className={styles.runButton} href={`/api/projects/${encodeURIComponent(projectId)}/visualizer/maintained/export?taskId=${encodeURIComponent(currentRun.id)}`}>
             Download source bundle · {currentRun.codeUnitCount.toLocaleString()} code {currentRun.codeUnitCount === 1 ? 'unit' : 'units'}
           </a>}
+          {currentRun && <ProjectCSharpBuild projectId={projectId} taskId={currentRun.id} className={styles.runButton} />}
         </div></details>}
         {currentRun?.apktoolProjectAvailable && (visualizerView === 'function-map' || visualizerView === 'treemap') && <p className={styles.functionMapNote}>
           APK rebuilds apply saved Android resource and Smali edits to the retained Apktool project. Maintained JADX Java stays separate because it is not compiled back into DEX; the rebuilt APK is unsigned.

@@ -14,6 +14,7 @@ Endpoints:
 import asyncio
 import base64
 import hashlib
+import hmac
 import json
 import keyword
 import logging
@@ -559,6 +560,17 @@ class ReamonCodeValidateRequest(BaseModel):
     source_code: str
 
 
+class ReamonCodeProjectCompileFile(BaseModel):
+    relative_path: str
+    source_code: str
+    expected_sha256: str
+
+
+class ReamonCodeProjectCompileRequest(BaseModel):
+    language: str = "csharp"
+    files: list[ReamonCodeProjectCompileFile]
+
+
 class ReamonCodeDeobfuscateRequest(BaseModel):
     model: str | None = None
     review_model: str | None = None
@@ -1077,6 +1089,69 @@ async def validate_reamon_code(body: ReamonCodeValidateRequest):
         "validation_message": "The configured source parser found syntax errors." if has_error
         else "The configured source parser found no syntax errors. This is structural evidence, not a behavior-equivalence check.",
     }
+
+
+@app.post("/reamon/code/compile-project", tags=["REAmon"], dependencies=[Depends(require_internal_auth)])
+async def compile_reamon_csharp_project(body: ReamonCodeProjectCompileRequest):
+    """Compile a bounded set of maintained C# files together; never execute its output."""
+    if body.language.strip().lower() not in {"c#", "csharp", "cs", "c# source"}:
+        return JSONResponse(content={"error": "Project compilation currently supports C# only"}, status_code=400)
+    if not 1 <= len(body.files) <= 32:
+        return JSONResponse(content={"error": "A C# project build must contain between 1 and 32 files"}, status_code=400)
+
+    total_bytes = 0
+    seen_paths: set[str] = set()
+    for source in body.files:
+        path = source.relative_path
+        if (len(path) > 200 or "\\" in path or path.startswith("/") or not path.endswith(".cs")
+                or not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_./-]{0,199}", path)
+                or any(segment in {"", ".", ".."} for segment in path.split("/"))):
+            return JSONResponse(content={"error": "C# project paths must be safe relative .cs paths"}, status_code=400)
+        if path.casefold() in seen_paths:
+            return JSONResponse(content={"error": "C# project file paths must be unique"}, status_code=400)
+        seen_paths.add(path.casefold())
+        encoded = source.source_code.encode("utf-8")
+        if len(encoded) > 512 * 1024:
+            return JSONResponse(content={"error": f"C# project file {path} exceeds the 512 KiB limit"}, status_code=413)
+        total_bytes += len(encoded)
+        if total_bytes > 2 * 1024 * 1024:
+            return JSONResponse(content={"error": "The C# project exceeds the 2 MiB combined source limit"}, status_code=413)
+        actual_hash = hashlib.sha256(encoded).hexdigest()
+        if not re.fullmatch(r"[a-f0-9]{64}", source.expected_sha256.lower()) or not hmac.compare_digest(
+                actual_hash, source.expected_sha256.lower()):
+            return JSONResponse(content={"error": f"The source hash does not match project file {path}"}, status_code=409)
+
+    payload = json.dumps({
+        "operation": "compile-project",
+        "files": [source.model_dump() for source in body.files],
+    }, separators=(",", ":")).encode("utf-8")
+    executable = os.environ.get("REAMON_CSHARP_REFACTOR", "/usr/local/bin/reamon-csharprefactor")
+    process = None
+    try:
+        process = await asyncio.create_subprocess_exec(
+            executable,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _stderr = await asyncio.wait_for(process.communicate(payload), timeout=30)
+        result = json.loads(stdout)
+        if (process.returncode != 0 or not isinstance(result, dict)
+                or result.get("validation_status") not in {"PASSED", "FAILED"}
+                or not re.fullmatch(r"[a-f0-9]{64}", str(result.get("source_sha256", "")))
+                or result.get("file_count") != len(body.files)
+                or not isinstance(result.get("files"), list)
+                or len(result["files"]) != len(body.files)):
+            raise ValueError("The C# project compiler returned an incomplete result")
+        return result
+    except asyncio.TimeoutError:
+        if process is not None:
+            process.kill()
+            await process.communicate()
+        return JSONResponse(content={"error": "C# project compilation exceeded its 30 second limit; no build receipt was recorded"}, status_code=503)
+    except (FileNotFoundError, json.JSONDecodeError, ValueError, OSError) as exc:
+        logger.debug(f"REAmon C# project compilation unavailable: {exc}")
+        return JSONResponse(content={"error": "The Roslyn project compiler is unavailable; no build receipt was recorded"}, status_code=503)
 
 
 def _reamon_declared_name(node) -> str | None:
