@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import sys
+import tempfile
 import unittest
 from urllib.parse import parse_qs, urlsplit
 from unittest import mock
@@ -41,6 +42,20 @@ class ProjectWorkerLogsTests(unittest.TestCase):
         self.assertEqual(stderr, b"123\n[output truncated after 2 MiB]")
 
 class ProjectWorkerRuntimeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_networks_are_internal_unless_a_pentest_tool_needs_egress(self):
+        bodies = []
+
+        async def docker(method, path, body=None, **_kwargs):
+            self.assertEqual((method, path), ("POST", "/networks/create"))
+            bodies.append(body)
+            return 201, b'{"Id":"network-id"}'
+
+        with mock.patch.object(worker, "_docker_request", side_effect=docker):
+            await worker._create_worker_network("project-1")
+            await worker._create_worker_network("project-1", allow_egress=True)
+
+        self.assertEqual([body["Internal"] for body in bodies], [True, False])
+
     async def test_worker_environment_allows_only_signed_proxy_context(self):
         env = worker._worker_environment({
             "REDAMON_AGENT_URL": "http://agent:8080",
@@ -285,21 +300,37 @@ class ProjectWorkerRuntimeTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_workspace_mounts_are_project_only_and_image_is_pinned(self):
         digest = "sha256:" + "a" * 64
+        paths = []
 
         async def docker(method, path, body=None, **_kwargs):
-            self.assertEqual((method, path), ("GET", "/containers/redamon-kali/json"))
-            data = {
-                "Image": digest,
-                "Mounts": [{
+            paths.append(path)
+            self.assertEqual(method, "GET")
+            if path == "/containers/redamon-agent/json":
+                data = {"Mounts": [{
                     "Destination": "/workspace",
                     "Source": r"C:\REAmon\workspace",
-                }],
-            }
+                }]}
+            else:
+                self.assertEqual(path, "/images/reamon-project-worker%3Alatest/json")
+                data = {"Id": digest}
             return 200, json.dumps(data).encode()
 
-        with mock.patch.object(worker, "_docker_request", side_effect=docker):
-            mounts, image = await worker._workspace_project_runtime("project-1")
+        with tempfile.TemporaryDirectory() as workspace_root:
+            os.mkdir(os.path.join(workspace_root, "project-1"))
+            with (
+                mock.patch.object(worker, "WORKSPACE_ROOT", workspace_root),
+                mock.patch.object(worker, "_docker_request", side_effect=docker),
+            ):
+                mounts, image = await worker._workspace_project_runtime("project-1")
+            for name in (".reamon-tmp", "tool-outputs"):
+                path = os.path.join(workspace_root, "project-1", name)
+                self.assertTrue(os.path.isdir(path))
+                self.assertEqual(os.stat(path).st_mode & 0o777, 0o770)
 
+        self.assertEqual(paths, [
+            "/containers/redamon-agent/json",
+            "/images/reamon-project-worker%3Alatest/json",
+        ])
         self.assertEqual(image, digest)
         self.assertEqual(mounts[0]["Target"], "/workspace")
         self.assertEqual(mounts[0]["Source"], r"C:\REAmon\workspace\project-1")
@@ -308,6 +339,16 @@ class ProjectWorkerRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(mounts[1]["ReadOnly"])
         self.assertEqual(mounts[2]["Target"], "/workspace/.reamon-tmp")
         self.assertEqual(mounts[3]["Target"], "/workspace/tool-outputs")
+
+    async def test_worker_image_selection_keeps_pentest_tools_separate(self):
+        with (
+            mock.patch.object(worker, "PROJECT_WORKER_IMAGE", "reamon-project-worker:unit"),
+            mock.patch.object(worker, "PENTEST_WORKER_IMAGE", "redamon-kali:unit"),
+        ):
+            self.assertEqual(worker._worker_image_for_tool("execute_code"), "reamon-project-worker:unit")
+            self.assertEqual(worker._worker_image_for_tool("kali_shell"), "redamon-kali:unit")
+            self.assertEqual(worker._worker_image_for_tool("execute_playwright"), "redamon-kali:unit")
+            self.assertEqual(worker._worker_image_for_tool("proxy_brain"), "redamon-kali:unit")
 
     async def test_project_worker_count_uses_hashed_project_label(self):
         calls = []
@@ -349,7 +390,7 @@ class ProjectWorkerRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(body["Image"], digest)
         self.assertEqual(body["User"], "65534:65534")
         self.assertEqual(body["HostConfig"]["CapDrop"], ["ALL"])
-        self.assertEqual(body["HostConfig"]["CapAdd"], ["NET_RAW"])
+        self.assertEqual(body["HostConfig"]["CapAdd"], [])
         self.assertTrue(body["HostConfig"]["ReadonlyRootfs"])
         self.assertEqual(body["HostConfig"]["Mounts"], mounts)
         self.assertEqual(
@@ -360,6 +401,22 @@ class ProjectWorkerRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("p1", body["Labels"].values())
         self.assertFalse(body["Tty"])
         self.assertEqual(body["HostConfig"]["LogConfig"]["Config"]["max-size"], "8m")
+
+    async def test_only_kali_shell_worker_receives_raw_socket_capability(self):
+        mounts = [{"Type": "bind", "Source": "/projects/p1", "Target": "/workspace", "ReadOnly": True}]
+        calls = []
+
+        async def docker(_method, _path, body=None, **_kwargs):
+            calls.append(body)
+            return 201, b'{"Id":"worker-id"}'
+
+        with (
+            mock.patch.object(worker, "_workspace_project_runtime", return_value=(mounts, "sha256:" + "b" * 64)),
+            mock.patch.object(worker, "_docker_request", side_effect=docker),
+        ):
+            await worker._create_worker_container("p1", "net", ["id"], [], "kali_shell")
+
+        self.assertEqual(calls[0]["HostConfig"]["CapAdd"], ["NET_RAW"])
 
     async def test_project_workers_are_included_in_shared_host_capacity(self):
         with (

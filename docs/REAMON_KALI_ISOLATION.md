@@ -1,18 +1,17 @@
 # Kali execution isolation decision
 
-Status: broker-managed project workers are wired for `kali_shell`, `execute_code`, `execute_playwright`, and `proxy_brain`. The ticket-authenticated terminal now uses a short-lived broker-created PTY worker in source. Focused Docker tests and a Docker Engine PTY smoke passed, including shell output and container/network cleanup. The browser-to-agent-to-broker flow, LAN deployment, and remaining operations controls are open.
+Status: the normal REAmon lifecycle now builds the dedicated `reamon-project-worker` image and starts the filtered Docker broker. The broker resolves the shared workspace mount from the agent container rather than borrowing it from Kali. `execute_code` and the ticket-authenticated terminal use the REAmon language image; Kali-specific tools retain the optional Kali image. The source path has focused Docker unit coverage, but the browser-to-agent-to-broker flow and clean-install deployment acceptance remain open.
 
-The current `redamon.sh` core lifecycle does not start `docker-broker` or
-`kali-sandbox`; both remain in the optional `legacy-pentest` profile. Worker
-URLs are therefore empty by default. To enable the broker-backed worker routes,
-an operator must configure `REAMON_PROJECT_WORKER_URL` and
-`REAMON_TERMINAL_WORKER_URL` for a broker reachable from the agent, then start
-the compatible broker and workspace image. A configured URL alone does not
-prove the worker is healthy; the agent routes fail closed when the broker is
-unavailable. The active agent and broker on this PC also belong to different
-Compose projects and do not share a network. I rebuilt the source images but
-left those running services untouched, so this terminal feature is not installed
-in the active application.
+The normal REAmon lifecycle builds the project-worker image and starts
+`docker-broker`; the agent exposes the bind-mounted workspace used to make
+project-only worker mounts. Kali and the pentest scanners remain in the optional
+`legacy-pentest` profile. The project image supplies a bounded set of common
+language runtimes and compilers for source execution and interactive maintenance.
+Kali-specific commands and browser automation still require the optional Kali
+image. The agent routes fail closed if the broker or selected image is
+unavailable. The active agent and broker on this PC belong to different Compose
+projects and do not share a network. The new lifecycle has not been applied to
+those running services, so local deployment acceptance remains open.
 
 ## Current deployment update (2026-10-26)
 
@@ -26,6 +25,27 @@ container smoke confirmed those command entry points, `bhgraph`, and
 `gMSADumper.py` still launch. This repairs shared Python dependency integrity;
 it does not close the shared controller/broker ownership finding or verify the
 complete MCP client-to-worker workflow.
+
+## REAmon project worker lifecycle update (2026-10-26)
+
+The normal `redamon.sh` lifecycle now builds the separate
+`reamon-project-worker` image and starts the filtered broker. The agent and
+broker share the agent-owned workspace bind; source jobs and ticket-authenticated
+terminal sessions use project-only mounts in the REAmon image. Kali-specific
+tools use the optional `legacy-pentest` profile. The worker runs as UID/GID
+65534, uses an immutable image ID, has a read-only root, and gets only its
+project's writable scratch/output paths. Its network is internal by default;
+only tools that explicitly need pentest egress request an egress-capable
+network. The first restricted-image smoke caught and fixed the default Go cache
+pointing at `/nonexistent`; the worker image now sets its home and .NET CLI cache
+under the writable `/tmp` mount.
+
+The focused broker worker suite, compiler image build, and language runtime smoke
+are recorded in the current progress matrix. The actual browser-to-agent-to-broker
+flow, LAN deployment, multi-replica admission, disk/egress/lifetime quotas, and
+restart/cancellation recovery remain unverified release gates. This lifecycle
+update supersedes earlier statements below that the normal core omitted the
+broker or that terminal execution still needed to be moved to workers.
 
 ## Current exposure
 

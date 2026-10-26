@@ -21,7 +21,10 @@ AGENT_SCOPE_URL = os.environ.get(
     "http://agent:8080/execution/resolve-context",
 )
 SCANNER_API_KEY = os.environ.get("SCANNER_API_KEY", "")
-WORKSPACE_CONTAINER = os.environ.get("REAMON_WORKSPACE_CONTAINER", "redamon-kali")
+WORKSPACE_CONTAINER = os.environ.get("REAMON_WORKSPACE_CONTAINER", "redamon-agent")
+WORKSPACE_ROOT = os.environ.get("REAMON_WORKSPACE_ROOT", "")
+PROJECT_WORKER_IMAGE = os.environ.get("REAMON_PROJECT_WORKER_IMAGE", "reamon-project-worker:latest")
+PENTEST_WORKER_IMAGE = os.environ.get("REAMON_PENTEST_WORKER_IMAGE", "redamon-kali:latest")
 TERMINAL_AGENT_CONTAINER = os.environ.get("REAMON_TERMINAL_AGENT_CONTAINER", "redamon-agent")
 WORKER_MEMORY = max(256 * 1024**2, int(os.environ.get("REAMON_WORKER_MEMORY_BYTES", str(1024**3))))
 WORKER_PIDS = max(64, int(os.environ.get("REAMON_WORKER_PIDS", "512")))
@@ -37,6 +40,8 @@ WORKER_TOOLS = frozenset({"kali_shell", "execute_code", "execute_playwright", "p
 TERMINAL_TOOL = "kali_terminal"
 TERMINAL_MAX_FRAME = 1024 * 1024
 _PROJECT_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,200}$")
+_IMAGE_REF_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,255}$")
+_EGRESS_TOOLS = frozenset({"kali_shell", "execute_playwright", "proxy_brain"})
 _WORKER_ENV = frozenset({
     "PATH", "HOME", "TMPDIR", "LANG", "PYTHONDONTWRITEBYTECODE",
     "PYTHONNOUSERSITE", "PLAYWRIGHT_BROWSERS_PATH", "CAPTURE_PROXY_URL",
@@ -164,14 +169,21 @@ async def _docker_request(
     return status, raw
 
 
-async def _workspace_project_runtime(project_id: str) -> tuple[list[dict[str, Any]], str]:
+def _worker_image_for_tool(tool: str) -> str:
+    """Keep REAmon source execution separate from optional pentest tooling."""
+    image = PENTEST_WORKER_IMAGE if tool in {"kali_shell", "execute_playwright", "proxy_brain"} else PROJECT_WORKER_IMAGE
+    if not _IMAGE_REF_RE.fullmatch(image):
+        raise DockerAPIError("configured project worker image is invalid")
+    return image
+
+
+async def _workspace_project_runtime(
+    project_id: str, worker_image: str | None = None,
+) -> tuple[list[dict[str, Any]], str]:
     status, raw = await _docker_request("GET", f"/containers/{WORKSPACE_CONTAINER}/json")
     if status != 200:
-        raise DockerAPIError("project workspace mount is unavailable")
+        raise DockerAPIError("agent project workspace mount is unavailable")
     container = _json_body(raw, "workspace inspect")
-    image_id = container.get("Image")
-    if not isinstance(image_id, str) or not re.fullmatch(r"sha256:[a-f0-9]{64}", image_id):
-        raise DockerAPIError("running Kali image identity is unavailable")
     mounts = container.get("Mounts")
     workspace = next((m for m in mounts or [] if m.get("Destination") == "/workspace"), None)
     source = workspace.get("Source") if isinstance(workspace, dict) else None
@@ -189,6 +201,8 @@ async def _workspace_project_runtime(project_id: str) -> tuple[list[dict[str, An
     except ValueError as exc:
         raise DockerAPIError("project workspace escaped its root") from exc
 
+    _prepare_project_worker_paths(project_id)
+
     scratch = pathmod.join(project_root, ".reamon-tmp")
     outputs = pathmod.join(project_root, "tool-outputs")
     mounts = [
@@ -197,6 +211,16 @@ async def _workspace_project_runtime(project_id: str) -> tuple[list[dict[str, An
         {"Type": "bind", "Source": scratch, "Target": "/workspace/.reamon-tmp", "ReadOnly": False},
         {"Type": "bind", "Source": outputs, "Target": "/workspace/tool-outputs", "ReadOnly": False},
     ]
+    image_ref = worker_image or PROJECT_WORKER_IMAGE
+    if not _IMAGE_REF_RE.fullmatch(image_ref):
+        raise DockerAPIError("configured project worker image is invalid")
+    from urllib.parse import quote
+    status, raw = await _docker_request("GET", f"/images/{quote(image_ref, safe='')}/json")
+    if status != 200:
+        raise DockerAPIError("configured project worker image is unavailable; rebuild REAmon")
+    image_id = _json_body(raw, "worker image inspect").get("Id")
+    if not isinstance(image_id, str) or not re.fullmatch(r"sha256:[a-f0-9]{64}", image_id):
+        raise DockerAPIError("project worker image identity is unavailable")
     return mounts, image_id
 
 
@@ -219,13 +243,13 @@ def _worker_environment(extra: dict[str, str]) -> list[str]:
     return [f"{name}={value}" for name, value in env.items()]
 
 
-async def _create_worker_network(project_id: str) -> str:
+async def _create_worker_network(project_id: str, *, allow_egress: bool = False) -> str:
     network_name = f"reamon-w-{hashlib.sha256(project_id.encode()).hexdigest()[:10]}-{uuid.uuid4().hex[:8]}"
     body = {
         "Name": network_name,
         "Driver": "bridge",
         "CheckDuplicate": True,
-        "Internal": False,
+        "Internal": not allow_egress,
         "Attachable": False,
         "Labels": {"reamon.project-worker": "1"},
     }
@@ -261,6 +285,29 @@ def _project_scope_label(project_id: str) -> str:
     return hashlib.sha256(project_id.encode("utf-8")).hexdigest()
 
 
+def _prepare_project_worker_paths(project_id: str) -> None:
+    """Prepare worker-writable folders through the broker's trusted workspace bind."""
+    if not WORKSPACE_ROOT:
+        raise DockerAPIError("broker project workspace is not configured")
+    root = os.path.realpath(WORKSPACE_ROOT)
+    project_root = os.path.join(root, project_id)
+    if (os.path.islink(project_root) or not os.path.isdir(project_root)
+            or os.path.realpath(project_root) != project_root):
+        raise DockerAPIError("project workspace directory is unavailable")
+    for name in (".reamon-tmp", "tool-outputs"):
+        path = os.path.join(project_root, name)
+        if os.path.islink(path):
+            raise DockerAPIError(f"project worker path must not be a symlink: {name}")
+        os.makedirs(path, mode=0o770, exist_ok=True)
+        if os.path.realpath(path) != path or not os.path.isdir(path):
+            raise DockerAPIError(f"project worker path is unavailable: {name}")
+        try:
+            os.chown(path, 65534, 65534)
+            os.chmod(path, 0o770)
+        except OSError as exc:
+            raise DockerAPIError(f"project worker path permissions are unavailable: {name}") from exc
+
+
 async def _active_project_worker_count(project_id: str) -> int | None:
     from urllib.parse import urlencode
     filters = json.dumps({
@@ -287,8 +334,9 @@ async def _create_worker_container(
     network_id: str,
     argv: list[str],
     env: list[str],
+    tool: str = "execute_code",
 ) -> str:
-    mounts, image_id = await _workspace_project_runtime(project_id)
+    mounts, image_id = await _workspace_project_runtime(project_id, _worker_image_for_tool(tool))
     name = f"reamon-w-{uuid.uuid4().hex[:20]}"
     body = {
         "Image": image_id,
@@ -316,7 +364,7 @@ async def _create_worker_container(
             "NanoCpus": WORKER_NANO_CPUS,
             "PidsLimit": WORKER_PIDS,
             "CapDrop": ["ALL"],
-            "CapAdd": ["NET_RAW"],
+            "CapAdd": ["NET_RAW"] if tool == "kali_shell" else [],
             "SecurityOpt": ["no-new-privileges:true"],
             "Mounts": mounts,
             "Tmpfs": {
@@ -341,7 +389,7 @@ async def _create_worker_container(
 async def _create_terminal_container(identity: dict[str, str], network_id: str) -> str:
     """Create a short-lived interactive shell with only its project mounted."""
     project_id = identity["project_id"]
-    mounts, image_id = await _workspace_project_runtime(project_id)
+    mounts, image_id = await _workspace_project_runtime(project_id, PROJECT_WORKER_IMAGE)
     env = _worker_environment({
         "REDAMON_AGENT_URL": "http://agent:8080",
         "REDAMON_CTX": identity["graph_ctx"],
@@ -380,7 +428,7 @@ async def _create_terminal_container(identity: dict[str, str], network_id: str) 
             "NanoCpus": WORKER_NANO_CPUS,
             "PidsLimit": WORKER_PIDS,
             "CapDrop": ["ALL"],
-            "CapAdd": ["NET_RAW"],
+            "CapAdd": [],
             "SecurityOpt": ["no-new-privileges:true"],
             "Mounts": mounts,
             "Tmpfs": {
@@ -642,6 +690,7 @@ async def _create_admitted_worker(
     project_id: str,
     argv: list[str],
     env: list[str],
+    tool: str,
 ) -> tuple[int, str | None, str | None, str]:
     """Apply the worker cap and shared host cap before creating a worker."""
     import broker
@@ -657,9 +706,11 @@ async def _create_admitted_worker(
             return 503, None, None, "project worker capacity is unavailable; execution denied"
         if project_active >= WORKER_MAX_ACTIVE_PER_PROJECT:
             return 429, None, None, "this project has reached its active worker limit; retry later"
-        network_id = await _create_worker_network(project_id)
+        network_id = await _create_worker_network(
+            project_id, allow_egress=tool in _EGRESS_TOOLS,
+        )
         try:
-            container_id = await _create_worker_container(project_id, network_id, argv, env)
+            container_id = await _create_worker_container(project_id, network_id, argv, env, tool)
         except Exception:
             await _docker_request("DELETE", f"/networks/{network_id}")
             raise
@@ -710,7 +761,7 @@ async def execute(request: Any) -> tuple[int, dict[str, Any]]:
     network_id = None
     try:
         admitted, network_id, container_id, admission_error = await _create_admitted_worker(
-            project_id, argv, env,
+            project_id, argv, env, tool,
         )
         if admitted != 200 or not network_id or not container_id:
             return admitted, {"error": admission_error or "worker admission failed"}

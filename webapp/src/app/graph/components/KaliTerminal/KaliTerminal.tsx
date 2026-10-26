@@ -158,12 +158,12 @@ export const KaliTerminal = memo(function KaliTerminal({ userId, projectId }: Ka
     terminal.writeln('\x1b[1;31m |_| \\_\\___|\\__,_/_/   \\_\\_| |_| |_|\\___/|_| |_|\x1b[0m')
     terminal.writeln('')
     terminal.writeln('\x1b[1;36m  \u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510\x1b[0m')
-    terminal.writeln('\x1b[1;36m  \u2502\x1b[0m  \x1b[1;33m\u26a1 Kali Sandbox Terminal\x1b[0m                     \x1b[1;36m\u2502\x1b[0m')
-    terminal.writeln('\x1b[1;36m  \u2502\x1b[0m  \x1b[2;37mFull access to Kali Linux pentesting tools\x1b[0m  \x1b[1;36m\u2502\x1b[0m')
+    terminal.writeln('\x1b[1;36m  \u2502\x1b[0m  \x1b[1;33m\u26a1 REAmon Project Terminal\x1b[0m                  \x1b[1;36m\u2502\x1b[0m')
+    terminal.writeln('\x1b[1;36m  \u2502\x1b[0m  \x1b[2;37mIsolated shell scoped to this project\x1b[0m        \x1b[1;36m\u2502\x1b[0m')
     terminal.writeln('\x1b[1;36m  \u2502\x1b[0m  \x1b[2;37mmetasploit \u2022 nmap \u2022 nuclei \u2022 hydra \u2022 sqlmap\x1b[0m \x1b[1;36m\u2502\x1b[0m')
     terminal.writeln('\x1b[1;36m  \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518\x1b[0m')
     terminal.writeln('')
-    terminal.writeln('\x1b[2;37m  Connecting to the isolated terminal worker...\x1b[0m')
+    terminal.writeln('\x1b[2;37m  Connecting to the REAmon project worker...\x1b[0m')
 
     // STRIDE S3: mint a ws-ticket (bound to the effective user + project) before
     // dialing. Without a valid ticket the agent proxy now closes the socket.
@@ -257,7 +257,7 @@ export const KaliTerminal = memo(function KaliTerminal({ userId, projectId }: Ka
     ws.onerror = () => {
       if (!mountedRef.current) return
       setStatus('error')
-      terminal.writeln('\n\x1b[1;31mTerminal connection failed. Check that the optional isolated worker stack is configured and running.\x1b[0m')
+      terminal.writeln('\n\x1b[1;31mTerminal connection failed. Check the REAmon worker service and project worker image.\x1b[0m')
     }
 
     ws.onclose = () => {
@@ -423,8 +423,8 @@ export const KaliTerminal = memo(function KaliTerminal({ userId, projectId }: Ka
       <div className={styles.toolbar}>
         <div className={styles.toolbarLeft}>
           <TerminalIcon size={14} className={styles.terminalIcon} />
-          <span className={styles.title}>RedAmon Terminal</span>
-          <span className={styles.subtitle}>kali-sandbox</span>
+          <span className={styles.title}>REAmon Project Terminal</span>
+          <span className={styles.subtitle}>project-scoped worker</span>
         </div>
         <div className={styles.toolbarRight}>
           <span className={`${styles.statusBadge} ${styles[status]}`} aria-live="polite">

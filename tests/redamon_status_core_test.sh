@@ -107,6 +107,7 @@ section "the agent is actually in CORE_SERVICES"
 # The report is only useful if the service behind issue #184 is covered.
 assert_contains "CORE_SERVICES includes agent"  " $CORE_SERVICES " " agent "
 assert_contains "CORE_SERVICES includes webapp" " $CORE_SERVICES " " webapp "
+assert_contains "CORE_SERVICES includes broker" " $CORE_SERVICES " " docker-broker "
 
 # ---------------------------------------------------------------------------
 section "regression: a never-installed clone is told to install, not to 'up'"

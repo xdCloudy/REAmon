@@ -15,12 +15,11 @@ KBASE_DISABLED_FLAG_FILE="$SCRIPT_DIR/.kbase-disabled"
 LEGACY_SKIPKBASE_FLAG_FILE="$SCRIPT_DIR/.skipkbase"
 
 # REAmon runtime: PostgreSQL, Neo4j, the analysis agent, the web application,
-# and the background worker. Pentest scanners, GVM/OpenVAS, Kali, recon, and
-# capture services remain in the historical compose file only for reference;
-# they are not part of the REAmon lifecycle and are never built or started here.
-CORE_SERVICES="postgres neo4j agent webapp reamon-worker"
+# the background worker, and the filtered Docker broker used for isolated
+# project execution. Kali and pentest scanners remain optional.
+CORE_SERVICES="postgres neo4j agent webapp reamon-worker docker-broker"
 TOOL_IMAGES=""
-CORE_BUILD_SERVICES="agent webapp"
+CORE_BUILD_SERVICES="agent webapp docker-broker project-worker-image"
 DEV_COMPOSE="-f docker-compose.yml -f docker-compose.dev.yml"
 
 # Free disk (GB) required before a Docker build starts. A full build has to fit
@@ -1187,7 +1186,7 @@ _compose_build_targets() {
 # args that would follow `docker compose`, e.g.:
 #   compose_build --profile tools build
 #   compose_build --profile tools build recon vuln-scanner
-#   compose_build build recon-orchestrator kali-sandbox agent webapp docker-broker
+#   compose_build build recon-orchestrator kali-sandbox agent webapp docker-broker project-worker-image
 compose_build() {
     if [[ -z "${REAMON_BUILD_SHA:-}" ]]; then
         REAMON_BUILD_SHA="$(git -C "$SCRIPT_DIR" rev-parse --short=12 HEAD 2>/dev/null || true)"
@@ -3080,10 +3079,10 @@ cmd_install() {
     # it; reconcile_gvm_admin_password (post-up) applies it to the live gvmd.
     ensure_gvm_secret
 
-    # Build only the REAmon application images. Scanner/tool profiles are not
-    # part of this product and must not be pulled into a normal installation.
+    # Build the REAmon application, broker, and isolated language-worker images.
+    # Scanner/tool profiles are not part of a normal installation.
     info "Building REAmon application images (this may take a while on first run)..."
-    compose_build build agent webapp
+    compose_build --profile project-worker-image build agent webapp docker-broker project-worker-image
 
     # Reap the images the build just orphaned. A rebuild does not replace an image
     # in place: it builds a new one and MOVES the tag, leaving the previous image
@@ -3208,6 +3207,12 @@ _map_core_changes() {
         rebuild_core+=(docker-broker)
     fi
 
+    # The isolated execution image is built independently from the agent and
+    # optional Kali image; source or compiler-stack changes must rebuild it.
+    if echo "$changed_files" | grep -q "^services/project_worker/"; then
+        rebuild_core+=(project-worker-image)
+    fi
+
     # recon_settings/ (the settings registry and the RoE prompt built from it) is
     # COPY-baked into the agent image, which refuses every RoE upload with a 503
     # when the registry digest it was built with no longer matches; the
@@ -3327,7 +3332,7 @@ cmd_update() {
 
     if [[ "$rebuild_all" == "true" ]]; then
         info "docker-compose.yml changed -- rebuilding core service images"
-        rebuild_core=(recon-orchestrator kali-sandbox agent webapp docker-broker)
+        rebuild_core=(recon-orchestrator kali-sandbox agent webapp docker-broker project-worker-image)
     else
         _map_core_changes "$changed_files"
     fi
@@ -3481,7 +3486,7 @@ cmd_update() {
     # Rebuild core service images
     if [[ ${#rebuild_core[@]} -gt 0 ]]; then
         info "Rebuilding service images: ${rebuild_core[*]}"
-        compose_build build "${rebuild_core[@]}"
+        compose_build --profile project-worker-image build "${rebuild_core[@]}"
     fi
 
     # Clean up dangling images left by rebuilds
@@ -3758,15 +3763,16 @@ ensure_tool_images() {
 #
 # Any leading args are passed to compose as file selectors (e.g. $DEV_COMPOSE),
 # so dev mode resolves ITS overrides: dev swaps webapp for a stock node image,
-# which the redamon- filter then correctly drops from the required set.
+# which the filter then correctly drops from the required set.
 _core_image_names() {
     local files=("$@")
     # `|| true`: the script runs with pipefail, and both a compose failure and a
     # grep that matches nothing are legitimate "cannot resolve" answers here, not
     # errors to abort on. The caller treats empty output as "do not block".
     # shellcheck disable=SC2086
-    docker compose ${files[@]+"${files[@]}"} config --images $CORE_BUILD_SERVICES 2>/dev/null \
-        | grep '^redamon-' | sort -u || true
+    docker compose --profile project-worker-image ${files[@]+"${files[@]}"} \
+        config --images $CORE_BUILD_SERVICES 2>/dev/null \
+        | grep -E '^(redamon|reamon)-' | sort -u || true
 }
 
 # Refuse to "start" a stack that has no images to start. Without this, `up` on a
@@ -4499,7 +4505,7 @@ _TEST_SECTIONS=(
     "recon_orchestrator|redamon-recon-orchestrator|/repo/recon_orchestrator|/repo/recon_orchestrator:/repo|.|.|"
     "ai_attack_surface|redamon-ai-attack-surface|/repo/scanners/ai_attack_surface_scan|/repo/scanners/ai_attack_surface_scan:/repo|tests adapters|.|"
     "capture_proxy|redamon-capture-proxy|/repo/scanners/capture_proxy|/repo/scanners/capture_proxy:/repo|tests|.|"
-    "docker_broker|redamon-docker-broker|/repo/services/docker_broker|/repo/services/docker_broker:/repo|.|.|"
+    "docker_broker|reamon-docker-broker|/repo/services/docker_broker|/repo/services/docker_broker:/repo|.|.|"
 )
 
 # For the root-recon section we run ONLY the recon-oriented files, not the whole

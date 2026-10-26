@@ -54,6 +54,10 @@ section "the existing rules are unchanged"
 assert_eq "webapp/ rebuilds the webapp" "$(map 'webapp/src/lib/triageRun.ts')" "rebuild=webapp restart="
 assert_eq "agentic/ rebuilds the agent" "$(map 'agentic/cypherfix_triage/layers.py')" "rebuild=agent restart="
 assert_eq "graph_db/ rebuilds the agent" "$(map 'graph_db/mixins/recon/triage_mixin.py')" "rebuild=agent restart="
+assert_eq "project worker image source rebuilds its image" \
+    "$(map 'services/project_worker/Dockerfile')" "rebuild=project-worker-image restart="
+assert_eq "docker broker source rebuilds the core broker" \
+    "$(map 'services/docker_broker/project_worker.py')" "rebuild=docker-broker restart="
 assert_eq "an orchestrator .py change only restarts it" "$(map 'recon_orchestrator/api.py')" \
     "rebuild= restart=recon-orchestrator"
 assert_eq "an mcp/ change only restarts the sandbox" "$(map 'mcp/servers/foo.py')" "rebuild= restart=kali-sandbox"

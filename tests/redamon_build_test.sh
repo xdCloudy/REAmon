@@ -403,7 +403,7 @@ rd="$REPO_ROOT/redamon.sh"
 raw="$(grep -nE '^[[:space:]]*docker compose( --profile tools)? build( |$)' "$rd" | grep -v 'docker compose build webapp' || true)"
 assert_eq "R1 no raw parallel builds outside wrapper" "$raw" ""
 # R2: all four call sites use compose_build
-n_calls="$(grep -cE '(^|[^_])compose_build (--profile tools )?build' "$rd")"
+n_calls="$(grep -cE '(^|[^_])compose_build (--profile [a-z-]+ )?build' "$rd")"
 if [[ "$n_calls" -ge 4 ]]; then pass "R2 >=4 compose_build call sites ($n_calls)"; else fail "R2 only $n_calls call sites"; fi
 # R3: tools-failure warn message preserved
 if grep -q "One or more tool images failed to build" "$rd"; then pass "R3 tools-failure warn intact"; else fail "R3 warn removed"; fi

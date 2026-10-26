@@ -4,10 +4,10 @@
 # Start:  docker compose up -d
 # Stop:   docker compose down
 # Logs:   docker compose logs -f
-# Build:  docker compose build agent webapp
-# The default Compose application contains only the REAmon core. Historical
-# scanner services are behind the explicit `legacy-pentest` profile and are not
-# started or built by REAmon lifecycle commands.
+# Build:  docker compose --profile project-worker-image build agent webapp docker-broker project-worker-image
+# The default Compose application contains the REAmon core, including its
+# filtered Docker broker for project-scoped execution workers. Historical
+# scanner services remain behind the explicit `legacy-pentest` profile.
 # =============================================================================
 
 services:
@@ -403,22 +403,22 @@ services:
   # /var/run/docker.sock, so a compromised recon container cannot escape to the
   # host (no -v /:/host, no --privileged, no non-allowlisted image). The broker
   # holds the REAL socket (it is trusted, like the orchestrator) and serves its
-  # filtered socket on the redamon_broker_socket named volume (which lives inside
+  # filtered socket on the reamon_broker_socket named volume (which lives inside
   # the Linux VM, so the unix socket is shareable on macOS + Linux). See
   # services/docker_broker/.
   docker-broker:
-    profiles: ["legacy-pentest"]
     build: ./services/docker_broker
-    image: redamon-docker-broker:latest
-    container_name: redamon-docker-broker
+    image: reamon-docker-broker:latest
+    container_name: reamon-docker-broker
     restart: unless-stopped
     mem_limit: ${DOCKER_BROKER_MEM:-512m}   # sized from host RAM by redamon.sh
     pids_limit: ${DOCKER_BROKER_PIDS:-256}  # D1: fork-bomb ceiling
     cpus: ${DOCKER_BROKER_CPUS:-2}          # D1: CPU cap (generous)
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock          # real socket (forward target)
-      - redamon_broker_socket:/var/run/broker              # named volume; lives in the Linux VM so the unix socket is shareable on macOS + Linux
+      - reamon_broker_socket:/var/run/broker              # named volume; lives in the Linux VM so the unix socket is shareable on macOS + Linux
       - /tmp/redamon:/tmp/redamon                           # shared scratch dir (recon output, temp files)
+      - ./agentic/agent-workspace:/workspace                # trusted path setup for project worker mounts
     environment:
       DOCKER_BROKER_UPSTREAM: /var/run/docker.sock
       DOCKER_BROKER_LISTEN: /var/run/broker/docker.sock
@@ -426,7 +426,10 @@ services:
       REAMON_WORKER_MAX_ACTIVE_PER_PROJECT: ${REAMON_WORKER_MAX_ACTIVE_PER_PROJECT:-2}
       SCANNER_API_KEY: ${SCANNER_API_KEY:-changeme}
       AGENT_EXECUTION_SCOPE_URL: http://agent:8080/execution/resolve-context
-      REAMON_WORKSPACE_CONTAINER: redamon-kali
+      REAMON_WORKSPACE_CONTAINER: redamon-agent
+      REAMON_WORKSPACE_ROOT: /workspace
+      REAMON_PROJECT_WORKER_IMAGE: reamon-project-worker:latest
+      REAMON_PENTEST_WORKER_IMAGE: redamon-kali:latest
       REAMON_TERMINAL_AGENT_CONTAINER: redamon-agent
       # Tool images the recon pipeline may run (V3 set is the broker default;
       # operator extras flow through to keep parity with RECON_EXTRA_ALLOWED_IMAGES).
@@ -453,12 +456,25 @@ services:
     networks:
       - pentest-net
       - redamon
+    depends_on:
+      agent:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "test -S /var/run/broker/docker.sock"]
       interval: 15s
       timeout: 5s
       retries: 3
       start_period: 5s
+
+  # Build-only image for disposable REAmon source and terminal workers. It is
+  # intentionally profiled so `docker compose up` does not start an idle image
+  # container; the normal REAmon lifecycle builds it explicitly.
+  project-worker-image:
+    profiles: ["project-worker-image"]
+    build:
+      context: .
+      dockerfile: services/project_worker/Dockerfile
+    image: reamon-project-worker:latest
 
   recon-orchestrator:
     profiles: ["legacy-pentest"]
@@ -564,6 +580,9 @@ services:
       # orchestrator on a shared net with the webapp. NOT the client-supplied
       # localhost:3000 (that is for host-network spawned scan containers).
       WEBAPP_API_URL: http://webapp:3000
+      # Isolate the REAmon broker socket volume from any historical RedAmon
+      # broker that may still be running on the same Docker host.
+      RECON_DOCKER_BROKER_VOLUME: reamon_broker_socket
       # V2: webapp URL forwarded to *spawned* scan containers. They run on the
       # HOST network, so they reach the webapp via the host-published port
       # (localhost:3000), not the `webapp` DNS name. Server-controlled, never the
@@ -839,12 +858,9 @@ services:
       # own allowlisted APIs. Interactive PTY shells receive an allowlisted env
       # with this reusable key removed.
       SCANNER_API_KEY: "${SCANNER_API_KEY:-}"
-      # Project workers are an optional execution integration. The default
-      # REAmon lifecycle does not start the legacy Docker broker/Kali stack, so
-      # never advertise an unreachable worker endpoint unless an operator has
-      # explicitly configured that stack.
-      REAMON_PROJECT_WORKER_URL: ${REAMON_PROJECT_WORKER_URL:-}
-      REAMON_TERMINAL_WORKER_URL: ${REAMON_TERMINAL_WORKER_URL:-}
+      # Kali-specific tool calls use disposable broker workers when this
+      # optional compatibility service is enabled.
+      REAMON_PROJECT_WORKER_URL: ${REAMON_PROJECT_WORKER_URL:-http://docker-broker:8081/worker/execute}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python3", "-c", "import socket; s=socket.socket(); s.connect(('localhost', 8000)); s.close()"]
@@ -908,6 +924,9 @@ services:
       HOST_LAN_IP: ${HOST_LAN_IP:-}
       INTERNAL_API_KEY: ${INTERNAL_API_KEY:-changeme}
       SCANNER_API_KEY: ${SCANNER_API_KEY:-changeme}  # S3/E6 scoped scanner token
+      # The filtered broker is part of the normal REAmon lifecycle. Browser
+      # terminal sessions are ticket-authenticated by the agent before dispatch.
+      REAMON_TERMINAL_WORKER_URL: ${REAMON_TERMINAL_WORKER_URL:-tcp://docker-broker:8081/worker/terminal}
       # Knowledge Base
       KB_ENABLED: "${KB_ENABLED:-false}"
       KB_PATH: /app/knowledge_base/data
@@ -2554,8 +2573,8 @@ volumes:
   # /tmp/redamon), so a low-trust scanner cannot tamper with a repo before its PR.
   cypherfix-work:
     name: redamon_cypherfix_work
-  redamon_broker_socket:  # Holds the docker-broker filtered socket; in-VM so it is shareable on macOS + Linux
-    name: redamon_broker_socket
+  reamon_broker_socket:  # Holds the REAmon docker-broker filtered socket
+    name: reamon_broker_socket
   # HTTP traffic capture (Phase 1): the append-only spool (proxy writes, ingest
   # drains), the content-addressed body store (deduped blobs), and the proxy's
   # restricted mitmproxy CA dir (private key never leaves the proxy, §15.9).
