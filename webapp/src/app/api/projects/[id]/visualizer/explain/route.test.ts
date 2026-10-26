@@ -115,6 +115,44 @@ describe('POST /api/projects/[id]/visualizer/explain', () => {
     expect(h.resolvePath).not.toHaveBeenCalled()
     expect(h.agentFetch).not.toHaveBeenCalled()
   })
+
+  it('supplies the selected DEX function exact call edges and references to AI explanation', async () => {
+    h.observation
+      .mockResolvedValueOnce({
+        id: 'class-1', artifactId: 'artifact-1', taskId: 'task-1', stableKey: 'dex:class:main', source: 'reamon-dex-decompiler',
+        label: 'MainActivity', attributes: { name: 'MainActivity', language: 'Java', codeArtifactId: 'project-1/artifact-1/task-1/run-1/sources/MainActivity.java' },
+      })
+      .mockResolvedValueOnce({
+        id: 'function-1', stableKey: 'dex:function:main-on-create',
+        attributes: { qualifiedName: 'Lapp/MainActivity;->onCreate()V', address: 'dex0:method#77' },
+      })
+    h.observations.mockImplementation(async (args: { where?: { kind?: string; type?: string | { in?: string[] } } }) => {
+      if (args.where?.kind !== 'relationship') return []
+      if (args.where.type === 'calls') return [{
+        type: 'calls', label: 'onCreate calls\nUserStore#loadProfile', fromKey: 'dex:function:main-on-create', toKey: 'dex:function:load-profile',
+        attributes: { fromAddress: 'dex0:method#77', toAddress: 'dex0:method#91' },
+      }]
+      if (typeof args.where.type === 'object' && args.where.type.in?.includes('references_string')) return [{
+        type: 'references_string', label: 'onCreate references "profile_key"', fromKey: 'dex:function:main-on-create', toKey: 'dex:symbol:profile-key',
+        attributes: { fromSignature: 'Lapp/MainActivity;->onCreate()V', targetName: 'profile_key', targetSignature: 'Ljava/lang/String;', occurrenceCount: 1 },
+      }]
+      return []
+    })
+
+    const response = await POST(request({ unitId: 'class-1', functionId: 'function-1', providerId: 'provider-1' }), routeParams)
+
+    expect(response.status).toBe(200)
+    const payload = JSON.parse(String(h.agentFetch.mock.calls[0][1].body)) as { project_context: string }
+    expect(payload.project_context).toContain('onCreate calls UserStore#loadProfile')
+    expect(payload.project_context).toContain('onCreate()V references_string: profile_key')
+    expect(h.observations).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        projectId: 'project-1', artifactId: 'artifact-1', taskId: 'task-1', source: 'reamon-dex-decompiler',
+        kind: 'relationship', type: 'calls', OR: [{ fromKey: 'dex:function:main-on-create' }, { toKey: 'dex:function:main-on-create' }],
+      }),
+      take: 41,
+    }))
+  })
 })
 
 describe('POST /api/projects/[id]/visualizer/deobfuscate', () => {
