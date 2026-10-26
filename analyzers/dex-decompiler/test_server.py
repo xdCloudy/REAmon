@@ -156,10 +156,23 @@ class DecompilerCommandTests(unittest.TestCase):
     def test_streams_method_pages_and_removes_the_temporary_page_directory(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            page_directory = root / "project" / "artifact" / "task" / "run" / "dex-decompiler" / ".method-pages"
-            page_directory.mkdir(parents=True)
-            (page_directory / "method-page-000000.json").write_text(
+            destination = root / "project" / "artifact" / "task" / "run" / "dex-decompiler"
+            method_directory = destination / ".method-pages"
+            call_directory = destination / ".call-pages"
+            reference_directory = destination / ".reference-pages"
+            method_directory.mkdir(parents=True)
+            call_directory.mkdir()
+            reference_directory.mkdir()
+            (method_directory / "method-page-000000.json").write_text(
                 '{"methods":[{"methodName":"first"},{"methodName":"second"}]}',
+                encoding="utf-8",
+            )
+            (call_directory / "call-page-000000.json").write_text(
+                '{"rows":[{"fromSignature":"A#a"},{"fromSignature":"B#b"}]}',
+                encoding="utf-8",
+            )
+            (reference_directory / "reference-page-000000.json").write_text(
+                '{"rows":[{"targetSignature":"C#field"}]}',
                 encoding="utf-8",
             )
             events = []
@@ -173,6 +186,12 @@ class DecompilerCommandTests(unittest.TestCase):
                     "_methodPagePaths": [
                         "project/artifact/task/run/dex-decompiler/.method-pages/method-page-000000.json",
                     ],
+                    "_callPagePaths": [
+                        "project/artifact/task/run/dex-decompiler/.call-pages/call-page-000000.json",
+                    ],
+                    "_referencePagePaths": [
+                        "project/artifact/task/run/dex-decompiler/.reference-pages/reference-page-000000.json",
+                    ],
                 })
 
             method_events = [event for event in events if event.get("field") == "methods"]
@@ -181,8 +200,18 @@ class DecompilerCommandTests(unittest.TestCase):
                 "field": "methods",
                 "items": [{"methodName": "first"}, {"methodName": "second"}],
             }])
+            self.assertEqual(
+                [event["items"] for event in events if event.get("field") == "calls"],
+                [[{"fromSignature": "A#a"}, {"fromSignature": "B#b"}]],
+            )
+            self.assertEqual(
+                [event["items"] for event in events if event.get("field") == "references"],
+                [[{"targetSignature": "C#field"}]],
+            )
             self.assertEqual(events[-1], {"type": "result_end"})
-            self.assertFalse(page_directory.exists())
+            self.assertFalse(method_directory.exists())
+            self.assertFalse(call_directory.exists())
+            self.assertFalse(reference_directory.exists())
 
 
 if __name__ == "__main__":

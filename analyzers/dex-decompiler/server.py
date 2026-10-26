@@ -26,11 +26,11 @@ MAX_OUTPUT_BYTES = min(1024**3, max(1024**2, int(os.environ.get("DEX_DECOMPILER_
 MAX_RETURNED_UNITS = min(80_000, max(1, int(os.environ.get("DEX_DECOMPILER_MAX_RETURNED_UNITS", "80_000"))))
 MAX_SOURCE_FILES = 80_000
 MAX_SOURCE_BYTES = 4 * 1024 * 1024
-MAX_STRUCTURED_CALLS = 4_000
-MAX_STRUCTURED_REFERENCES = 4_000
 MAX_STRUCTURED_OUTPUT_BYTES = 64 * 1024 * 1024
 MAX_METHOD_PAGES = 4_200
 MAX_METHODS_PER_PAGE = 1_000
+MAX_EDGE_PAGES = 4_200
+MAX_EDGES_PER_PAGE = 1_000
 MAX_CLASS_SUMMARY_BYTES = 1024 * 1024
 MAX_FAILED_CLASS_DETAILS = 1000
 CLASS_DESCRIPTOR_LOOKUP_TIMEOUT_SECONDS = 30
@@ -596,7 +596,14 @@ def analyse(body: dict[str, object], progress=None) -> dict[str, object]:
             detail = stderr or stdout
             raise AnalysisError(("DEX decompiler produced no Java source" + (f": {detail[:1000]}" if detail else "")))
 
-        method_result: dict[str, object] = {"methods": [], "discoveredMethodCount": 0, "truncated": False}
+        method_result: dict[str, object] = {
+            "methods": [],
+            "discoveredMethodCount": 0,
+            "returnedMethodCount": 0,
+            "truncated": True,
+            "callGraphTruncated": True,
+            "referencesTruncated": True,
+        }
         method_warning = ""
         method_evidence_root = temporary_root / "method-evidence"
         try:
@@ -634,6 +641,8 @@ def analyse(body: dict[str, object], progress=None) -> dict[str, object]:
         staging.mkdir()
         units: list[dict[str, object]] = []
         returned_bytes = 0
+        edge_page_paths: dict[str, list[str]] = {"callPages": [], "referencePages": []}
+        edge_row_counts = {"callPages": 0, "referencePages": 0}
         try:
             for source_path, relative, size in sources[:MAX_RETURNED_UNITS]:
                 target = staging.joinpath(*relative.parts)
@@ -670,6 +679,43 @@ def analyse(body: dict[str, object], progress=None) -> dict[str, object]:
                 page_target.write_text(json.dumps(page, separators=(",", ":")), encoding="utf-8")
             if method_result.get("methodPageCount", len(method_page_names)) != len(method_page_names):
                 raise AnalysisError("Structured DEX method page count is inconsistent")
+            for field, directory_name, prefix in (
+                ("callPages", "call-pages", "call"),
+                ("referencePages", "reference-pages", "reference"),
+            ):
+                page_names = method_result.get(field, [])
+                if not isinstance(page_names, list) or len(page_names) > MAX_EDGE_PAGES:
+                    raise AnalysisError(f"Structured DEX {prefix} pages exceeded the configured limit")
+                page_output = staging / f".{directory_name}"
+                page_output.mkdir()
+                edge_page_paths[field] = []
+                for page_index, page_name in enumerate(page_names):
+                    expected_name = f"{prefix}-page-{page_index:06}.json"
+                    if not isinstance(page_name, str) or page_name != expected_name:
+                        raise AnalysisError(f"Structured DEX {prefix} page index is invalid")
+                    page_root = (method_evidence_root / directory_name).resolve(strict=True)
+                    page_source = (page_root / page_name).resolve(strict=True)
+                    page_source.relative_to(page_root)
+                    page = json.loads(page_source.read_bytes())
+                    rows = page.get("rows") if isinstance(page, dict) else None
+                    if not isinstance(rows, list) or len(rows) > MAX_EDGES_PER_PAGE or any(not isinstance(row, dict) for row in rows):
+                        raise AnalysisError(f"Structured DEX {prefix} page has an invalid shape")
+                    edge_row_counts[field] += len(rows)
+                    page_target = page_output / page_name
+                    page_target.write_text(json.dumps(page, separators=(",", ":")), encoding="utf-8")
+                    edge_page_paths[field].append(page_target.relative_to(staging).as_posix())
+                count_field = "callPageCount" if prefix == "call" else "referencePageCount"
+                if method_result.get(count_field, len(page_names)) != len(page_names):
+                    raise AnalysisError(f"Structured DEX {prefix} page count is inconsistent")
+                returned_count_field = "returnedCallCount" if prefix == "call" else "returnedReferenceCount"
+                inline_field = "calls" if prefix == "call" else "references"
+                inline_rows = method_result.get(inline_field, [])
+                if not isinstance(inline_rows, list) or any(not isinstance(row, dict) for row in inline_rows):
+                    raise AnalysisError(f"Structured DEX {prefix} evidence has an invalid inline shape")
+                inline_count = len(inline_rows)
+                returned_count = method_result.get(returned_count_field, inline_count + edge_row_counts[field])
+                if type(returned_count) is not int or returned_count != inline_count + edge_row_counts[field]:
+                    raise AnalysisError(f"Structured DEX {prefix} evidence count is inconsistent")
             staging.replace(destination)
         except Exception:
             shutil.rmtree(staging, ignore_errors=True)
@@ -683,11 +729,11 @@ def analyse(body: dict[str, object], progress=None) -> dict[str, object]:
         isinstance(discovered_methods, int) and isinstance(returned_methods, int) and discovered_methods > returned_methods
     )
     call_rows = method_result.get("calls", [])
-    calls = [row for row in call_rows[:MAX_STRUCTURED_CALLS] if isinstance(row, dict)] if isinstance(call_rows, list) else []
-    call_graph_truncated = method_result.get("callGraphTruncated") is True or (isinstance(call_rows, list) and len(call_rows) > len(calls))
+    calls = [row for row in call_rows if isinstance(row, dict)] if isinstance(call_rows, list) else []
+    call_graph_truncated = method_result.get("callGraphTruncated") is True
     reference_rows = method_result.get("references", [])
-    references = [row for row in reference_rows[:MAX_STRUCTURED_REFERENCES] if isinstance(row, dict)] if isinstance(reference_rows, list) else []
-    references_truncated = method_result.get("referencesTruncated") is True or (isinstance(reference_rows, list) and len(reference_rows) > len(references))
+    references = [row for row in reference_rows if isinstance(row, dict)] if isinstance(reference_rows, list) else []
+    references_truncated = method_result.get("referencesTruncated") is True
 
     return {
         "status": "completed",
@@ -705,11 +751,21 @@ def analyse(body: dict[str, object], progress=None) -> dict[str, object]:
             for page_name in method_page_names
         ] if isinstance(method_page_names, list) else [],
         "calls": calls,
+        "returnedCallCount": method_result.get("returnedCallCount", len(calls)),
+        "_callPagePaths": [
+            destination.joinpath(*PurePosixPath(page).parts).relative_to(DERIVED_ROOT).as_posix()
+            for page in edge_page_paths.get("callPages", [])
+        ],
         "callGraphTruncated": call_graph_truncated,
         "references": references,
+        "returnedReferenceCount": method_result.get("returnedReferenceCount", len(references)),
+        "_referencePagePaths": [
+            destination.joinpath(*PurePosixPath(page).parts).relative_to(DERIVED_ROOT).as_posix()
+            for page in edge_page_paths.get("referencePages", [])
+        ],
         "referencesTruncated": references_truncated,
         "codeBytes": returned_bytes,
-        "truncated": source_truncated or len(sources) > len(units),
+        "truncated": source_truncated or len(sources) > len(units) or method_truncated or call_graph_truncated or references_truncated,
         "units": units,
         "warnings": "\n".join(filter(None, [
             "This is an alternate DEX-to-Java reconstruction; review it against JADX and bytecode evidence.",
@@ -724,6 +780,8 @@ def analyse(body: dict[str, object], progress=None) -> dict[str, object]:
             (f"Class identity details are unavailable for {failed_classes - len(failed_class_details)} additional failures."
              if failed_classes > len(failed_class_details) else ""),
             method_warning,
+            "DEX call evidence reached its bounded paging limit or 256 MiB evidence budget." if call_graph_truncated else "",
+            "DEX field/string reference evidence reached its bounded paging limit or 256 MiB evidence budget." if references_truncated else "",
             stderr[:2000],
         ]))[:4000],
     }
@@ -764,8 +822,14 @@ class Handler(BaseHTTPRequestHandler):
 
     def _stream_result(self, result: dict[str, object]) -> None:
         method_page_paths = result.pop("_methodPagePaths", [])
+        call_page_paths = result.pop("_callPagePaths", [])
+        reference_page_paths = result.pop("_referencePagePaths", [])
         if not isinstance(method_page_paths, list) or len(method_page_paths) > MAX_METHOD_PAGES:
             raise AnalysisError("DEX method page list is invalid")
+        if not isinstance(call_page_paths, list) or len(call_page_paths) > MAX_EDGE_PAGES:
+            raise AnalysisError("DEX call page list is invalid")
+        if not isinstance(reference_page_paths, list) or len(reference_page_paths) > MAX_EDGE_PAGES:
+            raise AnalysisError("DEX reference page list is invalid")
         array_fields = [field for field in ("units", "methods", "calls", "references") if isinstance(result.get(field), list)]
         metadata = {key: value for key, value in result.items() if key not in array_fields}
         self._stream_line({"type": "result_start", "data": metadata, "arrayFields": array_fields})
@@ -793,6 +857,27 @@ class Handler(BaseHTTPRequestHandler):
                     raise AnalysisError("DEX method page content is invalid")
                 for start in range(0, len(methods), 100):
                     self._stream_line({"type": "result_chunk", "field": "methods", "items": methods[start:start + 100]})
+            for field, page_paths, directory_name, prefix in (
+                ("calls", call_page_paths, ".call-pages", "call"),
+                ("references", reference_page_paths, ".reference-pages", "reference"),
+            ):
+                for page_index, page_id in enumerate(page_paths):
+                    if not isinstance(page_id, str):
+                        raise AnalysisError(f"DEX {prefix} page identifier is invalid")
+                    relative = PurePosixPath(page_id)
+                    if relative.is_absolute() or ".." in relative.parts or "\\" in page_id:
+                        raise AnalysisError(f"DEX {prefix} page path is invalid")
+                    page_path = DERIVED_ROOT.joinpath(*relative.parts).resolve(strict=True)
+                    page_path.relative_to(DERIVED_ROOT)
+                    if page_path.parent.name != directory_name or page_path.name != f"{prefix}-page-{page_index:06}.json":
+                        raise AnalysisError(f"DEX {prefix} page location is invalid")
+                    page_directories.add(page_path.parent)
+                    page = json.loads(page_path.read_bytes())
+                    rows = page.get("rows") if isinstance(page, dict) else None
+                    if not isinstance(rows, list) or len(rows) > MAX_EDGES_PER_PAGE:
+                        raise AnalysisError(f"DEX {prefix} page content is invalid")
+                    for start in range(0, len(rows), 100):
+                        self._stream_line({"type": "result_chunk", "field": field, "items": rows[start:start + 100]})
             self._stream_line({"type": "result_end"})
         finally:
             for directory in page_directories:

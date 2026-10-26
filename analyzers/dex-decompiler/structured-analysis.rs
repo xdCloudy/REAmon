@@ -7,11 +7,12 @@ use std::fs;
 use std::path::PathBuf;
 
 const METHOD_PAGE_SIZE: usize = 1_000;
+const EDGE_PAGE_SIZE: usize = 1_000;
+const MAX_EDGE_PAGES: usize = 4_200;
+const MAX_EDGE_EVIDENCE_BYTES: usize = 256 * 1024 * 1024;
 const MAX_ROWS_PER_METHOD: usize = 4_000;
 const MAX_CFG_BLOCKS: usize = 12;
 const MAX_CFG_EDGES: usize = 16;
-const MAX_CALL_EDGES: usize = 4_000;
-const MAX_REFERENCE_EDGES: usize = 4_000;
 const MAX_METHOD_ARTIFACT_BYTES: usize = 1024 * 1024;
 const MAX_TOTAL_ARTIFACT_BYTES: usize = 128 * 1024 * 1024;
 
@@ -49,6 +50,33 @@ fn flush_method_page(root: &PathBuf, page: usize, methods: &mut Vec<Value>, page
     Ok(())
 }
 
+fn flush_edge_page(
+    root: &PathBuf,
+    prefix: &str,
+    page: usize,
+    rows: &mut Vec<Value>,
+    pages: &mut Vec<String>,
+    total_bytes: &mut usize,
+) -> Result<bool> {
+    if rows.is_empty() {
+        return Ok(true);
+    }
+    let name = format!("{prefix}-page-{page:06}.json");
+    let path = root.join(&name);
+    let encoded = serde_json::to_vec(&json!({"rows": rows}))?;
+    if total_bytes.saturating_add(encoded.len()) > MAX_EDGE_EVIDENCE_BYTES {
+        rows.clear();
+        return Ok(false);
+    }
+    let encoded_len = encoded.len();
+    fs::write(&path, encoded)
+        .with_context(|| format!("write {prefix} page {page}"))?;
+    *total_bytes += encoded_len;
+    pages.push(name);
+    rows.clear();
+    Ok(true)
+}
+
 fn run() -> Result<()> {
     let input = env::args_os()
         .nth(1)
@@ -61,6 +89,10 @@ fn run() -> Result<()> {
     fs::create_dir_all(&evidence_root).context("create evidence output directory")?;
     let method_pages_root = evidence_root.join("method-pages");
     fs::create_dir_all(&method_pages_root).context("create method page directory")?;
+    let call_pages_root = evidence_root.join("call-pages");
+    fs::create_dir_all(&call_pages_root).context("create call page directory")?;
+    let reference_pages_root = evidence_root.join("reference-pages");
+    fs::create_dir_all(&reference_pages_root).context("create reference page directory")?;
     let bytes = fs::read(&input).context("read input")?;
     let dexes = load_dexes_from_bytes(&bytes, &input)
         .map_err(|error| anyhow::anyhow!(error.to_string()))?;
@@ -106,9 +138,14 @@ fn run() -> Result<()> {
     let mut returned_methods = 0usize;
     let mut total_evidence_bytes = 0usize;
     let mut calls = Vec::new();
+    let mut call_pages = Vec::new();
+    let mut returned_calls = 0usize;
     let mut call_graph_truncated = false;
     let mut references = Vec::new();
+    let mut reference_pages = Vec::new();
+    let mut returned_references = 0usize;
     let mut references_truncated = false;
+    let mut total_edge_page_bytes = 0usize;
 
     for (dex_index, dex) in dexes.iter().enumerate() {
         let decompiler = Decompiler::new(dex);
@@ -250,7 +287,10 @@ fn run() -> Result<()> {
                 let mut ordered_targets: Vec<_> = targets.into_iter().collect();
                 ordered_targets.sort_by_key(|(method_idx, _)| *method_idx);
                 for (target_idx, (target_class, target_name, target_signature, call_site_count, offsets)) in ordered_targets {
-                    if calls.len() >= MAX_CALL_EDGES {
+                    if call_graph_truncated {
+                        break;
+                    }
+                    if returned_calls >= MAX_EDGE_PAGES * EDGE_PAGE_SIZE {
                         call_graph_truncated = true;
                         break;
                     }
@@ -274,11 +314,22 @@ fn run() -> Result<()> {
                         "offsets": offsets,
                         "targetName": target_name,
                     }));
+                    returned_calls += 1;
+                    if calls.len() >= EDGE_PAGE_SIZE {
+                        let pending = calls.len();
+                        if !flush_edge_page(&call_pages_root, "call", call_pages.len(), &mut calls, &mut call_pages, &mut total_edge_page_bytes)? {
+                            returned_calls -= pending;
+                            call_graph_truncated = true;
+                        }
+                    }
                 }
                 let mut ordered_references: Vec<_> = reference_targets.into_iter().collect();
                 ordered_references.sort_by_key(|((kind, index), _)| (*kind, *index));
                 for ((kind, target_index), (target_signature, target_name, occurrence_count, offsets, target_name_truncated)) in ordered_references {
-                    if references.len() >= MAX_REFERENCE_EDGES {
+                    if references_truncated {
+                        break;
+                    }
+                    if returned_references >= MAX_EDGE_PAGES * EDGE_PAGE_SIZE {
                         references_truncated = true;
                         break;
                     }
@@ -297,6 +348,14 @@ fn run() -> Result<()> {
                         "occurrenceCount": occurrence_count,
                         "offsets": offsets,
                     }));
+                    returned_references += 1;
+                    if references.len() >= EDGE_PAGE_SIZE {
+                        let pending = references.len();
+                        if !flush_edge_page(&reference_pages_root, "reference", reference_pages.len(), &mut references, &mut reference_pages, &mut total_edge_page_bytes)? {
+                            returned_references -= pending;
+                            references_truncated = true;
+                        }
+                    }
                 }
                 let mnemonics: Vec<String> = rows
                     .iter()
@@ -390,6 +449,16 @@ fn run() -> Result<()> {
         }
     }
     flush_method_page(&method_pages_root, method_pages.len(), &mut methods, &mut method_pages)?;
+    let pending_calls = calls.len();
+    if !flush_edge_page(&call_pages_root, "call", call_pages.len(), &mut calls, &mut call_pages, &mut total_edge_page_bytes)? {
+        returned_calls -= pending_calls;
+        call_graph_truncated = true;
+    }
+    let pending_references = references.len();
+    if !flush_edge_page(&reference_pages_root, "reference", reference_pages.len(), &mut references, &mut reference_pages, &mut total_edge_page_bytes)? {
+        returned_references -= pending_references;
+        references_truncated = true;
+    }
     println!(
         "{}",
         json!({
@@ -400,9 +469,15 @@ fn run() -> Result<()> {
             "discoveredMethodCount": discovered,
             "truncated": returned_methods < discovered,
             "evidenceBytes": total_evidence_bytes,
-            "calls": calls,
+            "calls": [],
+            "returnedCallCount": returned_calls,
+            "callPages": call_pages,
+            "callPageCount": call_pages.len(),
             "callGraphTruncated": call_graph_truncated,
-            "references": references,
+            "references": [],
+            "returnedReferenceCount": returned_references,
+            "referencePages": reference_pages,
+            "referencePageCount": reference_pages.len(),
             "referencesTruncated": references_truncated,
         })
     );

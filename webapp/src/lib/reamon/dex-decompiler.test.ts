@@ -133,6 +133,82 @@ describe('Rust DEX-to-Java provider', () => {
     })])
   })
 
+  it('persists paged call and symbol-reference evidence through the task batch writer', async () => {
+    const method = {
+      signature: 'com.example.Main#start():void',
+      className: 'com.example.Main',
+      methodName: 'start',
+      relativePath: 'com/example/Main.java',
+      dexIndex: 0,
+      methodIndex: 3,
+      instructionCount: 2,
+      instructionMnemonics: ['invoke-virtual', 'return-void'],
+      controlFlowGraph: {},
+      bytecodeRowsTruncated: false,
+      cfgTruncated: false,
+    }
+    const body = {
+      ...responseBody([]),
+      returnedCallCount: 1,
+      returnedReferenceCount: 1,
+    }
+    const metadata = Object.fromEntries(Object.entries(body).filter(([key]) => !['units', 'methods', 'calls', 'references'].includes(key)))
+    const call = {
+      fromSignature: method.signature,
+      toSignature: 'android.util.Log#d(String,String):int',
+      fromRelativePath: method.relativePath,
+      toRelativePath: 'android/util/Log.java',
+      fromAddress: 'dex0:method#3',
+      toAddress: 'dex0:method#99',
+      fromDexIndex: 0,
+      toDexIndex: 0,
+      fromMethodIndex: 3,
+      toMethodIndex: 99,
+      callSiteCount: 1,
+      offsets: [4],
+    }
+    const reference = {
+      kind: 'field_read',
+      fromSignature: method.signature,
+      fromRelativePath: method.relativePath,
+      fromDexIndex: 0,
+      fromMethodIndex: 3,
+      fromAddress: 'dex0:method#3',
+      targetSignature: 'com.example.Main#count',
+      targetName: 'count',
+      targetNameTruncated: false,
+      targetDexIndex: 0,
+      targetIndex: 7,
+      occurrenceCount: 1,
+      offsets: [8],
+    }
+    const events = [
+      { type: 'result_start', data: { ...metadata, discoveredMethodCount: 1, returnedMethodCount: 1 }, arrayFields: ['units', 'methods', 'calls', 'references'] },
+      { type: 'result_chunk', field: 'units', items: body.units },
+      { type: 'result_chunk', field: 'methods', items: [method] },
+      { type: 'result_chunk', field: 'calls', items: [call] },
+      { type: 'result_chunk', field: 'references', items: [reference] },
+      { type: 'result_end' },
+    ].map((event) => JSON.stringify(event)).join('\n')
+    vi.mocked(fetch).mockResolvedValue(new Response(events, {
+      status: 200,
+      headers: { 'content-type': 'application/x-ndjson' },
+    }))
+    const persistObservationBatch = vi.fn(async (observations: Array<{ type: string }>) => observations.length)
+
+    const result = await executeDexDecompiler({ ...input, persistObservationBatch })
+
+    expect(result.status).toBe('completed')
+    expect(result.data).toMatchObject({ callCount: 1, returnedCallCount: 1, referenceCount: 1 })
+    expect(result.data.observations).not.toEqual(expect.arrayContaining([expect.objectContaining({ relation: 'calls' })]))
+    const persisted = persistObservationBatch.mock.calls.flatMap(([batch]) => batch)
+    expect(persisted).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'calls', relation: 'calls' }),
+      expect.objectContaining({ type: 'reads_field', relation: 'reads_field' }),
+      expect.objectContaining({ type: 'symbol' }),
+    ]))
+  })
+
   it('rejects malformed failed-class identities from the analyzer', async () => {
     const details = [{ dexEntry: 'classes2.dex', classIndex: -1, descriptor: 'Lcom/example/Broken;', reason: 'failed' }]
     vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify(responseBody(details)), { status: 200 }))

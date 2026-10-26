@@ -1,5 +1,5 @@
 const MAX_ANALYZER_EVENT_CHARS = 32 * 1024 * 1024
-const MAX_ANALYZER_RESULT_ITEMS = 4_300_000
+const MAX_ANALYZER_RESULT_ITEMS = 12_800_000
 
 export type AnalyzerResultChunkConsumer = (
   field: string,
@@ -23,7 +23,7 @@ export async function readAnalyzerResponse<T>(
   let result: T | undefined
   let streamedResult: Record<string, unknown> | undefined
   let streamedItemCount = 0
-  let consumedMethodCount = 0
+  const consumedItemCounts = new Map<string, number>()
   let streamedResultComplete = false
   let streamError: string | undefined
 
@@ -65,14 +65,18 @@ export async function readAnalyzerResponse<T>(
       if (streamedItemCount > MAX_ANALYZER_RESULT_ITEMS) throw new Error('Analyzer result exceeded the item limit')
       const consumed = await consumeResultChunk?.(field, items, streamedResult)
       if (consumed) {
-        if (field === 'methods') consumedMethodCount += items.length
+        consumedItemCounts.set(field, (consumedItemCounts.get(field) || 0) + items.length)
         return
       }
       const target = streamedResult[field] as unknown[]
       for (const item of items) target.push(item)
     } else if (record.type === 'result_end') {
       if (!streamedResult || streamedResultComplete) throw new Error('Analyzer returned an invalid result stream')
-      if (consumedMethodCount > 0) streamedResult.streamedMethodCount = consumedMethodCount
+      for (const [field, count] of consumedItemCounts) {
+        const singular = field.endsWith('s') ? field.slice(0, -1) : field
+        const countField = `streamed${singular[0].toUpperCase()}${singular.slice(1)}Count`
+        streamedResult[countField] = count
+      }
       result = streamedResult as T
       streamedResultComplete = true
     } else if (record.type === 'error' && typeof record.error === 'string') {

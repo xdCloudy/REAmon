@@ -6,6 +6,7 @@ import { MAX_CODE_UNITS_PER_RESULT } from './result-ingestion'
 const MAX_CLASSES = 80_000
 const MAX_METHODS = 10_000
 const MAX_STREAMED_METHODS = 4_200_000
+const MAX_STREAMED_EDGES = 4_200_000
 const MAX_CALL_EDGES = 4_000
 const MAX_REFERENCES = 4_000
 // A previous 30-minute run reached DEX 3 of 10 before aborting; give a
@@ -41,8 +42,12 @@ interface DexDecompilerResponse {
   methodsTruncated: boolean
   methods: DexMethod[]
   calls: DexCall[]
+  returnedCallCount?: number
+  streamedCallCount?: number
   callGraphTruncated: boolean
   references: DexReference[]
+  returnedReferenceCount?: number
+  streamedReferenceCount?: number
   referencesTruncated: boolean
   failedClassDetails?: Array<{
     dexEntry: string
@@ -172,6 +177,68 @@ interface DexReference {
   offsets: number[]
 }
 
+class RecentObservationKeys {
+  private readonly keys = new Map<string, number>()
+  private readonly order: Array<{ key: string; generation: number }> = []
+  private head = 0
+  private generation = 0
+
+  constructor(private readonly limit = 50_000) {}
+
+  add(key: string): boolean {
+    if (this.keys.has(key)) return false
+    const generation = ++this.generation
+    this.keys.set(key, generation)
+    this.order.push({ key, generation })
+    if (this.order.length - this.head > this.limit) {
+      const expired = this.order[this.head++]
+      if (this.keys.get(expired.key) === expired.generation) this.keys.delete(expired.key)
+    }
+    if (this.head >= this.limit) {
+      this.order.splice(0, this.head)
+      this.head = 0
+    }
+    return true
+  }
+}
+
+function isDexCall(value: unknown): value is DexCall {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const call = value as Record<string, unknown>
+  return typeof call.fromSignature === 'string' && call.fromSignature.length > 0 && call.fromSignature.length <= 1_000
+    && typeof call.toSignature === 'string' && call.toSignature.length > 0 && call.toSignature.length <= 1_000
+    && typeof call.fromRelativePath === 'string' && call.fromRelativePath.length > 0 && call.fromRelativePath.length <= 1_000
+    && typeof call.toRelativePath === 'string' && call.toRelativePath.length > 0 && call.toRelativePath.length <= 1_000
+    && typeof call.fromAddress === 'string' && call.fromAddress.length <= 128
+    && typeof call.toAddress === 'string' && call.toAddress.length <= 128
+    && Number.isSafeInteger(call.fromDexIndex) && (call.fromDexIndex as number) >= 0
+    && Number.isSafeInteger(call.toDexIndex) && (call.toDexIndex as number) >= 0
+    && Number.isSafeInteger(call.fromMethodIndex) && (call.fromMethodIndex as number) >= 0
+    && Number.isSafeInteger(call.toMethodIndex) && (call.toMethodIndex as number) >= 0
+    && Number.isSafeInteger(call.callSiteCount) && (call.callSiteCount as number) >= 1
+    && Array.isArray(call.offsets) && call.offsets.length <= 3
+    && call.offsets.every((offset) => Number.isSafeInteger(offset) && offset >= 0)
+}
+
+function isDexReference(value: unknown): value is DexReference {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const reference = value as Record<string, unknown>
+  return ['field_read', 'field_write', 'string_literal'].includes(String(reference.kind))
+    && typeof reference.fromSignature === 'string' && reference.fromSignature.length > 0 && reference.fromSignature.length <= 1_000
+    && typeof reference.fromRelativePath === 'string' && reference.fromRelativePath.length > 0 && reference.fromRelativePath.length <= 1_000
+    && Number.isSafeInteger(reference.fromDexIndex) && (reference.fromDexIndex as number) >= 0
+    && Number.isSafeInteger(reference.fromMethodIndex) && (reference.fromMethodIndex as number) >= 0
+    && typeof reference.fromAddress === 'string' && reference.fromAddress.length <= 128
+    && typeof reference.targetSignature === 'string' && reference.targetSignature.length > 0 && reference.targetSignature.length <= 1_000
+    && typeof reference.targetName === 'string' && reference.targetName.length <= 512
+    && typeof reference.targetNameTruncated === 'boolean'
+    && Number.isSafeInteger(reference.targetDexIndex) && (reference.targetDexIndex as number) >= 0
+    && Number.isSafeInteger(reference.targetIndex) && (reference.targetIndex as number) >= 0
+    && Number.isSafeInteger(reference.occurrenceCount) && (reference.occurrenceCount as number) >= 1
+    && Array.isArray(reference.offsets) && reference.offsets.length <= 3
+    && reference.offsets.every((offset) => Number.isSafeInteger(offset) && offset >= 0)
+}
+
 export const dexDecompilerManifest: ToolPluginManifest = {
   id: 'reamon-dex-decompiler',
   name: 'Rust DEX-to-Java Decompiler',
@@ -206,6 +273,12 @@ function isResponse(value: unknown): value is DexDecompilerResponse {
   const response = value as Record<string, unknown>
   const input = response.input
   const streamedMethodCount = response.streamedMethodCount ?? 0
+  const streamedCallCount = typeof response.streamedCallCount === 'number' ? response.streamedCallCount : 0
+  const streamedReferenceCount = typeof response.streamedReferenceCount === 'number' ? response.streamedReferenceCount : 0
+  const returnedCallCount = typeof response.returnedCallCount === 'number'
+    ? response.returnedCallCount : Array.isArray(response.calls) ? response.calls.length : -1
+  const returnedReferenceCount = typeof response.returnedReferenceCount === 'number'
+    ? response.returnedReferenceCount : Array.isArray(response.references) ? response.references.length : -1
   return response.status === 'completed'
     && typeof response.toolVersion === 'string' && /^[a-f0-9]{40}$/i.test(response.toolVersion)
     && !!input && typeof input === 'object' && !Array.isArray(input)
@@ -240,6 +313,9 @@ function isResponse(value: unknown): value is DexDecompilerResponse {
           && Number.isSafeInteger(method.bytecodeArtifactSizeBytes) && (method.bytecodeArtifactSizeBytes as number) > 0))
       && typeof method.bytecodeRowsTruncated === 'boolean' && typeof method.cfgTruncated === 'boolean')
     && Array.isArray(response.calls) && response.calls.length <= MAX_CALL_EDGES
+    && Number.isSafeInteger(returnedCallCount) && returnedCallCount >= 0 && returnedCallCount <= MAX_STREAMED_EDGES
+    && Number.isSafeInteger(streamedCallCount) && streamedCallCount >= 0 && streamedCallCount <= MAX_STREAMED_EDGES
+    && returnedCallCount === response.calls.length + streamedCallCount
     && typeof response.callGraphTruncated === 'boolean'
     && response.calls.every((call: DexCall) => !!call && typeof call === 'object' && !Array.isArray(call)
       && typeof call.fromSignature === 'string' && call.fromSignature.length > 0 && call.fromSignature.length <= 1_000
@@ -256,6 +332,9 @@ function isResponse(value: unknown): value is DexDecompilerResponse {
       && Array.isArray(call.offsets) && call.offsets.length <= 3
       && call.offsets.every((offset) => Number.isSafeInteger(offset) && offset >= 0))
     && Array.isArray(response.references) && response.references.length <= MAX_REFERENCES
+    && Number.isSafeInteger(returnedReferenceCount) && returnedReferenceCount >= 0 && returnedReferenceCount <= MAX_STREAMED_EDGES
+    && Number.isSafeInteger(streamedReferenceCount) && streamedReferenceCount >= 0 && streamedReferenceCount <= MAX_STREAMED_EDGES
+    && returnedReferenceCount === response.references.length + streamedReferenceCount
     && typeof response.referencesTruncated === 'boolean'
     && response.references.every((reference: DexReference) => !!reference && typeof reference === 'object' && !Array.isArray(reference)
       && ['field_read', 'field_write', 'string_literal'].includes(reference.kind)
@@ -325,7 +404,50 @@ export async function executeDexDecompiler(input: ToolExecutionInput): Promise<T
     const streamedUnitsByPath = new Map<string, DexUnit>()
     const streamedClassKeysByPath = new Map<string, string>()
     const streamedMethodKeys = new Set<string>()
+    const streamedCallEdges = new RecentObservationKeys()
+    const streamedReferenceTargets = new RecentObservationKeys()
+    const streamedReferenceEdges = new RecentObservationKeys()
     let streamedFunctionObservationCount = 0
+    const addStreamedEndpoint = (
+      signature: string,
+      relativePath: string,
+      dexIndex: number,
+      methodIndex: number,
+      address: string,
+      toolVersion: string,
+      sourceSha256: string,
+      batch: ToolObservation[],
+    ): string => {
+      const key = methodObservationKey(input, dexIndex, methodIndex, signature)
+      if (streamedMethodKeys.has(key)) return key
+      const unit = streamedUnitsByPath.get(relativePath)
+      const parentCodeUnitKey = streamedClassKeysByPath.get(relativePath)
+      const owner = signature.split('#')[0] || signature
+      const methodName = signature.includes('#') ? signature.slice(signature.indexOf('#') + 1).split('(')[0] : signature
+      batch.push({
+        kind: 'entity',
+        type: 'function',
+        key,
+        label: `${owner}#${methodName}`.slice(0, 500),
+        attributes: {
+          unitType: 'function',
+          identity: `${input.artifactId}:${dexIndex}:${methodIndex}:${signature}`,
+          identityKey: `${dexIndex}:${methodIndex}:${signature}`,
+          name: methodName.slice(0, 500),
+          qualifiedName: signature,
+          address,
+          language: 'Java',
+          instructionLanguage: 'Dalvik',
+          ...(unit && parentCodeUnitKey ? { relativePath, parentCodeUnitKey, codeArtifactId: unit.codeArtifactId } : {}),
+          externalOrUndecompiled: true,
+          decompilationEngine: 'androguard/dex-decompiler',
+          decompilationEngineVersion: toolVersion,
+          sourceSha256,
+        },
+      })
+      streamedMethodKeys.add(key)
+      return key
+    }
     const payload: unknown = await readAnalyzerResponse<unknown>(response, input.reportProgress, async (field, items, metadata) => {
       if (field === 'units') {
         for (const item of items) {
@@ -335,7 +457,7 @@ export async function executeDexDecompiler(input: ToolExecutionInput): Promise<T
         }
         return false
       }
-      if (field !== 'methods' || !input.persistObservationBatch) return false
+      if (!['methods', 'calls', 'references'].includes(field) || !input.persistObservationBatch) return false
       const streamedInput = metadata.input
       const sourceSha256 = streamedInput && typeof streamedInput === 'object' && !Array.isArray(streamedInput)
         ? (streamedInput as Record<string, unknown>).sha256
@@ -343,19 +465,112 @@ export async function executeDexDecompiler(input: ToolExecutionInput): Promise<T
       const toolVersion = metadata.toolVersion
       if (typeof sourceSha256 !== 'string' || !/^[a-f0-9]{64}$/i.test(sourceSha256)
         || typeof toolVersion !== 'string' || !/^[a-f0-9]{40}$/i.test(toolVersion)) {
-        throw new Error('DEX decompiler omitted method provenance metadata')
+        throw new Error('DEX decompiler omitted streamed evidence provenance metadata')
       }
       const batch: ToolObservation[] = []
-      for (const item of items) {
-        if (!isStreamedMethod(item)) throw new Error('DEX decompiler returned an invalid method page')
-        const unit = streamedUnitsByPath.get(item.relativePath)
-        const parentCodeUnitKey = streamedClassKeysByPath.get(item.relativePath)
-        if (!unit || !parentCodeUnitKey) continue
-        const key = methodObservationKey(input, item.dexIndex, item.methodIndex, item.signature)
-        streamedMethodKeys.add(key)
-        batch.push(functionObservation(input, item, unit, parentCodeUnitKey, toolVersion, sourceSha256))
+      if (field === 'calls') {
+        for (const value of items) {
+          if (!isDexCall(value)) throw new Error('DEX decompiler returned an invalid call page')
+          const call = value
+          if (!streamedUnitsByPath.has(call.fromRelativePath)) throw new Error('DEX call page refers to an unknown caller class')
+          const edgeIdentity = `${call.fromDexIndex}:${call.fromMethodIndex}->${call.toDexIndex}:${call.toMethodIndex}`
+          if (!streamedCallEdges.add(edgeIdentity)) continue
+          const fromKey = addStreamedEndpoint(call.fromSignature, call.fromRelativePath, call.fromDexIndex, call.fromMethodIndex, call.fromAddress, toolVersion, sourceSha256, batch)
+          const toKey = addStreamedEndpoint(call.toSignature, call.toRelativePath, call.toDexIndex, call.toMethodIndex, call.toAddress, toolVersion, sourceSha256, batch)
+          const fromCodeUnitKey = streamedClassKeysByPath.get(call.fromRelativePath)
+          const toCodeUnitKey = streamedClassKeysByPath.get(call.toRelativePath)
+          const edgeDigest = createHash('sha256').update(`${input.artifactId}:${edgeIdentity}`).digest('hex').slice(0, 32)
+          batch.push({
+            kind: 'relationship',
+            type: 'calls',
+            relation: 'calls',
+            key: `dex-decompiler:call:${edgeDigest}`,
+            fromKey,
+            toKey,
+            label: `${call.fromSignature} calls ${call.toSignature}`.slice(0, 500),
+            attributes: {
+              fromSignature: call.fromSignature,
+              toSignature: call.toSignature,
+              fromAddress: call.fromAddress,
+              toAddress: call.toAddress,
+              callSiteCount: call.callSiteCount,
+              callOffsets: JSON.stringify(call.offsets),
+              ...(fromCodeUnitKey ? { fromCodeUnitKey } : {}),
+              ...(toCodeUnitKey ? { toCodeUnitKey } : {}),
+            },
+          })
+        }
+      } else if (field === 'references') {
+        for (const value of items) {
+          if (!isDexReference(value)) throw new Error('DEX decompiler returned an invalid reference page')
+          const reference = value
+          if (!streamedUnitsByPath.has(reference.fromRelativePath)) throw new Error('DEX reference page refers to an unknown source class')
+          const fromKey = addStreamedEndpoint(reference.fromSignature, reference.fromRelativePath, reference.fromDexIndex, reference.fromMethodIndex, reference.fromAddress, toolVersion, sourceSha256, batch)
+          const targetKind = reference.kind === 'string_literal' ? 'string_literal' : 'field'
+          const targetIdentity = `${input.artifactId}:${reference.targetDexIndex}:${reference.targetIndex}:${targetKind}:${reference.targetSignature}`
+          const targetDigest = createHash('sha256').update(targetIdentity).digest('hex').slice(0, 32)
+          const targetKey = `dex-decompiler:symbol:${targetDigest}`
+          if (streamedReferenceTargets.add(targetKey)) {
+            batch.push({
+              kind: 'entity',
+              type: 'symbol',
+              key: targetKey,
+              label: reference.targetName.slice(0, 500) || reference.targetSignature.slice(0, 500),
+              attributes: {
+                unitType: targetKind,
+                symbolKind: targetKind,
+                identity: targetIdentity,
+                identityKey: targetKind === 'field' ? `field:${reference.targetSignature}` : `string:${reference.targetDexIndex}:${reference.targetIndex}`,
+                name: reference.targetName.slice(0, 500) || reference.targetSignature.slice(0, 500),
+                qualifiedName: reference.targetSignature,
+                dexIndex: reference.targetDexIndex,
+                referenceIndex: reference.targetIndex,
+                decompilationEngine: 'androguard/dex-decompiler',
+                decompilationEngineVersion: toolVersion,
+                sourceSha256,
+              },
+            })
+          }
+          const relation = reference.kind === 'field_read' ? 'reads_field' : reference.kind === 'field_write' ? 'writes_field' : 'references_string'
+          const edgeIdentity = `${reference.fromDexIndex}:${reference.fromMethodIndex}:${relation}:${targetIdentity}`
+          if (!streamedReferenceEdges.add(edgeIdentity)) continue
+          const edgeDigest = createHash('sha256').update(`${input.artifactId}:${edgeIdentity}`).digest('hex').slice(0, 32)
+          batch.push({
+            kind: 'relationship', type: relation, relation,
+            key: `dex-decompiler:reference:${edgeDigest}`,
+            fromKey, toKey: targetKey,
+            label: `${reference.fromSignature} ${relation.replace('_', ' ')} ${reference.targetName || reference.targetSignature}`.slice(0, 500),
+            attributes: {
+              fromSignature: reference.fromSignature,
+              fromAddress: reference.fromAddress,
+              targetSignature: reference.targetSignature,
+              targetName: reference.targetName,
+              targetNameTruncated: reference.targetNameTruncated,
+              referenceKind: reference.kind,
+              occurrenceCount: reference.occurrenceCount,
+              referenceOffsets: JSON.stringify(reference.offsets),
+              ...(streamedClassKeysByPath.get(reference.fromRelativePath)
+                ? { fromCodeUnitKey: streamedClassKeysByPath.get(reference.fromRelativePath) as string }
+                : {}),
+            },
+          })
+        }
       }
-      if (batch.length) streamedFunctionObservationCount += await input.persistObservationBatch(batch)
+      if (field === 'methods') {
+        for (const item of items) {
+          if (!isStreamedMethod(item)) throw new Error('DEX decompiler returned an invalid method page')
+          const unit = streamedUnitsByPath.get(item.relativePath)
+          const parentCodeUnitKey = streamedClassKeysByPath.get(item.relativePath)
+          if (!unit || !parentCodeUnitKey) continue
+          const key = methodObservationKey(input, item.dexIndex, item.methodIndex, item.signature)
+          streamedMethodKeys.add(key)
+          batch.push(functionObservation(input, item, unit, parentCodeUnitKey, toolVersion, sourceSha256))
+        }
+      }
+      if (batch.length) {
+        const persisted = await input.persistObservationBatch(batch)
+        if (field === 'methods') streamedFunctionObservationCount += persisted
+      }
       return true
     })
     if (!response.ok) {
@@ -593,10 +808,10 @@ export async function executeDexDecompiler(input: ToolExecutionInput): Promise<T
         returnedMethodCount: payload.returnedMethodCount,
         streamedFunctionObservationCount,
         methodsTruncated: payload.methodsTruncated || observedMethodCount < payload.returnedMethodCount,
-        callCount: seenCalls.size,
-        returnedCallCount: seenCalls.size,
+        callCount: payload.returnedCallCount ?? seenCalls.size,
+        returnedCallCount: payload.returnedCallCount ?? seenCalls.size,
         callGraphTruncated,
-        referenceCount: seenReferenceEdges.size,
+        referenceCount: payload.returnedReferenceCount ?? seenReferenceEdges.size,
         referencesTruncated,
         failedClassDetails: payload.failedClassDetails || [],
         codeBytes: payload.codeBytes,
