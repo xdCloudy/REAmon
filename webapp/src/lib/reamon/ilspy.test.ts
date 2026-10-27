@@ -40,6 +40,19 @@ describe('ILSpy process provider', () => {
     expect(result).toMatchObject({ status: 'completed', data: { decompiledClassCount: null, truncated: true } })
   })
 
+  test('marks project coverage partial when the VB bridge omits files', async () => {
+    vi.stubEnv('REAMON_ILSPY_URL', 'http://ilspy-analyzer:8013')
+    const body = { ...resultBody(), vbBridgeVersion: '10.0.1.923', vbTranslationTruncated: true }
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(body), { status: 200 })))
+
+    const result = await executeIlspy(input)
+
+    expect(result).toMatchObject({
+      status: 'completed',
+      data: { returnedBridgeUnitCount: 0, vbTranslationTruncated: true, truncated: true },
+    })
+  })
+
   test('reports an unavailable isolated service instead of claiming success', async () => {
     vi.stubEnv('REAMON_ILSPY_URL', '')
 
