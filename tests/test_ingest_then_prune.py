@@ -169,7 +169,7 @@ class TestTheGithubHuntKeepsWhatAPersonJudged(unittest.TestCase):
 
 class TestGvmKeepsWhatAPersonJudged(unittest.TestCase):
     BASE = source("graph_db/mixins/base_mixin.py")
-    MAIN = source("scanners/gvm_scan/main.py")
+    INGEST = source("recon_orchestrator/container_manager.py")
 
     def test_the_clear_spares_muted_and_human_judged_findings(self):
         clear = method_body(self.BASE, "clear_gvm_data")
@@ -182,14 +182,18 @@ class TestGvmKeepsWhatAPersonJudged(unittest.TestCase):
         clear = method_body(self.BASE, "clear_gvm_data")
         self.assertIn("coalesce(e.triage_source, '') <> 'human'", clear)
 
-    def test_it_prunes_only_when_the_scan_actually_found_something(self):
-        """A GVM run that produced no vulnerabilities is far more often a scan
-        that failed than a target that became clean."""
-        self.assertIn('if not graph_stats.get("vulnerabilities_created"):',
-                      self.MAIN)
+    def test_gvm_pruning_is_owned_by_trusted_ingest_and_requires_a_complete_run(self):
+        """A successful empty result can resolve old findings; failed or partial
+        runs must retain them. The orchestrator decides from run completion."""
+        ingest = method_body(self.INGEST, "_ingest_gvm")
+        self.assertIn("client.update_graph_from_gvm_scan(", ingest)
+        self.assertIn("if complete:", ingest)
+        self.assertIn("client.prune_unseen_findings(", ingest)
 
-    def test_it_does_nothing_when_the_clear_never_ran(self):
-        self.assertIn("if not _GVM_RUN_STARTED_AT", self.MAIN)
+    def test_gvm_ingest_requires_a_run_identity_before_graph_access(self):
+        ingest = method_body(self.INGEST, "_ingest_gvm")
+        self.assertIn("not state.run_started_at", ingest)
+        self.assertIn("state.ingest_terminal_error = True", ingest)
 
     def test_gvm_ports_carry_a_source(self):
         """K20: with none, nothing could tell a port an ACTIVE scan confirmed

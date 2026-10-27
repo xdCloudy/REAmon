@@ -135,7 +135,7 @@ class TestReconSettingsBind(unittest.TestCase):
             text = fh.read()
         methods = re.split(r"(?=^    (?:async )?def )", text, flags=re.MULTILINE)
         graph_spawns = [method for method in methods if "**self._graph_db_mount(" in method]
-        self.assertEqual(len(graph_spawns), 3)
+        self.assertEqual(len(graph_spawns), 2)
         self.assertTrue(
             all("**self._recon_settings_mount()" in method for method in graph_spawns),
             "every graph_db bind site must also bind the settings registry",
