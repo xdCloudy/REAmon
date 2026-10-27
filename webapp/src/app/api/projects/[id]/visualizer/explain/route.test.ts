@@ -102,42 +102,67 @@ describe('POST /api/projects/[id]/visualizer/explain', () => {
     expect(String(h.agentFetch.mock.calls[0][1].body)).not.toContain('apiKey')
   })
 
-  it('searches exact-hash shared identity evidence across completed runs without a recent-task window', async () => {
+  it('pages past unreviewed exact-identity observations before loading older accepted memory', async () => {
     h.artifact.mockResolvedValueOnce({ id: 'artifact-1', sha256: 'a'.repeat(64) })
     h.observation.mockResolvedValueOnce({
       id: 'unit-1', artifactId: 'artifact-1', taskId: 'task-1', stableKey: 'native:function:0x1000',
       canonicalKey: 'native:artifact-1:0x1000', source: 'reamon-ghidra', label: 'entry',
       attributes: { address: '0x1000', codeArtifactId: 'project-1/artifact-1/task-1/run-1/sources/entry.c' },
     })
-    h.observations.mockImplementation(async (args: { where?: Record<string, unknown> }) => (
-      args.where?.task && args.where?.OR ? [{
+    const unreviewedExactMatches = Array.from({ length: 256 }, (_, index) => ({
+      id: `unreviewed-${index}`, source: 'reamon-other-provider', canonicalKey: 'native:artifact-1:0x1000', attributes: {},
+    }))
+    let identityPage = 0
+    h.observations.mockImplementation(async (args: { where?: Record<string, unknown>; cursor?: { id: string } }) => {
+      if (!args.where?.task || !args.where?.OR) return []
+      identityPage += 1
+      if (identityPage === 1) return unreviewedExactMatches
+      if (identityPage === 2) return [{
         id: 'accepted-old-unit', source: 'reamon-other-provider', canonicalKey: 'native:artifact-1:0x1000', attributes: {},
-      }] : []
-    ))
-    h.maintainedSource.mockResolvedValueOnce([{ codeUnitId: 'accepted-old-unit', artifactId: 'artifact-1', acceptedReviewId: 'review-1' }])
+      }]
+      return []
+    })
+    h.maintainedSource.mockImplementation(async (args: { where?: { codeUnitId?: string | { in?: string[] } } }) => {
+      const codeUnitId = args.where?.codeUnitId
+      if (typeof codeUnitId === 'object' && codeUnitId.in?.includes('accepted-old-unit')) {
+        return [{
+          codeUnitId: 'accepted-old-unit', artifactId: 'artifact-1', unitName: 'entry', language: 'C',
+          sourceHash: 'b'.repeat(64), acceptedReviewId: 'review-1', symbolIndex: { symbols: ['StableWidgetName'] },
+        }]
+      }
+      return []
+    })
+    h.reviewsFindMany.mockResolvedValueOnce([{
+      id: 'review-1', artifactId: 'artifact-1', codeUnitId: 'accepted-old-unit', maintainedSourceHash: 'b'.repeat(64),
+    }])
     await writeFile(path.join(testRoot, 'project-1/artifact-1/task-1/run-1/sources/entry.c'), 'int entry(void) { return 0; }')
 
     const response = await POST(request({ unitId: 'unit-1', providerId: 'provider-1' }), routeParams)
 
     expect(response.status).toBe(200)
     const identityLookup = h.observations.mock.calls
-      .map(([args]) => args as { where?: Record<string, unknown>; take?: number })
+      .map(([args]) => args as { where?: Record<string, unknown>; take?: number; orderBy?: unknown })
       .find(({ where }) => where?.task && where?.OR)
     expect(identityLookup).toBeDefined()
     expect(identityLookup?.where).toMatchObject({
       projectId: 'project-1', artifactId: 'artifact-1',
+      createdAt: { lte: expect.any(Date) },
       task: { is: { projectId: 'project-1', artifactId: 'artifact-1', capability: 'decompile', status: 'COMPLETED' } },
       AND: [{ attributes: { path: ['inputArtifactSha256'], equals: 'a'.repeat(64) } }],
     })
+    expect(identityLookup?.orderBy).toEqual([{ createdAt: 'desc' }, { id: 'asc' }])
     expect(identityLookup?.where?.OR).toContainEqual({ canonicalKey: 'native:artifact-1:0x1000' })
-    expect(identityLookup?.take).toBe(4_098)
+    expect(identityLookup?.take).toBe(256)
     expect(identityLookup?.where).not.toHaveProperty('id')
+    const laterIdentityPage = h.observations.mock.calls
+      .map(([args]) => args as { where?: Record<string, unknown>; cursor?: { id: string }; skip?: number })
+      .find(({ where, cursor }) => where?.task && where?.OR && cursor)
+    expect(laterIdentityPage).toMatchObject({ cursor: { id: 'unreviewed-255' }, skip: 1 })
     expect(h.maintainedSource).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({
-        projectId: 'project-1', artifactId: 'artifact-1',
-        codeUnitId: { in: ['unit-1', 'accepted-old-unit'] }, acceptedReviewId: { not: null },
-      }),
+      where: expect.objectContaining({ projectId: 'project-1', artifactId: 'artifact-1', codeUnitId: { in: ['accepted-old-unit'] }, acceptedReviewId: { not: null } }),
     }))
+    const modelRequest = JSON.parse(String(h.agentFetch.mock.calls[0][1].body)) as { project_context: string }
+    expect(modelRequest.project_context).toContain('StableWidgetName')
     expect(identityLookup?.where).not.toHaveProperty('taskId')
   })
 
