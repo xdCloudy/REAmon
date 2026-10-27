@@ -85,8 +85,8 @@ For the no-`env_file` knob rule, see the recon_orchestrator
   is nowhere, Docker auto-creates that path EMPTY, and the empty dir shadows the
   graph_db baked into the scan image. Every spawned scan then dies with
   `cannot import name 'Neo4jClient' from 'graph_db' (unknown location)`
-  (issue #169). `baked_into_image=True` for recon / partial-recon / gvm (they
-  COPY graph_db, so no mount beats a wrong mount). Supply Chain and GitHub Hunt
+  (issue #169). `baked_into_image=True` for recon / partial-recon (they COPY
+  graph_db, so no mount beats a wrong mount). Supply Chain, GitHub Hunt, and GVM
   emit artifacts and receive no graph mount or Neo4j credentials; the trusted
   orchestrator ingests their results. TruffleHog has NO graph_db mount either:
   its container is the dirty half of a dirty/clean split and holds no Neo4j

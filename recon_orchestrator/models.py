@@ -143,6 +143,15 @@ class GvmState(BaseModel):
     completed_at: Optional[datetime] = None
     error: Optional[str] = None
     container_id: Optional[str] = None
+    user_id: Optional[str] = None
+    run_id: str = ""
+    run_started_at: str = ""
+    ingested: bool = False
+    ingest_error: Optional[str] = None
+    ingest_warning: Optional[str] = None
+    ingest_attempts: int = 0
+    ingest_retry_at: Optional[datetime] = None
+    ingest_terminal_error: bool = False
 
 
 class GvmLogEvent(BaseModel):

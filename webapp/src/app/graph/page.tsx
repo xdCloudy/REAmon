@@ -1872,7 +1872,9 @@ export default function GraphPage() {
         currentPhase={gvmCurrentPhase}
         currentPhaseNumber={gvmCurrentPhaseNumber}
         status={gvmState?.status || 'idle'}
-        errorMessage={gvmState?.error}
+        errorMessage={gvmState?.ingest_error
+          ? `Graph ingest failed: ${gvmState.ingest_error}`
+          : gvmState?.error}
         onClearLogs={clearGvmLogs}
         onPause={handlePauseGvm}
         onResume={handleResumeGvm}

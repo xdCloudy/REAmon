@@ -447,9 +447,43 @@ class ScannerlessStackTest(unittest.TestCase):
                          "the scan must stop after the streak limit, not grind on")
         self.assertLess(attempted, len(targets))
         self.assertIn("redamon-gvm-ospd", str(ctx.exception))
-        # And each target died on the liveness verdict, not after a stall window.
         self.assertEqual(gmp.verify_scanner.call_count, attempted,
                          "one decisive probe per target, no waiting")
+
+
+class GvmArtifactBoundaryTest(unittest.TestCase):
+    def test_scanner_never_connects_to_or_clears_the_graph(self):
+        main_src = (REPO_ROOT / "scanners/gvm_scan/main.py").read_text()
+        scanner_src = (REPO_ROOT / "scanners/gvm_scan/gvm_scanner.py").read_text()
+        for source in (main_src, scanner_src):
+            self.assertNotIn("Neo4jClient", source)
+            self.assertNotIn("clear_gvm_data", source)
+            self.assertNotIn("prune_unseen_findings", source)
+        self.assertIn("GVM_RUN_ID", main_src)
+        self.assertIn('"run_id": GVM_RUN_ID', main_src)
+
+    def test_artifact_publication_is_atomic_and_readable(self):
+        import json
+        import os
+        import stat
+        import tempfile
+
+        from gvm_scan.gvm_scanner import save_vuln_results
+
+        with tempfile.TemporaryDirectory() as tempdir:
+            output = save_vuln_results({"metadata": {"run_id": "run-1"}},
+                                       "project-1", Path(tempdir))
+            self.assertEqual(json.loads(output.read_text())[
+                "metadata"]["run_id"], "run-1")
+            self.assertEqual(stat.S_IMODE(os.stat(output).st_mode), 0o644)
+            self.assertEqual(list(Path(tempdir).glob("*.tmp")), [])
+
+    def test_scanner_image_has_no_graph_driver_or_graph_module(self):
+        dockerfile = (REPO_ROOT / "scanners/gvm_scan/Dockerfile").read_text()
+        requirements = (REPO_ROOT / "scanners/gvm_scan/requirements.txt").read_text()
+        self.assertNotIn("neo4j", dockerfile.lower())
+        self.assertNotIn("COPY graph_db/", dockerfile)
+        self.assertNotIn("neo4j", requirements.lower())
 
 
 class ScannerLivenessDuringScanTest(unittest.TestCase):

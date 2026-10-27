@@ -109,17 +109,27 @@ class TestEveryScanSpawnUsesTheHelper(unittest.TestCase):
         )
 
     def test_all_graph_writing_spawn_sites_route_through_the_helper(self):
-        # recon, partial-recon, and gvm. Supply-chain artifacts are ingested by
-        # the trusted orchestrator after the worker exits.
+        # recon and partial-recon. GVM and Supply-chain workers emit artifacts
+        # for trusted orchestrator ingest after the worker exits.
         # TruffleHog is deliberately NOT here: its container is the dirty half of
         # the dirty/clean split and holds no Neo4j credentials, so it has no
         # graph_db to mount. The orchestrator ingests its findings afterwards.
-        self.assertEqual(self._source().count("self._graph_db_mount("), 3)
+        self.assertEqual(self._source().count("self._graph_db_mount("), 2)
 
     def test_no_spawn_uses_the_unverified_graph_db_guess(self):
         src = self._source()
         self.assertEqual(src.count("baked_into_image=False"), 0)
-        self.assertEqual(src.count("baked_into_image=True"), 3)
+        self.assertEqual(src.count("baked_into_image=True"), 2)
+
+    def test_gvm_worker_has_no_graph_credentials_or_mount(self):
+        src = self._source()
+        start = src.index("    async def start_gvm_scan(")
+        end = src.index("\n    async def pause_gvm_scan(", start)
+        spawn = src[start:end]
+        for forbidden in ('"NEO4J_URI":', '"NEO4J_USER":', '"NEO4J_PASSWORD":',
+                          "_graph_db_mount("):
+            self.assertNotIn(forbidden, spawn)
+        self.assertIn('"GVM_RUN_ID": run_id', spawn)
 
     def test_supply_chain_worker_has_no_graph_credentials_or_mount(self):
         src = self._source()

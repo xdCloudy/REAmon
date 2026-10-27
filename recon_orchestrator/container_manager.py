@@ -2783,18 +2783,46 @@ class ContainerManager:
                         state.status = GvmStatus.ERROR
                         state.error = f"Docker API error: {e}"
 
+            if state.status == GvmStatus.COMPLETED and not state.ingested:
+                self._ingest_gvm(state)
             return state
 
         # Check if there's an orphan container
         container_name = self._get_gvm_container_name(project_id)
         try:
             container = self.client.containers.get(container_name)
+            labels = getattr(container, "labels", {}) or {}
+            state = GvmState(
+                project_id=project_id,
+                status=(GvmStatus.PAUSED if container.status == "paused"
+                        else GvmStatus.RUNNING),
+                container_id=container.id,
+                user_id=labels.get("reamon.gvm.user_id"),
+                run_id=labels.get("reamon.gvm.run_id", ""),
+                run_started_at=labels.get("reamon.gvm.started_at", ""),
+            )
+            if labels.get("reamon.gvm.project_id") not in (None, project_id):
+                state.ingest_terminal_error = True
+                state.ingest_error = "Docker run labels do not match the requested project"
             if container.status in ("running", "paused"):
-                return GvmState(
-                    project_id=project_id,
-                    status=GvmStatus.PAUSED if container.status == "paused" else GvmStatus.RUNNING,
-                    container_id=container.id,
-                )
+                self.gvm_states[project_id] = state
+                return state
+
+            exit_code = container.attrs.get("State", {}).get("ExitCode", -1)
+            state.status = GvmStatus.COMPLETED if exit_code == 0 else GvmStatus.ERROR
+            state.completed_at = datetime.now(timezone.utc)
+            if state.status == GvmStatus.COMPLETED and not (
+                    state.user_id and state.run_id and state.run_started_at):
+                state.ingest_terminal_error = True
+                state.ingest_error = "Completed GVM run has no recoverable ingest identity"
+            self.gvm_states[project_id] = state
+            try:
+                container.remove()
+            except Exception as e:
+                logger.warning("Failed to auto-remove orphaned GVM container: %s", e)
+            if state.status == GvmStatus.COMPLETED:
+                self._ingest_gvm(state)
+            return state
         except NotFound:
             pass
 
@@ -2802,6 +2830,96 @@ class ContainerManager:
             project_id=project_id,
             status=GvmStatus.IDLE,
         )
+
+    GVM_OUTPUT_DIR = Path("/app/gvm_scan/output")
+
+    def _ingest_gvm(self, state: GvmState) -> None:
+        """Ingest only the artifact bound to this completed tenant scan."""
+        now = datetime.now(timezone.utc)
+        if state.ingested or state.ingest_terminal_error:
+            return
+        if state.ingest_retry_at and now < state.ingest_retry_at:
+            return
+        state.ingest_attempts += 1
+        if not state.project_id or not state.user_id or not state.run_id or not state.run_started_at:
+            state.ingest_error = "Run is missing project, tenant, run, or start identity"
+            state.ingest_terminal_error = True
+            return
+
+        artifact_path = self.GVM_OUTPUT_DIR / f"gvm_{state.project_id}.json"
+        try:
+            data = json.loads(artifact_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            state.ingest_error = f"Run-scoped GVM artifact is unavailable: {exc}"
+            state.ingest_terminal_error = True
+            return
+        if not isinstance(data, dict):
+            state.ingest_error = "GVM artifact must be a JSON object"
+            state.ingest_terminal_error = True
+            return
+        metadata = data.get("metadata")
+        if not isinstance(metadata, dict):
+            state.ingest_error = "GVM artifact has no metadata object"
+            state.ingest_terminal_error = True
+            return
+        if (metadata.get("project_id") != state.project_id
+                or metadata.get("user_id") != state.user_id
+                or metadata.get("run_id") != state.run_id):
+            state.ingest_error = "GVM artifact does not match the completed run"
+            state.ingest_terminal_error = True
+            return
+        scans = data.get("scans")
+        if not isinstance(scans, list) or not scans:
+            state.ingest_error = "GVM artifact has no scan results"
+            state.ingest_terminal_error = True
+            return
+
+        complete = (
+            not data.get("aborted")
+            and all(isinstance(scan, dict) and scan.get("status") == "Done" for scan in scans)
+        )
+        target_data = metadata.get("targets") or {}
+        strategy = metadata.get("scan_strategy", "both")
+        keep_hosts = []
+        if complete and isinstance(target_data, dict):
+            if strategy == "ips_only":
+                keep_hosts = target_data.get("hostnames") or []
+            elif strategy == "hostnames_only":
+                keep_hosts = target_data.get("ips") or []
+        try:
+            from graph_db import Neo4jClient
+
+            neo4j_uri = (os.environ.get("ORCHESTRATOR_NEO4J_URI", "").strip()
+                         or "bolt://neo4j:7687")
+            with Neo4jClient(uri=neo4j_uri) as client:
+                if not client.verify_connection():
+                    raise RuntimeError("Neo4j is unreachable")
+                stats = client.update_graph_from_gvm_scan(
+                    gvm_data=data, user_id=state.user_id, project_id=state.project_id)
+                errors = stats.get("errors") or []
+                if errors:
+                    raise RuntimeError(f"GVM graph ingest reported {len(errors)} errors")
+                if complete:
+                    client.prune_unseen_findings(
+                        state.user_id, state.project_id, ["gvm"], state.run_started_at,
+                        keep_hosts=keep_hosts)
+                else:
+                    state.ingest_warning = (
+                        "Partial GVM results were ingested; stale findings were retained"
+                    )
+            state.ingested = True
+            state.ingest_error = None
+            state.ingest_retry_at = None
+            logger.info(
+                "[gvm] trusted ingest completed for project %s run %s (complete=%s)",
+                state.project_id, state.run_id, complete)
+        except Exception as exc:
+            state.ingest_error = str(exc)
+            delay = min(300, 2 ** min(state.ingest_attempts - 1, 8))
+            state.ingest_retry_at = now + timedelta(seconds=delay)
+            logger.warning(
+                "[gvm] graph ingest attempt %s failed for project %s: %s",
+                state.ingest_attempts, state.project_id, exc)
 
     async def start_gvm_scan(
         self,
@@ -2817,6 +2935,12 @@ class ContainerManager:
         current_state = await self.get_gvm_status(project_id)
         if current_state.status in (GvmStatus.RUNNING, GvmStatus.PAUSED):
             raise ValueError(f"GVM scan already active for project {project_id}")
+        if (current_state.status == GvmStatus.COMPLETED and not current_state.ingested
+                and not current_state.ingest_terminal_error):
+            raise ValueError(
+                "The previous GVM scan is still waiting for graph ingest; "
+                "check its status and retry after Neo4j recovers"
+            )
 
         # Memory admission (Part 1): reserve this scan's RAM envelope or reject.
         await self._admit_scan("gvm", project_id, user_id=user_id)
@@ -2831,9 +2955,14 @@ class ContainerManager:
             pass
 
         # Create new state
+        run_id = uuid.uuid4().hex
+        run_started_at = datetime.now(timezone.utc).isoformat()
         state = GvmState(
             project_id=project_id,
             status=GvmStatus.STARTING,
+            user_id=user_id,
+            run_id=run_id,
+            run_started_at=run_started_at,
             started_at=datetime.now(timezone.utc),
         )
         self.gvm_states[project_id] = state
@@ -2861,6 +2990,12 @@ class ContainerManager:
                 name=container_name,
                 detach=True,
                 network_mode="host",
+                labels={
+                    "reamon.gvm.project_id": project_id,
+                    "reamon.gvm.user_id": user_id,
+                    "reamon.gvm.run_id": run_id,
+                    "reamon.gvm.started_at": run_started_at,
+                },
                 environment={
                     "PROJECT_ID": project_id,
                     "USER_ID": user_id,
@@ -2870,10 +3005,7 @@ class ContainerManager:
                     # recon pipeline so air-gapped/private-registry deployments work.
                     "RECON_EXTRA_ALLOWED_IMAGES": os.environ.get("RECON_EXTRA_ALLOWED_IMAGES", ""),
                     "PYTHONUNBUFFERED": "1",
-                    # Forward Neo4j credentials from orchestrator environment.
-                    "NEO4J_URI": os.environ.get("NEO4J_URI", "bolt://localhost:7687"),
-                    "NEO4J_USER": os.environ.get("NEO4J_USER", "neo4j"),
-                    "NEO4J_PASSWORD": os.environ.get("NEO4J_PASSWORD", ""),
+                    "GVM_RUN_ID": run_id,
                     **self._scanner_env(project_id, user_id),
                     # GVM connection settings
                     # Operator pin for the stall watchdog. Forwarded ONLY when set,
@@ -2894,12 +3026,9 @@ class ContainerManager:
                     f"{recon_path}/output": {"bind": "/app/recon/output", "mode": "ro"},
                     # GVM scan output (read-write, for saving results)
                     f"{gvm_scan_path}/output": {"bind": "/app/gvm_scan/output", "mode": "rw"},
-                    # The settings registry and graph_db. The registry is bound
-                    # into every scan container that gets graph_db, so a scanner
-                    # that starts reading it later finds it already there rather
-                    # than failing closed in production.
+                    # GVM settings are required by the scanner; graph writes stay
+                    # in the trusted orchestrator after run-bound artifact validation.
                     **self._recon_settings_mount(),
-                    **self._graph_db_mount(sibling_host_path(recon_path, "graph_db"), baked_into_image=True),
                     # Supply-Chain recon (L2): shared runners + offline OSV DB.
                     join_host_path(parent_host_path(recon_path), "scanners", "supply_chain_common"): {"bind": "/app/supply_chain_common", "mode": "ro"},
                     self.supply_chain_osv_db_volume: {"bind": "/osv-db", "mode": "ro"},

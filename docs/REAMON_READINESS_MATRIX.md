@@ -6,20 +6,28 @@ Earlier checkpoint (2026-10-27): the local webapp image `sha256:375686f71d587118
 
 ## Scanner graph credential boundary (2026-10-27)
 
-GitHub Secret Hunt and Supply Chain now emit artifacts without connecting to
-Neo4j. The trusted orchestrator performs tenant-bound graph ingest. Both worker
-spawns omit Neo4j credentials and the graph database mount; the Supply Chain
-scanner image also omits the Neo4j driver. Its JSON handoff is atomically
-published and bound to the current project, tenant, and unique run ID, so stale
-artifacts are rejected. Repository scans retain their `GithubRepository` anchor;
-uploaded SBOM scans retain their `SbomDocument` anchor.
+GitHub Secret Hunt, Supply Chain, and GVM now emit artifacts without connecting
+to Neo4j. The trusted orchestrator validates tenant, project, and run identity
+before graph ingest. These worker spawns omit Neo4j credentials and the graph
+database mount; the Supply Chain and GVM scanner images also omit the Neo4j
+driver and graph module. Their handoffs are atomically published and run-bound,
+so stale artifacts are rejected. Repository scans retain their
+`GithubRepository` anchor; uploaded SBOM scans retain their `SbomDocument`
+anchor. GVM ingests partial results without pruning. It prunes stale findings
+only after every target succeeds without graph-write errors, while preserving
+targets excluded by an IP-only or hostname-only scan.
 
-Focused Docker tests passed: 30 orchestrator boundary/ingest checks and 12
-Supply Chain scanner tests. The reduced scanner image built successfully, has
-no `neo4j` package or `graph_db` module, passes `pip check`, and compiles its
-Python sources. This covers GitHub Hunt and Supply Chain only. Full recon,
-partial recon, AI attack-surface, and GVM workers still receive direct graph
-credentials; scanner-wide credential isolation remains a production gate.
+Focused Docker tests passed for GitHub Hunt and Supply Chain: 30 orchestrator
+boundary/ingest checks and 12 Supply Chain scanner tests. GVM boundary tests pass
+in Docker: 7 run-bound ingest tests, 17 graph-mount tests, 8 GVM knob-plumbing
+tests, and 83 scanner tests. Transient graph failures retry with exponential
+backoff, and completed run-bound artifacts are restored for ingestion after an
+orchestrator restart. The GVM image builds, `pip check` and Python
+compilation pass, and runtime inspection confirms the image has neither the
+Neo4j driver nor `graph_db`. `docker compose config --quiet` passes. No live GVM
+scan or deployment of the rebuilt image has been performed. Full recon, partial
+recon, and AI attack-surface workers still receive direct graph credentials;
+isolation across those worker families remains a production gate.
 
 ## PyInstaller module paging and source recovery (2026-10-27)
 

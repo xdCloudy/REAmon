@@ -29,15 +29,12 @@ ENV PIP_DEFAULT_TIMEOUT=60 \
 RUN printf '#!/bin/sh\nmax=5; n=0; until "$@"; do n=$((n+1)); [ $n -ge $max ] && exit 1; echo "Retry $n/$max ..."; sleep $((n*3)); done\n' \
     > /usr/local/bin/retry && chmod +x /usr/local/bin/retry
 
-# Install dependencies (python-gvm for scanner, neo4j for graph updates).
-# One pip invocation: neo4j resolves together with the scanner deps rather than
-# paying a second full index round-trip.
+# Install the GVM protocol client and scanner dependencies.
 COPY scanners/gvm_scan/requirements.txt /tmp/gvm_requirements.txt
-RUN retry pip install -r /tmp/gvm_requirements.txt neo4j
+RUN retry pip install -r /tmp/gvm_requirements.txt
 
 # Copy project files (context is parent directory, so paths are relative to project root)
 COPY scanners/gvm_scan/ ./gvm_scan/
-COPY graph_db/ ./graph_db/
 
 # Create output directories
 RUN mkdir -p gvm_scan/output recon/output

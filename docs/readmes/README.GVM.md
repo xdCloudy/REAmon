@@ -34,13 +34,13 @@ RedAmon uses GVM in **headless API mode** (no web GUI) to:
 - Automatically create scan targets and tasks via the Python GMP API
 - Execute vulnerability scans and stream logs in real-time to the webapp
 - Save structured JSON results (`scanners/gvm_scan/output/gvm_{projectId}.json`)
-- Update the Neo4j graph with Vulnerability nodes (source="gvm"), CVE nodes, and relationships to IP/Subdomain nodes
+- Emit a run-bound JSON artifact; the trusted orchestrator validates it and writes Vulnerability, CVE, Technology, and relationship data to Neo4j
 
 **Muting GVM findings.** A GVM finding can be muted by hand on the Priority Board (and unmuted from Muted Nodes), but [Mute Rules](../../redamon.wiki/Mute-Rules.md) do not cover them yet: `gvm` is listed under `unfiltered_sources` in `graph_db/node_filters/catalog.yaml`, pending a GVM kind with its own sweep after the GVM scan. A recon scan's sweep never touches them either, since `gvm` is not a recon finding source.
 
 **Webapp integration:** GVM scans are triggered from the Graph page via a dedicated "GVM Scan" button. The button is only enabled when recon data exists for the project. Logs stream in real-time to a log drawer with 4-phase progress (Loading Recon Data → Connecting to GVM → Scanning IPs → Scanning Hostnames). Results can be downloaded as JSON from the toolbar.
 
-**Architecture:** The scan flow mirrors the recon pipeline: Webapp API → Recon Orchestrator → Docker container (`redamon-vuln-scanner`) → SSE log streaming → graph update.
+**Architecture:** The webapp starts the scan through the Recon Orchestrator. The GVM container talks to `gvmd` over its Unix socket and writes a run-bound artifact; after the container exits, the orchestrator validates tenant, project, and run identity before graph ingest. The scanner receives no Neo4j credentials and has no graph database module or mount. Complete, error-free scans use ingest-then-prune; partial scans can add findings but never prune prior findings. IP-only and hostname-only scans preserve existing findings for targets outside the selected scope.
 
 > **Note:** The GVM infrastructure (`docker-compose.yml` for gvmd, ospd-openvas, redis, pg-gvm, etc.) is located in the `scanners/gvm_scan/` directory and runs separately. The Python scanner container is built and managed by the main `docker-compose.yml` at the project root.
 
@@ -552,9 +552,6 @@ GVM connection settings and runtime parameters are passed as environment variabl
 | `GVM_SOCKET_PATH` | `/run/gvmd/gvmd.sock` | Path to GVMD Unix socket |
 | `GVM_USERNAME` | `admin` | GVM authentication username |
 | `GVM_PASSWORD` | `admin` | GVM authentication password |
-| `NEO4J_URI` | `bolt://localhost:7687` | Neo4j connection URI |
-| `NEO4J_USER` | `neo4j` | Neo4j username |
-| `NEO4J_PASSWORD` | — | Neo4j password |
 
 ---
 

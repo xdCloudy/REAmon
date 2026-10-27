@@ -57,6 +57,9 @@ export interface GvmState {
   completed_at: string | null
   error: string | null
   container_id?: string | null
+  ingested?: boolean
+  ingest_error?: string | null
+  ingest_warning?: string | null
 }
 
 export const GVM_PHASES = [
