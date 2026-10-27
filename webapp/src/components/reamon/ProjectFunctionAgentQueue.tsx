@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { CodeUnit } from '@/lib/reamon/code-units'
 import styles from './ProjectFunctionAgentQueue.module.css'
@@ -44,9 +44,53 @@ interface QueueResponse {
   batch: { id: string; createdAt: string; attempts: QueueAttempt[] } | null
 }
 
+const EMPTY_ATTEMPTS: QueueAttempt[] = []
+
 interface QueueCandidate {
-  unit: CodeUnit
+  unit: { id: string; name: string; language: string }
   member: MemberOutline
+}
+
+interface QueueSourceUnit {
+  id: string
+  name: string
+  language: string
+  memberOffset: number
+}
+
+interface QueueScanState {
+  version: 1
+  cursor: string | null
+  complete: boolean
+  backlog: QueueCandidate[]
+  pendingUnits: QueueSourceUnit[]
+  segmentAfterCursor: string | null
+  segmentComplete: boolean
+  segmentActive: boolean
+}
+
+function isQueueCandidate(value: unknown): value is QueueCandidate {
+  if (!value || typeof value !== 'object') return false
+  const candidate = value as Partial<QueueCandidate>
+  const member = candidate.member
+  return Boolean(candidate.unit && typeof candidate.unit.id === 'string' && candidate.unit.id.length <= 128
+    && typeof candidate.unit.name === 'string' && candidate.unit.name.length <= 500
+    && typeof candidate.unit.language === 'string' && candidate.unit.language.length <= 80
+    && member && typeof member.name === 'string' && member.name.length <= 500
+    && typeof member.kind === 'string' && member.kind.length <= 100
+    && Number.isSafeInteger(member.start_byte) && Number.isSafeInteger(member.end_byte)
+    && Number.isSafeInteger(member.line) && member.line >= 1 && Number.isSafeInteger(member.source_bytes)
+    && member.start_byte >= 0 && member.end_byte > member.start_byte
+    && member.source_bytes > 0 && member.source_bytes <= MAX_MEMBER_REWRITE_BYTES)
+}
+
+function isQueueSourceUnit(value: unknown): value is QueueSourceUnit {
+  if (!value || typeof value !== 'object') return false
+  const unit = value as Partial<QueueSourceUnit>
+  return typeof unit.id === 'string' && unit.id.length <= 128
+    && typeof unit.name === 'string' && unit.name.length <= 500
+    && typeof unit.language === 'string' && unit.language.length <= 80
+    && typeof unit.memberOffset === 'number' && Number.isSafeInteger(unit.memberOffset) && unit.memberOffset >= 0
 }
 
 async function responseError(response: Response, fallback: string): Promise<string> {
@@ -62,7 +106,7 @@ async function fetchCodeUnitPage(projectId: string, taskId: string, cursor: stri
   return response.json() as Promise<CodeUnitsPage>
 }
 
-async function fetchOutline(projectId: string, unit: CodeUnit): Promise<MemberOutline[]> {
+async function fetchOutline(projectId: string, unit: Pick<CodeUnit, 'id'>): Promise<MemberOutline[]> {
   const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/deobfuscate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -85,6 +129,68 @@ export function ProjectFunctionAgentQueue({ projectId, taskId, providerId, revie
   const [cancelling, setCancelling] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
+  const [scanCursor, setScanCursor] = useState<string | null>(null)
+  const [scanComplete, setScanComplete] = useState(false)
+  const [candidateBacklog, setCandidateBacklog] = useState<QueueCandidate[]>([])
+  const [pendingUnits, setPendingUnits] = useState<QueueSourceUnit[]>([])
+  const [segmentAfterCursor, setSegmentAfterCursor] = useState<string | null>(null)
+  const [segmentComplete, setSegmentComplete] = useState(false)
+  const [segmentActive, setSegmentActive] = useState(false)
+  const [scanStateReady, setScanStateReady] = useState(false)
+  const scanStateKey = taskId ? `reamon-function-queue:v2:${projectId}:${taskId}` : ''
+
+  useEffect(() => {
+    setScanStateReady(false)
+    if (!scanStateKey) {
+      setScanCursor(null)
+      setScanComplete(false)
+      setCandidateBacklog([])
+      setPendingUnits([])
+      setSegmentAfterCursor(null)
+      setSegmentComplete(false)
+      setSegmentActive(false)
+      setScanStateReady(true)
+      return
+    }
+    try {
+      const saved = sessionStorage.getItem(scanStateKey)
+      const state = saved ? JSON.parse(saved) as Partial<QueueScanState> : null
+      const backlog = Array.isArray(state?.backlog) && state.backlog.length <= 10_000 && state.backlog.every(isQueueCandidate)
+        ? state.backlog : []
+      const savedPendingUnits = Array.isArray(state?.pendingUnits) && state.pendingUnits.length <= MAX_SOURCE_UNITS_TO_SCAN
+        && state.pendingUnits.every(isQueueSourceUnit) ? state.pendingUnits : []
+      setScanCursor(state?.version === 1 && (state.cursor === null || typeof state.cursor === 'string' && state.cursor.length <= 500) ? state.cursor : null)
+      setScanComplete(state?.version === 1 && state.complete === true)
+      setCandidateBacklog(backlog)
+      setPendingUnits(savedPendingUnits)
+      setSegmentAfterCursor(state?.version === 1 && (state.segmentAfterCursor === null || typeof state.segmentAfterCursor === 'string' && state.segmentAfterCursor.length <= 500) ? state.segmentAfterCursor : null)
+      setSegmentComplete(state?.version === 1 && state.segmentComplete === true)
+      setSegmentActive(state?.version === 1 && state.segmentActive === true)
+    } catch {
+      setScanCursor(null)
+      setScanComplete(false)
+      setCandidateBacklog([])
+      setPendingUnits([])
+      setSegmentAfterCursor(null)
+      setSegmentComplete(false)
+      setSegmentActive(false)
+    } finally {
+      setScanStateReady(true)
+    }
+  }, [scanStateKey])
+
+  useEffect(() => {
+    if (!scanStateReady || !scanStateKey) return
+    const state: QueueScanState = {
+      version: 1, cursor: scanCursor, complete: scanComplete, backlog: candidateBacklog,
+      pendingUnits, segmentAfterCursor, segmentComplete, segmentActive,
+    }
+    try {
+      sessionStorage.setItem(scanStateKey, JSON.stringify(state))
+    } catch {
+      setError('This browser could not save the scan checkpoint. Keep this tab open until the current project scan finishes.')
+    }
+  }, [scanCursor, scanComplete, candidateBacklog, pendingUnits, segmentAfterCursor, segmentComplete, segmentActive, scanStateKey, scanStateReady])
 
   const queueQuery = useQuery({
     queryKey: ['reamon-project-function-agent-queue', projectId, taskId],
@@ -99,71 +205,179 @@ export function ProjectFunctionAgentQueue({ projectId, taskId, providerId, revie
     refetchInterval: (query) => query.state.data?.batch?.attempts.some((attempt) => attempt.status === 'QUEUED' || attempt.status === 'RUNNING') ? 2000 : false,
   })
 
-  const attempts = queueQuery.data?.batch?.attempts || []
+  const attempts = queueQuery.data?.batch?.attempts ?? EMPTY_ATTEMPTS
   const counts = useMemo(() => ({
     ready: attempts.filter((attempt) => attempt.status === 'SUCCEEDED').length,
     active: attempts.filter((attempt) => attempt.status === 'QUEUED' || attempt.status === 'RUNNING').length,
   }), [attempts])
 
   async function runQueue() {
-    if (!taskId || !providerId || starting || counts.active > 0) return
+    if (!taskId || !providerId || !scanStateReady || starting || counts.active > 0 || (scanComplete && candidateBacklog.length === 0)) return
     setStarting(true)
-    setMessage('Looking for functions across source files…')
+    setMessage(candidateBacklog.length ? `Queueing the next functions (${candidateBacklog.length} remain in this scan batch)…` : 'Looking for functions across source files…')
     setError('')
     try {
-      const sourceUnits: CodeUnit[] = []
-      const seen = new Set<string>()
-      let cursor: string | null = null
-      let pageCount = 0
-      while (sourceUnits.length < MAX_SOURCE_UNITS_TO_SCAN && pageCount < 4) {
-        const page = await fetchCodeUnitPage(projectId, taskId, cursor)
-        for (const unit of page.units) {
-          if (!unit.codeArtifactId || !unit.artifactId || !unit.language?.trim() || unit.unitType === 'resource'
-              || unit.maintainedSource || unit.draftSource || unit.sizeBytes > MAX_OUTLINE_SOURCE_BYTES || seen.has(unit.id)) continue
-          seen.add(unit.id)
-          sourceUnits.push(unit)
-          if (sourceUnits.length >= MAX_SOURCE_UNITS_TO_SCAN) break
-        }
-        pageCount += 1
-        if (!page.hasMore || !page.nextCursor) break
-        cursor = page.nextCursor
-      }
-      if (!sourceUnits.length) throw new Error('No unreviewed, source-linked code units were found in the first four run pages.')
+      let nextCursor = scanCursor
+      let nextComplete = scanComplete
+      let nextPendingUnits = pendingUnits
+      let nextSegmentAfterCursor = segmentAfterCursor
+      let nextSegmentComplete = segmentComplete
+      let nextSegmentActive = segmentActive
+      let selected: QueueCandidate[]
+      let remainingCandidates: QueueCandidate[]
 
-      const outlines = new Map<string, MemberOutline[]>()
-      const outlineErrors: string[] = []
-      for (let index = 0; index < sourceUnits.length; index += 3) {
-        const group = sourceUnits.slice(index, index + 3)
-        const results = await Promise.allSettled(group.map(async (unit) => ({ unit, members: await fetchOutline(projectId, unit) })))
-        for (const result of results) {
-          if (result.status === 'fulfilled') outlines.set(result.value.unit.id, result.value.members)
-          else if (outlineErrors.length < 3) outlineErrors.push(result.reason instanceof Error ? result.reason.message : 'A source outline could not be read')
+      if (candidateBacklog.length) {
+        selected = candidateBacklog.slice(0, MAX_FUNCTIONS)
+        remainingCandidates = candidateBacklog.slice(selected.length)
+      } else {
+        if (!nextPendingUnits.length && nextSegmentActive) {
+          nextCursor = nextSegmentAfterCursor
+          nextComplete = nextSegmentComplete
+          nextSegmentAfterCursor = null
+          nextSegmentComplete = false
+          nextSegmentActive = false
         }
-        setMessage(`Checked ${Math.min(index + group.length, sourceUnits.length)} of ${sourceUnits.length} source files…`)
-      }
-
-      const membersByUnit = sourceUnits.map((unit) => ({
-        unit,
-        members: (outlines.get(unit.id) || [])
-          .filter((member) => member.name.trim() && member.start_byte >= 0 && member.end_byte > member.start_byte
-            && member.source_bytes > 0 && member.source_bytes <= MAX_MEMBER_REWRITE_BYTES)
-          .sort((left, right) => left.start_byte - right.start_byte)
-          .filter((member, index, members) => index === 0 || member.start_byte >= members[index - 1].end_byte),
-      })).filter((entry) => entry.members.length > 0)
-
-      const selected: QueueCandidate[] = []
-      for (let memberIndex = 0; memberIndex < 10 && selected.length < MAX_FUNCTIONS; memberIndex += 1) {
-        for (const entry of membersByUnit) {
-          const member = entry.members[memberIndex]
-          if (!member) continue
-          selected.push({ unit: entry.unit, member })
-          if (selected.length >= MAX_FUNCTIONS) break
+        if (!nextPendingUnits.length && nextComplete) {
+          setScanCursor(nextCursor)
+          setScanComplete(true)
+          setSegmentAfterCursor(null)
+          setSegmentComplete(false)
+          setSegmentActive(false)
+          setMessage('The scan reached the end of this run; no editable functions remain.')
+          return
         }
-      }
-      if (!selected.length) {
-        throw new Error(outlineErrors.length
-          ? `No eligible functions were found. ${outlineErrors[0]}`
-          : 'No editable functions under 64 KiB were found in the scanned source files.')
+
+        if (!nextPendingUnits.length && !nextComplete) {
+          const sourceUnits: CodeUnit[] = []
+          const seen = new Set<string>()
+          let cursor: string | null = nextCursor
+          let pageCount = 0
+          let reachedEnd = false
+          while (sourceUnits.length < MAX_SOURCE_UNITS_TO_SCAN && pageCount < 4 && !reachedEnd) {
+            const page = await fetchCodeUnitPage(projectId, taskId, cursor)
+            let stoppedAtUnitLimit = false
+            for (const unit of page.units) {
+              if (!unit.codeArtifactId || !unit.artifactId || !unit.language?.trim() || unit.unitType === 'resource'
+                  || unit.maintainedSource || unit.sizeBytes > MAX_OUTLINE_SOURCE_BYTES || seen.has(unit.id)) continue
+              seen.add(unit.id)
+              sourceUnits.push(unit)
+              if (sourceUnits.length >= MAX_SOURCE_UNITS_TO_SCAN) {
+                cursor = unit.id
+                stoppedAtUnitLimit = true
+                break
+              }
+            }
+            pageCount += 1
+            if (stoppedAtUnitLimit) break
+            if (page.hasMore && page.nextCursor) cursor = page.nextCursor
+            else {
+              cursor = null
+              reachedEnd = true
+            }
+          }
+          nextSegmentAfterCursor = cursor
+          nextSegmentComplete = reachedEnd
+          nextPendingUnits = sourceUnits.map((unit) => ({
+            id: unit.id,
+            name: (unit.name || 'Source file').slice(0, 500),
+            language: (unit.language || 'unknown').slice(0, 80),
+            memberOffset: 0,
+          }))
+          nextSegmentActive = nextPendingUnits.length > 0
+          if (!sourceUnits.length) {
+            nextCursor = nextSegmentAfterCursor
+            nextComplete = nextSegmentComplete
+            nextSegmentAfterCursor = null
+            nextSegmentComplete = false
+            setScanCursor(nextCursor)
+            setScanComplete(nextComplete)
+            setPendingUnits([])
+            setSegmentAfterCursor(null)
+            setSegmentComplete(false)
+            setSegmentActive(false)
+            setMessage(nextComplete
+              ? 'The scan reached the end of this run; no unreviewed source files remain.'
+              : 'No eligible source files in this segment. Run the queue again to scan the next segment.')
+            return
+          }
+        }
+
+        const outlines = new Map<string, MemberOutline[]>()
+        const outlineErrors: string[] = []
+        const updatedPendingUnits: QueueSourceUnit[] = []
+        for (let index = 0; index < nextPendingUnits.length; index += 3) {
+          const group = nextPendingUnits.slice(index, index + 3)
+          const results = await Promise.allSettled(group.map(async (unit) => ({ unit, members: await fetchOutline(projectId, unit) })))
+          for (const [resultIndex, result] of results.entries()) {
+            if (result.status === 'rejected') {
+              updatedPendingUnits.push(group[resultIndex])
+              if (outlineErrors.length < 3) outlineErrors.push(result.reason instanceof Error ? result.reason.message : 'A source outline could not be read')
+              continue
+            }
+            outlines.set(result.value.unit.id, result.value.members)
+          }
+          setMessage(`Checked ${Math.min(index + group.length, nextPendingUnits.length)} of ${nextPendingUnits.length} source files…`)
+        }
+
+        const candidateGroups: QueueCandidate[][] = []
+        for (const unit of nextPendingUnits) {
+          const members = (outlines.get(unit.id) || [])
+            .filter((member) => member.name.trim() && member.start_byte >= 0 && member.end_byte > member.start_byte
+              && member.source_bytes > 0 && member.source_bytes <= MAX_MEMBER_REWRITE_BYTES)
+            .sort((left, right) => left.start_byte - right.start_byte)
+            .filter((member, index, sorted) => index === 0 || member.start_byte >= sorted[index - 1].end_byte)
+          const offset = unit.memberOffset
+          const pageMembers = members.slice(offset, offset + 10)
+          if (offset + pageMembers.length < members.length) {
+            updatedPendingUnits.push({ ...unit, memberOffset: offset + pageMembers.length })
+          }
+          candidateGroups.push(pageMembers.map((member) => ({
+            unit: { id: unit.id, name: unit.name, language: unit.language },
+            member,
+          })))
+        }
+        const candidates: QueueCandidate[] = []
+        for (let memberIndex = 0; memberIndex < 10; memberIndex += 1) {
+          for (const group of candidateGroups) {
+            const candidate = group[memberIndex]
+            if (candidate) candidates.push(candidate)
+          }
+        }
+        if (outlineErrors.length && !candidates.length) {
+          setPendingUnits(updatedPendingUnits)
+          setSegmentAfterCursor(nextSegmentAfterCursor)
+          setSegmentComplete(nextSegmentComplete)
+          setSegmentActive(nextSegmentActive)
+          throw new Error(`No functions were found in this segment. ${outlineErrors[0]}`)
+        }
+        if (!candidates.length) {
+          if (updatedPendingUnits.length) {
+            setPendingUnits(updatedPendingUnits)
+            setSegmentAfterCursor(nextSegmentAfterCursor)
+            setSegmentComplete(nextSegmentComplete)
+            setSegmentActive(nextSegmentActive)
+            setError(outlineErrors.slice(0, 3).join(' '))
+            return
+          }
+          nextCursor = nextSegmentAfterCursor
+          nextComplete = nextSegmentComplete
+          nextSegmentAfterCursor = null
+          nextSegmentComplete = false
+          nextSegmentActive = false
+          setScanCursor(nextCursor)
+          setScanComplete(nextComplete)
+          setPendingUnits([])
+          setSegmentAfterCursor(null)
+          setSegmentComplete(false)
+          setSegmentActive(false)
+          setMessage(nextComplete
+            ? 'The scan reached the end of this run; no editable functions remain.'
+            : 'No editable functions in this segment. Run the queue again to scan the next segment.')
+          return
+        }
+        nextPendingUnits = updatedPendingUnits
+        selected = candidates.slice(0, MAX_FUNCTIONS)
+        remainingCandidates = candidates.slice(selected.length)
       }
 
       const batchId = `agent-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`
@@ -188,8 +402,25 @@ export function ProjectFunctionAgentQueue({ projectId, taskId, providerId, revie
       const failures = queued.flatMap((result) => result.status === 'rejected'
         ? [result.reason instanceof Error ? result.reason.message : 'Could not queue function rewrite'] : [])
       const successCount = queued.length - failures.length
-      if (successCount === 0) throw new Error(failures.slice(0, 3).join(' '))
-      setMessage(`${successCount} function${successCount === 1 ? '' : 's'} queued from ${new Set(selected.map((item) => item.unit.id)).size} source files. Results stay separate until reviewed in each file.`)
+      const failedCandidates = queued.flatMap((result, index) => result.status === 'rejected' ? [selected[index]] : [])
+      if (successCount === 0) {
+        setCandidateBacklog([...selected, ...remainingCandidates])
+        setScanCursor(nextCursor)
+        setScanComplete(nextComplete)
+        setPendingUnits(nextPendingUnits)
+        setSegmentAfterCursor(nextSegmentAfterCursor)
+        setSegmentComplete(nextSegmentComplete)
+        setSegmentActive(nextSegmentActive)
+        throw new Error(failures.slice(0, 3).join(' '))
+      }
+      setCandidateBacklog([...remainingCandidates, ...failedCandidates])
+      setScanCursor(nextCursor)
+      setScanComplete(nextComplete)
+      setPendingUnits(nextPendingUnits)
+      setSegmentAfterCursor(nextSegmentAfterCursor)
+      setSegmentComplete(nextSegmentComplete)
+      setSegmentActive(nextSegmentActive)
+      setMessage(`${successCount} function${successCount === 1 ? '' : 's'} queued from ${new Set(selected.map((item) => item.unit.id)).size} source files.${remainingCandidates.length + failedCandidates.length ? ` ${remainingCandidates.length + failedCandidates.length} more functions remain in this segment.` : nextPendingUnits.length ? ' More functions remain in these files.' : nextComplete ? ' The run scan is complete.' : ' Run again to scan the next segment.'} Results stay separate until reviewed in each file.`)
       if (failures.length) setError(failures.slice(0, 3).join(' '))
       await queryClient.invalidateQueries({ queryKey: ['reamon-project-function-agent-queue', projectId, taskId] })
     } catch (caught) {
@@ -220,10 +451,10 @@ export function ProjectFunctionAgentQueue({ projectId, taskId, providerId, revie
     <div className={styles.heading}>
       <div>
         <strong>Reverse engineer functions across this run</strong>
-        <p>Scan up to 40 source files and queue up to 10 functions. Each result stays attached to its file for separate review and acceptance.</p>
+        <p>Scan up to 40 source files per batch and queue up to 10 functions. Re-run the queue to work through the whole analysis; each result stays attached to its file for review and acceptance.</p>
       </div>
-      <button type="button" disabled={!providerId || starting || counts.active > 0 || queueQuery.isLoading} onClick={() => void runQueue()}>
-        {starting ? 'Finding functions…' : counts.active > 0 ? 'Agents working…' : 'Run project function queue'}
+      <button type="button" disabled={!providerId || !scanStateReady || starting || counts.active > 0 || queueQuery.isLoading || (scanComplete && candidateBacklog.length === 0)} onClick={() => void runQueue()}>
+        {starting ? 'Finding functions…' : counts.active > 0 ? 'Agents working…' : scanComplete && candidateBacklog.length === 0 ? 'Run scan complete' : candidateBacklog.length ? 'Queue remaining functions' : pendingUnits.length || segmentActive ? 'Continue current scan' : 'Scan next project batch'}
       </button>
     </div>
     {!providerId && <p className={styles.message}>Add an OpenAI-compatible provider in Settings to run function agents.</p>}
