@@ -1,6 +1,6 @@
 # REAmon product progress
 
-Assessment date: 2026-10-27 · Source: pushed commit `031d7ad` · Weighted estimate: **65.5%**
+Assessment date: 2026-10-27 · Source: pushed commit `031d7ad` · Weighted estimate: **65.7%**
 
 This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.
 
@@ -10,7 +10,7 @@ Quality run [40247230850](https://github.com/xdCloudy/REAmon/actions/runs/402472
 | --- | ---: | ---: | ---: |
 | Core analysis and visualizer workflow | 16% | 95% | 15.20 pts |
 | Database-grounded project memory and provenance | 16% | 78% | 12.48 pts |
-| Major-language and format decompilation fluency | 24% | 38% | 9.12 pts |
+| Major-language and format decompilation fluency | 24% | 39% | 9.36 pts |
 | Maintainable editing, review, and export | 12% | 58% | 6.96 pts |
 | Fixture-backed validation and fidelity evidence | 12% | 16% | 1.92 pts |
 | Security, reliability, and production operations | 20% | 99% | 19.80 pts |
@@ -31,7 +31,7 @@ Quality run [40247230850](https://github.com/xdCloudy/REAmon/actions/runs/402472
 
 ### Major-language and format decompilation fluency
 
-**Current evidence:** Useful Java, Android, .NET, Python, WebAssembly, native, and additional format paths exist at different maturity levels. A full run of the patched isolated Androguard analyzer against the stored 6.79 MB Cross Stitch Joy APK completed all 11,939 classes and all 33,401 implemented methods; it reported zero Unicode character-boundary panics and used no simple-output class fallbacks. This validates one APK and decompiler revision only, not broad Java or Kotlin fidelity. A generated Linux PyInstaller one-file fixture recovered main.pyc (358 bytes) with a matching SHA-256. The isolated extractor now builds with deterministic module indexes and bounded pages beyond the former 64-module cap; two Python tests cover continuation and terminal offsets, and two webapp tests cover resuming only after a contiguous prefix of recorded outcomes. Real multi-page executable extraction and webapp-to-pycdc/database acceptance remain unverified.
+**Current evidence:** Useful Java, Android, .NET, Python, WebAssembly, native, and additional format paths exist at different maturity levels. A full run of the patched isolated Androguard analyzer against the stored 6.79 MB Cross Stitch Joy APK completed all 11,939 classes and all 33,401 implemented methods; it reported zero Unicode character-boundary panics and used no simple-output class fallbacks. This validates one APK and decompiler revision only, not broad Java or Kotlin fidelity. A generated, runnable Linux PyInstaller fixture with 70 hidden-import modules executed and printed the expected value; the isolated extractor indexed all 180 bytecode modules across offsets 0, 64, and 128. The live REAmon provider ran 17 times against the fixture and reached offset 64 with mocked observation state standing in for persisted project rows; actual pycdc recovered module 69 (inventory index 149) to source. Docker regressions cover paging, analyzer path permissions, cursor continuation, and project cleanup. This validates one generated Python executable and analyzer revision; PostgreSQL persistence and broad Python fidelity remain unverified.
 
 **Remaining:** Major languages need idiomatic source recovery, broader project-level coverage, and versioned validation; several formats remain alternate views or early experiments.
 

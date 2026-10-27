@@ -1,12 +1,15 @@
 ## Current PC deployment evidence (2026-10-27)
 
-The local/LAN webapp was rebuilt and deployed from pushed source revision `1093d242` using the active WSL network override (image `sha256:a8832181cb3cb2bcdcb4753e6c276820f6afaeceae5e40b92292fe374967854a`). Docker health is healthy; `localhost:3001/api/health/ready` reports `ready` with database and artifact checks `ok`, and `192.168.0.53:3001/login` returns HTTP 200. The PyInstaller analyzer is healthy on the updated image and the REAmon task worker is polling. The user-owned untracked `work/` directory was outside the webapp build context. Authenticated concurrent imports and LAN pressure-recovery acceptance remain open.
+The local/LAN webapp was rebuilt and deployed from pushed source revision `031d7ad8` using the active WSL network override (image `sha256:815d45c8f29882184c7e33914cf63e6535d78b770a7624e3c8bff8bff068916b`). Docker health is healthy; `localhost:3001/api/health/ready` reports `ready` with database and artifact checks `ok`, and `192.168.0.53:3001/login` returns HTTP 200. PyInstaller and pycdc analyzers are healthy, and the REAmon task worker is polling. The user-owned untracked `work/` directory was outside the webapp build context. Authenticated concurrent imports and LAN pressure-recovery acceptance remain open.
 
 Earlier checkpoint (2026-10-27): the local webapp image `sha256:375686f71d58711855d3451ac4f1ca6c459bae5c68c8f59d19f061c6da680a3c` was rebuilt from checkout revision `b7c1bbba2aaf`. Docker health is `healthy`; both `localhost:3001/api/health/ready` and `192.168.0.53:3001/api/health/ready` return `status=ready` with database and artifact checks `ok`. Build metadata reports `dirty=true` because the repository contains the user-owned untracked `work/` directory, which is outside the webapp build context. The task worker briefly lost its webapp connection during recreation, then recovered without a restart: its latest database heartbeat and dispatch are current, with zero reported failures. Before rollout, the existing artifact volume was checked for symlink entries; the shared resolver rejects symlinked staging directories, stored-artifact parent directories, and leaf files. The isolated Docker integration demonstrates real ENOSPC handling and same-offset upload recovery on a bounded tmpfs. Authenticated concurrent imports and LAN pressure-recovery acceptance remain open.
 
-## PyInstaller module paging (2026-10-27)
+## PyInstaller module paging and source recovery (2026-10-27)
 
-The isolated extractor image builds with deterministic module indexes and bounded pages; Python pagination tests pass (2), and the webapp cursor tests pass (2). Multi-page executable extraction, database persistence, and recovered-source output through pycdc remain unverified.
+A generated, runnable Linux PyInstaller executable with 70 hidden-import modules produced the expected runtime value. The live isolated extractor indexed 180 bytecode modules over three pages: offsets 0–63, 64–127, and 128–179. The live executePyInstaller provider ran 17 times with mocked observation state standing in for persisted rows and advanced to offset 64; pycdc recovered module 69 (inventory index 149) from the stable project/artifact bytecode path. The production provider build, pycdc shared-volume permissions, and isolated output cleanup are deployed. Focused Docker checks passed: 2 extractor tests, 3 pycdc path tests, 5 webapp unit tests, and 1 live provider integration test. This did not exercise PostgreSQL observation persistence or a user-imported executable. The generated fixture and derived outputs were isolated under QA-only paths and are removed after this checkpoint.
+
+
+
 
 ## Current gates
 
