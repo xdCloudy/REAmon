@@ -9,6 +9,7 @@ stay useful on mobile.
 
 - [Product vision](REAMON_PRODUCT_VISION.md)
 - [Goals and roadmap](REAMON_GOALS.md)
+- [Agentic Semantic Symbol Recovery milestone](REAMON_SEMANTIC_SYMBOL_RECOVERY.md)
 - [Weighted progress matrix](REAMON_PROGRESS.md)
 - [Weighted progress data](REAMON_PROGRESS.json)
 - [Production readiness matrix](REAMON_READINESS_MATRIX.md)

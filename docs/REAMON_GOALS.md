@@ -67,6 +67,17 @@ available method, and export the accepted result with its provenance.
 - Track security-audit coverage and deployment assumptions; do not treat an incomplete
   scan or a passing focused test as production certification.
 
+### G7. Recover semantic symbols consistently across a project
+
+- Discover and name eligible functions, methods, parameters, locals, types, and other
+  supported symbols from stored program evidence, with confidence, uncertainty, and
+  provenance.
+- Preserve stable symbol identities and propagate accepted names across proven
+  references using language-aware binding checks and reversible change history.
+- Allow autonomous acceptance only under explicit evidence and validation policies;
+  defer uncertain cases, preserve original artifacts, and never let model confidence or
+  syntax validity alone change the canonical symbol map.
+
 “100% fluency” is a direction to cover the major languages and their important
 toolchains, formats, and idioms. Completion is measured by declared input coverage,
 unit recovery, identifier/type/relationship recovery, readable source output,
@@ -82,6 +93,7 @@ recovery of source details erased by compilation or obfuscation.
 | P0 | Secure service boundaries and repeatable release checks | Direct agent controls, tenant boundaries, worker availability, and recovery need evidence before production claims. |
 | P1 | One-unit work lifecycle with attempts, review, and validation records | This adapts decomp.wtf's most valuable process and bounds agent mistakes. |
 | P1 | Visualizer connects artifact, unit, relationships, draft, and review state | Results need to be understandable and actionable in one workspace. |
+| P1 | Agentic Semantic Symbol Recovery (ASSR-1 project-wide naming, ASSR-2 cross-file propagation, ASSR-3 safe autonomous acceptance) | Maintainable reconstruction needs consistent, evidence-backed symbols across a project; autonomous promotion needs separate validation and rollback gates. |
 | P2 | Language-specific validators and repeatable fixture corpora | Confidence should grow from measured provider behavior, not broad claims. |
 | P2 | Concurrent agents with atomic leases and conflict protection | Parallel work is useful after unit ownership and promotion rules are sound. |
 | P2 | Major-language capability portfolio and fidelity tracking | Breadth should grow with language-aware engines, validators, and measured evidence. |
@@ -103,6 +115,10 @@ A slice is ready for wider use only when:
 Current implementation status is tracked in the [feature matrix](REAMON_FEATURE_MATRIX.md)
 and per-language status in the [language matrix](REAMON_LANGUAGE_MATRIX.md). The
 production gate status is tracked in the [readiness matrix](REAMON_READINESS_MATRIX.md).
+The dedicated [Agentic Semantic Symbol Recovery specification](REAMON_SEMANTIC_SYMBOL_RECOVERY.md)
+defines this P1 milestone, its current capability boundaries, benchmark gates, and
+separate acceptance criteria for autonomous naming, cross-file propagation, and safe
+autonomous acceptance.
 The artifact ingestion → analysis → disassembly → decompilation → IR lifting →
 deobfuscation → symbol recovery → source reconstruction → transpilation → compilation
 → validation → iterative refinement → export path is tracked stage by stage in the
