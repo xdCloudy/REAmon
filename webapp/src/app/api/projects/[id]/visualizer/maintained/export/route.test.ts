@@ -7,11 +7,12 @@ import os from 'node:os'
 import path from 'node:path'
 
 const h = vi.hoisted(() => ({
-  user: vi.fn(), access: vi.fn(), selection: vi.fn(), task: vi.fn(), observations: vi.fn(), findBuildReceipt: vi.fn(), reviews: vi.fn(), drafts: vi.fn(), root: vi.fn(), resolvePath: vi.fn(), maintainedSources: vi.fn(),
+  user: vi.fn(), access: vi.fn(), selection: vi.fn(), task: vi.fn(), observations: vi.fn(), findBuildReceipt: vi.fn(), reviews: vi.fn(), drafts: vi.fn(), root: vi.fn(), resolvePath: vi.fn(), maintainedSources: vi.fn(), artifacts: vi.fn(),
 }))
 
 vi.mock('@/lib/prisma', () => ({ default: {
   task: { findFirst: h.task },
+  artifact: { findMany: h.artifacts },
   reamonObservation: { findMany: h.observations, findFirst: h.findBuildReceipt },
   reamonMaintainedSource: { findMany: h.maintainedSources },
   reamonCodeReview: { findMany: h.reviews },
@@ -44,6 +45,7 @@ beforeEach(async () => {
     updatedAt: new Date('2026-10-04T00:00:00.000Z'),
   }])
   h.findBuildReceipt.mockResolvedValue(null)
+  h.artifacts.mockResolvedValue([])
   h.reviews.mockResolvedValue([])
   h.drafts.mockResolvedValue([])
   testRoot = await mkdtemp(path.join(os.tmpdir(), 'reamon-source-bundle-'))
@@ -181,6 +183,54 @@ describe('GET /api/projects/[id]/visualizer/maintained/export', () => {
       files: [{ codeUnitId: 'unit-1', acceptedReviewId: 'review-1', relativePath, sourceSha256: sourceHash }],
     } })
     expect(JSON.stringify(manifest.buildEvidence)).not.toContain('Do not export diagnostic')
+  })
+
+  it('includes a verified Go project build and imported module hashes in the archive manifest', async () => {
+    const sourceCode = 'package main\nfunc main() {}\n'
+    const sourceHash = createHash('sha256').update(sourceCode).digest('hex')
+    const relativePath = 'src/main.go'
+    const sourceSetHash = createHash('sha256').update(relativePath).update('\0').update(sourceHash).update('\n').digest('hex')
+    const dependencyHash = createHash('sha256').update('go.mod').update('\0').update('d'.repeat(64)).update('\n').digest('hex')
+    h.observations.mockImplementation(async (args: { where: { type?: string } }) => args.where.type === 'maintained_source'
+      ? [{ stableKey: 'unit-1', artifactId: 'artifact-1', updatedAt: new Date('2026-10-04T00:00:00.000Z') }]
+      : [{ id: 'unit-1', stableKey: 'go:main', artifactId: 'artifact-1', label: 'main', attributes: {
+        qualifiedName: 'main', language: 'Go', codeArtifactId: 'project-1/artifact-1/task-1/run-1/sources/src/main.go',
+      } }])
+    h.maintainedSources.mockResolvedValue([{
+      codeUnitId: 'unit-1', artifactId: 'artifact-1', sourceCode, sourceHash, acceptedReviewId: 'review-1', relativePath,
+      updatedAt: new Date('2026-10-04T00:00:00.000Z'),
+    }])
+    h.reviews.mockResolvedValue([{
+      id: 'review-1', artifactId: 'artifact-1', codeUnitId: 'unit-1', reviewerId: 'user-1',
+      decision: 'ACCEPTED', maintainedSourceHash: sourceHash, symbolIndexSnapshot: [],
+      validationStatus: 'PASSED', validationMethod: 'go-1.24-project-build', createdAt: new Date('2026-10-04T00:00:00.000Z'),
+    }])
+    h.findBuildReceipt.mockResolvedValue({
+      stableKey: `go-build:${taskId}:${sourceSetHash}:${dependencyHash}`,
+      attributes: {
+        version: 'reamon-go-project-build-v1', taskId, artifactId: 'artifact-1', sourceSha256: sourceSetHash,
+        dependencySha256: dependencyHash, validationStatus: 'PASSED', validationMethod: 'go-1.24-project-build',
+        compilerVersion: '1.24.4', compiledSha256: 'b'.repeat(64), packageCount: 1,
+        createdAt: '2026-10-04T00:00:00.000Z',
+        files: [{ codeUnitId: 'unit-1', acceptedReviewId: 'review-1', relativePath, buildPath: 'src/main.go', sourceSha256: sourceHash }],
+        dependencies: [{ artifactId: 'go-mod-1', relativePath: 'go.mod', buildPath: 'go.mod', sourceSha256: 'd'.repeat(64) }],
+      },
+    })
+    h.artifacts.mockResolvedValue([{ id: 'go-mod-1', relativePath: 'go.mod', sha256: 'd'.repeat(64) }])
+
+    const response = await GET(new Request(`http://localhost?taskId=${taskId}`), routeParams)
+    const zip = await JSZip.loadAsync(await response.arrayBuffer())
+    const manifest = JSON.parse(await zip.file('manifest.json')!.async('string')) as { buildEvidence?: Record<string, unknown> }
+
+    expect(response.status).toBe(200)
+    expect(manifest.buildEvidence?.goProject).toMatchObject({
+      schema: 'reamon-go-project-build-v1',
+      validationStatus: 'PASSED',
+      dependencySetSha256: dependencyHash,
+      packageCount: 1,
+      compiledArtifactsIncluded: false,
+      dependencies: [{ relativePath: 'go.mod', manifestPath: 'go.mod', sourceSha256: 'd'.repeat(64) }],
+    })
   })
 
   it('omits a stale C# build receipt when another accepted source is present', async () => {

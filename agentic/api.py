@@ -569,6 +569,10 @@ class ReamonCodeProjectCompileFile(BaseModel):
 class ReamonCodeProjectCompileRequest(BaseModel):
     language: str = "csharp"
     files: list[ReamonCodeProjectCompileFile]
+    go_mod: str = ""
+    go_mod_sha256: str = ""
+    go_sum: str = ""
+    go_sum_sha256: str = ""
 
 
 class ReamonCodeDeobfuscateRequest(BaseModel):
@@ -1184,33 +1188,67 @@ async def validate_reamon_code(body: ReamonCodeValidateRequest):
 
 @app.post("/reamon/code/compile-project", tags=["REAmon"], dependencies=[Depends(require_internal_auth)])
 async def compile_reamon_csharp_project(body: ReamonCodeProjectCompileRequest):
-    """Compile a bounded set of maintained C# files together; never execute its output."""
-    if body.language.strip().lower() not in {"c#", "csharp", "cs", "c# source"}:
-        return JSONResponse(content={"error": "Project compilation currently supports C# only"}, status_code=400)
-    if not 1 <= len(body.files) <= 32:
-        return JSONResponse(content={"error": "A C# project build must contain between 1 and 32 files"}, status_code=400)
+    """Compile a bounded set of maintained C# or Go files; never execute the output."""
+    language = body.language.strip().lower()
+    is_go = language in {"go", "golang", "go source"}
+    if not is_go and language not in {"c#", "csharp", "cs", "c# source"}:
+        return JSONResponse(content={"error": "Project compilation currently supports C# and Go"}, status_code=400)
+    max_files = 64 if is_go else 32
+    max_total_bytes = 8 * 1024 * 1024 if is_go else 2 * 1024 * 1024
+    source_extension = ".go" if is_go else ".cs"
+    label = "Go" if is_go else "C#"
+    if not 1 <= len(body.files) <= max_files:
+        return JSONResponse(content={"error": f"A {label} project build must contain between 1 and {max_files} files"}, status_code=400)
 
     total_bytes = 0
     seen_paths: set[str] = set()
     for source in body.files:
         path = source.relative_path
-        if (len(path) > 200 or "\\" in path or path.startswith("/") or not path.endswith(".cs")
+        if (len(path) > 200 or "\\" in path or path.startswith("/") or not path.endswith(source_extension)
                 or not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_./-]{0,199}", path)
                 or any(segment in {"", ".", ".."} for segment in path.split("/"))):
-            return JSONResponse(content={"error": "C# project paths must be safe relative .cs paths"}, status_code=400)
+            return JSONResponse(content={"error": f"{label} project paths must be safe relative {source_extension} paths"}, status_code=400)
         if path.casefold() in seen_paths:
-            return JSONResponse(content={"error": "C# project file paths must be unique"}, status_code=400)
+            return JSONResponse(content={"error": f"{label} project file paths must be unique"}, status_code=400)
         seen_paths.add(path.casefold())
         encoded = source.source_code.encode("utf-8")
         if len(encoded) > 512 * 1024:
-            return JSONResponse(content={"error": f"C# project file {path} exceeds the 512 KiB limit"}, status_code=413)
+            return JSONResponse(content={"error": f"{label} project file {path} exceeds the 512 KiB limit"}, status_code=413)
         total_bytes += len(encoded)
-        if total_bytes > 2 * 1024 * 1024:
-            return JSONResponse(content={"error": "The C# project exceeds the 2 MiB combined source limit"}, status_code=413)
+        if total_bytes > max_total_bytes:
+            return JSONResponse(content={"error": f"The {label} project exceeds the {max_total_bytes // (1024 * 1024)} MiB combined source limit"}, status_code=413)
         actual_hash = hashlib.sha256(encoded).hexdigest()
         if not re.fullmatch(r"[a-f0-9]{64}", source.expected_sha256.lower()) or not hmac.compare_digest(
                 actual_hash, source.expected_sha256.lower()):
             return JSONResponse(content={"error": f"The source hash does not match project file {path}"}, status_code=409)
+
+    if is_go:
+        if len(body.go_mod.encode("utf-8")) > 1024 * 1024 or len(body.go_sum.encode("utf-8")) > 1024 * 1024:
+            return JSONResponse(content={"error": "Go module manifests must be at most 1 MiB each"}, status_code=413)
+        from reamon_go_project_build import GoProjectBuildError, compile_go_project
+
+        try:
+            result = await asyncio.to_thread(
+                compile_go_project,
+                [source.model_dump() for source in body.files],
+                go_mod=body.go_mod,
+                go_mod_sha256=body.go_mod_sha256,
+                go_sum=body.go_sum,
+                go_sum_sha256=body.go_sum_sha256,
+                timeout_seconds=30,
+            )
+        except GoProjectBuildError as exc:
+            status = 409 if "hash does not match" in str(exc).lower() else 400
+            return JSONResponse(content={"error": str(exc)}, status_code=status)
+        if result.get("validation_status") == "UNAVAILABLE":
+            return result
+        if (result.get("validation_status") not in {"PASSED", "FAILED"}
+                or not re.fullmatch(r"[a-f0-9]{64}", str(result.get("source_sha256", "")))
+                or result.get("file_count", len(body.files)) != len(body.files)
+                or not isinstance(result.get("files"), list)
+                or len(result["files"]) != len(body.files)):
+            return JSONResponse(content={"error": "The Go project compiler returned incomplete evidence"}, status_code=503)
+        return result
 
     payload = json.dumps({
         "operation": "compile-project",

@@ -11,6 +11,7 @@ import { getActiveWorkspaceImportSelection } from '@/lib/reamon/inventory-query'
 import { derivedArtifactRoot, resolveDerivedArtifactPath } from '@/lib/reamon/derived-storage'
 import { CODE_UNIT_OBSERVATION_TYPE, MAINTAINED_SOURCE_OBSERVATION_SOURCE, MAINTAINED_SOURCE_OBSERVATION_TYPE } from '@/lib/reamon/code-units'
 import { getVerifiedCSharpProjectBuildReceipt } from '@/lib/reamon/project-build-receipt'
+import { getVerifiedGoProjectBuildReceipt } from '@/lib/reamon/go-project-build-receipt'
 
 interface RouteParams { params: Promise<{ id: string }> }
 const MAX_CODE_UNITS = 25_000
@@ -135,6 +136,7 @@ export async function GET(request: Request, { params }: RouteParams) {
     })
     if (!task?.artifactId) return NextResponse.json({ error: 'Completed analysis run not found in the active workspace import.' }, { status: 404 })
     const csharpBuildReceipt = await getVerifiedCSharpProjectBuildReceipt(projectId, task.id, task.artifactId)
+    const goBuildReceipt = await getVerifiedGoProjectBuildReceipt(projectId, task.id, task.artifactId, selection.artifactWhere)
 
     const codeUnits = await prisma.reamonObservation.findMany({
       where: {
@@ -548,8 +550,35 @@ export async function GET(request: Request, { params }: RouteParams) {
       draftSearchTruncated,
       skippedFiles,
       sourceBytes: totalSourceBytes,
-      ...(csharpBuildReceipt ? { buildEvidence: {
-        csharpProject: {
+      ...(csharpBuildReceipt || goBuildReceipt ? { buildEvidence: {
+        ...(goBuildReceipt ? { goProject: {
+          schema: goBuildReceipt.version,
+          validationStatus: goBuildReceipt.validationStatus,
+          validationMethod: goBuildReceipt.validationMethod,
+          compilerVersion: goBuildReceipt.compilerVersion,
+          sourceSetSha256: goBuildReceipt.sourceSha256,
+          dependencySetSha256: goBuildReceipt.dependencySha256,
+          compiledPackagesSha256: goBuildReceipt.compiledSha256,
+          packageCount: goBuildReceipt.packageCount,
+          compiledArtifactsIncluded: false,
+          createdAt: goBuildReceipt.createdAt,
+          files: [...goBuildReceipt.files]
+            .sort((a, b) => a.relativePath < b.relativePath ? -1 : a.relativePath > b.relativePath ? 1 : 0)
+            .map((file) => ({
+              codeUnitId: file.codeUnitId,
+              acceptedReviewId: file.acceptedReviewId,
+              relativePath: file.relativePath,
+              sourceSha256: file.sourceSha256,
+            })),
+          dependencies: [...goBuildReceipt.dependencies]
+            .sort((a, b) => a.relativePath < b.relativePath ? -1 : a.relativePath > b.relativePath ? 1 : 0)
+            .map((dependency) => ({
+              relativePath: dependency.relativePath,
+              manifestPath: dependency.buildPath,
+              sourceSha256: dependency.sourceSha256,
+            })),
+        } } : {}),
+        ...(csharpBuildReceipt ? { csharpProject: {
           schema: csharpBuildReceipt.version,
           validationStatus: csharpBuildReceipt.validationStatus,
           validationMethod: csharpBuildReceipt.validationMethod,
@@ -566,7 +595,7 @@ export async function GET(request: Request, { params }: RouteParams) {
               relativePath: file.relativePath,
               sourceSha256: file.sourceSha256,
             })),
-        },
+        } } : {}),
       } } : {}),
       ...(nativeAnnotationsBuffer ? {
         nativeAnnotations: {
