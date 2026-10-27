@@ -78,6 +78,41 @@ available method, and export the accepted result with its provenance.
   defer uncertain cases, preserve original artifacts, and never let model confidence or
   syntax validity alone change the canonical symbol map.
 
+### G8. Recover evidence-backed types and data structures
+
+- Infer signatures, ABI details, layouts, dispatch, and interprocedural types only where
+  the available evidence supports them.
+- Preserve provider, inferred, reviewed, and validated claims separately; detect
+  contradictions and keep unknown or irrecoverable declarations explicit.
+
+### G9. Validate reconstructed behavior safely
+
+- Compare original and reconstructed behavior on reproducible inputs where a safe,
+  authorized execution and trustworthy oracle exist.
+- Record coverage, mismatches, counterexamples, exact hashes, worker policy, and replay
+  context; return unavailable when no reliable oracle exists.
+
+### G10. Fuse static and dynamic evidence
+
+- Correlate authorized runtime observations with stable static artifact, module,
+  function, block, and symbol identities, including relocations and ASLR.
+- Keep trace scope, inputs, coverage, uncertainty, and environmental conditions visible;
+  static-only workflows must remain usable.
+
+### G11. Reconstruct and rebuild complete projects
+
+- Assemble evidence-linked source units into project trees with relationships, resources,
+  dependencies, build metadata, and explicit unknowns.
+- Rebuild with controlled toolchains, preserve incremental receipts and provenance, and
+  distinguish a buildable source project from exact original-source or binary recovery.
+
+### G12. Reconcile competing provider interpretations
+
+- Detect provider disagreements in boundaries, control flow, types, references, and
+  logic; preserve competing claims and record evidence for adjudication.
+- Rank only with measured provider/format reliability and structural or validation
+  evidence; agreement or majority voting alone is never proof.
+
 “100% fluency” is a direction to cover the major languages and their important
 toolchains, formats, and idioms. Completion is measured by declared input coverage,
 unit recovery, identifier/type/relationship recovery, readable source output,
@@ -94,11 +129,16 @@ recovery of source details erased by compilation or obfuscation.
 | P1 | One-unit work lifecycle with attempts, review, and validation records | This adapts decomp.wtf's most valuable process and bounds agent mistakes. |
 | P1 | Visualizer connects artifact, unit, relationships, draft, and review state | Results need to be understandable and actionable in one workspace. |
 | P1 | Agentic Semantic Symbol Recovery (ASSR-1 project-wide naming, ASSR-2 cross-file propagation, ASSR-3 safe autonomous acceptance) | Maintainable reconstruction needs consistent, evidence-backed symbols across a project; autonomous promotion needs separate validation and rollback gates. |
-| P2 | Language-specific validators and repeatable fixture corpora | Confidence should grow from measured provider behavior, not broad claims. |
+| P1 | Multi-provider semantic reconciliation | Resolve material disagreement transparently before downstream type, symbol, and source decisions; never count correlated providers as independent votes. |
+| P1 | Agentic Semantic Type and Data Structure Recovery | Correct signatures, layouts, and interprocedural types unlock maintainable source and reduce contradictory edits; preserve uncertainty when original declarations are gone. |
+| P1 | Autonomous Whole-Project Reconstruction and Rebuilding | The product outcome is an inspectable, editable project with dependency and build evidence, not a folder of unrelated source units. |
+| P1 | Autonomous Behavioral Validation and Differential Testing | Test reconstructed behavior against a trustworthy original oracle inside the existing controlled worker boundary. |
+| P1 | Static and Dynamic Analysis Fusion | Runtime observations can resolve static uncertainty, but require stable address mapping, provenance, and safe authorized execution. |
+| P1 | Language-specific validators and repeatable benchmark corpora | Type, project-build, and behavior claims need scope-specific evidence before support is raised. |
 | P2 | Concurrent agents with atomic leases and conflict protection | Parallel work is useful after unit ownership and promotion rules are sound. |
 | P2 | Major-language capability portfolio and fidelity tracking | Breadth should grow with language-aware engines, validators, and measured evidence. |
 | P2 | Transpiler and binary-lifting evaluation | Validate the existing C#-to-Visual-Basic bridge and experimental Recurse lift, then evaluate a broader source-language bridge and architecture-neutral lifter only against the provenance, coverage, and fixture acceptance criteria. |
-| P3 | More formats, alternate providers, dynamic analysis, and collaborative sharing | Extend breadth without weakening persistence, provenance, or review. |
+| P3 | More formats, additional providers, and collaborative sharing | Extend breadth without weakening persistence, provenance, safe execution, or review. |
 
 ## Completion checks for a reverse-engineering slice
 
@@ -119,6 +159,12 @@ The dedicated [Agentic Semantic Symbol Recovery specification](REAMON_SEMANTIC_S
 defines this P1 milestone, its current capability boundaries, benchmark gates, and
 separate acceptance criteria for autonomous naming, cross-file propagation, and safe
 autonomous acceptance.
+The [agentic reconstruction milestone specification](REAMON_RECONSTRUCTION_MILESTONES.md)
+defines independent P1 acceptance gates and dependencies for type/data-structure
+recovery, behavioral validation, static/dynamic fusion, whole-project rebuilding, and
+multi-provider reconciliation. Existing evidence and maturity remain in the matrices;
+these are separate project capabilities rather than credit for already implemented
+general analysis or validation.
 The artifact ingestion → analysis → disassembly → decompilation → IR lifting →
 deobfuscation → symbol recovery → source reconstruction → transpilation → compilation
 → validation → iterative refinement → export path is tracked stage by stage in the

@@ -376,6 +376,20 @@ Candidate relationship types include `CONTAINS`, `CALLS`, `REFERENCES`, `READS`,
 
 PostgreSQL owns workspace identity, permissions, lifecycle state, provider/task records, hashes, evidence metadata, normalized `ReamonObservation` rows, derived-artifact lineage, and audit-friendly activity. Observation ingestion and provenance recording are bounded, project-scoped, retry-safe, and transactional with successful task or artifact settlement. The internal graph projection route replays those rows into fixed-label, project-scoped Neo4j nodes and relationships without interpolating provider-controlled identifiers. Neo4j owns high-connectivity entity and relationship traversal; source and workspace provenance remains in PostgreSQL so graph data can be rebuilt or audited.
 
+Future type-recovery, provider-reconciliation, runtime-trace, project-build, and behavior
+claims should extend this evidence contract rather than replace provider observations or
+create another canonical store. Each claim needs a stable project/artifact/task/unit
+identity, exact hashes, provider or method/version, evidence class (recovered, inferred,
+generated, validated, or unknown), confidence and uncertainty, coordinates or address
+mapping, applicable conditions, and truncation state. Competing claims link with support
+or contradiction relationships; normalization must retain original provider detail.
+Build receipts bind the reviewed source/resource/manifest/dependency hashes to the exact
+toolchain, flags, outputs, and checks. Behavior receipts additionally bind the authorized
+worker profile, inputs, observable outputs, side effects, and replay context. Existing
+human review receipts, stable symbol identities, and secure execution gates remain the
+promotion boundary. These are architectural requirements, not current schema or feature
+claims; see the [reconstruction milestone specification](REAMON_RECONSTRUCTION_MILESTONES.md).
+
 ## Agents and orchestration
 
 The existing agent runtime and model/provider configuration are retained. Their next boundary is capability-oriented roles such as project manager, static analysis, dynamic analysis, binary analysis, source analysis, protocol analysis, runtime, research, validation, and documentation.

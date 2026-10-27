@@ -30,6 +30,33 @@ measurable along these dimensions:
 | Validation | The strongest available compiler, parser, tests, differential check, or runtime evidence, with limits recorded. |
 | Reliability | Versioned clean, optimized, stripped, obfuscated, and malformed fixtures where legally distributable. |
 
+## Cross-cutting reconstruction maturity
+
+Language support below describes specific bounded provider workflows. It does not imply
+whole-project recovery, type/layout completeness, runtime equivalence, or compatibility
+with every compiler and framework. See [reconstruction milestones](REAMON_RECONSTRUCTION_MILESTONES.md)
+for measured acceptance gates; mark each capability at the exact language/provider/build
+scope that has fixture evidence.
+
+| Language / format family | Existing project/build and type evidence | Current limit for the new milestones |
+| --- | --- | --- |
+| Java / JVM and Kotlin | JADX, Vineflower, CFR, and Arlecchino provide alternative class output and class metadata; Java can rebuild one accepted class into a derived unsigned JAR. | No general multi-file JVM/Kotlin source build, recovered dependency tree, or resource-complete source project. Kotlin output is experimental. |
+| Android DEX / APK | DEX class/method/signature/reference evidence; reviewed Smali/resource edits can rebuild a saved Apktool project into a separate unsigned APK. | APK repackaging is not recovery of the original Gradle/source project; project dependencies and original build settings are not reconstructed. |
+| C# / .NET and Visual Basic bridge | ILSpy output and .NET type evidence; up to 32 accepted C# files can compile together; the C#→VB bridge has a small cross-file compile/runtime fixture. | The bounded build omits recovered project manifests/dependency resolution and does not execute output. VB is translated output, not recovered original source. |
+| Go source | `go/ast`/`go/types` binding evidence and offline project build of up to 64 accepted files in one module root using imported `go.mod`/`go.sum`. | External downloads and CGO are disabled; local replacements, full target build tags/platform variants, runtime behavior, and broad application-scale recovery are not established. |
+| Native C / C++ and other ELF/PE/Mach-O | Multiple C-like providers, Ghidra prototypes/p-code and provider-specific type or Go runtime metadata; syntax validators for standalone C/C++ units. | No complete native source project build, generalized source layout, broad ABI/layout reconstruction, or static/dynamic trace fusion. C-like pseudocode is not original source. |
+| Python / PyInstaller | `.pyc`/`.pyo` and PyInstaller module extraction can produce indexed source candidates with artifact lineage. | Module recovery is not restoration of a complete application tree, package environment, native extensions, or reproducible project build. |
+| JavaScript / TypeScript bundles | webcrack extracts recognized modules; source maps and project memory can provide bounded source/type context. | Bundle module names and paths are tentative; original package manifests, build configuration, external dependencies, and runtime parity are not generally recovered. |
+| Lua / LuaJIT / Luau | Version-specific bytecode providers and parsing exist; a stripped Lua 5.4 fixture has compile and runtime-output comparison. | That fixture does not validate whole projects, other versions/VMs, external modules, or general dependency/build recovery. |
+| WebAssembly | WAT and function navigation are evidence views; Rust-shaped views are generated bridges. | No general recovery of source project, package manifests, original language, or build/runtime equivalence. |
+| Swift / Objective-C and other source families | Provider-specific symbol/type/class metadata and selected native pseudocode are stored for some artifacts. | Type evidence and function matches remain partial; project assembly, source language reconstruction, layout validation, and multi-provider runtime corroboration are not established. |
+
+For benchmark scoring, the rows above are a discovery index, not blanket supported
+claims. A project is “build supported” only when its exact language/provider, dependency,
+compiler, target, and validation scope passes the project-level fixtures. A language may
+have implemented unit-level parsing or type evidence while whole-project rebuilding and
+behavior validation remain planned or unsupported.
+
 See the [reference portfolio](REAMON_REFERENCE_PORTFOLIO.md) for projects to compare
 and the [upstream reuse audit](REAMON_UPSTREAM_REUSE.md) for integration status.
 

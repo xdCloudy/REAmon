@@ -191,6 +191,16 @@ against that draft hash. Next, export a reproducible build or validation recipe 
 the selected toolchain supports one. Continue work from the saved project state
 rather than starting a fresh conversation with undocumented assumptions.
 
+For a whole-project pass, assemble reviewed units with module, dependency, resource,
+type, and provider relationships; label recovered facts, evidence-supported inference,
+generated scaffolding, validation, and unknowns separately. Resolve or report every
+required dependency before a controlled build. Then run only authorized tests inside
+the scoped worker, preserve replayable behavior differences, and export the complete
+available tree with build/toolchain receipts and limitations. A source bundle, successful
+compile, or one execution trace is not proof that the original application or project
+has been recovered. The [reconstruction milestone specification](REAMON_RECONSTRUCTION_MILESTONES.md)
+defines the acceptance gates.
+
 ## Universal completion states
 
 The UI and storage should preserve separate state dimensions, even if displayed as a

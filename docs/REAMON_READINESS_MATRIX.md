@@ -52,6 +52,14 @@ The acceptance validates one generated executable and one live task-worker run; 
 
 ## Release blockers
 
+The new P1 reconstruction milestones do not replace or lower these production gates.
+Any original-binary execution, fuzzing, or runtime tracing remains unavailable unless
+the target is explicitly authorized and the current isolated worker boundary, resource
+limits, project scoping, and cleanup checks pass. A compilation or export receipt only
+supports its recorded build scope; it does not by itself certify application behavior or
+release readiness. Capability-specific maturity and thresholds are in the
+[reconstruction milestone specification](REAMON_RECONSTRUCTION_MILESTONES.md).
+
 1. Exercise authenticated shared-volume capacity controls, concurrent large imports,
    broker admission, and recovery under storage pressure on the current LAN deployment.
 2. Implement the [Kali execution isolation decision](REAMON_KALI_ISOLATION.md), including cross-project tests for temporary files, shared workspace data, inherited credentials, terminal, and generated-file transfer. Complete deferred parser, persistence/recovery, provider, CI/deployment, and supply-chain review surfaces against one release candidate.

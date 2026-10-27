@@ -24,6 +24,12 @@ The product is successful when a maintainer can move from an unknown artifact to
 coherent, editable representation with clear links back to the bytes, functions,
 relationships, and analysis that support it.
 
+The target is a coherent project, not a collection of plausible files: project
+relationships, types, dependencies, resources, build requirements, unresolved evidence,
+and applicable behavior checks should travel with reconstructed source. REAmon must
+distinguish provider output, supported inference, generated scaffolding, validated
+observations, and unknown or irrecoverable source information.
+
 REAmon's long-term ambition is practical, language-aware fluency across all major
 programming-language families and the compiled formats they target. “100% fluency” is
 the aspiration for breadth and depth of useful analysis, not a claim that a tool can

@@ -8,7 +8,9 @@ dependencies, and notices.
 
 The detailed source audit, current integration notes, and license constraints are in
 [upstream reuse](REAMON_UPSTREAM_REUSE.md). The portfolio below is the short list for
-product and engineering planning.
+product and engineering planning. The [agentic reconstruction milestones](REAMON_RECONSTRUCTION_MILESTONES.md)
+record the current evaluation of trace, debugger, fuzzing, whole-project, and provider
+reconciliation candidates without implying that any candidate is integrated.
 
 ## Priority references
 
@@ -87,6 +89,14 @@ product and engineering planning.
 | **P2 runtime evidence: [Frida](https://github.com/frida/frida-core) and [Qiling](https://github.com/qilingframework/qiling)** | Instrumentation or emulation for observing behavior in a controlled runtime. | Dynamic traces can answer questions static output cannot, such as runtime-selected paths, resolved calls, or data transformations. | Add opt-in session adapters that attach traces to exact artifact hashes, environment details, and reproducible test inputs; link observations back to functions and hypotheses. | Runtime behavior is sample- and environment-dependent. These tools provide evidence, not source recovery; isolation and component licenses need review. |
 
 | **P1 flow-graph matching concepts: [Google BinDiff](https://github.com/google/bindiff/blob/main/docs/concepts.md)** | Apache-2.0 function-matching system that combines normalized flow-graph structure with instruction, block, and call-graph evidence; its documentation distinguishes candidate similarity from confidence in the matching method. | REAmon's function rankings used instruction order and aggregate CFG counts, which cannot distinguish many different graphs that share the same counts. | REAmon adds an independent bounded graph-topology score for complete graphs from Ghidra, Dalvik, and Lua providers. It normalizes provider block IDs and edge formats, includes a coarse function-relative block instruction-size class, then applies three rounds of direction- and edge-kind-aware color refinement. Matcher v5 also adds a low-weight Dice overlap of exact referenced strings when both lists are complete. The similar-functions view now uses up to 500 latest accepted function pairs and 4,000 exact-run Ghidra/Kuna call edges to give a capped ordering boost when the focus and candidate share the same directed relationship to an accepted counterpart. The UI exposes the accepted-neighbor support separately from instruction/CFG scores; truncated scans skip the signal. | This is an REAmon implementation inspired by the published matching approach; no BinDiff code is copied. CFG topology is limited to complete graphs within the saved 32-block/48-edge cap. Call-graph support is capped, applies only to compatible persisted Ghidra/Kuna edges and exact matched runs, and has no fixture-backed precision measurements yet. Neither score proves function identity. |
+
+## Runtime tracing and fuzzing candidates
+
+| Candidate | Relevance | Boundary before adoption |
+| --- | --- | --- |
+| [Ghidra Debugger static mappings](https://ghidra.re/ghidra_docs/GhidraClass/Debugger/A6-MemoryMap.html) | Maps trace addresses to static program addresses with module/relocation shifts and snapshot lifespans, addressing ASLR-aware evidence correlation for the existing Ghidra integration. | Reuse the mapping model only after testing module identity, relocation, trace provenance, and address reuse; this does not mean REAmon currently ingests Ghidra debugger traces. |
+| [Frida Stalker](https://frida.re/docs/stalker/) | Offers buffered runtime call/return/block/instruction events for optional targeted execution traces. | Evaluate platform coverage, license, overhead, privacy, explicit authorization, and REAmon worker isolation before choosing a backend. A trace is an observed execution, not full behavior. |
+| [LLVM libFuzzer](https://llvm.org/docs/LibFuzzer.html) | Coverage-guided inputs for a rebuildable original/reference target with a suitable harness; useful for repeatable differential tests. | Requires a compiler-compatible instrumented build and fuzz entry point. It cannot by itself validate an arbitrary stripped binary or prove equivalence; retain seeds, harness, build flags, and replay evidence. |
 
 ## Adoption order
 

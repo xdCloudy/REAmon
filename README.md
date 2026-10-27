@@ -69,8 +69,8 @@ REAmon's goal is language-universal recovery of maintainable code. The language 
 ## Project status
 
 <!-- REAMON_PRODUCT_PROGRESS_START -->
-<progress value="56" max="100">56%</progress> <strong>56%</strong> — weighted estimate **55.7%**.
-Refreshed from pushed commit `3655b1c`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+<progress value="42" max="100">42%</progress> <strong>42%</strong> — weighted estimate **42.3%**.
+Refreshed from the current local worktree. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
 [Goals and roadmap](docs/REAMON_GOALS.md) · [Feature matrix](docs/REAMON_FEATURE_MATRIX.md)
@@ -93,6 +93,8 @@ See the [developer guide](docs/readmes/README.DEV.md) for the development enviro
 - [Full documentation index](docs/README.md)
 - [Product vision and principles](docs/REAMON_PRODUCT_VISION.md)
 - [Goals and roadmap](docs/REAMON_GOALS.md)
+- [Agentic Semantic Symbol Recovery milestone](docs/REAMON_SEMANTIC_SYMBOL_RECOVERY.md)
+- [Agentic reconstruction milestones](docs/REAMON_RECONSTRUCTION_MILESTONES.md)
 - [Weighted product progress](docs/REAMON_PROGRESS.md) · [Progress data](docs/REAMON_PROGRESS.json)
 - [Production readiness matrix](docs/REAMON_READINESS_MATRIX.md)
 - [Kali execution isolation decision](docs/REAMON_KALI_ISOLATION.md)

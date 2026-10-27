@@ -5,6 +5,10 @@ that turns evidence-backed symbol analysis into a consistent, maintainable namin
 layer. It is a dedicated P1 milestone under source reconstruction. This document
 defines acceptance; current product state is recorded separately in the
 [feature matrix](REAMON_FEATURE_MATRIX.md) and weighted [progress ledger](REAMON_PROGRESS.md).
+ASSR owns symbol identities and names. Type/layout inference is tracked separately in
+M1 and whole-project package/build assembly in M4 of the
+[agentic reconstruction milestones](REAMON_RECONSTRUCTION_MILESTONES.md); those systems
+share evidence and stable identities without double-counting type recovery as renaming.
 
 ## Capability status
 
