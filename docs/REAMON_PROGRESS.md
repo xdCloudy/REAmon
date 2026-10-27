@@ -1,6 +1,6 @@
 # REAmon product progress
 
-Assessment date: 2026-10-27 · Source: pushed commit `e732916` · Weighted estimate: **65.0%**
+Assessment date: 2026-10-27 · Source: pushed commit `8c92f70` · Weighted estimate: **65.2%**
 
 This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.
 
@@ -10,7 +10,7 @@ Quality run [40247230850](https://github.com/xdCloudy/REAmon/actions/runs/402472
 | --- | ---: | ---: | ---: |
 | Core analysis and visualizer workflow | 16% | 95% | 15.20 pts |
 | Database-grounded project memory and provenance | 16% | 78% | 12.48 pts |
-| Major-language and format decompilation fluency | 24% | 36% | 8.64 pts |
+| Major-language and format decompilation fluency | 24% | 37% | 8.88 pts |
 | Maintainable editing, review, and export | 12% | 58% | 6.96 pts |
 | Fixture-backed validation and fidelity evidence | 12% | 16% | 1.92 pts |
 | Security, reliability, and production operations | 20% | 99% | 19.80 pts |
@@ -31,7 +31,7 @@ Quality run [40247230850](https://github.com/xdCloudy/REAmon/actions/runs/402472
 
 ### Major-language and format decompilation fluency
 
-**Current evidence:** Useful Java, Android, .NET, Python, WebAssembly, native, and additional format paths exist at different maturity levels. A full run of the patched isolated Androguard analyzer against the stored 6.79 MB Cross Stitch Joy APK completed all 11,939 classes and all 33,401 implemented methods; it reported zero Unicode character-boundary panics and used no simple-output class fallbacks. This validates one APK and decompiler revision only, not broad Java or Kotlin fidelity.
+**Current evidence:** Useful Java, Android, .NET, Python, WebAssembly, native, and additional format paths exist at different maturity levels. A full run of the patched isolated Androguard analyzer against the stored 6.79 MB Cross Stitch Joy APK completed all 11,939 classes and all 33,401 implemented methods; it reported zero Unicode character-boundary panics and used no simple-output class fallbacks. This validates one APK and decompiler revision only, not broad Java or Kotlin fidelity. A generated Linux PyInstaller one-file fixture was processed by the pinned isolated extractor: main.pyc was recovered (358 bytes), its returned SHA-256 matched the bytes, and the 64-module cap was reported as truncated. This validates archive extraction only; webapp-to-pycdc persistence and recovered-source behavior remain unverified.
 
 **Remaining:** Major languages need idiomatic source recovery, broader project-level coverage, and versioned validation; several formats remain alternate views or early experiments.
 
