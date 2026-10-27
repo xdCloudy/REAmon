@@ -2958,10 +2958,10 @@ model ReamonFunctionQueueState {
   task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
   artifactId String  @map("artifact_id")
   state     Json     @default("{}")
+  revision  Int      @default(0)
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  @@unique([projectId, taskId])
   @@index([projectId, artifactId])
   @@map("reamon_function_queue_states")
 }

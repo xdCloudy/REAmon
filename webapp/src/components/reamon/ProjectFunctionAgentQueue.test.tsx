@@ -29,8 +29,20 @@ describe('ProjectFunctionAgentQueue', () => {
   test('keeps unqueued functions and advances through later run pages', async () => {
     const visualizerCursors: Array<string | null> = []
     const queuedMembers: string[] = []
+    let checkpointRevision = 0
+    let checkpointState: unknown = null
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input), 'http://localhost')
+      if (url.pathname.endsWith('/deobfuscate/scan-state')) {
+        if (init?.method === 'PUT') {
+          const body = JSON.parse(String(init.body || '{}')) as { state: unknown; expectedRevision: number }
+          if (body.expectedRevision !== checkpointRevision) return response({ error: 'This scan checkpoint changed in another browser.' }, 409)
+          checkpointState = body.state
+          checkpointRevision += 1
+          return response({ revision: checkpointRevision })
+        }
+        return response({ state: checkpointState, revision: checkpointRevision })
+      }
       if (url.pathname.endsWith('/deobfuscate/batches')) return response({ batch: null })
       if (url.pathname.endsWith('/visualizer')) {
         const cursor = url.searchParams.get('cursor')

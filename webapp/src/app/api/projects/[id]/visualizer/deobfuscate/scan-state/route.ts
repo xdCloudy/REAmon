@@ -86,11 +86,11 @@ export async function GET(request: Request, { params }: RouteParams) {
   if (!taskId || taskId.length > 128) return NextResponse.json({ error: 'A completed analysis run is required' }, { status: 400 })
   const task = await findCompletedTask(projectId, taskId)
   if (!task?.artifactId) return NextResponse.json({ error: 'Analysis run not found' }, { status: 404 })
-  const saved = await prisma.reamonFunctionQueueState.findUnique({ where: { taskId }, select: { projectId: true, artifactId: true, state: true } })
+  const saved = await prisma.reamonFunctionQueueState.findUnique({ where: { taskId }, select: { projectId: true, artifactId: true, state: true, revision: true } })
   if (!saved || saved.projectId !== projectId || saved.artifactId !== task.artifactId || !isScanState(saved.state)) {
-    return NextResponse.json({ state: null }, { headers: { 'Cache-Control': 'no-store' } })
+    return NextResponse.json({ state: null, revision: 0 }, { headers: { 'Cache-Control': 'no-store' } })
   }
-  return NextResponse.json({ state: saved.state }, { headers: { 'Cache-Control': 'no-store' } })
+  return NextResponse.json({ state: saved.state, revision: saved.revision }, { headers: { 'Cache-Control': 'no-store' } })
 }
 
 export async function PUT(request: Request, { params }: RouteParams) {
@@ -109,14 +109,36 @@ export async function PUT(request: Request, { params }: RouteParams) {
   if (Buffer.byteLength(text, 'utf8') > MAX_STATE_BYTES) return NextResponse.json({ error: 'The function scan checkpoint is too large' }, { status: 413 })
   let body: unknown
   try { body = JSON.parse(text) as unknown } catch { return NextResponse.json({ error: 'The function scan checkpoint is invalid JSON' }, { status: 400 }) }
-  const state = objectValue(body)?.state
-  if (!isScanState(state)) return NextResponse.json({ error: 'The function scan checkpoint is invalid or exceeds its limits' }, { status: 400 })
+  const requestBody = objectValue(body)
+  const state = requestBody?.state
+  const expectedRevision = requestBody?.expectedRevision
+  if (!isScanState(state) || !Number.isSafeInteger(expectedRevision) || (expectedRevision as number) < 0) {
+    return NextResponse.json({ error: 'The function scan checkpoint is invalid or exceeds its limits' }, { status: 400 })
+  }
 
-  const saved = await prisma.reamonFunctionQueueState.upsert({
-    where: { taskId },
-    create: { projectId, taskId, artifactId: task.artifactId, state: state as Prisma.InputJsonValue },
-    update: { projectId, artifactId: task.artifactId, state: state as Prisma.InputJsonValue },
-    select: { updatedAt: true },
+  const changed = await prisma.reamonFunctionQueueState.updateMany({
+    where: { projectId, taskId, artifactId: task.artifactId, revision: expectedRevision as number },
+    data: { state: state as Prisma.InputJsonValue, revision: { increment: 1 } },
   })
-  return NextResponse.json({ savedAt: saved.updatedAt.toISOString() }, { headers: { 'Cache-Control': 'no-store' } })
+  if (changed.count === 0) {
+    if (expectedRevision !== 0) return checkpointConflict()
+    try {
+      const created = await prisma.reamonFunctionQueueState.create({
+        data: { projectId, taskId, artifactId: task.artifactId, state: state as Prisma.InputJsonValue, revision: 1 },
+        select: { revision: true },
+      })
+      return NextResponse.json({ revision: created.revision }, { headers: { 'Cache-Control': 'no-store' } })
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') return checkpointConflict()
+      throw error
+    }
+  }
+
+  const saved = await prisma.reamonFunctionQueueState.findUnique({ where: { taskId }, select: { revision: true } })
+  if (!saved) return checkpointConflict()
+  return NextResponse.json({ revision: saved.revision }, { headers: { 'Cache-Control': 'no-store' } })
+}
+
+function checkpointConflict() {
+  return NextResponse.json({ error: 'This scan checkpoint changed in another browser. Reload the page to continue from the latest saved state.' }, { status: 409, headers: { 'Cache-Control': 'no-store' } })
 }

@@ -149,12 +149,16 @@ export function ProjectFunctionAgentQueue({ projectId, taskId, providerId, revie
   const [segmentComplete, setSegmentComplete] = useState(false)
   const [segmentActive, setSegmentActive] = useState(false)
   const [scanStateReady, setScanStateReady] = useState(false)
+  const [scanConflict, setScanConflict] = useState(false)
   const saveChain = useRef<Promise<void>>(Promise.resolve())
+  const scanRevision = useRef(0)
   const scanStateKey = taskId ? `reamon-function-queue:v2:${projectId}:${taskId}` : ''
 
   useEffect(() => {
     setScanStateReady(false)
+    setScanConflict(false)
     if (!scanStateKey) {
+      scanRevision.current = 0
       setScanCursor(null)
       setScanComplete(false)
       setCandidateBacklog([])
@@ -178,10 +182,13 @@ export function ProjectFunctionAgentQueue({ projectId, taskId, providerId, revie
       try {
         const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/deobfuscate/scan-state?taskId=${encodeURIComponent(taskId as string)}`, { cache: 'no-store' })
         if (!response.ok) throw new Error(await responseError(response, 'Could not load the project scan checkpoint'))
-        const payload = await response.json() as { state?: unknown }
+        const payload = await response.json() as { state?: unknown; revision?: unknown }
         state = isQueueScanState(payload.state) ? payload.state : readBrowserCache()
+        scanRevision.current = Number.isSafeInteger(payload.revision) && (payload.revision as number) >= 0
+          ? payload.revision as number : 0
       } catch {
         state = readBrowserCache()
+        scanRevision.current = 0
         if (active && state) setError('Could not load the saved project checkpoint; restored the copy cached in this browser.')
       }
       if (!active) return
@@ -197,7 +204,7 @@ export function ProjectFunctionAgentQueue({ projectId, taskId, providerId, revie
     }
     void restoreScanState()
     return () => { active = false }
-  }, [scanStateKey])
+  }, [scanStateKey, projectId, taskId])
 
   useEffect(() => {
     if (!scanStateReady || !scanStateKey) return
@@ -210,13 +217,20 @@ export function ProjectFunctionAgentQueue({ projectId, taskId, providerId, revie
     } catch {
       setError('This browser could not save the scan checkpoint. Keep this tab open until the current project scan finishes.')
     }
-    const body = JSON.stringify({ state })
     const timer = window.setTimeout(() => {
       saveChain.current = saveChain.current.catch(() => undefined).then(async () => {
         const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/deobfuscate/scan-state?taskId=${encodeURIComponent(taskId as string)}`, {
-          method: 'PUT', headers: { 'Content-Type': 'application/json' }, body,
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ state, expectedRevision: scanRevision.current }),
         })
+        if (response.status === 409) {
+          setScanConflict(true)
+          throw new Error(await responseError(response, 'This scan checkpoint changed in another browser. Reload the page to continue.'))
+        }
         if (!response.ok) throw new Error(await responseError(response, 'Could not save the project scan checkpoint'))
+        const payload = await response.json() as { revision?: unknown }
+        if (!Number.isSafeInteger(payload.revision) || (payload.revision as number) < 1) throw new Error('The server returned an invalid checkpoint revision')
+        scanRevision.current = payload.revision as number
       }).catch((caught: unknown) => {
         setError(caught instanceof Error ? caught.message : 'Could not save the project scan checkpoint')
       })
@@ -244,7 +258,7 @@ export function ProjectFunctionAgentQueue({ projectId, taskId, providerId, revie
   }), [attempts])
 
   async function runQueue() {
-    if (!taskId || !providerId || !scanStateReady || starting || counts.active > 0 || (scanComplete && candidateBacklog.length === 0)) return
+    if (!taskId || !providerId || !scanStateReady || scanConflict || starting || counts.active > 0 || (scanComplete && candidateBacklog.length === 0)) return
     setStarting(true)
     setMessage(candidateBacklog.length ? `Queueing the next functions (${candidateBacklog.length} remain in this scan batch)…` : 'Looking for functions across source files…')
     setError('')
@@ -485,7 +499,7 @@ export function ProjectFunctionAgentQueue({ projectId, taskId, providerId, revie
         <strong>Reverse engineer functions across this run</strong>
         <p>Scan up to 40 source files per batch and queue up to 10 functions. Re-run the queue to work through the whole analysis; each result stays attached to its file for review and acceptance.</p>
       </div>
-      <button type="button" disabled={!providerId || !scanStateReady || starting || counts.active > 0 || queueQuery.isLoading || (scanComplete && candidateBacklog.length === 0)} onClick={() => void runQueue()}>
+      <button type="button" disabled={!providerId || !scanStateReady || scanConflict || starting || counts.active > 0 || queueQuery.isLoading || (scanComplete && candidateBacklog.length === 0)} onClick={() => void runQueue()}>
         {starting ? 'Finding functions…' : counts.active > 0 ? 'Agents working…' : scanComplete && candidateBacklog.length === 0 ? 'Run scan complete' : candidateBacklog.length ? 'Queue remaining functions' : pendingUnits.length || segmentActive ? 'Continue current scan' : 'Scan next project batch'}
       </button>
     </div>
