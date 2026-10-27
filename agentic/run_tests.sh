@@ -58,11 +58,11 @@ run_in_image() {
 }
 
 case "$MODE" in
-    unit|focused)  run_in_image 'exec python /repo/tooling/scripts/pytest_isolated.py unit tests' ;;
+    unit|focused)  run_in_image 'python /repo/tooling/scripts/pytest_isolated.py unit tests && GO111MODULE=off go test ./reamon_gorefactor' ;;
     integration)   run_in_image 'exec python /repo/tooling/scripts/pytest_isolated.py integration tests' ;;
     live)          run_in_image 'exec python /repo/tooling/scripts/pytest_isolated.py live tests' ;;
-    all|discover)  run_in_image 'exec python /repo/tooling/scripts/pytest_isolated.py all tests' ;;
-    coverage)      run_in_image "exec python /repo/tooling/scripts/pytest_isolated.py all tests --cov . --cov-floor $COV_FLOOR" ;;
+    all|discover)  run_in_image 'python /repo/tooling/scripts/pytest_isolated.py all tests && GO111MODULE=off go test ./reamon_gorefactor' ;;
+    coverage)      run_in_image "python /repo/tooling/scripts/pytest_isolated.py all tests --cov . --cov-floor $COV_FLOOR && GO111MODULE=off go test ./reamon_gorefactor" ;;
     tests/*|*.py|-*)
         # Passthrough: a specific file / node id / pytest args (single process).
         run_in_image "exec python -m pytest $MODE $*" ;;

@@ -59,6 +59,11 @@ type catalog struct {
 	Truncated bool
 }
 
+type sourceEdit struct {
+	start, end int
+	text       string
+}
+
 func main() {
 	input, err := io.ReadAll(io.LimitReader(os.Stdin, maxSourceBytes*3+2*1024*1024))
 	if err != nil {
@@ -318,17 +323,13 @@ func applyRenames(req request) (map[string]any, error) {
 		}{item, choice.NewName})
 	}
 	file := cat.FileSet.File(cat.File.Pos())
-	type edit struct {
-		start, end int
-		text       string
-	}
-	edits := make([]edit, 0)
+	edits := make([]sourceEdit, 0)
 	renamed := make([]map[string]any, 0, len(selected))
 	for _, selection := range selected {
 		for _, ident := range selection.item.Uses {
 			start := file.Offset(ident.Pos())
 			end := file.Offset(ident.End())
-			edits = append(edits, edit{start: start, end: end, text: selection.newName})
+			edits = append(edits, sourceEdit{start: start, end: end, text: selection.newName})
 		}
 		renamed = append(renamed, map[string]any{
 			"bindingId": selection.item.ID, "oldName": selection.item.Name, "newName": selection.newName,
@@ -341,13 +342,62 @@ func applyRenames(req request) (map[string]any, error) {
 		output = append(output[:change.start], append([]byte(change.text), output[change.end:]...)...)
 	}
 	outputSource := string(output)
-	if _, err := buildCatalog(outputSource); err != nil {
+	outputCatalog, err := buildCatalog(outputSource)
+	if err != nil {
 		return nil, fmt.Errorf("Go parser rejected the renamed output: %s", err.Error())
+	}
+	// Re-resolve the edited occurrences; a nested closure can shadow a name after the earlier scope check.
+	outputIdentifiers := identifiersByOffset(outputCatalog)
+	for _, selection := range selected {
+		declarationOffset := offsetAfterEdits(selection.item.DeclarationStart, edits)
+		declaration := outputIdentifiers[declarationOffset]
+		renamedObject := outputCatalog.Info.Defs[declaration]
+		if declaration == nil || renamedObject == nil || declaration.Name != selection.newName {
+			return nil, fmt.Errorf("Go could not resolve the renamed declaration for %s", selection.item.Name)
+		}
+		for _, original := range selection.item.Uses {
+			outputOffset := offsetAfterEdits(cat.FileSet.File(original.Pos()).Offset(original.Pos()), edits)
+			transformed := outputIdentifiers[outputOffset]
+			var resolved types.Object
+			if original == selection.item.Declaration {
+				resolved = outputCatalog.Info.Defs[transformed]
+			} else {
+				resolved = outputCatalog.Info.Uses[transformed]
+			}
+			if transformed == nil || transformed.Name != selection.newName || resolved != renamedObject {
+				return nil, fmt.Errorf("Renaming %s would change the binding at byte %d", selection.item.Name, outputOffset)
+			}
+		}
 	}
 	return map[string]any{
 		"source_sha256": cat.Hash, "output_sha256": hashText(outputSource), "source_code": outputSource,
 		"renamed_bindings": renamed, "parser_version": runtime.Version(),
 	}, nil
+}
+
+func offsetAfterEdits(offset int, edits []sourceEdit) int {
+	shift := 0
+	for _, change := range edits {
+		if change.end <= offset {
+			shift += len(change.text) - (change.end - change.start)
+		}
+	}
+	return offset + shift
+}
+
+func identifiersByOffset(cat *catalog) map[int]*ast.Ident {
+	identifiers := make(map[int]*ast.Ident, len(cat.Info.Defs)+len(cat.Info.Uses))
+	ast.Inspect(cat.File, func(node ast.Node) bool {
+		ident, ok := node.(*ast.Ident)
+		if !ok {
+			return true
+		}
+		if file := cat.FileSet.File(ident.Pos()); file != nil {
+			identifiers[file.Offset(ident.Pos())] = ident
+		}
+		return true
+	})
+	return identifiers
 }
 
 func scopeAt(scopes map[ast.Node]*types.Scope, position token.Pos) *types.Scope {
