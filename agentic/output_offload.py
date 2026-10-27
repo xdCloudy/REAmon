@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import logging
 import os
+import re
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -34,6 +36,52 @@ TAIL_CHAR_CAP = 2000
 
 
 _OFFLOAD_OVERRIDE_VALUES = {"inline", "file", "auto"}
+_SAFE_PATH_COMPONENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
+
+
+def _is_safe_component(value: str) -> bool:
+    return value not in {".", ".."} and bool(_SAFE_PATH_COMPONENT.fullmatch(value))
+
+
+def _open_directory_at(parent_fd: int, name: str) -> int:
+    try:
+        os.mkdir(name, mode=0o770, dir_fd=parent_fd)
+    except FileExistsError:
+        pass
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    return os.open(name, flags, dir_fd=parent_fd)
+
+
+def _open_project_outputs(project_id: str) -> int:
+    """Open the project output directory without following project symlinks."""
+    if not _is_safe_component(project_id):
+        raise ValueError("project id is not a safe path component")
+    root_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    root_fd = os.open(WORKSPACE_ROOT, root_flags)
+    project_fd = None
+    try:
+        project_fd = _open_directory_at(root_fd, project_id)
+        return _open_directory_at(project_fd, "tool-outputs")
+    finally:
+        if project_fd is not None:
+            os.close(project_fd)
+        os.close(root_fd)
+
+
+def _create_output_file(outputs_fd: int, filename: str) -> tuple[int, str]:
+    """Create a new output entry; never truncate an existing file or follow links."""
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        return os.open(filename, flags, 0o666, dir_fd=outputs_fd), filename
+    except FileExistsError:
+        stem, suffix = os.path.splitext(filename)
+        for _ in range(8):
+            unique_name = f"{stem}-{uuid.uuid4().hex[:12]}{suffix}"
+            try:
+                return os.open(unique_name, flags, 0o666, dir_fd=outputs_fd), unique_name
+            except FileExistsError:
+                continue
+        raise OSError("could not allocate a unique output filename")
 
 
 def strip_output_mode(tool_args) -> tuple:
@@ -108,7 +156,7 @@ def maybe_offload(
         return ""
     if not isinstance(output, str):
         output = str(output)
-    if not project_id:
+    if not project_id or not _is_safe_component(project_id):
         # No project scope - can't safely offload. Return as-is.
         return output
 
@@ -119,11 +167,14 @@ def maybe_offload(
         return output
     # else: mode == "offload", or mode == "auto" and over threshold
 
-    outputs_dir = WORKSPACE_ROOT / project_id / "tool-outputs"
+    if not _is_safe_component(tool_name) or (job_id is not None and not _is_safe_component(job_id)):
+        logger.error("offload: refusing unsafe tool or job identifier")
+        return output
+
     try:
-        outputs_dir.mkdir(parents=True, exist_ok=True)
+        outputs_fd = _open_project_outputs(project_id)
     except Exception as e:
-        logger.error(f"offload: cannot create {outputs_dir}: {e}")
+        logger.error(f"offload: cannot safely open output directory for project {project_id}: {e}")
         return output
 
     if job_id:
@@ -131,15 +182,24 @@ def maybe_offload(
     else:
         ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
         filename = f"{ts}-{tool_name}.txt"
-    target = outputs_dir / filename
-
     try:
-        target.write_text(output, encoding="utf-8")
+        file_fd, filename = _create_output_file(outputs_fd, filename)
+        try:
+            with os.fdopen(file_fd, "w", encoding="utf-8") as target:
+                target.write(output)
+        except Exception:
+            try:
+                os.unlink(filename, dir_fd=outputs_fd)
+            except OSError:
+                pass
+            raise
     except Exception as e:
-        logger.error(f"offload: failed to write {target}: {e}")
+        logger.error(f"offload: failed to write tool output for project {project_id}: {e}")
         return output
+    finally:
+        os.close(outputs_fd)
 
-    return _format_stub(output, target.name, len(output))
+    return _format_stub(output, filename, len(output))
 
 
 def _format_stub(output: str, filename: str, byte_len: int) -> str:

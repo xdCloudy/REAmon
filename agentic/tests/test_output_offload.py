@@ -21,6 +21,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 _AGENTIC_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, _AGENTIC_DIR)
@@ -192,6 +193,50 @@ class TestProjectScoping(OffloadTestBase):
         self.assertEqual(len(self._ls_outputs("p1")), 1)
         self.assertEqual(len(self._ls_outputs("p2")), 1)
 
+    def test_traversal_project_tool_and_job_ids_fall_back_inline(self):
+        text = "x" * 100_000
+        for project_id, tool_name, job_id in (
+            ("../outside", "execute_nuclei", None),
+            ("p1", "../../outside", None),
+            ("p1", "execute_nuclei", "../../outside"),
+        ):
+            with self.subTest(project_id=project_id, tool_name=tool_name, job_id=job_id):
+                result = output_offload.maybe_offload(
+                    project_id, tool_name, text, job_id=job_id
+                )
+                self.assertEqual(result, text)
+        self.assertFalse((Path(self.tmp).parent / "outside" / "tool-outputs").exists())
+
+    def test_symlinked_project_and_output_directories_fall_back_inline(self):
+        text = "x" * 100_000
+        outside = Path(self.tmp) / "outside"
+        outside.mkdir()
+        (Path(self.tmp) / "linked-project").symlink_to(outside, target_is_directory=True)
+        (Path(self.tmp) / "p1").mkdir()
+        (Path(self.tmp) / "p1" / "tool-outputs").symlink_to(outside, target_is_directory=True)
+
+        linked_project = output_offload.maybe_offload("linked-project", "execute_nuclei", text)
+        linked_outputs = output_offload.maybe_offload("p1", "execute_nuclei", text)
+
+        self.assertEqual(linked_project, text)
+        self.assertEqual(linked_outputs, text)
+        self.assertEqual(list(outside.iterdir()), [])
+
+    def test_duplicate_job_output_does_not_overwrite_previous_result(self):
+        first = output_offload.maybe_offload(
+            "p1", "execute_hydra", "first", override="file", job_id="same-job"
+        )
+        second = output_offload.maybe_offload(
+            "p1", "execute_hydra", "second", override="file", job_id="same-job"
+        )
+
+        files = self._ls_outputs()
+        self.assertEqual(len(files), 2)
+        self.assertIn("same-job-execute_hydra.log", first)
+        self.assertIn("same-job-execute_hydra-", second)
+        contents = sorted((self._outputs() / name).read_text() for name in files)
+        self.assertEqual(contents, ["first", "second"])
+
 
 class TestStripOutputMode(unittest.TestCase):
     def test_strips_key_and_returns_override(self):
@@ -259,7 +304,7 @@ class TestWriteFailureFallback(OffloadTestBase):
     @unittest.skipIf(
         os.geteuid() == 0,
         "chmod-based write denial is a no-op for root (the container runs as "
-        "root); the monkeypatched-write_text sibling test covers this path "
+        "root); the injected exclusive-open failure test covers this path "
         "root-safely",
     )
     def test_disk_write_failure_falls_back_to_inline(self):
@@ -277,26 +322,14 @@ class TestWriteFailureFallback(OffloadTestBase):
             os.chmod(self.tmp, 0o700)  # restore so tearDown can rmtree
 
     def test_dir_writable_but_file_write_fails(self):
-        # Different failure mode: dir is fine but the target file is somehow
-        # un-writable. Pre-create the target as a read-only file with a
-        # specific name we can predict.
-        # We monkeypatch Path.write_text to raise once, then restore.
-        from pathlib import Path as _P
-        orig = _P.write_text
-        calls = {"n": 0}
-
-        def boom(self, *a, **kw):
-            calls["n"] += 1
-            raise PermissionError("simulated disk full")
-
-        _P.write_text = boom
-        try:
+        # Directory access succeeds, but the exclusive file open fails.
+        with patch.object(
+            output_offload, "_create_output_file",
+            side_effect=PermissionError("simulated disk full"),
+        ):
             text = "x" * 100_000
             out = output_offload.maybe_offload("p1", "execute_nuclei", text)
-            self.assertEqual(calls["n"], 1)
             self.assertEqual(out, text)  # fell back to inline
-        finally:
-            _P.write_text = orig
 
 
 if __name__ == "__main__":
