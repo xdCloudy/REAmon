@@ -228,7 +228,7 @@ export async function executeIlspy(input: ToolExecutionInput): Promise<ToolResul
         codeBytes: typeof payload.codeBytes === 'number' && Number.isFinite(payload.codeBytes)
           ? Math.max(0, Math.floor(payload.codeBytes) + (typeof payload.vbCodeBytes === 'number' && Number.isFinite(payload.vbCodeBytes) ? Math.floor(payload.vbCodeBytes) : 0))
           : observations.reduce((sum, observation) => sum + Number(observation.attributes.sizeBytes), 0),
-        truncated: payload.truncated || payload.methodFeaturesTruncated === true || methodObservationsTruncated || (typeof payload.classCount === 'number' && payload.classCount > returnedClassCount),
+        truncated: payload.truncated || payload.vbTranslationTruncated === true || payload.methodFeaturesTruncated === true || methodObservationsTruncated || (typeof payload.classCount === 'number' && payload.classCount > returnedClassCount),
         ilspyVersion: typeof payload.toolVersion === 'string' ? payload.toolVersion.slice(0, 80) : 'unknown',
         warnings: typeof payload.warnings === 'string' ? payload.warnings.slice(0, 4000) : '',
         dotnetPreprocessing: verifiedPreprocessing ? {
