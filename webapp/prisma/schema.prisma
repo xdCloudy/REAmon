@@ -2509,6 +2509,22 @@ model ArtifactProvenance {
   @@map("reamon_artifact_provenance")
 }
 
+/// Durable outbox for artifact bytes whose database metadata has been pruned.
+/// The row is committed before metadata deletion and removed only after unlink
+/// succeeds, so transient volume failures can be retried by the next retention run.
+model ArtifactStorageCleanup {
+  id          String   @id @default(cuid())
+  storagePath String   @unique @map("storage_path")
+  sizeBytes   BigInt   @default(0) @map("size_bytes")
+  attempts    Int      @default(0)
+  lastError   String   @default("") @map("last_error") @db.Text
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@index([createdAt])
+  @@map("reamon_artifact_storage_cleanup")
+}
+
 model WorkspaceImport {
   id             String   @id @default(cuid())
   projectId      String   @map("project_id")

@@ -5,7 +5,7 @@
  *
  * @vitest-environment node
  */
-import { describe, test, expect, beforeEach, vi } from 'vitest'
+import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest'
 import { NextRequest } from 'next/server'
 
 const h = vi.hoisted(() => ({
@@ -17,6 +17,7 @@ const h = vi.hoisted(() => ({
   countAuthorizations: vi.fn(),
   archiveTransaction: vi.fn(),
   removeDerivedArtifactProject: vi.fn(),
+  workerCleanupFetch: vi.fn(),
 }))
 
 vi.mock('@/lib/prisma', () => ({
@@ -45,6 +46,10 @@ const params = (id: string) => ({ params: Promise.resolve({ id }) })
 
 beforeEach(() => {
   vi.clearAllMocks()
+  vi.stubEnv('SCANNER_API_KEY', 'test-scanner-key')
+  vi.stubEnv('INTERNAL_API_KEY', 'test-internal-key')
+  vi.stubGlobal('fetch', h.workerCleanupFetch)
+  h.workerCleanupFetch.mockResolvedValue(new Response(null, { status: 200 }))
   h.effectiveUser.mockResolvedValue({ userId: 'u1' })
   h.projectDelete.mockResolvedValue({ id: 'p1', userId: 'u1' })
   h.removeDerivedArtifactProject.mockResolvedValue(undefined)
@@ -55,6 +60,11 @@ beforeEach(() => {
   h.archiveTransaction.mockImplementation(async (fn: (tx: unknown) => unknown) =>
     fn({ $executeRawUnsafe: async () => 1 })
   )
+})
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+  vi.unstubAllEnvs()
 })
 
 describe('the record of what authorized an engagement outlives the engagement', () => {
@@ -95,6 +105,26 @@ test('cancels non-terminal queue rows before deleting the project (C-7)', async 
     data: expect.objectContaining({ status: 'canceled' }),
   }))
   expect(h.projectDelete).toHaveBeenCalled()
+  expect(h.workerCleanupFetch).toHaveBeenCalledWith(
+    expect.stringContaining('/worker/project/cleanup'),
+    expect.objectContaining({
+      method: 'POST',
+      headers: expect.objectContaining({
+        'X-Internal-Key': 'test-scanner-key',
+        'X-Scanner-Scope': expect.any(String),
+      }),
+      body: JSON.stringify({ project_id: 'p1', user_id: 'u1' }),
+    }),
+  )
+  expect(h.workerCleanupFetch.mock.invocationCallOrder[0])
+    .toBeLessThan(h.projectDelete.mock.invocationCallOrder[0])
+})
+
+test('does not delete the project when broker workers cannot be confirmed stopped', async () => {
+  h.workerCleanupFetch.mockResolvedValue(new Response(null, { status: 503 }))
+  const res = await DELETE(del(), params('p1'))
+  expect(res.status).toBe(503)
+  expect(h.projectDelete).not.toHaveBeenCalled()
 })
 
 test('calls the orchestrator stop endpoints for the running scan types', async () => {

@@ -11,6 +11,7 @@ const DEFAULT_STAGING_RETENTION_DAYS = 30
 const MIN_STAGING_RETENTION_DAYS = 7
 const MAX_STAGING_RETENTION_DAYS = 365
 const MAX_STALE_IMPORTS_PER_RUN = 25
+const MAX_STORAGE_CLEANUPS_PER_RUN = 500
 
 const INCOMPLETE_IMPORT_STATUSES = ['PENDING', 'UPLOADING', 'FAILED', 'CANCELLED']
 
@@ -73,6 +74,7 @@ export interface ImportRetentionResult {
   deletedArtifacts: number
   deletedBytes: number
   storageCleanupFailures: number
+  pendingStorageCleanup: number
   stagingCleanupFailures: number
   candidates: ImportRetentionCandidate[]
 }
@@ -81,6 +83,11 @@ interface StaleImportCandidate {
   id: string
   projectId: string
   updatedAt: Date
+}
+
+interface StorageCleanupCandidate {
+  id: string
+  storagePath: string
 }
 
 const artifactSelect = {
@@ -153,6 +160,10 @@ export async function applyImportRetention(input: { projectId?: string; dryRun?:
   const stagingCutoff = stagingRetentionDays > 0 ? new Date(now.getTime() - stagingRetentionDays * DAY_MS) : null
   const candidates = cutoff ? await findCandidates(input.projectId, cutoff) : []
   const staleImports = stagingCutoff ? await findStaleImports(input.projectId, stagingCutoff) : []
+  const pendingStorage = await prisma.artifactStorageCleanup.findMany({
+    orderBy: { createdAt: 'asc' }, take: MAX_STORAGE_CLEANUPS_PER_RUN,
+    select: { id: true, storagePath: true },
+  }) as StorageCleanupCandidate[]
   const summaries = candidates.map((candidate) => candidateSummary(candidate, hasReferences(candidate)))
   const protectedCount = summaries.filter((candidate) => candidate.protectedByReferences).length
   if (input.dryRun !== false) {
@@ -170,6 +181,7 @@ export async function applyImportRetention(input: { projectId?: string; dryRun?:
       deletedArtifacts: 0,
       deletedBytes: 0,
       storageCleanupFailures: 0,
+      pendingStorageCleanup: await prisma.artifactStorageCleanup.count(),
       stagingCleanupFailures: 0,
       candidates: summaries,
     }
@@ -181,6 +193,23 @@ export async function applyImportRetention(input: { projectId?: string; dryRun?:
   let deletedBytes = 0
   let storageCleanupFailures = 0
   let stagingCleanupFailures = 0
+  const cleanupStorage = async (cleanup: StorageCleanupCandidate): Promise<void> => {
+    try {
+      await unlink(resolveArtifactStoragePath(cleanup.storagePath))
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        storageCleanupFailures += 1
+        await prisma.artifactStorageCleanup.update({
+          where: { id: cleanup.id },
+          data: { attempts: { increment: 1 }, lastError: String(error).slice(0, 2_000) },
+        })
+        console.warn('Failed to remove pruned REAmon artifact bytes:', error)
+        return
+      }
+    }
+    await prisma.artifactStorageCleanup.deleteMany({ where: { id: cleanup.id } })
+  }
+  for (const cleanup of pendingStorage) await cleanupStorage(cleanup)
   for (const stale of staleImports) {
     const claimed = await prisma.workspaceImport.updateMany({
       where: {
@@ -211,6 +240,15 @@ export async function applyImportRetention(input: { projectId?: string; dryRun?:
         select: { id: true, rootTargetId: true, artifacts: { select: { id: true, storagePath: true, sizeBytes: true } } },
       })
       if (!current) return null
+      if (current.artifacts.length) {
+        await tx.artifactStorageCleanup.createMany({
+          data: current.artifacts.map((artifact) => ({
+            storagePath: artifact.storagePath,
+            sizeBytes: artifact.sizeBytes,
+          })),
+          skipDuplicates: true,
+        })
+      }
       await tx.artifact.deleteMany({ where: { importId: current.id } })
       await tx.workspaceImport.delete({ where: { id: current.id } })
       if (current.rootTargetId) await tx.target.deleteMany({ where: { id: current.rootTargetId, projectId: candidate.projectId } })
@@ -230,13 +268,10 @@ export async function applyImportRetention(input: { projectId?: string; dryRun?:
     deletedArtifacts += deleted.artifacts.length
     deletedBytes += deleted.artifacts.reduce((total, artifact) => total + Number(artifact.sizeBytes), 0)
     for (const artifact of deleted.artifacts) {
-      try {
-        await unlink(resolveArtifactStoragePath(artifact.storagePath))
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue
-        storageCleanupFailures += 1
-        console.warn('Failed to remove pruned REAmon artifact bytes:', error)
-      }
+      const cleanup = await prisma.artifactStorageCleanup.findUnique({
+        where: { storagePath: artifact.storagePath }, select: { id: true, storagePath: true },
+      }) as StorageCleanupCandidate | null
+      if (cleanup) await cleanupStorage(cleanup)
     }
   }
 
@@ -254,6 +289,7 @@ export async function applyImportRetention(input: { projectId?: string; dryRun?:
     deletedArtifacts,
     deletedBytes,
     storageCleanupFailures,
+    pendingStorageCleanup: await prisma.artifactStorageCleanup.count(),
     stagingCleanupFailures,
     candidates: summaries,
   }

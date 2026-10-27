@@ -18,6 +18,20 @@ export interface EffectiveUser {
   userId: string
 }
 
+/** Mint a short-lived project/owner scope for an internal, tenant-scoped action. */
+export function signScannerScope(projectId: string, userId: string, ttlSeconds = 60): string {
+  const secret = process.env.INTERNAL_API_KEY
+  if (!secret || secret === 'changeme' || !projectId || !userId) {
+    throw new Error('Project scope signing is not configured')
+  }
+  const now = Math.floor(Date.now() / 1000)
+  const encoded = Buffer.from(JSON.stringify({
+    v: 1, projectId, userId, iat: now, exp: now + Math.max(1, Math.min(300, ttlSeconds)),
+  })).toString('base64url')
+  const signature = createHmac('sha256', secret).update(encoded).digest('base64url')
+  return `${encoded}.${signature}`
+}
+
 export async function getSession(): Promise<Session | null> {
   const cookieStore = await cookies()
   const token = cookieStore.get(AUTH_COOKIE_NAME)?.value

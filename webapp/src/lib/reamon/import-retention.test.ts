@@ -1,6 +1,5 @@
 /** @vitest-environment node */
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
-import path from 'node:path'
 
 const mocks = vi.hoisted(() => ({
   importFindMany: vi.fn(),
@@ -10,6 +9,12 @@ const mocks = vi.hoisted(() => ({
   importUpdateMany: vi.fn(),
   targetDeleteMany: vi.fn(),
   activityCreate: vi.fn(),
+  cleanupCreateMany: vi.fn(),
+  cleanupFindMany: vi.fn(),
+  cleanupFindUnique: vi.fn(),
+  cleanupCount: vi.fn(),
+  cleanupUpdate: vi.fn(),
+  cleanupDeleteMany: vi.fn(),
   transaction: vi.fn(),
   unlink: vi.fn(),
   rm: vi.fn(),
@@ -18,6 +23,10 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/lib/prisma', () => ({
   default: {
     workspaceImport: { findMany: mocks.importFindMany, updateMany: mocks.importUpdateMany },
+    artifactStorageCleanup: {
+      findMany: mocks.cleanupFindMany, findUnique: mocks.cleanupFindUnique,
+      count: mocks.cleanupCount, update: mocks.cleanupUpdate, deleteMany: mocks.cleanupDeleteMany,
+    },
     $transaction: mocks.transaction,
   },
 }))
@@ -53,11 +62,18 @@ beforeEach(() => {
   mocks.importUpdateMany.mockResolvedValue({ count: 0 })
   mocks.targetDeleteMany.mockResolvedValue({ count: 1 })
   mocks.activityCreate.mockResolvedValue({ id: 'activity-1' })
+  mocks.cleanupCreateMany.mockResolvedValue({ count: 1 })
+  mocks.cleanupFindMany.mockResolvedValue([])
+  mocks.cleanupFindUnique.mockResolvedValue({ id: 'cleanup-1', storagePath: 'project-1/import-old/artifact-1' })
+  mocks.cleanupCount.mockResolvedValue(0)
+  mocks.cleanupUpdate.mockResolvedValue({ id: 'cleanup-1' })
+  mocks.cleanupDeleteMany.mockResolvedValue({ count: 1 })
   mocks.unlink.mockResolvedValue(undefined)
   mocks.rm.mockResolvedValue(undefined)
   mocks.transaction.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) => callback({
     workspaceImport: { findFirst: mocks.importFindFirst, delete: mocks.importDelete },
     artifact: { deleteMany: mocks.artifactDeleteMany },
+    artifactStorageCleanup: { createMany: mocks.cleanupCreateMany },
     target: { deleteMany: mocks.targetDeleteMany },
     workspaceActivity: { create: mocks.activityCreate },
   }))
@@ -101,9 +117,32 @@ describe('applyImportRetention', () => {
 
     expect(result).toMatchObject({ dryRun: false, pruned: 1, deletedArtifacts: 1, deletedBytes: 10, storageCleanupFailures: 0 })
     expect(mocks.artifactDeleteMany).toHaveBeenCalledWith({ where: { importId: 'import-old' } })
+    expect(mocks.cleanupCreateMany).toHaveBeenCalledWith({
+      data: [{ storagePath: 'project-1/import-old/artifact-1', sizeBytes: 10 }], skipDuplicates: true,
+    })
     expect(mocks.importDelete).toHaveBeenCalledWith({ where: { id: 'import-old' } })
     expect(mocks.targetDeleteMany).toHaveBeenCalledWith({ where: { id: 'target-root', projectId: 'project-1' } })
-    expect(mocks.unlink).toHaveBeenCalledWith(expect.stringContaining(path.join('project-1', 'import-old', 'artifact-1')))
+    expect(mocks.unlink).toHaveBeenCalledWith(expect.stringContaining('project-1/import-old/artifact-1'))
+    expect(mocks.cleanupDeleteMany).toHaveBeenCalledWith({ where: { id: 'cleanup-1' } })
+  })
+
+  test('retains a durable cleanup row after unlink failure and retries it next run', async () => {
+    mocks.unlink.mockRejectedValueOnce(Object.assign(new Error('volume busy'), { code: 'EBUSY' }))
+    const failed = await applyImportRetention({ now: new Date('2026-10-03T00:00:00Z'), dryRun: false })
+    expect(failed).toMatchObject({ storageCleanupFailures: 1 })
+    expect(mocks.cleanupUpdate).toHaveBeenCalledWith({
+      where: { id: 'cleanup-1' },
+      data: { attempts: { increment: 1 }, lastError: expect.stringContaining('volume busy') },
+    })
+
+    mocks.importFindMany.mockReset()
+    mocks.importFindMany.mockResolvedValueOnce([]).mockResolvedValueOnce([]).mockResolvedValueOnce([])
+    mocks.cleanupFindMany.mockResolvedValueOnce([{ id: 'cleanup-pending', storagePath: 'project-1/import-old/artifact-1' }])
+    mocks.cleanupCount.mockResolvedValueOnce(0)
+    const retried = await applyImportRetention({ now: new Date('2026-10-04T00:00:00Z'), dryRun: false })
+    expect(retried.storageCleanupFailures).toBe(0)
+    expect(mocks.unlink).toHaveBeenCalledTimes(2)
+    expect(mocks.cleanupDeleteMany).toHaveBeenCalledWith({ where: { id: 'cleanup-pending' } })
   })
 
   test('protects snapshots referenced by analysis or lineage records', async () => {

@@ -37,11 +37,14 @@ smuggling). For each connection:
 Stdlib only (asyncio + json) so it runs in a tiny image with no dependencies.
 """
 import asyncio
+import base64
+import hashlib
 import hmac
 import json
 import os
 import re
 import sys
+import time
 import urllib.parse
 
 # --------------------------------------------------------------------------
@@ -51,6 +54,7 @@ UPSTREAM_SOCK = os.environ.get("DOCKER_BROKER_UPSTREAM", "/var/run/docker.sock")
 LISTEN_SOCK = os.environ.get("DOCKER_BROKER_LISTEN", "/run/broker/docker.sock")
 WORKER_API_PORT = int(os.environ.get("REAMON_WORKER_API_PORT", "8081"))
 WORKER_API_KEY = os.environ.get("SCANNER_API_KEY", "")
+SCOPE_SIGNING_KEY = os.environ.get("REAMON_SCOPE_SIGNING_KEY", os.environ.get("INTERNAL_API_KEY", ""))
 
 # Tool images the recon pipeline is allowed to run (the V3 set + cleanup helpers).
 _DEFAULT_ALLOWED_IMAGES = [
@@ -839,6 +843,46 @@ async def _execute_for_worker_client(reader, body):
         await asyncio.gather(disconnected, return_exceptions=True)
 
 
+def _verify_project_cleanup_scope(token: str, body: dict) -> bool:
+    """Verify the webapp's HMAC project scope before trusting its project ID."""
+    if (not SCOPE_SIGNING_KEY or SCOPE_SIGNING_KEY == "changeme"
+            or not isinstance(token, str) or not token or len(token) > 2048
+            or not isinstance(body.get("project_id"), str)
+            or not isinstance(body.get("user_id"), str)):
+        return False
+    parts = token.split(".")
+    if len(parts) != 2:
+        return False
+    encoded, signature = parts
+    if (not re.fullmatch(r"[A-Za-z0-9_-]+", encoded)
+            or not re.fullmatch(r"[A-Za-z0-9_-]{43}", signature)):
+        return False
+    expected = base64.urlsafe_b64encode(
+        hmac.new(SCOPE_SIGNING_KEY.encode("utf-8"), encoded.encode("ascii"), hashlib.sha256).digest(),
+    ).decode("ascii").rstrip("=")
+    if not hmac.compare_digest(signature, expected):
+        return False
+    try:
+        padding = "=" * (-len(encoded) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(encoded + padding).decode("utf-8"))
+    except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
+        return False
+    if not isinstance(payload, dict):
+        return False
+    project_id, user_id = payload.get("projectId"), payload.get("userId")
+    issued_at, expires_at = payload.get("iat"), payload.get("exp")
+    if (isinstance(payload.get("v"), bool) or payload.get("v") != 1
+            or not isinstance(project_id, str) or not project_id
+            or len(project_id) > 255 or not isinstance(user_id, str) or not user_id
+            or len(user_id) > 255 or project_id != body["project_id"]
+            or user_id != body["user_id"] or isinstance(issued_at, bool)
+            or not isinstance(issued_at, int) or isinstance(expires_at, bool)
+            or not isinstance(expires_at, int)):
+        return False
+    now = int(time.time())
+    return issued_at <= now + 60 and expires_at > now and expires_at - issued_at <= 7 * 24 * 60 * 60
+
+
 async def handle_worker_client(reader, writer):
     """Expose only the signed-scope project worker, never the Docker API."""
     try:
@@ -853,7 +897,7 @@ async def handle_worker_client(reader, writer):
                 name, value = line.split(":", 1)
                 headers[name.strip().lower()] = value.strip()
         if (len(request) != 3 or request[0] != "POST"
-                or request[1] not in {"/worker/execute", "/worker/terminal"}):
+                or request[1] not in {"/worker/execute", "/worker/terminal", "/worker/project/cleanup"}):
             status, payload = 404, {"error": "not found"}
         elif not WORKER_API_KEY or WORKER_API_KEY == "changeme" or not hmac.compare_digest(
             headers.get("x-internal-key", ""), WORKER_API_KEY,
@@ -866,7 +910,7 @@ async def handle_worker_client(reader, writer):
                 length = int(headers.get("content-length", "0"))
             except ValueError:
                 length = -1
-            max_length = 16 * 1024 if request[1] == "/worker/terminal" else 1024 * 1024
+            max_length = 16 * 1024 if request[1] in {"/worker/terminal", "/worker/project/cleanup"} else 1024 * 1024
             if length < 1 or length > max_length:
                 status, payload = 413, {"error": "invalid worker request size"}
             else:
@@ -883,10 +927,28 @@ async def handle_worker_client(reader, writer):
                         else:
                             await serve_terminal(body["ctx"], body.get("rows", 24), body.get("cols", 80), reader, writer)
                             return
+                    elif request[1] == "/worker/project/cleanup":
+                        if not isinstance(body, dict) or not _verify_project_cleanup_scope(
+                            headers.get("x-scanner-scope", ""), body,
+                        ):
+                            status, payload = 403, {"error": "project cleanup scope verification failed"}
+                        else:
+                            try:
+                                from project_worker import cleanup_project_workers
+                                removed_workers, removed_networks = await cleanup_project_workers(body["project_id"])
+                                status, payload = 200, {
+                                    "removed_workers": removed_workers,
+                                    "removed_networks": removed_networks,
+                                }
+                            except PermissionError as exc:
+                                status, payload = 403, {"error": str(exc)}
+                            except Exception as exc:
+                                _log(f"project worker cleanup failed: {exc}")
+                                status, payload = 503, {"error": "project workers could not be cleaned up"}
                     else:
                         status, payload = await _execute_for_worker_client(reader, body)
         body_bytes = json.dumps(payload, separators=(",", ":")).encode("utf-8")
-        reasons = {200: "OK", 400: "Bad Request", 401: "Unauthorized", 403: "Forbidden", 404: "Not Found", 413: "Payload Too Large", 429: "Too Many Requests", 503: "Service Unavailable"}
+        reasons = {200: "OK", 400: "Bad Request", 401: "Unauthorized", 403: "Forbidden", 404: "Not Found", 410: "Gone", 413: "Payload Too Large", 429: "Too Many Requests", 503: "Service Unavailable"}
         response_head = (
             f"HTTP/1.1 {status} {reasons.get(status, 'Error')}\r\n"
             "Content-Type: application/json\r\n"

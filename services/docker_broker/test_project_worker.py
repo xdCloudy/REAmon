@@ -2,6 +2,7 @@
 import asyncio
 import base64
 import hashlib
+import hmac
 import json
 import os
 import subprocess
@@ -10,12 +11,20 @@ import threading
 import tempfile
 import time
 import unittest
+from contextlib import asynccontextmanager
 from urllib.parse import parse_qs, urlsplit
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import broker
+import admission_lock as admission_state
 import project_worker as worker
+
+# Never let broker unit tests create project tombstones on the live Docker
+# admission volume. This per-process path is also the default for tests that
+# exercise admission without explicitly configuring a lock path.
+_TEST_ADMISSION_STATE = tempfile.TemporaryDirectory(prefix="reamon-broker-tests-")
+admission_state.LOCK_PATH = os.path.join(_TEST_ADMISSION_STATE.name, "container-create.lock")
 
 
 class SharedAdmissionLockTests(unittest.TestCase):
@@ -997,6 +1006,241 @@ class ProjectWorkerRuntimeTests(unittest.IsolatedAsyncioTestCase):
         cleanup.assert_awaited_once_with("ctr-1", "net-1")
 
 
+class ProjectWorkerCleanupTests(unittest.IsolatedAsyncioTestCase):
+    async def test_cleanup_removes_only_workers_and_networks_with_verified_project_scope(self):
+        project_id = "project-alpha"
+        target_scope = worker._project_scope_label(project_id)
+        other_scope = worker._project_scope_label("project-beta")
+        resources = {
+            "workers": [
+                {"Id": "worker-alpha", "Labels": {
+                    "reamon.project-worker": "1", "reamon.project-scope": target_scope,
+                }},
+                {"Id": "worker-beta", "Labels": {
+                    "reamon.project-worker": "1", "reamon.project-scope": other_scope,
+                }},
+            ],
+            "networks": [
+                {"Id": "network-alpha", "Labels": {
+                    "reamon.project-worker": "1", "reamon.project-scope": target_scope,
+                }},
+                {"Id": "network-beta", "Labels": {
+                    "reamon.project-worker": "1", "reamon.project-scope": other_scope,
+                }},
+            ],
+        }
+        deleted = []
+        inspected = []
+
+        def matching(items, labels):
+            return [
+                item for item in items
+                if all(item["Labels"].get(label.partition("=")[0]) == label.partition("=")[2]
+                       for label in labels)
+            ]
+
+        async def docker(method, path, body=None, **_kwargs):
+            if method == "GET" and path.startswith("/containers/json?"):
+                query = parse_qs(urlsplit(path).query)
+                labels = json.loads(query["filters"][0]).get("label", [])
+                return 200, json.dumps(matching(resources["workers"], labels)).encode()
+            if method == "GET" and path.startswith("/networks?"):
+                query = parse_qs(urlsplit(path).query)
+                labels = json.loads(query["filters"][0]).get("label", [])
+                return 200, json.dumps(matching(resources["networks"], labels)).encode()
+            if method == "GET" and path == "/containers/worker-alpha/json":
+                inspected.append(path)
+                return 200, json.dumps({"NetworkSettings": {"Networks": {
+                    "current": {"NetworkID": "network-alpha"},
+                    "legacy-unlabeled": {"NetworkID": "legacy-network-alpha"},
+                }}}).encode()
+            if method == "DELETE":
+                deleted.append(path)
+                return 204, b""
+            self.fail(f"Unexpected Docker request: {method} {path}")
+
+        from contextlib import asynccontextmanager
+
+        @asynccontextmanager
+        async def no_shared_lock():
+            yield
+
+        with tempfile.TemporaryDirectory() as state_dir:
+            with (
+                mock.patch.object(admission_state, "LOCK_PATH", os.path.join(state_dir, "container-create.lock")),
+                mock.patch.object(worker, "_docker_request", side_effect=docker),
+                mock.patch("admission_lock.admission_lock", no_shared_lock),
+            ):
+                result = await worker.cleanup_project_workers(project_id)
+
+        self.assertEqual(result, (1, 2))
+        self.assertEqual(deleted, [
+            "/containers/worker-alpha?force=true&v=true",
+            "/networks/legacy-network-alpha",
+            "/networks/network-alpha",
+        ])
+        self.assertEqual(inspected, ["/containers/worker-alpha/json"])
+
+    async def test_cleanup_fails_closed_on_unexpected_worker_or_network_labels(self):
+        project_id = "project-alpha"
+        scope = worker._project_scope_label(project_id)
+        foreign_worker = {"Id": "worker-beta", "Labels": {
+            "reamon.project-worker": "1",
+            "reamon.project-scope": worker._project_scope_label("project-beta"),
+        }}
+        target_worker = {"Id": "worker-alpha", "Labels": {
+            "reamon.project-worker": "1", "reamon.project-scope": scope,
+        }}
+        foreign_network = {"Id": "network-beta", "Labels": {
+            "reamon.project-worker": "1",
+            "reamon.project-scope": worker._project_scope_label("project-beta"),
+        }}
+        calls = []
+
+        async def docker(method, path, body=None, **_kwargs):
+            calls.append((method, path))
+            if method == "GET" and path.startswith("/containers/json?"):
+                return 200, json.dumps([foreign_worker if len(calls) == 1 else target_worker]).encode()
+            if method == "GET" and path.startswith("/networks?"):
+                return 200, json.dumps([foreign_network]).encode()
+            self.fail(f"Cleanup mutated or inspected resources unexpectedly: {method} {path}")
+
+        from contextlib import asynccontextmanager
+
+        @asynccontextmanager
+        async def no_shared_lock():
+            yield
+
+        with tempfile.TemporaryDirectory() as state_dir:
+            with (
+                mock.patch.object(admission_state, "LOCK_PATH", os.path.join(state_dir, "container-create.lock")),
+                mock.patch.object(worker, "_docker_request", side_effect=docker),
+                mock.patch("admission_lock.admission_lock", no_shared_lock),
+            ):
+                with self.assertRaisesRegex(worker.DockerAPIError, "invalid project worker inventory"):
+                    await worker.cleanup_project_workers(project_id)
+                with self.assertRaisesRegex(worker.DockerAPIError, "invalid project network inventory"):
+                    await worker.cleanup_project_workers(project_id)
+
+        self.assertEqual(len(calls), 3)
+        self.assertTrue(all(method == "GET" for method, _path in calls))
+
+
+class ProjectScopeTombstoneTests(unittest.IsolatedAsyncioTestCase):
+    async def test_tombstone_persists_beside_the_shared_admission_lock_and_is_idempotent(self):
+        with tempfile.TemporaryDirectory() as state_dir:
+            lock_path = os.path.join(state_dir, "container-create.lock")
+            with mock.patch.object(admission_state, "LOCK_PATH", lock_path):
+                path = admission_state.project_scope_tombstone_path("project-deleted")
+                self.assertEqual(os.path.dirname(os.path.dirname(path)), state_dir)
+                self.assertTrue(admission_state.tombstone_project_scope("project-deleted"))
+                self.assertTrue(admission_state.tombstone_project_scope("project-deleted"))
+                self.assertTrue(admission_state.is_project_scope_tombstoned("project-deleted"))
+                self.assertTrue(os.path.isfile(path))
+
+    async def test_terminal_admission_rejects_a_tombstoned_project_with_specific_error(self):
+        project_id = "project-deleted-terminal"
+        with tempfile.TemporaryDirectory() as state_dir:
+            lock_path = os.path.join(state_dir, "container-create.lock")
+            from contextlib import asynccontextmanager
+
+            @asynccontextmanager
+            async def no_shared_lock():
+                yield
+
+            with (
+                mock.patch.object(admission_state, "LOCK_PATH", lock_path),
+                mock.patch("admission_lock.admission_lock", no_shared_lock),
+            ):
+                admission_state.tombstone_project_scope(project_id)
+                with self.assertRaisesRegex(
+                    worker.WorkerAdmissionError,
+                    "project scope was deleted; worker admission is closed",
+                ) as raised:
+                    await worker._create_admitted_terminal({"project_id": project_id})
+
+        self.assertEqual(raised.exception.status_code, 410)
+
+    async def test_preverified_execution_waiting_for_cleanup_lock_is_rejected(self):
+        project_id = "project-race"
+        with tempfile.TemporaryDirectory() as state_dir:
+            lock_path = os.path.join(state_dir, "container-create.lock")
+            shared = asyncio.Lock()
+            await shared.acquire()
+            cleanup_waiting = asyncio.Event()
+            execution_waiting = asyncio.Event()
+
+            @asynccontextmanager
+            async def shared_admission_lock():
+                name = asyncio.current_task().get_name()
+                if name == "cleanup":
+                    cleanup_waiting.set()
+                elif name == "preverified-execution":
+                    execution_waiting.set()
+                async with shared:
+                    yield
+
+            async def empty_inventory(method, path, body=None, **_kwargs):
+                if method == "GET" and (path.startswith("/containers/json?") or path.startswith("/networks?")):
+                    return 200, b"[]"
+                self.fail(f"Tombstoned execution reached Docker: {method} {path}")
+
+            verify_finished = threading.Event()
+
+            def verify_context(_ctx, _tool):
+                verify_finished.set()
+                return project_id
+
+            cleanup_lock = asyncio.Lock()
+            execution_lock = asyncio.Lock()
+            with (
+                mock.patch.object(admission_state, "LOCK_PATH", lock_path),
+                mock.patch("admission_lock.admission_lock", shared_admission_lock),
+                mock.patch.object(worker, "_WORKER_ADMISSION_LOCK", cleanup_lock),
+                mock.patch.object(worker, "_docker_request", side_effect=empty_inventory),
+            ):
+                cleanup_task = asyncio.create_task(
+                    worker.cleanup_project_workers(project_id), name="cleanup",
+                )
+                await asyncio.wait_for(cleanup_waiting.wait(), timeout=1)
+
+                # A separate broker process has its own in-process lock, but
+                # shares the admission-volume lock and tombstone directory.
+                with mock.patch.object(worker, "_WORKER_ADMISSION_LOCK", execution_lock):
+                    with (
+                        mock.patch.object(worker, "_verify_context_sync", side_effect=verify_context),
+                        mock.patch.object(worker, "_active_worker_count", new=mock.AsyncMock()) as active_count,
+                        mock.patch.object(worker, "_create_worker_network", new=mock.AsyncMock()) as create_network,
+                    ):
+                        execution_task = asyncio.create_task(worker.execute({
+                            "ctx": "already-verified", "tool": "kali_shell", "argv": ["id"],
+                        }), name="preverified-execution")
+                        self.assertTrue(await asyncio.to_thread(verify_finished.wait, 1))
+                        await asyncio.wait_for(execution_waiting.wait(), timeout=1)
+                        shared.release()
+                        await cleanup_task
+                        status, body = await execution_task
+
+                self.assertEqual(status, 410)
+                self.assertIn("project scope was deleted", body["error"])
+                active_count.assert_not_awaited()
+                create_network.assert_not_awaited()
+                self.assertTrue(admission_state.is_project_scope_tombstoned(project_id))
+
+
+def _make_scanner_scope_token(project_id="project-alpha", user_id="user-alpha", secret="master-secret"):
+    now = int(time.time())
+    payload = json.dumps({
+        "v": 1, "projectId": project_id, "userId": user_id,
+        "iat": now - 1, "exp": now + 300,
+    }, separators=(",", ":")).encode()
+    encoded = base64.urlsafe_b64encode(payload).decode().rstrip("=")
+    signature = base64.urlsafe_b64encode(
+        hmac.new(secret.encode(), encoded.encode(), hashlib.sha256).digest(),
+    ).decode().rstrip("=")
+    return f"{encoded}.{signature}"
+
+
 class BrokerWorkerEndpointTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.server = await asyncio.start_server(broker.handle_worker_client, "127.0.0.1", 0)
@@ -1010,11 +1254,12 @@ class BrokerWorkerEndpointTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(asyncio.CancelledError):
             await self.server_task
 
-    async def request(self, method, path, key="", payload=b"{}"):
+    async def request(self, method, path, key="", payload=b"{}", extra_headers=None):
         reader, writer = await asyncio.open_connection("127.0.0.1", self.port)
+        extra = "".join(f"{name}: {value}\r\n" for name, value in (extra_headers or {}).items())
         writer.write(
             f"{method} {path} HTTP/1.1\r\nHost: localhost\r\n"
-            f"X-Internal-Key: {key}\r\nContent-Length: {len(payload)}\r\n\r\n".encode()
+            f"X-Internal-Key: {key}\r\n{extra}Content-Length: {len(payload)}\r\n\r\n".encode()
             + payload
         )
         await writer.drain()
@@ -1039,6 +1284,40 @@ class BrokerWorkerEndpointTests(unittest.IsolatedAsyncioTestCase):
         with mock.patch.object(broker, "WORKER_API_KEY", "secret"):
             response = await self.request("GET", "/containers/json", key="secret")
         self.assertIn(b"404 Not Found", response)
+
+    async def test_project_cleanup_verifies_scanner_scope_and_returns_cleanup_counts(self):
+        body = {"project_id": "project-alpha", "user_id": "user-alpha"}
+        payload = json.dumps(body).encode()
+        scope = _make_scanner_scope_token()
+        with (
+            mock.patch.object(broker, "WORKER_API_KEY", "scanner-secret"),
+            mock.patch.object(broker, "SCOPE_SIGNING_KEY", "master-secret"),
+            mock.patch.object(worker, "cleanup_project_workers", new=mock.AsyncMock(return_value=(2, 2))) as cleanup,
+        ):
+            response = await self.request(
+                "POST", "/worker/project/cleanup", key="scanner-secret", payload=payload,
+                extra_headers={"X-Scanner-Scope": scope},
+            )
+
+        self.assertIn(b"200 OK", response)
+        self.assertIn(b'{"removed_workers":2,"removed_networks":2}', response)
+        cleanup.assert_awaited_once_with("project-alpha")
+
+    async def test_project_cleanup_rejects_scope_that_does_not_match_body(self):
+        body = {"project_id": "project-beta", "user_id": "user-alpha"}
+        with (
+            mock.patch.object(broker, "WORKER_API_KEY", "scanner-secret"),
+            mock.patch.object(broker, "SCOPE_SIGNING_KEY", "master-secret"),
+            mock.patch.object(worker, "cleanup_project_workers", new=mock.AsyncMock()) as cleanup,
+        ):
+            response = await self.request(
+                "POST", "/worker/project/cleanup", key="scanner-secret",
+                payload=json.dumps(body).encode(),
+                extra_headers={"X-Scanner-Scope": _make_scanner_scope_token()},
+            )
+
+        self.assertIn(b"403 Forbidden", response)
+        cleanup.assert_not_awaited()
 
     async def test_worker_disconnect_cancels_execution(self):
         started = asyncio.Event()

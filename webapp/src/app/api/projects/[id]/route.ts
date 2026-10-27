@@ -8,7 +8,7 @@ import path from 'path'
 import { getGraphSession } from '@/app/api/graph/neo4j'
 import { clearProjectGraph } from '@/lib/graphRestore'
 import { orchestratorFetch } from '@/lib/orchestrator'
-import { getScannerScope, isInternalRequest, isScannerRequest } from '@/lib/session'
+import { getScannerScope, isInternalRequest, isScannerRequest, signScannerScope } from '@/lib/session'
 import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
 import { removeDerivedArtifactProject } from '@/lib/reamon/derived-storage'
 import { toAuthProfileMetadata } from '@/lib/authProfile'
@@ -33,6 +33,35 @@ const AGENT_API_URL = process.env.AGENT_API_URL || 'http://localhost:8080'
 // Recon orchestrator URL for file deletion
 const RECON_ORCHESTRATOR_URL = process.env.RECON_ORCHESTRATOR_URL || 'http://localhost:8010'
 const TRIAGE_STOP_TIMEOUT_MS = 1_000
+const PROJECT_WORKER_CLEANUP_URL = process.env.REAMON_PROJECT_WORKER_CLEANUP_URL
+  || 'http://docker-broker:8081/worker/project/cleanup'
+
+/** Stop broker workers before removing their project and workspace ownership. */
+async function stopProjectWorkers(projectId: string, userId: string): Promise<boolean> {
+  const scannerKey = process.env.SCANNER_API_KEY
+  if (!scannerKey || scannerKey === 'changeme') return false
+  let scope: string
+  try {
+    scope = signScannerScope(projectId, userId)
+  } catch {
+    return false
+  }
+  try {
+    const response = await fetch(PROJECT_WORKER_CLEANUP_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Internal-Key': scannerKey,
+        'X-Scanner-Scope': scope,
+      },
+      body: JSON.stringify({ project_id: projectId, user_id: userId }),
+      signal: AbortSignal.timeout(10_000),
+    })
+    return response.ok
+  } catch {
+    return false
+  }
+}
 
 interface RouteParams {
   params: Promise<{ id: string }>
@@ -587,6 +616,19 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     }
     if (archived.archived > 0) {
       console.log(`[project-delete] archived ${archived.archived} authorization record(s) for ${id}`)
+    }
+
+    // A terminal or detached execution may still be running even after its
+    // queue row is canceled. The broker verifies this short-lived owner scope,
+    // blocks new creates for the deleted scope, and removes only its workers and
+    // networks. Keep the project row if cleanup is unavailable so ownership is
+    // not discarded while workers can still mutate its workspace.
+    const workersStopped = await stopProjectWorkers(id, eff.userId)
+    if (!workersStopped) {
+      return NextResponse.json(
+        { error: 'Project workers could not be stopped. Retry project deletion after the worker service is available.' },
+        { status: 503 },
+      )
     }
 
     // 1. Delete project from PostgreSQL (cascades captured_http_transactions +

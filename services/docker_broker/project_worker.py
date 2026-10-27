@@ -259,7 +259,10 @@ async def _create_worker_network(project_id: str, *, allow_egress: bool = False)
         "CheckDuplicate": True,
         "Internal": not allow_egress,
         "Attachable": False,
-        "Labels": {"reamon.project-worker": "1"},
+        "Labels": {
+            "reamon.project-worker": "1",
+            "reamon.project-scope": _project_scope_label(project_id),
+        },
     }
     try:
         status, raw = await _docker_request("POST", "/networks/create", body)
@@ -355,6 +358,104 @@ async def reap_orphaned_workers() -> tuple[int, int] | None:
 def _project_scope_label(project_id: str) -> str:
     """Stable label for per-project admission without storing project IDs in Docker metadata."""
     return hashlib.sha256(project_id.encode("utf-8")).hexdigest()
+
+
+async def cleanup_project_workers(project_id: str) -> tuple[int, int]:
+    """Remove all broker workers and private networks for a verified project ID."""
+    if not isinstance(project_id, str) or not _PROJECT_ID_RE.fullmatch(project_id):
+        raise PermissionError("verified project scope is invalid")
+    scope = _project_scope_label(project_id)
+
+    from urllib.parse import quote, urlencode
+
+    filters = json.dumps({"label": [
+        "reamon.project-worker=1", f"reamon.project-scope={scope}",
+    ]})
+    query = urlencode({"all": "1", "filters": filters})
+
+    network_query = urlencode({"filters": filters})
+    import admission_lock as admission_state
+
+    def valid_scoped_resource(item: Any) -> bool:
+        labels = item.get("Labels") if isinstance(item, dict) else None
+        return (
+            isinstance(item, dict) and isinstance(item.get("Id"), str)
+            and isinstance(labels, dict)
+            and labels.get("reamon.project-worker") == "1"
+            and labels.get("reamon.project-scope") == scope
+        )
+
+    async with _WORKER_ADMISSION_LOCK:
+        async with admission_state.admission_lock():
+            # Fence future admissions before inspecting or mutating Docker. A
+            # caller already waiting behind this lock sees the tombstone next.
+            await asyncio.to_thread(admission_state.tombstone_project_scope, project_id)
+            # Inventory both resource types under the same lock used for worker
+            # creation. Docker may return truncated or malformed data; fail closed
+            # before making any mutations.
+            status, raw = await _docker_request("GET", f"/containers/json?{query}")
+            if status != 200:
+                raise DockerAPIError("could not enumerate project workers")
+            try:
+                workers = json.loads(raw or b"[]")
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise DockerAPIError("Docker returned invalid project worker inventory") from exc
+            if not isinstance(workers, list) or any(not valid_scoped_resource(item) for item in workers):
+                raise DockerAPIError("Docker returned invalid project worker inventory")
+
+            status, raw = await _docker_request("GET", f"/networks?{network_query}")
+            if status != 200:
+                raise DockerAPIError("could not enumerate project worker networks")
+            try:
+                networks = json.loads(raw or b"[]")
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise DockerAPIError("Docker returned invalid project network inventory") from exc
+            if not isinstance(networks, list) or any(not valid_scoped_resource(item) for item in networks):
+                raise DockerAPIError("Docker returned invalid project network inventory")
+
+            # Older broker releases labeled networks globally but omitted the
+            # hashed project label. Recover those dedicated networks through
+            # inspect data from containers already verified by both worker and
+            # project-scope labels. This remains scoped to the target project's
+            # workers and also cleans pre-upgrade sessions.
+            network_ids = {item["Id"] for item in networks}
+            for item in workers:
+                worker_id = quote(item["Id"], safe="")
+                status, raw = await _docker_request("GET", f"/containers/{worker_id}/json")
+                if status == 404:
+                    continue
+                if status != 200:
+                    raise DockerAPIError("could not inspect a project worker")
+                try:
+                    inspected = json.loads(raw or b"{}")
+                    attachments = inspected["NetworkSettings"]["Networks"]
+                except (UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError) as exc:
+                    raise DockerAPIError("Docker returned invalid project worker network data") from exc
+                if not isinstance(attachments, dict):
+                    raise DockerAPIError("Docker returned invalid project worker network data")
+                for attachment in attachments.values():
+                    if not isinstance(attachment, dict):
+                        raise DockerAPIError("Docker returned invalid project worker network data")
+                    network_id = attachment.get("NetworkID")
+                    if network_id:
+                        if not isinstance(network_id, str):
+                            raise DockerAPIError("Docker returned invalid project worker network ID")
+                        network_ids.add(network_id)
+
+            for item in workers:
+                status, _ = await _docker_request(
+                    "DELETE", f"/containers/{quote(item['Id'], safe='')}?force=true&v=true",
+                )
+                if status not in (200, 204, 404):
+                    raise DockerAPIError("could not remove a project worker")
+            for network_id in sorted(network_ids):
+                status, _ = await _docker_request(
+                    "DELETE", f"/networks/{quote(network_id, safe='')}",
+                )
+                if status not in (200, 204, 404):
+                    raise DockerAPIError("could not remove a project worker network")
+
+    return len(workers), len(network_ids)
 
 
 def _docker_daemon_path(path: str, pathmod) -> str:
@@ -550,10 +651,12 @@ async def _create_admitted_terminal(identity: dict[str, str]) -> tuple[str, str]
     import broker
 
     project_id = identity["project_id"]
-    from admission_lock import admission_lock
+    import admission_lock as admission_state
 
     async with _WORKER_ADMISSION_LOCK:
-        async with admission_lock():
+        async with admission_state.admission_lock():
+            if admission_state.is_project_scope_tombstoned(project_id):
+                raise WorkerAdmissionError(410, "project scope was deleted; worker admission is closed")
             async def create() -> tuple[str, str]:
                 active = await _active_worker_count()
                 project_active = await _active_project_worker_count(project_id)
@@ -734,7 +837,7 @@ async def serve_terminal(ctx: str, rows: int, cols: int, reader, writer) -> None
 async def _send_worker_error(writer, status: int, message: str) -> None:
     body = json.dumps({"error": message}, separators=(",", ":")).encode("utf-8")
     reason = {
-        400: "Bad Request", 403: "Forbidden", 429: "Too Many Requests",
+        400: "Bad Request", 403: "Forbidden", 410: "Gone", 429: "Too Many Requests",
         503: "Service Unavailable",
     }.get(status, "Error")
     writer.write(
@@ -842,10 +945,12 @@ async def _create_admitted_worker(
             raise
         return 200, network_id, container_id, ""
 
-    from admission_lock import admission_lock
+    import admission_lock as admission_state
 
     async with _WORKER_ADMISSION_LOCK:
-        async with admission_lock():
+        async with admission_state.admission_lock():
+            if admission_state.is_project_scope_tombstoned(project_id):
+                return 410, None, None, "project scope was deleted; worker admission is closed"
             if broker.BROKER_MAX_CONTAINERS <= 0:
                 return await check_worker_limits()
             async with broker._CREATE_COUNT_LOCK:
