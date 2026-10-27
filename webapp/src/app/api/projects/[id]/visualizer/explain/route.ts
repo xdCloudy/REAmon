@@ -27,7 +27,10 @@ const MAX_METHOD_EVIDENCE_ROWS = 12
 const MAX_METHOD_EVIDENCE_BYTES = 4 * 1024
 const MAX_REFERENCE_EVIDENCE_ROWS = 401
 const MAX_CALL_EVIDENCE_ROWS = 41
-const MAX_SHARED_IDENTITY_SOURCE_IDS = 4_097
+// Apply the cap only after querying the exact function identity. A project may
+// have many unrelated accepted units; they must never crowd a selected function
+// out of its own persisted project memory.
+const MAX_SHARED_IDENTITY_MATCHES = 4_097
 
 function isInside(root: string, file: string): boolean {
   const relative = path.relative(root, file)
@@ -281,19 +284,10 @@ async function loadAcceptedSharedIdentityContext(input: {
   if (!input.artifactHash) return ''
   const nativeIdentity = nativeFunctionIdentity(input.artifactId, input.address)
   const addressAliases = nativeAddressAliases(input.address)
-  const acceptedSourceCandidates = await prisma.reamonMaintainedSource.findMany({
-    where: { projectId: input.projectId, artifactId: input.artifactId, acceptedReviewId: { not: null } },
-    orderBy: [{ updatedAt: 'desc' }, { codeUnitId: 'asc' }],
-    take: MAX_SHARED_IDENTITY_SOURCE_IDS,
-    select: { codeUnitId: true },
-  })
-  const acceptedSourceUnitIds = [...new Set(acceptedSourceCandidates.map((row) => row.codeUnitId))]
-  if (!acceptedSourceUnitIds.length) return ''
-  const matches = await prisma.reamonObservation.findMany({
+  const identityCandidates = await prisma.reamonObservation.findMany({
     where: {
       projectId: input.projectId,
       artifactId: input.artifactId,
-      id: { in: acceptedSourceUnitIds },
       task: { is: { projectId: input.projectId, artifactId: input.artifactId, capability: 'decompile', status: 'COMPLETED' } },
       type: 'code_unit',
       source: { not: input.source },
@@ -310,16 +304,20 @@ async function loadAcceptedSharedIdentityContext(input: {
       ],
     },
     orderBy: [{ updatedAt: 'desc' }, { stableKey: 'asc' }],
-    take: acceptedSourceUnitIds.length,
+    take: MAX_SHARED_IDENTITY_MATCHES + 1,
     select: { id: true, source: true, canonicalKey: true, attributes: true },
   })
+  const identityMatchesTruncated = identityCandidates.length > MAX_SHARED_IDENTITY_MATCHES
+  const matches = identityCandidates.slice(0, MAX_SHARED_IDENTITY_MATCHES)
+  if (!matches.length) return ''
+  const acceptedSourceUnitIds = [...new Set(matches.map((row) => row.id))]
   const providerByUnitId = new Map(matches.map((row) => [row.id, row.source]))
   const identityEvidenceByUnitId = new Map(matches.map((row) => [row.id,
     row.canonicalKey === input.canonicalKey ? 'canonical' as const
       : plainObject(row.attributes).identity === nativeIdentity ? 'native_identity' as const : 'native_address_alias' as const]))
   const unitIds = [...new Set([input.unitId, ...matches.map((row) => row.id)])]
   const maintainedRows = await prisma.reamonMaintainedSource.findMany({
-    where: { projectId: input.projectId, artifactId: input.artifactId, codeUnitId: { in: unitIds } },
+    where: { projectId: input.projectId, artifactId: input.artifactId, codeUnitId: { in: unitIds }, acceptedReviewId: { not: null } },
     select: { codeUnitId: true, artifactId: true, unitName: true, language: true, sourceHash: true, acceptedReviewId: true, symbolIndex: true },
     orderBy: { updatedAt: 'desc' },
   })
@@ -345,7 +343,7 @@ async function loadAcceptedSharedIdentityContext(input: {
       identityEvidence: identityEvidenceByUnitId.get(row.codeUnitId),
       provider: providerByUnitId.get(row.codeUnitId),
     } : {}),
-  })), new Set(), 3_500, input.artifactHash, new Set(), false, undefined, input.canonicalKey || nativeIdentity || undefined)
+  })), new Set(), 3_500, input.artifactHash, new Set(), identityMatchesTruncated, undefined, input.canonicalKey || nativeIdentity || undefined)
 }
 
 function validId(value: unknown): value is string {
