@@ -21,6 +21,7 @@ Run:  docker exec redamon-recon-orchestrator sh -c 'cd /app && python -m pytest 
 
 import asyncio
 import os
+import re
 import types
 import unittest
 from unittest import mock
@@ -132,9 +133,11 @@ class TestReconSettingsBind(unittest.TestCase):
         source = (cm.__file__ or "")
         with open(source, encoding="utf-8") as fh:
             text = fh.read()
-        self.assertEqual(
-            text.count("**self._recon_settings_mount()"),
-            text.count("**self._graph_db_mount("),
+        methods = re.split(r"(?=^    (?:async )?def )", text, flags=re.MULTILINE)
+        graph_spawns = [method for method in methods if "**self._graph_db_mount(" in method]
+        self.assertEqual(len(graph_spawns), 3)
+        self.assertTrue(
+            all("**self._recon_settings_mount()" in method for method in graph_spawns),
             "every graph_db bind site must also bind the settings registry",
         )
 

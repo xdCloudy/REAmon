@@ -202,7 +202,7 @@ demanded 6 GB free, which never happens once the core services are up.
 | `gvm` | 2.5 GB | openvas is the heaviest scanner |
 | `github_hunt` | 768 MB | clone + regex sweep |
 | `trufflehog` | 768 MB | clone + verifier sweep |
-| `supply_chain` | 1.75 GB | L1 clean writer + the dirty analyzer it dispatches for GuardDog |
+| `supply_chain` | 1.75 GB | L1 artifact producer + the dirty analyzer it dispatches for GuardDog |
 | `_default` | 2 GB | unknown type: assume full-pipeline size |
 
 **Tool-qualified keys.** Partial-recon tools are not interchangeable in RAM terms, so the

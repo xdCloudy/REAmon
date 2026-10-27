@@ -7,14 +7,19 @@ runner always returns a boundary-valid artifact.
 Run: python -m unittest tests.test_supply_chain_scan
 """
 
+import json
 import os
 import sys
+import stat
 import tempfile
 import unittest
 
 _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _REPO not in sys.path:
     sys.path.insert(0, _REPO)
+_SCANNERS = os.path.join(_REPO, "scanners")
+if _SCANNERS not in sys.path:
+    sys.path.insert(0, _SCANNERS)
 
 from supply_chain_common.artifact import (
     empty_artifact, add_osv_findings, add_guarddog_findings, osv_mode_for_path,
@@ -23,6 +28,7 @@ from supply_chain_common.security import validate_artifact
 from supply_chain_scan.supply_chain_runner import (
     SupplyChainRunner, resolve_input_path, SupplyChainInputError,
 )
+from supply_chain_scan.main import save_scan_artifact
 
 
 class _FakeOsv:
@@ -74,6 +80,22 @@ class TestArtifactHelpers(unittest.TestCase):
         clean = validate_artifact(art)
         self.assertEqual(clean["vulnerable"][0]["cvss_vector"],
                          "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H")
+
+    def test_completed_run_artifact_is_atomically_published(self):
+        with tempfile.TemporaryDirectory() as directory:
+            out = os.path.join(directory, "supply_chain_project.json")
+            with open(out, "w", encoding="utf-8") as fh:
+                fh.write('{"run_id":"previous"}')
+            payload = {"project_id": "project", "user_id": "owner",
+                       "run_id": "current", "artifact": {"packages": []}}
+
+            actual = save_scan_artifact(directory, "project", payload)
+
+            self.assertEqual(actual, out)
+            with open(out, encoding="utf-8") as fh:
+                self.assertEqual(json.load(fh), payload)
+            self.assertEqual(stat.S_IMODE(os.stat(out).st_mode), 0o644)
+            self.assertEqual(os.listdir(directory), ["supply_chain_project.json"])
 
     def test_osv_mode_for_path(self):
         self.assertEqual(osv_mode_for_path("/x/package-lock.json"), "lockfile")

@@ -1,7 +1,7 @@
-# RedAmon Supply-Chain Scan (L1 CLEAN writer)
+# RedAmon Supply-Chain Scan (artifact producer)
 # ============================================
-# Holds Neo4j creds and writes Package/MalPackageFinding graph nodes. Runs a
-# static, no-install, OFFLINE osv-scanner pass over its input (plan S1).
+# Runs a static, no-install, OFFLINE osv-scanner pass over its input (plan S1).
+# Graph writes are performed by the trusted orchestrator after run-ID validation.
 #
 # The input is either an operator-uploaded SBOM/lockfile or a GitHub repository
 # it clones itself. It still NEVER downloads a tarball or runs a package
@@ -10,8 +10,8 @@
 # step that PARSES untrusted content happens in the dirty analyzer. The clone
 # lives here because this is the only side that may hold the GitHub token.
 #
-# graph_db and supply_chain_common are volume-mounted at spawn time (like
-# trufflehog mounts graph_db); the offline OSV DB is mounted read-only at /osv-db.
+# supply_chain_common is volume-mounted at spawn time; the offline OSV DB is
+# mounted read-only at /osv-db.
 
 # osv-scanner v2.4.0 needs Go >= 1.26.4; build it here and COPY the binary.
 FROM golang:1-bookworm AS osv-builder
@@ -39,8 +39,8 @@ RUN pip install --no-cache-dir -r /app/supply_chain_scan/requirements.txt
 
 COPY scanners/supply_chain_scan/ /app/supply_chain_scan/
 
-# graph_db + supply_chain_common are bind-mounted at /app/graph_db and
-# /app/supply_chain_common by the orchestrator spawn (not baked here).
+# supply_chain_common is bind-mounted at /app/supply_chain_common by the
+# orchestrator spawn (not baked here).
 
 ENV PROJECT_ID="" USER_ID="" WEBAPP_API_URL=""
 

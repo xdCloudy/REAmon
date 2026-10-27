@@ -23,7 +23,7 @@ DEFAULT_SUPPLY_CHAIN_SETTINGS: dict[str, Any] = {
     # Optional subpath/scope inside the repo (Scan Queue Phase 6 org batch).
     'SUPPLY_CHAIN_REPO_SCOPE': '',
     # Comma-separated OSV ecosystem names to report (osv auto-detects from the
-    # file; this is an allow-filter for the graph write).
+    # file; this is an allow-filter for the persisted result).
     'SUPPLY_CHAIN_ECOSYSTEMS': 'npm,PyPI,Go,Maven,crates.io,Packagist,RubyGems,NuGet',
     # GuardDog deep analysis (downloads untrusted tarballs). OFF by default (S5.5).
     'SUPPLY_CHAIN_DEEP_ANALYSIS_ENABLED': False,

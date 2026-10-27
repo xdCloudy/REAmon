@@ -364,8 +364,8 @@ services:
     image: redamon-supply-chain-analyzer:latest
     profiles: ["tools"]
 
-  # Supply-Chain scan (L1 "Other Scans") CLEAN writer. Build-only; spawned per
-  # scan by the orchestrator (holds Neo4j creds, static offline osv pass).
+  # Supply-Chain scan (L1 "Other Scans") artifact producer. Build-only; the
+  # orchestrator spawns it per scan and performs trusted graph ingest afterward.
   supply-chain:
     build:
       context: .
@@ -500,17 +500,17 @@ services:
       - ./recon:/app/recon:ro
       - ./recon/output:/app/recon/output:rw
       # graph_db source, mounted ONLY so its host path is auto-detectable. The
-      # orchestrator binds graph_db into every spawned scan container; before this
+      # orchestrator binds graph_db into graph-writing scan containers; before this
       # it DERIVED that host path by string surgery on a sibling source path
       # (sibling_host_path(recon_path, "graph_db")). That guess is wrong wherever
       # Docker reports a rewritten bind Source (Docker Desktop on Windows/WSL2),
       # Docker then silently AUTO-CREATES the missing directory, and the empty dir
-      # shadows the good copy baked into the scan image, and every spawned scan dies
+      # shadows the good copy baked into a graph-writing scan image, and that scan dies
       # with "cannot import name 'Neo4jClient' from 'graph_db' (unknown location)".
       # With this mount the path is read from Docker's own mount table instead.
       - ./graph_db:/app/graph_db:ro
       # The recon settings registry, mounted for the same two reasons as
-      # graph_db: the orchestrator binds it into every spawned scan container, and
+      # graph_db: the orchestrator binds it into graph-writing scan containers, and
       # it can only do that if it can read its own HOST path out of Docker's
       # mount table rather than deriving it by string surgery. A scan refuses to
       # start without a readable registry, so a wrong path here is a failed scan

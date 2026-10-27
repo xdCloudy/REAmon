@@ -1,9 +1,9 @@
-"""L1 Supply-Chain scan runner (CLEAN writer side).
+"""L1 Supply-Chain scan runner (artifact producer side).
 
 v1 input: an operator-uploaded SBOM / lockfile. Runs osv-scanner OFFLINE (static,
 no-install, no network - safe per plan S1) on the file, assembles the standard
-artifact, and validates it through the DIRTY->CLEAN boundary before the graph
-write. GitHub-repo cloning and GuardDog deep-analysis (which need the secret-free
+artifact, and validates it through the DIRTY->CLEAN boundary before persistence.
+GitHub-repo cloning and GuardDog deep-analysis (which need the secret-free
 DIRTY analyzer) are deferred to v2; this runner never downloads a tarball or
 runs a package manager.
 
@@ -89,7 +89,7 @@ class SupplyChainRunner:
             artifact["errors"].append("osv: {}".format(result["error"]))
         add_osv_findings(artifact, result.get("parsed") or {})
 
-        # Optional ecosystem allow-filter for the graph write.
+        # Optional ecosystem allow-filter for the persisted result.
         if self.ecosystems:
             artifact["packages"] = [p for p in artifact["packages"]
                                     if p.get("ecosystem") in self.ecosystems]

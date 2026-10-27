@@ -767,11 +767,12 @@ class ContainerManager:
         try/except so it merely stops writing to Neo4j in silence; partial recon has
         no such net and hard-crashes. See issue #169.
 
-        So when the image ALREADY bakes graph_db (recon and gvm), an
+        When the image ALREADY bakes graph_db, an
         unverifiable guess is strictly worse than not mounting at all: skip it
         and let the baked copy serve, at the cost of graph_db source
         hot-reload until the operator adds the compose mount. Only an image that
-        does NOT bake it (supply-chain) has to gamble on the guess.
+        does NOT bake it needs the fallback; current graph-writing scan spawns
+        bake graph_db.
         """
         # getattr: api.py sets this AFTER construction, and the helpers are also
         # exercised on instances built without __init__.
@@ -4454,10 +4455,9 @@ exit $RC
         return await self._run_blocking(self.ensure_sca_intel_fresh)
 
     # ------------------------------------------------------------------
-    # Supply-Chain scan (L1 "Other Scans") lifecycle - the CLEAN writer.
-    # Mirrors the trufflehog lifecycle: a creds-holding container that runs a
-    # static OFFLINE osv-scanner pass on an uploaded SBOM/lockfile and writes
-    # Package/MalPackageFinding nodes. No Docker socket, no clone, no tarball.
+    # Supply-Chain scan (L1 "Other Scans") lifecycle.
+    # The scanner emits a run-bound artifact; this trusted service performs all
+    # tenant-scoped graph writes after the scanner exits successfully.
     # ------------------------------------------------------------------
     def _get_supply_chain_container_name(self, project_id: str) -> str:
         safe_id = re.sub(r'[^a-zA-Z0-9_.-]', '_', project_id)
@@ -4490,8 +4490,10 @@ exit $RC
         except NotFound:
             pass
 
+        run_id = uuid.uuid4().hex
         state = SupplyChainState(
             project_id=project_id, status=SupplyChainStatus.STARTING,
+            user_id=user_id, run_id=run_id,
             started_at=datetime.now(timezone.utc))
         self.supply_chain_states[project_id] = state
 
@@ -4528,7 +4530,7 @@ exit $RC
                 **self._scanner_hardening(drop_caps=False),
                 name=container_name,
                 detach=True,
-                network_mode="host",  # reach Neo4j at localhost:7687 (trufflehog pattern)
+                network_mode="host",  # GitHub clone access; graph writes run in this service.
                 environment={
                     "PROJECT_ID": project_id,
                     "USER_ID": user_id,
@@ -4543,9 +4545,7 @@ exit $RC
                     "SUPPLY_CHAIN_COMMON_HOST_PATH": sibling_host_path(supply_chain_path, "supply_chain_common"),
                     # Per-project subdir inside the shared uploads volume.
                     "SUPPLY_CHAIN_UPLOADS_DIR": f"/data/supply-chain-uploads/{project_id}",
-                    "NEO4J_URI": os.environ.get("NEO4J_URI", "bolt://localhost:7687"),
-                    "NEO4J_USER": os.environ.get("NEO4J_USER", "neo4j"),
-                    "NEO4J_PASSWORD": os.environ.get("NEO4J_PASSWORD", ""),
+                    "SUPPLY_CHAIN_RUN_ID": run_id,
                     **self._scanner_env(project_id, user_id),
                     # Operator overrides for the dirty analyzer this scan spawns.
                     **self._analyzer_env(),
@@ -4562,14 +4562,12 @@ exit $RC
                     f"{supply_chain_path}/output": {"bind": "/app/supply_chain_scan/output", "mode": "rw"},
                     f"{supply_chain_path}": {"bind": "/app/supply_chain_scan", "mode": "rw"},
                     **self._recon_settings_mount(),
-                    **self._graph_db_mount(sibling_host_path(parent_host_path(supply_chain_path), "graph_db"), baked_into_image=False),
                     sibling_host_path(supply_chain_path, "supply_chain_common"): {"bind": "/app/supply_chain_common", "mode": "ro"},
                     # Deep analysis (GuardDog) dispatches a job to the DIRTY
                     # analyzer. Same posture the recon container already has:
                     # the BROKER socket, never the raw docker socket. The broker
                     # allowlists image + mounts, so this is a NARROWER privilege
-                    # than an orchestrator API key would be, and this container
-                    # already holds the Neo4j creds exactly like recon does.
+                    # than an orchestrator API key would be.
                     BROKER_SOCKET_VOLUME: {"bind": "/var/run/broker", "mode": "rw"},
                     self.supply_chain_uploads_volume: {"bind": "/data/supply-chain-uploads", "mode": "ro"},
                     self.supply_chain_osv_db_volume: {"bind": "/osv-db", "mode": "ro"},
@@ -4603,6 +4601,7 @@ exit $RC
                         exit_code = container.attrs.get("State", {}).get("ExitCode", -1)
                         if exit_code == 0:
                             state.status = SupplyChainStatus.COMPLETED
+                            self._ingest_supply_chain(state)
                         else:
                             state.status = SupplyChainStatus.ERROR
                             state.error = f"Container exited with code {exit_code}"
@@ -4619,6 +4618,71 @@ exit $RC
                     logger.warning(f"Docker API error checking Supply-Chain container for {project_id}: {e}")
             return state
         return SupplyChainState(project_id=project_id, status=SupplyChainStatus.IDLE)
+
+    SUPPLY_CHAIN_OUTPUT_DIR = Path("/app/supply_chain_scan/output")
+
+    def _ingest_supply_chain(self, state: SupplyChainState) -> None:
+        """Ingest only the artifact produced by this tenant's completed run."""
+        if state.ingested or state.ingest_attempts >= 3:
+            return
+        state.ingest_attempts += 1
+        if not state.project_id or not state.user_id or not state.run_id:
+            state.ingest_error = "Run is missing project, tenant, or run identity"
+            return
+
+        out_path = self.SUPPLY_CHAIN_OUTPUT_DIR / f"supply_chain_{state.project_id}.json"
+        try:
+            data = json.loads(out_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            state.ingest_error = f"Run-scoped supply-chain artifact is unavailable: {exc}"
+            return
+        if not isinstance(data, dict):
+            state.ingest_error = "Saved supply-chain artifact must be a JSON object"
+            return
+        if (data.get("project_id") != state.project_id
+                or data.get("user_id") != state.user_id
+                or data.get("run_id") != state.run_id):
+            state.ingest_error = "Saved supply-chain artifact does not match the completed run"
+            return
+        artifact = data.get("artifact")
+        if not isinstance(artifact, dict):
+            state.ingest_error = "Saved supply-chain artifact has an invalid payload"
+            return
+
+        try:
+            from graph_db import Neo4jClient
+
+            neo4j_uri = (os.environ.get("ORCHESTRATOR_NEO4J_URI", "").strip()
+                         or "bolt://neo4j:7687")
+            with Neo4jClient(uri=neo4j_uri) as client:
+                if not client.verify_connection():
+                    raise RuntimeError("Neo4j is unreachable")
+                repository = data.get("repository")
+                if isinstance(repository, str) and repository:
+                    anchor_value = client.ensure_github_repository(
+                        state.user_id, state.project_id, repository)
+                    anchor_label = "GithubRepository"
+                else:
+                    input_file = data.get("input_file")
+                    if not isinstance(input_file, str) or not input_file:
+                        raise ValueError("Supply-chain artifact has no repository or SBOM identity")
+                    anchor_value = client.ensure_sbom_document(
+                        state.user_id, state.project_id, input_file)
+                    anchor_label = "SbomDocument"
+                result = client.update_graph_from_supply_chain(
+                    artifact, state.user_id, state.project_id,
+                    anchor_label=anchor_label, anchor_key="id",
+                    anchor_value=anchor_value)
+            state.ingested = True
+            state.ingest_error = None
+            logger.info(
+                "[supply-chain] trusted ingest completed for project %s run %s: %s",
+                state.project_id, state.run_id, result)
+        except Exception as exc:
+            state.ingest_error = str(exc)
+            logger.warning(
+                "[supply-chain] graph ingest attempt %s failed for project %s: %s",
+                state.ingest_attempts, state.project_id, exc)
 
     async def pause_supply_chain(self, project_id: str) -> "SupplyChainState":
         state = await self.get_supply_chain_status(project_id)

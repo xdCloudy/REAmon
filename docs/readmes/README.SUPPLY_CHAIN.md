@@ -58,9 +58,11 @@ The whole feature is built around one idea: **separate the code that touches
 untrusted bytes from the code that holds secrets.** Package tarballs, target-served
 JS, and OSV/registry metadata are all attacker-influenceable; the Neo4j password,
 the internal API key, and the GitHub token are not. So every operation is split
-between a hardened **DIRTY** zone (no secrets, processes hostile bytes) and a
-**CLEAN** zone (holds creds, writes the graph, only ever sees a validated JSON
-artifact).
+between hardened analysis workers and the trusted control plane. The L1 Secret
+Hunt and Supply Chain workers emit validated, provenance-bound artifacts; only
+the orchestrator holds graph credentials for those paths and writes their
+tenant-scoped graph records. Other legacy recon worker families still have
+direct graph access; see the readiness matrix for the remaining isolation gate.
 
 ```mermaid
 flowchart TB
@@ -76,10 +78,10 @@ flowchart TB
       OSVDB[(redamon-osv-db - offline OSV DB volume)]
     end
 
-    subgraph CLEAN[CLEAN zone - holds Neo4j creds]
-      L1C[redamon-supply-chain - L1 scan writer]
-      RECON[redamon-recon - L2 recon pipeline]
+    subgraph SCAN[Supply Chain scanner - no Neo4j credentials]
+      L1C[redamon-supply-chain - L1 artifact producer]
     end
+    RECON[redamon-recon - L2 recon pipeline]
 
     subgraph DIRTY[DIRTY zone - no secrets, hardened]
       ANALYZER[redamon-supply-chain-analyzer]
@@ -101,7 +103,8 @@ flowchart TB
     KALI -->|osv --offline| OSVDB
     ANALYZER -->|guarddog / osv --offline| OSVDB
 
-    L1C -->|MERGE nodes| NEO
+    L1C -->|run-bound JSON artifact| ORCH
+    ORCH -->|tenant-bound MERGE| NEO
     RECON -->|MERGE nodes| NEO
 
     ORCH -.spawn via.-> BROKER
@@ -514,17 +517,17 @@ Registered in `agentic/prompts/tool_registry.py`; phase-gated in
 The operator configures the input - an uploaded SBOM / lockfile, a GitHub
 repository, or an organization to batch - in **Project Settings -> Other Scans ->
 Supply Chain Scanner**, then starts the scan from the card of the same name in
-the **Other Scans** modal (the card holds the run controls only, and Start is
-disabled until an input is configured). The orchestrator spawns a CLEAN writer
-container that runs a static, offline osv-scanner pass and MERGEs the results
-into the graph.
+the **Other Scans** modal. The scanner runs the static, offline osv-scanner pass
+and emits an atomically published artifact with project, tenant, and unique run
+identities. The orchestrator accepts only a matching artifact and performs the
+graph writes.
 
 ```mermaid
 sequenceDiagram
     participant UI as Webapp (Other Scans)
     participant WEBROUTE as /api/supply-chain/[pid]/*
     participant ORCH as recon-orchestrator
-    participant SCAN as redamon-supply-chain-PID (CLEAN)
+    participant SCAN as redamon-supply-chain-PID (no graph credentials)
     participant OSVDB as redamon-osv-db (ro)
     participant NEO as Neo4j
 
@@ -532,14 +535,17 @@ sequenceDiagram
     UI->>WEBROUTE: POST start
     WEBROUTE->>ORCH: POST /supply-chain/PID/start
     ORCH->>ORCH: _admit_scan (memory governor, 1.75 GB envelope)
-    ORCH->>SCAN: spawn (network=host, Neo4j creds, mounts uploads/osv-db/graph_db/sc_common)
+    ORCH->>SCAN: spawn (run ID, settings scope, mounts uploads/osv-db/sc_common)
     SCAN->>WEBROUTE: GET /api/projects/PID (scanner key + signed project scope)
     SCAN->>SCAN: resolve_input_path (basename-only, ext allowlist)
     SCAN->>OSVDB: osv-scanner scan source --offline -L uploaded-file
     OSVDB-->>SCAN: JSON verdicts
     SCAN->>SCAN: assemble + validate_artifact
-    SCAN->>NEO: update_graph_from_supply_chain (MERGE Package + MalPackageFinding)
-    SCAN-->>ORCH: exit 0 -> status=completed (auto-removed)
+    SCAN->>SCAN: atomically save project/tenant/run-bound JSON artifact
+    SCAN-->>ORCH: exit 0
+    ORCH->>ORCH: verify artifact identity matches completed run
+    ORCH->>NEO: ensure anchor + update_graph_from_supply_chain
+    ORCH-->>ORCH: status=completed; remove worker
     UI->>WEBROUTE: GET status / stream logs (SSE)
 ```
 
@@ -551,11 +557,16 @@ sequenceDiagram
   and registration in `_active_scan_keys` so the governor accounts for it. REST
   endpoints live at `recon_orchestrator/api.py` (`/supply-chain/PID/*`); the
   webapp proxies them at `webapp/src/app/api/supply-chain/[projectId]/*`.
-- **The CLEAN writer** (`scanners/supply_chain_scan/`): fetches settings from the webapp
+- **The scanner** (`scanners/supply_chain_scan/`): fetches settings from the webapp
   API using the scoped `SCANNER_API_KEY`, validates the uploaded filename
   (basename-only, extension allowlist, no traversal), runs osv-scanner offline via
-  `supply_chain_common`, assembles + validates the artifact, and writes the graph
-  with `Neo4jClient` (it holds the Neo4j creds; the DIRTY analyzer does not).
+  `supply_chain_common`, assembles + validates the artifact, and atomically
+  publishes it with project, tenant, and run identifiers. It has no Neo4j driver,
+  graph mount, or graph credentials.
+- **Trusted ingest** (`recon_orchestrator/container_manager.py`): verifies all
+  artifact identities against the in-memory completed run, creates a
+  `GithubRepository` or `SbomDocument` anchor, then calls the existing
+  `update_graph_from_supply_chain` mixin with the trusted tenant identity.
 - **Input safety:** the uploaded file lands in the `redamon_supply_chain_uploads`
   named volume under a per-project subdir; the scan mounts it **read-only**, so
   project A cannot read project B's SBOM.
@@ -568,9 +579,8 @@ sequenceDiagram
 | `MalPackageFinding` | **Create or enrich** | MERGE on `(finding_id, user_id, project_id)`. The verdict is created or its props refreshed. |
 | `(Package)-[:FLAGGED_AS]->(MalPackageFinding)` | Create | Links each verdict to its package. |
 
-L1 v1 input is an **uploaded SBOM / lockfile**, which has no repository/URL parent
-in the graph, so its `Package` nodes **float** (no `DEPENDS_ON` edge). GitHub-repo
-input (which would anchor to a `GithubRepository` node) is v2. L1 does **not**
+An uploaded SBOM / lockfile anchors package findings to its `SbomDocument`; a
+GitHub repository scan anchors them to its `GithubRepository`. L1 does **not**
 mutate any pre-existing non-supply-chain node.
 
 ---
@@ -811,8 +821,9 @@ flowchart TB
 
 | Container | Zone | Lifecycle | Holds Neo4j creds? | OSV DB | Network |
 |---|---|---|---|---|---|
-| `redamon-supply-chain-PID` (L1) | CLEAN | spawned per scan, auto-removed | Yes | ro | host (reach Neo4j at `localhost:7687`) |
-| `redamon-recon-PID` (L2) | CLEAN | spawned per recon scan | Yes | ro (mounted at spawn) | host |
+| `redamon-supply-chain-PID` (L1) | scanner | spawned per scan, auto-removed | **No** | ro | host (repository access) |
+| `redamon-recon-PID` (L2) | scanner | spawned per recon scan | Yes | ro (mounted at spawn) | host |
+| `recon-orchestrator` | trusted control plane | long-lived; ingests completed L1 artifacts | Yes | n/a | service network |
 | `redamon-supply-chain-analyzer` | DIRTY | `docker run` per GuardDog call (L2 deep analysis, and L3 `execute_guarddog`) | **No** | ro | registry egress required; `cap_drop=ALL`, read-only rootfs, non-root uid 1001, pid/mem caps |
 | `kali-sandbox` (L3) | tool | long-lived | no (uses scoped tokens) | ro | internal |
 
@@ -885,9 +896,12 @@ budgeted: GuardDog runs the packages sequentially, so that knob bounds wall-cloc
 
 ## v1 scope and v2 roadmap
 
-**v1 (shipped):**
+**Current scope (shipped):**
 
-- L1 input: an uploaded **SBOM / lockfile** (static, offline). Nodes float (no repo anchor).
+- L1 input: an uploaded **SBOM / lockfile** (static, offline) or a GitHub repository.
+  Uploaded scans anchor findings to `SbomDocument`; repository scans anchor to `GithubRepository`.
+- L1 graph writes run in the trusted orchestrator after it validates project, tenant,
+  and unique run identity from the atomically published scanner artifact.
 - L2: source-map + technology harvest + offline OSV verdict; anchored to `BaseURL`.
 - L2 **GuardDog deep analysis** (opt-in, flagged-package-only) -> `suspicious` findings.
 - L3: `execute_osv_scanner` (offline) + `execute_guarddog` (dispatched to the analyzer).
@@ -900,8 +914,9 @@ OSV **already flagged** (malicious first, capped at
 `SUPPLY_CHAIN_DEEP_MAX_PACKAGES`, default 10), maps the OSV ecosystem brand to
 GuardDog's slug, and runs `guarddog <eco> scan` **inside the dirty analyzer
 image**, spawned through the broker socket the recon container already holds
-(`DOCKER_HOST=unix:///var/run/broker/docker.sock`). The recon process holds the
-Neo4j creds and never unpacks a tarball itself.
+(`DOCKER_HOST=unix:///var/run/broker/docker.sock`). The recon process retains its
+current Neo4j graph-write path and never unpacks a tarball itself. L1 Supply Chain
+uses a separate artifact handoff and does not receive Neo4j credentials.
 
 Results become `suspicious` findings (`verdict=suspicious`,
 `source_tool=guarddog`, `advisory_id=<rule>`), carrying the **versioned purl**
@@ -953,7 +968,7 @@ only an OSV `MAL-` id is.
 scanners/supply_chain_common/            # shared engine: runners, parsers, security, artifact, db sync
 scanners/supply_chain_common/analyzer_dispatch.py  # ONE hardened argv for all 3 analyzer spawners
 scanners/supply_chain_analyzer/          # DIRTY image + entrypoint (sc-analyze)
-scanners/supply_chain_scan/              # L1 CLEAN writer (main, runner, project_settings, Dockerfile)
+scanners/supply_chain_scan/              # L1 artifact producer (no Neo4j dependency)
 recon/helpers/supply_chain/harvest.py            # L2 black-box harvest (pure, no network)
 recon/main_recon_modules/supply_chain_recon.py   # L2 pipeline module (GROUP 5.5)
 recon/partial_recon_modules/supply_chain.py      # L2 partial recon
@@ -962,7 +977,7 @@ graph_db/schema.py                               # uniqueness constraints
 graph_db/resource_governor.py                    # envelopes + container_cap (memory accounting)
 mcp/servers/network_recon_server.py              # L3 execute_osv_scanner (passive, in kali)
 agentic/supply_chain_tools.py                    # L3 execute_guarddog (dispatched to orchestrator)
-recon_orchestrator/{container_manager,api,models}.py  # L1 lifecycle + REST + L3 guarddog admission
+recon_orchestrator/{container_manager,api,models}.py  # L1 lifecycle/ingest + REST + L3 guarddog admission
 webapp/src/app/api/supply-chain/                 # proxy routes + SBOM upload
 webapp/src/components/projects/ProjectForm/sections/SupplyChainSection.tsx
 webapp/src/app/api/analytics/redzone/supplyChainSca/route.ts    # SCA table API (3 sheets)

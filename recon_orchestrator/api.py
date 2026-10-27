@@ -133,7 +133,7 @@ TRUFFLEHOG_IMAGE = os.getenv("TRUFFLEHOG_IMAGE", "redamon-trufflehog:latest")
 # webapp stores an uploaded SBOM/lockfile; mounted read-only into the scan.
 SUPPLY_CHAIN_PATH = _get_host_path(_host_mounts, "/app/supply_chain_scan", "SUPPLY_CHAIN_PATH")
 SUPPLY_CHAIN_IMAGE = os.getenv("SUPPLY_CHAIN_IMAGE", "redamon-supply-chain:latest")
-# graph_db host path, bound into EVERY spawned scan container. Resolved the same
+# graph_db host path, bound into graph-writing scan containers. Resolved the same
 # way as every other source path (auto-detected from our own mounts, env override
 # second) instead of being DERIVED from a sibling's Source string: on any host
 # where Docker reports a rewritten bind Source (Docker Desktop on Windows/WSL2)
@@ -141,7 +141,7 @@ SUPPLY_CHAIN_IMAGE = os.getenv("SUPPLY_CHAIN_IMAGE", "redamon-supply-chain:lates
 # EMPTY, and the empty dir shadows the scan image's baked-in copy. Optional so an
 # orchestrator container predating the compose mount still starts; container_manager
 # then falls back to the legacy guess (and skips the mount where it would shadow a
-# good baked-in copy).
+# good baked-in copy). Artifact-only scanners do not receive this mount.
 try:
     GRAPH_DB_PATH = _get_host_path(_host_mounts, "/app/graph_db", "GRAPH_DB_PATH")
 except RuntimeError:
@@ -590,7 +590,7 @@ async def lifespan(app: FastAPI):
     container_manager.local_llm_manager = local_llm_manager
     # CodeFix build sandbox (T6/E10): host path of the shared cypherfix-work volume.
     container_manager.codefix_work_host_base = CODEFIX_WORK_PATH
-    # Auto-detected graph_db host path for every spawned scan container's
+    # Auto-detected graph_db host path for graph-writing scan containers'
     # /app/graph_db bind. Empty => container_manager falls back to the legacy
     # sibling-derivation guess (and refuses to shadow a baked-in copy with it).
     container_manager.graph_db_host_path = GRAPH_DB_PATH

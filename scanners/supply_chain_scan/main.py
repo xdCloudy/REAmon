@@ -2,9 +2,8 @@
 """RedAmon - Supply-Chain Scan (L1 "Other Scans") entry point.
 
 Runs a standalone supply-chain audit of an operator-uploaded SBOM / lockfile
-against the OFFLINE OSV database, writes Package / MalPackageFinding graph nodes,
-and saves a JSON artifact. This is the CLEAN writer: it holds Neo4j creds but
-only ever runs a static, no-install, offline osv-scanner pass (plan S1).
+against the OFFLINE OSV database and saves a run-bound JSON artifact. The
+orchestrator, not this scanner, owns Neo4j credentials and graph writes.
 
 Env (set by the orchestrator):
     PROJECT_ID, USER_ID, WEBAPP_API_URL,
@@ -16,6 +15,7 @@ Env (set by the orchestrator):
 import json
 import os
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -50,6 +50,7 @@ def run_supply_chain_scan(project_id: str) -> dict:
     db_path = os.environ.get("OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY", "/osv-db")
     output_dir = os.environ.get("SUPPLY_CHAIN_OUTPUT_DIR",
                                 str(Path(__file__).parent / "output"))
+    run_id = os.environ.get("SUPPLY_CHAIN_RUN_ID", "")
 
     print("\n" + "=" * 70)
     print("           RedAmon - Supply-Chain Scan (L1)")
@@ -114,8 +115,7 @@ def run_supply_chain_scan(project_id: str) -> dict:
             _shutil.rmtree(repo_scratch, ignore_errors=True)
 
     # Deep behavioural analysis (GuardDog), opt-in. Dispatched to the DIRTY
-    # analyzer over the broker socket: this process holds the Neo4j creds and
-    # must never unpack an attacker-authored tarball itself.
+    # analyzer over the broker socket; this scanner does not hold graph credentials.
     deep_stats = None
     if get_setting("SUPPLY_CHAIN_DEEP_ANALYSIS_ENABLED", False):
         try:
@@ -180,56 +180,19 @@ def run_supply_chain_scan(project_id: str) -> dict:
     print("=" * 70 + "\n")
 
     # Save the artifact.
-    os.makedirs(output_dir, exist_ok=True)
-    out_file = os.path.join(output_dir, f"supply_chain_{project_id}.json")
-    with open(out_file, "w") as fh:
-        json.dump({
-            "project_id": project_id,
-            "scanned_at": datetime.now(timezone.utc).isoformat(),
-            "input_mode": input_mode,
-            "input_file": repo_slug or sbom_file,
-            "repository": repo_slug,
-            "repository_ref": repo_ref if repo_slug else None,
-            "artifact": artifact,
-        }, fh, indent=2)
+    payload = {
+        "project_id": project_id,
+        "user_id": USER_ID,
+        "run_id": run_id,
+        "scanned_at": datetime.now(timezone.utc).isoformat(),
+        "input_mode": input_mode,
+        "input_file": repo_slug or sbom_file,
+        "repository": repo_slug,
+        "repository_ref": repo_ref if repo_slug else None,
+        "artifact": artifact,
+    }
+    out_file = save_scan_artifact(output_dir, project_id, payload)
     print(f"[+] Saved artifact to {out_file}")
-
-    # Write the graph (CLEAN writer holds Neo4j creds). Every package gets a
-    # parent: a repo scan anchors to its GithubRepository, an upload to the
-    # SbomDocument for the file it came from.
-    try:
-        from graph_db import Neo4jClient
-
-        with Neo4jClient() as client:
-            if client.verify_connection():
-                if repo_slug:
-                    # A repo scan anchors to the repository it cloned.
-                    repo_id = client.ensure_github_repository(
-                        USER_ID, project_id, repo_slug)
-                    gstats = client.update_graph_from_supply_chain(
-                        artifact, USER_ID, project_id,
-                        anchor_label="GithubRepository", anchor_key="id",
-                        anchor_value=repo_id)
-                else:
-                    # An UPLOAD anchors to the file itself. It used to anchor
-                    # to nothing, which left every uploaded package - and its
-                    # vulnerabilities - as an island in the graph, against the
-                    # schema's own "No Isolated Nodes" rule. The file is the
-                    # honest parent: it is what the operator supplied and what
-                    # the packages were read out of.
-                    doc_id = client.ensure_sbom_document(
-                        USER_ID, project_id, sbom_file)
-                    gstats = client.update_graph_from_supply_chain(
-                        artifact, USER_ID, project_id,
-                        anchor_label="SbomDocument", anchor_key="id",
-                        anchor_value=doc_id)
-                print(f"[+] Graph updated: {gstats}")
-            else:
-                print("[!] Could not connect to Neo4j - skipping graph update")
-    except ImportError:
-        print("[!] Neo4j client not available - skipping graph update")
-    except Exception as e:
-        print(f"[!] Graph update failed (non-fatal): {e}")
 
     return {
         "input_mode": input_mode,
@@ -239,9 +202,28 @@ def run_supply_chain_scan(project_id: str) -> dict:
     }
 
 
+def save_scan_artifact(output_dir: str, project_id: str, payload: dict) -> str:
+    """Atomically publish a completed run so readers never see partial JSON."""
+    os.makedirs(output_dir, exist_ok=True)
+    out_file = os.path.join(output_dir, f"supply_chain_{project_id}.json")
+    fd, pending_path = tempfile.mkstemp(prefix=".supply_chain_", suffix=".tmp", dir=output_dir)
+    try:
+        os.fchmod(fd, 0o644)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(payload, fh, indent=2)
+        os.replace(pending_path, out_file)
+    finally:
+        if os.path.exists(pending_path):
+            os.unlink(pending_path)
+    return out_file
+
+
 def main() -> int:
     if not PROJECT_ID:
         print("[!] ERROR: PROJECT_ID environment variable not set")
+        return 1
+    if not os.environ.get("SUPPLY_CHAIN_RUN_ID"):
+        print("[!] ERROR: SUPPLY_CHAIN_RUN_ID environment variable not set")
         return 1
 
     load_project_settings(PROJECT_ID)

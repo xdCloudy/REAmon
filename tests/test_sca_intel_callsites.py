@@ -19,6 +19,7 @@ import unittest
 
 _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _L1 = os.path.join(_REPO, "scanners", "supply_chain_scan", "main.py")
+_ORCHESTRATOR = os.path.join(_REPO, "recon_orchestrator", "container_manager.py")
 _L2 = os.path.join(_REPO, "recon", "main_recon_modules", "supply_chain_recon.py")
 
 
@@ -46,13 +47,22 @@ class TestEnrichmentOrdering(unittest.TestCase):
     def test_l2_enriches_after_the_last_validation(self):
         self._assert_enrich_after_last_validate(_L2, "L2 supply_chain_recon.py")
 
-    def test_l1_enriches_before_the_graph_write(self):
+    def test_l1_enriches_before_publishing_the_artifact(self):
         src = _read(_L1)
         enrich = src.index("enrich_findings(")
-        graph = src.index("update_graph_from_supply_chain(")
-        self.assertLess(enrich, graph,
-                        "L1 must enrich before the graph write, or the incident "
-                        "properties never reach Neo4j")
+        publish = src.index("save_scan_artifact(output_dir, project_id, payload)")
+        self.assertLess(enrich, publish,
+                        "L1 must enrich before publishing or incident properties "
+                        "will not reach the trusted ingest")
+
+    def test_l1_trusted_ingest_checks_run_identity_before_graph_write(self):
+        src = _read(_ORCHESTRATOR)
+        ingest = src.split("def _ingest_supply_chain(", 1)[1].split(
+            "\n    async def pause_supply_chain(", 1)[0]
+        identity_check = ingest.index('data.get("run_id") != state.run_id')
+        graph_write = ingest.index("update_graph_from_supply_chain(")
+        self.assertLess(identity_check, graph_write,
+                        "L1 must reject stale artifacts before writing graph data")
 
     def test_l2_enriches_before_the_result_is_built(self):
         src = _read(_L2)

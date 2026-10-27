@@ -6,18 +6,19 @@ Earlier checkpoint (2026-10-27): the local webapp image `sha256:375686f71d587118
 
 ## Scanner graph credential boundary (2026-10-27)
 
-GitHub Secret Hunt now writes its findings artifact without connecting to Neo4j.
-The orchestrator performs the tenant-bound graph ingest after the scanner exits,
-using its trusted connection. The worker spawn no longer receives Neo4j
-credentials or a graph database mount, and the scanner image no longer copies
-the graph client or installs its driver. Signed project-settings access and the
-mounted output path remain in place.
+GitHub Secret Hunt and Supply Chain now emit artifacts without connecting to
+Neo4j. The trusted orchestrator performs tenant-bound graph ingest. Both worker
+spawns omit Neo4j credentials and the graph database mount; the Supply Chain
+scanner image also omits the Neo4j driver. Its JSON handoff is atomically
+published and bound to the current project, tenant, and unique run ID, so stale
+artifacts are rejected. Repository scans retain their `GithubRepository` anchor;
+uploaded SBOM scans retain their `SbomDocument` anchor.
 
-The focused Docker checks passed: 18 orchestrator tests cover the worker boundary
-and trusted artifact ingest, and 5 agent-image tests cover saved findings after
-SIGTERM and the scanner's lack of graph access. The reduced GitHub Hunt image
-build also passed. This isolates GitHub Hunt only. Full recon, partial recon, AI
-attack-surface, GVM, and supply-chain workers still receive direct graph
+Focused Docker tests passed: 30 orchestrator boundary/ingest checks and 12
+Supply Chain scanner tests. The reduced scanner image built successfully, has
+no `neo4j` package or `graph_db` module, passes `pip check`, and compiles its
+Python sources. This covers GitHub Hunt and Supply Chain only. Full recon,
+partial recon, AI attack-surface, and GVM workers still receive direct graph
 credentials; scanner-wide credential isolation remains a production gate.
 
 ## PyInstaller module paging and source recovery (2026-10-27)

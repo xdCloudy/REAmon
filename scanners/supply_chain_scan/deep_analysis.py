@@ -4,10 +4,8 @@ The toggle `SUPPLY_CHAIN_DEEP_ANALYSIS_ENABLED` was parsed by
 supply_chain_scan/project_settings.py and read NOWHERE, so it was a dead switch
 in the UI.
 
-This module holds the Neo4j credentials, so it never unpacks a tarball itself:
-it sends a job to the analyzer over the broker socket - the same posture the
-recon container has used all along. The broker allowlists the image and the
-mounts, which is a narrower privilege than an orchestrator API key would be.
+This module never unpacks a tarball itself: it sends a job to the analyzer over
+the broker socket. The broker allowlists the image and mounts.
 
 Only packages the offline OSV pass ALREADY flagged are sent, capped, exactly
 like the L2 pass.
@@ -86,8 +84,8 @@ def deep_analyze(artifact, *, limit=_MAX_PACKAGES, timeout=_TIMEOUT,
 
     out = res.get("artifact")
     if out is None:
-        # A dispatch failure must never read as "analysed, nothing found":
-        # the graph writer never sees artifact["errors"].
+        # A dispatch failure must never read as "analysed, nothing found";
+        # the saved artifact preserves soft-error evidence for the operator.
         stats["failed"] = len(specs)
         for spec in specs:
             _soft_error(artifact, spec,

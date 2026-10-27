@@ -485,13 +485,17 @@ class TestUploadedSbomIsNotAnIsland(unittest.TestCase):
                 artifact(), "u1", "p1", anchor_label="Evil",
                 anchor_key="id", anchor_value="x")
 
-    def test_l1_main_anchors_uploads(self):
-        """Source guard: the upload branch must not go back to anchor=None."""
-        src = open(os.path.join(_REPO, "scanners", "supply_chain_scan", "main.py")).read()
-        code = "\n".join(l for l in src.splitlines()
+    def test_trusted_l1_ingest_anchors_uploads(self):
+        """Uploaded SBOMs stay anchored after ingest moved to the orchestrator."""
+        src = open(os.path.join(_REPO, "recon_orchestrator", "container_manager.py")).read()
+        ingest = src.split("def _ingest_supply_chain(", 1)[1].split(
+            "\n    async def pause_supply_chain(", 1)[0]
+        code = "\n".join(l for l in ingest.splitlines()
                           if not l.lstrip().startswith("#"))
         self.assertIn("ensure_sbom_document", code)
-        self.assertIn('anchor_label="SbomDocument"', code)
+        self.assertIn('anchor_label = "SbomDocument"', code)
+        self.assertIn("ensure_github_repository", code)
+        self.assertIn('anchor_label = "GithubRepository"', code)
 
 
 class TestAnchorsReachTheDomain(unittest.TestCase):

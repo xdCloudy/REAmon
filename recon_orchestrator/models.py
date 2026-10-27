@@ -342,12 +342,17 @@ class SupplyChainState(BaseModel):
     """Current state of a Supply-Chain scan process"""
     project_id: str
     status: SupplyChainStatus
+    user_id: Optional[str] = None
+    run_id: Optional[str] = None
     current_phase: Optional[str] = None
     phase_number: Optional[Union[int, float]] = None
     total_phases: int = 1
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     error: Optional[str] = None
+    ingest_error: Optional[str] = None
+    ingested: bool = False
+    ingest_attempts: int = 0
     container_id: Optional[str] = None
 
 
