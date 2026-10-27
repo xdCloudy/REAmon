@@ -88,8 +88,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # surface and makes its transitive advisories production findings.
 RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 
-RUN groupadd --system --gid 1001 nodejs
-RUN useradd --system --uid 1001 --gid nodejs --no-create-home nextjs
+RUN groupadd --system --gid 1001 nodejs \
+    && groupadd --system --gid 10001 reamon-derived \
+    && useradd --system --uid 1001 --gid nodejs --groups reamon-derived --no-create-home nextjs
 
 COPY --from=builder /app/public ./public
 
@@ -109,6 +110,12 @@ RUN mkdir -p /data/supply-chain-uploads && chown nextjs:nodejs /data/supply-chai
 # REAmon target/artifact imports. Keep bytes in a named volume rather than in
 # the immutable application layer so investigations survive image upgrades.
 RUN mkdir -p /data/reamon-artifacts && chown nextjs:nodejs /data/reamon-artifacts
+# Derived analysis artifacts are shared with isolated provider containers that
+# run as uid/gid 10001. Keep the volume private to the app and provider group;
+# the compose init job applies these permissions to an existing named volume.
+RUN mkdir -p /data/reamon-derived \
+    && chown nextjs:reamon-derived /data/reamon-derived \
+    && chmod 2770 /data/reamon-derived
 
 # Leverage output traces to reduce image size
 # https://nextjs.org/docs/advanced-features/output-file-tracing

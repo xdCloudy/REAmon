@@ -8,6 +8,7 @@ const h = vi.hoisted(() => ({
   user: vi.fn(), access: vi.fn(), selection: vi.fn(), provider: vi.fn(), observation: vi.fn(), observations: vi.fn(), observationCreateMany: vi.fn(), artifact: vi.fn(),
   artifacts: vi.fn(), maintainedSource: vi.fn(), drafts: vi.fn(), draft: vi.fn(), agentFetch: vi.fn(), root: vi.fn(), resolvePath: vi.fn(),
   evidenceFindMany: vi.fn(),
+  functionMatches: vi.fn(),
   attemptsFindMany: vi.fn(), attemptsCreate: vi.fn(), attemptsUpdateMany: vi.fn(),
   reviewsFindMany: vi.fn(), reviewsFindFirst: vi.fn(), leaseCreate: vi.fn(), leaseDeleteMany: vi.fn(),
 }))
@@ -20,6 +21,7 @@ vi.mock('@/lib/prisma', () => ({ default: {
   reamonCodeDraft: { findMany: h.drafts, findFirst: h.draft },
   reamonCodeAttempt: { findMany: h.attemptsFindMany, create: h.attemptsCreate, updateMany: h.attemptsUpdateMany },
   reamonCodeReview: { findMany: h.reviewsFindMany, findFirst: h.reviewsFindFirst },
+  reamonFunctionMatch: { findMany: h.functionMatches },
   reamonCodeUnitLease: { create: h.leaseCreate, deleteMany: h.leaseDeleteMany },
   evidence: { findMany: h.evidenceFindMany },
 } }))
@@ -69,6 +71,7 @@ beforeEach(async () => {
   h.attemptsUpdateMany.mockResolvedValue({ count: 0 })
   h.reviewsFindMany.mockResolvedValue([])
   h.reviewsFindFirst.mockResolvedValue(null)
+  h.functionMatches.mockResolvedValue([])
   h.leaseCreate.mockResolvedValue({ id: 'lease-1' })
   h.leaseDeleteMany.mockResolvedValue({ count: 0 })
   testRoot = await mkdtemp(path.join(os.tmpdir(), 'reamon-explain-'))
@@ -97,6 +100,35 @@ describe('POST /api/projects/[id]/visualizer/explain', () => {
       method: 'POST', body: expect.stringContaining('"model":"custom/provider-1"'),
     }), { timeoutMs: 90_000 })
     expect(String(h.agentFetch.mock.calls[0][1].body)).not.toContain('apiKey')
+  })
+
+  it('searches exact-hash shared identity evidence across completed runs without a recent-task window', async () => {
+    h.artifact.mockResolvedValueOnce({ id: 'artifact-1', sha256: 'a'.repeat(64) })
+    h.maintainedSource.mockResolvedValueOnce([{ codeUnitId: 'accepted-old-unit' }])
+    h.observation.mockResolvedValueOnce({
+      id: 'unit-1', artifactId: 'artifact-1', taskId: 'task-1', stableKey: 'native:function:0x1000',
+      canonicalKey: 'native:artifact-1:0x1000', source: 'reamon-ghidra', label: 'entry',
+      attributes: { address: '0x1000', codeArtifactId: 'project-1/artifact-1/task-1/run-1/sources/entry.c' },
+    })
+    await writeFile(path.join(testRoot, 'project-1/artifact-1/task-1/run-1/sources/entry.c'), 'int entry(void) { return 0; }')
+
+    const response = await POST(request({ unitId: 'unit-1', providerId: 'provider-1' }), routeParams)
+
+    expect(response.status).toBe(200)
+    expect(h.maintainedSource).toHaveBeenCalledWith(expect.objectContaining({
+      where: { projectId: 'project-1', artifactId: 'artifact-1', acceptedReviewId: { not: null } },
+      take: 4_097,
+    }))
+    const identityLookup = h.observations.mock.calls
+      .map(([args]) => args as { where?: Record<string, unknown>; take?: number })
+      .find(({ where }) => where?.task && where?.OR)
+    expect(identityLookup).toBeDefined()
+    expect(identityLookup?.where).toMatchObject({
+      projectId: 'project-1', artifactId: 'artifact-1',
+      id: { in: ['accepted-old-unit'] },
+      task: { is: { projectId: 'project-1', artifactId: 'artifact-1', capability: 'decompile', status: 'COMPLETED' } },
+    })
+    expect(identityLookup?.where).not.toHaveProperty('taskId')
   })
 
   it('rejects a provider owned by another user', async () => {

@@ -27,6 +27,7 @@ const MAX_METHOD_EVIDENCE_ROWS = 12
 const MAX_METHOD_EVIDENCE_BYTES = 4 * 1024
 const MAX_REFERENCE_EVIDENCE_ROWS = 401
 const MAX_CALL_EVIDENCE_ROWS = 41
+const MAX_SHARED_IDENTITY_SOURCE_IDS = 4_097
 
 function isInside(root: string, file: string): boolean {
   const relative = path.relative(root, file)
@@ -280,18 +281,20 @@ async function loadAcceptedSharedIdentityContext(input: {
   if (!input.artifactHash) return ''
   const nativeIdentity = nativeFunctionIdentity(input.artifactId, input.address)
   const addressAliases = nativeAddressAliases(input.address)
-  const tasks = await prisma.task.findMany({
-    where: { projectId: input.projectId, artifactId: input.artifactId, capability: 'decompile', status: 'COMPLETED' },
-    orderBy: [{ completedAt: 'desc' }, { createdAt: 'desc' }],
-    take: 100,
-    select: { id: true },
+  const acceptedSourceCandidates = await prisma.reamonMaintainedSource.findMany({
+    where: { projectId: input.projectId, artifactId: input.artifactId, acceptedReviewId: { not: null } },
+    orderBy: [{ updatedAt: 'desc' }, { codeUnitId: 'asc' }],
+    take: MAX_SHARED_IDENTITY_SOURCE_IDS,
+    select: { codeUnitId: true },
   })
-  if (!tasks.length) return ''
+  const acceptedSourceUnitIds = [...new Set(acceptedSourceCandidates.map((row) => row.codeUnitId))]
+  if (!acceptedSourceUnitIds.length) return ''
   const matches = await prisma.reamonObservation.findMany({
     where: {
       projectId: input.projectId,
       artifactId: input.artifactId,
-      taskId: { in: tasks.map((task) => task.id) },
+      id: { in: acceptedSourceUnitIds },
+      task: { is: { projectId: input.projectId, artifactId: input.artifactId, capability: 'decompile', status: 'COMPLETED' } },
       type: 'code_unit',
       source: { not: input.source },
       AND: [{ attributes: { path: ['inputArtifactSha256'], equals: input.artifactHash } }],
@@ -307,7 +310,7 @@ async function loadAcceptedSharedIdentityContext(input: {
       ],
     },
     orderBy: [{ updatedAt: 'desc' }, { stableKey: 'asc' }],
-    take: 100,
+    take: acceptedSourceUnitIds.length,
     select: { id: true, source: true, canonicalKey: true, attributes: true },
   })
   const providerByUnitId = new Map(matches.map((row) => [row.id, row.source]))

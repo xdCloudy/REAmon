@@ -14,6 +14,7 @@ const enabled = process.env.REAMON_RUN_DB_INTEGRATION === '1'
   && Boolean(process.env.REAMON_PYINSTALLER_FIXTURE_PATH)
   && Boolean(process.env.REAMON_ARTIFACTS_PATH && process.env.REAMON_DERIVED_PATH)
 const describeDatabase = describe.skipIf(!enabled)
+const runWorkerIntegration = process.env.REAMON_TASK_WORKER_INTEGRATION === '1'
 
 describeDatabase('PyInstaller continuation with PostgreSQL observation persistence', () => {
   const suffix = randomUUID()
@@ -181,4 +182,50 @@ describeDatabase('PyInstaller continuation with PostgreSQL observation persisten
     const source = await readFile(sourcePath, 'utf8')
     expect(source.trim().length).toBeGreaterThan(0)
   }, 30 * 60_000)
+
+  test.skipIf(!runWorkerIntegration)('completes a queued PyInstaller task through the live worker', async ({ skip }) => {
+    if (await prisma.task.count({ where: { status: 'QUEUED' } })) {
+      skip('The live task queue is not empty; avoid consuming unrelated work during integration acceptance')
+    }
+
+    const taskId = `pyi-db-worker-${suffix}`
+    await prisma.task.create({
+      data: {
+        id: taskId,
+        projectId,
+        artifactId,
+        providerId,
+        capability: 'decompile',
+        title: 'Verify PyInstaller execution through the live worker',
+        options: { requiresApproval: false },
+      },
+    })
+
+    const deadline = Date.now() + 5 * 60_000
+    let task = await prisma.task.findUnique({ where: { id: taskId } })
+    while (task && ['QUEUED', 'RUNNING'].includes(task.status) && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 1_000))
+      task = await prisma.task.findUnique({ where: { id: taskId } })
+    }
+    expect(task, 'the live worker did not settle the queued PyInstaller task').toBeDefined()
+    expect(task!.status, task!.error).toBe('COMPLETED')
+    expect(task!.result).toMatchObject({ modulePageOffset: 68, nextModulePageOffset: 132 })
+
+    const recovered = await prisma.reamonObservation.findFirst({
+      where: {
+        projectId,
+        artifactId,
+        source: 'reamon-pyinstaller',
+        type: 'code_unit',
+        attributes: { path: ['pyinstallerModuleIndex'], equals: 68 },
+      },
+      select: { attributes: true },
+    })
+    expect(recovered?.attributes).toMatchObject({ pyinstallerDecompilationAttempted: true, decompiled: true })
+    const codeArtifactId = (recovered!.attributes as Record<string, unknown>).codeArtifactId
+    expect(typeof codeArtifactId).toBe('string')
+    const sourcePath = path.resolve(derivedRoot, ...(codeArtifactId as string).replaceAll('\\', '/').split('/'))
+    expect(sourcePath.startsWith(`${derivedRoot}${path.sep}`)).toBe(true)
+    expect((await readFile(sourcePath, 'utf8')).trim().length).toBeGreaterThan(0)
+  }, 6 * 60_000)
 })

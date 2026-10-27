@@ -1067,6 +1067,27 @@ services:
   # Frontend
   # ===========================================================================
 
+  # The webapp writes stable extracted bytecode and source artifacts into the
+  # shared provider volume. Provider containers use gid 10001; normalize the
+  # existing named-volume root before the non-root webapp starts.
+  reamon-derived-init:
+    image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+    user: "0:0"
+    network_mode: none
+    read_only: true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - FOWNER
+      - FSETID
+    security_opt:
+      - no-new-privileges:true
+    command: ["sh", "-ec", "chown 10001:10001 /data/reamon-derived && chmod 2770 /data/reamon-derived"]
+    volumes:
+      - reamon_derived:/data/reamon-derived:rw
+    restart: "no"
+
   webapp:
     image: ${REAMON_WEBAPP_IMAGE:-redamon-webapp:latest}
     build:
@@ -1079,6 +1100,8 @@ services:
     mem_limit: ${WEBAPP_MEM:-1g}            # sized from host RAM by redamon.sh
     pids_limit: ${WEBAPP_PIDS:-512}         # D1: fork-bomb ceiling (generous)
     cpus: ${WEBAPP_CPUS:-4}                  # D1: CPU cap (generous)
+    group_add:
+      - "10001"
     ports:
       - "${WEBAPP_PORT:-3000}:3000"
     environment:
@@ -1297,6 +1320,8 @@ services:
         condition: service_healthy
       neo4j:
         condition: service_healthy
+      reamon-derived-init:
+        condition: service_completed_successfully
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000/api/health/ready"]
