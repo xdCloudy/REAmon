@@ -12,6 +12,7 @@ const MAX_MODULES_TO_DECOMPILE = 4
 const MAX_REQUEST_TIMEOUT_MS = 22 * 60_000
 
 interface ExtractedModule {
+  moduleIndex: number
   archivePath: string
   sizeBytes: number
   sha256: string
@@ -23,6 +24,8 @@ interface PyInstallerResponse {
   status: 'completed'
   extractorRevision: string
   moduleCount: number
+  offset: number
+  nextOffset: number
   outputBytes: number
   truncated: boolean
   elapsedMs: number
@@ -56,7 +59,8 @@ function isCodeUnitObservation(value: unknown): value is ToolObservation {
 
 function isExtractedModule(value: unknown): value is ExtractedModule {
   if (!isRecord(value)) return false
-  return typeof value.archivePath === 'string' && value.archivePath.length > 0 && value.archivePath.length <= 1000
+  return Number.isSafeInteger(value.moduleIndex) && (value.moduleIndex as number) >= 0
+    && typeof value.archivePath === 'string' && value.archivePath.length > 0 && value.archivePath.length <= 1000
     && Number.isSafeInteger(value.sizeBytes) && (value.sizeBytes as number) >= 16 && (value.sizeBytes as number) <= 4 * 1024 * 1024
     && typeof value.sha256 === 'string' && /^[a-f0-9]{64}$/.test(value.sha256)
     && typeof value.magicHex === 'string' && /^[a-f0-9]{8}$/.test(value.magicHex)
@@ -68,10 +72,31 @@ function isResponse(value: unknown): value is PyInstallerResponse {
   return value.status === 'completed'
     && typeof value.extractorRevision === 'string' && value.extractorRevision.length <= 100
     && Number.isSafeInteger(value.moduleCount) && (value.moduleCount as number) >= value.modules.length
+    && Number.isSafeInteger(value.offset) && (value.offset as number) >= 0
+    && Number.isSafeInteger(value.nextOffset) && (value.nextOffset as number) >= (value.offset as number)
+    && (value.nextOffset as number) <= (value.moduleCount as number)
+    && (value.nextOffset as number) - (value.offset as number) === value.modules.length
+    && value.modules.every((module, index) => isExtractedModule(module) && module.moduleIndex === (value.offset as number) + index)
     && Number.isSafeInteger(value.outputBytes) && (value.outputBytes as number) >= 0 && (value.outputBytes as number) <= 16 * 1024 * 1024
     && typeof value.truncated === 'boolean'
     && Number.isSafeInteger(value.elapsedMs) && (value.elapsedMs as number) >= 0
-    && value.modules.length > 0 && value.modules.length <= 64 && value.modules.every(isExtractedModule)
+    && value.truncated === ((value.nextOffset as number) < (value.moduleCount as number))
+    && value.modules.length <= 64
+}
+
+export function contiguousPyInstallerAttemptOffset(rows: Array<{ attributes: unknown }>): number {
+  const attempted = new Set<number>()
+  for (const row of rows) {
+    if (!isRecord(row.attributes)) continue
+    const index = row.attributes.pyinstallerModuleIndex
+    if (Number.isSafeInteger(index) && (index as number) >= 0
+        && (row.attributes.decompiled === true || row.attributes.pyinstallerDecompilationAttempted === true)) {
+      attempted.add(index as number)
+    }
+  }
+  let offset = 0
+  while (attempted.has(offset)) offset += 1
+  return offset
 }
 
 function errorText(error: unknown): string {
@@ -123,6 +148,8 @@ function extractedModuleObservation(
   moduleIdentity: string,
   executableSha256: string,
   extractorRevision: string,
+  decompilationAttempted = false,
+  decompilationError?: string,
 ): ToolObservation {
   const moduleName = path.posix.basename(module.archivePath).replace(/\.pyc$/i, '').slice(0, 500) || 'module'
   const codeUnitKey = moduleCodeUnitKey(input.artifactId || '', relativePath)
@@ -146,11 +173,37 @@ function extractedModuleObservation(
       sourceExecutableArtifactId: input.artifactId || '',
       sourceExecutableSha256: executableSha256,
       pyinstallerExtractorRevision: extractorRevision,
+      pyinstallerModuleIndex: module.moduleIndex,
+      pyinstallerDecompilationAttempted: decompilationAttempted,
+      ...(decompilationError ? { pyinstallerDecompilationError: decompilationError.slice(0, 1_000) } : {}),
       pyinstallerArchivePath: module.archivePath,
       extractedBytecodeArtifactId: bytecodeArtifactId,
       extractedBytecodeSha256: module.sha256,
       extractedBytecodeSizeBytes: module.sizeBytes,
       moduleIdentity,
+    },
+  }
+}
+
+function indexedPriorModuleObservation(
+  input: ToolExecutionInput,
+  module: ExtractedModule,
+  relativePath: string,
+  executableSha256: string,
+  priorAttributes: Record<string, unknown>,
+): ToolObservation {
+  const moduleName = path.posix.basename(module.archivePath).replace(/\.pyc$/i, '').slice(0, 500) || 'module'
+  return {
+    kind: 'entity',
+    type: 'code_unit',
+    key: moduleCodeUnitKey(input.artifactId || '', relativePath),
+    label: typeof priorAttributes.name === 'string' ? priorAttributes.name.slice(0, 500) : moduleName,
+    attributes: {
+      ...priorAttributes,
+      pyinstallerModuleIndex: module.moduleIndex,
+      pyinstallerDecompilationAttempted: priorAttributes.decompiled === true || priorAttributes.pyinstallerDecompilationAttempted === true,
+      pyinstallerArchivePath: module.archivePath,
+      sourceExecutableSha256: executableSha256,
     },
   }
 }
@@ -177,7 +230,31 @@ export async function executePyInstaller(input: ToolExecutionInput): Promise<Too
 
   const signal = timeoutSignal(input)
   try {
-    await input.reportProgress?.('Extracting bounded Python bytecode modules from the PyInstaller archive')
+    const executableSha256 = await sha256File(input.artifactPath)
+    const priorModuleRows = await prisma.reamonObservation.findMany({
+      where: {
+        projectId: input.projectId,
+        artifactId: input.artifactId,
+        source: pyinstallerManifest.id,
+        type: 'code_unit',
+        attributes: { path: ['sourceExecutableSha256'], equals: executableSha256 },
+      },
+      select: { id: true, stableKey: true, attributes: true, createdAt: true },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: 10_000,
+    })
+    const priorAttributesByKey = new Map<string, Record<string, unknown>>()
+    const decompiledKeys = new Set<string>()
+    const attemptedKeys = new Set<string>()
+    for (const row of priorModuleRows) {
+      const attributes = isRecord(row.attributes) ? row.attributes : null
+      if (!attributes) continue
+      if (!priorAttributesByKey.has(row.stableKey)) priorAttributesByKey.set(row.stableKey, attributes)
+      if (attributes.decompiled === true) decompiledKeys.add(row.stableKey)
+      if (attributes.decompiled === true || attributes.pyinstallerDecompilationAttempted === true) attemptedKeys.add(row.stableKey)
+    }
+    const requestedOffset = contiguousPyInstallerAttemptOffset(priorModuleRows)
+    await input.reportProgress?.(`Extracting PyInstaller bytecode modules from offset ${requestedOffset}`)
     const response = await fetch(`${extractorUrl}/extract`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', accept: 'application/json' },
@@ -187,6 +264,7 @@ export async function executePyInstaller(input: ToolExecutionInput): Promise<Too
         taskId: input.taskId,
         runId: input.runToken,
         artifactPath: input.artifactPath,
+        offset: requestedOffset,
       }),
       signal,
       cache: 'no-store',
@@ -199,50 +277,29 @@ export async function executePyInstaller(input: ToolExecutionInput): Promise<Too
       throw new Error(detail)
     }
     if (!isResponse(payload)) throw new Error('PyInstaller analyzer returned an invalid bounded module list')
+    if (payload.offset !== requestedOffset) throw new Error('PyInstaller analyzer returned a mismatched module offset')
 
-    const executableSha256 = await sha256File(input.artifactPath)
-    const orderedModules = [...payload.modules].sort((left, right) => {
-      const leftNested = left.archivePath.includes('/') ? 1 : 0
-      const rightNested = right.archivePath.includes('/') ? 1 : 0
-      return leftNested - rightNested || left.archivePath.localeCompare(right.archivePath)
-    })
-    const priorDecompiled = await prisma.reamonObservation.findMany({
-      where: {
-        projectId: input.projectId,
-        artifactId: input.artifactId,
-        source: pyinstallerManifest.id,
-        type: 'code_unit',
-        AND: [
-          { attributes: { path: ['decompiled'], equals: true } },
-          { attributes: { path: ['sourceExecutableSha256'], equals: executableSha256 } },
-        ],
-      },
-      select: { stableKey: true },
-      take: 10_000,
-    })
-    const decompiledKeys = new Set(priorDecompiled.map((row) => row.stableKey))
-    const alreadyDecompiledCount = orderedModules.filter((module) => {
+    const orderedModules = payload.modules
+    const unitKeyForModule = (module: ExtractedModule) => {
       const logicalPath = safeArchivePath(module.archivePath)
-      if (!logicalPath) return false
+      if (!logicalPath) return ''
       const moduleIdentity = createHash('sha256').update(`${logicalPath}\0${module.sha256}`).digest('hex')
       const relativePath = moduleSourcePath(input.artifactRelativePath, input.artifactId!, logicalPath, moduleIdentity)
-      return decompiledKeys.has(moduleCodeUnitKey(input.artifactId!, relativePath))
-    }).length
+      return moduleCodeUnitKey(input.artifactId!, relativePath)
+    }
+    const alreadyDecompiledCount = orderedModules.filter((module) => decompiledKeys.has(unitKeyForModule(module))).length
     const modulesNeedingSource = orderedModules.filter((module) => {
-      const logicalPath = safeArchivePath(module.archivePath)
-      if (!logicalPath) return true
-      const moduleIdentity = createHash('sha256').update(`${logicalPath}\0${module.sha256}`).digest('hex')
-      const relativePath = moduleSourcePath(input.artifactRelativePath, input.artifactId!, logicalPath, moduleIdentity)
-      return !decompiledKeys.has(moduleCodeUnitKey(input.artifactId!, relativePath))
+      const unitKey = unitKeyForModule(module)
+      return !unitKey || !attemptedKeys.has(unitKey)
     })
     const selectedModules = modulesNeedingSource.slice(0, MAX_MODULES_TO_DECOMPILE)
     const observations: ToolObservation[] = []
     const warnings: string[] = []
     let codeBytes = 0
     let decompiledCount = 0
-    await input.reportProgress?.(`Found ${payload.moduleCount} bounded bytecode modules; ${alreadyDecompiledCount} already have source and ${modulesNeedingSource.length} need decompilation`)
+    await input.reportProgress?.(`Found ${payload.moduleCount} bytecode modules; page ${payload.offset}-${payload.nextOffset} contains ${alreadyDecompiledCount} with source and ${modulesNeedingSource.length} pending`)
 
-    const modulePaths = new Map<string, { relativePath: string; bytecodeArtifactId: string; moduleIdentity: string; bytecodePath: string }>()
+    const modulePaths = new Map<string, { relativePath: string; bytecodeArtifactId: string; moduleIdentity: string; bytecodePath: string; moduleIndex: number }>()
     for (const extractedModule of orderedModules) {
       const logicalArchivePath = safeArchivePath(extractedModule.archivePath)
       if (!logicalArchivePath) {
@@ -256,17 +313,18 @@ export async function executePyInstaller(input: ToolExecutionInput): Promise<Too
         continue
       }
       const moduleIdentity = createHash('sha256').update(`${logicalArchivePath}\0${extractedModule.sha256}`).digest('hex')
-      const relativeBytecodePath = path.posix.join(
-        input.projectId, input.artifactId, input.taskId, input.runToken, 'pyinstaller', `${moduleIdentity}.pyc`,
-      )
+      const relativeBytecodePath = path.posix.join(input.projectId, input.artifactId, 'pyinstaller', `${moduleIdentity}.pyc`)
       const bytecodePath = resolveDerivedArtifactPath(relativeBytecodePath)
       const sourceRelativePath = moduleSourcePath(input.artifactRelativePath, input.artifactId, logicalArchivePath, moduleIdentity)
+      const moduleKey = moduleCodeUnitKey(input.artifactId, sourceRelativePath)
+      const priorAttributes = priorAttributesByKey.get(moduleKey)
       try {
         await persistBytecode(relativeBytecodePath, bytecodePath, bytecode, extractedModule.sha256)
-        modulePaths.set(moduleIdentity, { relativePath: sourceRelativePath, bytecodeArtifactId: relativeBytecodePath, moduleIdentity, bytecodePath })
-        const alreadyDecompiled = decompiledKeys.has(moduleCodeUnitKey(input.artifactId!, sourceRelativePath))
-        if (!selectedModules.includes(extractedModule) && !alreadyDecompiled) {
-          observations.push(extractedModuleObservation(input, { ...extractedModule, archivePath: logicalArchivePath }, sourceRelativePath, relativeBytecodePath, moduleIdentity, executableSha256, payload.extractorRevision))
+        modulePaths.set(moduleIdentity, { relativePath: sourceRelativePath, bytecodeArtifactId: relativeBytecodePath, moduleIdentity, bytecodePath, moduleIndex: extractedModule.moduleIndex })
+        if (!selectedModules.includes(extractedModule)) {
+          observations.push(priorAttributes
+            ? indexedPriorModuleObservation(input, { ...extractedModule, archivePath: logicalArchivePath }, sourceRelativePath, executableSha256, priorAttributes)
+            : extractedModuleObservation(input, { ...extractedModule, archivePath: logicalArchivePath }, sourceRelativePath, relativeBytecodePath, moduleIdentity, executableSha256, payload.extractorRevision))
         }
       } catch (error) {
         warnings.push(`${logicalArchivePath}: ${errorText(error)}`)
@@ -282,7 +340,7 @@ export async function executePyInstaller(input: ToolExecutionInput): Promise<Too
         const moduleIdentity = createHash('sha256').update(`${logicalArchivePath}\0${module.sha256}`).digest('hex')
         const persisted = modulePaths.get(moduleIdentity)
         if (!persisted) throw new Error('Extracted bytecode was not safely persisted')
-        const { relativePath: sourceRelativePath, bytecodeArtifactId, bytecodePath } = persisted
+        const { relativePath: sourceRelativePath, bytecodeArtifactId, bytecodePath, moduleIndex } = persisted
         const pycdcResult = await executePycdc({
           ...input,
           targetProfile: { ...input.targetProfile, format: 'python-bytecode', extension: 'pyc' },
@@ -309,6 +367,8 @@ export async function executePyInstaller(input: ToolExecutionInput): Promise<Too
             relativePath: sourceRelativePath,
             sourceExecutableArtifactId: input.artifactId!,
             sourceExecutableSha256: executableSha256,
+            pyinstallerModuleIndex: moduleIndex,
+            pyinstallerDecompilationAttempted: true,
             pyinstallerExtractorRevision: payload.extractorRevision,
             pyinstallerArchivePath: logicalArchivePath,
             extractedBytecodeArtifactId: bytecodeArtifactId,
@@ -327,7 +387,8 @@ export async function executePyInstaller(input: ToolExecutionInput): Promise<Too
           if (result.value.warnings) warnings.push(result.value.warnings)
         } else {
           const extractedModule = batch[index]
-          warnings.push(`${extractedModule.archivePath}: ${errorText(result.reason)}`)
+          const failure = errorText(result.reason)
+          warnings.push(`${extractedModule.archivePath}: ${failure}`)
           const logicalArchivePath = safeArchivePath(extractedModule.archivePath)
           const moduleIdentity = logicalArchivePath
             ? createHash('sha256').update(`${logicalArchivePath}\0${extractedModule.sha256}`).digest('hex')
@@ -343,6 +404,8 @@ export async function executePyInstaller(input: ToolExecutionInput): Promise<Too
               persisted.moduleIdentity,
               executableSha256,
               payload.extractorRevision,
+              true,
+              failure,
             ))
           }
         }
@@ -351,15 +414,21 @@ export async function executePyInstaller(input: ToolExecutionInput): Promise<Too
     }
 
     const truncated = payload.truncated || modulesNeedingSource.length > selectedModules.length
-    if (truncated) warnings.unshift(`Decompiled up to ${selectedModules.length} new module(s) from ${payload.moduleCount} extracted module(s); previously decompiled modules were skipped and each run is capped.`)
-    if (!observations.length && modulePaths.size === 0) throw new Error(warnings[0] || 'No extracted Python modules could be stored')
-    if (!observations.length) warnings.unshift('All bounded extracted modules already have hash-matched recovered source in this project.')
+    if (truncated) warnings.unshift(`Decompiled up to ${selectedModules.length} module(s) from page ${payload.offset}-${payload.nextOffset} of ${payload.moduleCount}; rerun to continue through the persisted module inventory.`)
+    if (!observations.length && modulePaths.size === 0 && payload.moduleCount > 0 && payload.offset === payload.moduleCount) {
+      warnings.unshift(`All ${payload.moduleCount} extracted modules have a recorded decompilation attempt; review any module-level failures before treating source coverage as complete.`)
+    } else if (!observations.length && modulePaths.size === 0) {
+      throw new Error(warnings[0] || 'No extracted Python modules could be stored')
+    }
+    if (!observations.length && !warnings.length) warnings.push('No new modules required decompilation on this page.')
     return {
       status: 'completed',
       ...base,
       data: {
         observations,
         extractedModuleCount: payload.moduleCount,
+        modulePageOffset: payload.offset,
+        nextModulePageOffset: payload.nextOffset,
         storedBytecodeModuleCount: modulePaths.size,
         decompiledModuleCount: decompiledCount,
         returnedModuleCount: observations.length,

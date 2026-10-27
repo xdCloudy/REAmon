@@ -22,6 +22,7 @@ MAX_INPUT_BYTES = 128 * 1024 * 1024
 MAX_MODULES = 64
 MAX_MODULE_BYTES = 4 * 1024 * 1024
 MAX_OUTPUT_BYTES = 16 * 1024 * 1024
+MAX_MODULE_OFFSET = 1_000_000
 TIMEOUT_SECONDS = 90
 SAFE_ID_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-")
 SLOTS = threading.BoundedSemaphore(1)
@@ -74,13 +75,12 @@ def has_pyinstaller_cookie(path: Path, file_size: int) -> bool:
     return False
 
 
-def collect_modules(extraction_root: Path) -> tuple[list[dict[str, object]], int]:
+def collect_modules(extraction_root: Path, offset: int = 0) -> tuple[list[dict[str, object]], int, int, int]:
     root = extraction_root.resolve(strict=True)
-    modules: list[dict[str, object]] = []
-    total_bytes = 0
+    candidates: list[tuple[str, Path, int]] = []
     for directory, dirnames, filenames in os.walk(root, followlinks=False):
         base = Path(directory)
-        dirnames[:] = [name for name in dirnames if not (base / name).is_symlink()]
+        dirnames[:] = sorted(name for name in dirnames if not (base / name).is_symlink())
         for filename in sorted(filenames):
             if not filename.lower().endswith(".pyc"):
                 continue
@@ -90,23 +90,47 @@ def collect_modules(extraction_root: Path) -> tuple[list[dict[str, object]], int
                 if not path.is_file() or path.is_symlink() or info.st_size < 16 or info.st_size > MAX_MODULE_BYTES:
                     continue
                 path.resolve(strict=True).relative_to(root)
-                data = path.read_bytes()
+                with path.open("rb") as stream:
+                    magic = stream.read(4)
             except (OSError, RuntimeError, ValueError):
                 continue
-            if len(data) != info.st_size or data[2:4] != b"\r\n":
+            if len(magic) != 4 or magic[2:4] != b"\r\n":
                 continue
-            if len(modules) >= MAX_MODULES or total_bytes + len(data) > MAX_OUTPUT_BYTES:
-                return modules, total_bytes
             relative_path = path.relative_to(root).as_posix()
-            total_bytes += len(data)
-            modules.append({
-                "archivePath": relative_path[:1000],
-                "sizeBytes": len(data),
-                "sha256": hashlib.sha256(data).hexdigest(),
-                "magicHex": data[:4].hex(),
-                "dataBase64": base64.b64encode(data).decode("ascii"),
-            })
-    return modules, total_bytes
+            if len(relative_path) > 1000:
+                continue
+            candidates.append((relative_path, path, info.st_size))
+
+    candidates.sort(key=lambda candidate: candidate[0].casefold())
+    module_count = len(candidates)
+    if offset < 0 or offset > module_count:
+        raise ExtractionError("PyInstaller module offset is outside the discovered inventory")
+
+    modules: list[dict[str, object]] = []
+    total_bytes = 0
+    next_offset = offset
+    for module_index, (relative_path, path, expected_size) in enumerate(candidates[offset:], start=offset):
+        if len(modules) >= MAX_MODULES:
+            break
+        try:
+            data = path.read_bytes()
+        except OSError as error:
+            raise ExtractionError("Could not read an extracted Python bytecode module") from error
+        if len(data) != expected_size or data[2:4] != b"\r\n":
+            raise ExtractionError("An extracted Python bytecode module changed during inventory")
+        if total_bytes + len(data) > MAX_OUTPUT_BYTES:
+            break
+        modules.append({
+            "moduleIndex": module_index,
+            "archivePath": relative_path,
+            "sizeBytes": len(data),
+            "sha256": hashlib.sha256(data).hexdigest(),
+            "magicHex": data[:4].hex(),
+            "dataBase64": base64.b64encode(data).decode("ascii"),
+        })
+        total_bytes += len(data)
+        next_offset = module_index + 1
+    return modules, total_bytes, module_count, next_offset
 
 
 def extract(body: object) -> dict[str, object]:
@@ -116,6 +140,9 @@ def extract(body: object) -> dict[str, object]:
     artifact_id = safe_id(body.get("artifactId"))
     safe_id(body.get("taskId"))
     safe_id(body.get("runId"))
+    offset = body.get("offset", 0)
+    if not isinstance(offset, int) or isinstance(offset, bool) or offset < 0 or offset > MAX_MODULE_OFFSET:
+        raise ExtractionError("Invalid PyInstaller module offset")
     input_path = resolve_input(body.get("artifactPath"))
     if not SLOTS.acquire(blocking=False):
         raise ExtractionError("The PyInstaller extraction worker is busy")
@@ -143,15 +170,17 @@ def extract(body: object) -> dict[str, object]:
             extraction_root = workdir / f"{input_path.name}_extracted"
             if not extraction_root.is_dir() or extraction_root.is_symlink():
                 raise ExtractionError("The extractor produced no contained output directory")
-            modules, total_bytes = collect_modules(extraction_root)
-            if not modules:
+            modules, total_bytes, module_count, next_offset = collect_modules(extraction_root, offset)
+            if module_count == 0:
                 raise ExtractionError("No bounded Python bytecode modules were recovered")
             return {
                 "status": "completed",
                 "extractorRevision": EXTRACTOR_REVISION,
-                "moduleCount": len(modules),
+                "moduleCount": module_count,
+                "offset": offset,
+                "nextOffset": next_offset,
                 "outputBytes": total_bytes,
-                "truncated": len(modules) >= MAX_MODULES or total_bytes >= MAX_OUTPUT_BYTES,
+                "truncated": next_offset < module_count,
                 "elapsedMs": max(0, int((time.monotonic() - started) * 1000)),
                 "modules": modules,
             }
