@@ -5,13 +5,15 @@ import { FolderOpen, RefreshCw, Upload } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useCreateProject } from '@/hooks/useProjects'
 import { useProject } from '@/providers/ProjectProvider'
+import { useAuth } from '@/providers/AuthProvider'
 import { useAlertModal, useToast } from '@/components/ui'
 import { formatBytes, runWorkspaceImport, selectionFromFiles, type ImportProgress, type WorkspaceSelection } from '@/lib/reamon/browser-import'
 import styles from './page.module.css'
 
 export default function NewProjectPage() {
   const router = useRouter()
-  const { userId, setCurrentProject } = useProject()
+  const { userId, setCurrentProject, isLoading: projectContextLoading } = useProject()
+  const { user: authUser, isLoading: authLoading } = useAuth()
   const createProjectMutation = useCreateProject()
   const { alertError, alertWarning } = useAlertModal()
   const toast = useToast()
@@ -44,6 +46,10 @@ export default function NewProjectPage() {
   }
 
   const createWorkspace = async () => {
+    if (!authUser) {
+      router.push(`/login?next=${encodeURIComponent('/projects/new')}`)
+      return
+    }
     if (!userId) {
       await alertWarning('Please select a user first')
       router.push('/projects')
@@ -108,8 +114,22 @@ export default function NewProjectPage() {
     router.push(`/projects/${project.id}`)
   }
 
+  if (authLoading || projectContextLoading) {
+    return <div className={styles.container}><div className={styles.message} role="status">Loading your account…</div></div>
+  }
+
+  if (!authUser) {
+    return <div className={styles.container}><div className={styles.message}>
+      <p>Sign in to create a reverse-engineering workspace.</p>
+      <button className="primaryButton" onClick={() => router.push(`/login?next=${encodeURIComponent('/projects/new')}`)}>Sign in</button>
+    </div></div>
+  }
+
   if (!userId) {
-    return <div className={styles.container}><div className={styles.message}><p>Please select a user first before creating a workspace.</p><button className="primaryButton" onClick={() => router.push('/projects')}>Go to Projects</button></div></div>
+    return <div className={styles.container}><div className={styles.message}>
+      <p>Select a workspace owner before creating a workspace.</p>
+      <button className="primaryButton" onClick={() => router.push('/projects')}>Go to Projects</button>
+    </div></div>
   }
 
   const isSubmitting = createProjectMutation.isPending || Boolean(progress && progress.phase !== 'COMPLETED')

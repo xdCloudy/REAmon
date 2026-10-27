@@ -126,6 +126,12 @@ async function verifyJwt(token: string): Promise<{ sub: string; role: string } |
   }
 }
 
+function redirectToLogin(request: NextRequest) {
+  const loginUrl = new URL('/login', request.url)
+  loginUrl.searchParams.set('next', `${request.nextUrl.pathname}${request.nextUrl.search}`)
+  return NextResponse.redirect(loginUrl)
+}
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
@@ -185,7 +191,7 @@ export async function middleware(request: NextRequest) {
     if (pathname.startsWith('/api/')) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
-    return NextResponse.redirect(new URL('/login', request.url))
+    return redirectToLogin(request)
   }
 
   const payload = await verifyJwt(token)
@@ -194,7 +200,7 @@ export async function middleware(request: NextRequest) {
     if (pathname.startsWith('/api/')) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
-    const response = NextResponse.redirect(new URL('/login', request.url))
+    const response = redirectToLogin(request)
     response.cookies.delete(AUTH_COOKIE_NAME)
     return response
   }

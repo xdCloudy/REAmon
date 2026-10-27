@@ -3,6 +3,7 @@
 import { useState, FormEvent } from 'react'
 import Image from 'next/image'
 import { REAMON_VERSION } from '@/lib/reamon/version'
+import { safeLoginDestination } from '@/lib/auth/login-return-to'
 import styles from './page.module.css'
 
 export default function LoginPage() {
@@ -30,8 +31,9 @@ export default function LoginPage() {
         return
       }
 
-      // Force full page reload to pick up the new cookie in middleware
-      window.location.href = '/projects'
+      // Force full page reload to pick up the new cookie in middleware.
+      const returnTo = new URLSearchParams(window.location.search).get('next')
+      window.location.href = safeLoginDestination(returnTo, window.location.origin)
     } catch {
       setError('Unable to connect to the server')
       setLoading(false)

@@ -156,7 +156,15 @@ describe('middleware - unauthenticated', () => {
   test('redirects page request to /login', async () => {
     const req = makeRequest('/projects')
     const res = await middleware(req)
-    expect(res.headers.get('location')).toContain('/login')
+    expect(res.headers.get('location')).toContain('/login?next=%2Fprojects')
+  })
+
+  test('preserves the requested local path and query for the post-login return', async () => {
+    const req = makeRequest('/projects/new?source=apk&name=Cross%20Stitch')
+    const res = await middleware(req)
+    const destination = new URL(res.headers.get('location')!)
+    expect(destination.pathname).toBe('/login')
+    expect(destination.searchParams.get('next')).toBe('/projects/new?source=apk&name=Cross%20Stitch')
   })
 
   test('returns 401 for API request', async () => {
@@ -201,7 +209,7 @@ describe('middleware - authenticated', () => {
 
     const req = makeRequest('/projects', { cookie: token })
     const res = await middleware(req)
-    expect(res.headers.get('location')).toContain('/login')
+    expect(res.headers.get('location')).toContain('/login?next=%2Fprojects')
   })
 
   test('returns 401 for expired token on API request', async () => {
