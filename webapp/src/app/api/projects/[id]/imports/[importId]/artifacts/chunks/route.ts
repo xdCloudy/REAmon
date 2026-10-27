@@ -5,6 +5,7 @@ import prisma from '@/lib/prisma'
 import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
 import { normalizeRelativePath } from '@/lib/reamon/paths'
 import { receiveArtifactChunk, stagedArtifactPath } from '@/lib/reamon/artifact-import-commit'
+import { ARTIFACT_STORAGE_FULL_MESSAGE, isArtifactStorageFullError } from '@/lib/reamon/artifact-storage-errors'
 
 interface RouteParams { params: Promise<{ id: string; importId: string }> }
 const MAX_CHUNK_BYTES = 16 * 1024 * 1024
@@ -118,9 +119,8 @@ export async function PUT(request: Request, { params }: RouteParams) {
     return NextResponse.json({ receivedBytes: result.receivedBytes }, { headers: { 'Cache-Control': 'no-store' } })
   } catch (error) {
     console.error('Failed to receive REAmon artifact chunk:', error)
-    const errorCode = error && typeof error === 'object' && 'code' in error ? error.code : null
-    if (errorCode === 'ENOSPC' || errorCode === 'EDQUOT') {
-      return NextResponse.json({ error: 'Artifact storage is full; free space or increase the available volume capacity, then retry' }, { status: 507, headers: { 'Cache-Control': 'no-store' } })
+    if (isArtifactStorageFullError(error)) {
+      return NextResponse.json({ error: ARTIFACT_STORAGE_FULL_MESSAGE }, { status: 507, headers: { 'Cache-Control': 'no-store' } })
     }
     return NextResponse.json({ error: error instanceof Error ? error.message.slice(0, 500) : 'Failed to receive upload chunk' }, { status: 400, headers: { 'Cache-Control': 'no-store' } })
   }

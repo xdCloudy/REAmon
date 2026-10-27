@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
 import { commitStagedArtifact } from '@/lib/reamon/artifact-import-commit'
+import { ARTIFACT_STORAGE_FULL_MESSAGE, isArtifactStorageFullError } from '@/lib/reamon/artifact-storage-errors'
 
 interface RouteParams { params: Promise<{ id: string; importId: string }> }
 
@@ -28,6 +29,9 @@ export async function POST(request: Request, { params }: RouteParams) {
     }, { status: 201, headers: { 'Cache-Control': 'no-store' } })
   } catch (error) {
     console.error('Failed to finalize REAmon artifact upload:', error)
+    if (isArtifactStorageFullError(error)) {
+      return NextResponse.json({ error: ARTIFACT_STORAGE_FULL_MESSAGE }, { status: 507, headers: { 'Cache-Control': 'no-store' } })
+    }
     return NextResponse.json({ error: error instanceof Error ? error.message.slice(0, 800) : 'Failed to finalize uploaded artifact' }, {
       status: error instanceof Error && /not found/i.test(error.message) ? 404 : 400,
       headers: { 'Cache-Control': 'no-store' },
