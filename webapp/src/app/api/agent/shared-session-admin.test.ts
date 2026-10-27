@@ -16,6 +16,8 @@ import { GET as listSessions } from './sessions/route'
 import { POST as interactWithSession } from './sessions/[id]/interact/route'
 import { POST as killSession } from './sessions/[id]/kill/route'
 import { POST as killJob } from './jobs/[id]/kill/route'
+import { GET as listWorkspaceJobs } from './workspace/jobs/route'
+import { POST as cancelWorkspaceJob } from './workspace/jobs/[jobId]/cancel/route'
 
 const projectId = 'project-1'
 const params = (id: string) => ({ params: Promise.resolve({ id }) })
@@ -28,6 +30,21 @@ const projectCases = [
       params('j-1'),
     ),
     expectedPath: `/jobs/j-1/kill?project_id=${projectId}`,
+    expectedInit: { method: 'POST' },
+  },
+  {
+    name: 'list workspace jobs',
+    invoke: () => listWorkspaceJobs(new NextRequest(`http://x/api/agent/workspace/jobs?projectId=${projectId}`)),
+    expectedPath: `/workspace/jobs?projectId=${projectId}`,
+    expectedInit: { cache: 'no-store' },
+  },
+  {
+    name: 'cancel workspace job',
+    invoke: () => cancelWorkspaceJob(
+      new NextRequest(`http://x/api/agent/workspace/jobs/j-1/cancel?projectId=${projectId}`, { method: 'POST' }),
+      { params: Promise.resolve({ jobId: 'j-1' }) },
+    ),
+    expectedPath: `/workspace/jobs/j-1/cancel?projectId=${projectId}`,
     expectedInit: { method: 'POST' },
   },
   {
@@ -92,6 +109,15 @@ describe('project session controls enforce strict project ownership', () => {
       expect(mockGuardProjectStrict).toHaveBeenCalledWith(projectId)
       expect(mockAgentFetch).toHaveBeenCalledWith(route.expectedPath, route.expectedInit)
       expect(await response.json()).toEqual({ ok: true })
+    })
+
+    test(`${route.name}: unauthenticated caller is rejected before proxying`, async () => {
+      mockGuardProjectStrict.mockResolvedValue(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }))
+
+      const response = await route.invoke()
+
+      expect(response.status).toBe(401)
+      expect(mockAgentFetch).not.toHaveBeenCalled()
     })
   }
 })

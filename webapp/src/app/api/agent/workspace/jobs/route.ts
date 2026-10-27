@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { agentFetch } from '@/lib/agentFetch'
-import { guardProject } from '@/lib/access'
+import { guardProjectStrict } from '@/lib/access'
 
 
 export async function GET(request: NextRequest) {
   const projectId = request.nextUrl.searchParams.get('projectId')
-  const __denied = await guardProject(projectId || '')
+  const __denied = await guardProjectStrict(projectId || '')
   if (__denied) return __denied
   const active = request.nextUrl.searchParams.get('active')  // 'true' | 'false' | null
 
