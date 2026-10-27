@@ -6,7 +6,8 @@
  */
 import { afterAll, beforeAll, describe, expect, test, vi } from 'vitest'
 import { randomUUID } from 'node:crypto'
-import { mkdir } from 'node:fs/promises'
+import { mkdir, rm, stat, writeFile } from 'node:fs/promises'
+import path from 'node:path'
 import prisma from '@/lib/prisma'
 
 const mocks = vi.hoisted(() => ({
@@ -29,6 +30,9 @@ vi.mock('@/lib/reamon/artifact-storage', async (importOriginal) => {
 
 import { POST } from './route'
 import { artifactRoot } from '@/lib/reamon/artifact-storage'
+import { PUT as PUTChunk } from './[importId]/artifacts/chunks/route'
+import { removeStagedImport } from '@/lib/reamon/artifact-storage'
+import { stagedArtifactPath } from '@/lib/reamon/artifact-import-commit'
 
 const enabled = process.env.REAMON_IMPORT_CAPACITY_INTEGRATION === '1'
   && Boolean(process.env.DATABASE_URL)
@@ -48,8 +52,24 @@ function requestFor(name: string, size = 60): Request {
   })
 }
 
+function chunkRequest(importId: string, size: number): Request {
+  return new Request(`http://localhost/api/projects/${projectId}/imports/${importId}/artifacts/chunks?relativePath=probe.bin`, {
+    method: 'PUT',
+    headers: {
+      'Content-Length': String(size),
+      'X-REAmon-Upload-Offset': '0',
+      'X-REAmon-Upload-Size': String(size),
+    },
+    body: new Uint8Array(size),
+  })
+}
+
 function params() {
   return { params: Promise.resolve({ id: projectId }) }
+}
+
+function chunkParams(importId: string) {
+  return { params: Promise.resolve({ id: projectId, importId }) }
 }
 
 describe.skipIf(!enabled)('POST workspace import capacity admission against PostgreSQL', () => {
@@ -160,5 +180,49 @@ describe.skipIf(!enabled)('POST workspace import capacity admission against Post
       requiredBytes: (reserved + declaredBytes).toString(),
     })
     expect(await prisma.workspaceImport.count({ where: { projectId } })).toBe(1)
+  })
+
+  test('returns 507 on a real full-volume chunk write and accepts the same offset after space is freed', async () => {
+    const size = 2 * 1024 * 1024
+    const importRow = await prisma.workspaceImport.create({
+      data: {
+        projectId,
+        rootName: `${rootName}-chunk-pressure`,
+        sourceType: 'BROWSER_DIRECTORY',
+        totalFiles: 1,
+        totalBytes: BigInt(size),
+        manifest: [{ relativePath: 'probe.bin', size }],
+      },
+      select: { id: true },
+    })
+    const stagedPath = stagedArtifactPath(projectId, importRow.id, 'probe.bin')
+    const fillerPath = path.join(artifactRoot(), `CapacityProbe-${randomUUID()}.fill`)
+    await mkdir(path.dirname(stagedPath), { recursive: true })
+    const volume = await mocks.realArtifactCapacity()
+    if (!volume.available || volume.freeBytes === null) throw new Error('The artifact test volume must report filesystem capacity')
+    const freeBytes = BigInt(volume.freeBytes)
+    const keepFree = 512n * 1024n
+    const fillerBytes = freeBytes - keepFree
+    if (fillerBytes <= 0n || fillerBytes >= BigInt(Number.MAX_SAFE_INTEGER)) {
+      throw new Error('The bounded artifact test volume does not have enough free space for the pressure probe')
+    }
+
+    try {
+      await writeFile(fillerPath, Buffer.alloc(Number(fillerBytes)))
+      const failed = await PUTChunk(chunkRequest(importRow.id, size), chunkParams(importRow.id))
+      expect(failed.status).toBe(507)
+      expect(await prisma.workspaceImport.findUnique({ where: { id: importRow.id }, select: { uploadedBytes: true } })).toMatchObject({ uploadedBytes: 0n })
+      expect((await stat(stagedPath)).size).toBe(0)
+
+      await rm(fillerPath, { force: true })
+      const retried = await PUTChunk(chunkRequest(importRow.id, size), chunkParams(importRow.id))
+      expect(retried.status).toBe(200)
+      expect(await retried.json()).toEqual({ receivedBytes: size })
+      expect(await prisma.workspaceImport.findUnique({ where: { id: importRow.id }, select: { uploadedBytes: true } })).toMatchObject({ uploadedBytes: BigInt(size) })
+      expect((await stat(stagedPath)).size).toBe(size)
+    } finally {
+      await rm(fillerPath, { force: true })
+      await removeStagedImport(projectId, importRow.id)
+    }
   })
 })
