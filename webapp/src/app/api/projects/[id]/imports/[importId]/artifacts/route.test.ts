@@ -97,4 +97,27 @@ describe('POST /api/projects/[id]/imports/[importId]/artifacts', () => {
     expect(response.status).toBe(400)
     expect(mocks.resolveServerSourceArtifact).not.toHaveBeenCalled()
   })
+
+  test.each([
+    ['ENOSPC', Object.assign(new Error('no space left on device'), { code: 'ENOSPC' })],
+    ['nested EDQUOT', new Error('copy failed', { cause: Object.assign(new Error('quota exceeded'), { code: 'EDQUOT' }) })],
+  ])('reports %s during artifact copy as recoverable storage pressure', async (_label, error) => {
+    mocks.commitArtifactFromPath.mockRejectedValueOnce(error)
+
+    const response = await POST(serverRequest('bin/app.exe'), params())
+
+    expect(response.status).toBe(507)
+    expect(await response.json()).toEqual({
+      error: 'Artifact storage is full; free space or increase the available volume capacity, then retry',
+    })
+  })
+
+  test('keeps unrelated artifact import errors as server failures', async () => {
+    mocks.commitArtifactFromPath.mockRejectedValueOnce(new Error('unexpected commit failure'))
+
+    const response = await POST(serverRequest('bin/app.exe'), params())
+
+    expect(response.status).toBe(500)
+    expect(await response.json()).toEqual({ error: 'Failed to upload artifact' })
+  })
 })
