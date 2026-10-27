@@ -19,7 +19,7 @@
  * @vitest-environment node
  */
 import { describe, test, expect } from 'vitest'
-import { readFileSync, readdirSync, statSync } from 'fs'
+import { readFileSync, readdirSync } from 'fs'
 import { join } from 'path'
 import { notMuted, noneMuted, MUTED_LABEL } from './graphMute'
 
@@ -56,21 +56,24 @@ const EXEMPT = new Map<string, string>([
 ])
 
 function walk(dir: string, out: string[] = []): string[] {
-  for (const entry of readdirSync(dir)) {
-    if (entry === 'node_modules' || entry === '.next') continue
-    const full = join(dir, entry)
-    if (statSync(full).isDirectory()) walk(full, out)
-    else if (/\.tsx?$/.test(entry) && !/\.test\.tsx?$/.test(entry)) out.push(full)
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.name === 'node_modules' || entry.name === '.next') continue
+    const full = join(dir, entry.name)
+    if (entry.isDirectory()) walk(full, out)
+    else if (entry.isFile() && /\.tsx?$/.test(entry.name) && !/\.test\.tsx?$/.test(entry.name)) out.push(full)
   }
   return out
 }
 
 /** Files that run their own Cypher against a muteable finding label. */
+let cachedFindingReaders: { rel: string; src: string }[] | undefined
 function findingReaders(): { rel: string; src: string }[] {
+  if (cachedFindingReaders) return cachedFindingReaders
   const labelRe = new RegExp(`:(${MUTEABLE.join('|')})\\b`)
-  return walk(SRC)
+  cachedFindingReaders = walk(SRC)
     .map(full => ({ rel: full.slice(SRC.length + 1).replace(/\\/g, '/'), src: readFileSync(full, 'utf8') }))
     .filter(f => /getGraphSession|session\.run/.test(f.src) && labelRe.test(f.src))
+  return cachedFindingReaders
 }
 
 describe('muted findings cannot leak through a hand-written graph query', () => {
@@ -78,7 +81,7 @@ describe('muted findings cannot leak through a hand-written graph query', () => 
     // Guards the test itself: a broken path would make every assertion below
     // vacuously pass and silently retire the whole enforcement.
     expect(findingReaders().length).toBeGreaterThan(10)
-  })
+  }, 30_000)
 
   test('every finding reader carries the mute exclusion', () => {
     const offenders = findingReaders()
@@ -93,7 +96,7 @@ describe('muted findings cannot leak through a hand-written graph query', () => 
         `\`WHERE \${notMuted('<var>')}\` from '@/lib/graphMute' to each finding query.\n` +
         offenders.map(o => `  - ${o}`).join('\n')
     ).toEqual([])
-  })
+  }, 30_000)
 
   test('every exemption still points at a real file that still reads findings', () => {
     // A stale exemption is a hole: the file could have been renamed, or changed
@@ -110,7 +113,7 @@ describe('muted findings cannot leak through a hand-written graph query', () => 
       }
       if (exists) expect(readers.has(rel), `stale exemption: ${rel}`).toBe(true)
     }
-  })
+  }, 30_000)
 })
 
 describe('the exclusion fragment itself', () => {

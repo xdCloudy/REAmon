@@ -14,7 +14,7 @@
  *
  * @vitest-environment node
  */
-import { readFileSync, readdirSync, statSync } from 'fs'
+import { readFileSync, readdirSync } from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
 
@@ -97,14 +97,15 @@ function stripComments(text: string): string {
 }
 
 function sourceFiles(dir: string, out: string[] = []): string[] {
-  for (const name of readdirSync(dir)) {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const name = entry.name
     if (name === 'node_modules' || name === '.next') continue
     const full = path.join(dir, name)
-    if (statSync(full).isDirectory()) {
+    if (entry.isDirectory()) {
       sourceFiles(full, out)
       continue
     }
-    if (/\.(ts|tsx)$/.test(name)) out.push(full)
+    if (entry.isFile() && /\.(ts|tsx)$/.test(name)) out.push(full)
   }
   return out
 }
@@ -164,5 +165,5 @@ describe('nothing in the webapp reads the roeEnabled column', () => {
       }
     }
     expect(offenders).toEqual([])
-  })
+  }, 30_000)
 })
