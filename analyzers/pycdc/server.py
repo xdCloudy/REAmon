@@ -20,6 +20,7 @@ from uuid import uuid4
 
 ARTIFACT_ROOT = Path(os.environ.get("REAMON_ARTIFACTS_PATH", "/data/reamon-artifacts")).resolve()
 DERIVED_ROOT = Path(os.environ.get("REAMON_DERIVED_PATH", "/data/reamon-derived")).resolve()
+PYCDC_OUTPUT_ROOT = DERIVED_ROOT / ".reamon-pycdc-output"
 PORT = int(os.environ.get("PORT", "8014"))
 TIMEOUT_SECONDS = min(600, max(10, int(os.environ.get("PYCDC_TIMEOUT_SECONDS", "180"))))
 MAX_INPUT_BYTES = min(512 * 1024 * 1024, max(1024, int(os.environ.get("PYCDC_MAX_INPUT_BYTES", str(128 * 1024 * 1024)))))
@@ -36,19 +37,23 @@ def safe_id(value: object) -> str:
         raise AnalysisError("Invalid analysis identifier")
     return value
 
-def resolve_input(value: object, extension: object, derived_prefix: Path | None = None) -> Path:
+def resolve_input(value: object, extension: object, derived_prefixes: tuple[Path, ...] = ()) -> Path:
     if not isinstance(value, str) or not value or len(value) > 4096:
         raise AnalysisError("Invalid Python bytecode path")
     try:
         candidate = Path(value).resolve(strict=True)
-        try:
-            candidate.relative_to(ARTIFACT_ROOT)
-        except ValueError:
-            if derived_prefix is None:
-                raise
-            candidate.relative_to(derived_prefix.resolve(strict=True))
     except (OSError, RuntimeError, ValueError) as error:
         raise AnalysisError("Input is outside the read-only artifact volume") from error
+    inside_derived_prefix = False
+    for prefix in derived_prefixes:
+        try:
+            if candidate.is_relative_to(prefix.resolve(strict=True)):
+                inside_derived_prefix = True
+                break
+        except (OSError, RuntimeError, ValueError):
+            continue
+    if not candidate.is_relative_to(ARTIFACT_ROOT) and not inside_derived_prefix:
+        raise AnalysisError("Input is outside the read-only artifact volume")
     if not isinstance(extension, str) or extension.lower().lstrip(".") not in {"pyc", "pyo"}:
         raise AnalysisError("Input profile must identify Python bytecode")
     if not candidate.is_file():
@@ -134,8 +139,11 @@ def analyze(body: object, report_progress=lambda _message: None, cancel_check=la
     artifact_id = safe_id(body.get("artifactId"))
     task_id = safe_id(body.get("taskId"))
     run_id = safe_id(body.get("runId"))
-    derived_prefix = DERIVED_ROOT / project_id / artifact_id / task_id / run_id / "pyinstaller"
-    source_path = resolve_input(body.get("artifactPath"), body.get("extension"), derived_prefix)
+    derived_prefixes = (
+        DERIVED_ROOT / project_id / artifact_id / task_id / run_id / "pyinstaller",
+        DERIVED_ROOT / project_id / artifact_id / "pyinstaller",
+    )
+    source_path = resolve_input(body.get("artifactPath"), body.get("extension"), derived_prefixes)
     source_relative_path = body.get("artifactRelativePath")
     if not isinstance(source_relative_path, str) or not source_relative_path or len(source_relative_path) > 1000:
         raise AnalysisError("Python bytecode logical path is invalid")
@@ -151,11 +159,11 @@ def analyze(body: object, report_progress=lambda _message: None, cancel_check=la
         safe_stem = re.sub(r"[^A-Za-z0-9_.-]", "_", source_stem).strip(".-")[:160] or "module"
         output_name = f"{source_key}-{safe_stem}.py"
         disassembly_name = f"{source_key}-{safe_stem}.dis"
-        run_root = DERIVED_ROOT / project_id / artifact_id / task_id / run_id
+        run_root = PYCDC_OUTPUT_ROOT / project_id / artifact_id / task_id / run_id
         output_directory = run_root / "pycdc"
         output_directory.mkdir(parents=True, exist_ok=True)
         try:
-            output_directory.resolve(strict=True).relative_to(DERIVED_ROOT)
+            output_directory.resolve(strict=True).relative_to(PYCDC_OUTPUT_ROOT.resolve(strict=True))
         except (OSError, RuntimeError, ValueError) as error:
             raise AnalysisError("Output directory is outside the derived-data volume") from error
         staging_directory = Path(tempfile.mkdtemp(prefix=".pycdc-", dir=output_directory))
@@ -335,8 +343,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(422, {"error": str(error)[:1000]})
         except (BrokenPipeError, ConnectionResetError):
             pass
-        except Exception:
-            self.log_error("Unexpected Python bytecode analysis failure")
+        except Exception as error:
+            self.log_error("Unexpected Python bytecode analysis failure (%s)", type(error).__name__)
             if headers_sent and streaming:
                 try:
                     self.send_event({"type": "error", "error": "Python bytecode analysis failed unexpectedly"})

@@ -27,5 +27,9 @@ export function resolveDerivedArtifactPath(relativePath: string): string {
 
 export async function removeDerivedArtifactProject(projectId: string): Promise<void> {
   const projectPath = resolveDerivedArtifactPath(projectId)
-  await rm(projectPath, { recursive: true, force: true })
+  const pycdcProjectPath = resolveDerivedArtifactPath(path.posix.join('.reamon-pycdc-output', projectId))
+  await Promise.all([
+    rm(projectPath, { recursive: true, force: true }),
+    rm(pycdcProjectPath, { recursive: true, force: true }),
+  ])
 }

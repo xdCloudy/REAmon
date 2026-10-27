@@ -130,7 +130,8 @@ function moduleCodeUnitKey(artifactId: string, relativePath: string): string {
 async function persistBytecode(relativePath: string, artifactPath: string, bytecode: Buffer, sha256: string): Promise<void> {
   await mkdir(path.dirname(artifactPath), { recursive: true })
   try {
-    await writeFile(artifactPath, bytecode, { flag: 'wx', mode: 0o600 })
+    // Analyzer containers use separate UIDs and read the shared derived volume.
+    await writeFile(artifactPath, bytecode, { flag: 'wx', mode: 0o644 })
   } catch (error) {
     if (!isRecord(error) || error.code !== 'EEXIST') throw error
     const existing = await readFile(artifactPath)
