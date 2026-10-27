@@ -1,13 +1,6 @@
-# REAmon production readiness matrix
+## Current PC deployment evidence (2026-10-27)
 
-This matrix tracks evidence required to operate REAmon reliably and securely. A
-capability marked implemented describes code in the repository; it does not mean the
-currently running installation has that change or that the whole product is ready for
-production.
-
-## Current PC deployment evidence (2026-10-26)
-
-The webapp was rebuilt from pushed source commit `ebcb3e14` and deployed as image `sha256:779439856b9c190badd7e5322940dfcd44cfd214a591b5122bfc9b875891792d`. The running container reached Docker health `healthy`; both `localhost:3001/api/health` and `192.168.0.53:3001/api/health` returned `status=ok`. Before rollout, the existing artifact volume was checked and contained no symlink entries. The new shared resolver rejects symlinked staging directories, stored-artifact parent directories, and stored-artifact leaf files. The focused Docker test file passes 17 tests, and webapp type-check, targeted ESLint, and the production image build pass. Large-import pressure behavior and multi-user authorization still require separate acceptance.
+The local webapp image `sha256:bb486ad050a69f8b2bba7be3366258ffd628a5dd0fffa337f82ef9075917c5e5` was rebuilt from checkout revision `e7845dba14b3` and only the webapp service was recreated. Docker health is `healthy`; both `localhost:3001/api/health/ready` and `192.168.0.53:3001/api/health/ready` return `status=ready` with database and artifact checks `ok`. Build metadata reports `dirty=true` because the repository contains the user-owned untracked `work/` directory, which is outside the webapp build context. Before rollout, the existing artifact volume was checked for symlink entries; the shared resolver rejects symlinked staging directories, stored-artifact parent directories, and leaf files. The isolated Docker integration now also demonstrates real ENOSPC handling and same-offset upload recovery on a bounded tmpfs. Authenticated large-import and LAN pressure-recovery acceptance remain open.
 
 ## Current gates
 
