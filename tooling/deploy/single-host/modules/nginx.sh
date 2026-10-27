@@ -124,6 +124,7 @@ _render_template() {
   mcp_gate="$(_mcp_gate_block)"
   acme="$(_acme_block)"
   while IFS= read -r line || [[ -n "$line" ]]; do
+    line="${line%$'\r'}"
     case "$line" in
       *"# __MCP_GATE__"*) printf '%s\n' "${mcp_gate}" ;;
       *"# __GATE__"*)   printf '%s\n' "${gate}" ;;

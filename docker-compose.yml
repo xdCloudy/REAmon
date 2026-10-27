@@ -1073,6 +1073,9 @@ services:
   # existing named-volume root before the non-root webapp starts.
   reamon-derived-init:
     image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+    mem_limit: 128m
+    pids_limit: 16
+    cpus: 0.5
     user: "0:0"
     network_mode: none
     read_only: true

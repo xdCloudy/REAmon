@@ -7,7 +7,7 @@
     "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint src/lib/reamon 'src/app/projects/[id]' 'src/app/api/projects/[id]/targets' 'src/app/api/projects/[id]/workspace' 'src/app/api/projects/[id]/artifacts'",
+    "lint": "eslint src/lib/reamon \"src/app/projects/[id]\" \"src/app/api/projects/[id]/targets\" \"src/app/api/projects/[id]/workspace\" \"src/app/api/projects/[id]/artifacts\"",
     "lint:all": "eslint .",
     "type-check": "tsc --noEmit -p tsconfig.build.json",
     "type-check:all": "tsc --noEmit",

@@ -31,7 +31,6 @@ sys.path.insert(0, _AGENTIC_DIR)
 
 # Stub the heavy langchain / neo4j / mcp dependencies BEFORE importing tools.
 _STUBS = [
-    "httpx",
     "langchain_core", "langchain_core.tools", "langchain_core.language_models",
     "langchain_core.messages",
     "langchain_mcp_adapters", "langchain_mcp_adapters.client",

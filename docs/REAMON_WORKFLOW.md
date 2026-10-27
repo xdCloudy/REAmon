@@ -21,6 +21,39 @@ artifact hash, engine name and version, options, warnings, timestamps, and deriv
 artifact lineage. Keep provider output distinct: JADX Java, Smali, Ghidra pseudocode,
 WAT, and an AI-maintained source file are not interchangeable source truths.
 
+### Multi-provider reconstruction and failed-unit investigation
+
+For compatible binaries, run providers independently and compare only after verifying
+the common input hash, architecture/ABI, provider versions, and unit correspondence.
+Keep each original output side by side. Classify disagreement in boundaries, control
+flow, logic, data flow, types, references, and recovered names; record competing claims,
+contradicting evidence, shared provider ancestry, confidence, and unresolved status.
+Provider agreement is not proof: correlated engines can repeat the same error. An agent
+may request narrowly targeted additional analysis with a stated question, or work from
+assembly, bytecode, CFG, IR, cross-references, memory evidence, and authorized runtime
+observations when source providers fail. Any combined reconstruction is a separate
+hash-linked candidate with a source diff and validation result, never a silent merge.
+
+Provider failures and inadequate output also enter a persistent per-unit investigation
+queue linked to the exact artifact, failed task, provider output, and unit identity. Each
+resumable agent attempt records claim/lease state, attempt history, bounded time/token/
+runtime budgets, cancellation, source diffs, requested follow-up evidence, and validation.
+Restarted or cancelled work keeps its history; stale workers cannot publish. Acceptance
+requires a human review receipt and reversible maintained-source update. Unsupported or
+ambiguous regions remain queued or explicitly unresolved.
+
+### Protected artifacts
+
+Protection is recorded as evidence-backed hypotheses, not a boolean obfuscation flag.
+Static indicators can say `suspected`; a signature alone cannot confirm a family. The
+original remains immutable. Every transformed or extracted layer is a child artifact
+with its own hash, parent hash, and exact tool/options. Re-analysis selects a specific
+layer. Static inspection comes first; dynamic execution requires explicit authorization
+and an isolated, bounded worker. Virtualized or inaccessible units keep their
+address/layer, coverage, evidence, and uncertainty and link to the failed-unit queue.
+Missing safe behavior oracles are reported as unavailable/incomplete. See the [protected-
+binary milestone](REAMON_PROTECTED_BINARY_RECOVERY.md) for current support and gates.
+
 ### 3. Build the unit map
 
 Index functions, methods, classes, modules, resources, types, strings, call edges, and

@@ -42,12 +42,6 @@ def _fake_tool(fn):
 
 sys.modules['langchain_core.tools'].tool = _fake_tool
 
-# httpx must be stub-only: real httpx isn't installed locally, and the
-# detector only needs type().__name__, so fake exception classes work.
-if 'httpx' not in sys.modules:
-    sys.modules['httpx'] = MagicMock()
-
-
 # ---------------------------------------------------------------------------
 # Fake transport exception types. The detector matches type(e).__name__, so
 # we construct classes whose __name__ is the one httpx/anyio would raise.

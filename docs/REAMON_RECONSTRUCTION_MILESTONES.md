@@ -37,6 +37,9 @@ from completion denominators for supported-scope metrics.
 P0 stable artifact/unit identity, coverage, evidence provenance, safe workers
   ├─> P1 multi-provider semantic reconciliation ─┬─> P1 semantic type recovery
   │                                             └─> ASSR semantic symbol recovery
+  ├─> P1 protected-binary analysis ───────────────> verified derived layers and usable evidence
+  │                                                  ├─> P1 encrypted-region recovery ─> static/runtime region evidence
+  │                                                  └─> P1 virtualized-code reconstruction
   ├─> P1 static/dynamic evidence fusion ───────────> type, symbol, and behavior hypotheses
   └─> P1 whole-project source assembly ───────────> controlled build and repair
                                                     └─> P1 behavioral/differential validation
@@ -49,8 +52,11 @@ claims or running untrusted programs. ASSR owns semantic naming, identity-consis
 renames, and its acceptance policy; type recovery owns type/layout claims; reconciliation
 owns comparison and adjudication of competing provider claims; project rebuilding owns
 file/module/dependency assembly; behavioral validation owns executable comparisons.
-Each subsystem stores evidence and links to other claims instead of copying or silently
-overwriting their canonical records.
+Protected-binary triage owns cross-family layer status; encrypted recovery owns
+file-backed/runtime-observed encrypted-region coverage; virtualization recovery owns
+custom instruction/interpreter semantics. The latter two consume, but do not duplicate,
+protection lineage and M3 trace mapping. Each subsystem stores evidence and links to other
+claims instead of copying or silently overwriting their canonical records.
 
 ## M1 — Agentic Semantic Type and Data Structure Recovery (P1)
 
@@ -257,9 +263,15 @@ function candidates, analyst-reviewed cross-provider function matches, and provi
 evidence in project context. Current matching and agreement are evidence for investigation,
 not semantic equivalence. There is no general contradiction detector and adjudication
 workflow for boundaries, CFG, types, references, or logic.
+The existing rewrite-attempt queue persists AI source attempts, but it is not the
+failed-provider/unit investigation lifecycle specified below.
 
 ### Acceptance
 
+- For each declared supported binary scope, dispatch every compatible configured
+  provider independently, or persist a reason a provider was unavailable/incompatible.
+  Preserve original outputs side by side; a failure by one provider must not hide a
+  successful result from another.
 - Compare only outputs with compatible artifact identity, architecture/ABI, function
   identity, provider scope, and version. Preserve each original provider output and its
   provenance; normalized representations must retain provider-specific fields.
@@ -273,8 +285,37 @@ workflow for boundaries, CFG, types, references, or logic.
 - Allow agents to request targeted additional analysis only with a stated uncertainty
   and expected resolving evidence. Accepted conclusions must cite their evidence and
   remain linked to project memory, type recovery, ASSR, and source reconstruction.
+- When no provider offers an adequate candidate, provide an agent path from assembly,
+  bytecode, CFG, IR, references, memory evidence, and explicitly authorized runtime
+  observations. Selection or synthesis creates a separate candidate, iterative source
+  diff, and compile/test/refinement history; it cannot mutate original provider output.
 - Provider agreement or majority vote alone must never prove correctness; when evidence
   cannot resolve a conflict, retain the alternatives and report ambiguity.
+
+### Failed-unit investigation lifecycle
+
+The work queue is a durable, project-scoped continuation of M5, not a new provider or
+another copy of the task table. A failed or inadequate provider result must retain its
+exact input hash, provider/version/options, unit identity, attempted output hashes,
+failure reason, and bounded resource usage. The unit may then be queued for an agent
+investigation with resumable status (`queued`, `claimed`, `investigating`, `needs review`,
+`accepted`, `failed`, or `cancelled`), a renewable claim token, attempt history,
+deadline/token/runtime budgets, and cooperative cancellation. Restart recovery must
+not discard prior attempts or allow a stale worker to publish a result.
+
+Each agent attempt works from immutable provider evidence and may request a targeted
+provider run, inspect assembly/bytecode/CFG/IR/cross-references, or create a maintained
+source draft. Persist the exact evidence snapshot, source diff, tool calls, diagnostics,
+and validation status. Compare each candidate with the prior maintained version. A
+draft cannot overwrite provider output; human review and an acceptance receipt remain
+required. When evidence is inadequate, preserve the unresolved region and report why.
+
+Queue completion requires ≥99% durable resume/replay correctness across forced worker
+restarts, cancellation in every nonterminal state, expired-claim recovery, and duplicate
+dispatch races; zero stale writes may be accepted. On the held-out fixture set, report
+the fraction of failed units that gain useful, reviewable evidence or source, separately
+from units whose behavior is validated. Candidate acceptance must preserve full source
+diff and exact rollback. Unresolved and unsupported units remain visible in the queue.
 
 ### Completion gates
 
@@ -350,3 +391,62 @@ and replay trace. Human review receipts and current worker security gates remain
 
 The reference portfolio and upstream reuse audit remain the licensing and integration
 register. These candidates do not imply selected dependencies or shipped functionality.
+The separate [protected-binary analysis and recovery milestone](REAMON_PROTECTED_BINARY_RECOVERY.md)
+defines protection-family scope, safe layered artifacts, exact-version benchmark gates,
+and current detector limits.
+
+## M7 — Encrypted Binary and Executable-Region Recovery (P1)
+
+**Current state:** planned. The PE/UPX indicator does not detect encryption or make
+plaintext accessible. Existing runtime observation and string extraction are not an
+encrypted-region recovery pipeline.
+
+### Acceptance
+
+- Distinguish encrypted content from compression, random data, and ordinary obfuscation
+  using calibrated evidence. Record suspected/unknown/unsupported states and explicit
+  region coverage; absence of a signature is not a negative classification.
+- Map whole files, sections, functions, modules, VM bytecode, resources, and transient
+  runtime-decrypted regions where evidence permits. Preserve exact parent hashes,
+  addresses, relocations, load context, conditions, omissions, and capture provenance.
+- Dynamic capture requires explicit authorization and all worker isolation, CPU/memory/
+  storage/process/time/network and cleanup gates. Preserve legitimate observable bytes as
+  immutable derived children; never overwrite ciphertext or claim unavailable plaintext.
+- On known paired fixtures, meet ≥95% identification precision and ≥85% recall per
+  declared scenario; ≥95% of known bytes receive an explicit readable/observed/unavailable/
+  unknown state. Report function mapping precision ≥98% and recall ≥90% separately.
+- Recovered known plaintext is byte-exact for complete regions; partial capture reports
+  exact offsets and coverage. Behavioral validation remains unavailable without a safe
+  oracle and must meet M2 when claimed.
+- Verify authorization, cancellation, interruption/resume, bounded-resource behavior,
+  cleanup, immutable provenance and zero cross-project artifacts under fault injection.
+
+See the [encrypted-binary recovery specification](REAMON_ENCRYPTED_BINARY_RECOVERY.md)
+for scenario matrix, fixture design, metrics, dependencies, and limitations.
+
+## M8 — Virtualized-Code Reconstruction (P1)
+
+**Current state:** planned. Provider-specific IR/lifting and obfuscation analysis exist,
+but REAmon does not have a validated general VM-region classifier or custom instruction
+semantic recovery workflow. Finding a dispatcher is not reconstructing the protected code.
+
+### Acceptance
+
+- Identify virtualized candidate ranges with benchmarked precision ≥95% and recall ≥80%
+  within each declared scope, separately reporting interpreters, dispatch loops, JITs,
+  and non-virtualized obfuscation false positives.
+- Separate interpreter/runtime code from protected application semantics; recover a
+  versioned, address-mapped IR with per-instruction evidence. Meet ≥95% handler mapping
+  precision and ≥90% semantic operation accuracy on labeled fixtures. Unsupported effects
+  remain unknown, not guessed no-ops.
+- On known fixtures, measure semantic function correctness and behavior independently;
+  replay consistency is ≥99% for deterministic evidence. Unobserved regions remain in the
+  coverage denominator and unresolved.
+- Evidence-backed source candidates retain provider alternatives, competing hypotheses,
+  immutable diffs, budgets, cancellation/resume, review, validation, and rollback. Only
+  suitable M2 oracle checks can mark behavior validated.
+- Publish per-family/version/architecture/option performance, memory, token and trace
+  overhead, failures and unsupported opcode coverage. No cross-family support inference.
+
+See the [virtualized-code reconstruction specification](REAMON_VIRTUALIZED_CODE_RECOVERY.md)
+for workflow, benchmark strata, dependency ownership, and safety boundaries.

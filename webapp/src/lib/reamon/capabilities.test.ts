@@ -86,6 +86,11 @@ describe('REAmon capability resolution', () => {
     ]))
   })
 
+  it('offers static protection inspection for PE files only', () => {
+    expect(resolveCapabilities(profile({ format: 'pe' })).some((match) => match.pluginId === 'reamon-protection-inspector')).toBe(true)
+    expect(resolveCapabilities(profile({ format: 'elf' })).some((match) => match.pluginId === 'reamon-protection-inspector')).toBe(false)
+  })
+
   it.each(['apk', 'elf', 'wasm', 'json', 'source', 'unknown'])(
     'offers bounded string extraction for %s artifacts',
     (format) => {

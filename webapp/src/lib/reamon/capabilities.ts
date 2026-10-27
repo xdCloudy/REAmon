@@ -12,6 +12,7 @@ import { sourceInspectorPlugin } from './source-inspector'
 import { elfInspectorPlugin } from './elf-inspector'
 import { elfDependenciesPlugin } from './elf-dependencies'
 import { fileInspectorPlugin } from './file-inspector'
+import { protectionInspectorPlugin } from './protection-inspector'
 import { jsonInspectorPlugin } from './json-inspector'
 import { jadxPlugin } from './jadx'
 import { vineflowerPlugin } from './vineflower'
@@ -48,6 +49,7 @@ export const CAPABILITIES: Capability[] = [
   { id: 'recover_metadata', label: 'Recover metadata', description: 'Recover names, signatures, and address mappings without treating them as method bodies.', category: 'static_analysis' },
   { id: 'extract_strings', label: 'Extract strings', description: 'Recover printable strings for triage and correlation.', category: 'static_analysis' },
   { id: 'inspect_binary_header', label: 'Inspect binary header', description: 'Read executable format, architecture, entrypoint, and ABI metadata.', category: 'static_analysis' },
+  { id: 'inspect_protection', label: 'Inspect protection indicators', description: 'Collect bounded static evidence for suspected executable protection without executing or unpacking the target.', category: 'static_analysis' },
   { id: 'extract_dependencies', label: 'Extract dependencies', description: 'Recover dynamic libraries and imported or exported symbols from native executables.', category: 'static_analysis' },
   { id: 'disassemble', label: 'Disassemble', description: 'Translate machine code into instructions.', category: 'static_analysis' },
   { id: 'inspect_bytecode', label: 'Inspect bytecode', description: 'Inspect virtual-machine bytecode and preserve versioned instruction evidence.', category: 'static_analysis' },
@@ -113,6 +115,9 @@ export const BUILTIN_TOOL_PLUGINS: ToolPlugin[] = [
   },
   {
     ...fileInspectorPlugin,
+  },
+  {
+    ...protectionInspectorPlugin,
   },
   {
     ...slb2InspectorPlugin,

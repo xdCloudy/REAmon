@@ -27,6 +27,7 @@ import { GET } from './route'
 const routeParams = { params: Promise.resolve({ id: 'project-1' }) }
 const taskId = 'task-1'
 let testRoot = ''
+const originalArtifactPath = process.env.REAMON_ARTIFACTS_PATH
 
 beforeEach(async () => {
   vi.clearAllMocks()
@@ -63,6 +64,8 @@ beforeEach(async () => {
 
 afterEach(async () => {
   if (testRoot) await rm(testRoot, { recursive: true, force: true })
+  if (originalArtifactPath === undefined) delete process.env.REAMON_ARTIFACTS_PATH
+  else process.env.REAMON_ARTIFACTS_PATH = originalArtifactPath
 })
 
 describe('GET /api/projects/[id]/visualizer/maintained/export', () => {
@@ -190,7 +193,9 @@ describe('GET /api/projects/[id]/visualizer/maintained/export', () => {
     const sourceHash = createHash('sha256').update(sourceCode).digest('hex')
     const relativePath = 'src/main.go'
     const sourceSetHash = createHash('sha256').update(relativePath).update('\0').update(sourceHash).update('\n').digest('hex')
-    const dependencyHash = createHash('sha256').update('go.mod').update('\0').update('d'.repeat(64)).update('\n').digest('hex')
+    const moduleSource = 'module example.invalid/app\n\ngo 1.24\n'
+    const moduleHash = createHash('sha256').update(moduleSource).digest('hex')
+    const dependencyHash = createHash('sha256').update('go.mod').update('\0').update(moduleHash).update('\n').digest('hex')
     h.observations.mockImplementation(async (args: { where: { type?: string } }) => args.where.type === 'maintained_source'
       ? [{ stableKey: 'unit-1', artifactId: 'artifact-1', updatedAt: new Date('2026-10-04T00:00:00.000Z') }]
       : [{ id: 'unit-1', stableKey: 'go:main', artifactId: 'artifact-1', label: 'main', attributes: {
@@ -213,10 +218,17 @@ describe('GET /api/projects/[id]/visualizer/maintained/export', () => {
         compilerVersion: '1.24.4', compiledSha256: 'b'.repeat(64), packageCount: 1,
         createdAt: '2026-10-04T00:00:00.000Z',
         files: [{ codeUnitId: 'unit-1', acceptedReviewId: 'review-1', relativePath, buildPath: 'src/main.go', sourceSha256: sourceHash }],
-        dependencies: [{ artifactId: 'go-mod-1', relativePath: 'go.mod', buildPath: 'go.mod', sourceSha256: 'd'.repeat(64) }],
+        dependencies: [{ artifactId: 'go-mod-1', relativePath: 'go.mod', buildPath: 'go.mod', sourceSha256: moduleHash }],
       },
     })
-    h.artifacts.mockResolvedValue([{ id: 'go-mod-1', relativePath: 'go.mod', sha256: 'd'.repeat(64) }])
+    process.env.REAMON_ARTIFACTS_PATH = path.join(testRoot, 'artifact-volume')
+    const dependencyPath = path.join(process.env.REAMON_ARTIFACTS_PATH, 'imports', 'go.mod')
+    await mkdir(path.dirname(dependencyPath), { recursive: true })
+    await writeFile(dependencyPath, moduleSource)
+    h.artifacts.mockResolvedValue([{
+      id: 'go-mod-1', relativePath: 'go.mod', storagePath: 'imports/go.mod',
+      sha256: moduleHash, sizeBytes: BigInt(Buffer.byteLength(moduleSource)),
+    }])
 
     const response = await GET(new Request(`http://localhost?taskId=${taskId}`), routeParams)
     const zip = await JSZip.loadAsync(await response.arrayBuffer())
@@ -229,7 +241,7 @@ describe('GET /api/projects/[id]/visualizer/maintained/export', () => {
       dependencySetSha256: dependencyHash,
       packageCount: 1,
       compiledArtifactsIncluded: false,
-      dependencies: [{ relativePath: 'go.mod', manifestPath: 'go.mod', sourceSha256: 'd'.repeat(64) }],
+      dependencies: [{ relativePath: 'go.mod', manifestPath: 'go.mod', sourceSha256: moduleHash }],
     })
   })
 

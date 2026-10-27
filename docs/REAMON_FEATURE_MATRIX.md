@@ -10,6 +10,17 @@ The full artifact-to-export sequence, with evidence gaps for each stage, is in t
 Dedicated P1 acceptance gates for type recovery, behavioral validation, static/dynamic
 fusion, whole-project rebuilding, and provider reconciliation are in the
 [agentic reconstruction milestone specification](REAMON_RECONSTRUCTION_MILESTONES.md).
+Protected-binary stages and benchmark gates are specified in the
+[protected-binary recovery milestone](REAMON_PROTECTED_BINARY_RECOVERY.md).
+
+## Reconstruction capability status
+
+| Capability | Current state | Product gap / next outcome |
+| --- | --- | --- |
+| Evidence-driven multi-provider reconstruction | Partial foundations: REAmon retains original hash-attributed provider alternatives, bounded diffs, candidate function matches, and analyst reviews; comparisons currently support navigation and context. | Add disagreement classification, correlation-aware evidence ranking, targeted provider re-analysis, auditable synthesis, and a durable failed-unit agent queue with budgets, cancellation, resumability, diffs, review, and rollback. See M5 in the [milestones](REAMON_RECONSTRUCTION_MILESTONES.md). |
+| Protected-binary analysis and recovery | Early: a bounded static PE inspector records section metadata, architecture, entry-point RVA, and conventional UPX section names as `suspected`; evidence is stored without execution or unpacking. No commercial protector detection, layer extraction, or dynamic recovery is implemented. | Benchmark detection; add immutable hash-linked layers and safe deterministic extractors; mark virtualized/inaccessible regions; connect them to M5 investigation; expose coverage and uncertainty in project UI and exports. See the [protected-binary milestone](REAMON_PROTECTED_BINARY_RECOVERY.md). |
+| Encrypted executable-region recovery | Planned. No current detector or runtime plaintext capture pipeline is validated. | Separately classify file-backed, runtime-observed, inaccessible, and unknown regions; preserve authorized captures as immutable children; benchmark against encrypted/clear paired fixtures. See [M7](REAMON_ENCRYPTED_BINARY_RECOVERY.md). |
+| Virtualized-code reconstruction | Planned. IR/lifting providers exist, but no generic VM-region recovery or handler-semantics workflow is validated. | Distinguish interpreter infrastructure from protected program logic; recover a versioned address-mapped IR, preserve unsupported opcodes, and validate against known behavior. See [M8](REAMON_VIRTUALIZED_CODE_RECOVERY.md). |
 
 | Area | Current state | Product gap / next outcome |
 | --- | --- | --- |

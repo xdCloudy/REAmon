@@ -59,6 +59,10 @@ limits, project scoping, and cleanup checks pass. A compilation or export receip
 supports its recorded build scope; it does not by itself certify application behavior or
 release readiness. Capability-specific maturity and thresholds are in the
 [reconstruction milestone specification](REAMON_RECONSTRUCTION_MILESTONES.md).
+Protected-artifact detection/recovery and its dynamic-execution gates are specified in
+the [protected-binary milestone](REAMON_PROTECTED_BINARY_RECOVERY.md); provider-family
+signatures alone do not qualify as release support.
+Encrypted plaintext capture and virtualized-code execution evidence have separate gates in the [encrypted recovery](REAMON_ENCRYPTED_BINARY_RECOVERY.md) and [virtualized-code reconstruction](REAMON_VIRTUALIZED_CODE_RECOVERY.md) specifications. Both remain unavailable unless explicit authorization and isolated-worker controls pass.
 
 1. Exercise authenticated shared-volume capacity controls, concurrent large imports,
    broker admission, and recovery under storage pressure on the current LAN deployment.

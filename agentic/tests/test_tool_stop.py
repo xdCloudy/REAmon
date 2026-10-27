@@ -60,7 +60,7 @@ _stub_modules = [
     'langchain_core.language_models.chat_models',
     'langchain_core.callbacks', 'langchain_core.outputs',
     # Heavy deps used by websocket_api only; stub them so the import works.
-    'fastapi', 'httpx',
+    'fastapi',
 ]
 for mod_name in _stub_modules:
     if mod_name not in sys.modules:

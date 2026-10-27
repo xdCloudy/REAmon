@@ -165,6 +165,13 @@ recovery, behavioral validation, static/dynamic fusion, whole-project rebuilding
 multi-provider reconciliation. Existing evidence and maturity remain in the matrices;
 these are separate project capabilities rather than credit for already implemented
 general analysis or validation.
+The [protected-binary analysis and recovery specification](REAMON_PROTECTED_BINARY_RECOVERY.md)
+separately tracks protection detection, immutable analysis layers, safe recovery,
+virtualized or inaccessible regions, validation, and exact-version benchmark gates.
+Encrypted executable-region recovery and custom virtualized-code reconstruction have
+separate P1 specifications because they require different evidence, safety models,
+benchmarks, and completion criteria: [encrypted recovery](REAMON_ENCRYPTED_BINARY_RECOVERY.md)
+and [virtualized-code reconstruction](REAMON_VIRTUALIZED_CODE_RECOVERY.md).
 The artifact ingestion → analysis → disassembly → decompilation → IR lifting →
 deobfuscation → symbol recovery → source reconstruction → transpilation → compilation
 → validation → iterative refinement → export path is tracked stage by stage in the

@@ -32,7 +32,8 @@ def test_proxy_brain_wrapper_pre_imports_redamon():
         src = fh.read()
     tree = ast.parse(src)
     fn = next(n for n in ast.walk(tree)
-              if isinstance(n, ast.FunctionDef) and n.name == "proxy_brain")
+              if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+              and n.name == "proxy_brain")
     body = ast.get_source_segment(src, fn)
     assert "import redamon" in body, "proxy_brain must pre-import redamon for the child"
     assert "/opt/mcp_servers" in body, "proxy_brain must put the SDK on the child's path"

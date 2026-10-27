@@ -671,4 +671,22 @@ REAmon now imports a deliberately bounded subset of canonical [REA Evidence v2 b
 
 ## AI attempt context provenance
 
+## Protected-binary research register
+
+The [protected-binary recovery specification](REAMON_PROTECTED_BINARY_RECOVERY.md)
+records family-by-family evidence and acceptance gates. Vendor documentation below
+defines useful fixture dimensions only; it does not establish that REAmon recognizes
+or recovers these products. Start with legally redistributable or locally generated UPX
+pairs, then require exact producer versions and reproducible fixtures before claiming
+additional family support.
+
+| Reference | Why it is tracked | REAmon boundary |
+| --- | --- | --- |
+| [UPX source and documentation](https://github.com/upx/upx) · [releases](https://github.com/upx/upx/releases) | Open, reproducible executable packer; candidate for clean/packed PE fixtures and deterministic extraction adapter. Release archives expose exact source and host binaries. | Current code only records PE metadata and suspected section-name markers. Upstream warns that handling files has security implications; any adapter must run confined. Pin version, input/output hashes, fixture commands, and license notices. UPX is GPLv2+ with its upstream license exceptions; review terms before bundling or redistributing the tool. |
+| [VMProtect overview](https://www.vmpsoft.com/vmprotect/overview) | Vendor-described packing, virtualization, anti-debugging, and platform/architecture dimensions inform the test matrix. | No REAmon signature, sample, adapter, extraction, or version-specific support claim exists. |
+| [Oreans feature comparison](https://www.themida.com/CompareProducts.php) · [WinLicense help](https://www.oreans.com/WinLicenseHelp.pdf) | Distinguishes Themida and WinLicense feature families, virtualization, integrity, and anti-analysis test conditions. | Vendor claims only; no REAmon coverage. Requires exact lawful samples, version, and options. |
+| [Enigma Protector](https://www.enigmaprotector.com/en) | Vendor describes virtual-machine code and bundled-file features useful to stratify fixtures. | No REAmon coverage. Product-name detection requires independently validated evidence. |
+| [Obsidium features](https://www.obsidium.de/product/sps/features) | Documents virtualization, static/runtime encryption, compression, and countermeasures as distinct conditions. | No REAmon coverage. Evaluation editions may disable virtualization; preserve exact edition/version/options in fixture metadata. |
+| [ASPack Software](https://www.aspack.com/) | Official product-family site is the intended primary reference for ASProtect and ASPack. | Site fetch timed out during the 2026-10-27 audit. Version/platform details remain unverified; do not infer current scope from resellers or old listings. |
+
 Following decomp.wtf's persisted function-attempt workflow, each REAmon rewrite already stores the exact request payload in the database. The visualizer now shows an evidence-context fingerprint, which reviewed project-memory categories were present, and a bounded list of related unit names for every attempt, including each parallel batch member. This makes context differences auditable without exposing copied source snippets in the attempt summary. The fingerprint covers the saved evidence fields; it does not prove that the model followed that evidence or that the resulting rewrite is correct.

@@ -503,3 +503,20 @@ similarly project-scoped, status-bounded, and activity-audited. Historical impor
 snapshot and any snapshot referenced by analysis or lineage are protected, rows are
 removed transactionally, and bytes are unlinked only after commit. The next high-value
 work is specialist provider breadth and optional report/dashboard expansion.
+
+## Multi-provider and protected-artifact evidence
+
+Provider outputs remain separate evidence records and derived artifacts tied to exact
+input hashes, provider/version, task, and unit. Function matches are provisional
+correspondence; agreement is not truth. Future reconciliation claims must preserve
+supporting and contradicting evidence, provider ancestry/correlation, candidate diffs,
+confidence, unresolved state, and review/validation receipts. Failed or incomplete units
+must continue in the M5 database-backed investigation queue with resumable attempts and
+stale-worker fencing.
+
+Protection hypotheses and each transformed/extracted layer require stable artifact
+lineage, and analysis targets an explicit layer hash. The first code slice is a static PE
+section-table provider that records conventional UPX section markers as *suspected*. It
+does not execute, unpack, identify commercial protectors, or establish that a PE without
+those markers is unprotected. Any later dynamic inspection remains subject to explicit
+authorization and isolated-worker release controls. See the [protected-binary milestone](REAMON_PROTECTED_BINARY_RECOVERY.md).

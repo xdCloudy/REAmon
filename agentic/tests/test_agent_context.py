@@ -73,7 +73,6 @@ class TestToolsReExportIdentity(unittest.TestCase):
     def setUp(self):
         # Stub the heavy deps so we can import tools.py on the host.
         for mod_name in [
-            "httpx",
             "langchain_core", "langchain_core.tools",
             "langchain_core.language_models", "langchain_core.messages",
             "langchain_mcp_adapters", "langchain_mcp_adapters.client",

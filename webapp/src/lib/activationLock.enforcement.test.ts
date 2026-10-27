@@ -28,9 +28,13 @@ vi.mock('@/lib/activationLock', () => ({
 vi.mock('@/lib/access', () => ({
   guardProject: async () => null,
   requireProjectAccess: async () => ({ project: { id: 'p1', userId: 'owner' } }),
+  requireProjectAccessStrict: async () => ({ project: { id: 'p1', userId: 'owner' } }),
   requireEffectiveUser: async () => ({ userId: 'owner' }),
 }))
-vi.mock('@/lib/session', () => ({ getEffectiveUser: async () => ({ userId: 'owner' }) }))
+vi.mock('@/lib/session', () => ({
+  getEffectiveUser: async () => ({ userId: 'owner' }),
+  getSession: async () => null,
+}))
 vi.mock('@/lib/orchestrator', () => ({ orchestratorFetch: (...a: unknown[]) => h.orchestratorFetch(...a) }))
 // "is something already scanning?" is covered in graphWriters.test.ts and
 // startFullScan.test.ts; here the graph is free so only the LOCK can refuse.

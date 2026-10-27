@@ -18,6 +18,7 @@ const mockProjectFindUnique = vi.fn()
 const mockProjectDelete = vi.fn()
 const mockGetEffectiveUser = vi.fn()
 const mockIsInternal = vi.fn()
+const originalScannerApiKey = process.env.SCANNER_API_KEY
 
 vi.mock('@/lib/prisma', () => ({
   default: {
@@ -33,7 +34,11 @@ vi.mock('@/lib/prisma', () => ({
 vi.mock('@/app/api/graph/neo4j', () => ({ getGraphSession: () => ({ run: vi.fn(), close: vi.fn() }) }))
 vi.mock('@/lib/orchestrator', () => ({ orchestratorFetch: vi.fn().mockResolvedValue({ ok: true, json: async () => ({ deleted: [] }) }) }))
 // Real access.ts guards, but drive their effective-user + internal inputs.
-vi.mock('@/lib/session', () => ({ isInternalRequest: (...a: unknown[]) => mockIsInternal(...a), isScannerRequest: () => false }))
+vi.mock('@/lib/session', () => ({
+  isInternalRequest: (...a: unknown[]) => mockIsInternal(...a),
+  isScannerRequest: () => false,
+  signScannerScope: () => 'test-project-scope',
+}))
 vi.mock('@/lib/access', async () => {
   const actual = await vi.importActual<typeof import('@/lib/access')>('@/lib/access')
   return { ...actual, requireEffectiveUser: () => mockGetEffectiveUser() }
@@ -57,7 +62,15 @@ const params = (id: string) => ({ params: Promise.resolve({ id }) })
 beforeEach(() => {
   vi.clearAllMocks()
   delete process.env.ACCESS_ENFORCE // default = enforce
+  process.env.SCANNER_API_KEY = 'test-scanner-key'
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true }))
   mockProjectDelete.mockResolvedValue({ id: 'proj-Y', userId: 'victim' })
+})
+
+afterEach(() => {
+  if (originalScannerApiKey === undefined) delete process.env.SCANNER_API_KEY
+  else process.env.SCANNER_API_KEY = originalScannerApiKey
+  vi.unstubAllGlobals()
 })
 
 describe('GET /api/projects/[id] — BOLA / impersonation', () => {

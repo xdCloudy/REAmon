@@ -41,7 +41,7 @@ _stub_modules = [
     'langgraph', 'langgraph.graph', 'langgraph.graph.state',
     'langgraph.graph.message', 'langgraph.checkpoint',
     'langgraph.checkpoint.memory', 'langgraph.prebuilt',
-    'httpx', 'neo4j',
+    'neo4j',
 ]
 for mod_name in _stub_modules:
     if mod_name not in sys.modules:

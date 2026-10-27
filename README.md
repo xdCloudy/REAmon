@@ -50,8 +50,8 @@ For LAN access, upgrades, backups, and internet-facing deployments, see the [dep
 
 1. Sign in and create a project.
 2. Import files or a project folder. REAmon profiles the inputs and records their paths and hashes.
-3. Review available analysis capabilities and run the providers that fit your target.
-4. Browse decompiled code and related instructions, functions, relationships, and saved analysis in the project visualizer.
+3. Review available analysis capabilities and run compatible providers independently. Compare their hash-linked outputs and evidence; provider agreement alone does not prove correctness.
+4. Browse decompiled code and related instructions, functions, relationships, provider alternatives, and saved analysis in the project visualizer.
 5. Use the saved project evidence to guide explanations and proposed edits. Review and validate edits before accepting or exporting them.
 
 Browser workspace imports transfer in resumable 8 MiB chunks, with no per-file or total-byte cap imposed by REAmon. Retries resume from the server's persisted byte offset, and progress reflects server-acknowledged data. Import size is limited by available storage; profiling samples a bounded prefix so large files do not need to fit in application memory.
@@ -62,15 +62,15 @@ For licensed local IDA Pro batch analysis, see the [IDA Pro integration guide](d
 
 ## Analysis coverage
 
-Coverage varies by input format, language, provider, and version. Java and Android, managed .NET, native binaries, and several interpreted or portable formats have integrated analysis paths at different maturity levels. Some languages currently provide navigation or an alternate representation rather than maintainable source recovery. Check the [language and format matrix](docs/REAMON_LANGUAGE_MATRIX.md) before choosing a workflow; it records what works, known limits, and planned support.
+Coverage varies by input format, language, provider, and version. Java and Android, managed .NET, native binaries, and several interpreted or portable formats have integrated analysis paths at different maturity levels. Protected-binary analysis is at an early stage: a bounded PE inspector stores section/entry-point metadata and records conventional UPX section-name indicators as suspected, but does not unpack files or claim commercial-protector support. Encrypted-region recovery and custom virtualized-code reconstruction remain planned. Some languages currently provide navigation or an alternate representation rather than maintainable source recovery. Check the [language and format matrix](docs/REAMON_LANGUAGE_MATRIX.md), [protected-binary milestone](docs/REAMON_PROTECTED_BINARY_RECOVERY.md), [encrypted-binary milestone](docs/REAMON_ENCRYPTED_BINARY_RECOVERY.md), and [virtualized-code milestone](docs/REAMON_VIRTUALIZED_CODE_RECOVERY.md) before choosing a workflow; they record current evidence, known limits, and planned support.
 
 REAmon's goal is language-universal recovery of maintainable code. The language matrix also defines criteria for evaluating source transpilers and native binary lifters. Decompilers and related projects are audited in the [reference portfolio](docs/REAMON_REFERENCE_PORTFOLIO.md) and [upstream reuse notes](docs/REAMON_UPSTREAM_REUSE.md), including licensing and validation requirements.
 
 ## Project status
 
 <!-- REAMON_PRODUCT_PROGRESS_START -->
-<progress value="42" max="100">42%</progress> <strong>42%</strong> — weighted estimate **42.3%**.
-Refreshed from pushed commit `8291901`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+<progress value="33" max="100">33%</progress> <strong>33%</strong> — weighted estimate **33.0%**.
+Refreshed from the current local worktree. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
 [Goals and roadmap](docs/REAMON_GOALS.md) · [Feature matrix](docs/REAMON_FEATURE_MATRIX.md)
@@ -95,6 +95,9 @@ See the [developer guide](docs/readmes/README.DEV.md) for the development enviro
 - [Goals and roadmap](docs/REAMON_GOALS.md)
 - [Agentic Semantic Symbol Recovery milestone](docs/REAMON_SEMANTIC_SYMBOL_RECOVERY.md)
 - [Agentic reconstruction milestones](docs/REAMON_RECONSTRUCTION_MILESTONES.md)
+- [Protected-binary analysis and recovery milestone](docs/REAMON_PROTECTED_BINARY_RECOVERY.md)
+- [Encrypted-binary recovery milestone](docs/REAMON_ENCRYPTED_BINARY_RECOVERY.md)
+- [Virtualized-code reconstruction milestone](docs/REAMON_VIRTUALIZED_CODE_RECOVERY.md)
 - [Weighted product progress](docs/REAMON_PROGRESS.md) · [Progress data](docs/REAMON_PROGRESS.json)
 - [Production readiness matrix](docs/REAMON_READINESS_MATRIX.md)
 - [Kali execution isolation decision](docs/REAMON_KALI_ISOLATION.md)
