@@ -3,7 +3,7 @@
 import { use, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertTriangle, ArrowLeft, Server } from 'lucide-react'
+import { AlertTriangle, ArrowLeft } from 'lucide-react'
 import { WorkspaceFileTree } from '@/components/reamon/WorkspaceFileTree'
 import { WorkspaceImportPanel } from '@/components/reamon/WorkspaceImportPanel'
 import { ReaEvidenceImportPanel } from '@/components/reamon/ReaEvidenceImportPanel'
@@ -12,11 +12,9 @@ import { ToCodeImportAction } from '@/components/reamon/ToCodeImportAction'
 import { WorkspaceTaskList } from '@/components/reamon/WorkspaceTaskList'
 import { WorkspaceFindingList } from '@/components/reamon/WorkspaceFindingList'
 import { WorkspaceCodeVisualizer } from '@/components/reamon/WorkspaceCodeVisualizer'
-import { summarizeWorkerAttention } from '@/lib/reamon/worker-health'
+import { summarizeWorkspaceTaskAttention } from '@/lib/reamon/workspace-task-attention'
 import type { CapabilityMatch, TargetProfile, WorkspaceCapabilitySummary, WorkspaceImportSnapshot, WorkspaceObservation, WorkspaceProfile } from '@/lib/reamon'
 import styles from './page.module.css'
-
-type WorkerHealth = { workerId: string; status: string; lastSeenAt: string; lastDispatchAt: string | null; lastDispatchDurationMs: number | null; lastRecovered: number; lastSelected: number; lastCompleted: number; lastFailed: number; lastError: string }
 
 interface WorkspaceSnapshot {
   workspace: { id: string; name: string; description: string | null; projectKind: string; createdAt: string; updatedAt: string }
@@ -50,7 +48,6 @@ interface WorkspaceSnapshot {
   imports: WorkspaceImportSnapshot[]
   artifactPage: { limit: number; total: number; hasMore: boolean }
   counts: { targets: number; artifacts: number; tasks: number; findings: number; hypotheses: number; evidence: number; observations: number }
-  workers: WorkerHealth[]
 }
 
 async function fetchWorkspace(projectId: string): Promise<WorkspaceSnapshot> {
@@ -121,45 +118,30 @@ function ImportStatus({ latestImport, projectId, onChanged }: { latestImport: Wo
   )
 }
 
-function WorkerHealthAlert({ workers, tasks }: { workers: WorkerHealth[]; tasks: WorkspaceSnapshot['tasks'] }) {
-  const attention = summarizeWorkerAttention(workers, tasks)
-  if (!attention || ((attention.kind === 'stale' || attention.kind === 'unavailable') && !('queuedTaskCount' in attention))) return null
+function WorkspaceTaskAlert({ tasks }: { tasks: WorkspaceSnapshot['tasks'] }) {
+  const attention = summarizeWorkspaceTaskAttention(tasks)
+  if (!attention) return null
 
-  const names = attention.workers.slice(0, 3).map((worker) => worker.workerId).join(', ')
-  const remainder = attention.workers.length > 3 ? ` and ${attention.workers.length - 3} more` : ''
-  const staleRegistryMessage = attention.workers.length > 0
-    ? `${attention.workers.length} registered worker${attention.workers.length === 1 ? ' has' : 's have'} a stale heartbeat.`
-    : 'No worker has checked in recently.'
-  const title = attention.kind === 'degraded'
-    ? 'Analysis worker reported an error'
-    : attention.kind === 'active-task'
+  const title = attention.kind === 'waiting'
+    ? 'Analysis is waiting for a worker'
+    : attention.kind === 'running-with-queued'
       ? 'Analysis is running'
-      : 'Analysis is waiting for a worker'
-  const messageText = attention.kind === 'degraded'
-    ? `${attention.workers.length} worker${attention.workers.length === 1 ? '' : 's'} reported a failed dispatch. Affected: ${names}${remainder}.`
-    : attention.kind === 'active-task'
-      ? `${attention.activeTaskCount} running task${attention.activeTaskCount === 1 ? ' has' : 's have'} a recent lease heartbeat. ${staleRegistryMessage}`
-      : attention.kind === 'queued-with-active-task'
-        ? `${attention.activeTaskCount} task${attention.activeTaskCount === 1 ? ' is' : 's are'} running with recent lease heartbeats, while ${attention.queuedTaskCount} task${attention.queuedTaskCount === 1 ? ' remains' : 's remain'} queued. ${staleRegistryMessage}`
-    : attention.kind === 'stale'
-      ? 'queuedTaskCount' in attention
-        ? `${attention.queuedTaskCount} task${attention.queuedTaskCount === 1 ? ' is' : 's are'} queued. ${staleRegistryMessage}`
-        : `No worker has checked in recently. ${staleRegistryMessage}`
-      : 'No analysis worker has checked in. Queued tasks will start when a worker is available.'
-  const historicalNote = (attention.historicalWorkerCount ?? 0) > 0
-    ? ' Older container records remain stored for diagnostics and are excluded from this live-worker count.'
-    : ''
-  const message = `${messageText}${historicalNote}`
-  const guidance = attention.kind === 'degraded'
-    ? 'Check project diagnostics before retrying failed tasks.'
-    : attention.kind === 'active-task'
-      ? 'Task execution is active; check worker diagnostics if the registry remains stale.'
-      : 'Check that an analysis worker is running.'
+      : 'An analysis task may have stalled'
+  const message = attention.kind === 'waiting'
+    ? 'Analysis tasks are queued and will start when a worker is available. Check that the analysis worker is running if they remain queued.'
+    : attention.kind === 'running-with-queued'
+      ? 'Some analysis tasks are running while others remain queued.'
+      : attention.kind === 'stalled-with-queued'
+        ? 'A running task has not sent a recent lease heartbeat, while other analysis tasks remain queued.'
+      : 'A running task has not sent a recent lease heartbeat. Review its task details before retrying.'
+  const guidance = attention.kind === 'stalled' || attention.kind === 'stalled-with-queued'
+    ? 'Open Tasks and findings to inspect the affected task.'
+    : 'Task status refreshes automatically while work is queued or running.'
   return (
-    <aside className={styles.workerAlert} role="alert" aria-labelledby="worker-alert-heading">
+    <aside className={styles.taskAlert} role="status" aria-labelledby="task-alert-heading">
       <AlertTriangle size={19} aria-hidden="true" />
       <div>
-        <strong id="worker-alert-heading">{title}</strong>
+        <strong id="task-alert-heading">{title}</strong>
         <p>{message}</p>
         <small>{guidance}</small>
       </div>
@@ -177,7 +159,7 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
     refetchInterval: (query) => {
       const snapshot = query.state.data
       if (snapshot?.tasks.some((task) => task.status === 'RUNNING')) return 3000
-      if (snapshot?.workers.length) return 30000
+      if (snapshot?.tasks.some((task) => task.status === 'QUEUED')) return 30000
       return false
     },
     refetchIntervalInBackground: false,
@@ -217,7 +199,7 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
         <div><p className={styles.eyebrow}>Reverse-engineering workspace</p><h1>{data.workspace.name}</h1><p className={styles.description}>{data.workspace.description || 'Import source, binaries, or packages. Run compatible analysis and review the recovered code alongside its evidence.'}</p></div>
       </header>
 
-      <WorkerHealthAlert workers={data.workers} tasks={data.tasks} />
+      <WorkspaceTaskAlert tasks={data.tasks} />
 
       <WorkspaceImportPanel projectId={projectId} onImported={() => {
         void queryClient.invalidateQueries({ queryKey: ['reamon-workspace', projectId] })
@@ -270,7 +252,6 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
             <div className={styles.panelHeader}><h2 id="observations-heading">Project knowledge</h2><span className={styles.muted}>{data.counts.observations} records</span></div>
             {data.observations.length ? data.observations.map((observation) => <div className={styles.listRow} key={observation.id}><span className={styles.observationMain}><strong>{observationTitle(observation)}</strong><small>{observation.type} · {observation.source} · {Object.keys(observation.attributes).length} attributes</small></span><span className={styles.type}>{observation.kind}</span></div>) : <p className={styles.muted}>Completed analyses will add entities and relationships here.</p>}
           </section>
-        <section className={styles.panel} aria-labelledby="workers-heading"><div className={styles.panelHeader}><h2 id="workers-heading">Analysis workers</h2><span className={styles.muted}>{data.workers.length} registered</span></div>{data.workers.length ? data.workers.map((worker) => <div className={styles.listRow} key={worker.workerId}><span className={styles.observationMain}><strong><Server size={13} aria-hidden="true" /> {worker.workerId}</strong><small>Last seen {new Date(worker.lastSeenAt).toLocaleString()} · {worker.lastSelected} selected · {worker.lastCompleted} completed</small>{worker.lastError && <small className={styles.uploadError}>{worker.lastError}</small>}</span><span className={styles.type}>{worker.status}</span></div>) : <p className={styles.muted}>No worker has reported a dispatch heartbeat yet.</p>}</section>
         <section className={styles.panel} aria-labelledby="hypotheses-heading"><div className={styles.panelHeader}><h2 id="hypotheses-heading">Hypotheses</h2></div>{data.hypotheses.length ? data.hypotheses.map((hypothesis) => <div className={styles.listRow} key={hypothesis.id}><span>{hypothesis.statement}</span><span className={styles.type}>{hypothesis.status}</span></div>) : <p className={styles.muted}>No hypotheses recorded.</p>}</section>
         <section className={styles.panel} aria-labelledby="projection-runs-heading"><div className={styles.panelHeader}><h2 id="projection-runs-heading">Graph replays</h2><span className={styles.muted}>{data.projectionRuns.length} recent</span></div>{data.projectionRuns.length ? data.projectionRuns.map((run) => <div className={styles.listRow} key={run.projectionRunId}><span className={styles.observationMain}><strong>{run.status} · {run.selected.toLocaleString()} observations</strong><small>{run.nodes.toLocaleString()} nodes · {run.relationships.toLocaleString()} relationships · page offset {run.offset.toLocaleString()}</small>{run.reconciled && <small>Reconciled · removed {run.deletedNodes.toLocaleString()} nodes / {run.deletedRelationships.toLocaleString()} relationships</small>}{run.error && <small className={styles.uploadError}>{run.error}</small>}</span><span className={styles.type}>{new Date(run.startedAt).toLocaleString()}</span></div>) : <p className={styles.muted}>Graph replay history will appear after a provider publishes observations.</p>}</section>
         <section className={styles.panel} aria-labelledby="activity-heading"><div className={styles.panelHeader}><h2 id="activity-heading">Recent activity</h2></div>{data.activities.length ? data.activities.map((activity) => <div className={styles.activityRow} key={activity.id}><span className={styles.activityDot} /><div><strong>{activity.actor}</strong><p>{activity.message}</p><time>{new Date(activity.createdAt).toLocaleString()}</time></div></div>) : <p className={styles.muted}>Activity will appear as the workspace changes.</p>}</section>
