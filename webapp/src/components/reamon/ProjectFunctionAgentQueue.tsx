@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { CodeUnit } from '@/lib/reamon/code-units'
 import styles from './ProjectFunctionAgentQueue.module.css'
@@ -67,6 +67,18 @@ interface QueueScanState {
   segmentAfterCursor: string | null
   segmentComplete: boolean
   segmentActive: boolean
+}
+
+function isQueueScanState(value: unknown): value is QueueScanState {
+  if (!value || typeof value !== 'object') return false
+  const state = value as Partial<QueueScanState>
+  return state.version === 1
+    && (state.cursor === null || typeof state.cursor === 'string' && state.cursor.length <= 500)
+    && typeof state.complete === 'boolean'
+    && Array.isArray(state.backlog) && state.backlog.length <= 400 && state.backlog.every(isQueueCandidate)
+    && Array.isArray(state.pendingUnits) && state.pendingUnits.length <= MAX_SOURCE_UNITS_TO_SCAN && state.pendingUnits.every(isQueueSourceUnit)
+    && (state.segmentAfterCursor === null || typeof state.segmentAfterCursor === 'string' && state.segmentAfterCursor.length <= 500)
+    && typeof state.segmentComplete === 'boolean' && typeof state.segmentActive === 'boolean'
 }
 
 function isQueueCandidate(value: unknown): value is QueueCandidate {
@@ -137,6 +149,7 @@ export function ProjectFunctionAgentQueue({ projectId, taskId, providerId, revie
   const [segmentComplete, setSegmentComplete] = useState(false)
   const [segmentActive, setSegmentActive] = useState(false)
   const [scanStateReady, setScanStateReady] = useState(false)
+  const saveChain = useRef<Promise<void>>(Promise.resolve())
   const scanStateKey = taskId ? `reamon-function-queue:v2:${projectId}:${taskId}` : ''
 
   useEffect(() => {
@@ -152,31 +165,38 @@ export function ProjectFunctionAgentQueue({ projectId, taskId, providerId, revie
       setScanStateReady(true)
       return
     }
-    try {
-      const saved = sessionStorage.getItem(scanStateKey)
-      const state = saved ? JSON.parse(saved) as Partial<QueueScanState> : null
-      const backlog = Array.isArray(state?.backlog) && state.backlog.length <= 10_000 && state.backlog.every(isQueueCandidate)
-        ? state.backlog : []
-      const savedPendingUnits = Array.isArray(state?.pendingUnits) && state.pendingUnits.length <= MAX_SOURCE_UNITS_TO_SCAN
-        && state.pendingUnits.every(isQueueSourceUnit) ? state.pendingUnits : []
-      setScanCursor(state?.version === 1 && (state.cursor === null || typeof state.cursor === 'string' && state.cursor.length <= 500) ? state.cursor : null)
-      setScanComplete(state?.version === 1 && state.complete === true)
-      setCandidateBacklog(backlog)
-      setPendingUnits(savedPendingUnits)
-      setSegmentAfterCursor(state?.version === 1 && (state.segmentAfterCursor === null || typeof state.segmentAfterCursor === 'string' && state.segmentAfterCursor.length <= 500) ? state.segmentAfterCursor : null)
-      setSegmentComplete(state?.version === 1 && state.segmentComplete === true)
-      setSegmentActive(state?.version === 1 && state.segmentActive === true)
-    } catch {
-      setScanCursor(null)
-      setScanComplete(false)
-      setCandidateBacklog([])
-      setPendingUnits([])
-      setSegmentAfterCursor(null)
-      setSegmentComplete(false)
-      setSegmentActive(false)
-    } finally {
+    let active = true
+    async function restoreScanState() {
+      let state: QueueScanState | null = null
+      const readBrowserCache = () => {
+        try {
+          const cached = sessionStorage.getItem(scanStateKey)
+          const parsed = cached ? JSON.parse(cached) as unknown : null
+          return isQueueScanState(parsed) ? parsed : null
+        } catch { return null }
+      }
+      try {
+        const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/deobfuscate/scan-state?taskId=${encodeURIComponent(taskId as string)}`, { cache: 'no-store' })
+        if (!response.ok) throw new Error(await responseError(response, 'Could not load the project scan checkpoint'))
+        const payload = await response.json() as { state?: unknown }
+        state = isQueueScanState(payload.state) ? payload.state : readBrowserCache()
+      } catch {
+        state = readBrowserCache()
+        if (active && state) setError('Could not load the saved project checkpoint; restored the copy cached in this browser.')
+      }
+      if (!active) return
+      const saved = state as QueueScanState | null
+      setScanCursor(saved?.cursor ?? null)
+      setScanComplete(saved?.complete ?? false)
+      setCandidateBacklog(saved?.backlog ?? [])
+      setPendingUnits(saved?.pendingUnits ?? [])
+      setSegmentAfterCursor(saved?.segmentAfterCursor ?? null)
+      setSegmentComplete(saved?.segmentComplete ?? false)
+      setSegmentActive(saved?.segmentActive ?? false)
       setScanStateReady(true)
     }
+    void restoreScanState()
+    return () => { active = false }
   }, [scanStateKey])
 
   useEffect(() => {
@@ -190,7 +210,19 @@ export function ProjectFunctionAgentQueue({ projectId, taskId, providerId, revie
     } catch {
       setError('This browser could not save the scan checkpoint. Keep this tab open until the current project scan finishes.')
     }
-  }, [scanCursor, scanComplete, candidateBacklog, pendingUnits, segmentAfterCursor, segmentComplete, segmentActive, scanStateKey, scanStateReady])
+    const body = JSON.stringify({ state })
+    const timer = window.setTimeout(() => {
+      saveChain.current = saveChain.current.catch(() => undefined).then(async () => {
+        const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/deobfuscate/scan-state?taskId=${encodeURIComponent(taskId as string)}`, {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' }, body,
+        })
+        if (!response.ok) throw new Error(await responseError(response, 'Could not save the project scan checkpoint'))
+      }).catch((caught: unknown) => {
+        setError(caught instanceof Error ? caught.message : 'Could not save the project scan checkpoint')
+      })
+    }, 200)
+    return () => window.clearTimeout(timer)
+  }, [scanCursor, scanComplete, candidateBacklog, pendingUnits, segmentAfterCursor, segmentComplete, segmentActive, scanStateKey, scanStateReady, projectId, taskId])
 
   const queueQuery = useQuery({
     queryKey: ['reamon-project-function-agent-queue', projectId, taskId],
