@@ -20,9 +20,6 @@ RUN pip install --no-cache-dir -r /tmp/github_requirements.txt
 # Copy project files (context is parent directory, so paths are relative to project root)
 COPY scanners/github_secret_hunt/ ./github_secret_hunt/
 
-# Copy graph_db module (for Neo4j integration)
-COPY graph_db/ ./graph_db/
-
 # Create output directories
 RUN mkdir -p github_secret_hunt/output
 

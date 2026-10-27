@@ -1,9 +1,9 @@
-"""A stop must not discard the run: SIGTERM has to reach the save/ingest path.
+"""A stop must not discard the run: SIGTERM has to reach the artifact-save path.
 
 Every stop arrives as SIGTERM (the orchestrator's stop endpoint, and its
 shutdown cleanup when the stack restarts). Python's default handler exits on the
-spot, so save_results() and the Neo4j write were both skipped and an hour of
-scanning produced zero nodes. SIGINT was handled, which hid it.
+spot, so save_results() was skipped and an hour of scanning produced no
+recoverable findings. SIGINT was handled, which hid it.
 
 Stubs PyGithub so main.py imports on a bare host, mirroring
 test_github_hunt_redaction.
@@ -67,11 +67,11 @@ class TestSigtermIsGraceful(unittest.TestCase):
             "default SIGTERM disposition kills the process before it can save")
 
 
-class TestInterruptedRunStillReachesTheGraphWrite(unittest.TestCase):
-    """run() must swallow KeyboardInterrupt itself and return its findings.
+class TestInterruptedRunStillSavesTheIngestArtifact(unittest.TestCase):
+    """run() must swallow KeyboardInterrupt itself and save its findings.
 
-    If it propagated, run_github_secret_hunt would never reach the graph write
-    below it, which is exactly the failure this guards.
+    The orchestrator ingests this file after the worker exits. If the exception
+    propagated, saved partial findings would not be available to ingest.
     """
 
     def test_run_returns_findings_after_an_interrupt(self):
@@ -103,6 +103,13 @@ class TestInterruptedRunStillReachesTheGraphWrite(unittest.TestCase):
         self.assertEqual(findings, [{"type": "SECRET"}])
         self.assertEqual(saved.get("status"), "interrupted",
                          "an interrupted run must be saved, and marked as such")
+
+    def test_scanner_entry_point_does_not_connect_to_neo4j(self):
+        with open(os.path.join(REPO_ROOT, "scanners", "github_secret_hunt", "main.py"),
+                  encoding="utf-8") as source_file:
+            source = source_file.read()
+        self.assertNotIn("Neo4jClient", source)
+        self.assertNotIn("NEO4J_PASSWORD", source)
 
 
 if __name__ == "__main__":

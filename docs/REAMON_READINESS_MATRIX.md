@@ -4,6 +4,22 @@ The active local/LAN webapp image is sha256:8250b7406b1e6f36600993c8817bbdc0ae5a
 
 Earlier checkpoint (2026-10-27): the local webapp image `sha256:375686f71d58711855d3451ac4f1ca6c459bae5c68c8f59d19f061c6da680a3c` was rebuilt from checkout revision `b7c1bbba2aaf`. Docker health is `healthy`; both `localhost:3001/api/health/ready` and `192.168.0.53:3001/api/health/ready` return `status=ready` with database and artifact checks `ok`. Build metadata reports `dirty=true` because the repository contains the user-owned untracked `work/` directory, which is outside the webapp build context. The task worker briefly lost its webapp connection during recreation, then recovered without a restart: its latest database heartbeat and dispatch are current, with zero reported failures. Before rollout, the existing artifact volume was checked for symlink entries; the shared resolver rejects symlinked staging directories, stored-artifact parent directories, and leaf files. The isolated Docker integration demonstrates real ENOSPC handling and same-offset upload recovery on a bounded tmpfs. Authenticated concurrent imports and LAN pressure-recovery acceptance remain open.
 
+## Scanner graph credential boundary (2026-10-27)
+
+GitHub Secret Hunt now writes its findings artifact without connecting to Neo4j.
+The orchestrator performs the tenant-bound graph ingest after the scanner exits,
+using its trusted connection. The worker spawn no longer receives Neo4j
+credentials or a graph database mount, and the scanner image no longer copies
+the graph client or installs its driver. Signed project-settings access and the
+mounted output path remain in place.
+
+The focused Docker checks passed: 18 orchestrator tests cover the worker boundary
+and trusted artifact ingest, and 5 agent-image tests cover saved findings after
+SIGTERM and the scanner's lack of graph access. The reduced GitHub Hunt image
+build also passed. This isolates GitHub Hunt only. Full recon, partial recon, AI
+attack-surface, GVM, and supply-chain workers still receive direct graph
+credentials; scanner-wide credential isolation remains a production gate.
+
 ## PyInstaller module paging and source recovery (2026-10-27)
 
 A generated, runnable Linux PyInstaller executable with 70 hidden-import modules produced its expected runtime value. The isolated extractor indexed 180 bytecode modules over three pages (0–63, 64–127, and 128–179). The live provider and pycdc ran for 17 continuations; each result was saved through REAmon's production Prisma/PostgreSQL observation-ingestion routine. The next provider invocation resumed from persisted attempt rows at module 64, saved the inventory through index 127, and retained readable recovered source.

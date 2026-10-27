@@ -18,7 +18,6 @@ Usage:
 import os
 import signal
 import sys
-import json
 from pathlib import Path
 from datetime import datetime
 
@@ -107,32 +106,8 @@ def run_github_secret_hunt(project_id: str) -> dict:
 
     findings = hunter.run()
 
-    # Update Neo4j graph database with findings
-    user_id = os.environ.get("USER_ID", "")
-    if hunter.output_file and Path(hunter.output_file).exists():
-        try:
-            from graph_db import Neo4jClient
-
-            with open(hunter.output_file, 'r') as f:
-                github_hunt_data = json.load(f)
-
-            print("\n" + "=" * 50)
-            print("[*] Updating Neo4j graph with GitHub Hunt results...")
-            print("=" * 50)
-
-            with Neo4jClient() as graph_client:
-                if graph_client.verify_connection():
-                    graph_stats = graph_client.update_graph_from_github_hunt(
-                        github_hunt_data, user_id, project_id
-                    )
-                    print(f"[+] Graph database updated successfully")
-                else:
-                    print("[!] Could not connect to Neo4j - skipping graph update")
-        except ImportError:
-            print("[!] Neo4j client not available - skipping graph update")
-        except Exception as e:
-            print(f"[!] Graph DB update failed (non-fatal): {e}")
-
+    # Findings are persisted to the mounted JSON artifact. The trusted
+    # orchestrator ingests that artifact after the scanner process exits.
     return {
         "target": target,
         "findings_count": len(findings),
@@ -146,10 +121,10 @@ def _install_sigterm_handler():
 
     Every stop reaches this container as SIGTERM: the orchestrator's stop
     endpoint, and its shutdown cleanup when the stack is restarted. Python's
-    default SIGTERM handler exits on the spot, so neither the final save nor the
-    graph write ran and an hour of scanning was discarded (observed 2026-08-20:
-    14 repos, 799 findings, zero nodes). SIGINT was already handled, which hid
-    it — Ctrl-C saved, a restart did not.
+    default SIGTERM handler exits on the spot, so the final artifact save was
+    skipped and an hour of scanning was discarded (observed 2026-08-20: 14
+    repos, 799 findings, zero nodes). SIGINT was already handled, which hid it —
+    Ctrl-C saved, a restart did not.
 
     KeyboardInterrupt rather than a custom exception on purpose: it is a
     BaseException, so it passes through the `except Exception: continue` guards

@@ -109,16 +109,26 @@ class TestEveryScanSpawnUsesTheHelper(unittest.TestCase):
         )
 
     def test_all_graph_writing_spawn_sites_route_through_the_helper(self):
-        # recon, partial-recon, gvm, github-hunt, supply-chain.
+        # recon, partial-recon, gvm, supply-chain.
         # TruffleHog is deliberately NOT here: its container is the dirty half of
         # the dirty/clean split and holds no Neo4j credentials, so it has no
         # graph_db to mount. The orchestrator ingests its findings afterwards.
-        self.assertEqual(self._source().count("self._graph_db_mount("), 5)
+        self.assertEqual(self._source().count("self._graph_db_mount("), 4)
 
     def test_only_supply_chain_may_use_the_unverified_guess(self):
         src = self._source()
         self.assertEqual(src.count("baked_into_image=False"), 1)
-        self.assertEqual(src.count("baked_into_image=True"), 4)
+        self.assertEqual(src.count("baked_into_image=True"), 3)
+
+    def test_github_hunt_worker_carries_no_graph_credentials_or_mount(self):
+        src = self._source()
+        start = src.index("    async def start_github_hunt(")
+        end = src.index("\n    async def pause_github_hunt(", start)
+        spawn = src[start:end]
+        for forbidden in ("NEO4J_URI", "NEO4J_USER", "NEO4J_PASSWORD", "_graph_db_mount("):
+            self.assertNotIn(forbidden, spawn)
+        self.assertIn("_scanner_env(project_id, user_id)", spawn)
+        self.assertIn("github_secret_hunt/output", spawn)
 
     def test_trufflehog_spawn_carries_no_neo4j_credentials(self):
         """The regression that matters more than the mount: a TruffleHog

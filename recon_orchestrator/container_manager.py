@@ -767,9 +767,9 @@ class ContainerManager:
         try/except so it merely stops writing to Neo4j in silence; partial recon has
         no such net and hard-crashes. See issue #169.
 
-        So when the image ALREADY bakes graph_db (recon, gvm, github-hunt,
-        trufflehog), an unverifiable guess is strictly worse than not mounting at
-        all: skip it and let the baked copy serve, at the cost of graph_db source
+        So when the image ALREADY bakes graph_db (recon and gvm), an
+        unverifiable guess is strictly worse than not mounting at all: skip it
+        and let the baked copy serve, at the cost of graph_db source
         hot-reload until the operator adds the compose mount. Only an image that
         does NOT bake it (supply-chain) has to gamble on the guess.
         """
@@ -2869,7 +2869,7 @@ class ContainerManager:
                     # recon pipeline so air-gapped/private-registry deployments work.
                     "RECON_EXTRA_ALLOWED_IMAGES": os.environ.get("RECON_EXTRA_ALLOWED_IMAGES", ""),
                     "PYTHONUNBUFFERED": "1",
-                    # Forward Neo4j credentials from orchestrator environment
+                    # Forward Neo4j credentials from orchestrator environment.
                     "NEO4J_URI": os.environ.get("NEO4J_URI", "bolt://localhost:7687"),
                     "NEO4J_USER": os.environ.get("NEO4J_USER", "neo4j"),
                     "NEO4J_PASSWORD": os.environ.get("NEO4J_PASSWORD", ""),
@@ -3198,9 +3198,8 @@ class ContainerManager:
                             state.error = f"Container exited with code {exit_code}"
                             state.completed_at = datetime.now(timezone.utc)
 
-                        # Both branches: a non-zero exit still leaves whatever the
-                        # scan had already saved, and a SIGKILLed container exits
-                        # non-zero having written nothing to the graph itself.
+                        # Both branches: a non-zero exit may still leave partial
+                        # findings in the saved artifact for trusted ingest.
                         self._ingest_github_hunt(state)
 
                         try:
@@ -3305,10 +3304,6 @@ class ContainerManager:
                     # recon pipeline so air-gapped/private-registry deployments work.
                     "RECON_EXTRA_ALLOWED_IMAGES": os.environ.get("RECON_EXTRA_ALLOWED_IMAGES", ""),
                     "PYTHONUNBUFFERED": "1",
-                    # Forward Neo4j credentials from orchestrator environment
-                    "NEO4J_URI": os.environ.get("NEO4J_URI", "bolt://localhost:7687"),
-                    "NEO4J_USER": os.environ.get("NEO4J_USER", "neo4j"),
-                    "NEO4J_PASSWORD": os.environ.get("NEO4J_PASSWORD", ""),
                     **self._scanner_env(project_id, user_id),
                 },
                 volumes={
@@ -3316,10 +3311,8 @@ class ContainerManager:
                     f"{github_hunt_path}/output": {"bind": "/app/github_secret_hunt/output", "mode": "rw"},
                     # Mount github_secret_hunt source for development (no rebuild needed)
                     f"{github_hunt_path}": {"bind": "/app/github_secret_hunt", "mode": "rw"},
-                    # The settings registry and graph_db -- see the recon spawn
-                    # above for why the registry rides along with graph_db.
+                    # The settings registry is needed to load project settings.
                     **self._recon_settings_mount(),
-                    **self._graph_db_mount(sibling_host_path(parent_host_path(github_hunt_path), "graph_db"), baked_into_image=True),
                 },
                 command="python github_secret_hunt/main.py",
             )
@@ -3396,9 +3389,8 @@ class ContainerManager:
                 if container.status == "paused":
                     container.unpause()
                 container.stop(timeout=timeout)
-                # BEFORE removing it: the container had `timeout` seconds to save
-                # and write the graph itself. If SIGKILL came first, this is the
-                # last chance to keep the run's findings.
+                # Stop first so the scanner can finish its save; then ingest the
+                # artifact while the project-scoped output remains available.
                 self._ingest_github_hunt(state)
                 container.remove()
                 state.status = GithubHuntStatus.IDLE
@@ -5054,23 +5046,15 @@ exit $RC
     GITHUB_HUNT_OUTPUT_DIR = Path("/app/github_secret_hunt/output")
 
     def _ingest_github_hunt(self, state: GithubHuntState) -> None:
-        """Write a finished hunt's findings to the graph if the container did not.
+        """Write a finished hunt's saved findings to the graph from this service.
 
-        A BACKSTOP, not the primary path. The hunt writes its own graph update
-        at the end of main.py, which covers a clean finish and (since the SIGTERM
-        handler) a graceful stop. What it cannot cover is the container dying
-        without running its exit path at all — SIGKILL after the stop grace
-        period, an OOM kill, a hard crash. That happened for real: a stack
-        restart killed a 58-minute scan and 799 findings produced zero nodes,
-        because the only writer was inside the process being killed.
-
-        TruffleHog already works this way round (`_ingest_trufflehog`); this puts
-        the hunt behind the same safety net without taking away its own write.
+        The scan container only produces the JSON artifact; this trusted service
+        owns graph credentials and performs the tenant-bound ingest. The
+        orchestrator also handles saved partial output after a hard stop.
 
         Skipped when the graph already holds THIS run, compared on the artifact's
-        `scan_end_time`. Re-ingesting would be correct but not free: the write
-        begins by clearing the previous subtree, so a needless repeat is a window
-        where the data is briefly gone.
+        `scan_end_time`. This also tolerates results written by older scanner
+        images that still performed graph writes themselves.
 
         Never raises: a failed ingest must not flip a finished scan into an error.
         """
