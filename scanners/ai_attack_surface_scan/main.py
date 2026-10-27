@@ -3,25 +3,29 @@
 Control flow (shared spine; no tool yet). Phases are numbered in execution
 order so the orchestrator's SSE progress only ever advances:
   [Phase 1] Safety / bounds  — RoE + bounds + hard-guardrail floor (fail fast)
-  [Phase 2] Target loading   — read selected AI nodes from the graph
+  [Phase 2] Target loading   — consume the orchestrator-resolved target snapshot
   [Phase 3] Attack           — (skeleton) emit one dummy finding per target
-  [Phase 4] Findings         — normalize -> Vulnerability, link to Endpoint
+  [Phase 4] Findings         — atomically publish a run-bound artifact for ingest
 
-The phase markers are printed to stdout so the orchestrator's SSE layer (Step 3)
-can pick them up, mirroring the gvm/trufflehog log conventions.
+The trusted orchestrator owns graph reads/writes. The worker receives only its
+target snapshot and private run directory, then publishes a hashable JSON result
+artifact. Phase markers are printed to stdout for the orchestrator's SSE layer.
 """
 from __future__ import annotations
 
 import logging
+import json
+import os
 import re
 import sys
+import tempfile
+from dataclasses import asdict
 from pathlib import Path
 
 from config import load_config
-from graph import make_driver, verify_connection
-from normalizer import make_dummy_finding, write_finding
+from normalizer import make_dummy_finding
 from safety import SafetyError, enforce
-from target_loader import load_targets
+from target_loader import targets_from_payload
 
 logging.basicConfig(
     level=logging.INFO,
@@ -134,6 +138,44 @@ def run_tool(cfg, targets) -> list:
     return [make_dummy_finding(t, cfg.tool, cfg.run_id) for t in targets]
 
 
+def write_result_artifact(path: str, cfg, targets, findings) -> None:
+    """Publish a run-bound result artifact atomically for trusted ingestion."""
+    if not path:
+        raise ValueError("AI_ATTACK_RESULT_PATH is required")
+    target_path = Path(path)
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "schema_version": 1,
+        "metadata": {
+            "project_id": cfg.project_id,
+            "user_id": cfg.user_id,
+            "run_id": cfg.run_id,
+            "tool": cfg.tool,
+        },
+        "targets": [asdict(target) for target in targets],
+        "findings": [asdict(finding) for finding in findings],
+    }
+    fd, tmp_path = tempfile.mkstemp(prefix=f".{target_path.name}.", dir=target_path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            json.dump(payload, stream, ensure_ascii=False, allow_nan=False)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.chmod(tmp_path, 0o644)
+        os.replace(tmp_path, target_path)
+        dir_fd = os.open(target_path.parent, os.O_RDONLY)
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
 def run() -> int:
     cfg = load_config()
     print("=" * 64)
@@ -145,7 +187,7 @@ def run() -> int:
         print("[!] ERROR: PROJECT_ID and USER_ID are required")
         return 1
 
-    # [Phase 1] Safety / bounds — fail fast before touching the graph or target.
+    # [Phase 1] Safety / bounds — fail fast before touching a target.
     print("[Phase 1] Safety / bounds")
     try:
         enforce(cfg)
@@ -153,61 +195,31 @@ def run() -> int:
         print(f"[!] Safety check failed: {e}")
         return 1
 
-    driver = make_driver()
-    try:
-        if not verify_connection(driver):
-            print("[!] ERROR: Neo4j connection failed")
-            return 1
-
-        with driver.session() as session:
-            # [Phase 2] Target loading
-            print("[Phase 2] Target loading")
-            targets = load_targets(
-                session,
-                user_id=cfg.user_id,
-                project_id=cfg.project_id,
-                selected=cfg.targets or None,
-            )
-            print(f"    [+] {len(targets)} target(s) selected")
-            if not targets:
-                print("[!] No AI targets found/selected — nothing to do")
-                return 0
-
-            # [Phase 3] Attack
-            print(f"[Phase 3] Attack (tool={cfg.tool})")
-            if cfg.dry_run:
-                print("    [+] dry-run: no payloads will be sent; not persisting")
-                return 0
-            findings = run_tool(cfg, targets)
-            print(f"    [+] {len(findings)} finding(s) from {cfg.tool}")
-
-            # [Phase 4] Findings -> graph
-            print("[Phase 4] Findings")
-            # Index targets by (baseurl, path) so a finding can hand its Target
-            # (method + AI annotations) to the normalizer when it materialises a
-            # custom target node.
-            target_index = {}
-            for t in targets:
-                target_index.setdefault(
-                    ((t.baseurl or "").rstrip("/"), t.path or "/"), t)
-            existing = created = 0
-            for f in findings:
-                t = target_index.get(((f.baseurl or "").rstrip("/"), f.path or "/"))
-                status = write_finding(session, f, cfg.user_id, cfg.project_id, target=t)
-                if status == "existing":
-                    existing += 1
-                elif status == "created":
-                    created += 1
-            print(f"    [+] wrote {len(findings)} Vulnerability finding(s); "
-                  f"{existing} linked to an existing Endpoint, "
-                  f"{created} materialised a target node (all connected)")
-
-        print("=" * 64)
-        print(f"[*] Done. {len(targets)} target(s), {len(findings)} finding(s).")
-        print("=" * 64)
+    # [Phase 2] Targets were resolved by the trusted orchestrator.
+    print("[Phase 2] Target loading")
+    targets = targets_from_payload(cfg.targets)
+    print(f"    [+] {len(targets)} authorized target(s) received")
+    if not targets:
+        print("[!] No AI targets found/selected — nothing to do")
         return 0
-    finally:
-        driver.close()
+
+    # [Phase 3] Attack
+    print(f"[Phase 3] Attack (tool={cfg.tool})")
+    if cfg.dry_run:
+        print("    [+] dry-run: no payloads will be sent; not persisting")
+        return 0
+    findings = run_tool(cfg, targets)
+    print(f"    [+] {len(findings)} finding(s) from {cfg.tool}")
+
+    # [Phase 4] Persist a run-bound artifact; graph writes happen in the
+    # credentialed orchestrator after project/user/run validation.
+    print("[Phase 4] Findings")
+    write_result_artifact(os.environ.get("AI_ATTACK_RESULT_PATH", ""), cfg, targets, findings)
+    print(f"    [+] published {len(findings)} finding(s) for trusted graph ingest")
+    print("=" * 64)
+    print(f"[*] Done. {len(targets)} target(s), {len(findings)} finding(s).")
+    print("=")
+    return 0
 
 
 def main() -> int:

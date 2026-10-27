@@ -4,15 +4,14 @@
 > follow-up that runs discovered LLM endpoints through a gauntlet of adversarial tools.
 
 
-> Deterministic, zero-egress offensive scanner that attacks the LLM endpoints
-> RedAmon's recon already discovered, and writes the results back into the same
-> Neo4j graph as `Vulnerability` nodes.
+> Deterministic offensive scanner that attacks explicitly authorized LLM
+> endpoints and returns run-bound findings for trusted graph ingestion.
 
 This document describes how the `scanners/ai_attack_surface_scan/` subsystem is built, how
 it is wired into the rest of the repository, how its containers are spawned, how
 the four attack tools (garak, PyRIT, Giskard, promptfoo) work in depth, exactly
-what is controllable from the operator UI, and how output is persisted to Neo4j
-and surfaced as reports.
+what is controllable from the operator UI, and how the credential-free worker
+hands findings to the orchestrator for persistence in Neo4j and reporting.
 
 ## Table of contents
 
@@ -44,11 +43,12 @@ AI classifier is enabled) stamps every `Endpoint` node with AI metadata:
 
 The **AI Gauntlet** is the offensive follow-up: the operator picks the
 AI endpoints recon found, chooses a tool and run bounds, confirms the Rules of
-Engagement (RoE), and launches. A short-lived Docker container runs the tool
-against the live target, normalizes the tool's native output into a unified
-`Finding` shape, and MERGEs each finding into the graph as a `Vulnerability` node
-linked to the attacked `Endpoint` (materialising the endpoint + its host anchor
-when the target is custom / off-graph, so a finding is never orphaned).
+Engagement (RoE), and launches. The trusted orchestrator resolves tenant-scoped
+targets, then gives the short-lived worker only that snapshot and a private
+per-run config/result directory. The worker normalizes tool output into a
+run-bound artifact without Neo4j credentials. After exit, the orchestrator
+validates project, user, and run identity and invokes the existing normalizer to
+MERGE findings into `Vulnerability` nodes linked to the attacked `Endpoint`.
 
 ```mermaid
 graph LR
@@ -62,15 +62,17 @@ graph LR
     end
 
     subgraph Attack["AI Gauntlet (this subsystem)"]
-        LOAD[target_loader] --> TOOL[Tool adapter]
-        TOOL --> NORM[normalizer]
+        LOAD[Orchestrator target resolution] --> SNAP[Private target snapshot]
+        SNAP --> TOOL[Credential-free worker / tool adapter]
+        TOOL --> ART[Atomic run-bound findings artifact]
+        ART --> NORM[Orchestrator validates + normalizes]
     end
 
     subgraph UI["webapp"]
         PAGE["/ai-attack-surface page"]
     end
 
-    EP -->|read selected targets| LOAD
+    EP -->|tenant-scoped read| LOAD
     NORM -->|MERGE HAS_VULNERABILITY| VULN
     PAGE -->|launch + SSE logs| Attack
     VULN -->|findings API| PAGE
@@ -106,9 +108,9 @@ scanners/ai_attack_surface_scan/
 ├── main.py                 Container entrypoint — the 4-phase "spine"
 ├── config.py               RunConfig + Bounds, loaded from JSON/env
 ├── safety.py               RoE + bounds + hard-guardrail floor (fail fast)
-├── target_loader.py        Reads selected AI Endpoint nodes from the graph
-├── normalizer.py           Unified Finding shape -> Vulnerability writer
-├── graph.py                Bare neo4j driver + connection check
+├── target_loader.py        Resolves Endpoint nodes before worker launch; parses snapshots
+├── normalizer.py           Unified Finding shape + trusted Vulnerability writer
+├── graph.py                Legacy graph helper retained for isolated compatibility tests
 ├── proc.py                 run_streamed(): live subprocess output -> SSE
 ├── project_settings.py     Default settings (master toggle + per-tool toggles)
 ├── output/                 Per-run tool artifacts (configs, reports, transcripts)

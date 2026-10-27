@@ -1,8 +1,9 @@
-"""Shared spine piece 1 — the target loader (§6.1).
+"""Target resolver and worker snapshot parser (§6.1).
 
-Reads the AI surface that recon annotated and renders the §2 selectors. Each
-tool declares its `applies_to` interface-type filter; the loader applies it. No
-tool reimplements node selection.
+The trusted orchestrator reads the AI surface that recon annotated and renders
+the §2 selectors. The uncredentialed attack worker only parses the resulting
+target snapshot. Each tool declares its `applies_to` interface-type filter; the
+resolver applies it. No tool reimplements node selection.
 
 The request shape comes from recon automatically (§2.3): each Endpoint already
 carries ai_interface_type / ai_model_family_guess / ai_supports_* so the attack
@@ -77,6 +78,20 @@ def _row_to_target(row) -> Target:
         ai_supports_tools=row.get("ai_supports_tools"),
         ai_supports_streaming=row.get("ai_supports_streaming"),
     )
+
+
+def targets_from_payload(rows: list[dict] | None) -> list[Target]:
+    """Build targets already resolved by the trusted orchestrator.
+
+    Scan workers receive only tenant-authorized target records; they never need
+    graph credentials or direct access to the project's graph.
+    """
+    targets = []
+    for row in rows or []:
+        if not isinstance(row, dict) or not row.get("baseurl"):
+            continue
+        targets.append(_row_to_target(row))
+    return targets
 
 
 def load_targets(

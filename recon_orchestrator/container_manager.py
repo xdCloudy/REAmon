@@ -279,6 +279,7 @@ class ContainerManager:
         self.supply_chain_states: dict[str, SupplyChainState] = {}
         # AI Attack Surface: nested project_id -> run_id (parallel per-tool jobs).
         self.ai_attack_states: dict[str, dict[str, AiAttackSurfaceState]] = {}
+        self.ai_attack_run_context: dict[tuple[str, str], dict] = {}
         # Set by api.py after construction: the on-demand Ollama judge manager
         # (Step 1). The AI attack lifecycle ref-counts a judge lease through it.
         self.local_llm_manager = None
@@ -2334,8 +2335,61 @@ class ContainerManager:
                 logger.warning(f"Failed to release Ollama lease: {e}")
         state.llm_leased = False
 
+    def _ingest_ai_attack(self, state: AiAttackSurfaceState) -> None:
+        """Ingest only this completed run's artifact through the trusted graph client."""
+        context = self.ai_attack_run_context.get((state.project_id, state.run_id))
+        if (not context or state.ingested or state.ingest_terminal_error
+                or context.get("dry_run")):
+            return
+        now = datetime.now(timezone.utc)
+        if state.ingest_retry_at and now < state.ingest_retry_at:
+            return
+        state.ingest_attempts += 1
+        try:
+            from ai_attack_ingest import AIArtifactValidationError, ingest_result_artifact
+
+            count = ingest_result_artifact(
+                context["artifact_path"],
+                user_id=context["user_id"],
+                project_id=state.project_id,
+                run_id=state.run_id,
+            )
+            state.findings_count = count
+            state.ingested = True
+            state.ingest_error = None
+            state.ingest_retry_at = None
+            logger.info(
+                "[ai-attack] trusted ingest completed for project %s run %s (%s findings)",
+                state.project_id, state.run_id, count,
+            )
+        except Exception as exc:
+            state.ingest_error = str(exc)
+            if isinstance(exc, AIArtifactValidationError):
+                state.ingest_terminal_error = True
+                state.ingest_retry_at = None
+                logger.error(
+                    "[ai-attack] refusing invalid artifact for project %s run %s: %s",
+                    state.project_id, state.run_id, exc,
+                )
+                return
+            delay = min(300, 2 ** min(state.ingest_attempts - 1, 8))
+            state.ingest_retry_at = now + timedelta(seconds=delay)
+            logger.warning(
+                "[ai-attack] graph ingest attempt %s failed for project %s run %s: %s",
+                state.ingest_attempts, state.project_id, state.run_id, exc,
+            )
+
+    def _resolve_ai_attack_targets(self, user_id: str, project_id: str,
+                                   selected: list[dict] | None) -> list[dict]:
+        from ai_attack_ingest import resolve_targets
+
+        return resolve_targets(user_id, project_id, selected)
+
     def _refresh_ai_attack_state(self, state: AiAttackSurfaceState) -> None:
         """Refresh a run's state from its container; release the judge on finish."""
+        if state.status == AiAttackSurfaceStatus.COMPLETED:
+            self._ingest_ai_attack(state)
+            return
         if not state.container_id:
             return
         if state.status in (AiAttackSurfaceStatus.COMPLETED, AiAttackSurfaceStatus.ERROR, AiAttackSurfaceStatus.IDLE):
@@ -2352,6 +2406,16 @@ class ContainerManager:
                 state.completed_at = datetime.now(timezone.utc)
                 # Job ended on its own -> free the shared judge lease.
                 self._release_llm(state)
+                context = self.ai_attack_run_context.get((state.project_id, state.run_id), {})
+                config_path = context.get("config_path")
+                if config_path:
+                    try:
+                        Path(config_path).unlink(missing_ok=True)
+                    except OSError as exc:
+                        logger.warning("Could not remove AI attack config for %s/%s: %s",
+                                       state.project_id, state.run_id, exc)
+                if exit_code == 0:
+                    self._ingest_ai_attack(state)
                 try:
                     container.remove()
                     logger.info(f"Auto-removed AI attack container for {state.project_id}/{state.run_id}")
@@ -2382,13 +2446,21 @@ class ContainerManager:
         to_remove = []
         for run_id, state in runs.items():
             await asyncio.to_thread(self._refresh_ai_attack_state, state)
-            if state.status in (AiAttackSurfaceStatus.COMPLETED, AiAttackSurfaceStatus.ERROR):
+            context = self.ai_attack_run_context.get((project_id, run_id))
+            ingest_settled = (
+                state.ingested or state.ingest_terminal_error
+                or state.status == AiAttackSurfaceStatus.ERROR
+                or not context or context.get("dry_run")
+            )
+            if state.status in (AiAttackSurfaceStatus.COMPLETED, AiAttackSurfaceStatus.ERROR) and ingest_settled:
                 if state.completed_at and (datetime.now(timezone.utc) - state.completed_at).total_seconds() > 60:
                     to_remove.append(run_id)
         # pop(), not del: to_thread above is an await point, so a concurrent
         # get_all can remove the same run first (see get_all_partial_recon_statuses).
         for run_id in to_remove:
             runs.pop(run_id, None)
+            context = self.ai_attack_run_context.pop((project_id, run_id), {})
+            shutil.rmtree(context.get("run_dir", ""), ignore_errors=True)
         if not runs:
             self.ai_attack_states.pop(project_id, None)
         return list(runs.values())
@@ -2431,8 +2503,17 @@ class ContainerManager:
         )
         self.ai_attack_states.setdefault(project_id, {})[run_id] = state
         config_path = None   # set once written; may be None if we fail before that
+        run_dir = None
 
         try:
+            # Resolve graph targets with the orchestrator's credentials. The scan
+            # worker receives only this explicit tenant-scoped target snapshot.
+            run_config["targets"] = self._resolve_ai_attack_targets(
+                user_id, project_id, run_config.get("targets") or None,
+            )
+            if not run_config["targets"]:
+                raise ValueError("No AI attack targets were resolved for this project and selection")
+
             # Ensure the scanner image exists.
             try:
                 self.client.images.get(self.ai_attack_image)
@@ -2459,18 +2540,29 @@ class ContainerManager:
                         f"scan will degrade to no-judge"
                     )
 
-            # Write the run config to the shared /tmp/redamon volume.
+            # Give each worker a private config/result directory: the old shared
+            # volume exposed other projects' run configs, including target API keys.
             config_dir = Path("/tmp/redamon")
             config_dir.mkdir(parents=True, exist_ok=True)
-            # Sanitize project_id for the filename (it's client-supplied via the
-            # path param); run_id is a server UUID. Mirrors the container-name rule.
             safe_pid = re.sub(r'[^a-zA-Z0-9_.-]', '_', project_id)
-            config_path = config_dir / f"ai_attack_{safe_pid}_{run_id}.json"
+            run_dir = config_dir / f"ai_attack_{safe_pid}_{run_id}"
+            run_dir.mkdir(mode=0o700, parents=False, exist_ok=False)
+            os.chmod(run_dir, 0o700)
+            config_path = run_dir / "config.json"
+            artifact_path = run_dir / "results.json"
             run_config.setdefault("project_id", project_id)
             run_config.setdefault("user_id", user_id)
             run_config.setdefault("run_id", run_id)
             with open(config_path, "w") as f:
                 json.dump(run_config, f)
+            os.chmod(config_path, 0o600)
+            self.ai_attack_run_context[(project_id, run_id)] = {
+                "user_id": user_id,
+                "artifact_path": artifact_path,
+                "config_path": config_path,
+                "run_dir": run_dir,
+                "dry_run": bool(run_config.get("dry_run")),
+            }
 
             container = self.client.containers.run(
                 self.ai_attack_image,
@@ -2490,16 +2582,14 @@ class ContainerManager:
                     # recon pipeline so air-gapped/private-registry deployments work.
                     "RECON_EXTRA_ALLOWED_IMAGES": os.environ.get("RECON_EXTRA_ALLOWED_IMAGES", ""),
                     "PYTHONUNBUFFERED": "1",
-                    "AI_ATTACK_CONFIG": str(config_path),
+                    "AI_ATTACK_CONFIG": "/run/ai-attack/config.json",
+                    "AI_ATTACK_RESULT_PATH": "/run/ai-attack/results.json",
                     "AI_ATTACK_RUN_ID": run_id,
                     "AI_ATTACK_TOOL": tool,
-                    "NEO4J_URI": os.environ.get("NEO4J_URI", "bolt://localhost:7687"),
-                    "NEO4J_USER": os.environ.get("NEO4J_USER", "neo4j"),
-                    "NEO4J_PASSWORD": os.environ.get("NEO4J_PASSWORD", ""),
                     **self._scanner_env(project_id, user_id),
                 },
                 volumes={
-                    "/tmp/redamon": {"bind": "/tmp/redamon", "mode": "rw"},
+                    str(run_dir): {"bind": "/run/ai-attack", "mode": "rw"},
                     # Mount source for dev (no rebuild needed), like the other scanners.
                     f"{ai_attack_path}": {"bind": "/app/ai_attack_surface_scan", "mode": "rw"},
                 },
@@ -2524,8 +2614,12 @@ class ContainerManager:
             try:
                 if config_path:
                     config_path.unlink(missing_ok=True)
+                if run_dir:
+                    shutil.rmtree(run_dir, ignore_errors=True)
             except Exception:
                 pass
+            self.ai_attack_run_context.pop((project_id, run_id), None)
+            self.ledger.release_nowait(self._scan_key("ai_attack", project_id, run_id))
             logger.error(f"Failed to start AI attack surface for {project_id}/{run_id}: {e}")
 
         return state
@@ -2562,10 +2656,9 @@ class ContainerManager:
             del runs[run_id]
         if not runs and project_id in self.ai_attack_states:
             del self.ai_attack_states[project_id]
+        context = self.ai_attack_run_context.pop((project_id, run_id), {})
         try:
-            cfg = Path(f"/tmp/redamon/ai_attack_{project_id}_{run_id}.json")
-            if cfg.exists():
-                cfg.unlink()
+            shutil.rmtree(context.get("run_dir", ""), ignore_errors=True)
         except Exception:
             pass
 

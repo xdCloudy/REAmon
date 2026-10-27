@@ -213,6 +213,19 @@ class TestTargetLoader(unittest.TestCase):
         self.assertEqual(len(targets), 1)
         self.assertEqual(targets[0].baseurl, "http://h")
 
+    def test_worker_builds_targets_from_trusted_payload(self):
+        targets = tl.targets_from_payload([
+            {"baseurl": "http://h", "path": "/c", "method": "POST",
+             "ai_interface_type": "llm-chat", "ai_model_family_guess": "qwen",
+             "ai_model_ids": ["qwen2.5"], "ai_supports_tools": True,
+             "ai_supports_streaming": False},
+            None,
+            {"path": "/missing"},
+        ])
+        self.assertEqual(len(targets), 1)
+        self.assertEqual(targets[0].ai_model_family_guess, "qwen")
+        self.assertEqual(targets[0].ai_model_ids, ["qwen2.5"])
+
     def test_load_selected_missing_yields_placeholder(self):
         session = MagicMock()
         session.run.return_value.single.return_value = None

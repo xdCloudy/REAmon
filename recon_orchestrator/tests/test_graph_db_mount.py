@@ -109,8 +109,8 @@ class TestEveryScanSpawnUsesTheHelper(unittest.TestCase):
         )
 
     def test_all_graph_writing_spawn_sites_route_through_the_helper(self):
-        # recon and partial-recon. GVM and Supply-chain workers emit artifacts
-        # for trusted orchestrator ingest after the worker exits.
+        # recon and partial-recon. GVM, AI Attack Surface, GitHub Hunt, and
+        # Supply-chain workers emit artifacts for trusted orchestrator ingest.
         # TruffleHog is deliberately NOT here: its container is the dirty half of
         # the dirty/clean split and holds no Neo4j credentials, so it has no
         # graph_db to mount. The orchestrator ingests its findings afterwards.
@@ -150,6 +150,17 @@ class TestEveryScanSpawnUsesTheHelper(unittest.TestCase):
             self.assertNotIn(forbidden, spawn)
         self.assertIn("_scanner_env(project_id, user_id)", spawn)
         self.assertIn("github_secret_hunt/output", spawn)
+
+    def test_ai_attack_worker_has_no_graph_credentials_or_shared_config_volume(self):
+        src = self._source()
+        start = src.index("    async def start_ai_attack_surface(")
+        end = src.index("\n    async def stop_ai_attack_surface(", start)
+        spawn = src[start:end]
+        for forbidden in ("NEO4J_URI", "NEO4J_USER", "NEO4J_PASSWORD"):
+            self.assertNotIn(forbidden, spawn)
+        self.assertIn('"/run/ai-attack/config.json"', spawn)
+        self.assertIn('"/run/ai-attack/results.json"', spawn)
+        self.assertNotIn('"/tmp/redamon": {"bind": "/tmp/redamon"', spawn)
 
     def test_trufflehog_spawn_carries_no_neo4j_credentials(self):
         """The regression that matters more than the mount: a TruffleHog

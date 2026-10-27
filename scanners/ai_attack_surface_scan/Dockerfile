@@ -20,7 +20,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends git build-essential curl \
     && rm -rf /var/lib/apt/lists/*
 
-# --- Base (shared spine): just the Neo4j driver ---
+# --- Base dependencies shared by the spine and compatibility tests ---
 COPY scanners/ai_attack_surface_scan/requirements.txt /tmp/base-requirements.txt
 RUN pip install --no-cache-dir -r /tmp/base-requirements.txt
 

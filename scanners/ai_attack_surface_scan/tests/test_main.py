@@ -10,7 +10,6 @@ import unittest
 from contextlib import redirect_stdout
 from unittest.mock import MagicMock, patch
 
-import graph
 import main
 import target_loader as tl
 from config import Bounds, RunConfig
@@ -45,18 +44,9 @@ class TestMainErrorPaths(unittest.TestCase):
         with patch.object(main, "load_config", return_value=_cfg(roe_confirmed=False)):
             self.assertEqual(main.run(), 1)
 
-    def test_neo4j_down_returns_1(self):
-        with patch.object(main, "load_config", return_value=_cfg()), \
-             patch.object(main, "make_driver", return_value=MagicMock()), \
-             patch.object(main, "verify_connection", return_value=False):
-            self.assertEqual(main.run(), 1)
-
     def test_no_targets_returns_0(self):
-        session = MagicMock()
         with patch.object(main, "load_config", return_value=_cfg()), \
-             patch.object(main, "make_driver", return_value=_fake_driver(session)), \
-             patch.object(main, "verify_connection", return_value=True), \
-             patch.object(main, "load_targets", return_value=[]):
+             patch.object(main, "targets_from_payload", return_value=[]):
             self.assertEqual(main.run(), 0)
 
     def test_crash_is_caught_and_returns_1(self):
@@ -65,25 +55,20 @@ class TestMainErrorPaths(unittest.TestCase):
             self.assertEqual(main.main(), 1)
 
     def test_dry_run_writes_nothing(self):
-        session = MagicMock()
         target = tl.Target(baseurl="http://h", path="/c", ai_interface_type="llm-chat")
         with patch.object(main, "load_config", return_value=_cfg(dry_run=True, roe_confirmed=False)), \
-             patch.object(main, "make_driver", return_value=_fake_driver(session)), \
-             patch.object(main, "verify_connection", return_value=True), \
-             patch.object(main, "load_targets", return_value=[target]), \
-             patch.object(main, "write_finding") as wf:
+             patch.object(main, "targets_from_payload", return_value=[target]), \
+             patch.object(main, "write_result_artifact") as publish:
             self.assertEqual(main.run(), 0)
-            wf.assert_not_called()
+            publish.assert_not_called()
 
     def test_phase_order_monotonic_mocked(self):
-        session = MagicMock()
         target = tl.Target(baseurl="http://h", path="/c", ai_interface_type="llm-chat")
         buf = io.StringIO()
         with patch.object(main, "load_config", return_value=_cfg()), \
-             patch.object(main, "make_driver", return_value=_fake_driver(session)), \
-             patch.object(main, "verify_connection", return_value=True), \
-             patch.object(main, "load_targets", return_value=[target]), \
-             patch.object(main, "write_finding", return_value=True):
+             patch.object(main, "targets_from_payload", return_value=[target]), \
+             patch.dict("os.environ", {"AI_ATTACK_RESULT_PATH": "/tmp/unused-ai-attack.json"}), \
+             patch.object(main, "write_result_artifact"):
             with redirect_stdout(buf):
                 main.run()
         phases = _phase_numbers(buf.getvalue())
@@ -213,53 +198,26 @@ class TestRunToolDispatch(unittest.TestCase):
         self.assertEqual(captured["target_model"], "qwen2.5:0.5b")
 
 
-def _reachable():
-    try:
-        d = graph.make_driver()
-        ok = graph.verify_connection(d)
-        d.close()
-        return ok
-    except Exception:
-        return False
+class TestResultArtifact(unittest.TestCase):
+    def test_result_artifact_retains_run_identity_targets_and_findings(self):
+        import json
+        import tempfile
+        from normalizer import Finding
 
-
-@unittest.skipUnless(_reachable(), "no Neo4j reachable")
-class TestMainLive(unittest.TestCase):
-    UID = "aiatk-main-itest-user"
-    PID = "aiatk-main-itest-proj"
-
-    def setUp(self):
-        self.driver = graph.make_driver()
-        self._wipe()
-        with self.driver.session() as s:
-            s.run("""
-                MERGE (b:BaseURL {url:$u, user_id:$uid, project_id:$pid})
-                MERGE (e:Endpoint {baseurl:$u, path:'/v1/chat/completions', user_id:$uid, project_id:$pid})
-                  SET e.method='POST', e.ai_interface_type='llm-chat'
-                MERGE (b)-[:HAS_ENDPOINT]->(e)
-            """, u="http://h:8000", uid=self.UID, pid=self.PID)
-
-    def tearDown(self):
-        self._wipe()
-        self.driver.close()
-
-    def _wipe(self):
-        with self.driver.session() as s:
-            s.run("MATCH (n {project_id:$pid}) DETACH DELETE n", pid=self.PID)
-
-    def test_full_run_writes_linked_vuln_and_phases_ordered(self):
-        cfg = _cfg(project_id=self.PID, user_id=self.UID)
-        buf = io.StringIO()
-        with patch.object(main, "load_config", return_value=cfg):
-            with redirect_stdout(buf):
-                rc = main.run()
-        self.assertEqual(rc, 0)
-        self.assertEqual(_phase_numbers(buf.getvalue()), [1, 2, 3, 4])
-        with self.driver.session() as s:
-            edges = s.run(
-                "MATCH (:Endpoint {project_id:$pid})-[r:HAS_VULNERABILITY]->(:Vulnerability) RETURN count(r)",
-                pid=self.PID).single()[0]
-        self.assertEqual(edges, 1)
+        target = tl.Target(baseurl="https://example.invalid", path="/chat", method="POST")
+        finding = Finding(source="garak", chip="prompt-injection", name="injection",
+                          baseurl=target.baseurl, path=target.path, evidence="fixture")
+        cfg = _cfg(project_id="project-1", user_id="user-1", run_id="run-1")
+        with tempfile.TemporaryDirectory() as directory:
+            result_path = f"{directory}/result.json"
+            main.write_result_artifact(result_path, cfg, [target], [finding])
+            with open(result_path, encoding="utf-8") as stream:
+                payload = json.load(stream)
+        self.assertEqual(payload["metadata"], {
+            "project_id": "project-1", "user_id": "user-1", "run_id": "run-1", "tool": "skeleton",
+        })
+        self.assertEqual(payload["targets"][0]["baseurl"], target.baseurl)
+        self.assertEqual(payload["findings"][0]["evidence"], "fixture")
 
 
 if __name__ == "__main__":

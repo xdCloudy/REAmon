@@ -2,5 +2,7 @@
 # The attack tools are installed into per-tool virtualenvs (see the Dockerfile),
 # because their dependencies conflict and cannot share one environment:
 #   garak 0.15.1 needs datasets<4.0 ; pyrit 0.14.0 needs datasets>=4.8.0
-#   (and promptfoo is a Node.js tool). The spine talks to Neo4j only.
+#   (and promptfoo is a Node.js tool). The worker entrypoint does not connect to
+#   Neo4j; the driver remains for legacy helper tests while graph access lives in
+#   the trusted orchestrator.
 neo4j>=5.0.0

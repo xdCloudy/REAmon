@@ -10,8 +10,8 @@ exactly once), state lifecycle from container exit codes, and the phase-marker
 parser (incl. the banner false-match regression).
 """
 import asyncio
-import glob
 import os
+import shutil
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -133,16 +133,17 @@ class TestStartStop(unittest.IsolatedAsyncioTestCase):
         self._scanner_env.start()
         self.mgr = make_manager()
         self.mgr.client.containers.run.return_value = fake_container()
+        self._resolve_targets = patch.object(
+            self.mgr, "_resolve_ai_attack_targets",
+            return_value=[{"baseurl": "http://host", "path": "/"}],
+        )
+        self._resolve_targets.start()
 
     def tearDown(self):
+        self._resolve_targets.stop()
         self._scanner_env.stop()
-
-    def tearDown(self):
-        for f in glob.glob("/tmp/redamon/ai_attack_p_*.json"):
-            try:
-                os.unlink(f)
-            except OSError:
-                pass
+        for context in self.mgr.ai_attack_run_context.values():
+            shutil.rmtree(context.get("run_dir", ""), ignore_errors=True)
 
     async def _start(self, **cfg):
         base = {"tool": "skeleton", "targets": [], "bounds": {"judge_model": "qwen2.5:0.5b"},
@@ -158,10 +159,15 @@ class TestStartStop(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(state.llm_leased)
         self.mgr.local_llm_manager.ensure_up.assert_called_once_with("qwen2.5:0.5b")
         self.mgr.client.containers.run.assert_called_once()
-        # network_mode host + the config env var must be set.
+        # The worker gets one private config/result directory and no graph secret.
         kwargs = self.mgr.client.containers.run.call_args.kwargs
         self.assertEqual(kwargs["network_mode"], "host")
-        self.assertIn("AI_ATTACK_CONFIG", kwargs["environment"])
+        self.assertEqual(kwargs["environment"]["AI_ATTACK_CONFIG"], "/run/ai-attack/config.json")
+        self.assertEqual(kwargs["environment"]["AI_ATTACK_RESULT_PATH"], "/run/ai-attack/results.json")
+        for key in ("NEO4J_URI", "NEO4J_USER", "NEO4J_PASSWORD"):
+            self.assertNotIn(key, kwargs["environment"])
+        self.assertEqual(len(kwargs["volumes"]), 2)
+        self.assertNotIn("/tmp/redamon", kwargs["volumes"])
 
     async def test_dry_run_does_not_acquire_lease(self):
         state = await self._start(dry_run=True, roe_confirmed=False)
@@ -172,6 +178,13 @@ class TestStartStop(unittest.IsolatedAsyncioTestCase):
         state = await self._start(bounds={})
         self.assertFalse(state.llm_leased)
         self.mgr.local_llm_manager.ensure_up.assert_not_called()
+
+    async def test_empty_resolved_target_list_does_not_spawn(self):
+        self.mgr._resolve_ai_attack_targets.return_value = []
+        state = await self._start()
+        self.assertEqual(state.status, AiAttackSurfaceStatus.ERROR)
+        self.assertIn("No AI attack targets", state.error)
+        self.mgr.client.containers.run.assert_not_called()
 
     async def test_start_failure_releases_lease(self):
         self.mgr.client.containers.run.side_effect = RuntimeError("docker boom")
@@ -199,17 +212,11 @@ class TestStartStop(unittest.IsolatedAsyncioTestCase):
             project_id="p/../x", user_id="u", webapp_api_url="",
             run_config={"tool": "skeleton", "bounds": {}, "roe_confirmed": True},
             ai_attack_path="/host/ai_attack_surface_scan")
-        cfg = self.mgr.client.containers.run.call_args.kwargs["environment"]["AI_ATTACK_CONFIG"]
-        self.assertTrue(cfg.startswith("/tmp/redamon/ai_attack_"))
-        # The real safety property: no '/' in the filename portion, so it can't
-        # escape /tmp/redamon (a literal '..' mid-filename is harmless without a
-        # surrounding separator). And the env path must equal the file we write.
-        self.assertNotIn("/", cfg[len("/tmp/redamon/"):])
-        # cleanup the sanitized file
-        try:
-            Path(cfg).unlink(missing_ok=True)
-        except OSError:
-            pass
+        cfg = self.mgr.ai_attack_run_context[(state.project_id, state.run_id)]["config_path"]
+        self.assertIn("ai_attack_p_.._x_", str(cfg))
+        self.assertEqual(Path(cfg).stat().st_mode & 0o777, 0o600)
+        volume_path = next(iter(self.mgr.client.containers.run.call_args.kwargs["volumes"]))
+        self.assertEqual(Path(volume_path).stat().st_mode & 0o777, 0o700)
 
     async def test_stop_releases_lease_and_clears_state(self):
         state = await self._start()

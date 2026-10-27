@@ -477,6 +477,13 @@ class AiAttackSurfaceState(BaseModel):
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     error: Optional[str] = None
+    ingested: bool = False
+    ingest_error: Optional[str] = None
+    ingest_warning: Optional[str] = None
+    ingest_attempts: int = 0
+    ingest_retry_at: Optional[datetime] = None
+    ingest_terminal_error: bool = False
+    findings_count: int = 0
     # Whether this job currently holds an Ollama judge lease (ref-counted).
     # Internal bookkeeping so we release exactly once when the job ends.
     llm_leased: bool = False

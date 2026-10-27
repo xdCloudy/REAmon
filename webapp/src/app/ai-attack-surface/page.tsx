@@ -532,6 +532,14 @@ export default function AiAttackSurfacePage() {
                 {s.phase.name && <> · Phase {s.phase.num}/4: {s.phase.name}</>}
               </div>
             )}
+            {s.run?.ingest_error && (
+              <div className={styles.err} role="alert">
+                {s.run.ingest_terminal_error
+                  ? 'Scan completed, but graph ingest rejected its result: '
+                  : 'Scan completed, but graph ingest is retrying: '}
+                {s.run.ingest_error}
+              </div>
+            )}
             {s.logs.length > 0 && (
               <pre className={styles.logs} ref={logsRef}>
                 {s.logs.map((l, i) => (

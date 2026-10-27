@@ -376,4 +376,8 @@ export interface AiAttackRunState {
   phase_number?: number | null
   total_phases?: number
   error?: string | null
+  ingested?: boolean
+  ingest_error?: string | null
+  ingest_terminal_error?: boolean
+  findings_count?: number
 }
