@@ -203,4 +203,32 @@ describe('GET Go project build receipt', () => {
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({ receipt: null })
   })
+
+  it('hides receipts when the imported manifest bytes no longer match their stored hash', async () => {
+    const goModContent = 'module example.local/project\n\ngo 1.24\n'
+    const moduleHash = createHash('sha256').update(goModContent).digest('hex')
+    const dependencyHash = createHash('sha256').update('go.mod').update('\0').update(moduleHash).update('\n').digest('hex')
+    const manifestPath = path.join(artifactRoot, 'go.mod')
+    await writeFile(manifestPath, goModContent)
+    h.artifacts.mockResolvedValue([{
+      id: 'go-mod-1', relativePath: 'go.mod', storagePath: 'go.mod', sha256: moduleHash,
+      sizeBytes: BigInt(Buffer.byteLength(goModContent)),
+    }])
+    h.findReceipt.mockResolvedValue({
+      stableKey: `go-build:task-1:${sourceSetHash}:${dependencyHash}`,
+      attributes: {
+        version: 'reamon-go-project-build-v1', taskId: 'task-1', artifactId: 'artifact-1',
+        sourceSha256: sourceSetHash, dependencySha256: dependencyHash, validationStatus: 'PASSED',
+        files: [{ codeUnitId: 'unit-1', acceptedReviewId: 'review-1', relativePath: 'main.go', buildPath: 'main.go', sourceSha256: sourceHash }],
+        dependencies: [{ artifactId: 'go-mod-1', relativePath: 'go.mod', buildPath: 'go.mod', sourceSha256: moduleHash }],
+      },
+    })
+
+    const valid = await GET(new Request('http://localhost?taskId=task-1'), params)
+    expect((await valid.json()).receipt).toMatchObject({ dependencySha256: dependencyHash })
+
+    await writeFile(manifestPath, `${goModContent}// changed after the receipt was saved\n`)
+    const stale = await GET(new Request('http://localhost?taskId=task-1'), params)
+    expect(await stale.json()).toEqual({ receipt: null })
+  })
 })

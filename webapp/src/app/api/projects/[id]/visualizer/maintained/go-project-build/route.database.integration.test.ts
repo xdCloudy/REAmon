@@ -180,6 +180,11 @@ describe.skipIf(!enabled)('Go build receipt against PostgreSQL', () => {
     expect((await loadedResponse.json()).receipt).toMatchObject({ validationStatus: 'PASSED', sourceSha256: build.receipt.sourceSha256 })
     expect(await prisma.reamonObservation.count({ where: { projectId, taskId, type: 'project_build_receipt', isPending: false } })).toBe(1)
 
+    await writeFile(path.join(artifactsDirectory, 'service', 'go.mod'), `${goMod}// changed after the receipt was saved\n`)
+    const staleManifestBytes = await GET(receiptRequest(), params())
+    expect((await staleManifestBytes.json()).receipt).toBeNull()
+    await writeFile(path.join(artifactsDirectory, 'service', 'go.mod'), goMod)
+
     await prisma.artifact.update({ where: { id: moduleArtifactId }, data: { sha256: 'b'.repeat(64) } })
     const staleManifest = await GET(receiptRequest(), params())
     expect((await staleManifest.json()).receipt).toBeNull()

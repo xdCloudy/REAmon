@@ -1,11 +1,14 @@
 import { createHash } from 'node:crypto'
+import { readFile } from 'node:fs/promises'
 import prisma from '@/lib/prisma'
 import { CODE_UNIT_OBSERVATION_TYPE } from '@/lib/reamon/code-units'
+import { resolveArtifactStoragePath } from '@/lib/reamon/artifact-storage'
 import type { Prisma } from '@prisma/client'
 
 const MAX_INVENTORY_UNITS = 5000
 const MAX_BUILD_FILES = 64
 const MAX_DEPENDENCIES = 2
+const MAX_MANIFEST_BYTES = 1024 * 1024
 const BUILD_SOURCE = 'reamon-maintained-build'
 
 export interface VerifiedGoProjectBuildReceipt {
@@ -145,13 +148,23 @@ export async function getVerifiedGoProjectBuildReceipt(
   if (receiptDependencies.length) {
     const artifacts = await prisma.artifact.findMany({
       where: { ...artifactWhere, projectId, id: { in: receiptDependencies.map((dependency) => dependency.artifactId as string) } },
-      select: { id: true, relativePath: true, sha256: true },
+      select: { id: true, relativePath: true, storagePath: true, sha256: true, sizeBytes: true },
     })
     const artifactsById = new Map(artifacts.map((artifact) => [artifact.id, artifact]))
-    if (artifacts.length !== receiptDependencies.length || receiptDependencies.some((dependency) => {
+    if (artifacts.length !== receiptDependencies.length) return null
+    for (const dependency of receiptDependencies) {
       const artifact = artifactsById.get(dependency.artifactId as string)
-      return !artifact || artifact.relativePath !== dependency.relativePath || artifact.sha256.toLowerCase() !== dependency.sourceSha256
-    })) return null
+      if (!artifact || artifact.relativePath !== dependency.relativePath
+          || artifact.sha256.toLowerCase() !== dependency.sourceSha256
+          || artifact.sizeBytes < 0n || artifact.sizeBytes > BigInt(MAX_MANIFEST_BYTES)) return null
+      try {
+        const bytes = await readFile(resolveArtifactStoragePath(artifact.storagePath))
+        if (bytes.length !== Number(artifact.sizeBytes)
+            || createHash('sha256').update(bytes).digest('hex') !== dependency.sourceSha256) return null
+      } catch {
+        return null
+      }
+    }
     dependencyHash = setHash(receiptDependencies.map((dependency) => ({
       path: dependency.buildPath as string,
       sourceHash: dependency.sourceSha256 as string,
