@@ -1,6 +1,6 @@
 # REAmon product progress
 
-Assessment date: 2026-10-27 · Source: pushed commit `0deadb9` · Weighted estimate: **65.7%**
+Assessment date: 2026-10-27 · Source: pushed commit `33f927a` · Weighted estimate: **66.0%**
 
 This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.
 
@@ -10,7 +10,7 @@ Quality run [40247230850](https://github.com/xdCloudy/REAmon/actions/runs/402472
 | --- | ---: | ---: | ---: |
 | Core analysis and visualizer workflow | 16% | 95% | 15.20 pts |
 | Database-grounded project memory and provenance | 16% | 78% | 12.48 pts |
-| Major-language and format decompilation fluency | 24% | 39% | 9.36 pts |
+| Major-language and format decompilation fluency | 24% | 40% | 9.60 pts |
 | Maintainable editing, review, and export | 12% | 58% | 6.96 pts |
 | Fixture-backed validation and fidelity evidence | 12% | 16% | 1.92 pts |
 | Security, reliability, and production operations | 20% | 99% | 19.80 pts |
@@ -31,9 +31,9 @@ Quality run [40247230850](https://github.com/xdCloudy/REAmon/actions/runs/402472
 
 ### Major-language and format decompilation fluency
 
-**Current evidence:** Useful Java, Android, .NET, Python, WebAssembly, native, and additional format paths exist at different maturity levels. A full run of the patched isolated Androguard analyzer against the stored 6.79 MB Cross Stitch Joy APK completed all 11,939 classes and all 33,401 implemented methods; it reported zero Unicode character-boundary panics and used no simple-output class fallbacks. This validates one APK and decompiler revision only, not broad Java or Kotlin fidelity. A generated, runnable Linux PyInstaller fixture with 70 hidden-import modules executed and printed the expected value; the isolated extractor indexed all 180 bytecode modules across offsets 0, 64, and 128. The live REAmon provider ran 17 times against the fixture and reached offset 64 with mocked observation state standing in for persisted project rows; actual pycdc recovered module 69 (inventory index 149) to source. Docker regressions cover paging, analyzer path permissions, cursor continuation, and project cleanup. This validates one generated Python executable and analyzer revision; PostgreSQL persistence and broad Python fidelity remain unverified.
+**Current evidence:** Useful Java, Android, .NET, Python, WebAssembly, native, and additional format paths exist at different maturity levels. A full run of the patched isolated Androguard analyzer against the stored 6.79 MB Cross Stitch Joy APK completed all 11,939 classes and all 33,401 implemented methods; it reported zero Unicode character-boundary panics and used no simple-output class fallbacks. This validates one APK and decompiler revision only, not broad Java or Kotlin fidelity. A generated, runnable Linux PyInstaller fixture with 70 hidden-import modules executed and printed the expected value; the isolated extractor indexed all 180 bytecode modules across offsets 0, 64, and 128. The live REAmon provider ran 17 times against real extractors and pycdc while each result was ingested by the production PostgreSQL observation-ingestion routine. Saved rows resumed at module 64, covered the page through index 127, and retained a readable recovered-source artifact. Earlier Docker checks cover analyzer path permissions and cleanup. This validates one generated Python executable and provider/DB persistence path; queued task-worker dispatch, AI retrieval, user-imported executables, and broad Python fidelity remain unverified.
 
-**Remaining:** Major languages need idiomatic source recovery, broader project-level coverage, and versioned validation; several formats remain alternate views or early experiments.
+**Remaining:** Verify PyInstaller through ordinary queued task-worker execution and AI project retrieval; then validate user-imported executables and broaden versioned Python fidelity coverage. Major languages still need idiomatic source recovery and project-level validation; several formats remain alternate views or early experiments.
 
 ### Maintainable editing, review, and export
 

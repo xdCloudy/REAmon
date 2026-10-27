@@ -6,10 +6,9 @@ Earlier checkpoint (2026-10-27): the local webapp image `sha256:375686f71d587118
 
 ## PyInstaller module paging and source recovery (2026-10-27)
 
-A generated, runnable Linux PyInstaller executable with 70 hidden-import modules produced the expected runtime value. The live isolated extractor indexed 180 bytecode modules over three pages: offsets 0–63, 64–127, and 128–179. The live executePyInstaller provider ran 17 times with mocked observation state standing in for persisted rows and advanced to offset 64; pycdc recovered module 69 (inventory index 149) from the stable project/artifact bytecode path. The production provider build, pycdc shared-volume permissions, and isolated output cleanup are deployed. Focused Docker checks passed: 2 extractor tests, 3 pycdc path tests, 5 webapp unit tests, and 1 live provider integration test. This did not exercise PostgreSQL observation persistence or a user-imported executable. The generated fixture and derived outputs were isolated under QA-only paths and are removed after this checkpoint.
+A generated, runnable Linux PyInstaller executable with 70 hidden-import modules produced its expected runtime value. The isolated extractor indexed 180 bytecode modules over three pages (0–63, 64–127, and 128–179). The live provider and pycdc ran for 17 continuations; each provider result was saved through REAmon's production Prisma/PostgreSQL observation-ingestion routine. The next provider invocation resumed from persisted attempt rows at module 64, the inventory through index 127 was saved, and a recovered-source artifact remained readable in the derived volume. The opt-in integration test passed against the running PostgreSQL and analyzer services.
 
-
-
+This acceptance calls the provider directly and exercises real observation persistence; it does not establish ordinary queued worker/task execution, AI retrieval, user-imported executable behavior, or broad Python fidelity. A separate synthetic queued-task attempt did not complete successfully and needs diagnosis before this path is counted as worker-verified. The fixture and its project-scoped database/derived rows are removed after each test.
 
 ## Current gates
 
