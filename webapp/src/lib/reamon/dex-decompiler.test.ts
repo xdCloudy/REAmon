@@ -1,6 +1,7 @@
 /** @vitest-environment node */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { executeDexDecompiler } from './dex-decompiler'
+import { DexStreamMethodIndex, executeDexDecompiler } from './dex-decompiler'
+import type { ToolObservation } from './types'
 
 const input = {
   targetProfile: { targetType: 'FILE' as const, format: 'apk', mimeType: 'application/vnd.android.package-archive', extension: 'apk', architecture: null, platform: 'Android', runtimes: ['Dalvik'], embeddedArtifacts: [], entropy: null, metadata: {} },
@@ -34,6 +35,108 @@ describe('Rust DEX-to-Java provider', () => {
   beforeEach(() => {
     vi.stubEnv('REAMON_DEX_DECOMPILER_URL', 'http://dex-decompiler-analyzer:8019')
     vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('keeps streamed method membership in a fixed-width index', () => {
+    const index = new DexStreamMethodIndex(4_200_000)
+    index.add(1, 65_535)
+    index.add(0, 3)
+    index.finalize()
+
+    expect(index.has(0, 3)).toBe(true)
+    expect(index.has(1, 65_535)).toBe(true)
+    expect(index.has(1, 65_534)).toBe(false)
+    expect(index.retainedMethodCount).toBe(2)
+    expect(index.retainedBytes).toBe(4_200_000 * 8)
+  })
+
+  it('preserves early decompiled methods and deduplicates external stubs after many streamed methods', async () => {
+    const methodCount = 50_002
+    const method = (methodIndex: number) => ({
+      signature: `com.example.Main#m${methodIndex}():void`,
+      className: 'com.example.Main',
+      methodName: `m${methodIndex}`,
+      relativePath: 'com/example/Main.java',
+      dexIndex: 0,
+      methodIndex,
+      instructionCount: 1,
+      instructionMnemonics: ['return-void'],
+      controlFlowGraph: {},
+      bytecodeArtifactPath: `dex-0/method-${methodIndex}.json`,
+      bytecodeRowsTruncated: false,
+      cfgTruncated: false,
+    })
+    const methods = Array.from({ length: methodCount }, (_, methodIndex) => method(methodIndex))
+    const methodSignature = (methodIndex: number) => `com.example.Main#m${methodIndex}():void`
+    const externalSignature = 'android.util.Log#d(String,String):int'
+    const calls = [
+      {
+        fromSignature: methodSignature(50_000), toSignature: externalSignature,
+        fromRelativePath: 'com/example/Main.java', toRelativePath: 'android/util/Log.java',
+        fromAddress: 'dex0:method#50000', toAddress: 'dex0:method#60000',
+        fromDexIndex: 0, toDexIndex: 0, fromMethodIndex: 50_000, toMethodIndex: 60_000,
+        callSiteCount: 1, offsets: [4],
+      },
+      {
+        fromSignature: methodSignature(50_001), toSignature: externalSignature,
+        fromRelativePath: 'com/example/Main.java', toRelativePath: 'android/util/Log.java',
+        fromAddress: 'dex0:method#50001', toAddress: 'dex0:method#60000',
+        fromDexIndex: 0, toDexIndex: 0, fromMethodIndex: 50_001, toMethodIndex: 60_000,
+        callSiteCount: 1, offsets: [8],
+      },
+      {
+        fromSignature: methodSignature(49_999), toSignature: methodSignature(0),
+        fromRelativePath: 'com/example/Main.java', toRelativePath: 'com/example/Main.java',
+        fromAddress: 'dex0:method#49999', toAddress: 'dex0:method#0',
+        fromDexIndex: 0, toDexIndex: 0, fromMethodIndex: 49_999, toMethodIndex: 0,
+        callSiteCount: 1, offsets: [12],
+      },
+    ]
+    const body = {
+      ...responseBody([]),
+      discoveredMethodCount: methodCount,
+      returnedMethodCount: methodCount,
+      returnedCallCount: calls.length,
+    }
+    const metadata = Object.fromEntries(Object.entries(body).filter(([key]) => !['units', 'methods', 'calls', 'references'].includes(key)))
+    const events = [
+      JSON.stringify({ type: 'result_start', data: metadata, arrayFields: ['units', 'methods', 'calls', 'references'] }),
+      JSON.stringify({ type: 'result_chunk', field: 'units', items: body.units }),
+      ...Array.from({ length: Math.ceil(methods.length / 100) }, (_, page) => JSON.stringify({
+        type: 'result_chunk', field: 'methods', items: methods.slice(page * 100, (page + 1) * 100),
+      })),
+      JSON.stringify({ type: 'result_chunk', field: 'calls', items: calls }),
+      JSON.stringify({ type: 'result_end' }),
+    ].join('\n')
+    vi.mocked(fetch).mockResolvedValue(new Response(events, {
+      status: 200,
+      headers: { 'content-type': 'application/x-ndjson' },
+    }))
+
+    const observedFunctions = new Map<string, { count: number; observation: ToolObservation }>()
+    const identitiesToCheck = new Set([
+      `artifact-1:0:0:${methodSignature(0)}`,
+      `artifact-1:0:60000:${externalSignature}`,
+    ])
+    const persistObservationBatch = vi.fn(async (batch: ToolObservation[]) => {
+      for (const observation of batch) {
+        const identity = observation.attributes.identity
+        if (observation.type !== 'function' || typeof identity !== 'string' || !identitiesToCheck.has(identity)) continue
+        const previous = observedFunctions.get(identity)
+        observedFunctions.set(identity, { count: (previous?.count || 0) + 1, observation })
+      }
+      return batch.length
+    })
+
+    const result = await executeDexDecompiler({ ...input, persistObservationBatch })
+
+    expect(result.status).toBe('completed')
+    expect(result.data).toMatchObject({ returnedMethodCount: methodCount, streamedFunctionObservationCount: methodCount })
+    expect(observedFunctions.get(`artifact-1:0:0:${methodSignature(0)}`)?.count).toBe(1)
+    expect(observedFunctions.get(`artifact-1:0:60000:${externalSignature}`)).toMatchObject({
+      count: 1,
+      observation: { attributes: { externalOrUndecompiled: true } },
+    })
   })
 
   it('retains bounded failed-class identities in the saved run result', async () => {

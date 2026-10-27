@@ -8,6 +8,7 @@ const MAX_METHODS = 10_000
 const MAX_SIGNATURE_CHARS = 8_000
 const MAX_STREAMED_METHODS = 4_200_000
 const MAX_STREAMED_EDGES = 4_200_000
+const MAX_PACKED_METHOD_INDEX = 0xffff_ffff
 const MAX_CALL_EDGES = 4_000
 const MAX_REFERENCES = 4_000
 // A previous 30-minute run reached DEX 3 of 10 before aborting; give a
@@ -219,6 +220,63 @@ class RecentObservationKeys {
   }
 }
 
+export class DexStreamMethodIndex {
+  private readonly identities: BigUint64Array
+  private count = 0
+  private sorted = false
+
+  constructor(expectedMethodCount: number) {
+    if (!Number.isSafeInteger(expectedMethodCount) || expectedMethodCount < 0 || expectedMethodCount > MAX_STREAMED_METHODS) {
+      throw new Error('DEX decompiler returned an invalid streamed method count')
+    }
+    this.identities = new BigUint64Array(expectedMethodCount)
+  }
+
+  add(dexIndex: number, methodIndex: number): void {
+    if (this.sorted) throw new Error('DEX decompiler returned methods after its call/reference pages')
+    if (this.count >= this.identities.length) throw new Error('DEX decompiler exceeded its declared streamed method count')
+    this.identities[this.count++] = packMethodIdentity(dexIndex, methodIndex)
+    this.sorted = false
+  }
+
+  finalize(): void {
+    if (this.sorted) return
+    this.identities.subarray(0, this.count).sort()
+    this.sorted = true
+  }
+
+  has(dexIndex: number, methodIndex: number): boolean {
+    this.finalize()
+    const identity = packMethodIdentity(dexIndex, methodIndex)
+    let low = 0
+    let high = this.count - 1
+    while (low <= high) {
+      const middle = low + Math.floor((high - low) / 2)
+      const candidate = this.identities[middle]
+      if (candidate === identity) return true
+      if (candidate < identity) low = middle + 1
+      else high = middle - 1
+    }
+    return false
+  }
+
+  get retainedMethodCount(): number {
+    return this.count
+  }
+
+  get retainedBytes(): number {
+    return this.identities.byteLength
+  }
+}
+
+function packMethodIdentity(dexIndex: number, methodIndex: number): bigint {
+  if (!Number.isSafeInteger(dexIndex) || dexIndex < 0 || dexIndex > MAX_PACKED_METHOD_INDEX
+    || !Number.isSafeInteger(methodIndex) || methodIndex < 0 || methodIndex > MAX_PACKED_METHOD_INDEX) {
+    throw new Error('DEX decompiler returned an invalid method identity')
+  }
+  return (BigInt(dexIndex) << 32n) | BigInt(methodIndex)
+}
+
 function isDexCall(value: unknown): value is DexCall {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const call = value as Record<string, unknown>
@@ -421,7 +479,8 @@ export async function executeDexDecompiler(input: ToolExecutionInput): Promise<T
     })
     const streamedUnitsByPath = new Map<string, DexUnit>()
     const streamedClassKeysByPath = new Map<string, string>()
-    const streamedMethodKeys = new Set<string>()
+    let streamedMethodIndex: DexStreamMethodIndex | undefined
+    const streamedEndpointStubs = new RecentObservationKeys()
     const streamedCallEdges = new RecentObservationKeys()
     const streamedReferenceTargets = new RecentObservationKeys()
     const streamedReferenceEdges = new RecentObservationKeys()
@@ -437,7 +496,7 @@ export async function executeDexDecompiler(input: ToolExecutionInput): Promise<T
       batch: ToolObservation[],
     ): string => {
       const key = methodObservationKey(input, dexIndex, methodIndex, signature)
-      if (streamedMethodKeys.has(key)) return key
+      if (streamedMethodIndex?.has(dexIndex, methodIndex) || !streamedEndpointStubs.add(key)) return key
       const unit = streamedUnitsByPath.get(relativePath)
       const parentCodeUnitKey = streamedClassKeysByPath.get(relativePath)
       const owner = signature.split('#')[0] || signature
@@ -463,7 +522,6 @@ export async function executeDexDecompiler(input: ToolExecutionInput): Promise<T
           sourceSha256,
         },
       })
-      streamedMethodKeys.add(key)
       return key
     }
     const payload: unknown = await readAnalyzerResponse<unknown>(response, input.reportProgress, async (field, items, metadata) => {
@@ -487,6 +545,8 @@ export async function executeDexDecompiler(input: ToolExecutionInput): Promise<T
       }
       const batch: ToolObservation[] = []
       if (field === 'calls') {
+        if (!streamedMethodIndex) streamedMethodIndex = new DexStreamMethodIndex(metadata.returnedMethodCount as number)
+        streamedMethodIndex.finalize()
         for (const value of items) {
           if (!isDexCall(value)) throw new Error('DEX decompiler returned an invalid call page')
           const call = value
@@ -519,6 +579,8 @@ export async function executeDexDecompiler(input: ToolExecutionInput): Promise<T
           })
         }
       } else if (field === 'references') {
+        if (!streamedMethodIndex) streamedMethodIndex = new DexStreamMethodIndex(metadata.returnedMethodCount as number)
+        streamedMethodIndex.finalize()
         for (const value of items) {
           if (!isDexReference(value)) throw new Error('DEX decompiler returned an invalid reference page')
           const reference = value
@@ -575,13 +637,14 @@ export async function executeDexDecompiler(input: ToolExecutionInput): Promise<T
         }
       }
       if (field === 'methods') {
+        if (!streamedMethodIndex) streamedMethodIndex = new DexStreamMethodIndex(metadata.returnedMethodCount as number)
         for (const item of items) {
           if (!isStreamedMethod(item)) throw new Error('DEX decompiler returned an invalid method page')
           const unit = streamedUnitsByPath.get(item.relativePath)
           const parentCodeUnitKey = streamedClassKeysByPath.get(item.relativePath)
           if (!unit || !parentCodeUnitKey) continue
           const key = methodObservationKey(input, item.dexIndex, item.methodIndex, item.signature)
-          streamedMethodKeys.add(key)
+          streamedMethodIndex.add(item.dexIndex, item.methodIndex)
           batch.push(functionObservation(input, item, unit, parentCodeUnitKey, toolVersion, sourceSha256))
         }
       }
@@ -655,7 +718,7 @@ export async function executeDexDecompiler(input: ToolExecutionInput): Promise<T
     const classKeysByPath = new Map(payload.units.map((unit) => [unit.relativePath,
       `dex-decompiler:class:${createHash('sha256').update(`${input.artifactId}:${unit.relativePath}`).digest('hex').slice(0, 32)}`,
     ]))
-    const methodNodeKeys = new Set<string>(streamedMethodKeys)
+    const methodNodeKeys = new Set<string>()
     let methodsAdded = 0
     for (const method of payload.methods) {
       const unit = unitsByPath.get(method.relativePath)
