@@ -112,6 +112,25 @@ export async function recordWorkerHeartbeat(workerId: string) {
   })
 }
 
+export async function getWorkerHeartbeatStatus(workerId: string, now = Date.now()) {
+  const worker = await prisma.reamonWorker.findUnique({
+    where: { workerId },
+    select: { workerId: true, status: true, lastSeenAt: true },
+  })
+  if (!worker) return { healthy: false as const, workerId, reason: 'missing' as const }
+
+  const ageMs = now - worker.lastSeenAt.getTime()
+  const healthy = ageMs >= -5_000 && ageMs <= staleAfterSeconds() * 1000
+  return {
+    healthy,
+    workerId: worker.workerId,
+    status: worker.status,
+    lastSeenAt: worker.lastSeenAt.toISOString(),
+    ageSeconds: Math.max(0, Math.floor(ageMs / 1000)),
+    ...(healthy ? {} : { reason: 'stale' as const }),
+  }
+}
+
 export async function listWorkerHealth() {
   const workers = await prisma.reamonWorker.findMany({
     orderBy: { lastSeenAt: 'desc' },

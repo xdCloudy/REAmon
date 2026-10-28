@@ -4,12 +4,13 @@ const mocks = vi.hoisted(() => ({
   worker: {
     upsert: vi.fn(),
     findMany: vi.fn(),
+    findUnique: vi.fn(),
   },
 }))
 
 vi.mock('@/lib/prisma', () => ({ default: { reamonWorker: mocks.worker } }))
 
-import { listWorkerHealth, recordWorkerDispatch, summarizeWorkerAttention } from './worker-health'
+import { getWorkerHeartbeatStatus, listWorkerHealth, recordWorkerDispatch, summarizeWorkerAttention } from './worker-health'
 
 describe('REAmon worker health', () => {
   beforeEach(() => {
@@ -45,6 +46,32 @@ describe('REAmon worker health', () => {
     ])
 
     await expect(listWorkerHealth()).resolves.toEqual([expect.objectContaining({ workerId: 'worker-a', status: 'STALE', lastSelected: 1 })])
+  })
+
+  test('reports heartbeat freshness for Docker worker health checks', async () => {
+    const now = Date.now()
+    mocks.worker.findUnique.mockResolvedValue({
+      workerId: 'worker-a',
+      status: 'IDLE',
+      lastSeenAt: new Date(now - 30_000),
+    })
+
+    await expect(getWorkerHeartbeatStatus('worker-a', now)).resolves.toMatchObject({
+      healthy: true,
+      workerId: 'worker-a',
+      status: 'IDLE',
+      ageSeconds: 30,
+    })
+
+    mocks.worker.findUnique.mockResolvedValue({
+      workerId: 'worker-a',
+      status: 'IDLE',
+      lastSeenAt: new Date(now - 120_000),
+    })
+    await expect(getWorkerHeartbeatStatus('worker-a', now)).resolves.toMatchObject({
+      healthy: false,
+      reason: 'stale',
+    })
   })
 
   test('does not report old worker registrations as a blocker while a worker is responsive', () => {
