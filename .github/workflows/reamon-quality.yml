@@ -100,7 +100,7 @@ jobs:
           docker build --tag redamon-recon-orchestrator:latest recon_orchestrator
           docker build --tag redamon-ai-attack-surface:latest --file scanners/ai_attack_surface_scan/Dockerfile .
           docker build --tag redamon-capture-proxy:latest --file scanners/capture_proxy/Dockerfile .
-          docker build --tag redamon-docker-broker:latest services/docker_broker
+          docker build --tag reamon-docker-broker:latest services/docker_broker
 
       - name: Run the complete unit gate
         run: ./redamon.sh test unit
