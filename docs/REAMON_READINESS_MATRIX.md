@@ -1,5 +1,26 @@
 ## Current PC deployment evidence (2026-10-28)
 
+Latest verified checkpoint: commit `aa76fc5a3d74` is deployed on the PC from a
+clean `main` checkout as image
+`sha256:723d29b38c4fd6bd2757d7c8600e4afe88e7e5e39d18faf7ba91a5378063b8f7`.
+The webapp container is healthy; both `localhost:3001/api/health/ready` and
+`192.168.0.53:3001/api/health/ready` return HTTP 200 with database, Neo4j, and
+artifact checks `ok`. All listed Compose services are running and their
+configured health checks pass (the project worker has no Docker health check).
+Project archive export now includes bounded task-history snapshots referenced
+by REAmon observations. Import gives each snapshot a new ID and inert
+`IMPORTED` status, omits execution payloads and credentials, and remaps
+observations to the new task IDs. Original task IDs and unavailable target or
+artifact references remain provenance; target/artifact rows and bytes are not
+recreated. Focused Docker webapp tests passed 16/16, the dedicated TypeScript
+check passed, and targeted ESLint had zero errors with three pre-existing
+unused-disable warnings. GitHub quality run
+[40784190035](https://github.com/xdCloudy/REAmon/actions/runs/40784190035) was
+pending behind an earlier canonical Docker unit gate at this check; no full-gate
+result is claimed for `aa76fc5a3d74` yet. The pre-existing
+`redamon-orchestrator-net` Compose label mismatch warning remains, but the
+network is left untouched and readiness is unaffected.
+
 Rechecked 2026-10-28: the webapp container is healthy; local and LAN readiness
 return HTTP 200 with Postgres, Neo4j connectivity/authentication, and artifact
 checks `ok`. Readiness now fails closed if any of those dependencies is
@@ -33,14 +54,15 @@ assessment and PE-region observation keys now include the analysis task ID, so
 separate runs of the same artifact retain separate results. The maintained-source
 bundle exports a bounded protection-evidence manifest with task/source identity,
 evidence, scope, and claim status; the README explicitly says this is not
-independent confirmation. The project-wide archive now exports persisted
-REAmon observations, including canonical/source identities, task/artifact links,
-pending-review state, timestamps, and evidence attributes, in
-`analysis/observations.json`. Archive import now restores validated records,
-re-owns them under the imported project, and preserves old task/target/artifact
-ids as `attributes.importOrigin` because those related rows are not recreated.
-Round-trip provider evidence is retained, while live foreign-key remapping to
-imported artifacts and tasks remains open.
+independent confirmation. The project-wide archive exports persisted REAmon
+observations, including canonical/source identities, pending-review state,
+timestamps, and evidence attributes, in `analysis/observations.json`. It also
+exports a bounded allowlist of history fields for tasks referenced by those
+observations in `analysis/tasks.json`; task options, results, execution tokens,
+and leases are excluded. Import re-owns observations and recreates task history
+as inert rows, remapping observation task links to the new rows. Original task
+IDs and target/artifact references remain provenance; target/artifact records
+and bytes are still not part of this archive round trip.
 
 Docker validation on this Windows PC now passes through the repository runner:
 all Python sections passed (12,907 tests) and all 25 shell suites passed in the
