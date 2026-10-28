@@ -10,7 +10,9 @@ import { nativeAddressAliases, nativeFunctionIdentity } from '@/lib/reamon/nativ
 
 interface RouteParams { params: Promise<{ id: string }> }
 const MAX_SOURCE_BYTES = 2 * 1024 * 1024
-const MAX_ALTERNATES = 4
+const MAX_ALTERNATES = 32
+const MAX_PROVIDER_TASK_HISTORY = 500
+const MAX_ALTERNATE_OBSERVATIONS = 500
 const BCF_CLEAN_COMMIT = 'f457afaa801b30f7bb98c28d419a36d5c9fd7115'
 const CFF_DEFLATTEN_COMMIT = 'f457afaa801b30f7bb98c28d419a36d5c9fd7115'
 const NO_STORE = { 'Cache-Control': 'private, no-store' }
@@ -85,7 +87,7 @@ export async function GET(request: Request, { params }: RouteParams) {
           status: 'COMPLETED',
         },
         orderBy: [{ completedAt: 'desc' }, { createdAt: 'desc' }],
-        take: 100,
+        take: MAX_PROVIDER_TASK_HISTORY + 1,
         select: { id: true, runToken: true, completedAt: true, provider: { select: { pluginId: true } } },
       }),
       prisma.task.findFirst({
@@ -94,11 +96,14 @@ export async function GET(request: Request, { params }: RouteParams) {
       }),
     ])
 
-    const rows = tasks.length ? await prisma.reamonObservation.findMany({
+    const taskHistoryTruncated = tasks.length > MAX_PROVIDER_TASK_HISTORY
+    const candidateTasks = tasks.slice(0, MAX_PROVIDER_TASK_HISTORY)
+
+    const matchingRows = candidateTasks.length ? await prisma.reamonObservation.findMany({
       where: {
         projectId,
         artifactId: unit.artifactId,
-        taskId: { in: tasks.map((task) => task.id) },
+        taskId: { in: candidateTasks.map((task) => task.id) },
         type: 'code_unit',
         source: { not: unit.source },
         AND: [
@@ -121,13 +126,16 @@ export async function GET(request: Request, { params }: RouteParams) {
         ],
       },
       orderBy: [{ updatedAt: 'desc' }, { stableKey: 'asc' }],
-      take: 100,
+      take: MAX_ALTERNATE_OBSERVATIONS + 1,
       select: { id: true, taskId: true, source: true, label: true, attributes: true },
     }) : []
 
-    const taskById = new Map(tasks.map((task) => [task.id, task]))
+    const rowsTruncated = matchingRows.length > MAX_ALTERNATE_OBSERVATIONS
+    const rows = matchingRows.slice(0, MAX_ALTERNATE_OBSERVATIONS)
+    const taskById = new Map(candidateTasks.map((task) => [task.id, task]))
     const seenProviders = new Set<string>()
     const alternates = []
+    let truncated = taskHistoryTruncated || rowsTruncated
     let rootPath: string
     try {
       rootPath = await realpath(derivedArtifactRoot())
@@ -314,7 +322,11 @@ export async function GET(request: Request, { params }: RouteParams) {
       }
     }
     for (const row of rows) {
-      if (!row.taskId || seenProviders.has(row.source) || alternates.length >= MAX_ALTERNATES) continue
+      if (!row.taskId || seenProviders.has(row.source)) continue
+      if (alternates.length >= MAX_ALTERNATES) {
+        truncated = true
+        break
+      }
       const task = taskById.get(row.taskId)
       const candidate = record(row.attributes)
       const codeArtifactId = typeof candidate.codeArtifactId === 'string' ? candidate.codeArtifactId : ''
@@ -363,7 +375,7 @@ export async function GET(request: Request, { params }: RouteParams) {
       }
     }
 
-    return NextResponse.json({ alternates }, { headers: NO_STORE })
+    return NextResponse.json({ alternates, truncated }, { headers: NO_STORE })
   } catch (error) {
     console.error('Failed to load alternate decompiler outputs:', error)
     return NextResponse.json({ error: 'Failed to load alternate decompiler outputs' }, { status: 500, headers: NO_STORE })

@@ -176,7 +176,7 @@ interface AlternateDecompilerOutput {
   source: string
 }
 
-interface AlternateDecompilerResponse { alternates: AlternateDecompilerOutput[] }
+interface AlternateDecompilerResponse { alternates: AlternateDecompilerOutput[]; truncated?: boolean }
 
 interface CodeExplanationProvider { id: string; name: string; modelIdentifier: string }
 interface CodeExplanationResponse { explanation: string; providerName: string; model: string; sourceTruncated: boolean }
@@ -3059,6 +3059,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
           {compareAlternatesOpen && <>
             {alternateOutputsQuery.isLoading && <p className={styles.message} role="status">Finding verified alternate outputs…</p>}
             {alternateOutputsQuery.isError && <p className={styles.error} role="alert">{alternateOutputsQuery.error instanceof Error ? alternateOutputsQuery.error.message : 'Could not load alternate outputs.'}</p>}
+            {alternateOutputsQuery.data?.truncated && <p className={styles.message} role="status">This comparison reached its safety limit. Some older runs or provider outputs may be omitted.</p>}
             {!alternateOutputsQuery.isLoading && !alternateOutputsQuery.isError && alternateOutputs.length === 0 && <p className={styles.message}>No hash-verified output from another compatible decompiler is stored for this source unit.</p>}
             {alternateOutputs.length > 0 && <>
               <label className={styles.alternateProviderSelect}>Use this provider for the optional line diff
