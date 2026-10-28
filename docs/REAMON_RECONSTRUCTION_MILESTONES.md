@@ -262,7 +262,10 @@ slices means a complete application rebuild.
 function candidates, analyst-reviewed cross-provider function matches, and provider
 evidence in project context. Current matching and agreement are evidence for investigation,
 not semantic equivalence. There is no general contradiction detector and adjudication
-workflow for boundaries, CFG, types, references, or logic.
+workflow for boundaries, CFG, types, references, or logic. A new run-scoped case intake
+can persist failed or cancelled decompile/disassemble tasks with artifact hash,
+provider/version, bounded failure context, and request history. It does not yet identify
+per-unit failures, dispatch agents, or track investigation attempts.
 The existing rewrite-attempt queue persists AI source attempts, but it is not the
 failed-provider/unit investigation lifecycle specified below.
 
