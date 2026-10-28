@@ -6,8 +6,10 @@ This P1 milestone treats protection as a first-class condition that can coexist 
 stripping, optimization, obfuscation, and partial corruption. The current implementation
 is limited to a static PE inspector that reads at most 1 MiB of headers and samples at
 most 64 KiB from each executable section, with a 256 KiB aggregate sample cap. It records
-section metadata, architecture, entry-point RVA, sampled Shannon entropy, and conventional
-UPX section-name indicators as **suspected** evidence in project observations. High
+section metadata, architecture, entry-point RVA-to-section mapping, import and certificate
+directory locations, sampled Shannon entropy, and conventional UPX section-name indicators
+as **suspected** evidence in project observations. It does not parse import names or verify
+certificate contents. High
 entropy is only a generic packing/encryption/data indicator; it does not identify a family.
 Synthetic PE fixtures do not establish detector precision/recall on real binaries. The
 inspector does not execute or unpack the file, detect arbitrary packers, identify a
@@ -58,7 +60,7 @@ imply “unprotected” merely because a signature was absent.
 
 | Condition | Required handling | Current REAmon evidence |
 | --- | --- | --- |
-| Conventional executable compression/packing | Detect format-specific signatures/section/entrypoint changes; test deterministic extraction on owned fixtures; hash and re-analyze the output as a child artifact. | Suspected UPX PE section-name indicator and bounded executable-section entropy samples; no calibrated detection or extraction. |
+| Conventional executable compression/packing | Detect format-specific signatures/section/entrypoint changes; test deterministic extraction on owned fixtures; hash and re-analyze the output as a child artifact. | Suspected UPX PE section-name indicator, entry-point-to-section mapping, import/certificate directory locations, and bounded executable-section entropy samples; no calibrated detection or extraction. |
 | Encrypted or runtime-decrypted code | Mark file and runtime-visible layers separately; preserve address and observation provenance; do not claim static recovery where ciphertext remains. | Planned. |
 | Import reconstruction and relocation complications | Preserve original and reconstructed tables separately; validate RVAs, relocation targets, and imports against independent analysis or execution evidence. | Planned. |
 | Anti-analysis, anti-debugging, anti-tamper | Record evidence and observed effects; report interference and unsupported execution conditions. Do not disable protections implicitly. | Planned. |

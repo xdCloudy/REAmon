@@ -24,6 +24,9 @@ export interface PeProtectionAssessment {
   evidence: string[]
   architecture: string | null
   entryPointRva: number | null
+  entryPointSection: string | null
+  importDirectory: { rva: number; size: number } | null
+  certificateTable: { fileOffset: number; size: number } | null
   sections: PeSectionEvidence[]
   inspectedBytes: number
   sampledBytes: number
@@ -75,7 +78,8 @@ export function assessPeProtection(bytes: Buffer, sectionSamples: Map<number, Bu
       || bytes.toString('ascii', peOffset, peOffset + 4) !== 'PE\0\0') {
     return {
       status: 'unknown', family: null, evidence: ['A complete PE header was not available in the bounded header read.'],
-      architecture: null, entryPointRva: null, sections,
+      architecture: null, entryPointRva: null, entryPointSection: null,
+      importDirectory: null, certificateTable: null, sections,
       inspectedBytes: bytes.length, sampledBytes,
       scope: 'PE headers plus bounded executable-section samples; no execution or unpacking',
     }
@@ -86,7 +90,8 @@ export function assessPeProtection(bytes: Buffer, sectionSamples: Map<number, Bu
   if (sectionCount === null || optionalHeaderSize === null || sectionCount > 96) {
     return {
       status: 'unknown', family: null, evidence: ['PE section-table dimensions were missing or outside the supported bounds.'],
-      architecture: null, entryPointRva: null, sections,
+      architecture: null, entryPointRva: null, entryPointSection: null,
+      importDirectory: null, certificateTable: null, sections,
       inspectedBytes: bytes.length, sampledBytes,
       scope: 'PE headers plus bounded executable-section samples; no execution or unpacking',
     }
@@ -98,7 +103,23 @@ export function assessPeProtection(bytes: Buffer, sectionSamples: Map<number, Bu
     : machine === 0x8664 ? 'x86_64'
       : machine === 0xaa64 ? 'ARM64'
         : machine === null ? null : `PE-machine-0x${machine.toString(16)}`
-  const entryPointRva = readUInt32LE(bytes, peOffset + 24 + 16)
+  const optionalHeader = peOffset + 24
+  const optionalMagic = readUInt16LE(bytes, optionalHeader)
+  const directoryOffset = optionalMagic === 0x10b ? 96 : optionalMagic === 0x20b ? 112 : null
+  const directoryCountOffset = optionalMagic === 0x10b ? 92 : optionalMagic === 0x20b ? 108 : null
+  const directoryCount = directoryCountOffset === null ? null : readUInt32LE(bytes, optionalHeader + directoryCountOffset)
+  const entryPointRva = readUInt32LE(bytes, optionalHeader + 16)
+  const readDirectory = (index: number): { rva: number; size: number } | null => {
+    if (directoryOffset === null || directoryCount === null || directoryCount <= index
+        || optionalHeaderSize < directoryOffset + (index + 1) * 8) return null
+    const offset = optionalHeader + directoryOffset + index * 8
+    const rva = readUInt32LE(bytes, offset)
+    const size = readUInt32LE(bytes, offset + 4)
+    return rva === null || size === null || (rva === 0 && size === 0) ? null : { rva, size }
+  }
+  const importDirectory = readDirectory(1)
+  const certificateEntry = readDirectory(4)
+  const certificateTable = certificateEntry ? { fileOffset: certificateEntry.rva, size: certificateEntry.size } : null
   for (let index = 0; index < sectionCount; index += 1) {
     const offset = sectionTable + index * 40
     if (offset + 40 > bytes.length) {
@@ -133,6 +154,15 @@ export function assessPeProtection(bytes: Buffer, sectionSamples: Map<number, Bu
       evidence.push(`Executable PE section "${name || index}" has high sampled entropy (${entropyBits} bits per byte); this can result from packing, encryption, or other data and does not identify a protection family.`)
     }
   }
+  const entryPointSectionEvidence = entryPointRva === null ? undefined : sections.find((section) => {
+    const mappedSize = Math.max(section.virtualSize, section.rawSize)
+    return mappedSize > 0 && entryPointRva >= section.virtualAddress && entryPointRva - section.virtualAddress < mappedSize
+  })
+  const entryPointSection = entryPointSectionEvidence?.name ?? null
+  if (entryPointRva && !entryPointSection) evidence.push('The PE entry-point RVA did not map to a declared section in the bounded section table.')
+  if (entryPointRva && entryPointSectionEvidence && !entryPointSectionEvidence.executable) {
+    evidence.push(`The PE entry-point RVA maps to non-executable section "${entryPointSection}".`)
+  }
 
   return {
     status: evidence.length ? 'suspected' : 'unknown',
@@ -140,6 +170,9 @@ export function assessPeProtection(bytes: Buffer, sectionSamples: Map<number, Bu
     evidence: evidence.length ? evidence : ['No recognized UPX section-name marker was found; other protection may still be present.'],
     architecture,
     entryPointRva,
+    entryPointSection,
+    importDirectory,
+    certificateTable,
     sections,
     inspectedBytes: bytes.length,
     sampledBytes,
@@ -173,6 +206,13 @@ export function protectionObservation(assessment: PeProtectionAssessment, artifa
   const attributes: ObservationAttributes = {
     assessment: assessment.status,
     family: assessment.family,
+    architecture: assessment.architecture,
+    entryPointRva: assessment.entryPointRva,
+    entryPointSection: assessment.entryPointSection,
+    importDirectoryRva: assessment.importDirectory?.rva ?? null,
+    importDirectorySize: assessment.importDirectory?.size ?? null,
+    certificateTableOffset: assessment.certificateTable?.fileOffset ?? null,
+    certificateTableSize: assessment.certificateTable?.size ?? null,
     evidence: assessment.evidence.join(' '),
     inspectedBytes: assessment.inspectedBytes,
     scope: assessment.scope,

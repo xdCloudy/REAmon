@@ -23,11 +23,19 @@ function peFixture(sectionNames: string[], payloads: Array<Buffer | null> = []):
   bytes.writeUInt16LE(sectionNames.length, peOffset + 6)
   bytes.writeUInt16LE(optionalHeaderSize, peOffset + 20)
   bytes.writeUInt32LE(0x1000, peOffset + 24 + 16)
+  bytes.writeUInt16LE(0x20b, peOffset + 24)
+  bytes.writeUInt32LE(16, peOffset + 24 + 108)
+  bytes.writeUInt32LE(0x3000, peOffset + 24 + 112 + 8)
+  bytes.writeUInt32LE(0x80, peOffset + 24 + 112 + 12)
+  bytes.writeUInt32LE(0x500, peOffset + 24 + 112 + 32)
+  bytes.writeUInt32LE(0x80, peOffset + 24 + 112 + 36)
   let nextPayloadOffset = sectionDataOffset
   sectionNames.forEach((name, index) => {
     const offset = sectionTable + index * 40
     const payload = payloads[index]
     bytes.write(name.slice(0, 8), offset, 'ascii')
+    bytes.writeUInt32LE(payload?.length || 0x1000, offset + 8)
+    bytes.writeUInt32LE(name === 'UPX0' ? 0x2000 : name === 'UPX1' ? 0x1000 : 0x1000 + index * 0x1000, offset + 12)
     bytes.writeUInt32LE(payload?.length || 0, offset + 16)
     bytes.writeUInt32LE(payload ? nextPayloadOffset : 0, offset + 20)
     bytes.writeUInt32LE(name === '.text' || name === 'UPX1' ? 0x60000020 : 0x40000040, offset + 36)
@@ -44,6 +52,9 @@ describe('static PE protection evidence', () => {
     const result = assessPeProtection(peFixture(['UPX0', 'UPX1']))
     expect(result).toMatchObject({
       status: 'suspected', family: 'UPX', inspectedBytes: 456, architecture: 'x86_64', entryPointRva: 0x1000,
+      entryPointSection: 'UPX1',
+      importDirectory: { rva: 0x3000, size: 0x80 },
+      certificateTable: { fileOffset: 0x500, size: 0x80 },
       scope: expect.stringContaining('no execution'), sampledBytes: 0,
       sections: [
         expect.objectContaining({ index: 0, name: 'UPX0', executable: false, sampledBytes: 0, entropyBits: null }),
@@ -54,13 +65,28 @@ describe('static PE protection evidence', () => {
     expect(protectionObservation(result, 'artifact-a')).toMatchObject({
       type: 'protection_assessment',
       key: 'artifact:artifact-a:protection-static-v1',
-      attributes: { assessment: 'suspected', family: 'UPX', confirmed: false },
+      attributes: {
+        assessment: 'suspected', family: 'UPX', confirmed: false, architecture: 'x86_64',
+        entryPointSection: 'UPX1', importDirectoryRva: 0x3000, importDirectorySize: 0x80,
+        certificateTableOffset: 0x500, certificateTableSize: 0x80,
+      },
     })
   })
 
   test('does not classify an ordinary PE or malformed header as unprotected', () => {
     expect(assessPeProtection(peFixture(['.text', '.rdata']))).toMatchObject({ status: 'unknown', family: null })
     expect(assessPeProtection(Buffer.from('MZ'))).toMatchObject({ status: 'unknown', family: null })
+  })
+
+  test('records an entry point that is unmapped or mapped to non-executable data', () => {
+    const unmapped = peFixture(['.text'])
+    unmapped.writeUInt32LE(0x9000, 0x80 + 24 + 16)
+    expect(assessPeProtection(unmapped)).toMatchObject({ status: 'suspected', entryPointSection: null })
+    expect(assessPeProtection(unmapped).evidence.join(' ')).toContain('did not map to a declared section')
+
+    const nonExecutable = assessPeProtection(peFixture(['.rdata']))
+    expect(nonExecutable).toMatchObject({ status: 'suspected', family: null, entryPointSection: '.rdata' })
+    expect(nonExecutable.evidence.join(' ')).toContain('maps to non-executable section')
   })
 
   test('records executable-section entropy only as a generic suspicion', () => {
