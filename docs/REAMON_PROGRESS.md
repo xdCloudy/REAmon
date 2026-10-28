@@ -1,6 +1,6 @@
 # REAmon product progress
 
-Assessment date: 2026-10-27 · Source: pushed commit `02e1e59` · Weighted estimate: **33.0%**
+Assessment date: 2026-10-27 · Source: pushed commit `aa21b19` · Weighted estimate: **33.0%**
 
 This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.
 
@@ -114,7 +114,7 @@ Quality run [40247230850](https://github.com/xdCloudy/REAmon/actions/runs/402472
 
 ### Protected-binary analysis and recovery
 
-**Current evidence:** A bounded static PE inspector reads at most 1 MiB of headers and samples at most 64 KiB per executable section (256 KiB total), storing section metadata, architecture, entry-point-to-section mapping, import/certificate directory locations, sampled entropy, out-of-artifact raw-range truncation, and conventional UPX section-name indicators as suspected evidence. It does not recover import names or verify certificate contents; high entropy is generic and does not identify a family. These facts enter project observations. Synthetic PE tests cover section mapping, markers, unknown paths, entropy, sample bounds, and truncated sections. This does not establish real-sample precision/recall, extraction, commercial-protector recognition, layered artifact lineage, or dynamic recovery.
+**Current evidence:** A bounded static PE inspector reads at most 1 MiB of headers and samples at most 64 KiB per executable section (256 KiB total), storing section metadata, architecture, entry-point-to-section mapping, import/certificate directory locations, sampled entropy, truncated and header-overlapping raw ranges, and conventional UPX section-name indicators as suspected evidence. It does not recover import names or verify certificate contents; high entropy is generic and does not identify a family. These facts enter project observations. Synthetic PE tests cover section mapping, markers, unknown paths, entropy, sample bounds, truncation, and header-overlap rejection. This does not establish real-sample precision/recall, extraction, commercial-protector recognition, layered artifact lineage, or dynamic recovery.
 
 **Remaining:** Build clean/protected paired fixtures with a pinned UPX release; measure detection false positives; add versioned format detectors and immutable derived-layer storage; recover and report protected regions; connect them to the M5 investigation queue; implement isolated authorized dynamic analysis only after worker gates; validate exact tool/version/format combinations and surface status in UI/export.
 
