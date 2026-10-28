@@ -46,6 +46,7 @@ export interface PeSectionEvidence {
   sampledBytes: number
   entropyBits: number | null
   rawDataTruncated: boolean
+  rawDataOverlapsHeaders: boolean
 }
 
 function readUInt16LE(bytes: Buffer, offset: number): number | null {
@@ -54,6 +55,17 @@ function readUInt16LE(bytes: Buffer, offset: number): number | null {
 
 function readUInt32LE(bytes: Buffer, offset: number): number | null {
   return offset >= 0 && offset + 4 <= bytes.length ? bytes.readUInt32LE(offset) : null
+}
+
+function completePeSectionTableEnd(bytes: Buffer): number | null {
+  const peOffset = readUInt32LE(bytes, 0x3c)
+  if (bytes.toString('ascii', 0, 2) !== 'MZ' || peOffset === null
+      || peOffset + 24 > bytes.length || bytes.toString('ascii', peOffset, peOffset + 4) !== 'PE\0\0') return null
+  const sectionCount = readUInt16LE(bytes, peOffset + 6)
+  const optionalHeaderSize = readUInt16LE(bytes, peOffset + 20)
+  if (sectionCount === null || sectionCount > 96 || optionalHeaderSize === null) return null
+  const tableEnd = peOffset + 24 + optionalHeaderSize + sectionCount * 40
+  return tableEnd <= bytes.length ? tableEnd : null
 }
 
 function shannonEntropy(bytes: Buffer): number | null {
@@ -73,6 +85,7 @@ export function assessPeProtection(
   bytes: Buffer,
   sectionSamples: Map<number, Buffer> = new Map(),
   truncatedSections: Set<number> = new Set(),
+  headerOverlappingSections: Set<number> = new Set(),
 ): PeProtectionAssessment {
   const evidence: string[] = []
   const sections: PeSectionEvidence[] = []
@@ -155,6 +168,7 @@ export function assessPeProtection(
       sampledBytes: sectionSample?.length ?? 0,
       entropyBits,
       rawDataTruncated: truncatedSections.has(index),
+      rawDataOverlapsHeaders: headerOverlappingSections.has(index),
     })
     if (/^UPX(?:0|1|2|!)$/i.test(name)) {
       upxMarkerPresent = true
@@ -165,6 +179,9 @@ export function assessPeProtection(
     }
     if (truncatedSections.has(index)) {
       evidence.push(`PE section "${name || index}" declares raw bytes beyond the artifact boundary; its section data is truncated.`)
+    }
+    if (headerOverlappingSections.has(index)) {
+      evidence.push(`PE section "${name || index}" declares raw data overlapping its headers; the section was not sampled.`)
     }
   }
   const entryPointSectionEvidence = entryPointRva === null ? undefined : sections.find((section) => {
@@ -212,6 +229,7 @@ export function peSectionObservations(sections: PeSectionEvidence[], artifactId?
       sampledBytes: section.sampledBytes,
       entropyBits: section.entropyBits,
       rawDataTruncated: section.rawDataTruncated,
+      rawDataOverlapsHeaders: section.rawDataOverlapsHeaders,
     },
   }))
 }
@@ -260,10 +278,16 @@ export async function executeProtectionInspection(input: ToolExecutionInput): Pr
     const stat = await handle.stat()
     const sectionSamples = new Map<number, Buffer>()
     const truncatedSections = new Set<number>()
+    const headerOverlappingSections = new Set<number>()
     let sampleBudget = MAX_TOTAL_SAMPLE_BYTES
-    if (stat.isFile()) {
+    const sectionTableEnd = completePeSectionTableEnd(headerBytes)
+    if (stat.isFile() && sectionTableEnd !== null) {
       for (const section of initial.sections) {
         if (!section.rawSize) continue
+        if (section.rawOffset < sectionTableEnd) {
+          headerOverlappingSections.add(section.index)
+          continue
+        }
         if (section.rawOffset >= stat.size) {
           truncatedSections.add(section.index)
           continue
@@ -282,7 +306,7 @@ export async function executeProtectionInspection(input: ToolExecutionInput): Pr
         if (sampled < sampleSize) truncatedSections.add(section.index)
       }
     }
-    const assessment = assessPeProtection(headerBytes, sectionSamples, truncatedSections)
+    const assessment = assessPeProtection(headerBytes, sectionSamples, truncatedSections, headerOverlappingSections)
     const observations = [
       protectionObservation(assessment, input.artifactId),
       ...peSectionObservations(assessment.sections, input.artifactId),

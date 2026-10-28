@@ -159,4 +159,26 @@ describe('static PE protection evidence', () => {
       await rm(root, { recursive: true, force: true })
     }
   })
+
+  test('does not sample PE headers misdeclared as executable section data', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'reamon-protection-overlap-'))
+    const filePath = path.join(root, 'overlapping-section.exe')
+    const bytes = peFixture(['.text'], [highEntropySample()])
+    const sectionTable = 0x80 + 24 + 0xE0
+    bytes.writeUInt32LE(0, sectionTable + 20)
+    await writeFile(filePath, bytes)
+    try {
+      const result = await executeProtectionInspection({
+        targetProfile: { targetType: 'FILE', format: 'pe', mimeType: 'application/x-executable', extension: 'exe', architecture: 'x86-64', platform: 'windows', runtimes: ['native'], embeddedArtifacts: [], entropy: null, metadata: {} },
+        artifactId: 'artifact-overlap', artifactPath: filePath,
+      })
+      const assessment = result.data.assessment as { status: string; family: string | null; sampledBytes: number; sections: Array<{ rawDataOverlapsHeaders: boolean }>; evidence: string[] }
+      expect(result.status).toBe('completed')
+      expect(assessment).toMatchObject({ status: 'suspected', family: null, sampledBytes: 0 })
+      expect(assessment.sections[0].rawDataOverlapsHeaders).toBe(true)
+      expect(assessment.evidence.join(' ')).toContain('overlapping its headers')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
 })
