@@ -20,6 +20,7 @@ const h = vi.hoisted(() => ({
   scheduleCreate: vi.fn(),
   jobCreate: vi.fn(),
   jobQueueCreate: vi.fn(),
+  taskCreateMany: vi.fn(),
   reamonObservationCreateMany: vi.fn(),
 }))
 
@@ -33,6 +34,7 @@ vi.mock('@/lib/prisma', () => ({
     scanSchedule: { create: (...a: unknown[]) => h.scheduleCreate(...a) },
     scanJob: { create: (...a: unknown[]) => h.jobCreate(...a) },
     jobQueue: { create: (...a: unknown[]) => h.jobQueueCreate(...a) },
+    task: { createMany: (...a: unknown[]) => h.taskCreateMany(...a) },
     reamonObservation: { createMany: (...a: unknown[]) => h.reamonObservationCreateMany(...a) },
     conversation: { create: vi.fn() },
     chatMessage: { createMany: vi.fn() },
@@ -52,7 +54,7 @@ const SNAPSHOT = gzipSync(Buffer.from(JSON.stringify({
   relationships: [],
 })))
 
-async function exportZip(observations?: unknown): Promise<File> {
+async function exportZip(observations?: unknown, tasks?: unknown): Promise<File> {
   const zip = new JSZip()
   zip.file('manifest.json', JSON.stringify({ version: '1.0.0', projectName: 'src', stats: {} }))
   zip.file('project.json', JSON.stringify({ id: 'oldProject', userId: 'oldOwner', name: 'src', targetDomain: 'x.tld' }))
@@ -84,6 +86,7 @@ async function exportZip(observations?: unknown): Promise<File> {
       nodeCount: null, ramReason: null },
   ]))
   if (observations !== undefined) zip.file('analysis/observations.json', JSON.stringify(observations))
+  if (tasks !== undefined) zip.file('analysis/tasks.json', JSON.stringify(tasks))
   const buf = new Uint8Array(await zip.generateAsync({ type: 'nodebuffer' }))
   return new File([buf], 'export.zip', { type: 'application/zip' })
 }
@@ -102,10 +105,43 @@ beforeEach(() => {
   h.scheduleCreate.mockImplementation(async () => ({ id: 'newS1' }))
   h.jobCreate.mockResolvedValue({ id: 'newJ' })
   h.jobQueueCreate.mockResolvedValue({ id: 'newJQ' })
+  h.taskCreateMany.mockImplementation(async ({ data }: { data: unknown[] }) => ({ count: data.length }))
   h.reamonObservationCreateMany.mockResolvedValue({ count: 1 })
 })
 
 describe('import — Scan Timeline history', () => {
+  test('remaps observation task links to inert imported task history', async () => {
+    const observation = {
+      id: 'oldObservation', projectId: 'oldProject', taskId: 'oldTask', targetId: 'oldTarget', artifactId: 'oldArtifact',
+      kind: 'entity', type: 'function', stableKey: 'oldArtifact:run-1:function:1000',
+      canonicalKey: 'function:1000', label: 'FUN_1000', source: 'reamon-ghidra', relation: null,
+      fromKey: null, toKey: null, fromCanonicalKey: null, toCanonicalKey: null, attributes: { address: '1000' },
+      isPending: false, createdAt: '2026-10-01T12:00:00.000Z', updatedAt: '2026-10-01T12:01:00.000Z',
+    }
+    const task = {
+      id: 'oldTask', targetId: 'oldTarget', artifactId: 'oldArtifact', providerPluginId: 'reamon-ghidra',
+      capability: 'decompile', title: 'Decompile binary', category: 'analysis', status: 'COMPLETED',
+      progress: 100, progressMessage: 'Finished', startedAt: '2026-10-01T11:00:00.000Z',
+      completedAt: '2026-10-01T11:02:00.000Z', createdAt: '2026-10-01T10:59:00.000Z',
+      updatedAt: '2026-10-01T11:02:00.000Z',
+    }
+
+    const res = await POST(formReq(await exportZip([observation], [task])))
+    expect(res.status).toBe(200)
+    const importedTask = h.taskCreateMany.mock.calls[0][0].data[0]
+    expect(importedTask).toMatchObject({
+      projectId: 'newProject', targetId: null, artifactId: null, providerId: null,
+      capability: 'decompile', title: 'Decompile binary', category: 'analysis',
+      status: 'IMPORTED', progress: 0, error: '', runToken: null, idempotencyKey: null,
+      options: { importOrigin: { taskId: 'oldTask', targetId: 'oldTarget', artifactId: 'oldArtifact', providerPluginId: 'reamon-ghidra', status: 'COMPLETED', progress: 100 } },
+    })
+    const importedObservation = h.reamonObservationCreateMany.mock.calls[0][0].data[0]
+    expect(importedObservation).toMatchObject({
+      projectId: 'newProject', taskId: importedTask.id, targetId: null, artifactId: null,
+      attributes: { importOrigin: { observationId: 'oldObservation', taskId: 'oldTask' } },
+    })
+  })
+
   test('re-owns archived REAmon evidence and retains source links as provenance', async () => {
     const observation = {
       id: 'oldObservation', projectId: 'oldProject', taskId: 'oldTask', targetId: 'oldTarget', artifactId: 'oldArtifact',

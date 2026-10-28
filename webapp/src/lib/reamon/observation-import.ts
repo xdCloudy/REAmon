@@ -4,6 +4,7 @@ export const MAX_IMPORTED_OBSERVATIONS = 50_000
 const MAX_OBSERVATION_ATTRIBUTE_BYTES = 64 * 1024
 
 export interface ImportedObservationRow {
+  taskId: string | null
   kind: string
   type: string
   stableKey: string
@@ -41,13 +42,16 @@ function importedDate(value: unknown, fallback: Date): Date {
 }
 
 /**
- * Validate observation rows from an untrusted project archive. Task, target,
- * and artifact foreign keys cannot be reused because those rows are not part of
- * this archive format; their old ids and the observation's source id are
- * retained as import provenance inside attributes while active foreign-key
- * columns stay null.
+ * Validate observation rows from an untrusted project archive. Original IDs
+ * remain provenance; only task IDs with successfully recreated inert history
+ * rows can become active links. Target and artifact rows are not in this archive
+ * format, so those foreign keys stay null.
  */
-export function prepareObservationImport(value: unknown, now = new Date()): PreparedObservationImport {
+export function prepareObservationImport(
+  value: unknown,
+  now = new Date(),
+  taskIdMap: ReadonlyMap<string, string> = new Map(),
+): PreparedObservationImport {
   if (!Array.isArray(value)) return { rows: [], skipped: 0 }
   let skipped = Math.max(0, value.length - MAX_IMPORTED_OBSERVATIONS)
   const candidates = value.slice(0, MAX_IMPORTED_OBSERVATIONS)
@@ -89,10 +93,11 @@ export function prepareObservationImport(value: unknown, now = new Date()): Prep
       continue
     }
     seen.add(identity)
+    const originalTaskId = optionalString(row.taskId, 200)
     const originalReferences = {
       observationId: optionalString(row.id, 200),
       projectId: optionalString(row.projectId, 200),
-      taskId: optionalString(row.taskId, 200),
+      taskId: originalTaskId,
       targetId: optionalString(row.targetId, 200),
       artifactId: optionalString(row.artifactId, 200),
     }
@@ -106,6 +111,7 @@ export function prepareObservationImport(value: unknown, now = new Date()): Prep
       canonicalKey,
       label: optionalString(row.label, 1000),
       source,
+      taskId: originalTaskId ? taskIdMap.get(originalTaskId) ?? null : null,
       relation: optionalString(row.relation, 120),
       fromKey: optionalString(row.fromKey),
       toKey: optionalString(row.toKey),

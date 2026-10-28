@@ -10,6 +10,7 @@ import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
 import { serializeGraphProperties } from '@/lib/graphSerialize'
 import { projectPresetForRead } from '@/lib/reconPresets/server'
 import { serializeProjectObservations } from '@/lib/reamon/observation-export'
+import { serializeProjectTaskHistory } from '@/lib/reamon/task-history-export'
 
 const RECON_OUTPUT_PATH = process.env.RECON_OUTPUT_PATH || '/data/recon-output'
 const GVM_OUTPUT_PATH = process.env.GVM_OUTPUT_PATH || '/data/gvm-output'
@@ -121,6 +122,26 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
       },
     })
     const serializedReamonObservations = serializeProjectObservations(reamonObservations)
+    const reamonTaskHistory = await prisma.task.findMany({
+      where: { projectId: id, observations: { some: { projectId: id } } },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      select: {
+        id: true,
+        targetId: true,
+        artifactId: true,
+        capability: true,
+        title: true,
+        category: true,
+        status: true,
+        progress: true,
+        startedAt: true,
+        completedAt: true,
+        createdAt: true,
+        updatedAt: true,
+        provider: { select: { pluginId: true } },
+      },
+    })
+    const serializedReamonTaskHistory = serializeProjectTaskHistory(reamonTaskHistory)
 
     // 2c'. Node filters: the rules and the operator's exemptions. Run history
     // stays behind; it describes this install's graph, not the project.
@@ -222,6 +243,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
         scanSchedules: scanSchedules.length,
         engagementAuthorizations: engagementAuthorizations.length,
         reamonObservations: reamonObservations.length,
+        reamonTasks: serializedReamonTaskHistory.length,
         artifacts: 0,
       },
     }
@@ -325,6 +347,10 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     archive.append(
       Buffer.from(JSON.stringify(serializedReamonObservations, null, 2)),
       { name: 'analysis/observations.json' }
+    )
+    archive.append(
+      Buffer.from(JSON.stringify(serializedReamonTaskHistory, null, 2)),
+      { name: 'analysis/tasks.json' }
     )
     archive.append(
       Buffer.from(JSON.stringify(

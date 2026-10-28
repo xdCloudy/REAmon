@@ -23,6 +23,7 @@ import {
 import { MUTEABLE_FINDING_LABELS } from '@/lib/mcp/findingLabels'
 import { pickProjectColumns } from '@/lib/projectColumns'
 import { MAX_IMPORTED_OBSERVATIONS, prepareObservationImport } from '@/lib/reamon/observation-import'
+import { MAX_IMPORTED_TASK_HISTORY, prepareTaskHistoryImport } from '@/lib/reamon/task-history-import'
 
 const MUTEABLE_LABELS = new Set<string>(MUTEABLE_FINDING_LABELS)
 
@@ -309,21 +310,48 @@ export async function POST(request: NextRequest) {
       neo4jRelationships: 0,
       artifacts: 0,
       reamonObservations: 0,
+      reamonTasks: 0,
     }
 
-    // Restore durable REAmon evidence without trusting source ids as active
-    // foreign keys. Tasks, targets, and artifacts are not recreated by this
-    // archive importer; prepareObservationImport preserves those original ids
-    // under attributes.importOrigin and keeps pending evidence pending.
+    // Recreate only inert task history needed to preserve observation links.
+    // Imported tasks have no executable payload, provider binding, lease, or
+    // artifact/target binding, and cannot be picked up by workers.
+    const taskIdMap = new Map<string, string>()
+    const taskHistoryFile = zip.file('analysis/tasks.json')
+    if (taskHistoryFile) {
+      try {
+        const parsed = JSON.parse(await taskHistoryFile.async('text')) as unknown
+        const prepared = prepareTaskHistoryImport(parsed, newProject.id)
+        taskIdMap.clear()
+        for (const [sourceId, importedId] of prepared.idMap) taskIdMap.set(sourceId, importedId)
+        for (let offset = 0; offset < prepared.rows.length; offset += 500) {
+          const created = await prisma.task.createMany({ data: prepared.rows.slice(offset, offset + 500) })
+          stats.reamonTasks += created.count
+        }
+        if (prepared.skipped > 0) {
+          ;(stats as Record<string, unknown>).reamonTasksSkipped = prepared.skipped
+        }
+        if (Array.isArray(parsed) && parsed.length > MAX_IMPORTED_TASK_HISTORY) {
+          ;(stats as Record<string, unknown>).reamonTasksLimit = MAX_IMPORTED_TASK_HISTORY
+        }
+      } catch (e) {
+        taskIdMap.clear()
+        console.warn('Could not import REAmon task history:', e)
+        ;(stats as Record<string, unknown>).reamonTasksImport = 'incomplete: unreadable or persistence failed'
+      }
+    }
+
+    // Restore durable REAmon evidence. Related task rows are re-owned inert
+    // snapshots; targets and artifacts are not in this archive, so their
+    // original IDs remain provenance and active foreign keys stay null.
     const observationsFile = zip.file('analysis/observations.json')
     if (observationsFile) {
       try {
         const parsed = JSON.parse(await observationsFile.async('text')) as unknown
-        const prepared = prepareObservationImport(parsed)
+        const prepared = prepareObservationImport(parsed, new Date(), taskIdMap)
         for (let offset = 0; offset < prepared.rows.length; offset += 500) {
           const batch = prepared.rows.slice(offset, offset + 500).map(row => ({
             projectId: newProject.id,
-            taskId: null,
             targetId: null,
             artifactId: null,
             ...row,
