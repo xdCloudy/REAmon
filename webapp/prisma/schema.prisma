@@ -463,6 +463,7 @@ model Project {
   imports                     WorkspaceImport[]
   nativeFunctionMatches       ReamonFunctionMatch[]
   nativeFunctionMatchReviews  ReamonFunctionMatchReview[]
+  investigationCases          ReamonInvestigationCase[]
 
   // ========== TARGET CONFIGURATION ==========
   targetDomain                String   @default("") @map("target_domain")
@@ -2662,6 +2663,7 @@ model Task {
   updatedAt   DateTime @updatedAt @map("updated_at")
   observations ReamonObservation[]
   functionQueueState ReamonFunctionQueueState?
+  investigationCase ReamonInvestigationCase?
   provenance  ArtifactProvenance[]
   approval    ReamonApproval?
   findings    Finding[]
@@ -2980,6 +2982,32 @@ model ReamonFunctionQueueState {
 
   @@index([projectId, artifactId])
   @@map("reamon_function_queue_states")
+}
+
+/// Durable record that a failed analysis unit needs agent-led investigation.
+/// It preserves the failed run evidence independently of any later retry.
+model ReamonInvestigationCase {
+  id             String   @id @default(cuid())
+  projectId      String   @map("project_id")
+  project        Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  taskId         String   @unique @map("task_id")
+  task           Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  artifactId     String   @map("artifact_id")
+  artifactSha256 String   @map("artifact_sha256")
+  capability     String
+  providerId     String?  @map("provider_id")
+  providerVersion String? @map("provider_version")
+  status         String   @default("QUEUED")
+  failureEvidence Json    @map("failure_evidence")
+  history        Json     @default("[]")
+  requestedBy    String   @map("requested_by")
+  revision       Int      @default(1)
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@index([projectId, status, createdAt])
+  @@index([projectId, artifactId, createdAt])
+  @@map("reamon_investigation_cases")
 }
 
 /// Immutable human decision tied to the exact maintained source bytes.

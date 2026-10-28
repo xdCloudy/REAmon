@@ -34,13 +34,15 @@ assembly, bytecode, CFG, IR, cross-references, memory evidence, and authorized r
 observations when source providers fail. Any combined reconstruction is a separate
 hash-linked candidate with a source diff and validation result, never a silent merge.
 
-Provider failures and inadequate output also enter a persistent per-unit investigation
-queue linked to the exact artifact, failed task, provider output, and unit identity. Each
-resumable agent attempt records claim/lease state, attempt history, bounded time/token/
-runtime budgets, cancellation, source diffs, requested follow-up evidence, and validation.
-Restarted or cancelled work keeps its history; stale workers cannot publish. Acceptance
-requires a human review receipt and reversible maintained-source update. Unsupported or
-ambiguous regions remain queued or explicitly unresolved.
+The first persistent investigation-intake slice lets an authorized project member queue
+a failed or cancelled decompile/disassemble task. Its case stores the originating task,
+artifact hash, provider/version, failure context, observation count, request identity, and
+an initial history event. The queue is currently run-scoped; it does not yet create
+per-unit cases, dispatch an agent, or claim that reconstruction has started. The planned
+M5 lifecycle must add stable unit identities, resumable agent attempts, claim/lease state,
+enforced time/token/runtime budgets, cancellation, evidence-linked source diffs,
+targeted analysis requests, validation, human review, and rollback. Unsupported or
+ambiguous regions must remain explicitly unresolved, and stale workers must not publish.
 
 ### Protected artifacts
 

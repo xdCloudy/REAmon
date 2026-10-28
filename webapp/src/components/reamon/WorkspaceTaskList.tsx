@@ -8,6 +8,8 @@ export interface WorkspaceTaskListItem {
   title: string
   status: string
   progress: number
+  capability?: string | null
+  investigationCase?: { id: string; status: string } | null
   progressMessage?: string | null
   error?: string | null
   startedAt?: string | null
@@ -80,6 +82,22 @@ export function WorkspaceTaskList({ projectId, tasks, onChanged }: {
       onChanged?.()
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : 'Unable to retry analysis task')
+    } finally {
+      setPendingAction(null)
+    }
+  }
+
+  async function queueInvestigation(task: WorkspaceTaskListItem) {
+    setPendingAction(`investigate:${task.id}`)
+    setFeedback(null)
+    try {
+      const response = await fetch(`/api/projects/${projectId}/workspace/tasks/${task.id}/investigation`, { method: 'POST' })
+      const payload = await response.json().catch(() => ({})) as { error?: string }
+      if (!response.ok) throw new Error(payload.error || 'Unable to queue investigation')
+      setFeedback(`${task.title} was queued for investigation.`)
+      onChanged?.()
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : 'Unable to queue investigation')
     } finally {
       setPendingAction(null)
     }
@@ -170,6 +188,11 @@ export function WorkspaceTaskList({ projectId, tasks, onChanged }: {
             {(task.status === 'FAILED' || task.status === 'CANCELLED') && <button type="button" className={styles.actionButton} aria-label={`Retry ${task.title}`} disabled={pendingAction !== null} onClick={() => void retry(task)}>
               {pendingAction === `retry:${task.id}` ? 'Requeuing…' : 'Retry'}
             </button>}
+            {(task.status === 'FAILED' || task.status === 'CANCELLED')
+              && (task.capability === 'decompile' || task.capability === 'disassemble')
+              && <button type="button" className={styles.actionButton} aria-label={`Queue investigation for ${task.title}`} disabled={pendingAction !== null || Boolean(task.investigationCase)} onClick={() => void queueInvestigation(task)}>
+                {pendingAction === `investigate:${task.id}` ? 'Queuing…' : task.investigationCase ? 'Investigation queued' : 'Investigate'}
+              </button>}
             {(task.status === 'QUEUED' || task.status === 'RUNNING') && <button type="button" className={styles.actionButton} aria-label={`Cancel ${task.title}`} disabled={pendingAction !== null} onClick={() => void cancel(task)}>
               {pendingAction === `cancel:${task.id}` ? 'Cancelling…' : 'Cancel'}
             </button>}

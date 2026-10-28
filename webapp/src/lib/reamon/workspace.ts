@@ -87,6 +87,7 @@ export async function getWorkspaceSnapshot(projectId: string) {
         completedAt: true,
         createdAt: true,
         updatedAt: true,
+        investigationCase: { select: { id: true, status: true } },
         approval: {
           select: {
             id: true,

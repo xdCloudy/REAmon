@@ -38,6 +38,27 @@ describe('WorkspaceTaskList', () => {
     expect(fetch).toHaveBeenCalledWith('/api/projects/project-1/workspace/tasks/task-1/retry', { method: 'POST' })
   })
 
+  test('queues a failed decompilation for a persisted investigation and disables duplicate requests', async () => {
+    const onChanged = vi.fn()
+    render(<WorkspaceTaskList projectId="project-1" onChanged={onChanged} tasks={[{ id: 'task-1', title: 'Decompile library', status: 'FAILED', progress: 20, capability: 'decompile' }]} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Queue investigation for Decompile library' }))
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Decompile library was queued for investigation.'))
+
+    expect(fetch).toHaveBeenCalledWith('/api/projects/project-1/workspace/tasks/task-1/investigation', { method: 'POST' })
+    expect(onChanged).toHaveBeenCalledOnce()
+  })
+
+  test('does not offer agent investigation for non-decompiler failures or duplicate queued cases', () => {
+    render(<WorkspaceTaskList projectId="project-1" tasks={[
+      { id: 'task-1', title: 'Scan repository', status: 'FAILED', progress: 10, capability: 'security_scan' },
+      { id: 'task-2', title: 'Decompile library', status: 'FAILED', progress: 20, capability: 'decompile', investigationCase: { id: 'case-1', status: 'QUEUED' } },
+    ]} />)
+
+    expect(screen.queryByRole('button', { name: 'Queue investigation for Scan repository' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Queue investigation for Decompile library' })).toBeDisabled()
+  })
+
   test('recovers stale tasks from the operator control', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,

@@ -37,7 +37,7 @@ interface WorkspaceSnapshot {
     createdAt: string
     updatedAt: string
   }>
-  tasks: Array<{ id: string; title: string; category: string; status: string; progress: number; progressMessage: string; error: string; providerId: string | null; capability: string | null; result: Record<string, unknown> | null; startedAt: string | null; leaseOwner: string | null; leaseHeartbeatAt: string | null; approval: { id: string; status: string } | null }>
+  tasks: Array<{ id: string; title: string; category: string; status: string; progress: number; progressMessage: string; error: string; providerId: string | null; capability: string | null; result: Record<string, unknown> | null; startedAt: string | null; leaseOwner: string | null; leaseHeartbeatAt: string | null; investigationCase: { id: string; status: string } | null; approval: { id: string; status: string } | null }>
   findings: Array<{ id: string; title: string; severity: string; status: string }>
   hypotheses: Array<{ id: string; statement: string; status: string }>
   evidence: Array<{ id: string; summary: string; source: string; createdAt: string }>
