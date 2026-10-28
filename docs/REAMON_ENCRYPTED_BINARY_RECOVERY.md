@@ -11,10 +11,11 @@ owns static/runtime evidence mapping; [M5](REAMON_RECONSTRUCTION_MILESTONES.md) 
 provider disputes and agent investigation. This document does not authorize bypassing
 access controls or acquiring keys.
 
-**Current state:** the bounded PE inspector records only conventional UPX section-name
-markers as suspected evidence. It does not identify encrypted content, access runtime
-plaintext, or recover encrypted regions. Existing import/string/decompiler paths do not
-qualify as encrypted-binary recovery.
+**Current state:** the bounded PE inspector records conventional UPX section-name markers
+and capped entropy samples from executable sections. High entropy can result from
+compression, encryption, or unrelated data; it does not identify encryption or a protection
+family. The inspector does not access runtime plaintext or recover encrypted regions.
+Existing import/string/decompiler paths do not qualify as encrypted-binary recovery.
 
 ## Workflow
 

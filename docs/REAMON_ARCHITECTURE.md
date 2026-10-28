@@ -516,7 +516,9 @@ stale-worker fencing.
 
 Protection hypotheses and each transformed/extracted layer require stable artifact
 lineage, and analysis targets an explicit layer hash. The first code slice is a static PE
-section-table provider that records conventional UPX section markers as *suspected*. It
-does not execute, unpack, identify commercial protectors, or establish that a PE without
-those markers is unprotected. Any later dynamic inspection remains subject to explicit
-authorization and isolated-worker release controls. See the [protected-binary milestone](REAMON_PROTECTED_BINARY_RECOVERY.md).
+provider that records conventional UPX section markers as *suspected* and bounded samples
+of executable-section entropy as generic evidence. Entropy does not identify a family.
+The provider does not execute, unpack, identify commercial protectors, or establish that a
+PE without recognized indicators is unprotected. Any later dynamic inspection remains
+subject to explicit authorization and isolated-worker release controls. See the
+[protected-binary milestone](REAMON_PROTECTED_BINARY_RECOVERY.md).

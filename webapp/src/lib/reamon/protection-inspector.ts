@@ -2,6 +2,9 @@ import { open } from 'node:fs/promises'
 import type { ObservationAttributes, ToolExecutionInput, ToolPlugin, ToolPluginManifest, ToolResult } from './types'
 
 const MAX_HEADER_BYTES = 1024 * 1024
+const MAX_SECTION_SAMPLE_BYTES = 64 * 1024
+const MAX_TOTAL_SAMPLE_BYTES = 256 * 1024
+const HIGH_ENTROPY_THRESHOLD = 7.2
 
 export const protectionInspectorManifest: ToolPluginManifest = {
   id: 'reamon-protection-inspector',
@@ -23,7 +26,8 @@ export interface PeProtectionAssessment {
   entryPointRva: number | null
   sections: PeSectionEvidence[]
   inspectedBytes: number
-  scope: 'PE section table only; no execution, unpacking, or payload inspection'
+  sampledBytes: number
+  scope: 'PE headers plus bounded executable-section samples; no execution or unpacking'
 }
 
 export interface PeSectionEvidence {
@@ -36,6 +40,8 @@ export interface PeSectionEvidence {
   characteristics: number
   executable: boolean
   code: boolean
+  sampledBytes: number
+  entropyBits: number | null
 }
 
 function readUInt16LE(bytes: Buffer, offset: number): number | null {
@@ -46,9 +52,23 @@ function readUInt32LE(bytes: Buffer, offset: number): number | null {
   return offset >= 0 && offset + 4 <= bytes.length ? bytes.readUInt32LE(offset) : null
 }
 
-export function assessPeProtection(bytes: Buffer): PeProtectionAssessment {
+function shannonEntropy(bytes: Buffer): number | null {
+  if (!bytes.length) return null
+  const counts = new Uint32Array(256)
+  for (const value of bytes) counts[value] += 1
+  let entropy = 0
+  for (const count of counts) {
+    if (!count) continue
+    const probability = count / bytes.length
+    entropy -= probability * Math.log2(probability)
+  }
+  return Math.round(entropy * 1000) / 1000
+}
+
+export function assessPeProtection(bytes: Buffer, sectionSamples: Map<number, Buffer> = new Map()): PeProtectionAssessment {
   const evidence: string[] = []
   const sections: PeSectionEvidence[] = []
+  let sampledBytes = 0
   const peOffset = readUInt32LE(bytes, 0x3c)
   if (bytes.length < 2 || bytes.toString('ascii', 0, 2) !== 'MZ'
       || peOffset === null || peOffset + 24 > bytes.length
@@ -56,7 +76,8 @@ export function assessPeProtection(bytes: Buffer): PeProtectionAssessment {
     return {
       status: 'unknown', family: null, evidence: ['A complete PE header was not available in the bounded header read.'],
       architecture: null, entryPointRva: null, sections,
-      inspectedBytes: bytes.length, scope: 'PE section table only; no execution, unpacking, or payload inspection',
+      inspectedBytes: bytes.length, sampledBytes,
+      scope: 'PE headers plus bounded executable-section samples; no execution or unpacking',
     }
   }
 
@@ -66,7 +87,8 @@ export function assessPeProtection(bytes: Buffer): PeProtectionAssessment {
     return {
       status: 'unknown', family: null, evidence: ['PE section-table dimensions were missing or outside the supported bounds.'],
       architecture: null, entryPointRva: null, sections,
-      inspectedBytes: bytes.length, scope: 'PE section table only; no execution, unpacking, or payload inspection',
+      inspectedBytes: bytes.length, sampledBytes,
+      scope: 'PE headers plus bounded executable-section samples; no execution or unpacking',
     }
   }
 
@@ -89,6 +111,10 @@ export function assessPeProtection(bytes: Buffer): PeProtectionAssessment {
     const rawSize = readUInt32LE(bytes, offset + 16) ?? 0
     const rawOffset = readUInt32LE(bytes, offset + 20) ?? 0
     const characteristics = readUInt32LE(bytes, offset + 36) ?? 0
+    const executable = (characteristics & 0x20000000) !== 0
+    const sectionSample = executable ? sectionSamples.get(index) : undefined
+    const entropyBits = sectionSample ? shannonEntropy(sectionSample) : null
+    if (sectionSample) sampledBytes += sectionSample.length
     sections.push({
       index,
       name,
@@ -97,10 +123,15 @@ export function assessPeProtection(bytes: Buffer): PeProtectionAssessment {
       rawOffset,
       rawSize,
       characteristics,
-      executable: (characteristics & 0x20000000) !== 0,
+      executable,
       code: (characteristics & 0x00000020) !== 0,
+      sampledBytes: sectionSample?.length ?? 0,
+      entropyBits,
     })
     if (/^UPX(?:0|1|2|!)$/i.test(name)) evidence.push(`PE section name "${name}" matches a conventional UPX section marker.`)
+    if (entropyBits !== null && entropyBits >= HIGH_ENTROPY_THRESHOLD) {
+      evidence.push(`Executable PE section "${name || index}" has high sampled entropy (${entropyBits} bits per byte); this can result from packing, encryption, or other data and does not identify a protection family.`)
+    }
   }
 
   return {
@@ -111,7 +142,8 @@ export function assessPeProtection(bytes: Buffer): PeProtectionAssessment {
     entryPointRva,
     sections,
     inspectedBytes: bytes.length,
-    scope: 'PE section table only; no execution, unpacking, or payload inspection',
+    sampledBytes,
+    scope: 'PE headers plus bounded executable-section samples; no execution or unpacking',
   }
 }
 
@@ -131,6 +163,8 @@ export function peSectionObservations(sections: PeSectionEvidence[], artifactId?
       characteristics: section.characteristics,
       executable: section.executable,
       code: section.code,
+      sampledBytes: section.sampledBytes,
+      entropyBits: section.entropyBits,
     },
   }))
 }
@@ -148,7 +182,8 @@ export function protectionObservation(assessment: PeProtectionAssessment, artifa
     kind: 'fact' as const,
     type: 'protection_assessment',
     key: `artifact:${artifactId || 'unknown'}:protection-static-v1`,
-    label: assessment.family ? `Suspected ${assessment.family} protection` : 'Protection status unknown',
+    label: assessment.family ? `Suspected ${assessment.family} protection`
+      : assessment.status === 'suspected' ? 'Protection indicator observed; family unknown' : 'Protection status unknown',
     attributes,
   }
 }
@@ -166,7 +201,26 @@ export async function executeProtectionInspection(input: ToolExecutionInput): Pr
     handle = await open(input.artifactPath, 'r')
     const header = Buffer.alloc(MAX_HEADER_BYTES)
     const { bytesRead } = await handle.read(header, 0, header.length, 0)
-    const assessment = assessPeProtection(header.subarray(0, bytesRead))
+    const headerBytes = header.subarray(0, bytesRead)
+    const initial = assessPeProtection(headerBytes)
+    const stat = await handle.stat()
+    const sectionSamples = new Map<number, Buffer>()
+    let sampleBudget = MAX_TOTAL_SAMPLE_BYTES
+    if (stat.isFile()) {
+      for (const section of initial.sections) {
+        if (!section.executable || !section.rawSize || !sampleBudget || section.rawOffset >= stat.size) continue
+        const availableBytes = Math.min(section.rawSize, stat.size - section.rawOffset)
+        const sampleSize = Math.min(availableBytes, MAX_SECTION_SAMPLE_BYTES, sampleBudget)
+        if (sampleSize <= 0) continue
+        const sample = Buffer.alloc(sampleSize)
+        const { bytesRead: sampled } = await handle.read(sample, 0, sampleSize, section.rawOffset)
+        if (sampled > 0) {
+          sectionSamples.set(section.index, sample.subarray(0, sampled))
+          sampleBudget -= sampled
+        }
+      }
+    }
+    const assessment = assessPeProtection(headerBytes, sectionSamples)
     const observations = [
       protectionObservation(assessment, input.artifactId),
       ...peSectionObservations(assessment.sections, input.artifactId),

@@ -5,11 +5,17 @@ import path from 'node:path'
 import { describe, expect, test } from 'vitest'
 import { assessPeProtection, executeProtectionInspection, protectionObservation } from './protection-inspector'
 
-function peFixture(sectionNames: string[]): Buffer {
+function highEntropySample(size = 1024): Buffer {
+  return Buffer.from(Array.from({ length: size }, (_, index) => index % 256))
+}
+
+function peFixture(sectionNames: string[], payloads: Array<Buffer | null> = []): Buffer {
   const peOffset = 0x80
   const optionalHeaderSize = 0xE0
   const sectionTable = peOffset + 24 + optionalHeaderSize
-  const bytes = Buffer.alloc(sectionTable + sectionNames.length * 40)
+  const sectionDataOffset = 0x400
+  const payloadSize = payloads.reduce((size, payload) => size + (payload?.length || 0), 0)
+  const bytes = Buffer.alloc(Math.max(sectionTable + sectionNames.length * 40, sectionDataOffset + payloadSize))
   bytes.write('MZ', 0, 'ascii')
   bytes.writeUInt32LE(peOffset, 0x3c)
   bytes.write('PE\0\0', peOffset, 'binary')
@@ -17,8 +23,19 @@ function peFixture(sectionNames: string[]): Buffer {
   bytes.writeUInt16LE(sectionNames.length, peOffset + 6)
   bytes.writeUInt16LE(optionalHeaderSize, peOffset + 20)
   bytes.writeUInt32LE(0x1000, peOffset + 24 + 16)
-  sectionNames.forEach((name, index) => bytes.write(name.slice(0, 8), sectionTable + index * 40, 'ascii'))
-  sectionNames.forEach((name, index) => bytes.writeUInt32LE(name === '.text' || name === 'UPX1' ? 0x60000020 : 0x40000040, sectionTable + index * 40 + 36))
+  let nextPayloadOffset = sectionDataOffset
+  sectionNames.forEach((name, index) => {
+    const offset = sectionTable + index * 40
+    const payload = payloads[index]
+    bytes.write(name.slice(0, 8), offset, 'ascii')
+    bytes.writeUInt32LE(payload?.length || 0, offset + 16)
+    bytes.writeUInt32LE(payload ? nextPayloadOffset : 0, offset + 20)
+    bytes.writeUInt32LE(name === '.text' || name === 'UPX1' ? 0x60000020 : 0x40000040, offset + 36)
+    if (payload) {
+      payload.copy(bytes, nextPayloadOffset)
+      nextPayloadOffset += payload.length
+    }
+  })
   return bytes
 }
 
@@ -27,10 +44,10 @@ describe('static PE protection evidence', () => {
     const result = assessPeProtection(peFixture(['UPX0', 'UPX1']))
     expect(result).toMatchObject({
       status: 'suspected', family: 'UPX', inspectedBytes: 456, architecture: 'x86_64', entryPointRva: 0x1000,
-      scope: expect.stringContaining('no execution'),
+      scope: expect.stringContaining('no execution'), sampledBytes: 0,
       sections: [
-        expect.objectContaining({ index: 0, name: 'UPX0', executable: false }),
-        expect.objectContaining({ index: 1, name: 'UPX1', executable: true, code: true }),
+        expect.objectContaining({ index: 0, name: 'UPX0', executable: false, sampledBytes: 0, entropyBits: null }),
+        expect.objectContaining({ index: 1, name: 'UPX1', executable: true, code: true, sampledBytes: 0, entropyBits: null }),
       ],
     })
     expect(result.evidence).toHaveLength(2)
@@ -46,20 +63,50 @@ describe('static PE protection evidence', () => {
     expect(assessPeProtection(Buffer.from('MZ'))).toMatchObject({ status: 'unknown', family: null })
   })
 
+  test('records executable-section entropy only as a generic suspicion', () => {
+    const result = assessPeProtection(peFixture(['.text']), new Map([[0, highEntropySample()]]))
+    expect(result).toMatchObject({ status: 'suspected', family: null, sampledBytes: 1024 })
+    expect(result.sections[0]).toMatchObject({ sampledBytes: 1024, entropyBits: 8 })
+    expect(result.evidence.join(' ')).toContain('does not identify a protection family')
+    expect(protectionObservation(result, 'artifact-a').label).toBe('Protection indicator observed; family unknown')
+    expect(assessPeProtection(peFixture(['.text']), new Map([[0, Buffer.alloc(1024, 0x41)]])))
+      .toMatchObject({ status: 'unknown', family: null, sampledBytes: 1024 })
+  })
+
   test('inspects a stored file through the plugin without executing it', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'reamon-protection-'))
     const filePath = path.join(root, 'fixture.exe')
-    await writeFile(filePath, peFixture(['UPX0', 'UPX1']))
+    await writeFile(filePath, peFixture(['UPX0', 'UPX1'], [null, highEntropySample()]))
     try {
       const result = await executeProtectionInspection({
         targetProfile: { targetType: 'FILE', format: 'pe', mimeType: 'application/x-executable', extension: 'exe', architecture: 'x86-64', platform: 'windows', runtimes: ['native'], embeddedArtifacts: [], entropy: null, metadata: {} },
         artifactId: 'artifact-a', artifactPath: filePath,
       })
-      expect(result).toMatchObject({ status: 'completed', toolId: 'reamon-protection-inspector', data: { assessment: { status: 'suspected', family: 'UPX' } } })
+      expect(result).toMatchObject({ status: 'completed', toolId: 'reamon-protection-inspector', data: { assessment: { status: 'suspected', family: 'UPX', sampledBytes: 1024 } } })
       expect(result.data.observations).toHaveLength(3)
       expect(result.data.observations).toEqual(expect.arrayContaining([
-        expect.objectContaining({ type: 'pe_section_region', key: 'artifact:artifact-a:pe-section:1', attributes: expect.objectContaining({ executable: true }) }),
+        expect.objectContaining({ type: 'pe_section_region', key: 'artifact:artifact-a:pe-section:1', attributes: expect.objectContaining({ executable: true, sampledBytes: 1024, entropyBits: 8 }) }),
       ]))
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  test('caps section sampling per section and across the whole artifact', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'reamon-protection-bounds-'))
+    const filePath = path.join(root, 'large-sections.exe')
+    const oversizedSample = highEntropySample(128 * 1024)
+    await writeFile(filePath, peFixture(['.text', '.text', '.text', '.text'], Array(4).fill(oversizedSample)))
+    try {
+      const result = await executeProtectionInspection({
+        targetProfile: { targetType: 'FILE', format: 'pe', mimeType: 'application/x-executable', extension: 'exe', architecture: 'x86-64', platform: 'windows', runtimes: ['native'], embeddedArtifacts: [], entropy: null, metadata: {} },
+        artifactId: 'artifact-b', artifactPath: filePath,
+      })
+      const assessment = result.data.assessment as { sampledBytes: number; sections: Array<{ sampledBytes: number }> }
+      expect(result.status).toBe('completed')
+      expect(assessment.sampledBytes).toBeLessThanOrEqual(256 * 1024)
+      expect(assessment.sections.every((section) => section.sampledBytes <= 64 * 1024)).toBe(true)
+      expect(assessment.sampledBytes).toBe(256 * 1024)
     } finally {
       await rm(root, { recursive: true, force: true })
     }
