@@ -9,11 +9,11 @@ other edited service images have not been rolled out. A local gitignored Compose
 override maps to existing networks, and the launcher derives a stable default
 project name from the Git remote to avoid the transient WSL mount-path name. The
 repository `./redamon.sh up` path now completes and reports ready. On this pass,
-the current checkout `30a59655978d` was rebuilt with its uncommitted worktree
-and only the webapp container was replaced; the new image is
-`sha256:33e281b59d51bd091061ad11cc7832aa4c89291cdfb0de835c046d59449970ac` and
-reports healthy with local and LAN readiness passing. The image revision label
-is `unknown` because the checkout contains uncommitted changes. Compose created
+commit `c535a69f` was rebuilt and only the webapp container was replaced; the
+new image is
+`sha256:abf2479f81dbf4641283dbb8a8e37c4b9f405f3f825a30471cd7836807d15bb2` and
+reports healthy with local and LAN readiness passing. Its revision label is
+`c535a69f` and the webapp build reports clean source. Compose created
 three absent optional-feature volumes and did not remove existing volumes. It initially
 hit a container-name collision with an exited `redamon-agent` from a separate
 legacy checkout; only that stopped container record was removed, and all volumes
