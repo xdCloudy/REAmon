@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import socket
+import uuid
 from contextlib import asynccontextmanager
 from typing import Optional
 
@@ -13,9 +14,14 @@ import docker
 from fastapi import FastAPI, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
 from sse_starlette.sse import EventSourceResponse
 
-from auth import is_orchestrator_request_authorized
+from auth import (
+    PARTIAL_GRAPH_INGEST_PATH,
+    is_orchestrator_request_authorized,
+    verify_partial_graph_token,
+)
 from recon_settings.engagement import derive_roe_enabled
 from container_manager import ContainerManager
 from admission_ledger import AdmissionError
@@ -62,6 +68,7 @@ from models import (
     AiAttackSurfaceState,
     AiAttackSurfaceStatus,
     AiAttackSurfaceListResponse,
+    PartialSubdomainIngestRequest,
 )
 
 # Configure logging
@@ -653,10 +660,12 @@ app.add_middleware(
 # a host-net peer (a compromised recon container) shares the host loopback and can
 # still reach 127.0.0.1:8010. This middleware requires a shared secret on every
 # request so only the webapp (which holds ORCHESTRATOR_API_KEY) can drive the API.
+# The single fixed-purpose partial graph-ingest route uses a signed run token
+# instead; that token grants only its root-scoped write operation and no API control.
 #
-# The key is deliberately distinct from INTERNAL_API_KEY: the recon/scan containers
-# are handed INTERNAL_API_KEY, so reusing it would let a compromised recon container
-# authenticate. ORCHESTRATOR_API_KEY is shared only with the webapp.
+# The key is deliberately distinct from INTERNAL_API_KEY, which is also shared with
+# the webapp and orchestrator. Reusing it here would widen the API's auth boundary;
+# scan containers receive narrower signed capabilities instead.
 #
 # Fail-closed: if the key is unset, every non-exempt request is rejected.
 # --------------------------------------------------------------------------
@@ -668,6 +677,22 @@ async def require_orchestrator_key(request: Request, call_next):
     # /health is polled unauthenticated by the Docker healthcheck; CORS preflight
     # (OPTIONS) carries no custom headers and is handled by the CORS middleware.
     # The decision lives in auth.is_orchestrator_request_authorized (unit-tested).
+    if request.url.path == PARTIAL_GRAPH_INGEST_PATH and request.method == "POST":
+        content_length = request.headers.get("content-length", "")
+        try:
+            if content_length and int(content_length) > 24 * 1024 * 1024:
+                return JSONResponse(status_code=413, content={"detail": "Ingest payload too large"})
+        except ValueError:
+            return JSONResponse(status_code=400, content={"detail": "Invalid content length"})
+        scope = verify_partial_graph_token(
+            request.headers.get("X-Partial-Graph-Token", ""),
+            os.environ.get("INTERNAL_API_KEY", ""),
+        )
+        if scope is None:
+            return JSONResponse(status_code=401, content={"detail": "Unauthorized ingest token"})
+        request.state.partial_graph_scope = scope
+        return await call_next(request)
+
     if is_orchestrator_request_authorized(
         request.url.path,
         request.method,
@@ -679,6 +704,92 @@ async def require_orchestrator_key(request: Request, call_next):
         status_code=401,
         content={"detail": "Unauthorized: missing or invalid X-Orchestrator-Key"},
     )
+
+
+@app.post(PARTIAL_GRAPH_INGEST_PATH)
+async def ingest_partial_subdomain_results(body: PartialSubdomainIngestRequest, request: Request):
+    """Write one root's SubdomainDiscovery result under a signed run scope."""
+    scope = getattr(request.state, "partial_graph_scope", None)
+    if not scope:
+        raise HTTPException(status_code=401, detail="Missing ingest scope")
+    if not container_manager:
+        raise HTTPException(status_code=503, detail="Service not initialized")
+    active_run = container_manager.partial_recon_states.get(scope["projectId"], {}).get(scope["runId"])
+    if (not active_run or active_run.tool_id != "SubdomainDiscovery"
+            or active_run.status not in (PartialReconStatus.STARTING, PartialReconStatus.RUNNING)
+            or not set(scope["roots"]).issubset(set(active_run.roots))):
+        raise HTTPException(status_code=409, detail="Partial run is no longer accepting graph results")
+
+    root = body.root.strip().rstrip(".").lower()
+    result_domain = body.recon_data.get("domain")
+    if (root not in scope["roots"] or not isinstance(result_domain, str)
+            or result_domain.strip().rstrip(".").lower() != root):
+        raise HTTPException(status_code=403, detail="Root is outside the signed run scope")
+    if len(json.dumps(body.model_dump(), separators=(",", ":")).encode("utf-8")) > 24 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Ingest payload too large")
+    subdomains = body.recon_data.get("subdomains", [])
+    if not isinstance(subdomains, list) or len(subdomains) > 100_000:
+        raise HTTPException(status_code=422, detail="Invalid subdomain result list")
+
+    def under_root(host: str) -> bool:
+        normalized = host.strip().rstrip(".").lower()
+        return bool(normalized and len(normalized) <= 253 and
+                    (normalized == root or normalized.endswith("." + root)))
+
+    if any(not isinstance(host, str) or not under_root(host) for host in subdomains):
+        raise HTTPException(status_code=422, detail="Result contains a host outside its root")
+    if any(not isinstance(host, str) or not under_root(host) for host in body.user_subdomains):
+        raise HTTPException(status_code=422, detail="User input contains a host outside its root")
+
+    from graph_db import Neo4jClient
+
+    user_input_id = uuid.uuid5(
+        uuid.NAMESPACE_URL, f"reamon:partial-subdomain:{scope['runId']}:{root}"
+    ).hex if body.user_subdomains else None
+
+    def write_graph() -> dict:
+        with Neo4jClient() as graph:
+            if not graph.verify_connection():
+                raise HTTPException(status_code=503, detail="Graph database unavailable")
+            if user_input_id:
+                graph.create_user_input_node(
+                    domain=root,
+                    user_input_data={
+                        "id": user_input_id,
+                        "input_type": "subdomains",
+                        "values": body.user_subdomains,
+                        "tool_id": "SubdomainDiscovery",
+                    },
+                    user_id=scope["userId"],
+                    project_id=scope["projectId"],
+                )
+            stats = graph.update_graph_from_partial_discovery(
+                recon_data=body.recon_data,
+                user_id=scope["userId"],
+                project_id=scope["projectId"],
+                user_input_id=user_input_id,
+            )
+            if user_input_id:
+                graph.update_user_input_status_scoped(
+                    user_input_id,
+                    "partial" if stats.get("errors") else "completed",
+                    scope["userId"], scope["projectId"], stats,
+                )
+            return stats
+
+    try:
+        stats = await run_in_threadpool(write_graph)
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Partial subdomain graph ingest failed for run %s", scope["runId"])
+        raise HTTPException(status_code=503, detail="Graph ingest failed")
+
+    return {
+        "status": "partial" if stats.get("errors") else "ingested",
+        "run_id": scope["runId"],
+        "stats": stats,
+    }
 
 
 @app.get("/health", response_model=HealthResponse)

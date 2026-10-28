@@ -555,6 +555,7 @@ services:
       # Auth (forwarded to spawned containers)
       INTERNAL_API_KEY: ${INTERNAL_API_KEY:-changeme}
       SCANNER_API_KEY: ${SCANNER_API_KEY:-changeme}  # S3/E6 scoped scanner token
+      RECON_ORCH_PORT: ${RECON_ORCH_PORT:-8010}
       # Optional operator pin for the GVM stall watchdog (seconds; default 1800,
       # 0 disables). The orchestrator has NO env_file, so a value in .env is inert
       # unless it is named here, and it is forwarded to the scan container only

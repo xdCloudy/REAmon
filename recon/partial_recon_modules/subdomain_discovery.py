@@ -2,6 +2,9 @@ import os
 import sys
 import json
 import uuid
+import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent
@@ -17,6 +20,43 @@ from recon.partial_recon_modules.helpers import (
     run_per_root,
     scope_roots,
 )
+
+
+def _ingest_graph_result(url: str, token: str, root: str, recon_data: dict,
+                        user_subdomains: list[str]) -> dict:
+    """Send a bounded, run-scoped graph write to the trusted orchestrator."""
+    if not url or not token:
+        raise RuntimeError("Partial graph ingest URL and token must both be configured")
+    payload = json.dumps({
+        "root": root,
+        "recon_data": recon_data,
+        "user_subdomains": user_subdomains,
+    }, separators=(",", ":")).encode("utf-8")
+    if len(payload) > 24 * 1024 * 1024:
+        raise RuntimeError("Partial graph ingest payload exceeds the configured limit")
+    request = urllib.request.Request(
+        url,
+        data=payload,
+        headers={
+            "Content-Type": "application/json",
+            "X-Partial-Graph-Token": token,
+        },
+        method="POST",
+    )
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                if response.status < 200 or response.status >= 300:
+                    raise RuntimeError(f"Graph ingest returned HTTP {response.status}")
+                return json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            if exc.code < 500 or attempt == 2:
+                raise RuntimeError(f"Graph ingest rejected the result (HTTP {exc.code})") from exc
+        except (urllib.error.URLError, TimeoutError) as exc:
+            if attempt == 2:
+                raise RuntimeError("Graph ingest service was unavailable") from exc
+        time.sleep(0.25 * (2 ** attempt))
+    raise RuntimeError("Graph ingest did not complete")
 
 
 def _enumerable_roots(roots: list, config: dict, settings: dict) -> list:
@@ -135,42 +175,50 @@ def run_subdomain_discovery(config: dict) -> dict:
         final_count = len(result.get("subdomains", []))
         print(f"[+][Partial Recon] {domain}: final subdomain count: {final_count}")
 
-        # Update the graph database
-        print(f"[*][Partial Recon] Updating graph database...")
-        from graph_db import Neo4jClient
-        with Neo4jClient() as graph_client:
-            if not graph_client.verify_connection():
-                print("[!][Partial Recon] Neo4j not reachable, graph not updated")
-                return STATUS_NO_RESULTS if not final_count else STATUS_OK
+        ingest_url = os.environ.get("PARTIAL_GRAPH_INGEST_URL")
+        ingest_token = os.environ.get("PARTIAL_GRAPH_INGEST_TOKEN")
+        if ingest_url or ingest_token:
+            print(f"[*][Partial Recon] Sending graph results through the trusted orchestrator...")
+            receipt = _ingest_graph_result(ingest_url or "", ingest_token or "", domain,
+                                           result, my_user_subs)
+            print(f"[+][Partial Recon] {domain}: {json.dumps(receipt.get('stats', {}), default=str)}")
+            if receipt.get("status") != "ingested":
+                raise RuntimeError("Graph ingest completed with partial errors")
+        else:
+            # Compatibility for local/manual runs. Orchestrated SubdomainDiscovery
+            # always receives the run-scoped ingest capability and never this path.
+            print(f"[*][Partial Recon] Updating graph database...")
+            from graph_db import Neo4jClient
+            with Neo4jClient() as graph_client:
+                if not graph_client.verify_connection():
+                    print("[!][Partial Recon] Neo4j not reachable, graph not updated")
+                    return STATUS_NO_RESULTS if not final_count else STATUS_OK
 
-            # UserInput node NOW (after scan succeeded), only for this root's inputs.
-            user_input_id = None
-            if my_user_subs:
-                user_input_id = str(uuid.uuid4())
-                graph_client.create_user_input_node(
-                    domain=domain,
-                    user_input_data={
-                        "id": user_input_id,
-                        "input_type": "subdomains",
-                        "values": my_user_subs,
-                        "tool_id": "SubdomainDiscovery",
-                    },
+                user_input_id = None
+                if my_user_subs:
+                    user_input_id = str(uuid.uuid4())
+                    graph_client.create_user_input_node(
+                        domain=domain,
+                        user_input_data={
+                            "id": user_input_id,
+                            "input_type": "subdomains",
+                            "values": my_user_subs,
+                            "tool_id": "SubdomainDiscovery",
+                        },
+                        user_id=user_id,
+                        project_id=project_id,
+                    )
+
+                stats = graph_client.update_graph_from_partial_discovery(
+                    recon_data=result,
                     user_id=user_id,
                     project_id=project_id,
+                    user_input_id=user_input_id,
                 )
-
-            stats = graph_client.update_graph_from_partial_discovery(
-                recon_data=result,
-                user_id=user_id,
-                project_id=project_id,
-                user_input_id=user_input_id,
-            )
-
-            if user_input_id:
-                graph_client.update_user_input_status(user_input_id, "completed", stats)
-                print(f"[+][Partial Recon] Created UserInput + linked to discovery results")
-
-            print(f"[+][Partial Recon] {domain}: {json.dumps(stats, default=str)}")
+                if user_input_id:
+                    graph_client.update_user_input_status(user_input_id, "completed", stats)
+                    print(f"[+][Partial Recon] Created UserInput + linked to discovery results")
+                print(f"[+][Partial Recon] {domain}: {json.dumps(stats, default=str)}")
 
         return STATUS_OK if (final_count or my_user_subs) else STATUS_NO_RESULTS
 

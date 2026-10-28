@@ -22,6 +22,7 @@ import {
 } from '@/lib/reconPresets/server'
 import { MUTEABLE_FINDING_LABELS } from '@/lib/mcp/findingLabels'
 import { pickProjectColumns } from '@/lib/projectColumns'
+import { MAX_IMPORTED_OBSERVATIONS, prepareObservationImport } from '@/lib/reamon/observation-import'
 
 const MUTEABLE_LABELS = new Set<string>(MUTEABLE_FINDING_LABELS)
 
@@ -307,6 +308,39 @@ export async function POST(request: NextRequest) {
       neo4jNodes: 0,
       neo4jRelationships: 0,
       artifacts: 0,
+      reamonObservations: 0,
+    }
+
+    // Restore durable REAmon evidence without trusting source ids as active
+    // foreign keys. Tasks, targets, and artifacts are not recreated by this
+    // archive importer; prepareObservationImport preserves those original ids
+    // under attributes.importOrigin and keeps pending evidence pending.
+    const observationsFile = zip.file('analysis/observations.json')
+    if (observationsFile) {
+      try {
+        const parsed = JSON.parse(await observationsFile.async('text')) as unknown
+        const prepared = prepareObservationImport(parsed)
+        for (let offset = 0; offset < prepared.rows.length; offset += 500) {
+          const batch = prepared.rows.slice(offset, offset + 500).map(row => ({
+            projectId: newProject.id,
+            taskId: null,
+            targetId: null,
+            artifactId: null,
+            ...row,
+          }))
+          const created = await prisma.reamonObservation.createMany({ data: batch })
+          stats.reamonObservations += created.count
+        }
+        if (prepared.skipped > 0) {
+          ;(stats as Record<string, unknown>).reamonObservationsSkipped = prepared.skipped
+        }
+        if (Array.isArray(parsed) && parsed.length > MAX_IMPORTED_OBSERVATIONS) {
+          ;(stats as Record<string, unknown>).reamonObservationsLimit = MAX_IMPORTED_OBSERVATIONS
+        }
+      } catch (e) {
+        console.warn('Could not import REAmon observations:', e)
+        ;(stats as Record<string, unknown>).reamonObservationsImport = 'incomplete: unreadable or persistence failed'
+      }
     }
 
     // Import conversations

@@ -1,0 +1,15 @@
+.card { border: 1px solid var(--border-default); border-radius: var(--radius-lg); background: var(--bg-secondary); padding: var(--space-4); min-width: 0; }
+.header { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-2); }
+.eyebrow { color: var(--accent-secondary); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); text-transform: uppercase; margin: 0 0 var(--space-1); font-weight: var(--font-semibold); }
+.header h2 { margin: 0; font-size: var(--text-base); font-weight: var(--font-semibold); }
+.count { color: var(--text-tertiary); font-size: var(--text-xs); white-space: nowrap; }
+.note { color: var(--text-secondary); font-size: var(--text-sm); line-height: 1.45; margin: 0 0 var(--space-3); }
+.list { list-style: none; margin: 0; padding: 0; }
+.row { display: grid; grid-template-columns: minmax(180px, 0.8fr) minmax(0, 1.4fr); gap: var(--space-3); padding: var(--space-3) 0; border-top: 1px solid var(--border-subtle); }
+.identity, .result { min-width: 0; display: flex; flex-direction: column; gap: var(--space-1); }
+.identity strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-sm); }
+.identity > span, .result small { color: var(--text-tertiary); font-size: var(--text-xs); line-height: 1.4; overflow-wrap: anywhere; }
+.badge { width: fit-content; border-radius: var(--radius-sm); padding: 0.2rem 0.45rem; font-size: var(--text-xs); font-weight: var(--font-medium); }
+.suspected { color: var(--status-warning-text); background: var(--status-warning-bg); }
+.unknown, .pending { color: var(--status-info-text); background: var(--accent-secondary-subtle); }
+@media (max-width: 640px) { .header { align-items: flex-start; flex-direction: column; } .row { grid-template-columns: 1fr; gap: var(--space-2); } }

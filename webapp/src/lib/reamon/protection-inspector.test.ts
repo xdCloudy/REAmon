@@ -1,9 +1,10 @@
 /** @vitest-environment node */
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { describe, expect, test } from 'vitest'
-import { assessPeProtection, executeProtectionInspection, protectionObservation } from './protection-inspector'
+import { assessElfProtection, assessPeProtection, executeProtectionInspection, elfProtectionObservation, peSectionObservations, protectionObservation } from './protection-inspector'
 
 function highEntropySample(size = 1024): Buffer {
   return Buffer.from(Array.from({ length: size }, (_, index) => index % 256))
@@ -51,7 +52,7 @@ describe('static PE protection evidence', () => {
   test('reports UPX section markers as a suspected family, not confirmed protection', () => {
     const result = assessPeProtection(peFixture(['UPX0', 'UPX1']))
     expect(result).toMatchObject({
-      status: 'suspected', family: 'UPX', inspectedBytes: 456, architecture: 'x86_64', entryPointRva: 0x1000,
+      status: 'suspected', family: 'UPX', inspectedBytes: 1024, architecture: 'x86_64', entryPointRva: 0x1000,
       entryPointSection: 'UPX1',
       importDirectory: { rva: 0x3000, size: 0x80 },
       certificateTable: { fileOffset: 0x500, size: 0x80 },
@@ -97,6 +98,23 @@ describe('static PE protection evidence', () => {
     expect(protectionObservation(result, 'artifact-a').label).toBe('Protection indicator observed; family unknown')
     expect(assessPeProtection(peFixture(['.text']), new Map([[0, Buffer.alloc(1024, 0x41)]])))
       .toMatchObject({ status: 'unknown', family: null, sampledBytes: 1024 })
+  })
+
+  test('keeps assessments and PE region evidence distinct across analysis runs', () => {
+    const assessment = assessPeProtection(peFixture(['.text']))
+    const first = [
+      protectionObservation(assessment, 'artifact-a', 'task-a'),
+      ...peSectionObservations(assessment.sections, 'artifact-a', 'task-a'),
+    ]
+    const second = [
+      protectionObservation(assessment, 'artifact-a', 'task-b'),
+      ...peSectionObservations(assessment.sections, 'artifact-a', 'task-b'),
+    ]
+
+    expect(first.map((observation) => observation.key)).not.toEqual(second.map((observation) => observation.key))
+    expect(first[0].key).toBe('artifact:artifact-a:protection-static-v1:task:task-a')
+    expect(second[0].key).toBe('artifact:artifact-a:protection-static-v1:task:task-b')
+    expect(protectionObservation(assessment, 'artifact-a').key).toBe('artifact:artifact-a:protection-static-v1')
   })
 
   test('inspects a stored file through the plugin without executing it', async () => {
@@ -180,5 +198,56 @@ describe('static PE protection evidence', () => {
     } finally {
       await rm(root, { recursive: true, force: true })
     }
+  })
+})
+
+describe('static ELF protection evidence', () => {
+  const header = `ELF Header:
+  Class:                             ELF64
+  Machine:                           Advanced Micro Devices X86-64
+  Entry point address:               0x401000
+
+Program Headers:
+  Type           Offset   VirtAddr           PhysAddr           FileSiz  MemSiz   Flg Align
+  LOAD           0x000000 0x0000000000400000 0x0000000000400000 0x001000 0x002000 R E 0x1000
+
+Section Headers:
+  [ 1] .UPX0             PROGBITS         0000000000401000 001000 001000 00 WAX 0   0  1
+`
+
+  test('reports ELF UPX section markers as suspicion and preserves the uncertainty', () => {
+    const assessment = assessElfProtection(header, 4096)
+    expect(assessment).toMatchObject({ status: 'suspected', family: 'UPX', architecture: 'Advanced Micro Devices X86-64', entryPoint: '0x401000', inspectedBytes: 4096, outputTruncated: false })
+    expect(assessment.evidence.join(' ')).toContain('not confirmation of UPX packing')
+    expect(elfProtectionObservation(assessment, 'elf-a')).toMatchObject({
+      key: 'artifact:elf-a:protection-static-v1',
+      attributes: { assessment: 'suspected', family: 'UPX', confirmed: false },
+    })
+    expect(elfProtectionObservation(assessment, 'elf-a', 'task-a').key).toBe('artifact:elf-a:protection-static-v1:task:task-a')
+    expect(elfProtectionObservation(assessment, 'elf-a', 'task-b').key).toBe('artifact:elf-a:protection-static-v1:task:task-b')
+  })
+
+  test('does not report protection for ordinary ELF headers without suspicious structures', () => {
+    const ordinary = header.replace('  [ 1] .UPX0', '  [ 1] .text')
+    expect(assessElfProtection(ordinary, 4096)).toMatchObject({ status: 'unknown', family: null })
+  })
+
+  test('records an unmapped entry point as suspicion and keeps truncated output explicit', () => {
+    const anomalous = header.replace('0x401000', '0x900000')
+    expect(assessElfProtection(anomalous, 4096).evidence.join(' ')).toContain('does not map into a declared executable LOAD segment')
+    expect(assessElfProtection('ELF Header:', 4096, true)).toMatchObject({ status: 'unknown', outputTruncated: true })
+  })
+
+  test('runs bounded readelf against an ELF artifact without executing the target', async (context) => {
+    if (!existsSync('/bin/true') || !existsSync('/usr/bin/readelf')) context.skip()
+    const result = await executeProtectionInspection({
+      targetProfile: { targetType: 'FILE', format: 'elf', mimeType: 'application/x-executable', extension: '', architecture: 'x86-64', platform: 'linux', runtimes: ['native'], embeddedArtifacts: [], entropy: null, metadata: {} },
+      artifactId: 'system-elf-fixture', artifactPath: '/bin/true',
+    })
+    expect(result).toMatchObject({ status: 'completed', toolId: 'reamon-protection-inspector' })
+    expect(result.data.assessment).toMatchObject({ architecture: expect.stringContaining('X86-64'), inspectedBytes: expect.any(Number), outputTruncated: false })
+    expect(result.data.observations).toEqual([expect.objectContaining({
+      type: 'protection_assessment', key: 'artifact:system-elf-fixture:protection-static-v1',
+    })])
   })
 })

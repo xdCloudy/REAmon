@@ -111,6 +111,25 @@ class UserInputMixin:
                 id=user_input_id, props=props,
             )
 
+    def update_user_input_status_scoped(
+        self, user_input_id: str, status: str, user_id: str, project_id: str,
+        stats: dict = None,
+    ) -> None:
+        """Update a UserInput using its full tenant key for trusted ingest paths."""
+        with self.driver.session() as session:
+            props = {"status": status, "updated_at": datetime.now().isoformat()}
+            if status == "completed":
+                props["completed_at"] = datetime.now().isoformat()
+            if stats:
+                props["stats"] = json.dumps(stats)
+            session.run(
+                """
+                MATCH (ui:UserInput {id: $id, user_id: $user_id, project_id: $project_id})
+                SET ui += $props
+                """,
+                id=user_input_id, user_id=user_id, project_id=project_id, props=props,
+            )
+
     def update_graph_from_partial_discovery(
         self,
         recon_data: dict,

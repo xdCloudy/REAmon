@@ -153,7 +153,7 @@ q "update projects set activation_state='idle', activation_started_at=null where
 # The project deploys schema with `prisma db push` (never migrate), so the check
 # that matters is: re-pushing against POPULATED tables is a no-op with no data loss.
 before=$(q "select count(*) from scan_versions where project_id='$P'")
-push=$(docker compose exec -T webapp npx prisma db push --skip-generate 2>&1)
+push=$(docker compose exec -T webapp node node_modules/prisma/build/index.js db push --skip-generate --schema ./prisma/schema.prisma 2>&1)
 after=$(q "select count(*) from scan_versions where project_id='$P'")
 if echo "$push" | grep -qi "already in sync"; then
   ok "re-pushing the schema is a no-op (already in sync)"

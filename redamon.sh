@@ -1995,7 +1995,8 @@ mcp_server_preflight() {
 # docker compose's own derivation or ensure_db_secrets would mis-detect a fresh
 # vs existing install and could regenerate a password against a live DB.
 # Precedence mirrors compose: exported COMPOSE_PROJECT_NAME, then the same var in
-# .env, then the sanitised working-directory basename.
+# .env, then the repository's remote name. Docker Desktop may expose a checkout
+# through a transient hash-named bind mount, which is not a stable project name.
 compose_project_name() {
     if [ -n "${COMPOSE_PROJECT_NAME:-}" ]; then
         echo "$COMPOSE_PROJECT_NAME"
@@ -2009,6 +2010,15 @@ compose_project_name() {
             echo "$from_env"
             return
         fi
+    fi
+    local origin repo
+    origin="$(git -C "$SCRIPT_DIR" config --get remote.origin.url 2>/dev/null || true)"
+    origin="${origin%/}"
+    repo="${origin##*/}"
+    repo="${repo%.git}"
+    if [ -n "$repo" ]; then
+        printf '%s' "$repo" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-'
+        return
     fi
     basename "$SCRIPT_DIR" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-'
 }
@@ -4574,7 +4584,11 @@ _test_run_section() {
     # Ensure pytest is available (baked in the daily images; runtime-installed
     # for the slim ones), silence git's dubious-ownership guard on the mount.
     local prep='python -c "import pytest" 2>/dev/null || pip install -q -r /repo/requirements-test.txt >/dev/null 2>&1; git config --global --add safe.directory "*" 2>/dev/null || true;'
-    docker run --rm \
+    # Git Bash/MSYS rewrites POSIX-looking Docker arguments (for example
+    # container paths /repo and /repo/agentic) into Windows host paths. Disable
+    # that conversion for Docker CLI calls; the container paths must reach the
+    # daemon unchanged on Windows as well as Linux.
+    MSYS_NO_PATHCONV=1 docker run --rm \
         -v "$SCRIPT_DIR:/repo" \
         -w "$workdir" \
         -e PYTHONPATH="$pypath" \
@@ -4688,6 +4702,8 @@ _test_run_webapp() {
 
     local image="reamon-webapp-test:local"
     info "=== section: webapp (vitest in Docker) ==="
+    # Let MSYS convert this host build-context path to a Windows path. The
+    # conversion workaround below applies only to container-side paths.
     if ! docker build --file "$SCRIPT_DIR/webapp/Dockerfile.test" --tag "$image" "$SCRIPT_DIR"; then
         error "webapp test image build failed"
         return 1
@@ -4732,6 +4748,14 @@ prune_removed_containers() {
 # tested in isolation.
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
 cd "$SCRIPT_DIR"
+
+# Compose derives its default project name from the working-directory basename.
+# On Docker Desktop's bind-mounted WSL path that basename can be a temporary hash,
+# which would make every lifecycle command create a separate stack and database.
+if [[ -z "${COMPOSE_PROJECT_NAME:-}" ]]; then
+    COMPOSE_PROJECT_NAME="$(compose_project_name)"
+    [[ -z "$COMPOSE_PROJECT_NAME" ]] || export COMPOSE_PROJECT_NAME
+fi
 
 # #163: clamp the per-service `cpus:` caps to the host's core count for EVERY
 # command that can touch Docker. Done here rather than inside each command

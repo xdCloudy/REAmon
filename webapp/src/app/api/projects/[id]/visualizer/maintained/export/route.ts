@@ -19,9 +19,44 @@ const MAX_DRAFT_ROWS = 50_000
 const MAX_SOURCE_BYTES = 2 * 1024 * 1024
 const MAX_ARCHIVE_SOURCE_BYTES = 512 * 1024 * 1024
 const MAX_NATIVE_ANNOTATION_BYTES = 8 * 1024 * 1024
+const MAX_PROTECTION_EVIDENCE_ROWS = 64
+const MAX_PROTECTION_EVIDENCE_TEXT = 4000
 
 function plainObject(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+}
+
+function protectionEvidenceManifestEntry(row: {
+  id: string
+  stableKey: string
+  taskId: string | null
+  source: string
+  attributes: unknown
+  updatedAt: Date
+}) {
+  const attributes = plainObject(row.attributes)
+  const assessment = attributes.assessment
+  const supportedAssessments = new Set(['detected', 'suspected', 'unknown', 'confirmed'])
+  const family = typeof attributes.family === 'string' ? attributes.family.slice(0, 100) : null
+  const evidence = typeof attributes.evidence === 'string' ? attributes.evidence.slice(0, MAX_PROTECTION_EVIDENCE_TEXT) : null
+  const scope = typeof attributes.scope === 'string' ? attributes.scope.slice(0, 500) : null
+  const inspectedBytes = typeof attributes.inspectedBytes === 'number' && Number.isSafeInteger(attributes.inspectedBytes) && attributes.inspectedBytes >= 0
+    ? attributes.inspectedBytes
+    : null
+
+  return {
+    observationId: row.id,
+    stableKey: row.stableKey.slice(0, 256),
+    taskId: row.taskId,
+    source: row.source.slice(0, 128),
+    assessment: typeof assessment === 'string' && supportedAssessments.has(assessment) ? assessment : 'unclassified',
+    family,
+    evidence,
+    scope,
+    inspectedBytes,
+    confirmedClaim: attributes.confirmed === true,
+    recordedAt: row.updatedAt.toISOString(),
+  }
 }
 
 function maintainedSymbolNames(value: unknown): string[] {
@@ -137,6 +172,15 @@ export async function GET(request: Request, { params }: RouteParams) {
     if (!task?.artifactId) return NextResponse.json({ error: 'Completed analysis run not found in the active workspace import.' }, { status: 404 })
     const csharpBuildReceipt = await getVerifiedCSharpProjectBuildReceipt(projectId, task.id, task.artifactId)
     const goBuildReceipt = await getVerifiedGoProjectBuildReceipt(projectId, task.id, task.artifactId, selection.artifactWhere)
+
+    const protectionEvidenceRows = await prisma.reamonObservation.findMany({
+      where: { projectId, artifactId: task.artifactId, type: 'protection_assessment' },
+      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+      take: MAX_PROTECTION_EVIDENCE_ROWS + 1,
+      select: { id: true, stableKey: true, taskId: true, source: true, attributes: true, updatedAt: true },
+    })
+    const protectionEvidenceTruncated = protectionEvidenceRows.length > MAX_PROTECTION_EVIDENCE_ROWS
+    const protectionEvidence = protectionEvidenceRows.slice(0, MAX_PROTECTION_EVIDENCE_ROWS).map(protectionEvidenceManifestEntry)
 
     const codeUnits = await prisma.reamonObservation.findMany({
       where: {
@@ -526,6 +570,7 @@ export async function GET(request: Request, { params }: RouteParams) {
       'decompiled/ contains the analyzer output. maintained/ contains saved edited or AI-assisted copies when available.',
       'The two trees are kept separate; maintained source never overwrites the decompilation.',
       'See manifest.json for artifact and file hashes, maintained-source receipt verification, matching draft and attempt lineage, validation metadata, missing files, export status, and any current verified project build evidence.',
+      'protectionEvidence contains persisted provider assessments for the input artifact; its labels are hypotheses and are not independent confirmation of protection or successful recovery.',
       ...(nativeAnnotationsBuffer ? ['A Ghidra source bundle also contains native-annotations.json with accepted evidence tied to the exact input binary hash. It does not authorize address rebasing.'] : []),
       ...(ghidraImporterBuffer ? ['To apply unique native function names, add tools/ to Ghidra Script Manager, run ImportReamonAnnotations.py, and select this bundle root manifest.json. The script verifies the sidecar hash, exact loaded executable SHA-256, and each original function name; it never rebases addresses. Review its reported skips before saving the Ghidra project.'] : []),
       'This bundle does not include build scripts or dependencies. Review and build with the appropriate toolchain before relying on it.',
@@ -550,6 +595,8 @@ export async function GET(request: Request, { params }: RouteParams) {
       draftSearchTruncated,
       skippedFiles,
       sourceBytes: totalSourceBytes,
+      protectionEvidence,
+      protectionEvidenceTruncated,
       ...(csharpBuildReceipt || goBuildReceipt ? { buildEvidence: {
         ...(goBuildReceipt ? { goProject: {
           schema: goBuildReceipt.version,

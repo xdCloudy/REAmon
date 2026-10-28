@@ -69,7 +69,7 @@ def _spawn(registry_host_path: str, recon_path: str = RECON_PATH) -> dict:
         state = await mgr.start_partial_recon(
             project_id="p1",
             tool_id="SubdomainDiscovery",
-            config={"tool_id": "SubdomainDiscovery", "user_id": "u1"},
+            config={"tool_id": "SubdomainDiscovery", "user_id": "u1", "domains": ["example.com"]},
             recon_path=recon_path,
         )
         assert getattr(state, "error", None) in (None, ""), f"spawn failed: {state.error}"
@@ -118,12 +118,11 @@ class TestReconSettingsBind(unittest.TestCase):
         self.assertEqual(set(without) - set(with_detect), set())
         self.assertIn(RECON_PATH, without)
 
-    def test_the_registry_and_graph_db_are_bound_independently(self):
-        """One being undetectable must never suppress the other."""
+    def test_subdomain_worker_keeps_settings_but_does_not_mount_graph_db(self):
+        """The least-privilege writer keeps settings and drops direct graph access."""
         vols = _spawn(REAL_REGISTRY)["volumes"]
         self.assertIn(REAL_REGISTRY, vols)
-        self.assertIn(REAL_GRAPH_DB, vols)
-        self.assertEqual(vols[REAL_GRAPH_DB]["bind"], "/app/graph_db")
+        self.assertNotIn(REAL_GRAPH_DB, vols)
 
     def test_the_helper_is_used_by_every_spawn_that_binds_graph_db(self):
         """
@@ -134,7 +133,8 @@ class TestReconSettingsBind(unittest.TestCase):
         with open(source, encoding="utf-8") as fh:
             text = fh.read()
         methods = re.split(r"(?=^    (?:async )?def )", text, flags=re.MULTILINE)
-        graph_spawns = [method for method in methods if "**self._graph_db_mount(" in method]
+        graph_spawns = [method for method in methods
+                        if "_graph_db_mount(" in method and "def _graph_db_mount(" not in method]
         self.assertEqual(len(graph_spawns), 2)
         self.assertTrue(
             all("**self._recon_settings_mount()" in method for method in graph_spawns),

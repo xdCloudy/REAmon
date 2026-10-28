@@ -131,9 +131,16 @@ section "T27: the runner reports an executed-test count"
 
 runner="$REPO_ROOT/tooling/scripts/pytest_isolated.py"
 if command -v python3 >/dev/null 2>&1; then
+    # Git Bash reports repository paths as /c/... while the Windows Store Python
+    # launcher expects a Windows path. Keep this test portable across Windows
+    # Git Bash and POSIX runners.
+    python_runner_path="$REPO_ROOT/tooling/scripts"
+    if command -v cygpath >/dev/null 2>&1; then
+        python_runner_path="$(cygpath -w "$python_runner_path")"
+    fi
     out="$(python3 -c "
 import sys
-sys.path.insert(0, '$REPO_ROOT/tooling/scripts')
+sys.path.insert(0, r'$python_runner_path')
 from pytest_isolated import tests_executed
 print(tests_executed('==== 12 passed, 3 skipped in 1.2s ===='))
 print(tests_executed('==== 4 failed, 20 passed in 2s ===='))

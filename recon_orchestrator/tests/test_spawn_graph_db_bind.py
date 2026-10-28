@@ -65,8 +65,8 @@ def _spawn(graph_db_host_path: str, recon_path: str = RECON_PATH) -> dict:
         mgr._admit_scan = mock.AsyncMock(return_value=None)
         state = await mgr.start_partial_recon(
             project_id="p1",
-            tool_id="SubdomainDiscovery",
-            config={"tool_id": "SubdomainDiscovery", "user_id": "u1"},
+            tool_id="Naabu",
+            config={"tool_id": "Naabu", "user_id": "u1"},
             recon_path=recon_path,
         )
         # A spawn that errored would leave the error on the state instead of

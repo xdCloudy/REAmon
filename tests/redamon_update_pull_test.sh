@@ -72,6 +72,21 @@ scribble() { printf 'refreshed-cve-data\n' > "$1/$RUNTIME_FILE"; }
 # ...and the Wappalyzer fingerprint cache, the second path with the same problem.
 scribble2() { printf 'refreshed-wappalyzer\n' > "$1/$RUNTIME_FILE2"; }
 
+# chmod bits are advisory on some host filesystems (notably Windows/DrvFS).
+# A negative permission test is meaningful only when an actual write is denied.
+can_write_path() {
+    local path="$1"
+    if [[ -d "$path" ]]; then
+        local probe="$path/.rea-write-probe-$$"
+        if ( : > "$probe" ) 2>/dev/null; then
+            rm -f "$probe"
+            return 0
+        fi
+        return 1
+    fi
+    ( : >> "$path" ) 2>/dev/null
+}
+
 # Capture a function that may `exit`, without taking the test runner down.
 run_capture() { OUT="$( "$@" 2>&1 )"; RC=$?; }
 
@@ -235,8 +250,9 @@ section "regression: a runtime file this user cannot rewrite"
 SCRIPT_DIR="$(make_pair unwritable)"
 scribble2 "$SCRIPT_DIR"
 chmod a-w "$SCRIPT_DIR/$(dirname "$RUNTIME_FILE2")" "$SCRIPT_DIR/$RUNTIME_FILE2"
-if [[ -w "$SCRIPT_DIR/$RUNTIME_FILE2" ]]; then
-    echo "  SKIP unrestorable-file cases (running as root: chmod cannot deny us)"
+if can_write_path "$SCRIPT_DIR/$RUNTIME_FILE2" || \
+   can_write_path "$SCRIPT_DIR/$(dirname "$RUNTIME_FILE2")"; then
+    echo "  SKIP unrestorable-file cases (filesystem does not enforce chmod for this user)"
 else
     run_capture _restore_runtime_tracked_files
     assert_eq "a failed restore aborts instead of failing silently" "$RC" "1"

@@ -25,6 +25,7 @@ from docker.errors import NotFound, APIError
 import resource_governor as rg
 from admission_ledger import ReservationLedger, AdmissionError
 from ip_denylist import classify_host
+from auth import mint_partial_graph_token
 
 # The TruffleHog source registry lives with the scanner and is mounted in
 # (compose: ./scanners/trufflehog_scan:/app/trufflehog_scan). Imported through a
@@ -2030,6 +2031,57 @@ class ContainerManager:
             with open(config_path, "w") as f:
                 json.dump(config, f)
 
+            subdomain_ingest = tool_id == "SubdomainDiscovery"
+            partial_env = {
+                "PROJECT_ID": project_id,
+                "USER_ID": config.get("user_id", ""),
+                "WEBAPP_API_URL": config.get("webapp_api_url", ""),
+                "PARTIAL_RECON_CONFIG": f"/tmp/redamon/partial_{project_id}_{run_id}.json",
+                "PARTIAL_RECON_RUN_ID": run_id,
+                "RECON_CIRCUIT_BREAKERS": os.environ.get("RECON_CIRCUIT_BREAKERS", "on"),
+                "UPDATE_GRAPH_DB": "true",
+                "HOST_RECON_OUTPUT_PATH": f"{recon_path}/output",
+                "HOST_CUSTOM_TEMPLATES_PATH": custom_templates_path,
+                "NEO4J_URI": os.environ.get("NEO4J_URI", "bolt://localhost:7687"),
+                "NEO4J_USER": os.environ.get("NEO4J_USER", "neo4j"),
+                "NEO4J_PASSWORD": os.environ.get("NEO4J_PASSWORD", ""),
+                **self._scanner_env(project_id, config.get("user_id", "")),
+                "AGENT_API_URL": os.environ.get("AGENT_API_URL", "http://localhost:8090"),
+                "DOCKER_HOST": "unix:///var/run/broker/docker.sock",
+                "SUPPLY_CHAIN_COMMON_HOST_PATH": join_host_path(parent_host_path(recon_path), "scanners", "supply_chain_common"),
+                "CAPTURE_IOC_IGNORE_SUFFIXES": getattr(self, "sca_intel_ignore_suffixes", "") or "",
+                **self._analyzer_env(),
+            }
+            partial_volumes = {
+                BROKER_SOCKET_VOLUME: {"bind": "/var/run/broker", "mode": "rw"},
+                f"{recon_path}": {"bind": "/app/recon", "mode": "rw"},
+                **self._recon_settings_mount(),
+                join_host_path(parent_host_path(recon_path), "scanners", "supply_chain_common"): {"bind": "/app/supply_chain_common", "mode": "ro"},
+                self.supply_chain_osv_db_volume: {"bind": "/osv-db", "mode": "ro"},
+                self.sca_intel_volume: {"bind": "/sca-intel", "mode": "ro"},
+                "/tmp/redamon": {"bind": "/tmp/redamon", "mode": "rw"},
+                "redamon_js_recon_uploads": {"bind": "/data/js-recon-uploads", "mode": "ro"},
+                "redamon_js_recon_custom": {"bind": "/data/js-recon-custom", "mode": "ro"},
+                "nuclei-templates": {"bind": "/opt/nuclei-templates-official", "mode": "ro"},
+            }
+            if subdomain_ingest:
+                roots = config.get("domains") or [config.get("domain", "")]
+                partial_env.pop("NEO4J_URI", None)
+                partial_env.pop("NEO4J_USER", None)
+                partial_env.pop("NEO4J_PASSWORD", None)
+                ingest_port = os.environ.get("RECON_ORCH_PORT", "8010")
+                partial_env["PARTIAL_GRAPH_INGEST_URL"] = (
+                    f"http://127.0.0.1:{ingest_port}/internal/partial-recon/subdomain-ingest"
+                )
+                partial_env["PARTIAL_GRAPH_INGEST_TOKEN"] = mint_partial_graph_token(
+                    project_id, config.get("user_id", ""), run_id, roots,
+                    os.environ.get("INTERNAL_API_KEY", ""),
+                )
+            else:
+                partial_volumes.update(self._graph_db_mount(
+                    sibling_host_path(recon_path, "graph_db"), baked_into_image=True,
+                ))
+
             # Start container with the partial_recon.py entry point. containers.run
             # is blocking; run it in the thread pool so the spawn never stalls the
             # single event loop (this is the POST the freeze bug reported hanging).
@@ -2045,66 +2097,8 @@ class ContainerManager:
                 # /proc unmasked) was a host-escape primitive the recon container did
                 # not need; dropping it leaves the benign default caps intact.
                 cap_add=["NET_RAW"],
-                environment={
-                    "PROJECT_ID": project_id,
-                    "USER_ID": config.get("user_id", ""),
-                    "WEBAPP_API_URL": config.get("webapp_api_url", ""),
-                    "PARTIAL_RECON_CONFIG": f"/tmp/redamon/partial_{project_id}_{run_id}.json",
-                    "PARTIAL_RECON_RUN_ID": run_id,
-                    "RECON_CIRCUIT_BREAKERS": os.environ.get("RECON_CIRCUIT_BREAKERS", "on"),
-                    "UPDATE_GRAPH_DB": "true",
-                    "HOST_RECON_OUTPUT_PATH": f"{recon_path}/output",
-                    # Required for nuclei custom-template support: build_nuclei_command
-                    # uses this env var to bind-mount mcp/nuclei-templates into the
-                    # sibling nuclei container. Without it, custom-template selection
-                    # is silently dropped and the full built-in pool runs instead.
-                    "HOST_CUSTOM_TEMPLATES_PATH": custom_templates_path,
-                    "NEO4J_URI": os.environ.get("NEO4J_URI", "bolt://localhost:7687"),
-                    "NEO4J_USER": os.environ.get("NEO4J_USER", "neo4j"),
-                    "NEO4J_PASSWORD": os.environ.get("NEO4J_PASSWORD", ""),
-                    **self._scanner_env(project_id, config.get("user_id", "")),
-                    # Agent API for AI hooks (FFuf AI extensions, etc.)
-                    "AGENT_API_URL": os.environ.get("AGENT_API_URL", "http://localhost:8090"),
-                    # The recon CLI (docker run/pull/info) honors DOCKER_HOST, so
-                    # all sibling-tool spawns flow through the broker socket served
-                    # on the named volume below.
-                    "DOCKER_HOST": "unix:///var/run/broker/docker.sock",
-                    # supply_chain_common as the DOCKER DAEMON sees it. L2's
-                    # retire.js and GuardDog legs bind-mount this into the dirty
-                    # analyzer, and the daemon resolves the source on the HOST -
-                    # so passing the in-container path (/app/supply_chain_common,
-                    # the default) makes the broker reject the spawn with
-                    # "bind mount not allowed" and the whole retire.js pass dies.
-                    "SUPPLY_CHAIN_COMMON_HOST_PATH": join_host_path(parent_host_path(recon_path), "scanners", "supply_chain_common"),
-                    # A2: the operator's incident-match ignore list (their own
-                    # OAST providers). Sourced from the DB by api.py's
-                    # capture-config reconciler; empty = shipped defaults.
-                    "CAPTURE_IOC_IGNORE_SUFFIXES": getattr(self, "sca_intel_ignore_suffixes", "") or "",
-                    # Operator overrides for the dirty analyzer L2 spawns itself.
-                    **self._analyzer_env(),
-                },
-                volumes={
-                    # V4: mount the BROKER's filtered socket via a named volume,
-                    # NOT the raw host socket. The recon code still does `docker run`
-                    # unchanged, but a compromised worker cannot mount / or run a
-                    # privileged/arbitrary container; the broker rejects those.
-                    BROKER_SOCKET_VOLUME: {"bind": "/var/run/broker", "mode": "rw"},
-                    f"{recon_path}": {"bind": "/app/recon", "mode": "rw"},
-                    **self._recon_settings_mount(),
-                    **self._graph_db_mount(sibling_host_path(recon_path, "graph_db"), baked_into_image=True),
-                    # Supply-Chain recon (L2): shared runners + offline OSV DB.
-                    join_host_path(parent_host_path(recon_path), "scanners", "supply_chain_common"): {"bind": "/app/supply_chain_common", "mode": "ro"},
-                    self.supply_chain_osv_db_volume: {"bind": "/osv-db", "mode": "ro"},
-                    # Incident intel (partial-recon parity with full recon above).
-                    self.sca_intel_volume: {"bind": "/sca-intel", "mode": "ro"},
-                    "/tmp/redamon": {"bind": "/tmp/redamon", "mode": "rw"},
-                    # JS Recon shared volumes with webapp (uploaded files + custom patterns)
-                    "redamon_js_recon_uploads": {"bind": "/data/js-recon-uploads", "mode": "ro"},
-                    "redamon_js_recon_custom": {"bind": "/data/js-recon-custom", "mode": "ro"},
-                    # Official nuclei-templates volume (read-only) for the AI tag
-                    # selector to read TEMPLATES-STATS.json.
-                    "nuclei-templates": {"bind": "/opt/nuclei-templates-official", "mode": "ro"},
-                },
+                environment=partial_env,
+                volumes=partial_volumes,
                 mem_limit=self._container_mem_limit(partial_kind),  # Memory governor (Part 4c)
                 pids_limit=self._container_pids_limit(),  # D1: fork-bomb ceiling
                 nano_cpus=self._container_cpu_limit(),  # D1: core-proportional CPU cap

@@ -3061,27 +3061,27 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
             {alternateOutputsQuery.isError && <p className={styles.error} role="alert">{alternateOutputsQuery.error instanceof Error ? alternateOutputsQuery.error.message : 'Could not load alternate outputs.'}</p>}
             {!alternateOutputsQuery.isLoading && !alternateOutputsQuery.isError && alternateOutputs.length === 0 && <p className={styles.message}>No hash-verified output from another compatible decompiler is stored for this source unit.</p>}
             {alternateOutputs.length > 0 && <>
-              <label className={styles.alternateProviderSelect}>Compare against
+              <label className={styles.alternateProviderSelect}>Use this provider for the optional line diff
                 <select aria-label="Alternate decompiler output" autoFocus={compareAlternatesOpen} value={selectedAlternateOutput?.id || ''} onChange={(event) => setSelectedAlternateId(event.target.value)}>
                   {alternateOutputs.map((output) => <option key={output.id} value={output.id}>{output.providerName}{output.version ? ` ${output.version}` : ''}</option>)}
                 </select>
               </label>
+              <div className={styles.comparison} role="group" aria-label="All verified decompiler outputs">
+                <section className={styles.listingPane} aria-label="Selected provider output">
+                  <div className={styles.sourceHeader}><div><strong>{selectedUnit.source.replace(/^reamon-/, '')} · selected output</strong><span>{selectedUnit.decompilerVersion || selectedUnit.language} · {selectedUnit.codeArtifactId?.split('/').pop()}</span></div></div>
+                  {sourceQuery.data !== undefined
+                    ? <SourceListing source={sourceQuery.data} language={selectedUnit.language} fileName={selectedUnit.codeArtifactId?.split('/').pop()} fullSourceUrl={selectedSourceUrl} lineIdPrefix={`decompiler-primary-${selectedUnit.id}`} />
+                    : <p className={styles.message}>Loading selected output…</p>}
+                </section>
+                {alternateOutputs.map((output) => <section key={output.id} className={styles.listingPane} aria-label={`${output.providerName} output`}>
+                  <div className={styles.sourceHeader}><div><strong>{output.providerName} · alternate output</strong><span>{output.version || output.language} · sha256:{output.outputSha256.slice(0, 16)}</span></div></div>
+                  <p className={styles.sourcePreviewNote} role="status">Independent reconstruction · input sha256:{output.inputSha256.slice(0, 16)}. Review differences as evidence; neither output is ground truth.</p>
+                  <SourceListing source={output.source} language={output.language} fileName={output.relativePath.split('/').pop()} lineIdPrefix={`decompiler-alternate-${output.id}`} />
+                </section>)}
+              </div>
               {selectedAlternateOutput && <>
-                <div className={styles.comparison}>
-                  <div className={styles.listingPane}>
-                    <div className={styles.sourceHeader}><div><strong>{selectedUnit.source.replace(/^reamon-/, '')} · selected output</strong><span>{selectedUnit.decompilerVersion || selectedUnit.language} · {selectedUnit.codeArtifactId?.split('/').pop()}</span></div></div>
-                    {sourceQuery.data !== undefined
-                      ? <SourceListing source={sourceQuery.data} language={selectedUnit.language} fileName={selectedUnit.codeArtifactId?.split('/').pop()} fullSourceUrl={selectedSourceUrl} lineIdPrefix={`decompiler-primary-${selectedUnit.id}`} />
-                      : <p className={styles.message}>Loading selected output…</p>}
-                  </div>
-                  <div className={styles.listingPane}>
-                    <div className={styles.sourceHeader}><div><strong>{selectedAlternateOutput.providerName} · alternate output</strong><span>{selectedAlternateOutput.version || selectedAlternateOutput.language} · sha256:{selectedAlternateOutput.outputSha256.slice(0, 16)}</span></div></div>
-                    <p className={styles.sourcePreviewNote} role="status">Independent reconstruction · input sha256:{selectedAlternateOutput.inputSha256.slice(0, 16)}. Review differences as evidence; neither output is ground truth.</p>
-                    <SourceListing source={selectedAlternateOutput.source} language={selectedAlternateOutput.language} fileName={selectedAlternateOutput.relativePath.split('/').pop()} lineIdPrefix={`decompiler-alternate-${selectedAlternateOutput.id}`} />
-                  </div>
-                </div>
                 <details className={styles.reviewDiff} open={compareDiffOpen} onToggle={(event) => setCompareDiffOpen(event.currentTarget.open)}>
-                  <summary>Show line differences between these outputs</summary>
+                  <summary>Show line differences against the selected alternate</summary>
                   {compareDiffOpen && !sourceQuery.data && <p className={styles.message}>Loading the selected output before comparing…</p>}
                   {alternateComparisonDiff?.unavailable && <p className={styles.message}>These files are too large for the inline diff. Use the source panes or open the artifacts in your editor.</p>}
                   {alternateComparisonDiff && !alternateComparisonDiff.unavailable && <>

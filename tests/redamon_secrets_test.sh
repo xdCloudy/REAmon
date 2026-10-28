@@ -197,6 +197,16 @@ assert_true  "existing-volume detected via .env project name" "echo \"\$out\" | 
 assert_false "no password blindly generated against live DB"  "grep -q '^POSTGRES_PASSWORD=' '$TMP/.env'"
 unset -f docker; rm -rf "$TMP"
 
+echo "== compose_project_name uses repository remote on transient mount paths =="
+TMP=$(mktemp -d)
+SCRIPT_DIR="$TMP/55a9ea805041122501e6139285a8c4fff16183d89d6b439e3205b3e130318b2d"
+mkdir -p "$SCRIPT_DIR"
+git -C "$SCRIPT_DIR" init -q
+git -C "$SCRIPT_DIR" remote add origin https://github.com/xdCloudy/REAmon.git
+unset COMPOSE_PROJECT_NAME
+assert_eq "remote name is stable" "$(compose_project_name)" "reamon"
+rm -rf "$TMP"
+
 echo "== cmd_update: secrets generated BEFORE container recreate (S6/I19 stay enforced) =="
 # Static ordering lock: within cmd_update(), ensure_auth_secrets must appear
 # before the container recreate. If it regresses, a first update onto a release

@@ -400,6 +400,13 @@ class PartialReconStartRequest(BaseModel):
     settings_overrides: dict = {}             # optional per-tool settings
 
 
+class PartialSubdomainIngestRequest(BaseModel):
+    """One root's result from a run-scoped SubdomainDiscovery worker."""
+    root: str = Field(min_length=1, max_length=253)
+    recon_data: dict
+    user_subdomains: list[str] = Field(default_factory=list, max_length=20_000)
+
+
 class PartialReconState(BaseModel):
     """Current state of a partial recon process"""
     project_id: str

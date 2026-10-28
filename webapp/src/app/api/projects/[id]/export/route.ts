@@ -9,6 +9,7 @@ import { randomUUID } from 'crypto'
 import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
 import { serializeGraphProperties } from '@/lib/graphSerialize'
 import { projectPresetForRead } from '@/lib/reconPresets/server'
+import { serializeProjectObservations } from '@/lib/reamon/observation-export'
 
 const RECON_OUTPUT_PATH = process.env.RECON_OUTPUT_PATH || '/data/recon-output'
 const GVM_OUTPUT_PATH = process.env.GVM_OUTPUT_PATH || '/data/gvm-output'
@@ -88,6 +89,38 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
       where: { projectId: id },
       orderBy: { recordedAt: 'asc' },
     })
+
+    // REAmon's normalized observations are the durable provider evidence used
+    // across tasks and analysis sessions. Carry them with the project archive,
+    // including protection findings, canonical identities, source links and
+    // review state, so a backup does not retain only transient task summaries.
+    const reamonObservations = await prisma.reamonObservation.findMany({
+      where: { projectId: id },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      select: {
+        id: true,
+        projectId: true,
+        taskId: true,
+        targetId: true,
+        artifactId: true,
+        kind: true,
+        type: true,
+        stableKey: true,
+        canonicalKey: true,
+        label: true,
+        source: true,
+        relation: true,
+        fromKey: true,
+        toKey: true,
+        fromCanonicalKey: true,
+        toCanonicalKey: true,
+        attributes: true,
+        isPending: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    })
+    const serializedReamonObservations = serializeProjectObservations(reamonObservations)
 
     // 2c'. Node filters: the rules and the operator's exemptions. Run history
     // stays behind; it describes this install's graph, not the project.
@@ -188,6 +221,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
         scanJobs: scanJobs.length,
         scanSchedules: scanSchedules.length,
         engagementAuthorizations: engagementAuthorizations.length,
+        reamonObservations: reamonObservations.length,
         artifacts: 0,
       },
     }
@@ -287,6 +321,10 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     archive.append(
       Buffer.from(JSON.stringify(engagementAuthorizations, null, 2)),
       { name: 'engagement/authorizations.json' }
+    )
+    archive.append(
+      Buffer.from(JSON.stringify(serializedReamonObservations, null, 2)),
+      { name: 'analysis/observations.json' }
     )
     archive.append(
       Buffer.from(JSON.stringify(

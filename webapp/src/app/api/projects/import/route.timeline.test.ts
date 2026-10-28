@@ -20,6 +20,7 @@ const h = vi.hoisted(() => ({
   scheduleCreate: vi.fn(),
   jobCreate: vi.fn(),
   jobQueueCreate: vi.fn(),
+  reamonObservationCreateMany: vi.fn(),
 }))
 
 vi.mock('@/lib/access', () => ({
@@ -32,6 +33,7 @@ vi.mock('@/lib/prisma', () => ({
     scanSchedule: { create: (...a: unknown[]) => h.scheduleCreate(...a) },
     scanJob: { create: (...a: unknown[]) => h.jobCreate(...a) },
     jobQueue: { create: (...a: unknown[]) => h.jobQueueCreate(...a) },
+    reamonObservation: { createMany: (...a: unknown[]) => h.reamonObservationCreateMany(...a) },
     conversation: { create: vi.fn() },
     chatMessage: { createMany: vi.fn() },
     remediation: { createMany: vi.fn() },
@@ -50,7 +52,7 @@ const SNAPSHOT = gzipSync(Buffer.from(JSON.stringify({
   relationships: [],
 })))
 
-async function exportZip(): Promise<File> {
+async function exportZip(observations?: unknown): Promise<File> {
   const zip = new JSZip()
   zip.file('manifest.json', JSON.stringify({ version: '1.0.0', projectName: 'src', stats: {} }))
   zip.file('project.json', JSON.stringify({ id: 'oldProject', userId: 'oldOwner', name: 'src', targetDomain: 'x.tld' }))
@@ -81,6 +83,7 @@ async function exportZip(): Promise<File> {
       status: 'running', startedAt: '2026-07-30T09:00:00.000Z', finishedAt: null,
       nodeCount: null, ramReason: null },
   ]))
+  if (observations !== undefined) zip.file('analysis/observations.json', JSON.stringify(observations))
   const buf = new Uint8Array(await zip.generateAsync({ type: 'nodebuffer' }))
   return new File([buf], 'export.zip', { type: 'application/zip' })
 }
@@ -99,9 +102,36 @@ beforeEach(() => {
   h.scheduleCreate.mockImplementation(async () => ({ id: 'newS1' }))
   h.jobCreate.mockResolvedValue({ id: 'newJ' })
   h.jobQueueCreate.mockResolvedValue({ id: 'newJQ' })
+  h.reamonObservationCreateMany.mockResolvedValue({ count: 1 })
 })
 
 describe('import — Scan Timeline history', () => {
+  test('re-owns archived REAmon evidence and retains source links as provenance', async () => {
+    const observation = {
+      id: 'oldObservation', projectId: 'oldProject', taskId: 'oldTask', targetId: 'oldTarget', artifactId: 'oldArtifact',
+      kind: 'fact', type: 'protection_assessment', stableKey: 'oldArtifact:run-1:protection-static-v1',
+      canonicalKey: 'identity:protection:hash', label: 'Protection status unknown',
+      source: 'reamon-protection-inspector', relation: null, fromKey: null, toKey: null,
+      fromCanonicalKey: null, toCanonicalKey: null, attributes: { assessment: 'unknown', confirmed: false },
+      isPending: true, createdAt: '2026-10-01T12:00:00.000Z', updatedAt: '2026-10-01T12:01:00.000Z',
+    }
+    const res = await POST(formReq(await exportZip([observation])))
+
+    expect(res.status).toBe(200)
+    expect(h.reamonObservationCreateMany).toHaveBeenCalledWith({ data: [{
+      projectId: 'newProject', taskId: null, targetId: null, artifactId: null,
+      kind: 'fact', type: 'protection_assessment', stableKey: 'oldArtifact:run-1:protection-static-v1',
+      canonicalKey: 'identity:protection:hash', label: 'Protection status unknown',
+      source: 'reamon-protection-inspector', relation: null, fromKey: null, toKey: null,
+      fromCanonicalKey: null, toCanonicalKey: null,
+      attributes: {
+        assessment: 'unknown', confirmed: false,
+        importOrigin: { projectId: 'oldProject', taskId: 'oldTask', targetId: 'oldTarget', artifactId: 'oldArtifact' },
+      },
+      isPending: true, createdAt: new Date('2026-10-01T12:00:00.000Z'), updatedAt: new Date('2026-10-01T12:01:00.000Z'),
+    }] })
+  })
+
   test('recreates versions under the new project with their snapshot bytes', async () => {
     const res = await POST(formReq(await exportZip()))
     expect(res.status).toBe(200)

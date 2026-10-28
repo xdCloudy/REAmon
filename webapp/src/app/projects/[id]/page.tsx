@@ -12,6 +12,7 @@ import { ToCodeImportAction } from '@/components/reamon/ToCodeImportAction'
 import { WorkspaceTaskList } from '@/components/reamon/WorkspaceTaskList'
 import { WorkspaceFindingList } from '@/components/reamon/WorkspaceFindingList'
 import { WorkspaceCodeVisualizer } from '@/components/reamon/WorkspaceCodeVisualizer'
+import { WorkspaceProtectionStatus } from '@/components/reamon/WorkspaceProtectionStatus'
 import { summarizeWorkspaceTaskAttention } from '@/lib/reamon/workspace-task-attention'
 import type { CapabilityMatch, TargetProfile, WorkspaceCapabilitySummary, WorkspaceImportSnapshot, WorkspaceObservation, WorkspaceProfile } from '@/lib/reamon'
 import styles from './page.module.css'
@@ -227,6 +228,8 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
         analysisTask={codeAnalysisTask ? { status: codeAnalysisTask.status, progressMessage: codeAnalysisTask.progressMessage } : undefined}
         analysisHref="#analysis-proposals"
       />}
+
+      {hasWorkspaceContent && <WorkspaceProtectionStatus artifacts={data.artifacts} observations={data.observations} hasMoreArtifacts={data.artifactPage.hasMore} />}
 
       {hasWorkspaceContent && <section className={styles.panel} aria-labelledby="files-heading">
         <div className={styles.panelHeader}><h2 id="files-heading">Project files</h2><span className={styles.muted}>{data.artifactPage.total.toLocaleString()} files</span></div>

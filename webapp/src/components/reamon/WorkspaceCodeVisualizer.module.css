@@ -267,7 +267,7 @@ button.flowNode:hover, button.flowNode:focus-visible { border-color: #86c8ff; ou
 .flowNodeSelected { border-color: #b6ddff; box-shadow: 0 0 0 2px rgba(134, 200, 255, .45); }
 .flowNodeExternal { border-color: #5f6876; border-style: dashed; background: #202631; }
 .sourcePanel { min-width: 0; margin-top: var(--space-4); overflow: hidden; border: 1px solid var(--border-default); border-radius: var(--radius-default); background: #111722; }
-.comparison { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; background: var(--border-default); }
+.comparison { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 26rem), 1fr)); gap: 1px; background: var(--border-default); }
 .listingPane { min-width: 0; overflow: hidden; background: #111722; }
 .sourceHeader { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); border-bottom: 1px solid rgba(255, 255, 255, .1); padding: var(--space-3) var(--space-4); color: #e8edf5; }
 .sourceHeader > div { display: flex; flex-direction: column; gap: .2rem; min-width: 0; }
@@ -396,7 +396,7 @@ button.flowNode:hover, button.flowNode:focus-visible { border-color: #86c8ff; ou
 
 .alternateComparisonBackdrop { position: fixed; z-index: 1000; inset: 0; background: rgb(4 8 14 / 76%); }
 .alternateComparisonModal { position: fixed; z-index: 1001; inset: 3vh 3vw; max-height: 94vh; overflow: auto; border-color: var(--border-strong); background: var(--bg-secondary); box-shadow: 0 24px 80px rgb(0 0 0 / 55%); }
-.unitInspector .alternateComparisonModal .comparison { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.unitInspector .alternateComparisonModal .comparison { grid-template-columns: repeat(auto-fit, minmax(min(100%, 26rem), 1fr)); }
 .alternateComparisonModal .sourceCode { max-height: 68vh; }
 
 @media (max-width: 720px) {

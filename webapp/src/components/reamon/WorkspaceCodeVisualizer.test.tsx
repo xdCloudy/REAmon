@@ -587,6 +587,36 @@ describe('WorkspaceCodeVisualizer', () => {
     expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/decompiled/project-1/artifact-1/task-1/run-1/assembly/functions/main.asm'), expect.any(Object))
   })
 
+  test('shows every hash-verified compatible decompiler output together', async () => {
+    const native = unit({
+      id: 'native-main', name: 'main', address: '00401000', language: 'C', unitType: 'function', source: 'reamon-ghidra',
+      inputArtifactSha256: 'a'.repeat(64), codeArtifactSha256: 'b'.repeat(64),
+      codeArtifactId: 'project-1/artifact-1/task-1/run-1/sources/functions/main.c',
+    })
+    const outputs = ['Provider A', 'Provider B'].map((providerName, index) => ({
+      id: `alternate-${index}`, providerId: `provider-${index}`, providerName, version: '1.0', name: 'main', language: 'C',
+      relativePath: `sources/functions/main-${index}.c`, inputSha256: 'a'.repeat(64), outputSha256: String(index + 3).repeat(64),
+      completedAt: null, source: `int independent_${index}(void) { return ${index}; }`,
+    }))
+    const fetchMock = vi.fn((input: string) => {
+      if (input.includes('/visualizer/alternates?')) return Promise.resolve({ ok: true, json: async () => ({ alternates: outputs }) })
+      if (input.includes('/decompiled/')) return Promise.resolve({ ok: true, text: async () => 'int selected(void) { return 0; }' })
+      return Promise.resolve({ ok: true, json: async () => ({ units: [native], total: 1, hasMore: false }) })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderVisualizer()
+
+    fireEvent.click(await screen.findByRole('button', { name: /main/ }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Compare providers' }))
+
+    const outputGroup = await screen.findByRole('group', { name: 'All verified decompiler outputs' })
+    expect(within(outputGroup).getAllByRole('region')).toHaveLength(3)
+    expect(within(outputGroup).getByRole('region', { name: 'Selected provider output' })).toHaveTextContent('selected')
+    expect(within(outputGroup).getByRole('region', { name: 'Provider A output' })).toHaveTextContent('independent_0')
+    expect(within(outputGroup).getByRole('region', { name: 'Provider B output' })).toHaveTextContent('independent_1')
+    expect(within(outputGroup).getAllByText(/neither output is ground truth/)).toHaveLength(2)
+  })
+
   test('labels the Android low-level pane as Smali', async () => {
     const android = unit({
       id: 'android-main', name: 'com.example.MainActivity', language: 'Java', unitType: 'class',

@@ -53,6 +53,7 @@ agentic/logs/
 logs/
 
 # ---------- Agent scratch + worktrees ----------
+agentic/agent-workspace/
 .claude/
 work/
 

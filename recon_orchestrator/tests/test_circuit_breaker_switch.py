@@ -97,7 +97,7 @@ def _partial_recon_env() -> dict:
         mgr._admit_scan = mock.AsyncMock(return_value=None)
         state = await mgr.start_partial_recon(
             project_id="p1", tool_id="SubdomainDiscovery",
-            config={"tool_id": "SubdomainDiscovery", "user_id": "u1"},
+            config={"tool_id": "SubdomainDiscovery", "user_id": "u1", "domains": ["example.com"]},
             recon_path="/repo/recon",
         )
         assert getattr(state, "error", None) in (None, ""), f"spawn failed: {state.error}"

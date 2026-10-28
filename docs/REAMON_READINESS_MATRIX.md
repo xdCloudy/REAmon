@@ -1,6 +1,57 @@
-## Current PC deployment evidence (2026-10-27)
+## Current PC deployment evidence (2026-10-28)
 
-The active local/LAN webapp image is sha256:8250b7406b1e6f36600993c8817bbdc0ae5a4e81ba05ac1ad337914859504986. Local and LAN readiness return ready with database and artifact checks ok; the webapp and backing services are healthy. An isolated HTTP acceptance through 192.168.0.53:3001 used short-lived signed session cookies and a disposable owner project: the owner received 200 for workspace job/session lists, another identity received generic 404 bodies for both, and anonymous access received 401. The temporary project was removed and a post-run database count confirmed zero acceptance fixtures remain. Interactive browser sign-in acceptance and live master/scanner-key checks against the LAN agent remain open.
+Rechecked 2026-10-28: the webapp container is healthy; local and LAN readiness
+return HTTP 200 with Postgres, Neo4j connectivity/authentication, and artifact
+checks `ok`. Readiness now fails closed if any of those dependencies is
+unavailable. The webapp was rebuilt from checkout `30a59655978d` with
+`dirty=true`, image `sha256:4194d665b5589dffaeded625bde6a716e1d47e06cc3feedc0b029d8c5bd30c37`;
+other edited service images have not been rolled out. A local gitignored Compose
+override maps to existing networks, and the launcher derives a stable default
+project name from the Git remote to avoid the transient WSL mount-path name. The
+repository `./redamon.sh up` path now completes and reports ready. On this pass,
+the current checkout `30a59655978d` was rebuilt with its uncommitted worktree
+and only the webapp container was replaced; the new image is
+`sha256:33e281b59d51bd091061ad11cc7832aa4c89291cdfb0de835c046d59449970ac` and
+reports healthy with local and LAN readiness passing. The image revision label
+is `unknown` because the checkout contains uncommitted changes. Compose created
+three absent optional-feature volumes and did not remove existing volumes. It initially
+hit a container-name collision with an exited `redamon-agent` from a separate
+legacy checkout; only that stopped container record was removed, and all volumes
+were preserved. Compose still reports a stale `redamon-orchestrator-net` label
+mismatch and leaves that unrelated network untouched. The
+`recon-orchestrator` remains in the opt-in `legacy-pentest` profile and is not
+running, so the graph-ingest source change below still lacks live deployment
+acceptance.
+
+The project overview now displays protection observations for loaded PE/ELF
+artifacts, including suspected family, evidence, inspection scope, and explicit
+unknown/not-inspected states. If the artifact inventory is paginated, the UI
+states that additional files are outside the current summary. This is a static
+evidence view only; it does not provide layer recovery, blocked-region mapping,
+agent investigation controls, or complete-project export reporting. PE/ELF
+assessment and PE-region observation keys now include the analysis task ID, so
+separate runs of the same artifact retain separate results. The maintained-source
+bundle exports a bounded protection-evidence manifest with task/source identity,
+evidence, scope, and claim status; the README explicitly says this is not
+independent confirmation. The project-wide archive now exports persisted
+REAmon observations, including canonical/source identities, task/artifact links,
+pending-review state, timestamps, and evidence attributes, in
+`analysis/observations.json`. Archive import now restores validated records,
+re-owns them under the imported project, and preserves old task/target/artifact
+ids as `attributes.importOrigin` because those related rows are not recreated.
+Round-trip provider evidence is retained, while live foreign-key remapping to
+imported artifacts and tasks remains open.
+
+Docker validation on this Windows PC now passes through the repository runner:
+all Python sections passed (12,907 tests) and all 25 shell suites passed in the
+unit gate. After correcting the host build-context conversion, the full webapp
+section passed separately through the same runner: 607 files / 9,659 tests (2
+expected failures, 146 skipped). Git Bash path conversion is disabled only for
+Docker container-side arguments; host build-context paths retain normal Windows
+conversion. The webapp ESLint check passed with three existing unused-disable
+warnings.
+
+Local and LAN readiness return ready with Postgres, Neo4j, and artifact checks ok. An isolated HTTP acceptance through 192.168.0.53:3001 used short-lived signed session cookies and a disposable owner project: the owner received 200 for workspace job/session lists, another identity received generic 404 bodies for both, and anonymous access received 401. The temporary project was removed and a post-run database count confirmed zero acceptance fixtures remain. Interactive browser sign-in acceptance and live master/scanner-key checks against the LAN agent remain open.
 
 Earlier checkpoint (2026-10-27): the local webapp image `sha256:375686f71d58711855d3451ac4f1ca6c459bae5c68c8f59d19f061c6da680a3c` was rebuilt from checkout revision `b7c1bbba2aaf`. Docker health is `healthy`; both `localhost:3001/api/health/ready` and `192.168.0.53:3001/api/health/ready` return `status=ready` with database and artifact checks `ok`. Build metadata reports `dirty=true` because the repository contains the user-owned untracked `work/` directory, which is outside the webapp build context. The task worker briefly lost its webapp connection during recreation, then recovered without a restart: its latest database heartbeat and dispatch are current, with zero reported failures. Before rollout, the existing artifact volume was checked for symlink entries; the shared resolver rejects symlinked staging directories, stored-artifact parent directories, and leaf files. The isolated Docker integration demonstrates real ENOSPC handling and same-offset upload recovery on a bounded tmpfs. Authenticated concurrent imports and LAN pressure-recovery acceptance remain open.
 
@@ -33,6 +84,17 @@ neither the Neo4j driver nor `graph_db`. `docker compose config --quiet` passes.
 No live GVM scan, AI Attack Surface run, or deployment of the rebuilt GVM image
 has been performed. Full recon and partial-recon workers still receive direct
 graph credentials; their isolation remains a production gate.
+
+On 2026-10-28, the partial SubdomainDiscovery worker was moved to a dedicated
+HMAC-signed ingest capability. The token binds tenant, project, run, and allowed
+roots; the route also checks the active run and uses only the trusted scope for
+Neo4j writes. That worker receives no Neo4j credentials or graph database mount.
+Per-root graph errors return a partial receipt, avoiding retries of non-transient
+partial writes. Focused Docker tests pass 11 orchestrator security cases and 2
+worker handoff cases; the orchestrator unit section passed 597 tests after the
+partial-receipt refinement. This is source-level progress only: the legacy
+orchestrator profile is inactive, so this path has not been exercised live.
+Full recon and every other partial-recon worker remain direct graph clients.
 
 ## PyInstaller module paging and source recovery (2026-10-27)
 

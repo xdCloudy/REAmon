@@ -1,10 +1,11 @@
 /** @vitest-environment node */
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
-const mocks = vi.hoisted(() => ({ queryRaw: vi.fn(), access: vi.fn() }))
+const mocks = vi.hoisted(() => ({ queryRaw: vi.fn(), access: vi.fn(), verifyGraphConnection: vi.fn() }))
 vi.mock('@/lib/prisma', () => ({ default: { $queryRaw: mocks.queryRaw } }))
 vi.mock('node:fs/promises', () => ({ access: mocks.access }))
 vi.mock('@/lib/reamon/artifact-storage', () => ({ artifactRoot: () => '/data/reamon-artifacts' }))
+vi.mock('@/app/api/graph/neo4j', () => ({ verifyConnection: mocks.verifyGraphConnection }))
 
 import { GET } from './route'
 
@@ -12,6 +13,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   mocks.queryRaw.mockResolvedValue([{ '?column?': 1 }])
   mocks.access.mockResolvedValue(undefined)
+  mocks.verifyGraphConnection.mockResolvedValue(true)
 })
 
 afterEach(() => {
@@ -19,13 +21,13 @@ afterEach(() => {
 })
 
 describe('GET /api/health/ready', () => {
-  test('returns ready only when database and artifact storage are usable', async () => {
+  test('returns ready only when Postgres, Neo4j, and artifact storage are usable', async () => {
     const response = await GET()
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({
       status: 'ready',
-      checks: { database: 'ok', artifacts: 'ok' },
+      checks: { database: 'ok', neo4j: 'ok', artifacts: 'ok' },
       build: { revision: 'unknown', dirty: null },
     })
     expect(mocks.access).toHaveBeenCalledWith('/data/reamon-artifacts', expect.any(Number))
@@ -39,8 +41,20 @@ describe('GET /api/health/ready', () => {
     expect(response.status).toBe(503)
     await expect(response.json()).resolves.toEqual({
       status: 'not_ready',
-      checks: { database: 'unavailable', artifacts: 'ok' },
+      checks: { database: 'unavailable', neo4j: 'ok', artifacts: 'ok' },
       build: { revision: 'unknown', dirty: null },
+    })
+  })
+
+  test('returns not ready when Neo4j is running but rejects configured credentials', async () => {
+    mocks.verifyGraphConnection.mockResolvedValueOnce(false)
+
+    const response = await GET()
+
+    expect(response.status).toBe(503)
+    await expect(response.json()).resolves.toMatchObject({
+      status: 'not_ready',
+      checks: { database: 'ok', neo4j: 'unavailable', artifacts: 'ok' },
     })
   })
 

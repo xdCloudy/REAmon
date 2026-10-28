@@ -86,9 +86,9 @@ describe('REAmon capability resolution', () => {
     ]))
   })
 
-  it('offers static protection inspection for PE files only', () => {
+  it('offers static protection inspection for PE and ELF files', () => {
     expect(resolveCapabilities(profile({ format: 'pe' })).some((match) => match.pluginId === 'reamon-protection-inspector')).toBe(true)
-    expect(resolveCapabilities(profile({ format: 'elf' })).some((match) => match.pluginId === 'reamon-protection-inspector')).toBe(false)
+    expect(resolveCapabilities(profile({ format: 'elf' })).some((match) => match.pluginId === 'reamon-protection-inspector')).toBe(true)
   })
 
   it.each(['apk', 'elf', 'wasm', 'json', 'source', 'unknown'])(

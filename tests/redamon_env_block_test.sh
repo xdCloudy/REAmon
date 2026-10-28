@@ -85,7 +85,14 @@ has "$D/.env" '^POSTGRES_PASSWORD=supersecret$' "secrets preserved verbatim"
 has "$D/.env" '^AUTH_SECRET=deadbeef$'          "AUTH_SECRET preserved"
 has "$D/.env" '^# a comment the operator wrote$' "comments preserved"
 has "$D/.env" '^RECON_MAX_CONCURRENT_PER_USER=7$' "unrelated knobs preserved"
-eq  "mode stays 600" "$(stat -c %a "$D/.env" 2>/dev/null || stat -f %Lp "$D/.env")" "600"
+mode="$(stat -c %a "$D/.env" 2>/dev/null || stat -f %Lp "$D/.env")"
+if [[ "$mode" == "600" ]]; then
+    ok "mode stays 600"
+elif [[ "$(uname -s 2>/dev/null || true)" == MINGW* || "$(uname -s 2>/dev/null || true)" == MSYS* ]]; then
+    echo "  SKIP mode stays 600 (NTFS does not expose Unix permission bits to this shell)"
+else
+    bad "mode stays 600" "$mode" "600"
+fi
 rm -rf "$D"
 
 echo "== a changed host size re-tunes the block =="

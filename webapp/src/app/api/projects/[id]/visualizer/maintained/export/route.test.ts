@@ -37,10 +37,11 @@ beforeEach(async () => {
   h.task.mockResolvedValue({ id: taskId, title: 'JADX decompile', artifactId: 'artifact-1', provider: { pluginId: 'reamon-jadx' }, artifact: { originalName: 'app.apk' } })
   h.observations.mockImplementation(async (args: { where: { type?: string } }) => args.where.type === 'maintained_source'
     ? [{ stableKey: 'unit-1', artifactId: 'artifact-1', updatedAt: new Date('2026-10-04T00:00:00.000Z') }]
-    : [{ id: 'unit-1', stableKey: 'jadx:com.example.Main', artifactId: 'artifact-1', label: 'com.example.Main', attributes: {
-      qualifiedName: 'com.example.Main', language: 'Java',
-      codeArtifactId: 'project-1/artifact-1/task-1/run-1/sources/com/example/Main.java',
-    } }])
+    : args.where.type === 'protection_assessment' ? []
+      : [{ id: 'unit-1', stableKey: 'jadx:com.example.Main', artifactId: 'artifact-1', label: 'com.example.Main', attributes: {
+        qualifiedName: 'com.example.Main', language: 'Java',
+        codeArtifactId: 'project-1/artifact-1/task-1/run-1/sources/com/example/Main.java',
+      } }])
   h.maintainedSources.mockResolvedValue([{
     codeUnitId: 'unit-1', artifactId: 'artifact-1', sourceCode: 'package com.example;\npublic class DatabaseMaintained { }\n',
     updatedAt: new Date('2026-10-04T00:00:00.000Z'),
@@ -98,6 +99,45 @@ describe('GET /api/projects/[id]/visualizer/maintained/export', () => {
     }))
   })
 
+  it('exports bounded protection evidence with its source run and uncertainty', async () => {
+    h.observations.mockImplementation(async (args: { where: { type?: string } }) => args.where.type === 'maintained_source'
+      ? [{ stableKey: 'unit-1', artifactId: 'artifact-1', updatedAt: new Date('2026-10-04T00:00:00.000Z') }]
+      : args.where.type === 'protection_assessment'
+        ? [{
+          id: 'protection-observation-1', stableKey: 'artifact:artifact-1:protection-static-v1:task:protection-task-1',
+          taskId: 'protection-task-1', source: 'reamon-protection-inspector',
+          attributes: {
+            assessment: 'suspected', family: 'UPX', evidence: 'UPX section marker observed.',
+            scope: 'PE headers; no execution or unpacking', inspectedBytes: 256, confirmed: false,
+            internalDiagnostic: 'must not be exported',
+          }, updatedAt: new Date('2026-10-04T01:00:00.000Z'),
+        }]
+        : [{ id: 'unit-1', stableKey: 'jadx:com.example.Main', artifactId: 'artifact-1', label: 'com.example.Main', attributes: {
+          qualifiedName: 'com.example.Main', language: 'Java',
+          codeArtifactId: 'project-1/artifact-1/task-1/run-1/sources/com/example/Main.java',
+        } }])
+
+    const response = await GET(new Request(`http://localhost?taskId=${taskId}`), routeParams)
+    const zip = await JSZip.loadAsync(await response.arrayBuffer())
+    const manifest = JSON.parse(await zip.file('manifest.json')!.async('string')) as {
+      protectionEvidence: Array<Record<string, unknown>>; protectionEvidenceTruncated: boolean
+    }
+    const readme = await zip.file('README.txt')!.async('string')
+
+    expect(response.status).toBe(200)
+    expect(manifest.protectionEvidenceTruncated).toBe(false)
+    expect(manifest.protectionEvidence).toEqual([{
+      observationId: 'protection-observation-1',
+      stableKey: 'artifact:artifact-1:protection-static-v1:task:protection-task-1',
+      taskId: 'protection-task-1', source: 'reamon-protection-inspector',
+      assessment: 'suspected', family: 'UPX', evidence: 'UPX section marker observed.',
+      scope: 'PE headers; no execution or unpacking', inspectedBytes: 256,
+      confirmedClaim: false, recordedAt: '2026-10-04T01:00:00.000Z',
+    }])
+    expect(JSON.stringify(manifest.protectionEvidence)).not.toContain('must not be exported')
+    expect(readme).toContain('not independent confirmation of protection or successful recovery')
+  })
+
   it('requires access before reading run observations', async () => {
     const { NextResponse } = await import('next/server')
     h.access.mockResolvedValueOnce(NextResponse.json({ error: 'Forbidden' }, { status: 403 }))
@@ -112,7 +152,8 @@ describe('GET /api/projects/[id]/visualizer/maintained/export', () => {
   it('skips linked paths that escape the active artifact', async () => {
     h.observations.mockImplementation(async (args: { where: { type?: string } }) => args.where.type === 'maintained_source'
       ? []
-      : [{ id: 'unit-1', stableKey: 'jadx:com.example.Main', artifactId: 'artifact-1', label: 'com.example.Main', attributes: {
+      : args.where.type === 'protection_assessment' ? []
+        : [{ id: 'unit-1', stableKey: 'jadx:com.example.Main', artifactId: 'artifact-1', label: 'com.example.Main', attributes: {
         qualifiedName: 'com.example.Main', language: 'Java', codeArtifactId: 'project-1/artifact-1/../../outside/Main.java',
       } }])
 
@@ -144,7 +185,8 @@ describe('GET /api/projects/[id]/visualizer/maintained/export', () => {
     const sourceSetHash = createHash('sha256').update(relativePath).update('\0').update(sourceHash).update('\n').digest('hex')
     h.observations.mockImplementation(async (args: { where: { type?: string } }) => args.where.type === 'maintained_source'
       ? [{ stableKey: 'unit-1', artifactId: 'artifact-1', updatedAt: new Date('2026-10-04T00:00:00.000Z') }]
-      : [{ id: 'unit-1', stableKey: 'jadx:Pair', artifactId: 'artifact-1', label: 'Pair', attributes: {
+      : args.where.type === 'protection_assessment' ? []
+        : [{ id: 'unit-1', stableKey: 'jadx:Pair', artifactId: 'artifact-1', label: 'Pair', attributes: {
         qualifiedName: 'Pair', language: 'C#', codeArtifactId: 'project-1/artifact-1/task-1/run-1/sources/Core/Pair.cs',
       } }])
     h.maintainedSources.mockResolvedValue([{
@@ -198,7 +240,8 @@ describe('GET /api/projects/[id]/visualizer/maintained/export', () => {
     const dependencyHash = createHash('sha256').update('go.mod').update('\0').update(moduleHash).update('\n').digest('hex')
     h.observations.mockImplementation(async (args: { where: { type?: string } }) => args.where.type === 'maintained_source'
       ? [{ stableKey: 'unit-1', artifactId: 'artifact-1', updatedAt: new Date('2026-10-04T00:00:00.000Z') }]
-      : [{ id: 'unit-1', stableKey: 'go:main', artifactId: 'artifact-1', label: 'main', attributes: {
+      : args.where.type === 'protection_assessment' ? []
+        : [{ id: 'unit-1', stableKey: 'go:main', artifactId: 'artifact-1', label: 'main', attributes: {
         qualifiedName: 'main', language: 'Go', codeArtifactId: 'project-1/artifact-1/task-1/run-1/sources/src/main.go',
       } }])
     h.maintainedSources.mockResolvedValue([{
@@ -252,7 +295,7 @@ describe('GET /api/projects/[id]/visualizer/maintained/export', () => {
     const sourceSetHash = createHash('sha256').update(relativePath).update('\0').update(sourceHash).update('\n').digest('hex')
     h.observations.mockImplementation(async (args: { where: { type?: string } }) => args.where.type === 'maintained_source'
       ? []
-      : [
+      : args.where.type === 'protection_assessment' ? [] : [
         { id: 'unit-1', stableKey: 'pair', artifactId: 'artifact-1', label: 'Pair', attributes: { language: 'C#' } },
         { id: 'unit-2', stableKey: 'extra', artifactId: 'artifact-1', label: 'Extra', attributes: { language: 'C#' } },
       ])

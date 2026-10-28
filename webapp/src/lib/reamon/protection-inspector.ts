@@ -1,4 +1,5 @@
 import { open } from 'node:fs/promises'
+import { runBoundedProcess } from './bounded-process'
 import type { ObservationAttributes, ToolExecutionInput, ToolPlugin, ToolPluginManifest, ToolResult } from './types'
 
 const MAX_HEADER_BYTES = 1024 * 1024
@@ -10,12 +11,120 @@ export const protectionInspectorManifest: ToolPluginManifest = {
   id: 'reamon-protection-inspector',
   name: 'REAmon Static Protection Inspector',
   category: 'profiling',
-  integration: 'native',
+  integration: 'process',
   acceptsTargetTypes: ['FILE'],
-  acceptsFormats: ['pe'],
+  acceptsFormats: ['pe', 'elf'],
   capabilities: ['inspect_protection'],
   produces: ['ProtectionHypothesis'],
-  requirements: [{ key: 'artifactPath' }],
+  requirements: [{ key: 'artifactPath' }, { key: 'executable', value: 'readelf' }],
+}
+
+const ELF_MAX_OUTPUT_BYTES = 1024 * 1024
+const ELF_TIMEOUT_MS = 30_000
+
+export interface ElfProtectionAssessment {
+  status: 'suspected' | 'unknown'
+  family: 'UPX' | null
+  evidence: string[]
+  architecture: string | null
+  entryPoint: string | null
+  loadSegments: Array<{ virtualAddress: string; memorySize: string; flags: string }>
+  sectionNames: string[]
+  inspectedBytes: number
+  sampledBytes: 0
+  outputTruncated: boolean
+  scope: 'ELF headers, program headers, and section names; no execution or unpacking'
+}
+
+function readElfField(output: string, label: string): string | null {
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return output.match(new RegExp(`^\\s*${escaped}:\\s*(.+?)\\s*$`, 'm'))?.[1] || null
+}
+
+function readHex(value: string | null): bigint | null {
+  if (!value || !/^0x[\da-f]+$/i.test(value)) return null
+  try { return BigInt(value) } catch { return null }
+}
+
+function protectionObservationKey(artifactId: string | undefined, key: string, taskId?: string): string {
+  const artifactKey = `artifact:${artifactId || 'unknown'}`
+  return taskId ? `${artifactKey}:${key}:task:${taskId}` : `${artifactKey}:${key}`
+}
+
+export function assessElfProtection(output: string, inspectedBytes: number, outputTruncated = false): ElfProtectionAssessment {
+  const evidence: string[] = []
+  let structuralIndicator = false
+  const sectionNames = [...output.matchAll(/^\s*\[\s*\d+\]\s+([^\s]+)/gm)].map((match) => match[1])
+  const family = sectionNames.some((name) => /^\.?UPX(?:0|1|2|!)$/i.test(name)) ? 'UPX' : null
+  if (family) {
+    structuralIndicator = true
+    evidence.push('An ELF section name matches a conventional UPX marker; this is a protection hypothesis, not confirmation of UPX packing.')
+  }
+
+  const entryPoint = readElfField(output, 'Entry point address')
+  const architecture = readElfField(output, 'Machine')
+  const loadSegments = output.split(/\r?\n/).flatMap((line) => {
+    const columns = line.trim().split(/\s+/)
+    if (columns[0] !== 'LOAD' || columns.length < 8) return []
+    const flags = columns.slice(6, -1).join('')
+    return [{ virtualAddress: columns[2], memorySize: columns[5], flags }]
+  })
+  const entry = readHex(entryPoint)
+  const executableSegments = loadSegments.filter((segment) => segment.flags.includes('E'))
+  if (entry !== null && executableSegments.length > 0) {
+    const mapped = executableSegments.some((segment) => {
+      const start = readHex(segment.virtualAddress)
+      const size = readHex(segment.memorySize)
+      return start !== null && size !== null && entry >= start && entry - start < size
+    })
+    if (!mapped) {
+      structuralIndicator = true
+      evidence.push('The ELF entry point does not map into a declared executable LOAD segment.')
+    }
+  }
+  if (loadSegments.some((segment) => segment.flags.includes('W') && segment.flags.includes('E'))) {
+    structuralIndicator = true
+    evidence.push('An ELF LOAD segment is both writable and executable; this is a structural indicator and can also occur in legitimate binaries.')
+  }
+  const completeHeader = output.includes('ELF Header:') && Boolean(architecture)
+  if (!completeHeader) {
+    evidence.push('The bounded readelf output did not contain a complete ELF header.')
+  }
+  if (outputTruncated) evidence.push('readelf output reached the configured byte limit; later section evidence may be missing.')
+  return {
+    status: structuralIndicator ? 'suspected' : 'unknown',
+    family,
+    evidence: evidence.length ? evidence : ['No recognized UPX marker or protection-related ELF structure was observed; protection may still be present.'],
+    architecture,
+    entryPoint,
+    loadSegments,
+    sectionNames,
+    inspectedBytes,
+    sampledBytes: 0,
+    outputTruncated,
+    scope: 'ELF headers, program headers, and section names; no execution or unpacking',
+  }
+}
+
+export function elfProtectionObservation(assessment: ElfProtectionAssessment, artifactId?: string, taskId?: string) {
+  return {
+    kind: 'fact' as const,
+    type: 'protection_assessment',
+    key: protectionObservationKey(artifactId, 'protection-static-v1', taskId),
+    label: assessment.family ? `Suspected ${assessment.family} protection`
+      : assessment.status === 'suspected' ? 'Protection indicator observed; family unknown' : 'Protection status unknown',
+    attributes: {
+      assessment: assessment.status,
+      family: assessment.family,
+      architecture: assessment.architecture,
+      entryPoint: assessment.entryPoint,
+      evidence: assessment.evidence.join(' '),
+      inspectedBytes: assessment.inspectedBytes,
+      outputTruncated: assessment.outputTruncated,
+      scope: assessment.scope,
+      confirmed: false,
+    } satisfies ObservationAttributes,
+  }
 }
 
 export interface PeProtectionAssessment {
@@ -210,11 +319,11 @@ export function assessPeProtection(
   }
 }
 
-export function peSectionObservations(sections: PeSectionEvidence[], artifactId?: string) {
+export function peSectionObservations(sections: PeSectionEvidence[], artifactId?: string, taskId?: string) {
   return sections.map((section) => ({
     kind: 'fact' as const,
     type: 'pe_section_region',
-    key: `artifact:${artifactId || 'unknown'}:pe-section:${section.index}`,
+    key: protectionObservationKey(artifactId, `pe-section:${section.index}`, taskId),
     label: section.name || `PE section ${section.index}`,
     attributes: {
       index: section.index,
@@ -234,7 +343,7 @@ export function peSectionObservations(sections: PeSectionEvidence[], artifactId?
   }))
 }
 
-export function protectionObservation(assessment: PeProtectionAssessment, artifactId?: string) {
+export function protectionObservation(assessment: PeProtectionAssessment, artifactId?: string, taskId?: string) {
   const attributes: ObservationAttributes = {
     assessment: assessment.status,
     family: assessment.family,
@@ -253,7 +362,7 @@ export function protectionObservation(assessment: PeProtectionAssessment, artifa
   return {
     kind: 'fact' as const,
     type: 'protection_assessment',
-    key: `artifact:${artifactId || 'unknown'}:protection-static-v1`,
+    key: protectionObservationKey(artifactId, 'protection-static-v1', taskId),
     label: assessment.family ? `Suspected ${assessment.family} protection`
       : assessment.status === 'suspected' ? 'Protection indicator observed; family unknown' : 'Protection status unknown',
     attributes,
@@ -271,6 +380,22 @@ export async function executeProtectionInspection(input: ToolExecutionInput): Pr
   let handle: Awaited<ReturnType<typeof open>> | undefined
   try {
     handle = await open(input.artifactPath, 'r')
+    if (input.targetProfile.format === 'elf') {
+      const artifactStats = await handle.stat()
+      const result = await runBoundedProcess({
+        executable: 'readelf',
+        args: ['-W', '-h', '-l', '-S', '--', input.artifactPath],
+        signal: input.signal,
+        maxOutputBytes: ELF_MAX_OUTPUT_BYTES,
+        timeoutMs: ELF_TIMEOUT_MS,
+        timeoutError: (value) => `readelf protection inspection timed out after ${Math.ceil(value / 1000)} seconds`,
+      })
+      const assessment = assessElfProtection(result.stdout, artifactStats.size, result.truncated)
+      return {
+        status: 'completed', ...base,
+        data: { assessment, observations: [elfProtectionObservation(assessment, input.artifactId, input.taskId)], stderr: result.stderr.slice(0, 4000) },
+      }
+    }
     const header = Buffer.alloc(MAX_HEADER_BYTES)
     const { bytesRead } = await handle.read(header, 0, header.length, 0)
     const headerBytes = header.subarray(0, bytesRead)
@@ -308,8 +433,8 @@ export async function executeProtectionInspection(input: ToolExecutionInput): Pr
     }
     const assessment = assessPeProtection(headerBytes, sectionSamples, truncatedSections, headerOverlappingSections)
     const observations = [
-      protectionObservation(assessment, input.artifactId),
-      ...peSectionObservations(assessment.sections, input.artifactId),
+      protectionObservation(assessment, input.artifactId, input.taskId),
+      ...peSectionObservations(assessment.sections, input.artifactId, input.taskId),
     ]
     return { status: 'completed', ...base, data: { assessment, observations } }
   } catch (error) {
