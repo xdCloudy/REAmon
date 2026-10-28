@@ -8,6 +8,54 @@ interface RouteParams { params: Promise<{ id: string; taskId: string }> }
 
 const NO_STORE = { 'Cache-Control': 'private, no-store' }
 const INVESTIGATABLE_CAPABILITIES = ['decompile', 'disassemble']
+const MAX_PARTIAL_UNITS = 100
+const PARTIAL_UNIT_ATTRIBUTE_KEYS = [
+  'address', 'startAddress', 'endAddress', 'relativePath', 'language', 'unitType', 'codeArtifactId',
+  'codeArtifactSha256', 'inputArtifactSha256', 'identity', 'qualifiedName', 'name', 'methodName',
+  'signature', 'descriptor', 'sizeBytes', 'parentCodeUnitKey',
+] as const
+
+function partialUnitSnapshot(result: Record<string, unknown> | null) {
+  const providerFailure = result?.providerFailure
+  if (!providerFailure || typeof providerFailure !== 'object' || Array.isArray(providerFailure)) return null
+  const failure = providerFailure as Record<string, unknown>
+  if (failure.schemaVersion !== 1 || !Array.isArray(failure.partialUnits)) return null
+  const partialUnits = failure.partialUnits.slice(0, MAX_PARTIAL_UNITS).flatMap((value) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return []
+    const unit = value as Record<string, unknown>
+    if ((unit.type !== 'code_unit' && unit.type !== 'function') || typeof unit.key !== 'string' || !unit.key.trim()) return []
+    const attributes: Record<string, string | number | boolean> = {}
+    if (unit.attributes && typeof unit.attributes === 'object' && !Array.isArray(unit.attributes)) {
+      const rawAttributes = unit.attributes as Record<string, unknown>
+      for (const key of PARTIAL_UNIT_ATTRIBUTE_KEYS) {
+        const candidate = rawAttributes[key]
+        if (typeof candidate === 'string' && candidate.length <= 2_000) attributes[key] = candidate
+        else if (typeof candidate === 'number' && Number.isFinite(candidate)) attributes[key] = candidate
+        else if (typeof candidate === 'boolean') attributes[key] = candidate
+      }
+    }
+    for (const hashKey of ['codeArtifactSha256', 'inputArtifactSha256'] as const) {
+      if (typeof attributes[hashKey] === 'string' && !/^[a-f0-9]{64}$/i.test(attributes[hashKey] as string)) delete attributes[hashKey]
+    }
+    return [{
+      type: unit.type,
+      key: unit.key.trim().slice(0, 500),
+      label: typeof unit.label === 'string' ? unit.label.slice(0, 500) : '',
+      attributes,
+    }]
+  })
+  return {
+    schemaVersion: 1,
+    runToken: typeof failure.runToken === 'string' && /^[a-f0-9-]{16,128}$/i.test(failure.runToken) ? failure.runToken : null,
+    inputArtifactSha256: typeof failure.inputArtifactSha256 === 'string' && /^[a-f0-9]{64}$/i.test(failure.inputArtifactSha256)
+      ? failure.inputArtifactSha256.toLowerCase()
+      : null,
+    observationCount: typeof failure.observationCount === 'number' && Number.isSafeInteger(failure.observationCount) ? failure.observationCount : null,
+    partialCodeUnitCount: typeof failure.partialCodeUnitCount === 'number' && Number.isSafeInteger(failure.partialCodeUnitCount) ? failure.partialCodeUnitCount : partialUnits.length,
+    partialUnits,
+    partialUnitsTruncated: failure.partialUnitsTruncated === true || (Array.isArray(failure.partialUnits) && failure.partialUnits.length > partialUnits.length),
+  }
+}
 
 export async function GET(_request: Request, { params }: RouteParams) {
   try {
@@ -105,6 +153,7 @@ export async function POST(_request: Request, { params }: RouteParams) {
       failedAt: task.completedAt?.toISOString() ?? null,
       existingObservationCount: observationCount,
       resultKeys: result ? Object.keys(result).slice(0, 100) : [],
+      partialProviderOutput: partialUnitSnapshot(result),
     }
 
     let investigation

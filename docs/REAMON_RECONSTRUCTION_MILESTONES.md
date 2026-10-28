@@ -264,8 +264,12 @@ evidence in project context. Current matching and agreement are evidence for inv
 not semantic equivalence. There is no general contradiction detector and adjudication
 workflow for boundaries, CFG, types, references, or logic. A new run-scoped case intake
 can persist failed or cancelled decompile/disassemble tasks with artifact hash,
-provider/version, bounded failure context, and request history. It does not yet identify
-per-unit failures, dispatch agents, or track investigation attempts.
+provider/version, bounded failure context, and request history. Structured provider
+failures also retain up to 100 code-unit/function summaries with a run token and original
+artifact hash; these diagnostics are snapshotted into the case but are not canonical
+observations or success evidence. Provider-asserted derived-source hashes are not
+trusted unless REAmon verifies the file bytes. The queue does not yet create per-unit
+cases, dispatch agents, or track investigation attempts.
 The existing rewrite-attempt queue persists AI source attempts, but it is not the
 failed-provider/unit investigation lifecycle specified below.
 

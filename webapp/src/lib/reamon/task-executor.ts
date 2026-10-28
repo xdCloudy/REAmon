@@ -17,6 +17,12 @@ const MAX_LEASE_OWNER_LENGTH = 128
 const MAX_CODE_ARTIFACT_HASH_FILE_BYTES = 2 * 1024 * 1024
 const MAX_CODE_ARTIFACT_HASH_TOTAL_BYTES = 64 * 1024 * 1024
 const MAX_CODE_ARTIFACT_HASH_FILES = 1_024
+const MAX_FAILED_CODE_UNIT_EVIDENCE = 100
+const FAILED_CODE_UNIT_ATTRIBUTE_KEYS = [
+  'address', 'startAddress', 'endAddress', 'relativePath', 'language', 'unitType', 'codeArtifactId',
+  'codeArtifactSha256', 'inputArtifactSha256', 'identity', 'qualifiedName', 'name', 'methodName',
+  'signature', 'descriptor', 'sizeBytes', 'parentCodeUnitKey',
+] as const
 
 const taskSelect = {
   id: true,
@@ -194,6 +200,61 @@ function boundedTaskResultData(value: unknown): Prisma.InputJsonValue {
   return boundResultData(value)
 }
 
+function failedProviderResultData(task: TaskRow, runToken: string, result: ToolResult, error: string): Prisma.InputJsonValue {
+  const observations = Array.isArray(result.data.observations) ? result.data.observations : []
+  const codeUnits = observations.filter((value) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+    const observation = value as Record<string, unknown>
+    return observation.type === 'code_unit' || observation.type === 'function'
+  })
+  const runPrefix = `${task.projectId}/${task.artifactId || ''}/${task.id}/${runToken}/`
+  const partialUnits = codeUnits.slice(0, MAX_FAILED_CODE_UNIT_EVIDENCE).flatMap((value) => {
+    const observation = value as Record<string, unknown>
+    const key = typeof observation.key === 'string' ? observation.key.trim().slice(0, 500) : ''
+    if (!key) return []
+    const rawAttributes = observation.attributes && typeof observation.attributes === 'object' && !Array.isArray(observation.attributes)
+      ? observation.attributes as Record<string, unknown>
+      : {}
+    const attributes: Record<string, string | number | boolean> = {}
+    for (const attributeKey of FAILED_CODE_UNIT_ATTRIBUTE_KEYS) {
+      const candidate = rawAttributes[attributeKey]
+      if (typeof candidate === 'string' && candidate.length <= 2_000) attributes[attributeKey] = candidate
+      else if (typeof candidate === 'number' && Number.isFinite(candidate)) attributes[attributeKey] = candidate
+      else if (typeof candidate === 'boolean') attributes[attributeKey] = candidate
+    }
+    const artifactId = attributes.codeArtifactId
+    if (typeof artifactId === 'string' && !artifactId.startsWith(runPrefix)) delete attributes.codeArtifactId
+    for (const hashKey of ['codeArtifactSha256', 'inputArtifactSha256'] as const) {
+      const hash = attributes[hashKey]
+      if (typeof hash === 'string' && !/^[a-f0-9]{64}$/i.test(hash)) delete attributes[hashKey]
+    }
+    return [{
+      type: observation.type as string,
+      key,
+      label: typeof observation.label === 'string' ? observation.label.slice(0, 500) : '',
+      attributes,
+    }]
+  })
+  const summary = asOptions(boundedTaskResultData(result.data))
+  return boundResultData({
+    ...summary,
+    providerFailure: {
+      schemaVersion: 1,
+      runToken,
+      inputArtifactSha256: task.artifact?.sha256 && /^[a-f0-9]{64}$/i.test(task.artifact.sha256) ? task.artifact.sha256.toLowerCase() : null,
+      resultStatus: result.status,
+      providerToolId: result.toolId.slice(0, 128),
+      capabilities: result.capabilities.filter((value) => typeof value === 'string').slice(0, 40),
+      produced: result.produced.filter((value) => typeof value === 'string').slice(0, 100),
+      error,
+      observationCount: observations.length,
+      partialCodeUnitCount: codeUnits.length,
+      partialUnits,
+      partialUnitsTruncated: codeUnits.length > partialUnits.length,
+    },
+  })
+}
+
 function isInsideDirectory(root: string, file: string): boolean {
   const relative = path.relative(root, file)
   return Boolean(relative) && relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)
@@ -273,8 +334,10 @@ async function attachCodeArtifactProvenance(task: TaskRow, runToken: string, res
         sourceHashByPath.set(codeArtifactId, null)
       }
     }
+    const verifiedAttributes = { ...attributes }
+    delete verifiedAttributes.codeArtifactSha256
     const enrichedAttributes = {
-      ...attributes,
+      ...verifiedAttributes,
       inputArtifactSha256,
       ...(sourceHash ? { codeArtifactSha256: sourceHash } : {}),
     }
@@ -343,7 +406,11 @@ async function settleTask(
   streamedObservationCount = 0,
 ): Promise<ExecutedAnalysisTask> {
   const error = boundedError(failure || result?.error || '')
-  let persistedResult = outcome === 'COMPLETED' && result ? boundedTaskResultData(result.data) : undefined
+  let persistedResult = outcome === 'COMPLETED' && result
+    ? boundedTaskResultData(result.data)
+    : outcome === 'FAILED' && result
+      ? failedProviderResultData(task, runToken, result, error)
+      : undefined
   const completedAt = new Date()
   const transactionOptions = result?.capabilities.some((capability) => capability === 'decompile' || capability === 'disassemble' || capability === 'recover_metadata')
     ? { maxWait: 10_000, timeout: 120_000 }
@@ -607,6 +674,11 @@ export async function executeAnalysisTask(projectId: string, taskId: string, lea
   if (result.status !== 'completed') {
     stopHeartbeat()
     await discardStreamedObservations()
+    try {
+      result = await attachCodeArtifactProvenance(task, runToken, result)
+    } catch {
+      // A failed provider result remains useful even when derived-file hashing is unavailable.
+    }
     return settleTask(task, runToken, 'FAILED', plugin.manifest.name, result, result.error)
   }
   try {

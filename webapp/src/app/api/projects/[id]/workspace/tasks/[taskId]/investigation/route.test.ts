@@ -66,7 +66,21 @@ describe('/api/projects/[id]/workspace/tasks/[taskId]/investigation', () => {
   test('queues a failed active-artifact decompilation with immutable run provenance', async () => {
     mocks.taskFindFirst.mockResolvedValue({
       id: 'task-1', projectId: 'project-1', artifactId: 'artifact-1', capability: 'decompile', status: 'FAILED',
-      title: 'Decompile app', progressMessage: 'Parsing methods', error: 'Provider timed out', result: { partial: true, detail: 'ignored' },
+      title: 'Decompile app', progressMessage: 'Parsing methods', error: 'Provider timed out', result: {
+        partial: true,
+        detail: 'ignored',
+        providerFailure: {
+          schemaVersion: 1,
+          runToken: 'a'.repeat(36),
+          inputArtifactSha256: 'B'.repeat(64),
+          observationCount: 4,
+          partialCodeUnitCount: 2,
+          partialUnits: [
+            { type: 'function', key: 'fn:entry', label: 'entry', attributes: { address: '0x100', language: 'c' } },
+            { type: 'unknown', key: 'drop-me', label: 'bad', attributes: {} },
+          ],
+        },
+      },
       startedAt: new Date('2026-10-28T08:00:00.000Z'), completedAt: new Date('2026-10-28T08:01:00.000Z'),
       createdAt: new Date('2026-10-28T07:59:00.000Z'), artifact: { sha256: 'A'.repeat(64) },
       provider: { pluginId: 'reamon-jadx', version: '1.2.3' },
@@ -85,7 +99,20 @@ describe('/api/projects/[id]/workspace/tasks/[taskId]/investigation', () => {
       data: expect.objectContaining({
         projectId: 'project-1', taskId: 'task-1', artifactId: 'artifact-1', artifactSha256: 'a'.repeat(64),
         providerId: 'reamon-jadx', providerVersion: '1.2.3', requestedBy: 'user-1', status: 'QUEUED',
-        failureEvidence: expect.objectContaining({ existingObservationCount: 3, failureMessage: 'Provider timed out', resultKeys: ['partial', 'detail'] }),
+        failureEvidence: expect.objectContaining({
+          existingObservationCount: 3,
+          failureMessage: 'Provider timed out',
+          resultKeys: ['partial', 'detail', 'providerFailure'],
+          partialProviderOutput: {
+            schemaVersion: 1,
+            runToken: 'a'.repeat(36),
+            inputArtifactSha256: 'b'.repeat(64),
+            observationCount: 4,
+            partialCodeUnitCount: 2,
+            partialUnits: [{ type: 'function', key: 'fn:entry', label: 'entry', attributes: { address: '0x100', language: 'c' } }],
+            partialUnitsTruncated: true,
+          },
+        }),
       }),
     }))
   })

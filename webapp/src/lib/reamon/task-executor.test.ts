@@ -228,14 +228,45 @@ describe('executeAnalysisTask', () => {
   })
 
   test('persists a provider failure without creating false evidence', async () => {
-    mocks.analyze.mockResolvedValue({
-      status: 'failed', toolId: provider.manifest.id, capabilities: ['extract_strings'], produced: [], data: {}, error: 'provider unavailable',
-    })
-    mocks.taskFindUnique.mockResolvedValue(task({ status: 'FAILED', error: 'provider unavailable' }))
+    mocks.taskFindFirst.mockResolvedValue(task({
+      capability: 'decompile',
+      artifact: { ...task().artifact, sha256: 'a'.repeat(64) },
+      provider: { id: 'provider-jadx', pluginId: 'reamon-jadx', name: 'JADX', enabled: true },
+    }))
+    mocks.resolveCapabilities.mockReturnValue([{ capabilities: ['decompile'] }])
+    mocks.analyze.mockImplementation(async (input: { runToken: string }) => ({
+      status: 'failed', toolId: 'reamon-jadx', capabilities: ['decompile'], produced: ['CodeUnit'], error: 'provider timed out', data: {
+        output: 'partial provider log',
+        observations: [
+          { kind: 'entity', type: 'code_unit', key: 'class:com.example.Main', label: 'Main', attributes: { unitType: 'class', language: 'java' } },
+          { kind: 'entity', type: 'function', key: 'method:com.example.Main#start', label: 'start', attributes: { address: '0x100', unsafeField: 'discard me' } },
+          { kind: 'fact', type: 'decompilation_failure', key: 'failure:broken', label: 'failed unit', attributes: {} },
+          { kind: 'entity', type: 'code_unit', key: 'missing:key', label: 'invalid hash', attributes: { codeArtifactSha256: 'not-a-hash' } },
+        ],
+      },
+    }))
+    mocks.taskFindUnique.mockResolvedValue(task({ status: 'FAILED', error: 'provider timed out' }))
 
     const result = await executeAnalysisTask('project-1', 'task-1')
 
-    expect(result).toMatchObject({ outcome: 'FAILED', task: { status: 'FAILED', error: 'provider unavailable' } })
+    expect(result).toMatchObject({ outcome: 'FAILED', task: { status: 'FAILED', error: 'provider timed out' } })
+    const persistedFailure = mocks.taskSettleUpdateMany.mock.calls[0][0].data.result
+    expect(persistedFailure).toMatchObject({ providerFailure: {
+      schemaVersion: 1,
+      inputArtifactSha256: 'a'.repeat(64),
+      resultStatus: 'failed',
+      providerToolId: 'reamon-jadx',
+      error: 'provider timed out',
+      observationCount: 4,
+      partialCodeUnitCount: 3,
+      partialUnits: [
+        { type: 'code_unit', key: 'class:com.example.Main', attributes: { unitType: 'class', language: 'java' } },
+        { type: 'function', key: 'method:com.example.Main#start', attributes: { address: '0x100' } },
+        { type: 'code_unit', key: 'missing:key', attributes: {} },
+      ],
+    } })
+    expect(mocks.observationUpsert).not.toHaveBeenCalled()
+    expect(mocks.observationRawExecute).not.toHaveBeenCalled()
     expect(mocks.evidenceCreate).not.toHaveBeenCalled()
     expect(mocks.activityCreate).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ eventType: 'analysis.task.failed' }),

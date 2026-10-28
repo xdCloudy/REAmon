@@ -37,8 +37,12 @@ hash-linked candidate with a source diff and validation result, never a silent m
 The first persistent investigation-intake slice lets an authorized project member queue
 a failed or cancelled decompile/disassemble task. Its case stores the originating task,
 artifact hash, provider/version, failure context, observation count, request identity, and
-an initial history event. The queue is currently run-scoped; it does not yet create
-per-unit cases, dispatch an agent, or claim that reconstruction has started. The planned
+an initial history event. Failed provider results can also retain a bounded summary of up
+to 100 returned code units/functions, tied to the run token and original artifact hash;
+this summary is diagnostic input only, is snapshotted into the queued case, and is not
+promoted into canonical observations or success evidence. A derived-source hash is kept
+only when REAmon verifies the file bytes. The queue is currently run-scoped; it does not
+yet create per-unit cases, dispatch an agent, or claim that reconstruction has started. The planned
 M5 lifecycle must add stable unit identities, resumable agent attempts, claim/lease state,
 enforced time/token/runtime budgets, cancellation, evidence-linked source diffs,
 targeted analysis requests, validation, human review, and rollback. Unsupported or
