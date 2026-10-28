@@ -29,12 +29,10 @@ observations to the new task IDs. Original task IDs and unavailable target or
 artifact references remain provenance; target/artifact rows and bytes are not
 recreated. Focused Docker webapp tests passed 16/16, the dedicated TypeScript
 check passed, and targeted ESLint had zero errors with three pre-existing
-unused-disable warnings. GitHub quality run
-[40784190035](https://github.com/xdCloudy/REAmon/actions/runs/40784190035) was
-canceled when the readiness-ledger commit advanced `main`; replacement run
-[40784437809](https://github.com/xdCloudy/REAmon/actions/runs/40784437809) was
-pending behind an earlier canonical Docker unit gate at this check. No full-gate
-result is claimed for `aa76fc5a3d74` yet. The pre-existing
+unused-disable warnings. The [GitHub quality workflow](https://github.com/xdCloudy/REAmon/actions/workflows/reamon-quality.yml)
+has not completed its canonical Docker unit gate for this code snapshot; earlier
+runs were canceled as new commits advanced `main`. No full-gate result is
+claimed for `aa76fc5a3d74`. The pre-existing
 `redamon-orchestrator-net` Compose label mismatch warning remains, but the
 network is left untouched and readiness is unaffected.
 
