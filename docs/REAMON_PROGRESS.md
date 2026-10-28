@@ -1,6 +1,6 @@
 # REAmon product progress
 
-Assessment date: 2026-10-27 · Source: pushed commit `a6801df` · Weighted estimate: **33.0%**
+Assessment date: 2026-10-27 · Source: pushed commit `562457b` · Weighted estimate: **33.0%**
 
 This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.
 
@@ -21,7 +21,7 @@ Quality run [40247230850](https://github.com/xdCloudy/REAmon/actions/runs/402472
 | Autonomous behavioral validation and differential testing | 6% | 10% | 0.60 pts |
 | Static and dynamic analysis fusion | 1% | 5% | 0.05 pts |
 | Autonomous whole-project reconstruction and rebuilding | 6% | 22% | 1.32 pts |
-| Multi-provider semantic reconciliation | 7% | 15% | 1.05 pts |
+| Multi-provider semantic reconciliation | 7% | 16% | 1.12 pts |
 | Protected-binary analysis and recovery | 7% | 3% | 0.21 pts |
 | Encrypted-binary and executable-region recovery | 5% | 0% | 0.00 pts |
 | Virtualized-code reconstruction | 5% | 0% | 0.00 pts |
@@ -108,9 +108,9 @@ Quality run [40247230850](https://github.com/xdCloudy/REAmon/actions/runs/402472
 
 ### Multi-provider semantic reconciliation
 
-**Current evidence:** Hash-linked provider alternatives, bounded diffs, compatible function-similarity evidence, analyst-reviewed cross-provider matches, and provider-attributed project memory are implemented. These support comparison and matching but do not resolve semantic contradictions or make provider agreement proof.
+**Current evidence:** Hash-linked provider alternatives, bounded diffs, compatible function-similarity evidence, analyst-reviewed cross-provider matches, and provider-attributed project memory are implemented. A first persistent investigation-intake slice now lets an authorized project member queue failed or cancelled decompile/disassemble runs and records the exact artifact hash, provider/version, failure context, observation count, and request history. It does not dispatch an agent or resolve semantic contradictions.
 
-**Remaining:** Implement general disagreement classification for unit boundaries, logic, CFG, data flow, types, references, and symbols; account for correlated provider ancestry; rank claims using benchmark-calibrated evidence; support targeted follow-up; and deliver the resumable failed-provider-unit agent queue with cancellation, budgets, source diffs, human review, and rollback. Meet M5 held-out accuracy, calibration, and resolution gates.
+**Remaining:** Implement general disagreement classification for unit boundaries, logic, CFG, data flow, types, references, and symbols; account for correlated provider ancestry; rank claims using benchmark-calibrated evidence; support targeted follow-up; and complete the failed-provider-unit lifecycle with worker claims, resumable attempts, cancellation, enforced budgets, evidence-linked source diffs, human review, validation, and rollback. Meet M5 held-out accuracy, calibration, and resolution gates.
 
 ### Protected-binary analysis and recovery
 
