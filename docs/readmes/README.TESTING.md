@@ -56,9 +56,11 @@ alias for `unit`).
 | capture_proxy | `redamon-capture-proxy` | `scanners/capture_proxy/tests` |
 | docker_broker | `redamon-docker-broker` | `services/docker_broker/` |
 | shell | (host bash) | `tests/*_test.sh` |
-| webapp | (node) | `webapp/src/**/*.test.ts(x)` via vitest |
+| webapp | `reamon-webapp-test` (`webapp/Dockerfile.test`) | `webapp/src/**/*.test.ts(x)` via vitest |
 
-A section whose image is not built is **skipped cleanly**, never failed.
+A missing or unbuildable section image fails the unit gate. The webapp test image
+is built from the repository root with the dedicated test Dockerfile and then runs Vitest in that image;
+host Node and host `node_modules` are not part of the canonical gate.
 
 ### The `shell` section
 

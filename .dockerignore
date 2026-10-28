@@ -54,9 +54,11 @@ logs/
 
 # ---------- Agent scratch + worktrees ----------
 .claude/
+work/
 
 # ---------- Docker meta files (never needed inside the image) ----------
 **/Dockerfile
+!webapp/Dockerfile
 **/docker-compose*.yml
 **/.dockerignore
 

@@ -4675,16 +4675,27 @@ _test_run_shell() {
 
 _test_run_webapp() {
     local tier="$1"
-    if [[ ! -x "$SCRIPT_DIR/webapp/node_modules/.bin/vitest" ]]; then
-        _test_missing_input "webapp" "webapp/node_modules is absent, so vitest cannot run" \
-            "cd webapp && npm ci" "$tier"
+    if [[ "$tier" != "unit" && "$tier" != "all" && "$tier" != "coverage" ]]; then
+        _test_missing_input "webapp" "webapp unit tests are not part of tier '$tier'" \
+            "run ./redamon.sh test unit" "$tier"
         return $?
     fi
-    info "=== section: webapp (vitest) ==="
+    if ! command -v docker >/dev/null 2>&1; then
+        _test_missing_input "webapp" "Docker is unavailable, so the Node test image cannot run" \
+            "start Docker and run ./redamon.sh test unit" "$tier"
+        return $?
+    fi
+
+    local image="reamon-webapp-test:local"
+    info "=== section: webapp (vitest in Docker) ==="
+    if ! docker build --file "$SCRIPT_DIR/webapp/Dockerfile.test" --tag "$image" "$SCRIPT_DIR"; then
+        error "webapp test image build failed"
+        return 1
+    fi
     if [[ "$tier" == "coverage" ]]; then
-        ( cd "$SCRIPT_DIR/webapp" && npm run test:coverage )
+        docker run --rm --entrypoint npm "$image" run test:coverage
     else
-        ( cd "$SCRIPT_DIR/webapp" && npm run test )
+        docker run --rm --entrypoint npm "$image" run test
     fi
 }
 

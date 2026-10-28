@@ -31,6 +31,7 @@ pass() { PASS=$((PASS+1)); printf '  \033[0;32mPASS\033[0m %s\n' "$1"; }
 fail() { FAIL=$((FAIL+1)); printf '  \033[0;31mFAIL\033[0m %s\n' "$1"; }
 assert_eq() { if [[ "$2" == "$3" ]]; then pass "$1 ($2)"; else fail "$1 (got='$2' expected='$3')"; fi; }
 assert_contains() { if [[ "$2" == *"$3"* ]]; then pass "$1"; else fail "$1 (missing '$3' in: $2)"; fi; }
+assert_not_contains() { if [[ "$2" != *"$3"* ]]; then pass "$1"; else fail "$1 (unexpected '$3' in: $2)"; fi; }
 section() { printf '\n\033[1m== %s ==\033[0m\n' "$1"; }
 
 # Keep the helpers' own output capturable rather than silenced: several
@@ -85,15 +86,29 @@ assert_eq "an empty opt-out still fails" "$?" "1"
 section "T26: the real call sites route through it"
 # =============================================================================
 
-# webapp: node_modules absent -> non-zero for the gate tier.
+# Webapp tests must use the Docker target, independent of host node_modules.
+# Fake Docker so this routing contract remains hermetic.
 _saved_dir="$SCRIPT_DIR"
 SCRIPT_DIR="$(mktemp -d)"
+docker() { printf 'docker %s\n' "$*"; }
 out="$(_test_run_webapp unit 2>&1)"
-assert_eq "_test_run_webapp fails when vitest is absent" "$?" "1"
-assert_contains "names npm ci as the fix" "$out" "npm ci"
+assert_eq "_test_run_webapp succeeds through Docker" "$?" "0"
+assert_contains "builds from the repository root context" "$out" "Dockerfile.test"
+assert_contains "uses the whole repository as its test context" "$out" "docker build"
+assert_contains "runs the test script in the container" "$out" "run test"
+assert_contains "does not invoke host npm" "$out" "docker run --rm --entrypoint npm"
+
+docker() {
+    printf 'docker %s\n' "$*"
+    [[ "$1" != "build" ]]
+}
+out="$(_test_run_webapp coverage 2>&1)"
+assert_eq "failed image build fails the coverage gate" "$?" "1"
+assert_not_contains "does not run tests after a failed image build" "$out" "docker run"
 
 out="$(_test_run_webapp live 2>&1)"
 assert_eq "_test_run_webapp still skips outside the gate tiers" "$?" "0"
+unset -f docker
 
 # shell suites: no tests/*_test.sh -> non-zero for the gate tier.
 out="$(_test_run_shell unit 2>&1)"

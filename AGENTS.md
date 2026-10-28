@@ -120,9 +120,12 @@ Prose docs live in `docs/readmes/` (architecture, `README.<SUBSYSTEM>.md`, and
 ./redamon.sh test unit        # the gate; must be 100% green
 ./agentic/run_tests.sh        # agent-image unit gate (alias: focused)
 
-# Webapp (needs the webapp image or `npm ci` in webapp/)
-cd webapp && npm run test     # vitest run --no-file-parallelism
-cd webapp && npm run type-check && npm run lint
+# Webapp tests build and run in the dedicated Docker test image.
+./redamon.sh test unit
+# Focused checks can run in that same target without host Node:
+docker build -f webapp/Dockerfile.test -t reamon-webapp-test:local .
+docker run --rm --entrypoint npm reamon-webapp-test:local run type-check
+docker run --rm --entrypoint npm reamon-webapp-test:local run lint
 ```
 
 Credentials for the local stack live in the repo-root `.env` (gitignored). To sign

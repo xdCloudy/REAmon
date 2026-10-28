@@ -51,11 +51,11 @@ server_actions/   Next.js server actions          prisma/schema.prisma  data mod
 ## COMMANDS
 
 ```bash
-# All commands run against the webapp image or an `npm ci`'d webapp/ (never global node)
-cd webapp
-npm run test          # vitest run --no-file-parallelism (full parallelism OOMs the box)
-npm run type-check    # tsc --noEmit
-npm run lint          # next lint
+# Build and run checks inside the dedicated Docker test image (never host Node).
+docker build -f Dockerfile.test -t reamon-webapp-test:local ..
+docker run --rm --entrypoint npm reamon-webapp-test:local run test
+docker run --rm --entrypoint npm reamon-webapp-test:local run type-check
+docker run --rm --entrypoint npm reamon-webapp-test:local run lint
 
 # Prisma schema changes: db push, NOT migrate
 docker compose exec webapp npx prisma db push
@@ -63,8 +63,8 @@ docker compose exec webapp npx prisma db push
 
 ## QA CHECKLIST
 
-- [ ] `npm run type-check` and `npm run lint` clean.
-- [ ] `npm run test` green (with `--no-file-parallelism`).
+- [ ] Docker test target `type-check` and `lint` clean.
+- [ ] Docker test target `test` green (with `--no-file-parallelism`).
 - [ ] New or changed behaviour is covered by a test (see the `redamon-testing` skill for where + how).
 - [ ] Prisma schema edited? Applied with `db push` (not `prisma migrate`) and client regenerated.
 - [ ] UI prompts/alerts use the `useAlertModal` hook, never `window.alert` / `window.confirm`.
