@@ -7,7 +7,10 @@ The webapp and REAmon task worker containers are healthy; both
 return HTTP 200 with database, Neo4j, and artifact checks `ok`. Docker Desktop's
 Linux engine had stopped; restarting Docker Desktop restored the existing
 containers and volumes. The webapp and worker were then rebuilt and are healthy
-without a data reset. The worker's authenticated Docker health check matches the
+without a data reset. All active Compose services and their health checks pass.
+Removing the empty stale `redamon-orchestrator-net` resolved the Compose
+network-label warning; the active `reamon-orchestrator-net` remains attached to
+the webapp and Neo4j. The worker's authenticated Docker health check matches the
 runtime worker ID and checks its persisted heartbeat; this surfaces a stale
 worker as unhealthy but does not restart a still-running unhealthy process.
 The full Docker webapp suite passed on the initial worker-health commit with
