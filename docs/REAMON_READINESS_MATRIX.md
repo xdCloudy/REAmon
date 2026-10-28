@@ -7,6 +7,21 @@ The webapp container is healthy; both `localhost:3001/api/health/ready` and
 `192.168.0.53:3001/api/health/ready` return HTTP 200 with database, Neo4j, and
 artifact checks `ok`. All listed Compose services are running and their
 configured health checks pass (the project worker has no Docker health check).
+Docker Desktop's Linux engine had stopped; restarting Docker Desktop restored
+the existing containers and volumes. The webapp became ready again locally and
+over LAN without a data reset. The PostgreSQL-backed workspace-import capacity
+integration passed 3/3 in Docker against a dedicated 128 MiB tmpfs. It verified
+serialized concurrent reservations, a manifest one byte over real tmpfs
+capacity, and a real `ENOSPC` chunk write followed by successful same-offset
+retry after freeing space. The disposable `CapacityProbe-*` project count was
+zero after cleanup. Authorization was mocked inside the route test; this does
+not establish authenticated HTTP or multi-broker LAN acceptance.
+An opt-in archive-import integration also passed against the running PostgreSQL
+database: the real API route recreated a fresh inert task, connected the
+observation to it, preserved unavailable target/artifact IDs as provenance, and
+omitted the source result and run token. The disposable project count was zero
+after teardown. This database check uses route-auth mocks and is not
+authenticated browser acceptance.
 Project archive export now includes bounded task-history snapshots referenced
 by REAmon observations. Import gives each snapshot a new ID and inert
 `IMPORTED` status, omits execution payloads and credentials, and remaps
@@ -16,7 +31,9 @@ recreated. Focused Docker webapp tests passed 16/16, the dedicated TypeScript
 check passed, and targeted ESLint had zero errors with three pre-existing
 unused-disable warnings. GitHub quality run
 [40784190035](https://github.com/xdCloudy/REAmon/actions/runs/40784190035) was
-pending behind an earlier canonical Docker unit gate at this check; no full-gate
+canceled when the readiness-ledger commit advanced `main`; replacement run
+[40784437809](https://github.com/xdCloudy/REAmon/actions/runs/40784437809) was
+pending behind an earlier canonical Docker unit gate at this check. No full-gate
 result is claimed for `aa76fc5a3d74` yet. The pre-existing
 `redamon-orchestrator-net` Compose label mismatch warning remains, but the
 network is left untouched and readiness is unaffected.
@@ -178,8 +195,9 @@ the [protected-binary milestone](REAMON_PROTECTED_BINARY_RECOVERY.md); provider-
 signatures alone do not qualify as release support.
 Encrypted plaintext capture and virtualized-code execution evidence have separate gates in the [encrypted recovery](REAMON_ENCRYPTED_BINARY_RECOVERY.md) and [virtualized-code reconstruction](REAMON_VIRTUALIZED_CODE_RECOVERY.md) specifications. Both remain unavailable unless explicit authorization and isolated-worker controls pass.
 
-1. Exercise authenticated shared-volume capacity controls, concurrent large imports,
-   broker admission, and recovery under storage pressure on the current LAN deployment.
+1. The PostgreSQL-backed capacity path passes a bounded tmpfs pressure test on
+   this PC. Still exercise authenticated concurrent large imports, shared-volume
+   capacity, broker admission, and recovery under pressure on the LAN deployment.
 2. Implement the [Kali execution isolation decision](REAMON_KALI_ISOLATION.md), including cross-project tests for temporary files, shared workspace data, inherited credentials, terminal, and generated-file transfer. Complete deferred parser, persistence/recovery, provider, CI/deployment, and supply-chain review surfaces against one release candidate.
 3. Verify project-scoped Metasploit session and job registration, listing, and kill
    behavior on LAN with owner and non-owner accounts.
