@@ -1,15 +1,22 @@
 ## Current PC deployment evidence (2026-10-28)
 
-Latest verified checkpoint: commit `aa76fc5a3d74` is deployed on the PC from a
-clean `main` checkout as image
-`sha256:723d29b38c4fd6bd2757d7c8600e4afe88e7e5e39d18faf7ba91a5378063b8f7`.
-The webapp container is healthy; both `localhost:3001/api/health/ready` and
-`192.168.0.53:3001/api/health/ready` return HTTP 200 with database, Neo4j, and
-artifact checks `ok`. All listed Compose services are running and their
-configured health checks pass (the project worker has no Docker health check).
-Docker Desktop's Linux engine had stopped; restarting Docker Desktop restored
-the existing containers and volumes. The webapp became ready again locally and
-over LAN without a data reset. The PostgreSQL-backed workspace-import capacity
+Latest verified checkpoint: commit `4182a1fe` is deployed on the PC as image
+`sha256:bdcca05b862c3ee67a0d7a35198ad60fda04e15a1865496dde2baa0f8abab2d3`.
+The webapp and REAmon task worker containers are healthy; both
+`localhost:3001/api/health/ready` and `192.168.0.53:3001/api/health/ready`
+return HTTP 200 with database, Neo4j, and artifact checks `ok`. Docker Desktop's
+Linux engine had stopped; restarting Docker Desktop restored the existing
+containers and volumes. The webapp and worker were then rebuilt and are healthy
+without a data reset. The worker's authenticated Docker health check matches the
+runtime worker ID and checks its persisted heartbeat; this surfaces a stale
+worker as unhealthy but does not restart a still-running unhealthy process.
+The full Docker webapp suite passed on the initial worker-health commit with
+9,669 passed tests, 2 expected failures, and 147 skips; the follow-up identity
+and allowlist changes passed 74 focused tests, type-check, ESLint, and Compose
+configuration. The full suite was not rerun after that follow-up.
+The legacy `redamon-gvm-gvmd` container remains unhealthy because its stopped
+PostgreSQL companion belongs to the disabled legacy GVM profile; neither
+container or its data was changed. The PostgreSQL-backed workspace-import capacity
 integration passed 3/3 in Docker against a dedicated 128 MiB tmpfs. It verified
 serialized concurrent reservations, a manifest one byte over real tmpfs
 capacity, and a real `ENOSPC` chunk write followed by successful same-offset
@@ -177,7 +184,8 @@ The acceptance validates one generated executable and one live task-worker run; 
 | Full repository verification | Last full CI quality run passed; latest webapp Docker gate passed locally; deployment validation remains partial | Quality run [40247230850](https://github.com/xdCloudy/REAmon/actions/runs/40247230850) passed all five jobs on commit `baa5634a`: webapp checks, canonical Docker unit gate, agent dependency audit, Compose configuration, and production image smoke. The live stack passed authenticated acceptance, browser login, worker crash/recovery and bounded load/soak, PostgreSQL/artifact restore, Neo4j dump/restore, and final readiness checks. On 2026-10-28, commit `bac9e0c1` introduced the repository-root-context `webapp/Dockerfile.test`; its full Vitest run passed 603 files (9,629 tests, 2 expected failures, 146 skipped), and its Docker type-check and lint passed. The shell gate-routing regression passed 30 assertions. The full `redamon.sh test unit` gate was not rerun: this PC's WSL1 Docker CLI selected a disconnected `default` context, while the Windows Docker Desktop CLI successfully built and ran the test image. | Keep all five CI jobs required; verify the full Docker unit gate in CI after `bac9e0c1`, then validate rebuilt services, large imports, and real worker behavior on the LAN deployment. |
 | DEX analyzer scratch capacity | Source fix implemented; analyzer rebuilt and healthy on the LAN deployment; workload behavior unverified | DEX request scratch now uses a dedicated disk-backed Docker volume in source, avoiding the 1 GiB memory-backed `/tmp` competing with extracted input, Java output, and structured evidence. The analyzer's focused Python tests pass in Docker, the root Compose file parses, and on 2026-10-26 the rebuilt analyzer reported healthy with the expected pinned source revision. | Verify large-request scratch placement, cleanup after cancellation/restart, and disk-space failure reporting under real workload. |
 | DEX alternate output throughput and coverage reporting | Real provider-to-database task and MCP retrieval verified; explanation and rewrite context use exact function relationships | A Cross Stitch Joy APK task completed through the current Rust DEX provider in 405 seconds, promoting 11,176 functions, 1,560 symbols, 4,000 calls, and 4,000 references with no pending observations. MCP code and relationship queries retrieved stored output; isolated PostgreSQL integration passes atomic promotion checks. Visualizer diagnostics report relationship caps. Selected-function explanations query bounded calls and references by exact function key. Member rewrites resolve selected method keys before fetching direct neighbors, avoiding a run-wide edge prefix that can omit the method. Focused explanation/rewrite route tests pass (15). The provider returns up to 4,000 calls and references, so complete relationship coverage is not established. | Validate real-run explanation/rewrite behavior with a configured model; compare reconstructed output with bytecode; exercise truncation and cleanup on larger workloads. |
-| Deployment, upgrade, and restore | LAN webapp rebuilt from current source and healthy; agent and other lifecycle gates remain behind | Quality run [40247230850](https://github.com/xdCloudy/REAmon/actions/runs/40247230850) exercised a disposable production stack, including PostgreSQL/artifact restore, Neo4j dump/restore, and readiness after restore. On 2026-10-27, the PC LAN webapp reports revision `89dfbd00` and is healthy; local readiness checks pass and LAN login returns HTTP 200. The agent reports `818efc164b68` and is healthy. The latest webapp source is deployed, but full-stack lifecycle, authenticated imports, worker execution, Metasploit owner/non-owner controls, upgrade, and restore acceptance remain open. Kali is healthy. The DEX analyzer remains healthy at its pinned source revision. Build-revision reporting is implemented in commit `730333e6`; the [quality workflow](https://github.com/xdCloudy/REAmon/actions/workflows/reamon-quality.yml) checks image labels and live health payloads against the tested source SHA. | Exercise authenticated imports, worker execution, cross-service source revisions, owner/non-owner Metasploit job controls, upgrade, and restore on a clean installation. Verify authenticated REST and LAN WebSocket behavior and the backup/restore procedure. |
+| Deployment, upgrade, and restore | Webapp and worker deployed from current source; full-stack lifecycle gates remain open | On 2026-10-28, webapp revision `4182a1fe` is healthy on LAN and the queue worker is Docker healthy from persisted heartbeats. The worker exit/restart lifecycle, authenticated imports, cross-service source revisions, Metasploit owner/non-owner controls, clean upgrade, and backup/restore acceptance remain open. Docker engine restart preserved existing containers and volumes without a data reset. A disabled legacy GVM container remains unhealthy because its PostgreSQL companion is stopped. | Exercise worker crash/recovery, authenticated imports, source-revision consistency, owner/non-owner Metasploit controls, clean upgrade, and backup/restore on a clean installation. Verify authenticated REST and LAN WebSocket behavior. |
+| REAmon task-worker Docker health | Implemented, deployed, and verified for heartbeat-based liveness | The worker reports a persisted heartbeat; Docker calls an internal-key-protected health endpoint that checks the same worker identity used by its runtime. The route is included in the enforceable internal-key allowlist. On 2026-10-28, Docker reported the worker healthy after successful checks and LAN readiness returned HTTP 200 on revision `4182a1fe`. A stale heartbeat becomes an unhealthy status; Docker restart policies only restart exited processes, so automatic recovery from a stuck-but-running process remains open. | Exercise health failure during a controlled worker stall, verify operator alerting or an external unhealthy-container restarter, and complete authenticated task-claim/recovery acceptance on LAN. |
 
 ## Release blockers
 
