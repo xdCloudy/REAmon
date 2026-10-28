@@ -126,7 +126,10 @@ describe('import — Scan Timeline history', () => {
       fromCanonicalKey: null, toCanonicalKey: null,
       attributes: {
         assessment: 'unknown', confirmed: false,
-        importOrigin: { projectId: 'oldProject', taskId: 'oldTask', targetId: 'oldTarget', artifactId: 'oldArtifact' },
+        importOrigin: {
+          observationId: 'oldObservation', projectId: 'oldProject', taskId: 'oldTask',
+          targetId: 'oldTarget', artifactId: 'oldArtifact',
+        },
       },
       isPending: true, createdAt: new Date('2026-10-01T12:00:00.000Z'), updatedAt: new Date('2026-10-01T12:01:00.000Z'),
     }] })

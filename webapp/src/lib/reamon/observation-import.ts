@@ -43,8 +43,9 @@ function importedDate(value: unknown, fallback: Date): Date {
 /**
  * Validate observation rows from an untrusted project archive. Task, target,
  * and artifact foreign keys cannot be reused because those rows are not part of
- * this archive format; their old ids are retained as import provenance inside
- * attributes while active foreign-key columns stay null.
+ * this archive format; their old ids and the observation's source id are
+ * retained as import provenance inside attributes while active foreign-key
+ * columns stay null.
  */
 export function prepareObservationImport(value: unknown, now = new Date()): PreparedObservationImport {
   if (!Array.isArray(value)) return { rows: [], skipped: 0 }
@@ -89,6 +90,7 @@ export function prepareObservationImport(value: unknown, now = new Date()): Prep
     }
     seen.add(identity)
     const originalReferences = {
+      observationId: optionalString(row.id, 200),
       projectId: optionalString(row.projectId, 200),
       taskId: optionalString(row.taskId, 200),
       targetId: optionalString(row.targetId, 200),

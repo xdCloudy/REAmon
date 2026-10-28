@@ -20,7 +20,10 @@ describe('project observation import', () => {
       canonicalKey: 'identity:protection:123', source: 'reamon-protection-inspector', isPending: false,
       attributes: {
         assessment: 'suspected', confirmed: false,
-        importOrigin: { projectId: 'source-project', taskId: 'source-task', targetId: 'source-target', artifactId: 'source-artifact' },
+        importOrigin: {
+          observationId: 'source-observation', projectId: 'source-project', taskId: 'source-task',
+          targetId: 'source-target', artifactId: 'source-artifact',
+        },
       },
     })
     expect(rows[0].createdAt.toISOString()).toBe('2026-10-01T12:00:00.000Z')
@@ -38,5 +41,18 @@ describe('project observation import', () => {
   test('does not reactivate a pending observation as accepted evidence', () => {
     const { rows } = prepareObservationImport([sourceRow({ isPending: true })])
     expect(rows[0].isPending).toBe(true)
+  })
+
+  test('replaces untrusted import-origin metadata with the archived row identity', () => {
+    const { rows } = prepareObservationImport([sourceRow({
+      attributes: { importOrigin: { taskId: 'forged-task' }, evidence: 'retained' },
+    })])
+    expect(rows[0].attributes).toMatchObject({
+      evidence: 'retained',
+      importOrigin: {
+        observationId: 'source-observation', taskId: 'source-task', artifactId: 'source-artifact',
+      },
+    })
+    expect(rows[0].attributes).not.toHaveProperty('importOrigin.taskId', 'forged-task')
   })
 })
