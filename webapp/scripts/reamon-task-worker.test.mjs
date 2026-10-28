@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from 'vitest'
-import { dispatchOnce, listBackfillProjects, projectOnce, readWorkerConfig, runRetentionOnce, runWorker, WorkerConfigurationError } from './reamon-task-worker.mjs'
+import { checkWorkerHealth, dispatchOnce, listBackfillProjects, projectOnce, readWorkerConfig, runRetentionOnce, runWorker, WorkerConfigurationError } from './reamon-task-worker.mjs'
 
 describe('REAmon task worker', () => {
   test('requires a real internal key and clamps worker settings', () => {
@@ -15,6 +15,25 @@ describe('REAmon task worker', () => {
       REAMON_WORKER_BACKFILL_BATCH_SIZE: '99',
       REAMON_WORKER_ID: 'worker-a',
     })).toMatchObject({ webappUrl: 'http://webapp:3000', pollSeconds: 300, batchSize: 10, staleAfterMinutes: 5, backfillIntervalSeconds: 86400, backfillBatchSize: 10, workerId: 'worker-a' })
+  })
+
+  test('checks the persisted health of the worker identity chosen by its runtime config', async () => {
+    const config = readWorkerConfig({ INTERNAL_API_KEY: 'secret', REAMON_WORKER_WEBAPP_URL: 'http://webapp:3000/', REAMON_WORKER_ID: 'worker-a' })
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: true, status: 200 })
+
+    await expect(checkWorkerHealth(config, fetchImpl)).resolves.toBe(true)
+
+    const [url, options] = fetchImpl.mock.calls[0]
+    expect(url.toString()).toBe('http://webapp:3000/api/internal/reamon/workers/health?workerId=worker-a')
+    expect(options.headers).toEqual({ 'x-internal-key': 'secret' })
+    expect(options.cache).toBe('no-store')
+  })
+
+  test('marks a worker unhealthy when its heartbeat endpoint is unavailable', async () => {
+    const config = readWorkerConfig({ INTERNAL_API_KEY: 'secret', REAMON_WORKER_ID: 'worker-a' })
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: false, status: 503 })
+
+    await expect(checkWorkerHealth(config, fetchImpl)).resolves.toBe(false)
   })
 
   test('dispatches with internal auth and bounded recovery settings', async () => {

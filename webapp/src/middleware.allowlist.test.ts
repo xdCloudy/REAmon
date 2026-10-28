@@ -16,6 +16,7 @@ describe('internalKeyRouteAllowed — enumerated internal routes pass', () => {
     ['POST', '/api/internal/codefix-sandbox/job1/exec'],
     ['POST', '/api/internal/supply-chain/guarddog'],  // agent-driven L3 GuardDog passthrough
     ['GET', '/api/internal/capture-config'],       // orchestrator polls the DB->file config
+    ['GET', '/api/internal/reamon/workers/health'], // Docker checks the worker's persisted heartbeat
     ['GET', '/api/conversations/by-session/s1'],
     ['POST', '/api/conversations/by-session/s1/messages'],
     ['POST', '/api/remediations'],

@@ -78,6 +78,17 @@ export function readWorkerConfig(env = process.env) {
   }
 }
 
+export async function checkWorkerHealth(config, fetchImpl = fetch) {
+  const url = new URL('/api/internal/reamon/workers/health', config.webappUrl)
+  url.searchParams.set('workerId', config.workerId)
+  const response = await fetchImpl(url, {
+    headers: { 'x-internal-key': config.internalKey },
+    signal: AbortSignal.timeout(8_000),
+    cache: 'no-store',
+  })
+  return response.ok
+}
+
 export async function dispatchOnce(config, fetchImpl = fetch, logger = console) {
   const response = await fetchImpl(`${config.webappUrl}/api/internal/reamon/tasks/dispatch`, {
     method: 'POST',

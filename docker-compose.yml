@@ -2402,7 +2402,7 @@ services:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "node", "-e", "const id=process.env.REAMON_WORKER_ID||process.env.HOSTNAME;fetch(new URL('/api/internal/reamon/workers/health?workerId='+encodeURIComponent(id),process.env.REAMON_WORKER_WEBAPP_URL),{headers:{'x-internal-key':process.env.INTERNAL_API_KEY}}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      test: ["CMD", "node", "scripts/reamon-worker-healthcheck.mjs"]
       interval: 30s
       timeout: 10s
       retries: 3
