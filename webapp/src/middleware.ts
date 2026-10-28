@@ -53,7 +53,13 @@ const INTERNAL_ALLOWLIST: { method: string; pattern: RegExp }[] = [
   // REAmon import retention is driven by an internal maintenance caller and
   // remains dry-run unless the caller explicitly sends apply=true.
   { method: 'POST', pattern: /^\/api\/internal\/reamon\/imports\/retention$/ },
+  // REAmon worker callbacks and graph projection are authenticated again in
+  // their handlers; enumerate only the methods the worker actually invokes.
+  { method: 'POST', pattern: /^\/api\/internal\/reamon\/tasks\/dispatch$/ },
+  { method: 'POST', pattern: /^\/api\/internal\/reamon\/code-rewrites\/dispatch$/ },
+  { method: 'POST', pattern: /^\/api\/internal\/reamon\/workers\/heartbeat$/ },
   { method: 'GET', pattern: /^\/api\/internal\/reamon\/workers\/health$/ },
+  { method: 'POST', pattern: /^\/api\/internal\/reamon\/graph\/(project|backfill)$/ },
   // Scan Timeline scheduler: the orchestrator worker polls for due schedules and
   // asks the webapp to run or defer them (the webapp owns the version freeze).
   { method: 'GET', pattern: /^\/api\/internal\/scan-schedules\/due$/ },
