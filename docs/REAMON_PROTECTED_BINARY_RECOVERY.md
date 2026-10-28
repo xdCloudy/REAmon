@@ -7,10 +7,10 @@ stripping, optimization, obfuscation, and partial corruption. The current implem
 is limited to a static PE inspector that reads at most 1 MiB of headers and samples at
 most 64 KiB from each executable section, with a 256 KiB aggregate sample cap. It records
 section metadata, architecture, entry-point RVA-to-section mapping, import and certificate
-directory locations, sampled Shannon entropy, and conventional UPX section-name indicators
-as **suspected** evidence in project observations. It does not parse import names or verify
-certificate contents. High
-entropy is only a generic packing/encryption/data indicator; it does not identify a family.
+directory locations, sampled Shannon entropy, out-of-artifact raw section ranges, and
+conventional UPX section-name indicators as **suspected** evidence in project observations.
+It does not parse import names or verify certificate contents. High entropy is only a generic
+packing/encryption/data indicator; it does not identify a family.
 Synthetic PE fixtures do not establish detector precision/recall on real binaries. The
 inspector does not execute or unpack the file, detect arbitrary packers, identify a
 commercial protector, extract a layer, or prove that a marker corresponds to a genuine

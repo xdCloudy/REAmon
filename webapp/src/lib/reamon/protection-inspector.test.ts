@@ -137,4 +137,26 @@ describe('static PE protection evidence', () => {
       await rm(root, { recursive: true, force: true })
     }
   })
+
+  test('marks section data that extends beyond the artifact boundary', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'reamon-protection-truncated-'))
+    const filePath = path.join(root, 'truncated-section.exe')
+    const bytes = peFixture(['.text'], [Buffer.alloc(64, 0x90)])
+    const sectionTable = 0x80 + 24 + 0xE0
+    bytes.writeUInt32LE(128, sectionTable + 16)
+    await writeFile(filePath, bytes)
+    try {
+      const result = await executeProtectionInspection({
+        targetProfile: { targetType: 'FILE', format: 'pe', mimeType: 'application/x-executable', extension: 'exe', architecture: 'x86-64', platform: 'windows', runtimes: ['native'], embeddedArtifacts: [], entropy: null, metadata: {} },
+        artifactId: 'artifact-truncated', artifactPath: filePath,
+      })
+      const assessment = result.data.assessment as { status: string; family: string | null; sections: Array<{ rawDataTruncated: boolean }>; evidence: string[] }
+      expect(result.status).toBe('completed')
+      expect(assessment).toMatchObject({ status: 'suspected', family: null })
+      expect(assessment.sections[0].rawDataTruncated).toBe(true)
+      expect(assessment.evidence.join(' ')).toContain('section data is truncated')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
 })

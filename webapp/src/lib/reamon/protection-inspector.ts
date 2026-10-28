@@ -45,6 +45,7 @@ export interface PeSectionEvidence {
   code: boolean
   sampledBytes: number
   entropyBits: number | null
+  rawDataTruncated: boolean
 }
 
 function readUInt16LE(bytes: Buffer, offset: number): number | null {
@@ -68,10 +69,15 @@ function shannonEntropy(bytes: Buffer): number | null {
   return Math.round(entropy * 1000) / 1000
 }
 
-export function assessPeProtection(bytes: Buffer, sectionSamples: Map<number, Buffer> = new Map()): PeProtectionAssessment {
+export function assessPeProtection(
+  bytes: Buffer,
+  sectionSamples: Map<number, Buffer> = new Map(),
+  truncatedSections: Set<number> = new Set(),
+): PeProtectionAssessment {
   const evidence: string[] = []
   const sections: PeSectionEvidence[] = []
   let sampledBytes = 0
+  let upxMarkerPresent = false
   const peOffset = readUInt32LE(bytes, 0x3c)
   if (bytes.length < 2 || bytes.toString('ascii', 0, 2) !== 'MZ'
       || peOffset === null || peOffset + 24 > bytes.length
@@ -148,10 +154,17 @@ export function assessPeProtection(bytes: Buffer, sectionSamples: Map<number, Bu
       code: (characteristics & 0x00000020) !== 0,
       sampledBytes: sectionSample?.length ?? 0,
       entropyBits,
+      rawDataTruncated: truncatedSections.has(index),
     })
-    if (/^UPX(?:0|1|2|!)$/i.test(name)) evidence.push(`PE section name "${name}" matches a conventional UPX section marker.`)
+    if (/^UPX(?:0|1|2|!)$/i.test(name)) {
+      upxMarkerPresent = true
+      evidence.push(`PE section name "${name}" matches a conventional UPX section marker.`)
+    }
     if (entropyBits !== null && entropyBits >= HIGH_ENTROPY_THRESHOLD) {
       evidence.push(`Executable PE section "${name || index}" has high sampled entropy (${entropyBits} bits per byte); this can result from packing, encryption, or other data and does not identify a protection family.`)
+    }
+    if (truncatedSections.has(index)) {
+      evidence.push(`PE section "${name || index}" declares raw bytes beyond the artifact boundary; its section data is truncated.`)
     }
   }
   const entryPointSectionEvidence = entryPointRva === null ? undefined : sections.find((section) => {
@@ -166,7 +179,7 @@ export function assessPeProtection(bytes: Buffer, sectionSamples: Map<number, Bu
 
   return {
     status: evidence.length ? 'suspected' : 'unknown',
-    family: evidence.length ? 'UPX' : null,
+    family: upxMarkerPresent ? 'UPX' : null,
     evidence: evidence.length ? evidence : ['No recognized UPX section-name marker was found; other protection may still be present.'],
     architecture,
     entryPointRva,
@@ -198,6 +211,7 @@ export function peSectionObservations(sections: PeSectionEvidence[], artifactId?
       code: section.code,
       sampledBytes: section.sampledBytes,
       entropyBits: section.entropyBits,
+      rawDataTruncated: section.rawDataTruncated,
     },
   }))
 }
@@ -245,11 +259,18 @@ export async function executeProtectionInspection(input: ToolExecutionInput): Pr
     const initial = assessPeProtection(headerBytes)
     const stat = await handle.stat()
     const sectionSamples = new Map<number, Buffer>()
+    const truncatedSections = new Set<number>()
     let sampleBudget = MAX_TOTAL_SAMPLE_BYTES
     if (stat.isFile()) {
       for (const section of initial.sections) {
-        if (!section.executable || !section.rawSize || !sampleBudget || section.rawOffset >= stat.size) continue
+        if (!section.rawSize) continue
+        if (section.rawOffset >= stat.size) {
+          truncatedSections.add(section.index)
+          continue
+        }
         const availableBytes = Math.min(section.rawSize, stat.size - section.rawOffset)
+        if (availableBytes < section.rawSize) truncatedSections.add(section.index)
+        if (!section.executable || !sampleBudget) continue
         const sampleSize = Math.min(availableBytes, MAX_SECTION_SAMPLE_BYTES, sampleBudget)
         if (sampleSize <= 0) continue
         const sample = Buffer.alloc(sampleSize)
@@ -258,9 +279,10 @@ export async function executeProtectionInspection(input: ToolExecutionInput): Pr
           sectionSamples.set(section.index, sample.subarray(0, sampled))
           sampleBudget -= sampled
         }
+        if (sampled < sampleSize) truncatedSections.add(section.index)
       }
     }
-    const assessment = assessPeProtection(headerBytes, sectionSamples)
+    const assessment = assessPeProtection(headerBytes, sectionSamples, truncatedSections)
     const observations = [
       protectionObservation(assessment, input.artifactId),
       ...peSectionObservations(assessment.sections, input.artifactId),
