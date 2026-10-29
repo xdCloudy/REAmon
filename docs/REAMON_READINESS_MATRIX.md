@@ -1,20 +1,31 @@
 ## Current PC deployment evidence (2026-10-29)
 
 The latest LAN webapp runs `redamon-webapp:latest` from source revision
-`d1182c73`; its image label and readiness response match. The local image ID is
-`sha256:826a383bca4b3f29f7088f25627603e0e2b33285aa4c7ac2ca2a1a5cf3dc7490` and
-the build manifest-list digest is
-`sha256:cf5257d7e1448ee630a8b5c223d9459d1c4c525ad48af55d826909d37aef7564`.
-Its `REAMON_BUILD_DIRTY` flag is true because the local checkout contains the
-user-owned untracked `work/` directory. Local and LAN readiness at `localhost:3001` and
-`192.168.0.53:3001` return `ready`; database, Neo4j, and artifact checks are
-`ok`.
+`84b9ce44`; its image label and readiness response match. Its local image ID is
+`sha256:bce49ea731f20c715cd52ec575a73320886b3a2444c8492927d7030e880ca40a`, and
+its build manifest-list digest is
+`sha256:697906e5699f09a29c0833ad0f0c1d57b4cec25cab2051e0ee07e93e0777a656`.
+`REAMON_BUILD_DIRTY=true` because the local checkout contains the user-owned
+untracked `work/` directory. The webapp container is healthy; local and LAN
+readiness at `localhost:3001` and `192.168.0.53:3001` return `ready`, with
+database, Neo4j, and artifact checks all `ok`.
+
+The project-wide investigation queue is available under “Tasks and findings.” It
+loads when expanded, pages saved cases, refreshes while an attempt is active, and
+shows recent unit status and candidate availability without returning captured
+failure text or source code in the list response. “Open task controls” expands and
+scrolls to the originating task. Focused Docker tests pass 20/20 across the queue
+route, queue UI, and task-list suites; TypeScript and targeted ESLint pass. The
+production build completed and the image is deployed. GitHub quality run
+[40860655994](https://github.com/xdCloudy/REAmon/actions/runs/40860655994) is still
+running; its Compose configuration check passed. PostgreSQL-backed queue paging
+and authenticated browser acceptance remain open.
 
 Protection inspection now distinguishes direct marker evidence (`detected`),
 structural indicators (`suspected`), and no recognized evidence (`unknown`). A
 direct marker does not confirm a protector family. Focused Docker protection
 tests passed: 61 passed, 1 skipped. The production image was built from
-`d1182c73` and deployed. The deployed
+`d1182c73` before the queue update. The deployed
 visualizer retrieves compatible provider outputs across all completed tasks for
 the selected artifact/input hash, rather than dropping candidates after the
 newest 500 tasks. Each request scans up to 100 matching observations and returns
