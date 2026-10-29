@@ -1,25 +1,21 @@
 ## Current PC deployment evidence (2026-10-29)
 
-The webapp remains on image `sha256:55d023ea9642dcc68c948250cf9ffe1359cfcfe23e49540222bd4764cbcb59b8`
-at revision `3c9c11a456dae40cc21f66899f421329d1168f09`. The task worker was
-rebuilt from current `main` revision `31a35c378f7e` using image
-`sha256:b15bd821fc9c8f12c47ac360edbd9c87fc974e39a9fe4b7b0c981fa4e1fcf5f4`
-with `REAMON_BUILD_DIRTY=false`. Only the worker was recreated; before restart,
-the persisted REAmon task table contained only `FAILED` and `COMPLETED` tasks.
-Both containers are healthy, and localhost and LAN readiness return `ready`.
-Database and artifact volumes were preserved.
+The webapp runs image `redamon-webapp:latest`, built from code commit
+`e936f870` with `REAMON_BUILD_DIRTY=false`; its Docker image label matches that
+revision. The task agent remains on revision `26288814` and is healthy; the PE
+import evidence change is webapp-only. All active Compose services report
+healthy. Local and LAN readiness at `localhost:3001` and `192.168.0.53:3001`
+return `ready` with database, Neo4j, and artifact checks `ok`. Existing database
+and artifact volumes were preserved during the webapp update.
 
-On this source, Docker focused tests pass 14/14, Docker type-check and configured
-lint pass, and the complete Docker/Vitest webapp suite passes 614 files with 24
-skipped: 9,698 tests passed, 2 were expected failures, and 148 were skipped. The
-broader optional `lint:all` command reports 143 errors in unrelated existing files.
-
-GitHub quality run [40814750462](https://github.com/xdCloudy/REAmon/actions/runs/40814750462)
-for commit `eb2283dda49b465abdb9425907a005a2359c5f51` has passed Compose
-validation, webapp checks, the agent dependency audit, and production-image live
-acceptance; its canonical Docker unit gate is still building images. Quality run
-[40816573093](https://github.com/xdCloudy/REAmon/actions/runs/40816573093) for
-worker fix `c52d0418` is queued. Current-tip CI has not completed.
+On this code change, focused Docker/Vitest checks pass 23 tests across the PE
+protection inspector and project overview (one opt-in UPX benchmark is skipped),
+Docker TypeScript checking and changed-file ESLint pass, and the production
+webapp Docker image builds. GitHub quality run
+[40826127572](https://github.com/xdCloudy/REAmon/actions/runs/40826127572) for
+commit `7e438dc2` has passed Compose configuration and webapp checks; its agent
+dependency audit, canonical Docker unit gate, and production-image smoke test
+are still running. These focused checks do not replace the full repository gate.
 
 The latest complete local canonical `bash ./redamon.sh test unit` gate passed from
 checkout `8c098dfc`: agent (3,788), root-agent (3,400), root-recon (570), recon
