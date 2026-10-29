@@ -344,3 +344,16 @@ project directories and all per-run worker containers and networks were removed.
 This does not close the isolation release blocker: the acceptance did not cover
 terminal, Playwright, Kali shell, generated-file download, browser/MCP flow,
 restart recovery, or cross-user behavior.
+
+An additional live broker probe on 2026-10-29 exercised all four tool-selected
+worker profiles (`execute_code`, `kali_shell`, `execute_playwright`, and
+`proxy_brain`) with agent-signed scopes for two disposable projects. Project A
+created unique canaries in its `/tmp`, workspace scratch, and `tool-outputs`;
+Project B's worker could not read them through those paths, a direct Project A
+workspace path, or parent traversal. The workers also lacked the tested
+service-credential environment variables. Project directories, worker
+containers, and worker networks were absent after cleanup. For the Playwright
+and proxy-brain profiles this exercised the broker-selected worker images and
+scope boundary with a Python probe, not the MCP adapters or actual browser
+automation. Terminal, generated-file download, browser/MCP flow, restart
+recovery, and cross-user behavior remain open.

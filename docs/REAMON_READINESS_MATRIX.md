@@ -35,6 +35,19 @@ networks were removed. This exercised `execute_code` only against the deployed
 agent image revision `818efc164b68`; it does not prove the browser flow,
 terminal, Playwright, Kali shell, generated-file download, or restart recovery.
 
+A second live broker probe exercised the `execute_code`, `kali_shell`,
+`execute_playwright`, and `proxy_brain` worker profiles with agent-signed scopes
+for two disposable projects. Project A wrote unique canaries to `/tmp`, project
+scratch, and `tool-outputs`; Project B could not read them through those paths,
+a direct Project A workspace path, or parent traversal. The workers lacked the
+tested service-credential environment variables, and the two temporary
+workspaces plus all worker containers and networks were removed. The
+Playwright and proxy-brain checks ran a Python isolation probe in each selected
+worker image; they did not exercise the MCP adapters or real browser
+automation. Terminal, generated-file download, browser/MCP flow, restart
+recovery, and cross-user acceptance remain open. See the [Kali isolation
+decision](REAMON_KALI_ISOLATION.md).
+
 Latest verified checkpoint: commit `859655f1` is deployed on the PC as image
 `sha256:1ec882b475ed8a4ceda014c49d60b7c6fe3142855ba8ced92ebe5ab46213bf12`.
 The webapp and REAmon task worker containers are healthy; both
