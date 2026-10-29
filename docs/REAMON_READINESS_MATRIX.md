@@ -1,20 +1,31 @@
 ## Current PC deployment evidence (2026-10-29)
 
-The LAN webapp runs `redamon-webapp:latest` from source revision `567236f3`; its
-image label and readiness response match. Image manifest:
-`sha256:af0003b127f868dae8c18131074b90592d69a818c96467b7216d41ab83747258`.
-The image has `REAMON_BUILD_DIRTY=true` because the local checkout contains the
-user-owned untracked `work/` directory. Local and LAN readiness at
-`localhost:3001` and `192.168.0.53:3001` return `ready`; database, Neo4j, and
-artifact checks are `ok`, and the webapp container is healthy. The deployed
+The latest LAN webapp runs `redamon-webapp:latest` from source revision
+`d1182c73`; its image label and readiness response match. The local image ID is
+`sha256:826a383bca4b3f29f7088f25627603e0e2b33285aa4c7ac2ca2a1a5cf3dc7490` and
+the build manifest-list digest is
+`sha256:cf5257d7e1448ee630a8b5c223d9459d1c4c525ad48af55d826909d37aef7564`.
+Its `REAMON_BUILD_DIRTY` flag is true because the local checkout contains the
+user-owned untracked `work/` directory. Local and LAN readiness at `localhost:3001` and
+`192.168.0.53:3001` return `ready`; database, Neo4j, and artifact checks are
+`ok`.
+
+Protection inspection now distinguishes direct marker evidence (`detected`),
+structural indicators (`suspected`), and no recognized evidence (`unknown`). A
+direct marker does not confirm a protector family. Focused Docker protection
+tests passed: 61 passed, 1 skipped. The production image was built from
+`d1182c73` and deployed. The deployed
 visualizer retrieves compatible provider outputs across all completed tasks for
 the selected artifact/input hash, rather than dropping candidates after the
 newest 500 tasks. Each request scans up to 100 matching observations and returns
 up to 32 alternatives; cursor paging continues beyond those response bounds.
 The focused Docker route and component tests pass 35/35; webapp TypeScript,
 targeted ESLint, and the production build pass. Large-history database
-pagination acceptance, disagreement adjudication, and behavioral equivalence
-remain open.
+pagination acceptance, disagreement adjudication, behavioral equivalence,
+protected-layer extraction, and commercial-protector recovery remain open.
+
+Preceding deployment `567236f3` used image manifest
+`sha256:af0003b127f868dae8c18131074b90592d69a818c96467b7216d41ab83747258`.
 
 Focused Docker/Vitest checks pass 33/33 tests across the investigation GET route,
 dispatch route, and workspace task list; TypeScript and targeted ESLint pass, and
