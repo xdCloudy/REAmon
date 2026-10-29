@@ -341,6 +341,69 @@ class ProjectWorkerRuntimeTests(unittest.IsolatedAsyncioTestCase):
 
             self.assertTrue(os.path.isfile(external_file))
 
+    async def test_periodic_scratch_collection_only_removes_expired_files_for_idle_projects(self):
+        with tempfile.TemporaryDirectory() as workspace:
+            now = time.time()
+            for project_id in ("idle", "active"):
+                scratch = os.path.join(workspace, project_id, ".reamon-tmp")
+                os.makedirs(scratch)
+                stale = os.path.join(scratch, "old.bin")
+                with open(stale, "wb") as output:
+                    output.write(project_id.encode())
+                os.utime(stale, (now - worker.WORKER_SCRATCH_TTL_SECONDS - 1,) * 2)
+
+            async def active_workers(project_id):
+                return 0 if project_id == "idle" else 1
+
+            with (
+                mock.patch.object(worker, "WORKSPACE_ROOT", workspace),
+                mock.patch.object(worker, "_active_project_worker_count", side_effect=active_workers),
+            ):
+                projects, reclaimed = await worker.reclaim_expired_idle_project_scratch()
+
+            self.assertEqual(projects, 1)
+            self.assertEqual(reclaimed, len(b"idle"))
+            self.assertFalse(os.path.exists(os.path.join(workspace, "idle", ".reamon-tmp", "old.bin")))
+            self.assertTrue(os.path.isfile(os.path.join(workspace, "active", ".reamon-tmp", "old.bin")))
+
+    async def test_periodic_scratch_collection_skips_projects_when_docker_inventory_is_unavailable(self):
+        with tempfile.TemporaryDirectory() as workspace:
+            scratch = os.path.join(workspace, "p1", ".reamon-tmp")
+            os.makedirs(scratch)
+            stale = os.path.join(scratch, "old.bin")
+            with open(stale, "wb") as output:
+                output.write(b"retain")
+            os.utime(stale, (1, 1))
+
+            with (
+                mock.patch.object(worker, "WORKSPACE_ROOT", workspace),
+                mock.patch.object(worker, "_active_project_worker_count", return_value=None),
+            ):
+                projects, reclaimed = await worker.reclaim_expired_idle_project_scratch()
+
+            self.assertEqual((projects, reclaimed), (0, 0))
+            self.assertTrue(os.path.isfile(stale))
+
+    async def test_scratch_maintenance_repeats_and_cancels_cleanly(self):
+        sleeps = 0
+
+        async def cancel_after_one_cycle(_seconds):
+            nonlocal sleeps
+            sleeps += 1
+            if sleeps == 2:
+                raise asyncio.CancelledError
+
+        with (
+            mock.patch.object(worker, "WORKER_SCRATCH_GC_INTERVAL_SECONDS", 15),
+            mock.patch.object(worker.asyncio, "sleep", side_effect=cancel_after_one_cycle),
+            mock.patch.object(worker, "reclaim_expired_idle_project_scratch", return_value=(1, 12)) as collect,
+        ):
+            with self.assertRaises(asyncio.CancelledError):
+                await worker.maintain_expired_project_scratch()
+
+        self.assertEqual(sleeps, 2)
+        collect.assert_awaited_once_with()
+
     async def test_cancelled_network_create_preserves_cancellation_when_delete_fails(self):
         calls = []
 

@@ -218,12 +218,13 @@ at `.reamon-tmp`, allowing generated files to survive across worker calls so a
 later transfer can move them into `tool-outputs`. This scratch is shared by
 workers for the same project and has no aggregate quota; per-file `RLIMIT_FSIZE`
 does not prevent many smaller files from exhausting its backing filesystem.
-At admission, the broker removes regular scratch files older than 24 hours only
-when Docker reports no active worker for that project and the shared admission
-lock is held. Symlinks are not followed, and cleanup errors do not block worker
-admission. This opportunistic cleanup reduces stale-file buildup but is not an
-aggregate quota. `/var/tmp`, `/dev/shm`, and `/opt/output` are per-run private
-tmpfs mounts.
+At admission and every 15 minutes, the broker removes regular scratch files
+older than 24 hours only when Docker reports no active worker for that project
+and the shared admission lock is held. Periodic cleanup skips a project when
+worker inventory is unavailable. Symlinks are not followed, and cleanup errors
+do not block worker admission. This opportunistic cleanup reduces stale-file
+buildup but is not an aggregate quota. `/var/tmp`, `/dev/shm`, and `/opt/output`
+are per-run private tmpfs mounts.
 The selected project root is mode 0755, while the trusted agent prepares
 `.reamon-tmp` as mode 0700 and `tool-outputs` as mode 0777 for the mapped
 unprivileged UID. The agent rejects a symlinked project root or output

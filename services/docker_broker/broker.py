@@ -972,7 +972,7 @@ async def handle_worker_client(reader, writer):
 
 
 async def main():
-    from project_worker import reap_orphaned_workers
+    from project_worker import maintain_expired_project_scratch, reap_orphaned_workers
 
     try:
         cleanup = await reap_orphaned_workers()
@@ -1000,8 +1000,13 @@ async def main():
     _log(f"listening on {LISTEN_SOCK} -> upstream {UPSTREAM_SOCK}")
     _log(f"allowed images: {sorted(ALLOWED_IMAGES)}")
     _log(f"allowed bind prefixes: {ALLOWED_BIND_PREFIXES}; volumes: {sorted(ALLOWED_VOLUMES)}")
-    async with server, worker_server:
-        await asyncio.gather(server.serve_forever(), worker_server.serve_forever())
+    scratch_maintenance = asyncio.create_task(maintain_expired_project_scratch())
+    try:
+        async with server, worker_server:
+            await asyncio.gather(server.serve_forever(), worker_server.serve_forever())
+    finally:
+        scratch_maintenance.cancel()
+        await asyncio.gather(scratch_maintenance, return_exceptions=True)
 
 
 if __name__ == "__main__":

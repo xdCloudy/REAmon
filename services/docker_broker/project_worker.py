@@ -72,6 +72,7 @@ def _worker_concurrency_limit(configured: int, memory: int, pids: int, nano_cpus
 WORKER_OUTPUT_LIMIT = 2 * 1024 * 1024
 WORKER_CLEANUP_ATTEMPTS = 3
 WORKER_SCRATCH_TTL_SECONDS = 24 * 60 * 60
+WORKER_SCRATCH_GC_INTERVAL_SECONDS = 15 * 60
 WORKER_MAX_ACTIVE = _worker_concurrency_limit(
     _bounded_int_env("REAMON_WORKER_MAX_ACTIVE", 4, 1, 64),
     WORKER_MEMORY,
@@ -727,6 +728,86 @@ def _cleanup_stale_project_scratch(project_id: str, *, now: float | None = None)
                 continue
             reclaimed += info.st_size
     return reclaimed
+
+
+def _scratch_has_expired_files(scratch: str, cutoff: float) -> bool:
+    for current, directories, files in os.walk(scratch, followlinks=False):
+        directories[:] = [name for name in directories if not os.path.islink(os.path.join(current, name))]
+        for name in files:
+            path = os.path.join(current, name)
+            try:
+                info = os.stat(path, follow_symlinks=False)
+            except FileNotFoundError:
+                continue
+            if stat.S_ISREG(info.st_mode) and info.st_mtime < cutoff:
+                return True
+    return False
+
+
+async def reclaim_expired_idle_project_scratch() -> tuple[int, int]:
+    """Reclaim old scratch for idle projects without waiting for another request."""
+    if not WORKSPACE_ROOT:
+        return 0, 0
+    root = os.path.realpath(WORKSPACE_ROOT)
+    cutoff = time.time() - WORKER_SCRATCH_TTL_SECONDS
+
+    def candidates() -> list[str]:
+        found = []
+        try:
+            entries = list(os.scandir(root))
+        except OSError:
+            return found
+        for entry in entries:
+            project_id = entry.name
+            if (not _PROJECT_ID_RE.fullmatch(project_id) or entry.is_symlink()
+                    or not entry.is_dir(follow_symlinks=False)):
+                continue
+            scratch = os.path.join(root, project_id, ".reamon-tmp")
+            if os.path.islink(scratch) or not os.path.isdir(scratch):
+                continue
+            if _scratch_has_expired_files(scratch, cutoff):
+                found.append(project_id)
+        return found
+
+    project_ids = await asyncio.to_thread(candidates)
+    if not project_ids:
+        return 0, 0
+
+    import admission_lock as admission_state
+
+    checked = 0
+    reclaimed = 0
+    for project_id in project_ids:
+        async with _WORKER_ADMISSION_LOCK:
+            async with admission_state.admission_lock():
+                try:
+                    active = await _active_project_worker_count(project_id)
+                    if active is None or active != 0:
+                        continue
+                    reclaimed += _cleanup_stale_project_scratch(project_id)
+                    checked += 1
+                except (DockerAPIError, OSError):
+                    _log_cleanup_failure("scratch maintenance")
+    return checked, reclaimed
+
+
+async def maintain_expired_project_scratch() -> None:
+    """Run periodic best-effort cleanup; admission remains fail-open on errors."""
+    while True:
+        await asyncio.sleep(WORKER_SCRATCH_GC_INTERVAL_SECONDS)
+        try:
+            projects, reclaimed = await reclaim_expired_idle_project_scratch()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            _log_cleanup_failure("scratch maintenance")
+            continue
+        if reclaimed:
+            print(
+                f"[docker-broker] periodically collected {reclaimed} bytes of stale project scratch "
+                f"across {projects} idle projects",
+                flush=True,
+            )
 
 
 def _collect_idle_project_scratch(project_id: str) -> None:
