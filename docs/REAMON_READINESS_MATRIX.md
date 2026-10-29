@@ -277,9 +277,10 @@ is inactive, so the worker-to-orchestrator HTTP lifecycle has not been exercised
 live. A one-off Docker orchestrator process did connect to the live Neo4j using
 `ORCHESTRATOR_NEO4J_URI`; a disposable run-scoped orphan was deleted while an
 unrelated orphan in the same synthetic tenant was preserved, and both fixtures
-were cleaned up. This validates the URI and Cypher scope, not worker dispatch or
-the finalization HTTP route. Full recon and every other partial-recon worker
-remain direct graph clients.
+were cleaned up. This validates the URI and Cypher scope, not the deployed
+worker-to-orchestrator lifecycle. The signed finalization HTTP route is covered
+through the ASGI middleware with graph housekeeping mocked. Full recon and every
+other partial-recon worker remain direct graph clients.
 
 ## PyInstaller module paging and source recovery (2026-10-27)
 
