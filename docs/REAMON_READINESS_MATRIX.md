@@ -1,14 +1,18 @@
 ## Current PC deployment evidence (2026-10-29)
 
-The LAN webapp runs `redamon-webapp:latest` from source revision
-`c0cf3197e033b6256531a89b67b5933b244a7c45`; the image label and readiness response
-match. Image manifest: `sha256:8ad791c1a2e7edd1335ce63782343bc52c609852727cf755418791d1cacbcd0b`.
-The image was built with `REAMON_BUILD_DIRTY=true` because the local checkout has
-the user-owned untracked `work/` directory. Local and LAN readiness at
-`localhost:3001` and `192.168.0.53:3001` return `ready` with database, Neo4j, and
-artifact checks `ok`; webapp, agent, broker, and Kali containers are healthy.
-The deployed webapp shows unit-specific investigation states and the persisted
-per-case attempt/runtime budget, including after reloading the case summary.
+The LAN webapp runs `redamon-webapp:latest` from source revision `df8e1bd3`; its
+image label and readiness response match. Image manifest:
+`sha256:baf342c396d0a28dbcf81bdcadb651e87478c25a33cf4adca07acfb4bca6e94a`.
+The image has `REAMON_BUILD_DIRTY=true` because the local checkout contains the
+user-owned untracked `work/` directory. Local and LAN readiness at
+`localhost:3001` and `192.168.0.53:3001` return `ready`; database, Neo4j, and
+artifact checks are `ok`, and the webapp container is healthy. The deployed
+visualizer retrieves compatible provider outputs across all completed tasks for
+the selected artifact/input hash, rather than dropping candidates after the
+newest 500 tasks. The focused Docker route tests (2/2), webapp TypeScript check,
+targeted ESLint, and production build passed. Results remain bounded to 500
+matching observations and 32 displayed alternatives; comparison completeness,
+disagreement adjudication, and behavioral equivalence are still open.
 
 Focused Docker/Vitest checks pass 33/33 tests across the investigation GET route,
 dispatch route, and workspace task list; TypeScript and targeted ESLint pass, and
@@ -99,12 +103,12 @@ focused allowlist suite passes 56 tests, and the deployed webapp logs no
 off-allowlist requests over a two-minute observation window. The full suite was
 not rerun after this change.
 The visualizer now returns up to 32 hash-verified compatible provider outputs
-for a selected unit, searches a bounded 500-task/500-observation history, and
-shows a truncation notice when those bounds are reached. The isolated Docker
-route tests pass 2 cases, the visualizer suite passes 33, and Docker type-check,
-ESLint, Compose validation, and the production build pass. The built webapp and
-worker are deployed together on revision `859655f199af`; their readiness checks
-pass on local and LAN addresses.
+for a selected unit, searching up to 500 matching observations across all
+completed tasks for the same artifact/input hash and showing a truncation notice
+at the observation or display bound. Task provenance is retrieved with each
+observation instead of limiting the lookup to the newest 500 tasks. The isolated
+Docker route tests pass 2 cases; see the current deployment evidence above for
+the latest build and readiness verification.
 At this 2026-10-28 checkpoint, the legacy `redamon-gvm-gvmd` container was
 unhealthy because its PostgreSQL companion was stopped. The 2026-10-29 recheck
 above records recovery of the existing database and scanner containers. The
