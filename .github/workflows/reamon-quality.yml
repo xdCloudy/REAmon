@@ -123,11 +123,17 @@ jobs:
       NEO4J_PAGECACHE: 256m
       AUTH_SECRET: ci-auth-secret
       INTERNAL_API_KEY: ci-internal-key
+      SCANNER_API_KEY: ci-scanner-key
+      AGENT_WS_TICKET_SECRET: ci-ws-ticket-secret
       REAMON_WEBAPP_IMAGE: reamon-webapp:ci
       REAMON_BUILD_SHA: ${{ github.sha }}
       REAMON_BUILD_DIRTY: "false"
       WEBAPP_PORT: "3000"
       WEBAPP_CPUS: "1"
+      AGENT_PORT: "8090"
+      AGENT_MEM: "2g"
+      AGENT_CPUS: "2"
+      AGENT_PIDS: "512"
       REAMON_WORKER_POLL_SECONDS: "5"
       REAMON_WORKER_STALE_AFTER_MINUTES: "5"
       REAMON_WORKER_BACKFILL_INTERVAL_SECONDS: "0"
@@ -172,8 +178,13 @@ jobs:
           ignore-unfixed: true
           exit-code: "1"
 
+      - name: Build ticketed terminal images
+        run: >-
+          docker compose --profile project-worker-image build
+          agent docker-broker project-worker-image
+
       - name: Start live release stack
-        run: docker compose up -d postgres neo4j webapp
+        run: docker compose up -d postgres neo4j webapp agent docker-broker
 
       - name: Wait for live readiness
         run: >-
@@ -181,6 +192,20 @@ jobs:
           if curl --fail --silent --show-error http://127.0.0.1:3000/api/health/ready; then
           exit 0; fi; sleep 2; done;
           docker compose logs --tail=200 webapp postgres neo4j;
+          exit 1
+
+      - name: Wait for isolated terminal services
+        run: |
+          for attempt in $(seq 1 90); do
+            agent_state="$(docker inspect --format '{{.State.Health.Status}}' redamon-agent 2>/dev/null || true)"
+            broker_state="$(docker inspect --format '{{.State.Health.Status}}' reamon-docker-broker 2>/dev/null || true)"
+            if [ "$agent_state" = healthy ] && [ "$broker_state" = healthy ]; then
+              echo "agent and docker broker are healthy"
+              exit 0
+            fi
+            sleep 2
+          done
+          docker compose logs --tail=200 agent docker-broker
           exit 1
 
       - name: Verify live build identity
@@ -221,10 +246,25 @@ jobs:
           REAMON_BROWSER_BASE_URL: http://127.0.0.1:3000
           REAMON_BROWSER_EMAIL: acceptance@reamon.invalid
           REAMON_BROWSER_PASSWORD: ci-acceptance-password
+          REAMON_BROWSER_TERMINAL_WS_URL: ws://127.0.0.1:8090/ws/kali-terminal
         run: >-
           REAMON_BROWSER_PROJECT_ID="$(node -e 'const fs=require("fs"); const value=JSON.parse(fs.readFileSync("/tmp/reamon-acceptance-state.json", "utf8")); process.stdout.write(value.projectId)')"
           REAMON_BROWSER_IMPORT_FIXTURE="$GITHUB_WORKSPACE/tests/fixtures/reamon-browser-smoke.json"
           python3 tooling/scripts/reamon-browser-smoke.py
+
+      - name: Verify terminal worker cleanup
+        if: always()
+        run: |
+          for attempt in $(seq 1 30); do
+            workers="$(docker ps -aq --filter label=reamon.terminal-worker=1)"
+            if [ -z "$workers" ]; then
+              echo "no terminal workers remain"
+              exit 0
+            fi
+            sleep 2
+          done
+          docker ps -a --filter label=reamon.terminal-worker=1
+          exit 1
 
       - name: Run two-replica worker crash and recovery drill
         run: >-

@@ -1209,7 +1209,8 @@ services:
       TRUST_PROXY: ${TRUST_PROXY:-false}
       # Signs short-lived agent-WebSocket tickets the agent verifies (STRIDE S6).
       # Dedicated secret (NOT AUTH_SECRET) so agent-side exposure can't forge
-      # login cookies. Empty in dev → no ticket minted, agent fails open.
+      # login cookies. Empty in dev means no ticket can be minted; the agent
+      # rejects ticketless WebSocket connections.
       AGENT_WS_TICKET_SECRET: "${AGENT_WS_TICKET_SECRET:-}"
       # Bearer token the webapp presents when pushing tunnel config to the
       # worker's tunnel-manager :8015 (STRIDE I19/S14). Empty in dev → no header.

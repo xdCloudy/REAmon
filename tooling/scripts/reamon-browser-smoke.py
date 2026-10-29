@@ -13,6 +13,7 @@ EMAIL = os.environ.get("REAMON_BROWSER_EMAIL", "")
 PASSWORD = os.environ.get("REAMON_BROWSER_PASSWORD", "")
 ACCEPTANCE_PROJECT_ID = os.environ.get("REAMON_BROWSER_PROJECT_ID", "")
 FIXTURE = os.environ.get("REAMON_BROWSER_IMPORT_FIXTURE", "")
+TERMINAL_WS_URL = os.environ.get("REAMON_BROWSER_TERMINAL_WS_URL", "")
 
 if not EMAIL or not PASSWORD:
     print("FAIL: REAMON_BROWSER_EMAIL and REAMON_BROWSER_PASSWORD are required", file=sys.stderr)
@@ -52,6 +53,7 @@ with sync_playwright() as playwright:
 
     # Use the real folder/file import controls to prove that a browser
     # operator can create a native workspace and upload a bounded snapshot.
+    terminal_project_id = ACCEPTANCE_PROJECT_ID
     if FIXTURE:
         page.get_by_role("link", name="New Project").click()
         page.wait_for_url(re.compile(r"/projects/new$"), wait_until="networkidle")
@@ -77,6 +79,75 @@ with sync_playwright() as playwright:
         approve.click()
         approval_feedback = page.get_by_role("status").filter(has_text=re.compile("approved", re.IGNORECASE))
         expect(approval_feedback).to_be_visible()
+
+    # Exercise ticket minting, the browser-origin WebSocket, the isolated PTY,
+    # and normal worker cleanup when the live-stack job supplies an agent URL.
+    if TERMINAL_WS_URL:
+        if not terminal_project_id:
+            raise RuntimeError("terminal acceptance requires a project ID")
+        page.goto(f"{BASE_URL}/projects/{terminal_project_id}", wait_until="networkidle")
+        workspace = page.evaluate(
+            """async projectId => {
+              const response = await fetch('/api/agent/workspace/mkdir', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ projectId, path: 'terminal-smoke' }),
+              });
+              return { ok: response.ok, status: response.status };
+            }""",
+            terminal_project_id,
+        )
+        if not workspace["ok"]:
+            raise RuntimeError(f"could not prepare terminal project workspace: {workspace['status']}")
+        terminal = page.evaluate(
+            """async ({ projectId, wsUrl }) => {
+              const sessionId = crypto.randomUUID();
+              const response = await fetch('/api/agent/ws-ticket', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ projectId, sessionId }),
+              });
+              if (!response.ok) throw new Error(`ticket request failed: ${response.status}`);
+              const { ticket } = await response.json();
+              if (typeof ticket !== 'string' || !ticket) throw new Error('ticket was empty');
+
+              const marker = `REAMON_TERMINAL_SMOKE_${crypto.randomUUID().replaceAll('-', '')}`;
+              const expected = btoa(marker);
+              const target = new URL(wsUrl);
+              target.searchParams.set('ticket', ticket);
+              const socket = new WebSocket(target.toString());
+              socket.binaryType = 'arraybuffer';
+              let output = '';
+              let timer;
+              try {
+                await new Promise((resolve, reject) => {
+                  timer = setTimeout(() => reject(new Error('terminal output timed out')), 20000);
+                  socket.onopen = () => {
+                    socket.send(JSON.stringify({ type: 'init', user_id: 'ignored', project_id: 'ignored' }));
+                    socket.send(JSON.stringify({ type: 'resize', rows: 24, cols: 80 }));
+                    socket.send(`printf '%s\\\\n' "$(printf '%s' ${JSON.stringify(marker)} | base64 -w0)"; exit\\n`);
+                  };
+                  socket.onmessage = async event => {
+                    if (typeof event.data === 'string') output += event.data;
+                    else output += new TextDecoder().decode(await event.data.arrayBuffer?.() ?? event.data);
+                    if (output.includes(expected)) resolve();
+                  };
+                  socket.onerror = () => reject(new Error('terminal WebSocket failed'));
+                  socket.onclose = event => {
+                    if (!output.includes(expected)) reject(new Error(`terminal closed before output (code ${event.code})`));
+                  };
+                });
+              } finally {
+                clearTimeout(timer);
+                if (socket.readyState < WebSocket.CLOSING) socket.close();
+              }
+              return { expected, output: output.slice(-4000) };
+            }""",
+            {"projectId": terminal_project_id, "wsUrl": TERMINAL_WS_URL},
+        )
+        if terminal["expected"] not in terminal["output"]:
+            raise RuntimeError("terminal smoke command output was not observed")
+        print("PASS: session-scoped ticket, browser terminal WebSocket, isolated PTY command")
 
     browser.close()
 

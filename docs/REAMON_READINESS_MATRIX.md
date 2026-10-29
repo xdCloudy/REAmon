@@ -4,8 +4,14 @@ The HTTPS deployment template, single-host exposure guidance, Compose ticket-sec
 comment, and ticket-route comments now describe browser WebSocket authentication as
 ticketed and fail-closed. This is a documentation correction based on the existing
 `authorize_ws` gate; it does not close the separate release gate for authenticated
-browser-to-agent terminal acceptance, because the canonical CI live stack does not
-start the agent or isolated terminal worker.
+browser-to-agent terminal acceptance; the prior CI live stack did not start the
+agent or isolated terminal worker.
+
+The quality workflow now includes those agent, broker, and isolated-worker services
+in its live browser smoke, which obtains a ticket from the authenticated webapp and
+runs a bounded command through the terminal. The workflow also checks that the
+terminal worker container is removed. This new gate has not yet completed in CI, so
+it is implementation evidence only until a run passes.
 
 The full `redamon.sh test unit` gate passed locally before the broker restart and
 project-deletion cleanup follow-up:
