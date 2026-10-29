@@ -16,10 +16,12 @@ shows recent unit status and candidate availability without returning captured
 failure text or source code in the list response. “Open task controls” expands and
 scrolls to the originating task. Focused Docker tests pass 20/20 across the queue
 route, queue UI, and task-list suites; TypeScript and targeted ESLint pass. The
-production build completed and the image is deployed. GitHub quality run
-[40860655994](https://github.com/xdCloudy/REAmon/actions/runs/40860655994) is still
-running; its Compose configuration check passed. PostgreSQL-backed queue paging
-and authenticated browser acceptance remain open.
+production build completed and the image is deployed. The opt-in PostgreSQL
+integration passed 1/1 against the live database, validating actual cursor paging,
+attempt aggregation, and omission of failure text/candidate source; its disposable
+project was cleaned up. Authenticated browser acceptance remains open. GitHub
+quality run [40860884102](https://github.com/xdCloudy/REAmon/actions/runs/40860884102)
+is still running; its Compose configuration check passed.
 
 Protection inspection now distinguishes direct marker evidence (`detected`),
 structural indicators (`suspected`), and no recognized evidence (`unknown`). A

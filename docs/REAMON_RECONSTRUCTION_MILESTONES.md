@@ -348,9 +348,10 @@ visiting each failed task. The list exposes run identity, effective case/attempt
 recent unit attempts, active work, and candidate availability; it omits captured failure
 text and candidate source. It loads when expanded, refreshes while attempts are active,
 and links back to the original task controls. Route and UI tests cover pagination,
-authorization, summaries, and task navigation. PostgreSQL-backed pagination and
-authenticated browser acceptance remain open; this summary view does not change the
-candidate review or acceptance policy.
+authorization, summaries, and task navigation; the opt-in PostgreSQL integration also
+passes persisted two-page case and attempt-summary checks. Authenticated browser
+acceptance remains open; this summary view does not change the candidate review or
+acceptance policy.
 
 Each agent attempt works from immutable provider evidence and may request a targeted
 provider run, inspect assembly/bytecode/CFG/IR/cross-references, or create a maintained
