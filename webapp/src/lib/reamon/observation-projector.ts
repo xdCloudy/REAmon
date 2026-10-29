@@ -175,7 +175,7 @@ export async function projectReamonObservations(
   const offset = normaliseOffset(requestedOffset)
   const rows = await prisma.reamonObservation.findMany({
     where: { projectId },
-    orderBy: { updatedAt: 'asc' },
+    orderBy: [{ updatedAt: 'asc' }, { id: 'asc' }],
     skip: offset,
     take: Math.min(MAX_PROJECTED_OBSERVATIONS + 1, limit + 1),
     select: {

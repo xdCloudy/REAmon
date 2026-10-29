@@ -491,10 +491,12 @@ restart the full project from offset zero.
 The worker requests 1,000 observations per page by default, configurable from 100
 to 10,000 with `REAMON_WORKER_PROJECTION_PAGE_SIZE`. This keeps each database/graph
 write request bounded while the worker advances the durable offset; the page-count
-safety cap scales to the server's one-million-observation maximum offset. This is
-source-level protection against oversized single requests, not a guarantee that
-every large projection completes within the current timeout; validate large live
-projects before treating throughput as production-ready.
+safety cap scales to the server's one-million-observation maximum offset. Projection
+pages are ordered by observation update time and then stable observation ID, so equal
+timestamps cannot make page boundaries nondeterministic. These changes protect
+against oversized single requests but do not guarantee every large projection
+completes within the current timeout; validate large live projects before treating
+throughput as production-ready.
 Observation ingestion now derives a bounded canonical identity from an
 explicit `identity`, `identityKey`, `canonicalKey`, or `qualifiedName` hint (and from
 normalized string values); observations without a hint remain source-scoped. Neo4j

@@ -53,7 +53,11 @@ describe('projectReamonObservations', () => {
     const result = await projectReamonObservations('project-1', { run: vi.fn().mockResolvedValue({ records: [] }) } as never, 10)
 
     expect(result).toMatchObject({ projectId: 'project-1', selected: 1, nodes: 1, relationships: 0, truncated: false })
-    expect(mocks.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { projectId: 'project-1' }, take: 11 }))
+    expect(mocks.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { projectId: 'project-1' },
+      orderBy: [{ updatedAt: 'asc' }, { id: 'asc' }],
+      take: 11,
+    }))
   })
 
   test('deletes graph records not marked by the completed run', async () => {
