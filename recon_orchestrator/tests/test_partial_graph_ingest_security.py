@@ -8,6 +8,39 @@ from unittest import mock
 from auth import mint_partial_graph_token, verify_partial_graph_token
 
 
+async def _asgi_request(app, path, method, headers, body=b""):
+    """Issue a small HTTP request directly through ASGI without httpx/TestClient."""
+    sent = []
+    receive_count = 0
+
+    async def receive():
+        nonlocal receive_count
+        receive_count += 1
+        if receive_count == 1:
+            return {"type": "http.request", "body": body, "more_body": False}
+        return {"type": "http.disconnect"}
+
+    async def send(message):
+        sent.append(message)
+
+    encoded_headers = [(key.lower().encode(), value.encode()) for key, value in headers.items()]
+    encoded_headers.append((b"host", b"reamon-test"))
+    scope = {
+        "type": "http", "asgi": {"version": "3.0", "spec_version": "2.3"},
+        "http_version": "1.1", "method": method, "scheme": "http",
+        "path": path, "raw_path": path.encode(), "query_string": b"",
+        "headers": encoded_headers, "client": ("127.0.0.1", 32100),
+        "server": ("reamon-test", 80),
+    }
+    await app(scope, receive, send)
+    start = next(message for message in sent if message["type"] == "http.response.start")
+    response_body = b"".join(
+        message.get("body", b"") for message in sent
+        if message["type"] == "http.response.body"
+    )
+    return start["status"], response_body
+
+
 class TestPartialGraphToken(unittest.TestCase):
     def setUp(self):
         self.token = mint_partial_graph_token(
@@ -114,6 +147,54 @@ class TestIngestAuthMiddleware(unittest.TestCase):
             result = asyncio.run(api.require_orchestrator_key(req, next_handler))
         self.assertEqual(result, "ok")
         self.assertEqual(called, ["r1"])
+
+    def test_signed_finalization_runs_through_http_middleware_and_route(self):
+        import api
+        from datetime import datetime, timezone
+        from auth import PARTIAL_GRAPH_FINALIZE_PATH
+
+        token = mint_partial_graph_token("p1", "u1", "r1", ["example.com"], "key")
+        request_body = b'{"cleanup_orphans":true}'
+        active_run = types.SimpleNamespace(
+            tool_id="SubdomainDiscovery", status=api.PartialReconStatus.RUNNING,
+            roots=["example.com"], started_at=datetime(2026, 10, 29, tzinfo=timezone.utc),
+        )
+        sweep = mock.Mock(return_value={"skipped": "not armed"})
+        source_module = types.ModuleType("helpers.finding_sources")
+        source_module.RECON_FINDING_SOURCES = ("nuclei",)
+        sweep_module = types.ModuleType("helpers.node_filter_sweep")
+        sweep_module.run_node_filter_sweep = sweep
+        manager = types.SimpleNamespace(partial_recon_states={"p1": {"r1": active_run}})
+        cleanup = mock.Mock(return_value=1)
+
+        async def issue():
+            return await _asgi_request(
+                api.app, PARTIAL_GRAPH_FINALIZE_PATH, "POST",
+                {"X-Partial-Graph-Token": token, "Content-Type": "application/json",
+                 "Content-Length": str(len(request_body))},
+                request_body,
+            )
+
+        with mock.patch.object(api, "container_manager", manager), \
+             mock.patch.object(api, "_cleanup_isolated_subdomain_orphans", cleanup), \
+             mock.patch.dict(api.os.environ, {"INTERNAL_API_KEY": "key"}), \
+             mock.patch.dict("sys.modules", {
+                 "helpers.finding_sources": source_module,
+                 "helpers.node_filter_sweep": sweep_module,
+             }):
+            status, response = asyncio.run(issue())
+            self.assertEqual(status, 200)
+            receipt = __import__("json").loads(response)
+            self.assertEqual(receipt["status"], "finalized")
+            self.assertEqual(receipt["orphan_user_inputs_deleted"], 1)
+            cleanup.assert_called_once_with(verify_partial_graph_token(token, "key"))
+            sweep.assert_called_once()
+
+            active_run.status = api.PartialReconStatus.COMPLETED
+            status, response = asyncio.run(issue())
+        self.assertEqual(status, 409)
+        self.assertIn(b"no longer accepting", response)
+        cleanup.assert_called_once()
 
     def test_signed_token_is_accepted_for_the_fixed_finalize_route(self):
         import api

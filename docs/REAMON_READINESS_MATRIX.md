@@ -268,8 +268,10 @@ workers and points at localhost there. The graph-input route uses the trusted UR
 as well. Completed isolated runs request deletion only for orphan UserInput IDs
 derived from that run and its signed roots; cleanup retains user and project
 predicates. Local/manual runs retain their direct sweep and cleanup.
-Focused Docker tests pass 16 orchestrator boundary cases and 2 worker handoff
-cases; the full orchestrator unit section passes 602 tests, and 396 focused recon
+Focused Docker tests pass 17 orchestrator boundary cases and 2 worker handoff
+cases; the signed finalization request now also passes through the ASGI middleware
+and route with mocked graph housekeeping. The full orchestrator unit section
+passes 603 tests, and 396 focused recon
 tests pass. This is source-level progress only: the legacy orchestrator profile
 is inactive, so the worker-to-orchestrator HTTP lifecycle has not been exercised
 live. A one-off Docker orchestrator process did connect to the live Neo4j using
