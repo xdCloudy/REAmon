@@ -31,6 +31,15 @@ export async function GET(request: Request, { params }: RouteParams) {
     if (cursor && (cursor.length > 100 || !/^[\w-]+$/.test(cursor))) {
       return NextResponse.json({ error: 'Invalid investigation cursor' }, { status: 400, headers: NO_STORE })
     }
+    if (cursor) {
+      const cursorCase = await prisma.reamonInvestigationCase.findFirst({
+        where: { id: cursor, projectId },
+        select: { id: true },
+      })
+      if (!cursorCase) {
+        return NextResponse.json({ error: 'Investigation cursor is unavailable in this project' }, { status: 400, headers: NO_STORE })
+      }
+    }
 
     const rows = await prisma.reamonInvestigationCase.findMany({
       where: { projectId },

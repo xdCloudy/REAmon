@@ -4,13 +4,14 @@ import { NextResponse } from 'next/server'
 const mocks = vi.hoisted(() => ({
   requireEffectiveUser: vi.fn(),
   requireProjectAccess: vi.fn(),
+  investigationFindFirst: vi.fn(),
   investigationFindMany: vi.fn(),
   codeAttemptFindMany: vi.fn(),
 }))
 
 vi.mock('@/lib/prisma', () => ({
   default: {
-    reamonInvestigationCase: { findMany: mocks.investigationFindMany },
+    reamonInvestigationCase: { findFirst: mocks.investigationFindFirst, findMany: mocks.investigationFindMany },
     reamonCodeAttempt: { findMany: mocks.codeAttemptFindMany },
   },
 }))
@@ -28,6 +29,7 @@ describe('/api/projects/[id]/workspace/investigations', () => {
     vi.clearAllMocks()
     mocks.requireEffectiveUser.mockResolvedValue({ userId: 'user-1' })
     mocks.requireProjectAccess.mockResolvedValue({ projectId: 'project-1' })
+    mocks.investigationFindFirst.mockResolvedValue({ id: 'case-7' })
     mocks.investigationFindMany.mockResolvedValue([])
     mocks.codeAttemptFindMany.mockResolvedValue([])
   })
@@ -79,6 +81,9 @@ describe('/api/projects/[id]/workspace/investigations', () => {
   test('applies a stable cursor and caps requested page size', async () => {
     await GET(new Request('http://local?limit=999&cursor=case-7'), { params })
 
+    expect(mocks.investigationFindFirst).toHaveBeenCalledWith({
+      where: { id: 'case-7', projectId: 'project-1' }, select: { id: true },
+    })
     expect(mocks.investigationFindMany).toHaveBeenCalledWith(expect.objectContaining({
       take: 51, cursor: { id: 'case-7' }, skip: 1,
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
@@ -89,6 +94,17 @@ describe('/api/projects/[id]/workspace/investigations', () => {
     const response = await GET(new Request('http://local?cursor=invalid.cursor'), { params })
 
     expect(response.status).toBe(400)
+    expect(mocks.investigationFindMany).not.toHaveBeenCalled()
+  })
+
+  test('rejects expired or foreign-project cursors without querying the queue', async () => {
+    mocks.investigationFindFirst.mockResolvedValue(null)
+
+    const response = await GET(new Request('http://local?cursor=other-project-case'), { params })
+
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({ error: 'Investigation cursor is unavailable in this project' })
+    expect(mocks.investigationFindFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'other-project-case', projectId: 'project-1' } }))
     expect(mocks.investigationFindMany).not.toHaveBeenCalled()
   })
 
