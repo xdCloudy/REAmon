@@ -259,11 +259,15 @@ HMAC-signed ingest capability. The token binds tenant, project, run, and allowed
 roots; the route also checks the active run and uses only the trusted scope for
 Neo4j writes. That worker receives no Neo4j credentials or graph database mount.
 Per-root graph errors return a partial receipt, avoiding retries of non-transient
-partial writes. Focused Docker tests pass 11 orchestrator security cases and 2
-worker handoff cases; the orchestrator unit section passed 597 tests after the
-partial-receipt refinement. This is source-level progress only: the legacy
-orchestrator profile is inactive, so this path has not been exercised live.
-Full recon and every other partial-recon worker remain direct graph clients.
+partial writes. The isolated worker now also calls a second run-scoped endpoint
+after its roots finish; the orchestrator uses its trusted start time to run the
+shared node-filter sweep, so this worker no longer attempts graph housekeeping
+with missing database credentials. Local/manual runs retain their direct sweep.
+Focused Docker tests pass 13 orchestrator security cases and 2 worker handoff
+cases; the full orchestrator unit section passes 599 tests, and 396 focused recon
+tests pass. This is source-level progress only: the legacy orchestrator profile
+is inactive, so this path has not been exercised live. Full recon and every other
+partial-recon worker remain direct graph clients.
 
 ## PyInstaller module paging and source recovery (2026-10-27)
 
