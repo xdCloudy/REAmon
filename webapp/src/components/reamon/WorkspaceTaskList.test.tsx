@@ -93,7 +93,7 @@ describe('WorkspaceTaskList', () => {
         { key: 'fn:2000', label: 'two', language: 'c', instructionFields: ['assembly'] },
       ], attempts: [] }) })
       .mockResolvedValueOnce({ ok: true, json: async () => ({ attempts: [{ id: 'attempt-1' }, { id: 'attempt-2' }] }) })
-      .mockResolvedValue({ ok: true, json: async () => ({ attempts: [{ id: 'attempt-1', status: 'RUNNING' }, { id: 'attempt-2', status: 'RUNNING' }] }) }))
+      .mockResolvedValue({ ok: true, json: async () => ({ attempts: [{ id: 'attempt-1', unitName: 'first', status: 'RUNNING' }, { id: 'attempt-2', unitName: 'second', status: 'RUNNING' }] }) }))
     render(<WorkspaceTaskList projectId="project-1" tasks={[{
       id: 'task-1', title: 'Decompile library', status: 'FAILED', progress: 20, capability: 'decompile',
       investigationCase: { id: 'case-1', status: 'QUEUED' },
@@ -106,6 +106,8 @@ describe('WorkspaceTaskList', () => {
       body: JSON.stringify({ providerId: 'provider-1', unitKeys: ['fn:1000', 'fn:2000'] }),
     })))
     expect(await screen.findByRole('status')).toHaveTextContent('2 reconstruction candidates queued.')
+    expect(await screen.findByText('first reconstruction running')).toBeInTheDocument()
+    expect(await screen.findByText('second reconstruction running')).toBeInTheDocument()
   })
 
   test('recovers stale tasks from the operator control', async () => {

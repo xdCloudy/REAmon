@@ -75,6 +75,7 @@ describe('/api/projects/[id]/workspace/tasks/[taskId]/investigation', () => {
         { codeUnitId: { startsWith: 'investigation:case-1:unit:' } },
       ] }),
       take: 50,
+      select: expect.objectContaining({ codeUnitId: true, unitName: true }),
     }))
   })
 

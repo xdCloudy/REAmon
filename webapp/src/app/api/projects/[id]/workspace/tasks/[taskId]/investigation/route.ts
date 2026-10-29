@@ -190,7 +190,7 @@ export async function GET(request: Request, { params }: RouteParams) {
       },
       orderBy: { createdAt: 'desc' },
       take: 50,
-      select: { id: true, status: true, providerName: true, modelIdentifier: true, errorCode: true, errorMessage: true, resultSource: true, qualityReview: true, validationStatus: true, createdAt: true, completedAt: true },
+      select: { id: true, codeUnitId: true, unitName: true, status: true, providerName: true, modelIdentifier: true, errorCode: true, errorMessage: true, resultSource: true, qualityReview: true, validationStatus: true, createdAt: true, completedAt: true },
     }) : []
     const latestAttempt = attempts[0]
     const evidence = investigation?.failureEvidence && typeof investigation.failureEvidence === 'object' && !Array.isArray(investigation.failureEvidence)

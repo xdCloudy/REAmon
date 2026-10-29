@@ -284,7 +284,8 @@ and case/task IDs. Results retain source and evidence hashes, uncertainty, synta
 and `behavioral_validation=UNAVAILABLE`; they remain separate candidates and never
 become accepted source. Each unit has a stable hash-derived attempt identity and a
 separate request payload and candidate lifecycle; status reload remains compatible with
-earlier case-scoped attempts. Existing attempt claims, heartbeats, cancellation, stale-run
+earlier case-scoped attempts. The task list shows each attempt's unit name and status and
+offers cancellation per unit. Existing attempt claims, heartbeats, cancellation, stale-run
 recovery, retry history, and workspace reload apply.
 
 This remains a narrow bounded fallback, not a universal decompiler or autonomous agent

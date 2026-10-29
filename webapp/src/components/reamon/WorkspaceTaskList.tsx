@@ -22,6 +22,7 @@ interface InvestigationProvider { id: string; name: string; modelIdentifier: str
 interface InvestigationUnit { key: string; label: string; language: string; instructionFields: string[] }
 interface InvestigationAttempt {
   id: string
+  unitName?: string | null
   status: string
   resultSource?: string | null
   qualityReview?: { uncertainties?: string[]; syntaxValidation?: string; behavioralValidation?: string } | null
@@ -345,17 +346,17 @@ export function WorkspaceTaskList({ projectId, tasks, onChanged }: {
           </label>}
           {(investigationResults[task.id] || []).map((attempt) => attempt.status === 'SUCCEEDED' && attempt.resultSource
             ? <details className={styles.investigationResult} key={attempt.id}>
-              <summary>Generated reconstruction candidate · syntax {attempt.qualityReview?.syntaxValidation || 'unavailable'} · behavior {attempt.qualityReview?.behavioralValidation || 'unavailable'}</summary>
+              <summary>Generated reconstruction candidate · {attempt.unitName || 'Recovered code unit'} · syntax {attempt.qualityReview?.syntaxValidation || 'unavailable'} · behavior {attempt.qualityReview?.behavioralValidation || 'unavailable'}</summary>
               {attempt.qualityReview?.uncertainties?.length ? <ul>{attempt.qualityReview.uncertainties.map((uncertainty, index) => <li key={`${attempt.id}-${index}`}>{uncertainty}</li>)}</ul> : <p>No uncertainty notes were returned; that does not establish correctness.</p>}
               <pre>{attempt.resultSource}</pre>
             </details>
             : ['QUEUED', 'RUNNING'].includes(attempt.status) ? <p className={styles.investigationAttempt} key={attempt.id}>
-              Reconstruction {attempt.status.toLowerCase()}
-              <button type="button" className={styles.actionButton} disabled={pendingAction !== null} onClick={() => void cancelInvestigation(task, attempt)}>
+              {attempt.unitName || 'Code unit'} reconstruction {attempt.status.toLowerCase()}
+              <button type="button" className={styles.actionButton} aria-label={`Cancel reconstruction for ${attempt.unitName || 'code unit'}`} disabled={pendingAction !== null} onClick={() => void cancelInvestigation(task, attempt)}>
                 {pendingAction === `cancel-investigation:${attempt.id}` ? 'Cancelling…' : 'Cancel reconstruction'}
               </button>
             </p>
-              : ['FAILED', 'CANCELLED'].includes(attempt.status) ? <p className={styles.investigationAttempt} key={attempt.id}>Reconstruction {attempt.status.toLowerCase()}: {attempt.errorMessage || 'No candidate was produced.'}</p>
+              : ['FAILED', 'CANCELLED'].includes(attempt.status) ? <p className={styles.investigationAttempt} key={attempt.id}>{attempt.unitName || 'Code unit'} reconstruction {attempt.status.toLowerCase()}: {attempt.errorMessage || 'No candidate was produced.'}</p>
                 : null)}
         </div>
       ))}
