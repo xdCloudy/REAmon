@@ -269,11 +269,12 @@ def main():
     # the end-of-job node-filter sweep reaches exactly what it wrote.
     from graph_db.mixins.base_mixin import run_timestamp
     started_at = run_timestamp()
+    completed = False
     try:
         statuses, completed = _run_tool(tool_id, config)
     finally:
         if os.environ.get("PARTIAL_GRAPH_FINALIZE_URL"):
-            _finalize_isolated_graph_run()
+            _finalize_isolated_graph_run(cleanup_orphans=bool(completed and user_id and project_id))
         else:
             _apply_node_filters(started_at)
 
@@ -306,7 +307,7 @@ def _apply_node_filters(started_at):
         print(f"[!][NODE-FILTER] sweep failed: {e}")
 
 
-def _finalize_isolated_graph_run():
+def _finalize_isolated_graph_run(*, cleanup_orphans=False):
     """Ask the trusted orchestrator to perform graph housekeeping for this run."""
     import json
     import time
@@ -320,7 +321,7 @@ def _finalize_isolated_graph_run():
         return
     request = urllib.request.Request(
         url,
-        data=b"{}",
+        data=json.dumps({"cleanup_orphans": bool(cleanup_orphans)}).encode("utf-8"),
         headers={"Content-Type": "application/json", "X-Partial-Graph-Token": token},
         method="POST",
     )

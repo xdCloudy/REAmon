@@ -808,6 +808,12 @@ async def finalize_partial_subdomain_run(request: Request):
         raise HTTPException(status_code=409, detail="Partial run is no longer accepting graph operations")
     if not active_run.started_at:
         raise HTTPException(status_code=409, detail="Partial run has no trusted start time")
+    try:
+        body = await request.json()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Invalid finalization request") from exc
+    if not isinstance(body, dict) or type(body.get("cleanup_orphans", False)) is not bool:
+        raise HTTPException(status_code=422, detail="Invalid finalization options")
 
     # The recon source is mounted read-only into the orchestrator. Import its
     # shared sweep so the same source allowlist and rule semantics apply here.
@@ -824,7 +830,16 @@ async def finalize_partial_subdomain_run(request: Request):
         scope["userId"], scope["projectId"], active_run.started_at.isoformat(),
         RECON_FINDING_SOURCES,
     )
-    return {"status": "finalized", "run_id": scope["runId"], "stats": stats}
+    orphan_count = 0
+    if body.get("cleanup_orphans"):
+        from recon.partial_recon_modules.user_inputs import _cleanup_orphan_user_inputs
+        orphan_count = await run_in_threadpool(
+            _cleanup_orphan_user_inputs, scope["userId"], scope["projectId"],
+        )
+    return {
+        "status": "finalized", "run_id": scope["runId"],
+        "stats": stats, "orphan_user_inputs_deleted": orphan_count,
+    }
 
 
 @app.get("/health", response_model=HealthResponse)

@@ -262,7 +262,9 @@ Per-root graph errors return a partial receipt, avoiding retries of non-transien
 partial writes. The isolated worker now also calls a second run-scoped endpoint
 after its roots finish; the orchestrator uses its trusted start time to run the
 shared node-filter sweep, so this worker no longer attempts graph housekeeping
-with missing database credentials. Local/manual runs retain their direct sweep.
+with missing database credentials. Completed isolated runs also request the
+existing tenant/project-scoped orphan-UserInput cleanup through that endpoint;
+local/manual runs retain their direct sweep and cleanup.
 Focused Docker tests pass 13 orchestrator security cases and 2 worker handoff
 cases; the full orchestrator unit section passes 599 tests, and 396 focused recon
 tests pass. This is source-level progress only: the legacy orchestrator profile

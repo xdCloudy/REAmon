@@ -5783,10 +5783,11 @@ class TestIsolatedGraphFinalization(unittest.TestCase):
             "PARTIAL_GRAPH_INGEST_TOKEN": "scoped-token",
         }), patch("urllib.request.urlopen", return_value=response) as urlopen, \
              patch("builtins.print") as output:
-            _partial_recon._finalize_isolated_graph_run()
+            _partial_recon._finalize_isolated_graph_run(cleanup_orphans=True)
         request = urlopen.call_args.args[0]
         self.assertEqual(request.full_url, "http://127.0.0.1:8010/internal/partial-recon/subdomain-finalize")
         self.assertEqual(request.get_header("X-partial-graph-token"), "scoped-token")
+        self.assertEqual(json.loads(request.data), {"cleanup_orphans": True})
         self.assertIn("orchestrator finalization", output.call_args.args[0])
 
     def test_finalization_failure_is_housekeeping_only(self):

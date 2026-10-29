@@ -79,10 +79,10 @@ class TestTheSweepSitsInAFinally:
     def test_partial_recon(self):
         src = _source('recon/partial_recon.py')
         main = _function(src, 'main')
-        assert re.search(r'started_at = run_timestamp\(\)\s+try:\s+'
+        assert re.search(r'started_at = run_timestamp\(\)\s+completed = False\s+try:\s+'
                          r'statuses, completed = _run_tool\(tool_id, config\)\s+'
                          r'finally:\s+if os\.environ\.get\("PARTIAL_GRAPH_FINALIZE_URL"\):\s+'
-                         r'_finalize_isolated_graph_run\(\)\s+else:\s+'
+                         r'_finalize_isolated_graph_run\(cleanup_orphans=bool\(completed and user_id and project_id\)\)\s+else:\s+'
                          r'_apply_node_filters\(started_at\)', main), main
         # _run_tool is the only path to the tool, so the dispatch sits inside that try.
         assert '_dispatch(tool_id, config)' in _function(src, '_run_tool')

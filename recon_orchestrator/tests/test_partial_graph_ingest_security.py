@@ -120,9 +120,12 @@ class TestIngestAuthMiddleware(unittest.TestCase):
         from fastapi import HTTPException
 
         started_at = datetime(2026, 10, 29, tzinfo=timezone.utc)
-        request = types.SimpleNamespace(state=types.SimpleNamespace(partial_graph_scope={
-            "projectId": "p1", "userId": "u1", "runId": "r1", "roots": ["example.com"],
-        }))
+        request = types.SimpleNamespace(
+            state=types.SimpleNamespace(partial_graph_scope={
+                "projectId": "p1", "userId": "u1", "runId": "r1", "roots": ["example.com"],
+            }),
+            json=lambda: asyncio.sleep(0, result={"cleanup_orphans": False}),
+        )
         active_run = types.SimpleNamespace(
             tool_id="SubdomainDiscovery", status=api.PartialReconStatus.RUNNING,
             roots=["example.com"], started_at=started_at,
