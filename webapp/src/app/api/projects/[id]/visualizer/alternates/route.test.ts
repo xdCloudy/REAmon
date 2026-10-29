@@ -31,10 +31,12 @@ async function arrangeProviderOutputs(count: number) {
     const source = `reamon-provider-${String(index).padStart(2, '0')}`
     const sourceText = `int function_${index}(void) { return ${index}; }\n`
     const codeArtifactId = `project-1/artifact-1/${taskId}/${runToken}/sources/module.c`
+    const task = { id: taskId, runToken, completedAt: new Date(`2026-10-28T00:${String(index).padStart(2, '0')}:00Z`), provider: { pluginId: source } }
     return {
-      task: { id: taskId, runToken, completedAt: new Date(`2026-10-28T00:${String(index).padStart(2, '0')}:00Z`), provider: { pluginId: source } },
+      task,
       observation: {
         id: `observation-${index}`, taskId, source, label: `function_${index}`,
+        task,
         attributes: {
           codeArtifactId,
           codeArtifactSha256: createHash('sha256').update(sourceText).digest('hex'),
@@ -53,7 +55,6 @@ async function arrangeProviderOutputs(count: number) {
     await mkdir(path.dirname(filePath), { recursive: true })
     await writeFile(filePath, sourceText)
   }
-  h.tasks.mockResolvedValue(outputs.map(({ task }) => task))
   h.observations.mockResolvedValue(outputs.map(({ observation }) => observation))
 }
 
@@ -99,8 +100,12 @@ describe('GET /api/projects/[id]/visualizer/alternates', () => {
     )
     expect(result.alternates[7].source).toContain('function_7')
     expect(result.truncated).toBe(false)
-    expect(h.tasks).toHaveBeenCalledWith(expect.objectContaining({ take: 501 }))
+    expect(h.tasks).not.toHaveBeenCalled()
     expect(h.observations).toHaveBeenCalledWith(expect.objectContaining({ take: 501 }))
+    expect(h.observations.mock.calls[0][0].where.task).toEqual({
+      is: { projectId: 'project-1', artifactId: 'artifact-1', capability: 'decompile', status: 'COMPLETED' },
+    })
+    expect(h.observations.mock.calls[0][0].select.task).toBeDefined()
   })
 
   it('marks the comparison truncated when the provider-output bound is reached', async () => {

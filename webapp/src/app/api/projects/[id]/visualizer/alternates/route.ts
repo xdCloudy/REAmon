@@ -11,7 +11,6 @@ import { nativeAddressAliases, nativeFunctionIdentity } from '@/lib/reamon/nativ
 interface RouteParams { params: Promise<{ id: string }> }
 const MAX_SOURCE_BYTES = 2 * 1024 * 1024
 const MAX_ALTERNATES = 32
-const MAX_PROVIDER_TASK_HISTORY = 500
 const MAX_ALTERNATE_OBSERVATIONS = 500
 const BCF_CLEAN_COMMIT = 'f457afaa801b30f7bb98c28d419a36d5c9fd7115'
 const CFF_DEFLATTEN_COMMIT = 'f457afaa801b30f7bb98c28d419a36d5c9fd7115'
@@ -78,64 +77,53 @@ export async function GET(request: Request, { params }: RouteParams) {
       return NextResponse.json({ alternates: [] }, { headers: NO_STORE })
     }
 
-    const [tasks, currentTask] = await Promise.all([
-      prisma.task.findMany({
+    const currentTaskPromise = prisma.task.findFirst({
+      where: { id: unit.taskId, projectId, artifactId: unit.artifactId, capability: 'decompile', status: 'COMPLETED' },
+      select: { id: true, runToken: true, completedAt: true, provider: { select: { pluginId: true } } },
+    })
+
+    const [matchingRows, currentTask] = await Promise.all([
+      prisma.reamonObservation.findMany({
         where: {
           projectId,
           artifactId: unit.artifactId,
-          capability: 'decompile',
-          status: 'COMPLETED',
+          task: { is: { projectId, artifactId: unit.artifactId, capability: 'decompile', status: 'COMPLETED' } },
+          type: 'code_unit',
+          source: { not: unit.source },
+          AND: [
+            { attributes: { path: ['inputArtifactSha256'], equals: unit.artifact.sha256 } },
+          ],
+          OR: [
+            {
+              AND: [
+                { attributes: { path: ['relativePath'], equals: relativePath } },
+                { attributes: { path: ['language'], equals: language } },
+              ],
+            },
+            ...(nativeIdentity ? [
+              ...(identity ? [{ attributes: { path: ['identity'], equals: identity } }] : []),
+              ...addressAliases.flatMap((address) => [
+                { attributes: { path: ['address'], equals: address } },
+                { attributes: { path: ['startAddress'], equals: address } },
+              ]),
+            ] : []),
+          ],
         },
-        orderBy: [{ completedAt: 'desc' }, { createdAt: 'desc' }],
-        take: MAX_PROVIDER_TASK_HISTORY + 1,
-        select: { id: true, runToken: true, completedAt: true, provider: { select: { pluginId: true } } },
+        orderBy: [{ updatedAt: 'desc' }, { stableKey: 'asc' }],
+        take: MAX_ALTERNATE_OBSERVATIONS + 1,
+        select: {
+          id: true, taskId: true, source: true, label: true, attributes: true,
+          task: { select: { runToken: true, completedAt: true, provider: { select: { pluginId: true } } } },
+        },
       }),
-      prisma.task.findFirst({
-        where: { id: unit.taskId, projectId, artifactId: unit.artifactId, capability: 'decompile', status: 'COMPLETED' },
-        select: { id: true, runToken: true, completedAt: true, provider: { select: { pluginId: true } } },
-      }),
+      currentTaskPromise,
     ])
-
-    const taskHistoryTruncated = tasks.length > MAX_PROVIDER_TASK_HISTORY
-    const candidateTasks = tasks.slice(0, MAX_PROVIDER_TASK_HISTORY)
-
-    const matchingRows = candidateTasks.length ? await prisma.reamonObservation.findMany({
-      where: {
-        projectId,
-        artifactId: unit.artifactId,
-        taskId: { in: candidateTasks.map((task) => task.id) },
-        type: 'code_unit',
-        source: { not: unit.source },
-        AND: [
-          { attributes: { path: ['inputArtifactSha256'], equals: unit.artifact.sha256 } },
-        ],
-        OR: [
-          {
-            AND: [
-              { attributes: { path: ['relativePath'], equals: relativePath } },
-              { attributes: { path: ['language'], equals: language } },
-            ],
-          },
-          ...(nativeIdentity ? [
-            ...(identity ? [{ attributes: { path: ['identity'], equals: identity } }] : []),
-            ...addressAliases.flatMap((address) => [
-              { attributes: { path: ['address'], equals: address } },
-              { attributes: { path: ['startAddress'], equals: address } },
-            ]),
-          ] : []),
-        ],
-      },
-      orderBy: [{ updatedAt: 'desc' }, { stableKey: 'asc' }],
-      take: MAX_ALTERNATE_OBSERVATIONS + 1,
-      select: { id: true, taskId: true, source: true, label: true, attributes: true },
-    }) : []
 
     const rowsTruncated = matchingRows.length > MAX_ALTERNATE_OBSERVATIONS
     const rows = matchingRows.slice(0, MAX_ALTERNATE_OBSERVATIONS)
-    const taskById = new Map(candidateTasks.map((task) => [task.id, task]))
     const seenProviders = new Set<string>()
     const alternates = []
-    let truncated = taskHistoryTruncated || rowsTruncated
+    let truncated = rowsTruncated
     let rootPath: string
     try {
       rootPath = await realpath(derivedArtifactRoot())
@@ -327,7 +315,7 @@ export async function GET(request: Request, { params }: RouteParams) {
         truncated = true
         break
       }
-      const task = taskById.get(row.taskId)
+      const task = row.task
       const candidate = record(row.attributes)
       const codeArtifactId = typeof candidate.codeArtifactId === 'string' ? candidate.codeArtifactId : ''
       const expectedHashValue = candidate.codeArtifactSha256 ?? candidate.decompiledSourceSha256
