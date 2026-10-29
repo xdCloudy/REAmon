@@ -101,6 +101,8 @@ export async function GET(request: Request, { params }: RouteParams) {
     const investigationCases = cases.map((item) => {
       const caseAttempts = attemptsByCase.get(item.id) ?? []
       const latestAttempt = caseAttempts[0]
+      const activeAttempt = caseAttempts.find((attempt) => attempt.status === 'RUNNING')
+        ?? caseAttempts.find((attempt) => attempt.status === 'QUEUED')
       return {
         id: item.id,
         taskId: item.taskId,
@@ -109,7 +111,7 @@ export async function GET(request: Request, { params }: RouteParams) {
         capability: item.capability,
         providerId: item.providerId,
         providerVersion: item.providerVersion,
-        status: latestAttempt?.status ?? item.status,
+        status: activeAttempt?.status ?? latestAttempt?.status ?? item.status,
         revision: item.revision,
         createdAt: item.createdAt,
         updatedAt: item.updatedAt,

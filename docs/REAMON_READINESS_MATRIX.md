@@ -16,7 +16,7 @@ shows recent unit status and candidate availability without returning captured
 failure text or source code in the list response. “Open task controls” expands and
 scrolls to the originating task. Cursor IDs are checked under the authorized project
 before use; expired and foreign-project cursors return a client error. Focused Docker
-tests pass 21/21 across the queue route, queue UI, and task-list suites; TypeScript and
+tests pass 22/22 across the queue route, queue UI, and task-list suites; TypeScript and
 targeted ESLint pass. The production build completed and the image is deployed. The
 opt-in PostgreSQL integration passed 1/1 against the live database, validating actual
 cursor paging, attempt aggregation, and omission of failure text/candidate source; its

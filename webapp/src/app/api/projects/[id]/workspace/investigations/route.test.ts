@@ -90,6 +90,24 @@ describe('/api/projects/[id]/workspace/investigations', () => {
     }))
   })
 
+  test('keeps an active unit visible when another unit completed more recently', async () => {
+    mocks.investigationFindMany.mockResolvedValue([{
+      id: 'case-1', taskId: 'task-1', artifactId: 'artifact-1', artifactSha256: 'a'.repeat(64),
+      capability: 'decompile', providerId: null, providerVersion: null, status: 'QUEUED', revision: 1,
+      createdAt: new Date('2026-10-29T00:00:00.000Z'), updatedAt: new Date('2026-10-29T00:00:00.000Z'),
+      task: { title: 'Failed decompile', status: 'FAILED', capability: 'decompile' },
+    }])
+    mocks.codeAttemptFindMany.mockResolvedValue([
+      { id: 'attempt-done', artifactId: 'artifact-1', runKey: 'task-1', codeUnitId: 'investigation:case-1:unit:done', unitName: 'finished_unit', status: 'SUCCEEDED', errorCode: null, validationStatus: 'UNAVAILABLE', resultSource: 'candidate', createdAt: new Date('2026-10-29T00:00:02.000Z'), completedAt: new Date('2026-10-29T00:00:03.000Z') },
+      { id: 'attempt-running', artifactId: 'artifact-1', runKey: 'task-1', codeUnitId: 'investigation:case-1:unit:running', unitName: 'active_unit', status: 'RUNNING', errorCode: null, validationStatus: null, resultSource: null, createdAt: new Date('2026-10-29T00:00:01.000Z'), completedAt: null },
+    ])
+
+    const response = await GET(new Request('http://local'), { params })
+    const payload = await response.json()
+
+    expect(payload.investigations[0]).toMatchObject({ status: 'RUNNING', active: true, attemptCount: 2, hasCandidate: true })
+  })
+
   test('rejects malformed cursors without querying cases', async () => {
     const response = await GET(new Request('http://local?cursor=invalid.cursor'), { params })
 
