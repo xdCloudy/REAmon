@@ -17,7 +17,8 @@ writable/executable LOAD segments, and high-entropy executable sections as hypot
 does not execute the artifact. Neither inspector has real-sample precision/recall data;
 PE import names and certificate contents are not recovered. High entropy is only a generic
 packing/encryption/data indicator. Synthetic fixtures test bounded parsing, not protection
-detection accuracy. The inspectors do not unpack files, detect arbitrary packers, identify
+detection accuracy. Per-section PE and ELF evidence is stored as project-scoped observations
+with stable artifact and task keys. The inspectors do not unpack files, detect arbitrary packers, identify
 a commercial protector, extract layers, or prove that an UPX marker corresponds to a
 genuine UPX-packed file. All other protection capabilities below are planned.
 

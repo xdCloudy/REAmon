@@ -178,6 +178,26 @@ export function elfProtectionObservation(assessment: ElfProtectionAssessment, ar
   }
 }
 
+export function elfSectionObservations(sections: ElfSectionEvidence[], artifactId?: string, taskId?: string) {
+  return sections.map((section) => ({
+    kind: 'fact' as const,
+    type: 'elf_section_region',
+    key: protectionObservationKey(artifactId, `elf-section:${section.index}`, taskId),
+    label: section.name || `ELF section ${section.index}`,
+    attributes: {
+      index: section.index,
+      name: section.name,
+      sectionType: section.type,
+      fileOffset: section.fileOffset,
+      fileSize: section.fileSize,
+      executable: section.executable,
+      sampledBytes: section.sampledBytes,
+      entropyBits: section.entropyBits,
+      rawDataTruncated: section.rawDataTruncated,
+    } satisfies ObservationAttributes,
+  }))
+}
+
 export interface PeProtectionAssessment {
   status: 'suspected' | 'unknown'
   family: 'UPX' | null
@@ -467,7 +487,14 @@ export async function executeProtectionInspection(input: ToolExecutionInput): Pr
       const assessment = assessElfProtection(result.stdout, artifactStats.size, result.truncated, sectionSamples, truncatedSections)
       return {
         status: 'completed', ...base,
-        data: { assessment, observations: [elfProtectionObservation(assessment, input.artifactId, input.taskId)], stderr: result.stderr.slice(0, 4000) },
+        data: {
+          assessment,
+          observations: [
+            elfProtectionObservation(assessment, input.artifactId, input.taskId),
+            ...elfSectionObservations(assessment.sections, input.artifactId, input.taskId),
+          ],
+          stderr: result.stderr.slice(0, 4000),
+        },
       }
     }
     const header = Buffer.alloc(MAX_HEADER_BYTES)

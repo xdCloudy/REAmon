@@ -4,7 +4,7 @@ import { existsSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { describe, expect, test } from 'vitest'
-import { assessElfProtection, assessPeProtection, executeProtectionInspection, elfProtectionObservation, peSectionObservations, protectionObservation } from './protection-inspector'
+import { assessElfProtection, assessPeProtection, executeProtectionInspection, elfProtectionObservation, elfSectionObservations, peSectionObservations, protectionObservation } from './protection-inspector'
 
 function highEntropySample(size = 1024): Buffer {
   return Buffer.from(Array.from({ length: size }, (_, index) => index % 256))
@@ -251,6 +251,11 @@ Section Headers:
       executable: true, sampledBytes: 256, entropyBits: 8, rawDataTruncated: false,
     })])
     expect(assessment.evidence.join(' ')).toContain('does not identify a protection family')
+    expect(elfSectionObservations(assessment.sections, 'elf-a', 'task-a')).toEqual([expect.objectContaining({
+      type: 'elf_section_region',
+      key: 'artifact:elf-a:elf-section:1:task:task-a',
+      attributes: expect.objectContaining({ fileOffset: 0x1000, fileSize: 0x100, entropyBits: 8, executable: true }),
+    })])
   })
 
   test('runs bounded readelf against an ELF artifact without executing the target', async (context) => {
@@ -262,8 +267,9 @@ Section Headers:
     expect(result).toMatchObject({ status: 'completed', toolId: 'reamon-protection-inspector' })
     expect(result.data.assessment).toMatchObject({ architecture: expect.stringContaining('X86-64'), inspectedBytes: expect.any(Number), outputTruncated: false })
     expect((result.data.assessment as { sampledBytes: number }).sampledBytes).toBeGreaterThan(0)
-    expect(result.data.observations).toEqual([expect.objectContaining({
-      type: 'protection_assessment', key: 'artifact:system-elf-fixture:protection-static-v1',
-    })])
+    expect(result.data.observations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'protection_assessment', key: 'artifact:system-elf-fixture:protection-static-v1' }),
+      expect.objectContaining({ type: 'elf_section_region', key: expect.stringMatching(/^artifact:system-elf-fixture:elf-section:/) }),
+    ]))
   })
 })
