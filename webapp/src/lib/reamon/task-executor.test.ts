@@ -1,5 +1,6 @@
 /** @vitest-environment node */
 import path from 'node:path'
+import { createHash } from 'node:crypto'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
@@ -271,6 +272,43 @@ describe('executeAnalysisTask', () => {
     expect(mocks.activityCreate).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ eventType: 'analysis.task.failed' }),
     }))
+  })
+
+  test('preserves bounded function-level instruction evidence for failed investigations', async () => {
+    const assembly = 'x'.repeat(9 * 1024)
+    mocks.taskFindFirst.mockResolvedValue(task({
+      capability: 'disassemble',
+      artifact: { ...task().artifact, sha256: 'a'.repeat(64) },
+      provider: { id: 'provider-ghidra', pluginId: 'reamon-ghidra', name: 'Ghidra', enabled: true },
+    }))
+    mocks.resolveCapabilities.mockReturnValue([{ capabilities: ['disassemble'] }])
+    mocks.analyze.mockResolvedValue({
+      status: 'failed', toolId: 'reamon-ghidra', capabilities: ['disassemble'], produced: ['Function'], error: 'provider timed out', data: {
+        observations: [{ kind: 'entity', type: 'function', key: 'fn:main', attributes: { address: '0x1000', assembly } }],
+      },
+    })
+    mocks.taskFindUnique.mockResolvedValue(task({ status: 'FAILED', error: 'provider timed out' }))
+
+    await executeAnalysisTask('project-1', 'task-1')
+
+    const persistedFailure = mocks.taskSettleUpdateMany.mock.calls[0][0].data.result
+    expect(persistedFailure).toMatchObject({
+      providerFailure: {
+        partialUnits: [{
+          key: 'fn:main',
+          attributes: { address: '0x1000', assembly: 'x'.repeat(8 * 1024) },
+          textEvidence: {
+            assembly: {
+              sha256: createHash('sha256').update(assembly, 'utf8').digest('hex'),
+              capturedSha256: createHash('sha256').update('x'.repeat(8 * 1024), 'utf8').digest('hex'),
+              originalBytes: 9 * 1024,
+              capturedBytes: 8 * 1024,
+              truncated: true,
+            },
+          },
+        }],
+      },
+    })
   })
 
   test('bounds persisted provider payloads while retaining normalized observations', async () => {

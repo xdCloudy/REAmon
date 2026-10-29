@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest'
+import { createHash } from 'node:crypto'
 import { NextResponse } from 'next/server'
 
 const mocks = vi.hoisted(() => ({
@@ -76,7 +77,7 @@ describe('/api/projects/[id]/workspace/tasks/[taskId]/investigation', () => {
           observationCount: 4,
           partialCodeUnitCount: 2,
           partialUnits: [
-            { type: 'function', key: 'fn:entry', label: 'entry', attributes: { address: '0x100', language: 'c' } },
+            { type: 'function', key: 'fn:entry', label: 'entry', attributes: { address: '0x100', language: 'c', assembly: 'mov eax, edi\nret\n' } },
             { type: 'unknown', key: 'drop-me', label: 'bad', attributes: {} },
           ],
         },
@@ -109,12 +110,85 @@ describe('/api/projects/[id]/workspace/tasks/[taskId]/investigation', () => {
             inputArtifactSha256: 'b'.repeat(64),
             observationCount: 4,
             partialCodeUnitCount: 2,
-            partialUnits: [{ type: 'function', key: 'fn:entry', label: 'entry', attributes: { address: '0x100', language: 'c' } }],
+            partialUnits: [{
+              type: 'function', key: 'fn:entry', label: 'entry',
+              attributes: { address: '0x100', language: 'c', assembly: 'mov eax, edi\nret\n' },
+              textEvidence: {
+                assembly: {
+                  sha256: createHash('sha256').update('mov eax, edi\nret\n', 'utf8').digest('hex'),
+                  capturedSha256: createHash('sha256').update('mov eax, edi\nret\n', 'utf8').digest('hex'),
+                  originalBytes: Buffer.byteLength('mov eax, edi\nret\n', 'utf8'),
+                  capturedBytes: Buffer.byteLength('mov eax, edi\nret\n', 'utf8'),
+                  truncated: false,
+                  originalHashVerified: false,
+                },
+              },
+            }],
             partialUnitsTruncated: true,
+            partialUnitTextEvidenceBytes: Buffer.byteLength('mov eax, edi\nret\n', 'utf8'),
+            partialUnitTextEvidenceTruncated: false,
           },
+          providerTextEvidence: { schemaVersion: 1, fields: [], capturedBytes: 0, truncated: false },
         }),
       }),
     }))
+  })
+
+  test('retains bounded, hash-linked instruction evidence for later investigation', async () => {
+    const assembly = 'mov eax, edi\nret\n'
+    const output = 'provider returned a partial listing'
+    mocks.taskFindFirst.mockResolvedValue({
+      id: 'task-1', projectId: 'project-1', artifactId: 'artifact-1', capability: 'disassemble', status: 'FAILED',
+      title: 'Disassemble app', progressMessage: 'Stopped at function 2', error: 'Provider timed out',
+      result: { assembly, output, ignoredSecretLikeField: 'not selected' },
+      startedAt: new Date('2026-10-28T08:00:00.000Z'), completedAt: new Date('2026-10-28T08:01:00.000Z'),
+      createdAt: new Date('2026-10-28T07:59:00.000Z'), artifact: { sha256: 'A'.repeat(64) },
+      provider: { pluginId: 'reamon-ghidra', version: '1.2.3' },
+    })
+    mocks.investigationCreate.mockImplementation(async ({ data }) => ({ id: 'case-1', status: data.status, revision: 1 }))
+
+    const response = await POST(new Request('http://local', { method: 'POST' }), { params })
+    const failureEvidence = mocks.investigationCreate.mock.calls[0][0].data.failureEvidence
+
+    expect(response.status).toBe(201)
+    expect(failureEvidence.providerTextEvidence).toEqual({
+      schemaVersion: 1,
+      fields: [assembly, output].map((text, index) => ({
+        field: index === 0 ? 'assembly' : 'output',
+        text,
+        sha256: createHash('sha256').update(text, 'utf8').digest('hex'),
+        capturedSha256: createHash('sha256').update(text, 'utf8').digest('hex'),
+        originalBytes: Buffer.byteLength(text, 'utf8'),
+        capturedBytes: Buffer.byteLength(text, 'utf8'),
+        truncated: false,
+      })),
+      capturedBytes: Buffer.byteLength(assembly, 'utf8') + Buffer.byteLength(output, 'utf8'),
+      truncated: false,
+    })
+    expect(JSON.stringify(failureEvidence.providerTextEvidence)).not.toContain('not selected')
+  })
+
+  test('caps captured provider text without discarding the full-output hash', async () => {
+    const assembly = 'x'.repeat(25 * 1024)
+    mocks.taskFindFirst.mockResolvedValue({
+      id: 'task-1', projectId: 'project-1', artifactId: 'artifact-1', capability: 'disassemble', status: 'FAILED',
+      title: 'Disassemble app', progressMessage: '', error: 'Provider timed out', result: { assembly },
+      startedAt: null, completedAt: null, createdAt: new Date(), artifact: { sha256: 'A'.repeat(64) }, provider: null,
+    })
+    mocks.investigationCreate.mockImplementation(async ({ data }) => ({ id: 'case-1', status: data.status, revision: 1 }))
+
+    await POST(new Request('http://local', { method: 'POST' }), { params })
+    const evidence = mocks.investigationCreate.mock.calls[0][0].data.failureEvidence.providerTextEvidence
+
+    expect(evidence.capturedBytes).toBe(24 * 1024)
+    expect(evidence.truncated).toBe(true)
+    expect(evidence.fields[0]).toMatchObject({
+      field: 'assembly',
+      sha256: createHash('sha256').update(assembly, 'utf8').digest('hex'),
+      originalBytes: 25 * 1024,
+      capturedBytes: 24 * 1024,
+      truncated: true,
+    })
   })
 
   test('does not queue successful tasks or tasks outside the active imported artifact', async () => {

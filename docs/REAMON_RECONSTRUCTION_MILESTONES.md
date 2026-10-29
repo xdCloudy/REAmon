@@ -268,8 +268,12 @@ provider/version, bounded failure context, and request history. Structured provi
 failures also retain up to 100 code-unit/function summaries with a run token and original
 artifact hash; these diagnostics are snapshotted into the case but are not canonical
 observations or success evidence. Provider-asserted derived-source hashes are not
-trusted unless REAmon verifies the file bytes. The queue does not yet create per-unit
-cases, dispatch agents, or track investigation attempts.
+trusted unless REAmon verifies the file bytes. Failure intake now copies allowlisted
+provider text and per-unit instruction fields into separate diagnostic snapshots,
+with a 48 KiB cap per evidence source family and hashes for each original field and
+captured excerpt. These fields remain non-canonical and untrusted when passed to an
+agent. The queue does not yet create per-unit cases, dispatch agents, or track
+investigation attempts.
 The existing rewrite-attempt queue persists AI source attempts, but it is not the
 failed-provider/unit investigation lifecycle specified below. A separate internal
 agent endpoint now accepts bounded static instruction, control-flow, reference, and

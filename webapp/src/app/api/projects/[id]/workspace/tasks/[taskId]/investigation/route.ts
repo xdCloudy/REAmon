@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { Prisma } from '@prisma/client'
+import { createHash } from 'node:crypto'
 import prisma from '@/lib/prisma'
 import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
 import { getActiveWorkspaceImportSelection } from '@/lib/reamon/inventory-query'
@@ -9,10 +10,17 @@ interface RouteParams { params: Promise<{ id: string; taskId: string }> }
 const NO_STORE = { 'Cache-Control': 'private, no-store' }
 const INVESTIGATABLE_CAPABILITIES = ['decompile', 'disassemble']
 const MAX_PARTIAL_UNITS = 100
+const MAX_PARTIAL_UNIT_TEXT_BYTES = 48 * 1024
+const MAX_PARTIAL_UNIT_TEXT_FIELD_BYTES = 8 * 1024
+const MAX_PROVIDER_TEXT_BYTES = 48 * 1024
+const MAX_PROVIDER_TEXT_FIELD_BYTES = 24 * 1024
+const PROVIDER_TEXT_FIELDS = ['assembly', 'disassembly', 'bytecode', 'instructions', 'controlFlow', 'dataReferences', 'ir', 'output', 'stdout', 'stderr'] as const
+const PARTIAL_UNIT_TEXT_FIELDS = new Set(['assembly', 'disassembly', 'bytecode', 'instructions', 'controlFlow', 'dataReferences', 'ir', 'providerOutput'])
 const PARTIAL_UNIT_ATTRIBUTE_KEYS = [
   'address', 'startAddress', 'endAddress', 'relativePath', 'language', 'unitType', 'codeArtifactId',
   'codeArtifactSha256', 'inputArtifactSha256', 'identity', 'qualifiedName', 'name', 'methodName',
-  'signature', 'descriptor', 'sizeBytes', 'parentCodeUnitKey',
+  'signature', 'descriptor', 'sizeBytes', 'parentCodeUnitKey', 'assembly', 'disassembly', 'bytecode',
+  'instructions', 'controlFlow', 'dataReferences', 'ir', 'providerOutput',
 ] as const
 
 function partialUnitSnapshot(result: Record<string, unknown> | null) {
@@ -20,16 +28,57 @@ function partialUnitSnapshot(result: Record<string, unknown> | null) {
   if (!providerFailure || typeof providerFailure !== 'object' || Array.isArray(providerFailure)) return null
   const failure = providerFailure as Record<string, unknown>
   if (failure.schemaVersion !== 1 || !Array.isArray(failure.partialUnits)) return null
+  let remainingTextBytes = MAX_PARTIAL_UNIT_TEXT_BYTES
+  let textEvidenceTruncated = false
   const partialUnits = failure.partialUnits.slice(0, MAX_PARTIAL_UNITS).flatMap((value) => {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return []
     const unit = value as Record<string, unknown>
     if ((unit.type !== 'code_unit' && unit.type !== 'function') || typeof unit.key !== 'string' || !unit.key.trim()) return []
     const attributes: Record<string, string | number | boolean> = {}
+    const textEvidence: Record<string, { sha256: string; capturedSha256: string; originalBytes: number; capturedBytes: number; truncated: boolean; originalHashVerified: boolean }> = {}
+    const rawTextEvidence = unit.textEvidence && typeof unit.textEvidence === 'object' && !Array.isArray(unit.textEvidence)
+      ? unit.textEvidence as Record<string, unknown>
+      : {}
     if (unit.attributes && typeof unit.attributes === 'object' && !Array.isArray(unit.attributes)) {
       const rawAttributes = unit.attributes as Record<string, unknown>
       for (const key of PARTIAL_UNIT_ATTRIBUTE_KEYS) {
         const candidate = rawAttributes[key]
-        if (typeof candidate === 'string' && candidate.length <= 2_000) attributes[key] = candidate
+        if (typeof candidate === 'string' && PARTIAL_UNIT_TEXT_FIELDS.has(key)) {
+          const originalBytes = Buffer.byteLength(candidate, 'utf8')
+          const captured = truncateUtf8(candidate, Math.min(MAX_PARTIAL_UNIT_TEXT_FIELD_BYTES, remainingTextBytes))
+          const capturedBytes = Buffer.byteLength(captured, 'utf8')
+          remainingTextBytes -= capturedBytes
+          attributes[key] = captured
+          const capturedSha256 = createHash('sha256').update(captured, 'utf8').digest('hex')
+          const supplied = rawTextEvidence[key] && typeof rawTextEvidence[key] === 'object' && !Array.isArray(rawTextEvidence[key])
+            ? rawTextEvidence[key] as Record<string, unknown>
+            : null
+          if (supplied
+            && typeof supplied.sha256 === 'string' && /^[a-f0-9]{64}$/i.test(supplied.sha256)
+            && supplied.capturedSha256 === capturedSha256
+            && supplied.capturedBytes === capturedBytes
+            && typeof supplied.originalBytes === 'number' && Number.isSafeInteger(supplied.originalBytes) && supplied.originalBytes >= capturedBytes
+            && supplied.truncated === (supplied.originalBytes > capturedBytes)) {
+            textEvidence[key] = {
+              sha256: supplied.sha256.toLowerCase(),
+              capturedSha256,
+              originalBytes: supplied.originalBytes,
+              capturedBytes,
+              truncated: supplied.originalBytes > capturedBytes,
+              originalHashVerified: true,
+            }
+          } else {
+            textEvidence[key] = {
+              sha256: capturedSha256,
+              capturedSha256,
+              originalBytes,
+              capturedBytes,
+              truncated: capturedBytes < originalBytes,
+              originalHashVerified: false,
+            }
+          }
+          textEvidenceTruncated ||= textEvidence[key].truncated
+        } else if (typeof candidate === 'string' && candidate.length <= 2_000) attributes[key] = candidate
         else if (typeof candidate === 'number' && Number.isFinite(candidate)) attributes[key] = candidate
         else if (typeof candidate === 'boolean') attributes[key] = candidate
       }
@@ -42,6 +91,7 @@ function partialUnitSnapshot(result: Record<string, unknown> | null) {
       key: unit.key.trim().slice(0, 500),
       label: typeof unit.label === 'string' ? unit.label.slice(0, 500) : '',
       attributes,
+      textEvidence,
     }]
   })
   return {
@@ -54,6 +104,48 @@ function partialUnitSnapshot(result: Record<string, unknown> | null) {
     partialCodeUnitCount: typeof failure.partialCodeUnitCount === 'number' && Number.isSafeInteger(failure.partialCodeUnitCount) ? failure.partialCodeUnitCount : partialUnits.length,
     partialUnits,
     partialUnitsTruncated: failure.partialUnitsTruncated === true || (Array.isArray(failure.partialUnits) && failure.partialUnits.length > partialUnits.length),
+    partialUnitTextEvidenceBytes: MAX_PARTIAL_UNIT_TEXT_BYTES - remainingTextBytes,
+    partialUnitTextEvidenceTruncated: textEvidenceTruncated,
+  }
+}
+
+function truncateUtf8(value: string, maxBytes: number): string {
+  let bytes = 0
+  let captured = ''
+  for (const character of value) {
+    const characterBytes = Buffer.byteLength(character, 'utf8')
+    if (bytes + characterBytes > maxBytes) break
+    captured += character
+    bytes += characterBytes
+  }
+  return captured
+}
+
+function providerTextSnapshot(result: Record<string, unknown> | null) {
+  let remainingBytes = MAX_PROVIDER_TEXT_BYTES
+  const fields = []
+  for (const field of PROVIDER_TEXT_FIELDS) {
+    const value = result?.[field]
+    if (typeof value !== 'string' || value.length === 0) continue
+    const originalBytes = Buffer.byteLength(value, 'utf8')
+    const captured = truncateUtf8(value, Math.min(MAX_PROVIDER_TEXT_FIELD_BYTES, remainingBytes))
+    const capturedBytes = Buffer.byteLength(captured, 'utf8')
+    remainingBytes -= capturedBytes
+    fields.push({
+      field,
+      text: captured,
+      sha256: createHash('sha256').update(value, 'utf8').digest('hex'),
+      capturedSha256: createHash('sha256').update(captured, 'utf8').digest('hex'),
+      originalBytes,
+      capturedBytes,
+      truncated: capturedBytes < originalBytes,
+    })
+  }
+  return {
+    schemaVersion: 1,
+    fields,
+    capturedBytes: MAX_PROVIDER_TEXT_BYTES - remainingBytes,
+    truncated: fields.some((field) => field.truncated),
   }
 }
 
@@ -154,6 +246,7 @@ export async function POST(_request: Request, { params }: RouteParams) {
       existingObservationCount: observationCount,
       resultKeys: result ? Object.keys(result).slice(0, 100) : [],
       partialProviderOutput: partialUnitSnapshot(result),
+      providerTextEvidence: providerTextSnapshot(result),
     }
 
     let investigation

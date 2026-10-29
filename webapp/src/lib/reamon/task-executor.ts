@@ -18,10 +18,14 @@ const MAX_CODE_ARTIFACT_HASH_FILE_BYTES = 2 * 1024 * 1024
 const MAX_CODE_ARTIFACT_HASH_TOTAL_BYTES = 64 * 1024 * 1024
 const MAX_CODE_ARTIFACT_HASH_FILES = 1_024
 const MAX_FAILED_CODE_UNIT_EVIDENCE = 100
+const MAX_FAILED_CODE_UNIT_TEXT_BYTES = 48 * 1024
+const MAX_FAILED_CODE_UNIT_TEXT_FIELD_BYTES = 8 * 1024
+const FAILED_CODE_UNIT_TEXT_KEYS = new Set(['assembly', 'disassembly', 'bytecode', 'instructions', 'controlFlow', 'dataReferences', 'ir', 'providerOutput'])
 const FAILED_CODE_UNIT_ATTRIBUTE_KEYS = [
   'address', 'startAddress', 'endAddress', 'relativePath', 'language', 'unitType', 'codeArtifactId',
   'codeArtifactSha256', 'inputArtifactSha256', 'identity', 'qualifiedName', 'name', 'methodName',
-  'signature', 'descriptor', 'sizeBytes', 'parentCodeUnitKey',
+  'signature', 'descriptor', 'sizeBytes', 'parentCodeUnitKey', 'assembly', 'disassembly', 'bytecode',
+  'instructions', 'controlFlow', 'dataReferences', 'ir', 'providerOutput',
 ] as const
 
 const taskSelect = {
@@ -186,6 +190,18 @@ function boundedError(value: string): string {
   return value.trim().slice(0, 4000) || 'Provider execution failed'
 }
 
+function truncateUtf8(value: string, maxBytes: number): string {
+  let bytes = 0
+  let captured = ''
+  for (const character of value) {
+    const characterBytes = Buffer.byteLength(character, 'utf8')
+    if (bytes + characterBytes > maxBytes) break
+    captured += character
+    bytes += characterBytes
+  }
+  return captured
+}
+
 function pendingObservationSource(toolId: string, runToken: string): string {
   return `${toolId}:pending:${runToken}`
 }
@@ -208,6 +224,7 @@ function failedProviderResultData(task: TaskRow, runToken: string, result: ToolR
     return observation.type === 'code_unit' || observation.type === 'function'
   })
   const runPrefix = `${task.projectId}/${task.artifactId || ''}/${task.id}/${runToken}/`
+  let remainingTextBytes = MAX_FAILED_CODE_UNIT_TEXT_BYTES
   const partialUnits = codeUnits.slice(0, MAX_FAILED_CODE_UNIT_EVIDENCE).flatMap((value) => {
     const observation = value as Record<string, unknown>
     const key = typeof observation.key === 'string' ? observation.key.trim().slice(0, 500) : ''
@@ -216,9 +233,23 @@ function failedProviderResultData(task: TaskRow, runToken: string, result: ToolR
       ? observation.attributes as Record<string, unknown>
       : {}
     const attributes: Record<string, string | number | boolean> = {}
+    const textEvidence: Record<string, { sha256: string; capturedSha256: string; originalBytes: number; capturedBytes: number; truncated: boolean }> = {}
     for (const attributeKey of FAILED_CODE_UNIT_ATTRIBUTE_KEYS) {
       const candidate = rawAttributes[attributeKey]
-      if (typeof candidate === 'string' && candidate.length <= 2_000) attributes[attributeKey] = candidate
+      if (typeof candidate === 'string' && FAILED_CODE_UNIT_TEXT_KEYS.has(attributeKey)) {
+        const captured = truncateUtf8(candidate, Math.min(MAX_FAILED_CODE_UNIT_TEXT_FIELD_BYTES, remainingTextBytes))
+        const originalBytes = Buffer.byteLength(candidate, 'utf8')
+        const capturedBytes = Buffer.byteLength(captured, 'utf8')
+        attributes[attributeKey] = captured
+        textEvidence[attributeKey] = {
+          sha256: createHash('sha256').update(candidate, 'utf8').digest('hex'),
+          capturedSha256: createHash('sha256').update(captured, 'utf8').digest('hex'),
+          originalBytes,
+          capturedBytes,
+          truncated: capturedBytes < originalBytes,
+        }
+        remainingTextBytes -= capturedBytes
+      } else if (typeof candidate === 'string' && candidate.length <= 2_000) attributes[attributeKey] = candidate
       else if (typeof candidate === 'number' && Number.isFinite(candidate)) attributes[attributeKey] = candidate
       else if (typeof candidate === 'boolean') attributes[attributeKey] = candidate
     }
@@ -233,6 +264,7 @@ function failedProviderResultData(task: TaskRow, runToken: string, result: ToolR
       key,
       label: typeof observation.label === 'string' ? observation.label.slice(0, 500) : '',
       attributes,
+      textEvidence,
     }]
   })
   const summary = asOptions(boundedTaskResultData(result.data))
