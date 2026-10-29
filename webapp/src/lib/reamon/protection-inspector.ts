@@ -28,13 +28,26 @@ export interface ElfProtectionAssessment {
   evidence: string[]
   architecture: string | null
   entryPoint: string | null
-  loadSegments: Array<{ virtualAddress: string; memorySize: string; flags: string }>
+  loadSegments: ElfLoadSegmentEvidence[]
   sectionNames: string[]
   sections: ElfSectionEvidence[]
   inspectedBytes: number
   sampledBytes: number
   outputTruncated: boolean
-  scope: 'ELF headers, program headers, section metadata, and bounded executable-section samples; no execution or unpacking'
+  scope: 'ELF headers, program headers, section metadata, and bounded executable-region samples; no execution or unpacking'
+}
+
+export interface ElfLoadSegmentEvidence {
+  index: number
+  fileOffset: number
+  fileSize: number
+  virtualAddress: string
+  memorySize: string
+  flags: string
+  sampledBytes: number
+  entropyBits: number | null
+  upxSignatureOffsets: number[]
+  rawDataTruncated: boolean
 }
 
 export interface ElfSectionEvidence {
@@ -81,6 +94,8 @@ export function assessElfProtection(
   outputTruncated = false,
   sectionSamples: Map<number, Buffer> = new Map(),
   truncatedSections: Set<number> = new Set(),
+  segmentSamples: Map<number, Buffer> = new Map(),
+  truncatedSegments: Set<number> = new Set(),
 ): ElfProtectionAssessment {
   const evidence: string[] = []
   let structuralIndicator = false
@@ -95,21 +110,45 @@ export function assessElfProtection(
       rawDataTruncated: truncatedSections.has(section.index),
     }
   })
-  const sampledBytes = sections.reduce((total, section) => total + section.sampledBytes, 0)
-  const family = sectionNames.some((name) => /^\.?UPX(?:0|1|2|!)$/i.test(name)) ? 'UPX' : null
-  if (family) {
+  const sectionFamily = sectionNames.some((name) => /^\.?UPX(?:0|1|2|!)$/i.test(name)) ? 'UPX' : null
+  let family: 'UPX' | null = sectionFamily
+  if (sectionFamily) {
     structuralIndicator = true
     evidence.push('An ELF section name matches a conventional UPX marker; this is a protection hypothesis, not confirmation of UPX packing.')
   }
 
   const entryPoint = readElfField(output, 'Entry point address')
   const architecture = readElfField(output, 'Machine')
-  const loadSegments = output.split(/\r?\n/).flatMap((line) => {
+  const rawLoadSegments = output.split(/\r?\n/).flatMap((line) => {
     const columns = line.trim().split(/\s+/)
     if (columns[0] !== 'LOAD' || columns.length < 8) return []
+    const fileOffset = readHex(columns[1])
+    const fileSize = readHex(columns[4])
+    if (fileOffset === null || fileSize === null || fileOffset > BigInt(Number.MAX_SAFE_INTEGER) || fileSize > BigInt(Number.MAX_SAFE_INTEGER)) return []
     const flags = columns.slice(6, -1).join('')
-    return [{ virtualAddress: columns[2], memorySize: columns[5], flags }]
+    return [{ index: 0, fileOffset: Number(fileOffset), fileSize: Number(fileSize), virtualAddress: columns[2], memorySize: columns[5], flags }]
   })
+  const loadSegments = rawLoadSegments.map((segment, index): ElfLoadSegmentEvidence => {
+    const sample = segmentSamples.get(index)
+    const upxSignatureOffsets: number[] = []
+    if (sample) {
+      const marker = Buffer.from('UPX!')
+      let markerIndex = sample.indexOf(marker)
+      while (markerIndex >= 0) {
+        upxSignatureOffsets.push(segment.fileOffset + markerIndex)
+        markerIndex = sample.indexOf(marker, markerIndex + marker.length)
+      }
+    }
+    return {
+      ...segment,
+      sampledBytes: sample?.length ?? 0,
+      entropyBits: sample ? shannonEntropy(sample) : null,
+      upxSignatureOffsets,
+      rawDataTruncated: truncatedSegments.has(index),
+    }
+  })
+  const sampledBytes = sections.reduce((total, section) => total + section.sampledBytes, 0)
+    + loadSegments.reduce((total, segment) => total + segment.sampledBytes, 0)
   const entry = readHex(entryPoint)
   const executableSegments = loadSegments.filter((segment) => segment.flags.includes('E'))
   if (entry !== null && executableSegments.length > 0) {
@@ -126,6 +165,20 @@ export function assessElfProtection(
   if (loadSegments.some((segment) => segment.flags.includes('W') && segment.flags.includes('E'))) {
     structuralIndicator = true
     evidence.push('An ELF LOAD segment is both writable and executable; this is a structural indicator and can also occur in legitimate binaries.')
+  }
+  for (const segment of loadSegments) {
+    if (segment.upxSignatureOffsets.length) {
+      structuralIndicator = true
+      family = 'UPX'
+      evidence.push(`UPX! marker observed at file offset ${segment.upxSignatureOffsets.map((offset) => `0x${offset.toString(16)}`).join(', ')} in an ELF LOAD segment; this signature is a hypothesis, not confirmation of UPX packing.`)
+    }
+    if (segment.flags.includes('E') && segment.entropyBits !== null && segment.entropyBits >= HIGH_ENTROPY_THRESHOLD) {
+      structuralIndicator = true
+      evidence.push(`Executable ELF LOAD segment at file offset 0x${segment.fileOffset.toString(16)} has high sampled entropy (${segment.entropyBits} bits per byte); this can result from packing, encryption, or other data and does not identify a protection family.`)
+    }
+    if (segment.rawDataTruncated) {
+      evidence.push(`ELF LOAD segment at file offset 0x${segment.fileOffset.toString(16)} declares raw bytes beyond the artifact boundary; its data is truncated.`)
+    }
   }
   for (const section of sections) {
     if (section.executable && section.entropyBits !== null && section.entropyBits >= HIGH_ENTROPY_THRESHOLD) {
@@ -153,7 +206,7 @@ export function assessElfProtection(
     inspectedBytes,
     sampledBytes,
     outputTruncated,
-    scope: 'ELF headers, program headers, section metadata, and bounded executable-section samples; no execution or unpacking',
+    scope: 'ELF headers, program headers, section metadata, and bounded executable-region samples; no execution or unpacking',
   }
 }
 
@@ -194,6 +247,27 @@ export function elfSectionObservations(sections: ElfSectionEvidence[], artifactI
       sampledBytes: section.sampledBytes,
       entropyBits: section.entropyBits,
       rawDataTruncated: section.rawDataTruncated,
+    } satisfies ObservationAttributes,
+  }))
+}
+
+export function elfLoadSegmentObservations(segments: ElfLoadSegmentEvidence[], artifactId?: string, taskId?: string) {
+  return segments.map((segment) => ({
+    kind: 'fact' as const,
+    type: 'elf_load_segment',
+    key: protectionObservationKey(artifactId, `elf-load-segment:${segment.index}`, taskId),
+    label: `ELF LOAD segment ${segment.index}`,
+    attributes: {
+      index: segment.index,
+      fileOffset: segment.fileOffset,
+      fileSize: segment.fileSize,
+      virtualAddress: segment.virtualAddress,
+      memorySize: segment.memorySize,
+      flags: segment.flags,
+      sampledBytes: segment.sampledBytes,
+      entropyBits: segment.entropyBits,
+      upxSignatureOffsets: segment.upxSignatureOffsets.map((offset) => `0x${offset.toString(16)}`).join(', '),
+      rawDataTruncated: segment.rawDataTruncated,
     } satisfies ObservationAttributes,
   }))
 }
@@ -464,27 +538,61 @@ export async function executeProtectionInspection(input: ToolExecutionInput): Pr
       const sectionRows = parseElfSectionRows(result.stdout)
       const sectionSamples = new Map<number, Buffer>()
       const truncatedSections = new Set<number>()
+      const segmentSamples = new Map<number, Buffer>()
+      const truncatedSegments = new Set<number>()
       let sampleBudget = MAX_TOTAL_SAMPLE_BYTES
-      for (const section of sectionRows) {
-        if (!section.executable || section.type === 'NOBITS' || !section.fileSize) continue
-        if (section.fileOffset >= artifactStats.size) {
-          truncatedSections.add(section.index)
-          continue
+      const hasExecutableFileBackedSections = sectionRows.some((section) => section.executable && section.type !== 'NOBITS' && section.fileSize > 0)
+      if (hasExecutableFileBackedSections) {
+        for (const section of sectionRows) {
+          if (!section.executable || section.type === 'NOBITS' || !section.fileSize) continue
+          if (section.fileOffset >= artifactStats.size) {
+            truncatedSections.add(section.index)
+            continue
+          }
+          const availableBytes = Math.min(section.fileSize, artifactStats.size - section.fileOffset)
+          if (availableBytes < section.fileSize) truncatedSections.add(section.index)
+          if (!sampleBudget) continue
+          const sampleSize = Math.min(availableBytes, MAX_SECTION_SAMPLE_BYTES, sampleBudget)
+          if (sampleSize <= 0) continue
+          const sample = Buffer.alloc(sampleSize)
+          const { bytesRead: sampled } = await handle.read(sample, 0, sampleSize, section.fileOffset)
+          if (sampled > 0) {
+            sectionSamples.set(section.index, sample.subarray(0, sampled))
+            sampleBudget -= sampled
+          }
+          if (sampled < sampleSize) truncatedSections.add(section.index)
         }
-        const availableBytes = Math.min(section.fileSize, artifactStats.size - section.fileOffset)
-        if (availableBytes < section.fileSize) truncatedSections.add(section.index)
-        if (!sampleBudget) continue
-        const sampleSize = Math.min(availableBytes, MAX_SECTION_SAMPLE_BYTES, sampleBudget)
-        if (sampleSize <= 0) continue
-        const sample = Buffer.alloc(sampleSize)
-        const { bytesRead: sampled } = await handle.read(sample, 0, sampleSize, section.fileOffset)
-        if (sampled > 0) {
-          sectionSamples.set(section.index, sample.subarray(0, sampled))
-          sampleBudget -= sampled
+      } else {
+        let segmentIndex = 0
+        for (const line of result.stdout.split(/\r?\n/)) {
+          const columns = line.trim().split(/\s+/)
+          if (columns[0] !== 'LOAD' || columns.length < 8) continue
+          const fileOffset = readHex(columns[1])
+          const fileSize = readHex(columns[4])
+          if (fileOffset === null || fileSize === null || fileOffset > BigInt(Number.MAX_SAFE_INTEGER) || fileSize > BigInt(Number.MAX_SAFE_INTEGER)) continue
+          const index = segmentIndex++
+          if (fileSize === 0n) continue
+          const offset = Number(fileOffset)
+          const size = Number(fileSize)
+          if (offset >= artifactStats.size) {
+            truncatedSegments.add(index)
+            continue
+          }
+          const availableBytes = Math.min(size, artifactStats.size - offset)
+          if (availableBytes < size) truncatedSegments.add(index)
+          if (!sampleBudget) continue
+          const sampleSize = Math.min(availableBytes, MAX_SECTION_SAMPLE_BYTES, sampleBudget)
+          if (sampleSize <= 0) continue
+          const sample = Buffer.alloc(sampleSize)
+          const { bytesRead: sampled } = await handle.read(sample, 0, sampleSize, offset)
+          if (sampled > 0) {
+            segmentSamples.set(index, sample.subarray(0, sampled))
+            sampleBudget -= sampled
+          }
+          if (sampled < sampleSize) truncatedSegments.add(index)
         }
-        if (sampled < sampleSize) truncatedSections.add(section.index)
       }
-      const assessment = assessElfProtection(result.stdout, artifactStats.size, result.truncated, sectionSamples, truncatedSections)
+      const assessment = assessElfProtection(result.stdout, artifactStats.size, result.truncated, sectionSamples, truncatedSections, segmentSamples, truncatedSegments)
       return {
         status: 'completed', ...base,
         data: {
@@ -492,6 +600,7 @@ export async function executeProtectionInspection(input: ToolExecutionInput): Pr
           observations: [
             elfProtectionObservation(assessment, input.artifactId, input.taskId),
             ...elfSectionObservations(assessment.sections, input.artifactId, input.taskId),
+            ...elfLoadSegmentObservations(assessment.loadSegments, input.artifactId, input.taskId),
           ],
           stderr: result.stderr.slice(0, 4000),
         },

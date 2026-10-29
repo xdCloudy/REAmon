@@ -1,0 +1,31 @@
+FROM node:22-slim
+
+ARG UPX_VERSION=5.2.1
+ARG UPX_SHA256=402162aad30af47e60dbd767fb2e64ca394ace9727ba1f40283641f1d1b91657
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        binutils ca-certificates curl gcc libc6-dev openssl xz-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /repo/webapp
+COPY webapp/package.json webapp/package-lock.json ./
+COPY webapp/prisma ./prisma
+RUN --mount=type=secret,id=proxy_ca \
+    if [ -f /run/secrets/proxy_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/proxy_ca CURL_CA_BUNDLE=/run/secrets/proxy_ca; fi; \
+    npm ci --no-audit --no-fund && npm cache clean --force
+
+WORKDIR /repo
+COPY . ./
+RUN --mount=type=secret,id=proxy_ca \
+    set -eu; \
+    if [ -f /run/secrets/proxy_ca ]; then export CURL_CA_BUNDLE=/run/secrets/proxy_ca; fi; \
+    curl -fsSL "https://github.com/upx/upx/releases/download/v${UPX_VERSION}/upx-${UPX_VERSION}-amd64_linux.tar.xz" -o /tmp/upx.tar.xz; \
+    echo "${UPX_SHA256}  /tmp/upx.tar.xz" | sha256sum -c -; \
+    mkdir -p /opt/upx; \
+    tar -xJf /tmp/upx.tar.xz -C /opt/upx --strip-components=1; \
+    rm /tmp/upx.tar.xz
+
+ENV PATH="/opt/upx:${PATH}"
+ENV REAMON_UPX_FIXTURE_BENCHMARK=1
+WORKDIR /repo/webapp
+ENTRYPOINT ["npm", "run", "test", "--", "src/lib/reamon/protection-inspector.test.ts"]

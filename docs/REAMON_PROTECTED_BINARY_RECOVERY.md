@@ -13,14 +13,36 @@ uses `readelf` with a 1 MiB output cap and 30-second timeout to record ELF heade
 header, and section evidence. It samples at most 64 KiB per executable section and 256 KiB
 in aggregate, recording section offsets, sizes, sampled entropy, and out-of-file ranges. It
 flags conventional UPX section names, entry points outside executable LOAD segments,
-writable/executable LOAD segments, and high-entropy executable sections as hypotheses. It
-does not execute the artifact. Neither inspector has real-sample precision/recall data;
+writable/executable LOAD segments, and high-entropy executable regions as hypotheses. For
+stripped ELF files without executable sections, it samples bounded `PT_LOAD` regions and
+records `UPX!` marker offsets as suspected family evidence. It does not execute the artifact.
+There is no multi-sample precision/recall calibration yet;
 PE import names and certificate contents are not recovered. High entropy is only a generic
-packing/encryption/data indicator. Synthetic fixtures test bounded parsing, not protection
-detection accuracy. Per-section PE and ELF evidence is stored as project-scoped observations
-with stable artifact and task keys. The inspectors do not unpack files, detect arbitrary packers, identify
-a commercial protector, extract layers, or prove that an UPX marker corresponds to a
-genuine UPX-packed file. All other protection capabilities below are planned.
+packing/encryption/data indicator. Synthetic fixtures exercise bounded parsing; the single
+pinned UPX pair below tests one narrow detection path but provides no statistical accuracy
+estimate. Per-section PE and ELF evidence is stored as project-scoped observations
+with stable artifact and task keys. The inspectors do not unpack files, detect arbitrary
+packers, identify a commercial protector, extract layers, or prove that an UPX marker
+corresponds to a genuine UPX-packed file. Commercial-protector support, extraction, and
+dynamic recovery remain planned.
+
+### Reproducible first fixture
+
+The Docker-only UPX benchmark generates a clean/packed pair from test-owned C source using
+GCC `-O0 -s` and UPX 5.2.1 (`--best`) for Linux x86-64. It inspects both artifacts with
+`readelf` and never executes either generated program. The UPX release archive is pinned by
+SHA-256 `402162aad30af47e60dbd767fb2e64ca394ace9727ba1f40283641f1d1b91657`.
+The clean binary must remain unknown and the packed binary must be suspected as UPX based
+on a bounded signature location, with the finding retained as unconfirmed evidence. This
+single paired fixture validates the narrow detector path; it does not establish broad
+precision/recall or support for PE, other architectures, or other packer versions.
+
+Run the pair in Docker:
+
+```sh
+docker build -f webapp/Dockerfile.protection-benchmark -t reamon-protection-benchmark:local .
+docker run --rm reamon-protection-benchmark:local
+```
 
 The original artifact remains authoritative and immutable. A protection hypothesis is
 never a replacement for the input hash, provider output, or validated reconstruction.
@@ -129,7 +151,7 @@ reproducible lawful fixture.
 | Enigma Protector | Vendor release **8.10 build 20260930** (2026-09-30), separate x86/x64 Windows editions; official pages describe Windows PE protection, VM markers, anti-debug, licensing, and virtualized file bundling. | Not detected or recovered by REAmon. Record exact x86/x64 edition, build, OS, and enabled VM/protection settings; no generic Enigma support is implied. |
 | Obsidium | Vendor release **1.9.0.8 x86** and **1.9.0.12 x64** (2026-09-27). Vendor scope: 32/64-bit Windows native EXE/DLL/SCR and .NET Framework 4.x executables. Evaluation builds disable code virtualization and the command-line version. | Not detected or recovered by REAmon. An evaluation build is not a valid virtualization fixture; retain edition and enabled feature metadata. |
 | ASProtect / ASPack | Primary vendor page did not load in this audit. A third-party listing reports **ASProtect SKE 2.68** (2013), and a reseller describes ASProtect/ASPack Windows x86/x64 products; product/version/format details are therefore historical and unverified. | Not detected or recovered by REAmon. Obtain current primary vendor docs and an authorized exact-version fixture before specifying adapter scope. |
-| UPX | Official release **5.2.1** (2026-08-27); upstream describes support for multiple executable formats including Windows programs/DLLs, macOS apps, and Linux executables. The REAmon benchmark should pin the UPX host binary and target architecture/format separately. | Static PE section-name suspicion only; no confirmed detection or unpacking support yet. |
+| UPX | Official release **5.2.1** (2026-08-27); upstream describes support for multiple executable formats including Windows programs/DLLs, macOS apps, and Linux executables. The REAmon benchmark should pin the UPX host binary and target architecture/format separately. | One pinned Linux x86-64 ELF pair tests static `UPX!` marker suspicion only. No confirmed detection, general UPX coverage, or unpacking support yet. |
 
 Versions and format/platform support must be refreshed at benchmark planning time. The
 current audit reviewed the public vendor feature pages and release pages linked below on
@@ -139,7 +161,7 @@ current audit reviewed the public vendor feature pages and release pages linked 
 
 1. Complete stable artifact/layer identity, provenance, bounded static inspection, and
    coverage accounting (P0 foundations already partly exist).
-2. Implement exact-version clean/UPX fixture generation and false-positive benchmarks.
+2. Expand exact-version clean/UPX fixture generation and false-positive benchmarks beyond the first Linux ELF pair.
 3. Add independently versioned detection adapters; report evidence and uncertainty before
    adding any extractor.
 4. Implement immutable derived-layer storage and safe deterministic unpacking for one
