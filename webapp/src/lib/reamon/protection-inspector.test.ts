@@ -49,20 +49,29 @@ function peFixture(sectionNames: string[], payloads: Array<Buffer | null> = []):
   return bytes
 }
 
-function peImportFixture(importValue = 0x2080n): Buffer {
+function peImportFixture(importValue = 0x2080n, is64Bit = true): Buffer {
   const bytes = peFixture(['.text', '.idata'], [null, Buffer.alloc(0x100)])
   const optionalHeader = 0x80 + 24
   const sectionTable = optionalHeader + 0xE0
-  bytes.writeUInt32LE(0x2000, optionalHeader + 112 + 8)
-  bytes.writeUInt32LE(40, optionalHeader + 112 + 12)
+  bytes.writeUInt16LE(is64Bit ? 0x8664 : 0x014c, 0x80 + 4)
+  bytes.writeUInt16LE(is64Bit ? 0x20b : 0x10b, optionalHeader)
+  bytes.writeUInt32LE(16, optionalHeader + (is64Bit ? 108 : 92))
+  const directoryOffset = is64Bit ? 112 : 96
+  bytes.writeUInt32LE(0x2000, optionalHeader + directoryOffset + 8)
+  bytes.writeUInt32LE(40, optionalHeader + directoryOffset + 12)
   const data = 0x400
   bytes.writeUInt32LE(0x2070, data)
   bytes.writeUInt32LE(0x2060, data + 12)
   bytes.writeUInt32LE(0x2070, data + 16)
   bytes.write('KERNEL32.dll\0', data + 0x60, 'ascii')
-  bytes.writeBigUInt64LE(importValue, data + 0x70)
-  bytes.writeBigUInt64LE(0n, data + 0x78)
-  if ((importValue & (1n << 63n)) === 0n) {
+  if (is64Bit) {
+    bytes.writeBigUInt64LE(importValue, data + 0x70)
+    bytes.writeBigUInt64LE(0n, data + 0x78)
+  } else {
+    bytes.writeUInt32LE(Number(importValue & 0xffff_ffffn), data + 0x70)
+    bytes.writeUInt32LE(0, data + 0x74)
+  }
+  if ((importValue & (1n << (is64Bit ? 63n : 31n))) === 0n) {
     bytes.writeUInt16LE(0, data + 0x80)
     bytes.write('CreateFileW\0', data + 0x82, 'ascii')
   }
@@ -175,6 +184,24 @@ describe('static PE protection evidence', () => {
       expect(result.data.observations).toEqual(expect.arrayContaining([
         expect.objectContaining({ type: 'protection_assessment', attributes: expect.objectContaining({ importedLibraries: 1, imports: '[{"library":"KERNEL32.dll","symbols":["CreateFileW"]}]' }) }),
       ]))
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  test('parses PE32 import thunks using 32-bit pointers', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'reamon-pe32-imports-'))
+    const filePath = path.join(root, 'imports-x86.exe')
+    await writeFile(filePath, peImportFixture(0x2080n, false))
+    try {
+      const result = await executeProtectionInspection({
+        targetProfile: { targetType: 'FILE', format: 'pe', mimeType: 'application/x-executable', extension: 'exe', architecture: 'x86', platform: 'windows', runtimes: ['native'], embeddedArtifacts: [], entropy: null, metadata: {} },
+        artifactId: 'artifact-pe32-imports', artifactPath: filePath,
+      })
+      expect(result.data.assessment).toMatchObject({
+        architecture: 'x86', importTableStatus: 'parsed',
+        imports: [{ library: 'KERNEL32.dll', symbols: ['CreateFileW'] }],
+      })
     } finally {
       await rm(root, { recursive: true, force: true })
     }

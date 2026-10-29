@@ -20,9 +20,11 @@ There is no multi-sample precision/recall calibration yet;
 PE import descriptors are now parsed under a 64 KiB read cap, at most 32 DLL descriptors,
 64 imports per library, and 256 imports overall. DLL names, named imports, and ordinal
 imports are stored in the project-scoped protection observation and shown as provisional
-static API clues. Missing or malformed tables and cap exhaustion are reported as
+static API clues. Synthetic PE32 and PE32+ fixtures exercise named-import and ordinal
+paths; broader corpus coverage is not established. Missing or malformed tables and cap exhaustion are reported as
 `not_present`, `unavailable`, or `truncated`; names are not behavioral evidence. PE
-certificate contents are not recovered. High entropy is only a generic
+certificate contents are not recovered. The project overview explicitly distinguishes
+unavailable and truncated parse states from an empty import list. High entropy is only a generic
 packing/encryption/data indicator. Synthetic fixtures exercise bounded parsing; the single
 pinned UPX pair below tests one narrow detection path but provides no statistical accuracy
 estimate. Per-section PE and ELF evidence is stored as project-scoped observations

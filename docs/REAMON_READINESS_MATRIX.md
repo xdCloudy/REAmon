@@ -8,14 +8,16 @@ healthy. Local and LAN readiness at `localhost:3001` and `192.168.0.53:3001`
 return `ready` with database, Neo4j, and artifact checks `ok`. Existing database
 and artifact volumes were preserved during the webapp update.
 
-On this code change, focused Docker/Vitest checks pass 23 tests across the PE
+On this code change, focused Docker/Vitest checks pass 25 tests across the PE
 protection inspector and project overview (one opt-in UPX benchmark is skipped),
-Docker TypeScript checking and changed-file ESLint pass, and the production
+including synthetic PE32/PE32+ import parsing and explicit unavailable-import UI
+state. Docker TypeScript checking and changed-file ESLint pass, and the production
 webapp Docker image builds. GitHub quality run
-[40826127572](https://github.com/xdCloudy/REAmon/actions/runs/40826127572) for
-commit `7e438dc2` has passed Compose configuration and webapp checks; its agent
-dependency audit, canonical Docker unit gate, and production-image smoke test
-are still running. These focused checks do not replace the full repository gate.
+[40826518217](https://github.com/xdCloudy/REAmon/actions/runs/40826518217) for
+commit `f55065d6` has passed Compose configuration and webapp checks; its agent
+dependency audit and canonical Docker unit gate are running, as is production
+image smoke. This CI run predates the latest locally verified PE32 and unavailable
+state additions. These focused checks do not replace the full repository gate.
 
 The latest complete local canonical `bash ./redamon.sh test unit` gate passed from
 checkout `8c098dfc`: agent (3,788), root-agent (3,400), root-recon (570), recon

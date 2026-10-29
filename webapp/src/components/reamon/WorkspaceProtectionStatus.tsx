@@ -69,6 +69,7 @@ export function WorkspaceProtectionStatus({ artifacts, observations, hasMoreArti
           const evidence = observation?.attributes.evidence
           const scope = observation?.attributes.scope
           const imports = importSummary(observation?.attributes.imports)
+          const importTableStatus = observation?.attributes.importTableStatus
           return (
             <li className={styles.row} key={artifact.id}>
               <div className={styles.identity}>
@@ -80,6 +81,7 @@ export function WorkspaceProtectionStatus({ artifacts, observations, hasMoreArti
                 {typeof evidence === 'string' && evidence.length > 0 && <small>{evidence}</small>}
                 {imports && <small>Imported APIs: {imports}</small>}
                 {observation?.attributes.importTableStatus === 'truncated' && <small>Import listing is truncated by the static inspection limits.</small>}
+                {importTableStatus === 'unavailable' && <small>The import directory could not be mapped or parsed from the available file evidence.</small>}
                 {typeof scope === 'string' && scope.length > 0 && <small>Scope: {scope}</small>}
                 {!observation && <small>Static protection inspection has not run for this file.</small>}
               </div>
