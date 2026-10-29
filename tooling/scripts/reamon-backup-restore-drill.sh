@@ -37,16 +37,33 @@ case "$MODE" in
   *) echo 'Usage: tooling/scripts/reamon-backup-restore-drill.sh [--check|--run|--compose]' >&2; exit 2 ;;
 esac
 
-workdir="${REAMON_DRILL_OUTPUT_DIR:-$(mktemp -d)}"
+keep_workdir=0
+if [[ -n "${REAMON_DRILL_OUTPUT_DIR:-}" ]]; then
+  workdir="$REAMON_DRILL_OUTPUT_DIR"
+  keep_workdir=1
+else
+  workdir="$(mktemp -d "${TMPDIR:-/tmp}/reamon-backup-restore-drill.XXXXXX")"
+fi
 mkdir -p "$workdir"
 dump="$workdir/reamon-postgres.dump"
 archive="$workdir/reamon-artifacts.tar.gz"
 restore_artifacts="$workdir/restored-artifacts"
 mkdir -p "$restore_artifacts"
+restore_database_created=0
+cleanup() {
+  if [[ "$MODE" == '--compose' ]] && ((restore_database_created)); then
+    docker compose exec -T -e PGUSER="$source_user" postgres dropdb --if-exists \
+      --maintenance-db=postgres "$REAMON_DRILL_COMPOSE_RESTORE_DATABASE" >/dev/null 2>&1 || true
+  fi
+  if ((keep_workdir == 0)); then
+    rm -rf -- "$workdir"
+  fi
+}
+trap cleanup EXIT
 
 if [[ "$MODE" == '--compose' ]]; then
-  docker compose exec -T -e PGUSER="$source_user" postgres dropdb --if-exists --maintenance-db=postgres "$REAMON_DRILL_COMPOSE_RESTORE_DATABASE" >/dev/null
   docker compose exec -T -e PGUSER="$source_user" postgres createdb --maintenance-db=postgres --owner="$source_user" "$REAMON_DRILL_COMPOSE_RESTORE_DATABASE"
+  restore_database_created=1
   docker compose exec -T -e PGUSER="$source_user" postgres pg_dump --format=custom --dbname="$source_database" >"$dump"
   docker compose exec -T -e PGUSER="$source_user" postgres pg_restore --clean --if-exists --no-owner --exit-on-error --dbname="$REAMON_DRILL_COMPOSE_RESTORE_DATABASE" <"$dump"
   docker compose exec -T -e PGUSER="$source_user" postgres psql --quiet --no-psqlrc --set=ON_ERROR_STOP=1 --dbname="$REAMON_DRILL_COMPOSE_RESTORE_DATABASE" --command='SELECT 1' >/dev/null
@@ -63,5 +80,10 @@ tar --extract --file="$archive" --directory="$restore_artifacts"
 find "$restore_artifacts" -type f -print -quit | grep -q . || { echo 'FAIL: restored artifact archive contains no files' >&2; exit 1; }
 if [[ "$MODE" == '--compose' ]]; then
   docker compose exec -T -e PGUSER="$source_user" postgres dropdb --if-exists --maintenance-db=postgres "$REAMON_DRILL_COMPOSE_RESTORE_DATABASE" >/dev/null
+  restore_database_created=0
 fi
-echo "PASS: database restored and artifact archive extracted in $workdir"
+if ((keep_workdir)); then
+  echo "PASS: database restored and artifact archive extracted in $workdir"
+else
+  echo 'PASS: database restored and artifact archive extracted; temporary backup data removed'
+fi

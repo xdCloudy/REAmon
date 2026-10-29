@@ -113,13 +113,20 @@ tooling/scripts/reamon-backup-restore-drill.sh --compose
 
 The Compose drill sets `PGUSER` explicitly for the container's database tools,
 restores PostgreSQL into the named isolated database, and verifies that the
-artifact archive can be listed and extracted.
+artifact archive can be listed and extracted. With no `REAMON_DRILL_OUTPUT_DIR`,
+it removes the temporary database dump, artifact archive, and extracted copy on
+exit. Set that variable to an explicit directory when retaining the evidence is
+required. The restore database must be unused; the drill refuses to drop or
+overwrite an existing database.
 
 The graph store has a separate offline-safe drill because `neo4j-admin` cannot
 dump a database mounted by a running server. With graph writers stopped, it
 creates a real `neo4j-admin database dump`, loads it into a disposable volume,
 starts an isolated Neo4j container, and verifies that the restored graph can be
-queried:
+queried. By default it removes its temporary dump directory, restore container,
+and volume on exit. It generates unique restore resource names by default and
+refuses an existing explicitly selected container or volume. Set
+`REAMON_NEO4J_DRILL_OUTPUT_DIR` to retain the dump:
 
 ```bash
 COMPOSE_PROJECT_NAME=reamon-staging \

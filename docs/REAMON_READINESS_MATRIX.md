@@ -303,8 +303,12 @@ Encrypted plaintext capture and virtualized-code execution evidence have separat
    behavior on LAN with owner and non-owner accounts.
 4. Verify authenticated REST proxy calls and ticket-bound LAN WebSocket access
    together on the current services.
-5. Run the release backup and restore procedure, verify a real worker lifecycle,
-   and confirm agent conversations recover after a restart.
+5. On 2026-10-29, the live PC PostgreSQL/artifact drill restored the database into
+   a disposable database, extracted the 1.3 GiB artifact archive, and removed the
+   temporary database and backup files. The separate Neo4j drill restored a
+   2.2 GiB dump, queried 90,026 graph nodes, removed its temporary volume and dump,
+   and returned webapp, worker, and Neo4j to healthy. Still verify agent
+   conversation recovery across restart and repeat the drills on a release candidate.
 
 ## How to read the weighted progress estimate
 
