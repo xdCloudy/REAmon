@@ -280,6 +280,51 @@ class ProjectWorkerLogsTests(unittest.TestCase):
         self.assertEqual(stderr, b"123\n[output truncated after 2 MiB]")
 
 class ProjectWorkerRuntimeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_cancelled_network_create_preserves_cancellation_when_delete_fails(self):
+        calls = []
+
+        async def docker(method, path, *_args, **_kwargs):
+            calls.append((method, path))
+            if (method, path) == ("POST", "/networks/create"):
+                raise asyncio.CancelledError
+            return 500, b"private docker details"
+
+        with (
+            mock.patch.object(worker, "_docker_request", side_effect=docker),
+            mock.patch.object(worker.asyncio, "sleep", new=mock.AsyncMock()),
+            mock.patch.object(worker, "_log_cleanup_failure") as log_cleanup,
+        ):
+            with self.assertRaises(asyncio.CancelledError):
+                await worker._create_worker_network("project-cancel")
+
+        deletes = [(method, path) for method, path in calls if method == "DELETE"]
+        self.assertEqual(len(deletes), worker.WORKER_CLEANUP_ATTEMPTS)
+        self.assertTrue(all(path.startswith("/networks/reamon-w-") for _, path in deletes))
+        log_cleanup.assert_called_once_with("network")
+
+    async def test_cancelled_container_create_preserves_cancellation_when_delete_fails(self):
+        calls = []
+
+        async def docker(method, path, *_args, **_kwargs):
+            calls.append((method, path))
+            if method == "POST" and path.startswith("/containers/create?"):
+                raise asyncio.CancelledError
+            return 500, b"private docker details"
+
+        with (
+            mock.patch.object(worker, "_workspace_project_runtime", return_value=([], "sha256:" + "a" * 64)),
+            mock.patch.object(worker, "_docker_request", side_effect=docker),
+            mock.patch.object(worker.asyncio, "sleep", new=mock.AsyncMock()),
+            mock.patch.object(worker, "_log_cleanup_failure") as log_cleanup,
+        ):
+            with self.assertRaises(asyncio.CancelledError):
+                await worker._create_worker_container("p1", "net-1", ["id"], [])
+
+        deletes = [(method, path) for method, path in calls if method == "DELETE"]
+        self.assertEqual(len(deletes), worker.WORKER_CLEANUP_ATTEMPTS)
+        self.assertTrue(all(path.startswith("/containers/reamon-w-") for _, path in deletes))
+        log_cleanup.assert_called_once_with("container")
+
     async def test_terminal_agent_resolves_generated_compose_container_name(self):
         calls = []
         expected_labels = {

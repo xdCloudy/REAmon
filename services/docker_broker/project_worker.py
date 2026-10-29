@@ -456,7 +456,10 @@ async def _create_worker_network(
     except asyncio.CancelledError:
         # The daemon may finish creating the named network after the caller has
         # gone away, before this coroutine receives its ID.
-        await asyncio.shield(_docker_request("DELETE", f"/networks/{network_name}"))
+        try:
+            await asyncio.shield(_delete_worker_resource("network", f"/networks/{network_name}"))
+        except Exception:
+            _log_cleanup_failure("network")
         raise
     if status not in (201, 200):
         raise DockerAPIError("could not create isolated worker network")
@@ -530,15 +533,17 @@ async def reap_orphaned_workers() -> tuple[int, int] | None:
         return None
 
     for worker in workers:
-        status, _ = await _docker_request(
-            "DELETE", f"/containers/{quote(worker['Id'], safe='')}?force=true&v=true",
-        )
-        if status not in (200, 204, 404):
+        try:
+            await _delete_worker_resource(
+                "orphan container", f"/containers/{quote(worker['Id'], safe='')}?force=true&v=true",
+            )
+        except DockerAPIError:
             return None
     for network in networks:
         await _disconnect_compose_agent_if_attached(network["Id"])
-        status, _ = await _docker_request("DELETE", f"/networks/{quote(network['Id'], safe='')}")
-        if status not in (200, 204, 404):
+        try:
+            await _delete_worker_resource("orphan network", f"/networks/{quote(network['Id'], safe='')}")
+        except DockerAPIError:
             return None
     return len(workers), len(networks)
 
@@ -631,18 +636,12 @@ async def cleanup_project_workers(project_id: str) -> tuple[int, int]:
                         network_ids.add(network_id)
 
             for item in workers:
-                status, _ = await _docker_request(
-                    "DELETE", f"/containers/{quote(item['Id'], safe='')}?force=true&v=true",
+                await _delete_worker_resource(
+                    "project worker", f"/containers/{quote(item['Id'], safe='')}?force=true&v=true",
                 )
-                if status not in (200, 204, 404):
-                    raise DockerAPIError("could not remove a project worker")
             for network_id in sorted(network_ids):
                 await _disconnect_compose_agent_if_attached(network_id)
-                status, _ = await _docker_request(
-                    "DELETE", f"/networks/{quote(network_id, safe='')}",
-                )
-                if status not in (200, 204, 404):
-                    raise DockerAPIError("could not remove a project worker network")
+                await _delete_worker_resource("project worker network", f"/networks/{quote(network_id, safe='')}")
 
     return len(workers), len(network_ids)
 
@@ -757,9 +756,12 @@ async def _create_worker_container(
     except asyncio.CancelledError:
         # A timed-out create can still complete inside Docker. The unique name
         # lets cancellation remove it even when the response ID was never read.
-        await asyncio.shield(
-            _docker_request("DELETE", f"/containers/{name}?force=true&v=true"),
-        )
+        try:
+            await asyncio.shield(_delete_worker_resource(
+                "container", f"/containers/{name}?force=true&v=true",
+            ))
+        except Exception:
+            _log_cleanup_failure("container")
         raise
     if status not in (201, 200):
         raise DockerAPIError("could not create project worker")
@@ -866,13 +868,27 @@ async def _create_admitted_terminal(identity: dict[str, str]) -> tuple[str, str]
                     if status not in (200, 201):
                         raise DockerAPIError("could not attach the trusted agent endpoint to terminal network")
                     container_id = await _create_terminal_container(identity, network_id)
+                except asyncio.CancelledError:
+                    if agent_container_id:
+                        try:
+                            await asyncio.shield(_disconnect_terminal_agent(network_id, agent_container_id))
+                        except Exception:
+                            _log_cleanup_failure("terminal agent detach")
+                    try:
+                        await asyncio.shield(_delete_worker_resource("terminal network", f"/networks/{network_id}"))
+                    except Exception:
+                        _log_cleanup_failure("terminal network")
+                    raise
                 except Exception:
                     if agent_container_id:
                         try:
                             await _disconnect_terminal_agent(network_id, agent_container_id)
                         except Exception:
-                            pass
-                    await _docker_request("DELETE", f"/networks/{network_id}")
+                            _log_cleanup_failure("terminal agent detach")
+                    try:
+                        await _delete_worker_resource("terminal network", f"/networks/{network_id}")
+                    except Exception:
+                        _log_cleanup_failure("terminal network")
                     raise
                 return network_id, container_id
 
@@ -1173,10 +1189,16 @@ async def _create_admitted_worker(
         try:
             container_id = await _create_worker_container(project_id, network_id, argv, env, tool)
         except asyncio.CancelledError:
-            await asyncio.shield(_docker_request("DELETE", f"/networks/{network_id}"))
+            try:
+                await asyncio.shield(_delete_worker_resource("execution network", f"/networks/{network_id}"))
+            except Exception:
+                _log_cleanup_failure("execution network")
             raise
         except Exception:
-            await _docker_request("DELETE", f"/networks/{network_id}")
+            try:
+                await _delete_worker_resource("execution network", f"/networks/{network_id}")
+            except Exception:
+                _log_cleanup_failure("execution network")
             raise
         return 200, network_id, container_id, ""
 
