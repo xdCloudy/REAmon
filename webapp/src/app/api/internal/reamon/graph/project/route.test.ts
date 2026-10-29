@@ -1,5 +1,5 @@
 /** @vitest-environment node */
-import { beforeEach, describe, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({ internal: vi.fn(), project: vi.fn(), reconcile: vi.fn(), close: vi.fn(), activityCreate: vi.fn(), projectionRunFindFirst: vi.fn(), projectionLeaseFindUnique: vi.fn(), projectionRunUpsert: vi.fn(), projectionRunUpdate: vi.fn(), queryRaw: vi.fn(), executeRaw: vi.fn() }))
 vi.mock('@/lib/session', () => ({ isInternalRequest: mocks.internal }))
@@ -26,6 +26,10 @@ beforeEach(() => {
   mocks.projectionRunUpdate.mockResolvedValue({ projectionRunId: 'run-1' })
   mocks.queryRaw.mockResolvedValue([{ project_id: 'project-1' }])
   mocks.executeRaw.mockResolvedValue(1)
+})
+
+afterEach(() => {
+  vi.useRealTimers()
 })
 
 describe('POST /api/internal/reamon/graph/project', () => {
@@ -134,6 +138,35 @@ describe('POST /api/internal/reamon/graph/project', () => {
     expect(response.status).toBe(409)
     expect(mocks.project).not.toHaveBeenCalled()
     expect(mocks.projectionRunUpsert).not.toHaveBeenCalled()
+  })
+
+  test('renews the project lease while a long projection page is still running', async () => {
+    vi.useFakeTimers()
+    let resolveProjection!: (value: { projectId: string; selected: number; nodes: number; relationships: number; truncated: boolean }) => void
+    let markProjectionStarted!: () => void
+    const projectionStarted = new Promise<void>((resolve) => { markProjectionStarted = resolve })
+    mocks.project.mockImplementationOnce(() => {
+      markProjectionStarted()
+      return new Promise((resolve) => { resolveProjection = resolve })
+    })
+
+    const responsePromise = POST(new Request('http://localhost', {
+      method: 'POST',
+      body: JSON.stringify({ projectId: 'project-1' }),
+      headers: { 'Content-Type': 'application/json' },
+    }) as never)
+
+    await projectionStarted
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(mocks.executeRaw).toHaveBeenCalledOnce()
+
+    resolveProjection({ projectId: 'project-1', selected: 2, nodes: 2, relationships: 0, truncated: false })
+    const response = await responsePromise
+    expect(response.status).toBe(200)
+    expect(mocks.executeRaw).toHaveBeenCalledTimes(2)
+
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(mocks.executeRaw).toHaveBeenCalledTimes(2)
   })
 
   test('records a durable failure when graph projection cannot complete', async () => {

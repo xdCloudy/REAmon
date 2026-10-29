@@ -488,6 +488,11 @@ the run record exposes the removed counts for operator review. If a worker loses
 its in-memory page cursor, a later request resumes the latest incomplete or
 truncated run from the database checkpoint after its lease expires; it does not
 restart the full project from offset zero.
+While a page is being projected, the route renews its five-minute project lease
+every minute, only when the lease still belongs to the same run and has not
+expired. This keeps other workers fenced out during long pages while database
+renewals succeed. Renewal stops when the request exits; if the worker process or
+server dies, the lease expires and a later request can resume from the checkpoint.
 The worker requests 1,000 observations per page by default, configurable from 100
 to 10,000 with `REAMON_WORKER_PROJECTION_PAGE_SIZE`. This keeps each database/graph
 write request bounded while the worker advances the durable offset; the page-count

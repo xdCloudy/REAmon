@@ -17,6 +17,7 @@ interface ProjectionBody {
 }
 
 const PROJECTION_LEASE_MS = 5 * 60 * 1000
+const PROJECTION_LEASE_RENEW_INTERVAL_MS = 60 * 1000
 
 function badRequest(error: string) {
   return NextResponse.json({ error }, { status: 400, headers: { 'Cache-Control': 'no-store' } })
@@ -83,6 +84,42 @@ async function releaseProjectionLease(projectId: string, projectionRunId: string
   }
 }
 
+function startProjectionLeaseHeartbeat(projectId: string, projectionRunId: string): () => void {
+  let stopped = false
+  let timer: ReturnType<typeof setTimeout> | undefined
+
+  const scheduleRenewal = () => {
+    timer = setTimeout(() => { void renew() }, PROJECTION_LEASE_RENEW_INTERVAL_MS)
+    timer.unref?.()
+  }
+
+  const renew = async () => {
+    if (stopped) return
+    try {
+      const now = new Date()
+      const leaseUntil = new Date(now.getTime() + PROJECTION_LEASE_MS)
+      const updated = await prisma.$executeRaw(Prisma.sql`
+        UPDATE "reamon_projection_leases"
+        SET "lease_until" = ${leaseUntil}, "updated_at" = ${now}
+        WHERE "project_id" = ${projectId}
+          AND "projection_run_id" = ${projectionRunId}
+          AND "lease_until" > ${now}
+      `)
+      if (updated !== 1) console.warn('REAmon projection lease renewal did not update its owned lease')
+    } catch (error) {
+      console.warn('Failed to renew REAmon projection lease:', error)
+    } finally {
+      if (!stopped) scheduleRenewal()
+    }
+  }
+
+  scheduleRenewal()
+  return () => {
+    stopped = true
+    if (timer) clearTimeout(timer)
+  }
+}
+
 async function finishProjectionRun(
   projectionRunId: string,
   data: { status: string; offset?: number; selected?: number; nodes?: number; relationships?: number; truncated?: boolean; reconciled?: boolean; deletedNodes?: number; deletedRelationships?: number; error?: string; completedAt?: Date },
@@ -103,6 +140,7 @@ export async function POST(request: NextRequest) {
   let projectionLeaseAcquired = false
   let projectionLeaseShouldRelease = false
   let projectionResumed = false
+  let stopProjectionLeaseHeartbeat: (() => void) | null = null
   try {
     let body: ProjectionBody
     try {
@@ -153,6 +191,7 @@ export async function POST(request: NextRequest) {
         headers: { 'Cache-Control': 'no-store', 'Retry-After': '30' },
       })
     }
+    stopProjectionLeaseHeartbeat = startProjectionLeaseHeartbeat(projectId, projectionRunId)
     await createProjectionRun(projectionRunId, projectId, projectionOffset)
     projectionRunCreated = true
     await recordProjectionActivity(projectId, 'analysis.graph_projection.started', `${projectionResumed ? 'Resumed' : 'Started'} graph projection for ${projectId}`, {
@@ -205,6 +244,7 @@ export async function POST(request: NextRequest) {
     console.error('Failed to project REAmon observations:', error)
     return NextResponse.json({ error: 'Failed to project observations' }, { status: 500, headers: { 'Cache-Control': 'no-store' } })
   } finally {
+    stopProjectionLeaseHeartbeat?.()
     if (projectId && projectionRunId && projectionLeaseAcquired && projectionLeaseShouldRelease) await releaseProjectionLease(projectId, projectionRunId)
   }
 }
