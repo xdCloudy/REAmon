@@ -6,7 +6,15 @@ on:
       - main
       - master
       - reamon/bootstrap
+    paths-ignore:
+      - '**/*.md'
+      - README.md
+      - docs/**
   pull_request:
+    paths-ignore:
+      - '**/*.md'
+      - README.md
+      - docs/**
 
 permissions:
   contents: read
