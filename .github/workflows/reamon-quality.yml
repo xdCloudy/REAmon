@@ -212,6 +212,23 @@ jobs:
           docker compose logs --tail=200 reamon-worker
           exit 1
 
+      - name: Verify PostgreSQL-backed agent conversation recovery
+        run: |
+          set -eu
+          agent_id="$(docker compose ps -q agent)"
+          test -n "$agent_id"
+          docker cp agentic/tests/test_checkpointer_restart_live.py \
+            "$agent_id:/tmp/test_checkpointer_restart_live.py"
+          docker cp agentic/pytest.ini "$agent_id:/tmp/agentic-pytest.ini"
+          cleanup() {
+            docker compose exec -T agent rm -f \
+              /tmp/test_checkpointer_restart_live.py /tmp/agentic-pytest.ini \
+              >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          docker compose exec -T agent python -m pytest -q \
+            -c /tmp/agentic-pytest.ini /tmp/test_checkpointer_restart_live.py
+
       - name: Verify live build identity
         run: >-
           curl --fail --silent http://127.0.0.1:3000/api/health/ready |
