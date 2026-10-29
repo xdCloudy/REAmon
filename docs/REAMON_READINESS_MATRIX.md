@@ -1,5 +1,12 @@
 ## Current PC deployment evidence (2026-10-29)
 
+The HTTPS deployment template, single-host exposure guidance, Compose ticket-secret
+comment, and ticket-route comments now describe browser WebSocket authentication as
+ticketed and fail-closed. This is a documentation correction based on the existing
+`authorize_ws` gate; it does not close the separate release gate for authenticated
+browser-to-agent terminal acceptance, because the canonical CI live stack does not
+start the agent or isolated terminal worker.
+
 The full `redamon.sh test unit` gate passed locally before the broker restart and
 project-deletion cleanup follow-up:
 all configured Docker test sections and 25 shell suites passed. The webapp

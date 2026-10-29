@@ -361,9 +361,9 @@ loopback re-bind is ever wrong (e.g. a stray `docker compose up` that republishe
 **Open nothing else.** In particular do **not** open `8090` (agent), `3000` (webapp),
 `5432`/`7687`/`7474` (PostgreSQL/Neo4j), or `8000-8016`/`4444`/`8015` (Kali MCP / progress /
 tunnel manager / PTY / reverse-shell) — all are loopback-bound and reached only through nginx
-on `443`. Opening `8090` would expose the agent's unauthenticated WebSockets (including the
-anonymous **root PTY** `/ws/kali-terminal`) and its REST surface directly, bypassing nginx and
-its session gate. The browser reaches the agent's WebSockets at `wss://<domain>/ws/…` on `443`
+on `443`. Opening `8090` would expose the agent's WebSocket and REST surfaces directly,
+bypassing nginx and its session gate. The browser reaches the agent's WebSockets at
+`wss://<domain>/ws/…` on `443`
 (nginx → `127.0.0.1:8090`), so `8090` never needs to be publicly reachable.
 
 > **nginx runs on the host, not in a container.** It sits **only at the edge** (80/443),

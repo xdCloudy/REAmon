@@ -40,7 +40,8 @@ export async function POST(request: NextRequest) {
   const activating = await assertGraphNotActivating(projectId)
   if (activating) return activating
 
-  // Null when AGENT_WS_TICKET_SECRET is unset (dev) - the agent fails open.
+  // If the signing secret is unavailable this returns null; the agent rejects
+  // the later WebSocket handshake (fail-closed), so the UI reports auth failure.
   const actor = await realActorOf()
   const ticket = actor && actor !== eff.userId
     ? await createWsTicket(eff.userId, projectId, sessionId, actor)

@@ -4,9 +4,9 @@
 # /etc/nginx/sites-available/redamon, `nginx -t` gates the deploy, then reload.
 #
 # THREAT MODEL (verified against the codebase): the agent (:8090) exposes four WS paths;
-# THREE are UNAUTHENTICATED (/ws/kali-terminal is an anonymous root PTY; the two cypherfix
-# sockets clone repos / edit code), and /ws/agent's ticket check FAILS OPEN if its secret
-# is unset. So nginx does NOT trust the agent to authenticate: it (1) proxies ONLY the four
+# all four require a signed ticket and same-origin validation at the app layer,
+# failing closed when the ticket secret is unset. nginx adds a session-cookie
+# gate before it (1) proxies ONLY the four
 # WS paths (never the agent REST surface), (2) requires a valid webapp session cookie before
 # any WS upgrade via auth_request, and (3) sits behind the operator IP/basic-auth gate.
 # The webapp (:3000) trusts X-Internal-Key as an auth bypass and injects X-User-*/ headers,

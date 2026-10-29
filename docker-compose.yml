@@ -924,9 +924,9 @@ services:
       # Bearer token sent on every MCP SSE and progress/session request. Must
       # match kali-sandbox; missing configuration disables these internal calls.
       MCP_AUTH_TOKEN: "${MCP_AUTH_TOKEN:-}"
-      # Secret used to verify short-lived agent-WebSocket tickets on the /ws/agent
-      # init frame (STRIDE S6). Must match the webapp's AGENT_WS_TICKET_SECRET.
-      # Empty in dev → agent fails open (accepts init without a ticket).
+      # Secret used to verify short-lived agent-WebSocket tickets. Must match
+      # the webapp's AGENT_WS_TICKET_SECRET. Empty disables ticket-authenticated
+      # browser WebSockets; handlers reject the handshake (fail closed).
       AGENT_WS_TICKET_SECRET: "${AGENT_WS_TICKET_SECRET:-}"
       # Webapp API (internal docker network)
       WEBAPP_API_URL: http://webapp:3000

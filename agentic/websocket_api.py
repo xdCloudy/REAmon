@@ -357,9 +357,8 @@ class WebSocketManager:
 
             # STRIDE S6: refuse to take over a live session from an unverified
             # peer. The existing operator keeps the socket and the running task;
-            # the impersonating connection is closed. This holds even in the
-            # dev fail-open mode (no ticket secret), so the worst S6 outcome
-            # (hijack + eviction) is prevented regardless of secret config.
+            # the impersonating connection is closed. Ticket initialization
+            # also fails closed when no signing secret is configured.
             if collision and not verified:
                 logger.warning(
                     f"rejecting unverified takeover of active session {session_key}")

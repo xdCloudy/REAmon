@@ -83,7 +83,7 @@ describe('POST /api/agent/ws-ticket — S6 + impersonation', () => {
     expect(mockCreateWsTicket).not.toHaveBeenCalled()
   })
 
-  test('null ticket (secret unset) is passed through for agent fail-open', async () => {
+  test('null ticket (secret unset) is passed through; the WebSocket handshake fails closed', async () => {
     mockGetEffectiveUser.mockResolvedValue({ userId: 'u1' })
     mockCreateWsTicket.mockResolvedValue(null)
     const res = await POST(req({ projectId: 'p', sessionId: 's' }))
