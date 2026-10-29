@@ -264,10 +264,10 @@ after its roots finish; the orchestrator uses its trusted start time to run the
 shared node-filter sweep, so this worker no longer attempts graph housekeeping
 with missing database credentials. Completed isolated runs also request the
 orchestrator to delete only orphan UserInput IDs derived from the run and its
-signed roots;
+signed roots. The cleanup query also retains user and project predicates;
 local/manual runs retain their direct sweep and cleanup.
-Focused Docker tests pass 13 orchestrator security cases and 2 worker handoff
-cases; the full orchestrator unit section passes 599 tests, and 396 focused recon
+Focused Docker tests pass 14 orchestrator security cases and 2 worker handoff
+cases; the full orchestrator unit section passes 600 tests, and 396 focused recon
 tests pass. This is source-level progress only: the legacy orchestrator profile
 is inactive, so this path has not been exercised live. Full recon and every other
 partial-recon worker remain direct graph clients.
