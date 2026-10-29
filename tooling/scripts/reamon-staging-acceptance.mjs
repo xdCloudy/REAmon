@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { randomUUID } from 'node:crypto'
 /**
  * Run the REAmon production acceptance path against an already-running
  * staging Compose deployment. The command creates a disposable RE workspace,
@@ -242,6 +243,7 @@ async function main() {
     providerId: 'reamon-json-inspector',
     capability: 'extract_metadata',
     approvalRequired: true,
+    runAttemptId: randomUUID().replaceAll('-', ''),
   }, cookie), [201])
   expect(browserApproval.body?.task?.status === 'AWAITING_APPROVAL', 'browser acceptance approval task was not approval-gated')
   await writeState({ projectId, importId, taskIds, failoverTaskId, recoveryArtifactId: recoveryArtifact.id, projectName: project.body?.name })
