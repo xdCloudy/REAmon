@@ -18,6 +18,7 @@ interface ProjectionBody {
 
 const PROJECTION_LEASE_MS = 5 * 60 * 1000
 const PROJECTION_LEASE_RENEW_INTERVAL_MS = 60 * 1000
+const DEFAULT_PROJECTION_PAGE_SIZE = 1_000
 
 function badRequest(error: string) {
   return NextResponse.json({ error }, { status: 400, headers: { 'Cache-Control': 'no-store' } })
@@ -157,6 +158,7 @@ export async function POST(request: NextRequest) {
 
     projectId = body.projectId.trim()
     projectionRunId = typeof body.projectionRunId === 'string' ? body.projectionRunId.trim() : null
+    const projectionPageLimit = typeof body.limit === 'number' ? body.limit : DEFAULT_PROJECTION_PAGE_SIZE
     let projectionOffset = typeof body.offset === 'number' ? Math.min(1_000_000, Math.max(0, Math.floor(body.offset))) : 0
 
     // A worker can lose its in-memory continuation cursor if it is stopped while
@@ -196,7 +198,7 @@ export async function POST(request: NextRequest) {
     projectionRunCreated = true
     await recordProjectionActivity(projectId, 'analysis.graph_projection.started', `${projectionResumed ? 'Resumed' : 'Started'} graph projection for ${projectId}`, {
       projectionRunId,
-      limit: body.limit ?? null,
+      limit: projectionPageLimit,
       batchSize: body.batchSize ?? null,
       offset: projectionOffset,
       resumed: projectionResumed,
@@ -204,7 +206,7 @@ export async function POST(request: NextRequest) {
 
     const session = getGraphSession()
     try {
-      const result = await projectReamonObservations(projectId, session, body.limit as number | undefined, body.batchSize as number | undefined, projectionOffset, projectionRunId)
+      const result = await projectReamonObservations(projectId, session, projectionPageLimit, body.batchSize as number | undefined, projectionOffset, projectionRunId)
       projectionLeaseShouldRelease = !result.truncated
       const reconciliation = result.truncated
         ? { reconciled: false, deletedNodes: 0, deletedRelationships: 0 }

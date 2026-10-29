@@ -58,6 +58,18 @@ describe('POST /api/internal/reamon/graph/project', () => {
     expect(mocks.projectionRunUpdate).toHaveBeenCalledWith({ where: { projectionRunId: expect.any(String) }, data: expect.objectContaining({ status: 'COMPLETED', selected: 2 }) })
   })
 
+  test('uses a bounded default page size when older workers omit the limit', async () => {
+    const response = await POST(new Request('http://localhost', {
+      method: 'POST',
+      body: JSON.stringify({ projectId: 'project-1' }),
+      headers: { 'Content-Type': 'application/json' },
+    }) as never)
+
+    expect(response.status).toBe(200)
+    expect(mocks.project).toHaveBeenCalledWith('project-1', expect.anything(), 1_000, undefined, 0, expect.any(String))
+    expect(mocks.activityCreate.mock.calls[0][0]).toMatchObject({ data: { data: expect.objectContaining({ limit: 1_000 }) } })
+  })
+
   test('passes a bounded backfill offset to the projector', async () => {
     const response = await POST(new Request('http://localhost', {
       method: 'POST',

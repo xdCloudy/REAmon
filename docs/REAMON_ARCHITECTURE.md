@@ -494,8 +494,9 @@ expired. This keeps other workers fenced out during long pages while database
 renewals succeed. Renewal stops when the request exits; if the worker process or
 server dies, the lease expires and a later request can resume from the checkpoint.
 The worker requests 1,000 observations per page by default, configurable from 100
-to 10,000 with `REAMON_WORKER_PROJECTION_PAGE_SIZE`. This keeps each database/graph
-write request bounded while the worker advances the durable offset; the page-count
+to 10,000 with `REAMON_WORKER_PROJECTION_PAGE_SIZE`; the API also defaults omitted
+limits to 1,000 for older workers. This keeps each database/graph write request
+bounded while the worker advances the durable offset; the page-count
 safety cap scales to the server's one-million-observation maximum offset. Projection
 pages are ordered by observation update time and then stable observation ID, so equal
 timestamps cannot make page boundaries nondeterministic. These changes protect
