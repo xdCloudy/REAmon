@@ -14,8 +14,9 @@ webapp checks, the agent dependency audit, and the production-image live accepta
 job. That live job passed authenticated browser-to-terminal use, terminal-worker
 cleanup, two-replica crash/recovery, bounded load/soak, PostgreSQL/artifact restore,
 and Neo4j restore. Its canonical Docker unit gate is still running, so the overall
-workflow has not completed. The quality run for `fc1b3a007f576523215dab277bf83e59dc9de340`
-is pending with no jobs; no current-tip CI pass is claimed.
+workflow has not completed. The newest quality run is queued with no jobs, and the
+full Docker gate for current source has not completed. No current-tip CI pass is
+claimed.
 
 The latest complete local canonical `bash ./redamon.sh test unit` gate passed from
 checkout `8c098dfc`: agent (3,788), root-agent (3,400), root-recon (570), recon
