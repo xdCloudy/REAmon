@@ -1,6 +1,6 @@
 # REAmon product progress
 
-Assessment date: 2026-10-29 · Source: pushed commit `f69aef8` · Weighted estimate: **31.8%**
+Assessment date: 2026-10-29 · Source: pushed commit `ea8bfc3` · Weighted estimate: **31.9%**
 
 This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.
 
@@ -13,7 +13,7 @@ Quality run [40247230850](https://github.com/xdCloudy/REAmon/actions/runs/402472
 | Major-language and format decompilation fluency | 7% | 41% | 2.87 pts |
 | Maintainable editing, review, and export | 4% | 58% | 2.32 pts |
 | Fixture-backed validation and fidelity evidence | 4% | 16% | 0.64 pts |
-| Security, reliability, and production operations | 11% | 78% | 8.58 pts |
+| Security, reliability, and production operations | 11% | 79% | 8.69 pts |
 | Agentic project-wide semantic renaming | 8% | 16% | 1.28 pts |
 | Cross-file semantic rename propagation | 7% | 8% | 0.56 pts |
 | Safe autonomous rename acceptance | 5% | 0% | 0.00 pts |
@@ -60,9 +60,9 @@ Quality run [40247230850](https://github.com/xdCloudy/REAmon/actions/runs/402472
 
 ### Security, reliability, and production operations
 
-**Current evidence:** Substantial controls are implemented across project boundaries, worker isolation, imports, broker admission, and recovery. A new partial SubdomainDiscovery path now uses an active-run, root-scoped signed graph-ingest capability and has focused Docker coverage. This workstream is incomplete: full recon and other partial workers still receive direct graph access, while live end-to-end and operational release gates remain.
+**Current evidence:** Substantial controls are implemented across project boundaries, worker isolation, imports, broker admission, and recovery. A new partial SubdomainDiscovery path now uses an active-run, root-scoped signed graph-ingest capability and has focused Docker coverage. This workstream is incomplete: full recon and other partial workers still receive direct graph access, while live end-to-end and operational release gates remain. The PostgreSQL/artifact and Neo4j backup/restore drills now pass against the live PC deployment; agent checkpoint recovery across restart remains open.
 
-**Remaining:** Migrate full recon and all remaining partial graph clients to trusted, run-bound ingestion; complete browser-to-agent-to-broker source and terminal acceptance; validate cancellation, multi-replica admission, disk and destination-aware egress quotas; finish independent capacity review and backup/restore drills; validate the active-run graph boundary in a live orchestrator deployment.
+**Remaining:** Migrate full recon and all remaining partial graph clients to trusted, run-bound ingestion; complete browser-to-agent-to-broker source and terminal acceptance; validate cancellation, multi-replica admission, disk and destination-aware egress quotas; finish independent capacity review; validate the active-run graph boundary in a live orchestrator deployment; verify agent conversation checkpoint recovery across restart.
 
 ### Agentic project-wide semantic renaming
 
