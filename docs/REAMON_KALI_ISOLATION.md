@@ -371,6 +371,8 @@ passes 69 tests. The full repository Docker unit gate passed before this latest
 broker-only follow-up. The live smoke used a synthetic
 agent-signed context directly against the broker; it does not validate the
 ticket-authenticated browser WebSocket, cross-user isolation, generated-file
-download, or restart recovery. Two orphan networks from the earlier failed
-smokes were verified to contain only the trusted agent and no worker, then
-disconnected and removed.
+download, or recovery of a live authenticated terminal session. A separate live
+broker restart probe removed one disposable orphan worker/network with the
+trusted agent attached. Two orphan networks from the earlier failed smokes were
+also verified to contain only the trusted agent and no worker, then disconnected
+and removed.
