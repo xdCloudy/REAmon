@@ -149,7 +149,7 @@ function providerTextSnapshot(result: Record<string, unknown> | null) {
   }
 }
 
-export async function GET(_request: Request, { params }: RouteParams) {
+export async function GET(request: Request, { params }: RouteParams) {
   try {
     const { id: projectId, taskId } = await params
     const user = await requireEffectiveUser()
@@ -157,6 +157,7 @@ export async function GET(_request: Request, { params }: RouteParams) {
     const access = await requireProjectAccess(user, projectId)
     if (access instanceof NextResponse) return access
 
+    const summaryOnly = new URL(request.url).searchParams.get('summary') === '1'
     const investigation = await prisma.reamonInvestigationCase.findFirst({
       where: { projectId, taskId },
       select: {
@@ -169,13 +170,57 @@ export async function GET(_request: Request, { params }: RouteParams) {
         providerVersion: true,
         status: true,
         failureEvidence: true,
-        history: true,
+        ...(!summaryOnly ? { history: true } : {}),
         revision: true,
         createdAt: true,
         updatedAt: true,
       },
     })
-    return NextResponse.json({ investigation }, { headers: NO_STORE })
+    const attempts = investigation ? await prisma.reamonCodeAttempt.findMany({
+      where: { projectId, artifactId: investigation.artifactId, runKey: taskId, codeUnitId: `investigation:${investigation.id}`, scope: 'manual-investigation' },
+      orderBy: { createdAt: 'desc' },
+      take: 20,
+      select: { id: true, status: true, providerName: true, modelIdentifier: true, errorCode: true, errorMessage: true, resultSource: true, qualityReview: true, validationStatus: true, createdAt: true, completedAt: true },
+    }) : []
+    const latestAttempt = attempts[0]
+    const evidence = investigation?.failureEvidence && typeof investigation.failureEvidence === 'object' && !Array.isArray(investigation.failureEvidence)
+      ? investigation.failureEvidence as Record<string, unknown>
+      : {}
+    const partial = evidence.partialProviderOutput && typeof evidence.partialProviderOutput === 'object' && !Array.isArray(evidence.partialProviderOutput)
+      ? evidence.partialProviderOutput as Record<string, unknown>
+      : {}
+    const partialUnits = Array.isArray(partial.partialUnits) ? partial.partialUnits : []
+    const candidateUnits = partialUnits.flatMap((value) => {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return []
+      const unit = value as Record<string, unknown>
+      const attributes = unit.attributes && typeof unit.attributes === 'object' && !Array.isArray(unit.attributes)
+        ? unit.attributes as Record<string, unknown>
+        : {}
+      const language = typeof attributes.language === 'string' ? attributes.language.toLowerCase() : ''
+      const instructionFields = ['assembly', 'disassembly', 'bytecode', 'instructions']
+        .filter((field) => typeof attributes[field] === 'string' && (attributes[field] as string).trim())
+      if (typeof unit.key !== 'string' || !unit.key.trim() || !['c', 'c++'].includes(language) || !instructionFields.length) return []
+      return [{ key: unit.key.slice(0, 500), label: typeof unit.label === 'string' ? unit.label.slice(0, 500) : unit.key.slice(0, 500), language, instructionFields }]
+    }).slice(0, MAX_PARTIAL_UNITS)
+    const status = latestAttempt?.status || investigation?.status || null
+    return NextResponse.json({
+      investigation: investigation ? {
+        id: investigation.id,
+        taskId: investigation.taskId,
+        artifactId: investigation.artifactId,
+        artifactSha256: investigation.artifactSha256,
+        capability: investigation.capability,
+        providerId: investigation.providerId,
+        providerVersion: investigation.providerVersion,
+        status,
+        revision: investigation.revision,
+        createdAt: investigation.createdAt,
+        updatedAt: investigation.updatedAt,
+        ...(!summaryOnly ? { failureEvidence: investigation.failureEvidence, history: investigation.history } : {}),
+      } : null,
+      attempts,
+      candidateUnits,
+    }, { headers: NO_STORE })
   } catch (error) {
     console.error('Failed to load REAmon investigation case:', error)
     return NextResponse.json({ error: 'Failed to load investigation case' }, { status: 500, headers: NO_STORE })

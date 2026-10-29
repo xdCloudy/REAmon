@@ -272,14 +272,22 @@ trusted unless REAmon verifies the file bytes. Failure intake now copies allowli
 provider text and per-unit instruction fields into separate diagnostic snapshots,
 with a 48 KiB cap per evidence source family and hashes for each original field and
 captured excerpt. These fields remain non-canonical and untrusted when passed to an
-agent. The queue does not yet create per-unit cases, dispatch agents, or track
-investigation attempts.
-The existing rewrite-attempt queue persists AI source attempts, but it is not the
-failed-provider/unit investigation lifecycle specified below. A separate internal
-agent endpoint now accepts bounded static instruction, control-flow, reference, and
-attributed provider evidence and returns a hash-linked C/C++ source candidate with
-explicit uncertainty and syntax-only validation. The endpoint is not yet invoked by
-the case queue and does not persist attempts or establish behavioral correctness.
+agent. The case queue now has a user-triggered Run action: the user chooses a saved
+OpenAI-compatible provider, and the webapp queues a static C/C++ reconstruction attempt
+through the durable code-attempt worker. The request stores bounded evidence, an input
+hash, provider/model, source identity, timeout, and case/task IDs. Results retain source
+and evidence hashes, uncertainty, syntax status, and
+`behavioral_validation=UNAVAILABLE`; they remain separate candidates and never become
+accepted source. The worker's existing claim heartbeat, timeout, cancellation endpoint,
+stale-run recovery, and retryable attempt history apply. The workspace can reload attempt
+history and display completed candidates without changing provider output.
+
+This is a narrow vertical slice: the workspace now lists captured C/C++ units and
+requires an explicit unit selection; broad language or provider coverage is not
+established. Investigation budgets, per-unit case fan-out,
+automatic provider follow-ups, candidate diff/review receipts, benchmark accuracy, and
+behavioral validation remain open. Disassembly-only cases are retained but do not yet
+run through this source-candidate path.
 
 ### Acceptance
 

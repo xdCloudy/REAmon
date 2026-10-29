@@ -21,6 +21,14 @@ function record(value: unknown): Record<string, unknown> {
     : {}
 }
 
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`
+  if (value && typeof value === 'object') {
+    return `{${Object.entries(value as Record<string, unknown>).sort(([left], [right]) => left.localeCompare(right)).map(([key, entry]) => `${JSON.stringify(key)}:${stableJson(entry)}`).join(',')}}`
+  }
+  return JSON.stringify(value) ?? 'null'
+}
+
 function validatedRewriteHistory(value: unknown): Prisma.InputJsonArray | undefined {
   if (!Array.isArray(value) || value.length === 0 || value.length > 2) return undefined
   const entries: Prisma.InputJsonObject[] = []
@@ -420,7 +428,7 @@ async function settleCancelled(attemptId: string, runToken: string) {
 async function executeAttempt(attemptId: string, workerId: string) {
   const attempt = await prisma.reamonCodeAttempt.findUnique({
     where: { id: attemptId },
-    select: { id: true, projectId: true, artifactId: true, codeUnitId: true, scope: true, status: true, requestPayload: true, timeoutMs: true, unitLeaseId: true },
+    select: { id: true, projectId: true, artifactId: true, codeUnitId: true, scope: true, status: true, requestPayload: true, timeoutMs: true, unitLeaseId: true, sourceHash: true },
   })
   if (!attempt || attempt.status !== 'QUEUED') return false
   if (await hasPendingCalleeAttempt(attempt)) return false
@@ -440,7 +448,7 @@ async function executeAttempt(attemptId: string, workerId: string) {
         where: { id: attempt.unitLeaseId, projectId: attempt.projectId, expiresAt: { gt: now } },
         data: { expiresAt: new Date(now.getTime() + timeoutMs + REWRITE_LEASE_GRACE_MS) },
       })
-      : { count: 0 }
+      : { count: attempt.scope === 'manual-investigation' ? 1 : 0 }
     if (lease.count !== 1) {
       await tx.reamonCodeAttempt.updateMany({
         where: { id: attempt.id, status: 'RUNNING', runToken },
@@ -479,7 +487,7 @@ async function executeAttempt(attemptId: string, workerId: string) {
             where: { id: attempt.unitLeaseId, projectId: attempt.projectId, expiresAt: { gt: now } },
             data: { expiresAt: new Date(now.getTime() + timeoutMs + REWRITE_LEASE_GRACE_MS) },
           })
-          : { count: 0 }
+          : { count: attempt.scope === 'manual-investigation' ? 1 : 0 }
         return lease.count === 1 ? null : 'lease_lost' as const
       })
       if (outcome) {
@@ -510,10 +518,16 @@ async function executeAttempt(attemptId: string, workerId: string) {
       return true
     }
 
-    const response = await agentFetch('/reamon/code/deobfuscate', {
+    const manualInvestigation = attempt.scope === 'manual-investigation'
+    if (manualInvestigation && createHash('sha256').update(stableJson(payload), 'utf8').digest('hex') !== attempt.sourceHash) {
+      await settleFailure({ attemptId: attempt.id, runToken, code: 'request_integrity', message: 'The saved reconstruction evidence no longer matches its enqueue-time SHA-256.' })
+      return true
+    }
+    const { investigationCaseId: _investigationCaseId, taskId: _taskId, ...agentPayload } = payload
+    const response = await agentFetch(manualInvestigation ? '/reamon/code/manual-decompile' : '/reamon/code/deobfuscate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(agentPayload),
       signal: controller.signal,
     }, { timeoutMs })
     const result = record(await response.json().catch(() => null))
@@ -542,9 +556,27 @@ async function executeAttempt(attemptId: string, workerId: string) {
       return true
     }
     const rewrittenSource = result.source_code
-    const qualityReview = validatedQualityReview(result.quality_review, rewrittenSource, payload)
+    if (attempt.scope === 'manual-investigation'
+      && (typeof result.source_sha256 !== 'string'
+        || createHash('sha256').update(rewrittenSource, 'utf8').digest('hex') !== result.source_sha256.toLowerCase())) {
+      await settleFailure({ attemptId: attempt.id, runToken, code: 'candidate_hash_mismatch', message: 'The reconstruction candidate did not match its recorded SHA-256.' })
+      return true
+    }
+    const qualityReview = manualInvestigation
+      ? {
+        status: 'UNAVAILABLE',
+        candidateStatus: typeof result.candidate_status === 'string' ? result.candidate_status.slice(0, 40) : 'GENERATED_CANDIDATE',
+        candidateSha256: createHash('sha256').update(rewrittenSource, 'utf8').digest('hex'),
+        evidenceSha256: typeof result.evidence_sha256 === 'string' && /^[a-f0-9]{64}$/i.test(result.evidence_sha256) ? result.evidence_sha256.toLowerCase() : '',
+        uncertainties: Array.isArray(result.uncertainties) ? result.uncertainties.filter((item): item is string => typeof item === 'string').slice(0, 30).map((item) => item.slice(0, 1000)) : [],
+        evidenceUsed: Array.isArray(result.evidence_used) ? result.evidence_used.filter((item): item is string => typeof item === 'string').slice(0, 20).map((item) => item.slice(0, 200)) : [],
+        syntaxValidation: typeof result.syntax_validation === 'string' ? result.syntax_validation.slice(0, 40) : 'UNAVAILABLE',
+        behavioralValidation: result.behavioral_validation === 'PASSED' ? 'PASSED' : 'UNAVAILABLE',
+        exactOriginalSourceRecovered: false,
+      } satisfies Prisma.InputJsonObject
+      : validatedQualityReview(result.quality_review, rewrittenSource, payload)
 
-    const validationStatus = ['PASSED', 'FAILED', 'UNAVAILABLE'].includes(String(result.validation_status))
+    const validationStatus = manualInvestigation ? 'UNAVAILABLE' : ['PASSED', 'FAILED', 'UNAVAILABLE'].includes(String(result.validation_status))
       ? String(result.validation_status)
       : result.syntax_validated === true ? 'PASSED' : 'UNAVAILABLE'
     const finalizedAt = new Date()
@@ -554,7 +586,7 @@ async function executeAttempt(attemptId: string, workerId: string) {
           where: { id: attempt.unitLeaseId, projectId: attempt.projectId, expiresAt: { gt: finalizedAt } },
           data: { expiresAt: new Date(finalizedAt.getTime() + REWRITE_LEASE_GRACE_MS) },
         })
-        : { count: 0 }
+        : { count: attempt.scope === 'manual-investigation' ? 1 : 0 }
       if (lease.count !== 1) return false
       const updated = await tx.reamonCodeAttempt.updateMany({
         where: { id: attempt.id, projectId: attempt.projectId, status: 'RUNNING', runToken, cancelRequested: false },

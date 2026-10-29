@@ -13,6 +13,12 @@
 .actionButton:hover:not(:disabled) { border-color: var(--accent-secondary); color: var(--accent-secondary); }
 .actionButton:disabled { cursor: wait; opacity: .6; }
 .feedback { color: var(--status-info-text); font-size: var(--text-sm); margin: 0; }
+.investigationProvider { display: flex; align-items: center; gap: var(--space-2); grid-column: 1 / -1; color: var(--text-secondary); font-size: var(--text-sm); }
+.investigationProvider select { min-width: 0; max-width: 100%; padding: .4rem .55rem; border: 1px solid var(--border-default); border-radius: var(--radius-sm); color: var(--text-primary); background: var(--bg-primary); }
+.investigationResult { grid-column: 1 / -1; min-width: 0; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: var(--space-2); }
+.investigationResult summary { cursor: pointer; color: var(--text-secondary); font-size: var(--text-sm); }
+.investigationResult pre { max-height: 28rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; padding: var(--space-2); background: var(--bg-secondary); }
+.investigationAttempt { display: flex; align-items: center; gap: var(--space-2); grid-column: 1 / -1; margin: 0; color: var(--text-secondary); font-size: var(--text-sm); }
 
 @media (max-width: 760px) {
   .toolbar { align-items: flex-start; flex-direction: column; }

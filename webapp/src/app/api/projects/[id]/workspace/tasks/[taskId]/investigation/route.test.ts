@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   investigationFindFirst: vi.fn(),
   investigationFindUnique: vi.fn(),
   investigationCreate: vi.fn(),
+  codeAttemptFindMany: vi.fn(),
   observationCount: vi.fn(),
 }))
 
@@ -21,6 +22,7 @@ vi.mock('@/lib/prisma', () => ({
       findUnique: mocks.investigationFindUnique,
       create: mocks.investigationCreate,
     },
+    reamonCodeAttempt: { findMany: mocks.codeAttemptFindMany },
     reamonObservation: { count: mocks.observationCount },
   },
 }))
@@ -43,6 +45,7 @@ describe('/api/projects/[id]/workspace/tasks/[taskId]/investigation', () => {
     mocks.investigationFindFirst.mockResolvedValue(null)
     mocks.investigationFindUnique.mockResolvedValue(null)
     mocks.observationCount.mockResolvedValue(3)
+    mocks.codeAttemptFindMany.mockResolvedValue([])
   })
 
   test('loads only the case in the authorized project', async () => {
@@ -51,7 +54,7 @@ describe('/api/projects/[id]/workspace/tasks/[taskId]/investigation', () => {
     const response = await GET(new Request('http://local'), { params })
 
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ investigation: { id: 'case-1', status: 'QUEUED' } })
+    expect(await response.json()).toEqual({ investigation: { id: 'case-1', status: 'QUEUED' }, attempts: [], candidateUnits: [] })
     expect(mocks.investigationFindFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { projectId: 'project-1', taskId: 'task-1' } }))
   })
 
