@@ -59,7 +59,11 @@ export function WorkspaceInvestigationQueue({ projectId }: { projectId: string }
     initialPageParam: null as string | null,
     getNextPageParam: (page) => page.nextCursor ?? undefined,
     enabled: expanded,
-    refetchInterval: (query) => expanded && query.state.data?.pages.some((page) => page.investigations.some((item) => item.active)) ? 3000 : false,
+    refetchInterval: (query) => {
+      if (!expanded) return false
+      const hasActiveWork = query.state.data?.pages.some((page) => page.investigations.some((item) => item.active))
+      return hasActiveWork ? 3000 : 15000
+    },
     refetchIntervalInBackground: false,
   })
   const cases = queue.data?.pages.flatMap((page) => page.investigations) ?? []

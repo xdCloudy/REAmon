@@ -45,4 +45,31 @@ describe('WorkspaceInvestigationQueue', () => {
     expect((document.getElementById('analysis-tasks') as HTMLDetailsElement).open).toBe(true)
     await waitFor(() => expect(task.scrollIntoView).toHaveBeenCalled())
   })
+
+  test('reloads an expanded queue after a task action invalidates its query', async () => {
+    const emptyPage = { investigations: [], nextCursor: null }
+    const updatedPage = {
+      investigations: [{
+        id: 'case-2', taskId: 'task-2', artifactSha256: '0123456789abcdef'.repeat(4),
+        capability: 'decompile', providerId: null, providerVersion: null,
+        status: 'QUEUED', attemptCount: 0, hasCandidate: false, active: false,
+        task: { title: 'Newly queued DEX run', status: 'FAILED', capability: 'decompile' }, attempts: [],
+      }],
+      nextCursor: null,
+    }
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => emptyPage })
+      .mockResolvedValueOnce({ ok: true, json: async () => updatedPage })
+    vi.stubGlobal('fetch', fetchMock)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}>
+      <WorkspaceInvestigationQueue projectId="project-1" />
+    </QueryClientProvider>)
+
+    fireEvent.click(screen.getByText('Investigation queue'))
+    await waitFor(() => expect(screen.getByText(/No failed decompile or disassemble runs/)).toBeInTheDocument())
+    await queryClient.invalidateQueries({ queryKey: ['reamon-investigations', 'project-1'] })
+    await waitFor(() => expect(screen.getByText('Newly queued DEX run')).toBeInTheDocument())
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
 })

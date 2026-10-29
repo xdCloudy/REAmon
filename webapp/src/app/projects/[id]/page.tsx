@@ -240,6 +240,7 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
       {hasAnalysisHistory && <details id="analysis-tasks" className={styles.secondaryDetails}><summary>Tasks and findings <span>{data.tasks.length} tasks · {data.findings.length} findings</span></summary><section className={styles.panel} aria-label="Tasks and findings"><WorkspaceInvestigationQueue projectId={projectId} />{data.tasks.length > 0 && <WorkspaceTaskList projectId={projectId} tasks={data.tasks} onChanged={() => {
         void queryClient.invalidateQueries({ queryKey: ['reamon-workspace', projectId] })
         void queryClient.invalidateQueries({ queryKey: ['reamon-code-units', projectId] })
+        void queryClient.invalidateQueries({ queryKey: ['reamon-investigations', projectId] })
       }} />}{data.findings.length > 0 && <WorkspaceFindingList projectId={projectId} findings={data.findings} onChanged={() => {
         void queryClient.invalidateQueries({ queryKey: ['reamon-workspace', projectId] })
       }} />}</section></details>}
