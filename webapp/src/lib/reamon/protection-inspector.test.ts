@@ -322,6 +322,7 @@ Section Headers:
       expect(cleanAssessment).toMatchObject({ status: 'unknown', family: null })
       expect(packedResult.status).toBe('completed')
       expect(packedAssessment).toMatchObject({ status: 'suspected', family: 'UPX' })
+      expect(packedAssessment.sections.some((section) => section.executable)).toBe(false)
       expect(packedAssessment.loadSegments.some((segment) => segment.upxSignatureOffsets.length > 0)).toBe(true)
       expect(packedResult.data.observations).toEqual(expect.arrayContaining([
         expect.objectContaining({ type: 'elf_load_segment', attributes: expect.objectContaining({ upxSignatureOffsets: expect.any(String) }) }),
