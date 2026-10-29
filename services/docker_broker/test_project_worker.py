@@ -27,6 +27,21 @@ _TEST_ADMISSION_STATE = tempfile.TemporaryDirectory(prefix="reamon-broker-tests-
 admission_state.LOCK_PATH = os.path.join(_TEST_ADMISSION_STATE.name, "container-create.lock")
 
 
+class WorkerResourceConfigurationTests(unittest.TestCase):
+    def test_operator_limits_keep_safe_minimums_and_hard_maximums(self):
+        for raw, expected in (("1", 256 * 1024**2), (str(64 * 1024**3), 8 * 1024**3), ("bad", 1024**3)):
+            with self.subTest(raw=raw), mock.patch.dict(os.environ, {"REAMON_WORKER_MEMORY_BYTES": raw}):
+                self.assertEqual(worker._bounded_int_env(
+                    "REAMON_WORKER_MEMORY_BYTES", 1024**3, 256 * 1024**2, 8 * 1024**3,
+                ), expected)
+
+        self.assertEqual(worker._bounded_int_env("REAMON_WORKER_PIDS", 512, 64, 4096), 512)
+        with mock.patch.dict(os.environ, {"REAMON_WORKER_PIDS": "999999"}):
+            self.assertEqual(worker._bounded_int_env("REAMON_WORKER_PIDS", 512, 64, 4096), 4096)
+        with mock.patch.dict(os.environ, {"REAMON_WORKER_NANO_CPUS": "0"}):
+            self.assertEqual(worker._bounded_int_env("REAMON_WORKER_NANO_CPUS", 2_000_000_000, 500_000_000, 16_000_000_000), 500_000_000)
+
+
 class SharedAdmissionLockTests(unittest.TestCase):
     def test_separate_processes_serialize_on_the_shared_lock_file(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -605,6 +620,7 @@ class ProjectWorkerRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(body["OpenStdin"])
         self.assertTrue(body["StdinOnce"])
         self.assertTrue(body["HostConfig"]["ReadonlyRootfs"])
+        self.assertEqual(body["HostConfig"]["Memory"], worker.WORKER_MEMORY)
         self.assertEqual(body["HostConfig"]["Mounts"], mounts)
         self.assertEqual(body["HostConfig"]["PidsLimit"], worker.WORKER_PIDS)
         self.assertEqual(body["HostConfig"]["NanoCpus"], worker.WORKER_NANO_CPUS)

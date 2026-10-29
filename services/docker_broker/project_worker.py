@@ -33,9 +33,22 @@ DOCKER_DESKTOP_HOST_PREFIX = os.environ.get(
 PROJECT_WORKER_IMAGE = os.environ.get("REAMON_PROJECT_WORKER_IMAGE", "reamon-project-worker:latest")
 PENTEST_WORKER_IMAGE = os.environ.get("REAMON_PENTEST_WORKER_IMAGE", "reamon-kali-sandbox:latest")
 TERMINAL_AGENT_CONTAINER = os.environ.get("REAMON_TERMINAL_AGENT_CONTAINER", "redamon-agent")
-WORKER_MEMORY = max(256 * 1024**2, int(os.environ.get("REAMON_WORKER_MEMORY_BYTES", str(1024**3))))
-WORKER_PIDS = max(64, int(os.environ.get("REAMON_WORKER_PIDS", "512")))
-WORKER_NANO_CPUS = max(500_000_000, int(os.environ.get("REAMON_WORKER_NANO_CPUS", "2000000000")))
+
+
+def _bounded_int_env(name: str, default: int, minimum: int, maximum: int) -> int:
+    """Read an operator limit without allowing typos or values to remove its ceiling."""
+    try:
+        configured = int(os.environ.get(name, str(default)))
+    except (TypeError, ValueError):
+        configured = default
+    return min(maximum, max(minimum, configured))
+
+
+WORKER_MEMORY = _bounded_int_env(
+    "REAMON_WORKER_MEMORY_BYTES", 1024**3, 256 * 1024**2, 8 * 1024**3,
+)
+WORKER_PIDS = _bounded_int_env("REAMON_WORKER_PIDS", 512, 64, 4096)
+WORKER_NANO_CPUS = _bounded_int_env("REAMON_WORKER_NANO_CPUS", 2_000_000_000, 500_000_000, 16_000_000_000)
 WORKER_OUTPUT_LIMIT = 2 * 1024 * 1024
 WORKER_MAX_ACTIVE = min(64, max(1, int(os.environ.get("REAMON_WORKER_MAX_ACTIVE", "4"))))
 WORKER_MAX_ACTIVE_PER_PROJECT = min(

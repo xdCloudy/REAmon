@@ -13,6 +13,13 @@ unavailable. The active agent and broker on this PC belong to different Compose
 projects and do not share a network. The new lifecycle has not been applied to
 those running services, so local deployment acceptance remains open.
 
+Worker memory, CPU, and PID limits are now clamped at configuration load: memory
+is 256 MiB–8 GiB (1 GiB default), CPU is 0.5–16 cores (2 cores default), and
+PIDs are 64–4096 (512 default). Invalid integer settings fall back to defaults;
+operator configuration cannot raise these per-worker ceilings. This does not
+provide aggregate project disk quotas or a restricted egress policy, which remain
+separate release gates.
+
 ## Current deployment update (2026-10-26)
 
 Broker admission has a cross-process lock backed by a named Docker volume.
