@@ -271,8 +271,13 @@ predicates. Local/manual runs retain their direct sweep and cleanup.
 Focused Docker tests pass 16 orchestrator boundary cases and 2 worker handoff
 cases; the full orchestrator unit section passes 602 tests, and 396 focused recon
 tests pass. This is source-level progress only: the legacy orchestrator profile
-is inactive, so this path has not been exercised live. Full recon and every other
-partial-recon worker remain direct graph clients.
+is inactive, so the worker-to-orchestrator HTTP lifecycle has not been exercised
+live. A one-off Docker orchestrator process did connect to the live Neo4j using
+`ORCHESTRATOR_NEO4J_URI`; a disposable run-scoped orphan was deleted while an
+unrelated orphan in the same synthetic tenant was preserved, and both fixtures
+were cleaned up. This validates the URI and Cypher scope, not worker dispatch or
+the finalization HTTP route. Full recon and every other partial-recon worker
+remain direct graph clients.
 
 ## PyInstaller module paging and source recovery (2026-10-27)
 
