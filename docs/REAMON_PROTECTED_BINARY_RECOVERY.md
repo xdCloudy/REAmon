@@ -17,7 +17,12 @@ writable/executable LOAD segments, and high-entropy executable regions as hypoth
 stripped ELF files without executable sections, it samples bounded `PT_LOAD` regions and
 records `UPX!` marker offsets as suspected family evidence. It does not execute the artifact.
 There is no multi-sample precision/recall calibration yet;
-PE import names and certificate contents are not recovered. High entropy is only a generic
+PE import descriptors are now parsed under a 64 KiB read cap, at most 32 DLL descriptors,
+64 imports per library, and 256 imports overall. DLL names, named imports, and ordinal
+imports are stored in the project-scoped protection observation and shown as provisional
+static API clues. Missing or malformed tables and cap exhaustion are reported as
+`not_present`, `unavailable`, or `truncated`; names are not behavioral evidence. PE
+certificate contents are not recovered. High entropy is only a generic
 packing/encryption/data indicator. Synthetic fixtures exercise bounded parsing; the single
 pinned UPX pair below tests one narrow detection path but provides no statistical accuracy
 estimate. Per-section PE and ELF evidence is stored as project-scoped observations

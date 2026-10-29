@@ -5,6 +5,10 @@ import type { ObservationAttributes, ToolExecutionInput, ToolPlugin, ToolPluginM
 const MAX_HEADER_BYTES = 1024 * 1024
 const MAX_SECTION_SAMPLE_BYTES = 64 * 1024
 const MAX_TOTAL_SAMPLE_BYTES = 256 * 1024
+const MAX_PE_IMPORT_BYTES = 64 * 1024
+const MAX_PE_IMPORT_LIBRARIES = 32
+const MAX_PE_IMPORTS_PER_LIBRARY = 64
+const MAX_PE_IMPORTS_TOTAL = 256
 const HIGH_ENTROPY_THRESHOLD = 7.2
 
 export const protectionInspectorManifest: ToolPluginManifest = {
@@ -280,11 +284,18 @@ export interface PeProtectionAssessment {
   entryPointRva: number | null
   entryPointSection: string | null
   importDirectory: { rva: number; size: number } | null
+  imports: PeImportLibraryEvidence[]
+  importTableStatus: 'parsed' | 'truncated' | 'unavailable' | 'not_present'
   certificateTable: { fileOffset: number; size: number } | null
   sections: PeSectionEvidence[]
   inspectedBytes: number
   sampledBytes: number
   scope: 'PE headers plus bounded executable-section samples; no execution or unpacking'
+}
+
+export interface PeImportLibraryEvidence {
+  library: string
+  symbols: string[]
 }
 
 export interface PeSectionEvidence {
@@ -340,6 +351,8 @@ export function assessPeProtection(
   sectionSamples: Map<number, Buffer> = new Map(),
   truncatedSections: Set<number> = new Set(),
   headerOverlappingSections: Set<number> = new Set(),
+  imports: PeImportLibraryEvidence[] = [],
+  importTableStatus: PeProtectionAssessment['importTableStatus'] = 'not_present',
 ): PeProtectionAssessment {
   const evidence: string[] = []
   const sections: PeSectionEvidence[] = []
@@ -353,6 +366,7 @@ export function assessPeProtection(
       status: 'unknown', family: null, evidence: ['A complete PE header was not available in the bounded header read.'],
       architecture: null, entryPointRva: null, entryPointSection: null,
       importDirectory: null, certificateTable: null, sections,
+      imports, importTableStatus,
       inspectedBytes: bytes.length, sampledBytes,
       scope: 'PE headers plus bounded executable-section samples; no execution or unpacking',
     }
@@ -365,6 +379,7 @@ export function assessPeProtection(
       status: 'unknown', family: null, evidence: ['PE section-table dimensions were missing or outside the supported bounds.'],
       architecture: null, entryPointRva: null, entryPointSection: null,
       importDirectory: null, certificateTable: null, sections,
+      imports, importTableStatus,
       inspectedBytes: bytes.length, sampledBytes,
       scope: 'PE headers plus bounded executable-section samples; no execution or unpacking',
     }
@@ -456,12 +471,106 @@ export function assessPeProtection(
     entryPointRva,
     entryPointSection,
     importDirectory,
+    imports,
+    importTableStatus,
     certificateTable,
     sections,
     inspectedBytes: bytes.length,
     sampledBytes,
     scope: 'PE headers plus bounded executable-section samples; no execution or unpacking',
   }
+}
+
+async function readPeImportEvidence(
+  handle: Awaited<ReturnType<typeof open>>,
+  headerBytes: Buffer,
+  artifactSize: number,
+  assessment: PeProtectionAssessment,
+): Promise<{ imports: PeImportLibraryEvidence[]; status: PeProtectionAssessment['importTableStatus'] }> {
+  const directory = assessment.importDirectory
+  if (!directory) return { imports: [], status: 'not_present' }
+  if (!directory.rva && !directory.size) return { imports: [], status: 'not_present' }
+  if (!directory.rva || directory.size < 20) return { imports: [], status: 'unavailable' }
+  const sections = assessment.sections
+  let readBytes = 0
+  let capped = false
+  const readAt = async (offset: number, length: number): Promise<Buffer | null> => {
+    if (!Number.isSafeInteger(offset) || offset < 0 || offset >= artifactSize || length <= 0) return null
+    const available = Math.min(length, artifactSize - offset, MAX_PE_IMPORT_BYTES - readBytes)
+    if (available <= 0) { capped = true; return null }
+    if (MAX_PE_IMPORT_BYTES - readBytes < length) capped = true
+    const buffer = Buffer.alloc(available)
+    const { bytesRead } = await handle.read(buffer, 0, available, offset)
+    readBytes += bytesRead
+    return bytesRead ? buffer.subarray(0, bytesRead) : null
+  }
+  const rvaToOffset = (rva: number): number | null => {
+    const section = sections.find((candidate) => {
+      const span = Math.max(candidate.virtualSize, candidate.rawSize)
+      return span > 0 && rva >= candidate.virtualAddress && rva - candidate.virtualAddress < span
+    })
+    if (!section) return rva < headerBytes.length ? rva : null
+    const delta = rva - section.virtualAddress
+    if (delta >= section.rawSize) return null
+    const offset = section.rawOffset + delta
+    return Number.isSafeInteger(offset) && offset < artifactSize ? offset : null
+  }
+  const readRva = async (rva: number, length: number): Promise<Buffer | null> => {
+    const offset = rvaToOffset(rva)
+    return offset === null ? null : readAt(offset, length)
+  }
+  const readName = async (rva: number): Promise<string | null> => {
+    if (!rva) return null
+    const bytes = await readRva(rva, 256)
+    if (!bytes) return null
+    const end = bytes.indexOf(0)
+    if (end <= 0) { capped ||= bytes.length === 256; return null }
+    return bytes.toString('ascii', 0, end).replace(/[^\x20-\x7e]/g, '?')
+  }
+  const descriptorOffset = rvaToOffset(directory.rva)
+  if (descriptorOffset === null) return { imports: [], status: 'unavailable' }
+  const imports: PeImportLibraryEvidence[] = []
+  const descriptorCount = Math.min(Math.floor(directory.size / 20), MAX_PE_IMPORT_LIBRARIES)
+  const is64Bit = assessment.architecture === 'x86_64' || assessment.architecture === 'ARM64'
+  const thunkWidth = is64Bit ? 8 : 4
+  const ordinalMask = is64Bit ? (1n << 63n) : (1n << 31n)
+  let descriptorsTerminated = false
+  for (let descriptorIndex = 0; descriptorIndex < descriptorCount; descriptorIndex += 1) {
+    const descriptor = await readAt(descriptorOffset + descriptorIndex * 20, 20)
+    if (!descriptor || descriptor.length < 20) { capped = true; break }
+    const originalThunk = descriptor.readUInt32LE(0)
+    const nameRva = descriptor.readUInt32LE(12)
+    const firstThunk = descriptor.readUInt32LE(16)
+    if (originalThunk === 0 && nameRva === 0 && firstThunk === 0) { descriptorsTerminated = true; break }
+    const library = await readName(nameRva)
+    if (!library) { capped = true; continue }
+    const thunkRva = originalThunk || firstThunk
+    const symbols: string[] = []
+    if (thunkRva) {
+      let symbolsTerminated = false
+      for (let symbolIndex = 0; symbolIndex < MAX_PE_IMPORTS_PER_LIBRARY && imports.reduce((total, item) => total + item.symbols.length, 0) + symbols.length < MAX_PE_IMPORTS_TOTAL; symbolIndex += 1) {
+        const thunk = await readRva(thunkRva + symbolIndex * thunkWidth, thunkWidth)
+        if (!thunk || thunk.length < thunkWidth) { capped = true; break }
+        const value = is64Bit ? thunk.readBigUInt64LE(0) : BigInt(thunk.readUInt32LE(0))
+        if (value === 0n) { symbolsTerminated = true; break }
+        if ((value & ordinalMask) !== 0n) {
+          symbols.push(`#${Number(value & 0xffffn)}`)
+          continue
+        }
+        if (value > 0xffffffffn) { capped = true; break }
+        const namePointer = Number(value)
+        const hintAndName = await readRva(namePointer, 2)
+        if (!hintAndName || hintAndName.length < 2) { capped = true; break }
+        const symbol = await readName(namePointer + 2)
+        if (!symbol) { capped = true; break }
+        symbols.push(symbol)
+      }
+      if (!symbolsTerminated) capped = true
+    }
+    imports.push({ library, symbols })
+  }
+  if (!descriptorsTerminated || directory.size / 20 > MAX_PE_IMPORT_LIBRARIES || imports.reduce((total, item) => total + item.symbols.length, 0) >= MAX_PE_IMPORTS_TOTAL) capped = true
+  return { imports, status: capped ? 'truncated' : imports.length ? 'parsed' : 'unavailable' }
 }
 
 export function peSectionObservations(sections: PeSectionEvidence[], artifactId?: string, taskId?: string) {
@@ -497,6 +606,9 @@ export function protectionObservation(assessment: PeProtectionAssessment, artifa
     entryPointSection: assessment.entryPointSection,
     importDirectoryRva: assessment.importDirectory?.rva ?? null,
     importDirectorySize: assessment.importDirectory?.size ?? null,
+    importTableStatus: assessment.importTableStatus,
+    importedLibraries: assessment.imports.length,
+    imports: JSON.stringify(assessment.imports),
     certificateTableOffset: assessment.certificateTable?.fileOffset ?? null,
     certificateTableSize: assessment.certificateTable?.size ?? null,
     evidence: assessment.evidence.join(' '),
@@ -641,7 +753,9 @@ export async function executeProtectionInspection(input: ToolExecutionInput): Pr
         if (sampled < sampleSize) truncatedSections.add(section.index)
       }
     }
-    const assessment = assessPeProtection(headerBytes, sectionSamples, truncatedSections, headerOverlappingSections)
+    const preliminary = assessPeProtection(headerBytes, sectionSamples, truncatedSections, headerOverlappingSections)
+    const importEvidence = await readPeImportEvidence(handle, headerBytes, stat.size, preliminary)
+    const assessment = assessPeProtection(headerBytes, sectionSamples, truncatedSections, headerOverlappingSections, importEvidence.imports, importEvidence.status)
     const observations = [
       protectionObservation(assessment, input.artifactId, input.taskId),
       ...peSectionObservations(assessment.sections, input.artifactId, input.taskId),

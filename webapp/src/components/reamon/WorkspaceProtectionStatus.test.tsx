@@ -7,11 +7,11 @@ const artifact = {
   id: 'artifact-1', name: 'client.exe', originalName: 'client.exe', extension: 'exe', profile: { format: 'pe' },
 }
 
-function observation(assessment: string, family: string | null, evidence: string): WorkspaceObservation {
+function observation(assessment: string, family: string | null, evidence: string, imports?: string): WorkspaceObservation {
   return {
     id: 'observation-1', projectId: 'project-1', taskId: 'task-1', targetId: null, artifactId: artifact.id,
     kind: 'fact', type: 'protection_assessment', key: 'artifact:artifact-1:protection-static-v1', source: 'reamon-protection-inspector',
-    attributes: { assessment, family, evidence, scope: 'PE headers and bounded section samples; no execution or unpacking' },
+    attributes: { assessment, family, evidence, scope: 'PE headers and bounded section samples; no execution or unpacking', ...(imports ? { imports } : {}) },
     createdAt: '2026-10-28T00:00:00.000Z', updatedAt: '2026-10-28T00:00:00.000Z',
   }
 }
@@ -31,6 +31,13 @@ describe('WorkspaceProtectionStatus', () => {
     expect(screen.getByText('A UPX section marker was found.')).toBeTruthy()
     expect(screen.getByText(/Scope: PE headers/)).toBeTruthy()
     expect(screen.queryByText('Confirmed')).toBeNull()
+  })
+
+  it('shows statically recovered import evidence without implying behavior', () => {
+    const imports = JSON.stringify([{ library: 'KERNEL32.dll', symbols: ['CreateFileW', 'CloseHandle'] }])
+    render(<WorkspaceProtectionStatus artifacts={[artifact]} observations={[observation('unknown', null, 'Protection remains unknown.', imports)]} />)
+    expect(screen.getByText('Imported APIs: KERNEL32.dll: CreateFileW, CloseHandle')).toBeTruthy()
+    expect(screen.getByText('Unknown')).toBeTruthy()
   })
 
   it('does not present an unknown result as evidence of no protection', () => {

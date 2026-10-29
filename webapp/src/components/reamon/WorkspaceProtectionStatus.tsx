@@ -19,6 +19,22 @@ function assessmentLabel(observation: WorkspaceObservation | undefined): { label
   return { label: 'Unknown', state: 'unknown', family: null }
 }
 
+function importSummary(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  try {
+    const rows: unknown = JSON.parse(value)
+    if (!Array.isArray(rows)) return null
+    const summary = rows.slice(0, 8).flatMap((row): string[] => {
+      if (!row || typeof row !== 'object' || typeof row.library !== 'string') return []
+      const symbols = Array.isArray(row.symbols) ? row.symbols.filter((item: unknown): item is string => typeof item === 'string').slice(0, 8) : []
+      return [symbols.length ? `${row.library}: ${symbols.join(', ')}` : row.library]
+    })
+    return summary.length ? summary.join(' · ') : null
+  } catch {
+    return null
+  }
+}
+
 export function WorkspaceProtectionStatus({ artifacts, observations, hasMoreArtifacts = false }: {
   artifacts: ProtectionArtifact[]
   observations: WorkspaceObservation[]
@@ -52,6 +68,7 @@ export function WorkspaceProtectionStatus({ artifacts, observations, hasMoreArti
           const status = assessmentLabel(observation)
           const evidence = observation?.attributes.evidence
           const scope = observation?.attributes.scope
+          const imports = importSummary(observation?.attributes.imports)
           return (
             <li className={styles.row} key={artifact.id}>
               <div className={styles.identity}>
@@ -61,6 +78,8 @@ export function WorkspaceProtectionStatus({ artifacts, observations, hasMoreArti
               <div className={styles.result}>
                 <span className={`${styles.badge} ${styles[status.state]}`}>{status.label}{status.family ? ` · ${status.family}` : ''}</span>
                 {typeof evidence === 'string' && evidence.length > 0 && <small>{evidence}</small>}
+                {imports && <small>Imported APIs: {imports}</small>}
+                {observation?.attributes.importTableStatus === 'truncated' && <small>Import listing is truncated by the static inspection limits.</small>}
                 {typeof scope === 'string' && scope.length > 0 && <small>Scope: {scope}</small>}
                 {!observation && <small>Static protection inspection has not run for this file.</small>}
               </div>

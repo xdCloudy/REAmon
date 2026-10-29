@@ -49,6 +49,27 @@ function peFixture(sectionNames: string[], payloads: Array<Buffer | null> = []):
   return bytes
 }
 
+function peImportFixture(importValue = 0x2080n): Buffer {
+  const bytes = peFixture(['.text', '.idata'], [null, Buffer.alloc(0x100)])
+  const optionalHeader = 0x80 + 24
+  const sectionTable = optionalHeader + 0xE0
+  bytes.writeUInt32LE(0x2000, optionalHeader + 112 + 8)
+  bytes.writeUInt32LE(40, optionalHeader + 112 + 12)
+  const data = 0x400
+  bytes.writeUInt32LE(0x2070, data)
+  bytes.writeUInt32LE(0x2060, data + 12)
+  bytes.writeUInt32LE(0x2070, data + 16)
+  bytes.write('KERNEL32.dll\0', data + 0x60, 'ascii')
+  bytes.writeBigUInt64LE(importValue, data + 0x70)
+  bytes.writeBigUInt64LE(0n, data + 0x78)
+  if ((importValue & (1n << 63n)) === 0n) {
+    bytes.writeUInt16LE(0, data + 0x80)
+    bytes.write('CreateFileW\0', data + 0x82, 'ascii')
+  }
+  bytes.writeUInt32LE(0x100, sectionTable + 40 + 16)
+  return bytes
+}
+
 describe('static PE protection evidence', () => {
   test('reports UPX section markers as a suspected family, not confirmed protection', () => {
     const result = assessPeProtection(peFixture(['UPX0', 'UPX1']))
@@ -132,6 +153,43 @@ describe('static PE protection evidence', () => {
       expect(result.data.observations).toEqual(expect.arrayContaining([
         expect.objectContaining({ type: 'pe_section_region', key: 'artifact:artifact-a:pe-section:1', attributes: expect.objectContaining({ executable: true, sampledBytes: 1024, entropyBits: 8 }) }),
       ]))
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  test('recovers bounded PE imported library and symbol names as evidence', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'reamon-pe-imports-'))
+    const filePath = path.join(root, 'imports.exe')
+    await writeFile(filePath, peImportFixture())
+    try {
+      const result = await executeProtectionInspection({
+        targetProfile: { targetType: 'FILE', format: 'pe', mimeType: 'application/x-executable', extension: 'exe', architecture: 'x86-64', platform: 'windows', runtimes: ['native'], embeddedArtifacts: [], entropy: null, metadata: {} },
+        artifactId: 'artifact-imports', artifactPath: filePath,
+      })
+      expect(result.status).toBe('completed')
+      expect(result.data.assessment).toMatchObject({
+        importTableStatus: 'parsed',
+        imports: [{ library: 'KERNEL32.dll', symbols: ['CreateFileW'] }],
+      })
+      expect(result.data.observations).toEqual(expect.arrayContaining([
+        expect.objectContaining({ type: 'protection_assessment', attributes: expect.objectContaining({ importedLibraries: 1, imports: '[{"library":"KERNEL32.dll","symbols":["CreateFileW"]}]' }) }),
+      ]))
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  test('records ordinal imports without inventing symbol names', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'reamon-pe-ordinal-'))
+    const filePath = path.join(root, 'ordinal.exe')
+    await writeFile(filePath, peImportFixture(0x8000000000000042n))
+    try {
+      const result = await executeProtectionInspection({
+        targetProfile: { targetType: 'FILE', format: 'pe', mimeType: 'application/x-executable', extension: 'exe', architecture: 'x86-64', platform: 'windows', runtimes: ['native'], embeddedArtifacts: [], entropy: null, metadata: {} },
+        artifactId: 'artifact-ordinal', artifactPath: filePath,
+      })
+      expect(result.data.assessment).toMatchObject({ importTableStatus: 'parsed', imports: [{ library: 'KERNEL32.dll', symbols: ['#66'] }] })
     } finally {
       await rm(root, { recursive: true, force: true })
     }
