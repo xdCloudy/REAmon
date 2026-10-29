@@ -2798,6 +2798,7 @@ model ReamonObservation {
   @@unique([projectId, source, stableKey])
   @@index([projectId, canonicalKey])
   @@index([projectId, kind, type])
+  @@index([projectId, updatedAt, id])
   @@index([projectId, taskId])
   @@index([projectId, taskId, isPending])
   @@index([projectId, artifactId])

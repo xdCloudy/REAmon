@@ -502,7 +502,9 @@ pages are ordered by observation update time and then stable observation ID, so 
 timestamps cannot make page boundaries nondeterministic. These changes protect
 against oversized single requests but do not guarantee every large projection
 completes within the current timeout; validate large live projects before treating
-throughput as production-ready.
+throughput as production-ready. PostgreSQL has a matching composite index on
+`(project_id, updated_at, id)` so each ordered page can avoid repeatedly scanning
+and sorting the full observation table.
 Observation ingestion now derives a bounded canonical identity from an
 explicit `identity`, `identityKey`, `canonicalKey`, or `qualifiedName` hint (and from
 normalized string values); observations without a hint remain source-scoped. Neo4j
