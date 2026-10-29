@@ -47,6 +47,9 @@ def _bounded_int_env(name: str, default: int, minimum: int, maximum: int) -> int
 WORKER_MEMORY = _bounded_int_env(
     "REAMON_WORKER_MEMORY_BYTES", 1024**3, 256 * 1024**2, 8 * 1024**3,
 )
+WORKER_MAX_FILE_BYTES = _bounded_int_env(
+    "REAMON_WORKER_MAX_FILE_BYTES", 1024**3, 16 * 1024**2, 8 * 1024**3,
+)
 WORKER_PIDS = _bounded_int_env("REAMON_WORKER_PIDS", 512, 64, 4096)
 WORKER_NANO_CPUS = _bounded_int_env("REAMON_WORKER_NANO_CPUS", 2_000_000_000, 500_000_000, 16_000_000_000)
 WORKER_MEMORY_BUDGET = 8 * 1024**3
@@ -714,7 +717,8 @@ async def _create_worker_container(
     body = {
         "Image": image_id,
         "Entrypoint": [
-            "/usr/bin/prlimit", "--core=0:0", "--nofile=256:256", "--",
+            "/usr/bin/prlimit", "--core=0:0", "--nofile=256:256",
+            f"--fsize={WORKER_MAX_FILE_BYTES}:{WORKER_MAX_FILE_BYTES}", "--",
             "/bin/sh", "-c", "find /tmp -type f -mmin +1440 -delete 2>/dev/null || true; exec \"$@\"",
             "reamon-worker",
         ],
@@ -789,7 +793,8 @@ async def _create_terminal_container(identity: dict[str, str], network_id: str) 
     body = {
         "Image": image_id,
         "Entrypoint": [
-            "/usr/bin/prlimit", "--core=0:0", "--nofile=256:256", "--",
+            "/usr/bin/prlimit", "--core=0:0", "--nofile=256:256",
+            f"--fsize={WORKER_MAX_FILE_BYTES}:{WORKER_MAX_FILE_BYTES}", "--",
             "/bin/sh", "-c", "find /tmp -type f -mmin +1440 -delete 2>/dev/null || true; exec /bin/bash --login",
         ],
         "WorkingDir": "/workspace",

@@ -40,6 +40,13 @@ class WorkerResourceConfigurationTests(unittest.TestCase):
             self.assertEqual(worker._bounded_int_env("REAMON_WORKER_PIDS", 512, 64, 4096), 4096)
         with mock.patch.dict(os.environ, {"REAMON_WORKER_NANO_CPUS": "0"}):
             self.assertEqual(worker._bounded_int_env("REAMON_WORKER_NANO_CPUS", 2_000_000_000, 500_000_000, 16_000_000_000), 500_000_000)
+        self.assertEqual(worker._bounded_int_env(
+            "REAMON_WORKER_MAX_FILE_BYTES", 1024**3, 16 * 1024**2, 8 * 1024**3,
+        ), 1024**3)
+        with mock.patch.dict(os.environ, {"REAMON_WORKER_MAX_FILE_BYTES": "999999999999"}):
+            self.assertEqual(worker._bounded_int_env(
+                "REAMON_WORKER_MAX_FILE_BYTES", 1024**3, 16 * 1024**2, 8 * 1024**3,
+            ), 8 * 1024**3)
 
     def test_concurrency_ceiling_respects_aggregate_cpu_memory_and_pid_budgets(self):
         self.assertEqual(worker._worker_concurrency_limit(64, 1024**3, 512, 2_000_000_000), 8)
@@ -676,6 +683,10 @@ class ProjectWorkerRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(body["HostConfig"]["Mounts"], mounts)
         self.assertEqual(body["HostConfig"]["PidsLimit"], worker.WORKER_PIDS)
         self.assertEqual(body["HostConfig"]["NanoCpus"], worker.WORKER_NANO_CPUS)
+        self.assertIn(
+            f"--fsize={worker.WORKER_MAX_FILE_BYTES}:{worker.WORKER_MAX_FILE_BYTES}",
+            body["Entrypoint"],
+        )
         self.assertEqual(body["Labels"]["reamon.terminal-worker"], "1")
         self.assertEqual(body["Labels"]["reamon.project-scope"], hashlib.sha256(b"project-1").hexdigest())
         self.assertIn("REDAMON_CTX=signed-graph-context", body["Env"])
@@ -1168,6 +1179,10 @@ class ProjectWorkerRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("p1", body["Labels"].values())
         self.assertFalse(body["Tty"])
         self.assertEqual(body["HostConfig"]["LogConfig"]["Config"]["max-size"], "8m")
+        self.assertIn(
+            f"--fsize={worker.WORKER_MAX_FILE_BYTES}:{worker.WORKER_MAX_FILE_BYTES}",
+            body["Entrypoint"],
+        )
 
     async def test_only_kali_shell_worker_receives_raw_socket_capability(self):
         mounts = [{"Type": "bind", "Source": "/projects/p1", "Target": "/workspace", "ReadOnly": True}]
