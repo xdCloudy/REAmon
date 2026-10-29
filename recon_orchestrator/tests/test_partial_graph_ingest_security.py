@@ -282,5 +282,33 @@ class TestTenantScopedUserInputStatus(unittest.TestCase):
         self.assertEqual(session.run.call_args.kwargs["project_id"], "p1")
 
 
+class TestScopedPartialOrphanCleanup(unittest.TestCase):
+    def test_cleanup_only_targets_user_inputs_for_signed_roots_and_run(self):
+        import api
+        import uuid
+
+        scope = {
+            "projectId": "p1", "userId": "u1", "runId": "r1",
+            "roots": ["example.com", "api.example.com"],
+        }
+        expected_ids = [
+            uuid.uuid5(uuid.NAMESPACE_URL, f"reamon:partial-subdomain:r1:{root}").hex
+            for root in scope["roots"]
+        ]
+        graph = mock.MagicMock()
+        graph.__enter__.return_value = graph
+        graph.verify_connection.return_value = True
+        session = graph.driver.session.return_value.__enter__.return_value
+        session.run.return_value.single.return_value = {"deleted": 1}
+        with mock.patch("graph_db.Neo4jClient", return_value=graph):
+            deleted = api._cleanup_isolated_subdomain_orphans(scope)
+        query, params = session.run.call_args.args[0], session.run.call_args.kwargs
+        self.assertIn("WHERE NOT (ui)-->()", query)
+        self.assertEqual(params["ids"], expected_ids)
+        self.assertEqual(params["user_id"], "u1")
+        self.assertEqual(params["project_id"], "p1")
+        self.assertEqual(deleted, 1)
+
+
 if __name__ == "__main__":
     unittest.main()

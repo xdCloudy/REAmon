@@ -832,14 +832,45 @@ async def finalize_partial_subdomain_run(request: Request):
     )
     orphan_count = 0
     if body.get("cleanup_orphans"):
-        from recon.partial_recon_modules.user_inputs import _cleanup_orphan_user_inputs
         orphan_count = await run_in_threadpool(
-            _cleanup_orphan_user_inputs, scope["userId"], scope["projectId"],
+            _cleanup_isolated_subdomain_orphans, scope,
         )
     return {
         "status": "finalized", "run_id": scope["runId"],
         "stats": stats, "orphan_user_inputs_deleted": orphan_count,
     }
+
+
+def _cleanup_isolated_subdomain_orphans(scope: dict) -> int:
+    """Delete only orphan UserInput nodes created by this signed run and roots."""
+    input_ids = [
+        uuid.uuid5(uuid.NAMESPACE_URL, f"reamon:partial-subdomain:{scope['runId']}:{root}").hex
+        for root in scope["roots"]
+    ]
+    if not input_ids:
+        return 0
+    try:
+        from graph_db import Neo4jClient
+        with Neo4jClient() as graph:
+            if not graph.verify_connection():
+                return 0
+            with graph.driver.session() as session:
+                result = session.run(
+                    """
+                    UNWIND $ids AS input_id
+                    MATCH (ui:UserInput {id: input_id, user_id: $user_id, project_id: $project_id})
+                    WHERE NOT (ui)-->()
+                    DETACH DELETE ui
+                    RETURN count(ui) AS deleted
+                    """,
+                    ids=input_ids, user_id=scope["userId"], project_id=scope["projectId"],
+                )
+                record = result.single()
+                return int(record["deleted"]) if record else 0
+    except Exception as exc:
+        logger.warning("Scoped partial subdomain orphan cleanup failed for run %s: %s",
+                       scope.get("runId"), type(exc).__name__)
+        return 0
 
 
 @app.get("/health", response_model=HealthResponse)
