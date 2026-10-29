@@ -1,6 +1,6 @@
 # REAmon product progress
 
-Assessment date: 2026-10-29 · Source: pushed commit `88245c2` · Weighted estimate: **30.8%**
+Assessment date: 2026-10-29 · Source: pushed commit `2628881` · Weighted estimate: **31.8%**
 
 This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.
 
@@ -21,7 +21,7 @@ Quality run [40247230850](https://github.com/xdCloudy/REAmon/actions/runs/402472
 | Autonomous behavioral validation and differential testing | 6% | 10% | 0.60 pts |
 | Static and dynamic analysis fusion | 1% | 5% | 0.05 pts |
 | Autonomous whole-project reconstruction and rebuilding | 6% | 22% | 1.32 pts |
-| Multi-provider semantic reconciliation | 7% | 16% | 1.12 pts |
+| Multi-provider semantic reconciliation | 7% | 30% | 2.10 pts |
 | Protected-binary analysis and recovery | 7% | 4% | 0.28 pts |
 | Encrypted-binary and executable-region recovery | 5% | 0% | 0.00 pts |
 | Virtualized-code reconstruction | 5% | 0% | 0.00 pts |
@@ -108,9 +108,9 @@ Quality run [40247230850](https://github.com/xdCloudy/REAmon/actions/runs/402472
 
 ### Multi-provider semantic reconciliation
 
-**Current evidence:** Hash-linked provider alternatives, bounded diffs, compatible function-similarity evidence, analyst-reviewed cross-provider matches, and provider-attributed project memory are implemented. Authorized failed-run intake queues failed or cancelled decompile/disassemble runs and preserves capped, hash-linked provider text and per-unit instruction evidence as diagnostic data, separate from canonical observations. The agent has a static-only C/C++ manual-decompilation endpoint accepting bounded assembly/bytecode, CFG, reference, and attributed provider evidence, and returning a separate candidate with input/evidence and source hashes, uncertainty fields, and syntax-only validation status. This endpoint is not connected to the persisted case queue and does not store attempts or prove behavior. The code visualizer renders selected output beside hash-verified compatible alternate outputs, with an explicitly non-behavioral pairwise text diff.
+**Current evidence:** Hash-linked provider alternatives, bounded diffs, compatible function-similarity evidence, analyst-reviewed cross-provider matches, and provider-attributed project memory are implemented. Authorized failed-run intake queues failed or cancelled decompile/disassemble runs and preserves capped, hash-linked provider text and per-unit instruction evidence separately from canonical observations. A user-selected saved provider can dispatch one selected instruction-evidence unit through the persisted CodeAttempt worker for C, C++, C#, Go, Java, JavaScript, Kotlin, Objective-C, Python, Rust, Swift, and TypeScript when a Tree-sitter grammar is available. Attempts retain evidence/source hashes, uncertainty, syntax status, retry/cancellation history, and candidate source; syntax is not behavioral validation and candidates do not alter accepted source. The visualizer renders selected output beside hash-verified compatible alternatives and a non-behavioral text diff.
 
-**Remaining:** Implement general disagreement classification for unit boundaries, logic, CFG, data flow, types, references, and symbols; account for correlated provider ancestry; rank claims using benchmark-calibrated evidence; support targeted follow-up; and complete the failed-provider-unit lifecycle with worker claims, resumable attempts, cancellation, enforced budgets, evidence-linked source diffs, human review, validation, and rollback. Meet M5 held-out accuracy, calibration, and resolution gates.
+**Remaining:** Add provider-complete retrieval, per-unit case fan-out, investigation budgets, automatic targeted provider follow-ups, source diffs and review receipts, and general disagreement classification for unit boundaries, logic, CFG, data flow, types, references, and symbols. Account for correlated provider ancestry; rank claims using benchmark-calibrated evidence; validate candidate behavior where a safe oracle exists; and meet M5 held-out accuracy, calibration, and resolution gates.
 
 ### Protected-binary analysis and recovery
 
