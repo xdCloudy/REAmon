@@ -41,6 +41,13 @@ class WorkerResourceConfigurationTests(unittest.TestCase):
         with mock.patch.dict(os.environ, {"REAMON_WORKER_NANO_CPUS": "0"}):
             self.assertEqual(worker._bounded_int_env("REAMON_WORKER_NANO_CPUS", 2_000_000_000, 500_000_000, 16_000_000_000), 500_000_000)
 
+    def test_concurrency_ceiling_respects_aggregate_cpu_memory_and_pid_budgets(self):
+        self.assertEqual(worker._worker_concurrency_limit(64, 1024**3, 512, 2_000_000_000), 8)
+        self.assertEqual(worker._worker_concurrency_limit(64, 2 * 1024**3, 512, 2_000_000_000), 4)
+        self.assertEqual(worker._worker_concurrency_limit(64, 1024**3, 2048, 2_000_000_000), 2)
+        self.assertEqual(worker._worker_concurrency_limit(64, 1024**3, 512, 8_000_000_000), 2)
+        self.assertEqual(worker.WORKER_MAX_ACTIVE, 4)
+
 
 class SharedAdmissionLockTests(unittest.TestCase):
     def test_separate_processes_serialize_on_the_shared_lock_file(self):

@@ -16,9 +16,11 @@ those running services, so local deployment acceptance remains open.
 Worker memory, CPU, and PID limits are now clamped at configuration load: memory
 is 256 MiB–8 GiB (1 GiB default), CPU is 0.5–16 cores (2 cores default), and
 PIDs are 64–4096 (512 default). Invalid integer settings fall back to defaults;
-operator configuration cannot raise these per-worker ceilings. This does not
-provide aggregate project disk quotas or a restricted egress policy, which remain
-separate release gates.
+operator configuration cannot raise these per-worker ceilings. Admission also
+caps concurrent project workers against aggregate budgets of 8 GiB, 16 CPU cores,
+and 4,096 PIDs; the default remains four workers at 1 GiB, 2 cores, and 512 PIDs
+each. This does not provide aggregate project disk quotas or a restricted egress
+policy, which remain separate release gates.
 
 ## Current deployment update (2026-10-26)
 

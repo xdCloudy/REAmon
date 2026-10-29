@@ -49,8 +49,28 @@ WORKER_MEMORY = _bounded_int_env(
 )
 WORKER_PIDS = _bounded_int_env("REAMON_WORKER_PIDS", 512, 64, 4096)
 WORKER_NANO_CPUS = _bounded_int_env("REAMON_WORKER_NANO_CPUS", 2_000_000_000, 500_000_000, 16_000_000_000)
+WORKER_MEMORY_BUDGET = 8 * 1024**3
+WORKER_PIDS_BUDGET = 4096
+WORKER_NANO_CPUS_BUDGET = 16_000_000_000
+
+
+def _worker_concurrency_limit(configured: int, memory: int, pids: int, nano_cpus: int) -> int:
+    """Bound aggregate project-worker resources as well as each container."""
+    return min(
+        configured,
+        WORKER_MEMORY_BUDGET // memory,
+        WORKER_PIDS_BUDGET // pids,
+        WORKER_NANO_CPUS_BUDGET // nano_cpus,
+    )
+
+
 WORKER_OUTPUT_LIMIT = 2 * 1024 * 1024
-WORKER_MAX_ACTIVE = min(64, max(1, int(os.environ.get("REAMON_WORKER_MAX_ACTIVE", "4"))))
+WORKER_MAX_ACTIVE = _worker_concurrency_limit(
+    _bounded_int_env("REAMON_WORKER_MAX_ACTIVE", 4, 1, 64),
+    WORKER_MEMORY,
+    WORKER_PIDS,
+    WORKER_NANO_CPUS,
+)
 WORKER_MAX_ACTIVE_PER_PROJECT = min(
     WORKER_MAX_ACTIVE,
     max(1, int(os.environ.get("REAMON_WORKER_MAX_ACTIVE_PER_PROJECT", "2"))),
