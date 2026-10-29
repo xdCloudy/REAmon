@@ -357,3 +357,18 @@ and proxy-brain profiles this exercised the broker-selected worker images and
 scope boundary with a Python probe, not the MCP adapters or actual browser
 automation. Terminal, generated-file download, browser/MCP flow, restart
 recovery, and cross-user behavior remain open.
+
+A direct live terminal broker acceptance subsequently passed on 2026-10-29.
+The worker resolved a signed project scope, returned HTTP 200, ran as UID 65534
+in `/workspace`, and did not receive the tested service credentials. Exiting
+the PTY removed its worker and temporary network. This exposed and fixed two
+Docker lifecycle gaps: terminal startup now resolves the trusted agent by
+verified Compose project/service labels when its configured name is missing,
+and normal or failed terminal startup disconnects that agent endpoint before
+network removal. The broker's focused Docker suite passes 60 tests, and the
+full repository Docker unit gate passes. The live smoke used a synthetic
+agent-signed context directly against the broker; it does not validate the
+ticket-authenticated browser WebSocket, cross-user isolation, generated-file
+download, or restart recovery. Two orphan networks from the earlier failed
+smokes were verified to contain only the trusted agent and no worker, then
+disconnected and removed.

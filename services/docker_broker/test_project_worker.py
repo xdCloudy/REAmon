@@ -258,6 +258,82 @@ class ProjectWorkerLogsTests(unittest.TestCase):
         self.assertEqual(stderr, b"123\n[output truncated after 2 MiB]")
 
 class ProjectWorkerRuntimeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_terminal_agent_resolves_generated_compose_container_name(self):
+        calls = []
+        expected_labels = {
+            "com.docker.compose.project": worker.WORKSPACE_COMPOSE_PROJECT,
+            "com.docker.compose.service": worker.WORKSPACE_COMPOSE_SERVICE,
+        }
+
+        async def docker(method, path, body=None, **_kwargs):
+            calls.append((method, path, body))
+            if path == f"/containers/{worker.TERMINAL_AGENT_CONTAINER}/json":
+                return 404, b"{}"
+            if path == "/containers/agent-container-id/json":
+                return 200, json.dumps({
+                    "Id": "agent-container-id",
+                    "Config": {"Labels": expected_labels},
+                    "State": {"Running": True},
+                }).encode()
+            if path.startswith("/containers/json?"):
+                return 200, json.dumps([{
+                    "Id": "agent-container-id",
+                    "State": "running",
+                    "Labels": expected_labels,
+                }]).encode()
+            self.fail(f"Unexpected Docker request: {method} {path}")
+
+        with mock.patch.object(worker, "_docker_request", side_effect=docker):
+            result = await worker._trusted_agent_container_id()
+
+        self.assertEqual(result, "agent-container-id")
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(calls[0][1], f"/containers/{worker.TERMINAL_AGENT_CONTAINER}/json")
+        self.assertTrue(calls[1][1].startswith("/containers/json?"))
+        self.assertEqual(calls[2][1], "/containers/agent-container-id/json")
+
+    async def test_terminal_agent_rejects_ambiguous_compose_matches(self):
+        expected_labels = {
+            "com.docker.compose.project": worker.WORKSPACE_COMPOSE_PROJECT,
+            "com.docker.compose.service": worker.WORKSPACE_COMPOSE_SERVICE,
+        }
+
+        async def docker(method, path, body=None, **_kwargs):
+            if path.endswith("/json"):
+                return 404, b"{}"
+            return 200, json.dumps([
+                {"Id": "agent-a", "State": "running", "Labels": expected_labels},
+                {"Id": "agent-b", "State": "running", "Labels": expected_labels},
+            ]).encode()
+
+        with mock.patch.object(worker, "_docker_request", side_effect=docker):
+            with self.assertRaisesRegex(worker.DockerAPIError, "ambiguous"):
+                await worker._trusted_agent_container_id()
+
+    async def test_terminal_agent_rejects_configured_name_with_wrong_compose_identity(self):
+        async def docker(method, path, body=None, **_kwargs):
+            return 200, json.dumps({
+                "Id": "untrusted-container",
+                "Config": {"Labels": {
+                    "com.docker.compose.project": "other-project",
+                    "com.docker.compose.service": worker.WORKSPACE_COMPOSE_SERVICE,
+                }},
+                "State": {"Running": True},
+            }).encode()
+
+        with mock.patch.object(worker, "_docker_request", side_effect=docker):
+            with self.assertRaisesRegex(worker.DockerAPIError, "does not match"):
+                await worker._trusted_agent_container_id()
+
+    async def test_terminal_agent_disconnects_before_network_cleanup(self):
+        with mock.patch.object(worker, "_docker_request", return_value=(204, b"")) as docker:
+            await worker._disconnect_terminal_agent("network-1", "agent-1")
+
+        docker.assert_awaited_once_with(
+            "POST", "/networks/network-1/disconnect",
+            {"Container": "agent-1", "Force": True},
+        )
+
     async def test_cancelled_network_create_deletes_by_unique_name(self):
         started = asyncio.Event()
         calls = []
@@ -473,6 +549,61 @@ class ProjectWorkerRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("REDAMON_CTX=signed-graph-context", body["Env"])
         self.assertNotIn("SCANNER_API_KEY", " ".join(body["Env"]))
 
+    async def test_terminal_admission_connects_resolved_agent_id(self):
+        identity = {
+            "project_id": "project-1", "user_id": "owner-1",
+            "session_id": "session-1", "graph_ctx": "signed-graph-context",
+        }
+        calls = []
+
+        async def docker(method, path, body=None, **_kwargs):
+            calls.append((method, path, body))
+            return 200, b"{}"
+
+        with (
+            mock.patch.object(broker, "BROKER_MAX_CONTAINERS", 0),
+            mock.patch.object(worker, "_active_worker_count", return_value=0),
+            mock.patch.object(worker, "_active_project_worker_count", return_value=0),
+            mock.patch.object(worker, "_create_worker_network", return_value="net-1"),
+            mock.patch.object(worker, "_trusted_agent_container_id", return_value="agent-id"),
+            mock.patch.object(worker, "_create_terminal_container", return_value="terminal-id"),
+            mock.patch.object(worker, "_docker_request", side_effect=docker),
+        ):
+            self.assertEqual(
+                await worker._create_admitted_terminal(identity),
+                ("net-1", "terminal-id"),
+            )
+
+        self.assertEqual(calls[0][0:2], ("POST", "/networks/net-1/connect"))
+        self.assertEqual(calls[0][2]["Container"], "agent-id")
+
+    async def test_terminal_start_failure_disconnects_agent_before_network_delete(self):
+        identity = {
+            "project_id": "project-1", "user_id": "owner-1",
+            "session_id": "session-1", "graph_ctx": "signed-graph-context",
+        }
+        calls = []
+
+        async def docker(method, path, body=None, **_kwargs):
+            calls.append((method, path, body))
+            return 200, b"{}"
+
+        with (
+            mock.patch.object(broker, "BROKER_MAX_CONTAINERS", 0),
+            mock.patch.object(worker, "_active_worker_count", return_value=0),
+            mock.patch.object(worker, "_active_project_worker_count", return_value=0),
+            mock.patch.object(worker, "_create_worker_network", return_value="net-1"),
+            mock.patch.object(worker, "_trusted_agent_container_id", return_value="agent-id"),
+            mock.patch.object(worker, "_create_terminal_container", side_effect=worker.DockerAPIError("create failed")),
+            mock.patch.object(worker, "_docker_request", side_effect=docker),
+            mock.patch.object(worker, "_disconnect_terminal_agent") as disconnect,
+        ):
+            with self.assertRaisesRegex(worker.DockerAPIError, "create failed"):
+                await worker._create_admitted_terminal(identity)
+
+        disconnect.assert_awaited_once_with("net-1", "agent-id")
+        self.assertEqual(calls[-1][0:2], ("DELETE", "/networks/net-1"))
+
     async def test_terminal_admission_denies_full_project_before_network_creation(self):
         identity = {
             "project_id": "project-1", "user_id": "owner-1",
@@ -589,6 +720,7 @@ class ProjectWorkerRuntimeTests(unittest.IsolatedAsyncioTestCase):
             mock.patch.object(worker, "_create_admitted_terminal", return_value=("net-1", "ctr-1")),
             mock.patch.object(worker, "_open_terminal_attach", return_value=(attach_reader, attach_writer)),
             mock.patch.object(worker, "_docker_request", return_value=(204, b"")) as docker_request,
+            mock.patch.object(worker, "_disconnect_terminal_agent") as disconnect_agent,
             mock.patch.object(worker, "_remove_worker") as cleanup,
         ):
             await worker.serve_terminal("signed-context", 24, 80, browser_reader, tunnel_writer)
@@ -599,6 +731,7 @@ class ProjectWorkerRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(attach_writer.closed)
         self.assertTrue(bytes(tunnel_writer.data).startswith(b"HTTP/1.1 200 OK"))
         self.assertIn(b"O" + len(b"terminal output").to_bytes(4, "big") + b"terminal output", tunnel_writer.data)
+        disconnect_agent.assert_awaited_once_with("net-1")
         cleanup.assert_awaited_once_with("ctr-1", "net-1")
 
     async def _assert_terminal_deadline_cleans_up(self, idle_timeout, session_timeout):
@@ -649,11 +782,13 @@ class ProjectWorkerRuntimeTests(unittest.IsolatedAsyncioTestCase):
             mock.patch.object(worker, "_create_admitted_terminal", return_value=("net-1", "ctr-1")),
             mock.patch.object(worker, "_open_terminal_attach", return_value=(attach_reader, attach_writer)),
             mock.patch.object(worker, "_docker_request", return_value=(204, b"")),
+            mock.patch.object(worker, "_disconnect_terminal_agent") as disconnect_agent,
             mock.patch.object(worker, "_remove_worker") as cleanup,
         ):
             await worker.serve_terminal("signed-context", 24, 80, browser_reader, tunnel_writer)
 
         self.assertTrue(tunnel_writer.closed)
+        disconnect_agent.assert_awaited_once_with("net-1")
         cleanup.assert_awaited_once_with("ctr-1", "net-1")
         self.assertTrue(attach_writer.closed)
 

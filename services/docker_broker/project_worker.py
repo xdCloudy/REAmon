@@ -186,6 +186,77 @@ def _worker_image_for_tool(tool: str) -> str:
     return image
 
 
+async def _trusted_agent_container_id() -> str:
+    """Resolve the trusted Compose agent without trusting a generated name."""
+    from urllib.parse import quote, urlencode
+
+    status, raw = await _docker_request(
+        "GET", f"/containers/{quote(TERMINAL_AGENT_CONTAINER, safe='')}/json",
+    )
+    if status == 404:
+        filters = json.dumps({
+            "label": [
+                f"com.docker.compose.project={WORKSPACE_COMPOSE_PROJECT}",
+                f"com.docker.compose.service={WORKSPACE_COMPOSE_SERVICE}",
+            ],
+            "status": ["running"],
+        })
+        status, raw = await _docker_request(
+            "GET", f"/containers/json?{urlencode({'all': '1', 'filters': filters})}",
+        )
+        if status != 200:
+            raise DockerAPIError("trusted agent container is unavailable")
+        try:
+            candidates = json.loads(raw or b"[]")
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise DockerAPIError("Docker returned invalid agent container inventory") from exc
+        if not isinstance(candidates, list):
+            raise DockerAPIError("Docker returned invalid agent container inventory")
+        candidates = [
+            item for item in candidates
+            if isinstance(item, dict)
+            and isinstance(item.get("Id"), str)
+            and item.get("State") == "running"
+            and isinstance(item.get("Labels"), dict)
+            and item["Labels"].get("com.docker.compose.project") == WORKSPACE_COMPOSE_PROJECT
+            and item["Labels"].get("com.docker.compose.service") == WORKSPACE_COMPOSE_SERVICE
+        ]
+        if len(candidates) != 1:
+            raise DockerAPIError("trusted agent container is ambiguous or unavailable")
+        inspect_ref = candidates[0]["Id"]
+        status, raw = await _docker_request(
+            "GET", f"/containers/{quote(inspect_ref, safe='')}/json",
+        )
+    if status != 200:
+        raise DockerAPIError("trusted agent container is unavailable")
+    container = _json_body(raw, "trusted agent inspect")
+    labels = container.get("Config", {}).get("Labels", {})
+    state = container.get("State", {})
+    if (not isinstance(labels, dict)
+            or labels.get("com.docker.compose.project") != WORKSPACE_COMPOSE_PROJECT
+            or labels.get("com.docker.compose.service") != WORKSPACE_COMPOSE_SERVICE
+            or not isinstance(state, dict)
+            or state.get("Running") is not True):
+        raise DockerAPIError("trusted agent does not match the configured Compose service")
+    container_id = container.get("Id")
+    if not isinstance(container_id, str) or not container_id:
+        raise DockerAPIError("Docker did not return a trusted agent container ID")
+    return container_id
+
+
+async def _disconnect_terminal_agent(network_id: str, container_id: str | None = None) -> None:
+    """Detach the trusted agent endpoint so a terminal network can be removed."""
+    from urllib.parse import quote
+
+    agent_id = container_id or await _trusted_agent_container_id()
+    status, _ = await _docker_request(
+        "POST", f"/networks/{quote(network_id, safe='')}/disconnect",
+        {"Container": agent_id, "Force": True},
+    )
+    if status not in (200, 204, 404):
+        raise DockerAPIError("trusted agent could not be detached from terminal network")
+
+
 async def _workspace_project_runtime(
     project_id: str, worker_image: str | None = None,
 ) -> tuple[list[dict[str, Any]], str]:
@@ -711,15 +782,22 @@ async def _create_admitted_terminal(identity: dict[str, str]) -> tuple[str, str]
                 if project_active >= WORKER_MAX_ACTIVE_PER_PROJECT:
                     raise WorkerAdmissionError(429, "this project has reached its active worker limit; retry later")
                 network_id = await _create_worker_network(project_id)
+                agent_container_id = None
                 try:
+                    agent_container_id = await _trusted_agent_container_id()
                     status, _ = await _docker_request("POST", f"/networks/{network_id}/connect", {
-                        "Container": TERMINAL_AGENT_CONTAINER,
+                        "Container": agent_container_id,
                         "EndpointConfig": {"Aliases": ["agent"]},
                     })
                     if status not in (200, 201):
                         raise DockerAPIError("could not attach the trusted agent endpoint to terminal network")
                     container_id = await _create_terminal_container(identity, network_id)
                 except Exception:
+                    if agent_container_id:
+                        try:
+                            await _disconnect_terminal_agent(network_id, agent_container_id)
+                        except Exception:
+                            pass
                     await _docker_request("DELETE", f"/networks/{network_id}")
                     raise
                 return network_id, container_id
@@ -860,11 +938,20 @@ async def serve_terminal(ctx: str, rows: int, cols: int, reader, writer) -> None
             except Exception:
                 pass
         if container_id:
+            if network_id:
+                try:
+                    await _disconnect_terminal_agent(network_id)
+                except Exception:
+                    pass
             try:
                 await _remove_worker(container_id, network_id or "")
             except Exception:
                 pass
         elif network_id:
+            try:
+                await _disconnect_terminal_agent(network_id)
+            except Exception:
+                pass
             try:
                 await _docker_request("DELETE", f"/networks/{network_id}")
             except Exception:
