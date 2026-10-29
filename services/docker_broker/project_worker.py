@@ -65,6 +65,7 @@ def _worker_concurrency_limit(configured: int, memory: int, pids: int, nano_cpus
 
 
 WORKER_OUTPUT_LIMIT = 2 * 1024 * 1024
+WORKER_CLEANUP_ATTEMPTS = 3
 WORKER_MAX_ACTIVE = _worker_concurrency_limit(
     _bounded_int_env("REAMON_WORKER_MAX_ACTIVE", 4, 1, 64),
     WORKER_MEMORY,
@@ -1019,16 +1020,16 @@ async def serve_terminal(ctx: str, rows: int, cols: int, reader, writer) -> None
             try:
                 await _remove_worker(container_id, network_id or "")
             except Exception:
-                pass
+                _log_cleanup_failure("terminal")
         elif network_id:
             try:
                 await _disconnect_terminal_agent(network_id)
             except Exception:
-                pass
+                _log_cleanup_failure("terminal agent detach")
             try:
-                await _docker_request("DELETE", f"/networks/{network_id}")
+                await _delete_worker_resource("terminal network", f"/networks/{network_id}")
             except Exception:
-                pass
+                _log_cleanup_failure("terminal network")
         close = getattr(writer, "close", None)
         if not writer.is_closing() and callable(close):
             close()
@@ -1051,11 +1052,41 @@ async def _send_worker_error(writer, status: int, message: str) -> None:
     await writer.drain()
 
 
+async def _delete_worker_resource(resource: str, path: str) -> None:
+    last_error: Exception | None = None
+    for attempt in range(WORKER_CLEANUP_ATTEMPTS):
+        try:
+            status, _ = await _docker_request("DELETE", path)
+            if status in (200, 204, 404):
+                return
+            last_error = DockerAPIError(
+                f"Docker rejected project worker {resource} cleanup (HTTP {status})",
+            )
+        except Exception as exc:
+            last_error = exc
+        if attempt + 1 < WORKER_CLEANUP_ATTEMPTS:
+            await asyncio.sleep(0.1 * (attempt + 1))
+    raise DockerAPIError(f"project worker {resource} cleanup incomplete") from last_error
+
+
 async def _remove_worker(container_id: str, network_id: str) -> None:
-    try:
-        await _docker_request("DELETE", f"/containers/{container_id}?force=true&v=true")
-    finally:
-        await _docker_request("DELETE", f"/networks/{network_id}")
+    failures: list[Exception] = []
+    for resource, path in (
+        ("container", f"/containers/{container_id}?force=true&v=true"),
+        ("network", f"/networks/{network_id}"),
+    ):
+        try:
+            await _delete_worker_resource(resource, path)
+        except Exception as exc:
+            failures.append(exc)
+    if failures:
+        raise DockerAPIError("project worker cleanup incomplete") from failures[0]
+
+
+def _log_cleanup_failure(resource: str) -> None:
+    # Keep leaked-resource failures visible without logging Docker response
+    # bodies, which may contain host-specific paths.
+    print(f"[docker-broker] project worker {resource} cleanup incomplete; startup cleanup can retry", flush=True)
 
 
 def _decode_worker_logs(raw: bytes) -> tuple[bytes, bytes]:
@@ -1219,12 +1250,15 @@ async def execute(request: Any) -> tuple[int, dict[str, Any]]:
                 try:
                     await asyncio.shield(cleanup)
                 except asyncio.CancelledError:
-                    await cleanup
+                    try:
+                        await cleanup
+                    except Exception:
+                        _log_cleanup_failure("execution")
                     raise
             except Exception:
-                pass
+                _log_cleanup_failure("execution")
         elif network_id:
             try:
-                await _docker_request("DELETE", f"/networks/{network_id}")
+                await _delete_worker_resource("execution network", f"/networks/{network_id}")
             except Exception:
-                pass
+                _log_cleanup_failure("execution network")

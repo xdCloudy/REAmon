@@ -1318,8 +1318,73 @@ class ProjectWorkerRuntimeTests(unittest.IsolatedAsyncioTestCase):
 
         cleanup.assert_awaited_once_with("ctr-1", "net-1")
 
+    async def test_cancelled_run_stays_cancelled_when_cleanup_fails(self):
+        started = asyncio.Event()
+
+        async def wait_for_cancel(_container_id, _timeout):
+            started.set()
+            await asyncio.Event().wait()
+
+        with (
+            mock.patch.object(worker, "SCANNER_API_KEY", "scanner-key"),
+            mock.patch.object(worker.asyncio, "to_thread", return_value="p1"),
+            mock.patch.object(broker, "BROKER_MAX_CONTAINERS", 0),
+            mock.patch.object(worker, "_active_worker_count", return_value=0),
+            mock.patch.object(worker, "_active_project_worker_count", return_value=0),
+            mock.patch.object(worker, "_create_worker_network", return_value="net-1"),
+            mock.patch.object(worker, "_create_worker_container", return_value="ctr-1"),
+            mock.patch.object(worker, "_run_worker", side_effect=wait_for_cancel),
+            mock.patch.object(worker, "_remove_worker", side_effect=worker.DockerAPIError("cleanup failed")) as cleanup,
+            mock.patch.object(worker, "_log_cleanup_failure") as log_cleanup,
+        ):
+            task = asyncio.create_task(worker.execute({
+                "ctx": "signed", "tool": "kali_shell", "argv": ["id"], "timeout": 10,
+            }))
+            await asyncio.wait_for(started.wait(), timeout=1)
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+
+        cleanup.assert_awaited_once_with("ctr-1", "net-1")
+        log_cleanup.assert_called_once_with("execution")
+
 
 class ProjectWorkerCleanupTests(unittest.IsolatedAsyncioTestCase):
+    async def test_transient_delete_failure_retries_and_confirms_both_resources(self):
+        calls = []
+
+        async def docker(method, path, *_args, **_kwargs):
+            calls.append((method, path))
+            if path.startswith("/containers/") and calls.count((method, path)) == 1:
+                return 500, b"internal details must not be surfaced"
+            return 204, b""
+
+        with (
+            mock.patch.object(worker, "_docker_request", side_effect=docker),
+            mock.patch.object(worker.asyncio, "sleep", new=mock.AsyncMock()),
+        ):
+            await worker._remove_worker("worker-1", "network-1")
+
+        self.assertEqual(calls.count(("DELETE", "/containers/worker-1?force=true&v=true")), 2)
+        self.assertEqual(calls.count(("DELETE", "/networks/network-1")), 1)
+
+    async def test_persistent_delete_failures_are_reported_after_both_retries(self):
+        calls = []
+
+        async def docker(method, path, *_args, **_kwargs):
+            calls.append((method, path))
+            return 500, b"internal details must not be surfaced"
+
+        with (
+            mock.patch.object(worker, "_docker_request", side_effect=docker),
+            mock.patch.object(worker.asyncio, "sleep", new=mock.AsyncMock()),
+        ):
+            with self.assertRaisesRegex(worker.DockerAPIError, "cleanup incomplete"):
+                await worker._remove_worker("worker-1", "network-1")
+
+        self.assertEqual(calls.count(("DELETE", "/containers/worker-1?force=true&v=true")), worker.WORKER_CLEANUP_ATTEMPTS)
+        self.assertEqual(calls.count(("DELETE", "/networks/network-1")), worker.WORKER_CLEANUP_ATTEMPTS)
+
     async def test_project_cleanup_detaches_verified_terminal_agent(self):
         project_id = "project-terminal-cleanup"
         scope = worker._project_scope_label(project_id)
