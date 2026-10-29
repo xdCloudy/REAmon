@@ -85,6 +85,16 @@ describe.skipIf(!enabled)('Project investigation queue against PostgreSQL', () =
         scope: 'manual-investigation', status: 'RUNNING', timeoutMs: 10_000, createdAt: new Date('2026-10-29T00:00:04.000Z'),
       },
     })
+    await prisma.reamonCodeAttempt.create({
+      data: {
+        projectId, ownerUserId: user.id, artifactId, runKey: taskIds[1],
+        codeUnitId: `investigation:${caseIds[1]}:unit:ground-truth-3`, unitName: 'decode_footer',
+        language: 'C', sourceHash: 'd'.repeat(64), providerName: 'fixture', modelIdentifier: 'test-model',
+        scope: 'manual-investigation', status: 'SUCCEEDED',
+        resultSource: 'int decode_footer(void) { return 3; }', validationStatus: 'UNAVAILABLE', timeoutMs: 10_000,
+        createdAt: new Date('2026-10-29T00:00:05.000Z'),
+      },
+    })
 
     mocks.requireEffectiveUser.mockResolvedValue({ userId: user.id })
     mocks.requireProjectAccess.mockResolvedValue({ project: { id: projectId, userId: user.id } })
@@ -101,8 +111,11 @@ describe.skipIf(!enabled)('Project investigation queue against PostgreSQL', () =
     const firstPage = await first.json()
     expect(firstPage.investigations).toHaveLength(1)
     expect(firstPage.investigations[0]).toMatchObject({
-      id: caseIds[1], taskId: taskIds[1], status: 'RUNNING', attemptCount: 1, active: true, hasCandidate: false,
-      attempts: [{ unitName: 'decode_entry', status: 'RUNNING', candidateAvailable: false }],
+      id: caseIds[1], taskId: taskIds[1], status: 'RUNNING', attemptCount: 2, active: true, hasCandidate: true,
+      attempts: [
+        { unitName: 'decode_footer', status: 'SUCCEEDED', candidateAvailable: true },
+        { unitName: 'decode_entry', status: 'RUNNING', candidateAvailable: false },
+      ],
     })
     expect(firstPage.nextCursor).toBe(caseIds[1])
     expect(JSON.stringify(firstPage)).not.toContain('private failure payload')
