@@ -1,10 +1,10 @@
 ## Current PC deployment evidence (2026-10-29)
 
 The latest LAN webapp runs `redamon-webapp:latest` from source revision
-`84b9ce44`; its image label and readiness response match. Its local image ID is
-`sha256:bce49ea731f20c715cd52ec575a73320886b3a2444c8492927d7030e880ca40a`, and
+`532b2f6e`; its image label and readiness response match. Its local image ID is
+`sha256:38652e0ef7f9738caf7d1c5d27d5ac4dbbe0a299e0d9bc9e314073e2631eaf86`, and
 its build manifest-list digest is
-`sha256:697906e5699f09a29c0833ad0f0c1d57b4cec25cab2051e0ee07e93e0777a656`.
+`sha256:00286cc9c75f071a363b79a4d0fb318de41cbb49cf069324c27d797ff5ec9c76`.
 `REAMON_BUILD_DIRTY=true` because the local checkout contains the user-owned
 untracked `work/` directory. The webapp container is healthy; local and LAN
 readiness at `localhost:3001` and `192.168.0.53:3001` return `ready`, with
@@ -14,14 +14,13 @@ The project-wide investigation queue is available under “Tasks and findings.�
 loads when expanded, pages saved cases, refreshes while an attempt is active, and
 shows recent unit status and candidate availability without returning captured
 failure text or source code in the list response. “Open task controls” expands and
-scrolls to the originating task. Focused Docker tests pass 20/20 across the queue
-route, queue UI, and task-list suites; TypeScript and targeted ESLint pass. The
-production build completed and the image is deployed. The opt-in PostgreSQL
-integration passed 1/1 against the live database, validating actual cursor paging,
-attempt aggregation, and omission of failure text/candidate source; its disposable
-project was cleaned up. Authenticated browser acceptance remains open. GitHub
-quality run [40860884102](https://github.com/xdCloudy/REAmon/actions/runs/40860884102)
-is still running; its Compose configuration check passed.
+scrolls to the originating task. Cursor IDs are checked under the authorized project
+before use; expired and foreign-project cursors return a client error. Focused Docker
+tests pass 21/21 across the queue route, queue UI, and task-list suites; TypeScript and
+targeted ESLint pass. The production build completed and the image is deployed. The
+opt-in PostgreSQL integration passed 1/1 against the live database, validating actual
+cursor paging, attempt aggregation, and omission of failure text/candidate source; its
+disposable project was cleaned up. Authenticated browser acceptance remains open.
 
 Protection inspection now distinguishes direct marker evidence (`detected`),
 structural indicators (`suspected`), and no recognized evidence (`unknown`). A
