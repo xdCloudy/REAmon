@@ -204,17 +204,6 @@ async function main() {
   }
   console.log('PASS: approval-gated analysis scheduling')
 
-  const failoverScheduled = await request(`/api/projects/${projectId}/workspace/analysis-plan/schedule`, jsonOptions('POST', {
-    artifactId: recoveryArtifact.id,
-    providerId: 'reamon-json-inspector',
-    capability: 'extract_metadata',
-    approvalRequired: true,
-  }, cookie), [201])
-  const failoverTaskId = failoverScheduled.body?.task?.id
-  expect(typeof failoverTaskId === 'string' && failoverTaskId.length > 0, 'worker failover task was not scheduled')
-  await writeState({ projectId, importId, taskIds, failoverTaskId, recoveryArtifactId: recoveryArtifact.id, projectName: project.body?.name })
-  console.log(`PASS: controlled worker failover task queued for browser approval task=${failoverTaskId}`)
-
   const dispatch = (workerId) => request('/api/internal/reamon/tasks/dispatch', jsonOptions('POST', {
     projectId,
     limit: 1,
@@ -231,6 +220,25 @@ async function main() {
   expect(dispatches.every((item) => (item.body?.results || []).every((result) => result.outcome === 'COMPLETED')), 'a representative provider task did not complete')
   console.log('PASS: concurrent worker contention and provider execution')
 
+  const failoverScheduled = await request(`/api/projects/${projectId}/workspace/analysis-plan/schedule`, jsonOptions('POST', {
+    artifactId: recoveryArtifact.id,
+    providerId: 'reamon-json-inspector',
+    capability: 'extract_metadata',
+    approvalRequired: true,
+  }, cookie), [201])
+  const failoverTaskId = failoverScheduled.body?.task?.id
+  expect(typeof failoverTaskId === 'string' && failoverTaskId.length > 0, 'worker failover task was not scheduled')
+  const failoverApprovals = await request(`/api/projects/${projectId}/approvals?status=PENDING`, { headers: { cookie } })
+  const failoverApproval = (failoverApprovals.body?.approvals || []).find((item) => item.task?.id === failoverTaskId)
+  expect(typeof failoverApproval?.approval?.id === 'string', 'worker failover task did not receive an approval request')
+  const approvedFailover = await request(`/api/projects/${projectId}/approvals/${failoverApproval.approval.id}`, jsonOptions('POST', {
+    decision: 'approve',
+    reason: 'Staging worker recovery acceptance',
+  }, cookie))
+  expect(approvedFailover.body?.task?.status === 'QUEUED', 'worker failover task was not queued after approval')
+  await writeState({ projectId, importId, taskIds, failoverTaskId, recoveryArtifactId: recoveryArtifact.id, projectName: project.body?.name })
+  console.log(`PASS: controlled, approved worker failover task queued for recovery task=${failoverTaskId}`)
+
   const projection = await request('/api/internal/reamon/graph/project', jsonOptions('POST', {
     projectId,
     limit: 100,
@@ -243,8 +251,7 @@ async function main() {
   const workspace = snapshot.body
   expect(workspace?.imports?.some((item) => item.id === importId && item.status === 'COMPLETED'), 'workspace snapshot omitted the completed import')
   expect(workspace?.tasks?.filter((task) => taskIds.includes(task.id)).every((task) => task.status === 'COMPLETED'), 'workspace snapshot omitted completed task state')
-  expect(workspace?.approvalSummary?.approved >= 2, 'workspace snapshot omitted approved analysis state')
-  expect(workspace?.approvalSummary?.pending >= 1, 'workspace snapshot omitted the controlled failover approval')
+  expect(workspace?.approvalSummary?.approved >= 3, 'workspace snapshot omitted approved analysis state')
   expect(workspace?.observations?.length >= 2, 'workspace snapshot omitted provider observations')
   expect(workspace?.projectionRuns?.some((run) => run.status === 'COMPLETED' && run.reconciled === true), 'workspace snapshot omitted reconciled graph state')
   expect(workspace?.compatibility?.mode === 'native', 'reverse-engineering workspace is not in native compatibility mode')

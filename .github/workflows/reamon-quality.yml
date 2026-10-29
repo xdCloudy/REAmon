@@ -231,6 +231,9 @@ jobs:
           -e ADMIN_PASSWORD=ci-acceptance-password
           webapp node scripts/create-admin.mjs
 
+      - name: Hold the background worker for the failover fixture
+        run: docker compose stop reamon-worker
+
       - name: Run authenticated live acceptance
         env:
           REAMON_ACCEPTANCE_BASE_URL: http://127.0.0.1:3000
