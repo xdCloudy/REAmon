@@ -8,6 +8,8 @@ interface RouteParams { params: Promise<{ id: string; taskId: string }> }
 const NO_STORE = { 'Cache-Control': 'private, no-store' }
 const MAX_ATTEMPT_BYTES = 96 * 1024
 const MAX_BATCH_UNITS = 5
+const MAX_CASE_ATTEMPTS = 24
+const MAX_CASE_RUNTIME_BUDGET_MS = 30 * 60_000
 const MANUAL_RECONSTRUCTION_LANGUAGES = new Map<string, string>([
   ['c', 'C'], ['c++', 'C++'], ['c#', 'C#'], ['csharp', 'C#'],
   ['go', 'Go'], ['java', 'Java'], ['javascript', 'JavaScript'],
@@ -101,7 +103,13 @@ export async function POST(request: Request, { params }: RouteParams) {
     })
     const timeoutSeconds = Number.isFinite(provider.timeout) ? provider.timeout : 120
     const timeoutMs = Math.max(10_000, Math.min(300_000, timeoutSeconds * 1000))
-    const attempts = []
+    const queued: Array<{
+      codeUnitId: string
+      unitName: string
+      payload: Record<string, unknown>
+      sourceHash: string
+      outputLanguage: string
+    }> = []
     for (const unit of selectedUnits) {
       if (!unit) continue
       const attributes = object(unit.attributes)
@@ -110,17 +118,6 @@ export async function POST(request: Request, { params }: RouteParams) {
       const unitKey = String(unit.key)
       const unitDigest = createHash('sha256').update(unitKey).digest('hex').slice(0, 24)
       const codeUnitId = `investigation:${investigation.id}:unit:${unitDigest}`
-      const activeAttempt = await prisma.reamonCodeAttempt.findFirst({
-        where: {
-          projectId, artifactId: investigation.artifactId, runKey: taskId, scope: 'manual-investigation',
-          codeUnitId: { in: [codeUnitId, `investigation:${investigation.id}`] }, status: { in: ['QUEUED', 'RUNNING'] },
-        },
-        select: { id: true, status: true, createdAt: true },
-      })
-      if (activeAttempt) {
-        attempts.push(activeAttempt)
-        continue
-      }
       const assembly = ['assembly', 'disassembly', 'bytecode', 'instructions']
         .map((key) => boundedText(attributes[key], 48 * 1024))
         .find((value) => value.trim()) || ''
@@ -144,28 +141,79 @@ export async function POST(request: Request, { params }: RouteParams) {
         return NextResponse.json({ error: 'Captured investigation evidence exceeds the attempt size limit' }, { status: 413, headers: NO_STORE })
       }
       const sourceHash = createHash('sha256').update(stableJson(payload)).digest('hex')
-      attempts.push(await prisma.reamonCodeAttempt.create({
-        data: {
-          projectId,
-          ownerUserId: user.userId,
-          artifactId: investigation.artifactId,
-          runKey: taskId,
-          codeUnitId,
-          unitName: String(payload.unit_name),
-          language: payload.output_language,
-          sourceHash,
-          providerName: provider.name,
-          modelIdentifier: provider.modelIdentifier,
-          question: payload.question,
-          scope: 'manual-investigation',
-          status: 'QUEUED',
-          timeoutMs,
-          requestPayload: payload as unknown as Prisma.InputJsonObject,
-        },
-        select: { id: true, status: true, createdAt: true },
-      }))
+      queued.push({ codeUnitId, unitName: String(payload.unit_name), payload, sourceHash, outputLanguage })
     }
-    return NextResponse.json({ attempt: attempts[0] ?? null, attempts, candidateStatus: 'QUEUED_FOR_RECONSTRUCTION', validationStatus: 'UNAVAILABLE' }, { status: 202, headers: NO_STORE })
+
+    // Lock the case row while checking persisted attempts so concurrent dispatch
+    // requests cannot each reserve the same remaining investigation budget.
+    const attempts = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM reamon_investigation_cases WHERE id = ${investigation.id} FOR UPDATE`
+      const prior = await tx.reamonCodeAttempt.findMany({
+        where: {
+          projectId, artifactId: investigation.artifactId, runKey: taskId, scope: 'manual-investigation',
+          OR: [
+            { codeUnitId: { startsWith: `investigation:${investigation.id}:unit:` } },
+            { codeUnitId: `investigation:${investigation.id}` },
+          ],
+        },
+        select: { id: true, codeUnitId: true, status: true, timeoutMs: true, createdAt: true },
+      })
+      const active = prior.filter((attempt) => attempt.status === 'QUEUED' || attempt.status === 'RUNNING')
+      const legacyActive = active.some((attempt) => attempt.codeUnitId === `investigation:${investigation.id}`)
+      const toCreate = legacyActive ? [] : queued.filter((candidate) => !active.some((attempt) => attempt.codeUnitId === candidate.codeUnitId))
+      const reservedRuntimeMs = prior.reduce((sum, attempt) => sum + Math.max(0, attempt.timeoutMs), 0)
+      if (toCreate.length > 0 && (prior.length + toCreate.length > MAX_CASE_ATTEMPTS
+        || reservedRuntimeMs + toCreate.length * timeoutMs > MAX_CASE_RUNTIME_BUDGET_MS)) {
+        return null
+      }
+      const result = active.filter((attempt) => queued.some((candidate) => candidate.codeUnitId === attempt.codeUnitId)
+        || (legacyActive && queued.length > 0)).map(({ id, status, createdAt }) => ({ id, status, createdAt }))
+      for (const candidate of toCreate) {
+        result.push(await tx.reamonCodeAttempt.create({
+          data: {
+            projectId,
+            ownerUserId: user.userId,
+            artifactId: investigation.artifactId,
+            runKey: taskId,
+            codeUnitId: candidate.codeUnitId,
+            unitName: candidate.unitName,
+            language: candidate.outputLanguage,
+            sourceHash: candidate.sourceHash,
+            providerName: provider.name,
+            modelIdentifier: provider.modelIdentifier,
+            question: String(candidate.payload.question),
+            scope: 'manual-investigation',
+            status: 'QUEUED',
+            timeoutMs,
+            requestPayload: candidate.payload as unknown as Prisma.InputJsonObject,
+          },
+          select: { id: true, status: true, createdAt: true },
+        }))
+      }
+      return {
+        attempts: result,
+        usedAttempts: prior.length + toCreate.length,
+        reservedRuntimeMs: reservedRuntimeMs + toCreate.length * timeoutMs,
+      }
+    })
+    if (attempts === null) {
+      return NextResponse.json({
+        error: 'This investigation reached its persisted attempt or runtime budget. Review existing drafts or start a new analysis run.',
+        budget: { maxAttempts: MAX_CASE_ATTEMPTS, maxReservedRuntimeMs: MAX_CASE_RUNTIME_BUDGET_MS },
+      }, { status: 429, headers: NO_STORE })
+    }
+    return NextResponse.json({
+      attempt: attempts.attempts[0] ?? null,
+      attempts: attempts.attempts,
+      budget: {
+        usedAttempts: attempts.usedAttempts,
+        maxAttempts: MAX_CASE_ATTEMPTS,
+        reservedRuntimeMs: attempts.reservedRuntimeMs,
+        maxReservedRuntimeMs: MAX_CASE_RUNTIME_BUDGET_MS,
+      },
+      candidateStatus: 'QUEUED_FOR_RECONSTRUCTION',
+      validationStatus: 'UNAVAILABLE',
+    }, { status: 202, headers: NO_STORE })
   } catch (error) {
     console.error('Failed to queue manual REAmon reconstruction:', error)
     return NextResponse.json({ error: 'Failed to queue manual reconstruction' }, { status: 500, headers: NO_STORE })

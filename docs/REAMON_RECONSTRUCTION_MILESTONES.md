@@ -335,6 +335,14 @@ investigation with resumable status (`queued`, `claimed`, `investigating`, `need
 deadline/token/runtime budgets, and cooperative cancellation. Restart recovery must
 not discard prior attempts or allow a stale worker to publish a result.
 
+The current manual reconstruction dispatcher enforces a per-case ceiling of 24
+persisted attempts and 30 minutes of reserved provider runtime. Reservations use each
+attempt's configured timeout, so failed and cancelled attempts remain charged; an
+already-active unit can be fetched again without consuming another slot. Dispatches
+lock the durable case row while checking and creating attempts, preventing concurrent
+requests from oversubscribing the case. This is a bounded local policy, not yet a
+user-configurable token budget or a full investigation deadline.
+
 Each agent attempt works from immutable provider evidence and may request a targeted
 provider run, inspect assembly/bytecode/CFG/IR/cross-references, or create a maintained
 source draft. Persist the exact evidence snapshot, source diff, tool calls, diagnostics,

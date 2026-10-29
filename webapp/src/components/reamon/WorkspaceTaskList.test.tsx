@@ -63,7 +63,10 @@ describe('WorkspaceTaskList', () => {
     vi.stubGlobal('fetch', vi.fn()
       .mockResolvedValueOnce({ ok: true, json: async () => ({ providers: [{ id: 'provider-1', name: 'Local', modelIdentifier: 'model-a' }] }) })
       .mockResolvedValueOnce({ ok: true, json: async () => ({ investigation: { id: 'case-1' }, attempts: [], candidateUnits: [{ key: 'fn:1000', label: 'FUN_1000', language: 'c', instructionFields: ['assembly'] }] }) })
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ attempt: { id: 'attempt-1' }, attempts: [{ id: 'attempt-1' }] }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({
+        attempt: { id: 'attempt-1' }, attempts: [{ id: 'attempt-1' }],
+        budget: { usedAttempts: 1, maxAttempts: 24, reservedRuntimeMs: 120_000, maxReservedRuntimeMs: 1_800_000 },
+      }) })
       .mockResolvedValue({ ok: true, json: async () => ({ investigation: { id: 'case-1' }, attempts: [{ id: 'attempt-1', status: 'RUNNING' }] }) }))
     const onChanged = vi.fn()
     render(<WorkspaceTaskList projectId="project-1" onChanged={onChanged} tasks={[{
@@ -75,7 +78,7 @@ describe('WorkspaceTaskList', () => {
     expect(await screen.findByRole('combobox', { name: 'AI provider for Decompile library' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Run investigation for Decompile library' }))
 
-    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('1 reconstruction candidate queued. They remain drafts until reviewed.'))
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('1 reconstruction candidate queued. They remain drafts until reviewed. Case budget: 1/24 attempts; 2/30 minutes reserved.'))
     expect(fetch).toHaveBeenCalledWith('/api/projects/project-1/visualizer/providers')
     expect(fetch).toHaveBeenCalledWith('/api/projects/project-1/workspace/tasks/task-1/investigation?summary=1')
     expect(fetch).toHaveBeenCalledWith('/api/projects/project-1/workspace/tasks/task-1/investigation/run', expect.objectContaining({

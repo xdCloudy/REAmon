@@ -1,19 +1,23 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { NextResponse } from 'next/server'
+import { createHash } from 'node:crypto'
 
 const mocks = vi.hoisted(() => ({
   requireEffectiveUser: vi.fn(),
   requireProjectAccess: vi.fn(),
   investigationFindFirst: vi.fn(),
   providerFindFirst: vi.fn(),
-  attemptFindFirst: vi.fn(),
+  caseLock: vi.fn(),
+  attemptFindMany: vi.fn(),
   attemptCreate: vi.fn(),
+  transaction: vi.fn(),
 }))
 
 vi.mock('@/lib/prisma', () => ({ default: {
+  $transaction: mocks.transaction,
   reamonInvestigationCase: { findFirst: mocks.investigationFindFirst },
   userLlmProvider: { findFirst: mocks.providerFindFirst },
-  reamonCodeAttempt: { findFirst: mocks.attemptFindFirst, create: mocks.attemptCreate },
+  reamonCodeAttempt: { findMany: mocks.attemptFindMany, create: mocks.attemptCreate },
 } }))
 vi.mock('@/lib/access', () => ({ requireEffectiveUser: mocks.requireEffectiveUser, requireProjectAccess: mocks.requireProjectAccess }))
 
@@ -39,8 +43,12 @@ describe('POST investigation/run', () => {
     mocks.requireProjectAccess.mockResolvedValue({ projectId: 'project-1' })
     mocks.investigationFindFirst.mockResolvedValue(investigation)
     mocks.providerFindFirst.mockResolvedValue({ id: 'provider-1', name: 'Local LLM', modelIdentifier: 'model-a', timeout: 120 })
-    mocks.attemptFindFirst.mockResolvedValue(null)
+    mocks.attemptFindMany.mockResolvedValue([])
     mocks.attemptCreate.mockImplementation(async ({ data }) => ({ id: `attempt-${mocks.attemptCreate.mock.calls.length}`, status: data.status, createdAt: new Date('2026-10-29T10:00:00Z') }))
+    mocks.transaction.mockImplementation(async (callback) => callback({
+      $queryRaw: mocks.caseLock,
+      reamonCodeAttempt: { findMany: mocks.attemptFindMany, create: mocks.attemptCreate },
+    }))
   })
 
   test('queues a durable manual reconstruction using captured evidence and the selected saved provider', async () => {
@@ -60,6 +68,7 @@ describe('POST investigation/run', () => {
       control_flow: 'entry -> exit', data_references: 'read global_1',
     })
     expect(attempt.sourceHash).toMatch(/^[a-f0-9]{64}$/)
+    expect(mocks.caseLock).toHaveBeenCalledOnce()
   })
 
   test('queues Java reconstruction from bytecode evidence', async () => {
@@ -116,6 +125,51 @@ describe('POST investigation/run', () => {
       }), { params })
       expect(response.status).toBe(400)
     }
+    expect(mocks.attemptCreate).not.toHaveBeenCalled()
+  })
+
+  test('rejects dispatch when the persisted case runtime budget would be exceeded', async () => {
+    mocks.attemptFindMany.mockResolvedValue(Array.from({ length: 15 }, (_, index) => ({
+      id: `prior-${index}`, codeUnitId: `investigation:case-1:unit:prior${index}`, status: 'FAILED', timeoutMs: 120_000, createdAt: new Date(),
+    })))
+    const response = await POST(new Request('http://local', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ providerId: 'provider-1', unitKey: 'fn:1000' }),
+    }), { params })
+
+    expect(response.status).toBe(429)
+    expect(await response.json()).toMatchObject({ budget: { maxAttempts: 24, maxReservedRuntimeMs: 1_800_000 } })
+    expect(mocks.caseLock).toHaveBeenCalledOnce()
+    expect(mocks.attemptCreate).not.toHaveBeenCalled()
+  })
+
+  test('rejects dispatch when the attempt-count budget would be exceeded', async () => {
+    mocks.attemptFindMany.mockResolvedValue(Array.from({ length: 24 }, (_, index) => ({
+      id: `prior-${index}`, codeUnitId: `investigation:case-1:unit:prior${index}`, status: 'FAILED', timeoutMs: 1_000, createdAt: new Date(),
+    })))
+    const response = await POST(new Request('http://local', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ providerId: 'provider-1', unitKey: 'fn:1000' }),
+    }), { params })
+
+    expect(response.status).toBe(429)
+    expect(mocks.attemptCreate).not.toHaveBeenCalled()
+  })
+
+  test('returns an already-active unit without consuming a new budget slot', async () => {
+    mocks.attemptFindMany.mockResolvedValue([
+      ...Array.from({ length: 23 }, (_, index) => ({
+        id: `prior-${index}`, codeUnitId: `investigation:case-1:unit:prior${index}`, status: 'FAILED', timeoutMs: 1_000, createdAt: new Date(),
+      })),
+      { id: 'active-attempt', codeUnitId: `investigation:case-1:unit:${createHash('sha256').update('fn:1000').digest('hex').slice(0, 24)}`, status: 'RUNNING', timeoutMs: 120_000, createdAt: new Date() },
+    ])
+    const response = await POST(new Request('http://local', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ providerId: 'provider-1', unitKey: 'fn:1000' }),
+    }), { params })
+
+    expect(response.status).toBe(202)
+    expect(await response.json()).toMatchObject({ attempts: [{ id: 'active-attempt', status: 'RUNNING' }] })
     expect(mocks.attemptCreate).not.toHaveBeenCalled()
   })
 

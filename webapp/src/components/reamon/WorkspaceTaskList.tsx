@@ -196,10 +196,20 @@ export function WorkspaceTaskList({ projectId, tasks, onChanged }: {
           ? { providerId: investigationProviderId, unitKeys: selectedUnits.map((unit) => unit.key) }
           : { providerId: investigationProviderId, unitKey: investigationUnitKey }),
       })
-      const payload = await response.json().catch(() => ({})) as { error?: string; attempt?: { id: string }; attempts?: Array<{ id: string }> }
+      const payload = await response.json().catch(() => ({})) as {
+        error?: string
+        attempt?: { id: string }
+        attempts?: Array<{ id: string }>
+        budget?: { usedAttempts: number; maxAttempts: number; reservedRuntimeMs: number; maxReservedRuntimeMs: number }
+      }
       if (!response.ok) throw new Error(payload.error || 'Unable to queue reconstruction')
       const attempts = Array.isArray(payload.attempts) && payload.attempts.length ? payload.attempts : payload.attempt ? [payload.attempt] : []
-      setFeedback(`${attempts.length} reconstruction candidate${attempts.length === 1 ? '' : 's'} queued. They remain drafts until reviewed.`)
+      const budget = payload.budget
+        && Number.isFinite(payload.budget.usedAttempts) && Number.isFinite(payload.budget.maxAttempts)
+        && Number.isFinite(payload.budget.reservedRuntimeMs) && Number.isFinite(payload.budget.maxReservedRuntimeMs)
+        ? ` Case budget: ${payload.budget.usedAttempts}/${payload.budget.maxAttempts} attempts; ${Math.ceil(payload.budget.reservedRuntimeMs / 60_000)}/${Math.floor(payload.budget.maxReservedRuntimeMs / 60_000)} minutes reserved.`
+        : ''
+      setFeedback(`${attempts.length} reconstruction candidate${attempts.length === 1 ? '' : 's'} queued. They remain drafts until reviewed.${budget}`)
       setInvestigationTaskId(null)
       if (attempts.length) setActiveInvestigation({ taskId: task.id, attemptIds: attempts.map((attempt) => attempt.id) })
       onChanged?.()
