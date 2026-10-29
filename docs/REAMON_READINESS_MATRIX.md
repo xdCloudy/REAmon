@@ -1,4 +1,19 @@
-## Current PC deployment evidence (2026-10-28)
+## Current PC deployment evidence (2026-10-29)
+
+Rechecked 2026-10-29: the REAmon Compose configuration validates, all active
+services report running/healthy, and local plus LAN readiness return HTTP 200.
+The webapp and worker remain on image
+`sha256:1ec882b475ed8a4ceda014c49d60b7c6fe3142855ba8ced92ebe5ab46213bf12`
+at revision `859655f199af`. A separate legacy `redamon` Greenbone stack had
+stopped its PostgreSQL and OpenVAS scanner containers after a clean shutdown.
+Starting the existing PostgreSQL container with its existing named volumes
+restored PostgreSQL and `gvmd` health; starting the existing `ospd` container
+restored `/run/ospd/ospd-openvas.sock` and loaded VT cache version
+`202610070608`. Running `gvmd --get-scanners` as the `gvmd` user lists the
+OpenVAS scanner at that socket. No containers were recreated and no volumes or
+database contents were removed. The `ospd` container has no Docker healthcheck,
+so its process/socket and GVMD scanner listing are the available readiness
+evidence.
 
 Latest verified checkpoint: commit `859655f1` is deployed on the PC as image
 `sha256:1ec882b475ed8a4ceda014c49d60b7c6fe3142855ba8ced92ebe5ab46213bf12`.
@@ -31,9 +46,10 @@ route tests pass 2 cases, the visualizer suite passes 33, and Docker type-check,
 ESLint, Compose validation, and the production build pass. The built webapp and
 worker are deployed together on revision `859655f199af`; their readiness checks
 pass on local and LAN addresses.
-The legacy `redamon-gvm-gvmd` container remains unhealthy because its stopped
-PostgreSQL companion belongs to the disabled legacy GVM profile; neither
-container or its data was changed. The PostgreSQL-backed workspace-import capacity
+At this 2026-10-28 checkpoint, the legacy `redamon-gvm-gvmd` container was
+unhealthy because its PostgreSQL companion was stopped. The 2026-10-29 recheck
+above records recovery of the existing database and scanner containers. The
+PostgreSQL-backed workspace-import capacity
 integration passed 3/3 in Docker against a dedicated 128 MiB tmpfs. It verified
 serialized concurrent reservations, a manifest one byte over real tmpfs
 capacity, and a real `ENOSPC` chunk write followed by successful same-offset
