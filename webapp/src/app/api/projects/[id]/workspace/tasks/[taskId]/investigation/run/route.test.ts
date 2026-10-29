@@ -56,7 +56,11 @@ describe('POST investigation/run', () => {
     const response = await POST(request, { params })
 
     expect(response.status).toBe(202)
-    expect(await response.json()).toMatchObject({ attempt: { id: 'attempt-1', status: 'QUEUED' }, candidateStatus: 'QUEUED_FOR_RECONSTRUCTION', validationStatus: 'UNAVAILABLE' })
+    expect(await response.json()).toMatchObject({
+      attempt: { id: 'attempt-1', status: 'QUEUED' },
+      budget: { usedAttempts: 1, maxAttempts: 24, reservedRuntimeMs: 120_000, maxReservedRuntimeMs: 1_800_000 },
+      candidateStatus: 'QUEUED_FOR_RECONSTRUCTION', validationStatus: 'UNAVAILABLE',
+    })
     expect(mocks.providerFindFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'provider-1', userId: 'user-1', providerType: 'openai_compatible' } }))
     const attempt = mocks.attemptCreate.mock.calls[0][0].data
     expect(attempt).toMatchObject({
@@ -150,6 +154,28 @@ describe('POST investigation/run', () => {
     const response = await POST(new Request('http://local', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ providerId: 'provider-1', unitKey: 'fn:1000' }),
+    }), { params })
+
+    expect(response.status).toBe(429)
+    expect(mocks.attemptCreate).not.toHaveBeenCalled()
+  })
+
+  test('rejects an entire batch when the remaining budget cannot reserve every selected unit', async () => {
+    mocks.investigationFindFirst.mockResolvedValue({
+      ...investigation,
+      failureEvidence: {
+        partialProviderOutput: { partialUnits: [
+          { type: 'function', key: 'fn:1000', label: 'first', attributes: { language: 'c', assembly: 'ret' } },
+          { type: 'function', key: 'fn:2000', label: 'second', attributes: { language: 'c', assembly: 'nop\\nret' } },
+        ] },
+      },
+    })
+    mocks.attemptFindMany.mockResolvedValue(Array.from({ length: 23 }, (_, index) => ({
+      id: `prior-${index}`, codeUnitId: `investigation:case-1:unit:prior${index}`, status: 'FAILED', timeoutMs: 1_000, createdAt: new Date(),
+    })))
+    const response = await POST(new Request('http://local', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ providerId: 'provider-1', unitKeys: ['fn:1000', 'fn:2000'] }),
     }), { params })
 
     expect(response.status).toBe(429)
