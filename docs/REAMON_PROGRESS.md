@@ -1,6 +1,6 @@
 # REAmon product progress
 
-Assessment date: 2026-10-29 · Source: pushed commit `3f79cb4` · Weighted estimate: **30.8%**
+Assessment date: 2026-10-29 · Source: pushed commit `9ad53f3` · Weighted estimate: **30.8%**
 
 This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.
 
@@ -114,7 +114,7 @@ Quality run [40247230850](https://github.com/xdCloudy/REAmon/actions/runs/402472
 
 ### Protected-binary analysis and recovery
 
-**Current evidence:** Bounded static PE inspection records section/header mappings, import/certificate directory locations, executable-section entropy, malformed raw ranges, and suspected UPX markers. The inspector now also uses readelf with a 1 MiB output cap and 30-second timeout to assess ELF headers, LOAD segments, section offsets and sizes, capped executable-section entropy samples, suspected UPX markers, unmapped executable entry points, and writable/executable LOAD segments. Observations are project-scoped and explicitly unconfirmed; neither path executes or unpacks the artifact. Synthetic PE and ELF tests cover parsing and bounds, but real-sample detection accuracy and extraction are unverified.
+**Current evidence:** Bounded static PE inspection records section/header mappings, import/certificate directory locations, executable-section entropy, malformed raw ranges, and suspected UPX markers. The inspector now also uses readelf with a 1 MiB output cap and 30-second timeout to assess ELF headers, LOAD segments, section offsets and sizes, capped executable-section entropy samples, suspected UPX markers, unmapped executable entry points, and writable/executable LOAD segments. PE and ELF section details are emitted as project-scoped observations with stable artifact/task keys. Findings remain explicitly unconfirmed; neither path executes or unpacks the artifact. Synthetic PE and ELF tests cover parsing and bounds, but real-sample detection accuracy and extraction are unverified.
 
 **Remaining:** Build clean/protected paired fixtures with a pinned UPX release; measure detection false positives; add versioned format detectors and immutable derived-layer storage; recover and report protected regions; connect them to the M5 investigation queue; implement isolated authorized dynamic analysis only after worker gates; validate exact tool/version/format combinations and surface status in UI/export.
 
