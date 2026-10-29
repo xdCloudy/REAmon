@@ -7,6 +7,7 @@ import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
 interface RouteParams { params: Promise<{ id: string; taskId: string }> }
 const NO_STORE = { 'Cache-Control': 'private, no-store' }
 const MAX_ATTEMPT_BYTES = 96 * 1024
+const MAX_BATCH_UNITS = 5
 const MANUAL_RECONSTRUCTION_LANGUAGES = new Map<string, string>([
   ['c', 'C'], ['c++', 'C++'], ['c#', 'C#'], ['csharp', 'C#'],
   ['go', 'Go'], ['java', 'Java'], ['javascript', 'JavaScript'],
@@ -53,8 +54,17 @@ export async function POST(request: Request, { params }: RouteParams) {
     } catch {
       return NextResponse.json({ error: 'A saved provider is required' }, { status: 400, headers: NO_STORE })
     }
-    if (typeof body.providerId !== 'string' || body.providerId.length > 128 || typeof body.unitKey !== 'string' || !body.unitKey.trim() || body.unitKey.length > 500) {
+    const rawUnitKeys = Array.isArray(body.unitKeys)
+      ? body.unitKeys
+      : typeof body.unitKey === 'string' ? [body.unitKey] : []
+    if (typeof body.providerId !== 'string' || body.providerId.length > 128
+      || rawUnitKeys.length < 1 || rawUnitKeys.length > MAX_BATCH_UNITS
+      || rawUnitKeys.some((key) => typeof key !== 'string' || !key.trim() || key.length > 500)) {
       return NextResponse.json({ error: 'Choose a code unit and saved OpenAI-compatible provider' }, { status: 400, headers: NO_STORE })
+    }
+    const requestedUnitKeys = (rawUnitKeys as string[]).map((key) => key.trim())
+    if (new Set(requestedUnitKeys).size !== requestedUnitKeys.length) {
+      return NextResponse.json({ error: 'Choose each code unit only once' }, { status: 400, headers: NO_STORE })
     }
 
     const investigation = await prisma.reamonInvestigationCase.findFirst({
@@ -72,32 +82,16 @@ export async function POST(request: Request, { params }: RouteParams) {
     })
     if (!provider) return NextResponse.json({ error: 'Saved OpenAI-compatible provider not found' }, { status: 404, headers: NO_STORE })
 
-    const activeAttempt = await prisma.reamonCodeAttempt.findFirst({
-      where: { projectId, artifactId: investigation.artifactId, runKey: taskId, codeUnitId: `investigation:${investigation.id}`, scope: 'manual-investigation', status: { in: ['QUEUED', 'RUNNING'] } },
-      select: { id: true, status: true, createdAt: true },
-    })
-    if (activeAttempt) return NextResponse.json({ attempt: activeAttempt, alreadyQueued: true, validationStatus: 'UNAVAILABLE' }, { status: 202, headers: NO_STORE })
-
     const failureEvidence = object(investigation.failureEvidence)
     const partial = object(failureEvidence.partialProviderOutput)
     const units = Array.isArray(partial.partialUnits) ? partial.partialUnits : []
-    const unitKey = body.unitKey.trim()
-    const unit = units.map(object).find((candidate) => candidate.key === unitKey
-      && ['function', 'code_unit'].includes(String(candidate.type))
-      && reconstructionLanguage(object(candidate.attributes).language) !== null
-      && ['assembly', 'disassembly', 'bytecode', 'instructions'].some((key) => typeof object(candidate.attributes)[key] === 'string' && String(object(candidate.attributes)[key]).trim()))
-    if (!unit) {
+    const unitByKey = new Map(units.map(object).filter((candidate) => typeof candidate.key === 'string').map((candidate) => [candidate.key as string, candidate]))
+    const selectedUnits = requestedUnitKeys.map((key) => unitByKey.get(key))
+    if (selectedUnits.some((unit) => !unit || !['function', 'code_unit'].includes(String(unit.type))
+      || reconstructionLanguage(object(unit.attributes).language) === null
+      || !['assembly', 'disassembly', 'bytecode', 'instructions'].some((key) => typeof object(unit.attributes)[key] === 'string' && String(object(unit.attributes)[key]).trim()))) {
       return NextResponse.json({ error: 'Selected unit has no instruction evidence for a supported reconstruction language' }, { status: 422, headers: NO_STORE })
     }
-
-    const attributes = object(unit.attributes)
-    const outputLanguage = reconstructionLanguage(attributes.language)
-    if (!outputLanguage) {
-      return NextResponse.json({ error: 'Selected unit language is not supported for reconstruction' }, { status: 422, headers: NO_STORE })
-    }
-    const assembly = ['assembly', 'disassembly', 'bytecode', 'instructions']
-      .map((key) => boundedText(attributes[key], 48 * 1024))
-      .find((value) => value.trim()) || ''
     const providerText = object(failureEvidence.providerTextEvidence)
     const providerFields = Array.isArray(providerText.fields) ? providerText.fields : []
     const providerEvidence = providerFields.slice(0, 2).flatMap((value) => {
@@ -107,46 +101,71 @@ export async function POST(request: Request, { params }: RouteParams) {
     })
     const timeoutSeconds = Number.isFinite(provider.timeout) ? provider.timeout : 120
     const timeoutMs = Math.max(10_000, Math.min(300_000, timeoutSeconds * 1000))
-    const payload = {
-      model: `custom/${provider.id}`,
-      user_id: user.userId,
-      unit_name: boundedText(unit.label || attributes.qualifiedName || attributes.name || unit.key, 500) || 'Recovered code unit',
-      artifact_sha256: investigation.artifactSha256,
-      output_language: outputLanguage,
-      architecture: boundedText(attributes.architecture || attributes.abi, 80) || 'unknown',
-      assembly,
-      control_flow: boundedText(attributes.controlFlow, 8 * 1024),
-      data_references: boundedText(attributes.dataReferences, 8 * 1024),
-      provider_evidence: providerEvidence,
-      question: 'Reconstruct this failed decompilation unit from the available evidence. Preserve uncertainty and report only what evidence supports.',
-      investigationCaseId: investigation.id,
-      taskId,
+    const attempts = []
+    for (const unit of selectedUnits) {
+      if (!unit) continue
+      const attributes = object(unit.attributes)
+      const outputLanguage = reconstructionLanguage(attributes.language)
+      if (!outputLanguage) continue
+      const unitKey = String(unit.key)
+      const unitDigest = createHash('sha256').update(unitKey).digest('hex').slice(0, 24)
+      const codeUnitId = `investigation:${investigation.id}:unit:${unitDigest}`
+      const activeAttempt = await prisma.reamonCodeAttempt.findFirst({
+        where: {
+          projectId, artifactId: investigation.artifactId, runKey: taskId, scope: 'manual-investigation',
+          codeUnitId: { in: [codeUnitId, `investigation:${investigation.id}`] }, status: { in: ['QUEUED', 'RUNNING'] },
+        },
+        select: { id: true, status: true, createdAt: true },
+      })
+      if (activeAttempt) {
+        attempts.push(activeAttempt)
+        continue
+      }
+      const assembly = ['assembly', 'disassembly', 'bytecode', 'instructions']
+        .map((key) => boundedText(attributes[key], 48 * 1024))
+        .find((value) => value.trim()) || ''
+      const payload = {
+        model: `custom/${provider.id}`,
+        user_id: user.userId,
+        unit_name: boundedText(unit.label || attributes.qualifiedName || attributes.name || unitKey, 500) || 'Recovered code unit',
+        artifact_sha256: investigation.artifactSha256,
+        output_language: outputLanguage,
+        architecture: boundedText(attributes.architecture || attributes.abi, 80) || 'unknown',
+        assembly,
+        control_flow: boundedText(attributes.controlFlow, 8 * 1024),
+        data_references: boundedText(attributes.dataReferences, 8 * 1024),
+        provider_evidence: providerEvidence,
+        question: 'Reconstruct this failed decompilation unit from the available evidence. Preserve uncertainty and report only what evidence supports.',
+        investigationCaseId: investigation.id,
+        unitKey,
+        taskId,
+      }
+      if (Buffer.byteLength(JSON.stringify(payload), 'utf8') > MAX_ATTEMPT_BYTES) {
+        return NextResponse.json({ error: 'Captured investigation evidence exceeds the attempt size limit' }, { status: 413, headers: NO_STORE })
+      }
+      const sourceHash = createHash('sha256').update(stableJson(payload)).digest('hex')
+      attempts.push(await prisma.reamonCodeAttempt.create({
+        data: {
+          projectId,
+          ownerUserId: user.userId,
+          artifactId: investigation.artifactId,
+          runKey: taskId,
+          codeUnitId,
+          unitName: String(payload.unit_name),
+          language: payload.output_language,
+          sourceHash,
+          providerName: provider.name,
+          modelIdentifier: provider.modelIdentifier,
+          question: payload.question,
+          scope: 'manual-investigation',
+          status: 'QUEUED',
+          timeoutMs,
+          requestPayload: payload as unknown as Prisma.InputJsonObject,
+        },
+        select: { id: true, status: true, createdAt: true },
+      }))
     }
-    if (Buffer.byteLength(JSON.stringify(payload), 'utf8') > MAX_ATTEMPT_BYTES) {
-      return NextResponse.json({ error: 'Captured investigation evidence exceeds the attempt size limit' }, { status: 413, headers: NO_STORE })
-    }
-    const sourceHash = createHash('sha256').update(stableJson(payload)).digest('hex')
-    const attempt = await prisma.reamonCodeAttempt.create({
-      data: {
-        projectId,
-        ownerUserId: user.userId,
-        artifactId: investigation.artifactId,
-        runKey: taskId,
-        codeUnitId: `investigation:${investigation.id}`,
-        unitName: String(payload.unit_name),
-        language: payload.output_language,
-        sourceHash,
-        providerName: provider.name,
-        modelIdentifier: provider.modelIdentifier,
-        question: payload.question,
-        scope: 'manual-investigation',
-        status: 'QUEUED',
-        timeoutMs,
-        requestPayload: payload as unknown as Prisma.InputJsonObject,
-      },
-      select: { id: true, status: true, createdAt: true },
-    })
-    return NextResponse.json({ attempt, candidateStatus: 'QUEUED_FOR_RECONSTRUCTION', validationStatus: 'UNAVAILABLE' }, { status: 202, headers: NO_STORE })
+    return NextResponse.json({ attempt: attempts[0] ?? null, attempts, candidateStatus: 'QUEUED_FOR_RECONSTRUCTION', validationStatus: 'UNAVAILABLE' }, { status: 202, headers: NO_STORE })
   } catch (error) {
     console.error('Failed to queue manual REAmon reconstruction:', error)
     return NextResponse.json({ error: 'Failed to queue manual reconstruction' }, { status: 500, headers: NO_STORE })

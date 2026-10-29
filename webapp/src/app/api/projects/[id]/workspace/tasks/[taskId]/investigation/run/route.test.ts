@@ -40,7 +40,7 @@ describe('POST investigation/run', () => {
     mocks.investigationFindFirst.mockResolvedValue(investigation)
     mocks.providerFindFirst.mockResolvedValue({ id: 'provider-1', name: 'Local LLM', modelIdentifier: 'model-a', timeout: 120 })
     mocks.attemptFindFirst.mockResolvedValue(null)
-    mocks.attemptCreate.mockImplementation(async ({ data }) => ({ id: 'attempt-1', status: data.status, createdAt: new Date('2026-10-29T10:00:00Z') }))
+    mocks.attemptCreate.mockImplementation(async ({ data }) => ({ id: `attempt-${mocks.attemptCreate.mock.calls.length}`, status: data.status, createdAt: new Date('2026-10-29T10:00:00Z') }))
   })
 
   test('queues a durable manual reconstruction using captured evidence and the selected saved provider', async () => {
@@ -52,7 +52,7 @@ describe('POST investigation/run', () => {
     expect(mocks.providerFindFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'provider-1', userId: 'user-1', providerType: 'openai_compatible' } }))
     const attempt = mocks.attemptCreate.mock.calls[0][0].data
     expect(attempt).toMatchObject({
-      projectId: 'project-1', artifactId: 'artifact-1', runKey: 'task-1', codeUnitId: 'investigation:case-1',
+      projectId: 'project-1', artifactId: 'artifact-1', runKey: 'task-1', codeUnitId: expect.stringMatching(/^investigation:case-1:unit:[a-f0-9]{24}$/),
       scope: 'manual-investigation', status: 'QUEUED', modelIdentifier: 'model-a', language: 'C',
     })
     expect(attempt.requestPayload).toMatchObject({
@@ -81,6 +81,42 @@ describe('POST investigation/run', () => {
     const attempt = mocks.attemptCreate.mock.calls[0][0].data
     expect(attempt.language).toBe('Java')
     expect(attempt.requestPayload).toMatchObject({ output_language: 'Java', assembly: 'iload_0\niadd\nireturn' })
+  })
+
+  test('queues a bounded multi-unit investigation as separate attempts with stable unit identities', async () => {
+    mocks.investigationFindFirst.mockResolvedValue({
+      ...investigation,
+      failureEvidence: {
+        partialProviderOutput: { partialUnits: [
+          { type: 'function', key: 'fn:1000', label: 'first', attributes: { language: 'c', assembly: 'ret' } },
+          { type: 'function', key: 'fn:2000', label: 'second', attributes: { language: 'c', assembly: 'nop\nret' } },
+        ] },
+      },
+    })
+    const response = await POST(new Request('http://local', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ providerId: 'provider-1', unitKeys: ['fn:1000', 'fn:2000'] }),
+    }), { params })
+
+    expect(response.status).toBe(202)
+    expect(await response.json()).toMatchObject({ attempts: [
+      { id: 'attempt-1', status: 'QUEUED' }, { id: 'attempt-2', status: 'QUEUED' },
+    ], validationStatus: 'UNAVAILABLE' })
+    const created = mocks.attemptCreate.mock.calls.map(([input]) => input.data)
+    expect(created).toHaveLength(2)
+    expect(created[0].codeUnitId).not.toBe(created[1].codeUnitId)
+    expect(created.map((attempt) => attempt.requestPayload.unitKey)).toEqual(['fn:1000', 'fn:2000'])
+  })
+
+  test('caps investigation batch size and rejects duplicate unit keys', async () => {
+    for (const unitKeys of [Array.from({ length: 6 }, (_, index) => `fn:${index}`), ['fn:1000', 'fn:1000']]) {
+      const response = await POST(new Request('http://local', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ providerId: 'provider-1', unitKeys }),
+      }), { params })
+      expect(response.status).toBe(400)
+    }
+    expect(mocks.attemptCreate).not.toHaveBeenCalled()
   })
 
   test('does not accept another user’s provider', async () => {

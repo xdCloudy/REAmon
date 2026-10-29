@@ -68,7 +68,7 @@ export function WorkspaceTaskList({ projectId, tasks, onChanged }: {
   const [investigationProviderId, setInvestigationProviderId] = useState('')
   const [investigationUnits, setInvestigationUnits] = useState<InvestigationUnit[]>([])
   const [investigationUnitKey, setInvestigationUnitKey] = useState('')
-  const [activeInvestigation, setActiveInvestigation] = useState<{ taskId: string; attemptId: string } | null>(null)
+  const [activeInvestigation, setActiveInvestigation] = useState<{ taskId: string; attemptIds: string[] } | null>(null)
   const [investigationResults, setInvestigationResults] = useState<Record<string, InvestigationAttempt[]>>({})
   const hasStaleTasks = tasks.some(isStaleForRecovery)
 
@@ -84,12 +84,11 @@ export function WorkspaceTaskList({ projectId, tasks, onChanged }: {
         const attempts = Array.isArray(payload.attempts) ? payload.attempts : []
         if (stopped) return
         setInvestigationResults((previous) => ({ ...previous, [activeInvestigation.taskId]: attempts }))
-        const attempt = attempts.find((candidate) => candidate.id === activeInvestigation.attemptId)
-        if (attempt && ['SUCCEEDED', 'FAILED', 'CANCELLED'].includes(attempt.status)) {
+        const batch = activeInvestigation.attemptIds.map((id) => attempts.find((candidate) => candidate.id === id))
+        if (batch.length > 0 && batch.every((attempt) => attempt && ['SUCCEEDED', 'FAILED', 'CANCELLED'].includes(attempt.status))) {
           setActiveInvestigation(null)
-          setFeedback(attempt.status === 'SUCCEEDED'
-            ? 'Reconstruction candidate is ready for review. Behavior remains unvalidated.'
-            : attempt.errorMessage || 'The reconstruction attempt did not complete.')
+          const succeeded = batch.filter((attempt) => attempt?.status === 'SUCCEEDED').length
+          setFeedback(`${succeeded} of ${batch.length} reconstruction candidate${batch.length === 1 ? '' : 's'} ready for review. Behavior remains unvalidated.`)
           onChanged?.()
           return
         }
@@ -165,7 +164,7 @@ export function WorkspaceTaskList({ projectId, tasks, onChanged }: {
       const providers = Array.isArray(payload.providers) ? payload.providers : []
       if (providers.length === 0) throw new Error('Add an OpenAI-compatible provider in Settings before running reconstruction')
       const units = Array.isArray(casePayload.candidateUnits) ? casePayload.candidateUnits : []
-      if (units.length === 0) throw new Error('This failed run has no captured C/C++ instruction unit to reconstruct')
+      if (units.length === 0) throw new Error('This failed run has no captured instruction unit in a supported reconstruction language')
       setInvestigationProviders(providers)
       setInvestigationProviderId(providers[0].id)
       setInvestigationUnits(units)
@@ -187,16 +186,21 @@ export function WorkspaceTaskList({ projectId, tasks, onChanged }: {
     setPendingAction(`run-investigation:${task.id}`)
     setFeedback(null)
     try {
+      const batch = investigationUnitKey === '__all__'
+      const selectedUnits = batch ? investigationUnits.slice(0, 5) : investigationUnits.filter((unit) => unit.key === investigationUnitKey)
       const response = await fetch(`/api/projects/${projectId}/workspace/tasks/${task.id}/investigation/run`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ providerId: investigationProviderId, unitKey: investigationUnitKey }),
+        body: JSON.stringify(batch
+          ? { providerId: investigationProviderId, unitKeys: selectedUnits.map((unit) => unit.key) }
+          : { providerId: investigationProviderId, unitKey: investigationUnitKey }),
       })
-      const payload = await response.json().catch(() => ({})) as { error?: string; attempt?: { id: string } }
+      const payload = await response.json().catch(() => ({})) as { error?: string; attempt?: { id: string }; attempts?: Array<{ id: string }> }
       if (!response.ok) throw new Error(payload.error || 'Unable to queue reconstruction')
-      setFeedback('A reconstruction candidate was queued. It will remain a draft until reviewed.')
+      const attempts = Array.isArray(payload.attempts) && payload.attempts.length ? payload.attempts : payload.attempt ? [payload.attempt] : []
+      setFeedback(`${attempts.length} reconstruction candidate${attempts.length === 1 ? '' : 's'} queued. They remain drafts until reviewed.`)
       setInvestigationTaskId(null)
-      if (payload.attempt?.id) setActiveInvestigation({ taskId: task.id, attemptId: payload.attempt.id })
+      if (attempts.length) setActiveInvestigation({ taskId: task.id, attemptIds: attempts.map((attempt) => attempt.id) })
       onChanged?.()
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : 'Unable to queue reconstruction')
@@ -334,8 +338,10 @@ export function WorkspaceTaskList({ projectId, tasks, onChanged }: {
             Code unit
             <select aria-label={`Code unit for ${task.title}`} value={investigationUnitKey} onChange={(event) => setInvestigationUnitKey(event.target.value)}>
               <option value="">Choose a unit</option>
+              <option value="__all__">All supported units (up to 5)</option>
               {investigationUnits.map((unit) => <option key={unit.key} value={unit.key}>{unit.label} · {unit.language} · {unit.instructionFields.join(', ')}</option>)}
             </select>
+            {investigationUnitKey === '__all__' && <small>Runs the first {Math.min(5, investigationUnits.length)} captured units independently. Each result remains a separate draft.</small>}
           </label>}
           {(investigationResults[task.id] || []).map((attempt) => attempt.status === 'SUCCEEDED' && attempt.resultSource
             ? <details className={styles.investigationResult} key={attempt.id}>

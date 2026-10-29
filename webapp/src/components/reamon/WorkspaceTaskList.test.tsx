@@ -63,7 +63,7 @@ describe('WorkspaceTaskList', () => {
     vi.stubGlobal('fetch', vi.fn()
       .mockResolvedValueOnce({ ok: true, json: async () => ({ providers: [{ id: 'provider-1', name: 'Local', modelIdentifier: 'model-a' }] }) })
       .mockResolvedValueOnce({ ok: true, json: async () => ({ investigation: { id: 'case-1' }, attempts: [], candidateUnits: [{ key: 'fn:1000', label: 'FUN_1000', language: 'c', instructionFields: ['assembly'] }] }) })
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ attempt: { id: 'attempt-1' } }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ attempt: { id: 'attempt-1' }, attempts: [{ id: 'attempt-1' }] }) })
       .mockResolvedValue({ ok: true, json: async () => ({ investigation: { id: 'case-1' }, attempts: [{ id: 'attempt-1', status: 'RUNNING' }] }) }))
     const onChanged = vi.fn()
     render(<WorkspaceTaskList projectId="project-1" onChanged={onChanged} tasks={[{
@@ -75,7 +75,7 @@ describe('WorkspaceTaskList', () => {
     expect(await screen.findByRole('combobox', { name: 'AI provider for Decompile library' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Run investigation for Decompile library' }))
 
-    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('A reconstruction candidate was queued. It will remain a draft until reviewed.'))
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('1 reconstruction candidate queued. They remain drafts until reviewed.'))
     expect(fetch).toHaveBeenCalledWith('/api/projects/project-1/visualizer/providers')
     expect(fetch).toHaveBeenCalledWith('/api/projects/project-1/workspace/tasks/task-1/investigation?summary=1')
     expect(fetch).toHaveBeenCalledWith('/api/projects/project-1/workspace/tasks/task-1/investigation/run', expect.objectContaining({
@@ -83,6 +83,29 @@ describe('WorkspaceTaskList', () => {
       body: JSON.stringify({ providerId: 'provider-1', unitKey: 'fn:1000' }),
     }))
     expect(onChanged).toHaveBeenCalledOnce()
+  })
+
+  test('offers a bounded all-units investigation batch', async () => {
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ providers: [{ id: 'provider-1', name: 'Local', modelIdentifier: 'model-a' }] }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ candidateUnits: [
+        { key: 'fn:1000', label: 'one', language: 'c', instructionFields: ['assembly'] },
+        { key: 'fn:2000', label: 'two', language: 'c', instructionFields: ['assembly'] },
+      ], attempts: [] }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ attempts: [{ id: 'attempt-1' }, { id: 'attempt-2' }] }) })
+      .mockResolvedValue({ ok: true, json: async () => ({ attempts: [{ id: 'attempt-1', status: 'RUNNING' }, { id: 'attempt-2', status: 'RUNNING' }] }) }))
+    render(<WorkspaceTaskList projectId="project-1" tasks={[{
+      id: 'task-1', title: 'Decompile library', status: 'FAILED', progress: 20, capability: 'decompile',
+      investigationCase: { id: 'case-1', status: 'QUEUED' },
+    }]} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Run investigation for Decompile library' }))
+    await screen.findByRole('combobox', { name: 'Code unit for Decompile library' })
+    fireEvent.change(screen.getByRole('combobox', { name: 'Code unit for Decompile library' }), { target: { value: '__all__' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Run investigation for Decompile library' }))
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/projects/project-1/workspace/tasks/task-1/investigation/run', expect.objectContaining({
+      body: JSON.stringify({ providerId: 'provider-1', unitKeys: ['fn:1000', 'fn:2000'] }),
+    })))
+    expect(await screen.findByRole('status')).toHaveTextContent('2 reconstruction candidates queued.')
   })
 
   test('recovers stale tasks from the operator control', async () => {

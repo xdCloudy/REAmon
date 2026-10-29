@@ -273,7 +273,8 @@ provider text and per-unit instruction fields into separate diagnostic snapshots
 with a 48 KiB cap per evidence source family and hashes for each original field and
 captured excerpt. These fields remain non-canonical and untrusted when passed to an
 agent. The case queue has a user-triggered Run action: the user chooses a saved
-OpenAI-compatible provider and one captured function/code unit. The webapp queues a
+OpenAI-compatible provider and one captured function/code unit, or selects a bounded
+batch of up to five units. The webapp queues a
 static reconstruction attempt through the durable code-attempt worker for C, C++, C#,
 Go, Java, JavaScript, Kotlin, Objective-C, Python, Rust, Swift, or TypeScript when a
 Tree-sitter grammar is available. Failed decompile and disassemble runs can use the
@@ -281,14 +282,16 @@ same path when they retain supported instruction or bytecode evidence. The reque
 stores bounded evidence, input/evidence hashes, provider/model, source identity, timeout,
 and case/task IDs. Results retain source and evidence hashes, uncertainty, syntax status,
 and `behavioral_validation=UNAVAILABLE`; they remain separate candidates and never
-become accepted source. Existing attempt claims, heartbeats, cancellation, stale-run
+become accepted source. Each unit has a stable hash-derived attempt identity and a
+separate request payload and candidate lifecycle; status reload remains compatible with
+earlier case-scoped attempts. Existing attempt claims, heartbeats, cancellation, stale-run
 recovery, retry history, and workspace reload apply.
 
-This remains a narrow single-unit fallback, not a universal decompiler or autonomous
-agent workflow. The allowlist and grammar availability bound current output languages;
-provider completeness, per-unit case fan-out, investigation budgets, targeted provider
-follow-ups, candidate diffs/review receipts, benchmark accuracy, and behavioral
-validation remain open. Syntax parsing is not evidence of semantic correctness.
+This remains a narrow bounded fallback, not a universal decompiler or autonomous agent
+workflow. The allowlist and grammar availability bound current output languages; provider
+completeness, resumable investigation budgets, targeted provider follow-ups, candidate
+diffs/review receipts, benchmark accuracy, and behavioral validation remain open. Syntax
+parsing is not evidence of semantic correctness.
 
 ### Acceptance
 
@@ -313,6 +316,10 @@ validation remain open. Syntax parsing is not evidence of semantic correctness.
   bytecode, CFG, IR, references, memory evidence, and explicitly authorized runtime
   observations. Selection or synthesis creates a separate candidate, iterative source
   diff, and compile/test/refinement history; it cannot mutate original provider output.
+- A failed-run case with multiple eligible captured units must let an operator queue one
+  unit or a bounded batch of up to five. Each attempt must be independently addressable,
+  cancellable, hash-bound, and retained as a separate candidate. Reject oversized batches
+  and duplicate unit keys; batch dispatch must never auto-accept drafts.
 - Provider agreement or majority vote alone must never prove correctness; when evidence
   cannot resolve a conflict, retain the alternatives and report ambiguity.
 

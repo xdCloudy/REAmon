@@ -181,9 +181,15 @@ export async function GET(request: Request, { params }: RouteParams) {
       },
     })
     const attempts = investigation ? await prisma.reamonCodeAttempt.findMany({
-      where: { projectId, artifactId: investigation.artifactId, runKey: taskId, codeUnitId: `investigation:${investigation.id}`, scope: 'manual-investigation' },
+      where: {
+        projectId, artifactId: investigation.artifactId, runKey: taskId, scope: 'manual-investigation',
+        OR: [
+          { codeUnitId: `investigation:${investigation.id}` },
+          { codeUnitId: { startsWith: `investigation:${investigation.id}:unit:` } },
+        ],
+      },
       orderBy: { createdAt: 'desc' },
-      take: 20,
+      take: 50,
       select: { id: true, status: true, providerName: true, modelIdentifier: true, errorCode: true, errorMessage: true, resultSource: true, qualityReview: true, validationStatus: true, createdAt: true, completedAt: true },
     }) : []
     const latestAttempt = attempts[0]

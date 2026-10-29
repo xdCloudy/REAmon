@@ -58,6 +58,26 @@ describe('/api/projects/[id]/workspace/tasks/[taskId]/investigation', () => {
     expect(mocks.investigationFindFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { projectId: 'project-1', taskId: 'task-1' } }))
   })
 
+  test('reloads both legacy case attempts and independently keyed unit attempts', async () => {
+    mocks.investigationFindFirst.mockResolvedValue({ id: 'case-1', taskId: 'task-1', artifactId: 'artifact-1', status: 'QUEUED', failureEvidence: {} })
+    mocks.codeAttemptFindMany.mockResolvedValue([
+      { id: 'attempt-unit', status: 'QUEUED' },
+      { id: 'attempt-legacy', status: 'SUCCEEDED' },
+    ])
+
+    const response = await GET(new Request('http://local?summary=1'), { params })
+
+    expect(response.status).toBe(200)
+    expect((await response.json()).attempts).toHaveLength(2)
+    expect(mocks.codeAttemptFindMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ OR: [
+        { codeUnitId: 'investigation:case-1' },
+        { codeUnitId: { startsWith: 'investigation:case-1:unit:' } },
+      ] }),
+      take: 50,
+    }))
+  })
+
   test('offers Java bytecode and other supported-language units for reconstruction', async () => {
     mocks.investigationFindFirst.mockResolvedValue({
       id: 'case-1', status: 'QUEUED', failureEvidence: {
