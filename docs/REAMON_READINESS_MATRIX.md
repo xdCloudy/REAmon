@@ -262,12 +262,14 @@ Per-root graph errors return a partial receipt, avoiding retries of non-transien
 partial writes. The isolated worker now also calls a second run-scoped endpoint
 after its roots finish; the orchestrator uses its trusted start time to run the
 shared node-filter sweep, so this worker no longer attempts graph housekeeping
-with missing database credentials. Completed isolated runs also request the
-orchestrator to delete only orphan UserInput IDs derived from the run and its
-signed roots. The cleanup query also retains user and project predicates;
-local/manual runs retain their direct sweep and cleanup.
-Focused Docker tests pass 14 orchestrator security cases and 2 worker handoff
-cases; the full orchestrator unit section passes 600 tests, and 396 focused recon
+with missing database credentials. Trusted orchestrator graph clients explicitly
+use `ORCHESTRATOR_NEO4J_URI`; `NEO4J_URI` is reserved for host-network scan
+workers and points at localhost there. The graph-input route uses the trusted URI
+as well. Completed isolated runs request deletion only for orphan UserInput IDs
+derived from that run and its signed roots; cleanup retains user and project
+predicates. Local/manual runs retain their direct sweep and cleanup.
+Focused Docker tests pass 16 orchestrator boundary cases and 2 worker handoff
+cases; the full orchestrator unit section passes 602 tests, and 396 focused recon
 tests pass. This is source-level progress only: the legacy orchestrator profile
 is inactive, so this path has not been exercised live. Full recon and every other
 partial-recon worker remain direct graph clients.

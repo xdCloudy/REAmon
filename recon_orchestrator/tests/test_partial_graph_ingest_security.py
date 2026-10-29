@@ -75,6 +75,28 @@ class TestSubdomainIngestSpawn(unittest.TestCase):
 
 
 class TestIngestAuthMiddleware(unittest.TestCase):
+    def test_trusted_graph_client_uses_service_uri_not_worker_localhost_uri(self):
+        import api
+        with mock.patch.dict(api.os.environ, {
+            "NEO4J_URI": "bolt://localhost:7687",
+            "ORCHESTRATOR_NEO4J_URI": "bolt://neo4j:7687",
+        }), mock.patch("graph_db.Neo4jClient") as graph_client:
+            api._trusted_graph_client()
+        graph_client.assert_called_once_with(uri="bolt://neo4j:7687")
+
+    def test_graph_input_route_uses_the_trusted_service_uri(self):
+        import api
+        graph = mock.MagicMock()
+        graph.__enter__.return_value = graph
+        graph.verify_connection.return_value = True
+        graph.get_graph_inputs_for_tool.return_value = {"domain": "example.com", "domains": ["example.com"]}
+        with mock.patch.object(api, "container_manager", object()), \
+             mock.patch.dict(api.os.environ, {"ORCHESTRATOR_NEO4J_URI": "bolt://neo4j:7687"}), \
+             mock.patch("graph_db.Neo4jClient", return_value=graph) as graph_client:
+            result = asyncio.run(api.get_graph_inputs("p1", "Nmap", "u1"))
+        graph_client.assert_called_once_with(uri="bolt://neo4j:7687")
+        self.assertEqual(result["domains"], ["example.com"])
+
     def test_signed_token_is_accepted_only_for_the_fixed_ingest_route(self):
         import api
         token = mint_partial_graph_token("p1", "u1", "r1", ["example.com"], "key")
@@ -148,6 +170,7 @@ class TestIngestAuthMiddleware(unittest.TestCase):
         self.assertEqual(sweep.call_args.args[:3], (
             "u1", "p1", started_at.isoformat(),
         ))
+        self.assertIs(sweep.call_args.kwargs["client_factory"], api._trusted_graph_client)
 
         active_run.status = api.PartialReconStatus.COMPLETED
         with mock.patch.object(api, "container_manager", manager):

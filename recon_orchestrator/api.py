@@ -673,6 +673,18 @@ app.add_middleware(
 ORCHESTRATOR_API_KEY = os.environ.get("ORCHESTRATOR_API_KEY", "")
 
 
+def _trusted_graph_client():
+    """Build a graph client with the orchestrator's service-network URI.
+
+    NEO4J_URI is intentionally set to localhost for host-network scan workers;
+    the orchestrator itself must use ORCHESTRATOR_NEO4J_URI instead.
+    """
+    from graph_db import Neo4jClient
+
+    uri = os.environ.get("ORCHESTRATOR_NEO4J_URI", "").strip() or "bolt://neo4j:7687"
+    return Neo4jClient(uri=uri)
+
+
 @app.middleware("http")
 async def require_orchestrator_key(request: Request, call_next):
     # /health is polled unauthenticated by the Docker healthcheck; CORS preflight
@@ -742,14 +754,12 @@ async def ingest_partial_subdomain_results(body: PartialSubdomainIngestRequest, 
     if any(not isinstance(host, str) or not under_root(host) for host in body.user_subdomains):
         raise HTTPException(status_code=422, detail="User input contains a host outside its root")
 
-    from graph_db import Neo4jClient
-
     user_input_id = uuid.uuid5(
         uuid.NAMESPACE_URL, f"reamon:partial-subdomain:{scope['runId']}:{root}"
     ).hex if body.user_subdomains else None
 
     def write_graph() -> dict:
-        with Neo4jClient() as graph:
+        with _trusted_graph_client() as graph:
             if not graph.verify_connection():
                 raise HTTPException(status_code=503, detail="Graph database unavailable")
             if user_input_id:
@@ -829,6 +839,7 @@ async def finalize_partial_subdomain_run(request: Request):
         run_node_filter_sweep,
         scope["userId"], scope["projectId"], active_run.started_at.isoformat(),
         RECON_FINDING_SOURCES,
+        client_factory=_trusted_graph_client,
     )
     orphan_count = 0
     if body.get("cleanup_orphans"):
@@ -850,8 +861,7 @@ def _cleanup_isolated_subdomain_orphans(scope: dict) -> int:
     if not input_ids:
         return 0
     try:
-        from graph_db import Neo4jClient
-        with Neo4jClient() as graph:
+        with _trusted_graph_client() as graph:
             if not graph.verify_connection():
                 return 0
             with graph.driver.session() as session:
@@ -1610,8 +1620,7 @@ async def get_graph_inputs(project_id: str, tool_id: str, user_id: str = ""):
         if str(graph_parent) not in sys.path:
             sys.path.insert(0, str(graph_parent))
 
-        from graph_db import Neo4jClient
-        with Neo4jClient() as client:
+        with _trusted_graph_client() as client:
             if client.verify_connection():
                 graph_result = client.get_graph_inputs_for_tool(tool_id, user_id, project_id)
                 # A Domain-batch project has SEVERAL Domain nodes. `domain` is
