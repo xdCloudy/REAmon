@@ -10,6 +10,7 @@ import { ReaEvidenceImportPanel } from '@/components/reamon/ReaEvidenceImportPan
 import { WorkspaceAnalysisPlanPanel, type WorkspaceAnalysisPlan } from '@/components/reamon/WorkspaceAnalysisPlan'
 import { ToCodeImportAction } from '@/components/reamon/ToCodeImportAction'
 import { WorkspaceTaskList } from '@/components/reamon/WorkspaceTaskList'
+import { WorkspaceInvestigationQueue } from '@/components/reamon/WorkspaceInvestigationQueue'
 import { WorkspaceFindingList } from '@/components/reamon/WorkspaceFindingList'
 import { WorkspaceCodeVisualizer } from '@/components/reamon/WorkspaceCodeVisualizer'
 import { WorkspaceProtectionStatus } from '@/components/reamon/WorkspaceProtectionStatus'
@@ -236,7 +237,7 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
         <WorkspaceFileTree projectId={projectId} rootName={latestImport?.rootName || data.workspace.name} artifacts={data.artifacts} totalArtifacts={data.artifactPage.total} hasMoreArtifacts={data.artifactPage.hasMore} />
       </section>}
 
-      {hasAnalysisHistory && <details id="analysis-tasks" className={styles.secondaryDetails}><summary>Tasks and findings <span>{data.tasks.length} tasks · {data.findings.length} findings</span></summary><section className={styles.panel} aria-label="Tasks and findings">{data.tasks.length > 0 && <WorkspaceTaskList projectId={projectId} tasks={data.tasks} onChanged={() => {
+      {hasAnalysisHistory && <details id="analysis-tasks" className={styles.secondaryDetails}><summary>Tasks and findings <span>{data.tasks.length} tasks · {data.findings.length} findings</span></summary><section className={styles.panel} aria-label="Tasks and findings"><WorkspaceInvestigationQueue projectId={projectId} />{data.tasks.length > 0 && <WorkspaceTaskList projectId={projectId} tasks={data.tasks} onChanged={() => {
         void queryClient.invalidateQueries({ queryKey: ['reamon-workspace', projectId] })
         void queryClient.invalidateQueries({ queryKey: ['reamon-code-units', projectId] })
       }} />}{data.findings.length > 0 && <WorkspaceFindingList projectId={projectId} findings={data.findings} onChanged={() => {

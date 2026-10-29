@@ -307,7 +307,7 @@ export function WorkspaceTaskList({ projectId, tasks, onChanged }: {
       </div>}
       {feedback && <p className={styles.feedback} role="status">{feedback}</p>}
       {tasks.map((task) => (
-        <div className={styles.row} key={task.id}>
+        <div className={styles.row} id={`workspace-task-${task.id}`} key={task.id}>
           <span className={styles.title} title={task.error || undefined}>
             {task.title}
             {(task.status === 'FAILED' || task.status === 'CANCELLED')
