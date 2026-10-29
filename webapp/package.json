@@ -11,7 +11,7 @@
     "lint:all": "eslint .",
     "type-check": "tsc --noEmit -p tsconfig.build.json",
     "type-check:all": "tsc --noEmit",
-    "reamon:worker": "node scripts/reamon-task-worker.mjs",
+    "reamon:worker": "node scripts/reamon-task-worker-supervisor.mjs",
     "test": "vitest run --no-file-parallelism",
     "test:coverage": "vitest run --no-file-parallelism --coverage",
     "docs:mcp": "MCP_DOCS_WRITE=1 vitest run src/lib/mcp/apiReference.test.ts",

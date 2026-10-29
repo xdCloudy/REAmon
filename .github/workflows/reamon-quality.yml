@@ -136,6 +136,7 @@ jobs:
       AGENT_PIDS: "512"
       REAMON_WORKER_POLL_SECONDS: "5"
       REAMON_WORKER_STALE_AFTER_MINUTES: "5"
+      REAMON_WORKER_LIVENESS_TIMEOUT_SECONDS: "60"
       REAMON_WORKER_BACKFILL_INTERVAL_SECONDS: "0"
       REAMON_WORKER_RETENTION_INTERVAL_SECONDS: "0"
     steps:
@@ -184,7 +185,7 @@ jobs:
           agent docker-broker project-worker-image
 
       - name: Start live release stack
-        run: docker compose up -d postgres neo4j webapp agent docker-broker
+        run: docker compose up -d postgres neo4j webapp agent docker-broker reamon-worker
 
       - name: Wait for live readiness
         run: >-
@@ -199,13 +200,16 @@ jobs:
           for attempt in $(seq 1 90); do
             agent_state="$(docker inspect --format '{{.State.Health.Status}}' redamon-agent 2>/dev/null || true)"
             broker_state="$(docker inspect --format '{{.State.Health.Status}}' reamon-docker-broker 2>/dev/null || true)"
-            if [ "$agent_state" = healthy ] && [ "$broker_state" = healthy ]; then
-              echo "agent and docker broker are healthy"
+            worker_id="$(docker compose ps -q reamon-worker 2>/dev/null || true)"
+            worker_state="$(docker inspect --format '{{.State.Health.Status}}' "$worker_id" 2>/dev/null || true)"
+            if [ "$agent_state" = healthy ] && [ "$broker_state" = healthy ] && [ "$worker_state" = healthy ]; then
+              echo "agent, docker broker, and task worker are healthy"
               exit 0
             fi
             sleep 2
           done
           docker compose logs --tail=200 agent docker-broker
+          docker compose logs --tail=200 reamon-worker
           exit 1
 
       - name: Verify live build identity
@@ -273,6 +277,26 @@ jobs:
           REAMON_FAILOVER_TASK_ID="$(node -e 'const fs=require("fs"); const value=JSON.parse(fs.readFileSync("/tmp/reamon-acceptance-state.json", "utf8")); process.stdout.write(value.failoverTaskId)')"
           REAMON_FAILOVER_STALE_AFTER_MINUTES=5
           tooling/scripts/reamon-worker-failover-drill.sh
+
+      - name: Verify task-worker event-loop self-recovery
+        run: |
+          worker_id="$(docker compose ps -q reamon-worker)"
+          before_restart="$(docker inspect --format '{{.RestartCount}}' "$worker_id")"
+          docker compose exec -T reamon-worker sh -ec 'kill -STOP "$(cat /tmp/reamon-task-worker.pid)"'
+          for attempt in $(seq 1 50); do
+            restart_count="$(docker inspect --format '{{.RestartCount}}' "$worker_id" 2>/dev/null || echo 0)"
+            state="$(docker inspect --format '{{.State.Status}}' "$worker_id" 2>/dev/null || true)"
+            health="$(docker inspect --format '{{.State.Health.Status}}' "$worker_id" 2>/dev/null || true)"
+            if [ "$restart_count" -gt "$before_restart" ] && [ "$state" = running ] && [ "$health" = healthy ]; then
+              docker compose exec -T reamon-worker node scripts/reamon-worker-healthcheck.mjs
+              echo "task worker child was restarted after an event-loop stall"
+              exit 0
+            fi
+            sleep 3
+          done
+          docker compose inspect reamon-worker
+          docker compose logs --tail=200 reamon-worker
+          exit 1
 
       - name: Run bounded worker load and soak drill
         run: >-

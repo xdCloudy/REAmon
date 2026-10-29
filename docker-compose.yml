@@ -2398,8 +2398,9 @@ services:
       REAMON_WORKER_RETENTION_INTERVAL_SECONDS: ${REAMON_WORKER_RETENTION_INTERVAL_SECONDS:-86400}
       REAMON_WORKER_RETENTION_APPLY: ${REAMON_WORKER_RETENTION_APPLY:-false}
       REAMON_WORKER_STALE_SECONDS: ${REAMON_WORKER_STALE_SECONDS:-90}
+      REAMON_WORKER_LIVENESS_TIMEOUT_SECONDS: ${REAMON_WORKER_LIVENESS_TIMEOUT_SECONDS:-120}
       INTERNAL_API_KEY: ${INTERNAL_API_KEY:-}
-    command: ["node", "scripts/reamon-task-worker.mjs"]
+    command: ["node", "scripts/reamon-task-worker-supervisor.mjs"]
     depends_on:
       webapp:
         condition: service_healthy

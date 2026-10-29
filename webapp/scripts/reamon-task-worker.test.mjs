@@ -13,8 +13,9 @@ describe('REAmon task worker', () => {
       REAMON_WORKER_STALE_AFTER_MINUTES: '1',
       REAMON_WORKER_BACKFILL_INTERVAL_SECONDS: '999999',
       REAMON_WORKER_BACKFILL_BATCH_SIZE: '99',
+      REAMON_WORKER_LIVENESS_TIMEOUT_SECONDS: '1',
       REAMON_WORKER_ID: 'worker-a',
-    })).toMatchObject({ webappUrl: 'http://webapp:3000', pollSeconds: 300, batchSize: 10, staleAfterMinutes: 5, backfillIntervalSeconds: 86400, backfillBatchSize: 10, workerId: 'worker-a' })
+    })).toMatchObject({ webappUrl: 'http://webapp:3000', pollSeconds: 300, batchSize: 10, staleAfterMinutes: 5, backfillIntervalSeconds: 86400, backfillBatchSize: 10, localLivenessTimeoutSeconds: 60, workerId: 'worker-a' })
   })
 
   test('checks the persisted health of the worker identity chosen by its runtime config', async () => {
@@ -34,6 +35,26 @@ describe('REAmon task worker', () => {
     const fetchImpl = vi.fn().mockResolvedValue({ ok: false, status: 503 })
 
     await expect(checkWorkerHealth(config, fetchImpl)).resolves.toBe(false)
+  })
+
+  test('continues local liveness heartbeats while remote dispatch is unavailable', async () => {
+    const watchdogHeartbeat = vi.fn()
+    const fetchImpl = vi.fn().mockRejectedValue(new Error('webapp unavailable'))
+    let stopped = false
+
+    await runWorker(
+      { webappUrl: 'http://webapp:3000', internalKey: 'secret', workerId: 'worker-a', batchSize: 1, pollSeconds: 1 },
+      {
+        fetchImpl,
+        watchdogHeartbeat,
+        sleepImpl: async () => { stopped = true },
+        shouldStop: () => stopped,
+        logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      },
+    )
+
+    expect(watchdogHeartbeat).toHaveBeenCalledTimes(1)
+    expect(fetchImpl).toHaveBeenCalledWith('http://webapp:3000/api/internal/reamon/tasks/dispatch', expect.any(Object))
   })
 
   test('dispatches with internal auth and bounded recovery settings', async () => {

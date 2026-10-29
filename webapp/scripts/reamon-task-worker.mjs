@@ -21,6 +21,8 @@ const DEFAULT_BACKFILL_BATCH_SIZE = 5
 const MAX_BACKFILL_BATCH_SIZE = 10
 const DEFAULT_RETENTION_INTERVAL_SECONDS = 24 * 60 * 60
 const MAX_RETENTION_INTERVAL_SECONDS = 7 * 24 * 60 * 60
+const DEFAULT_LOCAL_LIVENESS_TIMEOUT_SECONDS = 120
+const MAX_LOCAL_LIVENESS_TIMEOUT_SECONDS = 10 * 60
 
 export class WorkerConfigurationError extends Error {}
 
@@ -69,6 +71,7 @@ export function readWorkerConfig(env = process.env) {
     backfillBatchSize: boundedNumber(env.REAMON_WORKER_BACKFILL_BATCH_SIZE, DEFAULT_BACKFILL_BATCH_SIZE, 1, MAX_BACKFILL_BATCH_SIZE),
     retentionIntervalSeconds: boundedNumber(env.REAMON_WORKER_RETENTION_INTERVAL_SECONDS, DEFAULT_RETENTION_INTERVAL_SECONDS, 0, MAX_RETENTION_INTERVAL_SECONDS),
     retentionApply: booleanValue(env.REAMON_WORKER_RETENTION_APPLY),
+    localLivenessTimeoutSeconds: boundedNumber(env.REAMON_WORKER_LIVENESS_TIMEOUT_SECONDS, DEFAULT_LOCAL_LIVENESS_TIMEOUT_SECONDS, 60, MAX_LOCAL_LIVENESS_TIMEOUT_SECONDS),
     codeRewriteJobsEnabled: booleanValue(env.REAMON_WORKER_CODE_REWRITE_JOBS, true),
     rewriteBatchSize: boundedNumber(env.REAMON_WORKER_REWRITE_BATCH_SIZE, DEFAULT_REWRITE_BATCH_SIZE, 1, 3),
     // Some Compose/CI environments expose HOSTNAME as a service address
@@ -119,10 +122,11 @@ export async function dispatchOnce(config, fetchImpl = fetch, logger = console) 
   return result
 }
 
-function startWorkerHeartbeat(config, fetchImpl, logger) {
+function startWorkerHeartbeat(config, fetchImpl, logger, watchdogHeartbeat) {
   let inFlight = false
   const workerId = config.workerId || 'reamon-worker'
   const send = async () => {
+    watchdogHeartbeat()
     if (inFlight) return
     inFlight = true
     try {
@@ -139,6 +143,7 @@ function startWorkerHeartbeat(config, fetchImpl, logger) {
       inFlight = false
     }
   }
+  watchdogHeartbeat()
   const timer = setInterval(() => { void send() }, 30_000)
   timer.unref?.()
   return () => clearInterval(timer)
@@ -281,12 +286,12 @@ function createProjectionScheduler(config, fetchImpl, logger) {
 
 const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds))
 
-export async function runWorker(config, { fetchImpl = fetch, sleepImpl = sleep, logger = console, shouldStop = () => false } = {}) {
+export async function runWorker(config, { fetchImpl = fetch, sleepImpl = sleep, logger = console, shouldStop = () => false, watchdogHeartbeat = () => {} } = {}) {
   let backfillOffset = 0
   let nextBackfillAt = 0
   let nextRetentionAt = 0
   const scheduleProjection = createProjectionScheduler(config, fetchImpl, logger)
-  const stopHeartbeat = startWorkerHeartbeat(config, fetchImpl, logger)
+  const stopHeartbeat = startWorkerHeartbeat(config, fetchImpl, logger, watchdogHeartbeat)
   try {
     while (!shouldStop()) {
       try {
@@ -333,13 +338,33 @@ export async function runWorker(config, { fetchImpl = fetch, sleepImpl = sleep, 
 
 async function main() {
   const config = readWorkerConfig()
+  if (typeof process.send !== 'function') {
+    throw new WorkerConfigurationError('Task worker must run under its process supervisor')
+  }
   let stopping = false
-  const stop = () => { stopping = true }
+  const stop = () => {
+    stopping = true
+  }
   process.once('SIGTERM', stop)
   process.once('SIGINT', stop)
   console.info(`[reamon-worker:${config.workerId}] polling every ${config.pollSeconds}s with batch size ${config.batchSize}`)
-  await runWorker(config, { shouldStop: () => stopping })
-  console.info('[reamon-worker] stopped')
+  try {
+    await runWorker(config, {
+      shouldStop: () => stopping,
+      watchdogHeartbeat: () => {
+        try {
+          process.send({ type: 'heartbeat', pid: process.pid }, (error) => {
+            if (error) console.error('[reamon-worker] supervisor heartbeat failed', error)
+          })
+        } catch (error) {
+          console.error('[reamon-worker] supervisor heartbeat failed', error)
+        }
+      },
+    })
+    console.info('[reamon-worker] stopped')
+  } finally {
+    stop()
+  }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
