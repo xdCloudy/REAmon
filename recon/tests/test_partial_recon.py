@@ -23,6 +23,7 @@ sys.modules['neo4j'] = MagicMock()
 # After the partial_recon refactor, helpers moved into partial_recon_modules but the
 # original test imported them from `partial_recon` directly — re-route the import.
 from partial_recon import load_config
+import partial_recon as _partial_recon
 from recon.partial_recon_modules.helpers import _classify_ip, _is_ip_or_cidr, _is_valid_hostname
 
 # After the refactoring into partial_recon_modules/, monkey-patching pr._resolve_hostname
@@ -5770,3 +5771,29 @@ class TestRunTlsx(unittest.TestCase):
         targets = self._run([], ports=(443, 993))
         self.assertNotIn(f"{self.IP}:443", targets)
         self.assertIn(f"{self.IP}:993", targets)
+
+
+class TestIsolatedGraphFinalization(unittest.TestCase):
+    def test_finalization_uses_the_scoped_token_and_does_not_raise_on_network_error(self):
+        response = MagicMock()
+        response.__enter__.return_value = response
+        response.read.return_value = b'{"status":"finalized","stats":{"skipped":"not armed"}}'
+        with patch.dict(os.environ, {
+            "PARTIAL_GRAPH_FINALIZE_URL": "http://127.0.0.1:8010/internal/partial-recon/subdomain-finalize",
+            "PARTIAL_GRAPH_INGEST_TOKEN": "scoped-token",
+        }), patch("urllib.request.urlopen", return_value=response) as urlopen, \
+             patch("builtins.print") as output:
+            _partial_recon._finalize_isolated_graph_run()
+        request = urlopen.call_args.args[0]
+        self.assertEqual(request.full_url, "http://127.0.0.1:8010/internal/partial-recon/subdomain-finalize")
+        self.assertEqual(request.get_header("X-partial-graph-token"), "scoped-token")
+        self.assertIn("orchestrator finalization", output.call_args.args[0])
+
+    def test_finalization_failure_is_housekeeping_only(self):
+        with patch.dict(os.environ, {
+            "PARTIAL_GRAPH_FINALIZE_URL": "http://127.0.0.1:8010/internal/partial-recon/subdomain-finalize",
+            "PARTIAL_GRAPH_INGEST_TOKEN": "scoped-token",
+        }), patch("urllib.request.urlopen", side_effect=OSError("unavailable")), \
+             patch("builtins.print") as output:
+            _partial_recon._finalize_isolated_graph_run()
+        self.assertIn("finalization failed", output.call_args.args[0])

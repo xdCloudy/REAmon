@@ -18,6 +18,7 @@ from starlette.concurrency import run_in_threadpool
 from sse_starlette.sse import EventSourceResponse
 
 from auth import (
+    PARTIAL_GRAPH_FINALIZE_PATH,
     PARTIAL_GRAPH_INGEST_PATH,
     is_orchestrator_request_authorized,
     verify_partial_graph_token,
@@ -677,7 +678,7 @@ async def require_orchestrator_key(request: Request, call_next):
     # /health is polled unauthenticated by the Docker healthcheck; CORS preflight
     # (OPTIONS) carries no custom headers and is handled by the CORS middleware.
     # The decision lives in auth.is_orchestrator_request_authorized (unit-tested).
-    if request.url.path == PARTIAL_GRAPH_INGEST_PATH and request.method == "POST":
+    if request.url.path in (PARTIAL_GRAPH_INGEST_PATH, PARTIAL_GRAPH_FINALIZE_PATH) and request.method == "POST":
         content_length = request.headers.get("content-length", "")
         try:
             if content_length and int(content_length) > 24 * 1024 * 1024:
@@ -790,6 +791,40 @@ async def ingest_partial_subdomain_results(body: PartialSubdomainIngestRequest, 
         "run_id": scope["runId"],
         "stats": stats,
     }
+
+
+@app.post(PARTIAL_GRAPH_FINALIZE_PATH)
+async def finalize_partial_subdomain_run(request: Request):
+    """Run end-of-scan graph housekeeping from the trusted orchestrator."""
+    scope = getattr(request.state, "partial_graph_scope", None)
+    if not scope:
+        raise HTTPException(status_code=401, detail="Missing ingest scope")
+    if not container_manager:
+        raise HTTPException(status_code=503, detail="Service not initialized")
+    active_run = container_manager.partial_recon_states.get(scope["projectId"], {}).get(scope["runId"])
+    if (not active_run or active_run.tool_id != "SubdomainDiscovery"
+            or active_run.status not in (PartialReconStatus.STARTING, PartialReconStatus.RUNNING)
+            or not set(scope["roots"]).issubset(set(active_run.roots))):
+        raise HTTPException(status_code=409, detail="Partial run is no longer accepting graph operations")
+    if not active_run.started_at:
+        raise HTTPException(status_code=409, detail="Partial run has no trusted start time")
+
+    # The recon source is mounted read-only into the orchestrator. Import its
+    # shared sweep so the same source allowlist and rule semantics apply here.
+    import sys
+    from pathlib import Path
+    recon_source = Path("/app/recon")
+    if str(recon_source) not in sys.path:
+        sys.path.insert(0, str(recon_source))
+    from helpers.finding_sources import RECON_FINDING_SOURCES
+    from helpers.node_filter_sweep import run_node_filter_sweep
+
+    stats = await run_in_threadpool(
+        run_node_filter_sweep,
+        scope["userId"], scope["projectId"], active_run.started_at.isoformat(),
+        RECON_FINDING_SOURCES,
+    )
+    return {"status": "finalized", "run_id": scope["runId"], "stats": stats}
 
 
 @app.get("/health", response_model=HealthResponse)

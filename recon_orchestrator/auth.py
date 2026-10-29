@@ -23,6 +23,7 @@ import time
 # `/health/`, `/health/../recon/running`, query strings, case changes, etc.
 AUTH_EXEMPT_PATHS = frozenset({"/health"})
 PARTIAL_GRAPH_INGEST_PATH = "/internal/partial-recon/subdomain-ingest"
+PARTIAL_GRAPH_FINALIZE_PATH = "/internal/partial-recon/subdomain-finalize"
 _GRAPH_TOKEN_AUDIENCE = "reamon.partial-subdomain-graph-ingest.v1"
 _GRAPH_TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60
 _B64URL = re.compile(r"^[A-Za-z0-9_-]+$")
@@ -51,7 +52,7 @@ def mint_partial_graph_token(
     project_id: str, user_id: str, run_id: str, roots: list[str], secret: str,
     *, now: int | None = None,
 ) -> str:
-    """Mint a run-bound token limited to partial subdomain-result ingestion."""
+    """Mint a run-bound token limited to partial subdomain graph operations."""
     if any(not isinstance(value, str) or not value or len(value) > 255
            for value in (project_id, user_id, run_id)):
         raise ValueError("A valid project, user, and run are required")

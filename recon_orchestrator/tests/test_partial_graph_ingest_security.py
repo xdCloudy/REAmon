@@ -64,6 +64,8 @@ class TestSubdomainIngestSpawn(unittest.TestCase):
         self.assertTrue(env["PARTIAL_GRAPH_INGEST_TOKEN"])
         self.assertEqual(env["PARTIAL_GRAPH_INGEST_URL"],
                          "http://127.0.0.1:8010/internal/partial-recon/subdomain-ingest")
+        self.assertEqual(env["PARTIAL_GRAPH_FINALIZE_URL"],
+                         "http://127.0.0.1:8010/internal/partial-recon/subdomain-finalize")
         self.assertNotIn("/repo/graph_db", spawn["volumes"])
 
     def test_other_partial_workers_keep_their_existing_graph_access(self):
@@ -90,6 +92,66 @@ class TestIngestAuthMiddleware(unittest.TestCase):
             result = asyncio.run(api.require_orchestrator_key(req, next_handler))
         self.assertEqual(result, "ok")
         self.assertEqual(called, ["r1"])
+
+    def test_signed_token_is_accepted_for_the_fixed_finalize_route(self):
+        import api
+        from auth import PARTIAL_GRAPH_FINALIZE_PATH
+        token = mint_partial_graph_token("p1", "u1", "r1", ["example.com"], "key")
+        req = types.SimpleNamespace(
+            url=types.SimpleNamespace(path=PARTIAL_GRAPH_FINALIZE_PATH),
+            method="POST",
+            headers={"X-Partial-Graph-Token": token},
+            state=types.SimpleNamespace(),
+        )
+        called = []
+
+        async def next_handler(request):
+            called.append(request.state.partial_graph_scope["runId"])
+            return "ok"
+
+        with mock.patch.object(api.os, "environ", {**os.environ, "INTERNAL_API_KEY": "key"}):
+            result = asyncio.run(api.require_orchestrator_key(req, next_handler))
+        self.assertEqual(result, "ok")
+        self.assertEqual(called, ["r1"])
+
+    def test_finalization_uses_trusted_run_scope_and_start_time(self):
+        import api
+        from datetime import datetime, timezone
+        from fastapi import HTTPException
+
+        started_at = datetime(2026, 10, 29, tzinfo=timezone.utc)
+        request = types.SimpleNamespace(state=types.SimpleNamespace(partial_graph_scope={
+            "projectId": "p1", "userId": "u1", "runId": "r1", "roots": ["example.com"],
+        }))
+        active_run = types.SimpleNamespace(
+            tool_id="SubdomainDiscovery", status=api.PartialReconStatus.RUNNING,
+            roots=["example.com"], started_at=started_at,
+        )
+        sweep = mock.Mock(return_value={"skipped": "not armed"})
+        source_module = types.ModuleType("helpers.finding_sources")
+        source_module.RECON_FINDING_SOURCES = ("nuclei",)
+        sweep_module = types.ModuleType("helpers.node_filter_sweep")
+        sweep_module.run_node_filter_sweep = sweep
+        modules = {
+            "helpers.finding_sources": source_module,
+            "helpers.node_filter_sweep": sweep_module,
+        }
+        manager = types.SimpleNamespace(partial_recon_states={"p1": {"r1": active_run}})
+        with mock.patch.object(api, "container_manager", manager), \
+             mock.patch.dict("sys.modules", modules):
+            receipt = asyncio.run(api.finalize_partial_subdomain_run(request))
+        self.assertEqual(receipt["status"], "finalized")
+        self.assertEqual(receipt["run_id"], "r1")
+        self.assertEqual(sweep.call_args.args[:3], (
+            "u1", "p1", started_at.isoformat(),
+        ))
+
+        active_run.status = api.PartialReconStatus.COMPLETED
+        with mock.patch.object(api, "container_manager", manager):
+            with self.assertRaises(HTTPException) as raised:
+                asyncio.run(api.finalize_partial_subdomain_run(request))
+        self.assertEqual(raised.exception.status_code, 409)
+        sweep.assert_called_once()
 
     def test_invalid_token_never_reaches_the_route(self):
         import api

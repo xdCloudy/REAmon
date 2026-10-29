@@ -272,10 +272,13 @@ def main():
     try:
         statuses, completed = _run_tool(tool_id, config)
     finally:
-        _apply_node_filters(started_at)
+        if os.environ.get("PARTIAL_GRAPH_FINALIZE_URL"):
+            _finalize_isolated_graph_run()
+        else:
+            _apply_node_filters(started_at)
 
     # Clean up orphan UserInput nodes (created but no PRODUCED children)
-    if completed and user_id and project_id:
+    if completed and user_id and project_id and not os.environ.get("PARTIAL_GRAPH_FINALIZE_URL"):
         _cleanup_orphan_user_inputs(user_id, project_id)
 
     print_run_report(tool_id, statuses, refused)
@@ -301,6 +304,41 @@ def _apply_node_filters(started_at):
         run_node_filter_sweep(user_id, project_id, started_at, RECON_FINDING_SOURCES)
     except Exception as e:  # noqa: BLE001 - a sweep must never change the job's outcome
         print(f"[!][NODE-FILTER] sweep failed: {e}")
+
+
+def _finalize_isolated_graph_run():
+    """Ask the trusted orchestrator to perform graph housekeeping for this run."""
+    import json
+    import time
+    import urllib.error
+    import urllib.request
+
+    url = os.environ.get("PARTIAL_GRAPH_FINALIZE_URL", "")
+    token = os.environ.get("PARTIAL_GRAPH_INGEST_TOKEN", "")
+    if not url or not token:
+        print("[!][NODE-FILTER] isolated graph finalization is not configured")
+        return
+    request = urllib.request.Request(
+        url,
+        data=b"{}",
+        headers={"Content-Type": "application/json", "X-Partial-Graph-Token": token},
+        method="POST",
+    )
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                receipt = json.loads(response.read().decode("utf-8"))
+                print(f"[*][NODE-FILTER] orchestrator finalization: {receipt.get('stats', {})}")
+                return
+        except urllib.error.HTTPError as exc:
+            if exc.code < 500 or attempt == 2:
+                print(f"[!][NODE-FILTER] orchestrator finalization rejected (HTTP {exc.code})")
+                return
+        except (OSError, TimeoutError, ValueError) as exc:
+            if attempt == 2:
+                print(f"[!][NODE-FILTER] orchestrator finalization failed: {exc}")
+                return
+        time.sleep(0.25 * (2 ** attempt))
 
 
 def _dispatch(tool_id: str, config: dict):
