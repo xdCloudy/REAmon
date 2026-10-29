@@ -14,16 +14,18 @@ terminal worker container and its separately labeled network are removed. This n
 gate has not yet completed in CI, so it is implementation evidence only until a run
 passes.
 
-The full `redamon.sh test unit` gate passed locally after the terminal-network
-label change: all configured Docker test sections and 25 shell suites passed.
-The webapp Docker/Vitest run passed 611 files with 24 skipped; 9,682 tests
-passed, 2 were expected failures, and 147 were skipped. The Docker broker suite
-passed 69 tests, including terminal-network labeling, terminal Compose-container
-resolution, cleanup, and network detachment. The updated broker image was rebuilt
-and restarted on this PC; it is healthy, and `http://127.0.0.1:3001/api/health`
-returns HTTP 200. The pushed-commit CI run and authenticated browser-to-terminal
-smoke remain pending, so local unit and readiness checks do not replace those
-release gates.
+On 2026-10-29, the canonical `bash ./redamon.sh test unit` gate passed locally
+from checkout `8c098dfc`: agent (3,788), root-agent (3,400), root-recon (570),
+recon (4,151), recon-orchestrator (597), AI attack-surface (209), capture proxy
+(138), and Docker broker (69), for 12,922 Docker-isolated tests total. All 25
+shell suites passed. The complete webapp Docker/Vitest run passed 613 files with
+24 skipped: 9,693 tests passed, 2 were expected failures, and 147 were skipped.
+The rebuilt webapp and task worker are healthy; local and LAN readiness endpoints
+return HTTP 200 with Postgres, Neo4j, and artifact checks `ok`. The deployed image
+does not expose a build revision (`unknown`), so this is runtime and test evidence,
+not a revision-verified deployment. The GitHub quality workflow for this checkout
+is pending with no jobs yet, and its authenticated browser-to-terminal smoke has
+not passed; those release gates remain open.
 
 Rechecked 2026-10-29: the REAmon Compose configuration validates, all active
 services report running/healthy, and local plus LAN readiness return HTTP 200.
