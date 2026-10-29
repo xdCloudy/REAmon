@@ -1,6 +1,6 @@
 # REAmon product progress
 
-Assessment date: 2026-10-29 · Source: pushed commit `6e49618` · Weighted estimate: **30.8%**
+Assessment date: 2026-10-29 · Source: the current local worktree · Weighted estimate: **30.8%**
 
 This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.
 
@@ -114,7 +114,7 @@ Quality run [40247230850](https://github.com/xdCloudy/REAmon/actions/runs/402472
 
 ### Protected-binary analysis and recovery
 
-**Current evidence:** Bounded static PE inspection records section/header mappings, import/certificate directory locations, executable-section entropy, malformed raw ranges, and suspected UPX markers. The ELF inspector uses readelf with a 1 MiB output cap and 30-second timeout to assess headers, LOAD segments, section metadata, bounded section or PT_LOAD samples, UPX! signature offsets, entry-point anomalies, and writable/executable segments. PE sections, ELF sections, and ELF LOAD segments are persisted as project-scoped observations with stable artifact/task keys. A pinned UPX 5.2.1 Linux x86-64 clean/packed pair verifies that the clean fixture remains unknown while the packed fixture is only suspected from bounded signature evidence. No target is executed or unpacked, and broad accuracy remains uncalibrated.
+**Current evidence:** Bounded static PE inspection records section/header mappings, import/certificate directory locations, executable-section entropy, malformed raw ranges, and suspected UPX markers. The ELF inspector uses readelf with a 1 MiB output cap and 30-second timeout to assess headers, LOAD segments, section metadata, bounded section or PT_LOAD samples, UPX! signature offsets, entry-point anomalies, and writable/executable segments. PE sections, ELF sections, and ELF LOAD segments are persisted as project-scoped observations with stable artifact/task keys. Pinned UPX 5.2.1 Linux x86-64 clean/packed pairs at GCC -O0 and -O2 verify that clean fixtures remain unknown while packed fixtures are only suspected from bounded signature evidence. No target is executed or unpacked, and broad accuracy remains uncalibrated.
 
 **Remaining:** Expand clean/protected paired fixtures across formats, architectures, compilers, UPX versions, and benign high-entropy controls; measure false positives and detection coverage; add versioned format detectors and immutable derived-layer storage; recover and report protected regions; connect them to the M5 investigation queue; implement isolated authorized dynamic analysis only after worker gates; validate exact tool/version/format combinations and surface status in UI/export.
 

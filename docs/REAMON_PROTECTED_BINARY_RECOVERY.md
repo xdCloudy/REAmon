@@ -28,13 +28,13 @@ dynamic recovery remain planned.
 
 ### Reproducible first fixture
 
-The Docker-only UPX benchmark generates a clean/packed pair from test-owned C source using
-GCC `-O0 -s` and UPX 5.2.1 (`--best`) for Linux x86-64. It inspects both artifacts with
-`readelf` and never executes either generated program. The UPX release archive is pinned by
+The Docker-only UPX benchmark generates clean/packed pairs from test-owned C source using
+GCC `-O0 -s` and `-O2 -s`, then UPX 5.2.1 (`--best`) for Linux x86-64. It inspects each
+artifact with `readelf` and never executes a generated program. The UPX release archive is pinned by
 SHA-256 `402162aad30af47e60dbd767fb2e64ca394ace9727ba1f40283641f1d1b91657`.
 The clean binary must remain unknown and the packed binary must be suspected as UPX based
 on a bounded signature location, with the finding retained as unconfirmed evidence. This
-single paired fixture validates the narrow detector path; it does not establish broad
+two optimization-level pairs validate the narrow detector path; they do not establish broad
 precision/recall or support for PE, other architectures, or other packer versions.
 
 Run the pair in Docker:
@@ -161,7 +161,7 @@ current audit reviewed the public vendor feature pages and release pages linked 
 
 1. Complete stable artifact/layer identity, provenance, bounded static inspection, and
    coverage accounting (P0 foundations already partly exist).
-2. Expand exact-version clean/UPX fixture generation and false-positive benchmarks beyond the first Linux ELF pair.
+2. Expand exact-version clean/UPX fixture generation and false-positive benchmarks beyond the current Linux ELF optimization-level pairs.
 3. Add independently versioned detection adapters; report evidence and uncertainty before
    adding any extractor.
 4. Implement immutable derived-layer storage and safe deterministic unpacking for one

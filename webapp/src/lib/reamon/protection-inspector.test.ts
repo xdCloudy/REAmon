@@ -289,7 +289,7 @@ Section Headers:
     ]))
   })
 
-  test('measures detection on a clean and UPX 5.2.1 packed ELF pair without executing either artifact', async (context) => {
+  test('measures UPX 5.2.1 detection at two optimization levels without executing either artifact', async (context) => {
     if (process.env.REAMON_UPX_FIXTURE_BENCHMARK !== '1') { context.skip(); return }
     const upxVersion = execFileSync('upx', ['--version'], { encoding: 'utf8' })
     expect(upxVersion).toMatch(/upx 5\.2\.1/i)
@@ -299,6 +299,8 @@ Section Headers:
     const sourcePath = path.join(root, 'fixture.c')
     const cleanPath = path.join(root, 'clean-fixture')
     const packedPath = path.join(root, 'upx-fixture')
+    const optimizedCleanPath = path.join(root, 'clean-optimized-fixture')
+    const optimizedPackedPath = path.join(root, 'upx-optimized-fixture')
     const functions = Array.from({ length: 256 }, (_, index) =>
       `__attribute__((noinline)) int unit_${index}(int value) { return (value * ${index + 3}) ^ ${index * 7919}; }`,
     ).join('\n')
@@ -308,6 +310,9 @@ Section Headers:
       execFileSync('/usr/bin/gcc', ['-O0', '-s', '-Wl,--build-id=none', '-o', cleanPath, sourcePath], { stdio: 'pipe' })
       await copyFile(cleanPath, packedPath)
       execFileSync('upx', ['--best', packedPath], { stdio: 'pipe' })
+      execFileSync('/usr/bin/gcc', ['-O2', '-s', '-Wl,--build-id=none', '-o', optimizedCleanPath, sourcePath], { stdio: 'pipe' })
+      await copyFile(optimizedCleanPath, optimizedPackedPath)
+      execFileSync('upx', ['--best', optimizedPackedPath], { stdio: 'pipe' })
       const cleanBytes = await import('node:fs/promises').then(({ readFile }) => readFile(cleanPath))
       const packedBytes = await import('node:fs/promises').then(({ readFile }) => readFile(packedPath))
       expect(cleanBytes.equals(packedBytes)).toBe(false)
@@ -327,6 +332,15 @@ Section Headers:
       expect(packedResult.data.observations).toEqual(expect.arrayContaining([
         expect.objectContaining({ type: 'elf_load_segment', attributes: expect.objectContaining({ upxSignatureOffsets: expect.any(String) }) }),
       ]))
+
+      const optimizedCleanResult = await executeProtectionInspection({ targetProfile, artifactId: 'upx-clean-optimized-fixture', artifactPath: optimizedCleanPath })
+      const optimizedPackedResult = await executeProtectionInspection({ targetProfile, artifactId: 'upx-packed-optimized-fixture', artifactPath: optimizedPackedPath })
+      expect(optimizedCleanResult.status).toBe('completed')
+      expect(optimizedCleanResult.data.assessment).toMatchObject({ status: 'unknown', family: null })
+      expect(optimizedPackedResult.status).toBe('completed')
+      expect(optimizedPackedResult.data.assessment).toMatchObject({ status: 'suspected', family: 'UPX' })
+      expect((optimizedPackedResult.data.assessment as ElfProtectionAssessment).sections.some((section) => section.executable)).toBe(false)
+      expect((optimizedPackedResult.data.assessment as ElfProtectionAssessment).loadSegments.some((segment) => segment.upxSignatureOffsets.length > 0)).toBe(true)
     } finally {
       await rm(root, { recursive: true, force: true })
     }
