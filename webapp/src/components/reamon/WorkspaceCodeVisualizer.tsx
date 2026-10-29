@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type PointerEvent } from 'react'
 import Link from 'next/link'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Code2, Copy, Download, ExternalLink, RefreshCw, Search, WandSparkles } from 'lucide-react'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
@@ -176,7 +176,7 @@ interface AlternateDecompilerOutput {
   source: string
 }
 
-interface AlternateDecompilerResponse { alternates: AlternateDecompilerOutput[]; truncated?: boolean }
+interface AlternateDecompilerResponse { alternates: AlternateDecompilerOutput[]; truncated?: boolean; nextCursor: string | null }
 
 interface CodeExplanationProvider { id: string; name: string; modelIdentifier: string }
 interface CodeExplanationResponse { explanation: string; providerName: string; model: string; sourceTruncated: boolean }
@@ -629,15 +629,20 @@ function SavedRewriteHistory({ projectId, attemptId, roundCount }: { projectId: 
   </details>
 }
 
-async function fetchAlternateDecompilerOutputs(projectId: string, unitId: string, signal?: AbortSignal): Promise<AlternateDecompilerResponse> {
+async function fetchAlternateDecompilerOutputs(projectId: string, unitId: string, signal?: AbortSignal, after?: string | null): Promise<AlternateDecompilerResponse> {
   const params = new URLSearchParams({ unitId })
+  if (after) params.set('after', after)
   const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/alternates?${params.toString()}`, { signal, cache: 'no-store' })
   if (!response.ok) {
     const detail = await response.json().catch(() => null) as { error?: string } | null
     throw new Error(detail?.error || 'Unable to load alternate decompiler output')
   }
   const result = await response.json() as Partial<AlternateDecompilerResponse>
-  return { alternates: Array.isArray(result.alternates) ? result.alternates : [] }
+  return {
+    alternates: Array.isArray(result.alternates) ? result.alternates : [],
+    truncated: result.truncated === true,
+    nextCursor: typeof result.nextCursor === 'string' ? result.nextCursor : null,
+  }
 }
 
 async function fetchExplanationProviders(projectId: string): Promise<CodeExplanationProvider[]> {
@@ -1268,14 +1273,24 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
   const canCompareDecompilerOutputs = Boolean(selectedUnit
     && selectedUnit.inputArtifactSha256
     && selectedUnit.codeArtifactSha256)
-  const alternateOutputsQuery = useQuery({
+  const alternateOutputsQuery = useInfiniteQuery({
     queryKey: ['reamon-alternate-decompiler-outputs', projectId, selectedUnit?.id],
-    queryFn: ({ signal }) => fetchAlternateDecompilerOutputs(projectId, selectedUnit?.id as string, signal),
+    queryFn: ({ signal, pageParam }) => fetchAlternateDecompilerOutputs(projectId, selectedUnit?.id as string, signal, pageParam),
+    initialPageParam: null as string | null,
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
     enabled: Boolean(compareAlternatesOpen && canCompareDecompilerOutputs && selectedUnit?.id),
     staleTime: 5 * 60_000,
     gcTime: 10 * 60_000,
   })
-  const alternateOutputs = alternateOutputsQuery.data?.alternates || []
+  const alternateOutputs = useMemo(() => {
+    const byProvider = new Map<string, AlternateDecompilerOutput>()
+    for (const page of alternateOutputsQuery.data?.pages || []) {
+      for (const output of page.alternates) {
+        if (!byProvider.has(output.providerId)) byProvider.set(output.providerId, output)
+      }
+    }
+    return [...byProvider.values()]
+  }, [alternateOutputsQuery.data?.pages])
   const selectedAlternateOutput = alternateOutputs.find((output) => output.id === selectedAlternateId) || alternateOutputs[0]
   const alternateComparisonDiff = useMemo(() => compareDiffOpen && sourceQuery.data !== undefined && selectedAlternateOutput
     ? buildReviewDiff(sourceQuery.data, selectedAlternateOutput.source)
@@ -3059,7 +3074,10 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
           {compareAlternatesOpen && <>
             {alternateOutputsQuery.isLoading && <p className={styles.message} role="status">Finding verified alternate outputs…</p>}
             {alternateOutputsQuery.isError && <p className={styles.error} role="alert">{alternateOutputsQuery.error instanceof Error ? alternateOutputsQuery.error.message : 'Could not load alternate outputs.'}</p>}
-            {alternateOutputsQuery.data?.truncated && <p className={styles.message} role="status">This comparison reached its safety limit. Some older runs or provider outputs may be omitted.</p>}
+            {alternateOutputsQuery.hasNextPage && <p className={styles.message} role="status">More compatible provider outputs are available on the next page.</p>}
+            {alternateOutputsQuery.hasNextPage && <button type="button" className={styles.emptyAction} disabled={alternateOutputsQuery.isFetchingNextPage} onClick={() => void alternateOutputsQuery.fetchNextPage()}>
+              {alternateOutputsQuery.isFetchingNextPage ? 'Loading more provider outputs…' : 'Load more provider outputs'}
+            </button>}
             {!alternateOutputsQuery.isLoading && !alternateOutputsQuery.isError && alternateOutputs.length === 0 && <p className={styles.message}>No hash-verified output from another compatible decompiler is stored for this source unit.</p>}
             {alternateOutputs.length > 0 && <>
               <label className={styles.alternateProviderSelect}>Use this provider for the optional line diff

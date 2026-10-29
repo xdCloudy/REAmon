@@ -11,7 +11,7 @@ import { nativeAddressAliases, nativeFunctionIdentity } from '@/lib/reamon/nativ
 interface RouteParams { params: Promise<{ id: string }> }
 const MAX_SOURCE_BYTES = 2 * 1024 * 1024
 const MAX_ALTERNATES = 32
-const MAX_ALTERNATE_OBSERVATIONS = 500
+const ALTERNATE_OBSERVATION_PAGE_SIZE = 100
 const BCF_CLEAN_COMMIT = 'f457afaa801b30f7bb98c28d419a36d5c9fd7115'
 const CFF_DEFLATTEN_COMMIT = 'f457afaa801b30f7bb98c28d419a36d5c9fd7115'
 const NO_STORE = { 'Cache-Control': 'private, no-store' }
@@ -33,9 +33,14 @@ export async function GET(request: Request, { params }: RouteParams) {
     const access = await requireProjectAccess(user, projectId)
     if (access instanceof NextResponse) return access
 
-    const unitId = new URL(request.url).searchParams.get('unitId')?.trim() || ''
+    const searchParams = new URL(request.url).searchParams
+    const unitId = searchParams.get('unitId')?.trim() || ''
+    const afterObservationId = searchParams.get('after')?.trim() || ''
     if (!unitId || unitId.length > 128) {
       return NextResponse.json({ error: 'A valid code unit is required' }, { status: 400, headers: NO_STORE })
+    }
+    if (afterObservationId.length > 128) {
+      return NextResponse.json({ error: 'The alternate-output cursor is invalid' }, { status: 400, headers: NO_STORE })
     }
 
     const selection = await getActiveWorkspaceImportSelection(projectId)
@@ -109,8 +114,9 @@ export async function GET(request: Request, { params }: RouteParams) {
             ] : []),
           ],
         },
-        orderBy: [{ updatedAt: 'desc' }, { stableKey: 'asc' }],
-        take: MAX_ALTERNATE_OBSERVATIONS + 1,
+        orderBy: [{ updatedAt: 'desc' }, { stableKey: 'asc' }, { id: 'asc' }],
+        ...(afterObservationId ? { cursor: { id: afterObservationId }, skip: 1 } : {}),
+        take: ALTERNATE_OBSERVATION_PAGE_SIZE + 1,
         select: {
           id: true, taskId: true, source: true, label: true, attributes: true,
           task: { select: { runToken: true, completedAt: true, provider: { select: { pluginId: true } } } },
@@ -119,11 +125,12 @@ export async function GET(request: Request, { params }: RouteParams) {
       currentTaskPromise,
     ])
 
-    const rowsTruncated = matchingRows.length > MAX_ALTERNATE_OBSERVATIONS
-    const rows = matchingRows.slice(0, MAX_ALTERNATE_OBSERVATIONS)
+    const rowsTruncated = matchingRows.length > ALTERNATE_OBSERVATION_PAGE_SIZE
+    const rows = matchingRows.slice(0, ALTERNATE_OBSERVATION_PAGE_SIZE)
     const seenProviders = new Set<string>()
     const alternates = []
-    let truncated = rowsTruncated
+    let stoppedAtDisplayLimit = false
+    let lastScannedObservationId = afterObservationId || null
     let rootPath: string
     try {
       rootPath = await realpath(derivedArtifactRoot())
@@ -140,7 +147,7 @@ export async function GET(request: Request, { params }: RouteParams) {
       ? attributes.reipaAlternateProviderVersion.slice(0, 120)
       : ''
     const reipaPrefix = `${projectId}/${unit.artifactId}/${unit.taskId}/${currentTask?.runToken || ''}/`
-    if (alternates.length < MAX_ALTERNATES && unit.source === 'reamon-ghidra'
+    if (!afterObservationId && alternates.length < MAX_ALTERNATES && unit.source === 'reamon-ghidra'
       && currentTask?.provider?.pluginId === 'reamon-ghidra' && currentTask.runToken
       && reipaVersion.startsWith('ReIPA@') && /^ReIPA@[a-f0-9]{40}$/.test(reipaVersion)
       && /^[a-f0-9]{64}$/.test(reipaHash) && reipaArtifactId.startsWith(reipaPrefix)) {
@@ -310,11 +317,12 @@ export async function GET(request: Request, { params }: RouteParams) {
       }
     }
     for (const row of rows) {
-      if (!row.taskId || seenProviders.has(row.source)) continue
       if (alternates.length >= MAX_ALTERNATES) {
-        truncated = true
+        stoppedAtDisplayLimit = true
         break
       }
+      lastScannedObservationId = row.id
+      if (!row.taskId || seenProviders.has(row.source)) continue
       const task = row.task
       const candidate = record(row.attributes)
       const codeArtifactId = typeof candidate.codeArtifactId === 'string' ? candidate.codeArtifactId : ''
@@ -363,7 +371,12 @@ export async function GET(request: Request, { params }: RouteParams) {
       }
     }
 
-    return NextResponse.json({ alternates, truncated }, { headers: NO_STORE })
+    const hasMore = stoppedAtDisplayLimit || rowsTruncated
+    return NextResponse.json({
+      alternates,
+      truncated: hasMore,
+      nextCursor: hasMore ? lastScannedObservationId : null,
+    }, { headers: NO_STORE })
   } catch (error) {
     console.error('Failed to load alternate decompiler outputs:', error)
     return NextResponse.json({ error: 'Failed to load alternate decompiler outputs' }, { status: 500, headers: NO_STORE })

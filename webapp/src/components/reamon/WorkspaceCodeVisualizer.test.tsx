@@ -599,7 +599,12 @@ describe('WorkspaceCodeVisualizer', () => {
       completedAt: null, source: `int independent_${index}(void) { return ${index}; }`,
     }))
     const fetchMock = vi.fn((input: string) => {
-      if (input.includes('/visualizer/alternates?')) return Promise.resolve({ ok: true, json: async () => ({ alternates: outputs }) })
+      if (input.includes('/visualizer/alternates?')) {
+        const page = input.includes('after=observation-2')
+          ? { alternates: [{ ...outputs[1], id: 'alternate-2', providerId: 'provider-2', providerName: 'Provider C', source: 'int independent_2(void) { return 2; }' }], truncated: false, nextCursor: null }
+          : { alternates: outputs, truncated: true, nextCursor: 'observation-2' }
+        return Promise.resolve({ ok: true, json: async () => page })
+      }
       if (input.includes('/decompiled/')) return Promise.resolve({ ok: true, text: async () => 'int selected(void) { return 0; }' })
       return Promise.resolve({ ok: true, json: async () => ({ units: [native], total: 1, hasMore: false }) })
     })
@@ -615,6 +620,10 @@ describe('WorkspaceCodeVisualizer', () => {
     expect(within(outputGroup).getByRole('region', { name: 'Provider A output' })).toHaveTextContent('independent_0')
     expect(within(outputGroup).getByRole('region', { name: 'Provider B output' })).toHaveTextContent('independent_1')
     expect(within(outputGroup).getAllByText(/neither output is ground truth/)).toHaveLength(2)
+    fireEvent.click(screen.getByRole('button', { name: 'Load more provider outputs' }))
+    expect(await within(outputGroup).findByRole('region', { name: 'Provider C output' })).toHaveTextContent('independent_2')
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Load more provider outputs' })).not.toBeInTheDocument())
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('after=observation-2'), expect.any(Object))
   })
 
   test('labels the Android low-level pane as Smali', async () => {

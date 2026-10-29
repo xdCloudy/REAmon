@@ -55,7 +55,11 @@ async function arrangeProviderOutputs(count: number) {
     await mkdir(path.dirname(filePath), { recursive: true })
     await writeFile(filePath, sourceText)
   }
-  h.observations.mockResolvedValue(outputs.map(({ observation }) => observation))
+  const observations = outputs.map(({ observation }) => observation)
+  h.observations.mockImplementation((query: { cursor?: { id: string }; take: number }) => {
+    const cursorIndex = query.cursor ? observations.findIndex((row) => row.id === query.cursor?.id) : -1
+    return Promise.resolve(observations.slice(cursorIndex + 1, cursorIndex + 1 + query.take))
+  })
 }
 
 beforeEach(async () => {
@@ -101,21 +105,29 @@ describe('GET /api/projects/[id]/visualizer/alternates', () => {
     expect(result.alternates[7].source).toContain('function_7')
     expect(result.truncated).toBe(false)
     expect(h.tasks).not.toHaveBeenCalled()
-    expect(h.observations).toHaveBeenCalledWith(expect.objectContaining({ take: 501 }))
+    expect(h.observations).toHaveBeenCalledWith(expect.objectContaining({ take: 101 }))
     expect(h.observations.mock.calls[0][0].where.task).toEqual({
       is: { projectId: 'project-1', artifactId: 'artifact-1', capability: 'decompile', status: 'COMPLETED' },
     })
     expect(h.observations.mock.calls[0][0].select.task).toBeDefined()
   })
 
-  it('marks the comparison truncated when the provider-output bound is reached', async () => {
+  it('pages through provider outputs without hiding providers after the per-response bound', async () => {
     await arrangeProviderOutputs(34)
 
     const response = await GET(new Request('http://localhost?unitId=selected-unit'), routeParams)
-    const result = await response.json() as { alternates: Array<{ providerId: string }>; truncated: boolean }
+    const result = await response.json() as { alternates: Array<{ providerId: string }>; truncated: boolean; nextCursor: string | null }
 
     expect(response.status).toBe(200)
     expect(result.alternates).toHaveLength(32)
     expect(result.truncated).toBe(true)
+    expect(result.nextCursor).toBe('observation-31')
+
+    const nextResponse = await GET(new Request(`http://localhost?unitId=selected-unit&after=${result.nextCursor}`), routeParams)
+    const nextPage = await nextResponse.json() as { alternates: Array<{ providerId: string }>; truncated: boolean; nextCursor: string | null }
+    expect(nextPage.alternates.map((alternate) => alternate.providerId)).toEqual(['reamon-provider-32', 'reamon-provider-33'])
+    expect(nextPage.truncated).toBe(false)
+    expect(nextPage.nextCursor).toBeNull()
+    expect(h.observations.mock.calls[1][0].cursor).toEqual({ id: 'observation-31' })
   })
 })
