@@ -7,11 +7,11 @@ const artifact = {
   id: 'artifact-1', name: 'client.exe', originalName: 'client.exe', extension: 'exe', profile: { format: 'pe' },
 }
 
-function observation(assessment: string, family: string | null, evidence: string, imports?: string, importTableStatus?: string): WorkspaceObservation {
+function observation(assessment: string, family: string | null, evidence: string, imports?: string, importTableStatus?: string, indicatorStatus?: string): WorkspaceObservation {
   return {
     id: 'observation-1', projectId: 'project-1', taskId: 'task-1', targetId: null, artifactId: artifact.id,
     kind: 'fact', type: 'protection_assessment', key: 'artifact:artifact-1:protection-static-v1', source: 'reamon-protection-inspector',
-    attributes: { assessment, family, evidence, scope: 'PE headers and bounded section samples; no execution or unpacking', ...(imports ? { imports } : {}), ...(importTableStatus ? { importTableStatus } : {}) },
+    attributes: { assessment, family, evidence, scope: 'PE headers and bounded section samples; no execution or unpacking', ...(indicatorStatus ? { indicatorStatus } : {}), ...(imports ? { imports } : {}), ...(importTableStatus ? { importTableStatus } : {}) },
     createdAt: '2026-10-28T00:00:00.000Z', updatedAt: '2026-10-28T00:00:00.000Z',
   }
 }
@@ -30,6 +30,13 @@ describe('WorkspaceProtectionStatus', () => {
     expect(screen.getByText('Suspected indicators · UPX')).toBeTruthy()
     expect(screen.getByText('A UPX section marker was found.')).toBeTruthy()
     expect(screen.getByText(/Scope: PE headers/)).toBeTruthy()
+    expect(screen.queryByText('Confirmed')).toBeNull()
+  })
+
+  it('shows an observed marker without calling the protector confirmed', () => {
+    render(<WorkspaceProtectionStatus artifacts={[artifact]} observations={[observation('suspected', 'UPX', 'A UPX section marker was observed.', undefined, undefined, 'detected')]} />)
+    expect(screen.getByText('Marker observed · suspected UPX')).toBeTruthy()
+    expect(screen.getByText(/does not confirm that a protector is present/)).toBeTruthy()
     expect(screen.queryByText('Confirmed')).toBeNull()
   })
 

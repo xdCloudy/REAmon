@@ -11,5 +11,6 @@
 .identity > span, .result small { color: var(--text-tertiary); font-size: var(--text-xs); line-height: 1.4; overflow-wrap: anywhere; }
 .badge { width: fit-content; border-radius: var(--radius-sm); padding: 0.2rem 0.45rem; font-size: var(--text-xs); font-weight: var(--font-medium); }
 .suspected { color: var(--status-warning-text); background: var(--status-warning-bg); }
+.detected { color: var(--status-info-text); background: var(--accent-secondary-subtle); }
 .unknown, .pending { color: var(--status-info-text); background: var(--accent-secondary-subtle); }
 @media (max-width: 640px) { .header { align-items: flex-start; flex-direction: column; } .row { grid-template-columns: 1fr; gap: var(--space-2); } }

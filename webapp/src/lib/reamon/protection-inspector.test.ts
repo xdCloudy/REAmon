@@ -83,7 +83,7 @@ describe('static PE protection evidence', () => {
   test('reports UPX section markers as a suspected family, not confirmed protection', () => {
     const result = assessPeProtection(peFixture(['UPX0', 'UPX1']))
     expect(result).toMatchObject({
-      status: 'suspected', family: 'UPX', inspectedBytes: 1024, architecture: 'x86_64', entryPointRva: 0x1000,
+      status: 'suspected', indicatorStatus: 'detected', family: 'UPX', inspectedBytes: 1024, architecture: 'x86_64', entryPointRva: 0x1000,
       entryPointSection: 'UPX1',
       importDirectory: { rva: 0x3000, size: 0x80 },
       certificateTable: { fileOffset: 0x500, size: 0x80 },
@@ -98,7 +98,7 @@ describe('static PE protection evidence', () => {
       type: 'protection_assessment',
       key: 'artifact:artifact-a:protection-static-v1',
       attributes: {
-        assessment: 'suspected', family: 'UPX', confirmed: false, architecture: 'x86_64',
+        assessment: 'suspected', indicatorStatus: 'detected', family: 'UPX', confirmed: false, architecture: 'x86_64',
         entryPointSection: 'UPX1', importDirectoryRva: 0x3000, importDirectorySize: 0x80,
         certificateTableOffset: 0x500, certificateTableSize: 0x80,
       },
@@ -123,7 +123,7 @@ describe('static PE protection evidence', () => {
 
   test('records executable-section entropy only as a generic suspicion', () => {
     const result = assessPeProtection(peFixture(['.text']), new Map([[0, highEntropySample()]]))
-    expect(result).toMatchObject({ status: 'suspected', family: null, sampledBytes: 1024 })
+    expect(result).toMatchObject({ status: 'suspected', indicatorStatus: 'suspected', family: null, sampledBytes: 1024 })
     expect(result.sections[0]).toMatchObject({ sampledBytes: 1024, entropyBits: 8 })
     expect(result.evidence.join(' ')).toContain('does not identify a protection family')
     expect(protectionObservation(result, 'artifact-a').label).toBe('Protection indicator observed; family unknown')
@@ -303,11 +303,11 @@ Section Headers:
 
   test('reports ELF UPX section markers as suspicion and preserves the uncertainty', () => {
     const assessment = assessElfProtection(header, 4096)
-    expect(assessment).toMatchObject({ status: 'suspected', family: 'UPX', architecture: 'Advanced Micro Devices X86-64', entryPoint: '0x401000', inspectedBytes: 4096, outputTruncated: false })
+    expect(assessment).toMatchObject({ status: 'suspected', indicatorStatus: 'detected', family: 'UPX', architecture: 'Advanced Micro Devices X86-64', entryPoint: '0x401000', inspectedBytes: 4096, outputTruncated: false })
     expect(assessment.evidence.join(' ')).toContain('not confirmation of UPX packing')
     expect(elfProtectionObservation(assessment, 'elf-a')).toMatchObject({
       key: 'artifact:elf-a:protection-static-v1',
-      attributes: { assessment: 'suspected', family: 'UPX', confirmed: false },
+      attributes: { assessment: 'suspected', indicatorStatus: 'detected', family: 'UPX', confirmed: false },
     })
     expect(elfProtectionObservation(assessment, 'elf-a', 'task-a').key).toBe('artifact:elf-a:protection-static-v1:task:task-a')
     expect(elfProtectionObservation(assessment, 'elf-a', 'task-b').key).toBe('artifact:elf-a:protection-static-v1:task:task-b')

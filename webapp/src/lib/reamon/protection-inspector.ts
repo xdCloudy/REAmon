@@ -28,6 +28,7 @@ const ELF_TIMEOUT_MS = 30_000
 
 export interface ElfProtectionAssessment {
   status: 'suspected' | 'unknown'
+  indicatorStatus: 'detected' | 'suspected' | 'unknown'
   family: 'UPX' | null
   evidence: string[]
   architecture: string | null
@@ -115,6 +116,7 @@ export function assessElfProtection(
     }
   })
   const sectionFamily = sectionNames.some((name) => /^\.?UPX(?:0|1|2|!)$/i.test(name)) ? 'UPX' : null
+  let markerObserved = sectionFamily !== null
   let family: 'UPX' | null = sectionFamily
   if (sectionFamily) {
     structuralIndicator = true
@@ -172,6 +174,7 @@ export function assessElfProtection(
   }
   for (const segment of loadSegments) {
     if (segment.upxSignatureOffsets.length) {
+      markerObserved = true
       structuralIndicator = true
       family = 'UPX'
       evidence.push(`UPX! marker observed at file offset ${segment.upxSignatureOffsets.map((offset) => `0x${offset.toString(16)}`).join(', ')} in an ELF LOAD segment; this signature is a hypothesis, not confirmation of UPX packing.`)
@@ -200,6 +203,7 @@ export function assessElfProtection(
   if (outputTruncated) evidence.push('readelf output reached the configured byte limit; later section evidence may be missing.')
   return {
     status: structuralIndicator ? 'suspected' : 'unknown',
+    indicatorStatus: markerObserved ? 'detected' : structuralIndicator ? 'suspected' : 'unknown',
     family,
     evidence: evidence.length ? evidence : ['No recognized UPX marker or protection-related ELF structure was observed; protection may still be present.'],
     architecture,
@@ -223,6 +227,7 @@ export function elfProtectionObservation(assessment: ElfProtectionAssessment, ar
       : assessment.status === 'suspected' ? 'Protection indicator observed; family unknown' : 'Protection status unknown',
     attributes: {
       assessment: assessment.status,
+      indicatorStatus: assessment.indicatorStatus,
       family: assessment.family,
       architecture: assessment.architecture,
       entryPoint: assessment.entryPoint,
@@ -278,6 +283,7 @@ export function elfLoadSegmentObservations(segments: ElfLoadSegmentEvidence[], a
 
 export interface PeProtectionAssessment {
   status: 'suspected' | 'unknown'
+  indicatorStatus: 'detected' | 'suspected' | 'unknown'
   family: 'UPX' | null
   evidence: string[]
   architecture: string | null
@@ -363,7 +369,7 @@ export function assessPeProtection(
       || peOffset === null || peOffset + 24 > bytes.length
       || bytes.toString('ascii', peOffset, peOffset + 4) !== 'PE\0\0') {
     return {
-      status: 'unknown', family: null, evidence: ['A complete PE header was not available in the bounded header read.'],
+      status: 'unknown', indicatorStatus: 'unknown', family: null, evidence: ['A complete PE header was not available in the bounded header read.'],
       architecture: null, entryPointRva: null, entryPointSection: null,
       importDirectory: null, certificateTable: null, sections,
       imports, importTableStatus,
@@ -376,7 +382,7 @@ export function assessPeProtection(
   const optionalHeaderSize = readUInt16LE(bytes, peOffset + 20)
   if (sectionCount === null || optionalHeaderSize === null || sectionCount > 96) {
     return {
-      status: 'unknown', family: null, evidence: ['PE section-table dimensions were missing or outside the supported bounds.'],
+      status: 'unknown', indicatorStatus: 'unknown', family: null, evidence: ['PE section-table dimensions were missing or outside the supported bounds.'],
       architecture: null, entryPointRva: null, entryPointSection: null,
       importDirectory: null, certificateTable: null, sections,
       imports, importTableStatus,
@@ -465,6 +471,7 @@ export function assessPeProtection(
 
   return {
     status: evidence.length ? 'suspected' : 'unknown',
+    indicatorStatus: upxMarkerPresent ? 'detected' : evidence.length ? 'suspected' : 'unknown',
     family: upxMarkerPresent ? 'UPX' : null,
     evidence: evidence.length ? evidence : ['No recognized UPX section-name marker was found; other protection may still be present.'],
     architecture,
@@ -600,6 +607,7 @@ export function peSectionObservations(sections: PeSectionEvidence[], artifactId?
 export function protectionObservation(assessment: PeProtectionAssessment, artifactId?: string, taskId?: string) {
   const attributes: ObservationAttributes = {
     assessment: assessment.status,
+    indicatorStatus: assessment.indicatorStatus,
     family: assessment.family,
     architecture: assessment.architecture,
     entryPointRva: assessment.entryPointRva,

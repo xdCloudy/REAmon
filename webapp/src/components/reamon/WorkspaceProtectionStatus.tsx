@@ -11,10 +11,13 @@ interface ProtectionArtifact {
   profile: { format: string }
 }
 
-function assessmentLabel(observation: WorkspaceObservation | undefined): { label: string; state: 'suspected' | 'unknown' | 'pending'; family: string | null } {
+function assessmentLabel(observation: WorkspaceObservation | undefined): { label: string; state: 'detected' | 'suspected' | 'unknown' | 'pending'; family: string | null } {
   if (!observation) return { label: 'Not inspected', state: 'pending', family: null }
   const assessment = observation.attributes.assessment
   const family = typeof observation.attributes.family === 'string' ? observation.attributes.family : null
+  if (observation.attributes.indicatorStatus === 'detected') {
+    return { label: 'Marker observed', state: 'detected', family: family ? `suspected ${family}` : null }
+  }
   if (assessment === 'suspected') return { label: 'Suspected indicators', state: 'suspected', family }
   return { label: 'Unknown', state: 'unknown', family: null }
 }
@@ -60,7 +63,7 @@ export function WorkspaceProtectionStatus({ artifacts, observations, hasMoreArti
         <span className={styles.count}>{binaries.length} PE/ELF file{binaries.length === 1 ? '' : 's'}</span>
       </div>
       <p className={styles.note}>
-        This summary covers the {binaries.length} PE/ELF file{binaries.length === 1 ? '' : 's'} currently loaded in the overview{hasMoreArtifacts ? '; additional project files are not included in this page.' : '.'} A suspected family is an evidence-backed hypothesis. No target was executed or unpacked by this inspection; “unknown” does not mean unprotected.
+        This summary covers the {binaries.length} PE/ELF file{binaries.length === 1 ? '' : 's'} currently loaded in the overview{hasMoreArtifacts ? '; additional project files are not included in this page.' : '.'} A detected marker does not confirm that a protector is present; a suspected family is an evidence-backed hypothesis. No target was executed or unpacked by this inspection; “unknown” does not mean unprotected.
       </p>
       <ul className={styles.list}>
         {binaries.map((artifact) => {

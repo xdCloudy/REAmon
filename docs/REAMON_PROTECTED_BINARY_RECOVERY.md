@@ -8,7 +8,11 @@ is limited to static PE and ELF inspectors. The PE inspector reads at most 1 MiB
 headers and samples at most 64 KiB from each executable section, with a 256 KiB aggregate
 sample cap. It records section metadata, architecture, entry-point RVA-to-section mapping,
 import and certificate directory locations, sampled Shannon entropy, malformed raw ranges,
-and conventional UPX section-name indicators as **suspected** evidence. The ELF inspector
+and conventional UPX section-name indicators. Persisted PE/ELF assessments now expose
+`indicatorStatus` separately from protection assessment: a recognized UPX marker is
+`detected`, structural evidence without a marker is `suspected`, and no recognized
+indicator is `unknown`. The project UI labels a marker as observed and keeps any family
+hypothesis explicitly suspected; no marker confirms that a protector is present. The ELF inspector
 uses `readelf` with a 1 MiB output cap and 30-second timeout to record ELF header, program
 header, and section evidence. It samples at most 64 KiB per executable section and 256 KiB
 in aggregate, recording section offsets, sizes, sampled entropy, and out-of-file ranges. It
