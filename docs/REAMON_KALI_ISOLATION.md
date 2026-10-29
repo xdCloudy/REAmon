@@ -214,9 +214,13 @@ On 2026-10-26, `kali_shell`, `execute_code`, `proxy_brain`, and `execute_playwri
 The trusted executor injects a signed tag; the agent verifies it through
 `/execution/resolve-context`; and each run uses a user/mount namespace with
 project-only `/workspace` plus a PID namespace. `/tmp` maps to project scratch
-at `.reamon-tmp`, allowing generated files to survive across commands in the
-same project; files older than 24 hours are pruned when a scoped run starts.
-`/var/tmp`, `/dev/shm`, and `/opt/output` are per-run private tmpfs mounts.
+at `.reamon-tmp`, allowing generated files to survive across worker calls so a
+later transfer can move them into `tool-outputs`. This scratch is shared by
+workers for the same project and has no aggregate quota; per-file `RLIMIT_FSIZE`
+does not prevent many smaller files from exhausting its backing filesystem.
+The broker no longer prunes this shared path at worker startup, avoiding races
+with active file handoffs. `/var/tmp`, `/dev/shm`, and `/opt/output` are per-run
+private tmpfs mounts.
 The selected project root is mode 0755, while the trusted agent prepares
 `.reamon-tmp` as mode 0700 and `tool-outputs` as mode 0777 for the mapped
 unprivileged UID. The agent rejects a symlinked project root or output
