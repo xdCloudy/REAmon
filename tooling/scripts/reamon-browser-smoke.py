@@ -74,6 +74,11 @@ with sync_playwright() as playwright:
     if ACCEPTANCE_PROJECT_ID:
         page.goto(f"{BASE_URL}/projects/{ACCEPTANCE_PROJECT_ID}", wait_until="networkidle")
         page.locator("summary").filter(has_text="Tasks and findings").click()
+        page.get_by_text("Investigation queue", exact=True).click()
+        expect(page.get_by_text("Browser investigation queue smoke")).to_be_visible()
+        expect(page.get_by_text("decode_entry · running")).to_be_visible()
+        expect(page.get_by_text("decode_footer · succeeded · candidate saved · unavailable")).to_be_visible()
+        expect(page.locator("body")).not_to_contain_text("return 3;")
         approve = page.get_by_role("button", name=re.compile(r"^Approve "))
         expect(approve).to_have_count(1)
         approve.click()
@@ -151,4 +156,4 @@ with sync_playwright() as playwright:
 
     browser.close()
 
-print("PASS: browser login, workspace import, and operator approval controls")
+print("PASS: browser login, workspace import, investigation queue, and operator approval controls")

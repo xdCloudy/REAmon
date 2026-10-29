@@ -265,6 +265,11 @@ jobs:
           python3 -m pip install --disable-pip-version-check --no-cache-dir playwright==1.62.0
           python3 -m playwright install --with-deps chromium
 
+      - name: Seed browser investigation queue fixture
+        run: |
+          project_id="$(node -e 'const fs=require("fs"); const value=JSON.parse(fs.readFileSync("/tmp/reamon-acceptance-state.json", "utf8")); process.stdout.write(value.projectId)')"
+          docker compose exec -T -e REAMON_BROWSER_PROJECT_ID="$project_id" webapp node scripts/seed-investigation-queue-smoke.mjs
+
       - name: Run browser login smoke test
         env:
           REAMON_BROWSER_BASE_URL: http://127.0.0.1:3000
