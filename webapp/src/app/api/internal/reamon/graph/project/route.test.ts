@@ -1,9 +1,9 @@
 /** @vitest-environment node */
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 
-const mocks = vi.hoisted(() => ({ internal: vi.fn(), project: vi.fn(), reconcile: vi.fn(), close: vi.fn(), activityCreate: vi.fn(), projectionRunUpsert: vi.fn(), projectionRunUpdate: vi.fn(), queryRaw: vi.fn(), executeRaw: vi.fn() }))
+const mocks = vi.hoisted(() => ({ internal: vi.fn(), project: vi.fn(), reconcile: vi.fn(), close: vi.fn(), activityCreate: vi.fn(), projectionRunFindFirst: vi.fn(), projectionLeaseFindUnique: vi.fn(), projectionRunUpsert: vi.fn(), projectionRunUpdate: vi.fn(), queryRaw: vi.fn(), executeRaw: vi.fn() }))
 vi.mock('@/lib/session', () => ({ isInternalRequest: mocks.internal }))
-vi.mock('@/lib/prisma', () => ({ default: { workspaceActivity: { create: mocks.activityCreate }, reamonProjectionRun: { upsert: mocks.projectionRunUpsert, update: mocks.projectionRunUpdate }, $queryRaw: mocks.queryRaw, $executeRaw: mocks.executeRaw } }))
+vi.mock('@/lib/prisma', () => ({ default: { workspaceActivity: { create: mocks.activityCreate }, reamonProjectionRun: { findFirst: mocks.projectionRunFindFirst, upsert: mocks.projectionRunUpsert, update: mocks.projectionRunUpdate }, reamonProjectionLease: { findUnique: mocks.projectionLeaseFindUnique }, $queryRaw: mocks.queryRaw, $executeRaw: mocks.executeRaw } }))
 vi.mock('@/lib/reamon/observation-projector', () => ({
   MAX_PROJECTED_OBSERVATIONS: 10000,
   projectReamonObservations: mocks.project,
@@ -20,6 +20,8 @@ beforeEach(() => {
   mocks.reconcile.mockResolvedValue({ deletedNodes: 1, deletedRelationships: 2 })
   mocks.close.mockResolvedValue(undefined)
   mocks.activityCreate.mockResolvedValue({ id: 'activity-1' })
+  mocks.projectionRunFindFirst.mockResolvedValue(null)
+  mocks.projectionLeaseFindUnique.mockResolvedValue(null)
   mocks.projectionRunUpsert.mockResolvedValue({ projectionRunId: 'run-1' })
   mocks.projectionRunUpdate.mockResolvedValue({ projectionRunId: 'run-1' })
   mocks.queryRaw.mockResolvedValue([{ project_id: 'project-1' }])
@@ -88,6 +90,50 @@ describe('POST /api/internal/reamon/graph/project', () => {
     expect(response.status).toBe(200)
     expect(await response.json()).toMatchObject({ projectionRunId: 'run-1' })
     expect(mocks.projectionRunUpsert).toHaveBeenCalledWith({ where: { projectionRunId: 'run-1' }, create: expect.objectContaining({ projectId: 'project-1', offset: 1000 }), update: {} })
+  })
+
+  test('resumes an incomplete run from its persisted offset after its lease expires', async () => {
+    mocks.projectionRunFindFirst.mockResolvedValue({
+      projectionRunId: 'incomplete-run', status: 'RUNNING', offset: 400, selected: 1000, truncated: true,
+    })
+    mocks.projectionLeaseFindUnique.mockResolvedValue({ leaseUntil: new Date(Date.now() - 1_000) })
+
+    const response = await POST(new Request('http://localhost', {
+      method: 'POST',
+      body: JSON.stringify({ projectId: 'project-1', limit: 1000 }),
+      headers: { 'Content-Type': 'application/json' },
+    }) as never)
+
+    expect(response.status).toBe(200)
+    expect(mocks.projectionRunFindFirst).toHaveBeenCalledOnce()
+    expect(mocks.projectionLeaseFindUnique).toHaveBeenCalledOnce()
+    expect(mocks.projectionRunUpsert).toHaveBeenCalledWith({
+      where: { projectionRunId: 'incomplete-run' },
+      create: expect.objectContaining({ projectId: 'project-1', offset: 1400 }),
+      update: {},
+    })
+    expect(mocks.project).toHaveBeenCalledWith('project-1', expect.anything(), 1000, undefined, 1400, 'incomplete-run')
+    expect(mocks.activityCreate.mock.calls[0][0]).toMatchObject({
+      data: { data: expect.objectContaining({ projectionRunId: 'incomplete-run', offset: 1400, resumed: true }) },
+    })
+  })
+
+  test('does not resume or steal an incomplete run while another lease is live', async () => {
+    mocks.projectionRunFindFirst.mockResolvedValue({
+      projectionRunId: 'incomplete-run', status: 'RUNNING', offset: 400, selected: 1000, truncated: true,
+    })
+    mocks.projectionLeaseFindUnique.mockResolvedValue({ leaseUntil: new Date(Date.now() + 60_000) })
+    mocks.queryRaw.mockResolvedValueOnce([])
+
+    const response = await POST(new Request('http://localhost', {
+      method: 'POST',
+      body: JSON.stringify({ projectId: 'project-1' }),
+      headers: { 'Content-Type': 'application/json' },
+    }) as never)
+
+    expect(response.status).toBe(409)
+    expect(mocks.project).not.toHaveBeenCalled()
+    expect(mocks.projectionRunUpsert).not.toHaveBeenCalled()
   })
 
   test('records a durable failure when graph projection cannot complete', async () => {

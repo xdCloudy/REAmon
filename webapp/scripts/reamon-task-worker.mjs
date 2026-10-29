@@ -6,6 +6,10 @@ const DEFAULT_BATCH_SIZE = 1
 const DEFAULT_REWRITE_BATCH_SIZE = 3
 const DEFAULT_STALE_AFTER_MINUTES = 30
 const DEFAULT_PROJECTION_TIMEOUT_MS = 240_000
+const DEFAULT_PROJECTION_PAGE_SIZE = 1_000
+const MIN_PROJECTION_PAGE_SIZE = 100
+const MAX_PROJECTION_PAGE_SIZE = 10_000
+const MAX_PROJECTION_OFFSET = 1_000_000
 const MAX_POLL_SECONDS = 300
 const MAX_BATCH_SIZE = 10
 const MAX_STALE_AFTER_MINUTES = 24 * 60
@@ -14,7 +18,6 @@ const MAX_PROJECTION_TIMEOUT_MS = 240_000
 // task settlement; the analyzer itself has a 150-minute deadline.
 const TASK_DISPATCH_TIMEOUT_MS = 160 * 60_000
 const MAX_WORKER_ID_LENGTH = 128
-const MAX_PROJECTION_PAGES = 100
 const DEFAULT_BACKFILL_INTERVAL_SECONDS = 300
 const MAX_BACKFILL_INTERVAL_SECONDS = 24 * 60 * 60
 const DEFAULT_BACKFILL_BATCH_SIZE = 5
@@ -67,6 +70,7 @@ export function readWorkerConfig(env = process.env) {
     batchSize: boundedNumber(env.REAMON_WORKER_BATCH_SIZE, DEFAULT_BATCH_SIZE, 1, MAX_BATCH_SIZE),
     staleAfterMinutes: boundedNumber(env.REAMON_WORKER_STALE_AFTER_MINUTES, DEFAULT_STALE_AFTER_MINUTES, 5, MAX_STALE_AFTER_MINUTES),
     projectionTimeoutMs: boundedNumber(env.REAMON_WORKER_PROJECTION_TIMEOUT_MS, DEFAULT_PROJECTION_TIMEOUT_MS, 20_000, MAX_PROJECTION_TIMEOUT_MS),
+    projectionPageSize: boundedNumber(env.REAMON_WORKER_PROJECTION_PAGE_SIZE, DEFAULT_PROJECTION_PAGE_SIZE, MIN_PROJECTION_PAGE_SIZE, MAX_PROJECTION_PAGE_SIZE),
     backfillIntervalSeconds: boundedNumber(env.REAMON_WORKER_BACKFILL_INTERVAL_SECONDS, DEFAULT_BACKFILL_INTERVAL_SECONDS, 0, MAX_BACKFILL_INTERVAL_SECONDS),
     backfillBatchSize: boundedNumber(env.REAMON_WORKER_BACKFILL_BATCH_SIZE, DEFAULT_BACKFILL_BATCH_SIZE, 1, MAX_BACKFILL_BATCH_SIZE),
     retentionIntervalSeconds: boundedNumber(env.REAMON_WORKER_RETENTION_INTERVAL_SECONDS, DEFAULT_RETENTION_INTERVAL_SECONDS, 0, MAX_RETENTION_INTERVAL_SECONDS),
@@ -172,7 +176,12 @@ export async function dispatchCodeRewritesOnce(config, fetchImpl = fetch, logger
 }
 
 export async function projectOnce(config, projectId, fetchImpl = fetch, logger = console, offset = 0, projectionRunId = null) {
-  const body = { projectId, ...(offset > 0 ? { offset } : {}), ...(projectionRunId ? { projectionRunId } : {}) }
+  const body = {
+    projectId,
+    limit: config.projectionPageSize || DEFAULT_PROJECTION_PAGE_SIZE,
+    ...(offset > 0 ? { offset } : {}),
+    ...(projectionRunId ? { projectionRunId } : {}),
+  }
   const response = await fetchImpl(`${config.webappUrl}/api/internal/reamon/graph/project`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-internal-key': config.internalKey },
@@ -235,7 +244,9 @@ export async function runRetentionOnce(config, fetchImpl = fetch, logger = conso
 async function projectAllPages(config, projectId, fetchImpl, logger) {
   let offset = 0
   let projectionRunId = null
-  for (let page = 0; page < MAX_PROJECTION_PAGES; page += 1) {
+  const pageSize = config.projectionPageSize || DEFAULT_PROJECTION_PAGE_SIZE
+  const maximumPages = Math.ceil(MAX_PROJECTION_OFFSET / pageSize)
+  for (let page = 0; page < maximumPages; page += 1) {
     const result = await projectOnce(config, projectId, fetchImpl, logger, offset, projectionRunId)
     if (!result?.truncated) return
     if (typeof result.projectionRunId === 'string' && result.projectionRunId) projectionRunId = result.projectionRunId
@@ -246,7 +257,7 @@ async function projectAllPages(config, projectId, fetchImpl, logger) {
     }
     offset = nextOffset
   }
-  logger.warn(`[reamon-worker] graph projection reached the ${MAX_PROJECTION_PAGES}-page safety limit for project ${projectId}`)
+  logger.warn(`[reamon-worker] graph projection reached the ${maximumPages}-page safety limit for project ${projectId}`)
 }
 
 function createProjectionScheduler(config, fetchImpl, logger) {

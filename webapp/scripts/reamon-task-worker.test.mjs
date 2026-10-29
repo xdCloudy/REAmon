@@ -13,9 +13,12 @@ describe('REAmon task worker', () => {
       REAMON_WORKER_STALE_AFTER_MINUTES: '1',
       REAMON_WORKER_BACKFILL_INTERVAL_SECONDS: '999999',
       REAMON_WORKER_BACKFILL_BATCH_SIZE: '99',
+      REAMON_WORKER_PROJECTION_PAGE_SIZE: '99999',
       REAMON_WORKER_LIVENESS_TIMEOUT_SECONDS: '1',
       REAMON_WORKER_ID: 'worker-a',
-    })).toMatchObject({ webappUrl: 'http://webapp:3000', pollSeconds: 300, batchSize: 10, staleAfterMinutes: 5, backfillIntervalSeconds: 86400, backfillBatchSize: 10, localLivenessTimeoutSeconds: 60, workerId: 'worker-a' })
+    })).toMatchObject({ webappUrl: 'http://webapp:3000', pollSeconds: 300, batchSize: 10, staleAfterMinutes: 5, backfillIntervalSeconds: 86400, backfillBatchSize: 10, projectionPageSize: 10_000, localLivenessTimeoutSeconds: 60, workerId: 'worker-a' })
+    expect(readWorkerConfig({ INTERNAL_API_KEY: 'secret' }).projectionPageSize).toBe(1_000)
+    expect(readWorkerConfig({ INTERNAL_API_KEY: 'secret', REAMON_WORKER_PROJECTION_PAGE_SIZE: '1' }).projectionPageSize).toBe(100)
   })
 
   test('checks the persisted health of the worker identity chosen by its runtime config', async () => {
@@ -87,7 +90,7 @@ describe('REAmon task worker', () => {
     expect(fetchImpl).toHaveBeenCalledWith('http://webapp:3000/api/internal/reamon/graph/project', expect.objectContaining({
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-internal-key': 'secret' },
-      body: JSON.stringify({ projectId: 'project-1' }),
+      body: JSON.stringify({ projectId: 'project-1', limit: 1_000 }),
     }))
   })
 
@@ -113,7 +116,7 @@ describe('REAmon task worker', () => {
     await projectOnce({ webappUrl: 'http://webapp:3000', internalKey: 'secret', workerId: 'worker-a' }, 'project-1', fetchImpl, logger, 100)
 
     expect(fetchImpl).toHaveBeenCalledWith('http://webapp:3000/api/internal/reamon/graph/project', expect.objectContaining({
-      body: JSON.stringify({ projectId: 'project-1', offset: 100 }),
+      body: JSON.stringify({ projectId: 'project-1', limit: 1_000, offset: 100 }),
     }))
   })
 
@@ -138,7 +141,7 @@ describe('REAmon task worker', () => {
     await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(3))
 
     expect(fetchImpl.mock.calls[1][0]).toBe('http://webapp:3000/api/internal/reamon/graph/project')
-    expect(JSON.parse(fetchImpl.mock.calls[2][1].body)).toEqual({ projectId: 'project-1', offset: 1, projectionRunId: 'run-1' })
+    expect(JSON.parse(fetchImpl.mock.calls[2][1].body)).toEqual({ projectId: 'project-1', limit: 1_000, offset: 1, projectionRunId: 'run-1' })
   })
 
   test('round-robins a bounded historical backfill page', async () => {
@@ -155,7 +158,7 @@ describe('REAmon task worker', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(3)
     expect(fetchImpl.mock.calls[1][0]).toBe('http://webapp:3000/api/internal/reamon/graph/backfill')
     expect(JSON.parse(fetchImpl.mock.calls[1][1].body)).toEqual({ limit: 2, offset: 0 })
-    expect(JSON.parse(fetchImpl.mock.calls[2][1].body)).toEqual({ projectId: 'project-old' })
+    expect(JSON.parse(fetchImpl.mock.calls[2][1].body)).toEqual({ projectId: 'project-old', limit: 1_000 })
   })
 
   test('runs retention in dry-run mode by default and never sends credentials in the body', async () => {
