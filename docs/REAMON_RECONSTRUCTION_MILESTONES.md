@@ -271,7 +271,11 @@ observations or success evidence. Provider-asserted derived-source hashes are no
 trusted unless REAmon verifies the file bytes. The queue does not yet create per-unit
 cases, dispatch agents, or track investigation attempts.
 The existing rewrite-attempt queue persists AI source attempts, but it is not the
-failed-provider/unit investigation lifecycle specified below.
+failed-provider/unit investigation lifecycle specified below. A separate internal
+agent endpoint now accepts bounded static instruction, control-flow, reference, and
+attributed provider evidence and returns a hash-linked C/C++ source candidate with
+explicit uncertainty and syntax-only validation. The endpoint is not yet invoked by
+the case queue and does not persist attempts or establish behavioral correctness.
 
 ### Acceptance
 

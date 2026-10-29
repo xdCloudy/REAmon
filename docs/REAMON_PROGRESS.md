@@ -1,6 +1,6 @@
 # REAmon product progress
 
-Assessment date: 2026-10-28 · Source: pushed commit `ad0b7aa` · Weighted estimate: **30.8%**
+Assessment date: 2026-10-29 · Source: the current local worktree · Weighted estimate: **30.8%**
 
 This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.
 
@@ -108,7 +108,7 @@ Quality run [40247230850](https://github.com/xdCloudy/REAmon/actions/runs/402472
 
 ### Multi-provider semantic reconciliation
 
-**Current evidence:** Hash-linked provider alternatives, bounded diffs, compatible function-similarity evidence, analyst-reviewed cross-provider matches, and provider-attributed project memory are implemented. A first persistent investigation-intake slice lets an authorized project member queue failed or cancelled decompile/disassemble runs. It stores a capped code-unit/function summary from structured provider failures, tied to the run token and original artifact hash, and snapshots it into the investigation case. This diagnostic summary is not ingested as canonical observations or success evidence; derived-source hashes are retained only when REAmon verifies the bytes. It does not dispatch an agent or resolve semantic contradictions. The code visualizer now renders the selected result beside all stored hash-verified compatible alternate outputs at once; a separately selected alternate controls the optional pairwise text diff, which remains explicitly non-behavioral evidence.
+**Current evidence:** Hash-linked provider alternatives, bounded diffs, compatible function-similarity evidence, analyst-reviewed cross-provider matches, and provider-attributed project memory are implemented. A first persistent investigation-intake slice lets an authorized project member queue failed or cancelled decompile/disassemble runs; bounded failure and partial-unit evidence remains diagnostic rather than canonical. The agent now has a static-only C/C++ manual-decompilation endpoint accepting bounded assembly/bytecode, CFG, reference, and attributed provider evidence, and returning a separate candidate with input/evidence and source hashes, uncertainty fields, and syntax-only validation status. This endpoint is not connected to the persisted case queue and does not store attempts or prove behavior. The code visualizer renders selected output beside hash-verified compatible alternate outputs, with an explicitly non-behavioral pairwise text diff.
 
 **Remaining:** Implement general disagreement classification for unit boundaries, logic, CFG, data flow, types, references, and symbols; account for correlated provider ancestry; rank claims using benchmark-calibrated evidence; support targeted follow-up; and complete the failed-provider-unit lifecycle with worker claims, resumable attempts, cancellation, enforced budgets, evidence-linked source diffs, human review, validation, and rollback. Meet M5 held-out accuracy, calibration, and resolution gates.
 
