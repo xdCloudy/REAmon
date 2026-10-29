@@ -1,6 +1,6 @@
 # REAmon product progress
 
-Assessment date: 2026-10-29 · Source: pushed commit `c61f44a` · Weighted estimate: **31.8%**
+Assessment date: 2026-10-29 · Source: pushed commit `e936f87` · Weighted estimate: **31.8%**
 
 This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.
 
@@ -22,7 +22,7 @@ Quality run [40247230850](https://github.com/xdCloudy/REAmon/actions/runs/402472
 | Static and dynamic analysis fusion | 1% | 5% | 0.05 pts |
 | Autonomous whole-project reconstruction and rebuilding | 6% | 22% | 1.32 pts |
 | Multi-provider semantic reconciliation | 7% | 30% | 2.10 pts |
-| Protected-binary analysis and recovery | 7% | 4% | 0.28 pts |
+| Protected-binary analysis and recovery | 7% | 5% | 0.35 pts |
 | Encrypted-binary and executable-region recovery | 5% | 0% | 0.00 pts |
 | Virtualized-code reconstruction | 5% | 0% | 0.00 pts |
 
@@ -114,9 +114,9 @@ Quality run [40247230850](https://github.com/xdCloudy/REAmon/actions/runs/402472
 
 ### Protected-binary analysis and recovery
 
-**Current evidence:** Bounded static PE inspection records section/header mappings, import/certificate directory locations, executable-section entropy, malformed raw ranges, and suspected UPX markers. The ELF inspector uses readelf with a 1 MiB output cap and 30-second timeout to assess headers, LOAD segments, section metadata, bounded section or PT_LOAD samples, UPX! signature offsets, entry-point anomalies, and writable/executable segments. PE sections, ELF sections, and ELF LOAD segments are persisted as project-scoped observations with stable artifact/task keys. Pinned UPX 5.2.1 Linux x86-64 clean/packed pairs at GCC -O0 and -O2 verify that clean fixtures remain unknown while packed fixtures are only suspected from bounded signature evidence. No target is executed or unpacked, and broad accuracy remains uncalibrated.
+**Current evidence:** Bounded static PE inspection records section/header mappings, import/certificate directory locations, executable-section entropy, malformed raw ranges, and suspected UPX markers. It now parses import descriptors, DLL names, imported names/ordinals with a 64 KiB total read cap, 32-library cap, 64 imports per library, and 256-import cap; provenance-scoped observations preserve the bounded results and the project overview labels them as static API clues. The ELF inspector uses readelf with a 1 MiB output cap and 30-second timeout to assess headers, LOAD segments, section metadata, bounded section or PT_LOAD samples, UPX! signature offsets, entry-point anomalies, and writable/executable segments. PE sections, ELF sections, ELF LOAD segments, and PE import summaries are persisted as project-scoped observations. Pinned UPX 5.2.1 Linux x86-64 clean/packed pairs at GCC -O0 and -O2 verify only the ELF signature suspicion path. Focused Docker parser and UI tests pass; no target is executed or unpacked, and broad accuracy remains uncalibrated.
 
-**Remaining:** Expand clean/protected paired fixtures across formats, architectures, compilers, UPX versions, and benign high-entropy controls; measure false positives and detection coverage; add versioned format detectors and immutable derived-layer storage; recover and report protected regions; connect them to the M5 investigation queue; implement isolated authorized dynamic analysis only after worker gates; validate exact tool/version/format combinations and surface status in UI/export.
+**Remaining:** Validate import parsing against broader PE32/PE32+ fixtures including ordinals, malformed tables, imports outside header reads, and cap exhaustion; expand clean/protected paired fixtures across formats, architectures, compilers, UPX versions, and benign high-entropy controls; measure false positives and detection coverage; add versioned format detectors and immutable derived-layer storage; recover and report protected regions; connect them to the M5 investigation queue; implement isolated authorized dynamic analysis only after worker gates; validate exact tool/version/format combinations and complete UI/export coverage.
 
 ### Encrypted-binary and executable-region recovery
 
