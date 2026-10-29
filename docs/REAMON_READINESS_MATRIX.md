@@ -1,31 +1,30 @@
 ## Current PC deployment evidence (2026-10-29)
 
-The HTTPS deployment template, single-host exposure guidance, Compose ticket-secret
-comment, and ticket-route comments now describe browser WebSocket authentication as
-ticketed and fail-closed. This is a documentation correction based on the existing
-`authorize_ws` gate; it does not close the separate release gate for authenticated
-browser-to-agent terminal acceptance; the prior CI live stack did not start the
-agent or isolated terminal worker.
+The local webapp and task worker are rebuilt from clean checkout
+`3c9c11a456dae40cc21f66899f421329d1168f09`. Both containers are healthy and use
+image `sha256:55d023ea9642dcc68c948250cf9ffe1359cfcfe23e49540222bd4764cbcb59b8`.
+The image revision label and both local and LAN `/api/health/ready` responses report
+that exact commit with `dirty=false`; database, Neo4j, and artifact checks are `ok`.
+The REAmon-specific Docker benchmark passes 16/16, and Docker type-check and lint
+pass for the current source.
 
-The quality workflow now includes those agent, broker, and isolated-worker services
-in its live browser smoke, which obtains a ticket from the authenticated webapp and
-runs a bounded command through the terminal. The workflow also checks that the
-terminal worker container and its separately labeled network are removed. This new
-gate has not yet completed in CI, so it is implementation evidence only until a run
-passes.
+GitHub quality run [40811805048](https://github.com/xdCloudy/REAmon/actions/runs/40811805048)
+for commit `9ad53f3869b69abc3a193e3ff8d9f3f86af7201f` has passed Compose validation,
+webapp checks, the agent dependency audit, and the production-image live acceptance
+job. That live job passed authenticated browser-to-terminal use, terminal-worker
+cleanup, two-replica crash/recovery, bounded load/soak, PostgreSQL/artifact restore,
+and Neo4j restore. Its canonical Docker unit gate is still running, so the overall
+workflow has not completed. The quality run for `fc1b3a007f576523215dab277bf83e59dc9de340`
+is pending with no jobs; no current-tip CI pass is claimed.
 
-On 2026-10-29, the canonical `bash ./redamon.sh test unit` gate passed locally
-from checkout `8c098dfc`: agent (3,788), root-agent (3,400), root-recon (570),
-recon (4,151), recon-orchestrator (597), AI attack-surface (209), capture proxy
-(138), and Docker broker (69), for 12,922 Docker-isolated tests total. All 25
-shell suites passed. The complete webapp Docker/Vitest run passed 613 files with
-24 skipped: 9,693 tests passed, 2 were expected failures, and 147 were skipped.
-The rebuilt webapp and task worker are healthy; local and LAN readiness endpoints
-return HTTP 200 with Postgres, Neo4j, and artifact checks `ok`. The deployed image
-does not expose a build revision (`unknown`), so this is runtime and test evidence,
-not a revision-verified deployment. The GitHub quality workflow for this checkout
-is pending with no jobs yet, and its authenticated browser-to-terminal smoke has
-not passed; those release gates remain open.
+The latest complete local canonical `bash ./redamon.sh test unit` gate passed from
+checkout `8c098dfc`: agent (3,788), root-agent (3,400), root-recon (570), recon
+(4,151), recon-orchestrator (597), AI attack-surface (209), capture proxy (138),
+and Docker broker (69), for 12,922 Docker-isolated tests total. All 25 shell suites
+passed. The complete webapp Docker/Vitest run passed 613 files with 24 skipped:
+9,693 tests passed, 2 were expected failures, and 147 were skipped. These full-suite
+counts predate the current M6 changes; the focused current-source checks above are
+not a substitute for rerunning the complete gate.
 
 Rechecked 2026-10-29: the REAmon Compose configuration validates, all active
 services report running/healthy, and local plus LAN readiness return HTTP 200.
