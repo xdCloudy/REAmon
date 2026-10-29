@@ -62,6 +62,27 @@ describe('POST investigation/run', () => {
     expect(attempt.sourceHash).toMatch(/^[a-f0-9]{64}$/)
   })
 
+  test('queues Java reconstruction from bytecode evidence', async () => {
+    mocks.investigationFindFirst.mockResolvedValue({
+      ...investigation,
+      failureEvidence: {
+        partialProviderOutput: { partialUnits: [{
+          type: 'function', key: 'method:Main.run', label: 'Main.run',
+          attributes: { language: 'Java', bytecode: 'iload_0\niadd\nireturn' },
+        }] },
+      },
+    })
+    const response = await POST(new Request('http://local', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ providerId: 'provider-1', unitKey: 'method:Main.run' }),
+    }), { params })
+
+    expect(response.status).toBe(202)
+    const attempt = mocks.attemptCreate.mock.calls[0][0].data
+    expect(attempt.language).toBe('Java')
+    expect(attempt.requestPayload).toMatchObject({ output_language: 'Java', assembly: 'iload_0\niadd\nireturn' })
+  })
+
   test('does not accept another user’s provider', async () => {
     mocks.providerFindFirst.mockResolvedValue(null)
     const response = await POST(new Request('http://local', { method: 'POST', body: JSON.stringify({ providerId: 'foreign-provider', unitKey: 'fn:1000' }) }), { params })
@@ -70,8 +91,8 @@ describe('POST investigation/run', () => {
     expect(mocks.attemptCreate).not.toHaveBeenCalled()
   })
 
-  test('does not claim support for other languages or missing unit instructions', async () => {
-    mocks.investigationFindFirst.mockResolvedValue({ ...investigation, capability: 'disassemble' })
+  test('rejects unsupported task capabilities', async () => {
+    mocks.investigationFindFirst.mockResolvedValue({ ...investigation, capability: 'inspect' })
     const response = await POST(new Request('http://local', { method: 'POST', body: JSON.stringify({ providerId: 'provider-1', unitKey: 'fn:1000' }) }), { params })
 
     expect(response.status).toBe(415)

@@ -272,22 +272,23 @@ trusted unless REAmon verifies the file bytes. Failure intake now copies allowli
 provider text and per-unit instruction fields into separate diagnostic snapshots,
 with a 48 KiB cap per evidence source family and hashes for each original field and
 captured excerpt. These fields remain non-canonical and untrusted when passed to an
-agent. The case queue now has a user-triggered Run action: the user chooses a saved
-OpenAI-compatible provider, and the webapp queues a static C/C++ reconstruction attempt
-through the durable code-attempt worker. The request stores bounded evidence, an input
-hash, provider/model, source identity, timeout, and case/task IDs. Results retain source
-and evidence hashes, uncertainty, syntax status, and
-`behavioral_validation=UNAVAILABLE`; they remain separate candidates and never become
-accepted source. The worker's existing claim heartbeat, timeout, cancellation endpoint,
-stale-run recovery, and retryable attempt history apply. The workspace can reload attempt
-history and display completed candidates without changing provider output.
+agent. The case queue has a user-triggered Run action: the user chooses a saved
+OpenAI-compatible provider and one captured function/code unit. The webapp queues a
+static reconstruction attempt through the durable code-attempt worker for C, C++, C#,
+Go, Java, JavaScript, Kotlin, Objective-C, Python, Rust, Swift, or TypeScript when a
+Tree-sitter grammar is available. Failed decompile and disassemble runs can use the
+same path when they retain supported instruction or bytecode evidence. The request
+stores bounded evidence, input/evidence hashes, provider/model, source identity, timeout,
+and case/task IDs. Results retain source and evidence hashes, uncertainty, syntax status,
+and `behavioral_validation=UNAVAILABLE`; they remain separate candidates and never
+become accepted source. Existing attempt claims, heartbeats, cancellation, stale-run
+recovery, retry history, and workspace reload apply.
 
-This is a narrow vertical slice: the workspace now lists captured C/C++ units and
-requires an explicit unit selection; broad language or provider coverage is not
-established. Investigation budgets, per-unit case fan-out,
-automatic provider follow-ups, candidate diff/review receipts, benchmark accuracy, and
-behavioral validation remain open. Disassembly-only cases are retained but do not yet
-run through this source-candidate path.
+This remains a narrow single-unit fallback, not a universal decompiler or autonomous
+agent workflow. The allowlist and grammar availability bound current output languages;
+provider completeness, per-unit case fan-out, investigation budgets, targeted provider
+follow-ups, candidate diffs/review receipts, benchmark accuracy, and behavioral
+validation remain open. Syntax parsing is not evidence of semantic correctness.
 
 ### Acceptance
 

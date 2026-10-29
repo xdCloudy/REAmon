@@ -58,6 +58,25 @@ describe('/api/projects/[id]/workspace/tasks/[taskId]/investigation', () => {
     expect(mocks.investigationFindFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { projectId: 'project-1', taskId: 'task-1' } }))
   })
 
+  test('offers Java bytecode and other supported-language units for reconstruction', async () => {
+    mocks.investigationFindFirst.mockResolvedValue({
+      id: 'case-1', status: 'QUEUED', failureEvidence: {
+        partialProviderOutput: { partialUnits: [
+          { type: 'function', key: 'java:1', label: 'Main.run', attributes: { language: 'Java', bytecode: 'iload_0\nireturn' } },
+          { type: 'function', key: 'rust:2', label: 'run', attributes: { language: 'Rust', instructions: 'ret' } },
+          { type: 'function', key: 'unknown:3', label: 'unknown', attributes: { language: 'unknown', instructions: 'ret' } },
+        ] },
+      },
+    })
+
+    const response = await GET(new Request('http://local'), { params })
+
+    expect((await response.json()).candidateUnits).toEqual([
+      { key: 'java:1', label: 'Main.run', language: 'java', instructionFields: ['bytecode'] },
+      { key: 'rust:2', label: 'run', language: 'rust', instructionFields: ['instructions'] },
+    ])
+  })
+
   test('requires an authenticated user before reading the queue', async () => {
     mocks.requireEffectiveUser.mockResolvedValue(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }))
 

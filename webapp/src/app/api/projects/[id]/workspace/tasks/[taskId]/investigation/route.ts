@@ -14,6 +14,10 @@ const MAX_PARTIAL_UNIT_TEXT_BYTES = 48 * 1024
 const MAX_PARTIAL_UNIT_TEXT_FIELD_BYTES = 8 * 1024
 const MAX_PROVIDER_TEXT_BYTES = 48 * 1024
 const MAX_PROVIDER_TEXT_FIELD_BYTES = 24 * 1024
+const MANUAL_RECONSTRUCTION_LANGUAGES = new Set([
+  'c', 'c++', 'c#', 'csharp', 'go', 'java', 'javascript', 'kotlin',
+  'objective-c', 'objective c', 'python', 'rust', 'swift', 'typescript',
+])
 const PROVIDER_TEXT_FIELDS = ['assembly', 'disassembly', 'bytecode', 'instructions', 'controlFlow', 'dataReferences', 'ir', 'output', 'stdout', 'stderr'] as const
 const PARTIAL_UNIT_TEXT_FIELDS = new Set(['assembly', 'disassembly', 'bytecode', 'instructions', 'controlFlow', 'dataReferences', 'ir', 'providerOutput'])
 const PARTIAL_UNIT_ATTRIBUTE_KEYS = [
@@ -199,7 +203,7 @@ export async function GET(request: Request, { params }: RouteParams) {
       const language = typeof attributes.language === 'string' ? attributes.language.toLowerCase() : ''
       const instructionFields = ['assembly', 'disassembly', 'bytecode', 'instructions']
         .filter((field) => typeof attributes[field] === 'string' && (attributes[field] as string).trim())
-      if (typeof unit.key !== 'string' || !unit.key.trim() || !['c', 'c++'].includes(language) || !instructionFields.length) return []
+      if (typeof unit.key !== 'string' || !unit.key.trim() || !MANUAL_RECONSTRUCTION_LANGUAGES.has(language) || !instructionFields.length) return []
       return [{ key: unit.key.slice(0, 500), label: typeof unit.label === 'string' ? unit.label.slice(0, 500) : unit.key.slice(0, 500), language, instructionFields }]
     }).slice(0, MAX_PARTIAL_UNITS)
     const status = latestAttempt?.status || investigation?.status || null

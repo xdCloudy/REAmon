@@ -236,8 +236,16 @@ async function main() {
     reason: 'Staging worker recovery acceptance',
   }, cookie))
   expect(approvedFailover.body?.task?.status === 'QUEUED', 'worker failover task was not queued after approval')
+
+  const browserApproval = await request(`/api/projects/${projectId}/workspace/analysis-plan/schedule`, jsonOptions('POST', {
+    artifactId: jsonArtifact.id,
+    providerId: 'reamon-json-inspector',
+    capability: 'extract_metadata',
+    approvalRequired: true,
+  }, cookie), [201])
+  expect(browserApproval.body?.task?.status === 'AWAITING_APPROVAL', 'browser acceptance approval task was not approval-gated')
   await writeState({ projectId, importId, taskIds, failoverTaskId, recoveryArtifactId: recoveryArtifact.id, projectName: project.body?.name })
-  console.log(`PASS: controlled, approved worker failover task queued for recovery task=${failoverTaskId}`)
+  console.log(`PASS: approved worker failover queued (${failoverTaskId}) and a separate browser approval task is pending`)
 
   const projection = await request('/api/internal/reamon/graph/project', jsonOptions('POST', {
     projectId,

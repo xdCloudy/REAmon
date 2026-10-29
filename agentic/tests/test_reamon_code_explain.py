@@ -913,6 +913,36 @@ def test_manual_decompilation_requires_instruction_evidence_before_loading_provi
     fetch.assert_not_called()
 
 
+def test_manual_decompilation_supports_java_bytecode_candidates(api, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    monkeypatch.delenv('INTERNAL_API_KEY', raising=False)
+    monkeypatch.delenv('SCANNER_API_KEY', raising=False)
+
+    class CandidateAnswer:
+        content = '{"source_code":"int increment(int value) { return value + 1; }","uncertainties":[],"evidence_used":["bytecode"]}'
+
+    class CandidateLlm:
+        async def ainvoke(self, messages):
+            self.messages = messages
+            return CandidateAnswer()
+
+    llm = CandidateLlm()
+    provider = {'id': 'provider-1', 'providerType': 'openai_compatible', 'modelIdentifier': 'Qwen3.5-0.8B'}
+    with patch.object(api, 'fetch_user_providers', return_value=[provider]), \
+         patch('orchestrator_helpers.llm_setup.setup_llm', return_value=llm):
+        response = TestClient(api.app).post('/reamon/code/manual-decompile', json={
+            'model': 'custom/provider-1', 'user_id': 'user-1', 'unit_name': 'Main.increment',
+            'output_language': 'Java', 'architecture': 'JVM', 'assembly': 'iload_0\niadd\nireturn',
+        })
+
+    assert response.status_code == 200, response.text
+    assert response.json()['source_code'] == 'int increment(int value) { return value + 1; }'
+    assert response.json()['syntax_validation'] == 'PASSED'
+    assert response.json()['behavioral_validation'] == 'UNAVAILABLE'
+    assert 'complete Java function, method, or code-unit candidate' in '\n'.join(message.content for message in llm.messages)
+
+
 def test_manual_decompilation_rejects_oversized_instruction_evidence(api, monkeypatch):
     from fastapi.testclient import TestClient
 

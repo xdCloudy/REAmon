@@ -7,6 +7,17 @@ import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
 interface RouteParams { params: Promise<{ id: string; taskId: string }> }
 const NO_STORE = { 'Cache-Control': 'private, no-store' }
 const MAX_ATTEMPT_BYTES = 96 * 1024
+const MANUAL_RECONSTRUCTION_LANGUAGES = new Map<string, string>([
+  ['c', 'C'], ['c++', 'C++'], ['c#', 'C#'], ['csharp', 'C#'],
+  ['go', 'Go'], ['java', 'Java'], ['javascript', 'JavaScript'],
+  ['kotlin', 'Kotlin'], ['objective-c', 'Objective-C'], ['objective c', 'Objective-C'],
+  ['python', 'Python'], ['rust', 'Rust'], ['swift', 'Swift'], ['typescript', 'TypeScript'],
+])
+
+function reconstructionLanguage(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  return MANUAL_RECONSTRUCTION_LANGUAGES.get(value.trim().toLowerCase()) ?? null
+}
 
 function object(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
@@ -51,8 +62,8 @@ export async function POST(request: Request, { params }: RouteParams) {
       select: { id: true, artifactId: true, artifactSha256: true, capability: true, requestedBy: true, failureEvidence: true, status: true },
     })
     if (!investigation) return NextResponse.json({ error: 'Queue this failed run for investigation first' }, { status: 404, headers: NO_STORE })
-    if (investigation.capability !== 'decompile') {
-      return NextResponse.json({ error: 'Manual source reconstruction currently supports failed decompilation runs only' }, { status: 415, headers: NO_STORE })
+    if (investigation.capability !== 'decompile' && investigation.capability !== 'disassemble') {
+      return NextResponse.json({ error: 'Manual source reconstruction currently supports failed decompilation and disassembly runs only' }, { status: 415, headers: NO_STORE })
     }
 
     const provider = await prisma.userLlmProvider.findFirst({
@@ -73,13 +84,17 @@ export async function POST(request: Request, { params }: RouteParams) {
     const unitKey = body.unitKey.trim()
     const unit = units.map(object).find((candidate) => candidate.key === unitKey
       && ['function', 'code_unit'].includes(String(candidate.type))
-      && ['c', 'c++'].includes(String(object(candidate.attributes).language).toLowerCase())
+      && reconstructionLanguage(object(candidate.attributes).language) !== null
       && ['assembly', 'disassembly', 'bytecode', 'instructions'].some((key) => typeof object(candidate.attributes)[key] === 'string' && String(object(candidate.attributes)[key]).trim()))
     if (!unit) {
-      return NextResponse.json({ error: 'Selected unit has no supported C/C++ instruction evidence' }, { status: 422, headers: NO_STORE })
+      return NextResponse.json({ error: 'Selected unit has no instruction evidence for a supported reconstruction language' }, { status: 422, headers: NO_STORE })
     }
 
     const attributes = object(unit.attributes)
+    const outputLanguage = reconstructionLanguage(attributes.language)
+    if (!outputLanguage) {
+      return NextResponse.json({ error: 'Selected unit language is not supported for reconstruction' }, { status: 422, headers: NO_STORE })
+    }
     const assembly = ['assembly', 'disassembly', 'bytecode', 'instructions']
       .map((key) => boundedText(attributes[key], 48 * 1024))
       .find((value) => value.trim()) || ''
@@ -97,7 +112,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       user_id: user.userId,
       unit_name: boundedText(unit.label || attributes.qualifiedName || attributes.name || unit.key, 500) || 'Recovered code unit',
       artifact_sha256: investigation.artifactSha256,
-      output_language: String(attributes.language).toLowerCase() === 'c++' ? 'C++' : 'C',
+      output_language: outputLanguage,
       architecture: boundedText(attributes.architecture || attributes.abi, 80) || 'unknown',
       assembly,
       control_flow: boundedText(attributes.controlFlow, 8 * 1024),

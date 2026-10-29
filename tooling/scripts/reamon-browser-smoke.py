@@ -68,9 +68,9 @@ with sync_playwright() as playwright:
         expect(page.get_by_role("heading", name="Latest import")).to_be_visible()
         expect(page.locator("body")).to_contain_text("COMPLETED")
 
-    # The staging acceptance leaves one approval-gated recovery task inside
-    # the collapsed Tasks and findings section. Approve it through the current
-    # workspace controls; stale-task recovery is covered by the worker drill.
+    # The staging acceptance leaves one approval-gated browser fixture inside
+    # the collapsed Tasks and findings section. The worker-failover fixture is
+    # already queued separately for the recovery drill.
     if ACCEPTANCE_PROJECT_ID:
         page.goto(f"{BASE_URL}/projects/{ACCEPTANCE_PROJECT_ID}", wait_until="networkidle")
         page.locator("summary").filter(has_text="Tasks and findings").click()
