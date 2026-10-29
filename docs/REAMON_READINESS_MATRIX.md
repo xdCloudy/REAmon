@@ -1,31 +1,32 @@
 ## Current PC deployment evidence (2026-10-29)
 
-The local webapp and task worker are rebuilt from clean checkout
-`3c9c11a456dae40cc21f66899f421329d1168f09`. Both containers are healthy and use
-image `sha256:55d023ea9642dcc68c948250cf9ffe1359cfcfe23e49540222bd4764cbcb59b8`.
-The image revision label and both local and LAN `/api/health/ready` responses report
-that exact commit with `dirty=false`; database, Neo4j, and artifact checks are `ok`.
-The REAmon-specific Docker benchmark passes 16/16, and Docker type-check and lint
-pass for the current source.
+The webapp remains on image `sha256:55d023ea9642dcc68c948250cf9ffe1359cfcfe23e49540222bd4764cbcb59b8`
+at revision `3c9c11a456dae40cc21f66899f421329d1168f09`. The task worker was
+rebuilt from current `main` revision `31a35c378f7e` using image
+`sha256:b15bd821fc9c8f12c47ac360edbd9c87fc974e39a9fe4b7b0c981fa4e1fcf5f4`
+with `REAMON_BUILD_DIRTY=false`. Only the worker was recreated; before restart,
+the persisted REAmon task table contained only `FAILED` and `COMPLETED` tasks.
+Both containers are healthy, and localhost and LAN readiness return `ready`.
+Database and artifact volumes were preserved.
 
-GitHub quality run [40811805048](https://github.com/xdCloudy/REAmon/actions/runs/40811805048)
-for commit `9ad53f3869b69abc3a193e3ff8d9f3f86af7201f` has passed Compose validation,
-webapp checks, the agent dependency audit, and the production-image live acceptance
-job. That live job passed authenticated browser-to-terminal use, terminal-worker
-cleanup, two-replica crash/recovery, bounded load/soak, PostgreSQL/artifact restore,
-and Neo4j restore. Its canonical Docker unit gate is still running, so the overall
-workflow has not completed. The newest quality run is queued with no jobs, and the
-full Docker gate for current source has not completed. No current-tip CI pass is
-claimed.
+On this source, Docker focused tests pass 14/14, Docker type-check and configured
+lint pass, and the complete Docker/Vitest webapp suite passes 614 files with 24
+skipped: 9,698 tests passed, 2 were expected failures, and 148 were skipped. The
+broader optional `lint:all` command reports 143 errors in unrelated existing files.
+
+GitHub quality run [40814750462](https://github.com/xdCloudy/REAmon/actions/runs/40814750462)
+for commit `eb2283dda49b465abdb9425907a005a2359c5f51` has passed Compose
+validation, webapp checks, the agent dependency audit, and production-image live
+acceptance; its canonical Docker unit gate is still building images. Quality run
+[40816573093](https://github.com/xdCloudy/REAmon/actions/runs/40816573093) for
+worker fix `c52d0418` is queued. Current-tip CI has not completed.
 
 The latest complete local canonical `bash ./redamon.sh test unit` gate passed from
 checkout `8c098dfc`: agent (3,788), root-agent (3,400), root-recon (570), recon
 (4,151), recon-orchestrator (597), AI attack-surface (209), capture proxy (138),
 and Docker broker (69), for 12,922 Docker-isolated tests total. All 25 shell suites
-passed. The complete webapp Docker/Vitest run passed 613 files with 24 skipped:
-9,693 tests passed, 2 were expected failures, and 147 were skipped. These full-suite
-counts predate the current M6 changes; the focused current-source checks above are
-not a substitute for rerunning the complete gate.
+passed. Those root-gate counts predate the current commit; only the webapp suite has
+been rerun completely on the current source so far.
 
 Rechecked 2026-10-29: the REAmon Compose configuration validates, all active
 services report running/healthy, and local plus LAN readiness return HTTP 200.
