@@ -514,8 +514,12 @@ class ProjectWorkerRuntimeTests(unittest.IsolatedAsyncioTestCase):
         with mock.patch.object(worker, "_docker_request", side_effect=docker):
             await worker._create_worker_network("project-1")
             await worker._create_worker_network("project-1", allow_egress=True)
+            await worker._create_worker_network("project-1", terminal=True)
 
-        self.assertEqual([body["Internal"] for body in bodies], [True, False])
+        self.assertEqual([body["Internal"] for body in bodies], [True, False, True])
+        self.assertNotIn("reamon.terminal-worker", bodies[0]["Labels"])
+        self.assertNotIn("reamon.terminal-worker", bodies[1]["Labels"])
+        self.assertEqual(bodies[2]["Labels"]["reamon.terminal-worker"], "1")
 
     async def test_worker_environment_allows_only_signed_proxy_context(self):
         env = worker._worker_environment({
@@ -624,7 +628,7 @@ class ProjectWorkerRuntimeTests(unittest.IsolatedAsyncioTestCase):
             mock.patch.object(broker, "BROKER_MAX_CONTAINERS", 0),
             mock.patch.object(worker, "_active_worker_count", return_value=0),
             mock.patch.object(worker, "_active_project_worker_count", return_value=0),
-            mock.patch.object(worker, "_create_worker_network", return_value="net-1"),
+            mock.patch.object(worker, "_create_worker_network", return_value="net-1") as create_network,
             mock.patch.object(worker, "_trusted_agent_container_id", return_value="agent-id"),
             mock.patch.object(worker, "_create_terminal_container", return_value="terminal-id"),
             mock.patch.object(worker, "_docker_request", side_effect=docker),
@@ -636,6 +640,7 @@ class ProjectWorkerRuntimeTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(calls[0][0:2], ("POST", "/networks/net-1/connect"))
         self.assertEqual(calls[0][2]["Container"], "agent-id")
+        create_network.assert_awaited_once_with("project-1", terminal=True)
 
     async def test_terminal_start_failure_disconnects_agent_before_network_delete(self):
         identity = {

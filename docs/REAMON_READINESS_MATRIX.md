@@ -10,19 +10,20 @@ agent or isolated terminal worker.
 The quality workflow now includes those agent, broker, and isolated-worker services
 in its live browser smoke, which obtains a ticket from the authenticated webapp and
 runs a bounded command through the terminal. The workflow also checks that the
-terminal worker container is removed. This new gate has not yet completed in CI, so
-it is implementation evidence only until a run passes.
+terminal worker container and its separately labeled network are removed. This new
+gate has not yet completed in CI, so it is implementation evidence only until a run
+passes.
 
-The full `redamon.sh test unit` gate passed locally before the broker restart and
-project-deletion cleanup follow-up:
-all configured Docker test sections and 25 shell suites passed. The webapp
-Docker/Vitest run passed 611 files with 24 skipped; 9,682 tests passed, 2 were
-expected failures, and 147 were skipped. The isolated Docker broker section
-passed 66 tests at that checkpoint. The final broker Docker suite now passes 69
-tests, including terminal Compose-container resolution, normal/startup/project
-cleanup, and network detachment. This confirms the local Docker gate only; CI on the pushed
-commit and live worker routes beyond the recorded `execute_code` acceptance
-remain separate checks.
+The full `redamon.sh test unit` gate passed locally after the terminal-network
+label change: all configured Docker test sections and 25 shell suites passed.
+The webapp Docker/Vitest run passed 611 files with 24 skipped; 9,682 tests
+passed, 2 were expected failures, and 147 were skipped. The Docker broker suite
+passed 69 tests, including terminal-network labeling, terminal Compose-container
+resolution, cleanup, and network detachment. The updated broker image was rebuilt
+and restarted on this PC; it is healthy, and `http://127.0.0.1:3001/api/health`
+returns HTTP 200. The pushed-commit CI run and authenticated browser-to-terminal
+smoke remain pending, so local unit and readiness checks do not replace those
+release gates.
 
 Rechecked 2026-10-29: the REAmon Compose configuration validates, all active
 services report running/healthy, and local plus LAN readiness return HTTP 200.

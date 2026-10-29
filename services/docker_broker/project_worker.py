@@ -399,18 +399,23 @@ def _worker_environment(extra: dict[str, str]) -> list[str]:
     return [f"{name}={value}" for name, value in env.items()]
 
 
-async def _create_worker_network(project_id: str, *, allow_egress: bool = False) -> str:
+async def _create_worker_network(
+    project_id: str, *, allow_egress: bool = False, terminal: bool = False,
+) -> str:
     network_name = f"reamon-w-{hashlib.sha256(project_id.encode()).hexdigest()[:10]}-{uuid.uuid4().hex[:8]}"
+    labels = {
+        "reamon.project-worker": "1",
+        "reamon.project-scope": _project_scope_label(project_id),
+    }
+    if terminal:
+        labels["reamon.terminal-worker"] = "1"
     body = {
         "Name": network_name,
         "Driver": "bridge",
         "CheckDuplicate": True,
         "Internal": not allow_egress,
         "Attachable": False,
-        "Labels": {
-            "reamon.project-worker": "1",
-            "reamon.project-scope": _project_scope_label(project_id),
-        },
+        "Labels": labels,
     }
     try:
         status, raw = await _docker_request("POST", "/networks/create", body)
@@ -816,7 +821,7 @@ async def _create_admitted_terminal(identity: dict[str, str]) -> tuple[str, str]
                     raise WorkerAdmissionError(429, "worker capacity is full; retry later")
                 if project_active >= WORKER_MAX_ACTIVE_PER_PROJECT:
                     raise WorkerAdmissionError(429, "this project has reached its active worker limit; retry later")
-                network_id = await _create_worker_network(project_id)
+                network_id = await _create_worker_network(project_id, terminal=True)
                 agent_container_id = None
                 try:
                     agent_container_id = await _trusted_agent_container_id()

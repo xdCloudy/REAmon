@@ -257,13 +257,15 @@ jobs:
         run: |
           for attempt in $(seq 1 30); do
             workers="$(docker ps -aq --filter label=reamon.terminal-worker=1)"
-            if [ -z "$workers" ]; then
-              echo "no terminal workers remain"
+            networks="$(docker network ls -q --filter label=reamon.terminal-worker=1)"
+            if [ -z "$workers" ] && [ -z "$networks" ]; then
+              echo "no terminal workers or networks remain"
               exit 0
             fi
             sleep 2
           done
           docker ps -a --filter label=reamon.terminal-worker=1
+          docker network ls --filter label=reamon.terminal-worker=1
           exit 1
 
       - name: Run two-replica worker crash and recovery drill
