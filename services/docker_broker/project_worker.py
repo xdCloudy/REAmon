@@ -10,6 +10,8 @@ import ntpath
 import os
 import re
 import socket
+import stat
+import time
 import urllib.error
 import urllib.request
 import uuid
@@ -69,6 +71,7 @@ def _worker_concurrency_limit(configured: int, memory: int, pids: int, nano_cpus
 
 WORKER_OUTPUT_LIMIT = 2 * 1024 * 1024
 WORKER_CLEANUP_ATTEMPTS = 3
+WORKER_SCRATCH_TTL_SECONDS = 24 * 60 * 60
 WORKER_MAX_ACTIVE = _worker_concurrency_limit(
     _bounded_int_env("REAMON_WORKER_MAX_ACTIVE", 4, 1, 64),
     WORKER_MEMORY,
@@ -686,6 +689,59 @@ def _prepare_project_worker_paths(project_id: str) -> None:
             raise DockerAPIError(f"project worker path permissions are unavailable: {name}") from exc
 
 
+def _cleanup_stale_project_scratch(project_id: str, *, now: float | None = None) -> int:
+    """Remove expired regular files only from an idle project's shared scratch."""
+    if not WORKSPACE_ROOT:
+        raise DockerAPIError("broker project workspace is not configured")
+    root = os.path.realpath(WORKSPACE_ROOT)
+    project_root = os.path.join(root, project_id)
+    if (os.path.islink(project_root) or not os.path.isdir(project_root)
+            or os.path.realpath(project_root) != project_root):
+        raise DockerAPIError("project workspace directory is unavailable")
+    scratch = os.path.join(project_root, ".reamon-tmp")
+    if os.path.islink(scratch):
+        raise DockerAPIError("project worker scratch must not be a symlink")
+    if not os.path.exists(scratch):
+        return 0
+    if not os.path.isdir(scratch) or os.path.realpath(scratch) != scratch:
+        raise DockerAPIError("project worker scratch directory is unavailable")
+
+    cutoff = (time.time() if now is None else now) - WORKER_SCRATCH_TTL_SECONDS
+    reclaimed = 0
+    for current, directories, files in os.walk(scratch, followlinks=False):
+        directories[:] = [
+            name for name in directories
+            if not os.path.islink(os.path.join(current, name))
+        ]
+        for name in files:
+            path = os.path.join(current, name)
+            try:
+                info = os.stat(path, follow_symlinks=False)
+            except FileNotFoundError:
+                continue
+            if not stat.S_ISREG(info.st_mode) or info.st_mtime >= cutoff:
+                continue
+            try:
+                os.unlink(path)
+            except FileNotFoundError:
+                continue
+            reclaimed += info.st_size
+    return reclaimed
+
+
+def _collect_idle_project_scratch(project_id: str) -> None:
+    """Collect stale scratch opportunistically without making admission depend on it."""
+    if not WORKSPACE_ROOT:
+        return
+    try:
+        reclaimed = _cleanup_stale_project_scratch(project_id)
+    except (DockerAPIError, OSError):
+        _log_cleanup_failure("scratch maintenance")
+        return
+    if reclaimed:
+        print(f"[docker-broker] collected {reclaimed} bytes of stale project scratch", flush=True)
+
+
 async def _active_project_worker_count(project_id: str) -> int | None:
     from urllib.parse import urlencode
     filters = json.dumps({
@@ -863,6 +919,8 @@ async def _create_admitted_terminal(identity: dict[str, str]) -> tuple[str, str]
                     raise WorkerAdmissionError(429, "worker capacity is full; retry later")
                 if project_active >= WORKER_MAX_ACTIVE_PER_PROJECT:
                     raise WorkerAdmissionError(429, "this project has reached its active worker limit; retry later")
+                if project_active == 0:
+                    _collect_idle_project_scratch(project_id)
                 network_id = await _create_worker_network(project_id, terminal=True)
                 agent_container_id = None
                 try:
@@ -1189,6 +1247,8 @@ async def _create_admitted_worker(
             return 503, None, None, "project worker capacity is unavailable; execution denied"
         if project_active >= WORKER_MAX_ACTIVE_PER_PROJECT:
             return 429, None, None, "this project has reached its active worker limit; retry later"
+        if project_active == 0:
+            _collect_idle_project_scratch(project_id)
         network_id = await _create_worker_network(
             project_id, allow_egress=tool in _EGRESS_TOOLS,
         )

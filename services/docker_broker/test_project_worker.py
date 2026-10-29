@@ -287,6 +287,60 @@ class ProjectWorkerLogsTests(unittest.TestCase):
         self.assertEqual(stderr, b"123\n[output truncated after 2 MiB]")
 
 class ProjectWorkerRuntimeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_idle_project_scratch_cleanup_removes_only_expired_regular_files(self):
+        with tempfile.TemporaryDirectory() as workspace:
+            project = os.path.join(workspace, "p1")
+            scratch = os.path.join(project, ".reamon-tmp")
+            os.makedirs(os.path.join(scratch, "nested"))
+            stale = os.path.join(scratch, "stale.bin")
+            nested_stale = os.path.join(scratch, "nested", "stale.bin")
+            recent = os.path.join(scratch, "recent.bin")
+            for path in (stale, nested_stale, recent):
+                with open(path, "wb") as output:
+                    output.write(b"x" * 8)
+            now = time.time()
+            os.utime(stale, (now - worker.WORKER_SCRATCH_TTL_SECONDS - 1,) * 2)
+            os.utime(nested_stale, (now - worker.WORKER_SCRATCH_TTL_SECONDS - 1,) * 2)
+            os.utime(recent, (now, now))
+
+            with mock.patch.object(worker, "WORKSPACE_ROOT", workspace):
+                reclaimed = worker._cleanup_stale_project_scratch("p1", now=now)
+
+            self.assertEqual(reclaimed, 16)
+            self.assertFalse(os.path.exists(stale))
+            self.assertFalse(os.path.exists(nested_stale))
+            self.assertTrue(os.path.isfile(recent))
+
+    async def test_scratch_cleanup_does_not_follow_symlinks_or_accept_symlink_root(self):
+        with tempfile.TemporaryDirectory() as workspace:
+            project = os.path.join(workspace, "p1")
+            scratch = os.path.join(project, ".reamon-tmp")
+            os.makedirs(scratch)
+            external = os.path.join(workspace, "external")
+            os.mkdir(external)
+            external_file = os.path.join(external, "keep.bin")
+            with open(external_file, "wb") as output:
+                output.write(b"keep")
+            os.utime(external_file, (1, 1))
+            try:
+                os.symlink(external_file, os.path.join(scratch, "file-link"))
+                os.symlink(external, os.path.join(scratch, "directory-link"))
+            except OSError as exc:
+                self.skipTest(f"symlinks unavailable in Docker test environment: {exc}")
+
+            with mock.patch.object(worker, "WORKSPACE_ROOT", workspace):
+                reclaimed = worker._cleanup_stale_project_scratch("p1", now=time.time())
+                self.assertEqual(reclaimed, 0)
+                self.assertTrue(os.path.islink(os.path.join(scratch, "file-link")))
+                self.assertTrue(os.path.islink(os.path.join(scratch, "directory-link")))
+                second_project = os.path.join(workspace, "p2")
+                os.mkdir(second_project)
+                os.symlink(external, os.path.join(second_project, ".reamon-tmp"))
+                with self.assertRaisesRegex(worker.DockerAPIError, "must not be a symlink"):
+                    worker._cleanup_stale_project_scratch("p2")
+
+            self.assertTrue(os.path.isfile(external_file))
+
     async def test_cancelled_network_create_preserves_cancellation_when_delete_fails(self):
         calls = []
 
@@ -1352,6 +1406,46 @@ class ProjectWorkerRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(status, 200)
         self.assertEqual(base64.b64decode(result["stdout_b64"]), b"ok")
         cleanup.assert_awaited_once_with("ctr-1", "net-1")
+
+    async def test_idle_project_scratch_is_collected_under_admission(self):
+        with (
+            mock.patch.object(worker, "SCANNER_API_KEY", "scanner-key"),
+            mock.patch.object(worker.asyncio, "to_thread", return_value="p1"),
+            mock.patch.object(broker, "BROKER_MAX_CONTAINERS", 0),
+            mock.patch.object(worker, "_active_worker_count", return_value=0),
+            mock.patch.object(worker, "_active_project_worker_count", return_value=0),
+            mock.patch.object(worker, "_collect_idle_project_scratch") as collect,
+            mock.patch.object(worker, "_create_worker_network", return_value="net-1"),
+            mock.patch.object(worker, "_create_worker_container", return_value="ctr-1"),
+            mock.patch.object(worker, "_run_worker", return_value=(0, b"ok", b"", False)),
+            mock.patch.object(worker, "_remove_worker"),
+        ):
+            status, _result = await worker.execute({
+                "ctx": "signed", "tool": "kali_shell", "argv": ["id"], "timeout": 10,
+            })
+
+        self.assertEqual(status, 200)
+        collect.assert_called_once_with("p1")
+
+    async def test_scratch_is_not_collected_while_project_has_active_worker(self):
+        with (
+            mock.patch.object(worker, "SCANNER_API_KEY", "scanner-key"),
+            mock.patch.object(worker.asyncio, "to_thread", return_value="p1"),
+            mock.patch.object(broker, "BROKER_MAX_CONTAINERS", 0),
+            mock.patch.object(worker, "_active_worker_count", return_value=1),
+            mock.patch.object(worker, "_active_project_worker_count", return_value=1),
+            mock.patch.object(worker, "_collect_idle_project_scratch") as collect,
+            mock.patch.object(worker, "_create_worker_network", return_value="net-1"),
+            mock.patch.object(worker, "_create_worker_container", return_value="ctr-1"),
+            mock.patch.object(worker, "_run_worker", return_value=(0, b"ok", b"", False)),
+            mock.patch.object(worker, "_remove_worker"),
+        ):
+            status, _result = await worker.execute({
+                "ctx": "signed", "tool": "kali_shell", "argv": ["id"], "timeout": 10,
+            })
+
+        self.assertEqual(status, 200)
+        collect.assert_not_called()
 
     async def test_cancelled_run_removes_worker_and_network(self):
         started = asyncio.Event()
