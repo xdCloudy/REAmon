@@ -154,7 +154,13 @@ class CrossProcessWorkerQuotaTests(unittest.IsolatedAsyncioTestCase):
                         else:
                             response = []
                     elif method == "GET" and path == "/containers/redamon-agent/json":
-                        response = {"Mounts": [{"Destination": "/workspace", "Source": workspace}]}
+                        response = {
+                            "Config": {"Labels": {
+                                "com.docker.compose.project": worker.WORKSPACE_COMPOSE_PROJECT,
+                                "com.docker.compose.service": worker.WORKSPACE_COMPOSE_SERVICE,
+                            }},
+                            "Mounts": [{"Destination": "/workspace", "Source": workspace}],
+                        }
                     elif method == "GET" and path.startswith("/images/"):
                         response = {"Id": "sha256:" + "a" * 64}
                     elif method == "POST" and path == "/networks/create":
@@ -687,10 +693,16 @@ class ProjectWorkerRuntimeTests(unittest.IsolatedAsyncioTestCase):
             paths.append(path)
             self.assertEqual(method, "GET")
             if path == "/containers/redamon-agent/json":
-                data = {"Mounts": [{
-                    "Destination": "/workspace",
-                    "Source": r"C:\REAmon\workspace",
-                }]}
+                data = {
+                    "Config": {"Labels": {
+                        "com.docker.compose.project": worker.WORKSPACE_COMPOSE_PROJECT,
+                        "com.docker.compose.service": worker.WORKSPACE_COMPOSE_SERVICE,
+                    }},
+                    "Mounts": [{
+                        "Destination": "/workspace",
+                        "Source": r"C:\REAmon\workspace",
+                    }],
+                }
             else:
                 self.assertEqual(path, "/images/reamon-project-worker%3Alatest/json")
                 data = {"Id": digest}
@@ -721,16 +733,94 @@ class ProjectWorkerRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(mounts[2]["Target"], "/workspace/.reamon-tmp")
         self.assertEqual(mounts[3]["Target"], "/workspace/tool-outputs")
 
+    async def test_workspace_lookup_finds_compose_agent_with_generated_container_name(self):
+        digest = "sha256:" + "d" * 64
+        filters_seen = []
+
+        async def docker(method, path, body=None, **_kwargs):
+            self.assertEqual(method, "GET")
+            if path == "/containers/redamon-agent/json":
+                return 404, b"{}"
+            if path.startswith("/containers/json?"):
+                filters = json.loads(parse_qs(urlsplit(path).query)["filters"][0])
+                filters_seen.append(filters)
+                return 200, json.dumps([{
+                    "Id": "a" * 64,
+                    "State": "running",
+                    "Labels": {
+                        "com.docker.compose.project": worker.WORKSPACE_COMPOSE_PROJECT,
+                        "com.docker.compose.service": worker.WORKSPACE_COMPOSE_SERVICE,
+                    },
+                }]).encode()
+            if path == "/containers/" + "a" * 64 + "/json":
+                data = {
+                    "Config": {"Labels": {
+                        "com.docker.compose.project": worker.WORKSPACE_COMPOSE_PROJECT,
+                        "com.docker.compose.service": worker.WORKSPACE_COMPOSE_SERVICE,
+                    }},
+                    "Mounts": [{
+                        "Destination": "/workspace",
+                        "Source": r"C:\REAmon\workspace",
+                    }],
+                }
+                return 200, json.dumps(data).encode()
+            self.assertEqual(path, "/images/reamon-project-worker%3Alatest/json")
+            return 200, json.dumps({"Id": digest}).encode()
+
+        with tempfile.TemporaryDirectory() as workspace_root:
+            os.mkdir(os.path.join(workspace_root, "project-1"))
+            with (
+                mock.patch.object(worker, "WORKSPACE_ROOT", workspace_root),
+                mock.patch.object(worker, "WORKSPACE_HOST_PATH", ""),
+                mock.patch.object(worker, "_docker_request", side_effect=docker),
+            ):
+                mounts, image = await worker._workspace_project_runtime("project-1")
+
+        self.assertEqual(filters_seen, [{
+            "label": [
+                f"com.docker.compose.project={worker.WORKSPACE_COMPOSE_PROJECT}",
+                f"com.docker.compose.service={worker.WORKSPACE_COMPOSE_SERVICE}",
+            ],
+            "status": ["running"],
+        }])
+        self.assertEqual(image, digest)
+        self.assertEqual(mounts[0]["Source"], "/run/desktop/mnt/host/c/REAmon/workspace/project-1")
+
+    async def test_workspace_lookup_fails_closed_when_compose_agent_is_ambiguous(self):
+        labels = {
+            "com.docker.compose.project": worker.WORKSPACE_COMPOSE_PROJECT,
+            "com.docker.compose.service": worker.WORKSPACE_COMPOSE_SERVICE,
+        }
+
+        async def docker(method, path, body=None, **_kwargs):
+            if path == "/containers/redamon-agent/json":
+                return 404, b"{}"
+            self.assertTrue(path.startswith("/containers/json?"))
+            return 200, json.dumps([
+                {"Id": "agent-a", "State": "running", "Labels": labels},
+                {"Id": "agent-b", "State": "running", "Labels": labels},
+            ]).encode()
+
+        with mock.patch.object(worker, "_docker_request", side_effect=docker):
+            with self.assertRaisesRegex(worker.DockerAPIError, "ambiguous or unavailable"):
+                await worker._workspace_project_runtime("project-1")
+
     async def test_workspace_host_path_overrides_docker_desktop_shim_path(self):
         digest = "sha256:" + "c" * 64
 
         async def docker(method, path, body=None, **_kwargs):
             self.assertEqual(method, "GET")
             if path == "/containers/redamon-agent/json":
-                data = {"Mounts": [{
-                    "Destination": "/workspace",
-                    "Source": "/run/desktop/mnt/host/wsl/docker-desktop-bind-mounts/Ubuntu-24.04/shim",
-                }]}
+                data = {
+                    "Config": {"Labels": {
+                        "com.docker.compose.project": worker.WORKSPACE_COMPOSE_PROJECT,
+                        "com.docker.compose.service": worker.WORKSPACE_COMPOSE_SERVICE,
+                    }},
+                    "Mounts": [{
+                        "Destination": "/workspace",
+                        "Source": "/run/desktop/mnt/host/wsl/docker-desktop-bind-mounts/Ubuntu-24.04/shim",
+                    }],
+                }
             else:
                 data = {"Id": digest}
             return 200, json.dumps(data).encode()

@@ -327,3 +327,20 @@ cross-project file paths.
 
 Until these gates pass, the shared Kali service remains a release blocker for
 multi-user production operation.
+
+### Project workspace resolution follow-up (2026-10-29)
+
+The broker now resolves the workspace agent by configured Compose project and
+service labels when the configured container name is absent. It verifies the
+labels again after inspecting the selected container and fails closed if the
+candidate is missing, ambiguous, or mismatched. This addresses the generated
+Compose container-name mismatch observed on the local deployment.
+
+A live acceptance against agent image revision `818efc164b68` exercised the
+agent-signed `execute_code` route for two disposable projects. Project A wrote
+unique canaries into `/tmp` and `tool-outputs`; Project B could not read them
+through its scratch path, the direct workspace path, or parent traversal. Both
+project directories and all per-run worker containers and networks were removed.
+This does not close the isolation release blocker: the acceptance did not cover
+terminal, Playwright, Kali shell, generated-file download, browser/MCP flow,
+restart recovery, or cross-user behavior.

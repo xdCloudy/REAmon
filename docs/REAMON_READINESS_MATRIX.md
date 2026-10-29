@@ -15,6 +15,18 @@ database contents were removed. The `ospd` container has no Docker healthcheck,
 so its process/socket and GVMD scanner listing are the available readiness
 evidence.
 
+The broker now resolves the workspace agent by configured Compose project and
+service labels when the configured container name is absent, and rejects
+ambiguous or mismatched agents. Its isolated Docker unit section passes 60
+tests. Broker image `sha256:d2adeae9d71b8a825ea01f5ba3be8ecf385e1aa02d809737a66d2b6803aae21f`
+is healthy. A live broker acceptance used agent-signed scopes for two disposable
+projects: Project A wrote distinct `/tmp` and `tool-outputs` canaries; Project B
+could not read either through its scratch path, direct workspace path, or a
+parent traversal path. Both workspaces and all per-run worker containers and
+networks were removed. This exercised `execute_code` only against the deployed
+agent image revision `818efc164b68`; it does not prove the browser flow,
+terminal, Playwright, Kali shell, generated-file download, or restart recovery.
+
 Latest verified checkpoint: commit `859655f1` is deployed on the PC as image
 `sha256:1ec882b475ed8a4ceda014c49d60b7c6fe3142855ba8ced92ebe5ab46213bf12`.
 The webapp and REAmon task worker containers are healthy; both

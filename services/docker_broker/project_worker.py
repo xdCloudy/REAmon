@@ -25,6 +25,8 @@ WORKSPACE_CONTAINER = os.environ.get("REAMON_WORKSPACE_CONTAINER", "redamon-agen
 WORKER_BROKER_CONTAINER = os.environ.get("REAMON_DOCKER_BROKER_CONTAINER", "reamon-docker-broker")
 WORKSPACE_ROOT = os.environ.get("REAMON_WORKSPACE_ROOT", "")
 WORKSPACE_HOST_PATH = os.environ.get("REAMON_WORKSPACE_HOST_PATH", "")
+WORKSPACE_COMPOSE_PROJECT = os.environ.get("REAMON_WORKSPACE_COMPOSE_PROJECT", "reamon")
+WORKSPACE_COMPOSE_SERVICE = os.environ.get("REAMON_WORKSPACE_COMPOSE_SERVICE", "agent")
 DOCKER_DESKTOP_HOST_PREFIX = os.environ.get(
     "REAMON_DOCKER_DESKTOP_HOST_PREFIX", "/run/desktop/mnt/host",
 ).rstrip("/")
@@ -187,10 +189,53 @@ def _worker_image_for_tool(tool: str) -> str:
 async def _workspace_project_runtime(
     project_id: str, worker_image: str | None = None,
 ) -> tuple[list[dict[str, Any]], str]:
-    status, raw = await _docker_request("GET", f"/containers/{WORKSPACE_CONTAINER}/json")
+    from urllib.parse import quote, urlencode
+
+    status, raw = await _docker_request(
+        "GET", f"/containers/{quote(WORKSPACE_CONTAINER, safe='')}/json",
+    )
+    if status == 404:
+        filters = json.dumps({
+            "label": [
+                f"com.docker.compose.project={WORKSPACE_COMPOSE_PROJECT}",
+                f"com.docker.compose.service={WORKSPACE_COMPOSE_SERVICE}",
+            ],
+            "status": ["running"],
+        })
+        status, raw = await _docker_request(
+            "GET", f"/containers/json?{urlencode({'all': '1', 'filters': filters})}",
+        )
+        if status != 200:
+            raise DockerAPIError("agent project workspace container is unavailable")
+        try:
+            candidates = json.loads(raw or b"[]")
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise DockerAPIError("Docker returned invalid agent container inventory") from exc
+        if not isinstance(candidates, list):
+            raise DockerAPIError("Docker returned invalid agent container inventory")
+        candidates = [
+            item for item in candidates
+            if isinstance(item, dict)
+            and isinstance(item.get("Id"), str)
+            and item.get("State") == "running"
+            and isinstance(item.get("Labels"), dict)
+            and item["Labels"].get("com.docker.compose.project") == WORKSPACE_COMPOSE_PROJECT
+            and item["Labels"].get("com.docker.compose.service") == WORKSPACE_COMPOSE_SERVICE
+        ]
+        if len(candidates) != 1:
+            raise DockerAPIError("agent project workspace container is ambiguous or unavailable")
+        container_id = candidates[0]["Id"]
+        status, raw = await _docker_request(
+            "GET", f"/containers/{quote(container_id, safe='')}/json",
+        )
     if status != 200:
         raise DockerAPIError("agent project workspace mount is unavailable")
     container = _json_body(raw, "workspace inspect")
+    labels = container.get("Config", {}).get("Labels", {})
+    if (not isinstance(labels, dict)
+            or labels.get("com.docker.compose.project") != WORKSPACE_COMPOSE_PROJECT
+            or labels.get("com.docker.compose.service") != WORKSPACE_COMPOSE_SERVICE):
+        raise DockerAPIError("workspace container does not match the configured agent service")
     mounts = container.get("Mounts")
     workspace = next((m for m in mounts or [] if m.get("Destination") == "/workspace"), None)
     source = WORKSPACE_HOST_PATH or (workspace.get("Source") if isinstance(workspace, dict) else None)
@@ -222,7 +267,6 @@ async def _workspace_project_runtime(
     image_ref = worker_image or PROJECT_WORKER_IMAGE
     if not _IMAGE_REF_RE.fullmatch(image_ref):
         raise DockerAPIError("configured project worker image is invalid")
-    from urllib.parse import quote
     status, raw = await _docker_request("GET", f"/images/{quote(image_ref, safe='')}/json")
     if status != 200:
         raise DockerAPIError("configured project worker image is unavailable; rebuild REAmon")
