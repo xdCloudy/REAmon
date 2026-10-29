@@ -334,6 +334,32 @@ class ProjectWorkerRuntimeTests(unittest.IsolatedAsyncioTestCase):
             {"Container": "agent-1", "Force": True},
         )
 
+    async def test_cleanup_detaches_only_compose_agent_attached_to_worker_network(self):
+        expected_labels = {
+            "com.docker.compose.project": worker.WORKSPACE_COMPOSE_PROJECT,
+            "com.docker.compose.service": worker.WORKSPACE_COMPOSE_SERVICE,
+        }
+        calls = []
+
+        async def docker(method, path, body=None, **_kwargs):
+            calls.append((method, path, body))
+            if path == "/networks/network-1":
+                return 200, json.dumps({"Containers": {"agent-id": {"Name": "generated-agent"}}}).encode()
+            if path == "/containers/agent-id/json":
+                return 200, json.dumps({"Config": {"Labels": expected_labels}}).encode()
+            if path == "/networks/network-1/disconnect":
+                return 204, b""
+            self.fail(f"Unexpected Docker request: {method} {path}")
+
+        with mock.patch.object(worker, "_docker_request", side_effect=docker):
+            await worker._disconnect_compose_agent_if_attached("network-1")
+
+        self.assertEqual([call[0:2] for call in calls], [
+            ("GET", "/networks/network-1"),
+            ("GET", "/containers/agent-id/json"),
+            ("POST", "/networks/network-1/disconnect"),
+        ])
+
     async def test_cancelled_network_create_deletes_by_unique_name(self):
         started = asyncio.Event()
         calls = []
@@ -394,6 +420,8 @@ class ProjectWorkerRuntimeTests(unittest.IsolatedAsyncioTestCase):
                 return 200, b'[{"Id":"worker-a"},{"Id":"worker-b"}]'
             if method == "GET" and path.startswith("/networks?"):
                 return 200, b'[{"Id":"network-a"}]'
+            if method == "GET" and path == "/networks/network-a":
+                return 200, b'{"Containers":{}}'
             if method == "DELETE":
                 return 204, b""
             self.fail(f"Unexpected Docker request: {method} {path}")
@@ -404,6 +432,38 @@ class ProjectWorkerRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, (2, 1))
         self.assertEqual(sum(method == "DELETE" and path.startswith("/containers/") for method, path in calls), 2)
         self.assertEqual(sum(method == "DELETE" and path.startswith("/networks/") for method, path in calls), 1)
+
+    async def test_startup_reaper_detaches_verified_agent_before_removing_terminal_network(self):
+        labels = {
+            "com.docker.compose.project": worker.WORKSPACE_COMPOSE_PROJECT,
+            "com.docker.compose.service": worker.WORKSPACE_COMPOSE_SERVICE,
+        }
+        calls = []
+
+        async def docker(method, path, body=None, **_kwargs):
+            calls.append((method, path, body))
+            if method == "GET" and path.startswith("/containers/json?"):
+                return 200, b'[{"Id":"broker-id"}]' if "reamon-docker-broker" in path else b"[]"
+            if (method, path) == ("GET", "/networks?filters=%7B%22label%22%3A+%5B%22reamon.project-worker%3D1%22%5D%7D"):
+                return 200, b'[{"Id":"network-a"}]'
+            if (method, path) == ("GET", "/networks/network-a"):
+                return 200, b'{"Containers":{"agent-id":{"Name":"generated-agent"}}}'
+            if (method, path) == ("GET", "/containers/agent-id/json"):
+                return 200, json.dumps({"Config": {"Labels": labels}}).encode()
+            if (method, path) == ("POST", "/networks/network-a/disconnect"):
+                return 204, b""
+            if method == "DELETE":
+                return 204, b""
+            self.fail(f"Unexpected Docker request: {method} {path}")
+
+        with mock.patch.object(worker, "_docker_request", side_effect=docker):
+            result = await worker.reap_orphaned_workers()
+
+        self.assertEqual(result, (0, 1))
+        disconnect_index = next(i for i, call in enumerate(calls) if call[1] == "/networks/network-a/disconnect")
+        delete_index = next(i for i, call in enumerate(calls) if call[0] == "DELETE")
+        self.assertLess(disconnect_index, delete_index)
+        self.assertEqual(calls[disconnect_index][2], {"Container": "agent-id", "Force": True})
 
     async def test_startup_reaper_leaves_workers_alone_when_multiple_brokers_exist(self):
         async def docker(method, path, body=None, **_kwargs):
@@ -1232,6 +1292,54 @@ class ProjectWorkerRuntimeTests(unittest.IsolatedAsyncioTestCase):
 
 
 class ProjectWorkerCleanupTests(unittest.IsolatedAsyncioTestCase):
+    async def test_project_cleanup_detaches_verified_terminal_agent(self):
+        project_id = "project-terminal-cleanup"
+        scope = worker._project_scope_label(project_id)
+        labels = {
+            "com.docker.compose.project": worker.WORKSPACE_COMPOSE_PROJECT,
+            "com.docker.compose.service": worker.WORKSPACE_COMPOSE_SERVICE,
+        }
+        network = {"Id": "network-terminal", "Labels": {
+            "reamon.project-worker": "1", "reamon.project-scope": scope,
+        }}
+        calls = []
+
+        async def docker(method, path, body=None, **_kwargs):
+            calls.append((method, path, body))
+            if method == "GET" and path.startswith("/containers/json?"):
+                return 200, b"[]"
+            if method == "GET" and path.startswith("/networks?"):
+                return 200, json.dumps([network]).encode()
+            if (method, path) == ("GET", "/networks/network-terminal"):
+                return 200, b'{"Containers":{"agent-id":{"Name":"generated-agent"}}}'
+            if (method, path) == ("GET", "/containers/agent-id/json"):
+                return 200, json.dumps({"Config": {"Labels": labels}}).encode()
+            if (method, path) == ("POST", "/networks/network-terminal/disconnect"):
+                return 204, b""
+            if (method, path) == ("DELETE", "/networks/network-terminal"):
+                return 204, b""
+            self.fail(f"Unexpected Docker request: {method} {path}")
+
+        from contextlib import asynccontextmanager
+
+        @asynccontextmanager
+        async def no_shared_lock():
+            yield
+
+        with tempfile.TemporaryDirectory() as state_dir:
+            with (
+                mock.patch.object(admission_state, "LOCK_PATH", os.path.join(state_dir, "container-create.lock")),
+                mock.patch.object(worker, "_docker_request", side_effect=docker),
+                mock.patch("admission_lock.admission_lock", no_shared_lock),
+            ):
+                result = await worker.cleanup_project_workers(project_id)
+
+        self.assertEqual(result, (0, 1))
+        disconnect_index = next(i for i, call in enumerate(calls) if call[1] == "/networks/network-terminal/disconnect")
+        delete_index = next(i for i, call in enumerate(calls) if call[0] == "DELETE")
+        self.assertLess(disconnect_index, delete_index)
+        self.assertEqual(calls[disconnect_index][2], {"Container": "agent-id", "Force": True})
+
     async def test_cleanup_removes_only_workers_and_networks_with_verified_project_scope(self):
         project_id = "project-alpha"
         target_scope = worker._project_scope_label(project_id)
@@ -1279,6 +1387,8 @@ class ProjectWorkerCleanupTests(unittest.IsolatedAsyncioTestCase):
                     "current": {"NetworkID": "network-alpha"},
                     "legacy-unlabeled": {"NetworkID": "legacy-network-alpha"},
                 }}}).encode()
+            if method == "GET" and path in {"/networks/network-alpha", "/networks/legacy-network-alpha"}:
+                return 200, b'{"Containers":{}}'
             if method == "DELETE":
                 deleted.append(path)
                 return 204, b""

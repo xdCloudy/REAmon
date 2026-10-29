@@ -257,6 +257,39 @@ async def _disconnect_terminal_agent(network_id: str, container_id: str | None =
         raise DockerAPIError("trusted agent could not be detached from terminal network")
 
 
+async def _disconnect_compose_agent_if_attached(network_id: str) -> None:
+    """Detach only a verified REAmon agent endpoint from a broker worker network."""
+    from urllib.parse import quote
+
+    status, raw = await _docker_request(
+        "GET", f"/networks/{quote(network_id, safe='')}",
+    )
+    if status == 404:
+        return
+    if status != 200:
+        raise DockerAPIError("could not inspect a broker worker network")
+    network = _json_body(raw, "worker network inspect")
+    attached = network.get("Containers", {})
+    if not isinstance(attached, dict):
+        raise DockerAPIError("Docker returned invalid worker network attachments")
+    for container_id, attachment in attached.items():
+        if not isinstance(container_id, str) or not isinstance(attachment, dict):
+            raise DockerAPIError("Docker returned invalid worker network attachments")
+        status, raw = await _docker_request(
+            "GET", f"/containers/{quote(container_id, safe='')}/json",
+        )
+        if status == 404:
+            continue
+        if status != 200:
+            raise DockerAPIError("could not inspect a worker network attachment")
+        container = _json_body(raw, "worker network attachment inspect")
+        labels = container.get("Config", {}).get("Labels", {})
+        if (isinstance(labels, dict)
+                and labels.get("com.docker.compose.project") == WORKSPACE_COMPOSE_PROJECT
+                and labels.get("com.docker.compose.service") == WORKSPACE_COMPOSE_SERVICE):
+            await _disconnect_terminal_agent(network_id, container_id)
+
+
 async def _workspace_project_runtime(
     project_id: str, worker_image: str | None = None,
 ) -> tuple[list[dict[str, Any]], str]:
@@ -464,6 +497,7 @@ async def reap_orphaned_workers() -> tuple[int, int] | None:
         if status not in (200, 204, 404):
             return None
     for network in networks:
+        await _disconnect_compose_agent_if_attached(network["Id"])
         status, _ = await _docker_request("DELETE", f"/networks/{quote(network['Id'], safe='')}")
         if status not in (200, 204, 404):
             return None
@@ -564,6 +598,7 @@ async def cleanup_project_workers(project_id: str) -> tuple[int, int]:
                 if status not in (200, 204, 404):
                     raise DockerAPIError("could not remove a project worker")
             for network_id in sorted(network_ids):
+                await _disconnect_compose_agent_if_attached(network_id)
                 status, _ = await _docker_request(
                     "DELETE", f"/networks/{quote(network_id, safe='')}",
                 )

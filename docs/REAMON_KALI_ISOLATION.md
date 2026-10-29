@@ -364,9 +364,11 @@ in `/workspace`, and did not receive the tested service credentials. Exiting
 the PTY removed its worker and temporary network. This exposed and fixed two
 Docker lifecycle gaps: terminal startup now resolves the trusted agent by
 verified Compose project/service labels when its configured name is missing,
-and normal or failed terminal startup disconnects that agent endpoint before
-network removal. The broker's focused Docker suite passes 60 tests, and the
-full repository Docker unit gate passes. The live smoke used a synthetic
+and normal/failed terminal startup, broker restart recovery, and project deletion
+disconnect only a verified Compose agent endpoint before network removal. The
+broker's focused project-worker test file passes 63 tests; the full broker suite
+passes 69 tests. The full repository Docker unit gate passed before this latest
+broker-only follow-up. The live smoke used a synthetic
 agent-signed context directly against the broker; it does not validate the
 ticket-authenticated browser WebSocket, cross-user isolation, generated-file
 download, or restart recovery. Two orphan networks from the earlier failed
