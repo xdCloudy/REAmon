@@ -530,7 +530,8 @@ def _build_http_probe_data_from_graph(domains, user_id: str, project_id: str,
 
 def _build_vuln_scan_data_from_graph(domains, user_id: str, project_id: str,
                                      include_root_domain: bool = False,
-                                     domain_groups: list = None) -> dict:
+                                     domain_groups: list = None,
+                                     client_factory=None) -> dict:
     """
     Query Neo4j to build the recon_data dict that run_vuln_scan expects.
 
@@ -602,7 +603,7 @@ def _build_vuln_scan_data_from_graph(domains, user_id: str, project_id: str,
         return recon_data["dns"]["subdomains"].setdefault(
             host, {"ips": {"ipv4": [], "ipv6": []}, "has_records": True})
 
-    with Neo4jClient() as graph_client:
+    with (client_factory or Neo4jClient)() as graph_client:
         if not graph_client.verify_connection():
             print("[!][Partial Recon] Neo4j not reachable, cannot fetch graph inputs")
             return recon_data

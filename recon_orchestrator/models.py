@@ -407,6 +407,23 @@ class PartialSubdomainIngestRequest(BaseModel):
     user_subdomains: list[str] = Field(default_factory=list, max_length=20_000)
 
 
+class PartialTakeoverGraphInputsRequest(BaseModel):
+    include_root_domain: bool = False
+    domain_groups: list[dict] | None = Field(default=None, max_length=512)
+
+
+class PartialTakeoverResolvedHost(BaseModel):
+    hostname: str = Field(min_length=1, max_length=253)
+    ipv4: list[str] = Field(default_factory=list, max_length=4096)
+    ipv6: list[str] = Field(default_factory=list, max_length=4096)
+
+
+class PartialTakeoverIngestRequest(BaseModel):
+    findings: list[dict] = Field(default_factory=list, max_length=20_000)
+    resolved_hosts: list[PartialTakeoverResolvedHost] = Field(default_factory=list, max_length=20_000)
+    domain_groups: list[dict] | None = Field(default=None, max_length=512)
+
+
 class PartialReconState(BaseModel):
     """Current state of a partial recon process"""
     project_id: str

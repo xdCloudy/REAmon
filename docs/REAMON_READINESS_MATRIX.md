@@ -268,19 +268,28 @@ workers and points at localhost there. The graph-input route uses the trusted UR
 as well. Completed isolated runs request deletion only for orphan UserInput IDs
 derived from that run and its signed roots; cleanup retains user and project
 predicates. Local/manual runs retain their direct sweep and cleanup.
-Focused Docker tests pass 17 orchestrator boundary cases and 2 worker handoff
-cases; the signed finalization request now also passes through the ASGI middleware
-and route with mocked graph housekeeping. The full orchestrator unit section
-passes 603 tests, and 396 focused recon
-tests pass. This is source-level progress only: the legacy orchestrator profile
-is inactive, so the worker-to-orchestrator HTTP lifecycle has not been exercised
-live. A one-off Docker orchestrator process did connect to the live Neo4j using
-`ORCHESTRATOR_NEO4J_URI`; a disposable run-scoped orphan was deleted while an
-unrelated orphan in the same synthetic tenant was preserved, and both fixtures
-were cleaned up. This validates the URI and Cypher scope, not the deployed
-worker-to-orchestrator lifecycle. The signed finalization HTTP route is covered
-through the ASGI middleware with graph housekeeping mocked. Full recon and every
-other partial-recon worker remain direct graph clients.
+Focused Docker tests cover the signed SubdomainDiscovery boundary and the
+SubdomainTakeover worker handoff. On 2026-10-29, SubdomainTakeover was added as
+a second isolated worker: it receives no Neo4j credentials or graph mount,
+fetches scoped graph inputs and ingests resolved hosts/findings through separate
+signed routes, and binds its literal host-group selection into the run token.
+The orchestrator reads only the subdomain and live-URL records needed by that
+scanner, applies the shared batch target parser without importing the scanner
+package, validates tenant/run/root/group scope before graph writes, and rejects
+out-of-group findings, malformed IP families, oversized evidence, and inactive
+runs. Takeover cannot invoke SubdomainDiscovery finalization or its graph
+housekeeping capability. The focused orchestrator boundary suite passes 29
+tests, the full orchestrator Docker unit section passes 615 tests, and the
+focused recon worker/builder suite passes 44 tests. This is source-level
+progress only: the legacy orchestrator profile is inactive, so neither isolated
+worker's HTTP lifecycle has been exercised live. A one-off Docker orchestrator
+process previously connected to live Neo4j using `ORCHESTRATOR_NEO4J_URI`; a
+disposable run-scoped orphan was deleted while an unrelated orphan in the same
+synthetic tenant was preserved, and both fixtures were cleaned up. This
+validates URI and Cypher scope, not deployed worker-to-orchestrator lifecycle.
+The signed SubdomainDiscovery finalization route is covered through ASGI with
+graph housekeeping mocked. Full recon and every other partial-recon worker
+remain direct graph clients.
 
 ## PyInstaller module paging and source recovery (2026-10-27)
 

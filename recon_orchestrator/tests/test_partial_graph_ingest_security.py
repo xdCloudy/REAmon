@@ -63,6 +63,24 @@ class TestPartialGraphToken(unittest.TestCase):
         with self.assertRaises(ValueError):
             mint_partial_graph_token("p1", "u1", "run", ["example.com", ""], "key")
 
+    def test_legacy_subdomain_audience_remains_valid_during_worker_rollout(self):
+        import auth
+
+        with mock.patch.object(auth, "_GRAPH_TOKEN_AUDIENCE", auth._LEGACY_GRAPH_TOKEN_AUDIENCE):
+            legacy_token = mint_partial_graph_token("p1", "u1", "run-legacy", ["example.com"], "key")
+        scope = verify_partial_graph_token(legacy_token, "key")
+        self.assertEqual(scope["runId"], "run-legacy")
+
+    def test_token_binds_the_domain_group_filter(self):
+        from auth import partial_graph_scope_hash
+
+        groups = [{"rootDomain": "example.com", "prefixes": ["api.*"]}]
+        token = mint_partial_graph_token("p1", "u1", "run-1", ["example.com"], "key",
+                                         domain_groups=groups)
+        scope = verify_partial_graph_token(token, "key")
+        self.assertEqual(scope["domainGroupsHash"], partial_graph_scope_hash(groups))
+        self.assertNotEqual(scope["domainGroupsHash"], partial_graph_scope_hash([]))
+
 
 class TestSubdomainIngestSpawn(unittest.TestCase):
     def _spawn(self, tool_id):
@@ -80,7 +98,9 @@ class TestSubdomainIngestSpawn(unittest.TestCase):
             manager.get_status = mock.AsyncMock(return_value=types.SimpleNamespace(status=cm.ReconStatus.IDLE))
             manager._admit_scan = mock.AsyncMock(return_value=None)
             state = await manager.start_partial_recon(
-                "p1", tool_id, {"tool_id": tool_id, "user_id": "u1", "domains": ["example.com"]},
+                "p1", tool_id, {"tool_id": tool_id, "user_id": "u1", "domains": ["example.com"],
+                                "domain_groups": [{"rootDomain": "example.com", "prefixes": ["api."],
+                                                   "batch": True}]},
                 "/repo/recon",
             )
             self.assertNotEqual(state.status, cm.PartialReconStatus.ERROR, state.error)
@@ -105,6 +125,22 @@ class TestSubdomainIngestSpawn(unittest.TestCase):
         spawn = self._spawn("Naabu")
         self.assertIn("NEO4J_PASSWORD", spawn["environment"])
         self.assertIn("/repo/graph_db", spawn["volumes"])
+
+    def test_takeover_worker_uses_signed_graph_routes_without_graph_credentials(self):
+        spawn = self._spawn("SubdomainTakeover")
+        env = spawn["environment"]
+        self.assertNotIn("NEO4J_PASSWORD", env)
+        self.assertNotIn("NEO4J_USER", env)
+        self.assertNotIn("NEO4J_URI", env)
+        self.assertTrue(env["PARTIAL_GRAPH_INGEST_TOKEN"])
+        self.assertEqual(env["PARTIAL_TAKEOVER_INPUTS_URL"],
+                         "http://127.0.0.1:8010/internal/partial-recon/takeover-inputs")
+        self.assertEqual(env["PARTIAL_TAKEOVER_INGEST_URL"],
+                         "http://127.0.0.1:8010/internal/partial-recon/takeover-ingest")
+        self.assertNotIn("PARTIAL_GRAPH_FINALIZE_URL", env)
+        scope = verify_partial_graph_token(env["PARTIAL_GRAPH_INGEST_TOKEN"], "test-internal-key")
+        self.assertIsNotNone(scope.get("domainGroupsHash"))
+        self.assertNotIn("/repo/graph_db", spawn["volumes"])
 
 
 class TestIngestAuthMiddleware(unittest.TestCase):
@@ -412,6 +448,173 @@ class TestScopedPartialOrphanCleanup(unittest.TestCase):
         self.assertEqual(params["user_id"], "u1")
         self.assertEqual(params["project_id"], "p1")
         self.assertEqual(deleted, 1)
+
+
+class TestSignedTakeoverGraphRoutes(unittest.TestCase):
+    def setUp(self):
+        import api
+        self.api = api
+        self.domain_groups = [{"rootDomain": "example.com", "prefixes": ["api."], "batch": True}]
+        self.token = mint_partial_graph_token(
+            "p1", "u1", "r1", ["example.com"], "key", domain_groups=self.domain_groups,
+        )
+        self.active_run = types.SimpleNamespace(
+            run_id="r1", tool_id="SubdomainTakeover", status=api.PartialReconStatus.RUNNING,
+            roots=["example.com"],
+        )
+        self.manager = types.SimpleNamespace(partial_recon_states={"p1": {"r1": self.active_run}})
+
+    def test_project_scope_builder_filters_groups_to_selected_project_roots(self):
+        groups = self.api._partial_domain_groups_for_project({
+            "domainBatchMode": True,
+            "domainBatchGroups": [
+                {"rootDomain": "example.com", "prefixes": ["api."]},
+                {"rootDomain": "other.example", "prefixes": ["www."]},
+            ],
+        }, ["example.com"])
+        self.assertEqual(groups, [{"rootDomain": "example.com", "prefixes": ["api."], "batch": True}])
+
+    def _request(self, path, body):
+        import json
+        payload = json.dumps(body, separators=(",", ":")).encode()
+
+        async def issue():
+            return await _asgi_request(
+                self.api.app, path, "POST",
+                {"X-Partial-Graph-Token": self.token, "Content-Type": "application/json",
+                 "Content-Length": str(len(payload))}, payload,
+            )
+
+        with mock.patch.dict(self.api.os.environ, {"INTERNAL_API_KEY": "key"}):
+            return asyncio.run(issue())
+
+    def test_signed_input_route_uses_only_token_roots_and_trusted_graph_client(self):
+        builder = mock.Mock(return_value={"domains": ["example.com"], "subdomains": ["www.example.com"]})
+        with mock.patch.object(self.api, "container_manager", self.manager), \
+             mock.patch.object(self.api, "_build_partial_takeover_inputs", builder):
+            status, response = self._request("/internal/partial-recon/takeover-inputs", {
+                "include_root_domain": True,
+                "domain_groups": self.domain_groups,
+            })
+        self.assertEqual(status, 200)
+        receipt = __import__("json").loads(response)
+        self.assertEqual(receipt["run_id"], "r1")
+        self.assertEqual(receipt["recon_data"]["domains"], ["example.com"])
+        self.assertEqual(builder.call_args.args[:3], (["example.com"], "u1", "p1"))
+        self.assertIs(builder.call_args.kwargs["client_factory"], self.api._trusted_graph_client)
+
+    def test_signed_input_route_rejects_widened_group_scope(self):
+        builder = mock.Mock()
+        with mock.patch.object(self.api, "container_manager", self.manager), \
+             mock.patch.object(self.api, "_build_partial_takeover_inputs", builder):
+            status, response = self._request("/internal/partial-recon/takeover-inputs", {
+                "domain_groups": [{"rootDomain": "example.com", "prefixes": ["api.*"]}],
+            })
+        self.assertEqual(status, 403)
+        self.assertIn(b"differs from the signed run", response)
+        builder.assert_not_called()
+
+    def test_takeover_input_builder_reads_only_hosts_in_the_selected_group(self):
+        graph = mock.MagicMock()
+        graph.__enter__.return_value = graph
+        graph.verify_connection.return_value = True
+        session = graph.driver.session.return_value.__enter__.return_value
+        session.run.side_effect = [
+            [
+                {"root": "example.com", "hostname": "api.example.com"},
+                {"root": "example.com", "hostname": "www.example.com"},
+            ],
+            [
+                {"url": "https://api.example.com/", "host": "api.example.com", "status_code": 200},
+                {"url": "https://www.example.com/", "host": "www.example.com", "status_code": 200},
+            ],
+        ]
+        with mock.patch.object(self.api, "RECON_PATH", "/repo/recon"):
+            result = self.api._build_partial_takeover_inputs(
+                ["example.com"], "u1", "p1", False, self.domain_groups,
+                client_factory=lambda: graph,
+            )
+        self.assertEqual(result["subdomains"], ["api.example.com"])
+        self.assertEqual(list(result["http_probe"]["by_url"]), ["https://api.example.com/"])
+        self.assertEqual(session.run.call_args_list[0].kwargs["uid"], "u1")
+        self.assertEqual(session.run.call_args_list[1].kwargs["project_id"], "p1")
+
+    def test_signed_ingest_anchors_resolved_hosts_and_writes_scoped_findings(self):
+        graph = mock.MagicMock()
+        graph.__enter__.return_value = graph
+        graph.verify_connection.return_value = True
+        graph.update_graph_from_partial_discovery.return_value = {
+            "subdomains_new": 1, "ips_new": 1, "errors": [],
+        }
+        graph.update_graph_from_subdomain_takeover.return_value = {
+            "vulnerabilities_created": 1, "errors": [],
+        }
+        body = {
+            "resolved_hosts": [{"hostname": "api.example.com", "ipv4": ["192.0.2.10"], "ipv6": []}],
+            "findings": [{"id": "finding-1", "hostname": "api.example.com",
+                          "takeover_provider": "example", "sources": ["fixture"]}],
+            "domain_groups": self.domain_groups,
+        }
+        with mock.patch.object(self.api, "container_manager", self.manager), \
+             mock.patch.object(self.api, "_trusted_graph_client", return_value=graph):
+            status, response = self._request("/internal/partial-recon/takeover-ingest", body)
+        self.assertEqual(status, 200)
+        receipt = __import__("json").loads(response)
+        self.assertEqual(receipt["status"], "ingested")
+        self.assertEqual(receipt["stats"]["resolved_targets"]["ips_created"], 1)
+        graph.update_graph_from_partial_discovery.assert_called_once()
+        discovery_data = graph.update_graph_from_partial_discovery.call_args.kwargs["recon_data"]
+        self.assertEqual(discovery_data["domain"], "example.com")
+        self.assertEqual(discovery_data["subdomains"], ["api.example.com"])
+        self.assertEqual(graph.update_graph_from_partial_discovery.call_args.kwargs["user_id"], "u1")
+        takeover_data = graph.update_graph_from_subdomain_takeover.call_args.kwargs["recon_data"]
+        self.assertEqual(takeover_data["all_project_roots"], ["example.com"])
+
+    def test_signed_ingest_rejects_out_of_scope_finding_before_graph_access(self):
+        with mock.patch.object(self.api, "container_manager", self.manager), \
+             mock.patch.object(self.api, "_trusted_graph_client") as graph_client:
+            status, response = self._request("/internal/partial-recon/takeover-ingest", {
+                "findings": [{"id": "finding-1", "hostname": "api.evil.invalid"}],
+                "domain_groups": self.domain_groups,
+            })
+        self.assertEqual(status, 422)
+        self.assertIn(b"outside the signed run scope", response)
+        graph_client.assert_not_called()
+
+    def test_signed_ingest_rejects_host_outside_signed_batch_group(self):
+        with mock.patch.object(self.api, "container_manager", self.manager), \
+             mock.patch.object(self.api, "_trusted_graph_client") as graph_client:
+            status, response = self._request("/internal/partial-recon/takeover-ingest", {
+                "findings": [{"id": "finding-1", "hostname": "takeover.example.com"}],
+                "domain_groups": self.domain_groups,
+            })
+        self.assertEqual(status, 422)
+        self.assertIn(b"outside the signed run scope", response)
+        graph_client.assert_not_called()
+
+    def test_signed_ingest_rejects_invalid_ip_family_before_graph_access(self):
+        with mock.patch.object(self.api, "container_manager", self.manager), \
+             mock.patch.object(self.api, "_trusted_graph_client") as graph_client:
+            status, response = self._request("/internal/partial-recon/takeover-ingest", {
+                "resolved_hosts": [{"hostname": "api.example.com", "ipv4": [],
+                                    "ipv6": ["192.0.2.10"]}],
+                "domain_groups": self.domain_groups,
+            })
+        self.assertEqual(status, 422)
+        self.assertIn(b"address family", response)
+        graph_client.assert_not_called()
+
+    def test_finalized_takeover_run_cannot_reuse_signed_graph_capability(self):
+        from datetime import datetime, timezone
+
+        self.active_run.status = self.api.PartialReconStatus.COMPLETED
+        self.active_run.completed_at = datetime.now(timezone.utc)
+        with mock.patch.object(self.api, "container_manager", self.manager), \
+             mock.patch.object(self.api, "_trusted_graph_client") as graph_client:
+            status, response = self._request("/internal/partial-recon/takeover-inputs", {})
+        self.assertEqual(status, 409)
+        self.assertIn(b"no longer accepting", response)
+        graph_client.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -118,6 +118,39 @@ class TestSubdomainTakeover:
                 "subdomains": ["takeover.beta.test", "x.gamma.test"]}})
         assert _sub_domain_links(calls) == {"takeover.beta.test": "beta.test", "x.gamma.test": "gamma.test"}
 
+    def test_isolated_worker_fetches_inputs_and_ingests_through_signed_orchestrator(self, graph, monkeypatch):
+        _, client = graph
+        recon = _empty_recon(ROOTS)
+        recon["subdomains"] = ["graph.alpha.test"]
+        requests = []
+
+        def request_graph(url, token, payload):
+            requests.append((url, token, payload))
+            if url.endswith("takeover-inputs"):
+                return {"run_id": "run-1", "recon_data": recon}
+            return {"run_id": "run-1", "stats": {"takeover": {"vulnerabilities_created": 1}}}
+
+        monkeypatch.setattr(vulnerability_scanning, "_request_partial_takeover_graph", request_graph)
+        monkeypatch.setenv("PARTIAL_TAKEOVER_INPUTS_URL", "http://127.0.0.1/takeover-inputs")
+        monkeypatch.setenv("PARTIAL_TAKEOVER_INGEST_URL", "http://127.0.0.1/takeover-ingest")
+        monkeypatch.setenv("PARTIAL_GRAPH_INGEST_TOKEN", "signed-run-token")
+        monkeypatch.setenv("PARTIAL_RECON_RUN_ID", "run-1")
+        with patch("recon.main_recon_modules.subdomain_takeover.run_subdomain_takeover",
+                   side_effect=lambda data, settings=None: data.update({
+                       "subdomain_takeover": {"findings": [{
+                           "id": "finding-1", "hostname": "graph.alpha.test",
+                       }], "summary": {"count": 1}},
+                   })):
+            vulnerability_scanning.run_subdomain_takeover_partial(dict(BASE))
+
+        assert [url for url, _, _ in requests] == [
+            "http://127.0.0.1/takeover-inputs", "http://127.0.0.1/takeover-ingest",
+        ]
+        assert all(token == "signed-run-token" for _, token, _ in requests)
+        assert requests[0][2]["domain_groups"] == GROUPS
+        assert requests[1][2]["findings"][0]["hostname"] == "graph.alpha.test"
+        client.verify_connection.assert_not_called()
+
     def test_a_subdomain_under_no_root_is_rejected(self, graph, monkeypatch, capsys):
         monkeypatch.setattr(vulnerability_scanning, "_build_vuln_scan_data_from_graph",
                             MagicMock(side_effect=lambda roots, *a, **kw: _empty_recon(roots)))

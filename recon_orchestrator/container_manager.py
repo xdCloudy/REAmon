@@ -25,7 +25,12 @@ from docker.errors import NotFound, APIError
 import resource_governor as rg
 from admission_ledger import ReservationLedger, AdmissionError
 from ip_denylist import classify_host
-from auth import PARTIAL_GRAPH_FINALIZE_PATH, mint_partial_graph_token
+from auth import (
+    PARTIAL_GRAPH_FINALIZE_PATH,
+    PARTIAL_TAKEOVER_INGEST_PATH,
+    PARTIAL_TAKEOVER_INPUTS_PATH,
+    mint_partial_graph_token,
+)
 
 # The TruffleHog source registry lives with the scanner and is mounted in
 # (compose: ./scanners/trufflehog_scan:/app/trufflehog_scan). Imported through a
@@ -2001,13 +2006,16 @@ class ContainerManager:
         if tool_id == "SupplyChainRecon":
             self._warm_feeds_in_background()
 
+        run_roots = config.get("domains") or ([config["domain"]] if config.get("domain") else [])
+        run_roots = [root.strip().strip(".").lower() for root in run_roots
+                     if isinstance(root, str) and root.strip()]
         state = PartialReconState(
             project_id=project_id,
             run_id=run_id,
             tool_id=tool_id,
             status=PartialReconStatus.STARTING,
             started_at=datetime.now(timezone.utc),
-            roots=list(config.get("domains") or []),
+            roots=run_roots,
         )
         self.partial_recon_states.setdefault(project_id, {})[run_id] = state
 
@@ -2032,6 +2040,8 @@ class ContainerManager:
                 json.dump(config, f)
 
             subdomain_ingest = tool_id == "SubdomainDiscovery"
+            takeover_ingest = tool_id == "SubdomainTakeover"
+            isolated_graph = subdomain_ingest or takeover_ingest
             partial_env = {
                 "PROJECT_ID": project_id,
                 "USER_ID": config.get("user_id", ""),
@@ -2064,21 +2074,31 @@ class ContainerManager:
                 "redamon_js_recon_custom": {"bind": "/data/js-recon-custom", "mode": "ro"},
                 "nuclei-templates": {"bind": "/opt/nuclei-templates-official", "mode": "ro"},
             }
-            if subdomain_ingest:
+            if isolated_graph:
                 roots = config.get("domains") or [config.get("domain", "")]
                 partial_env.pop("NEO4J_URI", None)
                 partial_env.pop("NEO4J_USER", None)
                 partial_env.pop("NEO4J_PASSWORD", None)
                 ingest_port = os.environ.get("RECON_ORCH_PORT", "8010")
-                partial_env["PARTIAL_GRAPH_INGEST_URL"] = (
-                    f"http://127.0.0.1:{ingest_port}/internal/partial-recon/subdomain-ingest"
-                )
-                partial_env["PARTIAL_GRAPH_FINALIZE_URL"] = (
-                    f"http://127.0.0.1:{ingest_port}{PARTIAL_GRAPH_FINALIZE_PATH}"
-                )
+                if subdomain_ingest:
+                    partial_env["PARTIAL_GRAPH_INGEST_URL"] = (
+                        f"http://127.0.0.1:{ingest_port}/internal/partial-recon/subdomain-ingest"
+                    )
+                else:
+                    partial_env["PARTIAL_TAKEOVER_INPUTS_URL"] = (
+                        f"http://127.0.0.1:{ingest_port}{PARTIAL_TAKEOVER_INPUTS_PATH}"
+                    )
+                    partial_env["PARTIAL_TAKEOVER_INGEST_URL"] = (
+                        f"http://127.0.0.1:{ingest_port}{PARTIAL_TAKEOVER_INGEST_PATH}"
+                    )
+                if subdomain_ingest:
+                    partial_env["PARTIAL_GRAPH_FINALIZE_URL"] = (
+                        f"http://127.0.0.1:{ingest_port}{PARTIAL_GRAPH_FINALIZE_PATH}"
+                    )
                 partial_env["PARTIAL_GRAPH_INGEST_TOKEN"] = mint_partial_graph_token(
                     project_id, config.get("user_id", ""), run_id, roots,
                     os.environ.get("INTERNAL_API_KEY", ""),
+                    domain_groups=config.get("domain_groups"),
                 )
             else:
                 partial_volumes.update(self._graph_db_mount(

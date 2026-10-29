@@ -2,6 +2,7 @@
 Recon Orchestrator API - FastAPI service for managing recon containers
 """
 import asyncio
+import ipaddress
 import json
 import logging
 import os
@@ -20,7 +21,10 @@ from sse_starlette.sse import EventSourceResponse
 from auth import (
     PARTIAL_GRAPH_FINALIZE_PATH,
     PARTIAL_GRAPH_INGEST_PATH,
+    PARTIAL_TAKEOVER_INGEST_PATH,
+    PARTIAL_TAKEOVER_INPUTS_PATH,
     is_orchestrator_request_authorized,
+    partial_graph_scope_hash,
     verify_partial_graph_token,
 )
 from recon_settings.engagement import derive_roe_enabled
@@ -70,6 +74,8 @@ from models import (
     AiAttackSurfaceStatus,
     AiAttackSurfaceListResponse,
     PartialSubdomainIngestRequest,
+    PartialTakeoverGraphInputsRequest,
+    PartialTakeoverIngestRequest,
 )
 
 # Configure logging
@@ -661,8 +667,8 @@ app.add_middleware(
 # a host-net peer (a compromised recon container) shares the host loopback and can
 # still reach 127.0.0.1:8010. This middleware requires a shared secret on every
 # request so only the webapp (which holds ORCHESTRATOR_API_KEY) can drive the API.
-# The single fixed-purpose partial graph-ingest route uses a signed run token
-# instead; that token grants only its root-scoped write operation and no API control.
+# Fixed-purpose partial graph routes use signed run tokens instead; each operation
+# still checks the active tool, tenant, run, and root scope and grants no API control.
 #
 # The key is deliberately distinct from INTERNAL_API_KEY, which is also shared with
 # the webapp and orchestrator. Reusing it here would widen the API's auth boundary;
@@ -690,7 +696,13 @@ async def require_orchestrator_key(request: Request, call_next):
     # /health is polled unauthenticated by the Docker healthcheck; CORS preflight
     # (OPTIONS) carries no custom headers and is handled by the CORS middleware.
     # The decision lives in auth.is_orchestrator_request_authorized (unit-tested).
-    if request.url.path in (PARTIAL_GRAPH_INGEST_PATH, PARTIAL_GRAPH_FINALIZE_PATH) and request.method == "POST":
+    signed_partial_paths = (
+        PARTIAL_GRAPH_INGEST_PATH,
+        PARTIAL_GRAPH_FINALIZE_PATH,
+        PARTIAL_TAKEOVER_INPUTS_PATH,
+        PARTIAL_TAKEOVER_INGEST_PATH,
+    )
+    if request.url.path in signed_partial_paths and request.method == "POST":
         content_length = request.headers.get("content-length", "")
         try:
             if content_length and int(content_length) > 24 * 1024 * 1024:
@@ -850,6 +862,197 @@ async def finalize_partial_subdomain_run(request: Request):
         "status": "finalized", "run_id": scope["runId"],
         "stats": stats, "orphan_user_inputs_deleted": orphan_count,
     }
+
+
+def _active_takeover_run(scope: dict):
+    if not container_manager:
+        raise HTTPException(status_code=503, detail="Service not initialized")
+    active_run = container_manager.partial_recon_states.get(scope["projectId"], {}).get(scope["runId"])
+    if (not active_run or active_run.tool_id != "SubdomainTakeover"
+            or active_run.status not in (PartialReconStatus.STARTING, PartialReconStatus.RUNNING)
+            or not set(scope["roots"]).issubset(set(active_run.roots))):
+        raise HTTPException(status_code=409, detail="Partial run is no longer accepting graph operations")
+    return active_run
+
+
+def _takeover_host_in_scope(host: str, roots: list[str], domain_groups: list[dict] | None) -> bool:
+    """Apply the same literal-host and apex rules as the partial graph builder."""
+    normalized = host.strip().rstrip(".").lower()
+    if not normalized or len(normalized) > 253:
+        return False
+    matches = [root for root in roots if normalized == root or normalized.endswith("." + root)]
+    if not matches:
+        return False
+    root = max(matches, key=len)
+    apex_roots, allowed = _takeover_scope(roots, domain_groups)
+    if normalized == root and root not in apex_roots:
+        return False
+    exact_hosts = allowed.get(root)
+    return exact_hosts is None or normalized in exact_hosts
+
+
+@app.post(PARTIAL_TAKEOVER_INPUTS_PATH)
+async def get_partial_takeover_inputs(body: PartialTakeoverGraphInputsRequest, request: Request):
+    """Return root-scoped scan inputs to a signed SubdomainTakeover worker."""
+    scope = getattr(request.state, "partial_graph_scope", None)
+    if not scope:
+        raise HTTPException(status_code=401, detail="Missing ingest scope")
+    active_run = _active_takeover_run(scope)
+    try:
+        request_scope_hash = partial_graph_scope_hash(body.domain_groups)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="Invalid host-group scope") from exc
+    if scope.get("domainGroupsHash") != request_scope_hash:
+        raise HTTPException(status_code=403, detail="Host-group scope differs from the signed run")
+    roots = scope["roots"]
+    try:
+        result = await run_in_threadpool(
+            _build_partial_takeover_inputs,
+            roots, scope["userId"], scope["projectId"],
+            include_root_domain=body.include_root_domain,
+            domain_groups=body.domain_groups,
+            client_factory=_trusted_graph_client,
+        )
+    except Exception as exc:
+        logger.exception("Could not fetch signed takeover inputs for run %s", scope["runId"])
+        raise HTTPException(status_code=503, detail="Graph inputs unavailable") from exc
+    if len(json.dumps(result, separators=(",", ":"), default=str).encode("utf-8")) > 24 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Graph inputs exceed the worker handoff limit")
+    return {"run_id": active_run.run_id, "recon_data": result}
+
+
+@app.post(PARTIAL_TAKEOVER_INGEST_PATH)
+async def ingest_partial_takeover_results(body: PartialTakeoverIngestRequest, request: Request):
+    """Persist scoped takeover findings and custom target resolutions."""
+    scope = getattr(request.state, "partial_graph_scope", None)
+    if not scope:
+        raise HTTPException(status_code=401, detail="Missing ingest scope")
+    _active_takeover_run(scope)
+    roots = scope["roots"]
+
+    try:
+        request_scope_hash = partial_graph_scope_hash(body.domain_groups)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="Invalid host-group scope") from exc
+    if scope.get("domainGroupsHash") != request_scope_hash:
+        raise HTTPException(status_code=403, detail="Host-group scope differs from the signed run")
+
+    def host_root(host: str) -> str | None:
+        normalized = host.strip().rstrip(".").lower()
+        if not normalized or len(normalized) > 253:
+            return None
+        matches = [root for root in roots if normalized == root or normalized.endswith("." + root)]
+        return max(matches, key=len) if matches else None
+
+    if len(json.dumps(body.model_dump(), separators=(",", ":"), default=str).encode("utf-8")) > 24 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Ingest payload too large")
+
+    normalized_hosts: dict[str, dict] = {}
+    for entry in body.resolved_hosts:
+        hostname = entry.hostname.strip().rstrip(".").lower()
+        root = host_root(hostname)
+        if root is None or not _takeover_host_in_scope(hostname, roots, body.domain_groups):
+            raise HTTPException(status_code=422, detail="Resolved host is outside the signed run scope")
+        ipv4, ipv6 = [], []
+        try:
+            for address in entry.ipv4:
+                parsed = ipaddress.ip_address(address)
+                if parsed.version != 4:
+                    raise ValueError
+                ipv4.append(str(parsed))
+            for address in entry.ipv6:
+                parsed = ipaddress.ip_address(address)
+                if parsed.version != 6:
+                    raise ValueError
+                ipv6.append(str(parsed))
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="Resolved IP does not match its address family") from exc
+        normalized_hosts[hostname] = {"root": root, "ipv4": ipv4, "ipv6": ipv6}
+
+    findings = []
+    host_anchors = dict(normalized_hosts)
+    for finding in body.findings:
+        hostname = finding.get("hostname")
+        root = host_root(hostname) if isinstance(hostname, str) else None
+        if root is None or not _takeover_host_in_scope(hostname, roots, body.domain_groups):
+            raise HTTPException(status_code=422, detail="Finding host is outside the signed run scope")
+        hostname = hostname.strip().rstrip(".").lower()
+        if hostname != root:
+            host_anchors.setdefault(hostname, {"root": root, "ipv4": [], "ipv6": []})
+        finding_id = finding.get("id")
+        if not isinstance(finding_id, str) or not finding_id or len(finding_id) > 256:
+            raise HTTPException(status_code=422, detail="Finding has an invalid identity")
+        raw_by_source = finding.get("raw_by_source", {})
+        if not isinstance(raw_by_source, dict) or len(json.dumps(raw_by_source, default=str).encode("utf-8")) > 50_000:
+            raise HTTPException(status_code=422, detail="Finding evidence exceeds the per-finding limit")
+        for key, limit in (("hostname", 253), ("takeover_provider", 128), ("takeover_method", 64),
+                           ("verdict", 32), ("severity", 32), ("evidence", 10_000),
+                           ("cname_target", 253), ("detected_at", 64), ("cert_issuer", 512),
+                           ("cert_subject_cn", 253), ("cert_provider", 128)):
+            if key in finding and finding[key] is not None and (
+                not isinstance(finding[key], str) or len(finding[key]) > limit
+            ):
+                raise HTTPException(status_code=422, detail=f"Finding field {key} is invalid")
+        for key in ("confidence", "confirmation_count"):
+            if key in finding and (isinstance(finding[key], bool) or not isinstance(finding[key], int)
+                                   or finding[key] < 0 or finding[key] > 100_000):
+                raise HTTPException(status_code=422, detail=f"Finding field {key} is invalid")
+        for key in ("cert_name_match", "cert_expired", "cert_self_signed", "cert_mismatched"):
+            if key in finding and finding[key] is not None and not isinstance(finding[key], bool):
+                raise HTTPException(status_code=422, detail=f"Finding field {key} is invalid")
+        clean = {key: finding.get(key) for key in (
+            "id", "hostname", "takeover_provider", "takeover_method", "verdict", "severity",
+            "sources", "evidence", "cname_target", "detected_at", "raw_by_source", "confidence",
+            "confirmation_count", "cert_issuer", "cert_subject_cn", "cert_name_match",
+            "cert_provider", "cert_expired", "cert_self_signed", "cert_mismatched",
+        ) if key in finding}
+        if "sources" in clean and (not isinstance(clean["sources"], list)
+                                   or len(clean["sources"]) > 64
+                                   or any(not isinstance(source, str) or len(source) > 128 for source in clean["sources"])):
+            raise HTTPException(status_code=422, detail="Finding sources are invalid")
+        findings.append(clean)
+
+    def write_graph() -> dict:
+        with _trusted_graph_client() as graph:
+            if not graph.verify_connection():
+                raise HTTPException(status_code=503, detail="Graph database unavailable")
+            resolved_stats = {"subdomains_created": 0, "ips_created": 0, "errors": []}
+            for root in roots:
+                hosts = {host: data for host, data in host_anchors.items() if data["root"] == root}
+                if not hosts:
+                    continue
+                resolved = graph.update_graph_from_partial_discovery(
+                    recon_data={
+                        "domain": root,
+                        "subdomains": list(hosts),
+                        "dns": {"subdomains": {
+                            host: {"has_records": bool(data["ipv4"] or data["ipv6"]),
+                                   "ips": {"ipv4": data["ipv4"], "ipv6": data["ipv6"]}}
+                            for host, data in hosts.items()
+                        }},
+                    },
+                    user_id=scope["userId"], project_id=scope["projectId"],
+                )
+                resolved_stats["subdomains_created"] += resolved.get("subdomains_new", 0)
+                resolved_stats["ips_created"] += resolved.get("ips_new", 0)
+                resolved_stats["errors"].extend(resolved.get("errors", []))
+            takeover = graph.update_graph_from_subdomain_takeover(
+                recon_data={"domain": roots[0], "domains": roots,
+                            "all_project_roots": roots,
+                            "subdomain_takeover": {"findings": findings}},
+                user_id=scope["userId"], project_id=scope["projectId"],
+            )
+            return {"resolved_targets": resolved_stats, "takeover": takeover}
+
+    try:
+        stats = await run_in_threadpool(write_graph)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Partial takeover graph ingest failed for run %s", scope["runId"])
+        raise HTTPException(status_code=503, detail="Graph ingest failed") from exc
+    return {"status": "partial" if stats["takeover"].get("errors") or stats["resolved_targets"].get("errors") else "ingested",
+            "run_id": scope["runId"], "stats": stats}
 
 
 def _cleanup_isolated_subdomain_orphans(scope: dict) -> int:
@@ -1445,6 +1648,160 @@ async def stream_logs(project_id: str):
 # =============================================================================
 
 
+def _partial_domain_groups_for_project(project: dict, roots: list[str]) -> list[dict]:
+    """Rebuild the partial worker's host groups from the trusted project row.
+
+    Load the pure target parser by file path. Importing ``recon.helpers`` here
+    initializes every scanner helper (including optional DNS dependencies) in
+    the orchestrator process, which should only need the graph API and scope
+    parser for this capability.
+    """
+    import importlib.util
+    from pathlib import Path
+
+    recon_source = Path("/app/recon")
+    if not (recon_source / "partial_recon_modules" / "helpers.py").is_file():
+        recon_source = Path(RECON_PATH)
+    parser_path = recon_source / "helpers" / "batch_groups.py"
+    spec = importlib.util.spec_from_file_location("reamon_batch_groups", parser_path)
+    if not spec or not spec.loader:
+        raise RuntimeError("Domain batch scope parser is unavailable")
+    parser = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(parser)
+
+    def normalize(value) -> str:
+        return str(value or "").strip().strip(".").lower()
+
+    if project.get("ipMode"):
+        return []
+    wanted = {normalize(root) for root in roots}
+    if project.get("domainBatchMode"):
+        merged: dict[str, dict] = {}
+        for group in project.get("domainBatchGroups") or []:
+            if not isinstance(group, dict):
+                continue
+            root = normalize(group.get("rootDomain"))
+            if root not in wanted:
+                continue
+            entry = merged.setdefault(root, {"rootDomain": root, "prefixes": [], "batch": True})
+            for prefix in group.get("prefixes") or []:
+                if prefix not in entry["prefixes"]:
+                    entry["prefixes"].append(prefix)
+        return list(merged.values())
+
+    target = str(project.get("targetDomain") or "").strip()
+    if not target or normalize(target) not in wanted:
+        return []
+    return [{"rootDomain": target, "prefixes": list(project.get("subdomainList") or []),
+             "batch": False}]
+
+
+def _takeover_scope(roots: list[str], domain_groups: list[dict] | None) -> tuple[set[str], dict[str, set[str] | None]]:
+    """Return apex and literal-host restrictions using the shared parser."""
+    import importlib.util
+    from pathlib import Path
+
+    recon_source = Path("/app/recon")
+    if not (recon_source / "helpers" / "batch_groups.py").is_file():
+        recon_source = Path(RECON_PATH)
+    parser_path = recon_source / "helpers" / "batch_groups.py"
+    spec = importlib.util.spec_from_file_location("reamon_batch_groups", parser_path)
+    if not spec or not spec.loader:
+        raise RuntimeError("Domain batch scope parser is unavailable")
+    parser = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(parser)
+
+    apex_roots: set[str] = set()
+    allowed: dict[str, set[str] | None] = {}
+    for root in roots:
+        group = next((item for item in domain_groups or []
+                      if isinstance(item, dict)
+                      and str(item.get("rootDomain") or "").strip().strip(".").lower() == root.lower()), None)
+        if group is None:
+            allowed[root] = None
+            continue
+        info = parser.parse_target(root, list(group.get("prefixes") or []))
+        if info["include_root_domain"]:
+            apex_roots.add(root)
+        if not group.get("batch") or info["wildcard_mode"]:
+            allowed[root] = None
+        else:
+            allowed[root] = {str(host).strip().strip(".").lower() for host in info["full_subdomains"]}
+    return apex_roots, allowed
+
+
+def _build_partial_takeover_inputs(roots: list[str], user_id: str, project_id: str,
+                                   include_root_domain: bool, domain_groups: list[dict] | None,
+                                   client_factory=None) -> dict:
+    """Read only the scoped names and live URLs consumed by takeover analysis."""
+    from urllib.parse import urlparse
+    from graph_db import Neo4jClient
+
+    roots = [str(root).strip().strip(".").lower() for root in roots if isinstance(root, str) and root.strip()]
+    primary = roots[0] if roots else ""
+    apex_roots, allowed = _takeover_scope(roots, domain_groups)
+    data = {
+        "domain": primary, "domains": roots, "subdomains": [],
+        "dns": {"domain": {"ips": {"ipv4": [], "ipv6": []}, "has_records": False}, "subdomains": {}},
+        "metadata": {"include_root_domain": include_root_domain and primary in apex_roots},
+        "http_probe": {"by_url": {}},
+    }
+    if not roots:
+        return data
+
+    def allowed_host(root: str, host: str) -> bool:
+        exact = allowed.get(root)
+        return exact is None or host.strip().strip(".").lower() in exact
+
+    with (client_factory or Neo4jClient)() as graph:
+        if not graph.verify_connection():
+            return data
+        with graph.driver.session() as session:
+            result = session.run(
+                """MATCH (d:Domain {user_id: $uid, project_id: $pid})-[:HAS_SUBDOMAIN]->(s:Subdomain)
+                   WHERE d.name IN $roots
+                   RETURN d.name AS root, s.name AS hostname""",
+                uid=user_id, pid=project_id, roots=roots,
+            )
+            for row in result:
+                root = str(row["root"] or "").strip().strip(".").lower()
+                hostname = str(row["hostname"] or "").strip().strip(".").lower()
+                if (root not in roots or not hostname
+                        or not (hostname == root or hostname.endswith("." + root))
+                        or not allowed_host(root, hostname)):
+                    continue
+                if hostname == root and root not in apex_roots:
+                    continue
+                if hostname not in data["subdomains"]:
+                    data["subdomains"].append(hostname)
+                data["dns"]["subdomains"].setdefault(
+                    hostname, {"ips": {"ipv4": [], "ipv6": []}, "has_records": False})
+
+            result = session.run(
+                """MATCH (b:BaseURL {user_id: $uid, project_id: $pid})
+                   RETURN b.url AS url, b.status_code AS status_code, b.host AS host""",
+                uid=user_id, project_id=project_id,
+            )
+            for row in result:
+                url = row["url"]
+                if not isinstance(url, str) or not url.startswith(("http://", "https://")):
+                    continue
+                status = row["status_code"]
+                if status is not None and int(status) >= 500:
+                    continue
+                host = str(row["host"] or urlparse(url).hostname or "").strip().strip(".").lower()
+                matches = [root for root in roots if host == root or host.endswith("." + root)]
+                if not matches:
+                    continue
+                root = max(matches, key=len)
+                if not allowed_host(root, host) or (host == root and root not in apex_roots):
+                    continue
+                data["http_probe"]["by_url"][url] = {
+                    "url": url, "host": host, "status_code": int(status) if status is not None else 200,
+                }
+    return data
+
+
 @app.post("/recon/{project_id}/partial", response_model=PartialReconState)
 async def start_partial_recon(project_id: str, request: PartialReconStartRequest):
     """
@@ -1505,6 +1862,8 @@ async def start_partial_recon(project_id: str, request: PartialReconStartRequest
         "user_id": scan_user_id,
         "webapp_api_url": _spawned_webapp_url(),
     }
+    if request.tool_id == "SubdomainTakeover":
+        config["domain_groups"] = _partial_domain_groups_for_project(project, roots)
 
     try:
         state = await container_manager.start_partial_recon(

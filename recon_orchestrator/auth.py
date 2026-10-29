@@ -24,9 +24,14 @@ import time
 AUTH_EXEMPT_PATHS = frozenset({"/health"})
 PARTIAL_GRAPH_INGEST_PATH = "/internal/partial-recon/subdomain-ingest"
 PARTIAL_GRAPH_FINALIZE_PATH = "/internal/partial-recon/subdomain-finalize"
-_GRAPH_TOKEN_AUDIENCE = "reamon.partial-subdomain-graph-ingest.v1"
+PARTIAL_TAKEOVER_INPUTS_PATH = "/internal/partial-recon/takeover-inputs"
+PARTIAL_TAKEOVER_INGEST_PATH = "/internal/partial-recon/takeover-ingest"
+_GRAPH_TOKEN_AUDIENCE = "reamon.partial-graph-capability.v1"
+_LEGACY_GRAPH_TOKEN_AUDIENCE = "reamon.partial-subdomain-graph-ingest.v1"
+_GRAPH_TOKEN_AUDIENCES = frozenset({_GRAPH_TOKEN_AUDIENCE, _LEGACY_GRAPH_TOKEN_AUDIENCE})
 _GRAPH_TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60
 _B64URL = re.compile(r"^[A-Za-z0-9_-]+$")
+_SHA256 = re.compile(r"^[a-f0-9]{64}$")
 
 
 def is_orchestrator_request_authorized(
@@ -50,7 +55,7 @@ def is_orchestrator_request_authorized(
 
 def mint_partial_graph_token(
     project_id: str, user_id: str, run_id: str, roots: list[str], secret: str,
-    *, now: int | None = None,
+    *, domain_groups: list[dict] | None = None, now: int | None = None,
 ) -> str:
     """Mint a run-bound token limited to partial subdomain graph operations."""
     if any(not isinstance(value, str) or not value or len(value) > 255
@@ -78,6 +83,8 @@ def mint_partial_graph_token(
         "iat": issued_at,
         "exp": issued_at + _GRAPH_TOKEN_TTL_SECONDS,
     }
+    if domain_groups is not None:
+        payload["domainGroupsHash"] = partial_graph_scope_hash(domain_groups)
     encoded = base64.urlsafe_b64encode(
         json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
     ).rstrip(b"=").decode("ascii")
@@ -107,7 +114,7 @@ def verify_partial_graph_token(token: str, secret: str, *, now: int | None = Non
     issued_at = payload.get("iat")
     expires_at = payload.get("exp")
     current_time = int(time.time() if now is None else now)
-    if (payload.get("v") != 1 or payload.get("aud") != _GRAPH_TOKEN_AUDIENCE
+    if (payload.get("v") != 1 or payload.get("aud") not in _GRAPH_TOKEN_AUDIENCES
             or isinstance(issued_at, bool) or not isinstance(issued_at, int)
             or isinstance(expires_at, bool) or not isinstance(expires_at, int)
             or issued_at > current_time + 60
@@ -122,7 +129,24 @@ def verify_partial_graph_token(token: str, secret: str, *, now: int | None = Non
             or any(not isinstance(root, str) or not root or len(root) > 253 for root in roots)
             or roots != sorted(set(roots))):
         return None
+    groups_hash = payload.get("domainGroupsHash")
+    if groups_hash is not None and (not isinstance(groups_hash, str) or not _SHA256.fullmatch(groups_hash)):
+        return None
     return payload
+
+
+def partial_graph_scope_hash(domain_groups: list[dict] | None) -> str | None:
+    """Hash the host-group restriction so a worker cannot widen a signed run."""
+    if domain_groups is None:
+        return None
+    try:
+        encoded = json.dumps(domain_groups, separators=(",", ":"), sort_keys=True,
+                             ensure_ascii=False, allow_nan=False).encode("utf-8")
+    except (TypeError, ValueError, UnicodeError) as exc:
+        raise ValueError("Domain-group scope must be valid JSON") from exc
+    if len(encoded) > 64 * 1024:
+        raise ValueError("Domain-group scope is too large")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def _decode_b64url(value: str) -> bytes:
