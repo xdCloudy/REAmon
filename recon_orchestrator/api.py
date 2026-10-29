@@ -6,6 +6,7 @@ import ipaddress
 import json
 import logging
 import os
+import re
 import socket
 import uuid
 from contextlib import asynccontextmanager
@@ -879,6 +880,9 @@ def _takeover_host_in_scope(host: str, roots: list[str], domain_groups: list[dic
     """Apply the same literal-host and apex rules as the partial graph builder."""
     normalized = host.strip().rstrip(".").lower()
     if not normalized or len(normalized) > 253:
+        return False
+    labels = normalized.split(".")
+    if any(not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label) for label in labels):
         return False
     matches = [root for root in roots if normalized == root or normalized.endswith("." + root)]
     if not matches:

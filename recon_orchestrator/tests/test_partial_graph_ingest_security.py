@@ -592,6 +592,12 @@ class TestSignedTakeoverGraphRoutes(unittest.TestCase):
         self.assertIn(b"outside the signed run scope", response)
         graph_client.assert_not_called()
 
+    def test_takeover_host_scope_rejects_malformed_dns_labels_even_for_wildcard_groups(self):
+        groups = [{"rootDomain": "example.com", "prefixes": ["*"], "batch": True}]
+        self.assertTrue(self.api._takeover_host_in_scope("api.example.com", ["example.com"], groups))
+        self.assertFalse(self.api._takeover_host_in_scope("bad..example.com", ["example.com"], groups))
+        self.assertFalse(self.api._takeover_host_in_scope("-bad.example.com", ["example.com"], groups))
+
     def test_signed_ingest_rejects_invalid_ip_family_before_graph_access(self):
         with mock.patch.object(self.api, "container_manager", self.manager), \
              mock.patch.object(self.api, "_trusted_graph_client") as graph_client:
