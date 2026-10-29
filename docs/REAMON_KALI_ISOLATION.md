@@ -275,8 +275,11 @@ mounts, resource limits, bounded input/output frames, and cleanup when the strea
 ends. Focused Docker tests and a Docker Engine shell smoke passed with a patched
 scope verifier; the real agent-ticket-to-broker flow and LAN deployment remain
 unverified. Full MCP client/webapp flow, tenant-scoped broker ownership,
-cancellation and restart recovery, generated-file transfer, and worker storage,
-disk, and egress limits remain open.
+cancellation and restart recovery, and generated-file transfer remain open. One-shot
+and terminal workers now have an inherited per-file `RLIMIT_FSIZE` ceiling (1 GiB
+default, 16 MiB–8 GiB configurable through `REAMON_WORKER_MAX_FILE_BYTES`). This
+does not bound aggregate writes across many files; aggregate storage quotas and
+destination-aware egress limits remain open.
 
 ## Decision
 
@@ -287,14 +290,19 @@ behavior remain to be verified. The MCP service remains the trusted controller:
 it authenticates the agent, verifies signed scope, routes work to the matching
 worker, and publishes selected artifacts through a project-authorized transfer
 path. Tenant-scoped broker ownership, output quotas, egress policy, and restart
-recovery are still required to close the shared Kali finding.
+recovery are still required to close the shared Kali finding. The broker mounts
+only the verified project's workspace root read-only, with that project's scratch
+and output directories writable; these are host-backed workspace mounts, not a
+mount-free worker boundary. Per-file limits do not replace aggregate quotas.
 
 Use the existing Docker socket broker as the only container-management boundary.
-Extend it with a fixed Kali worker profile that enforces the pinned worker image,
-resource limits, an isolated bridge network, no host bind mounts, no privileged
-mode, no Docker socket, and only the capabilities required for approved Kali
-workflows. The MCP controller must not gain direct access to the host Docker
-socket. The worker receives no MCP, scanner, agent, database, or tunnel credentials.
+The fixed worker profile enforces an image selected by the broker, resource limits,
+an isolated per-worker bridge network, project-only workspace mounts, no privileged
+mode, no Docker socket, and only the capabilities required for the selected tool.
+The MCP controller must not gain direct access to the host Docker socket. The worker
+receives no MCP, scanner, agent, database, or tunnel credentials. Close the remaining
+storage gap with aggregate quotas and close the egress gap with destination-aware
+policy rather than treating an externally connected bridge as scoped authorization.
 
 The project scope must come from agent-authenticated context, never from a model
 argument or a browser-supplied project ID. The worker name and persisted state must
