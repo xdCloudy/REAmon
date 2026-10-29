@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   investigationFindUnique: vi.fn(),
   investigationCreate: vi.fn(),
   codeAttemptFindMany: vi.fn(),
+  codeAttemptAggregate: vi.fn(),
   observationCount: vi.fn(),
 }))
 
@@ -22,7 +23,7 @@ vi.mock('@/lib/prisma', () => ({
       findUnique: mocks.investigationFindUnique,
       create: mocks.investigationCreate,
     },
-    reamonCodeAttempt: { findMany: mocks.codeAttemptFindMany },
+    reamonCodeAttempt: { findMany: mocks.codeAttemptFindMany, aggregate: mocks.codeAttemptAggregate },
     reamonObservation: { count: mocks.observationCount },
   },
 }))
@@ -46,6 +47,7 @@ describe('/api/projects/[id]/workspace/tasks/[taskId]/investigation', () => {
     mocks.investigationFindUnique.mockResolvedValue(null)
     mocks.observationCount.mockResolvedValue(3)
     mocks.codeAttemptFindMany.mockResolvedValue([])
+    mocks.codeAttemptAggregate.mockResolvedValue({ _count: { _all: 0 }, _sum: { timeoutMs: null } })
   })
 
   test('loads only the case in the authorized project', async () => {
@@ -54,7 +56,10 @@ describe('/api/projects/[id]/workspace/tasks/[taskId]/investigation', () => {
     const response = await GET(new Request('http://local'), { params })
 
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ investigation: { id: 'case-1', status: 'QUEUED' }, attempts: [], candidateUnits: [] })
+    expect(await response.json()).toEqual({
+      investigation: { id: 'case-1', status: 'QUEUED' }, attempts: [],
+      budget: { usedAttempts: 0, maxAttempts: 24, reservedRuntimeMs: 0, maxReservedRuntimeMs: 1_800_000 }, candidateUnits: [],
+    })
     expect(mocks.investigationFindFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { projectId: 'project-1', taskId: 'task-1' } }))
   })
 
@@ -64,11 +69,14 @@ describe('/api/projects/[id]/workspace/tasks/[taskId]/investigation', () => {
       { id: 'attempt-unit', status: 'QUEUED' },
       { id: 'attempt-legacy', status: 'SUCCEEDED' },
     ])
+    mocks.codeAttemptAggregate.mockResolvedValue({ _count: { _all: 2 }, _sum: { timeoutMs: 240_000 } })
 
     const response = await GET(new Request('http://local?summary=1'), { params })
 
     expect(response.status).toBe(200)
-    expect((await response.json()).attempts).toHaveLength(2)
+    const payload = await response.json()
+    expect(payload.attempts).toHaveLength(2)
+    expect(payload.budget).toEqual({ usedAttempts: 2, maxAttempts: 24, reservedRuntimeMs: 240_000, maxReservedRuntimeMs: 1_800_000 })
     expect(mocks.codeAttemptFindMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ OR: [
         { codeUnitId: 'investigation:case-1' },

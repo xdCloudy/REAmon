@@ -14,6 +14,8 @@ const MAX_PARTIAL_UNIT_TEXT_BYTES = 48 * 1024
 const MAX_PARTIAL_UNIT_TEXT_FIELD_BYTES = 8 * 1024
 const MAX_PROVIDER_TEXT_BYTES = 48 * 1024
 const MAX_PROVIDER_TEXT_FIELD_BYTES = 24 * 1024
+const MAX_CASE_ATTEMPTS = 24
+const MAX_CASE_RUNTIME_BUDGET_MS = 30 * 60_000
 const MANUAL_RECONSTRUCTION_LANGUAGES = new Set([
   'c', 'c++', 'c#', 'csharp', 'go', 'java', 'javascript', 'kotlin',
   'objective-c', 'objective c', 'python', 'rust', 'swift', 'typescript',
@@ -192,6 +194,17 @@ export async function GET(request: Request, { params }: RouteParams) {
       take: 50,
       select: { id: true, codeUnitId: true, unitName: true, status: true, providerName: true, modelIdentifier: true, errorCode: true, errorMessage: true, resultSource: true, qualityReview: true, validationStatus: true, createdAt: true, completedAt: true },
     }) : []
+    const attemptBudget = investigation ? await prisma.reamonCodeAttempt.aggregate({
+      where: {
+        projectId, artifactId: investigation.artifactId, runKey: taskId, scope: 'manual-investigation',
+        OR: [
+          { codeUnitId: `investigation:${investigation.id}` },
+          { codeUnitId: { startsWith: `investigation:${investigation.id}:unit:` } },
+        ],
+      },
+      _count: { _all: true },
+      _sum: { timeoutMs: true },
+    }) : null
     const latestAttempt = attempts[0]
     const evidence = investigation?.failureEvidence && typeof investigation.failureEvidence === 'object' && !Array.isArray(investigation.failureEvidence)
       ? investigation.failureEvidence as Record<string, unknown>
@@ -229,6 +242,12 @@ export async function GET(request: Request, { params }: RouteParams) {
         ...(!summaryOnly ? { failureEvidence: investigation.failureEvidence, history: investigation.history } : {}),
       } : null,
       attempts,
+      budget: attemptBudget ? {
+        usedAttempts: attemptBudget._count._all,
+        maxAttempts: MAX_CASE_ATTEMPTS,
+        reservedRuntimeMs: attemptBudget._sum.timeoutMs ?? 0,
+        maxReservedRuntimeMs: MAX_CASE_RUNTIME_BUDGET_MS,
+      } : null,
       candidateUnits,
     }, { headers: NO_STORE })
   } catch (error) {

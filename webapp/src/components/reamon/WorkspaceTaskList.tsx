@@ -20,6 +20,7 @@ export interface WorkspaceTaskListItem {
 
 interface InvestigationProvider { id: string; name: string; modelIdentifier: string }
 interface InvestigationUnit { key: string; label: string; language: string; instructionFields: string[] }
+interface InvestigationBudget { usedAttempts: number; maxAttempts: number; reservedRuntimeMs: number; maxReservedRuntimeMs: number }
 interface InvestigationAttempt {
   id: string
   unitName?: string | null
@@ -27,6 +28,10 @@ interface InvestigationAttempt {
   resultSource?: string | null
   qualityReview?: { uncertainties?: string[]; syntaxValidation?: string; behavioralValidation?: string } | null
   errorMessage?: string | null
+}
+
+function investigationBudgetLabel(budget: InvestigationBudget): string {
+  return `Case budget: ${budget.usedAttempts}/${budget.maxAttempts} attempts; ${Math.ceil(budget.reservedRuntimeMs / 60_000)}/${Math.floor(budget.maxReservedRuntimeMs / 60_000)} minutes reserved.`
 }
 
 export function heartbeatLabel(value: string | null | undefined): string {
@@ -69,6 +74,7 @@ export function WorkspaceTaskList({ projectId, tasks, onChanged }: {
   const [investigationProviderId, setInvestigationProviderId] = useState('')
   const [investigationUnits, setInvestigationUnits] = useState<InvestigationUnit[]>([])
   const [investigationUnitKey, setInvestigationUnitKey] = useState('')
+  const [investigationBudgets, setInvestigationBudgets] = useState<Record<string, InvestigationBudget>>({})
   const [activeInvestigation, setActiveInvestigation] = useState<{ taskId: string; attemptIds: string[] } | null>(null)
   const [investigationResults, setInvestigationResults] = useState<Record<string, InvestigationAttempt[]>>({})
   const hasStaleTasks = tasks.some(isStaleForRecovery)
@@ -81,10 +87,11 @@ export function WorkspaceTaskList({ projectId, tasks, onChanged }: {
       try {
         const response = await fetch(`/api/projects/${projectId}/workspace/tasks/${activeInvestigation.taskId}/investigation?summary=1`)
         if (!response.ok) throw new Error('Unable to refresh reconstruction status')
-        const payload = await response.json() as { attempts?: InvestigationAttempt[] }
+        const payload = await response.json() as { attempts?: InvestigationAttempt[]; budget?: InvestigationBudget | null }
         const attempts = Array.isArray(payload.attempts) ? payload.attempts : []
         if (stopped) return
         setInvestigationResults((previous) => ({ ...previous, [activeInvestigation.taskId]: attempts }))
+        if (payload.budget) setInvestigationBudgets((previous) => ({ ...previous, [activeInvestigation.taskId]: payload.budget! }))
         const batch = activeInvestigation.attemptIds.map((id) => attempts.find((candidate) => candidate.id === id))
         if (batch.length > 0 && batch.every((attempt) => attempt && ['SUCCEEDED', 'FAILED', 'CANCELLED'].includes(attempt.status))) {
           setActiveInvestigation(null)
@@ -160,8 +167,13 @@ export function WorkspaceTaskList({ projectId, tasks, onChanged }: {
       ])
       const payload = await providerResponse.json().catch(() => ({})) as { error?: string; providers?: InvestigationProvider[] }
       if (!providerResponse.ok) throw new Error(payload.error || 'Unable to load saved AI providers')
-      const casePayload = await caseResponse.json().catch(() => ({})) as { attempts?: InvestigationAttempt[]; candidateUnits?: InvestigationUnit[] }
+      const casePayload = await caseResponse.json().catch(() => ({})) as {
+        attempts?: InvestigationAttempt[]
+        candidateUnits?: InvestigationUnit[]
+        budget?: InvestigationBudget | null
+      }
       if (caseResponse.ok && Array.isArray(casePayload.attempts)) setInvestigationResults((previous) => ({ ...previous, [task.id]: casePayload.attempts || [] }))
+      if (caseResponse.ok && casePayload.budget) setInvestigationBudgets((previous) => ({ ...previous, [task.id]: casePayload.budget! }))
       const providers = Array.isArray(payload.providers) ? payload.providers : []
       if (providers.length === 0) throw new Error('Add an OpenAI-compatible provider in Settings before running reconstruction')
       const units = Array.isArray(casePayload.candidateUnits) ? casePayload.candidateUnits : []
@@ -200,16 +212,14 @@ export function WorkspaceTaskList({ projectId, tasks, onChanged }: {
         error?: string
         attempt?: { id: string }
         attempts?: Array<{ id: string }>
-        budget?: { usedAttempts: number; maxAttempts: number; reservedRuntimeMs: number; maxReservedRuntimeMs: number }
+        budget?: InvestigationBudget
       }
       if (!response.ok) throw new Error(payload.error || 'Unable to queue reconstruction')
       const attempts = Array.isArray(payload.attempts) && payload.attempts.length ? payload.attempts : payload.attempt ? [payload.attempt] : []
-      const budget = payload.budget
-        && Number.isFinite(payload.budget.usedAttempts) && Number.isFinite(payload.budget.maxAttempts)
-        && Number.isFinite(payload.budget.reservedRuntimeMs) && Number.isFinite(payload.budget.maxReservedRuntimeMs)
-        ? ` Case budget: ${payload.budget.usedAttempts}/${payload.budget.maxAttempts} attempts; ${Math.ceil(payload.budget.reservedRuntimeMs / 60_000)}/${Math.floor(payload.budget.maxReservedRuntimeMs / 60_000)} minutes reserved.`
-        : ''
-      setFeedback(`${attempts.length} reconstruction candidate${attempts.length === 1 ? '' : 's'} queued. They remain drafts until reviewed.${budget}`)
+      const budget = payload.budget && Object.values(payload.budget).every(Number.isFinite) ? payload.budget : null
+      if (budget) setInvestigationBudgets((previous) => ({ ...previous, [task.id]: budget }))
+      const budgetSummary = budget ? ` ${investigationBudgetLabel(budget)}` : ''
+      setFeedback(`${attempts.length} reconstruction candidate${attempts.length === 1 ? '' : 's'} queued. They remain drafts until reviewed.${budgetSummary}`)
       setInvestigationTaskId(null)
       if (attempts.length) setActiveInvestigation({ taskId: task.id, attemptIds: attempts.map((attempt) => attempt.id) })
       onChanged?.()
@@ -345,6 +355,7 @@ export function WorkspaceTaskList({ projectId, tasks, onChanged }: {
               {investigationProviders.map((provider) => <option key={provider.id} value={provider.id}>{provider.name} · {provider.modelIdentifier}</option>)}
             </select>
           </label>}
+          {investigationTaskId === task.id && investigationBudgets[task.id] && <small className={styles.investigationBudget}>{investigationBudgetLabel(investigationBudgets[task.id])}</small>}
           {investigationTaskId === task.id && investigationUnits.length > 1 && <label className={styles.investigationProvider}>
             Code unit
             <select aria-label={`Code unit for ${task.title}`} value={investigationUnitKey} onChange={(event) => setInvestigationUnitKey(event.target.value)}>

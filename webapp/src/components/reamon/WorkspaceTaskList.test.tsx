@@ -62,7 +62,10 @@ describe('WorkspaceTaskList', () => {
   test('requires an explicit saved provider before queueing a reconstruction candidate', async () => {
     vi.stubGlobal('fetch', vi.fn()
       .mockResolvedValueOnce({ ok: true, json: async () => ({ providers: [{ id: 'provider-1', name: 'Local', modelIdentifier: 'model-a' }] }) })
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ investigation: { id: 'case-1' }, attempts: [], candidateUnits: [{ key: 'fn:1000', label: 'FUN_1000', language: 'c', instructionFields: ['assembly'] }] }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({
+        investigation: { id: 'case-1' }, attempts: [], candidateUnits: [{ key: 'fn:1000', label: 'FUN_1000', language: 'c', instructionFields: ['assembly'] }],
+        budget: { usedAttempts: 0, maxAttempts: 24, reservedRuntimeMs: 0, maxReservedRuntimeMs: 1_800_000 },
+      }) })
       .mockResolvedValueOnce({ ok: true, json: async () => ({
         attempt: { id: 'attempt-1' }, attempts: [{ id: 'attempt-1' }],
         budget: { usedAttempts: 1, maxAttempts: 24, reservedRuntimeMs: 120_000, maxReservedRuntimeMs: 1_800_000 },
@@ -76,6 +79,7 @@ describe('WorkspaceTaskList', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Run investigation for Decompile library' }))
     expect(await screen.findByRole('combobox', { name: 'AI provider for Decompile library' })).toBeInTheDocument()
+    expect(screen.getByText('Case budget: 0/24 attempts; 0/30 minutes reserved.')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Run investigation for Decompile library' }))
 
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('1 reconstruction candidate queued. They remain drafts until reviewed. Case budget: 1/24 attempts; 2/30 minutes reserved.'))
