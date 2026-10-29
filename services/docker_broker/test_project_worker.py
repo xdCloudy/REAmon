@@ -681,6 +681,8 @@ class ProjectWorkerRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(body["HostConfig"]["ReadonlyRootfs"])
         self.assertEqual(body["HostConfig"]["Memory"], worker.WORKER_MEMORY)
         self.assertEqual(body["HostConfig"]["Mounts"], mounts)
+        self.assertEqual(body["HostConfig"]["Tmpfs"]["/tmp"], worker.WORKER_TMPFS)
+        self.assertFalse(any(mount.get("Target") == "/tmp" for mount in body["HostConfig"]["Mounts"]))
         self.assertEqual(body["HostConfig"]["PidsLimit"], worker.WORKER_PIDS)
         self.assertEqual(body["HostConfig"]["NanoCpus"], worker.WORKER_NANO_CPUS)
         self.assertIn(
@@ -1007,10 +1009,10 @@ class ProjectWorkerRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(mounts[0]["Target"], "/workspace")
         self.assertEqual(mounts[0]["Source"], "/run/desktop/mnt/host/c/REAmon/workspace/project-1")
         self.assertTrue(mounts[0]["ReadOnly"])
-        self.assertEqual(mounts[1]["Target"], "/tmp")
-        self.assertFalse(mounts[1]["ReadOnly"])
-        self.assertEqual(mounts[2]["Target"], "/workspace/.reamon-tmp")
-        self.assertEqual(mounts[3]["Target"], "/workspace/tool-outputs")
+        self.assertEqual(
+            [mount["Target"] for mount in mounts],
+            ["/workspace", "/workspace/.reamon-tmp", "/workspace/tool-outputs"],
+        )
 
     async def test_workspace_lookup_finds_compose_agent_with_generated_container_name(self):
         digest = "sha256:" + "d" * 64
@@ -1171,6 +1173,8 @@ class ProjectWorkerRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(body["HostConfig"]["CapAdd"], [])
         self.assertTrue(body["HostConfig"]["ReadonlyRootfs"])
         self.assertEqual(body["HostConfig"]["Mounts"], mounts)
+        self.assertEqual(body["HostConfig"]["Tmpfs"]["/tmp"], worker.WORKER_TMPFS)
+        self.assertFalse(any(mount.get("Target") == "/tmp" for mount in body["HostConfig"]["Mounts"]))
         self.assertEqual(
             body["Labels"]["reamon.project-scope"],
             hashlib.sha256(b"p1").hexdigest(),
@@ -1183,6 +1187,7 @@ class ProjectWorkerRuntimeTests(unittest.IsolatedAsyncioTestCase):
             f"--fsize={worker.WORKER_MAX_FILE_BYTES}:{worker.WORKER_MAX_FILE_BYTES}",
             body["Entrypoint"],
         )
+        self.assertEqual(body["Entrypoint"][-1], "--")
 
     async def test_only_kali_shell_worker_receives_raw_socket_capability(self):
         mounts = [{"Type": "bind", "Source": "/projects/p1", "Target": "/workspace", "ReadOnly": True}]

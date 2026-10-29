@@ -50,6 +50,7 @@ WORKER_MEMORY = _bounded_int_env(
 WORKER_MAX_FILE_BYTES = _bounded_int_env(
     "REAMON_WORKER_MAX_FILE_BYTES", 1024**3, 16 * 1024**2, 8 * 1024**3,
 )
+WORKER_TMPFS = "rw,nosuid,nodev,size=256m,mode=1777"
 WORKER_PIDS = _bounded_int_env("REAMON_WORKER_PIDS", 512, 64, 4096)
 WORKER_NANO_CPUS = _bounded_int_env("REAMON_WORKER_NANO_CPUS", 2_000_000_000, 500_000_000, 16_000_000_000)
 WORKER_MEMORY_BUDGET = 8 * 1024**3
@@ -401,7 +402,6 @@ async def _workspace_project_runtime(
     outputs = os.path.join(docker_project_root, "tool-outputs")
     mounts = [
         {"Type": "bind", "Source": docker_project_root, "Target": "/workspace", "ReadOnly": True},
-        {"Type": "bind", "Source": scratch, "Target": "/tmp", "ReadOnly": False},
         {"Type": "bind", "Source": scratch, "Target": "/workspace/.reamon-tmp", "ReadOnly": False},
         {"Type": "bind", "Source": outputs, "Target": "/workspace/tool-outputs", "ReadOnly": False},
     ]
@@ -719,8 +719,6 @@ async def _create_worker_container(
         "Entrypoint": [
             "/usr/bin/prlimit", "--core=0:0", "--nofile=256:256",
             f"--fsize={WORKER_MAX_FILE_BYTES}:{WORKER_MAX_FILE_BYTES}", "--",
-            "/bin/sh", "-c", "find /tmp -type f -mmin +1440 -delete 2>/dev/null || true; exec \"$@\"",
-            "reamon-worker",
         ],
         "Cmd": argv,
         "User": "65534:65534",
@@ -745,6 +743,7 @@ async def _create_worker_container(
             "SecurityOpt": ["no-new-privileges:true"],
             "Mounts": mounts,
             "Tmpfs": {
+                "/tmp": WORKER_TMPFS,
                 "/var/tmp": "rw,nosuid,nodev,size=64m",
                 "/dev/shm": "rw,nosuid,nodev,size=128m",
                 "/opt/output": "rw,nosuid,nodev,size=64m",
@@ -795,7 +794,7 @@ async def _create_terminal_container(identity: dict[str, str], network_id: str) 
         "Entrypoint": [
             "/usr/bin/prlimit", "--core=0:0", "--nofile=256:256",
             f"--fsize={WORKER_MAX_FILE_BYTES}:{WORKER_MAX_FILE_BYTES}", "--",
-            "/bin/sh", "-c", "find /tmp -type f -mmin +1440 -delete 2>/dev/null || true; exec /bin/bash --login",
+            "/bin/sh", "-c", "exec /bin/bash --login",
         ],
         "WorkingDir": "/workspace",
         "Env": env,
@@ -823,6 +822,7 @@ async def _create_terminal_container(identity: dict[str, str], network_id: str) 
             "SecurityOpt": ["no-new-privileges:true"],
             "Mounts": mounts,
             "Tmpfs": {
+                "/tmp": WORKER_TMPFS,
                 "/var/tmp": "rw,nosuid,nodev,size=64m",
                 "/dev/shm": "rw,nosuid,nodev,size=128m",
                 "/opt/output": "rw,nosuid,nodev,size=64m",
