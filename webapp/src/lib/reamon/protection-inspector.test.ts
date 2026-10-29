@@ -238,6 +238,21 @@ Section Headers:
     expect(assessElfProtection('ELF Header:', 4096, true)).toMatchObject({ status: 'unknown', outputTruncated: true })
   })
 
+  test('samples bounded executable ELF sections and reports entropy as an unknown-family hypothesis', () => {
+    const executableText = header
+      .replace('.UPX0', '.text')
+      .replace('001000 001000 00 WAX', '001000 000100 00 AX')
+    const sample = Buffer.from(Array.from({ length: 256 }, (_, index) => index))
+    const assessment = assessElfProtection(executableText, 4096, false, new Map([[1, sample]]))
+
+    expect(assessment).toMatchObject({ status: 'suspected', family: null, sampledBytes: 256 })
+    expect(assessment.sections).toEqual([expect.objectContaining({
+      index: 1, name: '.text', type: 'PROGBITS', fileOffset: 0x1000, fileSize: 0x100,
+      executable: true, sampledBytes: 256, entropyBits: 8, rawDataTruncated: false,
+    })])
+    expect(assessment.evidence.join(' ')).toContain('does not identify a protection family')
+  })
+
   test('runs bounded readelf against an ELF artifact without executing the target', async (context) => {
     if (!existsSync('/bin/true') || !existsSync('/usr/bin/readelf')) context.skip()
     const result = await executeProtectionInspection({
@@ -246,6 +261,7 @@ Section Headers:
     })
     expect(result).toMatchObject({ status: 'completed', toolId: 'reamon-protection-inspector' })
     expect(result.data.assessment).toMatchObject({ architecture: expect.stringContaining('X86-64'), inspectedBytes: expect.any(Number), outputTruncated: false })
+    expect((result.data.assessment as { sampledBytes: number }).sampledBytes).toBeGreaterThan(0)
     expect(result.data.observations).toEqual([expect.objectContaining({
       type: 'protection_assessment', key: 'artifact:system-elf-fixture:protection-static-v1',
     })])

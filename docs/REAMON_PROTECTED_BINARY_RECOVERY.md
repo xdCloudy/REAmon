@@ -9,10 +9,12 @@ headers and samples at most 64 KiB from each executable section, with a 256 KiB 
 sample cap. It records section metadata, architecture, entry-point RVA-to-section mapping,
 import and certificate directory locations, sampled Shannon entropy, malformed raw ranges,
 and conventional UPX section-name indicators as **suspected** evidence. The ELF inspector
-uses `readelf` with a 1 MiB output cap and 30-second timeout to record header, program
-header, and section-name evidence; it flags conventional UPX section names, entry points
-outside executable LOAD segments, and writable/executable LOAD segments as hypotheses.
-It does not execute the artifact. Neither inspector has real-sample precision/recall data;
+uses `readelf` with a 1 MiB output cap and 30-second timeout to record ELF header, program
+header, and section evidence. It samples at most 64 KiB per executable section and 256 KiB
+in aggregate, recording section offsets, sizes, sampled entropy, and out-of-file ranges. It
+flags conventional UPX section names, entry points outside executable LOAD segments,
+writable/executable LOAD segments, and high-entropy executable sections as hypotheses. It
+does not execute the artifact. Neither inspector has real-sample precision/recall data;
 PE import names and certificate contents are not recovered. High entropy is only a generic
 packing/encryption/data indicator. Synthetic fixtures test bounded parsing, not protection
 detection accuracy. The inspectors do not unpack files, detect arbitrary packers, identify
@@ -63,7 +65,7 @@ imply “unprotected” merely because a signature was absent.
 
 | Condition | Required handling | Current REAmon evidence |
 | --- | --- | --- |
-| Conventional executable compression/packing | Detect format-specific signatures/section/entrypoint changes; test deterministic extraction on owned fixtures; hash and re-analyze the output as a child artifact. | Suspected UPX PE section-name indicator, entry-point-to-section mapping, import/certificate directory locations, bounded executable-section entropy samples, and malformed raw-range evidence; no calibrated detection or extraction. |
+| Conventional executable compression/packing | Detect format-specific signatures/section/entrypoint changes; test deterministic extraction on owned fixtures; hash and re-analyze the output as a child artifact. | Suspected UPX PE/ELF section-name indicators, entry-point mapping, import/certificate directory locations, bounded PE and ELF executable-section entropy samples, and malformed raw-range evidence; no calibrated detection or extraction. |
 | Encrypted or runtime-decrypted code | Mark file and runtime-visible layers separately; preserve address and observation provenance; do not claim static recovery where ciphertext remains. | Planned. |
 | Import reconstruction and relocation complications | Preserve original and reconstructed tables separately; validate RVAs, relocation targets, and imports against independent analysis or execution evidence. | Planned. |
 | Anti-analysis, anti-debugging, anti-tamper | Record evidence and observed effects; report interference and unsupported execution conditions. Do not disable protections implicitly. | Planned. |

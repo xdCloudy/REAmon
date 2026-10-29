@@ -30,10 +30,23 @@ export interface ElfProtectionAssessment {
   entryPoint: string | null
   loadSegments: Array<{ virtualAddress: string; memorySize: string; flags: string }>
   sectionNames: string[]
+  sections: ElfSectionEvidence[]
   inspectedBytes: number
-  sampledBytes: 0
+  sampledBytes: number
   outputTruncated: boolean
-  scope: 'ELF headers, program headers, and section names; no execution or unpacking'
+  scope: 'ELF headers, program headers, section metadata, and bounded executable-section samples; no execution or unpacking'
+}
+
+export interface ElfSectionEvidence {
+  index: number
+  name: string
+  type: string
+  fileOffset: number
+  fileSize: number
+  executable: boolean
+  sampledBytes: number
+  entropyBits: number | null
+  rawDataTruncated: boolean
 }
 
 function readElfField(output: string, label: string): string | null {
@@ -51,10 +64,38 @@ function protectionObservationKey(artifactId: string | undefined, key: string, t
   return taskId ? `${artifactKey}:${key}:task:${taskId}` : `${artifactKey}:${key}`
 }
 
-export function assessElfProtection(output: string, inspectedBytes: number, outputTruncated = false): ElfProtectionAssessment {
+function parseElfSectionRows(output: string): Array<{ index: number; name: string; type: string; fileOffset: number; fileSize: number; executable: boolean }> {
+  return [...output.matchAll(/^\s*\[\s*(\d+)\]\s+(\S+)\s+(\S+)\s+([\da-f]+)\s+([\da-f]+)\s+([\da-f]+)\s+\S+\s+(\S*)/gim)]
+    .flatMap((match) => {
+      const index = Number(match[1])
+      const fileOffset = Number.parseInt(match[5], 16)
+      const fileSize = Number.parseInt(match[6], 16)
+      if (!Number.isSafeInteger(index) || !Number.isSafeInteger(fileOffset) || !Number.isSafeInteger(fileSize)) return []
+      return [{ index, name: match[2], type: match[3], fileOffset, fileSize, executable: match[7].includes('X') }]
+    })
+}
+
+export function assessElfProtection(
+  output: string,
+  inspectedBytes: number,
+  outputTruncated = false,
+  sectionSamples: Map<number, Buffer> = new Map(),
+  truncatedSections: Set<number> = new Set(),
+): ElfProtectionAssessment {
   const evidence: string[] = []
   let structuralIndicator = false
   const sectionNames = [...output.matchAll(/^\s*\[\s*\d+\]\s+([^\s]+)/gm)].map((match) => match[1])
+  const sections = parseElfSectionRows(output).map((section): ElfSectionEvidence => {
+    const sample = sectionSamples.get(section.index)
+    const entropyBits = sample ? shannonEntropy(sample) : null
+    return {
+      ...section,
+      sampledBytes: sample?.length ?? 0,
+      entropyBits,
+      rawDataTruncated: truncatedSections.has(section.index),
+    }
+  })
+  const sampledBytes = sections.reduce((total, section) => total + section.sampledBytes, 0)
   const family = sectionNames.some((name) => /^\.?UPX(?:0|1|2|!)$/i.test(name)) ? 'UPX' : null
   if (family) {
     structuralIndicator = true
@@ -86,6 +127,15 @@ export function assessElfProtection(output: string, inspectedBytes: number, outp
     structuralIndicator = true
     evidence.push('An ELF LOAD segment is both writable and executable; this is a structural indicator and can also occur in legitimate binaries.')
   }
+  for (const section of sections) {
+    if (section.executable && section.entropyBits !== null && section.entropyBits >= HIGH_ENTROPY_THRESHOLD) {
+      structuralIndicator = true
+      evidence.push(`Executable ELF section "${section.name || section.index}" has high sampled entropy (${section.entropyBits} bits per byte); this can result from packing, encryption, or other data and does not identify a protection family.`)
+    }
+    if (section.rawDataTruncated) {
+      evidence.push(`ELF section "${section.name || section.index}" declares raw bytes beyond the artifact boundary; its section data is truncated.`)
+    }
+  }
   const completeHeader = output.includes('ELF Header:') && Boolean(architecture)
   if (!completeHeader) {
     evidence.push('The bounded readelf output did not contain a complete ELF header.')
@@ -99,10 +149,11 @@ export function assessElfProtection(output: string, inspectedBytes: number, outp
     entryPoint,
     loadSegments,
     sectionNames,
+    sections,
     inspectedBytes,
-    sampledBytes: 0,
+    sampledBytes,
     outputTruncated,
-    scope: 'ELF headers, program headers, and section names; no execution or unpacking',
+    scope: 'ELF headers, program headers, section metadata, and bounded executable-section samples; no execution or unpacking',
   }
 }
 
@@ -390,7 +441,30 @@ export async function executeProtectionInspection(input: ToolExecutionInput): Pr
         timeoutMs: ELF_TIMEOUT_MS,
         timeoutError: (value) => `readelf protection inspection timed out after ${Math.ceil(value / 1000)} seconds`,
       })
-      const assessment = assessElfProtection(result.stdout, artifactStats.size, result.truncated)
+      const sectionRows = parseElfSectionRows(result.stdout)
+      const sectionSamples = new Map<number, Buffer>()
+      const truncatedSections = new Set<number>()
+      let sampleBudget = MAX_TOTAL_SAMPLE_BYTES
+      for (const section of sectionRows) {
+        if (!section.executable || section.type === 'NOBITS' || !section.fileSize) continue
+        if (section.fileOffset >= artifactStats.size) {
+          truncatedSections.add(section.index)
+          continue
+        }
+        const availableBytes = Math.min(section.fileSize, artifactStats.size - section.fileOffset)
+        if (availableBytes < section.fileSize) truncatedSections.add(section.index)
+        if (!sampleBudget) continue
+        const sampleSize = Math.min(availableBytes, MAX_SECTION_SAMPLE_BYTES, sampleBudget)
+        if (sampleSize <= 0) continue
+        const sample = Buffer.alloc(sampleSize)
+        const { bytesRead: sampled } = await handle.read(sample, 0, sampleSize, section.fileOffset)
+        if (sampled > 0) {
+          sectionSamples.set(section.index, sample.subarray(0, sampled))
+          sampleBudget -= sampled
+        }
+        if (sampled < sampleSize) truncatedSections.add(section.index)
+      }
+      const assessment = assessElfProtection(result.stdout, artifactStats.size, result.truncated, sectionSamples, truncatedSections)
       return {
         status: 'completed', ...base,
         data: { assessment, observations: [elfProtectionObservation(assessment, input.artifactId, input.taskId)], stderr: result.stderr.slice(0, 4000) },
