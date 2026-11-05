@@ -76,7 +76,7 @@ The [Craft Anything adoption bootstrap](docs/REAMON_CRAFT_ANYTHING_ADOPTION.md) 
 
 <!-- REAMON_PRODUCT_PROGRESS_START -->
 <progress value="29" max="100">29%</progress> <strong>29%</strong> — weighted estimate **29.0%**.
-Scope recalibrated on 2026-11-05 from an implementation-evidence baseline at pushed commit `a14c05b`. The Craft Anything adoption plan added explicit cross-surface tool/evidence delivery acceptance gates, raising the denominator without changing existing implementation credit (**31.9% → 29.0%**). This includes product and production security/reliability; it is not release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for weight allocation and evidence.
+Refreshed from pushed commit `438e1a6`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
 [Goals and roadmap](docs/REAMON_GOALS.md) · [Feature matrix](docs/REAMON_FEATURE_MATRIX.md)
