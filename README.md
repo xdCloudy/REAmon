@@ -66,6 +66,12 @@ Coverage varies by input format, language, provider, and version. Java and Andro
 
 REAmon's goal is language-universal recovery of maintainable code. The language matrix also defines criteria for evaluating source transpilers and native binary lifters. Decompilers and related projects are audited in the [reference portfolio](docs/REAMON_REFERENCE_PORTFOLIO.md) and [upstream reuse notes](docs/REAMON_UPSTREAM_REUSE.md), including licensing and validation requirements.
 
+## Upstream evaluation and selective reuse
+
+REAmon tracks complementary reverse-engineering projects as **references and potential implementation sources**, not as integrated capabilities. [Craft Anything](https://github.com/storytold/craft-anything) is being evaluated for its unified tool contracts, paged evidence, pluggable checks and iterative agent workflows. Its primary recreation workflow differs from REAmon's evidence-linked source recovery; upstream demos and tool counts do not imply that REAmon supports those features.
+
+The [Craft Anything adoption bootstrap](docs/REAMON_CRAFT_ANYTHING_ADOPTION.md) records candidate components, architecture mapping, reuse/licensing gates, measurable acceptance tests and staged work packages. **No code from that project is incorporated by this documentation update.** Existing [capability](docs/REAMON_FEATURE_MATRIX.md), [reconstruction](docs/REAMON_RECONSTRUCTION_STAGES.md), [language](docs/REAMON_LANGUAGE_MATRIX.md) and [production-readiness](docs/REAMON_READINESS_MATRIX.md) claims remain unchanged.
+
 ## Project status
 
 <!-- REAMON_PRODUCT_PROGRESS_START -->
