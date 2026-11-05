@@ -79,6 +79,9 @@ confidence level. See [the workflow](REAMON_WORKFLOW.md) and
 
 ## Product boundary
 
+The distinction from software **recreation** is deliberate. A system can study an original and generate an app or game that resembles it without recovering the original's data structures, source units, semantics or dependencies. Craft Anything is a useful [workflow and engine reference](REAMON_CRAFT_ANYTHING_ADOPTION.md), but REAmon must label synthesized approximations as such and independently validate any claimed behavior. Tool interoperability and analysis UX are reusable concepts; replacing REAmon's source-reconstruction objective is not.
+
+
 REAmon is an investigation and maintenance workspace around reverse-engineering
 engines. It should reuse mature parsers, decompilers, disassemblers, debuggers, and
 visualization techniques where practical, while keeping project identity, evidence,
