@@ -131,6 +131,7 @@ recovery of source details erased by compilation or obfuscation.
 | P0 | Database-backed project memory and consistent symbol identity | Every later draft depends on project-wide context that does not contradict itself. |
 | P0 | Secure service boundaries and repeatable release checks | Direct agent controls, tenant boundaries, worker availability, and recovery need evidence before production claims. |
 | P1 | One-unit work lifecycle with attempts, review, and validation records | This adapts decomp.wtf's most valuable process and bounds agent mistakes. |
+| P1 | Unified typed analysis-tool and validation-result contracts (Craft Anything reference) | Reuse interface concepts without importing a parallel project store; verify authorization, evidence paging, reviewer gates and original/candidate behavioral checks across entrypoints. |
 | P1 | Visualizer connects artifact, unit, relationships, draft, and review state | Results need to be understandable and actionable in one workspace. |
 | P1 | Agentic Semantic Symbol Recovery (ASSR-1 project-wide naming, ASSR-2 cross-file propagation, ASSR-3 safe autonomous acceptance) | Maintainable reconstruction needs consistent, evidence-backed symbols across a project; autonomous promotion needs separate validation and rollback gates. |
 | P1 | Multi-provider semantic reconciliation | Resolve material disagreement transparently before downstream type, symbol, and source decisions; never count correlated providers as independent votes. |
