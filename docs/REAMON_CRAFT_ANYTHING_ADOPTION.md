@@ -96,6 +96,7 @@ Use known-source binaries in versioned compiler/optimization pairs (native PE/EL
 - **Adopt as references now:** tool-schema parity, summary-first evidence, typed checks, bounded autonomous refinement, honest limitations.
 - **Research before importing:** Rust parsers, function matching, session/evidence persistence, dynamic observation controls.
 - **Do not adopt by default:** unrestricted agent execution, second authoritative store, clone-oriented output as a substitute for recovered source, or large vendored code drops.
-- **Current integration status:** documentation only. No change to REAmon provider coverage, product progress, release readiness or benchmark results.
+- **Current integration status:** documentation only. REAmon provider coverage, implementation results, release readiness and benchmarks are unchanged; the weighted **overall progress estimate decreased** because CA-1/CA-2 are now part of the accepted scope. See [scope recalibration](REAMON_PROGRESS.md).
+- **Future scope changes:** Update the progress JSON, weighted matrix, and README bar together whenever acceptance criteria are added or removed, even in documentation-only PRs. Retain explicit coverage boundaries and never grant upstream work implementation credit.
 
 See [reference portfolio](REAMON_REFERENCE_PORTFOLIO.md), [upstream reuse rules](REAMON_UPSTREAM_REUSE.md), [goals](REAMON_GOALS.md), [agentic reconstruction milestones](REAMON_RECONSTRUCTION_MILESTONES.md) and [architecture](REAMON_ARCHITECTURE.md).
