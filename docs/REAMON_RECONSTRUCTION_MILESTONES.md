@@ -35,6 +35,24 @@ from completion denominators for supported-scope metrics.
 
 Craft Anything's inspection, typed check and iterative rebuild architecture is a candidate source of patterns for these milestones; see the [adoption bootstrap](REAMON_CRAFT_ANYTHING_ADOPTION.md). Its own build success, screenshots and self-tests are not REAmon benchmark results. Any adaptation must retain separately typed recovered, inferred, synthesized, validated and unavailable evidence, and use REAmon's isolated workers for original/candidate execution. No milestone status or weighted progress is advanced by this reference evaluation.
 
+## Cross-cutting autonomous delivery and held-out acceptance
+
+The [autonomous reconstruction and fidelity delivery plan](REAMON_AUTONOMOUS_RECONSTRUCTION_DELIVERY.md)
+is an integration specification; it does not replace or double-count M1/M2/M3/M4/M5,
+ASSR, protection, or the Craft Anything CA-1–CA-6 work packages. Its AR-0 and AR-8
+gates establish known-source benchmarks and negative controls before any claim of
+end-to-end reconstruction. AR-3 adjudicates independent provider conflicts (M5),
+AR-4/AR-4b reconcile stable symbols, types and runtime mapping (ASSR/M1/M3),
+AR-5 validates bounded source repairs with explicit oracle scope (M2), and AR-6
+assembles and exports a coherent reviewed source project (M4). AR-1/AR-2 provide
+typed cross-surface access and replayable bounded evidence (CA-1/CA-2).
+
+Optional AR-7 authorized browser/app behavior capture is a separate evidence
+channel: UI similarity, external network effects, and source reconstruction are
+different claims with separate receipts. An unobserved state or unsafe oracle is
+UNAVAILABLE, never automatically passed. New documentation creates no engine
+support or accepted benchmark score.
+
 ## Milestone dependencies
 
 ```text

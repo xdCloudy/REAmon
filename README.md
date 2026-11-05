@@ -72,11 +72,13 @@ REAmon tracks complementary reverse-engineering projects as **references and pot
 
 The [Craft Anything adoption bootstrap](docs/REAMON_CRAFT_ANYTHING_ADOPTION.md) records candidate components, architecture mapping, reuse/licensing gates, measurable acceptance tests and staged work packages. **No code from that project is incorporated by this documentation update.** Existing [capability](docs/REAMON_FEATURE_MATRIX.md), [reconstruction](docs/REAMON_RECONSTRUCTION_STAGES.md), [language](docs/REAMON_LANGUAGE_MATRIX.md) and [production-readiness](docs/REAMON_READINESS_MATRIX.md) claims remain unchanged.
 
+The [autonomous reconstruction and fidelity delivery plan](docs/REAMON_AUTONOMOUS_RECONSTRUCTION_DELIVERY.md) now defines integration, benchmarking and optional web/app behavioral-evidence acceptance. These are **new roadmap gates, not implemented features**; the README's weighted progress reflects their extra scope without changing existing implementation evidence.
+
 ## Project status
 
 <!-- REAMON_PRODUCT_PROGRESS_START -->
-<progress value="29" max="100">29%</progress> <strong>29%</strong> — weighted estimate **29.0%**.
-Refreshed from pushed commit `438e1a6`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+<progress value="26" max="100">26%</progress> <strong>26%</strong> — weighted estimate **26.4%**.
+Refreshed from pushed commit `ecdc8fb`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
 [Goals and roadmap](docs/REAMON_GOALS.md) · [Feature matrix](docs/REAMON_FEATURE_MATRIX.md)
@@ -118,6 +120,7 @@ See the [developer guide](docs/readmes/README.DEV.md) for the development enviro
 - [Reference portfolio](docs/REAMON_REFERENCE_PORTFOLIO.md)
 - [Upstream reuse and licensing decisions](docs/REAMON_UPSTREAM_REUSE.md)
 - [Craft Anything adoption bootstrap and acceptance gates](docs/REAMON_CRAFT_ANYTHING_ADOPTION.md)
+- [Autonomous reconstruction, fidelity benchmarks and application evidence delivery plan](docs/REAMON_AUTONOMOUS_RECONSTRUCTION_DELIVERY.md)
 - [Native cross-version function matching ADR](docs/REAMON_NATIVE_FUNCTION_MATCHING_ADR.md)
 - [ToCode export adapter](docs/REAMON_TOCODE_ADAPTER.md)
 - [Release, backup, and recovery](docs/REAMON_RELEASE_RUNBOOK.md)
