@@ -1,8 +1,11 @@
 # Craft Anything: REAmon adoption bootstrap
 
 **Status:** evaluated as a reference and candidate source; **no Craft Anything code is incorporated into REAmon by this document.**
+
 **Review date:** 2026-11-05.
+
 **Upstream:** [storytold/craft-anything](https://github.com/storytold/craft-anything), inspected at [869eb8548ae3cf9162181659c3ab47441b9c300d](https://github.com/storytold/craft-anything/commit/869eb8548ae3cf9162181659c3ab47441b9c300d).
+
 **REAmon owner:** upstream-reuse and reconstruction workstreams. Re-evaluate every candidate against an exact upstream revision before importing it.
 
 This is a **source-informed adoption plan**, not a completed dependency/security audit, an integration record, or a claim of measured REAmon improvements. Keep [feature status](REAMON_FEATURE_MATRIX.md), [reconstruction status](REAMON_RECONSTRUCTION_STAGES.md), [language coverage](REAMON_LANGUAGE_MATRIX.md), [weighted progress](REAMON_PROGRESS.md), and [readiness](REAMON_READINESS_MATRIX.md) tied to REAmon evidence rather than upstream demonstrations.
