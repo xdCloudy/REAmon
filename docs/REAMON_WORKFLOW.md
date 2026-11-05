@@ -240,6 +240,23 @@ compile, or one execution trace is not proof that the original application or pr
 has been recovered. The [reconstruction milestone specification](REAMON_RECONSTRUCTION_MILESTONES.md)
 defines the acceptance gates.
 
+## Integrated end-to-end acceptance (planned)
+
+The existing steps above are independent partial implementations, not a validated
+whole-application reconstruction. The accepted [delivery plan](REAMON_AUTONOMOUS_RECONSTRUCTION_DELIVERY.md)
+adds the cross-step AR-0 through AR-8 gates: pin held-out known-source projects;
+run bounded providers via shared tool contracts; page complete hash-bound evidence;
+resolve competing interpretations; preserve project-wide symbols/types; assemble
+reviewed source and its dependencies; compile, compare behavior if an authorized
+oracle exists, and iteratively repair; export all receipts and unresolved gaps.
+Browser/app observations, when authorized, form a distinct external-evidence check
+and do not authorize silent code execution or source-fidelity claims.
+
+Record a complete project-level acceptance receipt only when every applicable
+gate passes, and retain UNAVAILABLE/PARTIAL for missing oracle, lost evidence,
+unvisited units, truncated traces, failed builds and unsupported target regions.
+Keep stage-specific progress separate from this stricter project-level gate.
+
 ## Universal completion states
 
 The UI and storage should preserve separate state dimensions, even if displayed as a

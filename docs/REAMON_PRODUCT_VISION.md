@@ -61,6 +61,18 @@ class. The [language matrix](REAMON_LANGUAGE_MATRIX.md) defines how to track tha
 - **Stay engine- and language-independent.** Providers can be replaced or combined;
   the investigation model should not be tied to a single format, UI, or decompiler.
 
+## Fidelity-first delivery criterion
+
+Autonomous progress should be demonstrated with a replayable, known-source
+import-to-maintainable-project workflow, not a provider count or a superficially
+runnable clone. The [delivery plan](REAMON_AUTONOMOUS_RECONSTRUCTION_DELIVERY.md)
+defines full-system held-out benchmarks, project-wide semantic consistency,
+multi-provider reconciliation, build and behavior oracles, bounded repair and
+a documentation regression gate. Optional external web/application behavior
+observations contribute scoped evidence only; visual resemblance is not source
+or functional equivalence. All new capabilities are planned until REAmon itself
+passes their acceptance fixtures.
+
 ## Why decomp.wtf is a product reference
 
 [decomp.wtf](https://github.com/i12bp8/decomp.wtf) makes a strong workflow concrete:

@@ -6,6 +6,8 @@ do. “Planned” means an area to evaluate; it has no delivery date.
 
 Upstream references, including [Craft Anything](REAMON_CRAFT_ANYTHING_ADOPTION.md), do not add REAmon support merely by being inspected. A borrowed parser, decoder or matching engine changes a language/format row only after it runs in a REAmon provider with pinned source, versioned fixtures, measured coverage and validated provenance. UI lookalike builds are not source recovery.
 
+The [integrated autonomous delivery plan](REAMON_AUTONOMOUS_RECONSTRUCTION_DELIVERY.md) adds stricter full-project, held-out benchmark and optional external web/application observation gates. They do **not** change any language/format implementation status, restore erased source information, or establish an additional supported runtime by themselves.
+
 ## Long-term fluency target
 
 REAmon aims for high practical fluency across all major language families. That means

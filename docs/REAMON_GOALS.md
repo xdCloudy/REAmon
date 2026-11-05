@@ -119,6 +119,24 @@ unit recovery, identifier/type/relationship recovery, readable source output,
 language-aware editing, validation depth, and fixture results. It does not mean exact
 recovery of source details erased by compilation or obfuscation.
 
+### G13. Demonstrate complete, benchmarked reconstruction
+
+- Validate end-to-end import, independent analysis, semantic recovery, reviewed
+  multi-file assembly, applicable builds, behavior checks, restart recovery and export.
+- Measure these integrated outcomes on held-out known-source projects separately
+  from existing individual provider smoke tests.
+- Report full denominators and negative controls; do not grant partial or
+  unavailable checks successful-equivalence credit.
+
+### G14. Preserve web and application behavior as independent evidence
+
+- In authorized scopes, capture and replay bounded UI state transitions,
+  navigation, network effects and optional runtime instrumentation as named evidence.
+- Separate clean-room external observations, visual similarity, internal code
+  evidence and exact scoped behavioral checks; none alone proves source recovery.
+- Reuse project identity, controlled workers, authorization and immutable receipts.
+  Keep inaccessible states and third-party nondeterminism explicit.
+
 ## Selective upstream adoption lane
 
 [Craft Anything](https://github.com/storytold/craft-anything) is a concrete reference for typed tools, paginated evidence, pluggable checks and bounded agent feedback, but its primary output is a newly created approximation of a target. REAmon's output remains recovered/maintained source with traceable provenance, review and scoped validation. The [adoption bootstrap](REAMON_CRAFT_ANYTHING_ADOPTION.md) records work packages CA-0 through CA-6 and their proof gates. These are **implementation hypotheses**, not completed milestones or product-progress credit. The newly accepted CA-1/CA-2 scope does, however, increase the denominator of the [recalibrated progress model](REAMON_PROGRESS.md): the displayed estimate is 29.0% rather than 31.9%, without loss of prior implementation credit. CA-3/CA-4, CA-5 and optional CA-6 remain accounted for under existing or future accepted gates rather than double-counted. The work supports G1 (coverage), G3 (memory), G4/G9 (validation), G5 (provider contracts) and G11 (project reconstruction).
@@ -140,10 +158,20 @@ recovery of source details erased by compilation or obfuscation.
 | P1 | Autonomous Behavioral Validation and Differential Testing | Test reconstructed behavior against a trustworthy original oracle inside the existing controlled worker boundary. |
 | P1 | Static and Dynamic Analysis Fusion | Runtime observations can resolve static uncertainty, but require stable address mapping, provenance, and safe authorized execution. |
 | P1 | Language-specific validators and repeatable benchmark corpora | Type, project-build, and behavior claims need scope-specific evidence before support is raised. |
+| P0 | Integrated, held-out end-to-end reconstruction benchmarks | An analyzer passing isolated fixtures does not establish usable project recovery; see [delivery plan](REAMON_AUTONOMOUS_RECONSTRUCTION_DELIVERY.md). |
+| P2 | Authorized web/application behavior evidence and replay | Adds a separate measured behavioral oracle, not a clone-based source-recovery claim; see AR-7 in the [delivery plan](REAMON_AUTONOMOUS_RECONSTRUCTION_DELIVERY.md). |
 | P2 | Concurrent agents with atomic leases and conflict protection | Parallel work is useful after unit ownership and promotion rules are sound. |
 | P2 | Major-language capability portfolio and fidelity tracking | Breadth should grow with language-aware engines, validators, and measured evidence. |
 | P2 | Transpiler and binary-lifting evaluation | Validate the existing C#-to-Visual-Basic bridge and experimental Recurse lift, then evaluate a broader source-language bridge and architecture-neutral lifter only against the provenance, coverage, and fixture acceptance criteria. |
 | P3 | More formats, additional providers, and collaborative sharing | Extend breadth without weakening persistence, provenance, safe execution, or review. |
+
+The cross-cutting implementation packages, acceptance and benchmark reporting for
+G1–G14 are specified in the [autonomous reconstruction and fidelity delivery
+plan](REAMON_AUTONOMOUS_RECONSTRUCTION_DELIVERY.md). Its two newly distinct scopes
+(end-to-end benchmarks and external application behavior evidence) are represented
+as zero-complete workstreams in the weighted progress denominator. Existing M1–M5,
+ASSR, CA-1/CA-2 and production obligations retain their own owners and cannot
+receive duplicate completion credit.
 
 ## Completion checks for a reverse-engineering slice
 

@@ -24,6 +24,25 @@ Craft Anything is a candidate **source of concepts or narrowly audited code**, n
 | Typed checker registry and autonomous validation/refinement | Bounded durable rewrite attempts and narrow validation fixtures; general behavioral equivalence and whole-project rebuild remain incomplete | Candidate approach. Require a structured outcome with exact hashes, declared oracle, coverage, safe worker, failure receipts and human review |
 | Alternative parsers, cross-version matchers and optional external-UI checking | Provider-dependent native/managed evidence and reviewed function matching already exist | Benchmark narrowly against existing engines; screenshot/build checks alone cannot validate source fidelity |
 
+## Autonomous delivery commitments (planning only)
+
+These commitments formalize existing roadmap dependencies plus two new weighted
+acceptance scopes. This section is not evidence that an integrated product exists;
+see [delivery plan](REAMON_AUTONOMOUS_RECONSTRUCTION_DELIVERY.md) for exact AR gates.
+
+| Commitment | Current implementation evidence | Not-yet-met acceptance |
+| --- | --- | --- |
+| Full import-to-maintainable-source-to-export workflow | Partial imports, analyzers, persisted rewrites, selected builds, reviewed source export | One repeatable multi-file held-out project with provenance, dependency closure, scoped build/behavior checks, failure recovery and round-trip export (AR-6) |
+| End-to-end benchmark and regression suite | Provider fixtures and a few narrowly scoped runtime comparisons, but no comprehensive integrated fixture outcome | Versioned multi-format, paired known-source and negative controls; exact per-stage denominators and reproducible baseline/candidate report (AR-0/AR-8) |
+| Shared typed tool contract | Existing provider, web, agent and MCP entrypoints | Same schema/errors/ownership/coverage across applicable surfaces with negative tests (CA-1/AR-1) |
+| Summary-first durable evidence | Project observations, artifact hashes, bounded MCP pages | Hash-bound cursor replay across restart, omissions and model budget, tenant isolation (CA-2/AR-2) |
+| Semantic decompiler arbitration | Provider alternatives, diffs, analyst-reviewed matching, failed-unit investigation | Adjudicated contradictions, independence-aware ranking, calibrated held-out accuracy (M5/AR-3) |
+| Project-wide names, types and dependencies | Partial provider metadata, project memory, same-source rename adapters | Identity-safe, cross-file bindings and type/layout reconstruction with measured false-positive and rollback gates (ASSR/M1/AR-4) |
+| Typed checks and bounded autonomous repair | Structural checks, durable attempts and selected build receipts | Scoped compile/differential/behavior oracles, counterexample replay, human review and rollback (M2/M4/CA-3/CA-4/AR-5) |
+| Authorized static/dynamic correlation | Static function/control-flow evidence plus separate runtime tools | Address-mapped traces, coverage and worker-isolation acceptance with static-only fallback (M3/AR-4b) |
+| External web/application behavior evidence | Existing UI/browser/attack-surface tools are not a validated unified behavioral reconstruction oracle | Reproducible stateful UI/network observations, scoped authorization, separate visual and semantic verdicts (AR-7) |
+
+
 ## Reconstruction capability status
 
 | Capability | Current state | Product gap / next outcome |

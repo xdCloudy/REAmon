@@ -298,6 +298,22 @@ A generated, runnable Linux PyInstaller executable with 70 hidden-import modules
 The first synthetic queued task exposed a production permission defect: the webapp UID could not write to the provider-owned derived volume. The image now adds the provider group, and a restricted one-shot Compose initializer sets the existing volume root to group 10001 with mode 2770. A subsequent queued PyInstaller task completed through the live worker from saved index 68 and stored readable source. The opt-in database integration now covers both direct-provider persistence and ordinary queued-worker execution; it cleans its fixture, project, and derived outputs after each run.
 
 The acceptance validates one generated executable and one live task-worker run; AI retrieval, user-imported executable behavior, and broad Python fidelity remain open. The webapp health endpoint reports ready with PostgreSQL and artifact checks ok after the deployment was restored using the active WSL Compose override.
+## Newly accepted delivery acceptance gates (not yet passed)
+
+The [autonomous reconstruction and fidelity delivery plan](REAMON_AUTONOMOUS_RECONSTRUCTION_DELIVERY.md)
+defines new cross-workstream acceptance tests, not additional production deployment
+evidence. No release readiness is earned by this documentation change.
+
+| Gate | Status | Evidence needed |
+| --- | --- | --- |
+| AR-0/AR-8 end-to-end benchmark and regression reproducibility | Planned, unverified | Known-source versioned corpus, baseline vs candidate comparison, full denominators, negative controls, exact receipts and no unsupported claim inflation |
+| AR-1/AR-2 cross-surface schema/authorization and restart-safe evidence | Planned as unified contract | Browser/MCP/agent parity and isolation, bounded resume/retry, tamper/missing-page and oversize tests |
+| AR-3–AR-6 source fidelity and project export | Existing partial foundations; integrated gate unverified | Independent decompiler conflict cases, cross-file type/symbol integrity, review, reproducible build, oracle-qualified behavior and export/reimport |
+| AR-4b runtime correlation | Planned, guarded by worker acceptance | Authorized trace mapping, privacy/egress controls, reproducible coverage and full cleanup |
+| AR-7 external web/app behavior evidence | Planned, unverified | Explicit authorized scope; UI/network-state replay; nondeterminism and secret masking; separate screenshot and semantic verdicts |
+| Cross-matrix documentation consistency | Required for roadmap changes | README, JSON, generated weighted ledger, feature/stage/language scope and release caveats agree without deleting previous implementation evidence |
+
+
 ## Current gates
 
 | Area | State | Evidence in this assessment | Remaining gate |

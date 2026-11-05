@@ -2,6 +2,8 @@
 
 **Status:** evaluated as a reference and candidate source; **no Craft Anything code is incorporated into REAmon by this document.**
 
+**Additional 2026-11-05 planning decision:** AR-7 web/application behavioral evidence and AR-0/AR-8 integrated benchmarks are accepted as independently weighted zero-complete goals in the [delivery plan](REAMON_AUTONOMOUS_RECONSTRUCTION_DELIVERY.md). The latest weighted score is **26.4%** (previous CA-1/CA-2 scope-only recalibration: 29.0%); neither change represents removed implementation.
+
 **Review date:** 2026-11-05.
 
 **Upstream:** [storytold/craft-anything](https://github.com/storytold/craft-anything), inspected at [869eb8548ae3cf9162181659c3ab47441b9c300d](https://github.com/storytold/craft-anything/commit/869eb8548ae3cf9162181659c3ab47441b9c300d).
@@ -36,7 +38,7 @@ Tool totals and release descriptions change across generated indexes and status 
 | P1 | Iterative Study/Build/Check/Refine controller | High if converted from clone-building to source reconstruction | Use REAmon's durable per-unit attempts and review receipts; feed validation counterexamples into bounded retries | Resumable attempt IDs; explicit budgets and cancellation; no acceptance on compilation or screenshot similarity alone |
 | P1 | Native cross-build alignment and selective native/managed format readers | Potential targeted gap filler, not blanket engine replacement | Benchmark a single parser/matcher through a narrow Rust worker or subprocess adapter against REAmon's current providers and matched fixtures | Architecture/format/version coverage, false matches, unsupported cases, runtime/memory caps and source hash provenance |
 | P2 | External-observation versus deep-inspection classification | Useful for optional non-invasive assessments and tool authorization | Define REAmon-owned access profiles as a policy layer with explicit scope and capability restrictions | Integration tests prove denied tools, agent escape paths, project isolation and broker enforcement |
-| P2 | Websites' multi-width pixel comparison and UI state capture | Adjacent; useful only for explicitly requested UI equivalence evidence | Optional external-output validator with baseline captures, not proof of source correctness | Deterministic capture fixtures, dynamic-content masking, reproducible viewport configuration and uncertainty |
+| P2 | Websites' multi-width pixel comparison and UI state capture | Accepted as a separate planned external-behavior evidence goal, not source equivalence | Scoped external-output/UI-network validator with baseline captures; implementation remains unverified | Deterministic stateful fixtures, network-effect replay, dynamic-content masking, reproducible viewport configuration, uncertainty and explicit oracle limits (AR-7) |
 | Defer | Desktop egui frontend, whole engine vendoring, game/asset generation, backend stand-ins | Low fit or duplicates REAmon infrastructure | No bulk import. Reassess only for a concrete REAmon test case | Written cost/benefit and risk review first |
 
 ### Architecture mapping
@@ -72,7 +74,7 @@ This document provides engineering guidance, not a legal determination or a warr
 | CA-3 | Typed validation/check receipt and checker registry; no execution outside worker | CA-1; current reconstruction milestone M2/M4 | Compile-only versus behaviour/unavailable test cases; exact hashes and safety audit |
 | CA-4 | Bounded reconstruction feedback controller with human acceptance boundary | CA-2, CA-3 | Failure counterexample replay, cancellation, restart recovery, rollback and regression guard |
 | CA-5 | Single narrow upstream native parser or cross-build matcher comparison spike | CA-0; pinned real fixtures | Precision/recall or coverage/fidelity versus current providers; memory/time and malformed-file behaviour |
-| CA-6 | Optional external-UI or clean-room observation validator | CA-3 plus documented user value | Separate visual accuracy from semantic equivalence; verify policy enforcement through all agent adapters |
+| CA-6 | Planned external-UI/application observation validator (accepted scope; not integrated) | CA-3 and AR-7 fixture definition | Separate visual accuracy from stateful behavior and semantic equivalence; replay UI/network evidence, verify policy enforcement through all agent adapters |
 
 Each package should be a standalone PR where possible. **CA-0 is documentation/research and not proof that reuse is safe.** Begin with the smallest testable slice; run no wholesale migration of REAmon's Next.js, PostgreSQL, Neo4j, analyzer fleet or Docker broker.
 
@@ -97,6 +99,6 @@ Use known-source binaries in versioned compiler/optimization pairs (native PE/EL
 - **Research before importing:** Rust parsers, function matching, session/evidence persistence, dynamic observation controls.
 - **Do not adopt by default:** unrestricted agent execution, second authoritative store, clone-oriented output as a substitute for recovered source, or large vendored code drops.
 - **Current integration status:** documentation only. REAmon provider coverage, implementation results, release readiness and benchmarks are unchanged; the weighted **overall progress estimate decreased** because CA-1/CA-2 are now part of the accepted scope. See [scope recalibration](REAMON_PROGRESS.md).
-- **Future scope changes:** Update the progress JSON, weighted matrix, and README bar together whenever acceptance criteria are added or removed, even in documentation-only PRs. Retain explicit coverage boundaries and never grant upstream work implementation credit.
+- **Future scope changes:** Update the progress JSON, weighted matrix, and README bar together whenever acceptance criteria are added or removed, even in documentation-only PRs. The newer AR-0/AR-8 and AR-7 goals are explicitly counted with zero implementation credit; see the [delivery plan](REAMON_AUTONOMOUS_RECONSTRUCTION_DELIVERY.md). Retain coverage boundaries and never grant upstream work implementation credit.
 
 See [reference portfolio](REAMON_REFERENCE_PORTFOLIO.md), [upstream reuse rules](REAMON_UPSTREAM_REUSE.md), [goals](REAMON_GOALS.md), [agentic reconstruction milestones](REAMON_RECONSTRUCTION_MILESTONES.md) and [architecture](REAMON_ARCHITECTURE.md).
