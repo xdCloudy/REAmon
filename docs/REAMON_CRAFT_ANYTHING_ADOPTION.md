@@ -26,7 +26,7 @@ Tool totals and release descriptions change across generated indexes and status 
 
 ## Candidate adoption matrix
 
-**Status convention:** all rows below are **candidate / not integrated**. These priorities rank investigation; they do not add to REAmon's completion percentage.
+**Status convention:** all rows below are **candidate / not integrated**. These priorities rank investigation and earn no implementation-completion credit. However, formally accepting CA-1/CA-2 expanded REAmon's weighted goal, so the [progress model](REAMON_PROGRESS.md) has been recalibrated from 31.9% to 29.0% (2026-11-05); new scope belongs in the denominator before it is delivered.
 
 | Priority | Craft Anything source/concept | Fit for REAmon | Proposed approach | Acceptance evidence |
 | --- | --- | --- | --- | --- |
