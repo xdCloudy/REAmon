@@ -7,6 +7,12 @@ separate so a plausible name is never treated as proof of behavior.
 
 ## Current direction
 
+### Craft Anything: candidate source and workflow reference
+
+[Craft Anything](https://github.com/storytold/craft-anything) is a **candidate for selective reuse**, not an integrated REAmon dependency. The [2026-11-05 adoption bootstrap](REAMON_CRAFT_ANYTHING_ADOPTION.md) pins its reviewed reference revision and maps its tool registry, summary-first evidence/pagination, check contracts, bounded rebuild/refinement loop, native parsers and access-mode concepts to REAmon's existing provider/database/worker boundaries. Its Study → Build → Check → Refine product targets newly created lookalike apps, websites and games; REAmon must continue to distinguish recovered source from generated approximation and validated behaviour.
+
+The upstream root advertises MIT OR Apache-2.0. This is only a starting point: actual imports require a per-file dependency, licence and attribution audit, pinned revision, container-safety analysis and comparative fixture evidence. No Craft Anything source or binaries are imported by this research note. In particular, a tool allowlist called Clean room must not be mistaken for operating-system isolation or universal coding-agent enforcement. Keep actual inclusions in [third-party licences](../THIRD-PARTY-LICENSES.md) and measured support in the [feature matrix](REAMON_FEATURE_MATRIX.md).
+
 ### Large artifact transfer
 
 The [tus resumable upload protocol](https://tus.io/protocols/resumable-upload.html)
