@@ -119,6 +119,10 @@ unit recovery, identifier/type/relationship recovery, readable source output,
 language-aware editing, validation depth, and fixture results. It does not mean exact
 recovery of source details erased by compilation or obfuscation.
 
+## Selective upstream adoption lane
+
+[Craft Anything](https://github.com/storytold/craft-anything) is a concrete reference for typed tools, paginated evidence, pluggable checks and bounded agent feedback, but its primary output is a newly created approximation of a target. REAmon's output remains recovered/maintained source with traceable provenance, review and scoped validation. The [adoption bootstrap](REAMON_CRAFT_ANYTHING_ADOPTION.md) records work packages CA-0 through CA-6 and their proof gates. These are **implementation hypotheses**, not an additional completed milestone or product-progress credit. They support existing G1 (coverage), G3 (memory), G4/G9 (validation), G5 (provider contracts) and G11 (project reconstruction).
+
 ## Priority order
 
 | Priority | Outcome | Why it comes here |
