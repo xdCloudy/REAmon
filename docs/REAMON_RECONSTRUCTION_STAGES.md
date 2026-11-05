@@ -33,6 +33,12 @@ passed through every stage.
 
 The P1 type, behavior, static/dynamic fusion, whole-project rebuild, provider-reconciliation, encrypted-region, and virtualized-code gates are specified in [agentic reconstruction milestones](REAMON_RECONSTRUCTION_MILESTONES.md). Protection triage has its own [milestone](REAMON_PROTECTED_BINARY_RECOVERY.md). Existing semantic symbol recovery remains governed by the separate [ASSR specification](REAMON_SEMANTIC_SYMBOL_RECOVERY.md).
 
+## External workflow reference: Craft Anything
+
+The [Craft Anything adoption bootstrap](REAMON_CRAFT_ANYTHING_ADOPTION.md) compares its Study → Build → Check → Refine pipeline against REAmon's evidence-linked reconstruction stages. Its **build success**, **UI similarity**, **self-reported game tests**, **static decompilation**, and **runtime checks** are different evidence classes. They do not certify reconstructed source equivalence, nor do upstream claims advance the statuses above. A REAmon adaptation must carry input hashes, source-candidate revisions, provider identity, checked scope, missing/failed checks, safe original/candidate execution context and independent validation results.
+
+The candidate typed check and iteration controller primarily support **source reconstruction, compilation, behavioral validation, iterative refinement and export**; target inspection and summary-first evidence can support earlier analysis stages. All proposals remain unimplemented until validated in REAmon's own project and worker boundaries.
+
 ## How to use this matrix
 
 Use the [language and format matrix](REAMON_LANGUAGE_MATRIX.md) for per-format
