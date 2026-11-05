@@ -31,6 +31,10 @@ missing. “Partial” means a narrower foundation exists. “Planned” means n
 end-to-end workflow is evidenced. “Unsupported” must be reported to users and excluded
 from completion denominators for supported-scope metrics.
 
+## Reference workflow versus acceptance evidence
+
+Craft Anything's inspection, typed check and iterative rebuild architecture is a candidate source of patterns for these milestones; see the [adoption bootstrap](REAMON_CRAFT_ANYTHING_ADOPTION.md). Its own build success, screenshots and self-tests are not REAmon benchmark results. Any adaptation must retain separately typed recovered, inferred, synthesized, validated and unavailable evidence, and use REAmon's isolated workers for original/candidate execution. No milestone status or weighted progress is advanced by this reference evaluation.
+
 ## Milestone dependencies
 
 ```text

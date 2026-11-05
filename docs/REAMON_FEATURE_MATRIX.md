@@ -13,6 +13,17 @@ fusion, whole-project rebuilding, and provider reconciliation are in the
 Protected-binary stages and benchmark gates are specified in the
 [protected-binary recovery milestone](REAMON_PROTECTED_BINARY_RECOVERY.md).
 
+## External reference adoption (not REAmon implementation)
+
+Craft Anything is a candidate **source of concepts or narrowly audited code**, not a validated REAmon backend. The [adoption candidate matrix](REAMON_CRAFT_ANYTHING_ADOPTION.md) defines specific technical and legal gates; the rows below are **planning status only** and contribute no new product-progress credit.
+
+| Upstream-inspired capability | REAmon evidence today | Reuse decision / acceptance gap |
+| --- | --- | --- |
+| Unified tool descriptors for web, MCP and agents | Existing provider contracts and project-scoped MCP/agent inventory tools; shared end-to-end schema parity has not been established | Candidate design adaptation. Compare typed schemas, auth scopes, error states and results across entrypoints, with real integration tests |
+| Summary-first evidence with resumable, bounded paging | Existing persisted observations and cursor-paged provider alternatives, but no general adopted Craft evidence contract | Candidate approach, not an integration. Ensure hash, coverage, truncation, continuation, ownership and restart semantics |
+| Typed checker registry and autonomous validation/refinement | Bounded durable rewrite attempts and narrow validation fixtures; general behavioral equivalence and whole-project rebuild remain incomplete | Candidate approach. Require a structured outcome with exact hashes, declared oracle, coverage, safe worker, failure receipts and human review |
+| Alternative parsers, cross-version matchers and optional external-UI checking | Provider-dependent native/managed evidence and reviewed function matching already exist | Benchmark narrowly against existing engines; screenshot/build checks alone cannot validate source fidelity |
+
 ## Reconstruction capability status
 
 | Capability | Current state | Product gap / next outcome |

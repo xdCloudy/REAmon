@@ -29,6 +29,7 @@ stay useful on mobile.
 - [Ruby recovery plan](REAMON_RUBY_RECOVERY.md)
 - [Reference portfolio](REAMON_REFERENCE_PORTFOLIO.md)
 - [Upstream reuse and licensing](REAMON_UPSTREAM_REUSE.md)
+- [Craft Anything adoption bootstrap and candidate matrix](REAMON_CRAFT_ANYTHING_ADOPTION.md)
 - [Native function matching ADR](REAMON_NATIVE_FUNCTION_MATCHING_ADR.md)
 - [ToCode adapter](REAMON_TOCODE_ADAPTER.md)
 
