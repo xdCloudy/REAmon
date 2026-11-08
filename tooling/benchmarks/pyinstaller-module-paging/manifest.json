@@ -45,6 +45,7 @@
   "acceptance": {
     "fixtureEnrollment": "Build succeeds, the in-container runtime oracle prints 2485, and the isolated REAmon extractor reports 180 bytecode modules over pages of 64, 64, and 52.",
     "providerPersistence": "PASSED for the direct provider/PostgreSQL integration; recovered source was addressable. The optional queued-worker test was skipped.",
+    "singleModuleSemanticOracle": "PASSED: recovered module_000.pyc at extractor index 82 retained VALUE = 1 in its stored source.",
     "reconstruction": "UNAVAILABLE until a REAmon end-to-end receipt compares recovered source against independently retained ground truth.",
     "limitations": [
       "This is one synthetic Linux x86_64 Python/PyInstaller fixture.",

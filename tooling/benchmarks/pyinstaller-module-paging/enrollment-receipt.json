@@ -40,9 +40,16 @@
   "providerPersistence": {
     "state": "PASSED",
     "testFile": "webapp/src/lib/reamon/pyinstaller.task.database.integration.test.ts",
-    "test": "persists module attempts, advances to index 64, and keeps recovered source addressable",
+    "test": "persists paged module attempts and keeps known recovered semantics addressable",
     "recoveredSourceAddressable": true,
-    "sourceCorrespondenceToGroundTruth": "UNAVAILABLE",
+    "knownModuleOracle": {
+      "state": "PASSED",
+      "archivePath": "PYZ.pyz_extracted/paging_fixture/module_000.pyc",
+      "extractorIndex": 82,
+      "expectedSourceValue": 1,
+      "observedRecoveredSourceValue": 1
+    },
+    "wholeFixtureSourceCorrespondence": "UNAVAILABLE",
     "queuedWorkerTest": "SKIPPED; REAMON_TASK_WORKER_INTEGRATION was not enabled",
     "fixtureCleanup": "PASSED; isolated QA artifact path absent after test"
   }

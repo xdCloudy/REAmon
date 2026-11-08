@@ -19,9 +19,10 @@ and prints the receipt. The recorded enrollment artifact is 7,262,776 bytes with
 separate [receipt](enrollment-receipt.json) records a successful runtime oracle
 and the isolated analyzer's 180-module inventory (64, 64, and 52 modules per
 page). The same artifact also passed the direct-provider/PostgreSQL persistence
-integration, which retained a readable recovered source artifact. That integration
-did not compare recovered text with ground truth, and its optional queued-worker
-test was skipped. The analyzer receives only the executable; do not mount
+integration, which retained a readable recovered source artifact and verified
+`VALUE = 1` for the known `module_000.pyc` source. It did not compare the complete
+fixture source against ground truth, and its optional queued-worker test was
+skipped. The analyzer receives only the executable; do not mount
 `build_fixture.py` or other source inputs into the analysis container.
 
 The manifest pins the base image by digest, Python version, PyInstaller and

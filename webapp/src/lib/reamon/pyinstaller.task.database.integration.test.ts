@@ -110,9 +110,9 @@ describeDatabase('PyInstaller continuation with PostgreSQL observation persisten
     }
   }, 30_000)
 
-  test('persists module attempts, advances to index 64, and keeps recovered source addressable', async () => {
+  test('persists paged module attempts and keeps known recovered semantics addressable', async () => {
     let lastResult: Awaited<ReturnType<typeof executePyInstaller>> | undefined
-    for (let index = 0; index < 17; index += 1) {
+    for (let index = 0; index < 22; index += 1) {
       const taskId = `pyi-db-task-${index}-${suffix}`
       await prisma.task.create({
         data: {
@@ -154,8 +154,8 @@ describeDatabase('PyInstaller continuation with PostgreSQL observation persisten
         maxObservations: 10_000,
       }))
     }
-    expect(lastResult?.data.modulePageOffset).toBe(64)
-    expect(lastResult?.data.nextModulePageOffset).toBe(128)
+    expect(lastResult?.data.modulePageOffset).toBe(84)
+    expect(lastResult?.data.nextModulePageOffset).toBe(148)
 
     const rows = await prisma.reamonObservation.findMany({
       where: { projectId, artifactId, source: 'reamon-pyinstaller', type: 'code_unit' },
@@ -171,8 +171,22 @@ describeDatabase('PyInstaller continuation with PostgreSQL observation persisten
     expect(persistedIndexes.has(63)).toBe(true)
     expect(persistedIndexes.has(64)).toBe(true)
     expect(persistedIndexes.has(127)).toBe(true)
+    expect(persistedIndexes.has(87)).toBe(true)
     expect(moduleRows.some(({ attributes }) => attributes.pyinstallerModuleIndex === 64
       && attributes.pyinstallerDecompilationAttempted === true)).toBe(true)
+
+    const knownModule = moduleRows.find(({ attributes }) => attributes.pyinstallerModuleIndex === 82
+      && attributes.pyinstallerArchivePath === 'PYZ.pyz_extracted/paging_fixture/module_000.pyc')
+    expect(knownModule, 'the known module should remain addressable after page continuation').toBeDefined()
+    expect(knownModule!.attributes.pyinstallerDecompilationAttempted).toBe(true)
+    if (knownModule!.attributes.decompiled === true && typeof knownModule!.attributes.codeArtifactId === 'string') {
+      const knownSourcePath = path.resolve(derivedRoot, ...(knownModule!.attributes.codeArtifactId as string).replaceAll('\\', '/').split('/'))
+      expect(knownSourcePath.startsWith(`${derivedRoot}${path.sep}`)).toBe(true)
+      const knownSourceText = await readFile(knownSourcePath, 'utf8')
+      expect(knownSourceText).toMatch(/\bVALUE\s*=\s*1\b/)
+    } else {
+      expect(knownModule!.attributes.pyinstallerDecompilationError).toEqual(expect.any(String))
+    }
 
     const recovered = moduleRows.find(({ attributes }) => attributes.decompiled === true && typeof attributes.codeArtifactId === 'string')
     expect(recovered, 'at least one pycdc source unit should be committed to PostgreSQL').toBeDefined()
