@@ -43,13 +43,21 @@
     "test": "persists paged module attempts and keeps known recovered semantics addressable",
     "recoveredSourceAddressable": true,
     "knownModuleOracle": {
-      "state": "PASSED",
-      "archivePath": "PYZ.pyz_extracted/paging_fixture/module_000.pyc",
-      "extractorIndex": 82,
-      "expectedSourceValue": 1,
-      "observedRecoveredSourceValue": 1
+      "state": "PARTIAL",
+      "knownSourceModuleDenominator": 70,
+      "matchedModuleCount": 6,
+      "archivePaths": [
+        "PYZ.pyz_extracted/paging_fixture/module_000.pyc",
+        "PYZ.pyz_extracted/paging_fixture/module_001.pyc",
+        "PYZ.pyz_extracted/paging_fixture/module_002.pyc",
+        "PYZ.pyz_extracted/paging_fixture/module_003.pyc",
+        "PYZ.pyz_extracted/paging_fixture/module_004.pyc",
+        "PYZ.pyz_extracted/paging_fixture/module_005.pyc"
+      ],
+      "extractorIndexes": [82, 83, 84, 85, 86, 87],
+      "valueMatches": true
     },
-    "wholeFixtureSourceCorrespondence": "UNAVAILABLE",
+    "wholeFixtureSourceCorrespondence": "PARTIAL; 6 of 70 known-source modules checked, the remaining 64 have not been compared",
     "queuedWorkerTest": "SKIPPED; REAMON_TASK_WORKER_INTEGRATION was not enabled",
     "fixtureCleanup": "PASSED; isolated QA artifact path absent after test"
   }

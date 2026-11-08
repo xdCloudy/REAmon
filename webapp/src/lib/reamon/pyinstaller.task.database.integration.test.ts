@@ -175,17 +175,17 @@ describeDatabase('PyInstaller continuation with PostgreSQL observation persisten
     expect(moduleRows.some(({ attributes }) => attributes.pyinstallerModuleIndex === 64
       && attributes.pyinstallerDecompilationAttempted === true)).toBe(true)
 
-    const knownModule = moduleRows.find(({ attributes }) => attributes.pyinstallerModuleIndex === 82
-      && attributes.pyinstallerArchivePath === 'PYZ.pyz_extracted/paging_fixture/module_000.pyc')
-    expect(knownModule, 'the known module should remain addressable after page continuation').toBeDefined()
-    expect(knownModule!.attributes.pyinstallerDecompilationAttempted).toBe(true)
-    if (knownModule!.attributes.decompiled === true && typeof knownModule!.attributes.codeArtifactId === 'string') {
+    for (let moduleValue = 1; moduleValue <= 6; moduleValue += 1) {
+      const moduleName = `module_${String(moduleValue - 1).padStart(3, '0')}`
+      const knownModule = moduleRows.find(({ attributes }) => attributes.pyinstallerArchivePath === `PYZ.pyz_extracted/paging_fixture/${moduleName}.pyc`)
+      expect(knownModule, `${moduleName} should remain addressable after page continuation`).toBeDefined()
+      expect(knownModule!.attributes.pyinstallerDecompilationAttempted).toBe(true)
+      expect(knownModule!.attributes.decompiled).toBe(true)
+      expect(typeof knownModule!.attributes.codeArtifactId).toBe('string')
       const knownSourcePath = path.resolve(derivedRoot, ...(knownModule!.attributes.codeArtifactId as string).replaceAll('\\', '/').split('/'))
       expect(knownSourcePath.startsWith(`${derivedRoot}${path.sep}`)).toBe(true)
       const knownSourceText = await readFile(knownSourcePath, 'utf8')
-      expect(knownSourceText).toMatch(/\bVALUE\s*=\s*1\b/)
-    } else {
-      expect(knownModule!.attributes.pyinstallerDecompilationError).toEqual(expect.any(String))
+      expect(knownSourceText).toMatch(new RegExp(`\\bVALUE\\s*=\\s*${moduleValue}\\b`))
     }
 
     const recovered = moduleRows.find(({ attributes }) => attributes.decompiled === true && typeof attributes.codeArtifactId === 'string')
