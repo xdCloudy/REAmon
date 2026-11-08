@@ -141,7 +141,7 @@ Implementation note (2026-11-08): Tree-sitter parsing became unavailable when a 
 
 ### End-to-end reconstruction acceptance benchmarks
 
-**Current evidence:** Newly accepted integrated-scope acceptance work. Existing analyzer, narrow runtime, and build fixtures are credited in their original workstreams; no held-out, whole-project import-to-source-to-replayable-export benchmark has passed the AR-0/AR-8 acceptance protocol.
+**Current evidence:** Newly accepted integrated-scope acceptance work. A synthetic Linux x86_64 Python/PyInstaller known-source fixture now has a tracked pinned build recipe and run receipt; its 180 extracted bytecode modules are inventoried over pages of 64, 64, and 52, and its in-container runtime oracle prints the expected value. This is fixture enrollment only: no source-recovery or whole-project import-to-source-to-replayable-export benchmark has passed the AR-0/AR-8 acceptance protocol.
 
 **Remaining:** AR-0/AR-8: pin versioned known-source native, managed, bytecode, Android, Python and multi-module fixtures plus malformed/obfuscated negative controls; compare exact baseline/candidate receipts, complete coverage denominators, recovered symbols/types, build and behavior oracles, resource limits, restart/reimport and regression outcomes. An unavailable oracle must not count as pass.
 
