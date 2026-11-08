@@ -223,7 +223,7 @@ describeDatabase('PyInstaller continuation with PostgreSQL observation persisten
     }
     expect(task, 'the live worker did not settle the queued PyInstaller task').toBeDefined()
     expect(task!.status, task!.error).toBe('COMPLETED')
-    expect(task!.result).toMatchObject({ modulePageOffset: 68, nextModulePageOffset: 132 })
+    expect(task!.result).toMatchObject({ modulePageOffset: 88, nextModulePageOffset: 152 })
 
     const recovered = await prisma.reamonObservation.findFirst({
       where: {

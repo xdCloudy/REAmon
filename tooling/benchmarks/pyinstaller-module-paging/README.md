@@ -21,9 +21,10 @@ and the isolated analyzer's 180-module inventory (64, 64, and 52 modules per
 page). The same artifact also passed the direct-provider/PostgreSQL persistence
 integration, which retained a readable recovered source artifact and verified
 the expected `VALUE` constants for 6 of the fixture's 70 known-source modules.
-It did not compare the remaining 64 modules or the complete project against
-ground truth, and its optional queued-worker test was skipped. The analyzer
-receives only the executable; do not mount
+The queued worker also resumed from saved attempt rows and kept a recovered
+source artifact readable. The run did not compare the remaining 64 modules or
+the complete project against ground truth. The analyzer receives only the
+executable; do not mount
 `build_fixture.py` or other source inputs into the analysis container.
 
 The manifest pins the base image by digest, Python version, PyInstaller and

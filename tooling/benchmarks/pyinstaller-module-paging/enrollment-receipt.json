@@ -58,7 +58,12 @@
       "valueMatches": true
     },
     "wholeFixtureSourceCorrespondence": "PARTIAL; 6 of 70 known-source modules checked, the remaining 64 have not been compared",
-    "queuedWorkerTest": "SKIPPED; REAMON_TASK_WORKER_INTEGRATION was not enabled",
+    "queuedWorkerTest": {
+      "state": "PASSED",
+      "taskResultModulePageOffset": 88,
+      "taskResultNextModulePageOffset": 152,
+      "storedRecoveredSourceReadable": true
+    },
     "fixtureCleanup": "PASSED; isolated QA artifact path absent after test"
   }
 }
