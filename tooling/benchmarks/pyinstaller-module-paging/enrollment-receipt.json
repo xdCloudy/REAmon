@@ -36,5 +36,14 @@
     "moduleCount": 180,
     "pageSizes": [64, 64, 52],
     "decompilationOrSourceMatch": "UNAVAILABLE"
+  },
+  "providerPersistence": {
+    "state": "PASSED",
+    "testFile": "webapp/src/lib/reamon/pyinstaller.task.database.integration.test.ts",
+    "test": "persists module attempts, advances to index 64, and keeps recovered source addressable",
+    "recoveredSourceAddressable": true,
+    "sourceCorrespondenceToGroundTruth": "UNAVAILABLE",
+    "queuedWorkerTest": "SKIPPED; REAMON_TASK_WORKER_INTEGRATION was not enabled",
+    "fixtureCleanup": "PASSED; isolated QA artifact path absent after test"
   }
 }
