@@ -44,8 +44,8 @@
   },
   "acceptance": {
     "fixtureEnrollment": "Build succeeds, the in-container runtime oracle prints 2485, and the isolated REAmon extractor reports 180 bytecode modules over pages of 64, 64, and 52.",
-    "providerPersistence": "PASSED for direct provider/PostgreSQL persistence and the queued worker. The worker resumed from prior module-attempt rows at offset 88 and returned through offset 151.",
-    "knownSourceSemanticOracle": "PARTIAL: six of 70 known-source modules recovered constants matching their source values after paging to extractor indices 82-87.",
+    "providerPersistence": "PASSED for direct provider/PostgreSQL persistence and the queued worker. The worker resumed from prior module-attempt rows at offset 152 and returned the terminal page through offset 179.",
+    "knownSourceSemanticOracle": "PASSED for the bounded synthetic oracle: all 70 known-source modules recovered constants matching their source values at extractor indices 82-151.",
     "reconstruction": "UNAVAILABLE until a REAmon end-to-end receipt compares recovered source against independently retained ground truth.",
     "limitations": [
       "This is one synthetic Linux x86_64 Python/PyInstaller fixture.",

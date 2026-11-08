@@ -112,7 +112,7 @@ describeDatabase('PyInstaller continuation with PostgreSQL observation persisten
 
   test('persists paged module attempts and keeps known recovered semantics addressable', async () => {
     let lastResult: Awaited<ReturnType<typeof executePyInstaller>> | undefined
-    for (let index = 0; index < 22; index += 1) {
+    for (let index = 0; index < 38; index += 1) {
       const taskId = `pyi-db-task-${index}-${suffix}`
       await prisma.task.create({
         data: {
@@ -154,8 +154,8 @@ describeDatabase('PyInstaller continuation with PostgreSQL observation persisten
         maxObservations: 10_000,
       }))
     }
-    expect(lastResult?.data.modulePageOffset).toBe(84)
-    expect(lastResult?.data.nextModulePageOffset).toBe(148)
+    expect(lastResult?.data.modulePageOffset).toBe(148)
+    expect(lastResult?.data.nextModulePageOffset).toBe(180)
 
     const rows = await prisma.reamonObservation.findMany({
       where: { projectId, artifactId, source: 'reamon-pyinstaller', type: 'code_unit' },
@@ -171,11 +171,12 @@ describeDatabase('PyInstaller continuation with PostgreSQL observation persisten
     expect(persistedIndexes.has(63)).toBe(true)
     expect(persistedIndexes.has(64)).toBe(true)
     expect(persistedIndexes.has(127)).toBe(true)
-    expect(persistedIndexes.has(87)).toBe(true)
+    expect(persistedIndexes.has(151)).toBe(true)
+    expect(persistedIndexes.has(179)).toBe(true)
     expect(moduleRows.some(({ attributes }) => attributes.pyinstallerModuleIndex === 64
       && attributes.pyinstallerDecompilationAttempted === true)).toBe(true)
 
-    for (let moduleValue = 1; moduleValue <= 6; moduleValue += 1) {
+    for (let moduleValue = 1; moduleValue <= 70; moduleValue += 1) {
       const moduleName = `module_${String(moduleValue - 1).padStart(3, '0')}`
       const knownModule = moduleRows.find(({ attributes }) => attributes.pyinstallerArchivePath === `PYZ.pyz_extracted/paging_fixture/${moduleName}.pyc`)
       expect(knownModule, `${moduleName} should remain addressable after page continuation`).toBeDefined()
@@ -223,7 +224,7 @@ describeDatabase('PyInstaller continuation with PostgreSQL observation persisten
     }
     expect(task, 'the live worker did not settle the queued PyInstaller task').toBeDefined()
     expect(task!.status, task!.error).toBe('COMPLETED')
-    expect(task!.result).toMatchObject({ modulePageOffset: 88, nextModulePageOffset: 152 })
+    expect(task!.result).toMatchObject({ modulePageOffset: 152, nextModulePageOffset: 180 })
 
     const recovered = await prisma.reamonObservation.findFirst({
       where: {

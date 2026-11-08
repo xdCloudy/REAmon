@@ -43,25 +43,19 @@
     "test": "persists paged module attempts and keeps known recovered semantics addressable",
     "recoveredSourceAddressable": true,
     "knownModuleOracle": {
-      "state": "PARTIAL",
+      "state": "PASSED",
       "knownSourceModuleDenominator": 70,
-      "matchedModuleCount": 6,
-      "archivePaths": [
-        "PYZ.pyz_extracted/paging_fixture/module_000.pyc",
-        "PYZ.pyz_extracted/paging_fixture/module_001.pyc",
-        "PYZ.pyz_extracted/paging_fixture/module_002.pyc",
-        "PYZ.pyz_extracted/paging_fixture/module_003.pyc",
-        "PYZ.pyz_extracted/paging_fixture/module_004.pyc",
-        "PYZ.pyz_extracted/paging_fixture/module_005.pyc"
-      ],
-      "extractorIndexes": [82, 83, 84, 85, 86, 87],
-      "valueMatches": true
+      "matchedModuleCount": 70,
+      "archivePathPattern": "PYZ.pyz_extracted/paging_fixture/module_NNN.pyc",
+      "extractorIndexRange": [82, 151],
+      "valueMatches": true,
+      "remainingExtractedModulesNotSourceCompared": 110
     },
-    "wholeFixtureSourceCorrespondence": "PARTIAL; 6 of 70 known-source modules checked, the remaining 64 have not been compared",
+    "wholeFixtureSourceCorrespondence": "PARTIAL; all 70 hidden source modules matched their VALUE constants, but 110 other extracted modules and full source/project structure were not compared",
     "queuedWorkerTest": {
       "state": "PASSED",
-      "taskResultModulePageOffset": 88,
-      "taskResultNextModulePageOffset": 152,
+      "taskResultModulePageOffset": 152,
+      "taskResultNextModulePageOffset": 180,
       "storedRecoveredSourceReadable": true
     },
     "fixtureCleanup": "PASSED; isolated QA artifact path absent after test"
