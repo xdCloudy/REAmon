@@ -2,6 +2,7 @@
 
 import os
 import re
+import tempfile
 import threading
 from pathlib import Path
 
@@ -38,25 +39,41 @@ def _configure_language_cache(configure, pack_config) -> None:
     with _configure_lock:
         if _configured:
             return
-        cache_dir = os.environ.get("REAMON_TREE_SITTER_CACHE_DIR")
-        if not cache_dir:
-            cache_dir = str(Path(__file__).resolve().parent / "logs" / "tree-sitter-language-pack")
-        cache_path = Path(cache_dir)
-        cache_path.mkdir(parents=True, exist_ok=True)
-        # tree-sitter-language-pack rejects a cache directory that other users
-        # can modify. The default lives under the shared logs mount, which may
-        # be mode 0777; make the cache and existing version directories private
-        # before the package inspects them.
-        try:
-            os.chmod(cache_path, 0o700)
-            for root, directories, _files in os.walk(cache_path, followlinks=False):
+        configured_cache = os.environ.get("REAMON_TREE_SITTER_CACHE_DIR")
+        cache_path = Path(configured_cache) if configured_cache else (
+            Path(__file__).resolve().parent / "logs" / "tree-sitter-language-pack"
+        )
+
+        def make_private(path: Path) -> None:
+            path.mkdir(parents=True, exist_ok=True)
+            if path.is_symlink():
+                raise OSError("cache path is a symlink")
+            for root, directories, _files in os.walk(path, followlinks=False):
                 root_path = Path(root)
+                os.chmod(root_path, 0o700)
+                if root_path.stat().st_mode & 0o077:
+                    raise OSError("cache directory permissions could not be restricted")
                 for name in directories:
                     child = root_path / name
                     if not child.is_symlink():
                         os.chmod(child, 0o700)
+                        if child.stat().st_mode & 0o077:
+                            raise OSError("cache directory permissions could not be restricted")
+
+        try:
+            make_private(cache_path)
         except OSError as exc:
-            raise RuntimeError("The Tree-sitter language cache must be private") from exc
+            if configured_cache:
+                raise RuntimeError("The configured Tree-sitter language cache must be private") from exc
+
+            # Some host-shared mounts ignore chmod. Keep the generated grammar
+            # cache inside the container instead of disabling source parsing.
+            cache_path = Path(tempfile.gettempdir()) / f"reamon-tree-sitter-{os.getuid()}"
+            try:
+                make_private(cache_path)
+            except OSError as fallback_exc:
+                raise RuntimeError("The Tree-sitter language cache must be private") from fallback_exc
+        cache_dir = str(cache_path)
         configure(pack_config(cache_dir=cache_dir))
         _configured = True
 
