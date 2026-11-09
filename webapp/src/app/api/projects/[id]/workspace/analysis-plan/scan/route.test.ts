@@ -1,9 +1,10 @@
 /** @vitest-environment node */
 import { beforeEach, describe, expect, test, vi } from 'vitest'
+import { NextResponse } from 'next/server'
 
 const mocks = vi.hoisted(() => ({
   requireEffectiveUser: vi.fn(),
-  requireProjectAccess: vi.fn(),
+  requireProjectAccessStrict: vi.fn(),
   listWorkspaceFiles: vi.fn(),
   taskCount: vi.fn(),
   findingCount: vi.fn(),
@@ -14,7 +15,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@/lib/access', () => ({
   requireEffectiveUser: mocks.requireEffectiveUser,
-  requireProjectAccess: mocks.requireProjectAccess,
+  requireProjectAccessStrict: mocks.requireProjectAccessStrict,
 }))
 vi.mock('@/lib/reamon/inventory-query', () => ({ listWorkspaceFiles: mocks.listWorkspaceFiles }))
 vi.mock('@/lib/prisma', () => ({
@@ -34,7 +35,7 @@ const params = { params: Promise.resolve({ id: 'project-1' }) }
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.requireEffectiveUser.mockResolvedValue({ userId: 'user-1' })
-  mocks.requireProjectAccess.mockResolvedValue({ project: { id: 'project-1', userId: 'user-1' } })
+  mocks.requireProjectAccessStrict.mockResolvedValue({ project: { id: 'project-1', userId: 'user-1' } })
   const capabilities = Array.from({ length: 1205 }, (_, index) => `capability-${index}`)
   mocks.listWorkspaceFiles.mockResolvedValue({
     artifacts: [{ id: 'artifact-1', capabilities: [{ capabilities }] }],
@@ -51,6 +52,17 @@ beforeEach(() => {
 })
 
 describe('POST /api/projects/[id]/workspace/analysis-plan/scan', () => {
+  test('rejects foreign project access before scanning or writing scan activity', async () => {
+    mocks.requireProjectAccessStrict.mockResolvedValue(NextResponse.json({ error: 'Not found' }, { status: 404 }))
+
+    const response = await POST(new Request('http://localhost', { method: 'POST' }), params)
+
+    expect(response.status).toBe(404)
+    expect(mocks.listWorkspaceFiles).not.toHaveBeenCalled()
+    expect(mocks.taskCount).not.toHaveBeenCalled()
+    expect(mocks.activityCreate).not.toHaveBeenCalled()
+  })
+
   test('reports the complete proposal count beyond one response-page limit', async () => {
     const response = await POST(new Request('http://localhost/api/projects/project-1/workspace/analysis-plan/scan', { method: 'POST' }), params)
 

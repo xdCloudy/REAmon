@@ -259,6 +259,27 @@ describe.skipIf(!HAS_DB)('agent Evidence HTTP paging across Next.js restart', ()
         expect(foreignInvestigationResponse.status, `foreign ${route.method} ${route.path}`).toBe(404)
         expect(await foreignInvestigationResponse.json(), `foreign ${route.method} ${route.path} response`).toEqual({ error: 'Not found' })
       }
+      const analysisPlanRoutes: Array<{ path: string; method: 'GET' | 'POST'; body?: Record<string, unknown> }> = [
+        { path: `/api/projects/${projectId}/workspace/analysis-plan?limit=25`, method: 'GET' },
+        { path: `/api/projects/${projectId}/workspace/analysis-plan/scan`, method: 'POST', body: {} },
+        { path: `/api/projects/${projectId}/workspace/analysis-plan/clear`, method: 'POST', body: {} },
+        { path: `/api/projects/${projectId}/workspace/analysis-plan/schedule`, method: 'POST', body: {} },
+      ]
+      for (const route of analysisPlanRoutes) {
+        const body = route.body === undefined ? undefined : JSON.stringify(route.body)
+        const anonymousPlanResponse = await fetch(`${first.baseUrl}${route.path}`, {
+          method: route.method,
+          ...(body ? { headers: { 'Content-Type': 'application/json' }, body } : {}),
+        })
+        expect(anonymousPlanResponse.status, `anonymous ${route.method} ${route.path}`).toBe(401)
+        const foreignPlanResponse = await fetch(`${first.baseUrl}${route.path}`, {
+          method: route.method,
+          headers: { Cookie: `${AUTH_COOKIE_NAME}=${foreignSessionCookie}`, ...(body ? { 'Content-Type': 'application/json' } : {}) },
+          ...(body ? { body } : {}),
+        })
+        expect(foreignPlanResponse.status, `foreign ${route.method} ${route.path}`).toBe(404)
+        expect(await foreignPlanResponse.json(), `foreign ${route.method} ${route.path} response`).toEqual({ error: 'Not found' })
+      }
       const foreignFindingReviewResponse = await fetch(`${first.baseUrl}/api/projects/${projectId}/workspace/findings/${findingId}`, {
         method: 'PATCH',
         headers: { Cookie: `${AUTH_COOKIE_NAME}=${foreignSessionCookie}`, 'Content-Type': 'application/json' },

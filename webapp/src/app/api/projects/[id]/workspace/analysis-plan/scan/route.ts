@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
-import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
+import { requireEffectiveUser, requireProjectAccessStrict } from '@/lib/access'
 import { listWorkspaceFiles } from '@/lib/reamon/inventory-query'
 
 interface RouteParams { params: Promise<{ id: string }> }
@@ -13,7 +13,7 @@ export async function POST(_request: Request, { params }: RouteParams) {
     const { id: projectId } = await params
     const effectiveUser = await requireEffectiveUser()
     if (effectiveUser instanceof NextResponse) return effectiveUser
-    const access = await requireProjectAccess(effectiveUser, projectId)
+    const access = await requireProjectAccessStrict(effectiveUser, projectId)
     if (access instanceof NextResponse) return access
 
     const firstPage = await listWorkspaceFiles(projectId, { limit: PAGE_SIZE })

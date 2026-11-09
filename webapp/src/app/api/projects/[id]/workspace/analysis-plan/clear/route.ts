@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
-import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
+import { requireEffectiveUser, requireProjectAccessStrict } from '@/lib/access'
 import { getWorkspaceArtifact } from '@/lib/reamon/inventory-query'
 import { resolveCapabilities } from '@/lib/reamon/capabilities'
 import { getBuiltinProvider } from '@/lib/reamon/provider-registry'
@@ -13,7 +13,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     const { id: projectId } = await params
     const effectiveUser = await requireEffectiveUser()
     if (effectiveUser instanceof NextResponse) return effectiveUser
-    const access = await requireProjectAccess(effectiveUser, projectId)
+    const access = await requireProjectAccessStrict(effectiveUser, projectId)
     if (access instanceof NextResponse) return access
 
     let body: { proposalId?: unknown; artifactId?: unknown; providerId?: unknown; capability?: unknown }

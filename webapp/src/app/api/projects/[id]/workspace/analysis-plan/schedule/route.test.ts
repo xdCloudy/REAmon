@@ -8,7 +8,7 @@ const mocks = vi.hoisted(() => ({
   resolveCapabilities: vi.fn(),
   ensureProviderRegistered: vi.fn(),
   requireEffectiveUser: vi.fn(),
-  requireProjectAccess: vi.fn(),
+  requireProjectAccessStrict: vi.fn(),
   taskFindUnique: vi.fn(),
   taskFindFirst: vi.fn(),
   taskCreate: vi.fn(),
@@ -25,7 +25,7 @@ vi.mock('@/lib/reamon/provider-registry', () => ({
 vi.mock('@/lib/reamon/capabilities', () => ({ resolveCapabilities: mocks.resolveCapabilities }))
 vi.mock('@/lib/access', () => ({
   requireEffectiveUser: mocks.requireEffectiveUser,
-  requireProjectAccess: mocks.requireProjectAccess,
+  requireProjectAccessStrict: mocks.requireProjectAccessStrict,
 }))
 vi.mock('@/lib/prisma', () => ({
   default: {
@@ -78,7 +78,7 @@ function task(overrides: Record<string, unknown> = {}) {
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.requireEffectiveUser.mockResolvedValue({ userId: 'user-1' })
-  mocks.requireProjectAccess.mockResolvedValue({ project: { id: 'project-1', userId: 'user-1' } })
+  mocks.requireProjectAccessStrict.mockResolvedValue({ project: { id: 'project-1', userId: 'user-1' } })
   mocks.getWorkspaceArtifact.mockResolvedValue(artifact)
   mocks.getBuiltinProvider.mockReturnValue(plugin)
   mocks.resolveCapabilities.mockReturnValue([{
@@ -107,7 +107,7 @@ beforeEach(() => {
 
 describe('POST /api/projects/[id]/workspace/analysis-plan/schedule', () => {
   test('stops at the project access boundary', async () => {
-    mocks.requireProjectAccess.mockResolvedValue(NextResponse.json({ error: 'Not found' }, { status: 404 }))
+    mocks.requireProjectAccessStrict.mockResolvedValue(NextResponse.json({ error: 'Not found' }, { status: 404 }))
 
     const response = await POST(new Request('http://localhost', {
       method: 'POST',
@@ -127,7 +127,7 @@ describe('POST /api/projects/[id]/workspace/analysis-plan/schedule', () => {
 
     expect(response.status).toBe(201)
     expect(await response.json()).toMatchObject({ scheduled: true, reused: false, task: { status: 'AWAITING_APPROVAL', capability: 'extract_strings' } })
-    expect(mocks.requireProjectAccess).toHaveBeenCalledWith({ userId: 'user-1' }, 'project-1')
+    expect(mocks.requireProjectAccessStrict).toHaveBeenCalledWith({ userId: 'user-1' }, 'project-1')
     expect(mocks.getWorkspaceArtifact).toHaveBeenCalledWith('project-1', 'artifact-1')
     expect(mocks.ensureProviderRegistered).toHaveBeenCalledWith(plugin.manifest)
     expect(mocks.taskCreate).toHaveBeenCalledWith(expect.objectContaining({
