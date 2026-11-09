@@ -470,6 +470,7 @@ Downloads the recon output JSON file for the project.
 | `RECON_ORCHESTRATOR_URL` | Recon orchestrator service URL | `http://localhost:8010` |
 | `ORCHESTRATOR_API_KEY` | Sent as `X-Orchestrator-Key` on every orchestrator call; must match the orchestrator's value (auto-generated in `.env`) | (generated) |
 | `INTERNAL_API_KEY` | Master service-to-service key. Attached (as `x-internal-key`) when the webapp proxies to the agent's guarded endpoints; accepted (constant-time) on the internal-route allowlist | (generated) |
+| `WORKSPACE_CURSOR_PREVIOUS_KEYS` | Optional comma-separated previous internal keys accepted only to verify existing workspace cursors during rotation (maximum 3); new cursors use the active `INTERNAL_API_KEY` | (unset) |
 | `SCANNER_API_KEY` | Lower-tier scan transport key. Scan API calls also require an orchestrator-signed `SCANNER_SCOPE_TOKEN` bound to the database-resolved project and owner | (generated) |
 | `INTERNAL_KEY_ALLOWLIST_ENFORCE` | When `true`, block internal-key requests to routes outside the allowlist; default is log-only | (unset = log-only) |
 | `NODE_ENV` | Environment mode | `development` |
