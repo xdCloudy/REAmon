@@ -240,6 +240,25 @@ describe.skipIf(!HAS_DB)('agent Evidence HTTP paging across Next.js restart', ()
         })
         expect(foreignTaskControlResponse.status, `foreign POST ${path}`).toBe(404)
       }
+      for (const route of [
+        { path: `/api/projects/${projectId}/workspace/tasks/task-foreign/investigation?summary=1`, method: 'GET' },
+        { path: `/api/projects/${projectId}/workspace/tasks/task-foreign/investigation`, method: 'POST' },
+        { path: `/api/projects/${projectId}/workspace/tasks/task-foreign/investigation/run`, method: 'POST' },
+      ]) {
+        const body = route.method === 'POST' ? JSON.stringify({ providerId: 'synthetic-provider', unitKey: 'fn:foreign' }) : undefined
+        const anonymousInvestigationResponse = await fetch(`${first.baseUrl}${route.path}`, {
+          method: route.method,
+          ...(body ? { headers: { 'Content-Type': 'application/json' }, body } : {}),
+        })
+        expect(anonymousInvestigationResponse.status, `anonymous ${route.method} ${route.path}`).toBe(401)
+        const foreignInvestigationResponse = await fetch(`${first.baseUrl}${route.path}`, {
+          method: route.method,
+          headers: { Cookie: `${AUTH_COOKIE_NAME}=${foreignSessionCookie}`, ...(body ? { 'Content-Type': 'application/json' } : {}) },
+          ...(body ? { body } : {}),
+        })
+        expect(foreignInvestigationResponse.status, `foreign ${route.method} ${route.path}`).toBe(404)
+        expect(await foreignInvestigationResponse.json(), `foreign ${route.method} ${route.path} response`).toEqual({ error: 'Not found' })
+      }
       const foreignFindingReviewResponse = await fetch(`${first.baseUrl}/api/projects/${projectId}/workspace/findings/${findingId}`, {
         method: 'PATCH',
         headers: { Cookie: `${AUTH_COOKIE_NAME}=${foreignSessionCookie}`, 'Content-Type': 'application/json' },

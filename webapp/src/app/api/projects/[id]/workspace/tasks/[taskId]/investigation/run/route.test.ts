@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto'
 
 const mocks = vi.hoisted(() => ({
   requireEffectiveUser: vi.fn(),
-  requireProjectAccess: vi.fn(),
+  requireProjectAccessStrict: vi.fn(),
   investigationFindFirst: vi.fn(),
   providerFindFirst: vi.fn(),
   caseLock: vi.fn(),
@@ -19,7 +19,7 @@ vi.mock('@/lib/prisma', () => ({ default: {
   userLlmProvider: { findFirst: mocks.providerFindFirst },
   reamonCodeAttempt: { findMany: mocks.attemptFindMany, create: mocks.attemptCreate },
 } }))
-vi.mock('@/lib/access', () => ({ requireEffectiveUser: mocks.requireEffectiveUser, requireProjectAccess: mocks.requireProjectAccess }))
+vi.mock('@/lib/access', () => ({ requireEffectiveUser: mocks.requireEffectiveUser, requireProjectAccessStrict: mocks.requireProjectAccessStrict }))
 
 import { POST } from './route'
 
@@ -40,7 +40,7 @@ describe('POST investigation/run', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.requireEffectiveUser.mockResolvedValue({ userId: 'user-1' })
-    mocks.requireProjectAccess.mockResolvedValue({ projectId: 'project-1' })
+    mocks.requireProjectAccessStrict.mockResolvedValue({ projectId: 'project-1' })
     mocks.investigationFindFirst.mockResolvedValue(investigation)
     mocks.providerFindFirst.mockResolvedValue({ id: 'provider-1', name: 'Local LLM', modelIdentifier: 'model-a', timeout: 120 })
     mocks.attemptFindMany.mockResolvedValue([])
@@ -221,5 +221,19 @@ describe('POST investigation/run', () => {
 
     expect(response.status).toBe(401)
     expect(mocks.investigationFindFirst).not.toHaveBeenCalled()
+  })
+
+  test('rejects foreign project access before loading evidence or queuing attempts', async () => {
+    mocks.requireProjectAccessStrict.mockResolvedValue(NextResponse.json({ error: 'Not found' }, { status: 404 }))
+    const response = await POST(new Request('http://local', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ providerId: 'provider-1', unitKey: 'fn:1000' }),
+    }), { params })
+
+    expect(response.status).toBe(404)
+    expect(mocks.investigationFindFirst).not.toHaveBeenCalled()
+    expect(mocks.providerFindFirst).not.toHaveBeenCalled()
+    expect(mocks.attemptCreate).not.toHaveBeenCalled()
+    expect(mocks.transaction).not.toHaveBeenCalled()
   })
 })

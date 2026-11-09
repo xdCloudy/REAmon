@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { Prisma } from '@prisma/client'
 import { createHash } from 'node:crypto'
 import prisma from '@/lib/prisma'
-import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
+import { requireEffectiveUser, requireProjectAccessStrict } from '@/lib/access'
 import { getActiveWorkspaceImportSelection } from '@/lib/reamon/inventory-query'
 
 interface RouteParams { params: Promise<{ id: string; taskId: string }> }
@@ -160,7 +160,7 @@ export async function GET(request: Request, { params }: RouteParams) {
     const { id: projectId, taskId } = await params
     const user = await requireEffectiveUser()
     if (user instanceof NextResponse) return user
-    const access = await requireProjectAccess(user, projectId)
+    const access = await requireProjectAccessStrict(user, projectId)
     if (access instanceof NextResponse) return access
 
     const summaryOnly = new URL(request.url).searchParams.get('summary') === '1'
@@ -261,7 +261,7 @@ export async function POST(_request: Request, { params }: RouteParams) {
     const { id: projectId, taskId } = await params
     const user = await requireEffectiveUser()
     if (user instanceof NextResponse) return user
-    const access = await requireProjectAccess(user, projectId)
+    const access = await requireProjectAccessStrict(user, projectId)
     if (access instanceof NextResponse) return access
 
     const selection = await getActiveWorkspaceImportSelection(projectId)

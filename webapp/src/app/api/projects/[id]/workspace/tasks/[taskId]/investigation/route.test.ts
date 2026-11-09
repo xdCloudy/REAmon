@@ -4,7 +4,7 @@ import { NextResponse } from 'next/server'
 
 const mocks = vi.hoisted(() => ({
   requireEffectiveUser: vi.fn(),
-  requireProjectAccess: vi.fn(),
+  requireProjectAccessStrict: vi.fn(),
   getActiveWorkspaceImportSelection: vi.fn(),
   taskFindFirst: vi.fn(),
   investigationFindFirst: vi.fn(),
@@ -29,7 +29,7 @@ vi.mock('@/lib/prisma', () => ({
 }))
 vi.mock('@/lib/access', () => ({
   requireEffectiveUser: mocks.requireEffectiveUser,
-  requireProjectAccess: mocks.requireProjectAccess,
+  requireProjectAccessStrict: mocks.requireProjectAccessStrict,
 }))
 vi.mock('@/lib/reamon/inventory-query', () => ({ getActiveWorkspaceImportSelection: mocks.getActiveWorkspaceImportSelection }))
 
@@ -41,7 +41,7 @@ describe('/api/projects/[id]/workspace/tasks/[taskId]/investigation', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.requireEffectiveUser.mockResolvedValue({ userId: 'user-1' })
-    mocks.requireProjectAccess.mockResolvedValue({ projectId: 'project-1' })
+    mocks.requireProjectAccessStrict.mockResolvedValue({ projectId: 'project-1' })
     mocks.getActiveWorkspaceImportSelection.mockResolvedValue({ artifactWhere: { id: 'artifact-1' } })
     mocks.investigationFindFirst.mockResolvedValue(null)
     mocks.investigationFindUnique.mockResolvedValue(null)
@@ -113,6 +113,20 @@ describe('/api/projects/[id]/workspace/tasks/[taskId]/investigation', () => {
 
     expect(response.status).toBe(401)
     expect(mocks.investigationFindFirst).not.toHaveBeenCalled()
+  })
+
+  test('rejects foreign project access before reading or queuing an investigation', async () => {
+    mocks.requireProjectAccessStrict.mockResolvedValue(NextResponse.json({ error: 'Not found' }, { status: 404 }))
+
+    const readResponse = await GET(new Request('http://local'), { params })
+    const queueResponse = await POST(new Request('http://local', { method: 'POST' }), { params })
+
+    expect(readResponse.status).toBe(404)
+    expect(queueResponse.status).toBe(404)
+    expect(mocks.investigationFindFirst).not.toHaveBeenCalled()
+    expect(mocks.taskFindFirst).not.toHaveBeenCalled()
+    expect(mocks.getActiveWorkspaceImportSelection).not.toHaveBeenCalled()
+    expect(mocks.investigationCreate).not.toHaveBeenCalled()
   })
 
   test('queues a failed active-artifact decompilation with immutable run provenance', async () => {

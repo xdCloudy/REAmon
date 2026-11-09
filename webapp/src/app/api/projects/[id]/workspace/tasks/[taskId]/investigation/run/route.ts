@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { createHash } from 'node:crypto'
 import { Prisma } from '@prisma/client'
 import prisma from '@/lib/prisma'
-import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
+import { requireEffectiveUser, requireProjectAccessStrict } from '@/lib/access'
 
 interface RouteParams { params: Promise<{ id: string; taskId: string }> }
 const NO_STORE = { 'Cache-Control': 'private, no-store' }
@@ -45,7 +45,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     const { id: projectId, taskId } = await params
     const user = await requireEffectiveUser()
     if (user instanceof NextResponse) return user
-    const access = await requireProjectAccess(user, projectId)
+    const access = await requireProjectAccessStrict(user, projectId)
     if (access instanceof NextResponse) return access
 
     let body: Record<string, unknown>
