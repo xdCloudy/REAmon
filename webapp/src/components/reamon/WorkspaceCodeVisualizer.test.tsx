@@ -568,6 +568,7 @@ describe('WorkspaceCodeVisualizer', () => {
   test('compares Ghidra decompiled source with its linked disassembly', async () => {
     const native = unit({
       id: 'native-main', name: 'main', address: '00401000', language: 'C', unitType: 'function',
+      codeArtifactSha256: 'b'.repeat(64), disassemblyArtifactSha256: 'c'.repeat(64),
       codeArtifactId: 'project-1/artifact-1/task-1/run-1/sources/functions/main.c',
       disassemblyArtifactId: 'project-1/artifact-1/task-1/run-1/assembly/functions/main.asm', disassemblyLanguage: 'Assembly',
     })
@@ -584,7 +585,8 @@ describe('WorkspaceCodeVisualizer', () => {
     expect(within(comparison).getByText('Decompiled source')).toBeInTheDocument()
     expect(within(comparison).getByText('Assembly')).toBeInTheDocument()
     await waitFor(() => expect(comparison.querySelectorAll('code')[1]?.textContent).toContain('MOV RBP, RSP'))
-    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/decompiled/project-1/artifact-1/task-1/run-1/assembly/functions/main.asm'), expect.any(Object))
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/decompiled/project-1/artifact-1/task-1/run-1/assembly/functions/main.asm?expectedSha256=' + 'c'.repeat(64)), expect.any(Object))
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/decompiled/project-1/artifact-1/task-1/run-1/sources/functions/main.c?expectedSha256=' + 'b'.repeat(64)), expect.any(Object))
   })
 
   test('shows every hash-verified compatible decompiler output together', async () => {

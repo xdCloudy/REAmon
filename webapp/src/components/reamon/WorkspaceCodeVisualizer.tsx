@@ -1268,7 +1268,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
   const selectedSourceUrl = selectedUnit ? artifactUrl(projectId, selectedUnit, selectedUnit.codeArtifactId) : null
   const selectedDisassemblyUrl = selectedUnit ? artifactUrl(projectId, selectedUnit, selectedUnit.disassemblyArtifactId) : null
   const sourceQuery = useQuery({
-    queryKey: ['reamon-decompiled-source', selectedUnit?.id, selectedUnit?.codeArtifactId],
+    queryKey: ['reamon-decompiled-source', selectedUnit?.id, selectedSourceUrl],
     queryFn: ({ signal }) => fetchSource(selectedSourceUrl as string, signal),
     enabled: Boolean(selectedSourceUrl),
     staleTime: 5 * 60_000,
@@ -1300,7 +1300,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
     ? buildReviewDiff(sourceQuery.data, selectedAlternateOutput.source)
     : null, [compareDiffOpen, selectedAlternateOutput, sourceQuery.data])
   const disassemblyQuery = useQuery({
-    queryKey: ['reamon-disassembly', selectedUnit?.id, selectedUnit?.disassemblyArtifactId],
+    queryKey: ['reamon-disassembly', selectedUnit?.id, selectedDisassemblyUrl],
     queryFn: ({ signal }) => fetchSource(selectedDisassemblyUrl as string, signal),
     enabled: Boolean(selectedDisassemblyUrl),
     staleTime: 5 * 60_000,
