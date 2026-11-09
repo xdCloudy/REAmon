@@ -4,7 +4,7 @@ import { Prisma } from '@prisma/client'
 import { mkdir } from 'node:fs/promises'
 import { artifactRoot, getArtifactVolumeCapacity } from '@/lib/reamon/artifact-storage'
 import prisma from '@/lib/prisma'
-import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
+import { requireEffectiveUser, requireProjectAccessStrict } from '@/lib/access'
 import { buildWorkspaceProfile } from '@/lib/reamon/inventory'
 import { parseImportManifest, workspaceImportLimits } from '@/lib/reamon/import-manifest'
 import { normalizeRootName } from '@/lib/reamon/paths'
@@ -29,7 +29,7 @@ export async function GET(_request: Request, { params }: RouteParams) {
     const { id: projectId } = await params
     const effectiveUser = await requireEffectiveUser()
     if (effectiveUser instanceof NextResponse) return effectiveUser
-    const access = await requireProjectAccess(effectiveUser, projectId)
+    const access = await requireProjectAccessStrict(effectiveUser, projectId)
     if (access instanceof NextResponse) return access
     const storage = await getArtifactVolumeCapacity()
     return NextResponse.json({ limits: workspaceImportLimits(), storage }, { headers: { 'Cache-Control': 'private, no-store' } })
@@ -86,7 +86,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     const { id: projectId } = await params
     const effectiveUser = await requireEffectiveUser()
     if (effectiveUser instanceof NextResponse) return effectiveUser
-    const access = await requireProjectAccess(effectiveUser, projectId)
+    const access = await requireProjectAccessStrict(effectiveUser, projectId)
     if (access instanceof NextResponse) return access
 
     const body = await request.json() as { rootName?: unknown; sourceType?: unknown; sourcePath?: unknown; files?: unknown }

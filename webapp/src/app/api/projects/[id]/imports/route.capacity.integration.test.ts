@@ -12,14 +12,14 @@ import prisma from '@/lib/prisma'
 
 const mocks = vi.hoisted(() => ({
   requireEffectiveUser: vi.fn(),
-  requireProjectAccess: vi.fn(),
+  requireProjectAccessStrict: vi.fn(),
   artifactCapacity: vi.fn(),
   realArtifactCapacity: vi.fn(),
 }))
 
 vi.mock('@/lib/access', () => ({
   requireEffectiveUser: mocks.requireEffectiveUser,
-  requireProjectAccess: mocks.requireProjectAccess,
+  requireProjectAccessStrict: mocks.requireProjectAccessStrict,
 }))
 
 vi.mock('@/lib/reamon/artifact-storage', async (importOriginal) => {
@@ -85,7 +85,7 @@ describe.skipIf(!enabled)('POST workspace import capacity admission against Post
     })
     projectId = project.id
     mocks.requireEffectiveUser.mockResolvedValue({ userId: user.id })
-    mocks.requireProjectAccess.mockResolvedValue({ project: { id: project.id, userId: user.id } })
+    mocks.requireProjectAccessStrict.mockResolvedValue({ project: { id: project.id, userId: user.id } })
   })
 
   afterAll(async () => {

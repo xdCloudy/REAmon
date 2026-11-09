@@ -21,7 +21,7 @@ const mocks = vi.hoisted(() => ({
   queryRaw: vi.fn(),
   activityCreate: vi.fn(),
   requireEffectiveUser: vi.fn(),
-  requireProjectAccess: vi.fn(),
+  requireProjectAccessStrict: vi.fn(),
   artifactCapacity: vi.fn(),
 }))
 
@@ -33,7 +33,7 @@ vi.mock('@/lib/prisma', () => ({
 
 vi.mock('@/lib/access', () => ({
   requireEffectiveUser: mocks.requireEffectiveUser,
-  requireProjectAccess: mocks.requireProjectAccess,
+  requireProjectAccessStrict: mocks.requireProjectAccessStrict,
 }))
 
 vi.mock('@/lib/reamon/artifact-storage', () => ({
@@ -66,7 +66,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   vi.unstubAllEnvs()
   mocks.requireEffectiveUser.mockResolvedValue({ userId: 'user-1' })
-  mocks.requireProjectAccess.mockResolvedValue({ project: { id: 'project-1', userId: 'user-1' } })
+  mocks.requireProjectAccessStrict.mockResolvedValue({ project: { id: 'project-1', userId: 'user-1' } })
   mocks.targetCreate.mockResolvedValue({ id: 'root-target-1' })
   mocks.activityCreate.mockResolvedValue({ id: 'activity-1' })
   mocks.activeImportsFindMany.mockResolvedValue([])
@@ -112,6 +112,19 @@ afterEach(async () => {
 })
 
 describe('POST /api/projects/[id]/imports', () => {
+  test('denies foreign access before parsing the body or creating project records', async () => {
+    const { NextResponse } = await import('next/server')
+    mocks.requireProjectAccessStrict.mockResolvedValueOnce(NextResponse.json({ error: 'Not found' }, { status: 404 }))
+
+    const response = await POST(requestFor({ rootName: 'ExampleApp', files }), params())
+
+    expect(response.status).toBe(404)
+    expect(mocks.transaction).not.toHaveBeenCalled()
+    expect(mocks.targetCreate).not.toHaveBeenCalled()
+    expect(mocks.importCreate).not.toHaveBeenCalled()
+    expect(mocks.artifactCapacity).not.toHaveBeenCalled()
+  })
+
   test('creates a directory root and canonicalizes browser paths', async () => {
     const response = await POST(requestFor({ rootName: 'ExampleApp', files }), params())
 
@@ -256,6 +269,16 @@ describe('POST /api/projects/[id]/imports', () => {
 })
 
 describe('GET /api/projects/[id]/imports', () => {
+  test('denies foreign access before checking storage capacity', async () => {
+    const { NextResponse } = await import('next/server')
+    mocks.requireProjectAccessStrict.mockResolvedValueOnce(NextResponse.json({ error: 'Not found' }, { status: 404 }))
+
+    const response = await GET(new Request('http://localhost/api/projects/project-1/imports'), params())
+
+    expect(response.status).toBe(404)
+    expect(mocks.artifactCapacity).not.toHaveBeenCalled()
+  })
+
   test('reports that workspace imports have no file-count or byte limits', async () => {
     vi.stubEnv('REAMON_MAX_IMPORT_FILES', '123')
     vi.stubEnv('REAMON_MAX_IMPORT_BYTES', '456')
