@@ -104,6 +104,20 @@ class WorkspaceEvidenceAgentToolTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(invalid["success"])
         client.assert_not_called()
 
+    async def test_code_unit_continuation_preserves_source_snapshot_hash(self):
+        client = _Client(_Response(payload={"sourceSnapshotHash": "a" * 64, "decompiledSource": {"truncated": False}}))
+        with patch("tools.httpx.AsyncClient", return_value=client):
+            result = await self.executor._dispatch_workspace_code_unit_tool(
+                "workspace_get_code_unit",
+                {"codeUnitId": "unit-1", "sourceOffsetBytes": 128, "sourceSnapshotHash": "a" * 64},
+            )
+        self.assertTrue(result["success"])
+        client.post.assert_awaited_once_with(
+            "http://webapp:3000/api/internal/reamon/workspace/code-units",
+            json={"tool": "workspace_get_code_unit", "codeUnitId": "unit-1", "sourceOffsetBytes": 128, "sourceSnapshotHash": "a" * 64},
+            headers={"x-internal-key": "test-internal-key", "x-redamon-ctx": "signed-context"},
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

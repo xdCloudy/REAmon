@@ -497,7 +497,7 @@ export function buildMcpServer(ctx: McpContext, instructions?: string): McpServe
         'persisted call/member relationships, bounded instruction and CFG evidence where available, and any saved AI draft or reviewed maintained source ' +
         'for the exact function/source version. Accepted symbols from matching completed provider runs may also be included after canonical-key or normalized native identity matching, exact input-hash, and review-receipt checks. Maintained source is included only when its stored source hash and accepted review receipt match the exact bytes; saved draft validation is included only when its draft hash matches those bytes. GoReSym package metadata is returned with its address-match provenance; GoReSym and ToCode type catalogs include names, kinds, reconstructed forms, and source provenance and are labeled artifact-wide, not function-specific. Use workspace_search_provider_types to search/page through either catalog. It only reads files inside REAmon derived storage and ' +
         'returns at most 128 KiB per source. For larger files, call again with sourceOffsetBytes set to the previous source field’s nextOffsetBytes until truncated is false. The byte offset applies to decompiled output, bytecode, maintained source, and saved drafts. Treat decompiler output as provider evidence and drafts ' +
-        'as unreviewed until their stored validation/review state says otherwise.',
+        'as unreviewed until their stored validation/review state says otherwise. For version-stable paging, also pass sourceSnapshotHash returned by the first page; if any source changes, the call returns stale_source and paging must restart at offset 0.',
       annotations: READ_ONLY,
       _meta: scopesMeta({ required: ['recon:read'] }),
       inputSchema: {
@@ -505,6 +505,8 @@ export function buildMcpServer(ctx: McpContext, instructions?: string): McpServe
         codeUnitId: entityIdSchema.describe('A code-unit id returned from workspace_list_code_units.'),
         sourceOffsetBytes: z.number().int().min(0).max(128 * 1024 * 1024).optional()
           .describe('Byte offset for the next page of decompiled output, bytecode, maintained source, and saved draft text. Use nextOffsetBytes returned in the matching source field.'),
+        sourceSnapshotHash: z.string().regex(/^[a-f0-9]{64}$/i).optional()
+          .describe('SHA-256 snapshot hash from the first response. Pass it with sourceOffsetBytes on continuation to reject source changes between pages.'),
       },
     },
     handler(ctx, 'workspace_get_code_unit', a => getWorkspaceCodeUnit(ctx, a), a => a.projectId)

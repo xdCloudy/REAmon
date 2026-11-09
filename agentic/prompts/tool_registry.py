@@ -189,13 +189,14 @@ TOOL_REGISTRY = {
     "workspace_get_code_unit": {
         "purpose": "Read bounded source and provenance for one persisted code unit",
         "when_to_use": "Use after workspace_list_code_units returns a relevant function, method, or class id",
-        "args_format": '"codeUnitId": returned code unit id, "sourceOffsetBytes": optional previous source nextOffsetBytes',
+        "args_format": '"codeUnitId": returned code unit id, "sourceOffsetBytes": optional previous source nextOffsetBytes, "sourceSnapshotHash": returned first-page snapshot hash',
         "description": (
             '**workspace_get_code_unit** (bounded code-unit detail)\n'
             '   - Reads stored code, disassembly, bytecode, task/provider metadata, relationships, and reviewed or draft source '
             'when present. Source is returned in bounded UTF-8 pages; continue with sourceOffsetBytes from the matching source '
-            'field’s nextOffsetBytes. Treat provider output as analysis evidence and saved drafts as unreviewed unless the '
-            'returned review state confirms acceptance. Reads are project-scoped and do not trigger analysis.'
+            'field’s nextOffsetBytes, and pass sourceSnapshotHash from the first response. If a source changes between pages, '
+            'the service returns stale_source; restart from offset 0. Treat provider output as analysis evidence and saved drafts '
+            'as unreviewed unless the returned review state confirms acceptance. Reads are project-scoped and do not trigger analysis.'
         ),
     },
     "web_search": {

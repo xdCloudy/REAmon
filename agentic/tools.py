@@ -2283,7 +2283,7 @@ class PhaseAwareToolExecutor:
                     "error": f"{tool_name}: no signed tenant context — cannot read project code units."}
         args = tool_args if isinstance(tool_args, dict) else {}
         allowed = ({"search", "taskId", "limit", "offset"} if tool_name == "workspace_list_code_units"
-                   else {"codeUnitId", "sourceOffsetBytes"})
+                   else {"codeUnitId", "sourceOffsetBytes", "sourceSnapshotHash"})
         if set(args) - allowed:
             return {"success": False, "output": None, "error": "Unsupported workspace code-unit argument."}
         url = os.environ.get("WEBAPP_API_URL", "http://webapp:3000").rstrip("/")

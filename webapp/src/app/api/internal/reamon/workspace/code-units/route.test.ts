@@ -1,6 +1,7 @@
 /** @vitest-environment node */
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { signTag } from '@/lib/redamonCtx'
+import { McpToolError } from '@/lib/mcp/errors'
 
 const mocks = vi.hoisted(() => ({
   internal: vi.fn(),
@@ -58,13 +59,18 @@ describe('POST /api/internal/reamon/workspace/code-units', () => {
   test('bounds list paging and source detail offsets before invoking readers', async () => {
     expect((await POST(request({ tool: 'workspace_list_code_units', limit: 101 }) as never)).status).toBe(400)
     expect((await POST(request({ tool: 'workspace_get_code_unit', codeUnitId: 'unit-1', sourceOffsetBytes: -1 }, token('workspace_get_code_unit')) as never)).status).toBe(400)
+    expect((await POST(request({ tool: 'workspace_get_code_unit', codeUnitId: 'unit-1', sourceSnapshotHash: 'bad' }, token('workspace_get_code_unit')) as never)).status).toBe(400)
     expect(mocks.list).not.toHaveBeenCalled()
     expect(mocks.get).not.toHaveBeenCalled()
   })
 
   test('delegates hash-bounded code detail reads and returns service errors distinctly', async () => {
-    const response = await POST(request({ tool: 'workspace_get_code_unit', codeUnitId: 'unit-1', sourceOffsetBytes: 128 }, token('workspace_get_code_unit')) as never)
+    const sourceSnapshotHash = 'a'.repeat(64)
+    const response = await POST(request({ tool: 'workspace_get_code_unit', codeUnitId: 'unit-1', sourceOffsetBytes: 128, sourceSnapshotHash }, token('workspace_get_code_unit')) as never)
     expect(response.status).toBe(200)
-    expect(mocks.get).toHaveBeenCalledWith(expect.objectContaining({ token: expect.any(Object) }), { projectId: 'project-1', codeUnitId: 'unit-1', sourceOffsetBytes: 128 })
+    expect(mocks.get).toHaveBeenCalledWith(expect.objectContaining({ token: expect.any(Object) }), { projectId: 'project-1', codeUnitId: 'unit-1', sourceOffsetBytes: 128, sourceSnapshotHash })
+    mocks.get.mockRejectedValueOnce(new McpToolError('Code-unit sources changed while paging.', 'stale_source'))
+    const stale = await POST(request({ tool: 'workspace_get_code_unit', codeUnitId: 'unit-1', sourceOffsetBytes: 128, sourceSnapshotHash }, token('workspace_get_code_unit')) as never)
+    expect(stale.status).toBe(409)
   })
 })

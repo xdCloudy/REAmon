@@ -12,6 +12,7 @@ import { buildProjectSymbolContext } from '@/lib/reamon/maintenance-memory'
 import { nativeAddressAliases, nativeFunctionIdentity } from '@/lib/reamon/native-function-identity'
 import { codeNoteText, REAMON_CODE_NOTE_SOURCE } from '@/lib/reamon/code-notes'
 import { enforceRate, type McpContext } from '@/lib/mcp/tools'
+import { hashWorkspaceCodeUnitSourceSnapshot } from '@/lib/mcp/workspaceCodeUnitSnapshot'
 
 const DEFAULT_LIMIT = 50
 const MAX_LIMIT = 100
@@ -45,6 +46,7 @@ export interface WorkspaceGetCodeUnitArgs {
   projectId: string
   codeUnitId: string
   sourceOffsetBytes?: number
+  sourceSnapshotHash?: string
 }
 
 export interface WorkspaceListCodeRelationshipsArgs {
@@ -803,6 +805,9 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
   if (!Number.isSafeInteger(sourceOffsetBytes) || sourceOffsetBytes < 0 || sourceOffsetBytes > MAX_VERIFIED_DERIVED_ARTIFACT_BYTES) {
     throw new McpToolError('sourceOffsetBytes must be a non-negative byte offset no greater than 128 MiB.', 'invalid_input')
   }
+  if (args.sourceSnapshotHash !== undefined && !/^[a-f0-9]{64}$/i.test(args.sourceSnapshotHash)) {
+    throw new McpToolError('sourceSnapshotHash must be a 64-character SHA-256 digest.', 'invalid_input')
+  }
   const unit = await prisma.reamonObservation.findFirst({
     where: {
       id: args.codeUnitId,
@@ -1080,6 +1085,18 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
     : null
   const draftHashMatches = Boolean(draft?.draftHash && draftSourceHash
     && draft.draftHash.toLowerCase() === draftSourceHash)
+  const sourceSnapshotHash = hashWorkspaceCodeUnitSourceSnapshot({
+    codeUnitId: unit.id,
+    artifactId: unit.artifactId,
+    artifactSha256: unit.artifact?.sha256 || null,
+    decompiledSourceSha256: verifiedCode?.sourceHash || null,
+    disassemblySha256: verifiedDisassembly?.sourceHash || null,
+    maintainedSourceSha256: maintainedSourceVerified ? maintainedSourceHash : null,
+    savedDraftSha256: draftHashMatches ? draftSourceHash : null,
+  })
+  if (args.sourceSnapshotHash && args.sourceSnapshotHash.toLowerCase() !== sourceSnapshotHash) {
+    throw new McpToolError('Code-unit sources changed while paging. Restart at sourceOffsetBytes 0 without sourceSnapshotHash.', 'stale_source')
+  }
 
   const endpointKeys = [...new Set([...edges, ...referenceEdges]
     .flatMap((edge) => [edge.fromKey, edge.toKey])
@@ -1420,6 +1437,7 @@ export async function getWorkspaceCodeUnit(ctx: McpContext, args: WorkspaceGetCo
       sourceHash: verifiedCode.sourceHash,
       truncated: verifiedCode.truncated,
     } : null,
+    sourceSnapshotHash,
     bytecodeDisassembly: verifiedCode && attributes.isExecutableSource === false ? {
       relativePath: text(attributes.relativePath, 1000),
       language: text(attributes.language, 80),
