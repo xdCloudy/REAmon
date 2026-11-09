@@ -319,6 +319,8 @@ DEFAULT_AGENT_SETTINGS: dict[str, Any] = {
         'shodan': ['informational', 'exploitation', 'post_exploitation'],
         'google_dork': ['informational'],
         'tradecraft_lookup': ['exploitation', 'post_exploitation'],
+        'workspace_list_evidence': ['informational', 'exploitation', 'post_exploitation'],
+        'workspace_get_evidence': ['informational', 'exploitation', 'post_exploitation'],
     },
 
     # User-managed MCP servers (UI-driven, see /settings/mcp). Stored as raw
@@ -973,6 +975,12 @@ def is_tool_allowed_in_phase(tool_name: str, phase: str) -> bool:
     if tool_name.startswith("fs_") or tool_name.startswith("job_"):
         return True
 
+    # Durable REAmon evidence reads default on for projects with older stored
+    # phase maps. An explicit entry still lets the operator turn either tool off.
+    if tool_name in {"workspace_list_evidence", "workspace_get_evidence"}:
+        tool_phase_map = get_setting('TOOL_PHASE_MAP', {})
+        return phase in tool_phase_map.get(tool_name, ["informational", "exploitation", "post_exploitation"])
+
     # graph_schema / graph_summary INHERIT query_graph's gating: the operator
     # sees one tool, and enabling it grants all three. They must NOT become
     # TOOL_PHASE_MAP keys of their own, for two reasons that both fail silently:
@@ -1019,6 +1027,12 @@ def get_allowed_tools_for_phase(phase: str) -> list:
         for tool_name, allowed_phases in tool_phase_map.items()
         if phase in allowed_phases
     }
+
+    # Older projects persist a whole-map override, so expose the new evidence
+    # reads by default until an operator explicitly configures their keys.
+    for name in ("workspace_list_evidence", "workspace_get_evidence"):
+        if is_tool_allowed_in_phase(name, phase):
+            allowed.add(name)
 
     # The graph companions ride on query_graph (see is_tool_allowed_in_phase).
     # This list builds the LLM's available-tools enum, so patching only the

@@ -14,9 +14,9 @@
     "reamon:worker": "node scripts/reamon-task-worker-supervisor.mjs",
     "test": "vitest run --no-file-parallelism",
     "test:coverage": "vitest run --no-file-parallelism --coverage",
-    "docs:mcp": "MCP_DOCS_WRITE=1 vitest run src/lib/mcp/apiReference.test.ts",
+    "docs:mcp": "node scripts/run-docs-test.mjs src/lib/mcp/apiReference.test.ts",
     "postinstall": "prisma generate",
-    "docs:settings": "MCP_DOCS_WRITE=1 vitest run src/lib/reconSettings/settingsReference.test.ts"
+    "docs:settings": "node scripts/run-docs-test.mjs src/lib/reconSettings/settingsReference.test.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.1",

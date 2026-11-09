@@ -241,11 +241,15 @@ export function ToolMatrixSection({ data, updateField }: ToolMatrixSectionProps)
               { id: 'metasploit_console', label: 'metasploit_console' },
               { id: 'msf_restart', label: 'msf_restart' },
               { id: 'tradecraft_lookup', label: 'tradecraft_lookup' },
+              { id: 'workspace_list_evidence', label: 'workspace_list_evidence' },
+              { id: 'workspace_get_evidence', label: 'workspace_get_evidence' },
             ].map(tool => {
               const phaseMap = (typeof data.agentToolPhaseMap === 'string'
                 ? JSON.parse(data.agentToolPhaseMap)
                 : data.agentToolPhaseMap ?? {}) as Record<string, string[]>
-              const toolPhases = phaseMap[tool.id] || []
+              const toolPhases = phaseMap[tool.id] ?? (
+                tool.id.startsWith('workspace_') ? [...ALL_PHASES] : []
+              )
 
               const togglePhase = (phase: string) => {
                 const newMap = { ...phaseMap }

@@ -1,6 +1,6 @@
 /** @vitest-environment node */
 import { describe, test, expect } from 'vitest'
-import { signTag } from './redamonCtx'
+import { signTag, verifyTag } from './redamonCtx'
 
 describe('signTag — cross-compatible with redamon_ctx.py', () => {
   // Reference token produced by scanners/capture_proxy/redamon_ctx.py sign_tag
@@ -32,5 +32,12 @@ describe('signTag — cross-compatible with redamon_ctx.py', () => {
 
   test('throws on empty key', () => {
     expect(() => signTag({ source: 'operator' }, '')).toThrow()
+  })
+
+  test('verifies signed agent context and rejects tampering', () => {
+    const token = signTag({ source: 'agent', project_id: 'p1', user_id: 'u1', tool: 'workspace_list_evidence', exp: 1900000000 }, 'agent-key')
+    expect(verifyTag(token, 'agent-key')).toMatchObject({ source: 'agent', project_id: 'p1', user_id: 'u1', exp: 1900000000 })
+    expect(verifyTag(token, 'wrong-key')).toBeNull()
+    expect(verifyTag(`${token}x`, 'agent-key')).toBeNull()
   })
 })

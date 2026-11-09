@@ -149,6 +149,31 @@ TOOL_REGISTRY = {
             'to explain why.'
         ),
     },
+    "workspace_list_evidence": {
+        "purpose": "Browse persisted REAmon analysis evidence",
+        "when_to_use": "Use when you need durable provider, reconstruction, or validation evidence not summarized in the graph",
+        "args_format": '"artifactId": optional artifact id, "limit": optional 1-50, "cursor": optional returned cursor',
+        "description": (
+            '**workspace_list_evidence** (durable evidence index)\n'
+            '   - Lists persisted evidence records for this project, newest first, with bounded pagination. '
+            'Use artifactId to narrow to one imported artifact. Continue with nextCursor exactly as returned.\n'
+            '   - Evidence is read-only and project-scoped. This index shows summaries; use '
+            'workspace_get_evidence to read complete details in hash-checked pages.'
+        ),
+    },
+    "workspace_get_evidence": {
+        "purpose": "Read complete persisted REAmon evidence details",
+        "when_to_use": "Use after workspace_list_evidence identifies a relevant record, or to continue its detail pages",
+        "args_format": '"evidenceId": evidence id, "offsetBytes": optional returned offset, "evidenceHash": required for continuation',
+        "description": (
+            '**workspace_get_evidence** (bounded evidence detail)\n'
+            '   - Reads the exact persisted {summary, data} JSON in UTF-8 pages (up to 128 KiB each), '
+            'with a SHA-256 hash that detects changes between pages. Start at offsetBytes 0; pass the '
+            'returned evidenceHash and nextOffsetBytes to continue.\n'
+            '   - Project-scoped, read-only, and capped at 32 MiB per record. Do not infer missing details '
+            'from a failed or stale read; restart when the hash reports a change.'
+        ),
+    },
     "web_search": {
         "purpose": "Knowledge base + web search",
         "when_to_use": "Research CVEs, exploits, tool flags, methodology, priv-esc",

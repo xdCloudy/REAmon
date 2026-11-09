@@ -40,6 +40,13 @@ class TestRegistryAlignment(unittest.TestCase):
         missing = sorted(job_runner.JOB_TOOL_NAMES - set(TOOL_REGISTRY.keys()))
         self.assertEqual(missing, [], f"job_* tools missing from TOOL_REGISTRY: {missing}")
 
+    def test_workspace_evidence_tools_are_documented(self):
+        for name in ("workspace_list_evidence", "workspace_get_evidence"):
+            entry = TOOL_REGISTRY[name]
+            for field in REQUIRED_FIELDS:
+                self.assertIn(field, entry, f"{name}.{field} missing")
+            self.assertGreaterEqual(len(entry["description"]), MIN_DESCRIPTION_CHARS)
+
     def test_no_dispatch_orphans(self):
         # Every DISPATCH key must equal an FS_TOOL_NAMES entry.
         self.assertEqual(set(workspace_fs.DISPATCH.keys()), set(workspace_fs.FS_TOOL_NAMES))
