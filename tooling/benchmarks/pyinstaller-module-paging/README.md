@@ -119,14 +119,16 @@ python tooling/benchmarks/compare_receipts.py baseline.json candidate.json `
   --output comparison.json
 ```
 
-The paired clean baseline and candidate run is archived under
-`tooling/benchmarks/pyinstaller-module-paging/runs/2026-11-09/paired/`. The
-baseline product source is `515d1b83d2a8772f4d816eb1efd690189bad2b2d`, measured
-with test-only harness commit `54ca0c1ff69468e1849a415c6a9e46825c61abe0`; the
-candidate is `cb6a23a590c8aa1dbbf80cd094c4581ba30ed15a`. Both clean receipts use
-the same artifact, manifest bytes, and paired toolchain manifest. The measured
+The canonical LF-stable paired baseline and candidate run is archived under
+`tooling/benchmarks/pyinstaller-module-paging/runs/2026-11-09/paired-canonical-lf/`.
+It compares baseline product source `515d1b83d2a8772f4d816eb1efd690189bad2b2d`
+with measurement commit `2f88d34ba9e30d5da9168171565302c5b5e64c1a` against
+candidate `4a93d892d2784ee569725cc8c70529d172a53b44`. Both clean receipts use the
+same artifact, LF-stable manifest bytes, and paired toolchain manifest. The
 runtime oracle, 180-module inventory, 70/70 known-source value matches, and
 queued worker terminal page are equal, with no regression observed in those
 metrics. Complete reconstruction correspondence remains `UNAVAILABLE`, so the
-aggregate comparator result is `INCOMPLETE`. One synthetic fixture does not pass
-AR-0/AR-8 or establish broad reconstruction fidelity.
+aggregate comparator result is `INCOMPLETE`. The earlier `paired/` archive is
+retained for history but superseded after its merged-evidence source hashes were
+found to differ across EOL-converted checkouts. One synthetic fixture does not
+pass AR-0/AR-8 or establish broad reconstruction fidelity.

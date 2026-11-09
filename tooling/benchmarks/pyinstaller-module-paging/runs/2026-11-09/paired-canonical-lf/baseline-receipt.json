@@ -1,0 +1,75 @@
+{
+  "commit": "2f88d34ba9e30d5da9168171565302c5b5e64c1a",
+  "components": {
+    "baselineIntegrationTestImage": "sha256:36c2af3c06568e860f9d649ecced4cb964100e6c0bb352834e7c3ac8890fd5dc",
+    "baselineMeasurementCommit": "2f88d34ba9e30d5da9168171565302c5b5e64c1a",
+    "baselineProductCommit": "515d1b83d2a8772f4d816eb1efd690189bad2b2d",
+    "benchmarkEvidenceHelperSha256NormalizedLf": "afa24cc6ae743f046eea8b18b06ab1a487ef9a309c3fc2ca5afcfdda54d3a5e9",
+    "buildReceiptSha256": "9d3a172643214fb6dd2944d8c7a25a4b99fa978812ba2eaec439e5230e14f1bf",
+    "candidateIntegrationTestImage": "sha256:621f2bc85f0a304c800fc18c8088c7c0422b6507b73eb6f92d6a1a1de9eddc9c",
+    "candidateSourceCommit": "4a93d892d2784ee569725cc8c70529d172a53b44",
+    "enrollmentReceiptSha256": "58ee392f5be17e38221e67cc6e07a3ab76eb1fef992a6ebfc7736217cc8b6387",
+    "evaluationManifestSha256": "6c0c4f4f99420e35e7579308c5b8db42295ebaa7aebde9afc1c5387577b14862",
+    "evidenceMergerSha256": "c3c98f1e46491abb9b683118270f554c587307d40db40bc46c066f2e705a2427",
+    "fixtureBuilderImage": "sha256:a01557cf0158a7ea628736c5457ccb57373de2103cad0e623812bf1d70a96400",
+    "fixtureExtractorImage": "sha256:e093f24e4f08f435187a381ab64a209209f6650308b00a432b61675639eee33f",
+    "fixtureManifestSha256": "ba0978ab64adea3ee3ec868e247ae710bb8a98fcfd5ff89174b1987f186a295d",
+    "integrationTestHarnessSha256NormalizedLf": "0bb4b77f0a518a247fbc8e63c938d31b5e1abe23e17463388f96353ffbef7568",
+    "integrationTestRuntimeBase": "node:22-slim@sha256:43ac6c60b8f89723f746e8a92ce91abd5017e627ce1ddfe4238355d3a30b772c",
+    "livePyInstallerServiceImage": "sha256:dfd6e00b359c5144b39510685e15faa4dbc48645b3b0f9fe5a39669e9e5a40d3",
+    "pycdcImage": "sha256:e5a9b638e836dede2bfdccac46f2649938be1219dd910e9388db2f383474b82d",
+    "pyinstallerProviderSourceSha256NormalizedLf": "eb53c0139007be242695c625cb3eb8130ecc8c5db2c57357bd54904a4ef7e382",
+    "receiptRecorderSha256": "a7272820e862202c50736cab66974969a3c950e410729370ae3323f6e01d9ae0",
+    "resultIngestionSourceSha256NormalizedLf": "00ebf64ca1805b0fde229bab6ba64aa3eebb469ef67bfb59d5954aeae1b65a40",
+    "taskWorkerBuildDirty": "false",
+    "taskWorkerBuildRevisionReported": "31a35c378f7e",
+    "taskWorkerImage": "sha256:b15bd821fc9c8f12c47ac360edbd9c87fc974e39a9fe4b7b0c981fa4e1fcf5f4",
+    "webappPackageLockSha256NormalizedLf": "aafd4ea6448d02f543a42de6403a00fd5391ce15adec5a3cb8921547fa6d49e8"
+  },
+  "createdAtUtc": "2026-11-09T02:50:45Z",
+  "evaluationManifestSha256": "6c0c4f4f99420e35e7579308c5b8db42295ebaa7aebde9afc1c5387577b14862",
+  "evidenceSha256": "382e2f4161b10eb03a010c25bf64e87a0d6904e782f7cdd202fdb6aa655dfc96",
+  "fixtureManifestSha256": "ba0978ab64adea3ee3ec868e247ae710bb8a98fcfd5ff89174b1987f186a295d",
+  "fixtures": {
+    "pyinstaller-module-paging-linux-amd64": {
+      "artifactSha256": "ad8998bd53353c3f52c7c81a6bfb9251719da84541439ecf445b012f24188db0",
+      "metrics": {
+        "extracted_module_count": {
+          "denominator": 1,
+          "direction": "equal",
+          "state": "MEASURED",
+          "value": 180
+        },
+        "known_source_value_recall": {
+          "denominator": 70,
+          "direction": "higher",
+          "state": "MEASURED",
+          "value": 70
+        },
+        "reconstruction_match": {
+          "denominator": 70,
+          "direction": "higher",
+          "reason": "Complete recovered-source correspondence has not been measured.",
+          "state": "UNAVAILABLE",
+          "value": null
+        },
+        "runtime_oracle": {
+          "denominator": 1,
+          "direction": "equal",
+          "state": "MEASURED",
+          "value": 1
+        },
+        "worker_terminal_page": {
+          "denominator": 1,
+          "direction": "equal",
+          "state": "MEASURED",
+          "value": 1
+        }
+      }
+    }
+  },
+  "runId": "f2dd348c-9edc-47e1-9cb1-fa2b3db60e29",
+  "schemaVersion": 1,
+  "toolchainManifestSha256": "d78b90360990fcdb01eb5fdb9c12721e58d62823908f1ce10c7d54c8b40d9a0c",
+  "worktreeClean": true
+}

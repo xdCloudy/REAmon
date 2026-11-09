@@ -10,3 +10,7 @@ This run compares the same pinned Linux x86_64 fixture (`ad8998bd53353c3f52c7c81
 The baseline and candidate both measured 180 extracted modules, 70/70 known-source value matches, a passing runtime oracle, and the queued worker terminal page. The comparator reports no regression in those measured metrics. Complete reconstruction correspondence remains `UNAVAILABLE`, so the aggregate result is `INCOMPLETE`; this single synthetic Python fixture does not pass AR-0/AR-8 or establish broad reconstruction fidelity.
 
 `comparison.json` is bounded evidence, not a product certification. The original fixture source remains excluded from the analysis input.
+
+## Superseded after provenance audit
+
+This first paired archive is retained as historical evidence but is superseded by `../paired-canonical-lf/`. An audit found that the baseline merged evidence recorded LF manifest hashes while the candidate evidence recorded CRLF hashes from Windows `core.autocrlf` conversion. The initial receipt comparison had equal measured values, but its merged provenance did not bind both runs to the same raw manifest bytes. Use the canonical LF-stable pair for future comparisons.

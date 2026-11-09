@@ -1,0 +1,64 @@
+{
+  "baselineRunId": "f2dd348c-9edc-47e1-9cb1-fa2b3db60e29",
+  "candidateRunId": "fb55ba74-1d68-4d28-ae53-1496ee43f055",
+  "certification": "This comparison is bounded evidence and is not a product certification.",
+  "evaluationManifestSha256": "6c0c4f4f99420e35e7579308c5b8db42295ebaa7aebde9afc1c5387577b14862",
+  "fixtureManifestSha256": "ba0978ab64adea3ee3ec868e247ae710bb8a98fcfd5ff89174b1987f186a295d",
+  "fixtures": {
+    "pyinstaller-module-paging-linux-amd64": {
+      "artifactSha256": "ad8998bd53353c3f52c7c81a6bfb9251719da84541439ecf445b012f24188db0",
+      "metrics": {
+        "extracted_module_count": {
+          "baseline": 180,
+          "candidate": 180,
+          "delta": 0,
+          "denominator": 1,
+          "direction": "equal",
+          "regressionObserved": false,
+          "state": "MEASURED"
+        },
+        "known_source_value_recall": {
+          "baseline": 70,
+          "candidate": 70,
+          "delta": 0,
+          "denominator": 70,
+          "direction": "higher",
+          "regressionObserved": false,
+          "state": "MEASURED"
+        },
+        "reconstruction_match": {
+          "baseline": null,
+          "candidate": null,
+          "delta": null,
+          "denominator": 70,
+          "direction": "higher",
+          "regressionObserved": null,
+          "state": "UNAVAILABLE"
+        },
+        "runtime_oracle": {
+          "baseline": 1,
+          "candidate": 1,
+          "delta": 0,
+          "denominator": 1,
+          "direction": "equal",
+          "regressionObserved": false,
+          "state": "MEASURED"
+        },
+        "worker_terminal_page": {
+          "baseline": 1,
+          "candidate": 1,
+          "delta": 0,
+          "denominator": 1,
+          "direction": "equal",
+          "regressionObserved": false,
+          "state": "MEASURED"
+        }
+      }
+    }
+  },
+  "regressions": [],
+  "schemaVersion": 1,
+  "status": "INCOMPLETE",
+  "thresholdsApplied": false,
+  "worktreesClean": true
+}
