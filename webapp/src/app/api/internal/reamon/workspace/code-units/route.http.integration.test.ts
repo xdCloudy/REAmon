@@ -11,6 +11,7 @@ import { createServer } from 'node:net'
 import { once } from 'node:events'
 
 import { signTag } from '@/lib/redamonCtx'
+import { AUTH_COOKIE_NAME, createToken } from '@/lib/auth'
 
 const HAS_DB = process.env.DATABASE_URL !== undefined
 const SUFFIX = `workspace-code-http-${Date.now()}`
@@ -24,9 +25,12 @@ let projectId = ''
 let taskId = ''
 let artifactId = ''
 let codeUnitId = ''
+let ownerSession = ''
+let foreignSession = ''
 
 beforeAll(async () => {
   if (!HAS_DB) return
+  process.env.AUTH_SECRET = 'integration-http-auth-secret'
   prisma = new PrismaClient()
   const user = await prisma.user.create({
     data: { email: `${SUFFIX}@example.invalid`, name: 'workspace code HTTP integration' },
@@ -36,6 +40,8 @@ beforeAll(async () => {
     data: { email: `${SUFFIX}-foreign@example.invalid`, name: 'foreign workspace code HTTP integration' },
   })
   foreignUserId = foreignUser.id
+  ownerSession = await createToken(userId, 'standard')
+  foreignSession = await createToken(foreignUserId, 'standard')
   const project = await prisma.project.create({
     data: { name: 'workspace code HTTP integration', userId, targetDomain: 'code-http.example.invalid' },
   })
@@ -253,6 +259,41 @@ describe.skipIf(!HAS_DB)('agent code-unit and relationship HTTP paging across Ne
     } finally {
       await stopServer(secondServer)
       await stopServer(firstServer)
+    }
+  }, 180_000)
+
+  test('browser sessions can page owned code units and relationships but cannot read another owner project', async () => {
+    let server: ChildProcess | null = null
+    try {
+      const running = await startNextServer(INITIAL_KEY)
+      server = running.child
+      const headers = { Cookie: `${AUTH_COOKIE_NAME}=${ownerSession}` }
+      const foreignHeaders = { Cookie: `${AUTH_COOKIE_NAME}=${foreignSession}` }
+
+      const anonymousUnits = await fetch(`${running.baseUrl}/api/projects/${projectId}/workspace/code-units?taskId=${taskId}&limit=1`)
+      expect(anonymousUnits.status).toBe(401)
+      const ownedUnits = await fetch(`${running.baseUrl}/api/projects/${projectId}/workspace/code-units?taskId=${taskId}&limit=1`, { headers })
+      expect(ownedUnits.status).toBe(200)
+      expect(ownedUnits.headers.get('cache-control')).toBe('private, no-store')
+      const unitPage = await ownedUnits.json() as { total: number; units: unknown[]; nextCursor: string | null }
+      expect(unitPage.total).toBe(3)
+      expect(unitPage.units).toHaveLength(1)
+      expect(unitPage.nextCursor).toEqual(expect.any(String))
+
+      const ownedRelationships = await fetch(`${running.baseUrl}/api/projects/${projectId}/workspace/code-relationships?codeUnitId=${codeUnitId}&relationshipKind=calls&direction=outgoing&limit=1`, { headers })
+      expect(ownedRelationships.status).toBe(200)
+      expect(ownedRelationships.headers.get('cache-control')).toBe('private, no-store')
+      const relationshipPage = await ownedRelationships.json() as { total: number; relationships: unknown[]; nextCursor: string | null }
+      expect(relationshipPage.total).toBe(3)
+      expect(relationshipPage.relationships).toHaveLength(1)
+      expect(relationshipPage.nextCursor).toEqual(expect.any(String))
+
+      const foreignUnits = await fetch(`${running.baseUrl}/api/projects/${projectId}/workspace/code-units?taskId=${taskId}&limit=1`, { headers: foreignHeaders })
+      expect(foreignUnits.status).toBe(404)
+      const foreignRelationships = await fetch(`${running.baseUrl}/api/projects/${projectId}/workspace/code-relationships?codeUnitId=${codeUnitId}&relationshipKind=calls&direction=outgoing&limit=1`, { headers: foreignHeaders })
+      expect(foreignRelationships.status).toBe(404)
+    } finally {
+      await stopServer(server)
     }
   }, 180_000)
 })
