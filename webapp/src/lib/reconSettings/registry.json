@@ -9937,6 +9937,7 @@
     "web_search",
     "workspace_get_code_unit",
     "workspace_get_evidence",
+    "workspace_list_code_relationships",
     "workspace_list_code_units",
     "workspace_list_evidence"
    ]
