@@ -24,6 +24,7 @@ let foreignUserId = ''
 let projectId = ''
 let evidenceId = ''
 let artifactId = ''
+let findingId = ''
 let sessionCookie = ''
 let foreignSessionCookie = ''
 let originalInternalKey: string | undefined
@@ -81,6 +82,17 @@ beforeAll(async () => {
     },
   })
   artifactId = artifact.id
+  const finding = await prisma.finding.create({
+    data: {
+      projectId,
+      artifactId,
+      title: 'Synthetic workspace review finding',
+      description: 'Synthetic fixture for strict workspace ownership acceptance.',
+      severity: 'medium',
+      source: SUFFIX,
+    },
+  })
+  findingId = finding.id
 }, 60_000)
 
 afterAll(async () => {
@@ -203,6 +215,21 @@ describe.skipIf(!HAS_DB)('agent Evidence HTTP paging across Next.js restart', ()
         headers: { Cookie: `${AUTH_COOKIE_NAME}=${foreignSessionCookie}` },
       })
       expect(foreignWorkspaceSnapshotResponse.status).toBe(404)
+      const foreignFindingReviewResponse = await fetch(`${first.baseUrl}/api/projects/${projectId}/workspace/findings/${findingId}`, {
+        method: 'PATCH',
+        headers: { Cookie: `${AUTH_COOKIE_NAME}=${foreignSessionCookie}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'ACCEPTED', note: 'foreign review must be rejected' }),
+      })
+      expect(foreignFindingReviewResponse.status).toBe(404)
+      expect((await prisma.finding.findUniqueOrThrow({ where: { id: findingId }, select: { status: true } })).status).toBe('OPEN')
+      const ownerFindingReviewResponse = await fetch(`${first.baseUrl}/api/projects/${projectId}/workspace/findings/${findingId}`, {
+        method: 'PATCH',
+        headers: { Cookie: `${AUTH_COOKIE_NAME}=${sessionCookie}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'ACCEPTED', note: 'synthetic owner review' }),
+      })
+      expect(ownerFindingReviewResponse.status).toBe(200)
+      expect(await ownerFindingReviewResponse.json()).toMatchObject({ finding: { id: findingId, status: 'ACCEPTED' }, note: 'synthetic owner review' })
+      expect((await prisma.finding.findUniqueOrThrow({ where: { id: findingId }, select: { status: true } })).status).toBe('ACCEPTED')
       const ownerWorkspaceFilesResponse = await fetch(workspaceFilesUrl, {
         headers: { Cookie: `${AUTH_COOKIE_NAME}=${sessionCookie}` },
       })
