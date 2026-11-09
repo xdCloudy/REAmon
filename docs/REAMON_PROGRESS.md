@@ -1,8 +1,6 @@
 # REAmon product progress
 
-Assessment date: 2026-11-09 · Source: pushed commit `87b95393` · Weighted estimate: **26.9%**
-
-Tree-sitter cache reliability note (2026-11-09): The agent image preloads the pinned 372-library parser bundle using the GitHub release API redirect and SHA-256 verification; the package's direct release URL returned HTTP 504. The image build and full unit gate passed on `a023a9d`: agent 186 files / 3,791 tests; root-agent 121 / 3,383; root-recon 14 / 570; recon 149 / 4,155; orchestrator 38 / 616; attack-surface 11 / 209; capture-proxy 7 / 138; broker 6 / 83; 25 shell suites; webapp 617 files / 9,738 tests passed (25 files and 149 tests skipped; 2 expected failures). No reconstruction-quality credit or weighted-score change is claimed.
+Assessment date: 2026-11-09 · Source: pushed commit `f14624e` · Weighted estimate: **26.9%**
 
 This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.
 
