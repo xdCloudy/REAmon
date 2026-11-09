@@ -63,6 +63,24 @@ class BenchmarkManifestTests(unittest.TestCase):
         self.assertTrue(oracle["valueMatches"])
         self.assertEqual(oracle["remainingExtractedModulesNotSourceCompared"], 110)
 
+    def test_versioned_source_correspondence_contract_preserves_historical_scope(self):
+        fixture = load_json(ROOT / "manifest.json")
+        historical = load_json(ROOT / "evaluation-manifest.json")
+        source_v2 = load_json(ROOT / "evaluation-manifest-source-v2.json")
+
+        self.assertEqual(historical["fixtureId"], fixture["fixtureId"])
+        self.assertEqual(source_v2["fixtureId"], fixture["fixtureId"])
+        self.assertEqual(set(historical["metrics"]), set(source_v2["metrics"]))
+        known_source_count = fixture["target"]["moduleSourceCount"]
+        historical_metric = historical["metrics"]["reconstruction_match"]
+        source_v2_metric = source_v2["metrics"]["reconstruction_match"]
+
+        self.assertEqual(historical_metric["denominator"], known_source_count)
+        self.assertIn("unavailable until end-to-end comparison exists", historical_metric["description"])
+        self.assertEqual(source_v2_metric["denominator"], known_source_count)
+        self.assertIn("whitespace and comment normalization", source_v2_metric["description"])
+        self.assertNotEqual(historical_metric["description"], source_v2_metric["description"])
+
 
 if __name__ == "__main__":
     unittest.main()
