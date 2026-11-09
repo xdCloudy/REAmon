@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "components": {
+    "sourceCommit": "cb6a23a590c8aa1dbbf80cd094c4581ba30ed15a",
+    "fixtureBuilderImage": "sha256:a01557cf0158",
+    "pyinstallerExtractorImage": "sha256:e093f24e4f08f435187a381ab64a209209f6650308b00a432b61675639eee33f",
+    "pycdcImage": "sha256:e5a9b638e836dede2bfdccac46f2649938be1219dd910e9388db2f383474b82d",
+    "webappIntegrationTestImage": "sha256:fca51a49dedc69eb3dcdb55090b0e8a66fd73d7180a34971c68e89d3473fd8c5"
+  }
+}
+

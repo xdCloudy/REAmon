@@ -1,0 +1,56 @@
+{
+  "commit": "cb6a23a590c8aa1dbbf80cd094c4581ba30ed15a",
+  "components": {
+    "fixtureBuilderImage": "sha256:a01557cf0158",
+    "pycdcImage": "sha256:e5a9b638e836dede2bfdccac46f2649938be1219dd910e9388db2f383474b82d",
+    "pyinstallerExtractorImage": "sha256:e093f24e4f08f435187a381ab64a209209f6650308b00a432b61675639eee33f",
+    "sourceCommit": "cb6a23a590c8aa1dbbf80cd094c4581ba30ed15a",
+    "webappIntegrationTestImage": "sha256:fca51a49dedc69eb3dcdb55090b0e8a66fd73d7180a34971c68e89d3473fd8c5"
+  },
+  "createdAtUtc": "2026-11-09T02:13:19Z",
+  "evaluationManifestSha256": "ea738398641332a0e66b17569b63539e990542819d87db212cb25c06cd31bdc2",
+  "evidenceSha256": "e56f66cd3044601d67e566510855899cb21c4529b9d5aff1027769cf679ef37a",
+  "fixtureManifestSha256": "fccdac3e7a28c8cf42408acaa68d068faf1c27f5cedf95577b37f925a0b50b99",
+  "fixtures": {
+    "pyinstaller-module-paging-linux-amd64": {
+      "artifactSha256": "ad8998bd53353c3f52c7c81a6bfb9251719da84541439ecf445b012f24188db0",
+      "metrics": {
+        "extracted_module_count": {
+          "denominator": 1,
+          "direction": "equal",
+          "state": "MEASURED",
+          "value": 180
+        },
+        "known_source_value_recall": {
+          "denominator": 70,
+          "direction": "higher",
+          "state": "MEASURED",
+          "value": 70
+        },
+        "reconstruction_match": {
+          "denominator": 70,
+          "direction": "higher",
+          "reason": "Complete recovered-source correspondence has not been measured.",
+          "state": "UNAVAILABLE",
+          "value": null
+        },
+        "runtime_oracle": {
+          "denominator": 1,
+          "direction": "equal",
+          "state": "MEASURED",
+          "value": 1
+        },
+        "worker_terminal_page": {
+          "denominator": 1,
+          "direction": "equal",
+          "state": "MEASURED",
+          "value": 1
+        }
+      }
+    }
+  },
+  "runId": "419807da-3060-4ad5-a266-0706fd3d33dd",
+  "schemaVersion": 1,
+  "toolchainManifestSha256": "8bd8b739ad9aae796bed40f1cf4d7e370820b91441a8659d8641a757846d35bc",
+  "worktreeClean": true
+}

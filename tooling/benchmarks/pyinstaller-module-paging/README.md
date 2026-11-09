@@ -79,8 +79,8 @@ The recorder hashes the evidence and manifests, captures the full Git commit,
 component revisions, and worktree cleanliness, validates metric denominators,
 and refuses to overwrite a receipt. It records supplied evidence; it does not
 run the fixture or independently prove that a measurement command produced the
-values. A clean paired comparison still requires an evaluation harness that
-produces those evidence files from the pinned artifact and REAmon services.
+values. A matched clean comparison still requires a baseline receipt from the same
+pinned fixture and evaluation contract.
 
 The PostgreSQL integration test can emit its measured portion of the evidence
 when `REAMON_BENCHMARK_EVIDENCE_PATH` points to a new output file. Set
@@ -119,8 +119,11 @@ python tooling/benchmarks/compare_receipts.py baseline.json candidate.json `
   --output comparison.json
 ```
 
-No matched baseline and candidate receipts currently exist for this contract,
-so this tool adds comparison mechanics but does not complete AR-0 or AR-8. The
-active local worker used for earlier bounded persistence evidence reported a
-dirty external build (`REAMON_BUILD_DIRTY=true`); that evidence is not a clean
-candidate end-to-end run.
+A clean candidate receipt now exists under
+`tooling/benchmarks/pyinstaller-module-paging/runs/2026-11-09/` for source
+commit `cb6a23a590c8aa1dbbf80cd094c4581ba30ed15a`. It records 180 extracted
+modules, 70/70 known-source value matches, the passing runtime oracle, and the
+queued worker terminal page. Full reconstruction correspondence remains
+`UNAVAILABLE`, and no matched baseline receipt exists, so AR-0/AR-8 remains
+incomplete. Earlier dirty-worker evidence is not included in this clean candidate
+receipt.

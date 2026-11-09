@@ -1,0 +1,49 @@
+{
+  "fixtures": {
+    "pyinstaller-module-paging-linux-amd64": {
+      "artifactSha256": "ad8998bd53353c3f52c7c81a6bfb9251719da84541439ecf445b012f24188db0",
+      "metrics": {
+        "extracted_module_count": {
+          "denominator": 1,
+          "direction": "equal",
+          "state": "MEASURED",
+          "value": 180
+        },
+        "known_source_value_recall": {
+          "denominator": 70,
+          "direction": "higher",
+          "state": "MEASURED",
+          "value": 70
+        },
+        "reconstruction_match": {
+          "denominator": 70,
+          "direction": "higher",
+          "reason": "Complete recovered-source correspondence has not been measured.",
+          "state": "UNAVAILABLE",
+          "value": null
+        },
+        "runtime_oracle": {
+          "denominator": 1,
+          "direction": "equal",
+          "state": "MEASURED",
+          "value": 1
+        },
+        "worker_terminal_page": {
+          "denominator": 1,
+          "direction": "equal",
+          "state": "MEASURED",
+          "value": 1
+        }
+      }
+    }
+  },
+  "producer": "tooling/benchmarks/merge_pyinstaller_evidence.py",
+  "provenance": {
+    "buildReceipt": "4f23bca8006f34d82b83d5b817db899cf6b882a1e51d7eba1add506769e56e99",
+    "enrollmentReceipt": "ec4d97d935e7b47956d65c171861170b566cfc446191e880d6be406f046690e1",
+    "evaluationManifest": "ea738398641332a0e66b17569b63539e990542819d87db212cb25c06cd31bdc2",
+    "fixtureManifest": "fccdac3e7a28c8cf42408acaa68d068faf1c27f5cedf95577b37f925a0b50b99",
+    "integrationEvidence": "4a19affb1cf4716fa87ab85dc67a8498ba58693b7ef780d1fe2f9dd8e8a3c24d"
+  },
+  "schemaVersion": 1
+}
