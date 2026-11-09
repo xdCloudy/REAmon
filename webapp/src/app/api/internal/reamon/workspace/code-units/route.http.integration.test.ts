@@ -298,6 +298,36 @@ describe.skipIf(!HAS_DB)('agent code-unit and relationship HTTP paging across Ne
       expect(foreignVisualizer.status).toBe(404)
       const foreignCallgraph = await fetch(`${running.baseUrl}/api/projects/${projectId}/visualizer/callgraph?taskId=${taskId}&unitId=${codeUnitId}`, { headers: foreignHeaders })
       expect(foreignCallgraph.status).toBe(404)
+
+      const malformedUnitsCursor = await fetch(`${running.baseUrl}/api/projects/${projectId}/workspace/code-units?taskId=${taskId}&limit=1&cursor=not-a-signed-cursor`, { headers })
+      expect(malformedUnitsCursor.status).toBe(409)
+      expect(await malformedUnitsCursor.json()).toMatchObject({ error: { code: 'stale_snapshot' } })
+      const malformedRelationshipsCursor = await fetch(`${running.baseUrl}/api/projects/${projectId}/workspace/code-relationships?codeUnitId=${codeUnitId}&relationshipKind=calls&direction=outgoing&limit=1&cursor=not-a-signed-cursor`, { headers })
+      expect(malformedRelationshipsCursor.status).toBe(409)
+      expect(await malformedRelationshipsCursor.json()).toMatchObject({ error: { code: 'stale_snapshot' } })
+    } finally {
+      await stopServer(server)
+    }
+  }, 180_000)
+
+  test.each([
+    ['unsafe default active key', 'changeme', ''],
+    ['more than three previous keys', INITIAL_KEY, 'previous-one,previous-two,previous-three,previous-four'],
+  ])('fails closed for %s on browser code-unit and relationship paging', async (_caseName, activeKey, previousKeys) => {
+    let server: ChildProcess | null = null
+    try {
+      const running = await startNextServer(activeKey, previousKeys)
+      server = running.child
+      const headers = { Cookie: `${AUTH_COOKIE_NAME}=${ownerSession}` }
+      const units = await fetch(`${running.baseUrl}/api/projects/${projectId}/workspace/code-units?taskId=${taskId}&limit=1`, { headers })
+      expect(units.status).toBe(503)
+      expect(units.headers.get('cache-control')).toBe('private, no-store')
+      expect(await units.json()).toMatchObject({ error: { code: 'cursor_unavailable' } })
+
+      const relationships = await fetch(`${running.baseUrl}/api/projects/${projectId}/workspace/code-relationships?codeUnitId=${codeUnitId}&relationshipKind=calls&direction=outgoing&limit=1`, { headers })
+      expect(relationships.status).toBe(503)
+      expect(relationships.headers.get('cache-control')).toBe('private, no-store')
+      expect(await relationships.json()).toMatchObject({ error: { code: 'cursor_unavailable' } })
     } finally {
       await stopServer(server)
     }
