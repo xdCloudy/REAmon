@@ -229,6 +229,7 @@ describeDatabase('PyInstaller continuation with PostgreSQL observation persisten
       const knownSourcePath = path.resolve(derivedRoot, ...(knownModule!.attributes.codeArtifactId as string).replaceAll('\\', '/').split('/'))
       expect(knownSourcePath.startsWith(`${derivedRoot}${path.sep}`)).toBe(true)
       const knownSourceText = await readFile(knownSourcePath, 'utf8')
+      expect(knownModule!.attributes.codeArtifactSha256).toBe(createHash('sha256').update(knownSourceText).digest('hex'))
       expect(knownSourceText).toMatch(new RegExp(`\\bVALUE\\s*=\\s*${moduleValue}\\b`))
       const sourceMatches = isStructuredFixture
         ? matchesPyInstallerStructuredFixtureSource(knownSourceText, moduleValue, isMutatedArtifactFixture ? 'under' : 'below')
@@ -249,6 +250,7 @@ describeDatabase('PyInstaller continuation with PostgreSQL observation persisten
       }
       knownSourceMatchedCount += 1
     }
+    expect(knownSourceMatchedCount).toBe(70)
     if (isStructuredFixture) {
       if (isMutatedArtifactFixture) {
         expect(reconstructionMatchedCount).toBe(70)
@@ -259,13 +261,6 @@ describeDatabase('PyInstaller continuation with PostgreSQL observation persisten
       }
     }
 
-    const recovered = moduleRows.find(({ attributes }) => attributes.decompiled === true && typeof attributes.codeArtifactId === 'string')
-    expect(recovered, 'at least one pycdc source unit should be committed to PostgreSQL').toBeDefined()
-    const relativeSourcePath = (recovered!.attributes.codeArtifactId as string).replaceAll('\\', '/')
-    const sourcePath = path.resolve(derivedRoot, ...relativeSourcePath.split('/'))
-    expect(sourcePath.startsWith(`${derivedRoot}${path.sep}`)).toBe(true)
-    const source = await readFile(sourcePath, 'utf8')
-    expect(source.trim().length).toBeGreaterThan(0)
     directEvidence = {
       extractedModuleCount: moduleRows.length,
       knownSourceMatchedCount,

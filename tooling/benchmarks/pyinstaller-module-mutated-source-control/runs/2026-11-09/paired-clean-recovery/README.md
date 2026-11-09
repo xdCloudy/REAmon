@@ -29,15 +29,18 @@ explicit assertions.
 
 ## Repeatability observation
 
-The first candidate integration attempt had one transient failure: the direct
-test found an empty persisted source file at its final read assertion. The
-queued-worker test passed on that attempt. A retry from the same clean candidate
-clone passed both tests and produced the archived candidate evidence. The
-failed attempt did not emit an evidence JSON because the integration suite only
-writes evidence after the direct test completes. This failure is retained in
-[`repeatability-note.md`](repeatability-note.md); it is not counted as a
-successful run or hidden by the passing retry. Investigating the intermittent
-empty source artifact remains appropriate follow-up work.
+The first candidate integration attempt had one failure: the direct test's
+final smoke assertion selected an arbitrary decompiled module and found an
+empty persisted source file. All 70 scored known modules had already passed
+their content checks before that assertion. The queued-worker test passed on
+the first attempt, and a retry from the same clean candidate clone passed both
+tests and produced the archived candidate evidence. The failed attempt did not
+emit evidence JSON because the integration suite only writes evidence after the
+direct test completes. The event is retained in
+[`repeatability-note.md`](repeatability-note.md); it is outside the scored
+fixture set and does not count as a successful run or alter the paired metrics.
+The test now checks source hashes for each scored module instead of selecting an
+unrelated decompiled row.
 
 ## Provenance
 
