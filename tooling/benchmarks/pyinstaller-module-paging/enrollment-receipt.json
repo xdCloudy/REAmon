@@ -21,7 +21,6 @@
     "extractorRevision": "2aa0ec9e58317ac717fdeec84a02d5a67de7b96c2-reamon1",
     "extractorDockerfileSha256": "db47713b717981021bc611de3b57c0fcc7bfdad76cec3197db7a0885b0686de3",
     "extractorServerSha256": "743f6fd876b4b722fcb54ac0409e095c77affaad4cd0a0dde4749fa691c3cd90",
-    "extractorUpstreamGoModSha256": "9a19b65469974a99ddec77fcab4b520140c00fcabf2e303fcba8f2af04b26434",
     "extractorUpstreamGoModSha256": "9a19b65469974a99ddec77fcab4b520140c00fcabf2e303fcba8f2af04b26434"
   },
   "fixtureOracle": {
