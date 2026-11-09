@@ -1,6 +1,8 @@
 # REAmon product progress
 
-Assessment date: 2026-11-09 · Source: pushed commit `e447236` · Weighted estimate: **26.9%**
+Assessment date: 2026-11-09 · Source: pushed commit `e4472362` · Weighted estimate: **26.9%**
+
+Tree-sitter availability note (2026-11-09, commit `e4472362`): The agent image now prefetches the pinned Java, Kotlin, and Python grammars into the same private cache configured at runtime, with retries for transient release-download failures. The previously failing parser-dependent agent tests pass together (106 passed) after cache prewarming. The Docker build completed this layer but later failed in the existing Trivy plugin installation step; the full unit gate has not yet been rerun in a Linux-native checkout, and its WSL shell checks remain unresolved. This reliability fix adds no reconstruction-quality credit and does not change the 26.9% weighted estimate.
 
 This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.
 
