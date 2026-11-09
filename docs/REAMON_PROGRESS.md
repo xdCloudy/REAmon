@@ -1,10 +1,10 @@
 # REAmon product progress
 
-Assessment date: 2026-11-09 · Assessment source: pushed commit `dcdf65a` · Weighted estimate: **26.9%**
-
-Agent retrieval update (2026-11-09): The agent can now search persisted code units and read bounded source/provenance through a signed internal endpoint that verifies project ownership and delegates to the existing active-import readers. Phase controls, older-project defaults, ROE vocabulary, and project Tool Matrix are wired. Focused route tests (5), agent dispatch tests (5), phase gating (26), registry completeness (9), ROE vocabulary (6), webapp type-check, and Prisma validation pass. Broader restart, browser, and cross-surface live parity gates remain open, so this slice adds no weighted completion credit.
+Assessment date: 2026-11-09 · Source: pushed commit `996f378` · Weighted estimate: **26.9%**
 
 This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.
+
+Agent retrieval update (2026-11-09): The agent can search persisted code units and read bounded source/provenance through a signed internal endpoint that verifies project ownership and delegates to the existing active-import readers. Phase controls, older-project defaults, ROE vocabulary, and the project Tool Matrix are wired. Focused route tests (5), agent dispatch tests (5), phase gating (26), registry completeness (9), ROE vocabulary (6), webapp type-check, and Prisma validation pass. Broader restart, browser, and cross-surface live parity gates remain open; this adds no weighted completion credit.
 
 Artifact-mutated provider control note (2026-11-09): A separately built PyInstaller executable passed through the live direct provider and queued worker. Clean same-commit receipts measured 70/70 matches to the mutated under oracle and 0/70 false acceptances of the original below oracle; runtime, 180-module inventory, known values, and worker terminal page also matched. One first candidate attempt found an empty persisted source file; a retry passed, and the failure is retained in the archive. This adds no product-improvement claim and does not change the 15% benchmark workstream score.
 
