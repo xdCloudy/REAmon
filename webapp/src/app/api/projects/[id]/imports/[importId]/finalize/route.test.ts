@@ -13,7 +13,7 @@ const mocks = vi.hoisted(() => ({
   targetUpdate: vi.fn(),
   activityCreate: vi.fn(),
   requireEffectiveUser: vi.fn(),
-  requireProjectAccess: vi.fn(),
+  requireProjectAccessStrict: vi.fn(),
 }))
 
 vi.mock('@/lib/prisma', () => ({
@@ -29,7 +29,7 @@ vi.mock('@/lib/prisma', () => ({
 
 vi.mock('@/lib/access', () => ({
   requireEffectiveUser: mocks.requireEffectiveUser,
-  requireProjectAccess: mocks.requireProjectAccess,
+  requireProjectAccessStrict: mocks.requireProjectAccessStrict,
 }))
 
 import { POST } from './route'
@@ -63,7 +63,7 @@ const artifact = {
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.requireEffectiveUser.mockResolvedValue({ userId: 'user-1' })
-  mocks.requireProjectAccess.mockResolvedValue({ project: { id: 'project-1', userId: 'user-1' } })
+  mocks.requireProjectAccessStrict.mockResolvedValue({ project: { id: 'project-1', userId: 'user-1' } })
   mocks.workspaceImportUpdate.mockResolvedValue({ id: 'import-1' })
   mocks.workspaceImportUpdateMany.mockResolvedValue({ count: 1 })
   mocks.targetUpdate.mockResolvedValue({ id: 'root-target-1' })
@@ -80,6 +80,20 @@ beforeEach(() => {
 })
 
 describe('POST /api/projects/[id]/imports/[importId]/finalize', () => {
+  test('denies foreign project access before reading or mutating import state', async () => {
+    const { NextResponse } = await import('next/server')
+    mocks.requireProjectAccessStrict.mockResolvedValueOnce(NextResponse.json({ error: 'Not found' }, { status: 404 }))
+
+    const response = await POST(request(), params())
+
+    expect(response.status).toBe(404)
+    expect(mocks.transaction).not.toHaveBeenCalled()
+    expect(mocks.workspaceImportFindFirst).not.toHaveBeenCalled()
+    expect(mocks.workspaceImportUpdateMany).not.toHaveBeenCalled()
+    expect(mocks.workspaceImportUpdate).not.toHaveBeenCalled()
+    expect(mocks.targetUpdate).not.toHaveBeenCalled()
+  })
+
   test('marks an incomplete import failed and reports missing paths', async () => {
     mocks.workspaceImportFindFirst.mockResolvedValueOnce({
       id: 'import-1',

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { Prisma } from '@prisma/client'
 import prisma from '@/lib/prisma'
-import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
+import { requireEffectiveUser, requireProjectAccessStrict } from '@/lib/access'
 import { buildWorkspaceProfile } from '@/lib/reamon/inventory'
 import { compareWorkspaceImports, type ImportComparisonEntry } from '@/lib/reamon/imports'
 
@@ -21,7 +21,7 @@ export async function POST(_request: Request, { params }: RouteParams) {
     const { id: projectId, importId } = await params
     const effectiveUser = await requireEffectiveUser()
     if (effectiveUser instanceof NextResponse) return effectiveUser
-    const access = await requireProjectAccess(effectiveUser, projectId)
+    const access = await requireProjectAccessStrict(effectiveUser, projectId)
     if (access instanceof NextResponse) return access
 
     // This conditional write acquires the import row lock before reading its
