@@ -36,7 +36,7 @@ const sourceStamp = commit ? `pushed commit \`${commit.slice(0, 7)}\`` : 'the cu
 
 const generated = [
   startMarker,
-  `<progress value="${displayedScore}" max="100">${displayedScore}%</progress> <strong>${displayedScore}%</strong> — weighted estimate **${score.toFixed(1)}%**.`,
+  `<progress value="${displayedScore}" max="100">${displayedScore}%</progress> <strong>${displayedScore}%</strong> — weighted estimate **${score.toFixed(2)}%**.`,
   `Refreshed from ${sourceStamp}. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.`,
   endMarker,
 ].join('\n')
