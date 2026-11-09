@@ -43,7 +43,7 @@ beforeAll(async () => {
   projectId = project.id
   sessionCookie = await createToken(userId, 'standard')
   await prisma.evidence.createMany({
-    data: Array.from({ length: 3 }, (_, index) => ({
+    data: Array.from({ length: 4 }, (_, index) => ({
       projectId,
       kind: 'integration',
       summary: `HTTP cursor record ${index + 1}`,
@@ -102,13 +102,14 @@ async function startNextServer(activeKey: string, previousKeys = ''): Promise<{ 
   ], {
     cwd: process.cwd(),
     stdio: 'ignore',
-    env: {
+      env: {
       ...process.env,
       INTERNAL_API_KEY: activeKey,
       SCANNER_API_KEY: 'integration-distinct-scanner-key',
       WORKSPACE_CURSOR_PREVIOUS_KEYS: previousKeys,
       INTERNAL_KEY_ALLOWLIST_ENFORCE: 'false',
       AUTH_SECRET: 'integration-http-auth-secret',
+      REAMON_NEXT_TEST_DIST_DIR: `.next-integration-${port}`,
     },
   })
   const baseUrl = `http://127.0.0.1:${port}`
@@ -153,7 +154,7 @@ describe.skipIf(!HAS_DB)('agent Evidence HTTP paging across Next.js restart', ()
       const browserFirstPage = await browserFirstResponse.json() as {
         evidence: Array<{ summary: string }>; nextCursor: string | null; total: number
       }
-      expect(browserFirstPage).toMatchObject({ evidence: [{ summary: 'HTTP cursor record 1' }], total: 3 })
+      expect(browserFirstPage).toMatchObject({ evidence: [{ summary: 'HTTP cursor record 1' }], total: 4 })
       expect(browserFirstPage.nextCursor).toEqual(expect.any(String))
 
       const firstResponse = await fetch(`${first.baseUrl}/api/internal/reamon/workspace/evidence`, {
@@ -163,7 +164,7 @@ describe.skipIf(!HAS_DB)('agent Evidence HTTP paging across Next.js restart', ()
       })
       expect(firstResponse.status).toBe(200)
       const firstPage = await firstResponse.json() as { evidence: Array<{ summary: string }>; nextCursor: string; total: number }
-      expect(firstPage).toMatchObject({ evidence: [{ summary: 'HTTP cursor record 1' }], total: 3 })
+      expect(firstPage).toMatchObject({ evidence: [{ summary: 'HTTP cursor record 1' }], total: 4 })
       expect(firstPage.nextCursor).toEqual(expect.any(String))
 
       await stopServer(firstServer)
@@ -180,7 +181,7 @@ describe.skipIf(!HAS_DB)('agent Evidence HTTP paging across Next.js restart', ()
       const browserNextPage = await browserNextResponse.json() as {
         evidence: Array<{ summary: string }>; nextCursor: string | null; total: number
       }
-      expect(browserNextPage).toMatchObject({ evidence: [{ summary: 'HTTP cursor record 2' }], total: 3 })
+      expect(browserNextPage).toMatchObject({ evidence: [{ summary: 'HTTP cursor record 2' }], total: 4 })
       expect(browserNextPage.nextCursor).toEqual(expect.any(String))
       const [browserPayload, browserSignature] = (browserNextPage.nextCursor as string).split('.')
       expect(browserSignature).toBe(createHmac('sha256', ROTATED_KEY).update(browserPayload).digest('base64url'))
@@ -193,7 +194,18 @@ describe.skipIf(!HAS_DB)('agent Evidence HTTP paging across Next.js restart', ()
       const browserLastPage = await browserLastResponse.json() as {
         evidence: Array<{ summary: string }>; nextCursor: string | null; total: number
       }
-      expect(browserLastPage).toMatchObject({ evidence: [{ summary: 'HTTP cursor record 3' }], total: 3, nextCursor: null })
+      expect(browserLastPage).toMatchObject({ evidence: [{ summary: 'HTTP cursor record 3' }], total: 4 })
+      expect(browserLastPage.nextCursor).toEqual(expect.any(String))
+
+      const browserFinalUrl = `${second.baseUrl}/api/projects/${projectId}/workspace/evidence?limit=1&cursor=${encodeURIComponent(browserLastPage.nextCursor as string)}`
+      const browserFinalResponse = await fetch(browserFinalUrl, {
+        headers: { Cookie: `${AUTH_COOKIE_NAME}=${sessionCookie}` },
+      })
+      expect(browserFinalResponse.status).toBe(200)
+      const browserFinalPage = await browserFinalResponse.json() as {
+        evidence: Array<{ summary: string }>; nextCursor: string | null; total: number
+      }
+      expect(browserFinalPage).toMatchObject({ evidence: [{ summary: 'HTTP cursor record 4' }], total: 4, nextCursor: null })
 
       const secondResponse = await fetch(`${second.baseUrl}/api/internal/reamon/workspace/evidence`, {
         method: 'POST',
@@ -202,7 +214,7 @@ describe.skipIf(!HAS_DB)('agent Evidence HTTP paging across Next.js restart', ()
       })
       expect(secondResponse.status).toBe(200)
       const secondPage = await secondResponse.json() as { evidence: Array<{ summary: string }>; nextCursor: string; total: number }
-      expect(secondPage).toMatchObject({ evidence: [{ summary: 'HTTP cursor record 2' }], total: 3 })
+      expect(secondPage).toMatchObject({ evidence: [{ summary: 'HTTP cursor record 2' }], total: 4 })
       expect(secondPage.nextCursor).toEqual(expect.any(String))
       const [payload, signature] = secondPage.nextCursor.split('.')
       expect(signature).toBe(createHmac('sha256', ROTATED_KEY).update(payload).digest('base64url'))
@@ -214,10 +226,69 @@ describe.skipIf(!HAS_DB)('agent Evidence HTTP paging across Next.js restart', ()
       })
       expect(thirdResponse.status).toBe(200)
       const thirdPage = await thirdResponse.json() as { evidence: Array<{ summary: string }>; nextCursor: string | null; total: number }
-      expect(thirdPage).toMatchObject({ evidence: [{ summary: 'HTTP cursor record 3' }], total: 3, nextCursor: null })
+      expect(thirdPage).toMatchObject({ evidence: [{ summary: 'HTTP cursor record 3' }], total: 4 })
+      expect(thirdPage.nextCursor).toEqual(expect.any(String))
+
+      const fourthResponse = await fetch(`${second.baseUrl}/api/internal/reamon/workspace/evidence`, {
+        method: 'POST',
+        headers: agentHeaders(ROTATED_KEY),
+        body: JSON.stringify({ tool: 'workspace_list_evidence', limit: 1, cursor: thirdPage.nextCursor }),
+      })
+      expect(fourthResponse.status).toBe(200)
+      const fourthPage = await fourthResponse.json() as { evidence: Array<{ summary: string }>; nextCursor: string | null; total: number }
+      expect(fourthPage).toMatchObject({ evidence: [{ summary: 'HTTP cursor record 4' }], total: 4, nextCursor: null })
     } finally {
       await stopServer(secondServer)
       await stopServer(firstServer)
+    }
+  }, 180_000)
+
+  test('keeps both Next.js instances interoperable during an overlapping key rotation', async () => {
+    let oldServer: ChildProcess | null = null
+    let rotatedServer: ChildProcess | null = null
+    try {
+      const old = await startNextServer(INITIAL_KEY, ROTATED_KEY)
+      oldServer = old.child
+      const firstResponse = await fetch(`${old.baseUrl}/api/projects/${projectId}/workspace/evidence?limit=1`, {
+        headers: { Cookie: `${AUTH_COOKIE_NAME}=${sessionCookie}` },
+      })
+      expect(firstResponse.status).toBe(200)
+      const firstPage = await firstResponse.json() as { evidence: Array<{ summary: string }>; nextCursor: string; total: number }
+      expect(firstPage).toMatchObject({ evidence: [{ summary: 'HTTP cursor record 1' }], total: 4 })
+      expect(firstPage.nextCursor).toEqual(expect.any(String))
+
+      const rotated = await startNextServer(ROTATED_KEY, INITIAL_KEY)
+      rotatedServer = rotated.child
+      const rotatedHeaders = agentHeaders(ROTATED_KEY)
+      const secondResponse = await fetch(`${rotated.baseUrl}/api/internal/reamon/workspace/evidence`, {
+        method: 'POST', headers: rotatedHeaders,
+        body: JSON.stringify({ tool: 'workspace_list_evidence', limit: 1, cursor: firstPage.nextCursor }),
+      })
+      expect(secondResponse.status).toBe(200)
+      const secondPage = await secondResponse.json() as { evidence: Array<{ summary: string }>; nextCursor: string; total: number }
+      expect(secondPage).toMatchObject({ evidence: [{ summary: 'HTTP cursor record 2' }], total: 4 })
+      const [secondPayload, secondSignature] = secondPage.nextCursor.split('.')
+      expect(secondSignature).toBe(createHmac('sha256', ROTATED_KEY).update(secondPayload).digest('base64url'))
+
+      const thirdResponse = await fetch(`${old.baseUrl}/api/projects/${projectId}/workspace/evidence?limit=1&cursor=${encodeURIComponent(secondPage.nextCursor)}`, {
+        headers: { Cookie: `${AUTH_COOKIE_NAME}=${sessionCookie}` },
+      })
+      expect(thirdResponse.status).toBe(200)
+      const thirdPage = await thirdResponse.json() as { evidence: Array<{ summary: string }>; nextCursor: string; total: number }
+      expect(thirdPage).toMatchObject({ evidence: [{ summary: 'HTTP cursor record 3' }], total: 4 })
+      const [thirdPayload, thirdSignature] = thirdPage.nextCursor.split('.')
+      expect(thirdSignature).toBe(createHmac('sha256', INITIAL_KEY).update(thirdPayload).digest('base64url'))
+
+      const fourthResponse = await fetch(`${rotated.baseUrl}/api/internal/reamon/workspace/evidence`, {
+        method: 'POST', headers: rotatedHeaders,
+        body: JSON.stringify({ tool: 'workspace_list_evidence', limit: 1, cursor: thirdPage.nextCursor }),
+      })
+      expect(fourthResponse.status).toBe(200)
+      const fourthPage = await fourthResponse.json() as { evidence: Array<{ summary: string }>; nextCursor: string | null; total: number }
+      expect(fourthPage).toMatchObject({ evidence: [{ summary: 'HTTP cursor record 4' }], total: 4, nextCursor: null })
+    } finally {
+      await stopServer(rotatedServer)
+      await stopServer(oldServer)
     }
   }, 180_000)
 })

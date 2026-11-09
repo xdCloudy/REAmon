@@ -2,6 +2,9 @@ import type { NextConfig } from 'next'
 
 const nextConfig: NextConfig = {
   output: 'standalone',
+  // The HTTP integration acceptance starts concurrent Next.js instances and
+  // gives each its own build cache. Production keeps the standard `.next` path.
+  distDir: process.env.REAMON_NEXT_TEST_DIST_DIR || '.next',
 
   // Browser workspace imports use 8 MiB chunks so this limit bounds each
   // request buffer without imposing a whole-file upload ceiling.
