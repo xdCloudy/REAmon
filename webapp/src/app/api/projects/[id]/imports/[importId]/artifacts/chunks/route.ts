@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { Prisma } from '@prisma/client'
 import { truncate } from 'node:fs/promises'
 import prisma from '@/lib/prisma'
-import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
+import { requireEffectiveUser, requireProjectAccessStrict } from '@/lib/access'
 import { normalizeRelativePath } from '@/lib/reamon/paths'
 import { receiveArtifactChunk, stagedArtifactPath } from '@/lib/reamon/artifact-import-commit'
 import { ARTIFACT_STORAGE_FULL_MESSAGE, isArtifactStorageFullError } from '@/lib/reamon/artifact-storage-errors'
@@ -15,7 +15,7 @@ export async function PUT(request: Request, { params }: RouteParams) {
     const { id: projectId, importId } = await params
     const effectiveUser = await requireEffectiveUser()
     if (effectiveUser instanceof NextResponse) return effectiveUser
-    const access = await requireProjectAccess(effectiveUser, projectId)
+    const access = await requireProjectAccessStrict(effectiveUser, projectId)
     if (access instanceof NextResponse) return access
 
     const relativePath = normalizeRelativePath(new URL(request.url).searchParams.get('relativePath') || '')

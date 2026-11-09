@@ -1,5 +1,6 @@
 /** @vitest-environment node */
 import { beforeEach, describe, expect, test, vi } from 'vitest'
+import { NextResponse } from 'next/server'
 
 const mocks = vi.hoisted(() => ({
   workspaceImportFindFirst: vi.fn(),
@@ -9,7 +10,7 @@ const mocks = vi.hoisted(() => ({
   transaction: vi.fn(),
   queryRaw: vi.fn(),
   requireEffectiveUser: vi.fn(),
-  requireProjectAccess: vi.fn(),
+  requireProjectAccessStrict: vi.fn(),
   receiveArtifactChunk: vi.fn(),
 }))
 
@@ -22,7 +23,7 @@ vi.mock('@/lib/prisma', () => ({
 }))
 vi.mock('@/lib/access', () => ({
   requireEffectiveUser: mocks.requireEffectiveUser,
-  requireProjectAccess: mocks.requireProjectAccess,
+  requireProjectAccessStrict: mocks.requireProjectAccessStrict,
 }))
 vi.mock('@/lib/reamon/artifact-import-commit', () => ({
   receiveArtifactChunk: mocks.receiveArtifactChunk,
@@ -52,7 +53,7 @@ function request(chunks: Uint8Array[]): Request {
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.requireEffectiveUser.mockResolvedValue({ userId: 'user-1' })
-  mocks.requireProjectAccess.mockResolvedValue({ project: { id: 'project-1', userId: 'user-1' } })
+  mocks.requireProjectAccessStrict.mockResolvedValue({ project: { id: 'project-1', userId: 'user-1' } })
   mocks.workspaceImportFindFirst.mockResolvedValue({
     status: 'PENDING', sourceType: 'BROWSER_DIRECTORY',
     manifest: [{ relativePath: 'bin/app.exe', size: 3 }],
@@ -70,6 +71,18 @@ beforeEach(() => {
 })
 
 describe('PUT /api/projects/[id]/imports/[importId]/artifacts/chunks', () => {
+  test('requires strict ownership before reading import state or receiving bytes', async () => {
+    mocks.requireProjectAccessStrict.mockResolvedValue(NextResponse.json({ error: 'Not found' }, { status: 404 }))
+
+    const response = await PUT(request([new Uint8Array([1, 2, 3])]), params())
+
+    expect(response.status).toBe(404)
+    expect(mocks.workspaceImportFindFirst).not.toHaveBeenCalled()
+    expect(mocks.workspaceImportUpdateMany).not.toHaveBeenCalled()
+    expect(mocks.transaction).not.toHaveBeenCalled()
+    expect(mocks.receiveArtifactChunk).not.toHaveBeenCalled()
+  })
+
   test('accepts a valid streamed chunk when Content-Length is absent', async () => {
     const response = await PUT(request([new Uint8Array([1]), new Uint8Array([2, 3])]), params())
 
