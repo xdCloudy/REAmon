@@ -7,7 +7,20 @@ type PyInstallerBenchmarkEvidenceInput = {
   artifactSha256: string
   extractedModuleCount: number
   knownSourceMatchedCount: number
+  reconstructionMatchedCount: number
   workerTerminalPage: boolean
+}
+
+export function matchesPyInstallerFixtureSource(source: string, expectedValue: number): boolean {
+  if (!Number.isSafeInteger(expectedValue) || expectedValue < 1 || expectedValue > 70) return false
+  const code = source
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .map((line) => line.replace(/#.*/, '').trim())
+    .filter(Boolean)
+    .join('')
+    .replace(/\s+/g, '')
+  return code === `VALUE=${expectedValue}`
 }
 
 export function createPyInstallerBenchmarkEvidence(input: PyInstallerBenchmarkEvidenceInput) {
@@ -21,6 +34,11 @@ export function createPyInstallerBenchmarkEvidence(input: PyInstallerBenchmarkEv
     || input.knownSourceMatchedCount < 0
     || input.knownSourceMatchedCount > 70) {
     throw new Error('PyInstaller known-source match count must be between 0 and 70')
+  }
+  if (!Number.isSafeInteger(input.reconstructionMatchedCount)
+    || input.reconstructionMatchedCount < 0
+    || input.reconstructionMatchedCount > 70) {
+    throw new Error('PyInstaller source reconstruction match count must be between 0 and 70')
   }
 
   const workerMetric: MetricMeasurement = input.workerTerminalPage
@@ -55,13 +73,12 @@ export function createPyInstallerBenchmarkEvidence(input: PyInstallerBenchmarkEv
             value: input.knownSourceMatchedCount,
             denominator: 70,
           } satisfies MetricMeasurement,
-          worker_terminal_page: workerMetric,
           reconstruction_match: {
-            state: 'UNAVAILABLE',
-            value: null,
+            state: 'MEASURED',
+            value: input.reconstructionMatchedCount,
             denominator: 70,
-            reason: 'Complete recovered-source correspondence has not been measured.',
           } satisfies MetricMeasurement,
+          worker_terminal_page: workerMetric,
         },
       },
     },

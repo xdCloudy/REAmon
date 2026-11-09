@@ -51,7 +51,7 @@ class MergePyInstallerEvidenceTests(unittest.TestCase):
                         "extracted_module_count": {"state": "MEASURED", "value": 180, "denominator": 1},
                         "known_source_value_recall": {"state": "MEASURED", "value": 70, "denominator": 70},
                         "worker_terminal_page": {"state": "MEASURED", "value": 1, "denominator": 1},
-                        "reconstruction_match": {"state": "UNAVAILABLE", "value": None, "denominator": 70, "reason": "not measured"},
+                        "reconstruction_match": {"state": "MEASURED", "value": 70, "denominator": 70},
                     },
                 },
             },
@@ -74,7 +74,9 @@ class MergePyInstallerEvidenceTests(unittest.TestCase):
         })
         self.assertEqual(metrics["known_source_value_recall"]["value"], 70)
         self.assertEqual(metrics["worker_terminal_page"]["state"], "MEASURED")
-        self.assertEqual(metrics["reconstruction_match"]["state"], "UNAVAILABLE")
+        self.assertEqual(metrics["reconstruction_match"], {
+            "direction": "higher", "state": "MEASURED", "value": 70, "denominator": 70,
+        })
 
     def test_rejects_builder_receipt_for_a_different_artifact(self):
         self.build_receipt["artifactSha256"] = "b" * 64
@@ -94,12 +96,18 @@ class MergePyInstallerEvidenceTests(unittest.TestCase):
         with self.assertRaisesRegex(ReceiptError, "integration evidence module count"):
             self.merge()
 
-    def test_rejects_a_claimed_complete_reconstruction_match(self):
+    def test_rejects_reconstruction_matches_outside_the_source_denominator(self):
         metric = self.integration_evidence["fixtures"][self.fixture_id]["metrics"]["reconstruction_match"]
-        metric.update(state="MEASURED", value=70)
-        metric.pop("reason")
+        metric["value"] = 71
 
-        with self.assertRaisesRegex(ReceiptError, "complete reconstruction correspondence"):
+        with self.assertRaisesRegex(ReceiptError, "source correspondence count"):
+            self.merge()
+
+    def test_rejects_unavailable_source_correspondence(self):
+        metric = self.integration_evidence["fixtures"][self.fixture_id]["metrics"]["reconstruction_match"]
+        metric.update(state="UNAVAILABLE", value=None, reason="not measured")
+
+        with self.assertRaisesRegex(ReceiptError, "lacks measured source correspondence"):
             self.merge()
 
     def test_rejects_malformed_enrollment_page_sizes(self):

@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'vitest'
 import prisma from '@/lib/prisma'
 import { ingestToolResult } from './result-ingestion'
 import { executePyInstaller } from './pyinstaller'
-import { createPyInstallerBenchmarkEvidence } from './pyinstaller.benchmark-evidence'
+import { createPyInstallerBenchmarkEvidence, matchesPyInstallerFixtureSource } from './pyinstaller.benchmark-evidence'
 import type { TargetProfile, ToolExecutionInput } from './types'
 
 const enabled = process.env.REAMON_RUN_DB_INTEGRATION === '1'
@@ -45,7 +45,11 @@ describeDatabase('PyInstaller continuation with PostgreSQL observation persisten
   let providerCreated = false
   let userCreated = false
   let fixtureSha256 = ''
-  let directEvidence: { extractedModuleCount: number; knownSourceMatchedCount: number } | undefined
+  let directEvidence: {
+    extractedModuleCount: number
+    knownSourceMatchedCount: number
+    reconstructionMatchedCount: number
+  } | undefined
   let workerReachedTerminalPage = false
   const benchmarkEvidencePath = process.env.REAMON_BENCHMARK_EVIDENCE_PATH?.trim()
 
@@ -197,6 +201,7 @@ describeDatabase('PyInstaller continuation with PostgreSQL observation persisten
       && attributes.pyinstallerDecompilationAttempted === true)).toBe(true)
 
     let knownSourceMatchedCount = 0
+    let reconstructionMatchedCount = 0
     for (let moduleValue = 1; moduleValue <= 70; moduleValue += 1) {
       const moduleName = `module_${String(moduleValue - 1).padStart(3, '0')}`
       const knownModule = moduleRows.find(({ attributes }) => attributes.pyinstallerArchivePath === `PYZ.pyz_extracted/paging_fixture/${moduleName}.pyc`)
@@ -208,6 +213,7 @@ describeDatabase('PyInstaller continuation with PostgreSQL observation persisten
       expect(knownSourcePath.startsWith(`${derivedRoot}${path.sep}`)).toBe(true)
       const knownSourceText = await readFile(knownSourcePath, 'utf8')
       expect(knownSourceText).toMatch(new RegExp(`\\bVALUE\\s*=\\s*${moduleValue}\\b`))
+      if (matchesPyInstallerFixtureSource(knownSourceText, moduleValue)) reconstructionMatchedCount += 1
       knownSourceMatchedCount += 1
     }
 
@@ -218,7 +224,7 @@ describeDatabase('PyInstaller continuation with PostgreSQL observation persisten
     expect(sourcePath.startsWith(`${derivedRoot}${path.sep}`)).toBe(true)
     const source = await readFile(sourcePath, 'utf8')
     expect(source.trim().length).toBeGreaterThan(0)
-    directEvidence = { extractedModuleCount: moduleRows.length, knownSourceMatchedCount }
+    directEvidence = { extractedModuleCount: moduleRows.length, knownSourceMatchedCount, reconstructionMatchedCount }
   }, 30 * 60_000)
 
   test.skipIf(!runWorkerIntegration)('completes a queued PyInstaller task through the live worker', async ({ skip }) => {

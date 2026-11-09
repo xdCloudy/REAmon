@@ -104,8 +104,12 @@ def merge_evidence(*, fixture_manifest, evaluation_manifest, build_receipt,
         raise ReceiptError("integration evidence known-source match count is outside its denominator")
     if observed_metrics["runtime_oracle"]["state"] != "UNAVAILABLE":
         raise ReceiptError("integration test runtime metric must remain unavailable until merged with build evidence")
-    if observed_metrics["reconstruction_match"]["state"] != "UNAVAILABLE":
-        raise ReceiptError("complete reconstruction correspondence is not measured by this evaluation")
+    reconstruction_match = observed_metrics["reconstruction_match"]
+    if reconstruction_match["state"] != "MEASURED" or reconstruction_match["denominator"] != known_source_count:
+        raise ReceiptError("integration evidence lacks measured source correspondence for the declared modules")
+    if (type(reconstruction_match["value"]) is not int
+            or not 0 <= reconstruction_match["value"] <= known_source_count):
+        raise ReceiptError("integration evidence source correspondence count is outside its denominator")
 
     merged_metrics = {metric_id: dict(metric) for metric_id, metric in observed_metrics.items()}
     merged_metrics["runtime_oracle"] = {

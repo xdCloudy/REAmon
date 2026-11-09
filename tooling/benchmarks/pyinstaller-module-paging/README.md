@@ -30,9 +30,9 @@ The manifest pins the base image by digest, Python version, PyInstaller and
 Python package versions, source license, architecture, and runtime oracle. This
 recipe does not promise a fixed binary hash across Docker/build environments;
 each run must record the emitted artifact hash and toolchain receipt. Fixture
-enrollment is not a reconstruction pass. The end-to-end result remains
-`UNAVAILABLE` until recovered modules are matched against separately retained
-ground truth and the full AR-0/AR-8 denominators are reported.
+enrollment is not a reconstruction pass. The archived v1 evaluation keeps source
+correspondence `UNAVAILABLE`; its results must be compared under that pinned
+contract.
 
 ## Paired receipt comparison
 
@@ -69,7 +69,7 @@ produced by the fixture evaluation:
 python tooling/benchmarks/record_receipt.py `
   --repo-root . `
   --fixture-manifest tooling/benchmarks/pyinstaller-module-paging/manifest.json `
-  --evaluation-manifest tooling/benchmarks/pyinstaller-module-paging/evaluation-manifest.json `
+  --evaluation-manifest tooling/benchmarks/pyinstaller-module-paging/evaluation-manifest-source-v2.json `
   --evidence work/benchmarks/pyinstaller-module-paging/evidence.json `
   --toolchain-manifest work/benchmarks/pyinstaller-module-paging/toolchain.json `
   --output work/benchmarks/pyinstaller-module-paging/candidate-receipt.json
@@ -87,10 +87,16 @@ when `REAMON_BENCHMARK_EVIDENCE_PATH` points to a new output file. Set
 `REAMON_BENCHMARK_FIXTURE_ID` to the fixture manifest ID and enable the test
 with its existing `REAMON_RUN_DB_INTEGRATION=1` service configuration. It
 records the observed 180-module inventory and known-source value matches only
-after those assertions pass. Set `REAMON_TASK_WORKER_INTEGRATION=1` to measure
+after those assertions pass. It also counts exact matches for each of the 70
+known-source modules after removing comments and whitespace; a match requires the
+entire recovered module to consist of the expected single `VALUE` assignment.
+This narrow v2 metric does not score the other 110 extracted modules, project
+structure, dependencies, symbols, or types. Set `REAMON_TASK_WORKER_INTEGRATION=1` to measure
 the queued worker terminal page; otherwise that metric stays `UNAVAILABLE`.
-Runtime-oracle evidence still comes from the pinned fixture builder, and full
-reconstruction correspondence remains `UNAVAILABLE`.
+Runtime-oracle evidence still comes from the pinned fixture builder. Use the
+versioned [source evaluation manifest](evaluation-manifest-source-v2.json) for
+new runs; the original `evaluation-manifest.json` remains the v1 contract used
+by the archived pair.
 
 `tooling/benchmarks/run_pyinstaller_pair.py` packages measured baseline and
 candidate evidence in one command. It merges each side against the same build
@@ -108,7 +114,7 @@ python tooling/benchmarks/run_pyinstaller_pair.py `
   --baseline-repo-root ../reamon-baseline `
   --candidate-repo-root . `
   --fixture-manifest tooling/benchmarks/pyinstaller-module-paging/manifest.json `
-  --evaluation-manifest tooling/benchmarks/pyinstaller-module-paging/evaluation-manifest.json `
+  --evaluation-manifest tooling/benchmarks/pyinstaller-module-paging/evaluation-manifest-source-v2.json `
   --build-receipt ../paired-inputs/build-receipt.json `
   --enrollment-receipt ../paired-inputs/enrollment-receipt.json `
   --baseline-integration-evidence ../paired-inputs/baseline-integration.json `
@@ -133,7 +139,7 @@ the end-to-end reconstruction metric remains unavailable:
 ```powershell
 python tooling/benchmarks/merge_pyinstaller_evidence.py `
   --fixture-manifest tooling/benchmarks/pyinstaller-module-paging/manifest.json `
-  --evaluation-manifest tooling/benchmarks/pyinstaller-module-paging/evaluation-manifest.json `
+  --evaluation-manifest tooling/benchmarks/pyinstaller-module-paging/evaluation-manifest-source-v2.json `
   --build-receipt work/benchmarks/pyinstaller-module-paging/build-receipt.json `
   --enrollment-receipt tooling/benchmarks/pyinstaller-module-paging/enrollment-receipt.json `
   --integration-evidence work/benchmarks/pyinstaller-module-paging/integration-evidence.json `
@@ -145,7 +151,7 @@ Example from the repository root:
 ```powershell
 python tooling/benchmarks/compare_receipts.py baseline.json candidate.json `
   --fixture-manifest tooling/benchmarks/pyinstaller-module-paging/manifest.json `
-  --evaluation-manifest tooling/benchmarks/pyinstaller-module-paging/evaluation-manifest.json `
+  --evaluation-manifest tooling/benchmarks/pyinstaller-module-paging/evaluation-manifest-source-v2.json `
   --output comparison.json
 ```
 
