@@ -18,7 +18,7 @@ const mockHtml = vi.fn()
 
 vi.mock('@/lib/access', () => ({
   requireEffectiveUser: async () => ({ userId: 'alice' }),
-  requireProjectAccess: async () => ({ id: 'p1', userId: 'alice' }),
+  requireProjectAccessStrict: async () => ({ id: 'p1', userId: 'alice' }),
 }))
 vi.mock('@/lib/prisma', () => ({
   default: {

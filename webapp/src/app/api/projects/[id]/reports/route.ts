@@ -4,7 +4,7 @@ import { gatherReportData } from '@/lib/report/reportData'
 import { generateReportHtml, type LLMNarratives } from '@/lib/report/reportTemplate'
 import { writeFileSync, mkdirSync, existsSync } from 'fs'
 import path from 'path'
-import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
+import { requireEffectiveUser, requireProjectAccessStrict } from '@/lib/access'
 import { readFeatureModel, featureModelErrorResponse } from '@/lib/featureModels'
 import { callFeatureAgent } from '@/lib/featureAgentCall'
 
@@ -22,7 +22,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
 
     const eff = await requireEffectiveUser()
     if (eff instanceof NextResponse) return eff
-    const access = await requireProjectAccess(eff, id)
+    const access = await requireProjectAccessStrict(eff, id)
     if (access instanceof NextResponse) return access
 
     const reports = await prisma.report.findMany({
@@ -56,7 +56,7 @@ export async function POST(_request: NextRequest, { params }: RouteParams) {
 
     const eff = await requireEffectiveUser()
     if (eff instanceof NextResponse) return eff
-    const access = await requireProjectAccess(eff, id)
+    const access = await requireProjectAccessStrict(eff, id)
     if (access instanceof NextResponse) return access
 
     // The narratives run on the caller's own "Report narratives" model and keys.
