@@ -28,7 +28,7 @@ for (const workstream of manifest.workstreams) {
 if (totalWeight !== 100) throw new Error(`Progress weights must total 100; got ${totalWeight}`)
 
 const score = weightedCompletion / totalWeight
-const displayedScore = Math.round(score)
+const displayedScore = score.toFixed(1)
 const suppliedCommit = process.argv[2]
 const commit = suppliedCommit?.trim()
 if (commit && !/^[a-f0-9]{7,40}$/i.test(commit)) throw new Error('Progress source commit must be a Git SHA')
