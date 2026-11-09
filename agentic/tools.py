@@ -2282,7 +2282,7 @@ class PhaseAwareToolExecutor:
             return {"success": False, "output": None,
                     "error": f"{tool_name}: no signed tenant context — cannot read project code units."}
         args = tool_args if isinstance(tool_args, dict) else {}
-        allowed = ({"search", "taskId", "limit", "offset"} if tool_name == "workspace_list_code_units"
+        allowed = ({"search", "taskId", "limit", "offset", "cursor"} if tool_name == "workspace_list_code_units"
                    else {"codeUnitId", "sourceOffsetBytes", "sourceSnapshotHash"})
         if set(args) - allowed:
             return {"success": False, "output": None, "error": "Unsupported workspace code-unit argument."}

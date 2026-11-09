@@ -16,6 +16,8 @@ import { hashWorkspaceCodeUnitSourceSnapshot } from '@/lib/mcp/workspaceCodeUnit
 
 const DEFAULT_LIMIT = 50
 const MAX_LIMIT = 100
+const MAX_CODE_UNIT_CURSOR_LENGTH = 2048
+const CODE_UNIT_CURSOR_TTL_MS = 7 * 24 * 60 * 60 * 1000
 const MAX_CODE_BYTES = 128 * 1024
 const MAX_HASH_SOURCE_BYTES = 2 * 1024 * 1024
 const MAX_VERIFIED_DERIVED_ARTIFACT_BYTES = 128 * 1024 * 1024
@@ -40,6 +42,7 @@ export interface WorkspaceListCodeUnitsArgs {
   taskId?: string
   limit?: number
   offset?: number
+  cursor?: string
 }
 
 export interface WorkspaceGetCodeUnitArgs {
@@ -74,6 +77,52 @@ type GoInterfaceMethod = {
   itabAddress: string
   concreteFunctionAddress: string
   incomplete: boolean
+}
+
+interface CodeUnitCursor {
+  version: 1
+  projectId: string
+  taskId: string | null
+  searchHash: string
+  importScopeHash: string
+  snapshotAt: string
+  snapshotTotal: number
+  expiresAt: number
+  lastId: string
+  lastUpdatedAt: string
+}
+
+function hashJson(value: unknown): string {
+  return createHash('sha256').update(JSON.stringify(value)).digest('hex')
+}
+
+function encodeCodeUnitCursor(cursor: CodeUnitCursor): string {
+  return Buffer.from(JSON.stringify(cursor)).toString('base64url')
+}
+
+function decodeCodeUnitCursor(value: string, expected: Pick<CodeUnitCursor, 'projectId' | 'taskId' | 'searchHash' | 'importScopeHash'>): CodeUnitCursor {
+  if (value.length > MAX_CODE_UNIT_CURSOR_LENGTH || !/^[A-Za-z0-9_-]+$/.test(value)) {
+    throw new McpToolError('Invalid code-unit cursor.', 'invalid_input')
+  }
+  try {
+    const cursor = JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as Partial<CodeUnitCursor>
+    if (cursor.version !== 1
+      || typeof cursor.snapshotAt !== 'string' || !Number.isFinite(Date.parse(cursor.snapshotAt))
+      || !Number.isSafeInteger(cursor.snapshotTotal) || (cursor.snapshotTotal as number) < 0
+      || !Number.isSafeInteger(cursor.expiresAt) || typeof cursor.lastId !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(cursor.lastId)
+      || typeof cursor.lastUpdatedAt !== 'string' || !Number.isFinite(Date.parse(cursor.lastUpdatedAt))) {
+      throw new Error('cursor fields do not match')
+    }
+    if ((cursor.expiresAt as number) <= Date.now()) throw new McpToolError('Code-unit cursor expired. Restart the listing without a cursor.', 'stale_snapshot')
+    if (cursor.projectId !== expected.projectId || cursor.taskId !== expected.taskId
+      || cursor.searchHash !== expected.searchHash || cursor.importScopeHash !== expected.importScopeHash) {
+      throw new McpToolError('Code-unit cursor scope changed. Restart the listing without a cursor.', 'stale_snapshot')
+    }
+    return cursor as CodeUnitCursor
+  } catch (error) {
+    if (error instanceof McpToolError) throw error
+    throw new McpToolError('Invalid or mismatched code-unit cursor.', 'invalid_input')
+  }
 }
 
 function record(value: unknown): Record<string, unknown> {
@@ -722,13 +771,20 @@ export async function listWorkspaceCodeRelationships(ctx: McpContext, args: Work
 
 export async function listWorkspaceCodeUnits(ctx: McpContext, args: WorkspaceListCodeUnitsArgs) {
   const selection = await prepareRead(ctx, args.projectId)
-  const limit = Math.max(1, Math.min(MAX_LIMIT, Math.floor(args.limit ?? DEFAULT_LIMIT)))
-  const offset = Math.max(0, Math.min(100_000, Math.floor(args.offset ?? 0)))
+  if (args.limit != null && (!Number.isSafeInteger(args.limit) || args.limit < 1 || args.limit > MAX_LIMIT)) {
+    throw new McpToolError(`limit must be an integer between 1 and ${MAX_LIMIT}.`, 'invalid_input')
+  }
+  if (args.taskId && args.taskId.length > 64) throw new McpToolError('Invalid analysis task id.', 'invalid_input')
+  if (args.offset != null && (!Number.isSafeInteger(args.offset) || args.offset < 0 || args.offset > 100_000)) {
+    throw new McpToolError('offset must be an integer between 0 and 100000.', 'invalid_input')
+  }
+  if (args.cursor && args.offset !== undefined) throw new McpToolError('Pass either cursor or offset, not both.', 'invalid_input')
+  const limit = args.limit ?? DEFAULT_LIMIT
+  const offset = args.offset ?? 0
   const search = args.search?.trim() || ''
   if (search.length > 200) throw new McpToolError('Code unit search is limited to 200 characters.', 'invalid_input')
-  if (args.taskId && args.taskId.length > 64) throw new McpToolError('Invalid analysis task id.', 'invalid_input')
 
-  const where = {
+  const baseWhere = {
     projectId: args.projectId,
     type: { in: CODE_UNIT_TYPES },
     artifact: { is: selection.artifactWhere },
@@ -744,22 +800,139 @@ export async function listWorkspaceCodeUnits(ctx: McpContext, args: WorkspaceLis
       ],
     } : {}),
   }
+  const searchHash = hashJson(search)
+  const importScopeHash = hashJson([...selection.activeImportIds].sort())
+  const expectedCursorScope = {
+    projectId: args.projectId,
+    taskId: args.taskId || null,
+    searchHash,
+    importScopeHash,
+  }
+  const cursor = args.cursor ? decodeCodeUnitCursor(args.cursor, expectedCursorScope) : null
+  const snapshotAt = cursor ? new Date(cursor.snapshotAt) : new Date()
+  const cursorMode = args.offset === undefined
+  const snapshotWhere = {
+    ...baseWhere,
+    createdAt: { lt: snapshotAt },
+    updatedAt: { lt: snapshotAt },
+  }
+  if (cursor) {
+    const [changed, currentTotal, anchor] = await Promise.all([
+      prisma.reamonObservation.findFirst({
+        where: { ...baseWhere, createdAt: { lt: snapshotAt }, updatedAt: { gte: snapshotAt } },
+        select: { id: true },
+      }),
+      prisma.reamonObservation.count({ where: snapshotWhere }),
+      prisma.reamonObservation.findFirst({
+        where: { ...snapshotWhere, id: cursor.lastId },
+        select: { id: true, stableKey: true, updatedAt: true },
+      }),
+    ])
+    if (changed || currentTotal !== cursor.snapshotTotal || !anchor
+      || anchor.updatedAt.toISOString() !== cursor.lastUpdatedAt) {
+      throw new McpToolError('The code-unit index changed while paging. Restart with cursor omitted.', 'stale_snapshot')
+    }
+    const [rows] = await Promise.all([
+      prisma.reamonObservation.findMany({
+        where: {
+          ...snapshotWhere,
+          AND: [{ OR: [
+            { stableKey: { gt: anchor.stableKey } },
+            { stableKey: anchor.stableKey, id: { gt: anchor.id } },
+          ] }],
+        },
+        orderBy: [{ stableKey: 'asc' }, { id: 'asc' }],
+        take: limit + 1,
+        select: {
+          id: true, stableKey: true, type: true, label: true, source: true, taskId: true, artifactId: true, updatedAt: true, attributes: true,
+          artifact: { select: { relativePath: true, originalName: true, sha256: true } },
+        },
+      }),
+    ])
+    const visible = rows.slice(0, limit)
+    const last = visible.at(-1)
+    const nextCursor = rows.length > limit && last
+      ? encodeCodeUnitCursor({
+          ...expectedCursorScope,
+          version: 1,
+          snapshotAt: snapshotAt.toISOString(),
+          snapshotTotal: cursor.snapshotTotal,
+          expiresAt: cursor.expiresAt,
+          lastId: last.id,
+          lastUpdatedAt: last.updatedAt.toISOString(),
+        })
+      : null
+    return {
+      projectId: args.projectId,
+      units: visible.map((row) => {
+        const attributes = record(row.attributes)
+        return {
+          id: row.id,
+          stableKey: row.stableKey,
+          observationType: row.type,
+          taskId: row.taskId,
+          artifactId: row.artifactId,
+          name: text(attributes.qualifiedName) || text(attributes.name) || text(row.label) || row.stableKey,
+          unitType: text(attributes.unitType, 80),
+          language: text(attributes.language, 80),
+          sourceLanguage: text(attributes.sourceLanguage, 80),
+          dialect: text(attributes.dialect, 40),
+          engineVersion: text(attributes.engineVersion, 80),
+          inputSha256: text(attributes.inputSha256, 64),
+          vectorConstructor: text(attributes.vectorConstructor, 120),
+          vectorSize: attributes.vectorSize === 3 || attributes.vectorSize === 4 ? attributes.vectorSize : null,
+          address: text(attributes.address ?? attributes.startAddress, 128),
+          prototype: text(attributes.prototype, 1000),
+          symbolSource: text(attributes.symbolSource, 80),
+          packageName: text(attributes.goPackage, 500),
+          parentCodeUnitKey: text(attributes.parentCodeUnitKey, 1000),
+          externalOrUndecompiled: attributes.externalOrUndecompiled === true,
+          relativePath: text(attributes.relativePath, 1000),
+          artifactPath: row.artifact?.relativePath || row.artifact?.originalName || null,
+          artifactSha256: row.artifact?.sha256 || null,
+          sourceArtifactSha256: text(attributes.sourceArtifactSha256, 64),
+          assemblyArtifactSha256: text(attributes.assemblyArtifactSha256, 64),
+          source: row.source,
+          updatedAt: row.updatedAt.toISOString(),
+        }
+      }),
+      total: cursor.snapshotTotal,
+      limit,
+      offset: null,
+      hasMore: Boolean(nextCursor),
+      nextCursor,
+      snapshotAt: snapshotAt.toISOString(),
+    }
+  }
+
   const [rows, total] = await Promise.all([
     prisma.reamonObservation.findMany({
-      where,
+      where: cursorMode ? snapshotWhere : baseWhere,
       orderBy: [{ stableKey: 'asc' }, { id: 'asc' }],
-      skip: offset,
-      take: limit,
+      skip: cursorMode ? 0 : offset,
+      take: cursorMode ? limit + 1 : limit,
       select: {
         id: true, stableKey: true, type: true, label: true, source: true, taskId: true, artifactId: true, updatedAt: true, attributes: true,
         artifact: { select: { relativePath: true, originalName: true, sha256: true } },
       },
     }),
-    prisma.reamonObservation.count({ where }),
+    prisma.reamonObservation.count({ where: cursorMode ? snapshotWhere : baseWhere }),
   ])
+  const visible = rows.slice(0, limit)
+  const hasMore = cursorMode ? rows.length > limit : offset + visible.length < total
+  const last = visible.at(-1)
+  const nextCursor = !cursorMode || !hasMore || !last ? null : encodeCodeUnitCursor({
+    ...expectedCursorScope,
+    version: 1,
+    snapshotAt: snapshotAt.toISOString(),
+    snapshotTotal: total,
+    expiresAt: Date.now() + CODE_UNIT_CURSOR_TTL_MS,
+    lastId: last.id,
+    lastUpdatedAt: last.updatedAt.toISOString(),
+  })
   return {
     projectId: args.projectId,
-    units: rows.map((row) => {
+    units: visible.map((row) => {
       const attributes = record(row.attributes)
       return {
         id: row.id,
@@ -793,8 +966,10 @@ export async function listWorkspaceCodeUnits(ctx: McpContext, args: WorkspaceLis
     }),
     total,
     limit,
-    offset,
-    hasMore: offset + rows.length < total,
+    offset: cursorMode ? (cursor ? null : 0) : offset,
+    hasMore,
+    nextCursor,
+    ...(cursorMode ? { snapshotAt: snapshotAt.toISOString() } : {}),
   }
 }
 

@@ -83,13 +83,13 @@ class WorkspaceEvidenceAgentToolTests(unittest.IsolatedAsyncioTestCase):
         client = _Client(response)
         with patch("tools.httpx.AsyncClient", return_value=client):
             result = await self.executor._dispatch_workspace_code_unit_tool(
-                "workspace_list_code_units", {"search": "main", "limit": 4},
+                "workspace_list_code_units", {"search": "main", "limit": 4, "cursor": "stable-cursor"},
             )
         self.assertTrue(result["success"])
         self.assertEqual(result["output"]["codeUnits"][0]["id"], "unit-1")
         client.post.assert_awaited_once_with(
             "http://webapp:3000/api/internal/reamon/workspace/code-units",
-            json={"tool": "workspace_list_code_units", "search": "main", "limit": 4},
+            json={"tool": "workspace_list_code_units", "search": "main", "limit": 4, "cursor": "stable-cursor"},
             headers={"x-internal-key": "test-internal-key", "x-redamon-ctx": "signed-context"},
         )
 

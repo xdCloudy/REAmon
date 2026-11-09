@@ -177,13 +177,14 @@ TOOL_REGISTRY = {
     "workspace_list_code_units": {
         "purpose": "Search persisted REAmon functions, methods, and classes",
         "when_to_use": "Use when the graph or evidence index does not provide the stored source-level analysis detail you need",
-        "args_format": '"search": optional symbol/path query, "taskId": optional analysis task, "limit": optional 1-100, "offset": optional page offset',
+        "args_format": '"search": optional symbol/path query, "taskId": optional analysis task, "limit": optional 1-100, "cursor": optional nextCursor from the prior page',
         "description": (
             '**workspace_list_code_units** (persisted analysis index)\n'
             '   - Searches functions, methods, classes, and code-unit observations already stored for the active project import. '
             'It does not start analysis or decompilation. Each row includes an id for workspace_get_code_unit and its artifact, '
-            'provider, task, language, and symbol metadata where available. Continue with the returned offset/limit pagination; '
-            'an empty result is a real empty index, while a service error is reported as a failure.'
+            'provider, task, language, and symbol metadata where available. Continue stable pages with nextCursor, preserving '
+            'search and taskId. A stale_snapshot response or expired cursor requires restarting without cursor. An empty result '
+            'is a real empty index, while a service error is reported as a failure.'
         ),
     },
     "workspace_get_code_unit": {

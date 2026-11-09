@@ -31,12 +31,13 @@ export async function POST(request: NextRequest) {
     const input = body as Record<string, unknown>
     if (input.tool !== scope.tool) return NextResponse.json({ error: 'Tool context mismatch' }, { status: 403 })
     const list = scope.tool === 'workspace_list_code_units'
-    const allowedKeys = list ? new Set(['tool', 'search', 'taskId', 'limit', 'offset']) : new Set(['tool', 'codeUnitId', 'sourceOffsetBytes', 'sourceSnapshotHash'])
+    const allowedKeys = list ? new Set(['tool', 'search', 'taskId', 'limit', 'offset', 'cursor']) : new Set(['tool', 'codeUnitId', 'sourceOffsetBytes', 'sourceSnapshotHash'])
     if (Object.keys(input).some(key => !allowedKeys.has(key))) return NextResponse.json({ error: 'Unsupported workspace code-unit argument' }, { status: 400 })
     if (list && ((input.search !== undefined && typeof input.search !== 'string')
         || (input.taskId !== undefined && typeof input.taskId !== 'string')
         || (input.limit !== undefined && typeof input.limit !== 'number')
-        || (input.offset !== undefined && typeof input.offset !== 'number'))) {
+        || (input.offset !== undefined && typeof input.offset !== 'number')
+        || (input.cursor !== undefined && typeof input.cursor !== 'string'))) {
       return NextResponse.json({ error: 'Invalid code-unit pagination arguments' }, { status: 400 })
     }
     if (!list && (typeof input.codeUnitId !== 'string'
@@ -46,7 +47,8 @@ export async function POST(request: NextRequest) {
     }
     if (list && ((typeof input.search === 'string' && input.search.length > 200) || (typeof input.taskId === 'string' && input.taskId.length > 64)
         || (input.limit as number | undefined) !== undefined && (!Number.isInteger(input.limit) || (input.limit as number) < 1 || (input.limit as number) > 100)
-        || (input.offset as number | undefined) !== undefined && (!Number.isInteger(input.offset) || (input.offset as number) < 0 || (input.offset as number) > 100000))) {
+        || (input.offset as number | undefined) !== undefined && (!Number.isInteger(input.offset) || (input.offset as number) < 0 || (input.offset as number) > 100000)
+        || (input.cursor as string | undefined) !== undefined && ((input.cursor as string).length > 2048 || input.offset !== undefined))) {
       return NextResponse.json({ error: 'Code-unit pagination is outside supported bounds' }, { status: 400 })
     }
     if (!list && ((input.codeUnitId as string).length > 64
@@ -68,12 +70,12 @@ export async function POST(request: NextRequest) {
     } }
     const args = { projectId: project.id }
     const result = list
-      ? await listWorkspaceCodeUnits(ctx, { ...args, ...(input.search !== undefined ? { search: input.search as string } : {}), ...(input.taskId !== undefined ? { taskId: input.taskId as string } : {}), ...(input.limit !== undefined ? { limit: input.limit as number } : {}), ...(input.offset !== undefined ? { offset: input.offset as number } : {}) })
+      ? await listWorkspaceCodeUnits(ctx, { ...args, ...(input.search !== undefined ? { search: input.search as string } : {}), ...(input.taskId !== undefined ? { taskId: input.taskId as string } : {}), ...(input.limit !== undefined ? { limit: input.limit as number } : {}), ...(input.offset !== undefined ? { offset: input.offset as number } : {}), ...(input.cursor !== undefined ? { cursor: input.cursor as string } : {}) })
       : await getWorkspaceCodeUnit(ctx, { ...args, codeUnitId: input.codeUnitId as string, ...(input.sourceOffsetBytes !== undefined ? { sourceOffsetBytes: input.sourceOffsetBytes as number } : {}), ...(input.sourceSnapshotHash !== undefined ? { sourceSnapshotHash: input.sourceSnapshotHash as string } : {}) })
     return NextResponse.json(result, { headers: { 'Cache-Control': 'no-store' } })
   } catch (error) {
     if (error instanceof McpToolError) {
-      const status = error.code === 'not_found' ? 404 : error.code === 'rate_limited' ? 429 : error.code === 'stale_source' ? 409 : 400
+      const status = error.code === 'not_found' ? 404 : error.code === 'rate_limited' ? 429 : error.code === 'stale_source' || error.code === 'stale_snapshot' ? 409 : 400
       return NextResponse.json({ error: error.message, code: error.code }, { status, headers: { 'Cache-Control': 'no-store' } })
     }
     console.error('Failed to read agent workspace code units:', error)

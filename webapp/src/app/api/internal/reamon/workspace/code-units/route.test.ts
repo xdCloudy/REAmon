@@ -58,9 +58,14 @@ describe('POST /api/internal/reamon/workspace/code-units', () => {
 
   test('bounds list paging and source detail offsets before invoking readers', async () => {
     expect((await POST(request({ tool: 'workspace_list_code_units', limit: 101 }) as never)).status).toBe(400)
+    expect((await POST(request({ tool: 'workspace_list_code_units', cursor: 'too-long', offset: 1 }) as never)).status).toBe(400)
+    const cursor = Buffer.from(JSON.stringify({ version: 1 })).toString('base64url')
+    const paged = await POST(request({ tool: 'workspace_list_code_units', cursor }) as never)
+    expect(paged.status).toBe(200)
+    expect(mocks.list).toHaveBeenCalledWith(expect.any(Object), { projectId: 'project-1', cursor })
     expect((await POST(request({ tool: 'workspace_get_code_unit', codeUnitId: 'unit-1', sourceOffsetBytes: -1 }, token('workspace_get_code_unit')) as never)).status).toBe(400)
     expect((await POST(request({ tool: 'workspace_get_code_unit', codeUnitId: 'unit-1', sourceSnapshotHash: 'bad' }, token('workspace_get_code_unit')) as never)).status).toBe(400)
-    expect(mocks.list).not.toHaveBeenCalled()
+    expect(mocks.list).toHaveBeenCalledTimes(1)
     expect(mocks.get).not.toHaveBeenCalled()
   })
 
@@ -72,5 +77,12 @@ describe('POST /api/internal/reamon/workspace/code-units', () => {
     mocks.get.mockRejectedValueOnce(new McpToolError('Code-unit sources changed while paging.', 'stale_source'))
     const stale = await POST(request({ tool: 'workspace_get_code_unit', codeUnitId: 'unit-1', sourceOffsetBytes: 128, sourceSnapshotHash }, token('workspace_get_code_unit')) as never)
     expect(stale.status).toBe(409)
+  })
+
+  test('returns stale code-unit cursor conflicts as HTTP 409', async () => {
+    mocks.list.mockRejectedValueOnce(new McpToolError('The code-unit index changed while paging. Restart with cursor omitted.', 'stale_snapshot'))
+    const response = await POST(request({ tool: 'workspace_list_code_units', cursor: 'stable-cursor' }) as never)
+    expect(response.status).toBe(409)
+    expect(await response.json()).toMatchObject({ code: 'stale_snapshot' })
   })
 })

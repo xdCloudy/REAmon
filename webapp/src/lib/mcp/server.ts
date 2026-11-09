@@ -472,7 +472,7 @@ export function buildMcpServer(ctx: McpContext, instructions?: string): McpServe
         'Results come from REAmon observations already persisted for analysis ' +
         'tasks; this tool does not decompile or invent symbols. Each result includes the database id ' +
         'to pass to workspace_get_code_unit, provider name, artifact digest, source path, and available ' +
-        'address/prototype metadata, source language, and GoReSym package identity where available. Page through large results with limit and offset.',
+        'address/prototype metadata, source language, and GoReSym package identity where available. Start a stable listing without offset, then continue with nextCursor while keeping the same search and task filters. If a cursor expires or the index changes, restart without a cursor. Explicit offset remains available for older clients but does not provide stable snapshot paging.',
       annotations: READ_ONLY,
       _meta: scopesMeta({ required: ['recon:read'] }),
       inputSchema: {
@@ -480,7 +480,8 @@ export function buildMcpServer(ctx: McpContext, instructions?: string): McpServe
         search: z.string().max(200).optional().describe('Search function/class name, address, language, prototype, source path, provider symbol source, or Go package.'),
         taskId: entityIdSchema.optional().describe('Limit to one completed analysis task.'),
         limit: z.number().int().min(1).max(100).optional().describe('Default 50, maximum 100 rows.'),
-        offset: z.number().int().min(0).max(100000).optional().describe('Number of matching code units to skip.'),
+        cursor: z.string().max(2048).optional().describe('Opaque nextCursor from the previous stable page. Keep the same search and taskId filters; restart without a cursor after stale_snapshot or cursor expiry.'),
+        offset: z.number().int().min(0).max(100000).optional().describe('Legacy page offset. Omit this to use stable nextCursor paging.'),
       },
     },
     handler(ctx, 'workspace_list_code_units', a => listWorkspaceCodeUnits(ctx, a), a => a.projectId)
