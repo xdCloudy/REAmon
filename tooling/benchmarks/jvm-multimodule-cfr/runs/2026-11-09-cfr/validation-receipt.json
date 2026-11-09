@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "fixtureId": "jvm-multimodule-cfr-linux-amd64",
+  "artifactSha256": "747346a392096bdac3613ac295ee4b8a743e22689a3738aeca1ad8ffc92fb7cf",
+  "provider": "CFR 0.152",
+  "providerRunId": "run-20261109-01",
+  "sourceFilesDiscovered": 2,
+  "sourceFilesExpected": 2,
+  "truncated": false,
+  "recoveredSourceSha256ByPath": {
+    "org/reamon/fixture/Main.java": "173b38f76779e4e0f4bc21141f5b985bf9d191173b841aaf417465d995598043",
+    "org/reamon/fixture/RuleEngine.java": "675d85b1dc835483012dbdfedefbae0983dcbf1920024437b9165deb7bb66c4d"
+  },
+  "compile": {
+    "status": "passed",
+    "command": "javac --release 17",
+    "environment": "pinned builder image in Docker",
+    "observedRuntimeStdout": "low:-15,high:42,high:22",
+    "matchesOriginalRuntimeOracle": true
+  },
+  "claim": "Two-source synthetic Java fixture recovered by CFR and rebuilt with matching observed stdout. This is one bounded behavior check, not proof of source equivalence or broad JVM fidelity."
+}
