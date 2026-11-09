@@ -4,6 +4,8 @@ import {
   createPyInstallerBenchmarkEvidence,
   matchesPyInstallerFixtureSource,
   matchesPyInstallerSource,
+  matchesPyInstallerStructuredFixtureSource,
+  PYINSTALLER_STRUCTURED_SOURCE_FIXTURE_ID,
 } from './pyinstaller.benchmark-evidence'
 
 describe('PyInstaller benchmark evidence', () => {
@@ -116,5 +118,17 @@ describe('PyInstaller benchmark evidence', () => {
 
     expect(matchesPyInstallerSource(recovered, expected)).toBe(true)
     expect(matchesPyInstallerSource(recovered.replace("'invalid'", "'not invalid'"), expected)).toBe(false)
+  })
+
+  it('matches the versioned structured fixture source and keeps its identity stable', () => {
+    expect(PYINSTALLER_STRUCTURED_SOURCE_FIXTURE_ID).toBe('pyinstaller-module-structured-source-linux-amd64')
+    expect(matchesPyInstallerStructuredFixtureSource(
+      'VALUE = 12\ndef classify(candidate):\n    if candidate < VALUE:\n        return \'below\'\n    return \'at-or-above\'\n',
+      12,
+    )).toBe(true)
+    expect(matchesPyInstallerStructuredFixtureSource(
+      'VALUE = 12\ndef classify(candidate):\n    if candidate <= VALUE:\n        return \'below\'\n    return \'at-or-above\'\n',
+      12,
+    )).toBe(false)
   })
 })

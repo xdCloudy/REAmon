@@ -7,7 +7,12 @@ import { afterAll, beforeAll, describe, expect, test } from 'vitest'
 import prisma from '@/lib/prisma'
 import { ingestToolResult } from './result-ingestion'
 import { executePyInstaller } from './pyinstaller'
-import { createPyInstallerBenchmarkEvidence, matchesPyInstallerFixtureSource } from './pyinstaller.benchmark-evidence'
+import {
+  createPyInstallerBenchmarkEvidence,
+  matchesPyInstallerFixtureSource,
+  matchesPyInstallerStructuredFixtureSource,
+  PYINSTALLER_STRUCTURED_SOURCE_FIXTURE_ID,
+} from './pyinstaller.benchmark-evidence'
 import type { TargetProfile, ToolExecutionInput } from './types'
 
 const enabled = process.env.REAMON_RUN_DB_INTEGRATION === '1'
@@ -213,7 +218,10 @@ describeDatabase('PyInstaller continuation with PostgreSQL observation persisten
       expect(knownSourcePath.startsWith(`${derivedRoot}${path.sep}`)).toBe(true)
       const knownSourceText = await readFile(knownSourcePath, 'utf8')
       expect(knownSourceText).toMatch(new RegExp(`\\bVALUE\\s*=\\s*${moduleValue}\\b`))
-      if (matchesPyInstallerFixtureSource(knownSourceText, moduleValue)) reconstructionMatchedCount += 1
+      const sourceMatches = process.env.REAMON_BENCHMARK_FIXTURE_ID === PYINSTALLER_STRUCTURED_SOURCE_FIXTURE_ID
+        ? matchesPyInstallerStructuredFixtureSource(knownSourceText, moduleValue)
+        : matchesPyInstallerFixtureSource(knownSourceText, moduleValue)
+      if (sourceMatches) reconstructionMatchedCount += 1
       knownSourceMatchedCount += 1
     }
 

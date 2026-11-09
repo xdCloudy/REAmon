@@ -11,9 +11,23 @@ type PyInstallerBenchmarkEvidenceInput = {
   workerTerminalPage: boolean
 }
 
+export const PYINSTALLER_STRUCTURED_SOURCE_FIXTURE_ID = 'pyinstaller-module-structured-source-linux-amd64'
+
 export function matchesPyInstallerFixtureSource(source: string, expectedValue: number): boolean {
   if (!Number.isSafeInteger(expectedValue) || expectedValue < 1 || expectedValue > 70) return false
   return matchesPyInstallerSource(source, `VALUE = ${expectedValue}`)
+}
+
+export function matchesPyInstallerStructuredFixtureSource(source: string, expectedValue: number): boolean {
+  if (!Number.isSafeInteger(expectedValue) || expectedValue < 1 || expectedValue > 70) return false
+  const expectedSource = [
+    `VALUE = ${expectedValue}`,
+    'def classify(candidate):',
+    '    if candidate < VALUE:',
+    '        return "below"',
+    '    return "at-or-above"',
+  ].join('\n')
+  return matchesPyInstallerSource(source, expectedSource)
 }
 
 export function matchesPyInstallerSource(source: string, expectedSource: string): boolean {

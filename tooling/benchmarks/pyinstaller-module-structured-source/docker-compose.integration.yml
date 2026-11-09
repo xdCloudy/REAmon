@@ -1,0 +1,41 @@
+services:
+  benchmark-test:
+    image: reamon-webapp-test:local
+    entrypoint: ["npm"]
+    working_dir: /repo/webapp
+    command: ["test", "--", "src/lib/reamon/pyinstaller.task.database.integration.test.ts"]
+    environment:
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-redamon}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/${POSTGRES_DB:-redamon}"
+      REAMON_ARTIFACTS_PATH: /data/reamon-artifacts
+      REAMON_DERIVED_PATH: /data/reamon-derived
+      REAMON_PYINSTALLER_URL: http://pyinstaller-analyzer:8029
+      REAMON_PYCDC_URL: http://pycdc-analyzer:8014
+      REAMON_RUN_DB_INTEGRATION: "1"
+      REAMON_TASK_WORKER_INTEGRATION: "1"
+      REAMON_BENCHMARK_FIXTURE_ID: pyinstaller-module-structured-source-linux-amd64
+      REAMON_PYINSTALLER_FIXTURE_PATH: /data/reamon-artifacts/qa/pyinstaller-structured-source-v3/fixture
+      REAMON_BENCHMARK_EVIDENCE_PATH: ${REAMON_BENCHMARK_EVIDENCE_PATH:-/benchmark-output/pyinstaller-module-structured-source-v3-live/integration-evidence.json}
+    volumes:
+      - reamon_artifacts:/data/reamon-artifacts
+      - reamon_derived:/data/reamon-derived
+      - ./webapp/src:/repo/webapp/src:ro
+      - ${REAMON_BENCHMARK_HOST_OUTPUT_DIR:-./work/benchmarks}:/benchmark-output
+    networks:
+      - app
+      - analysis
+
+networks:
+  app:
+    external: true
+    name: reamon-network
+  analysis:
+    external: true
+    name: reamon-analysis-net
+
+volumes:
+  reamon_artifacts:
+    external: true
+    name: reamon_artifacts
+  reamon_derived:
+    external: true
+    name: reamon_derived
