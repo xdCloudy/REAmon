@@ -13,14 +13,80 @@ type PyInstallerBenchmarkEvidenceInput = {
 
 export function matchesPyInstallerFixtureSource(source: string, expectedValue: number): boolean {
   if (!Number.isSafeInteger(expectedValue) || expectedValue < 1 || expectedValue > 70) return false
-  const code = source
-    .replace(/\r\n?/g, '\n')
-    .split('\n')
-    .map((line) => line.replace(/#.*/, '').trim())
-    .filter(Boolean)
-    .join('')
-    .replace(/\s+/g, '')
-  return code === `VALUE=${expectedValue}`
+  return matchesPyInstallerSource(source, `VALUE = ${expectedValue}`)
+}
+
+export function matchesPyInstallerSource(source: string, expectedSource: string): boolean {
+  return normalizePyInstallerSource(source) === normalizePyInstallerSource(expectedSource)
+}
+
+function normalizePyInstallerSource(source: string): string {
+  let normalized = ''
+  let index = 0
+  let atLineStart = true
+
+  while (index < source.length) {
+    const character = source[index]
+    if (character === '#') {
+      if (atLineStart) normalized = normalized.replace(/[ \t\f\v]+$/, '')
+      while (index < source.length && source[index] !== '\n' && source[index] !== '\r') index += 1
+      continue
+    }
+    if (character === '\r' || character === '\n') {
+      if (atLineStart) {
+        normalized = normalized.replace(/[ \t\f\v]+$/, '')
+      } else if (normalized.length > 0 && !normalized.endsWith('\n')) {
+        normalized += '\n'
+      }
+      atLineStart = true
+      index += 1
+      if (character === '\r' && source[index] === '\n') index += 1
+      continue
+    }
+    if (character === ' ' || character === '\t' || character === '\f' || character === '\v') {
+      if (atLineStart) {
+        normalized += character
+      } else if (/[\p{L}\p{N}_.'"]/u.test(normalized.at(-1) ?? '')
+        && /[\p{L}\p{N}_.'"]/u.test(source[index + 1] ?? '')) {
+        normalized += ' '
+        while (source[index + 1] === ' ' || source[index + 1] === '\t'
+          || source[index + 1] === '\f' || source[index + 1] === '\v') index += 1
+      }
+      index += 1
+      continue
+    }
+    if (character !== "'" && character !== '"') {
+      normalized += character
+      atLineStart = false
+      index += 1
+      continue
+    }
+
+    const delimiter = source.startsWith(character.repeat(3), index) ? character.repeat(3) : character
+    normalized += delimiter
+    atLineStart = false
+    index += delimiter.length
+    while (index < source.length) {
+      if (source[index] === '\\') {
+        normalized += source[index]
+        index += 1
+        if (index < source.length) {
+          normalized += source[index]
+          index += 1
+        }
+        continue
+      }
+      if (source.startsWith(delimiter, index)) {
+        normalized += delimiter
+        index += delimiter.length
+        break
+      }
+      normalized += source[index]
+      index += 1
+    }
+  }
+
+  return normalized.replace(/\n+$/, '')
 }
 
 export function createPyInstallerBenchmarkEvidence(input: PyInstallerBenchmarkEvidenceInput) {

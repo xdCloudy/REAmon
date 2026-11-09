@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
-import { createPyInstallerBenchmarkEvidence, matchesPyInstallerFixtureSource } from './pyinstaller.benchmark-evidence'
+import {
+  createPyInstallerBenchmarkEvidence,
+  matchesPyInstallerFixtureSource,
+  matchesPyInstallerSource,
+} from './pyinstaller.benchmark-evidence'
 
 describe('PyInstaller benchmark evidence', () => {
   const input = {
@@ -44,5 +48,28 @@ describe('PyInstaller benchmark evidence', () => {
     expect(matchesPyInstallerFixtureSource('VALUE = 8\nEXTRA = 1\n', 8)).toBe(false)
     expect(matchesPyInstallerFixtureSource('VALUE = 8 + 0\n', 8)).toBe(false)
     expect(matchesPyInstallerFixtureSource('VALUE = 08\n', 8)).toBe(false)
+  })
+
+  it('compares multi-line control flow while preserving string contents and comment markers', () => {
+    const expected = [
+      'def classify(value):',
+      '    if value < 0:',
+      '        return "negative # value"',
+      '    return "nonnegative"',
+    ].join('\n')
+    const recovered = [
+      '# pycdc generated source',
+      'def classify ( value ) :',
+      '    if value<0 : # negative branch',
+      '        return "negative # value"',
+      '    return "nonnegative"',
+    ].join('\n')
+
+    expect(matchesPyInstallerSource(recovered, expected)).toBe(true)
+    expect(matchesPyInstallerSource(recovered.replace('value<0', 'value<=0'), expected)).toBe(false)
+    expect(matchesPyInstallerSource('LABEL = "a# b"', 'LABEL = "a # b"')).toBe(false)
+    expect(matchesPyInstallerSource('VALUE = 1\n+ 2', 'VALUE = 1 + 2')).toBe(false)
+    expect(matchesPyInstallerSource('def f():\n    returnvalue', 'def f():\n    return value')).toBe(false)
+    expect(matchesPyInstallerSource('def f():\n        return 1', 'def f():\n    return 1')).toBe(false)
   })
 })

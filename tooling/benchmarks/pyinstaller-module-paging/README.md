@@ -98,6 +98,13 @@ versioned [source evaluation manifest](evaluation-manifest-source-v2.json) for
 new runs; the original `evaluation-manifest.json` remains the v1 contract used
 by the archived pair.
 
+The source comparison helper preserves string literal contents, Python line
+boundaries, indentation, and spaces between word tokens while ignoring comments
+and spacing around punctuation. It can compare
+multi-line expected modules with functions and control flow, but that capability
+does not change the v2 score: only the 70 single-assignment modules in its
+manifest are measured until a richer fixture and evaluation contract are added.
+
 `tooling/benchmarks/run_pyinstaller_pair.py` packages measured baseline and
 candidate evidence in one command. It merges each side against the same build
 and enrollment receipts, records a provenance-bound receipt from each Git
