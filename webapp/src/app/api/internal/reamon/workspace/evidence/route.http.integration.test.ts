@@ -312,4 +312,23 @@ describe.skipIf(!HAS_DB)('agent Evidence HTTP paging across Next.js restart', ()
       await stopServer(oldServer)
     }
   }, 180_000)
+
+  test.each([
+    ['default active signing key', 'changeme', ''],
+    ['more than three previous signing keys', INITIAL_KEY, 'rotation-a,rotation-b,rotation-c,rotation-d'],
+  ])('fails closed over HTTP for %s', async (_caseName, activeKey, previousKeys) => {
+    let server: ChildProcess | null = null
+    try {
+      const running = await startNextServer(activeKey, previousKeys)
+      server = running.child
+      const response = await fetch(`${running.baseUrl}/api/projects/${projectId}/workspace/evidence?limit=1`, {
+        headers: { Cookie: `${AUTH_COOKIE_NAME}=${sessionCookie}` },
+      })
+      expect(response.status).toBe(503)
+      expect(response.headers.get('Cache-Control')).toBe('private, no-store')
+      expect(await response.json()).toMatchObject({ error: { code: 'cursor_unavailable' } })
+    } finally {
+      await stopServer(server)
+    }
+  }, 180_000)
 })
