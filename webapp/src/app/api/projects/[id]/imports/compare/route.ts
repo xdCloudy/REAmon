@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
-import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
+import { requireEffectiveUser, requireProjectAccessStrict } from '@/lib/access'
 import { compareWorkspaceImports, type ImportComparisonEntry } from '@/lib/reamon/imports'
 import { parseImportManifest } from '@/lib/reamon/import-manifest'
 import { normalizeRootName } from '@/lib/reamon/paths'
@@ -17,7 +17,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     const { id: projectId } = await params
     const effectiveUser = await requireEffectiveUser()
     if (effectiveUser instanceof NextResponse) return effectiveUser
-    const access = await requireProjectAccess(effectiveUser, projectId)
+    const access = await requireProjectAccessStrict(effectiveUser, projectId)
     if (access instanceof NextResponse) return access
 
     const body = await request.json() as { rootName?: unknown; files?: unknown }
