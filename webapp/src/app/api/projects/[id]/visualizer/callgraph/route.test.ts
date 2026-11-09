@@ -8,7 +8,7 @@ const mocks = vi.hoisted(() => ({
   observationFindMany: vi.fn(),
   getActiveWorkspaceImportSelection: vi.fn(),
   requireEffectiveUser: vi.fn(),
-  requireProjectAccess: vi.fn(),
+  requireProjectAccessStrict: vi.fn(),
 }))
 
 vi.mock('@/lib/prisma', () => ({ default: {
@@ -18,7 +18,7 @@ vi.mock('@/lib/prisma', () => ({ default: {
 vi.mock('@/lib/reamon/inventory-query', () => ({ getActiveWorkspaceImportSelection: mocks.getActiveWorkspaceImportSelection }))
 vi.mock('@/lib/access', () => ({
   requireEffectiveUser: mocks.requireEffectiveUser,
-  requireProjectAccess: mocks.requireProjectAccess,
+  requireProjectAccessStrict: mocks.requireProjectAccessStrict,
 }))
 
 import { GET } from './route'
@@ -35,7 +35,7 @@ const focusRow = {
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.requireEffectiveUser.mockResolvedValue({ userId: 'user-1' })
-  mocks.requireProjectAccess.mockResolvedValue({ project: { id: 'project-1', userId: 'user-1' } })
+  mocks.requireProjectAccessStrict.mockResolvedValue({ project: { id: 'project-1', userId: 'user-1' } })
   mocks.getActiveWorkspaceImportSelection.mockResolvedValue({ artifactWhere })
   mocks.taskFindFirst.mockResolvedValue({ id: 'run-1', artifactId: 'artifact-1', provider: { pluginId: 'reamon-ghidra' } })
   mocks.observationFindFirst.mockResolvedValue(focusRow)
@@ -43,6 +43,12 @@ beforeEach(() => {
 })
 
 describe('GET /api/projects/[id]/visualizer/callgraph', () => {
+  test('uses the non-relaxable project ownership check before reading relationships', async () => {
+    const response = await GET(new Request('http://localhost/api/projects/project-1/visualizer/callgraph?taskId=run-1&unitId=unit-main'), params)
+    expect(response.status).toBe(200)
+    expect(mocks.requireProjectAccessStrict).toHaveBeenCalledWith({ userId: 'user-1' }, 'project-1')
+  })
+
   test('requires project access before reading a call graph', async () => {
     mocks.requireEffectiveUser.mockResolvedValue(NextResponse.json({ error: 'unauthorized' }, { status: 401 }))
 

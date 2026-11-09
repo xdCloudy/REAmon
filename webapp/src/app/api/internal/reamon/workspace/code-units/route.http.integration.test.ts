@@ -133,6 +133,7 @@ async function startNextServer(activeKey: string, previousKeys = ''): Promise<{ 
       SCANNER_API_KEY: 'integration-distinct-scanner-key',
       WORKSPACE_CURSOR_PREVIOUS_KEYS: previousKeys,
       INTERNAL_KEY_ALLOWLIST_ENFORCE: 'false',
+      ACCESS_ENFORCE: '0',
       AUTH_SECRET: 'integration-http-auth-secret',
     },
   })
@@ -292,6 +293,11 @@ describe.skipIf(!HAS_DB)('agent code-unit and relationship HTTP paging across Ne
       expect(foreignUnits.status).toBe(404)
       const foreignRelationships = await fetch(`${running.baseUrl}/api/projects/${projectId}/workspace/code-relationships?codeUnitId=${codeUnitId}&relationshipKind=calls&direction=outgoing&limit=1`, { headers: foreignHeaders })
       expect(foreignRelationships.status).toBe(404)
+
+      const foreignVisualizer = await fetch(`${running.baseUrl}/api/projects/${projectId}/visualizer`, { headers: foreignHeaders })
+      expect(foreignVisualizer.status).toBe(404)
+      const foreignCallgraph = await fetch(`${running.baseUrl}/api/projects/${projectId}/visualizer/callgraph?taskId=${taskId}&unitId=${codeUnitId}`, { headers: foreignHeaders })
+      expect(foreignCallgraph.status).toBe(404)
     } finally {
       await stopServer(server)
     }
