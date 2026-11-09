@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "fixtureId": "pyinstaller-malformed-carchive-entry-extent-linux-amd64",
+  "baseFixtureId": "pyinstaller-module-structured-source-linux-amd64",
+  "artifactSha256": "3b9eacdc4fe7087204ccb8d750bcd2de2c143e64f438421c9c3c1d13a422f49a",
+  "baseArtifactSha256": "3cc8501e4fb575089c808e8dda4a67d54ef5e949cac41ab03a52c11a71b2abc2",
+  "serviceImageId": "sha256:dfd6e00b359c5144b39510685e15faa4dbc48645b3b0f9fe5a39669e9e5a40d3",
+  "extractorRevision": "2aa0ec9e58317ac717fdeec84a02d5a67de7b96c2-reamon1",
+  "cookieAccepted": true,
+  "httpStatus": 400,
+  "status": "failed",
+  "cleanup": "REMOVED_AFTER_HASH_CHECK",
+  "controlResult": "PASS"
+}

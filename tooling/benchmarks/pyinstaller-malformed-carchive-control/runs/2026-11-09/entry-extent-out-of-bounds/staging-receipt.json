@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "fixtureId": "pyinstaller-malformed-carchive-entry-extent-linux-amd64",
+  "stageId": "20261109T074407",
+  "sourceSha256": "3b9eacdc4fe7087204ccb8d750bcd2de2c143e64f438421c9c3c1d13a422f49a",
+  "stagedArtifactPath": "/data/reamon-artifacts/qa/pyinstaller-malformed-20261109T074407/fixture",
+  "stagedArtifactSha256": "3b9eacdc4fe7087204ccb8d750bcd2de2c143e64f438421c9c3c1d13a422f49a",
+  "staged": false,
+  "cleanup": "REMOVED_AFTER_HASH_CHECK"
+}

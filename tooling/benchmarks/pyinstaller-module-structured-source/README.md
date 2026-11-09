@@ -98,3 +98,8 @@ markers. It returns bytecode, so source deobfuscation remains unavailable.
 records a second malformed CArchive TOC control. Its cookie preflight passed,
 but the isolated analyzer rejected an entry data position one byte beyond the
 overlay with HTTP 400 and no module payload.
+
+[`../pyinstaller-malformed-carchive-control/runs/2026-11-09/entry-extent-out-of-bounds/`](../pyinstaller-malformed-carchive-control/runs/2026-11-09/entry-extent-out-of-bounds/README.md)
+records a third malformed TOC control. Its cookie preflight passed, and the
+isolated analyzer rejected an entry extent one byte beyond the complete TOC
+with HTTP 400 and no module payload.

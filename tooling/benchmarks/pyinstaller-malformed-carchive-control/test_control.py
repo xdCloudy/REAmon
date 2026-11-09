@@ -57,6 +57,20 @@ def test_data_position_mutation_preserves_cookie_and_exceeds_overlay_bounds():
     assert struct.unpack_from(">I", mutated, info["entryPositionOffset"])[0] == info["overlaySize"] + 1
 
 
+def test_entry_extent_mutation_preserves_cookie_and_exceeds_toc_bounds():
+    source = synthetic_archive()
+    mutated, info = mutate_carchive.mutate_first_entry_extent(source)
+
+    differences = [index for index, (before, after) in enumerate(zip(source, mutated)) if before != after]
+    field_offsets = set(range(info["entrySizeOffset"], info["entrySizeOffset"] + 4))
+    assert differences
+    assert set(differences) <= field_offsets
+    assert mutated[info["cookieOffset"] :] == source[info["cookieOffset"] :]
+    assert info["mutatedEntrySize"] == info["tocSize"] + 1
+    assert info["mutatedEntrySize"] > info["originalEntrySize"]
+    assert struct.unpack_from(">I", mutated, info["entrySizeOffset"])[0] == info["tocSize"] + 1
+
+
 def test_mutator_refuses_input_without_a_bounded_carchive_toc():
     with pytest.raises(ValueError, match="No bounded PyInstaller"):
         mutate_carchive.mutate_first_entry(bytes(512))
@@ -94,6 +108,17 @@ def test_data_bounds_manifest_declares_a_distinct_malformed_control():
     assert manifest["fixtureId"] == mutate_carchive.DATA_BOUNDS_CONTROL_ID
     assert manifest["mutation"]["field"] == "first CArchive TOC entry data position"
     assert manifest["mutation"]["invalidValue"] == "one byte beyond overlay size"
+    assert manifest["expectedProviderOutcome"]["httpStatus"] == 400
+
+
+def test_entry_extent_manifest_declares_a_distinct_malformed_control():
+    manifest = json.loads(
+        MANIFEST.with_name("manifest-entry-extent.json").read_text(encoding="utf-8")
+    )
+
+    assert manifest["fixtureId"] == mutate_carchive.ENTRY_EXTENT_CONTROL_ID
+    assert manifest["mutation"]["field"] == "first CArchive TOC entry size"
+    assert manifest["mutation"]["invalidValue"] == "one byte beyond TOC size"
     assert manifest["expectedProviderOutcome"]["httpStatus"] == 400
 
 

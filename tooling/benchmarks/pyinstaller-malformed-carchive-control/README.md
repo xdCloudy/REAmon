@@ -1,10 +1,9 @@
 # PyInstaller malformed CArchive control
 
-This benchmark has two single-field CArchive controls derived from the pinned
-structured-source fixture. Both preserve the outer cookie and bounded TOC, so
-the provider's cookie check accepts the artifact before the isolated extractor
-rejects the invalid TOC entry. The executable is never launched by the mutator
-or probe.
+This benchmark has three single-field CArchive controls derived from the pinned
+structured-source fixture. Each preserves the outer cookie and passes the
+provider's cookie check before the isolated extractor rejects the malformed
+TOC entry. The executable is never launched by the mutator or probe.
 
 ## Build the input and malformed variant
 
@@ -37,6 +36,12 @@ python tooling/benchmarks/pyinstaller-malformed-carchive-control/mutate_carchive
 This changes only the first entry's data position to one byte beyond the
 calculated CArchive overlay size. See `manifest-data-bounds.json` for that
 control's expected provider outcome and limits.
+
+To build a third variant that makes the first entry extend beyond the complete
+TOC region, use the `first-entry-extent-outside-toc` mutation and the
+`run-entry-extent.ps1` live runner. Its measured live-provider result and
+hash-bound receipts are archived under
+`runs/2026-11-09/entry-extent-out-of-bounds/`.
 
 ## Live provider control
 
@@ -71,10 +76,10 @@ powershell -ExecutionPolicy Bypass -File tooling/benchmarks/pyinstaller-malforme
   -OutputDirectory work/benchmarks/pyinstaller-malformed-control-bounds-run
 ```
 
-The runner writes staging, preflight, and provider receipts under the selected
-output directory. Together, these controls cover only two malformed TOC
-fields. They do not measure obfuscated archives or general malformed-input
-accuracy.
+The runners write staging, preflight, and provider receipts under the selected
+output directory. The three measured controls cover an undersized entry,
+out-of-bounds entry data position, and entry extent beyond the TOC. They do not
+measure obfuscated archives or general malformed-input accuracy.
 
 After saving the probe receipt, remove only the exact staged file after
 checking its SHA-256 against `mutation-receipt.json`. Leave the shared `qa`

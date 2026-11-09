@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "fixtureId": "pyinstaller-malformed-carchive-entry-extent-linux-amd64",
+  "baseFixtureId": "pyinstaller-module-structured-source-linux-amd64",
+  "createdAtUtc": "2026-11-09T07:43:50+00:00",
+  "mutationId": "first-entry-extent-outside-toc",
+  "mutation": "Set the first CArchive TOC entry size beyond the complete TOC region.",
+  "offsets": {
+    "cookieOffset": 7268246,
+    "entrySizeOffset": 7264646,
+    "originalEntrySize": 32,
+    "mutatedEntrySize": 3601,
+    "tocSize": 3600
+  },
+  "sourceArtifact": {
+    "path": "pyinstaller-module-structured-source",
+    "sizeBytes": 7270456,
+    "sha256": "3cc8501e4fb575089c808e8dda4a67d54ef5e949cac41ab03a52c11a71b2abc2"
+  },
+  "malformedArtifact": {
+    "path": "malformed-carchive",
+    "sizeBytes": 7270456,
+    "sha256": "3b9eacdc4fe7087204ccb8d750bcd2de2c143e64f438421c9c3c1d13a422f49a"
+  },
+  "hostExecution": "not executed"
+}

@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 DEFAULT_CONTROL_ID = "pyinstaller-malformed-carchive-toc-linux-amd64"
+MAX_RESPONSE_BYTES = 4 * 1024 * 1024
 
 
 def request_json(url: str, payload: dict[str, object] | None = None) -> tuple[int, dict[str, object]]:
@@ -24,10 +25,13 @@ def request_json(url: str, payload: dict[str, object] | None = None) -> tuple[in
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
             status = response.status
-            result = json.loads(response.read(64 * 1024))
+            raw = response.read(MAX_RESPONSE_BYTES + 1)
     except urllib.error.HTTPError as response:
         status = response.code
-        result = json.loads(response.read(64 * 1024))
+        raw = response.read(MAX_RESPONSE_BYTES + 1)
+    if len(raw) > MAX_RESPONSE_BYTES:
+        raise ValueError("PyInstaller service response exceeds the 4 MiB probe limit")
+    result = json.loads(raw)
     if not isinstance(result, dict):
         raise ValueError("PyInstaller service returned a non-object JSON response")
     return status, result
