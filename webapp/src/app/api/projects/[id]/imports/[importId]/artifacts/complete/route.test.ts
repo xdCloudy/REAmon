@@ -3,13 +3,13 @@ import { beforeEach, describe, expect, test, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   requireEffectiveUser: vi.fn(),
-  requireProjectAccess: vi.fn(),
+  requireProjectAccessStrict: vi.fn(),
   commitStagedArtifact: vi.fn(),
 }))
 
 vi.mock('@/lib/access', () => ({
   requireEffectiveUser: mocks.requireEffectiveUser,
-  requireProjectAccess: mocks.requireProjectAccess,
+  requireProjectAccessStrict: mocks.requireProjectAccessStrict,
 }))
 
 vi.mock('@/lib/reamon/artifact-import-commit', () => ({
@@ -33,10 +33,20 @@ function request(): Request {
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.requireEffectiveUser.mockResolvedValue({ userId: 'user-1' })
-  mocks.requireProjectAccess.mockResolvedValue({ project: { id: 'project-1', userId: 'user-1' } })
+  mocks.requireProjectAccessStrict.mockResolvedValue({ project: { id: 'project-1', userId: 'user-1' } })
 })
 
 describe('POST /api/projects/[id]/imports/[importId]/artifacts/complete', () => {
+  test('denies foreign project access before committing staged bytes', async () => {
+    const { NextResponse } = await import('next/server')
+    mocks.requireProjectAccessStrict.mockResolvedValueOnce(NextResponse.json({ error: 'Not found' }, { status: 404 }))
+
+    const response = await POST(request(), params())
+
+    expect(response.status).toBe(404)
+    expect(mocks.commitStagedArtifact).not.toHaveBeenCalled()
+  })
+
   test.each([
     ['ENOSPC', Object.assign(new Error('no space left on device'), { code: 'ENOSPC' })],
     ['EDQUOT wrapped by the commit layer', new Error('commit failed', { cause: Object.assign(new Error('quota exceeded'), { code: 'EDQUOT' }) })],
