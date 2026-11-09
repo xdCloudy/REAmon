@@ -13,6 +13,8 @@ import type { ToolObservation, ToolPluginManifest } from './types'
 const SOURCE = 'reamon-tocode-import'
 const MAX_METADATA_BYTES = 32 * 1024 * 1024
 const MAX_MAPPING_BYTES = 32 * 1024 * 1024
+const MAX_MAPPING_LINKS = 100_000
+const MAX_MAPPING_STATUS_BUCKETS = 32
 const MAX_EXPORTS = 200
 const MAX_FUNCTIONS = 10_000
 const MAX_SOURCE_FILE_BYTES = 2 * 1024 * 1024
@@ -764,18 +766,99 @@ export async function indexToCodeWorkspaceImport(projectId: string, importId: st
 
     const mappingsArtifact = artifactsByPath.get('mappings.json')
     let crossBinaryCalls = 0
+    let folderMappings: {
+      status: 'MISSING' | 'TOO_LARGE' | 'PARSED' | 'INVALID'
+      totalLinks: number | null
+      consideredLinks: number
+      omittedLinks: number
+      edgeRowsVisited: number
+      edgeResolutionTruncated: boolean
+      statusCounts: Array<{ status: string; count: number }>
+      unlistedStatusLinks: number
+      linksWithoutStatus: number
+      nonBoundLinks: number
+      boundLinksWithoutResolvedTarget: number
+      boundLinksWithoutCallSites: number
+      callSitesOmittedByPerLinkLimit: number
+      callSitesWithoutResolvedCaller: number
+    } = {
+      status: !mappingsArtifact ? 'MISSING' : mappingsArtifact.sizeBytes > MAX_MAPPING_BYTES ? 'TOO_LARGE' : 'INVALID',
+      totalLinks: null,
+      consideredLinks: 0,
+      omittedLinks: 0,
+      edgeRowsVisited: 0,
+      edgeResolutionTruncated: false,
+      statusCounts: [],
+      unlistedStatusLinks: 0,
+      linksWithoutStatus: 0,
+      nonBoundLinks: 0,
+      boundLinksWithoutResolvedTarget: 0,
+      boundLinksWithoutCallSites: 0,
+      callSitesOmittedByPerLinkLimit: 0,
+      callSitesWithoutResolvedCaller: 0,
+    }
     if (mappingsArtifact && mappingsArtifact.sizeBytes <= MAX_MAPPING_BYTES) {
       try {
         const mappings = await readJsonArtifact(mappingsArtifact, MAX_MAPPING_BYTES)
-        const links = Array.isArray(mappings?.links) ? mappings.links.slice(0, 100_000) : []
+        const allLinks = Array.isArray(mappings?.links) ? mappings.links : []
+        const links = allLinks.slice(0, MAX_MAPPING_LINKS)
+        const mappingStatusCounts = new Map<string, number>()
+        const linksWithoutStatus = links.filter((rawLink) => !safeText(asRecord(rawLink)?.status, 80)).length
+        const nonBoundLinks = links.filter((rawLink) => {
+          const status = safeText(asRecord(rawLink)?.status, 80)
+          return status !== null && status !== 'bound'
+        }).length
+        let boundLinksWithoutCallSites = 0
+        let boundLinksWithoutResolvedTarget = 0
+        let callSitesOmittedByPerLinkLimit = 0
+        let callSitesWithoutResolvedCaller = 0
+        let edgeRowsVisited = 0
+        let edgeResolutionTruncated = false
+        let unlistedStatusLinks = 0
+        for (const rawLink of links) {
+          const linkStatus = safeText(asRecord(rawLink)?.status, 80)
+          if (!linkStatus) continue
+          if (mappingStatusCounts.has(linkStatus)) {
+            mappingStatusCounts.set(linkStatus, (mappingStatusCounts.get(linkStatus) || 0) + 1)
+          } else if (mappingStatusCounts.size < MAX_MAPPING_STATUS_BUCKETS) {
+            mappingStatusCounts.set(linkStatus, 1)
+          } else {
+            unlistedStatusLinks += 1
+          }
+        }
+        folderMappings = {
+          status: 'PARSED',
+          totalLinks: allLinks.length,
+          consideredLinks: links.length,
+          omittedLinks: Math.max(0, allLinks.length - links.length),
+          edgeRowsVisited: 0,
+          edgeResolutionTruncated: false,
+          statusCounts: [],
+          unlistedStatusLinks: 0,
+          linksWithoutStatus,
+          nonBoundLinks,
+          boundLinksWithoutResolvedTarget: 0,
+          boundLinksWithoutCallSites: 0,
+          callSitesOmittedByPerLinkLimit: 0,
+          callSitesWithoutResolvedCaller: 0,
+        }
         const mappingRoot = exportRootOf(mappingsArtifact.relativePath)
         for (const rawLink of links) {
           if (observations.length >= MAX_CODE_UNITS_PER_RESULT) {
             callEdgesTruncated = true
+            edgeResolutionTruncated = true
             break
           }
+          edgeRowsVisited += 1
           const link = asRecord(rawLink)
-          if (!link || link.status !== 'bound' || !safeText(link.target, 1000)) continue
+          const linkStatus = safeText(link?.status, 80)
+          if (!link || linkStatus !== 'bound') {
+            continue
+          }
+          if (!safeText(link.target, 1000)) {
+            boundLinksWithoutResolvedTarget += 1
+            continue
+          }
           const importerPath = cleanExportPath(link.importer)
           const importerRoot = importerPath
             ? exportRootByBinaryPath.get(`${mappingRoot}\u0000${importerPath}`) || importerPath
@@ -786,21 +869,40 @@ export async function indexToCodeWorkspaceImport(projectId: string, importId: st
             || (targetExportDirectory ? joinedExportPath(mappingRoot, targetExportDirectory) : null)
             || targetExportDirectory
             || targetBinaryPath
-          if (!importerRoot || !targetRoot) continue
+          if (!importerRoot || !targetRoot) {
+            boundLinksWithoutResolvedTarget += 1
+            continue
+          }
           const targetFunction = asRecord(link.target_function)
-          if (!targetFunction) continue
+          if (!targetFunction) {
+            boundLinksWithoutResolvedTarget += 1
+            continue
+          }
           const destination = functionAtLocation(targetRoot, targetFunction.address ?? targetFunction.token, targetFunction.source_file, targetFunction.line_start, recordsByAddress, allFunctions)
-          if (!destination) continue
+          if (!destination) {
+            boundLinksWithoutResolvedTarget += 1
+            continue
+          }
           const sites = Array.isArray(link.call_sites) ? link.call_sites.slice(0, 16) : []
+          if (Array.isArray(link.call_sites)) callSitesOmittedByPerLinkLimit += Math.max(0, link.call_sites.length - 16)
+          if (!sites.length) boundLinksWithoutCallSites += 1
           for (const rawSite of sites) {
             if (observations.length >= MAX_CODE_UNITS_PER_RESULT) {
               callEdgesTruncated = true
+              edgeResolutionTruncated = true
               break
             }
             const site = asRecord(rawSite)
-            if (!site) continue
+            if (!site) {
+              callSitesWithoutResolvedCaller += 1
+              continue
+            }
             const caller = functionAtLocation(importerRoot, site.address ?? site.token, site.source_file, site.line_start, recordsByAddress, allFunctions)
-            if (!caller || caller.key === destination.key) continue
+            if (!caller) {
+              callSitesWithoutResolvedCaller += 1
+              continue
+            }
+            if (caller.key === destination.key) continue
             const identity = `${caller.key}->${destination.key}`
             if (seenCalls.has(identity)) continue
             seenCalls.add(identity)
@@ -824,10 +926,30 @@ export async function indexToCodeWorkspaceImport(projectId: string, importId: st
           }
           if (callEdgesTruncated) break
         }
+        folderMappings = {
+          ...folderMappings,
+          edgeRowsVisited,
+          edgeResolutionTruncated,
+          statusCounts: [...mappingStatusCounts.entries()]
+            .sort(([left], [right]) => left.localeCompare(right))
+            .map(([status, count]) => ({ status, count })),
+          unlistedStatusLinks,
+          linksWithoutStatus,
+          nonBoundLinks,
+          boundLinksWithoutResolvedTarget,
+          boundLinksWithoutCallSites,
+          callSitesOmittedByPerLinkLimit,
+          callSitesWithoutResolvedCaller,
+        }
+        if (folderMappings.omittedLinks > 0) {
+          warnings.push(`Only the first ${MAX_MAPPING_LINKS} of ${folderMappings.totalLinks} ToCode folder mapping links were considered.`)
+        }
       } catch {
+        folderMappings = { ...folderMappings, status: 'INVALID' }
         warnings.push('mappings.json could not be parsed; cross-binary call links were skipped.')
       }
     }
+    if (folderMappings.status === 'TOO_LARGE') warnings.push(`mappings.json exceeded ${MAX_MAPPING_BYTES} bytes; cross-binary call links were skipped.`)
     if (fieldReferenceEdgesTruncated) warnings.push(`Field-reference relationships were capped at ${MAX_FIELD_REFERENCE_EDGES}; method-level field-reference signatures remain stored where their function rows were indexed.`)
     if (callEdgesTruncated) warnings.push('Call relationships were capped by the ToCode observation limit; indexed method rows remain available.')
     if (candidates.length === MAX_EXPORTS) warnings.push(`Only the first ${MAX_EXPORTS} ToCode exports were indexed.`)
@@ -849,6 +971,7 @@ export async function indexToCodeWorkspaceImport(projectId: string, importId: st
       skippedFunctions,
       callEdges: seenCalls.size,
       crossBinaryCallEdges: crossBinaryCalls,
+      folderMappings,
       fieldReferenceEdges: seenFieldEdges.size,
       fieldReferenceEdgesTruncated,
       functionsWithReferencedStrings: allFunctions.filter((record) => record.referencedStrings.length > 0).length,

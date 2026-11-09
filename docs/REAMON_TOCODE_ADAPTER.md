@@ -70,6 +70,15 @@ one client-to-library edge and two native exports. It does not validate ToCode's
 binary-link analysis, broad loader/linker behavior, original-source fidelity, or
 visualizer navigation.
 
+The folder mapping receipt now preserves bounded status counts for the first 100,000
+rows, reports how many rows were omitted by that cap, and records bound rows that do
+not resolve to a function, have no call sites, or reference an unresolved caller.
+It also reports call sites omitted by the per-link limit. The PostgreSQL fixture checks
+ToCode's `unresolved_symbol` and `no_definer_in_folder` statuses, the mapping cap,
+and the 16-site bound while confirming that only the resolved call site becomes a
+relationship. These are counts of imported provider claims; they do not independently
+validate ToCode's loader or symbol-resolution accuracy.
+
 Folder exports now use ToCode's `project.json` binary-to-export mapping and
 `inventory.json` SHA-256 claims to connect a decompiled export to an original binary
 when that exact digest and size are also present in the REAmon workspace import. The
