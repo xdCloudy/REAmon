@@ -6,6 +6,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'vitest'
 import { PrismaClient } from '@prisma/client'
 import { createHmac } from 'node:crypto'
+import { spawnSync } from 'node:child_process'
 
 import { __resetRateLimiter, McpAccessDenied } from '@/lib/mcpAuth'
 import { listPersistedWorkspaceEvidence } from './workspace-evidence'
@@ -147,7 +148,7 @@ describe.skipIf(!HAS_DB)('workspace evidence pagination against PostgreSQL', () 
     expect(last.hasMore).toBe(false)
   })
 
-  test('continues a persisted evidence cursor through signing-key rotation', async () => {
+  test('continues a persisted cursor in a fresh process after signing-key rotation', async () => {
     const previousKey = process.env.INTERNAL_API_KEY
     const previousKeyList = process.env.WORKSPACE_CURSOR_PREVIOUS_KEYS
     try {
@@ -157,11 +158,22 @@ describe.skipIf(!HAS_DB)('workspace evidence pagination against PostgreSQL', () 
 
       process.env.INTERNAL_API_KEY = 'rotated-integration-evidence-cursor-key'
       process.env.WORKSPACE_CURSOR_PREVIOUS_KEYS = 'integration-workspace-evidence-cursor-key'
-      const second = await listPersistedWorkspaceEvidence({
-        projectId,
-        limit: 1,
-        cursor: first.nextCursor as string,
+      const child = spawnSync(process.execPath, [
+        '--import', 'tsx', '-e',
+        "const { listPersistedWorkspaceEvidence } = require('./src/lib/reamon/workspace-evidence.ts'); listPersistedWorkspaceEvidence({ projectId: process.env.WORKSPACE_EVIDENCE_TEST_PROJECT, limit: 1, cursor: process.env.WORKSPACE_EVIDENCE_TEST_CURSOR }).then((result) => process.stdout.write(JSON.stringify(result))).catch(() => process.exit(1))",
+      ], {
+        cwd: process.cwd(),
+        encoding: 'utf8',
+        timeout: 20_000,
+        env: {
+          ...process.env,
+          WORKSPACE_EVIDENCE_TEST_PROJECT: projectId,
+          WORKSPACE_EVIDENCE_TEST_CURSOR: first.nextCursor as string,
+        },
       })
+      expect(child.error).toBeUndefined()
+      expect(child.status).toBe(0)
+      const second = JSON.parse(child.stdout) as Awaited<ReturnType<typeof listPersistedWorkspaceEvidence>>
       expect(second.evidence).toHaveLength(1)
       expect(second.total).toBe(51)
       const [payload, signature] = (second.nextCursor as string).split('.')
