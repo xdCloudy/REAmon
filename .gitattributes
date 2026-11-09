@@ -5,6 +5,9 @@
 Dockerfile* text eol=lf
 *.yml text eol=lf
 *.yaml text eol=lf
+# These generated registries are hashed into the generated RoE prompt.
+recon_settings/registry.json text eol=lf
+webapp/src/lib/reconSettings/registry.json text eol=lf
 # Never EOL-convert binaries: the bundled incident-intel seed is sha256-pinned,
 # so a converted copy would be refused and the offline fallback lost.
 *.gz binary

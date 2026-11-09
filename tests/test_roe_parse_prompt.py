@@ -64,6 +64,38 @@ def test_p9_the_artifact_says_it_is_generated():
     assert "recon_settings/build.py" in head
 
 
+def test_registry_check_does_not_rewrite_stale_artifacts(monkeypatch, tmp_path, capsys):
+    from recon_settings import build as registry_build
+
+    registry_path = tmp_path / "registry.json"
+    webapp_path = tmp_path / "webapp-registry.json"
+    prompt_path = tmp_path / "roe_parse_prompt.py"
+    originals = {
+        registry_path: b"stale registry",
+        webapp_path: b"stale webapp registry",
+        prompt_path: b"stale prompt",
+    }
+    for path, content in originals.items():
+        path.write_bytes(content)
+
+    monkeypatch.setattr(registry_build, "JSON_PATH", registry_path)
+    monkeypatch.setattr(registry_build, "WEBAPP_JSON_PATH", webapp_path)
+    monkeypatch.setattr(registry_build, "ROE_PROMPT_PATH", prompt_path)
+    monkeypatch.setattr(registry_build, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(registry_build, "build", lambda: {
+        "version": 1, "fields": {}, "runtime_only": {}, "tools": {},
+    })
+
+    def render_without_repair(_registry_text, *, write_registry=True):
+        assert write_registry is False
+        return "fresh generated prompt"
+
+    monkeypatch.setattr(registry_build, "_prompt_from", render_without_repair)
+    assert registry_build.main(["--check"]) == 1
+    assert "registry artifact is STALE" in capsys.readouterr().err
+    assert {path: path.read_bytes() for path in originals} == originals
+
+
 # --- P10: every key it names is a real, writable field ---------------------------------
 
 def test_p10_every_named_key_is_a_registry_field():

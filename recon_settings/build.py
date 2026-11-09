@@ -221,7 +221,9 @@ def main(argv: list[str]) -> int:
     if check:
         stale = [p for p, body in targets.items()
                  if not p.exists() or p.read_text(encoding="utf-8") != body]
-        prompt_text = _prompt_from(text)
+        # Render against the currently checked-in registry without repairing it;
+        # otherwise a stale registry would be rewritten before the comparison.
+        prompt_text = _prompt_from(text, write_registry=False)
         if not ROE_PROMPT_PATH.exists() or ROE_PROMPT_PATH.read_text(encoding="utf-8") != prompt_text:
             stale.append(ROE_PROMPT_PATH)
         if stale:
@@ -252,17 +254,17 @@ def main(argv: list[str]) -> int:
     return 0
 
 
-def _prompt_from(registry_text: str) -> str:
-    """Render the prompt against the registry text this run produced.
+def _prompt_from(registry_text: str, *, write_registry: bool = True) -> str:
+    """Render against the current registry file, optionally installing new bytes.
 
-    The loader caches, and it reads the file, so a build that wrote a new
-    registry and then rendered would otherwise render from the PREVIOUS bytes on
-    the first run after a change. Writing the registry first and dropping the
-    cache is what keeps the digest in the prompt equal to the digest of the file
-    beside it.
+    A normal build writes its generated registry first and then renders. A
+    ``--check`` call leaves files untouched and renders against the existing
+    registry so it can detect a stale registry/prompt pair instead of repairing
+    files before comparison.
     """
-    JSON_PATH.parent.mkdir(parents=True, exist_ok=True)
-    JSON_PATH.write_text(registry_text, encoding="utf-8", newline="\n")
+    if write_registry:
+        JSON_PATH.parent.mkdir(parents=True, exist_ok=True)
+        JSON_PATH.write_text(registry_text, encoding="utf-8", newline="\n")
     if str(REPO_ROOT) not in sys.path:
         sys.path.insert(0, str(REPO_ROOT))
     from recon_settings.loader import reload_registry  # noqa: PLC0415
