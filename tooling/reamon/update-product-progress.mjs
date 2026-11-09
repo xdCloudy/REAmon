@@ -29,6 +29,15 @@ if (totalWeight !== 100) throw new Error(`Progress weights must total 100; got $
 
 const score = weightedCompletion / totalWeight
 const displayedScore = score.toFixed(2)
+const comparison = manifest.recentComparison
+if (comparison && (typeof comparison.baselineEstimate !== 'number'
+    || !Number.isFinite(comparison.baselineEstimate) || comparison.baselineEstimate < 0 || comparison.baselineEstimate > 100
+    || typeof comparison.date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(comparison.date))) {
+  throw new Error('Progress recentComparison must include a valid baselineEstimate and date')
+}
+const comparisonLine = comparison
+  ? `Recent same-scope change since ${comparison.date}: **${score - comparison.baselineEstimate >= 0 ? '+' : ''}${(score - comparison.baselineEstimate).toFixed(2)} points** (${comparison.baselineEstimate.toFixed(2)}% → ${displayedScore}%).`
+  : ''
 const suppliedCommit = process.argv[2]
 const commit = suppliedCommit?.trim()
 if (commit && !/^[a-f0-9]{7,40}$/i.test(commit)) throw new Error('Progress source commit must be a Git SHA')
@@ -37,6 +46,7 @@ const sourceStamp = commit ? `pushed commit \`${commit.slice(0, 7)}\`` : 'the cu
 const generated = [
   startMarker,
   `<progress value="${displayedScore}" max="100">${displayedScore}%</progress> <strong>${displayedScore}%</strong> — weighted estimate **${score.toFixed(2)}%**.`,
+  ...(comparisonLine ? [comparisonLine] : []),
   `Refreshed from ${sourceStamp}. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.`,
   endMarker,
 ].join('\n')
