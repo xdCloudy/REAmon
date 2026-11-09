@@ -4,7 +4,7 @@ import { describe, expect, test, vi, beforeEach } from 'vitest'
 const mocks = vi.hoisted(() => ({
   workspaceImportFindFirst: vi.fn(),
   requireEffectiveUser: vi.fn(),
-  requireProjectAccess: vi.fn(),
+  requireProjectAccessStrict: vi.fn(),
   resolveServerSourceArtifact: vi.fn(),
   commitArtifactFromPath: vi.fn(),
 }))
@@ -14,7 +14,7 @@ vi.mock('@/lib/prisma', () => ({
 }))
 vi.mock('@/lib/access', () => ({
   requireEffectiveUser: mocks.requireEffectiveUser,
-  requireProjectAccess: mocks.requireProjectAccess,
+  requireProjectAccessStrict: mocks.requireProjectAccessStrict,
 }))
 vi.mock('@/lib/reamon/server-import', () => ({
   SERVER_DIRECTORY_SOURCE_TYPE: 'SERVER_DIRECTORY',
@@ -42,7 +42,7 @@ function serverRequest(relativePath: string): Request {
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.requireEffectiveUser.mockResolvedValue({ userId: 'user-1' })
-  mocks.requireProjectAccess.mockResolvedValue({ project: { id: 'project-1', userId: 'user-1' } })
+  mocks.requireProjectAccessStrict.mockResolvedValue({ project: { id: 'project-1', userId: 'user-1' } })
   mocks.workspaceImportFindFirst.mockResolvedValue({
     id: 'import-1', projectId: 'project-1', status: 'PENDING',
     sourceType: 'SERVER_DIRECTORY', metadata: { serverSourcePath: '/source' },
@@ -56,6 +56,42 @@ beforeEach(() => {
 })
 
 describe('POST /api/projects/[id]/imports/[importId]/artifacts', () => {
+  test('allows an empty HTTP body stream for a server-mounted import', async () => {
+    const request = new Request('http://localhost/api/projects/project-1/imports/import-1/artifacts?relativePath=bin%2Fapp.exe', {
+      method: 'POST', body: '',
+    })
+
+    const response = await POST(request, params())
+
+    expect(response.status).toBe(201)
+    expect(mocks.commitArtifactFromPath).toHaveBeenCalledOnce()
+  })
+
+  test('rejects actual request bytes before reading the import or source file', async () => {
+    const request = new Request('http://localhost/api/projects/project-1/imports/import-1/artifacts?relativePath=bin%2Fapp.exe', {
+      method: 'POST', body: 'unexpected bytes',
+    })
+
+    const response = await POST(request, params())
+
+    expect(response.status).toBe(400)
+    expect(mocks.workspaceImportFindFirst).toHaveBeenCalledOnce()
+    expect(mocks.resolveServerSourceArtifact).not.toHaveBeenCalled()
+    expect(mocks.commitArtifactFromPath).not.toHaveBeenCalled()
+  })
+
+  test('denies foreign project access before reading import metadata or source files', async () => {
+    const { NextResponse } = await import('next/server')
+    mocks.requireProjectAccessStrict.mockResolvedValueOnce(NextResponse.json({ error: 'Not found' }, { status: 404 }))
+
+    const response = await POST(serverRequest('bin/app.exe'), params())
+
+    expect(response.status).toBe(404)
+    expect(mocks.workspaceImportFindFirst).not.toHaveBeenCalled()
+    expect(mocks.resolveServerSourceArtifact).not.toHaveBeenCalled()
+    expect(mocks.commitArtifactFromPath).not.toHaveBeenCalled()
+  })
+
   test('imports a server-mounted artifact by manifest path', async () => {
     const response = await POST(serverRequest('bin/app.exe'), params())
 
