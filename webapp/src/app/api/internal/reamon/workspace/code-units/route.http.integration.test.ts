@@ -120,7 +120,7 @@ async function stopServer(child: ChildProcess | null) {
   }
 }
 
-async function startNextServer(activeKey: string, previousKeys = ''): Promise<{ child: ChildProcess; baseUrl: string }> {
+async function startNextServer(activeKey: string, previousKeys = '', databaseUrl = process.env.DATABASE_URL): Promise<{ child: ChildProcess; baseUrl: string }> {
   const port = await availablePort()
   const child = spawn(process.execPath, [
     './node_modules/next/dist/bin/next', 'dev', '--hostname', '127.0.0.1', '--port', String(port),
@@ -135,6 +135,7 @@ async function startNextServer(activeKey: string, previousKeys = ''): Promise<{ 
       INTERNAL_KEY_ALLOWLIST_ENFORCE: 'false',
       ACCESS_ENFORCE: '0',
       AUTH_SECRET: 'integration-http-auth-secret',
+      ...(databaseUrl !== undefined ? { DATABASE_URL: databaseUrl } : {}),
     },
   })
   const baseUrl = `http://127.0.0.1:${port}`
@@ -328,6 +329,27 @@ describe.skipIf(!HAS_DB)('agent code-unit and relationship HTTP paging across Ne
       expect(relationships.status).toBe(503)
       expect(relationships.headers.get('cache-control')).toBe('private, no-store')
       expect(await relationships.json()).toMatchObject({ error: { code: 'cursor_unavailable' } })
+    } finally {
+      await stopServer(server)
+    }
+  }, 180_000)
+
+  test('returns server errors without workspace data when the browser paging database is unreachable', async () => {
+    let server: ChildProcess | null = null
+    try {
+      const unreachableDatabase = 'postgresql://unavailable:unavailable@127.0.0.1:1/rea_test?connect_timeout=1'
+      const running = await startNextServer(INITIAL_KEY, '', unreachableDatabase)
+      server = running.child
+      const headers = { Cookie: `${AUTH_COOKIE_NAME}=${ownerSession}` }
+      const units = await fetch(`${running.baseUrl}/api/projects/${projectId}/workspace/code-units?taskId=${taskId}&limit=1`, { headers })
+      expect(units.status).toBe(500)
+      expect(units.headers.get('cache-control')).toBe('private, no-store')
+      expect(await units.json()).toEqual({ error: 'Failed to list workspace code units' })
+
+      const relationships = await fetch(`${running.baseUrl}/api/projects/${projectId}/workspace/code-relationships?codeUnitId=${codeUnitId}&relationshipKind=calls&direction=outgoing&limit=1`, { headers })
+      expect(relationships.status).toBe(500)
+      expect(relationships.headers.get('cache-control')).toBe('private, no-store')
+      expect(await relationships.json()).toEqual({ error: 'Failed to list workspace code relationships' })
     } finally {
       await stopServer(server)
     }
