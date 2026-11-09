@@ -222,11 +222,12 @@ COPY agentic/requirements-kb.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Keep the grammars used by the core source-analysis paths inside the image.
-# tree-sitter-language-pack downloads parsers on first use; prewarming here
-# prevents transient GitHub release failures from disabling Python, Java, or
-# Kotlin parsing after the container has started.
+# tree-sitter-language-pack downloads parsers on first use. Populate its pinned
+# full parser cache here so runtime parsing never depends on release downloads.
 ENV REAMON_TREE_SITTER_CACHE_DIR=/opt/reamon/tree-sitter-cache
-RUN retry python -c "from tree_sitter_language_pack import PackConfig, init; init(PackConfig(cache_dir='/opt/reamon/tree-sitter-cache', languages=['java', 'kotlin', 'python']))" \
+COPY agentic/tooling/prefetch_tree_sitter_parsers.py /tmp/prefetch_tree_sitter_parsers.py
+RUN retry python /tmp/prefetch_tree_sitter_parsers.py \
+    && rm /tmp/prefetch_tree_sitter_parsers.py \
     && chmod -R go-rwx /opt/reamon/tree-sitter-cache
 
 # Install uv (~10 MB) for stdio Python-ecosystem MCP servers (`uvx mcp-...`).
