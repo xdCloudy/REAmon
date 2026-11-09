@@ -82,6 +82,34 @@ run the fixture or independently prove that a measurement command produced the
 values. A clean paired comparison still requires an evaluation harness that
 produces those evidence files from the pinned artifact and REAmon services.
 
+The PostgreSQL integration test can emit its measured portion of the evidence
+when `REAMON_BENCHMARK_EVIDENCE_PATH` points to a new output file. Set
+`REAMON_BENCHMARK_FIXTURE_ID` to the fixture manifest ID and enable the test
+with its existing `REAMON_RUN_DB_INTEGRATION=1` service configuration. It
+records the observed 180-module inventory and known-source value matches only
+after those assertions pass. Set `REAMON_TASK_WORKER_INTEGRATION=1` to measure
+the queued worker terminal page; otherwise that metric stays `UNAVAILABLE`.
+Runtime-oracle evidence still comes from the pinned fixture builder, and full
+reconstruction correspondence remains `UNAVAILABLE`. The complete runner must
+join those independent records and verify their artifact hashes before receipt
+creation.
+
+`tooling/benchmarks/merge_pyinstaller_evidence.py` performs that bounded join.
+It requires the builder receipt, checked-in enrollment receipt, and integration
+test evidence to agree on the fixture artifact hash, runtime output, and full
+module denominator. It marks the runtime oracle measured only after those checks;
+the end-to-end reconstruction metric remains unavailable:
+
+```powershell
+python tooling/benchmarks/merge_pyinstaller_evidence.py `
+  --fixture-manifest tooling/benchmarks/pyinstaller-module-paging/manifest.json `
+  --evaluation-manifest tooling/benchmarks/pyinstaller-module-paging/evaluation-manifest.json `
+  --build-receipt work/benchmarks/pyinstaller-module-paging/build-receipt.json `
+  --enrollment-receipt tooling/benchmarks/pyinstaller-module-paging/enrollment-receipt.json `
+  --integration-evidence work/benchmarks/pyinstaller-module-paging/integration-evidence.json `
+  --output work/benchmarks/pyinstaller-module-paging/candidate-evidence.json
+```
+
 Example from the repository root:
 
 ```powershell

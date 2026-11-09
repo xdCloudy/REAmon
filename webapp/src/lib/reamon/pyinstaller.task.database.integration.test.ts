@@ -1,12 +1,13 @@
 /** @vitest-environment node */
 import { createHash, randomUUID } from 'node:crypto'
-import { readFile, rm, stat } from 'node:fs/promises'
+import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { afterAll, beforeAll, describe, expect, test } from 'vitest'
 
 import prisma from '@/lib/prisma'
 import { ingestToolResult } from './result-ingestion'
 import { executePyInstaller } from './pyinstaller'
+import { createPyInstallerBenchmarkEvidence } from './pyinstaller.benchmark-evidence'
 import type { TargetProfile, ToolExecutionInput } from './types'
 
 const enabled = process.env.REAMON_RUN_DB_INTEGRATION === '1'
@@ -43,6 +44,10 @@ describeDatabase('PyInstaller continuation with PostgreSQL observation persisten
   let projectCreated = false
   let providerCreated = false
   let userCreated = false
+  let fixtureSha256 = ''
+  let directEvidence: { extractedModuleCount: number; knownSourceMatchedCount: number } | undefined
+  let workerReachedTerminalPage = false
+  const benchmarkEvidencePath = process.env.REAMON_BENCHMARK_EVIDENCE_PATH?.trim()
 
   beforeAll(async () => {
     const absoluteFixture = path.resolve(fixturePath)
@@ -52,6 +57,7 @@ describeDatabase('PyInstaller continuation with PostgreSQL observation persisten
     const fixture = await readFile(absoluteFixture)
     const fixtureStat = await stat(absoluteFixture)
     const sha256 = createHash('sha256').update(fixture).digest('hex')
+    fixtureSha256 = sha256
 
     await prisma.user.create({ data: { id: userId, name: 'PyInstaller DB test', email: `${suffix}@example.invalid` } })
     userCreated = true
@@ -97,6 +103,19 @@ describeDatabase('PyInstaller continuation with PostgreSQL observation persisten
       if (artifactCreated) await prisma.artifact.deleteMany({ where: { id: artifactId } })
       if (providerCreated) await prisma.reamonProvider.deleteMany({ where: { id: providerId } })
       if (userCreated) await prisma.user.deleteMany({ where: { id: userId } })
+      if (benchmarkEvidencePath && directEvidence) {
+        const evidence = createPyInstallerBenchmarkEvidence({
+          fixtureId: process.env.REAMON_BENCHMARK_FIXTURE_ID || 'pyinstaller-module-paging-linux-amd64',
+          artifactSha256: fixtureSha256,
+          ...directEvidence,
+          workerTerminalPage: workerReachedTerminalPage,
+        })
+        await mkdir(path.dirname(path.resolve(benchmarkEvidencePath)), { recursive: true })
+        await writeFile(path.resolve(benchmarkEvidencePath), `${JSON.stringify(evidence, null, 2)}\n`, {
+          encoding: 'utf8',
+          flag: 'wx',
+        })
+      }
     } finally {
       await Promise.all([
         rm(path.join(derivedRoot, projectId), { recursive: true, force: true }),
@@ -166,6 +185,7 @@ describeDatabase('PyInstaller continuation with PostgreSQL observation persisten
       key: row.stableKey,
       attributes: row.attributes as Record<string, unknown>,
     })).filter(({ attributes }) => attributes.sourceExecutableSha256)
+    expect(moduleRows).toHaveLength(180)
     const persistedIndexes = new Set(moduleRows.map(({ attributes }) => attributes.pyinstallerModuleIndex))
     expect(persistedIndexes.has(0)).toBe(true)
     expect(persistedIndexes.has(63)).toBe(true)
@@ -176,6 +196,7 @@ describeDatabase('PyInstaller continuation with PostgreSQL observation persisten
     expect(moduleRows.some(({ attributes }) => attributes.pyinstallerModuleIndex === 64
       && attributes.pyinstallerDecompilationAttempted === true)).toBe(true)
 
+    let knownSourceMatchedCount = 0
     for (let moduleValue = 1; moduleValue <= 70; moduleValue += 1) {
       const moduleName = `module_${String(moduleValue - 1).padStart(3, '0')}`
       const knownModule = moduleRows.find(({ attributes }) => attributes.pyinstallerArchivePath === `PYZ.pyz_extracted/paging_fixture/${moduleName}.pyc`)
@@ -187,6 +208,7 @@ describeDatabase('PyInstaller continuation with PostgreSQL observation persisten
       expect(knownSourcePath.startsWith(`${derivedRoot}${path.sep}`)).toBe(true)
       const knownSourceText = await readFile(knownSourcePath, 'utf8')
       expect(knownSourceText).toMatch(new RegExp(`\\bVALUE\\s*=\\s*${moduleValue}\\b`))
+      knownSourceMatchedCount += 1
     }
 
     const recovered = moduleRows.find(({ attributes }) => attributes.decompiled === true && typeof attributes.codeArtifactId === 'string')
@@ -196,6 +218,7 @@ describeDatabase('PyInstaller continuation with PostgreSQL observation persisten
     expect(sourcePath.startsWith(`${derivedRoot}${path.sep}`)).toBe(true)
     const source = await readFile(sourcePath, 'utf8')
     expect(source.trim().length).toBeGreaterThan(0)
+    directEvidence = { extractedModuleCount: moduleRows.length, knownSourceMatchedCount }
   }, 30 * 60_000)
 
   test.skipIf(!runWorkerIntegration)('completes a queued PyInstaller task through the live worker', async ({ skip }) => {
@@ -242,5 +265,6 @@ describeDatabase('PyInstaller continuation with PostgreSQL observation persisten
     const sourcePath = path.resolve(derivedRoot, ...(codeArtifactId as string).replaceAll('\\', '/').split('/'))
     expect(sourcePath.startsWith(`${derivedRoot}${path.sep}`)).toBe(true)
     expect((await readFile(sourcePath, 'utf8')).trim().length).toBeGreaterThan(0)
+    workerReachedTerminalPage = true
   }, 6 * 60_000)
 })
