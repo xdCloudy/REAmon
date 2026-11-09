@@ -1,5 +1,5 @@
 /** Shared bounded reads for durable, project-scoped REAmon evidence records. */
-import { createHash } from 'node:crypto'
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto'
 import prisma from '@/lib/prisma'
 
 export const WORKSPACE_EVIDENCE_DEFAULT_LIMIT = 25
@@ -7,7 +7,7 @@ export const WORKSPACE_EVIDENCE_MAX_LIMIT = 50
 export const WORKSPACE_EVIDENCE_PAGE_BYTES = 128 * 1024
 export const WORKSPACE_EVIDENCE_MAX_DETAIL_BYTES = 32 * 1024 * 1024
 
-export type WorkspaceEvidenceErrorCode = 'invalid_input' | 'not_found' | 'stale_evidence' | 'too_large'
+export type WorkspaceEvidenceErrorCode = 'invalid_input' | 'not_found' | 'stale_evidence' | 'stale_snapshot' | 'cursor_unavailable' | 'too_large'
 
 export class WorkspaceEvidenceError extends Error {
   constructor(message: string, public code: WorkspaceEvidenceErrorCode) {
@@ -31,29 +31,62 @@ export interface WorkspaceGetEvidenceArgs {
 }
 
 type EvidenceCursor = {
+  version: 1
   projectId: string
   artifactId: string | null
+  snapshotAt: string
+  snapshotTotal: number
+  expiresAt: number
   createdAt: string
   id: string
 }
 
+const EVIDENCE_CURSOR_TTL_MS = 7 * 24 * 60 * 60 * 1000
+const MAX_EVIDENCE_CURSOR_LENGTH = 512
+
+function evidenceCursorSigningKey() {
+  const key = process.env.INTERNAL_API_KEY
+  if (!key || key === 'changeme') {
+    throw new WorkspaceEvidenceError('Stable evidence paging is unavailable because cursor signing is not configured.', 'cursor_unavailable')
+  }
+  return key
+}
+
 function encodeCursor(value: EvidenceCursor) {
-  return Buffer.from(JSON.stringify(value)).toString('base64url')
+  const payload = Buffer.from(JSON.stringify(value)).toString('base64url')
+  const signature = createHmac('sha256', evidenceCursorSigningKey()).update(payload).digest('base64url')
+  return `${payload}.${signature}`
 }
 
 function decodeCursor(value: string, projectId: string, artifactId: string | undefined): EvidenceCursor {
-  if (value.length > 512 || !/^[A-Za-z0-9_-]+$/.test(value)) {
+  if (value.length > MAX_EVIDENCE_CURSOR_LENGTH || !/^[A-Za-z0-9_.-]+$/.test(value)) {
     throw new WorkspaceEvidenceError('Invalid evidence cursor.', 'invalid_input')
   }
   try {
-    const parsed = JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as Partial<EvidenceCursor>
-    if (parsed.projectId !== projectId || parsed.artifactId !== (artifactId || null)
+    const [payload, suppliedSignature, ...extra] = value.split('.')
+    if (extra.length || !payload || !suppliedSignature) {
+      throw new WorkspaceEvidenceError('This evidence cursor predates signed paging. Restart without a cursor.', 'stale_snapshot')
+    }
+    const expectedSignature = createHmac('sha256', evidenceCursorSigningKey()).update(payload).digest()
+    const signature = Buffer.from(suppliedSignature, 'base64url')
+    if (signature.length !== expectedSignature.length || !timingSafeEqual(signature, expectedSignature)) {
+      throw new WorkspaceEvidenceError('Evidence cursor integrity check failed. Restart without a cursor.', 'stale_snapshot')
+    }
+    const parsed = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as Partial<EvidenceCursor>
+    if (parsed.version !== 1 || parsed.projectId !== projectId || parsed.artifactId !== (artifactId || null)
       || typeof parsed.id !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(parsed.id)
-      || typeof parsed.createdAt !== 'string' || !Number.isFinite(Date.parse(parsed.createdAt))) {
+      || typeof parsed.createdAt !== 'string' || !Number.isFinite(Date.parse(parsed.createdAt))
+      || typeof parsed.snapshotAt !== 'string' || !Number.isFinite(Date.parse(parsed.snapshotAt))
+      || !Number.isSafeInteger(parsed.snapshotTotal) || (parsed.snapshotTotal as number) < 0
+      || !Number.isSafeInteger(parsed.expiresAt)) {
       throw new Error('cursor fields do not match')
     }
+    if ((parsed.expiresAt as number) <= Date.now()) {
+      throw new WorkspaceEvidenceError('Evidence cursor expired. Restart without a cursor.', 'stale_snapshot')
+    }
     return parsed as EvidenceCursor
-  } catch {
+  } catch (error) {
+    if (error instanceof WorkspaceEvidenceError) throw error
     throw new WorkspaceEvidenceError('Invalid or mismatched evidence cursor.', 'invalid_input')
   }
 }
@@ -82,16 +115,30 @@ function pageUtf8(bytes: Buffer, offsetBytes: number) {
 
 export async function listPersistedWorkspaceEvidence(args: WorkspaceListEvidenceArgs) {
   if (args.artifactId && args.artifactId.length > 64) throw new WorkspaceEvidenceError('Invalid artifact id.', 'invalid_input')
-  if (args.cursor && args.cursor.length > 512) throw new WorkspaceEvidenceError('Invalid evidence cursor.', 'invalid_input')
+  if (args.cursor && args.cursor.length > MAX_EVIDENCE_CURSOR_LENGTH) throw new WorkspaceEvidenceError('Invalid evidence cursor.', 'invalid_input')
   if (args.limit != null && (!Number.isSafeInteger(args.limit) || args.limit < 1 || args.limit > WORKSPACE_EVIDENCE_MAX_LIMIT)) {
     throw new WorkspaceEvidenceError(`limit must be an integer between 1 and ${WORKSPACE_EVIDENCE_MAX_LIMIT}.`, 'invalid_input')
   }
   const limit = args.limit ?? WORKSPACE_EVIDENCE_DEFAULT_LIMIT
   const baseWhere = { projectId: args.projectId, ...(args.artifactId ? { artifactId: args.artifactId } : {}) }
   const cursor = args.cursor ? decodeCursor(args.cursor, args.projectId, args.artifactId) : null
+  const snapshotAt = cursor ? new Date(cursor.snapshotAt) : new Date()
+  const snapshotWhere = { ...baseWhere, createdAt: { lte: snapshotAt } }
+  if (cursor) {
+    const [snapshotTotal, anchor] = await Promise.all([
+      prisma.evidence.count({ where: snapshotWhere }),
+      prisma.evidence.findFirst({
+        where: { ...snapshotWhere, id: cursor.id },
+        select: { id: true, createdAt: true },
+      }),
+    ])
+    if (snapshotTotal !== cursor.snapshotTotal || !anchor || anchor.createdAt.toISOString() !== cursor.createdAt) {
+      throw new WorkspaceEvidenceError('Evidence changed while paging. Restart with cursor omitted.', 'stale_snapshot')
+    }
+  }
   const where = cursor
     ? {
-        ...baseWhere,
+        ...snapshotWhere,
         OR: [
           { createdAt: { lt: new Date(cursor.createdAt) } },
           { createdAt: new Date(cursor.createdAt), id: { lt: cursor.id } },
@@ -105,13 +152,22 @@ export async function listPersistedWorkspaceEvidence(args: WorkspaceListEvidence
       take: limit + 1,
       select: { id: true, targetId: true, artifactId: true, kind: true, summary: true, source: true, createdAt: true },
     }),
-    prisma.evidence.count({ where: baseWhere }),
+    prisma.evidence.count({ where: snapshotWhere }),
   ])
   const hasMore = rows.length > limit
   const visible = rows.slice(0, limit)
   const last = visible.at(-1)
   const nextCursor = hasMore && last
-    ? encodeCursor({ projectId: args.projectId, artifactId: args.artifactId || null, createdAt: last.createdAt.toISOString(), id: last.id })
+    ? encodeCursor({
+        version: 1,
+        projectId: args.projectId,
+        artifactId: args.artifactId || null,
+        snapshotAt: snapshotAt.toISOString(),
+        snapshotTotal: cursor?.snapshotTotal ?? total,
+        expiresAt: cursor?.expiresAt ?? Date.now() + EVIDENCE_CURSOR_TTL_MS,
+        createdAt: last.createdAt.toISOString(),
+        id: last.id,
+      })
     : null
 
   return {

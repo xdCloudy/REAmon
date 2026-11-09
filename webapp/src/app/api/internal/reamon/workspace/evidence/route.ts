@@ -82,7 +82,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(result, { headers: { 'Cache-Control': 'no-store' } })
   } catch (error) {
     if (error instanceof WorkspaceEvidenceError) {
-      const status = error.code === 'not_found' ? 404 : error.code === 'too_large' ? 413 : 400
+      const status = error.code === 'not_found' ? 404
+        : error.code === 'too_large' ? 413
+          : error.code === 'stale_snapshot' ? 409
+            : error.code === 'cursor_unavailable' ? 503
+              : 400
       return NextResponse.json({ error: error.message, code: error.code }, { status, headers: { 'Cache-Control': 'no-store' } })
     }
     console.error('Failed to read agent workspace evidence:', error)

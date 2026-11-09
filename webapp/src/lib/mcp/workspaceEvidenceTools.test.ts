@@ -42,6 +42,7 @@ const evidenceRow = (id: string, createdAt = new Date('2026-11-09T10:00:00.000Z'
 beforeEach(() => {
   vi.clearAllMocks()
   __resetRateLimiter()
+  vi.stubEnv('INTERNAL_API_KEY', 'workspace-evidence-cursor-test-key')
   h.findMany.mockResolvedValue([])
   h.count.mockResolvedValue(0)
   h.findFirst.mockResolvedValue(evidenceRow('evidence-1'))
@@ -63,6 +64,7 @@ describe('persisted workspace evidence MCP tools', () => {
     })
 
     h.findMany.mockResolvedValueOnce([evidenceRow('evidence-a', timestamp)])
+    h.findFirst.mockResolvedValueOnce(evidenceRow('evidence-b', timestamp))
     const second = await listWorkspaceEvidence(ctx(), {
       projectId: 'project-1', artifactId: 'artifact-1', limit: 2, cursor: first.nextCursor || undefined,
     })
@@ -74,6 +76,37 @@ describe('persisted workspace evidence MCP tools', () => {
         { createdAt: timestamp, id: { lt: 'evidence-b' } },
       ],
     })
+  })
+
+  test('rejects tampered cursors and deleted snapshot rows before returning another page', async () => {
+    const timestamp = new Date('2026-11-09T10:00:00.000Z')
+    h.findMany.mockResolvedValueOnce([evidenceRow('evidence-c', timestamp), evidenceRow('evidence-b', timestamp), evidenceRow('evidence-a', timestamp)])
+    h.count.mockResolvedValue(3)
+    const first = await listWorkspaceEvidence(ctx(), { projectId: 'project-1', artifactId: 'artifact-1', limit: 2 })
+    const cursor = first.nextCursor as string
+    const [payload, signature] = cursor.split('.')
+    const tamperedSignature = `${signature.slice(0, 8)}${signature[8] === 'A' ? 'B' : 'A'}${signature.slice(9)}`
+
+    await expect(listWorkspaceEvidence(ctx(), {
+      projectId: 'project-1', artifactId: 'artifact-1', cursor: `${payload}.${tamperedSignature}`,
+    })).rejects.toMatchObject({ code: 'stale_snapshot' })
+    expect(h.findMany).toHaveBeenCalledTimes(1)
+
+    h.count.mockResolvedValue(2)
+    h.findFirst.mockResolvedValueOnce(evidenceRow('evidence-b', timestamp))
+    await expect(listWorkspaceEvidence(ctx(), {
+      projectId: 'project-1', artifactId: 'artifact-1', cursor,
+    })).rejects.toMatchObject({ code: 'stale_snapshot' })
+    expect(h.findMany).toHaveBeenCalledTimes(1)
+  })
+
+  test('fails closed when signing is unavailable and a continuation cursor is needed', async () => {
+    vi.stubEnv('INTERNAL_API_KEY', 'changeme')
+    h.findMany.mockResolvedValueOnce(Array.from({ length: 26 }, (_, index) => evidenceRow(`evidence-${index}`)))
+    h.count.mockResolvedValue(26)
+
+    await expect(listWorkspaceEvidence(ctx(), { projectId: 'project-1' }))
+      .rejects.toMatchObject({ code: 'cursor_unavailable' })
   })
 
   test('refuses a cursor from another project or filter before querying evidence', async () => {

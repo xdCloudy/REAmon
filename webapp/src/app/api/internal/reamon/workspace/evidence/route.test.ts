@@ -1,6 +1,7 @@
 /** @vitest-environment node */
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { signTag } from '@/lib/redamonCtx'
+import { WorkspaceEvidenceError } from '@/lib/reamon/workspace-evidence'
 
 const mocks = vi.hoisted(() => ({
   internal: vi.fn(),
@@ -63,6 +64,18 @@ describe('POST /api/internal/reamon/workspace/evidence', () => {
     expect(malformed.status).toBe(400)
     expect(oversized.status).toBe(413)
     expect(mocks.projectFindFirst).not.toHaveBeenCalled()
+  })
+
+  test('maps stale snapshots to conflict and unavailable signing to service unavailable', async () => {
+    mocks.listEvidence.mockRejectedValueOnce(new WorkspaceEvidenceError('snapshot changed', 'stale_snapshot'))
+    const stale = await POST(request({ tool: 'workspace_list_evidence' }) as never)
+    expect(stale.status).toBe(409)
+    expect(await stale.json()).toMatchObject({ code: 'stale_snapshot' })
+
+    mocks.listEvidence.mockRejectedValueOnce(new WorkspaceEvidenceError('signing unavailable', 'cursor_unavailable'))
+    const unavailable = await POST(request({ tool: 'workspace_list_evidence' }) as never)
+    expect(unavailable.status).toBe(503)
+    expect(await unavailable.json()).toMatchObject({ code: 'cursor_unavailable' })
   })
 
   test('uses project scope from the signed context for hash-paged details', async () => {

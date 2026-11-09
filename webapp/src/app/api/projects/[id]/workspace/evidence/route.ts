@@ -7,9 +7,10 @@ interface RouteParams { params: Promise<{ id: string }> }
 function errorResponse(error: unknown) {
   if (error instanceof WorkspaceEvidenceError) {
     const status = error.code === 'not_found' ? 404
-      : error.code === 'stale_evidence' ? 409
-        : error.code === 'too_large' ? 413
-          : 400
+      : error.code === 'stale_evidence' || error.code === 'stale_snapshot' ? 409
+        : error.code === 'cursor_unavailable' ? 503
+          : error.code === 'too_large' ? 413
+            : 400
     return NextResponse.json({ error: { code: error.code, message: error.message } }, {
       status,
       headers: { 'Cache-Control': 'private, no-store' },
