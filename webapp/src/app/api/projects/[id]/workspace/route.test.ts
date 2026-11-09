@@ -1,16 +1,17 @@
 /** @vitest-environment node */
 import { beforeEach, describe, expect, test, vi } from 'vitest'
+import { NextResponse } from 'next/server'
 
 const mocks = vi.hoisted(() => ({
   getWorkspaceSnapshot: vi.fn(),
   requireEffectiveUser: vi.fn(),
-  requireProjectAccess: vi.fn(),
+  requireProjectAccessStrict: vi.fn(),
 }))
 
 vi.mock('@/lib/reamon/workspace', () => ({ getWorkspaceSnapshot: mocks.getWorkspaceSnapshot }))
 vi.mock('@/lib/access', () => ({
   requireEffectiveUser: mocks.requireEffectiveUser,
-  requireProjectAccess: mocks.requireProjectAccess,
+  requireProjectAccessStrict: mocks.requireProjectAccessStrict,
 }))
 
 import { GET } from './route'
@@ -20,7 +21,7 @@ const params = { params: Promise.resolve({ id: 'project-1' }) }
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.requireEffectiveUser.mockResolvedValue({ userId: 'user-1' })
-  mocks.requireProjectAccess.mockResolvedValue({ project: { id: 'project-1', userId: 'user-1' } })
+  mocks.requireProjectAccessStrict.mockResolvedValue({ project: { id: 'project-1', userId: 'user-1' } })
   mocks.getWorkspaceSnapshot.mockResolvedValue({
     workspace: { id: 'project-1', name: 'QA workspace' },
     workers: [{ workerId: 'other-project-worker', lastError: 'private task error from another project' }],
@@ -39,10 +40,20 @@ describe('GET /api/projects/[id]/workspace', () => {
     expect(body).not.toContain('private task error from another project')
   })
 
-  test('checks project access before reading its workspace snapshot', async () => {
+  test('requires strict ownership before reading its workspace snapshot', async () => {
     await GET(new Request('http://localhost/api/projects/project-1/workspace'), params)
 
-    expect(mocks.requireProjectAccess).toHaveBeenCalledWith({ userId: 'user-1' }, 'project-1')
+    expect(mocks.requireProjectAccessStrict).toHaveBeenCalledWith({ userId: 'user-1' }, 'project-1')
     expect(mocks.getWorkspaceSnapshot).toHaveBeenCalledWith('project-1')
+  })
+
+  test('does not query the workspace for a foreign owner', async () => {
+    const denied = NextResponse.json({ error: 'Not found' }, { status: 404 })
+    mocks.requireProjectAccessStrict.mockResolvedValue(denied)
+
+    const response = await GET(new Request('http://localhost/api/projects/project-1/workspace'), params)
+
+    expect(response).toBe(denied)
+    expect(mocks.getWorkspaceSnapshot).not.toHaveBeenCalled()
   })
 })

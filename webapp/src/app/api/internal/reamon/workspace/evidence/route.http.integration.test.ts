@@ -197,6 +197,12 @@ describe.skipIf(!HAS_DB)('agent Evidence HTTP paging across Next.js restart', ()
         headers: { Cookie: `${AUTH_COOKIE_NAME}=${foreignSessionCookie}` },
       })
       expect(foreignWorkspaceArtifactResponse.status).toBe(404)
+      const anonymousWorkspaceSnapshotResponse = await fetch(`${first.baseUrl}/api/projects/${projectId}/workspace`)
+      expect(anonymousWorkspaceSnapshotResponse.status).toBe(401)
+      const foreignWorkspaceSnapshotResponse = await fetch(`${first.baseUrl}/api/projects/${projectId}/workspace`, {
+        headers: { Cookie: `${AUTH_COOKIE_NAME}=${foreignSessionCookie}` },
+      })
+      expect(foreignWorkspaceSnapshotResponse.status).toBe(404)
       const ownerWorkspaceFilesResponse = await fetch(workspaceFilesUrl, {
         headers: { Cookie: `${AUTH_COOKIE_NAME}=${sessionCookie}` },
       })

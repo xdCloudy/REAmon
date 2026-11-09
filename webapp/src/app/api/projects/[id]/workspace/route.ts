@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getWorkspaceSnapshot } from '@/lib/reamon/workspace'
-import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
+import { requireEffectiveUser, requireProjectAccessStrict } from '@/lib/access'
 
 interface RouteParams {
   params: Promise<{ id: string }>
@@ -11,7 +11,7 @@ export async function GET(_request: Request, { params }: RouteParams) {
     const { id } = await params
     const effectiveUser = await requireEffectiveUser()
     if (effectiveUser instanceof NextResponse) return effectiveUser
-    const access = await requireProjectAccess(effectiveUser, id)
+    const access = await requireProjectAccessStrict(effectiveUser, id)
     if (access instanceof NextResponse) return access
 
     const snapshot = await getWorkspaceSnapshot(id)
