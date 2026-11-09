@@ -104,6 +104,10 @@ and spacing around punctuation. It can compare
 multi-line expected modules with functions and control flow, but that capability
 does not change the v2 score: only the 70 single-assignment modules in its
 manifest are measured until a richer fixture and evaluation contract are added.
+Its comparator regression test includes observed pycdc 0.6.0 output from
+CPython 3.12 bytecode with functions, branches, loops, exception handling, and
+formatted strings; this sample validates the matcher and is not a paired
+reconstruction measurement.
 
 `tooling/benchmarks/run_pyinstaller_pair.py` packages measured baseline and
 candidate evidence in one command. It merges each side against the same build

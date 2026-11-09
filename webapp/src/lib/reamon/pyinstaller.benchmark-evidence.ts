@@ -63,7 +63,7 @@ function normalizePyInstallerSource(source: string): string {
     }
 
     const delimiter = source.startsWith(character.repeat(3), index) ? character.repeat(3) : character
-    normalized += delimiter
+    normalized += '\u0000S'
     atLineStart = false
     index += delimiter.length
     while (index < source.length) {
@@ -77,7 +77,7 @@ function normalizePyInstallerSource(source: string): string {
         continue
       }
       if (source.startsWith(delimiter, index)) {
-        normalized += delimiter
+        normalized += '\u0000E'
         index += delimiter.length
         break
       }

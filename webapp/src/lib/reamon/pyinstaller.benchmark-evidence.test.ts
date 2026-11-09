@@ -68,8 +68,53 @@ describe('PyInstaller benchmark evidence', () => {
     expect(matchesPyInstallerSource(recovered, expected)).toBe(true)
     expect(matchesPyInstallerSource(recovered.replace('value<0', 'value<=0'), expected)).toBe(false)
     expect(matchesPyInstallerSource('LABEL = "a# b"', 'LABEL = "a # b"')).toBe(false)
+    expect(matchesPyInstallerSource('LABEL = "same"', "LABEL = 'same'")).toBe(true)
     expect(matchesPyInstallerSource('VALUE = 1\n+ 2', 'VALUE = 1 + 2')).toBe(false)
     expect(matchesPyInstallerSource('def f():\n    returnvalue', 'def f():\n    return value')).toBe(false)
     expect(matchesPyInstallerSource('def f():\n        return 1', 'def f():\n    return 1')).toBe(false)
+  })
+
+  it('matches control flow from the pinned pycdc output without erasing string changes', () => {
+    const expected = [
+      'def normalize_items(items):',
+      '    result = []',
+      '    for item in items:',
+      '        if item is not None:',
+      '            result.append(str(item).strip().lower())',
+      '    return result',
+      '',
+      'def classify(value):',
+      '    try:',
+      '        score = int(value)',
+      '    except (TypeError, ValueError):',
+      '        return "invalid"',
+      '    if score < 0:',
+      '        return f"negative:{-score}"',
+      '    if score == 0:',
+      '        return "zero"',
+      '    return "positive"',
+    ].join('\n')
+    const recovered = [
+      'def normalize_items(items):',
+      '    result = []',
+      '    for item in items:',
+      '        if item is not None:',
+      '            result.append(str(item).strip().lower())',
+      '    return result',
+      '',
+      'def classify(value):',
+      '    try:',
+      '        score = int(value)',
+      '    except (TypeError, ValueError):',
+      "        return 'invalid'",
+      '    if score < 0:',
+      '        return f"negative:{-score}"',
+      '    if score == 0:',
+      "        return 'zero'",
+      "    return 'positive'",
+    ].join('\n')
+
+    expect(matchesPyInstallerSource(recovered, expected)).toBe(true)
+    expect(matchesPyInstallerSource(recovered.replace("'invalid'", "'not invalid'"), expected)).toBe(false)
   })
 })
