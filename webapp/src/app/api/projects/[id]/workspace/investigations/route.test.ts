@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server'
 
 const mocks = vi.hoisted(() => ({
   requireEffectiveUser: vi.fn(),
-  requireProjectAccess: vi.fn(),
+  requireProjectAccessStrict: vi.fn(),
   investigationFindFirst: vi.fn(),
   investigationFindMany: vi.fn(),
   codeAttemptFindMany: vi.fn(),
@@ -17,7 +17,7 @@ vi.mock('@/lib/prisma', () => ({
 }))
 vi.mock('@/lib/access', () => ({
   requireEffectiveUser: mocks.requireEffectiveUser,
-  requireProjectAccess: mocks.requireProjectAccess,
+  requireProjectAccessStrict: mocks.requireProjectAccessStrict,
 }))
 
 import { GET } from './route'
@@ -28,7 +28,7 @@ describe('/api/projects/[id]/workspace/investigations', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.requireEffectiveUser.mockResolvedValue({ userId: 'user-1' })
-    mocks.requireProjectAccess.mockResolvedValue({ projectId: 'project-1' })
+    mocks.requireProjectAccessStrict.mockResolvedValue({ projectId: 'project-1' })
     mocks.investigationFindFirst.mockResolvedValue({ id: 'case-7' })
     mocks.investigationFindMany.mockResolvedValue([])
     mocks.codeAttemptFindMany.mockResolvedValue([])
@@ -136,11 +136,12 @@ describe('/api/projects/[id]/workspace/investigations', () => {
   })
 
   test('does not list cases when the user lacks project access', async () => {
-    mocks.requireProjectAccess.mockResolvedValue(new NextResponse('Not found', { status: 404 }))
+    mocks.requireProjectAccessStrict.mockResolvedValue(new NextResponse('Not found', { status: 404 }))
 
     const response = await GET(new Request('http://local'), { params })
 
     expect(response.status).toBe(404)
+    expect(mocks.requireProjectAccessStrict).toHaveBeenCalledWith({ userId: 'user-1' }, 'project-1')
     expect(mocks.investigationFindMany).not.toHaveBeenCalled()
   })
 })
