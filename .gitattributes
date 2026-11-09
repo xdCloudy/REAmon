@@ -11,3 +11,5 @@ webapp/src/lib/reconSettings/registry.json text eol=lf
 # Never EOL-convert binaries: the bundled incident-intel seed is sha256-pinned,
 # so a converted copy would be refused and the offline fallback lost.
 *.gz binary
+# Benchmark JSON is provenance-hashed; keep checkout bytes stable across platforms.
+tooling/benchmarks/**/*.json text eol=lf
