@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({
   activityCreate: vi.fn(),
   removeStagedImport: vi.fn(),
   requireEffectiveUser: vi.fn(),
-  requireProjectAccess: vi.fn(),
+  requireProjectAccessStrict: vi.fn(),
 }))
 
 vi.mock('@/lib/prisma', () => ({
@@ -20,7 +20,7 @@ vi.mock('@/lib/prisma', () => ({
 }))
 vi.mock('@/lib/access', () => ({
   requireEffectiveUser: mocks.requireEffectiveUser,
-  requireProjectAccess: mocks.requireProjectAccess,
+  requireProjectAccessStrict: mocks.requireProjectAccessStrict,
 }))
 vi.mock('@/lib/reamon/artifact-storage', () => ({
   removeStagedImport: mocks.removeStagedImport,
@@ -35,7 +35,7 @@ function params() {
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.requireEffectiveUser.mockResolvedValue({ userId: 'user-1' })
-  mocks.requireProjectAccess.mockResolvedValue({ project: { id: 'project-1', userId: 'user-1' } })
+  mocks.requireProjectAccessStrict.mockResolvedValue({ project: { id: 'project-1', userId: 'user-1' } })
   mocks.update.mockResolvedValue({ id: 'import-1', status: 'CANCELLED' })
   mocks.updateMany.mockResolvedValue({ count: 1 })
   mocks.activityCreate.mockResolvedValue({ id: 'activity-1' })
@@ -47,6 +47,21 @@ beforeEach(() => {
 })
 
 describe('POST /api/projects/[id]/imports/[importId]/cancel', () => {
+  test('denies foreign project access before reading or mutating import state or staging', async () => {
+    const { NextResponse } = await import('next/server')
+    mocks.requireProjectAccessStrict.mockResolvedValueOnce(NextResponse.json({ error: 'Not found' }, { status: 404 }))
+
+    const response = await POST(new Request('http://localhost', { method: 'POST' }), params())
+
+    expect(response.status).toBe(404)
+    expect(mocks.transaction).not.toHaveBeenCalled()
+    expect(mocks.findFirst).not.toHaveBeenCalled()
+    expect(mocks.updateMany).not.toHaveBeenCalled()
+    expect(mocks.update).not.toHaveBeenCalled()
+    expect(mocks.activityCreate).not.toHaveBeenCalled()
+    expect(mocks.removeStagedImport).not.toHaveBeenCalled()
+  })
+
   test('cancels a resumable import and records operator activity', async () => {
     mocks.findFirst.mockResolvedValue({ id: 'import-1', status: 'CANCELLING', totalFiles: 10, completedFiles: 4, rootName: 'ExampleApp' })
 
