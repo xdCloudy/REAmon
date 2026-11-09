@@ -29,9 +29,9 @@ enrollment manifest.
 The evaluation contract measures runtime, inventory, known `VALUE` recall,
 worker continuation, and complete source matches across all 70 structured
 modules. A source match requires the function and branch body as well as its
-module value. Fixture enrollment verifies only the builder oracle and extractor
-inventory; live provider persistence and paired receipts are still required
-before claiming source correspondence.
+module value. The enrolled build alone verifies only the runtime oracle and
+extractor inventory; the paired provider run below records measured persistence
+and fixture-source correspondence.
 
 Run the live direct-provider and queued-worker integration after the local
 stack is healthy. The command copies only the enrolled executable into the
@@ -50,3 +50,18 @@ overwrite evidence. For clean paired receipts, set
 `-EvidenceOutputDirectory` to a directory outside both baseline and candidate
 worktrees; otherwise the default output under `work/benchmarks/` is convenient
 for a single local run.
+
+## Paired v3 evidence — 2026-11-09
+
+[`runs/2026-11-09/paired-v3/`](runs/2026-11-09/paired-v3/README.md) records the
+baseline and candidate integration runs, merged evidence, clean receipts, and
+comparator output. Both sides used product commit
+`87203c3f408d1d574c3d49f1d6af79274f57c569`, so this validates repeatability
+and records no regression on this fixture; it does not measure an improvement
+over an earlier product revision.
+
+Both sides measured 180 extracted modules, 70/70 known module values, 70/70
+structured source matches, a passing 1/1 fixture runtime oracle, and the 1/1
+worker terminal page. These measures cover one synthetic PyInstaller 6.13.0
+Python 3.12.8 Linux fixture. They do not establish broad source fidelity,
+project reconstruction, or behavioural equivalence for other artifacts.

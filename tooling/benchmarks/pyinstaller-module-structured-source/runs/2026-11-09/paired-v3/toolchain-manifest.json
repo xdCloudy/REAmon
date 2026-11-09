@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "components": {
+    "baselineProductCommit": "87203c3f408d1d574c3d49f1d6af79274f57c569",
+    "baselineMeasurementCommit": "87203c3f408d1d574c3d49f1d6af79274f57c569",
+    "candidateSourceCommit": "87203c3f408d1d574c3d49f1d6af79274f57c569",
+    "baselineIntegrationTestImage": "sha256:a78c9be0066e80fb3452eb73a4ca774dcd5ce05212cf25fb603797984773aace",
+    "candidateIntegrationTestImage": "sha256:a78c9be0066e80fb3452eb73a4ca774dcd5ce05212cf25fb603797984773aace",
+    "fixtureBuilderImage": "sha256:b52c328dc93a8ba67053c9ab6af7a8be9030bea63b13509403894e2b7351e5f0",
+    "fixtureExtractorImage": "sha256:a297f48ccf003e120beec499615a39f144a34866ba79f78251f37c2a7d859a61",
+    "livePyInstallerServiceImage": "sha256:dfd6e00b359c5144b39510685e15faa4dbc48645b3b0f9fe5a39669e9e5a40d3",
+    "pycdcImage": "sha256:e5a9b638e836dede2bfdccac46f2649938be1219dd910e9388db2f383474b82d",
+    "taskWorkerImage": "sha256:b15bd821fc9c8f12c47ac360edbd9c87fc974e39a9fe4b7b0c981fa4e1fcf5f4",
+    "agentTestImage": "sha256:db7bd1aadd59a620756683c24f50bc8195681b160161429ce73446330e298829",
+    "fixtureManifestSha256": "ca8465e4e20c04181336a23dc9ff075bccf07e53192f47c8f7f9450f6bc63d07",
+    "evaluationManifestSha256": "771764ee156dc4398c53187f52f7e29858c72d540df6c641889759e7d625fec3",
+    "enrollmentReceiptSha256": "3adda48c0fee5681c2a327ac61491421940ed13bfdd32d97799355ba36966e8a",
+    "buildReceiptSha256": "297a2005e5ce81ae586bb49a6cb38b173ef1a20f451da41f73093153a8fcc74e",
+    "integrationTestSourceSha256": "b9408a831e49bb7aa54b89f4f08e10dadfdbb837e6166af924f1ebe688200885",
+    "benchmarkEvidenceHelperSha256": "addf45c688aedbc2f3038197e8b9847b53da47b6679722864b583ef6d4354181",
+    "benchmarkHarnessSha256": "c4ce744a069f1204701abfc89f61a7489bce3e351e50d2290e06815bce2ca462",
+    "evidenceMergerSha256": "7406153295c1321698d5365c25c8d67f4a33728ca746f4bd19b181820aea1467",
+    "receiptRecorderSha256": "a7272820e862202c50736cab66974969a3c950e410729370ae3323f6e01d9ae0",
+    "fixtureRecipeSha256": "dd6f4684764ad8bb15fdcca173d3e46184b4398eb0088f23bf8053bcd5489834",
+    "integrationRunnerSha256": "fc38d99a575e9bede809f4e0cb551656e4da5e43e02aa3295737c7048f6d1ead"
+  }
+}

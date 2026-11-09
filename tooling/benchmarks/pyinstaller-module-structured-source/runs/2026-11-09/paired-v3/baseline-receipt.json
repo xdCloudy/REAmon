@@ -1,0 +1,72 @@
+{
+  "commit": "87203c3f408d1d574c3d49f1d6af79274f57c569",
+  "components": {
+    "agentTestImage": "sha256:db7bd1aadd59a620756683c24f50bc8195681b160161429ce73446330e298829",
+    "baselineIntegrationTestImage": "sha256:a78c9be0066e80fb3452eb73a4ca774dcd5ce05212cf25fb603797984773aace",
+    "baselineMeasurementCommit": "87203c3f408d1d574c3d49f1d6af79274f57c569",
+    "baselineProductCommit": "87203c3f408d1d574c3d49f1d6af79274f57c569",
+    "benchmarkEvidenceHelperSha256": "addf45c688aedbc2f3038197e8b9847b53da47b6679722864b583ef6d4354181",
+    "benchmarkHarnessSha256": "c4ce744a069f1204701abfc89f61a7489bce3e351e50d2290e06815bce2ca462",
+    "buildReceiptSha256": "297a2005e5ce81ae586bb49a6cb38b173ef1a20f451da41f73093153a8fcc74e",
+    "candidateIntegrationTestImage": "sha256:a78c9be0066e80fb3452eb73a4ca774dcd5ce05212cf25fb603797984773aace",
+    "candidateSourceCommit": "87203c3f408d1d574c3d49f1d6af79274f57c569",
+    "enrollmentReceiptSha256": "3adda48c0fee5681c2a327ac61491421940ed13bfdd32d97799355ba36966e8a",
+    "evaluationManifestSha256": "771764ee156dc4398c53187f52f7e29858c72d540df6c641889759e7d625fec3",
+    "evidenceMergerSha256": "7406153295c1321698d5365c25c8d67f4a33728ca746f4bd19b181820aea1467",
+    "fixtureBuilderImage": "sha256:b52c328dc93a8ba67053c9ab6af7a8be9030bea63b13509403894e2b7351e5f0",
+    "fixtureExtractorImage": "sha256:a297f48ccf003e120beec499615a39f144a34866ba79f78251f37c2a7d859a61",
+    "fixtureManifestSha256": "ca8465e4e20c04181336a23dc9ff075bccf07e53192f47c8f7f9450f6bc63d07",
+    "fixtureRecipeSha256": "dd6f4684764ad8bb15fdcca173d3e46184b4398eb0088f23bf8053bcd5489834",
+    "integrationRunnerSha256": "fc38d99a575e9bede809f4e0cb551656e4da5e43e02aa3295737c7048f6d1ead",
+    "integrationTestSourceSha256": "b9408a831e49bb7aa54b89f4f08e10dadfdbb837e6166af924f1ebe688200885",
+    "livePyInstallerServiceImage": "sha256:dfd6e00b359c5144b39510685e15faa4dbc48645b3b0f9fe5a39669e9e5a40d3",
+    "pycdcImage": "sha256:e5a9b638e836dede2bfdccac46f2649938be1219dd910e9388db2f383474b82d",
+    "receiptRecorderSha256": "a7272820e862202c50736cab66974969a3c950e410729370ae3323f6e01d9ae0",
+    "taskWorkerImage": "sha256:b15bd821fc9c8f12c47ac360edbd9c87fc974e39a9fe4b7b0c981fa4e1fcf5f4"
+  },
+  "createdAtUtc": "2026-11-09T04:40:30Z",
+  "evaluationManifestSha256": "771764ee156dc4398c53187f52f7e29858c72d540df6c641889759e7d625fec3",
+  "evidenceSha256": "3c522a1635a633bf8a0da8acafc13a88706d2059dff2999989ac9c5ece86ac8e",
+  "fixtureManifestSha256": "ca8465e4e20c04181336a23dc9ff075bccf07e53192f47c8f7f9450f6bc63d07",
+  "fixtures": {
+    "pyinstaller-module-structured-source-linux-amd64": {
+      "artifactSha256": "746c550fc3324ebf285c0ee4a555ea2afb3d5b12c9c191eb2bf4f0978d263971",
+      "metrics": {
+        "extracted_module_count": {
+          "denominator": 1,
+          "direction": "equal",
+          "state": "MEASURED",
+          "value": 180
+        },
+        "known_source_value_recall": {
+          "denominator": 70,
+          "direction": "higher",
+          "state": "MEASURED",
+          "value": 70
+        },
+        "reconstruction_match": {
+          "denominator": 70,
+          "direction": "higher",
+          "state": "MEASURED",
+          "value": 70
+        },
+        "runtime_oracle": {
+          "denominator": 1,
+          "direction": "equal",
+          "state": "MEASURED",
+          "value": 1
+        },
+        "worker_terminal_page": {
+          "denominator": 1,
+          "direction": "equal",
+          "state": "MEASURED",
+          "value": 1
+        }
+      }
+    }
+  },
+  "runId": "structured-source-v3-20261109-clean-baseline",
+  "schemaVersion": 1,
+  "toolchainManifestSha256": "c57d41ccfbbea2d6156a9b886169228cd322d3597b7fdc2f6bd4118e710001a6",
+  "worktreeClean": true
+}
