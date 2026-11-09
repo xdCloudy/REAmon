@@ -1,6 +1,8 @@
 # REAmon product progress
 
-Assessment date: 2026-11-09 · Source: pushed commit `dcdf65a` · Weighted estimate: **26.9%**
+Assessment date: 2026-11-09 · Assessment source: pushed commit `dcdf65a` · Weighted estimate: **26.9%**
+
+Agent retrieval update (2026-11-09): The agent can now search persisted code units and read bounded source/provenance through a signed internal endpoint that verifies project ownership and delegates to the existing active-import readers. Phase controls, older-project defaults, ROE vocabulary, and project Tool Matrix are wired. Focused route tests (5), agent dispatch tests (5), phase gating (26), registry completeness (9), ROE vocabulary (6), webapp type-check, and Prisma validation pass. Broader restart, browser, and cross-surface live parity gates remain open, so this slice adds no weighted completion credit.
 
 This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.
 

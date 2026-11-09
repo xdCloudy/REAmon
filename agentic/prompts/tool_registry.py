@@ -174,6 +174,30 @@ TOOL_REGISTRY = {
             'from a failed or stale read; restart when the hash reports a change.'
         ),
     },
+    "workspace_list_code_units": {
+        "purpose": "Search persisted REAmon functions, methods, and classes",
+        "when_to_use": "Use when the graph or evidence index does not provide the stored source-level analysis detail you need",
+        "args_format": '"search": optional symbol/path query, "taskId": optional analysis task, "limit": optional 1-100, "offset": optional page offset',
+        "description": (
+            '**workspace_list_code_units** (persisted analysis index)\n'
+            '   - Searches functions, methods, classes, and code-unit observations already stored for the active project import. '
+            'It does not start analysis or decompilation. Each row includes an id for workspace_get_code_unit and its artifact, '
+            'provider, task, language, and symbol metadata where available. Continue with the returned offset/limit pagination; '
+            'an empty result is a real empty index, while a service error is reported as a failure.'
+        ),
+    },
+    "workspace_get_code_unit": {
+        "purpose": "Read bounded source and provenance for one persisted code unit",
+        "when_to_use": "Use after workspace_list_code_units returns a relevant function, method, or class id",
+        "args_format": '"codeUnitId": returned code unit id, "sourceOffsetBytes": optional previous source nextOffsetBytes',
+        "description": (
+            '**workspace_get_code_unit** (bounded code-unit detail)\n'
+            '   - Reads stored code, disassembly, bytecode, task/provider metadata, relationships, and reviewed or draft source '
+            'when present. Source is returned in bounded UTF-8 pages; continue with sourceOffsetBytes from the matching source '
+            'field’s nextOffsetBytes. Treat provider output as analysis evidence and saved drafts as unreviewed unless the '
+            'returned review state confirms acceptance. Reads are project-scoped and do not trigger analysis.'
+        ),
+    },
     "web_search": {
         "purpose": "Knowledge base + web search",
         "when_to_use": "Research CVEs, exploits, tool flags, methodology, priv-esc",

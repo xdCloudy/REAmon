@@ -78,6 +78,32 @@ class WorkspaceEvidenceAgentToolTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["output"], None)
         self.assertIn("service unavailable", result["error"])
 
+    async def test_code_unit_dispatch_is_signed_bounded_and_returns_persisted_rows(self):
+        response = _Response(payload={"codeUnits": [{"id": "unit-1"}], "hasMore": False})
+        client = _Client(response)
+        with patch("tools.httpx.AsyncClient", return_value=client):
+            result = await self.executor._dispatch_workspace_code_unit_tool(
+                "workspace_list_code_units", {"search": "main", "limit": 4},
+            )
+        self.assertTrue(result["success"])
+        self.assertEqual(result["output"]["codeUnits"][0]["id"], "unit-1")
+        client.post.assert_awaited_once_with(
+            "http://webapp:3000/api/internal/reamon/workspace/code-units",
+            json={"tool": "workspace_list_code_units", "search": "main", "limit": 4},
+            headers={"x-internal-key": "test-internal-key", "x-redamon-ctx": "signed-context"},
+        )
+
+    async def test_code_unit_dispatch_rejects_project_override_and_missing_signed_context(self):
+        self.executor._build_redamon_ctx.return_value = ""
+        missing = await self.executor._dispatch_workspace_code_unit_tool("workspace_get_code_unit", {"codeUnitId": "unit-1"})
+        self.assertFalse(missing["success"])
+        with patch("tools.httpx.AsyncClient") as client:
+            invalid = await self.executor._dispatch_workspace_code_unit_tool(
+                "workspace_get_code_unit", {"projectId": "attacker-project", "codeUnitId": "unit-1"},
+            )
+        self.assertFalse(invalid["success"])
+        client.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

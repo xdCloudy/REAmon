@@ -243,6 +243,8 @@ export function ToolMatrixSection({ data, updateField }: ToolMatrixSectionProps)
               { id: 'tradecraft_lookup', label: 'tradecraft_lookup' },
               { id: 'workspace_list_evidence', label: 'workspace_list_evidence' },
               { id: 'workspace_get_evidence', label: 'workspace_get_evidence' },
+              { id: 'workspace_list_code_units', label: 'workspace_list_code_units' },
+              { id: 'workspace_get_code_unit', label: 'workspace_get_code_unit' },
             ].map(tool => {
               const phaseMap = (typeof data.agentToolPhaseMap === 'string'
                 ? JSON.parse(data.agentToolPhaseMap)

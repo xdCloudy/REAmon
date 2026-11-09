@@ -2274,6 +2274,38 @@ class PhaseAwareToolExecutor:
             logger.warning("Workspace evidence request failed: %s", exc)
             return {"success": False, "output": None, "error": "Workspace evidence service unavailable; retry the read."}
 
+    async def _dispatch_workspace_code_unit_tool(self, tool_name: str, tool_args: dict) -> dict:
+        """Read bounded persisted code-unit context through the signed webapp lane."""
+        token = self._build_redamon_ctx(tool_name)
+        key = os.environ.get("INTERNAL_API_KEY", "")
+        if not token or not key:
+            return {"success": False, "output": None,
+                    "error": f"{tool_name}: no signed tenant context — cannot read project code units."}
+        args = tool_args if isinstance(tool_args, dict) else {}
+        allowed = ({"search", "taskId", "limit", "offset"} if tool_name == "workspace_list_code_units"
+                   else {"codeUnitId", "sourceOffsetBytes"})
+        if set(args) - allowed:
+            return {"success": False, "output": None, "error": "Unsupported workspace code-unit argument."}
+        url = os.environ.get("WEBAPP_API_URL", "http://webapp:3000").rstrip("/")
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(
+                    f"{url}/api/internal/reamon/workspace/code-units",
+                    json={"tool": tool_name, **args},
+                    headers={"x-internal-key": key, "x-redamon-ctx": token},
+                )
+            if response.status_code >= 400:
+                try:
+                    payload = response.json()
+                    message = payload.get("error", f"HTTP {response.status_code}") if isinstance(payload, dict) else f"HTTP {response.status_code}"
+                except Exception:
+                    message = f"HTTP {response.status_code}"
+                return {"success": False, "output": None, "error": str(message)}
+            return {"success": True, "output": response.json(), "error": None}
+        except (httpx.HTTPError, ValueError) as exc:
+            logger.warning("Workspace code-unit request failed: %s", exc)
+            return {"success": False, "output": None, "error": "Workspace code-unit service unavailable; retry the read."}
+
     async def _dispatch_fs_tool(self, tool_name: str, tool_args: dict) -> dict:
         """In-process workspace filesystem tool dispatch."""
         coro = workspace_fs.DISPATCH.get(tool_name)
@@ -2403,6 +2435,8 @@ class PhaseAwareToolExecutor:
             return await self._dispatch_job_tool(tool_name, tool_args)
         if tool_name in {"workspace_list_evidence", "workspace_get_evidence"}:
             return await self._dispatch_workspace_evidence_tool(tool_name, tool_args)
+        if tool_name in {"workspace_list_code_units", "workspace_get_code_unit"}:
+            return await self._dispatch_workspace_code_unit_tool(tool_name, tool_args)
 
         # Get the tool
         tool = self._all_tools.get(tool_name)
