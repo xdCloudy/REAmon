@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "fixtureId": "pyinstaller-module-mutated-source-control-linux-amd64",
+  "status": "fixture-enrollment-verified",
+  "sourceLicense": "MIT",
+  "target": {
+    "format": "PyInstaller one-file ELF executable",
+    "architecture": "x86_64",
+    "platform": "linux/amd64",
+    "pythonVersion": "3.12.8",
+    "pipVersion": "24.3.1",
+    "pyinstallerVersion": "6.13.0",
+    "moduleSourceCount": 70,
+    "extractedBytecodeModuleCount": 180,
+    "expectedRuntimeStdout": "2485",
+    "oracle": "Execute only in the pinned Linux build container; verify the mutated under/at-or-above branches and expected aggregate stdout"
+  },
+  "builder": {
+    "dockerfile": "Dockerfile",
+    "baseImage": "python:3.12.8-slim-bookworm@sha256:2199a62885a12290dc9c5be3ca0681d367576ab7bf037da120e564723292a2f0",
+    "dockerfileSha256": "e55d07f3c4c3596afaa03c739d468e862ab0c3cf49c8aa6168b45589aec7be4f",
+    "requirements": "requirements.txt",
+    "binutilsVersion": "2.40-2",
+    "requirementsSha256": "463bad8b281dcc8006562a46310738fb1184b41da3c0031515ec65a377a2a1be"
+  },
+  "groundTruth": {
+    "location": "build_fixture.py",
+    "sha256": "f17896e18a6dc72813bb28f68236db51c90b54bf512cbc22bdb2d530706ffa0a",
+    "licenseFile": "../pyinstaller-module-paging/LICENSE",
+    "licenseSha256": "6173399d3a79dff11064044cc994148e0bc7bc050f0d42a4e3418d36d7dc6127",
+    "hiddenFromAnalyzerInput": true
+  },
+  "artifact": {
+    "path": "pyinstaller-module-structured-source-mutated",
+    "sha256": "aecfd1df0d72809f1b09fff28fb7f29eb081b4a00eeb347164a16b4b84df610f",
+    "sizeBytes": 7271360,
+    "note": "Filled from the first pinned Docker enrollment build; the build receipt is retained and later builds do not rewrite this manifest."
+  },
+  "integration": {
+    "artifactVolumePath": "/data/qa/pyinstaller-module-mutated-source-control/fixture"
+  },
+  "extractor": {
+    "dockerfile": "../../../analyzers/pyinstaller/Dockerfile",
+    "dockerfileSha256": "db47713b717981021bc611de3b57c0fcc7bfdad76cec3197db7a0885b0686de3",
+    "serverSha256": "743f6fd876b4b722fcb54ac0409e095c77affaad4cd0a0dde4749fa691c3cd90",
+    "upstreamGoModSha256": "9a19b65469974a99ddec77fcab4b520140c00fcabf2e303fcba8f2af04b26434"
+  },
+  "acceptance": {
+    "fixtureEnrollment": "Docker build verifies the changed branch return, runtime output, and 180-module isolated extractor inventory.",
+    "sourceCorrespondence": "Live REAmon integration compares recovered sources with the changed under/at-or-above source and the original below/at-or-above oracle.",
+    "limitations": [
+      "One synthetic Linux x86_64 Python/PyInstaller fixture with one seeded return-string mutation.",
+      "The changed executable is executed only inside its pinned Docker builder.",
+      "No broad language, whole-project, symbol, type, or behavioral fidelity claim."
+    ]
+  }
+}

@@ -1,0 +1,79 @@
+{
+  "commit": "aef36478e647bef9c33eafdd3b9b87dfeb6b2536",
+  "components": {
+    "agentTestImage": "sha256:db7bd1aadd59a620756683c24f50bc8195681b160161429ce73446330e298829",
+    "baselineIntegrationTestImage": "sha256:a78c9be0066e80fb3452eb73a4ca774dcd5ce05212cf25fb603797984773aace",
+    "baselineMeasurementCommit": "aef36478e647bef9c33eafdd3b9b87dfeb6b2536",
+    "baselineProductCommit": "aef36478e647bef9c33eafdd3b9b87dfeb6b2536",
+    "benchmarkEvidenceHelperSha256": "e01cd2a8dbdc0486fb303e3c9ee527eac7dd49814986d9109b0197ab3478bf04",
+    "benchmarkEvidenceUnitTestSha256": "47e21d94835190baa53942e24746bca597c2c719aaf1aff929b13c200e04965a",
+    "benchmarkHarnessSha256": "c4ce744a069f1204701abfc89f61a7489bce3e351e50d2290e06815bce2ca462",
+    "buildReceiptSha256": "9f8bca11c6e654d8ce2b9f31588317beb07c6d1d7678a7466305964cfbd1f50c",
+    "candidateIntegrationTestImage": "sha256:a78c9be0066e80fb3452eb73a4ca774dcd5ce05212cf25fb603797984773aace",
+    "candidateSourceCommit": "aef36478e647bef9c33eafdd3b9b87dfeb6b2536",
+    "enrollmentReceiptSha256": "d6a0e08b1c5515359fcf5ae1ed254522a9170485a009a2f1d0ec3c7d037654c0",
+    "evaluationManifestSha256": "2ccb75c1af459c86d3026a858be12db9160e0ca318acb9c3d7924b4da9663fd0",
+    "evidenceMergerSha256": "c76e5cbe6f7b068085672d7d34bfbd47ffccd49432703bc70a24c970cf5c6239",
+    "fixtureBuilderImage": "sha256:6723c3ca1eb42dd5ccc83cffaf71a855ad882c24e716260e4f6ec180f8c76dd7",
+    "fixtureExtractorImage": "sha256:47f1c417dadc583b4564aee4f3829ca74edc22164b4e0e31ff9dfef4ac3316a9",
+    "fixtureManifestSha256": "c6c1a8b7577b3402cc20bb4f7d4d76360b564db6191e1749b598da56e5b12ebe",
+    "fixtureRecipeSha256": "f17896e18a6dc72813bb28f68236db51c90b54bf512cbc22bdb2d530706ffa0a",
+    "integrationRunnerSha256": "3319e695249179412e19240e1ee289a41ae052a6463dd1767d5a0e9081f926c0",
+    "integrationTestSourceSha256": "41f95b1ad56be75761c60db60cc4a4357d2df743eb9a15e282e06ffaf4aab5e2",
+    "livePyInstallerServiceImage": "sha256:dfd6e00b359c5144b39510685e15faa4dbc48645b3b0f9fe5a39669e9e5a40d3",
+    "pycdcImage": "sha256:e5a9b638e836dede2bfdccac46f2649938be1219dd910e9388db2f383474b82d",
+    "receiptRecorderSha256": "a7272820e862202c50736cab66974969a3c950e410729370ae3323f6e01d9ae0",
+    "taskWorkerImage": "sha256:b15bd821fc9c8f12c47ac360edbd9c87fc974e39a9fe4b7b0c981fa4e1fcf5f4"
+  },
+  "createdAtUtc": "2026-11-09T05:28:55Z",
+  "evaluationManifestSha256": "2ccb75c1af459c86d3026a858be12db9160e0ca318acb9c3d7924b4da9663fd0",
+  "evidenceSha256": "a3c74d08ab0d8a52574bf5862b6eeb32f5d9c210698b27065f6a31d328a3f7f1",
+  "fixtureManifestSha256": "c6c1a8b7577b3402cc20bb4f7d4d76360b564db6191e1749b598da56e5b12ebe",
+  "fixtures": {
+    "pyinstaller-module-mutated-source-control-linux-amd64": {
+      "artifactSha256": "aecfd1df0d72809f1b09fff28fb7f29eb081b4a00eeb347164a16b4b84df610f",
+      "metrics": {
+        "extracted_module_count": {
+          "denominator": 1,
+          "direction": "equal",
+          "state": "MEASURED",
+          "value": 180
+        },
+        "known_source_value_recall": {
+          "denominator": 70,
+          "direction": "higher",
+          "state": "MEASURED",
+          "value": 70
+        },
+        "negative_control_original_source_false_acceptance": {
+          "denominator": 70,
+          "direction": "lower",
+          "state": "MEASURED",
+          "value": 0
+        },
+        "reconstruction_match": {
+          "denominator": 70,
+          "direction": "higher",
+          "state": "MEASURED",
+          "value": 70
+        },
+        "runtime_oracle": {
+          "denominator": 1,
+          "direction": "equal",
+          "state": "MEASURED",
+          "value": 1
+        },
+        "worker_terminal_page": {
+          "denominator": 1,
+          "direction": "equal",
+          "state": "MEASURED",
+          "value": 1
+        }
+      }
+    }
+  },
+  "runId": "mutated-artifact-baseline",
+  "schemaVersion": 1,
+  "toolchainManifestSha256": "b7d12f6e22d8b4fa0ae05e71e050770fe76288b4b2758d38166888125484d577",
+  "worktreeClean": true
+}

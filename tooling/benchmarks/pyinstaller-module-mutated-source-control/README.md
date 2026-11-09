@@ -18,6 +18,8 @@ and queued worker. It compares recovered modules with the mutated `"under"`
 oracle and separately records false acceptance of the original `"below"`
 oracle. A clean paired run and its exact inputs are archived under `runs/`.
 
+The paired live receipts and comparison are archived at
+[`runs/2026-11-09/paired-clean-recovery/`](runs/2026-11-09/paired-clean-recovery/README.md).
 This is one bounded provider outcome on a synthetic Python 3.12.8 / PyInstaller
 6.13.0 fixture. It does not establish general source fidelity, broad format
 coverage, malformed/obfuscated handling, or behavioral equivalence outside the

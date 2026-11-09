@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "fixtureId": "pyinstaller-module-mutated-source-control-linux-amd64",
+  "builtAtUtc": "2026-11-09T05:11:04Z",
+  "platform": "linux/amd64",
+  "artifactPath": "pyinstaller-module-structured-source-mutated",
+  "artifactSha256": "aecfd1df0d72809f1b09fff28fb7f29eb081b4a00eeb347164a16b4b84df610f",
+  "artifactSizeBytes": 7271360,
+  "expectedRuntimeStdout": "2485",
+  "runtimeOracle": "PASSED in Docker build container",
+  "fixtureBuilderImageId": "sha256:6723c3ca1eb42dd5ccc83cffaf71a855ad882c24e716260e4f6ec180f8c76dd7",
+  "extractorImageId": "sha256:47f1c417dadc583b4564aee4f3829ca74edc22164b4e0e31ff9dfef4ac3316a9",
+  "extractorRevision": "2aa0ec9e58317ac717fdeec84a02d5a67de7b96c2-reamon1",
+  "extractorDockerfileSha256": "db47713b717981021bc611de3b57c0fcc7bfdad76cec3197db7a0885b0686de3",
+  "extractorServerSha256": "743f6fd876b4b722fcb54ac0409e095c77affaad4cd0a0dde4749fa691c3cd90",
+  "extractorUpstreamGoModSha256": "9a19b65469974a99ddec77fcab4b520140c00fcabf2e303fcba8f2af04b26434",
+  "extractedBytecodeModuleCount": 180,
+  "extractedModulePageSizes": [
+    64,
+    64,
+    52
+  ],
+  "requirementsSha256": "463bad8b281dcc8006562a46310738fb1184b41da3c0031515ec65a377a2a1be",
+  "builderDockerfileSha256": "e55d07f3c4c3596afaa03c739d468e862ab0c3cf49c8aa6168b45589aec7be4f",
+  "groundTruthBuilderSha256": "f17896e18a6dc72813bb28f68236db51c90b54bf512cbc22bdb2d530706ffa0a"
+}

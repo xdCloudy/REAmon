@@ -72,3 +72,11 @@ adds a paired scorer-sensitivity control from commit
 `"below"` result to `"under"` was rejected in 70/70 cases, with 0/70 false
 acceptances. This mutates recovered text in the test harness; it does not run a
 separately mutated executable or measure provider recovery from such an input.
+
+[`../pyinstaller-module-mutated-source-control/runs/2026-11-09/paired-clean-recovery/`](../pyinstaller-module-mutated-source-control/runs/2026-11-09/paired-clean-recovery/README.md)
+records the distinct artifact-level control at commit
+`aef36478e647bef9c33eafdd3b9b87dfeb6b2536`. That executable was passed through
+the live provider and worker; both paired sides recovered 70/70 mutated branch
+results and falsely accepted 0/70 original-source results. The archive retains
+an initial failed candidate attempt with an empty persisted source file before
+the passing retry.

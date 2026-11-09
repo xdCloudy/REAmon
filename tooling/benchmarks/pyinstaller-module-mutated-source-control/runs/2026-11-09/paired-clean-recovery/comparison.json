@@ -1,0 +1,73 @@
+{
+  "baselineRunId": "mutated-artifact-baseline",
+  "candidateRunId": "mutated-artifact-candidate",
+  "certification": "This comparison is bounded evidence and is not a product certification.",
+  "evaluationManifestSha256": "2ccb75c1af459c86d3026a858be12db9160e0ca318acb9c3d7924b4da9663fd0",
+  "fixtureManifestSha256": "c6c1a8b7577b3402cc20bb4f7d4d76360b564db6191e1749b598da56e5b12ebe",
+  "fixtures": {
+    "pyinstaller-module-mutated-source-control-linux-amd64": {
+      "artifactSha256": "aecfd1df0d72809f1b09fff28fb7f29eb081b4a00eeb347164a16b4b84df610f",
+      "metrics": {
+        "extracted_module_count": {
+          "baseline": 180,
+          "candidate": 180,
+          "delta": 0,
+          "denominator": 1,
+          "direction": "equal",
+          "regressionObserved": false,
+          "state": "MEASURED"
+        },
+        "known_source_value_recall": {
+          "baseline": 70,
+          "candidate": 70,
+          "delta": 0,
+          "denominator": 70,
+          "direction": "higher",
+          "regressionObserved": false,
+          "state": "MEASURED"
+        },
+        "negative_control_original_source_false_acceptance": {
+          "baseline": 0,
+          "candidate": 0,
+          "delta": 0,
+          "denominator": 70,
+          "direction": "lower",
+          "regressionObserved": false,
+          "state": "MEASURED"
+        },
+        "reconstruction_match": {
+          "baseline": 70,
+          "candidate": 70,
+          "delta": 0,
+          "denominator": 70,
+          "direction": "higher",
+          "regressionObserved": false,
+          "state": "MEASURED"
+        },
+        "runtime_oracle": {
+          "baseline": 1,
+          "candidate": 1,
+          "delta": 0,
+          "denominator": 1,
+          "direction": "equal",
+          "regressionObserved": false,
+          "state": "MEASURED"
+        },
+        "worker_terminal_page": {
+          "baseline": 1,
+          "candidate": 1,
+          "delta": 0,
+          "denominator": 1,
+          "direction": "equal",
+          "regressionObserved": false,
+          "state": "MEASURED"
+        }
+      }
+    }
+  },
+  "regressions": [],
+  "schemaVersion": 1,
+  "status": "NO_REGRESSION_OBSERVED",
+  "thresholdsApplied": false,
+  "worktreesClean": true
+}
