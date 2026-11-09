@@ -1,8 +1,10 @@
 # REAmon product progress
 
-Assessment date: 2026-11-09 · Source: pushed commit `b076ef1` · Weighted estimate: **26.9%**
+Assessment date: 2026-11-09 · Source: pushed commit `834667f` · Weighted estimate: **26.9%**
 
 This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.
+
+Source-correspondence v3 paired benchmark note (2026-11-09): The clean paired archive records 70/70 structured source matches for modules with a value, function, and branch on both sides, plus equal runtime (1/1), inventory (180/180), known values (70/70), and worker terminal page (1/1). Both receipts use product commit 87203c3f408d1d574c3d49f1d6af79274f57c569, so this validates repeatability and adds no product-source improvement claim. The 3%-weight benchmark workstream remains at 15%; broad AR-0/AR-8, additional formats, and negative controls remain open.
 
 Source-correspondence v2 paired benchmark note (2026-11-09): The one-command runner generated clean baseline/candidate receipts from live direct-provider and queued-worker integrations on the pinned synthetic artifact. The normalized exact-source metric measured 70/70 single-assignment modules on each side; runtime, 180-module inventory, 70/70 known-source values, and worker terminal page also matched. The comparison reported NO_REGRESSION_OBSERVED. This validates one bounded evaluation path; product source was unchanged and broad AR-0/AR-8 remains open. The 3%-weight benchmark workstream increased from 10% to 15%, moving the weighted estimate from 26.71% to 26.86%.
 
@@ -153,7 +155,7 @@ Implementation note (2026-11-08): Tree-sitter parsing became unavailable when a 
 
 ### End-to-end reconstruction acceptance benchmarks
 
-**Current evidence:** The v3 structured-source evaluator has clean paired receipts and live direct-provider plus queued-worker integrations on one pinned synthetic Python/PyInstaller fixture. Both sides measured runtime 1/1, inventory 180/180, known-source values 70/70, structured exact source matches 70/70 for modules containing a value, function, and branch, and worker terminal page 1/1; all deltas were zero and comparison status was `NO_REGRESSION_OBSERVED`. Both sides used product commit `87203c3f408d1d574c3d49f1d6af79274f57c569`, so this validates repeatability and records no product-source change. The earlier v2 pair remains historical evidence for single-assignment modules. Neither pair establishes broad AR-0/AR-8 completion or a product reconstruction improvement.
+**Current evidence:** The v3 structured-source evaluator has clean paired receipts and live direct-provider plus queued-worker integrations on one pinned synthetic Python/PyInstaller fixture. Both sides measured runtime 1/1, inventory 180/180, known-source values 70/70, structured exact source matches 70/70 for modules containing a value, function, and branch, and worker terminal page 1/1; all deltas were zero and comparison status was NO_REGRESSION_OBSERVED. Both sides used product commit 87203c3f408d1d574c3d49f1d6af79274f57c569, so this validates repeatability and records no product-source change. The earlier v2 pair remains historical evidence for single-assignment modules. Neither pair establishes broad AR-0/AR-8 completion or a product reconstruction improvement.
 
 **Remaining:** AR-0/AR-8: add a reproducible one-command evaluation across versioned held-out native, managed, bytecode, Android, Python, and multi-module fixtures plus malformed/obfuscated negative controls. Measure source correspondence, symbols/types, complete denominators, build and behavior oracles, resource use, restart/reimport, and preserve matched clean comparison for each eligible scope. Add negative controls that demonstrate the source matcher rejects behavior-changing mutations. An unavailable oracle must not count as pass.
 
