@@ -1,6 +1,6 @@
 # REAmon product progress
 
-Assessment date: 2026-11-09 · Source: pushed commit `aa7bab9` · Weighted estimate: **26.9%**
+Assessment date: 2026-11-09 · Source: pushed commit `4316b34` · Weighted estimate: **26.9%**
 
 This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.
 
@@ -170,5 +170,3 @@ Implementation note (2026-11-08): Tree-sitter parsing became unavailable when a 
 **Remaining:** Build opt-in, authorized web/app observation records using existing project identity and isolated workers; capture stateful DOM/accessibility/viewport/navigation and network effects, optionally permitted CDP/runtime evidence; replay deterministic fixtures, report missing states and nondeterminism, redact secrets, and separate visual similarity from demonstrated behavior and source recovery.
 
 The machine-readable [`REAMON_PROGRESS.json`](REAMON_PROGRESS.json) feeds the README progress bar. The scope now includes the production hardening goal, so the total is not directly comparable with the previous product-only estimate. Update it with evidence when estimates change, then run `node tooling/reamon/update-product-progress.mjs <commit-sha>` to refresh this matrix and the README.
-
-JVM fixture-runner note (2026-11-09): Added a one-command runner for the held-out two-class Java fixture. A live run through CFR 0.152 recovered the two expected units without truncation; source hashes matched the provider receipt, and the recovered sources compiled and printed the original fixture's observed stdout in the pinned, network-disabled Docker image. The receipt binds the runner hash, repository revision, provider image ID, and artifact hash. This adds a reproducible single-format execution path only; AR-0/AR-8 remains incomplete and receives no additional completion credit from this fixture alone.
