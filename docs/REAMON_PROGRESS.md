@@ -1,6 +1,6 @@
 # REAmon product progress
 
-Assessment date: 2026-11-09 · Source: pushed commit `4316b34` · Weighted estimate: **26.9%**
+Assessment date: 2026-11-09 · Source: pushed commit `c7c2d77` · Weighted estimate: **26.9%**
 
 This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.
 
@@ -153,9 +153,9 @@ Implementation note (2026-11-08): Tree-sitter parsing became unavailable when a 
 
 ### Cross-surface tool contracts and scalable evidence delivery
 
-**Current evidence:** Newly accepted 2026-11-05 scope following the Craft Anything adoption bootstrap. The target is one REAmon-owned typed tool/capability contract with consistent web, MCP, CLI/agent semantics plus summary-first, durable, resumable, project-isolated evidence delivery. Existing provider contracts, bounded paged observations and individual MCP operations are useful prior foundations, but no single end-to-end fixture validates the newly specified cross-surface parity and evidence-budget behaviour. Zero completion is assigned to the new acceptance criteria; existing components retain their separate workstream credit.
+**Current evidence:** Newly accepted 2026-11-05 scope following the Craft Anything adoption bootstrap. The 2026-11-09 proposal paging slice adds bounded proposal pages with deterministic inventory snapshots, stale-cursor detection, UI continuation, MCP continuation instructions, and an uncapped project scan count. It does not provide retained durable evidence retrieval or prove end-to-end cross-surface parity. Zero completion remains assigned to the full acceptance criteria.
 
-**Remaining:** CA-1: inventory all entrypoints, define one canonical capability/schema/result/error contract, and verify consistent permissions, provenance, unsupported states, versioning and fail-closed behaviour across web, agent and MCP. CA-2: provide hash-bound evidence summaries, retained complete results, authorized cursor/page continuation, truncation/coverage disclosure, restart recovery, deduplication and bounded response budgets. Run security, failure-injection, multi-project isolation and integration fixtures. Record independently checked results before raising completion.
+**Remaining:** CA-1: inventory all entrypoints, define one canonical capability/schema/result/error contract, and verify consistent permissions, provenance, unsupported states, versioning and fail-closed behaviour across web, agent and MCP. CA-2: provide hash-bound durable evidence summaries and complete retained results, authorized cursor/page continuation, truncation/coverage disclosure, restart recovery, deduplication and bounded response budgets. The current snapshot binds the planner cursor to the ordered artifact page but is request-local and is not a retained evidence receipt. Run security, failure-injection, multi-project isolation and integration fixtures before awarding credit.
 
 ### End-to-end reconstruction acceptance benchmarks
 
