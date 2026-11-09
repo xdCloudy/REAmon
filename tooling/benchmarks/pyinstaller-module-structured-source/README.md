@@ -80,3 +80,10 @@ the live provider and worker; both paired sides recovered 70/70 mutated branch
 results and falsely accepted 0/70 original-source results. The archive retains
 an initial failed candidate attempt with an empty persisted source file before
 the passing retry.
+
+[`../pyinstaller-malformed-carchive-control/runs/2026-11-09/malformed-toc-control/`](../pyinstaller-malformed-carchive-control/runs/2026-11-09/malformed-toc-control/README.md)
+records one malformed-TOC control against the live isolated analyzer. The
+outer PyInstaller cookie passed preflight, but an entry-size value below the
+fixed 18-byte header was rejected with HTTP 400 and no recovered modules. This
+does not measure obfuscated archives or malformed-input accuracy beyond that
+single structure.

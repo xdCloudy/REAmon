@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "fixtureId": "pyinstaller-malformed-carchive-toc-linux-amd64",
+  "serviceImageId": "sha256:dfd6e00b359c5144b39510685e15faa4dbc48645b3b0f9fe5a39669e9e5a40d3",
+  "extractorRevision": "2aa0ec9e58317ac717fdeec84a02d5a67de7b96c2-reamon1",
+  "artifactSha256": "9ec52a09e4578a11dd85a5a0c6c7ffa4d4fbe4f6f88d79aa22cff753263216c4",
+  "artifactSizeBytes": 7270456,
+  "check": "server.has_pyinstaller_cookie",
+  "cookieAccepted": true,
+  "purpose": "Confirms the mutated artifact reached the isolated extractor's deeper TOC validation path."
+}
