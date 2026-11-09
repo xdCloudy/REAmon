@@ -293,12 +293,13 @@ class TestFunctionSignatures(unittest.TestCase):
         # A builder that covers a Domain batch takes the run's roots and each
         # root's group scope; include_root_domain stays for single-root callers.
         multi_root = ["domains", "user_id", "project_id", "include_root_domain", "domain_groups"]
+        vuln_scan = multi_root + ["client_factory"]
         single_root = ["domain", "user_id", "project_id", "include_root_domain"]
         expected = {
             _build_recon_data_from_graph: multi_root,
             _build_port_scan_data_from_graph: multi_root,
             _build_http_probe_data_from_graph: multi_root,
-            _build_vuln_scan_data_from_graph: multi_root,
+            _build_vuln_scan_data_from_graph: vuln_scan,
         }
         for fn, params_expected in expected.items():
             sig = inspect.signature(fn)

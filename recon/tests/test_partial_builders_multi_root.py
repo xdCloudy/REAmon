@@ -349,3 +349,14 @@ class TestVulnScanBuilder:
         data = self.build()
         assert data["domain"] == "alpha.test" and data["domains"] == ROOTS
         assert data["metadata"]["include_root_domain"] is True               # alpha (primary) apex in scope
+
+    def test_injected_client_factory_supplies_the_graph_client(self, graph):
+        created = []
+
+        class InjectedClient(_Client):
+            def __init__(self):
+                created.append(self)
+
+        data = self.build(client_factory=InjectedClient)
+        assert data["domain"] == "alpha.test"
+        assert len(created) == 1

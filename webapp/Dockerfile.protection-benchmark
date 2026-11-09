@@ -1,7 +1,7 @@
 FROM node:22-slim
 
 ARG UPX_VERSION=5.2.1
-ARG UPX_SHA256=402162aad30af47e60dbd767fb2e64ca394ace9727ba1f40283641f1d1b91657
+ARG TARGETARCH
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         binutils ca-certificates curl gcc libc6-dev openssl xz-utils \
@@ -19,8 +19,13 @@ COPY . ./
 RUN --mount=type=secret,id=proxy_ca \
     set -eu; \
     if [ -f /run/secrets/proxy_ca ]; then export CURL_CA_BUNDLE=/run/secrets/proxy_ca; fi; \
-    curl -fsSL "https://github.com/upx/upx/releases/download/v${UPX_VERSION}/upx-${UPX_VERSION}-amd64_linux.tar.xz" -o /tmp/upx.tar.xz; \
-    echo "${UPX_SHA256}  /tmp/upx.tar.xz" | sha256sum -c -; \
+    case "${TARGETARCH}" in \
+        amd64) upx_sha256=402162aad30af47e60dbd767fb2e64ca394ace9727ba1f40283641f1d1b91657 ;; \
+        arm64) upx_sha256=a72d112c5970a904a31da0b9c84f919bc16b9a311787c12245508544a78c7d36 ;; \
+        *) echo "Unsupported UPX build architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL "https://github.com/upx/upx/releases/download/v${UPX_VERSION}/upx-${UPX_VERSION}-${TARGETARCH}_linux.tar.xz" -o /tmp/upx.tar.xz; \
+    echo "${upx_sha256}  /tmp/upx.tar.xz" | sha256sum -c -; \
     mkdir -p /opt/upx; \
     tar -xJf /tmp/upx.tar.xz -C /opt/upx --strip-components=1; \
     rm /tmp/upx.tar.xz

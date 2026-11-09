@@ -77,6 +77,15 @@ class TestNoHardcodedX86Downloads(unittest.TestCase):
         self.assertIn("    golang-go \\", text)
         self.assertIn("&& go version", text)
 
+    def test_protection_benchmark_upx_asset_follows_build_architecture(self):
+        with open(os.path.join(REPO, "webapp", "Dockerfile.protection-benchmark")) as fh:
+            text = fh.read()
+        self.assertIn("ARG TARGETARCH", text)
+        self.assertIn("upx-${UPX_VERSION}-${TARGETARCH}_linux.tar.xz", text)
+        self.assertIn("amd64) upx_sha256=402162aad30af47e60dbd767fb2e64ca394ace9727ba1f40283641f1d1b91657", text)
+        self.assertIn("arm64) upx_sha256=a72d112c5970a904a31da0b9c84f919bc16b9a311787c12245508544a78c7d36", text)
+        self.assertIn('echo "${upx_sha256}  /tmp/upx.tar.xz" | sha256sum -c -', text)
+
 
 if __name__ == "__main__":
     unittest.main()
