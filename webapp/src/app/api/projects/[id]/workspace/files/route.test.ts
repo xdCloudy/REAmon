@@ -1,16 +1,17 @@
 /** @vitest-environment node */
 import { beforeEach, describe, expect, test, vi } from 'vitest'
+import { NextResponse } from 'next/server'
 
 const mocks = vi.hoisted(() => ({
   listWorkspaceFiles: vi.fn(),
   requireEffectiveUser: vi.fn(),
-  requireProjectAccess: vi.fn(),
+  requireProjectAccessStrict: vi.fn(),
 }))
 
 vi.mock('@/lib/reamon/inventory-query', () => ({ listWorkspaceFiles: mocks.listWorkspaceFiles }))
 vi.mock('@/lib/access', () => ({
   requireEffectiveUser: mocks.requireEffectiveUser,
-  requireProjectAccess: mocks.requireProjectAccess,
+  requireProjectAccessStrict: mocks.requireProjectAccessStrict,
 }))
 
 import { GET } from './route'
@@ -20,11 +21,22 @@ const params = { params: Promise.resolve({ id: 'project-1' }) }
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.requireEffectiveUser.mockResolvedValue({ userId: 'user-1' })
-  mocks.requireProjectAccess.mockResolvedValue({ project: { id: 'project-1', userId: 'user-1' } })
+  mocks.requireProjectAccessStrict.mockResolvedValue({ project: { id: 'project-1', userId: 'user-1' } })
   mocks.listWorkspaceFiles.mockResolvedValue({ artifacts: [], total: 0, limit: 25, hasMore: false })
 })
 
 describe('GET /api/projects/[id]/workspace/files', () => {
+  test('requires strict project ownership before reading inventory', async () => {
+    const denied = NextResponse.json({ error: 'Not found' }, { status: 404 })
+    mocks.requireProjectAccessStrict.mockResolvedValue(denied)
+
+    const response = await GET(new Request('http://localhost/api/projects/project-1/workspace/files'), params)
+
+    expect(response).toBe(denied)
+    expect(mocks.requireProjectAccessStrict).toHaveBeenCalledWith({ userId: 'user-1' }, 'project-1')
+    expect(mocks.listWorkspaceFiles).not.toHaveBeenCalled()
+  })
+
   test('passes bounded logical inventory filters through the authenticated route', async () => {
     const response = await GET(new Request('http://localhost/api/projects/project-1/workspace/files?search=crypto&format=pe&kind=executables&limit=25'), params)
 

@@ -23,6 +23,7 @@ let userId = ''
 let foreignUserId = ''
 let projectId = ''
 let evidenceId = ''
+let artifactId = ''
 let sessionCookie = ''
 let foreignSessionCookie = ''
 let originalInternalKey: string | undefined
@@ -67,6 +68,19 @@ beforeAll(async () => {
   })
   if (!evidence) throw new Error('The synthetic Evidence record was not created.')
   evidenceId = evidence.id
+  const artifact = await prisma.artifact.create({
+    data: {
+      projectId,
+      name: 'synthetic.exe',
+      originalName: 'synthetic.exe',
+      relativePath: 'bin/synthetic.exe',
+      storagePath: `integration/${SUFFIX}/synthetic.exe`,
+      sha256: 'a'.repeat(64),
+      sizeBytes: 17,
+      extension: 'exe',
+    },
+  })
+  artifactId = artifact.id
 }, 60_000)
 
 afterAll(async () => {
@@ -171,6 +185,28 @@ describe.skipIf(!HAS_DB)('agent Evidence HTTP paging across Next.js restart', ()
         headers: { Cookie: `${AUTH_COOKIE_NAME}=${foreignSessionCookie}` },
       })
       expect(foreignBrowserDetailResponse.status).toBe(404)
+
+      const workspaceFilesUrl = `${first.baseUrl}/api/projects/${projectId}/workspace/files?limit=10`
+      const anonymousWorkspaceFilesResponse = await fetch(workspaceFilesUrl)
+      expect(anonymousWorkspaceFilesResponse.status).toBe(401)
+      const foreignWorkspaceFilesResponse = await fetch(workspaceFilesUrl, {
+        headers: { Cookie: `${AUTH_COOKIE_NAME}=${foreignSessionCookie}` },
+      })
+      expect(foreignWorkspaceFilesResponse.status).toBe(404)
+      const foreignWorkspaceArtifactResponse = await fetch(`${first.baseUrl}/api/projects/${projectId}/workspace/files/${artifactId}`, {
+        headers: { Cookie: `${AUTH_COOKIE_NAME}=${foreignSessionCookie}` },
+      })
+      expect(foreignWorkspaceArtifactResponse.status).toBe(404)
+      const ownerWorkspaceFilesResponse = await fetch(workspaceFilesUrl, {
+        headers: { Cookie: `${AUTH_COOKIE_NAME}=${sessionCookie}` },
+      })
+      expect(ownerWorkspaceFilesResponse.status).toBe(200)
+      expect(await ownerWorkspaceFilesResponse.json()).toMatchObject({ artifacts: [{ id: artifactId, relativePath: 'bin/synthetic.exe' }], total: 1 })
+      const ownerWorkspaceArtifactResponse = await fetch(`${first.baseUrl}/api/projects/${projectId}/workspace/files/${artifactId}`, {
+        headers: { Cookie: `${AUTH_COOKIE_NAME}=${sessionCookie}` },
+      })
+      expect(ownerWorkspaceArtifactResponse.status).toBe(200)
+      expect(await ownerWorkspaceArtifactResponse.json()).toMatchObject({ id: artifactId, relativePath: 'bin/synthetic.exe', sha256: 'a'.repeat(64) })
 
       const foreignAgentResponse = await fetch(`${first.baseUrl}/api/internal/reamon/workspace/evidence`, {
         method: 'POST',
