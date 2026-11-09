@@ -79,8 +79,8 @@ The recorder hashes the evidence and manifests, captures the full Git commit,
 component revisions, and worktree cleanliness, validates metric denominators,
 and refuses to overwrite a receipt. It records supplied evidence; it does not
 run the fixture or independently prove that a measurement command produced the
-values. A matched clean comparison still requires a baseline receipt from the same
-pinned fixture and evaluation contract.
+values. The comparator validates receipts only against the same pinned fixture
+and evaluation contract.
 
 The PostgreSQL integration test can emit its measured portion of the evidence
 when `REAMON_BENCHMARK_EVIDENCE_PATH` points to a new output file. Set
@@ -119,11 +119,14 @@ python tooling/benchmarks/compare_receipts.py baseline.json candidate.json `
   --output comparison.json
 ```
 
-A clean candidate receipt now exists under
-`tooling/benchmarks/pyinstaller-module-paging/runs/2026-11-09/` for source
-commit `cb6a23a590c8aa1dbbf80cd094c4581ba30ed15a`. It records 180 extracted
-modules, 70/70 known-source value matches, the passing runtime oracle, and the
-queued worker terminal page. Full reconstruction correspondence remains
-`UNAVAILABLE`, and no matched baseline receipt exists, so AR-0/AR-8 remains
-incomplete. Earlier dirty-worker evidence is not included in this clean candidate
-receipt.
+The paired clean baseline and candidate run is archived under
+`tooling/benchmarks/pyinstaller-module-paging/runs/2026-11-09/paired/`. The
+baseline product source is `515d1b83d2a8772f4d816eb1efd690189bad2b2d`, measured
+with test-only harness commit `54ca0c1ff69468e1849a415c6a9e46825c61abe0`; the
+candidate is `cb6a23a590c8aa1dbbf80cd094c4581ba30ed15a`. Both clean receipts use
+the same artifact, manifest bytes, and paired toolchain manifest. The measured
+runtime oracle, 180-module inventory, 70/70 known-source value matches, and
+queued worker terminal page are equal, with no regression observed in those
+metrics. Complete reconstruction correspondence remains `UNAVAILABLE`, so the
+aggregate comparator result is `INCOMPLETE`. One synthetic fixture does not pass
+AR-0/AR-8 or establish broad reconstruction fidelity.

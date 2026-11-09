@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "components": {
+    "baselineProductCommit": "515d1b83d2a8772f4d816eb1efd690189bad2b2d",
+    "baselineMeasurementCommit": "54ca0c1ff69468e1849a415c6a9e46825c61abe0",
+    "candidateSourceCommit": "cb6a23a590c8aa1dbbf80cd094c4581ba30ed15a",
+    "measurementHarnessCommit": "cb6a23a590c8aa1dbbf80cd094c4581ba30ed15a",
+    "baselineIntegrationTestImage": "sha256:de6b7a65ddebc0eafd3834fcb0ab6114556ad5c3323a90d191bf5d7826bce041",
+    "candidateIntegrationTestImage": "sha256:fca51a49dedc69eb3dcdb55090b0e8a66fd73d7180a34971c68e89d3473fd8c5",
+    "integrationTestRuntimeBase": "node:22-slim@sha256:43ac6c60b8f89723f746e8a92ce91abd5017e627ce1ddfe4238355d3a30b772c",
+    "webappPackageLockSha256": "0f1013e5c9d7eb2900b978fe26f8f97718fc172f53b357ce32b87d23223d9fe9",
+    "integrationTestHarnessSha256": "bed0c535b19b68756b58938962f91a29fefb2102d4ad8af284feea2ddfc21f6b",
+    "benchmarkEvidenceHelperSha256": "afa24cc6ae743f046eea8b18b06ab1a487ef9a309c3fc2ca5afcfdda54d3a5e9",
+    "fixtureBuilderImage": "sha256:a01557cf0158a7ea628736c5457ccb57373de2103cad0e623812bf1d70a96400",
+    "fixtureExtractorImage": "sha256:e093f24e4f08f435187a381ab64a209209f6650308b00a432b61675639eee33f",
+    "livePyInstallerServiceImage": "sha256:dfd6e00b359c5144b39510685e15faa4dbc48645b3b0f9fe5a39669e9e5a40d3",
+    "pycdcImage": "sha256:e5a9b638e836dede2bfdccac46f2649938be1219dd910e9388db2f383474b82d",
+    "taskWorkerImage": "sha256:b15bd821fc9c8f12c47ac360edbd9c87fc974e39a9fe4b7b0c981fa4e1fcf5f4",
+    "taskWorkerBuildRevisionReported": "31a35c378f7e",
+    "taskWorkerBuildDirty": "false",
+    "pyinstallerProviderSourceSha256": "1ded109ead519194936ffd5d0c3b144ae10d5562669c1dd7d616947461eab1fc",
+    "resultIngestionSourceSha256": "3405acb9f70bd49d77fd9515944f7602f889ca2531d71bf3992b87e46993dc17",
+    "receiptRecorderSha256": "a7272820e862202c50736cab66974969a3c950e410729370ae3323f6e01d9ae0",
+    "evidenceMergerSha256": "c3c98f1e46491abb9b683118270f554c587307d40db40bc46c066f2e705a2427"
+  }
+}

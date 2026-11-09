@@ -77,7 +77,7 @@ The [autonomous reconstruction and fidelity delivery plan](docs/REAMON_AUTONOMOU
 ## Project status
 
 <!-- REAMON_PRODUCT_PROGRESS_START -->
-<progress value="26" max="100">26%</progress> <strong>26%</strong> — weighted estimate **26.4%**.
+<progress value="27" max="100">27%</progress> <strong>27%</strong> — weighted estimate **26.7%**.
 Refreshed from the current local worktree. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
