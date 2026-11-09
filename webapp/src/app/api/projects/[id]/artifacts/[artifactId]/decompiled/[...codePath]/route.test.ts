@@ -10,12 +10,12 @@ const mocks = vi.hoisted(() => ({
   observationFindFirst: vi.fn(),
   getActiveWorkspaceImportSelection: vi.fn(),
   requireEffectiveUser: vi.fn(),
-  requireProjectAccess: vi.fn(),
+  requireProjectAccessStrict: vi.fn(),
 }))
 
 vi.mock('@/lib/prisma', () => ({ default: { artifact: { findFirst: mocks.artifactFindFirst }, reamonObservation: { findFirst: mocks.observationFindFirst } } }))
 vi.mock('@/lib/reamon/inventory-query', () => ({ getActiveWorkspaceImportSelection: mocks.getActiveWorkspaceImportSelection }))
-vi.mock('@/lib/access', () => ({ requireEffectiveUser: mocks.requireEffectiveUser, requireProjectAccess: mocks.requireProjectAccess }))
+vi.mock('@/lib/access', () => ({ requireEffectiveUser: mocks.requireEffectiveUser, requireProjectAccessStrict: mocks.requireProjectAccessStrict }))
 
 import { GET } from './route'
 
@@ -34,7 +34,7 @@ beforeEach(async () => {
   derivedRoot = await mkdtemp(path.join(os.tmpdir(), 'reamon-derived-code-'))
   vi.stubEnv('REAMON_DERIVED_PATH', derivedRoot)
   mocks.requireEffectiveUser.mockResolvedValue({ userId: 'user-1' })
-  mocks.requireProjectAccess.mockResolvedValue({ project: { id: 'project-1', userId: 'user-1' } })
+  mocks.requireProjectAccessStrict.mockResolvedValue({ project: { id: 'project-1', userId: 'user-1' } })
   mocks.getActiveWorkspaceImportSelection.mockResolvedValue({ artifactWhere: { projectId: 'project-1', importId: { in: ['active-import'] } } })
   mocks.artifactFindFirst.mockResolvedValue({ id: 'artifact-1' })
   mocks.observationFindFirst.mockResolvedValue({ id: 'unit-1' })
@@ -49,6 +49,17 @@ describe('GET decompiled code artifact', () => {
     const response = await GET(new Request('http://localhost'), context)
     expect(response.status).toBe(401)
     expect(mocks.artifactFindFirst).not.toHaveBeenCalled()
+  })
+
+  test('requires strict project ownership before querying active artifacts', async () => {
+    mocks.requireProjectAccessStrict.mockResolvedValue(NextResponse.json({ error: 'Not found' }, { status: 404 }))
+
+    const response = await GET(new Request('http://localhost'), context)
+
+    expect(response.status).toBe(404)
+    expect(mocks.getActiveWorkspaceImportSelection).not.toHaveBeenCalled()
+    expect(mocks.artifactFindFirst).not.toHaveBeenCalled()
+    expect(mocks.observationFindFirst).not.toHaveBeenCalled()
   })
 
   test('serves a source file only when its active artifact has a matching code-unit observation', async () => {

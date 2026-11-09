@@ -3,7 +3,7 @@ import { readFile, realpath, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
-import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
+import { requireEffectiveUser, requireProjectAccessStrict } from '@/lib/access'
 import { getActiveWorkspaceImportSelection } from '@/lib/reamon/inventory-query'
 import { derivedArtifactRoot, resolveDerivedArtifactPath } from '@/lib/reamon/derived-storage'
 
@@ -28,7 +28,7 @@ export async function GET(request: Request, { params }: RouteParams) {
     }
     const user = await requireEffectiveUser()
     if (user instanceof NextResponse) return user
-    const access = await requireProjectAccess(user, projectId)
+    const access = await requireProjectAccessStrict(user, projectId)
     if (access instanceof NextResponse) return access
     if (!Array.isArray(codePath) || !codePath.length || codePath.some((part) => !part || part === '.' || part === '..' || part.includes('/') || part.includes('\\'))) {
       return NextResponse.json({ error: 'Invalid decompiled source path' }, { status: 400, headers: { 'Cache-Control': 'no-store' } })
