@@ -1,0 +1,75 @@
+{
+  "commit": "b62277abcc5038df74517dd0bd7bc1f08ad083e2",
+  "components": {
+    "baselineIntegrationTestImage": "sha256:e31d4e578483c8f8b2420fcc8807b8f7f3c8d63a448ef172cd0aad5b9a8a963b",
+    "baselineMeasurementCommit": "d0d7ec943b3a243ddc3e6dc2dec8cef30fa43002",
+    "baselineProductCommit": "515d1b83d2a8772f4d816eb1efd690189bad2b2d",
+    "benchmarkEvidenceHelperSha256NormalizedLf": "330980fb6c6122997bf5e4798575f3cbc80023da13f79c986924667ed6c2ac16",
+    "benchmarkEvidenceUnitTestSha256NormalizedLf": "1f8777ffb4ca68c04b43b45f3f7b46ca9177d38ed738e265eb578c44ecd4fdd4",
+    "buildReceiptSha256": "9d3a172643214fb6dd2944d8c7a25a4b99fa978812ba2eaec439e5230e14f1bf",
+    "candidateIntegrationTestImage": "sha256:9186a3aeaa0ecf30f6267279d0ea3386cd2cb2e302292762a95e45f9c2b3461e",
+    "candidateSourceCommit": "b62277abcc5038df74517dd0bd7bc1f08ad083e2",
+    "enrollmentReceiptSha256": "58ee392f5be17e38221e67cc6e07a3ab76eb1fef992a6ebfc7736217cc8b6387",
+    "evaluationManifestSha256": "6021b8eda5f7f64668c59a8a60161106a13762496b22ddbce881f5b90ad0515a",
+    "evidenceMergerSha256": "7406153295c1321698d5365c25c8d67f4a33728ca746f4bd19b181820aea1467",
+    "fixtureBuilderImage": "sha256:a01557cf0158a7ea628736c5457ccb57373de2103cad0e623812bf1d70a96400",
+    "fixtureExtractorImage": "sha256:e093f24e4f08f435187a381ab64a209209f6650308b00a432b61675639eee33f",
+    "fixtureManifestSha256": "ba0978ab64adea3ee3ec868e247ae710bb8a98fcfd5ff89174b1987f186a295d",
+    "integrationTestHarnessSha256NormalizedLf": "845ba02f7bac23342c2601227f488bd82b0e46086908fc4c8c149d799f6d59f4",
+    "integrationTestRuntimeBase": "node:22-slim@sha256:43ac6c60b8f89723f746e8a92ce91abd5017e627ce1ddfe4238355d3a30b772c",
+    "livePyInstallerServiceImage": "sha256:dfd6e00b359c5144b39510685e15faa4dbc48645b3b0f9fe5a39669e9e5a40d3",
+    "pycdcImage": "sha256:e5a9b638e836dede2bfdccac46f2649938be1219dd910e9388db2f383474b82d",
+    "pyinstallerProviderSourceSha256NormalizedLf": "eb53c0139007be242695c625cb3eb8130ecc8c5db2c57357bd54904a4ef7e382",
+    "receiptRecorderSha256": "a7272820e862202c50736cab66974969a3c950e410729370ae3323f6e01d9ae0",
+    "resultIngestionSourceSha256NormalizedLf": "00ebf64ca1805b0fde229bab6ba64aa3eebb469ef67bfb59d5954aeae1b65a40",
+    "taskWorkerBuildDirty": "false",
+    "taskWorkerBuildRevisionReported": "31a35c378f7e",
+    "taskWorkerImage": "sha256:b15bd821fc9c8f12c47ac360edbd9c87fc974e39a9fe4b7b0c981fa4e1fcf5f4",
+    "webappPackageLockSha256NormalizedLf": "aafd4ea6448d02f543a42de6403a00fd5391ce15adec5a3cb8921547fa6d49e8"
+  },
+  "createdAtUtc": "2026-11-09T03:35:09Z",
+  "evaluationManifestSha256": "6021b8eda5f7f64668c59a8a60161106a13762496b22ddbce881f5b90ad0515a",
+  "evidenceSha256": "f8c7384d51b5c84f3383fa2ab5d054984fdeead67c74a41603d8735429a69399",
+  "fixtureManifestSha256": "ba0978ab64adea3ee3ec868e247ae710bb8a98fcfd5ff89174b1987f186a295d",
+  "fixtures": {
+    "pyinstaller-module-paging-linux-amd64": {
+      "artifactSha256": "ad8998bd53353c3f52c7c81a6bfb9251719da84541439ecf445b012f24188db0",
+      "metrics": {
+        "extracted_module_count": {
+          "denominator": 1,
+          "direction": "equal",
+          "state": "MEASURED",
+          "value": 180
+        },
+        "known_source_value_recall": {
+          "denominator": 70,
+          "direction": "higher",
+          "state": "MEASURED",
+          "value": 70
+        },
+        "reconstruction_match": {
+          "denominator": 70,
+          "direction": "higher",
+          "state": "MEASURED",
+          "value": 70
+        },
+        "runtime_oracle": {
+          "denominator": 1,
+          "direction": "equal",
+          "state": "MEASURED",
+          "value": 1
+        },
+        "worker_terminal_page": {
+          "denominator": 1,
+          "direction": "equal",
+          "state": "MEASURED",
+          "value": 1
+        }
+      }
+    }
+  },
+  "runId": "source-v2-b62277ab-candidate",
+  "schemaVersion": 1,
+  "toolchainManifestSha256": "44e6157634bb9632abd187703a987663211c66b773a46978949dffd04860a1c0",
+  "worktreeClean": true
+}

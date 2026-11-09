@@ -168,3 +168,13 @@ aggregate comparator result is `INCOMPLETE`. The earlier `paired/` archive is
 retained for history but superseded after its merged-evidence source hashes were
 found to differ across EOL-converted checkouts. One synthetic fixture does not
 pass AR-0/AR-8 or establish broad reconstruction fidelity.
+
+The v2 source correspondence run is archived in
+[`paired-source-v2/`](runs/2026-11-09/paired-source-v2/README.md). Its separate
+evaluation contract measured exact normalized source for all 70 one-assignment
+modules, with 70/70 matches on both sides. Runtime, inventory, value recall, and
+worker terminal-page checks also matched. The comparison reports
+`NO_REGRESSION_OBSERVED` with clean receipts. The provider source was the same on
+both sides; this validates the new source-fidelity measurement path, not a
+product reconstruction improvement. The other 110 modules and full-project
+fidelity remain unmeasured, and the fixture still does not complete AR-0/AR-8.

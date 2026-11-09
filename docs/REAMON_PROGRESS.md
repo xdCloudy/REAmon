@@ -1,8 +1,10 @@
 # REAmon product progress
 
-Assessment date: 2026-11-09 · Source: the current local worktree · Weighted estimate: **26.7%**
+Assessment date: 2026-11-09 · Source: the current local worktree · Weighted estimate: **26.9%**
 
 This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.
+
+Source-correspondence v2 paired benchmark note (2026-11-09): The one-command runner generated clean baseline/candidate receipts from live direct-provider and queued-worker integrations on the pinned synthetic artifact. The normalized exact-source metric measured 70/70 single-assignment modules on each side; runtime, 180-module inventory, 70/70 known-source values, and worker terminal page also matched. The comparison reported NO_REGRESSION_OBSERVED. This validates one bounded evaluation path; product source was unchanged and broad AR-0/AR-8 remains open. The 3%-weight benchmark workstream increased from 10% to 15%, moving the weighted estimate from 26.71% to 26.86%.
 
 Canonical paired benchmark note (2026-11-09, baseline 2f88d34b, candidate 4a93d892): After auditing an EOL-dependent provenance mismatch, benchmark JSON now uses LF checkout bytes. Clean baseline and candidate clones produced identical raw fixture, evaluation, and enrollment hashes. Both live direct-plus-worker integration runs passed on the pinned artifact, and the canonical clean receipts bind merged evidence whose source hashes match those exact manifest bytes. The comparator reports zero deltas and no regression across the measured runtime oracle, 180-module inventory, 70/70 known-source values, and worker terminal page. Reconstruction correspondence remains UNAVAILABLE, so aggregate status is INCOMPLETE. The prior paired archive is retained but superseded because its baseline merged evidence had EOL-dependent source hashes. The 10% workstream estimate is unchanged.
 
@@ -36,7 +38,7 @@ Implementation note (2026-11-08): Tree-sitter parsing became unavailable when a 
 | Encrypted-binary and executable-region recovery | 5% | 0% | 0.00 pts |
 | Virtualized-code reconstruction | 5% | 0% | 0.00 pts |
 | Cross-surface tool contracts and scalable evidence delivery | 5% | 0% | 0.00 pts |
-| End-to-end reconstruction acceptance benchmarks | 3% | 10% | 0.30 pts |
+| End-to-end reconstruction acceptance benchmarks | 3% | 15% | 0.45 pts |
 | External web/application behavioural evidence | 2% | 0% | 0.00 pts |
 
 ## Evidence and remaining work
@@ -151,7 +153,7 @@ Implementation note (2026-11-08): Tree-sitter parsing became unavailable when a 
 
 ### End-to-end reconstruction acceptance benchmarks
 
-**Current evidence:** A canonical LF-stable paired baseline/candidate run now exists for a pinned synthetic Linux x86_64 Python/PyInstaller fixture. Both live runs measured an equal runtime oracle, 180 extracted modules, 70/70 known-source VALUE matches, and worker terminal-page completion; the comparator found no regression in these measured metrics. Full reconstruction correspondence remains UNAVAILABLE, so the aggregate comparison is INCOMPLETE and AR-0/AR-8 is not passed. This is one narrow fixture, not broad reconstruction fidelity.
+**Current evidence:** The source-v2 evaluator was exercised with clean paired receipts and live direct-provider plus queued-worker integrations on one pinned synthetic Python/PyInstaller fixture. Both sides measured runtime 1/1, inventory 180/180, known-source values 70/70, normalized exact source matches 70/70 for the 70 single-assignment modules, and worker terminal page 1/1; all deltas were zero and comparison status was NO_REGRESSION_OBSERVED. The measured provider source is unchanged between sides. This validates the bounded evaluator path, not a product reconstruction improvement or broad AR-0/AR-8 completion.
 
 **Remaining:** AR-0/AR-8: add a reproducible one-command evaluation across versioned held-out native, managed, bytecode, Android, Python, and multi-module fixtures plus malformed/obfuscated negative controls. Measure source correspondence, symbols/types, complete denominators, build and behavior oracles, resource use, restart/reimport, and preserve matched clean comparison for each eligible scope. An unavailable oracle must not count as pass.
 
