@@ -77,6 +77,53 @@ describe('workspace analysis planning', () => {
     expect(plan.steps).toHaveLength(1)
     expect(plan.steps[0]).toMatchObject({ capability: 'disassemble', relativePath: 'bin/engine.dll' })
     expect(plan.hasMoreArtifacts).toBe(true)
-    expect(plan.hasMoreSteps).toBe(true)
+    expect(plan.hasMoreSteps).toBe(false)
+  })
+
+  test('pages proposal steps independently from artifact pages without gaps or duplicates', () => {
+    const capabilities = Array.from({ length: 1205 }, (_, index) => `capability-${index}`)
+    const oneArtifact: WorkspaceFileQueryResult = {
+      ...inventory,
+      artifacts: [{
+        ...inventory.artifacts[0],
+        capabilities: [{ ...inventory.artifacts[0].capabilities[0], capabilities }],
+      }],
+      total: 1,
+      hasMore: false,
+    }
+
+    const first = buildWorkspaceAnalysisPlan('project-1', oneArtifact, { stepLimit: 500 })
+    const second = buildWorkspaceAnalysisPlan('project-1', oneArtifact, { stepLimit: 500, stepOffset: first.nextStepOffset! })
+    const third = buildWorkspaceAnalysisPlan('project-1', oneArtifact, { stepLimit: 500, stepOffset: second.nextStepOffset! })
+    const paged = [...first.steps, ...second.steps, ...third.steps]
+
+    expect(first).toMatchObject({ proposedSteps: 500, totalCandidateSteps: 1205, stepOffset: 0, nextStepOffset: 500, hasMoreSteps: true })
+    expect(second).toMatchObject({ proposedSteps: 500, stepOffset: 500, nextStepOffset: 1000, hasMoreSteps: true })
+    expect(third).toMatchObject({ proposedSteps: 205, stepOffset: 1000, nextStepOffset: null, hasMoreSteps: false })
+    expect(paged.map((step) => step.capability)).toEqual(capabilities)
+    expect(new Set(paged.map((step) => step.id)).size).toBe(capabilities.length)
+  })
+
+  test('keeps artifact and proposal continuation states independent', () => {
+    const inventoryPage = { ...inventory, hasMore: true }
+    const plan = buildWorkspaceAnalysisPlan('project-1', inventoryPage, { stepLimit: 500 })
+
+    expect(plan.hasMoreArtifacts).toBe(true)
+    expect(plan.hasMoreSteps).toBe(false)
+    expect(plan.nextStepOffset).toBeNull()
+  })
+
+  test('binds proposal continuation to a stable inventory snapshot', () => {
+    const first = buildWorkspaceAnalysisPlan('project-1', inventory, { stepLimit: 1, stepOffset: 0 })
+    const next = buildWorkspaceAnalysisPlan('project-1', inventory, { stepLimit: 1, stepOffset: 1, snapshotId: first.snapshotId })
+    const reordered = buildWorkspaceAnalysisPlan('project-1', { ...inventory, artifacts: [...inventory.artifacts].reverse() }, { stepLimit: 1, stepOffset: 1 })
+    const changed = buildWorkspaceAnalysisPlan('project-1', {
+      ...inventory,
+      artifacts: inventory.artifacts.map((artifact, index) => index ? artifact : { ...artifact, sha256: 'changed-hash' }),
+    }, { stepLimit: 1, stepOffset: 1 })
+
+    expect(next.snapshotId).toBe(first.snapshotId)
+    expect(reordered.snapshotId).not.toBe(first.snapshotId)
+    expect(changed.snapshotId).not.toBe(first.snapshotId)
   })
 })

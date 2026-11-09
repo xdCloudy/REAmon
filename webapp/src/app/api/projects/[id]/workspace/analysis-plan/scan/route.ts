@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
 import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
 import { listWorkspaceFiles } from '@/lib/reamon/inventory-query'
-import { buildWorkspaceAnalysisPlan } from '@/lib/reamon/analysis-plan'
 
 interface RouteParams { params: Promise<{ id: string }> }
 
@@ -24,12 +23,8 @@ export async function POST(_request: Request, { params }: RouteParams) {
       artifacts.push(...page.artifacts)
       if (!page.hasMore) break
     }
-    const inventory = {
-      ...firstPage,
-      artifacts,
-      hasMore: firstPage.total > artifacts.length,
-    }
-    const plan = buildWorkspaceAnalysisPlan(projectId, inventory)
+    const proposalCount = artifacts.reduce((count, artifact) => count
+      + artifact.capabilities.reduce((providerCount, provider) => providerCount + provider.capabilities.length, 0), 0)
     const [previousTasks, findings, hypotheses, evidence] = await Promise.all([
       prisma.task.count({ where: { projectId } }),
       prisma.finding.count({ where: { projectId } }),
@@ -38,7 +33,7 @@ export async function POST(_request: Request, { params }: RouteParams) {
     ])
     const scan = {
       artifactsScanned: artifacts.length,
-      proposalCount: plan.proposedSteps,
+      proposalCount,
       previousTasks,
       findings,
       hypotheses,

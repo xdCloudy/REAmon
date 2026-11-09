@@ -10,6 +10,13 @@ export interface WorkspaceAnalysisPlan extends AnalysisPlan {
   steps: Array<WorkspaceAnalysisPlanStep & { profile: TargetProfile; provider: CapabilityMatch }>
 }
 
+interface ProposalContinuationPage {
+  planKey: string
+  steps: WorkspaceAnalysisPlan['steps']
+  hasMoreSteps: boolean
+  nextStepOffset: number | null
+}
+
 function createRunAttemptId(): string {
   const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16))
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')
@@ -45,7 +52,57 @@ export function WorkspaceAnalysisPlanPanel({ projectId, plan, isLoading, isError
 }) {
   const [pendingId, setPendingId] = useState<string | null>(null)
   const [feedback, setFeedback] = useState<string | null>(null)
-  const [visibleCount, setVisibleCount] = useState(8)
+  const [continuationPages, setContinuationPages] = useState<ProposalContinuationPage[]>([])
+  const [visibleState, setVisibleState] = useState<{ planKey: string; count: number }>({ planKey: '', count: 8 })
+  const planKey = plan ? JSON.stringify([projectId, plan.query, plan.snapshotId, plan.steps.map((step) => step.id)]) : ''
+  const loadedPages = continuationPages.filter((page) => page.planKey === planKey)
+  const allSteps = plan ? [...plan.steps, ...loadedPages.flatMap((page) => page.steps)] : []
+  const visibleCount = visibleState.planKey === planKey ? visibleState.count : 8
+  const latestPage = loadedPages.at(-1)
+  const hasMoreSteps = latestPage?.hasMoreSteps ?? plan?.hasMoreSteps ?? false
+  const nextStepOffset = latestPage?.nextStepOffset ?? plan?.nextStepOffset ?? null
+
+  async function loadMoreSteps() {
+    if (!plan || !hasMoreSteps || nextStepOffset === null) return
+    setPendingId('proposal-page')
+    setFeedback(null)
+    try {
+      const params = new URLSearchParams()
+      for (const [key, value] of Object.entries(plan.query)) {
+        if (key === 'stepOffset' || key === 'stepLimit' || key === 'snapshotId' || value === undefined) continue
+        params.set(key, String(value))
+      }
+      params.set('stepOffset', String(nextStepOffset))
+      params.set('stepLimit', String(plan.stepLimit))
+      params.set('snapshotId', plan.snapshotId)
+      const response = await fetch(`/api/projects/${projectId}/workspace/analysis-plan?${params.toString()}`)
+      const payload = await response.json().catch(() => ({})) as WorkspaceAnalysisPlan & {
+        error?: string | { message?: string }
+      }
+      if (!response.ok) {
+        const message = typeof payload.error === 'string' ? payload.error : payload.error?.message
+        throw new Error(message || 'Unable to load the next proposal page')
+      }
+      if (payload.snapshotId !== plan.snapshotId || payload.stepOffset !== nextStepOffset) {
+        throw new Error('Workspace proposals changed. Refresh the proposal list and continue from its first page.')
+      }
+      setContinuationPages((current) => [
+        ...current.filter((page) => page.planKey === planKey),
+        {
+          planKey,
+          steps: payload.steps,
+          hasMoreSteps: payload.hasMoreSteps,
+          nextStepOffset: payload.nextStepOffset,
+        },
+      ])
+      const loadedBefore = plan.steps.length + loadedPages.reduce((count, page) => count + page.steps.length, 0)
+      setVisibleState({ planKey, count: Math.max(visibleCount, loadedBefore + Math.min(8, payload.steps.length)) })
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : 'Unable to load the next proposal page')
+    } finally {
+      setPendingId(null)
+    }
+  }
 
   async function scanProject() {
     setPendingId('scan')
@@ -63,6 +120,8 @@ export function WorkspaceAnalysisPlanPanel({ projectId, plan, isLoading, isError
       }
       if (!response.ok) throw new Error(payload.error || 'Unable to scan project context')
       setFeedback(`Scanned ${payload.artifactsScanned || 0} files and rebuilt ${payload.proposalCount || 0} proposals using ${payload.previousTasks || 0} prior task results, ${payload.findings || 0} findings, ${payload.hypotheses || 0} hypotheses, and ${payload.evidence || 0} evidence records.`)
+      setContinuationPages([])
+      setVisibleState({ planKey, count: 8 })
       onScanned?.()
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : 'Unable to scan project context')
@@ -96,6 +155,7 @@ export function WorkspaceAnalysisPlanPanel({ projectId, plan, isLoading, isError
           : status === 'COMPLETED'
             ? `The latest ${step.capability} run for ${step.relativePath} is complete.`
             : `${step.capability} was added to the project task list.`)
+      setContinuationPages([])
       onScheduled?.()
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : 'Unable to run analysis task')
@@ -121,6 +181,7 @@ export function WorkspaceAnalysisPlanPanel({ projectId, plan, isLoading, isError
       const payload = await response.json().catch(() => ({})) as { error?: string }
       if (!response.ok) throw new Error(payload.error || 'Unable to clear proposal')
       setFeedback(`${step.capability} for ${step.relativePath} was cleared. Scan the project to restore it.`)
+      setContinuationPages([])
       onScheduled?.()
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : 'Unable to clear proposal')
@@ -146,14 +207,15 @@ export function WorkspaceAnalysisPlanPanel({ projectId, plan, isLoading, isError
       {plan?.lastProjectScan && <p className={styles.scanSummary}>
         Last scan: {new Date(plan.lastProjectScan.scannedAt).toLocaleString()} · {plan.lastProjectScan.artifactsScanned.toLocaleString()} files · {plan.lastProjectScan.previousTasks.toLocaleString()} prior tasks · {plan.lastProjectScan.findings.toLocaleString()} findings · {plan.lastProjectScan.evidence.toLocaleString()} evidence records.
       </p>}
-      {!isLoading && !isError && plan && !plan.proposedSteps && <p className={styles.muted}>No compatible proposals are visible. Scan the project to restore cleared proposals and check for new capabilities.</p>}
-      {!isLoading && !isError && plan && plan.proposedSteps > 0 && <>
+      {!isLoading && !isError && plan && !plan.proposedSteps && !hasMoreSteps && <p className={styles.muted}>No compatible proposals are visible. Scan the project to restore cleared proposals and check for new capabilities.</p>}
+      {!isLoading && !isError && plan && (plan.proposedSteps > 0 || hasMoreSteps) && <>
         <p className={styles.summary}>
-          {plan.proposedSteps.toLocaleString()} proposal{plan.proposedSteps === 1 ? '' : 's'} from {plan.candidateArtifacts.toLocaleString()} matching artifact{plan.candidateArtifacts === 1 ? '' : 's'}.
-          {(plan.hasMoreArtifacts || plan.hasMoreSteps) && ' More candidates are available.'}
+          {plan.proposedSteps.toLocaleString()} visible proposal{plan.proposedSteps === 1 ? '' : 's'} on this page from {plan.returnedArtifacts.toLocaleString()} of {plan.candidateArtifacts.toLocaleString()} matching artifacts.
+          {hasMoreSteps && ` ${plan.totalCandidateSteps.toLocaleString()} candidate steps are available in this artifact page.`}
+          {plan.hasMoreArtifacts && ' More artifact pages are available.'}
         </p>
         <div className={styles.list}>
-          {plan.steps.slice(0, visibleCount).map((step) => {
+          {allSteps.slice(0, visibleCount).map((step) => {
             const taskStatus = step.latestTask?.status
             const staleRun = isStaleRunningTask(step)
             const isActive = taskStatus === 'QUEUED' || (taskStatus === 'RUNNING' && !staleRun)
@@ -180,8 +242,8 @@ export function WorkspaceAnalysisPlanPanel({ projectId, plan, isLoading, isError
             </div>
           })}
         </div>
-        {visibleCount < plan.steps.length && <button type="button" className={styles.moreButton} onClick={() => setVisibleCount((count) => Math.min(count + 8, plan.steps.length))}>Show {Math.min(8, plan.steps.length - visibleCount)} more proposals</button>}
-        {plan.hasMoreSteps && visibleCount >= plan.steps.length && <p className={styles.muted}>There are more proposals than this page displays. Narrow the workspace inventory and scan again to view a subset.</p>}
+        {visibleCount < allSteps.length && <button type="button" className={styles.moreButton} onClick={() => setVisibleState((current) => ({ planKey, count: Math.min((current.planKey === planKey ? current.count : 8) + 8, allSteps.length) }))}>Show {Math.min(8, allSteps.length - visibleCount)} more proposals</button>}
+        {hasMoreSteps && <button type="button" className={styles.moreButton} disabled={pendingId !== null} onClick={() => void loadMoreSteps()}>{pendingId === 'proposal-page' ? 'Loading proposals…' : `Load next ${plan.stepLimit} proposal ${plan.stepLimit === 1 ? 'step' : 'steps'}`}</button>}
       </>}
     </section>
   )

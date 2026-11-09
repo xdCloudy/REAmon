@@ -45,11 +45,12 @@ beforeEach(() => {
 describe('REAmon workspace analysis planning MCP tool', () => {
   test('checks ownership and delegates bounded inventory filters', async () => {
     const result = await planWorkspaceAnalysis(ctx(), {
-      projectId: 'project-1', kind: 'executables', capability: 'identify', limit: 25, offset: 50,
+      projectId: 'project-1', kind: 'executables', capability: 'identify', limit: 25, offset: 50, stepLimit: 1, stepOffset: 0,
     })
 
     expect(result).toMatchObject({
-      projectId: 'project-1', requestedCapability: 'identify', proposedSteps: 1,
+      projectId: 'project-1', requestedCapability: 'identify', proposedSteps: 1, totalCandidateSteps: 1,
+      stepOffset: 0, nextStepOffset: null, snapshotId: expect.stringMatching(/^[a-f0-9]{64}$/),
       steps: [expect.objectContaining({ relativePath: 'bin/app.exe', status: 'PROPOSED' })],
     })
     expect(h.assertProject).toHaveBeenCalledWith('owner', 'project-1')
@@ -63,5 +64,14 @@ describe('REAmon workspace analysis planning MCP tool', () => {
       .rejects.toBeInstanceOf(McpScopeError)
     expect(h.assertProject).not.toHaveBeenCalled()
     expect(h.listFiles).not.toHaveBeenCalled()
+  })
+
+  test('requires a current inventory snapshot for continued proposal steps', async () => {
+    await expect(planWorkspaceAnalysis(ctx(), { projectId: 'project-1', stepOffset: 1 }))
+      .rejects.toMatchObject({ code: 'ANALYSIS_PLAN_SNAPSHOT_REQUIRED' })
+    await expect(planWorkspaceAnalysis(ctx(), { projectId: 'project-1', stepOffset: 1, snapshotId: 'b'.repeat(64) }))
+      .rejects.toMatchObject({ code: 'ANALYSIS_PLAN_SNAPSHOT_STALE' })
+    expect(h.assertProject).toHaveBeenCalledTimes(2)
+    expect(h.listFiles).toHaveBeenCalledTimes(2)
   })
 })

@@ -4,9 +4,15 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { WorkspaceAnalysisPlanPanel, type WorkspaceAnalysisPlan } from './WorkspaceAnalysisPlan'
 
 const plan: WorkspaceAnalysisPlan = {
+  query: {},
   candidateArtifacts: 1,
   returnedArtifacts: 1,
   proposedSteps: 1,
+  totalCandidateSteps: 1,
+  stepLimit: 500,
+  stepOffset: 0,
+  snapshotId: 'a'.repeat(64),
+  nextStepOffset: null,
   hasMoreArtifacts: false,
   hasMoreSteps: false,
   steps: [{
@@ -70,6 +76,42 @@ describe('WorkspaceAnalysisPlanPanel', () => {
     expect(screen.getByText('Failed')).toBeInTheDocument()
     expect(screen.getByText('Analyzer worker ran out of memory')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Clear extract_strings proposal for src/main.c' })).toBeInTheDocument()
+  })
+
+  test('loads the next proposal step page with the same inventory snapshot', async () => {
+    const nextStep = { ...plan.steps[0], id: 'artifact-2:reamon-source-inspector:decompile', capability: 'decompile' }
+    const pagedPlan: WorkspaceAnalysisPlan = {
+      ...plan,
+      query: { search: 'engine', kind: 'executables', limit: 25, offset: 50 },
+      proposedSteps: 1,
+      totalCandidateSteps: 2,
+      stepLimit: 1,
+      nextStepOffset: 1,
+      hasMoreSteps: true,
+    }
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        ...pagedPlan,
+        steps: [nextStep],
+        proposedSteps: 1,
+        stepOffset: 1,
+        nextStepOffset: null,
+        hasMoreSteps: false,
+      }),
+    }))
+    render(<WorkspaceAnalysisPlanPanel projectId="project-1" plan={pagedPlan} isLoading={false} isError={false} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Load next 1 proposal step' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Run decompile for src/main.c' })).toBeInTheDocument())
+
+    const requestUrl = String(vi.mocked(fetch).mock.calls[0][0])
+    expect(requestUrl).toContain('search=engine')
+    expect(requestUrl).toContain('kind=executables')
+    expect(requestUrl).toContain('offset=50')
+    expect(requestUrl).toContain('stepOffset=1')
+    expect(requestUrl).toContain('stepLimit=1')
+    expect(requestUrl).toContain(`snapshotId=${'a'.repeat(64)}`)
   })
 
   test('scans the whole project and explains what informed the rebuilt proposals', async () => {

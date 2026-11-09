@@ -111,6 +111,7 @@ import { startRecon, stopRecon, updateReconSettings } from '@/lib/mcp/writeTools
 import { getWorkspaceArtifact, listWorkspaceInventory } from '@/lib/mcp/workspaceTools'
 import { getWorkspaceSummary } from '@/lib/mcp/workspaceSummaryTools'
 import { planWorkspaceAnalysis } from '@/lib/mcp/workspacePlanTools'
+import { MAX_ANALYSIS_PLAN_STEP_PAGE_SIZE } from '@/lib/reamon/analysis-plan'
 import { getWorkspaceCodeUnit, listWorkspaceCodeRelationships, listWorkspaceCodeUnits, searchWorkspaceGoTypes, searchWorkspaceProviderTypes } from '@/lib/mcp/workspaceCodeTools'
 import {
   MAX_KEYS_PER_CALL,
@@ -556,7 +557,7 @@ export function buildMcpServer(ctx: McpContext, instructions?: string): McpServe
         'capabilities those providers advertise. Use it to select work before creating a task or ' +
         'calling a future executor. This is proposal-only: it does not run Ghidra, JADX, a command, ' +
         'an MCP server, or any other heavyweight tool, and it never exposes host storage paths. ' +
-        'Page with offset when hasMoreArtifacts or hasMoreSteps is true.',
+        'Page artifacts with offset. When hasMoreSteps is true, keep the same artifact filters and offset, pass nextStepOffset as stepOffset with the returned snapshotId, and continue; if the snapshot is stale, restart at stepOffset 0 without a snapshotId. After that artifact page is complete, advance offset and reset stepOffset.',
       annotations: READ_ONLY,
       _meta: scopesMeta({ required: ['recon:read'] }),
       inputSchema: {
@@ -567,6 +568,9 @@ export function buildMcpServer(ctx: McpContext, instructions?: string): McpServe
         capability: z.string().max(64).optional().describe('Only propose providers advertising this capability.'),
         limit: z.number().int().min(1).max(100).optional().describe('Default 100, maximum 100 candidate artifacts per page.'),
         offset: z.number().int().min(0).max(100000).optional().describe('Number of matching artifacts to skip.'),
+        stepLimit: z.number().int().min(1).max(MAX_ANALYSIS_PLAN_STEP_PAGE_SIZE).optional().describe('Maximum proposal steps in this page; defaults to 500.'),
+        stepOffset: z.number().int().min(0).max(100000).optional().describe('Number of proposal steps to skip within the selected artifact page. Use the previous response nextStepOffset, repeat the same artifact filters and offset, and include snapshotId.'),
+        snapshotId: z.string().regex(/^[a-f0-9]{64}$/).optional().describe('SHA-256 snapshot returned by the first page. It binds proposal continuation to the same inventory and provider capability state.'),
       },
     },
     handler(ctx, 'workspace_plan_analysis', a => planWorkspaceAnalysis(ctx, a), a => a.projectId)

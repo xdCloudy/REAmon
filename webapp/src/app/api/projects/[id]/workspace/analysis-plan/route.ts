@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
 import prisma from '@/lib/prisma'
 import { listWorkspaceFiles, type WorkspaceFileKind } from '@/lib/reamon/inventory-query'
-import { buildWorkspaceAnalysisPlan, type WorkspaceAnalysisPlanStep } from '@/lib/reamon/analysis-plan'
+import { buildWorkspaceAnalysisPlan, MAX_ANALYSIS_PLAN_STEP_PAGE_SIZE, type WorkspaceAnalysisPlanStep } from '@/lib/reamon/analysis-plan'
 
 interface RouteParams { params: Promise<{ id: string }> }
 
@@ -43,6 +43,17 @@ export async function GET(request: Request, { params }: RouteParams) {
     if (limit instanceof NextResponse) return limit
     const offset = nonNegativeInteger(url.searchParams.get('offset'), 'offset', 100000)
     if (offset instanceof NextResponse) return offset
+    const stepLimit = positiveInteger(url.searchParams.get('stepLimit'), 'stepLimit', MAX_ANALYSIS_PLAN_STEP_PAGE_SIZE)
+    if (stepLimit instanceof NextResponse) return stepLimit
+    const stepOffset = nonNegativeInteger(url.searchParams.get('stepOffset'), 'stepOffset', 100000)
+    if (stepOffset instanceof NextResponse) return stepOffset
+    const snapshotId = url.searchParams.get('snapshotId') || undefined
+    if (snapshotId && !/^[a-f0-9]{64}$/.test(snapshotId)) {
+      return NextResponse.json({ error: { code: 'INVALID_SNAPSHOT_ID', message: 'snapshotId must be a SHA-256 token' } }, { status: 400, headers: { 'Cache-Control': 'no-store' } })
+    }
+    if ((stepOffset || 0) > 0 && !snapshotId) {
+      return NextResponse.json({ error: { code: 'SNAPSHOT_REQUIRED', message: 'snapshotId is required when continuing proposal steps' } }, { status: 400, headers: { 'Cache-Control': 'no-store' } })
+    }
 
     const search = url.searchParams.get('search') || undefined
     const format = url.searchParams.get('format') || undefined
@@ -51,9 +62,16 @@ export async function GET(request: Request, { params }: RouteParams) {
     if (format && format.length > 64) return NextResponse.json({ error: 'format must be at most 64 characters' }, { status: 400, headers: { 'Cache-Control': 'no-store' } })
     if (capability && capability.length > 64) return NextResponse.json({ error: 'capability must be at most 64 characters' }, { status: 400, headers: { 'Cache-Control': 'no-store' } })
 
-    const query = { search, format, kind, capability, limit, offset }
+    const query = { search, format, kind, capability, limit, offset, stepLimit, stepOffset, snapshotId }
     const inventory = await listWorkspaceFiles(projectId, { search, format, kind, limit, offset })
     const plan = buildWorkspaceAnalysisPlan(projectId, inventory, query)
+    if (snapshotId && snapshotId !== plan.snapshotId) {
+      return NextResponse.json({
+        error: { code: 'SNAPSHOT_STALE', message: 'Workspace proposals changed. Restart proposal paging from stepOffset 0.' },
+        snapshotId: plan.snapshotId,
+        restartStepOffset: 0,
+      }, { status: 409, headers: { 'Cache-Control': 'private, no-store' } })
+    }
     const latestScan = await prisma.workspaceActivity.findFirst({
       where: { projectId, eventType: 'analysis.project.scanned' },
       orderBy: { createdAt: 'desc' },

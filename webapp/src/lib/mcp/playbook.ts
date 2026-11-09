@@ -316,7 +316,7 @@ export const ONBOARDING_PLAYBOOK: Record<string, PlaybookEntry> = {
       'when the workspace contains many candidates.',
     gotchas: [
       'This is a proposal boundary, not an executor. A PROPOSED step does not mean a tool ran, produced evidence, or changed the workspace.',
-      'The result is bounded by candidate artifact pagination and a maximum of 500 proposed steps. Continue with the returned offset when either hasMoreArtifacts or hasMoreSteps is true.',
+      'The result has two independent bounded pages: offset pages candidate artifacts, and stepOffset pages proposal steps within that artifact page. Continue with the returned nextStepOffset as stepOffset, preserving filters, artifact offset, and snapshotId until hasMoreSteps is false. Then advance artifact offset, reset stepOffset, and omit snapshotId. If the snapshot is stale, restart that artifact page from stepOffset 0 without snapshotId.',
       'Provider compatibility comes from stored profiles and manifests. Confirm the artifact details and execution requirements before creating or scheduling a real task.',
     ],
     workflowRefs: ['propose-analysis'],
