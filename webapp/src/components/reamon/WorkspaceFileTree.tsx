@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ChevronDown, ChevronRight, Download, File, Folder, Search } from 'lucide-react'
 import type { CapabilityMatch, TargetProfile } from '@/lib/reamon'
+import { WorkspaceEvidencePanel } from './WorkspaceEvidencePanel'
 import styles from './WorkspaceFileTree.module.css'
 
 interface WorkspaceArtifact {
@@ -296,6 +297,7 @@ export function WorkspaceFileTree({ projectId, rootName, artifacts, totalArtifac
           {detailsLoading && <p className={styles.detailLabel}>Loading related workspace records…</p>}
           {detailsError && <p className={styles.detailError}>Related workspace records are temporarily unavailable.</p>}
           {details && <div className={styles.relatedSummary} aria-label="Related workspace records"><p className={styles.detailLabel}>Related investigation records</p><div><span>{details.tasks.length} tasks</span><span>{details.findings.length} findings</span><span>{details.hypotheses.length} hypotheses</span><span>{details.evidence.length} evidence</span></div></div>}
+          <WorkspaceEvidencePanel key={selected.id} projectId={projectId} artifactId={selected.id} />
           <a className="secondaryButton" href={`/api/projects/${projectId}/artifacts/${selected.id}`} download><Download size={15} /> Download artifact</a>
         </> : <div className={styles.emptyDetail}><File size={24} /><span>Select a file to inspect its profile, hash, and capabilities.</span></div>}
       </aside>
