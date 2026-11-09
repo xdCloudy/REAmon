@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "fixtureId": "pyinstaller-malformed-carchive-entry-bounds-linux-amd64",
+  "baseFixtureId": "pyinstaller-module-structured-source-linux-amd64",
+  "createdAtUtc": "2026-11-09T07:23:38+00:00",
+  "mutationId": "first-entry-position-outside-overlay",
+  "mutation": "Set the first CArchive TOC entry data position beyond the archive overlay.",
+  "offsets": {
+    "cookieOffset": 7268246,
+    "tocOffset": 7264646,
+    "tocSize": 3600,
+    "entrySizeOffset": 7264646,
+    "entryPositionOffset": 7264650,
+    "originalEntryPosition": 0,
+    "mutatedEntryPosition": 7216496,
+    "overlaySize": 7216495
+  },
+  "sourceArtifact": {
+    "path": "pyinstaller-module-structured-source",
+    "sizeBytes": 7270456,
+    "sha256": "3cc8501e4fb575089c808e8dda4a67d54ef5e949cac41ab03a52c11a71b2abc2"
+  },
+  "malformedArtifact": {
+    "path": "entry-position-outside-overlay",
+    "sizeBytes": 7270456,
+    "sha256": "137b021dee976064592ad383f5e0fdde7259a209498eaabd6b83a72dba36b417"
+  },
+  "hostExecution": "not executed"
+}

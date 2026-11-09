@@ -10,6 +10,8 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
+DEFAULT_CONTROL_ID = "pyinstaller-malformed-carchive-toc-linux-amd64"
+
 
 def request_json(url: str, payload: dict[str, object] | None = None) -> tuple[int, dict[str, object]]:
     body = None if payload is None else json.dumps(payload).encode("utf-8")
@@ -36,6 +38,10 @@ def main() -> None:
     parser.add_argument("--base-url", default="http://127.0.0.1:8029")
     parser.add_argument("--artifact-path", required=True)
     parser.add_argument("--artifact-sha256", required=True)
+    parser.add_argument("--fixture-id", default=DEFAULT_CONTROL_ID)
+    parser.add_argument("--artifact-id", default="toc-invalid-v1")
+    parser.add_argument("--project-id", default="malformed-control")
+    parser.add_argument("--run-id", default="malformed-control-v1")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
 
@@ -46,10 +52,10 @@ def main() -> None:
 
     health_status, health = request_json(f"{args.base_url}/health")
     payload = {
-        "projectId": "malformed-control",
-        "artifactId": "toc-invalid-v1",
+        "projectId": args.project_id,
+        "artifactId": args.artifact_id,
         "taskId": "single-request",
-        "runId": "malformed-control-v1",
+        "runId": args.run_id,
         "artifactPath": args.artifact_path,
         "offset": 0,
     }
@@ -65,7 +71,7 @@ def main() -> None:
     )
     receipt: dict[str, object] = {
         "schemaVersion": 1,
-        "fixtureId": "pyinstaller-malformed-carchive-toc-linux-amd64",
+        "fixtureId": args.fixture_id,
         "recordedAtUtc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "service": {
             "baseUrl": args.base_url,
@@ -85,7 +91,7 @@ def main() -> None:
             "noRecoveredModules": True,
         },
         "controlResult": "PASS" if passed else "FAIL",
-        "scope": "Malformed CArchive TOC rejection at the isolated PyInstaller provider; no target execution.",
+        "scope": "One malformed CArchive control at the isolated PyInstaller provider; no target execution.",
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")

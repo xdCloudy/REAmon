@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "fixtureId": "pyinstaller-malformed-carchive-entry-bounds-linux-amd64",
+  "recordedAtUtc": "2026-11-09T07:29:22+00:00",
+  "serviceImageId": "sha256:dfd6e00b359c5144b39510685e15faa4dbc48645b3b0f9fe5a39669e9e5a40d3",
+  "extractorRevision": "2aa0ec9e58317ac717fdeec84a02d5a67de7b96c2-reamon1",
+  "artifact": {
+    "path": "/data/reamon-artifacts/qa/pyinstaller-malformed-20261109T072920/fixture",
+    "sha256": "137b021dee976064592ad383f5e0fdde7259a209498eaabd6b83a72dba36b417",
+    "sizeBytes": 7270456
+  },
+  "check": "server.has_pyinstaller_cookie",
+  "cookieAccepted": true,
+  "purpose": "Confirms the malformed CArchive passed the outer cookie check before live endpoint extraction."
+}

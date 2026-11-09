@@ -93,3 +93,8 @@ records a clean/obfuscated pair with equal runtime behavior. The live provider
 recovered all 70 target bytecode modules on each side and retained the expected
 clean versus shortened identifiers and plaintext versus XOR-encoded string
 markers. It returns bytecode, so source deobfuscation remains unavailable.
+
+[`../pyinstaller-malformed-carchive-control/runs/2026-11-09/entry-position-out-of-bounds/`](../pyinstaller-malformed-carchive-control/runs/2026-11-09/entry-position-out-of-bounds/README.md)
+records a second malformed CArchive TOC control. Its cookie preflight passed,
+but the isolated analyzer rejected an entry data position one byte beyond the
+overlay with HTTP 400 and no module payload.

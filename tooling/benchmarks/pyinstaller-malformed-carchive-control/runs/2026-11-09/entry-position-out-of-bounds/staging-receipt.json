@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "fixtureId": "pyinstaller-malformed-carchive-entry-bounds-linux-amd64",
+  "stageId": "20261109T072920",
+  "sourceSha256": "137b021dee976064592ad383f5e0fdde7259a209498eaabd6b83a72dba36b417",
+  "stagedArtifactPath": "/data/reamon-artifacts/qa/pyinstaller-malformed-20261109T072920/fixture",
+  "stagedArtifactSha256": "137b021dee976064592ad383f5e0fdde7259a209498eaabd6b83a72dba36b417",
+  "staged": false,
+  "cleanup": "REMOVED_AFTER_HASH_CHECK"
+}

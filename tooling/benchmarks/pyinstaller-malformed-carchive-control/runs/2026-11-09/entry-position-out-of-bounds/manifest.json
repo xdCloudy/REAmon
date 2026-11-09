@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "fixtureId": "pyinstaller-malformed-carchive-entry-bounds-linux-amd64",
+  "baseFixtureId": "pyinstaller-module-structured-source-linux-amd64",
+  "platform": "linux/amd64",
+  "mutation": {
+    "field": "first CArchive TOC entry data position",
+    "operation": "replace the entry position with overlay size plus one",
+    "invalidValue": "one byte beyond overlay size",
+    "preservesOuterCookie": true,
+    "preservesTocEntrySize": true
+  },
+  "expectedProviderOutcome": {
+    "httpStatus": 400,
+    "status": "failed",
+    "noRecoveredModules": true,
+    "errorContains": "malformed"
+  },
+  "acceptanceScope": "One CArchive entry with an out-of-bounds data position is rejected by the isolated PyInstaller analyzer after cookie screening.",
+  "limits": [
+    "One generated Linux x86-64 PyInstaller artifact.",
+    "Does not cover malformed fields other than this data-position bound or obfuscated archives.",
+    "Does not cover browser ingestion, PostgreSQL persistence, queued workers, or project-level recovery.",
+    "Does not establish broad malformed-input accuracy or reconstruction fidelity."
+  ]
+}
