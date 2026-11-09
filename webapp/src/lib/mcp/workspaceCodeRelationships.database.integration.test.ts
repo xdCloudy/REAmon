@@ -8,7 +8,7 @@ import { PrismaClient } from '@prisma/client'
 import { createHmac } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 
-import { __resetRateLimiter } from '@/lib/mcpAuth'
+import { __resetRateLimiter, McpAccessDenied } from '@/lib/mcpAuth'
 import { listWorkspaceCodeRelationships, listWorkspaceCodeUnits } from './workspaceCodeTools'
 import type { McpContext } from './tools'
 
@@ -21,12 +21,16 @@ let projectId = ''
 let taskId = ''
 let artifactId = ''
 let codeUnitId = ''
+let siblingProjectId = ''
+let siblingTaskId = ''
+let siblingCodeUnitId = ''
+let foreignUserId = ''
 const originalSigningKey = process.env.INTERNAL_API_KEY
 
-const ctx = (): McpContext => ({
+const ctx = (requestingUserId = userId): McpContext => ({
   token: {
     tokenId: 'workspace-relationship-integration',
-    userId,
+    userId: requestingUserId,
     tokenPrefix: 'rdmn_mcp_aaaaaaaa',
     name: 'relationship integration',
     scopes: ['recon:read'] as never,
@@ -97,14 +101,54 @@ beforeAll(async () => {
       attributes: { fromCodeUnitKey: 'integration-root-function', toCodeUnitKey: `integration-callee-${index}` },
     })),
   })
+
+  const siblingProject = await prisma.project.create({
+    data: { name: 'workspace sibling cursor integration', userId, targetDomain: 'sibling.example.invalid' },
+  })
+  siblingProjectId = siblingProject.id
+  const siblingArtifact = await prisma.artifact.create({
+    data: {
+      projectId: siblingProjectId, name: 'sibling.bin', originalName: 'sibling.bin',
+      storagePath: `integration/${SUFFIX}-sibling.bin`, sha256: 'c'.repeat(64), sizeBytes: 1,
+    },
+  })
+  const siblingTask = await prisma.task.create({
+    data: { projectId: siblingProjectId, title: 'sibling analysis', category: 'analysis', status: 'COMPLETED' },
+  })
+  siblingTaskId = siblingTask.id
+  const siblingUnit = await prisma.reamonObservation.create({
+    data: {
+      projectId: siblingProjectId, taskId: siblingTaskId, artifactId: siblingArtifact.id,
+      kind: 'code_unit', type: 'code_unit', stableKey: 'sibling-only-function',
+      canonicalKey: 'sibling-only-function', source: `${SUFFIX}-sibling`,
+      label: 'siblingOnlyFunction', attributes: { name: 'siblingOnlyFunction' },
+    },
+  })
+  siblingCodeUnitId = siblingUnit.id
+  await prisma.reamonObservation.create({
+    data: {
+      projectId: siblingProjectId, taskId: siblingTaskId, artifactId: siblingArtifact.id,
+      kind: 'relationship', type: 'calls', stableKey: 'sibling-only-edge',
+      canonicalKey: 'sibling-only-edge', source: `${SUFFIX}-sibling`,
+      fromKey: 'sibling-only-function', toKey: 'sibling-only-callee',
+      attributes: { fromCodeUnitKey: 'sibling-only-function', toCodeUnitKey: 'sibling-only-callee' },
+    },
+  })
+  const foreignUser = await prisma.user.create({
+    data: { email: `${SUFFIX}-foreign@example.invalid`, name: 'foreign workspace cursor integration' },
+  })
+  foreignUserId = foreignUser.id
 }, 60_000)
 
 afterAll(async () => {
   if (!HAS_DB || !prisma) return
   try { await prisma.project.delete({ where: { id: projectId } }) } catch { /* cascade */ }
   try { await prisma.user.delete({ where: { id: userId } }) } catch { /* cleanup after cascade */ }
+  try { await prisma.user.delete({ where: { id: foreignUserId } }) } catch { /* cleanup after cascade */ }
   expect(await prisma.project.count({ where: { id: projectId } })).toBe(0)
+  expect(await prisma.project.count({ where: { id: siblingProjectId } })).toBe(0)
   expect(await prisma.user.count({ where: { id: userId } })).toBe(0)
+  expect(await prisma.user.count({ where: { id: foreignUserId } })).toBe(0)
   expect(await prisma.reamonObservation.count({ where: { projectId, source: SUFFIX } })).toBe(0)
   await prisma.$disconnect()
   if (originalSigningKey === undefined) delete process.env.INTERNAL_API_KEY
@@ -114,6 +158,39 @@ afterAll(async () => {
 beforeEach(() => __resetRateLimiter())
 
 describe.skipIf(!HAS_DB)('workspace relationship pagination against PostgreSQL', () => {
+  test('keeps code-unit and relationship reads inside the requested project and owner', async () => {
+    const primaryCursor = await listWorkspaceCodeUnits(ctx(), { projectId, taskId, limit: 1 })
+    expect(primaryCursor.nextCursor).toEqual(expect.any(String))
+
+    const siblingUnits = await listWorkspaceCodeUnits(ctx(), {
+      projectId: siblingProjectId, taskId: siblingTaskId, limit: 10,
+    })
+    expect(siblingUnits.units.map((unit) => unit.stableKey)).toEqual(['sibling-only-function'])
+    expect(siblingUnits.total).toBe(1)
+
+    await expect(listWorkspaceCodeUnits(ctx(), {
+      projectId: siblingProjectId, taskId: siblingTaskId, limit: 1, cursor: primaryCursor.nextCursor as string,
+    })).rejects.toMatchObject({ code: 'stale_snapshot' })
+
+    const siblingRelationships = await listWorkspaceCodeRelationships(ctx(), {
+      projectId: siblingProjectId, codeUnitId: siblingCodeUnitId,
+      relationshipKind: 'calls', direction: 'outgoing', limit: 10,
+    })
+    expect(siblingRelationships.relationships.map((relationship) => relationship.stableKey)).toEqual(['sibling-only-edge'])
+    expect(siblingRelationships.total).toBe(1)
+    await expect(listWorkspaceCodeRelationships(ctx(), {
+      projectId: siblingProjectId, codeUnitId,
+      relationshipKind: 'calls', direction: 'outgoing', limit: 1,
+    })).rejects.toMatchObject({ code: 'not_found' })
+
+    const foreignCtx = ctx(foreignUserId)
+    await expect(listWorkspaceCodeUnits(foreignCtx, { projectId, taskId, limit: 1 }))
+      .rejects.toBeInstanceOf(McpAccessDenied)
+    await expect(listWorkspaceCodeRelationships(foreignCtx, {
+      projectId, codeUnitId, relationshipKind: 'calls', direction: 'outgoing', limit: 1,
+    })).rejects.toBeInstanceOf(McpAccessDenied)
+  })
+
   test('continues a stable 101-row snapshot without offset drift', async () => {
     const first = await listWorkspaceCodeRelationships(ctx(), {
       projectId, codeUnitId, relationshipKind: 'calls', direction: 'outgoing', limit: 100,
