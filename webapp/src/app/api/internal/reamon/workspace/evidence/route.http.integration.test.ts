@@ -20,8 +20,10 @@ const ROTATED_KEY = 'integration-http-rotated-cursor-key'
 
 let prisma: PrismaClient
 let userId = ''
+let foreignUserId = ''
 let projectId = ''
 let sessionCookie = ''
+let foreignSessionCookie = ''
 let originalInternalKey: string | undefined
 let originalPreviousKeys: string | undefined
 let originalAuthSecret: string | undefined
@@ -37,11 +39,16 @@ beforeAll(async () => {
     data: { email: `${SUFFIX}@example.invalid`, name: 'workspace evidence HTTP integration' },
   })
   userId = user.id
+  const foreignUser = await prisma.user.create({
+    data: { email: `${SUFFIX}-foreign@example.invalid`, name: 'foreign workspace evidence HTTP integration' },
+  })
+  foreignUserId = foreignUser.id
   const project = await prisma.project.create({
     data: { name: 'workspace evidence HTTP integration', userId, targetDomain: 'http.example.invalid' },
   })
   projectId = project.id
   sessionCookie = await createToken(userId, 'standard')
+  foreignSessionCookie = await createToken(foreignUserId, 'standard')
   await prisma.evidence.createMany({
     data: Array.from({ length: 4 }, (_, index) => ({
       projectId,
@@ -59,8 +66,10 @@ afterAll(async () => {
   if (!HAS_DB || !prisma) return
   try { await prisma.project.delete({ where: { id: projectId } }) } catch { /* cascade */ }
   try { await prisma.user.delete({ where: { id: userId } }) } catch { /* cleanup after cascade */ }
+  try { await prisma.user.delete({ where: { id: foreignUserId } }) } catch { /* cleanup after cascade */ }
   expect(await prisma.project.count({ where: { id: projectId } })).toBe(0)
   expect(await prisma.user.count({ where: { id: userId } })).toBe(0)
+  expect(await prisma.user.count({ where: { id: foreignUserId } })).toBe(0)
   expect(await prisma.evidence.count({ where: { projectId } })).toBe(0)
   await prisma.$disconnect()
   if (originalInternalKey === undefined) delete process.env.INTERNAL_API_KEY
@@ -126,9 +135,9 @@ async function startNextServer(activeKey: string, previousKeys = ''): Promise<{ 
   throw new Error('Next.js test process did not become ready within 60 seconds.')
 }
 
-function agentHeaders(key: string, tool = 'workspace_list_evidence') {
+function agentHeaders(key: string, tool = 'workspace_list_evidence', contextUserId = userId) {
   const tag = signTag({
-    source: 'agent', project_id: projectId, user_id: userId, tool,
+    source: 'agent', project_id: projectId, user_id: contextUserId, tool,
     exp: Math.floor(Date.now() / 1000) + 120,
   }, key)
   return { 'x-internal-key': key, 'x-redamon-ctx': tag, 'content-type': 'application/json' }
@@ -145,6 +154,18 @@ describe.skipIf(!HAS_DB)('agent Evidence HTTP paging across Next.js restart', ()
       const browserUrl = `${first.baseUrl}/api/projects/${projectId}/workspace/evidence?limit=1`
       const anonymousBrowserResponse = await fetch(browserUrl)
       expect(anonymousBrowserResponse.status).toBe(401)
+
+      const foreignBrowserResponse = await fetch(browserUrl, {
+        headers: { Cookie: `${AUTH_COOKIE_NAME}=${foreignSessionCookie}` },
+      })
+      expect(foreignBrowserResponse.status).toBe(404)
+
+      const foreignAgentResponse = await fetch(`${first.baseUrl}/api/internal/reamon/workspace/evidence`, {
+        method: 'POST',
+        headers: agentHeaders(INITIAL_KEY, 'workspace_list_evidence', foreignUserId),
+        body: JSON.stringify({ tool: 'workspace_list_evidence', limit: 1 }),
+      })
+      expect(foreignAgentResponse.status).toBe(404)
 
       const browserFirstResponse = await fetch(browserUrl, {
         headers: { Cookie: `${AUTH_COOKIE_NAME}=${sessionCookie}` },

@@ -19,6 +19,7 @@ const ROTATED_KEY = 'integration-code-http-rotated-cursor-key'
 
 let prisma: PrismaClient
 let userId = ''
+let foreignUserId = ''
 let projectId = ''
 let taskId = ''
 let artifactId = ''
@@ -31,6 +32,10 @@ beforeAll(async () => {
     data: { email: `${SUFFIX}@example.invalid`, name: 'workspace code HTTP integration' },
   })
   userId = user.id
+  const foreignUser = await prisma.user.create({
+    data: { email: `${SUFFIX}-foreign@example.invalid`, name: 'foreign workspace code HTTP integration' },
+  })
+  foreignUserId = foreignUser.id
   const project = await prisma.project.create({
     data: { name: 'workspace code HTTP integration', userId, targetDomain: 'code-http.example.invalid' },
   })
@@ -75,8 +80,10 @@ afterAll(async () => {
   if (!HAS_DB || !prisma) return
   try { await prisma.project.delete({ where: { id: projectId } }) } catch { /* cascade */ }
   try { await prisma.user.delete({ where: { id: userId } }) } catch { /* cleanup after cascade */ }
+  try { await prisma.user.delete({ where: { id: foreignUserId } }) } catch { /* cleanup after cascade */ }
   expect(await prisma.project.count({ where: { id: projectId } })).toBe(0)
   expect(await prisma.user.count({ where: { id: userId } })).toBe(0)
+  expect(await prisma.user.count({ where: { id: foreignUserId } })).toBe(0)
   expect(await prisma.artifact.count({ where: { id: artifactId } })).toBe(0)
   expect(await prisma.task.count({ where: { id: taskId } })).toBe(0)
   expect(await prisma.reamonObservation.count({ where: { projectId, source: SUFFIX } })).toBe(0)
@@ -137,9 +144,9 @@ async function startNextServer(activeKey: string, previousKeys = ''): Promise<{ 
   throw new Error('Next.js test process did not become ready within 60 seconds.')
 }
 
-function agentHeaders(key: string, tool: 'workspace_list_code_units' | 'workspace_list_code_relationships') {
+function agentHeaders(key: string, tool: 'workspace_list_code_units' | 'workspace_list_code_relationships', contextUserId = userId) {
   const tag = signTag({
-    source: 'agent', project_id: projectId, user_id: userId, tool,
+    source: 'agent', project_id: projectId, user_id: contextUserId, tool,
     exp: Math.floor(Date.now() / 1000) + 120,
   }, key)
   return { 'x-internal-key': key, 'x-redamon-ctx': tag, 'content-type': 'application/json' }
@@ -165,6 +172,22 @@ describe.skipIf(!HAS_DB)('agent code-unit and relationship HTTP paging across Ne
     try {
       const first = await startNextServer(INITIAL_KEY)
       firstServer = first.child
+
+      const foreignCodeUnitsResponse = await fetch(`${first.baseUrl}/api/internal/reamon/workspace/code-units`, {
+        method: 'POST',
+        headers: agentHeaders(INITIAL_KEY, 'workspace_list_code_units', foreignUserId),
+        body: JSON.stringify({ tool: 'workspace_list_code_units', taskId, limit: 1 }),
+      })
+      expect(foreignCodeUnitsResponse.status).toBe(404)
+      const foreignRelationshipsResponse = await fetch(`${first.baseUrl}/api/internal/reamon/workspace/code-units`, {
+        method: 'POST',
+        headers: agentHeaders(INITIAL_KEY, 'workspace_list_code_relationships', foreignUserId),
+        body: JSON.stringify({
+          tool: 'workspace_list_code_relationships', codeUnitId,
+          relationshipKind: 'calls', direction: 'outgoing', limit: 1,
+        }),
+      })
+      expect(foreignRelationshipsResponse.status).toBe(404)
 
       const firstUnits = await requestPage<{
         units: Array<{ stableKey: string }>; total: number; nextCursor: string | null
