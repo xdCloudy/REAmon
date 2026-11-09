@@ -1,0 +1,63 @@
+{
+  "artifactSha256": "747346a392096bdac3613ac295ee4b8a743e22689a3738aeca1ad8ffc92fb7cf",
+  "baselineRunId": "cfr-pair-baseline-v3",
+  "bytecodeCorrespondence": {
+    "baselineClassesMatched": 2,
+    "candidateClassesMatched": 2,
+    "classes": {
+      "org.reamon.fixture.Main": {
+        "baselineOriginalJavapSha256": "10b0bc971e7b2461a457748cbf9dc919693960bfe360a19e69ae90f67d4eb46c",
+        "baselineRecoveredJavapSha256": "10b0bc971e7b2461a457748cbf9dc919693960bfe360a19e69ae90f67d4eb46c",
+        "bytecodeMatchBaseline": true,
+        "bytecodeMatchCandidate": true,
+        "candidateOriginalJavapSha256": "10b0bc971e7b2461a457748cbf9dc919693960bfe360a19e69ae90f67d4eb46c",
+        "candidateRecoveredJavapSha256": "10b0bc971e7b2461a457748cbf9dc919693960bfe360a19e69ae90f67d4eb46c",
+        "repeatable": true
+      },
+      "org.reamon.fixture.RuleEngine": {
+        "baselineOriginalJavapSha256": "257c3acee517dabf29a703141287a7ddf5b549ecc86a642237c4ad1422a320f1",
+        "baselineRecoveredJavapSha256": "257c3acee517dabf29a703141287a7ddf5b549ecc86a642237c4ad1422a320f1",
+        "bytecodeMatchBaseline": true,
+        "bytecodeMatchCandidate": true,
+        "candidateOriginalJavapSha256": "257c3acee517dabf29a703141287a7ddf5b549ecc86a642237c4ad1422a320f1",
+        "candidateRecoveredJavapSha256": "257c3acee517dabf29a703141287a7ddf5b549ecc86a642237c4ad1422a320f1",
+        "repeatable": true
+      }
+    },
+    "expectedClasses": 2,
+    "method": "javap -p -s -c exact output per class",
+    "repeatableClasses": 2
+  },
+  "candidateRunId": "cfr-pair-candidate-v3",
+  "comparisonKind": "same-revision JVM provider repeatability; not a product-change regression claim",
+  "compile": {
+    "command": "javac --release 17",
+    "environment": "eclipse-temurin:21-jdk-jammy@sha256:4b1a74fbffbe6b4e7b6f0171a472478282fb463790a51edf10e465d578f22b69 in Docker with no network and bounded resources"
+  },
+  "fixtureId": "jvm-multimodule-cfr-linux-amd64",
+  "interpretation": "Both runs use the same source revision, runner, provider image, artifact, and toolchain. This measures repeatability and bounded bytecode correspondence only; it does not compare a product change or prove original-source recovery.",
+  "inventory": {
+    "baselineFiles": 2,
+    "baselineTruncated": false,
+    "candidateFiles": 2,
+    "candidateTruncated": false,
+    "expectedFiles": 2
+  },
+  "measurementComplete": true,
+  "productRevision": "dac84cee811ee21058514a25ed29ae62bc6a6b73",
+  "provider": "CFR 0.152",
+  "recoveredSourceHashRepeatability": {
+    "expectedFiles": 2,
+    "matchingFiles": 2
+  },
+  "runnerSha256": "c38ca63c61d05d5721f0ec8242ca898513489ca618518db6d8dccfa169c31e46",
+  "runtime": {
+    "baselineStdout": "low:-15,high:42,high:22",
+    "bothMatchFixtureOracle": true,
+    "candidateStdout": "low:-15,high:42,high:22",
+    "expectedStdout": "low:-15,high:42,high:22"
+  },
+  "schemaVersion": 1,
+  "serviceImageId": "sha256:75c9a073878f7788ad2a488e27714b13738a303640d60031e47bb2e7c9059c06",
+  "status": "NO_VARIATION_OBSERVED"
+}

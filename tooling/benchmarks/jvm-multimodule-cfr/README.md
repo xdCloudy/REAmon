@@ -15,7 +15,7 @@ powershell -ExecutionPolicy Bypass -File tooling/benchmarks/jvm-multimodule-cfr/
 
 The archived provider response is `runs/2026-11-09-cfr/provider-receipt.json`. The run used CFR 0.152 via the live isolated `reamon-cfr` service. CFR discovered both expected source units, reported no truncation, and its artifact SHA-256 matched the manifest.
 
-The derived outputs were compiled with `javac --release 17` inside the pinned Docker image. `runs/2026-11-09-cfr/validation-receipt.json` records output hashes and the matching observed stdout. This checks one behavior on one synthetic project; it does not establish original-source recovery or broad Java/JVM fidelity. The fixture and receipts are evidence for a future paired, multi-format matrix, not a complete AR-0/AR-8 corpus.
+The derived outputs were compiled with `javac --release 17` inside the pinned Docker image. The current-main and paired run receipts record output hashes and matching observed stdout. The paired run also compares `javap -p -s -c` output per expected class; both classes match the original compiled bytecode on each run, and the outputs repeat across runs. See `runs/2026-11-09-paired-jvm-repeatability/`. This measures one synthetic project and same-revision repeatability; it does not establish original-source recovery, a product-change comparison, or broad Java/JVM fidelity. The fixture and receipts are evidence for a future paired, multi-format matrix, not a complete AR-0/AR-8 corpus.
 
 ## Reproduce the full fixture run
 

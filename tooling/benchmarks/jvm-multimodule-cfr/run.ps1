@@ -26,11 +26,26 @@ if ($jarHash -ne $manifest.artifact.sha256 -or $jarHash -ne $buildReceipt.artifa
     throw 'Built JAR does not match the fixture manifest and build receipt'
 }
 
-$expectedSourcePaths = @($buildReceipt.sourceSha256ByPath.PSObject.Properties.Name | Sort-Object)
-if ($expectedSourcePaths.Count -ne $manifest.sourceModuleCount -or $expectedSourcePaths.Count -eq 0) {
+$sourceFiles = @(Get-ChildItem -LiteralPath (Join-Path $fixtureRoot 'src') -Filter '*.java' -File -Recurse | Sort-Object FullName)
+if ($sourceFiles.Count -ne $manifest.sourceModuleCount -or $sourceFiles.Count -eq 0) {
     throw 'Build receipt source inventory does not match the fixture manifest'
 }
-$sourcePaths = $expectedSourcePaths
+$sourceHashes = [ordered]@{}
+foreach ($source in $sourceFiles) {
+    $relative = $source.FullName.Substring((Join-Path $fixtureRoot 'src').Length).TrimStart('\','/') -replace '\\','/'
+    $sourceHashes[$relative] = (Get-FileHash -LiteralPath $source.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+}
+$sourcePaths = @($sourceHashes.Keys | Sort-Object)
+$receiptSourcePaths = @($buildReceipt.sourceSha256ByPath.PSObject.Properties.Name | Sort-Object)
+if (Compare-Object $sourcePaths $receiptSourcePaths) {
+    throw 'Build receipt source inventory differs from the checked-in fixture sources'
+}
+foreach ($sourcePath in $sourcePaths) {
+    $receiptHash = $buildReceipt.sourceSha256ByPath.PSObject.Properties[$sourcePath].Value
+    if ($sourceHashes[$sourcePath] -ne $receiptHash) {
+        throw "Build receipt source hash differs from the checked-in fixture: $sourcePath"
+    }
+}
 
 $projectId = 'bench-jvm-cfr'
 $artifactId = 'fixture-' + $jarHash.Substring(0, 12)
@@ -101,11 +116,40 @@ try {
         $recoveredHashes[$unit.relativePath] = $actualHash
     }
 
-    $sourceArgv = @($sourcePaths | ForEach-Object { '"' + $_ + '"' }) -join ' '
-    $compileScript = 'set -euo pipefail; mkdir -p /tmp/reamon-recovered-classes; cd /data/reamon-derived/' + $runRoot + '/sources; javac --release 17 -d /tmp/reamon-recovered-classes ' + $sourceArgv + '; java -cp /tmp/reamon-recovered-classes org.reamon.fixture.Main'
-    $observed = Invoke-DockerChecked -DockerArgs @('run', '--rm', '--platform', 'linux/amd64', '--network', 'none', '--memory', '2g', '--cpus', '2', '--pids-limit', '256', '--read-only', '--tmpfs', '/tmp:rw,nosuid,nodev,size=256m', '--volume', "${DerivedVolume}:/data/reamon-derived:ro", '--entrypoint', 'bash', $manifest.builderImage, '-lc', $compileScript) | Out-String
+    $classNames = @($sourcePaths | ForEach-Object { ($_ -replace '\.java$','') -replace '/', '.' })
+    if ($classNames | Where-Object { $_ -notmatch '^[A-Za-z_$][A-Za-z0-9_$.]*$' }) {
+        throw 'Fixture source paths do not map to safe Java class names'
+    }
+    $observed = Invoke-DockerChecked -DockerArgs @('run', '--rm', '--platform', 'linux/amd64', '--network', 'none', '--memory', '2g', '--cpus', '2', '--pids-limit', '256', '--read-only', '--tmpfs', '/tmp:rw,nosuid,nodev,size=256m', '--volume', "${BuildDirectory}:/fixture:ro", '--volume', "${localSources}:/recovered-src:ro", '--volume', "${OutputDirectory}:/validation-output", '--volume', "${fixtureRoot}:/validator:ro", '--entrypoint', 'bash', $manifest.builderImage, '/validator/validate_recovery.sh', '/fixture/fixture.jar', '/recovered-src', '/validation-output', $manifest.expectedRuntimeStdout) | Out-String
     $observed = $observed.Trim()
     if ($observed -ne $manifest.expectedRuntimeStdout) { throw "Recovered runtime output mismatch: $observed" }
+    $classResults = [ordered]@{}
+    foreach ($line in (Get-Content -LiteralPath (Join-Path $OutputDirectory 'bytecode-correspondence.tsv'))) {
+        $fields = $line -split "`t"
+        if ($fields.Count -ne 4 -or $fields[0] -notin $classNames) {
+            throw 'Container bytecode comparison returned a malformed class record'
+        }
+        if ($classResults.Contains($fields[0])) {
+            throw "Container bytecode comparison repeated a class: $($fields[0])"
+        }
+        $classResults[$fields[0]] = [ordered]@{
+            bytecodeMatch = ($fields[1] -eq 'true')
+            originalJavapSha256 = $fields[2]
+            recoveredJavapSha256 = $fields[3]
+        }
+    }
+    if ($classResults.Count -ne $classNames.Count) {
+        throw 'Container bytecode comparison did not return one record per expected class'
+    }
+    $matchedClasses = @($classResults.Values | Where-Object { $_.bytecodeMatch }).Count
+    $bytecodeCorrespondence = [ordered]@{
+        method = 'javap -p -s -c exact output per expected class, compiled with the same pinned JDK'
+        classesMatched = $matchedClasses
+        classesExpected = $classNames.Count
+        measurementComplete = ($classResults.Count -eq $classNames.Count)
+        allClassesMatched = ($matchedClasses -eq $classNames.Count)
+        classes = $classResults
+    }
 
     $serviceImage = Invoke-DockerChecked -DockerArgs @('inspect', $CfrContainer, '--format', '{{.Image}}') | Out-String
     $repoRevision = (& git -C $fixtureRoot rev-parse HEAD | Out-String).Trim()
@@ -129,12 +173,20 @@ try {
         expectedSourceFiles = $sourcePaths.Count
         truncated = $provider.truncated
         recoveredSourceSha256ByPath = $recoveredHashes
+        sourceCorrespondence = [ordered]@{
+            method = $bytecodeCorrespondence.method
+            classesMatched = $bytecodeCorrespondence.classesMatched
+            classesExpected = $bytecodeCorrespondence.classesExpected
+            measurementComplete = $bytecodeCorrespondence.measurementComplete
+            allClassesMatched = $bytecodeCorrespondence.allClassesMatched
+            classes = $bytecodeCorrespondence.classes
+        }
         compileCommand = 'javac --release 17'
         compileEnvironment = $manifest.builderImage + ' in Docker with no network and bounded resources'
         observedRuntimeStdout = $observed
         expectedRuntimeStdout = $manifest.expectedRuntimeStdout
         runtimeMatches = $true
-        claim = 'One synthetic two-class JVM fixture compiled and ran with matching observed stdout; this is not proof of original-source equivalence or broad JVM fidelity.'
+        claim = 'One synthetic two-class JVM fixture compiled and ran with matching observed stdout; javap class signatures and bytecode matched per expected class. This does not prove original-source equivalence or broad JVM fidelity.'
     }
     [System.IO.File]::WriteAllText((Join-Path $OutputDirectory 'validation-receipt.json'), ($validation | ConvertTo-Json -Depth 12), $utf8NoBom)
     Write-Output "CFR fixture passed: $RunId; sources=$($sourcePaths.Count); stdout=$observed"
