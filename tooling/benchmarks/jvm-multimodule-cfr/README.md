@@ -16,3 +16,15 @@ powershell -ExecutionPolicy Bypass -File tooling/benchmarks/jvm-multimodule-cfr/
 The archived provider response is `runs/2026-11-09-cfr/provider-receipt.json`. The run used CFR 0.152 via the live isolated `reamon-cfr` service. CFR discovered both expected source units, reported no truncation, and its artifact SHA-256 matched the manifest.
 
 The derived outputs were compiled with `javac --release 17` inside the pinned Docker image. `runs/2026-11-09-cfr/validation-receipt.json` records output hashes and the matching observed stdout. This checks one behavior on one synthetic project; it does not establish original-source recovery or broad Java/JVM fidelity. The fixture and receipts are evidence for a future paired, multi-format matrix, not a complete AR-0/AR-8 corpus.
+
+## Reproduce the full fixture run
+
+With Docker running, the `reamon-cfr` service available, and a fresh build directory, run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tooling/benchmarks/jvm-multimodule-cfr/run.ps1 `
+  -BuildDirectory work/benchmarks/jvm-multimodule-cfr-build `
+  -OutputDirectory work/benchmarks/jvm-multimodule-cfr-run
+```
+
+The runner verifies the JAR against its manifest, stages it under a unique path in `reamon_artifacts`, calls the live CFR service, checks the returned inventory and hashes, copies the derived sources into the requested output folder, then compiles and runs them in the pinned Docker image with networking disabled and resource limits set. It removes the staged input only after verifying its SHA-256. The output folder must not already exist; provider and validation receipts plus recovered sources are written there. The recorded run receipts in `runs/2026-11-09-cfr-runner/` show the script completing this flow. This one fixture does not complete the broader benchmark-corpus requirement.
