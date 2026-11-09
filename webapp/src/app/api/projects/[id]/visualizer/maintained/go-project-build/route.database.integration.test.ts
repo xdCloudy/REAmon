@@ -2,6 +2,8 @@
 /**
  * Opt-in PostgreSQL acceptance for Go build receipts. Run against the stack DB
  * with REAMON_GO_PROJECT_BUILD_INTEGRATION=1 and a writable artifact directory.
+ * Add REAMON_GO_PROJECT_BUILD_REAL_AGENT=1 to send the synthetic multi-package
+ * project to the live isolated agent compiler instead of the response fixture.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createHash, randomUUID } from 'node:crypto'
@@ -29,8 +31,19 @@ import { GET, POST } from './route'
 const enabled = process.env.REAMON_GO_PROJECT_BUILD_INTEGRATION === '1'
   && Boolean(process.env.DATABASE_URL)
   && Boolean(process.env.REAMON_ARTIFACTS_PATH)
-const sourceCode = 'package main\nfunc main() {}\n'
 const goMod = 'module example.local/reamon-integration\n\ngo 1.24\n'
+const goSources = [
+  {
+    unitName: 'main',
+    relativePath: 'service/app/main.go',
+    sourceCode: 'package main\nimport "example.local/reamon-integration/core"\nfunc main() { _ = core.Value() }\n',
+  },
+  {
+    unitName: 'Value',
+    relativePath: 'service/core/value.go',
+    sourceCode: 'package core\nfunc Value() int { return 42 }\n',
+  },
+]
 const hash = (value: string) => createHash('sha256').update(value).digest('hex')
 const setHash = (entries: Array<{ path: string; hash: string }>) => {
   const digest = createHash('sha256')
@@ -45,8 +58,8 @@ let projectOwnerId = ''
 let taskId = ''
 let artifactId = ''
 let moduleArtifactId = ''
-let codeUnitId = ''
-let reviewId = ''
+let codeUnitIds: string[] = []
+let reviewIds: string[] = []
 let artifactsDirectory = ''
 let moduleHash = ''
 
@@ -75,15 +88,16 @@ describe.skipIf(!enabled)('Go build receipt against PostgreSQL', () => {
     await writeFile(path.join(artifactsDirectory, 'service', 'go.mod'), goMod)
     vi.stubEnv('REAMON_ARTIFACTS_PATH', artifactsDirectory)
 
+    const mainSource = goSources[0].sourceCode
     const artifact = await prisma.artifact.create({
       data: {
         projectId,
-        name: 'source.go',
-        originalName: 'source.go',
-        relativePath: 'service/main.go',
+        name: 'main.go',
+        originalName: 'main.go',
+        relativePath: goSources[0].relativePath,
         storagePath: 'not-read-by-this-route',
-        sha256: hash(sourceCode),
-        sizeBytes: BigInt(Buffer.byteLength(sourceCode)),
+        sha256: hash(mainSource),
+        sizeBytes: BigInt(Buffer.byteLength(mainSource)),
         extension: '.go',
         profile: { format: 'go-source' },
       },
@@ -109,36 +123,47 @@ describe.skipIf(!enabled)('Go build receipt against PostgreSQL', () => {
       select: { id: true },
     })
     taskId = task.id
-    const observation = await prisma.reamonObservation.create({
-      data: {
-        projectId, taskId, artifactId,
-        kind: 'entity', type: 'code_unit', stableKey: 'main', canonicalKey: 'main', source: 'go-project-build-integration',
-        attributes: { language: 'Go' },
-      },
-      select: { id: true },
-    })
-    codeUnitId = observation.id
-    const sourceHash = hash(sourceCode)
-    const review = await prisma.reamonCodeReview.create({
-      data: {
-        projectId, artifactId, codeUnitId, reviewerId: user.id, decision: 'ACCEPTED',
-        rationale: 'Integration fixture acceptance', maintainedSourceHash: sourceHash,
-      },
-      select: { id: true },
-    })
-    reviewId = review.id
-    await prisma.reamonMaintainedSource.create({
-      data: {
-        projectId, artifactId, codeUnitId, unitName: 'main', language: 'Go', sourceCode,
-        sourceHash, acceptedReviewId: reviewId, relativePath: 'service/main.go',
-      },
-    })
+    codeUnitIds = []
+    reviewIds = []
+    for (const source of goSources) {
+      const sourceHash = hash(source.sourceCode)
+      const observation = await prisma.reamonObservation.create({
+        data: {
+          projectId, taskId, artifactId,
+          kind: 'entity', type: 'code_unit', stableKey: source.unitName, canonicalKey: source.unitName,
+          source: 'go-project-build-integration', attributes: { language: 'Go' },
+        },
+        select: { id: true },
+      })
+      codeUnitIds.push(observation.id)
+      const review = await prisma.reamonCodeReview.create({
+        data: {
+          projectId, artifactId, codeUnitId: observation.id, reviewerId: user.id, decision: 'ACCEPTED',
+          rationale: 'Integration fixture acceptance', maintainedSourceHash: sourceHash,
+        },
+        select: { id: true },
+      })
+      reviewIds.push(review.id)
+      await prisma.reamonMaintainedSource.create({
+        data: {
+          projectId, artifactId, codeUnitId: observation.id, unitName: source.unitName, language: 'Go',
+          sourceCode: source.sourceCode, sourceHash, acceptedReviewId: review.id, relativePath: source.relativePath,
+        },
+      })
+    }
 
     mocks.requireEffectiveUser.mockResolvedValue({ userId: user.id })
     mocks.requireProjectAccess.mockResolvedValue({ project: { id: projectId, userId: user.id } })
     mocks.getActiveWorkspaceImportSelection.mockResolvedValue({ artifactWhere: { projectId } })
     moduleHash = hash(goMod)
-    mocks.agentFetch.mockImplementation(async (_url: string, init: RequestInit) => {
+    if (process.env.REAMON_GO_PROJECT_BUILD_REAL_AGENT === '1') {
+      const agentBase = (process.env.AGENT_API_URL || 'http://agent:8080').replace(/\/+$/, '')
+      mocks.agentFetch.mockImplementation(async (url: string, init: RequestInit) => {
+        const headers = new Headers(init.headers)
+        headers.set('x-internal-key', process.env.INTERNAL_API_KEY || '')
+        return fetch(`${agentBase}${url}`, { ...init, headers })
+      })
+    } else mocks.agentFetch.mockImplementation(async (_url: string, init: RequestInit) => {
       const body = JSON.parse(String(init.body)) as { files: Array<{ relative_path: string; expected_sha256: string }>; go_mod: string }
       const sourceSha256 = setHash(body.files.map((file) => ({ path: file.relative_path, hash: file.expected_sha256 })))
       const dependencySha256 = setHash([{ path: 'go.mod', hash: hash(body.go_mod) }])
@@ -150,7 +175,7 @@ describe.skipIf(!enabled)('Go build receipt against PostgreSQL', () => {
         validation_message: 'PostgreSQL integration compile receipt.',
         compiler_version: '1.24.4',
         compiled_sha256: 'a'.repeat(64),
-        package_count: 1,
+        package_count: 2,
         file_count: body.files.length,
         files: body.files.map((file) => ({ relative_path: file.relative_path, source_sha256: file.expected_sha256 })),
         dependencies: [{ path: 'go.mod', source_sha256: hash(body.go_mod) }],
@@ -171,9 +196,17 @@ describe.skipIf(!enabled)('Go build receipt against PostgreSQL', () => {
     const build = await buildResponse.json()
     expect(build.receipt).toMatchObject({
       validationStatus: 'PASSED',
-      files: [{ codeUnitId, acceptedReviewId: reviewId, relativePath: 'service/main.go', buildPath: 'main.go' }],
+      validationMethod: expect.stringMatching(/^go-\d+\.\d+(?:\.\d+)?-project-build$/),
+      packageCount: 2,
+      files: [
+        { codeUnitId: codeUnitIds[0], acceptedReviewId: reviewIds[0], relativePath: goSources[0].relativePath, buildPath: 'app/main.go' },
+        { codeUnitId: codeUnitIds[1], acceptedReviewId: reviewIds[1], relativePath: goSources[1].relativePath, buildPath: 'core/value.go' },
+      ],
       dependencies: [{ artifactId: moduleArtifactId, relativePath: 'service/go.mod', buildPath: 'go.mod', sourceSha256: moduleHash }],
     })
+    if (process.env.REAMON_GO_PROJECT_BUILD_REAL_AGENT === '1') {
+      expect(build.receipt.validationMessage).toMatch(/^Go \d+\.\d+(?:\.\d+)? compiled 2 accepted files across 2 packages without executing the output\./)
+    }
 
     const loadedResponse = await GET(receiptRequest(), params())
     expect(loadedResponse.status).toBe(200)
@@ -190,8 +223,11 @@ describe.skipIf(!enabled)('Go build receipt against PostgreSQL', () => {
     expect((await staleManifest.json()).receipt).toBeNull()
     await prisma.artifact.update({ where: { id: moduleArtifactId }, data: { sha256: moduleHash } })
 
-    await prisma.reamonMaintainedSource.update({ where: { projectId_codeUnitId: { projectId, codeUnitId } }, data: { sourceCode: sourceCode + '// changed\n' } })
+    await prisma.reamonMaintainedSource.update({
+      where: { projectId_codeUnitId: { projectId, codeUnitId: codeUnitIds[0] } },
+      data: { sourceCode: goSources[0].sourceCode + '// changed\n' },
+    })
     const staleSource = await GET(receiptRequest(), params())
     expect((await staleSource.json()).receipt).toBeNull()
-  })
+  }, 60_000)
 })
