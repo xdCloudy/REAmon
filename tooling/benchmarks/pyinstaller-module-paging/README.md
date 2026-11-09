@@ -90,9 +90,39 @@ records the observed 180-module inventory and known-source value matches only
 after those assertions pass. Set `REAMON_TASK_WORKER_INTEGRATION=1` to measure
 the queued worker terminal page; otherwise that metric stays `UNAVAILABLE`.
 Runtime-oracle evidence still comes from the pinned fixture builder, and full
-reconstruction correspondence remains `UNAVAILABLE`. The complete runner must
-join those independent records and verify their artifact hashes before receipt
-creation.
+reconstruction correspondence remains `UNAVAILABLE`.
+
+`tooling/benchmarks/run_pyinstaller_pair.py` packages measured baseline and
+candidate evidence in one command. It merges each side against the same build
+and enrollment receipts, records a provenance-bound receipt from each Git
+checkout, then compares them. Integration evidence and toolchain manifests must
+already exist; this command does not build the fixture or launch Docker tests.
+Keep the baseline and candidate as sibling Git worktrees, and store the input
+receipts/evidence outside both checkout roots so receipt cleanliness reflects
+the measured source trees. The runner refuses an existing output directory or
+different toolchain manifests and publishes the five result files only after
+the comparison completes.
+
+```powershell
+python tooling/benchmarks/run_pyinstaller_pair.py `
+  --baseline-repo-root ../reamon-baseline `
+  --candidate-repo-root . `
+  --fixture-manifest tooling/benchmarks/pyinstaller-module-paging/manifest.json `
+  --evaluation-manifest tooling/benchmarks/pyinstaller-module-paging/evaluation-manifest.json `
+  --build-receipt ../paired-inputs/build-receipt.json `
+  --enrollment-receipt ../paired-inputs/enrollment-receipt.json `
+  --baseline-integration-evidence ../paired-inputs/baseline-integration.json `
+  --candidate-integration-evidence ../paired-inputs/candidate-integration.json `
+  --baseline-toolchain-manifest ../paired-inputs/toolchain.json `
+  --candidate-toolchain-manifest ../paired-inputs/toolchain.json `
+  --output-dir ../pyinstaller-module-paging-paired-run
+```
+
+Exit codes are `0` for `NO_REGRESSION_OBSERVED`, `1` for
+`REGRESSION_DETECTED`, and `2` for `INCOMPLETE` or invalid inputs. The output
+contains both merged evidence files, both receipts, and `comparison.json`.
+This is evidence packaging, not a one-command benchmark execution or an
+AR-0/AR-8 acceptance gate.
 
 `tooling/benchmarks/merge_pyinstaller_evidence.py` performs that bounded join.
 It requires the builder receipt, checked-in enrollment receipt, and integration
