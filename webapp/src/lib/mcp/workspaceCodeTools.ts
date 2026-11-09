@@ -1,6 +1,6 @@
 /** Database-backed code-unit reads for agents working on REAmon workspaces. */
 import { open, realpath } from 'node:fs/promises'
-import { createHash, createHmac, timingSafeEqual } from 'node:crypto'
+import { createHash } from 'node:crypto'
 import path from 'node:path'
 import prisma from '@/lib/prisma'
 import { assertMcpProjectAccess, requireScope } from '@/lib/mcpAuth'
@@ -13,6 +13,7 @@ import { nativeAddressAliases, nativeFunctionIdentity } from '@/lib/reamon/nativ
 import { codeNoteText, REAMON_CODE_NOTE_SOURCE } from '@/lib/reamon/code-notes'
 import { enforceRate, type McpContext } from '@/lib/mcp/tools'
 import { hashWorkspaceCodeUnitSourceSnapshot } from '@/lib/mcp/workspaceCodeUnitSnapshot'
+import { signWorkspaceCursorPayload, verifyWorkspaceCursorPayload } from '@/lib/reamon/workspaceCursorSigning'
 
 const DEFAULT_LIMIT = 50
 const MAX_LIMIT = 100
@@ -115,23 +116,25 @@ function hashJson(value: unknown): string {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex')
 }
 
-function workspaceCursorSigningKey(): string {
-  const key = process.env.INTERNAL_API_KEY
-  if (!key || key === 'changeme') {
+function verifyWorkspaceCursor(payload: string, suppliedSignature: string, invalidMessage: string) {
+  const valid = verifyWorkspaceCursorPayload(payload, suppliedSignature)
+  if (valid === null) {
     throw new McpToolError('Stable workspace paging is unavailable because cursor signing is not configured.', 'cursor_unavailable')
   }
-  return key
+  if (!valid) throw new McpToolError(invalidMessage, 'stale_snapshot')
 }
 
 function encodeCodeUnitCursor(cursor: CodeUnitCursor): string {
   const payload = Buffer.from(JSON.stringify(cursor)).toString('base64url')
-  const signature = createHmac('sha256', workspaceCursorSigningKey()).update(payload).digest('base64url')
+  const signature = signWorkspaceCursorPayload(payload)
+  if (!signature) throw new McpToolError('Stable workspace paging is unavailable because cursor signing is not configured.', 'cursor_unavailable')
   return `${payload}.${signature}`
 }
 
 function encodeCodeRelationshipCursor(cursor: CodeRelationshipCursor): string {
   const payload = Buffer.from(JSON.stringify(cursor)).toString('base64url')
-  const signature = createHmac('sha256', workspaceCursorSigningKey()).update(payload).digest('base64url')
+  const signature = signWorkspaceCursorPayload(payload)
+  if (!signature) throw new McpToolError('Stable workspace paging is unavailable because cursor signing is not configured.', 'cursor_unavailable')
   return `${payload}.${signature}`
 }
 
@@ -144,11 +147,7 @@ function decodeCodeUnitCursor(value: string, expected: Pick<CodeUnitCursor, 'pro
     if (extra.length || !payload || !suppliedSignature) {
       throw new McpToolError('This code-unit cursor predates signed paging. Restart the listing without a cursor.', 'stale_snapshot')
     }
-    const expectedSignature = createHmac('sha256', workspaceCursorSigningKey()).update(payload).digest()
-    const signature = Buffer.from(suppliedSignature, 'base64url')
-    if (signature.length !== expectedSignature.length || !timingSafeEqual(signature, expectedSignature)) {
-      throw new McpToolError('Code-unit cursor integrity check failed. Restart the listing without a cursor.', 'stale_snapshot')
-    }
+    verifyWorkspaceCursor(payload, suppliedSignature, 'Code-unit cursor integrity check failed. Restart the listing without a cursor.')
     const cursor = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as Partial<CodeUnitCursor>
     if (cursor.version !== 1
       || typeof cursor.snapshotAt !== 'string' || !Number.isFinite(Date.parse(cursor.snapshotAt))
@@ -181,11 +180,7 @@ function decodeCodeRelationshipCursor(
     if (extra.length || !payload || !suppliedSignature) {
       throw new McpToolError('This code-relationship cursor predates signed paging. Restart without a cursor.', 'stale_snapshot')
     }
-    const expectedSignature = createHmac('sha256', workspaceCursorSigningKey()).update(payload).digest()
-    const signature = Buffer.from(suppliedSignature, 'base64url')
-    if (signature.length !== expectedSignature.length || !timingSafeEqual(signature, expectedSignature)) {
-      throw new McpToolError('Code-relationship cursor integrity check failed. Restart without a cursor.', 'stale_snapshot')
-    }
+    verifyWorkspaceCursor(payload, suppliedSignature, 'Code-relationship cursor integrity check failed. Restart without a cursor.')
     const cursor = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as Partial<CodeRelationshipCursor>
     if (cursor.version !== 1
       || typeof cursor.snapshotAt !== 'string' || !Number.isFinite(Date.parse(cursor.snapshotAt))

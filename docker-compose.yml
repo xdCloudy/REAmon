@@ -1136,6 +1136,8 @@ services:
       # Auth
       AUTH_SECRET: ${AUTH_SECRET:-changeme}
       INTERNAL_API_KEY: ${INTERNAL_API_KEY:-changeme}
+      # Prior internal keys remain cursor-verification-only during a bounded rotation window.
+      WORKSPACE_CURSOR_PREVIOUS_KEYS: ${WORKSPACE_CURSOR_PREVIOUS_KEYS:-}
       SCANNER_API_KEY: ${SCANNER_API_KEY:-changeme}  # S3/E6 scoped scanner token
       # S2/E2: flip the internal-key route allowlist from log-only to enforce.
       # Default false = fail-open rollout (the shipped behavior); set true in

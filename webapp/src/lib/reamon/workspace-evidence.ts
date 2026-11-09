@@ -1,6 +1,7 @@
 /** Shared bounded reads for durable, project-scoped REAmon evidence records. */
-import { createHash, createHmac, timingSafeEqual } from 'node:crypto'
+import { createHash } from 'node:crypto'
 import prisma from '@/lib/prisma'
+import { signWorkspaceCursorPayload, verifyWorkspaceCursorPayload } from './workspaceCursorSigning'
 
 export const WORKSPACE_EVIDENCE_DEFAULT_LIMIT = 25
 export const WORKSPACE_EVIDENCE_MAX_LIMIT = 50
@@ -44,17 +45,10 @@ type EvidenceCursor = {
 const EVIDENCE_CURSOR_TTL_MS = 7 * 24 * 60 * 60 * 1000
 const MAX_EVIDENCE_CURSOR_LENGTH = 512
 
-function evidenceCursorSigningKey() {
-  const key = process.env.INTERNAL_API_KEY
-  if (!key || key === 'changeme') {
-    throw new WorkspaceEvidenceError('Stable evidence paging is unavailable because cursor signing is not configured.', 'cursor_unavailable')
-  }
-  return key
-}
-
 function encodeCursor(value: EvidenceCursor) {
   const payload = Buffer.from(JSON.stringify(value)).toString('base64url')
-  const signature = createHmac('sha256', evidenceCursorSigningKey()).update(payload).digest('base64url')
+  const signature = signWorkspaceCursorPayload(payload)
+  if (!signature) throw new WorkspaceEvidenceError('Stable evidence paging is unavailable because cursor signing is not configured.', 'cursor_unavailable')
   return `${payload}.${signature}`
 }
 
@@ -67,9 +61,11 @@ function decodeCursor(value: string, projectId: string, artifactId: string | und
     if (extra.length || !payload || !suppliedSignature) {
       throw new WorkspaceEvidenceError('This evidence cursor predates signed paging. Restart without a cursor.', 'stale_snapshot')
     }
-    const expectedSignature = createHmac('sha256', evidenceCursorSigningKey()).update(payload).digest()
-    const signature = Buffer.from(suppliedSignature, 'base64url')
-    if (signature.length !== expectedSignature.length || !timingSafeEqual(signature, expectedSignature)) {
+    const signatureValid = verifyWorkspaceCursorPayload(payload, suppliedSignature)
+    if (signatureValid === null) {
+      throw new WorkspaceEvidenceError('Stable evidence paging is unavailable because cursor signing is not configured.', 'cursor_unavailable')
+    }
+    if (!signatureValid) {
       throw new WorkspaceEvidenceError('Evidence cursor integrity check failed. Restart without a cursor.', 'stale_snapshot')
     }
     const parsed = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as Partial<EvidenceCursor>

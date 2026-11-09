@@ -5,6 +5,7 @@
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'vitest'
 import { PrismaClient } from '@prisma/client'
+import { createHmac } from 'node:crypto'
 
 import { __resetRateLimiter } from '@/lib/mcpAuth'
 import { listPersistedWorkspaceEvidence } from './workspace-evidence'
@@ -104,6 +105,33 @@ describe.skipIf(!HAS_DB)('workspace evidence pagination against PostgreSQL', () 
     expect(last.evidence).toHaveLength(1)
     expect(last.total).toBe(51)
     expect(last.hasMore).toBe(false)
+  })
+
+  test('continues a persisted evidence cursor through signing-key rotation', async () => {
+    const previousKey = process.env.INTERNAL_API_KEY
+    const previousKeyList = process.env.WORKSPACE_CURSOR_PREVIOUS_KEYS
+    try {
+      const first = await listPersistedWorkspaceEvidence({ projectId, limit: 1 })
+      expect(first.total).toBe(51)
+      expect(first.hasMore).toBe(true)
+
+      process.env.INTERNAL_API_KEY = 'rotated-integration-evidence-cursor-key'
+      process.env.WORKSPACE_CURSOR_PREVIOUS_KEYS = 'integration-workspace-evidence-cursor-key'
+      const second = await listPersistedWorkspaceEvidence({
+        projectId,
+        limit: 1,
+        cursor: first.nextCursor as string,
+      })
+      expect(second.evidence).toHaveLength(1)
+      expect(second.total).toBe(51)
+      const [payload, signature] = (second.nextCursor as string).split('.')
+      expect(signature).toBe(createHmac('sha256', 'rotated-integration-evidence-cursor-key').update(payload).digest('base64url'))
+    } finally {
+      if (previousKey === undefined) delete process.env.INTERNAL_API_KEY
+      else process.env.INTERNAL_API_KEY = previousKey
+      if (previousKeyList === undefined) delete process.env.WORKSPACE_CURSOR_PREVIOUS_KEYS
+      else process.env.WORKSPACE_CURSOR_PREVIOUS_KEYS = previousKeyList
+    }
   })
 
   test('rejects a continuation after a row from its snapshot is deleted', async () => {

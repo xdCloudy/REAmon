@@ -98,6 +98,23 @@ describe('workspace code-unit keyset paging', () => {
     expect(h.findMany.mock.calls[1][0]).not.toHaveProperty('skip')
   })
 
+  test('continues code-unit pages during key rotation and signs the next cursor with the active key', async () => {
+    h.findMany.mockResolvedValueOnce([row('unit-a', 'a'), row('unit-b', 'b')])
+    h.count.mockResolvedValueOnce(3)
+    const first = await listWorkspaceCodeUnits(ctx, { projectId: 'project-1', limit: 1 })
+
+    vi.stubEnv('INTERNAL_API_KEY', 'rotated-code-unit-cursor-key')
+    vi.stubEnv('WORKSPACE_CURSOR_PREVIOUS_KEYS', cursorSigningKey)
+    h.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce({ id: 'unit-a', stableKey: 'a', updatedAt: row('unit-a', 'a').updatedAt })
+    h.count.mockResolvedValueOnce(3)
+    h.findMany.mockResolvedValueOnce([row('unit-b', 'b'), row('unit-c', 'c')])
+    const second = await listWorkspaceCodeUnits(ctx, { projectId: 'project-1', limit: 1, cursor: first.nextCursor as string })
+
+    const [payload, signature] = (second.nextCursor as string).split('.')
+    expect(signature).toBe(createHmac('sha256', 'rotated-code-unit-cursor-key').update(payload).digest('base64url'))
+    expect(second.units.map((unit) => unit.id)).toEqual(['unit-b'])
+  })
+
   test('requires a restart if an item changes during a listing', async () => {
     h.findMany.mockResolvedValueOnce([row('unit-a', 'a'), row('unit-b', 'b')])
     h.count.mockResolvedValueOnce(2)
@@ -174,6 +191,26 @@ describe('workspace code-unit keyset paging', () => {
 
 describe('workspace code-relationship keyset paging', () => {
   const args = { projectId: 'project-1', codeUnitId: 'unit-a', relationshipKind: 'calls' as const, direction: 'incoming' as const, limit: 1 }
+
+  test('continues relationship pages with a prior key and reissues with the active key', async () => {
+    h.findFirst.mockResolvedValueOnce(relationshipUnit)
+    h.findMany.mockResolvedValueOnce([relationship('edge-a', 'a'), relationship('edge-b', 'b')]).mockResolvedValueOnce([])
+    h.count.mockResolvedValueOnce(3)
+    const first = await listWorkspaceCodeRelationships(ctx, args)
+
+    vi.stubEnv('INTERNAL_API_KEY', 'rotated-relationship-cursor-key')
+    vi.stubEnv('WORKSPACE_CURSOR_PREVIOUS_KEYS', cursorSigningKey)
+    h.findFirst.mockResolvedValueOnce(relationshipUnit).mockResolvedValueOnce(null).mockResolvedValueOnce({
+      id: 'edge-a', stableKey: 'a', updatedAt: relationship('edge-a', 'a').updatedAt,
+    })
+    h.findMany.mockResolvedValueOnce([relationship('edge-b', 'b'), relationship('edge-c', 'c')]).mockResolvedValueOnce([])
+    h.count.mockResolvedValueOnce(3).mockResolvedValueOnce(3)
+    const second = await listWorkspaceCodeRelationships(ctx, { ...args, cursor: first.nextCursor as string })
+
+    const [payload, signature] = (second.nextCursor as string).split('.')
+    expect(signature).toBe(createHmac('sha256', 'rotated-relationship-cursor-key').update(payload).digest('base64url'))
+    expect(second.relationships.map((item) => item.stableKey)).toEqual(['b'])
+  })
 
   test('returns a unit-, filter-, import-, and snapshot-bound signed cursor', async () => {
     const timestamp = new Date('2026-11-09T10:00:00.000Z')

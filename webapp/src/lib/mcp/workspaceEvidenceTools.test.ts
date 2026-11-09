@@ -1,5 +1,6 @@
 /** @vitest-environment node */
 import { beforeEach, describe, expect, test, vi } from 'vitest'
+import { createHmac } from 'node:crypto'
 
 const h = vi.hoisted(() => ({
   assertProject: vi.fn(),
@@ -49,6 +50,24 @@ beforeEach(() => {
 })
 
 describe('persisted workspace evidence MCP tools', () => {
+  test('continues a cursor signed by a prior key and reissues it with the active key', async () => {
+    const timestamp = new Date('2026-11-09T10:00:00.000Z')
+    h.findMany.mockResolvedValueOnce([evidenceRow('evidence-c', timestamp), evidenceRow('evidence-b', timestamp)])
+    h.count.mockResolvedValueOnce(3)
+    const first = await listWorkspaceEvidence(ctx(), { projectId: 'project-1', limit: 1 })
+
+    vi.stubEnv('INTERNAL_API_KEY', 'workspace-evidence-cursor-key-rotated')
+    vi.stubEnv('WORKSPACE_CURSOR_PREVIOUS_KEYS', 'workspace-evidence-cursor-test-key')
+    h.findFirst.mockResolvedValueOnce(evidenceRow('evidence-c', timestamp))
+    h.count.mockResolvedValueOnce(3)
+    h.findMany.mockResolvedValueOnce([evidenceRow('evidence-b', timestamp), evidenceRow('evidence-a', timestamp)])
+    const second = await listWorkspaceEvidence(ctx(), { projectId: 'project-1', limit: 1, cursor: first.nextCursor as string })
+
+    const [payload, signature] = (second.nextCursor as string).split('.')
+    expect(signature).toBe(createHmac('sha256', 'workspace-evidence-cursor-key-rotated').update(payload).digest('base64url'))
+    expect(second.evidence.map((item) => item.id)).toEqual(['evidence-b'])
+  })
+
   test('pages records with a project and filter-bound keyset cursor', async () => {
     const timestamp = new Date('2026-11-09T10:00:00.000Z')
     h.findMany.mockResolvedValueOnce([evidenceRow('evidence-c', timestamp), evidenceRow('evidence-b', timestamp), evidenceRow('evidence-a', timestamp)])
