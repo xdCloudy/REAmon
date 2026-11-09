@@ -77,9 +77,9 @@ The [autonomous reconstruction and fidelity delivery plan](docs/REAMON_AUTONOMOU
 ## Project status
 
 <!-- REAMON_PRODUCT_PROGRESS_START -->
-<progress value="29.30" max="100">29.30%</progress> <strong>29.30%</strong> — weighted estimate **29.30%**.
-Recent same-scope change since 2026-11-09: **+0.74 points** (28.56% → 29.30%).
-Refreshed from pushed commit `dc605e9`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+<progress value="29.35" max="100">29.35%</progress> <strong>29.35%</strong> — weighted estimate **29.35%**.
+Recent same-scope change since 2026-11-09: **+0.79 points** (28.56% → 29.35%).
+Refreshed from the current local worktree. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
 [Goals and roadmap](docs/REAMON_GOALS.md) · [Feature matrix](docs/REAMON_FEATURE_MATRIX.md)

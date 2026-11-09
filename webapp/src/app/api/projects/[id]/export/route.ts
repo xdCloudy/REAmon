@@ -6,7 +6,7 @@ import path from 'path'
 import archiver from 'archiver'
 import { Readable } from 'stream'
 import { randomUUID } from 'crypto'
-import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
+import { requireEffectiveUser, requireProjectAccessStrict } from '@/lib/access'
 import { serializeGraphProperties } from '@/lib/graphSerialize'
 import { projectPresetForRead } from '@/lib/reconPresets/server'
 import { serializeProjectObservations } from '@/lib/reamon/observation-export'
@@ -33,7 +33,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     // most sensitive project route. Only the effective owner may export it.
     const eff = await requireEffectiveUser()
     if (eff instanceof NextResponse) return eff
-    const access = await requireProjectAccess(eff, id)
+    const access = await requireProjectAccessStrict(eff, id)
     if (access instanceof NextResponse) return access
 
     // 1. Fetch project from PostgreSQL
