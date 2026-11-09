@@ -7,7 +7,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'vitest'
 import { PrismaClient } from '@prisma/client'
 import { createHmac } from 'node:crypto'
 
-import { __resetRateLimiter } from '@/lib/mcpAuth'
+import { __resetRateLimiter, McpAccessDenied } from '@/lib/mcpAuth'
 import { listPersistedWorkspaceEvidence } from './workspace-evidence'
 import { listWorkspaceEvidence } from '@/lib/mcp/workspaceEvidenceTools'
 import type { McpContext } from '@/lib/mcp/tools'
@@ -19,6 +19,9 @@ let prisma: PrismaClient
 let userId = ''
 let projectId = ''
 let artifactId = ''
+let siblingProjectId = ''
+let foreignUserId = ''
+let foreignProjectId = ''
 const originalSigningKey = process.env.INTERNAL_API_KEY
 const stableCreatedAt = new Date('2025-01-01T00:00:00.000Z')
 
@@ -55,6 +58,24 @@ beforeAll(async () => {
     },
   })
   artifactId = artifact.id
+  const sibling = await prisma.project.create({
+    data: { name: 'workspace evidence sibling project', userId, targetDomain: 'sibling.example.invalid' },
+  })
+  siblingProjectId = sibling.id
+  const foreignUser = await prisma.user.create({
+    data: { email: `${SUFFIX}-foreign@example.invalid`, name: 'workspace evidence foreign owner' },
+  })
+  foreignUserId = foreignUser.id
+  const foreignProject = await prisma.project.create({
+    data: { name: 'workspace evidence foreign project', userId: foreignUserId, targetDomain: 'foreign.example.invalid' },
+  })
+  foreignProjectId = foreignProject.id
+  await prisma.evidence.createMany({
+    data: [
+      { projectId: siblingProjectId, kind: 'integration', summary: 'sibling-only evidence', source: SUFFIX, sourceReference: 'sibling-only', data: {} },
+      { projectId: foreignProjectId, kind: 'integration', summary: 'foreign-only evidence', source: SUFFIX, sourceReference: 'foreign-only', data: {} },
+    ],
+  })
   await prisma.evidence.createMany({
     data: Array.from({ length: 51 }, (_, index) => ({
       projectId,
@@ -70,11 +91,15 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (!HAS_DB || !prisma) return
-  try { await prisma.project.delete({ where: { id: projectId } }) } catch { /* cascade */ }
+  for (const ownedProjectId of [projectId, siblingProjectId, foreignProjectId]) {
+    if (!ownedProjectId) continue
+    try { await prisma.project.delete({ where: { id: ownedProjectId } }) } catch { /* cascade */ }
+  }
+  try { await prisma.user.delete({ where: { id: foreignUserId } }) } catch { /* cleanup after cascade */ }
   try { await prisma.user.delete({ where: { id: userId } }) } catch { /* cleanup after cascade */ }
-  expect(await prisma.project.count({ where: { id: projectId } })).toBe(0)
-  expect(await prisma.user.count({ where: { id: userId } })).toBe(0)
-  expect(await prisma.evidence.count({ where: { projectId } })).toBe(0)
+  expect(await prisma.project.count({ where: { id: { in: [projectId, siblingProjectId, foreignProjectId] } } })).toBe(0)
+  expect(await prisma.user.count({ where: { id: { in: [userId, foreignUserId] } } })).toBe(0)
+  expect(await prisma.evidence.count({ where: { projectId: { in: [projectId, siblingProjectId, foreignProjectId] } } })).toBe(0)
   await prisma.$disconnect()
   if (originalSigningKey === undefined) delete process.env.INTERNAL_API_KEY
   else process.env.INTERNAL_API_KEY = originalSigningKey
@@ -83,6 +108,21 @@ afterAll(async () => {
 beforeEach(() => __resetRateLimiter())
 
 describe.skipIf(!HAS_DB)('workspace evidence pagination against PostgreSQL', () => {
+  test('isolates sibling and foreign projects and rejects a cursor reused across project scope', async () => {
+    const first = await listWorkspaceEvidence(ctx(), { projectId, limit: 1 })
+    await expect(listWorkspaceEvidence(ctx(), {
+      projectId: siblingProjectId,
+      limit: 1,
+      cursor: first.nextCursor as string,
+    })).rejects.toMatchObject({ code: 'invalid_input' })
+
+    const sibling = await listWorkspaceEvidence(ctx(), { projectId: siblingProjectId, limit: 10 })
+    expect(sibling.evidence.map((item) => item.summary)).toEqual(['sibling-only evidence'])
+    expect(sibling.evidence.some((item) => item.summary === 'foreign-only evidence')).toBe(false)
+    await expect(listWorkspaceEvidence(ctx(), { projectId: foreignProjectId }))
+      .rejects.toBeInstanceOf(McpAccessDenied)
+  })
+
   test('keeps a signed 51-row snapshot stable when later evidence is added', async () => {
     const first = await listWorkspaceEvidence(ctx(), { projectId, limit: 50 })
     expect(first.evidence).toHaveLength(50)
