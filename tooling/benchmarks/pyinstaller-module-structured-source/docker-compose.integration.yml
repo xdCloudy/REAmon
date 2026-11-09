@@ -12,8 +12,8 @@ services:
       REAMON_PYCDC_URL: http://pycdc-analyzer:8014
       REAMON_RUN_DB_INTEGRATION: "1"
       REAMON_TASK_WORKER_INTEGRATION: "1"
-      REAMON_BENCHMARK_FIXTURE_ID: pyinstaller-module-structured-source-linux-amd64
-      REAMON_PYINSTALLER_FIXTURE_PATH: /data/reamon-artifacts/qa/pyinstaller-structured-source-v3/fixture
+      REAMON_BENCHMARK_FIXTURE_ID: ${REAMON_BENCHMARK_FIXTURE_ID:-pyinstaller-module-structured-source-linux-amd64}
+      REAMON_PYINSTALLER_FIXTURE_PATH: ${REAMON_BENCHMARK_FIXTURE_PATH:-/data/reamon-artifacts/qa/pyinstaller-structured-source-v3/fixture}
       REAMON_BENCHMARK_EVIDENCE_PATH: ${REAMON_BENCHMARK_EVIDENCE_PATH:-/benchmark-output/pyinstaller-module-structured-source-v3-live/integration-evidence.json}
     volumes:
       - reamon_artifacts:/data/reamon-artifacts

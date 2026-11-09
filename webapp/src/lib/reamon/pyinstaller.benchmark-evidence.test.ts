@@ -6,6 +6,7 @@ import {
   matchesPyInstallerSource,
   matchesPyInstallerStructuredFixtureSource,
   mutatePyInstallerStructuredFixtureSource,
+  PYINSTALLER_MUTATED_SOURCE_CONTROL_FIXTURE_ID,
   PYINSTALLER_STRUCTURED_SOURCE_FIXTURE_ID,
 } from './pyinstaller.benchmark-evidence'
 
@@ -160,5 +161,31 @@ describe('PyInstaller benchmark evidence', () => {
       structuredMutationRejectedCount: 69,
       structuredMutationFalseAcceptanceCount: 0,
     })).toThrow('cover all 70 source modules')
+  })
+
+  it('distinguishes the mutated artifact source from the original source oracle', () => {
+    const original = 'VALUE = 12\ndef classify(candidate):\n    if candidate < VALUE:\n        return "below"\n    return "at-or-above"\n'
+    const mutated = 'VALUE = 12\ndef classify(candidate):\n    if candidate < VALUE:\n        return "under"\n    return "at-or-above"\n'
+
+    expect(matchesPyInstallerStructuredFixtureSource(original, 12, 'under')).toBe(false)
+    expect(matchesPyInstallerStructuredFixtureSource(mutated, 12, 'under')).toBe(true)
+    expect(matchesPyInstallerStructuredFixtureSource(mutated, 12, 'below')).toBe(false)
+  })
+
+  it('records original-source false acceptance on the mutated artifact denominator', () => {
+    const evidence = createPyInstallerBenchmarkEvidence({
+      ...input,
+      fixtureId: PYINSTALLER_MUTATED_SOURCE_CONTROL_FIXTURE_ID,
+      originalSourceFalseAcceptanceCount: 0,
+    })
+    const metrics = evidence.fixtures[PYINSTALLER_MUTATED_SOURCE_CONTROL_FIXTURE_ID].metrics
+
+    expect(metrics.negative_control_original_source_false_acceptance)
+      .toEqual({ state: 'MEASURED', value: 0, denominator: 70 })
+    expect(() => createPyInstallerBenchmarkEvidence({
+      ...input,
+      fixtureId: PYINSTALLER_MUTATED_SOURCE_CONTROL_FIXTURE_ID,
+      originalSourceFalseAcceptanceCount: 71,
+    })).toThrow('between 0 and 70')
   })
 })

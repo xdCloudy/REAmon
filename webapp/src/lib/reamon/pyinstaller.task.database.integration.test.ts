@@ -12,6 +12,7 @@ import {
   matchesPyInstallerFixtureSource,
   matchesPyInstallerStructuredFixtureSource,
   mutatePyInstallerStructuredFixtureSource,
+  PYINSTALLER_MUTATED_SOURCE_CONTROL_FIXTURE_ID,
   PYINSTALLER_STRUCTURED_SOURCE_FIXTURE_ID,
 } from './pyinstaller.benchmark-evidence'
 import type { TargetProfile, ToolExecutionInput } from './types'
@@ -57,6 +58,7 @@ describeDatabase('PyInstaller continuation with PostgreSQL observation persisten
     reconstructionMatchedCount: number
     structuredMutationRejectedCount?: number
     structuredMutationFalseAcceptanceCount?: number
+    originalSourceFalseAcceptanceCount?: number
   } | undefined
   let workerReachedTerminalPage = false
   const benchmarkEvidencePath = process.env.REAMON_BENCHMARK_EVIDENCE_PATH?.trim()
@@ -212,7 +214,11 @@ describeDatabase('PyInstaller continuation with PostgreSQL observation persisten
     let reconstructionMatchedCount = 0
     let structuredMutationRejectedCount = 0
     let structuredMutationFalseAcceptanceCount = 0
-    const isStructuredFixture = process.env.REAMON_BENCHMARK_FIXTURE_ID === PYINSTALLER_STRUCTURED_SOURCE_FIXTURE_ID
+    let originalSourceFalseAcceptanceCount = 0
+    const fixtureId = process.env.REAMON_BENCHMARK_FIXTURE_ID
+    const isStructuredFixture = fixtureId === PYINSTALLER_STRUCTURED_SOURCE_FIXTURE_ID
+      || fixtureId === PYINSTALLER_MUTATED_SOURCE_CONTROL_FIXTURE_ID
+    const isMutatedArtifactFixture = fixtureId === PYINSTALLER_MUTATED_SOURCE_CONTROL_FIXTURE_ID
     for (let moduleValue = 1; moduleValue <= 70; moduleValue += 1) {
       const moduleName = `module_${String(moduleValue - 1).padStart(3, '0')}`
       const knownModule = moduleRows.find(({ attributes }) => attributes.pyinstallerArchivePath === `PYZ.pyz_extracted/paging_fixture/${moduleName}.pyc`)
@@ -225,10 +231,14 @@ describeDatabase('PyInstaller continuation with PostgreSQL observation persisten
       const knownSourceText = await readFile(knownSourcePath, 'utf8')
       expect(knownSourceText).toMatch(new RegExp(`\\bVALUE\\s*=\\s*${moduleValue}\\b`))
       const sourceMatches = isStructuredFixture
-        ? matchesPyInstallerStructuredFixtureSource(knownSourceText, moduleValue)
+        ? matchesPyInstallerStructuredFixtureSource(knownSourceText, moduleValue, isMutatedArtifactFixture ? 'under' : 'below')
         : matchesPyInstallerFixtureSource(knownSourceText, moduleValue)
       if (sourceMatches) reconstructionMatchedCount += 1
-      if (isStructuredFixture) {
+      if (isMutatedArtifactFixture
+        && matchesPyInstallerStructuredFixtureSource(knownSourceText, moduleValue, 'below')) {
+        originalSourceFalseAcceptanceCount += 1
+      }
+      if (isStructuredFixture && !isMutatedArtifactFixture) {
         const mutatedSource = mutatePyInstallerStructuredFixtureSource(knownSourceText)
         expect(mutatedSource, `${moduleName} must expose exactly one mutation target`).toBeDefined()
         if (matchesPyInstallerStructuredFixtureSource(mutatedSource!, moduleValue)) {
@@ -240,8 +250,13 @@ describeDatabase('PyInstaller continuation with PostgreSQL observation persisten
       knownSourceMatchedCount += 1
     }
     if (isStructuredFixture) {
-      expect(structuredMutationRejectedCount).toBe(70)
-      expect(structuredMutationFalseAcceptanceCount).toBe(0)
+      if (isMutatedArtifactFixture) {
+        expect(reconstructionMatchedCount).toBe(70)
+        expect(originalSourceFalseAcceptanceCount).toBe(0)
+      } else {
+        expect(structuredMutationRejectedCount).toBe(70)
+        expect(structuredMutationFalseAcceptanceCount).toBe(0)
+      }
     }
 
     const recovered = moduleRows.find(({ attributes }) => attributes.decompiled === true && typeof attributes.codeArtifactId === 'string')
@@ -255,7 +270,10 @@ describeDatabase('PyInstaller continuation with PostgreSQL observation persisten
       extractedModuleCount: moduleRows.length,
       knownSourceMatchedCount,
       reconstructionMatchedCount,
-      ...(isStructuredFixture ? { structuredMutationRejectedCount, structuredMutationFalseAcceptanceCount } : {}),
+      ...(isStructuredFixture && !isMutatedArtifactFixture
+        ? { structuredMutationRejectedCount, structuredMutationFalseAcceptanceCount }
+        : {}),
+      ...(isMutatedArtifactFixture ? { originalSourceFalseAcceptanceCount } : {}),
     }
   }, 30 * 60_000)
 

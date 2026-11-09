@@ -44,8 +44,14 @@ def merge_evidence(*, fixture_manifest, evaluation_manifest, build_receipt,
         "negative_control_mutation_rejection",
         "negative_control_false_acceptance",
     }
+    artifact_mutation_metrics = {
+        "negative_control_original_source_false_acceptance",
+    }
     has_mutation_controls = set(metric_definitions) == required_metrics | mutation_control_metrics
-    if set(metric_definitions) != required_metrics and not has_mutation_controls:
+    has_artifact_mutation_control = set(metric_definitions) == required_metrics | artifact_mutation_metrics
+    if (set(metric_definitions) != required_metrics
+            and not has_mutation_controls
+            and not has_artifact_mutation_control):
         raise ReceiptError("evaluation manifest metric inventory differs from PyInstaller evidence merger")
     if len(fixture_hashes) != 1:
         raise ReceiptError("PyInstaller evidence merger accepts exactly one fixture")
@@ -129,6 +135,13 @@ def merge_evidence(*, fixture_manifest, evaluation_manifest, build_receipt,
                 raise ReceiptError(f"integration evidence {metric_id} count is outside its denominator")
         if mutation_rejections["value"] + mutation_false_acceptances["value"] != known_source_count:
             raise ReceiptError("mutation control outcomes do not account for the declared source denominator")
+
+    if has_artifact_mutation_control:
+        false_acceptances = observed_metrics["negative_control_original_source_false_acceptance"]
+        if false_acceptances["state"] != "MEASURED" or false_acceptances["denominator"] != known_source_count:
+            raise ReceiptError("integration evidence lacks the declared original-source false-acceptance denominator")
+        if type(false_acceptances["value"]) is not int or not 0 <= false_acceptances["value"] <= known_source_count:
+            raise ReceiptError("integration evidence original-source false-acceptance count is outside its denominator")
 
     merged_metrics = {metric_id: dict(metric) for metric_id, metric in observed_metrics.items()}
     merged_metrics["runtime_oracle"] = {

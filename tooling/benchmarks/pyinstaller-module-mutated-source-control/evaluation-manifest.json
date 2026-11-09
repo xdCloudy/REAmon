@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "fixtureId": "pyinstaller-module-mutated-source-control-linux-amd64",
+  "metrics": {
+    "runtime_oracle": { "direction": "equal", "denominator": 1, "description": "The changed executable exercises both branch outcomes and prints its declared aggregate value in the pinned Docker builder." },
+    "extracted_module_count": { "direction": "equal", "denominator": 1, "description": "The isolated extractor inventories the declared 180 bytecode modules." },
+    "known_source_value_recall": { "direction": "higher", "denominator": 70, "description": "Recovered VALUE constants match the 70 known source modules." },
+    "worker_terminal_page": { "direction": "equal", "denominator": 1, "description": "The queued worker reaches the expected terminal inventory page." },
+    "reconstruction_match": { "direction": "higher", "denominator": 70, "description": "Recovered source matches the mutated under/at-or-above source for every known module." },
+    "negative_control_original_source_false_acceptance": { "direction": "lower", "denominator": 70, "description": "Count of mutated-artifact recovered sources incorrectly accepted as the original below/at-or-above source." }
+  }
+}

@@ -142,6 +142,29 @@ class MergePyInstallerEvidenceTests(unittest.TestCase):
         with self.assertRaisesRegex(ReceiptError, "do not account for the declared source denominator"):
             self.merge()
 
+    def test_merges_original_source_false_acceptance_for_mutated_artifact(self):
+        self.evaluation_manifest["metrics"]["negative_control_original_source_false_acceptance"] = {
+            "direction": "lower", "denominator": 70,
+        }
+        self.integration_evidence["fixtures"][self.fixture_id]["metrics"][
+            "negative_control_original_source_false_acceptance"
+        ] = {"state": "MEASURED", "value": 0, "denominator": 70}
+
+        merged = self.merge()["fixtures"][self.fixture_id]["metrics"]
+
+        self.assertEqual(merged["negative_control_original_source_false_acceptance"]["value"], 0)
+
+    def test_rejects_unavailable_original_source_false_acceptance(self):
+        self.evaluation_manifest["metrics"]["negative_control_original_source_false_acceptance"] = {
+            "direction": "lower", "denominator": 70,
+        }
+        self.integration_evidence["fixtures"][self.fixture_id]["metrics"][
+            "negative_control_original_source_false_acceptance"
+        ] = {"state": "UNAVAILABLE", "value": None, "denominator": 70, "reason": "not measured"}
+
+        with self.assertRaisesRegex(ReceiptError, "lacks the declared original-source false-acceptance denominator"):
+            self.merge()
+
     def test_rejects_malformed_enrollment_page_sizes(self):
         self.enrollment_receipt["extractorInventory"]["pageSizes"] = ["180"]
 

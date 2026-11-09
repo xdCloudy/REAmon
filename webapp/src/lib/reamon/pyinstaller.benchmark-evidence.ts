@@ -10,23 +10,30 @@ type PyInstallerBenchmarkEvidenceInput = {
   reconstructionMatchedCount: number
   structuredMutationRejectedCount?: number
   structuredMutationFalseAcceptanceCount?: number
+  originalSourceFalseAcceptanceCount?: number
   workerTerminalPage: boolean
 }
 
 export const PYINSTALLER_STRUCTURED_SOURCE_FIXTURE_ID = 'pyinstaller-module-structured-source-linux-amd64'
+export const PYINSTALLER_MUTATED_SOURCE_CONTROL_FIXTURE_ID = 'pyinstaller-module-mutated-source-control-linux-amd64'
 
 export function matchesPyInstallerFixtureSource(source: string, expectedValue: number): boolean {
   if (!Number.isSafeInteger(expectedValue) || expectedValue < 1 || expectedValue > 70) return false
   return matchesPyInstallerSource(source, `VALUE = ${expectedValue}`)
 }
 
-export function matchesPyInstallerStructuredFixtureSource(source: string, expectedValue: number): boolean {
+export function matchesPyInstallerStructuredFixtureSource(
+  source: string,
+  expectedValue: number,
+  belowResult: 'below' | 'under' = 'below',
+): boolean {
   if (!Number.isSafeInteger(expectedValue) || expectedValue < 1 || expectedValue > 70) return false
+  if (belowResult !== 'below' && belowResult !== 'under') return false
   const expectedSource = [
     `VALUE = ${expectedValue}`,
     'def classify(candidate):',
     '    if candidate < VALUE:',
-    '        return "below"',
+    `        return "${belowResult}"`,
     '    return "at-or-above"',
   ].join('\n')
   return matchesPyInstallerSource(source, expectedSource)
@@ -133,6 +140,7 @@ export function createPyInstallerBenchmarkEvidence(input: PyInstallerBenchmarkEv
     throw new Error('PyInstaller source reconstruction match count must be between 0 and 70')
   }
   const isStructuredFixture = input.fixtureId === PYINSTALLER_STRUCTURED_SOURCE_FIXTURE_ID
+  const isMutatedArtifactFixture = input.fixtureId === PYINSTALLER_MUTATED_SOURCE_CONTROL_FIXTURE_ID
   if (isStructuredFixture) {
     const rejected = input.structuredMutationRejectedCount
     const accepted = input.structuredMutationFalseAcceptanceCount
@@ -144,6 +152,14 @@ export function createPyInstallerBenchmarkEvidence(input: PyInstallerBenchmarkEv
   } else if (input.structuredMutationRejectedCount !== undefined
     || input.structuredMutationFalseAcceptanceCount !== undefined) {
     throw new Error('PyInstaller structured mutation controls require the structured-source fixture')
+  }
+  if (isMutatedArtifactFixture) {
+    const falseAcceptances = input.originalSourceFalseAcceptanceCount
+    if (!Number.isSafeInteger(falseAcceptances) || falseAcceptances! < 0 || falseAcceptances! > 70) {
+      throw new Error('PyInstaller mutated-artifact false-acceptance count must be between 0 and 70')
+    }
+  } else if (input.originalSourceFalseAcceptanceCount !== undefined) {
+    throw new Error('Original-source false-acceptance controls require the mutated-source fixture')
   }
 
   const workerMetric: MetricMeasurement = input.workerTerminalPage
@@ -188,6 +204,13 @@ export function createPyInstallerBenchmarkEvidence(input: PyInstallerBenchmarkEv
     metrics.negative_control_false_acceptance = {
       state: 'MEASURED',
       value: input.structuredMutationFalseAcceptanceCount!,
+      denominator: 70,
+    }
+  }
+  if (isMutatedArtifactFixture) {
+    metrics.negative_control_original_source_false_acceptance = {
+      state: 'MEASURED',
+      value: input.originalSourceFalseAcceptanceCount!,
       denominator: 70,
     }
   }
