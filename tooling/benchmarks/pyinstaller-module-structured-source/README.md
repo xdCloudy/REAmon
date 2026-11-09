@@ -87,3 +87,9 @@ outer PyInstaller cookie passed preflight, but an entry-size value below the
 fixed 18-byte header was rejected with HTTP 400 and no recovered modules. This
 does not measure obfuscated archives or malformed-input accuracy beyond that
 single structure.
+
+[`../pyinstaller-obfuscation-control/runs/2026-11-09/source-obfuscation-control/`](../pyinstaller-obfuscation-control/runs/2026-11-09/source-obfuscation-control/README.md)
+records a clean/obfuscated pair with equal runtime behavior. The live provider
+recovered all 70 target bytecode modules on each side and retained the expected
+clean versus shortened identifiers and plaintext versus XOR-encoded string
+markers. It returns bytecode, so source deobfuscation remains unavailable.

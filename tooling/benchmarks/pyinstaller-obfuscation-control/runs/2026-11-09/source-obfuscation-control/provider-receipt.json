@@ -1,0 +1,1246 @@
+{
+  "schemaVersion": 1,
+  "fixtureId": "pyinstaller-source-obfuscation-pair-linux-amd64",
+  "recordedAtUtc": "2026-11-09T07:15:08+00:00",
+  "service": {
+    "baseUrl": "http://127.0.0.1:8029",
+    "imageId": "sha256:dfd6e00b359c5144b39510685e15faa4dbc48645b3b0f9fe5a39669e9e5a40d3",
+    "healthStatus": 200,
+    "extractorRevision": "2aa0ec9e58317ac717fdeec84a02d5a67de7b96c2-reamon1"
+  },
+  "controls": {
+    "clean": {
+      "artifact": {
+        "path": "/data/reamon-artifacts/qa/pyinstaller-obfuscation-control-20261109T071508/clean-fixture",
+        "sha256": "d3c076e84d3e50cdc07ff052b29496338994b92d7401115f1bce01ba5d320bab"
+      },
+      "httpStatus": 200,
+      "status": "completed",
+      "moduleCount": 180,
+      "returnedModuleCount": 180,
+      "targetModuleDenominator": 70,
+      "targetModulesRecovered": 70,
+      "expectedFunctionSymbolCount": 70,
+      "cleanFunctionSymbolCount": 70,
+      "targetModulesWithOriginalStringLiterals": 70,
+      "totalBytecodeBytes": 3181726,
+      "providerElapsedMs": 492,
+      "pages": [
+        {
+          "offset": 0,
+          "pageSize": 64,
+          "nextOffset": 64,
+          "truncated": true,
+          "outputBytes": 727574,
+          "targetModules": [
+            "module_000",
+            "module_001",
+            "module_002",
+            "module_003",
+            "module_004",
+            "module_005",
+            "module_006",
+            "module_007",
+            "module_008",
+            "module_009",
+            "module_010",
+            "module_011",
+            "module_012",
+            "module_013",
+            "module_014",
+            "module_015",
+            "module_016",
+            "module_017",
+            "module_018",
+            "module_019",
+            "module_020",
+            "module_021",
+            "module_022",
+            "module_023",
+            "module_024",
+            "module_025",
+            "module_026",
+            "module_027",
+            "module_028",
+            "module_029",
+            "module_030",
+            "module_031",
+            "module_032",
+            "module_033",
+            "module_034",
+            "module_035",
+            "module_036",
+            "module_037",
+            "module_038",
+            "module_039",
+            "module_040",
+            "module_041",
+            "module_042",
+            "module_043"
+          ]
+        },
+        {
+          "offset": 64,
+          "pageSize": 64,
+          "nextOffset": 128,
+          "truncated": true,
+          "outputBytes": 808147,
+          "targetModules": [
+            "module_044",
+            "module_045",
+            "module_046",
+            "module_047",
+            "module_048",
+            "module_049",
+            "module_050",
+            "module_051",
+            "module_052",
+            "module_053",
+            "module_054",
+            "module_055",
+            "module_056",
+            "module_057",
+            "module_058",
+            "module_059",
+            "module_060",
+            "module_061",
+            "module_062",
+            "module_063",
+            "module_064",
+            "module_065",
+            "module_066",
+            "module_067",
+            "module_068",
+            "module_069"
+          ]
+        },
+        {
+          "offset": 128,
+          "pageSize": 52,
+          "nextOffset": 180,
+          "truncated": false,
+          "outputBytes": 1646005,
+          "targetModules": []
+        }
+      ],
+      "targetModules": {
+        "module_000": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_000.pyc",
+          "sha256": "ee717fd2a1a746fff22882c39aa13ae89b87fbdeefa8da3a102023627665b7ea",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_001": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_001.pyc",
+          "sha256": "58b010b873ef968dd59ec4c267c66612ff3ed0de2afe278f06bbbd27f8b34c31",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_002": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_002.pyc",
+          "sha256": "fdadd97f1ff4f863cc4684f0eaf3eb9222c8bf41674cd26cdc9845f691bc81fa",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_003": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_003.pyc",
+          "sha256": "0b21e1560be5b633c5e463213e523ee939c37c3f6a2141420dcefda0018ff073",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_004": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_004.pyc",
+          "sha256": "dd46c80b71ef2a76223c933cc7ad8d180bbd1d22bc618ebd6255b719479d4505",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_005": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_005.pyc",
+          "sha256": "61d9cbe2cbbd22f8f8cbcbc07f6bf061cc40b14a7ab0247982d395a3ef7a1217",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_006": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_006.pyc",
+          "sha256": "c2e355bb87567f813c4e52b193d08d702addca1ac4d60374ed579465e12c1ca0",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_007": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_007.pyc",
+          "sha256": "352d7d523244234a31ab696d2d977ca6dd269d5917382186c06904acfe908fb6",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_008": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_008.pyc",
+          "sha256": "f66a0c64f205cb9965d7ad8e263fa7c5dde3ed02c9f68d8f9312d67c3a22e2e6",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_009": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_009.pyc",
+          "sha256": "b80e5fee052667898241fe4a3d0f1ac00f454cb8097693f4ecd0da8a4b4e9a77",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_010": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_010.pyc",
+          "sha256": "e6c703a242696e928a850ee9f9b0dc3ff19d64fcc63afa31740f8d13e8480d59",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_011": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_011.pyc",
+          "sha256": "d9e2807ba2dd852cc5fe75c1fc3a1d0ed13d2176d63fabb93df28185b1bcf906",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_012": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_012.pyc",
+          "sha256": "c5e7a16c8f311dc6d3bd44fd9fe71c921d1de3c00387db3bc01f8ab8df287496",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_013": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_013.pyc",
+          "sha256": "756f1c48609d82b8ff306a9edcbe11acb5ceb19ab8ff49db5ff978e9681e9dcc",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_014": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_014.pyc",
+          "sha256": "bcf1b2631201cd8cc1cef30b9c3f09e4f319a6c160f33be4b438ec23d1192be9",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_015": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_015.pyc",
+          "sha256": "b36db984cf54457bd106f4f9303716d5d2587c95b0c7a875a9660880c761333b",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_016": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_016.pyc",
+          "sha256": "b3206901ab981db18b9bdf04460e41c61d396306d95a53b6e8a30bc831dd137d",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_017": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_017.pyc",
+          "sha256": "b117983e50a3b80f1ddc8fcdb130f213f32d78bd746d8e91554caf69406f1838",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_018": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_018.pyc",
+          "sha256": "711ea41e56cd0dcbd16d7412aa1e86e8dafa9cc0cb6aec6474544a2d78bfa955",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_019": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_019.pyc",
+          "sha256": "18b1d88c0ce049c9fee90ba8e37625bfe63257f58924ed8a603072ad800ea1a9",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_020": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_020.pyc",
+          "sha256": "183db4dab0ad0835d8194cb3cb1e3657dd42db2dafb4b935725642e871cfae7a",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_021": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_021.pyc",
+          "sha256": "b1bb50a73133908db131e58da8b10409a21e76bd122e597bfb577a8e8a3a4c48",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_022": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_022.pyc",
+          "sha256": "e72ea097a138e621640de40de1ad879b36047bbed7d6ece2254d296ca6e046e1",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_023": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_023.pyc",
+          "sha256": "0ecd9c5972771c59df3ba12c1ff3c83f0d1248037eea2ef5fc1f18f20f541483",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_024": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_024.pyc",
+          "sha256": "bcd799e25c2d7d2a93ae4820649d5ea14c3bd9529ecd1292f8b67ed0fd33e0c7",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_025": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_025.pyc",
+          "sha256": "3c1fa9b4916f9c3b0185d498f13c6fad901353464df9b5d4dcecbd7792dc7da8",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_026": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_026.pyc",
+          "sha256": "ea7886d9073e45471f3002592e03c5dac98e037e0399395280f67250c5ecb71a",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_027": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_027.pyc",
+          "sha256": "6c2365365525d8bc608d2457b526db9b2f8992c82f375906bf1482279182f71e",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_028": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_028.pyc",
+          "sha256": "ba79d0190d8966b73f0f5e88e260e4e0fe9df051035cef75ad489a6db9dc279d",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_029": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_029.pyc",
+          "sha256": "af734cb238bbfdc49d26dbe29740456d137a3e91702281d199557887c08c3055",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_030": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_030.pyc",
+          "sha256": "36130c71790e9c9458abe348596db440897544553e04f9e18491cb4788e71fad",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_031": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_031.pyc",
+          "sha256": "7b8f92e58f306c9fde6f5ddcc05a78f276dcb722f9333aa7c4c3801a1f746b22",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_032": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_032.pyc",
+          "sha256": "f1cb32eb5bb43f0ca59558d0ac8cf68b295c05d15627ec37a6f82a982cf85852",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_033": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_033.pyc",
+          "sha256": "7f22b57dec3ac7ede2bba6e7639829cd4c6c92d358ffa7a2d3344eb30115ad65",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_034": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_034.pyc",
+          "sha256": "fe1d78d35fb0a89fb84b13f46f7367ee3e8859f9c1635189294866b9b4b79046",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_035": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_035.pyc",
+          "sha256": "cefea14ee5b1959461cb87ef82c839de14a5feb80c7fe9415281b82becab3ff5",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_036": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_036.pyc",
+          "sha256": "eb59c6853572e0c4f5b83ccd78d0b7f449cf7104306aa089ef5e1868cdf947cc",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_037": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_037.pyc",
+          "sha256": "8cdaa66c740efa83ea35db6394b9fca720bfd054bb12672b9c54d8cd306ee1b9",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_038": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_038.pyc",
+          "sha256": "ff7f8452b0aaab5b57ecb552cf08fe345e0a3c6546593a2bc33363b325c66ad4",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_039": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_039.pyc",
+          "sha256": "ed782875c8a1a7db9b85a649fcc3b953751d7428e0cc6132ce5e78593710e264",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_040": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_040.pyc",
+          "sha256": "d042f165cf0f00f685610de7c3a235f129e36054dfebfd7e1da0b7089e93963d",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_041": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_041.pyc",
+          "sha256": "982fb54939420b285ab1501b75caf23cd4fcec693958e09f57d03c7fbeff9197",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_042": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_042.pyc",
+          "sha256": "260b8143f61e0ae4ac7ca60f40d7c0aeed928105d18b57c89ecd6f9ba24e1a2f",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_043": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_043.pyc",
+          "sha256": "8eec54795f19b752b54ee992ff7d5d636e9584ad156ec72667dff3e958f2f285",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_044": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_044.pyc",
+          "sha256": "a4481f038f433e876dcee9db68ed246f59d910bc0830d2ab2209c32a7acad90a",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_045": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_045.pyc",
+          "sha256": "5907164213d1e0d80d5dfa8c97d37b5e089ec228b17372e7836075969e14389e",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_046": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_046.pyc",
+          "sha256": "69aa95b40a2cb41db69dd18b1120e0fb9c99ab131bbca1990254f0a1925f910f",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_047": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_047.pyc",
+          "sha256": "0fecc4b648e8ac48caf272c1c905645c6f2617ecc11482d59b0ccea7af4de9bf",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_048": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_048.pyc",
+          "sha256": "9de142d7d45d17dd2a9565306e594e77bb3a516b25fee1650fc280d369c04057",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_049": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_049.pyc",
+          "sha256": "cda8ad0191d5d9220e9e0f760afd03d361f263d74961853cd98699ae4142c85b",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_050": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_050.pyc",
+          "sha256": "d0c120adf5242a6bed877bdcea80307ce62f35558f4164d236cc5459ff60b320",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_051": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_051.pyc",
+          "sha256": "868a799430e7aa162bafaac6579bb63c45e4caef76c0ee9cbe7667ac416c1b94",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_052": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_052.pyc",
+          "sha256": "f4e2e33213a04929b9cb189150fc13c35ffb75dc3299cb99102234d53c16af03",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_053": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_053.pyc",
+          "sha256": "fdea4c742c4649541a0193cf2dd9493371abe7ea25a336b0cee31e0947bcaa11",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_054": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_054.pyc",
+          "sha256": "a1ebb0b1e1cfc81db6d40a5929b645fd97bfb677ba8d0a856cdafcf588b84463",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_055": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_055.pyc",
+          "sha256": "aab3b84b4a9628ad9348636f789bf9dcb405ef505bd59307c769b6d540b13e0b",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_056": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_056.pyc",
+          "sha256": "b0af870bf02df435f0657c8ef01eca0b04dd343533e1e285c3c19a7a369420ac",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_057": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_057.pyc",
+          "sha256": "a4dcff0cc5d083cf484fb6c3f0cce054f507141823e9cf3a3888c0f4d2032120",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_058": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_058.pyc",
+          "sha256": "551cc496babdf44f852a6b79eccca40d9131eb4b76bfcdfc311027d4c58c496c",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_059": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_059.pyc",
+          "sha256": "f5af33ef0d97c5695a82e2fa25af1b2a3e49b92c4b9815919ab9bcc016b75e51",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_060": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_060.pyc",
+          "sha256": "16631eb9584c43657f69c7d79ced2074a360a89737e5b7ba53f1307ee92b269e",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_061": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_061.pyc",
+          "sha256": "6e42de79ce4d8628f35452de7a24e140ef1deb2d0dae183e12c1bfbadf573ede",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_062": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_062.pyc",
+          "sha256": "bcaba58e82f5402c5456d354b4be03c256315e0acb842138b22d404bc99cb7b2",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_063": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_063.pyc",
+          "sha256": "85c00438af166802e64251df5c04b7375e251667fcdbc3c9e81b0203cd2bcc2d",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_064": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_064.pyc",
+          "sha256": "8b2c7ccf8b844b4e094917c5e6673c1a98287249dc65c251fdf0c42ffa0d434c",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_065": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_065.pyc",
+          "sha256": "479b551f9d0ec75f141e60a383f0b9c7ff8fe5d03ecdec8527fc2b6586adf778",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_066": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_066.pyc",
+          "sha256": "b3c59a27b46a1ee8f7cd6a352e842ea87ed8a32f616c8d2c72f7e774664998eb",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_067": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_067.pyc",
+          "sha256": "d01a3da32fa59b0eb2efac1cdd1d333615f630c66f8b4cc20037efc408ab4b38",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_068": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_068.pyc",
+          "sha256": "ad5a89319e6aac5b56d5158c9529f9d78a6da3f0a6a71c8e24ef25cde15503df",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        },
+        "module_069": {
+          "archivePath": "PYZ.pyz_extracted/clean_fixture/module_069.pyc",
+          "sha256": "4d9df2e913fb7c94a977d657fbb5b312582736dcf2be4374bfcd38988c34e26d",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": true,
+          "containsOriginalStrings": true
+        }
+      }
+    },
+    "obfuscated": {
+      "artifact": {
+        "path": "/data/reamon-artifacts/qa/pyinstaller-obfuscation-control-20261109T071508/obfuscated-fixture",
+        "sha256": "152759d2c798e1407442edb8c3ad0f423c00886810533af32f4a7fdeea504fc5"
+      },
+      "httpStatus": 200,
+      "status": "completed",
+      "moduleCount": 180,
+      "returnedModuleCount": 180,
+      "targetModuleDenominator": 70,
+      "targetModulesRecovered": 70,
+      "expectedFunctionSymbolCount": 70,
+      "cleanFunctionSymbolCount": 0,
+      "targetModulesWithOriginalStringLiterals": 0,
+      "totalBytecodeBytes": 3218511,
+      "providerElapsedMs": 488,
+      "pages": [
+        {
+          "offset": 0,
+          "pageSize": 64,
+          "nextOffset": 64,
+          "truncated": true,
+          "outputBytes": 1585378,
+          "targetModules": []
+        },
+        {
+          "offset": 64,
+          "pageSize": 64,
+          "nextOffset": 128,
+          "truncated": true,
+          "outputBytes": 454776,
+          "targetModules": [
+            "m000",
+            "m001",
+            "m002",
+            "m003",
+            "m004",
+            "m005",
+            "m006",
+            "m007",
+            "m008",
+            "m009",
+            "m010",
+            "m011",
+            "m012",
+            "m013",
+            "m014",
+            "m015",
+            "m016",
+            "m017",
+            "m018",
+            "m019",
+            "m020",
+            "m021",
+            "m022",
+            "m023",
+            "m024",
+            "m025",
+            "m026",
+            "m027",
+            "m028",
+            "m029",
+            "m030",
+            "m031",
+            "m032",
+            "m033",
+            "m034",
+            "m035",
+            "m036",
+            "m037",
+            "m038",
+            "m039",
+            "m040",
+            "m041",
+            "m042",
+            "m043",
+            "m044",
+            "m045",
+            "m046"
+          ]
+        },
+        {
+          "offset": 128,
+          "pageSize": 52,
+          "nextOffset": 180,
+          "truncated": false,
+          "outputBytes": 1178357,
+          "targetModules": [
+            "m047",
+            "m048",
+            "m049",
+            "m050",
+            "m051",
+            "m052",
+            "m053",
+            "m054",
+            "m055",
+            "m056",
+            "m057",
+            "m058",
+            "m059",
+            "m060",
+            "m061",
+            "m062",
+            "m063",
+            "m064",
+            "m065",
+            "m066",
+            "m067",
+            "m068",
+            "m069"
+          ]
+        }
+      ],
+      "targetModules": {
+        "m000": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m000.pyc",
+          "sha256": "66505343db402585b982d0835d21ca6e3e34beed9abad0ae4eb1e7d4e692a500",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m001": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m001.pyc",
+          "sha256": "03a95daf165101271a755d4a5c49dc445811a621d2d097be34b4bf862832a4c9",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m002": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m002.pyc",
+          "sha256": "3c88801f98faa510e1011c186607eee2bae9b6fdcf80ce4e67e294088f115a03",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m003": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m003.pyc",
+          "sha256": "9167de63bb7be8fecec1076ec81fc21cdc54f3f72273a2562bd2270391c082d7",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m004": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m004.pyc",
+          "sha256": "155487e187791c2c0b2ba6446e033f842162ffecd244fcb8e34cdb48c1f2c077",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m005": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m005.pyc",
+          "sha256": "3eb4601f450146a70d83d30dd4ef94b31b39d212f7479bf942805e52812f283a",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m006": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m006.pyc",
+          "sha256": "1b3caf9fd58b926cc6be4aa621802097253fc86f1e63510e0ec15e41b640fe1c",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m007": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m007.pyc",
+          "sha256": "d1a9a25e251e75e5ebdbe7ea2ea5be15b4c719f7a144ef6f5e07392ca63b5aaf",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m008": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m008.pyc",
+          "sha256": "78f02a1d624b2a2cf9657dd7ee086be5d74c163ec4cd15d615a7d3dbf2be175f",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m009": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m009.pyc",
+          "sha256": "6f710b64aae96ccf1e4ca23e9740c97eb4a09dc33f235e76e4f6b8f4b37cd94e",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m010": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m010.pyc",
+          "sha256": "32b2e8038d8539c2a670cd96c18e92af0b9e3a0652afdf95034720276025004e",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m011": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m011.pyc",
+          "sha256": "1ce928d264e5195ca510f0dd226cb038d23df61c99c4463a056eea228c970e50",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m012": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m012.pyc",
+          "sha256": "b6ad58894d380ea5fd78e22190451dff07b0539497391de914fdf1c393f63f74",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m013": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m013.pyc",
+          "sha256": "3b818cdf6fa2c466fbba29f929f28a42a27ffcd779d4e3cf9800ef1ca3874cc0",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m014": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m014.pyc",
+          "sha256": "f8dc7fbf740e4fcc201c7e130230f90bb540b653b0b95f28b4b625f214fd13b3",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m015": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m015.pyc",
+          "sha256": "2905398235da4f7e050dbc2168ab4912e474e6bf1f36ce61ed81fac1d431ec7e",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m016": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m016.pyc",
+          "sha256": "a041ef4929a66aae2b4be63002fddd957b68d6b186619847afac15d4a8276762",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m017": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m017.pyc",
+          "sha256": "3e336015074013b9bd31de8cbca8baf8c1ef11122f38143d7e1686879593108b",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m018": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m018.pyc",
+          "sha256": "39fc6a1ab67a8ac9dd5633dc639f687b4abb042dc2f4a5417d2232359aeba26e",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m019": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m019.pyc",
+          "sha256": "e18435a344c07d3cfc7a6652143928cfcddeb8082385137bc4f9329f8e8c69f7",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m020": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m020.pyc",
+          "sha256": "7f68c9d7b4b981cde1e07708694e111daab534cd6df6715c3ce8dc402e13f9ff",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m021": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m021.pyc",
+          "sha256": "c9d3aef1e94a8bb8f6655594a108912ceb4dbd8969f98b7eb2e3c0622c4fba74",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m022": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m022.pyc",
+          "sha256": "ef51f335795110b9c34f6c579b86f871a6e2c9423865ec2b9a44fb4b8b9b064b",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m023": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m023.pyc",
+          "sha256": "417dc1e50ae797a22ed972bf7de4fcfdcf3d342ef167a3775430bde0ef7d52c9",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m024": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m024.pyc",
+          "sha256": "3690989b4008e87c6bb35c088249c628725a990f2668f118786f4c7a5ff7f7de",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m025": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m025.pyc",
+          "sha256": "03970c1b13c16332c0f6bf17a0df111a320417040a7cf5687cd336a9163c4efa",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m026": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m026.pyc",
+          "sha256": "e063beaeb2b954450d2e89edcfab04fe2d859c35be83fd9ac90871e71f630089",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m027": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m027.pyc",
+          "sha256": "06c13af822131825b970babba61993042009af738e8bd9d938ab4672da5541ad",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m028": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m028.pyc",
+          "sha256": "7843c705f76e0a5797f59494438c13674a9c424240cc13c333523b4d71eff336",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m029": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m029.pyc",
+          "sha256": "d93606e97f9d24ea2d109d8782e22fe73d2e156fe7a3901d36bd424d4dbca0fd",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m030": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m030.pyc",
+          "sha256": "b2e80464788c0e4a14794204dab0fa4e57f536c976ccee486fb56f8f27f6d377",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m031": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m031.pyc",
+          "sha256": "38c7462ed6535d5408d8923502c29a4019fe5192ba570caa28fe09d45faa3bf6",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m032": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m032.pyc",
+          "sha256": "d4e948eb90e53c174b212ac951fb9d63cfa3dbd5d9bed0c799e52f94608606cb",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m033": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m033.pyc",
+          "sha256": "f61234169d284fb5624455a7cb4b77a0631552fe1dad7e93faf5b6147870dbb5",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m034": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m034.pyc",
+          "sha256": "da2e4b1548735c187102fe485ffc1b00aae75d89889748c48197b885b86ae7a1",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m035": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m035.pyc",
+          "sha256": "a09a82dfb051bec83bc52720aa7e436487f4b0a4ebb8270288e895f91b27f955",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m036": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m036.pyc",
+          "sha256": "9d776cff88dc207bd9f98840d0db54507d4368cad0e491853f37ea58bb3fc9f6",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m037": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m037.pyc",
+          "sha256": "6abb21640013269ddf1d760b97f763f6fcadf13fc6d8e69a5e189877f16afcf9",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m038": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m038.pyc",
+          "sha256": "2c8d7e3138b5ea6ea5c10c741744e3a33d01b5c22b0505c2eeb97effee39435f",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m039": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m039.pyc",
+          "sha256": "4c97f8bf6e26ef751e6972f44cbd73e90e40b491902e471a89dbbf88971de11e",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m040": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m040.pyc",
+          "sha256": "4304486a47bba4a545690ad320fa579adbb694894c3c5e0b9be1f79ce4f1f427",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m041": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m041.pyc",
+          "sha256": "79951f7d3b62ef2e6e4841040a09f5f8b522b56d80b81e507d7e0d6eb13d01ca",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m042": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m042.pyc",
+          "sha256": "26335f41055228356f763865824fad2d636c161479dfb356bf8698f5582fb78b",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m043": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m043.pyc",
+          "sha256": "af204fea3d0fa4e963f91a3e86903986115e5146bd3eb6891d1d9a61db772cd4",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m044": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m044.pyc",
+          "sha256": "053b312f9ceeddd071ba7ea492cdb2bcc60a2d52f2b0333a0625b8a504e99360",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m045": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m045.pyc",
+          "sha256": "32e1f4f715b6ab2294324a03d6957665d09a1948ec63c76c2350c953acca8e3f",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m046": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m046.pyc",
+          "sha256": "e204c4c91181d63484a9c8a46737190b2843a329f779233295d9b551a6541bd4",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m047": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m047.pyc",
+          "sha256": "5cf630df9b2a989d39cda1df9515eae3c1fd292b65c1a9c421a82a940ffca47e",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m048": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m048.pyc",
+          "sha256": "98733969c0ce675cb5956297549fd0050d16a3ed50a56630e0bdcba73e8295f8",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m049": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m049.pyc",
+          "sha256": "cd6a93d46b3c2ca84d65366802f9f2edc9dada7859b8f7e73f600756cdeb3e0d",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m050": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m050.pyc",
+          "sha256": "b840d93240e7f6d5045bad725e6a89af3313c8e82b25da293d5bf09e0431ef3e",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m051": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m051.pyc",
+          "sha256": "8f8b583585bb8e51b2265d34ffa3f1158fa6b344651f17ee59eedd0632452634",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m052": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m052.pyc",
+          "sha256": "8c579e03c15e653b49c2449e391f659b19e2987e0308a701d73eaa43f6f73ddf",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m053": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m053.pyc",
+          "sha256": "d56ded768c7b2b03bb515f18f85141bd850155993de5dc2383d1fa4609f92e6c",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m054": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m054.pyc",
+          "sha256": "ac839e0537330ecbc580217b8a723509a3fe841b482e58d0ea49e7258ee6ac49",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m055": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m055.pyc",
+          "sha256": "079569bc89fc2c6d98bc92d0ab375bf5581c59feb758cf67009f93a9be860b3e",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m056": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m056.pyc",
+          "sha256": "0c3ea8addfe68a85069f462a464c997c810301500a59f3df99cbc4c6752e305d",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m057": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m057.pyc",
+          "sha256": "f443f7e25c2ecba22124363d699a6540dd7a2f4c3cab73aa4c52f3482e5a0401",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m058": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m058.pyc",
+          "sha256": "e16e27ff4730b43f2c76ec245fc2cfaa794dec7316ca27686ad03fd3d6d3c28e",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m059": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m059.pyc",
+          "sha256": "0a2a9fa075dfc0b583ce261bb84a6e38ae51624e2eaf25ff38e036e10e50d545",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m060": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m060.pyc",
+          "sha256": "c5608329942e73f1211df5c6dac90266cb7d21409cd17722714ae70aa110673d",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m061": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m061.pyc",
+          "sha256": "03f40395056b84fd8c8533299184fd9bb7490ca478dada9bc7b5de2169f09dc3",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m062": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m062.pyc",
+          "sha256": "8948b936948c45cf5a87aefb347c9fdce8c7538b305a5089cdc496bc6444629e",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m063": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m063.pyc",
+          "sha256": "4f9daca47c9fd01f8fc5661c39f550e180f660adaa6c2fb3fbf43f4ef1f395e3",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m064": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m064.pyc",
+          "sha256": "1d8c7f693e8200353d13a7e92ce97ede8dc2ff06d2a1b653536c330c69036e85",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m065": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m065.pyc",
+          "sha256": "f03d4dad90406a4aa517f25b2c3a675af15dcac3117e8858c6c9ca3771f08ee6",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m066": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m066.pyc",
+          "sha256": "2bf25a97ba8ea8458f4f865db881cba636550fd9d09fa3892be82fb4ab278ea9",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m067": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m067.pyc",
+          "sha256": "06b8953c5645e91999c3a71ea2092633028ddae66067eead408e2cd3cf924e49",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m068": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m068.pyc",
+          "sha256": "9954ab479caa55f5befe67928a3b9fa2753f1b13d49fb23436ba4eb955609c5a",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        },
+        "m069": {
+          "archivePath": "PYZ.pyz_extracted/obfuscated_fixture/m069.pyc",
+          "sha256": "bdfc4abe3c16f5de20d8cbc76487db2ed7b8462dec18c8576258d06c4dc47730",
+          "expectedFunctionSymbolPresent": true,
+          "cleanFunctionSymbolPresent": false,
+          "containsOriginalStrings": false
+        }
+      }
+    }
+  },
+  "comparison": {
+    "sameCompleteModuleInventory": true,
+    "cleanSymbolsAndStringsObserved": true,
+    "obfuscatedSymbolsAndStringsObserved": true,
+    "runtimeOracle": "both built fixtures passed the same stdout and branch assertions inside Docker",
+    "deobfuscationOutcome": "UNAVAILABLE; provider returns bytecode, not reconstructed source"
+  },
+  "staging": {
+    "artifactRoot": "/data/reamon-artifacts/qa/pyinstaller-obfuscation-control-20261109T071508",
+    "artifactHashesVerifiedBeforeRequest": true,
+    "stagedFilesRemovedAfterHashCheck": true
+  },
+  "controlResult": "PASS",
+  "scope": "One paired Python/PyInstaller fixture tests short identifier names and XOR-encoded string constants at the isolated bytecode-extraction provider. It does not test source deobfuscation or behavioral equivalence of reconstructed source.",
+  "buildReceipt": {
+    "sha256": "6bf2fed93095bf60b135a010623d413c6bc1fe8bbc674bb223dfe9e1750fca7e",
+    "fixtureId": "pyinstaller-source-obfuscation-pair-linux-amd64",
+    "builderImageId": "sha256:6759c7b7a4420cae5d4c6a535f6c45ed5bbc99059d44d994a4793f4f6570fe1f"
+  }
+}

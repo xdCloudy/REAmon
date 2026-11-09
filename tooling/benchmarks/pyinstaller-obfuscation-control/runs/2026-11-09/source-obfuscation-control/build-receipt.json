@@ -1,0 +1,27 @@
+﻿{
+    "schemaVersion":  1,
+    "fixtureId":  "pyinstaller-source-obfuscation-pair-linux-amd64",
+    "builtAtUtc":  "2026-11-09T07:14:56Z",
+    "platform":  "linux/amd64",
+    "expectedRuntimeStdout":  "2485",
+    "runtimeOracle":  "Both artifacts passed identical branch and stdout assertions inside Docker.",
+    "artifacts":  {
+                      "pyinstaller-obfuscation-obfuscated":  {
+                                                                 "sizeBytes":  7289400,
+                                                                 "sha256":  "152759d2c798e1407442edb8c3ad0f423c00886810533af32f4a7fdeea504fc5"
+                                                             },
+                      "pyinstaller-obfuscation-clean":  {
+                                                            "sizeBytes":  7271064,
+                                                            "sha256":  "d3c076e84d3e50cdc07ff052b29496338994b92d7401115f1bce01ba5d320bab"
+                                                        }
+                  },
+    "builderImageId":  "sha256:6759c7b7a4420cae5d4c6a535f6c45ed5bbc99059d44d994a4793f4f6570fe1f",
+    "builderDockerfileSha256":  "64f1f09fc80f02889d382b481d52dabf7f5d01da94c454003d68f15cb6ba8097",
+    "builderRequirementsSha256":  "463bad8b281dcc8006562a46310738fb1184b41da3c0031515ec65a377a2a1be",
+    "fixtureBuilderSha256":  "ddfa7eb633eb593b937e2a7e218ab8fe084b4e06dc773ed95a553b5d62048465",
+    "fixtureTestSha256":  "036a5687aafb803e4f8b912b4b802fe04fcbd64bea83499589af1e553ecb6d1a",
+    "providerProbeSha256":  "a4f36e6da74bc6f4d5e9a97bcc112815c547688f6068a312fd90113999e70ff9",
+    "buildScriptSha256":  "3e0eb1ae070e92976622193f4ccb2db346953d150bfd8e86d7afa0937fd3a2be",
+    "liveRunnerSha256":  "9cf0d58539601d3616dadb4e77a3f99456688b06171fbeb3346f5a1782b9abc9",
+    "manifestSha256":  "f99de1da5ff9c59be31f6ca34c9ab18ad1b8a10ffb3a35c2951e59fc5bd91468"
+}
