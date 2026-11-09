@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "fixtureId": "pyinstaller-module-structured-source-linux-amd64",
+  "metrics": {
+    "runtime_oracle": { "direction": "equal", "denominator": 1, "description": "Fixture checks both branches, then prints its declared aggregate value." },
+    "extracted_module_count": { "direction": "equal", "denominator": 1, "description": "Extractor inventories the declared 180 bytecode modules." },
+    "known_source_value_recall": { "direction": "higher", "denominator": 70, "description": "Recovered VALUE constants match the 70 hidden source modules." },
+    "worker_terminal_page": { "direction": "equal", "denominator": 1, "description": "Queued worker reaches the expected terminal inventory page." },
+    "reconstruction_match": { "direction": "higher", "denominator": 70, "description": "Recovered source matches independently retained function and branch source after conservative Python formatting normalization." },
+    "negative_control_mutation_rejection": { "direction": "higher", "denominator": 70, "description": "A seeded behavior-changing return-value mutation is rejected for each recovered known module." },
+    "negative_control_false_acceptance": { "direction": "lower", "denominator": 70, "description": "Count of seeded behavior-changing return-value mutations incorrectly accepted as exact source matches." }
+  }
+}

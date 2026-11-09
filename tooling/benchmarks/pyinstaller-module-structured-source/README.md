@@ -65,3 +65,10 @@ structured source matches, a passing 1/1 fixture runtime oracle, and the 1/1
 worker terminal page. These measures cover one synthetic PyInstaller 6.13.0
 Python 3.12.8 Linux fixture. They do not establish broad source fidelity,
 project reconstruction, or behavioural equivalence for other artifacts.
+
+[`runs/2026-11-09/paired-v3-mutation-controls/`](runs/2026-11-09/paired-v3-mutation-controls/README.md)
+adds a paired scorer-sensitivity control from commit
+`d6af8238324880e469a824a50ab51faedb33da9e`: changing each recovered module's
+`"below"` result to `"under"` was rejected in 70/70 cases, with 0/70 false
+acceptances. This mutates recovered text in the test harness; it does not run a
+separately mutated executable or measure provider recovery from such an input.

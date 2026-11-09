@@ -1,0 +1,85 @@
+{
+  "commit": "d6af8238324880e469a824a50ab51faedb33da9e",
+  "components": {
+    "agentTestImage": "sha256:db7bd1aadd59a620756683c24f50bc8195681b160161429ce73446330e298829",
+    "baselineIntegrationTestImage": "sha256:a78c9be0066e80fb3452eb73a4ca774dcd5ce05212cf25fb603797984773aace",
+    "baselineMeasurementCommit": "d6af8238324880e469a824a50ab51faedb33da9e",
+    "baselineProductCommit": "d6af8238324880e469a824a50ab51faedb33da9e",
+    "benchmarkEvidenceHelperSha256": "a0e934feb47643f22266cf8dfcd4726e02da2ba4d15c12ecc5d2e3cc0d110aab",
+    "benchmarkEvidenceUnitTestSha256": "e17ed4757e8659ccaab938c07c765e9eb933fa1660ab8649811efce3dca2b34d",
+    "benchmarkHarnessSha256": "c4ce744a069f1204701abfc89f61a7489bce3e351e50d2290e06815bce2ca462",
+    "buildReceiptSha256": "297a2005e5ce81ae586bb49a6cb38b173ef1a20f451da41f73093153a8fcc74e",
+    "candidateIntegrationTestImage": "sha256:a78c9be0066e80fb3452eb73a4ca774dcd5ce05212cf25fb603797984773aace",
+    "candidateSourceCommit": "d6af8238324880e469a824a50ab51faedb33da9e",
+    "enrollmentReceiptSha256": "3adda48c0fee5681c2a327ac61491421940ed13bfdd32d97799355ba36966e8a",
+    "evaluationManifestSha256": "5fb6f388bcea32452ea979eda598a9006e1973cd3aaa690667cc95de1dc9e704",
+    "evidenceMergerSha256": "7ccb3be6c96682587ec31db4ce39071d5c3534c33e87be56b0717eecdd8ee132",
+    "fixtureBuilderImage": "sha256:b52c328dc93a8ba67053c9ab6af7a8be9030bea63b13509403894e2b7351e5f0",
+    "fixtureExtractorImage": "sha256:a297f48ccf003e120beec499615a39f144a34866ba79f78251f37c2a7d859a61",
+    "fixtureManifestSha256": "ca8465e4e20c04181336a23dc9ff075bccf07e53192f47c8f7f9450f6bc63d07",
+    "fixtureRecipeSha256": "dd6f4684764ad8bb15fdcca173d3e46184b4398eb0088f23bf8053bcd5489834",
+    "integrationRunnerSha256": "fc38d99a575e9bede809f4e0cb551656e4da5e43e02aa3295737c7048f6d1ead",
+    "integrationTestSourceSha256": "fb6d3b80d8ff3914eb83fe637965e81383ce1b40259f86e492440d2d3d211fa8",
+    "livePyInstallerServiceImage": "sha256:dfd6e00b359c5144b39510685e15faa4dbc48645b3b0f9fe5a39669e9e5a40d3",
+    "pycdcImage": "sha256:e5a9b638e836dede2bfdccac46f2649938be1219dd910e9388db2f383474b82d",
+    "receiptRecorderSha256": "a7272820e862202c50736cab66974969a3c950e410729370ae3323f6e01d9ae0",
+    "taskWorkerImage": "sha256:b15bd821fc9c8f12c47ac360edbd9c87fc974e39a9fe4b7b0c981fa4e1fcf5f4"
+  },
+  "createdAtUtc": "2026-11-09T04:58:32Z",
+  "evaluationManifestSha256": "5fb6f388bcea32452ea979eda598a9006e1973cd3aaa690667cc95de1dc9e704",
+  "evidenceSha256": "1886aa3e6de2fc0739126cd322f4034de6a9721266b2685b97ea6b3fc6005c42",
+  "fixtureManifestSha256": "ca8465e4e20c04181336a23dc9ff075bccf07e53192f47c8f7f9450f6bc63d07",
+  "fixtures": {
+    "pyinstaller-module-structured-source-linux-amd64": {
+      "artifactSha256": "746c550fc3324ebf285c0ee4a555ea2afb3d5b12c9c191eb2bf4f0978d263971",
+      "metrics": {
+        "extracted_module_count": {
+          "denominator": 1,
+          "direction": "equal",
+          "state": "MEASURED",
+          "value": 180
+        },
+        "known_source_value_recall": {
+          "denominator": 70,
+          "direction": "higher",
+          "state": "MEASURED",
+          "value": 70
+        },
+        "negative_control_false_acceptance": {
+          "denominator": 70,
+          "direction": "lower",
+          "state": "MEASURED",
+          "value": 0
+        },
+        "negative_control_mutation_rejection": {
+          "denominator": 70,
+          "direction": "higher",
+          "state": "MEASURED",
+          "value": 70
+        },
+        "reconstruction_match": {
+          "denominator": 70,
+          "direction": "higher",
+          "state": "MEASURED",
+          "value": 70
+        },
+        "runtime_oracle": {
+          "denominator": 1,
+          "direction": "equal",
+          "state": "MEASURED",
+          "value": 1
+        },
+        "worker_terminal_page": {
+          "denominator": 1,
+          "direction": "equal",
+          "state": "MEASURED",
+          "value": 1
+        }
+      }
+    }
+  },
+  "runId": "structured-source-v3-mutations-20261109-candidate",
+  "schemaVersion": 1,
+  "toolchainManifestSha256": "d815ddf32f254109ba01fe5edf5b0491db748643f7bbb7367eefae4998f6becb",
+  "worktreeClean": true
+}
