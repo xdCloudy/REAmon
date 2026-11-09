@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
-import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
+import { requireEffectiveUser, requireProjectAccessStrict } from '@/lib/access'
 import { parseAuthProfileInput, toAuthProfileMetadata } from '@/lib/authProfile'
 
 interface RouteParams {
@@ -13,7 +13,7 @@ interface RouteParams {
 async function authorize(id: string) {
   const eff = await requireEffectiveUser()
   if (eff instanceof NextResponse) return eff
-  const access = await requireProjectAccess(eff, id)
+  const access = await requireProjectAccessStrict(eff, id)
   if (access instanceof NextResponse) return access
   return eff
 }

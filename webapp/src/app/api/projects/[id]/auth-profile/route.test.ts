@@ -5,6 +5,7 @@
  */
 import { describe, test, expect, beforeEach, vi } from 'vitest'
 import { NextRequest } from 'next/server'
+import { NextResponse } from 'next/server'
 
 const mockProjectFindUnique = vi.fn()
 const mockProfileFindUnique = vi.fn()
@@ -50,11 +51,35 @@ beforeEach(() => {
 })
 
 describe('authz', () => {
+  test('anonymous caller → 401 before project or profile access', async () => {
+    mockGetEffectiveUser.mockResolvedValue(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }))
+
+    expect((await GET(new NextRequest('http://x'), params)).status).toBe(401)
+    expect((await PUT(put({ authValue: 'x' }), params)).status).toBe(401)
+    expect((await DELETE(new NextRequest('http://x'), params)).status).toBe(401)
+    expect(mockProjectFindUnique).not.toHaveBeenCalled()
+    expect(mockProfileFindUnique).not.toHaveBeenCalled()
+    expect(mockProfileUpsert).not.toHaveBeenCalled()
+    expect(mockProfileDeleteMany).not.toHaveBeenCalled()
+  })
+
   test('cross-user caller → 404 and nothing written', async () => {
     mockGetEffectiveUser.mockResolvedValue({ userId: 'attacker' })
     expect((await PUT(put({ authValue: 'x' }), params)).status).toBe(404)
     expect((await GET(new NextRequest('http://x'), params)).status).toBe(404)
     expect((await DELETE(new NextRequest('http://x'), params)).status).toBe(404)
+    expect(mockProfileUpsert).not.toHaveBeenCalled()
+    expect(mockProfileDeleteMany).not.toHaveBeenCalled()
+  })
+
+  test('cross-user caller stays blocked when ownership rollout is disabled', async () => {
+    process.env.ACCESS_ENFORCE = '0'
+    mockGetEffectiveUser.mockResolvedValue({ userId: 'attacker' })
+
+    expect((await GET(new NextRequest('http://x'), params)).status).toBe(404)
+    expect((await PUT(put({ authValue: 'x' }), params)).status).toBe(404)
+    expect((await DELETE(new NextRequest('http://x'), params)).status).toBe(404)
+    expect(mockProfileFindUnique).not.toHaveBeenCalled()
     expect(mockProfileUpsert).not.toHaveBeenCalled()
     expect(mockProfileDeleteMany).not.toHaveBeenCalled()
   })
