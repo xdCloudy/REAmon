@@ -46,6 +46,42 @@ metrics produce an `INCOMPLETE` result. The comparator applies only the
 declared direction (`higher`, `lower`, or exact equality); it has no numeric
 thresholds and never grants a release certification.
 
+`tooling/benchmarks/record_receipt.py` builds the provenance envelope around
+machine-readable measurements. The evidence JSON must contain the exact fixture
+and metric inventories from the manifests; each metric is explicitly
+`MEASURED` with a value and denominator, or `UNAVAILABLE` with a reason. The
+toolchain JSON must identify every measured component revision:
+
+```json
+{
+  "schemaVersion": 1,
+  "components": {
+    "pyinstaller_extractor": "<full revision>",
+    "pycdc": "<full revision>"
+  }
+}
+```
+
+Record a receipt from the repository root after the evidence files have been
+produced by the fixture evaluation:
+
+```powershell
+python tooling/benchmarks/record_receipt.py `
+  --repo-root . `
+  --fixture-manifest tooling/benchmarks/pyinstaller-module-paging/manifest.json `
+  --evaluation-manifest tooling/benchmarks/pyinstaller-module-paging/evaluation-manifest.json `
+  --evidence work/benchmarks/pyinstaller-module-paging/evidence.json `
+  --toolchain-manifest work/benchmarks/pyinstaller-module-paging/toolchain.json `
+  --output work/benchmarks/pyinstaller-module-paging/candidate-receipt.json
+```
+
+The recorder hashes the evidence and manifests, captures the full Git commit,
+component revisions, and worktree cleanliness, validates metric denominators,
+and refuses to overwrite a receipt. It records supplied evidence; it does not
+run the fixture or independently prove that a measurement command produced the
+values. A clean paired comparison still requires an evaluation harness that
+produces those evidence files from the pinned artifact and REAmon services.
+
 Example from the repository root:
 
 ```powershell
