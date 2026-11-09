@@ -480,7 +480,7 @@ export function buildMcpServer(ctx: McpContext, instructions?: string): McpServe
         search: z.string().max(200).optional().describe('Search function/class name, address, language, prototype, source path, provider symbol source, or Go package.'),
         taskId: entityIdSchema.optional().describe('Limit to one completed analysis task.'),
         limit: z.number().int().min(1).max(100).optional().describe('Default 50, maximum 100 rows.'),
-        cursor: z.string().max(2048).optional().describe('Opaque nextCursor from the previous stable page. Keep the same search and taskId filters; restart without a cursor after stale_snapshot or cursor expiry.'),
+        cursor: z.string().max(2048).optional().describe('Signed opaque nextCursor from the previous stable page. Keep the same search and taskId filters; restart without a cursor after stale_snapshot or cursor expiry.'),
         offset: z.number().int().min(0).max(100000).optional().describe('Legacy page offset. Omit this to use stable nextCursor paging.'),
       },
     },

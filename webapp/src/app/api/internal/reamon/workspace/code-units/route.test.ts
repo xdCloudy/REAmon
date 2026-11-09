@@ -85,4 +85,11 @@ describe('POST /api/internal/reamon/workspace/code-units', () => {
     expect(response.status).toBe(409)
     expect(await response.json()).toMatchObject({ code: 'stale_snapshot' })
   })
+
+  test('reports missing cursor signing configuration as HTTP 503', async () => {
+    mocks.list.mockRejectedValueOnce(new McpToolError('Stable code-unit paging is unavailable because cursor signing is not configured.', 'cursor_unavailable'))
+    const response = await POST(request({ tool: 'workspace_list_code_units' }) as never)
+    expect(response.status).toBe(503)
+    expect(await response.json()).toMatchObject({ code: 'cursor_unavailable' })
+  })
 })

@@ -1,5 +1,6 @@
 /** @vitest-environment node */
-import { beforeEach, describe, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
+import { createHmac } from 'node:crypto'
 
 const h = vi.hoisted(() => ({
   assertProject: vi.fn(),
@@ -29,6 +30,7 @@ import type { McpContext } from './tools'
 const ctx: McpContext = { token: {
   tokenId: 'token-1', userId: 'owner', tokenPrefix: 'rdmn_mcp_aaaaaaaa', name: 'agent', scopes: ['recon:read'],
 } }
+const cursorSigningKey = 'test-code-unit-cursor-key'
 const row = (id: string, stableKey: string, updatedAt = new Date('2026-11-09T10:00:00.000Z')) => ({
   id, stableKey, type: 'code_unit', label: stableKey, source: 'provider-a', taskId: 'task-1', artifactId: 'artifact-1',
   updatedAt, attributes: { name: stableKey }, artifact: { relativePath: 'sample.bin', originalName: 'sample.bin', sha256: 'a'.repeat(64) },
@@ -36,12 +38,21 @@ const row = (id: string, stableKey: string, updatedAt = new Date('2026-11-09T10:
 
 beforeEach(() => {
   vi.clearAllMocks()
+  vi.stubEnv('INTERNAL_API_KEY', cursorSigningKey)
   __resetRateLimiter()
   h.selection.mockResolvedValue({ activeImportIds: new Set(['import-1']), artifactWhere: { projectId: 'project-1', importId: 'import-1' } })
   h.findMany.mockResolvedValue([])
   h.count.mockResolvedValue(0)
   h.findFirst.mockResolvedValue(null)
 })
+
+afterEach(() => vi.unstubAllEnvs())
+
+function signCursorPayload(cursor: Record<string, unknown>): string {
+  const payload = Buffer.from(JSON.stringify(cursor)).toString('base64url')
+  const signature = createHmac('sha256', cursorSigningKey).update(payload).digest('base64url')
+  return `${payload}.${signature}`
+}
 
 describe('workspace code-unit keyset paging', () => {
   test('returns a scope-bound cursor and advances by the stable key without offset', async () => {
@@ -122,10 +133,32 @@ describe('workspace code-unit keyset paging', () => {
     h.findMany.mockResolvedValueOnce([row('unit-a', 'a'), row('unit-b', 'b')])
     h.count.mockResolvedValueOnce(2)
     const first = await listWorkspaceCodeUnits(ctx, { projectId: 'project-1', limit: 1 })
-    const cursor = JSON.parse(Buffer.from(first.nextCursor as string, 'base64url').toString('utf8')) as Record<string, unknown>
+    const [payload] = (first.nextCursor as string).split('.')
+    const cursor = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as Record<string, unknown>
     cursor.expiresAt = Date.now() - 1
-    const expired = Buffer.from(JSON.stringify(cursor)).toString('base64url')
+    const expired = signCursorPayload(cursor)
     await expect(listWorkspaceCodeUnits(ctx, { projectId: 'project-1', limit: 1, cursor: expired }))
       .rejects.toMatchObject({ code: 'stale_snapshot' })
+  })
+
+  test('rejects a modified cursor payload before querying rows', async () => {
+    h.findMany.mockResolvedValueOnce([row('unit-a', 'a'), row('unit-b', 'b')])
+    h.count.mockResolvedValueOnce(2)
+    const first = await listWorkspaceCodeUnits(ctx, { projectId: 'project-1', limit: 1 })
+    const [payload, signature] = (first.nextCursor as string).split('.')
+    const cursor = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as Record<string, unknown>
+    cursor.lastId = 'unit-b'
+    const modifiedPayload = Buffer.from(JSON.stringify(cursor)).toString('base64url')
+    await expect(listWorkspaceCodeUnits(ctx, { projectId: 'project-1', limit: 1, cursor: `${modifiedPayload}.${signature}` }))
+      .rejects.toMatchObject({ code: 'stale_snapshot' })
+    expect(h.findMany).toHaveBeenCalledTimes(1)
+  })
+
+  test('does not issue stable cursors when the signing key is unconfigured', async () => {
+    vi.stubEnv('INTERNAL_API_KEY', 'changeme')
+    h.findMany.mockResolvedValueOnce([row('unit-a', 'a'), row('unit-b', 'b')])
+    h.count.mockResolvedValueOnce(2)
+    await expect(listWorkspaceCodeUnits(ctx, { projectId: 'project-1', limit: 1 }))
+      .rejects.toMatchObject({ code: 'cursor_unavailable' })
   })
 })

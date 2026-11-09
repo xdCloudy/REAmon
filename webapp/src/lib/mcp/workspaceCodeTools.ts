@@ -1,6 +1,6 @@
 /** Database-backed code-unit reads for agents working on REAmon workspaces. */
 import { open, realpath } from 'node:fs/promises'
-import { createHash } from 'node:crypto'
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto'
 import path from 'node:path'
 import prisma from '@/lib/prisma'
 import { assertMcpProjectAccess, requireScope } from '@/lib/mcpAuth'
@@ -96,16 +96,35 @@ function hashJson(value: unknown): string {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex')
 }
 
+function codeUnitCursorSigningKey(): string {
+  const key = process.env.INTERNAL_API_KEY
+  if (!key || key === 'changeme') {
+    throw new McpToolError('Stable code-unit paging is unavailable because cursor signing is not configured.', 'cursor_unavailable')
+  }
+  return key
+}
+
 function encodeCodeUnitCursor(cursor: CodeUnitCursor): string {
-  return Buffer.from(JSON.stringify(cursor)).toString('base64url')
+  const payload = Buffer.from(JSON.stringify(cursor)).toString('base64url')
+  const signature = createHmac('sha256', codeUnitCursorSigningKey()).update(payload).digest('base64url')
+  return `${payload}.${signature}`
 }
 
 function decodeCodeUnitCursor(value: string, expected: Pick<CodeUnitCursor, 'projectId' | 'taskId' | 'searchHash' | 'importScopeHash'>): CodeUnitCursor {
-  if (value.length > MAX_CODE_UNIT_CURSOR_LENGTH || !/^[A-Za-z0-9_-]+$/.test(value)) {
+  if (value.length > MAX_CODE_UNIT_CURSOR_LENGTH || !/^[A-Za-z0-9_.-]+$/.test(value)) {
     throw new McpToolError('Invalid code-unit cursor.', 'invalid_input')
   }
   try {
-    const cursor = JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as Partial<CodeUnitCursor>
+    const [payload, suppliedSignature, ...extra] = value.split('.')
+    if (extra.length || !payload || !suppliedSignature) {
+      throw new McpToolError('This code-unit cursor predates signed paging. Restart the listing without a cursor.', 'stale_snapshot')
+    }
+    const expectedSignature = createHmac('sha256', codeUnitCursorSigningKey()).update(payload).digest()
+    const signature = Buffer.from(suppliedSignature, 'base64url')
+    if (signature.length !== expectedSignature.length || !timingSafeEqual(signature, expectedSignature)) {
+      throw new McpToolError('Code-unit cursor integrity check failed. Restart the listing without a cursor.', 'stale_snapshot')
+    }
+    const cursor = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as Partial<CodeUnitCursor>
     if (cursor.version !== 1
       || typeof cursor.snapshotAt !== 'string' || !Number.isFinite(Date.parse(cursor.snapshotAt))
       || !Number.isSafeInteger(cursor.snapshotTotal) || (cursor.snapshotTotal as number) < 0
