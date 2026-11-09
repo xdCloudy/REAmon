@@ -308,7 +308,7 @@ evidence. No release readiness is earned by this documentation change.
 
 | Gate | Status | Evidence needed |
 | --- | --- | --- |
-| AR-0/AR-8 end-to-end benchmark and regression reproducibility | Planned, unverified | Known-source versioned corpus, baseline vs candidate comparison, full denominators, negative controls, exact receipts and no unsupported claim inflation |
+| AR-0/AR-8 end-to-end benchmark and regression reproducibility | Comparator contract implemented; acceptance unverified | Produce matched clean baseline/candidate receipts and independently inspect them; expand beyond the single synthetic fixture to versioned formats, negative controls, full denominators, build/behavior oracles, resource limits, restart/reimport, and regression outcomes |
 | AR-1/AR-2 cross-surface schema/authorization and restart-safe evidence | Planned as unified contract | Browser/MCP/agent parity and isolation, bounded resume/retry, tamper/missing-page and oversize tests |
 | AR-3–AR-6 source fidelity and project export | Existing partial foundations; integrated gate unverified | Independent decompiler conflict cases, cross-file type/symbol integrity, review, reproducible build, oracle-qualified behavior and export/reimport |
 | AR-4b runtime correlation | Planned, guarded by worker acceptance | Authorized trace mapping, privacy/egress controls, reproducible coverage and full cleanup |

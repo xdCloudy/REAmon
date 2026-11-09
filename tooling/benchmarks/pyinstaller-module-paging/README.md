@@ -33,3 +33,30 @@ each run must record the emitted artifact hash and toolchain receipt. Fixture
 enrollment is not a reconstruction pass. The end-to-end result remains
 `UNAVAILABLE` until recovered modules are matched against separately retained
 ground truth and the full AR-0/AR-8 denominators are reported.
+
+## Paired receipt comparison
+
+`tooling/benchmarks/compare_receipts.py` compares baseline and candidate JSON
+receipts against the checked-in [fixture manifest](manifest.json) and
+[evaluation manifest](evaluation-manifest.json). A run receipt must record the
+manifest file hashes, exact fixture artifact hash, every declared metric,
+metric state and denominator, a toolchain manifest hash, component revisions,
+the full commit, and whether its worktree was clean. Dirty runs and unavailable
+metrics produce an `INCOMPLETE` result. The comparator applies only the
+declared direction (`higher`, `lower`, or exact equality); it has no numeric
+thresholds and never grants a release certification.
+
+Example from the repository root:
+
+```powershell
+python tooling/benchmarks/compare_receipts.py baseline.json candidate.json `
+  --fixture-manifest tooling/benchmarks/pyinstaller-module-paging/manifest.json `
+  --evaluation-manifest tooling/benchmarks/pyinstaller-module-paging/evaluation-manifest.json `
+  --output comparison.json
+```
+
+No matched baseline and candidate receipts currently exist for this contract,
+so this tool adds comparison mechanics but does not complete AR-0 or AR-8. The
+active local worker used for earlier bounded persistence evidence reported a
+dirty external build (`REAMON_BUILD_DIRTY=true`); that evidence is not a clean
+candidate end-to-end run.
