@@ -1,6 +1,6 @@
 # REAmon product progress
 
-Assessment date: 2026-11-09 · Source: pushed commit `f594228` · Weighted estimate: **26.9%**
+Assessment date: 2026-11-09 · Source: pushed commit `aa7bab9` · Weighted estimate: **26.9%**
 
 This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.
 
@@ -170,7 +170,3 @@ Implementation note (2026-11-08): Tree-sitter parsing became unavailable when a 
 **Remaining:** Build opt-in, authorized web/app observation records using existing project identity and isolated workers; capture stateful DOM/accessibility/viewport/navigation and network effects, optionally permitted CDP/runtime evidence; replay deterministic fixtures, report missing states and nondeterminism, redact secrets, and separate visual similarity from demonstrated behavior and source recovery.
 
 The machine-readable [`REAMON_PROGRESS.json`](REAMON_PROGRESS.json) feeds the README progress bar. The scope now includes the production hardening goal, so the total is not directly comparable with the previous product-only estimate. Update it with evidence when estimates change, then run `node tooling/reamon/update-product-progress.mjs <commit-sha>` to refresh this matrix and the README.
-
-Held-out JVM fixture note (2026-11-09): Added a synthetic two-class Java fixture built for Java 17 in a pinned Temurin Docker image. The live CFR 0.152 service recovered both expected files without truncation; output hashes were verified, and the recovered project compiled in Docker with `javac --release 17` and printed the same observed runtime output as the original. This is one bounded JVM behavior check, not proof of source equivalence or broad language coverage. It does not change the readiness estimate; a paired multi-format baseline/candidate corpus remains open.
-
-CFR boundary coverage note (2026-11-09): Added five Docker-run unit cases for identifier validation, artifact-root and extension enforcement, symlink rejection, and rejecting unsafe project IDs before any derived output is created. All five passed in the `redamon-agent` image. This protects existing adapter boundaries and makes no behavior-change or readiness-score claim.
