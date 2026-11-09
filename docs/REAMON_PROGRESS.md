@@ -1,8 +1,6 @@
 # REAmon product progress
 
-Assessment date: 2026-11-09 · Source: pushed commit `87b95393` · Weighted estimate: **26.9%**
-
-Tree-sitter availability note (2026-11-09, commit `87b95393`): The agent image installs the pinned 372-library parser bundle into the same private cache configured at runtime. The build helper uses the GitHub release API redirect, validates the pinned archive SHA-256, and retries transient failures; the package's direct release URL repeatedly returned HTTP 504 in this environment. The Docker image builds successfully. Running the prefetch helper in a fresh container followed by parser-dependent tests in a separate process passed 106 tests; the complete agent unit section passed 186 files / 3,791 tests against the built image. The previously failing Windows-worktree shell checks passed 72 assertions from a Linux-native clone. The full multi-image gate has not been rerun as one command with the rebuilt image. This reliability fix adds no reconstruction-quality credit and does not change the 26.9% weighted estimate.
+Assessment date: 2026-11-09 · Source: pushed commit `7c22e77` · Weighted estimate: **26.9%**
 
 This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.
 
