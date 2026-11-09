@@ -14,7 +14,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 import prisma from '@/lib/prisma'
-import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
+import { requireEffectiveUser, requireProjectAccessStrict } from '@/lib/access'
 
 interface RouteParams {
   params: Promise<{ id: string }>
@@ -26,7 +26,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
 
     const eff = await requireEffectiveUser()
     if (eff instanceof NextResponse) return eff
-    const access = await requireProjectAccess(eff, id)
+    const access = await requireProjectAccessStrict(eff, id)
     if (access instanceof NextResponse) return access
 
     const authorizations = await prisma.engagementAuthorization.findMany({
