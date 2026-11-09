@@ -1,0 +1,175 @@
+/** @vitest-environment node */
+/**
+ * End-to-end acceptance for agent Evidence paging across a Next.js restart.
+ * It is opt-in without DATABASE_URL and uses isolated synthetic records.
+ */
+import { afterAll, beforeAll, describe, expect, test } from 'vitest'
+import { PrismaClient } from '@prisma/client'
+import { createHmac } from 'node:crypto'
+import { spawn, type ChildProcess } from 'node:child_process'
+import { createServer } from 'node:net'
+import { once } from 'node:events'
+
+import { signTag } from '@/lib/redamonCtx'
+
+const HAS_DB = process.env.DATABASE_URL !== undefined
+const SUFFIX = `workspace-evidence-http-${Date.now()}`
+const INITIAL_KEY = 'integration-http-old-cursor-key'
+const ROTATED_KEY = 'integration-http-rotated-cursor-key'
+
+let prisma: PrismaClient
+let userId = ''
+let projectId = ''
+let originalInternalKey: string | undefined
+let originalPreviousKeys: string | undefined
+
+beforeAll(async () => {
+  if (!HAS_DB) return
+  originalInternalKey = process.env.INTERNAL_API_KEY
+  originalPreviousKeys = process.env.WORKSPACE_CURSOR_PREVIOUS_KEYS
+  prisma = new PrismaClient()
+  const user = await prisma.user.create({
+    data: { email: `${SUFFIX}@example.invalid`, name: 'workspace evidence HTTP integration' },
+  })
+  userId = user.id
+  const project = await prisma.project.create({
+    data: { name: 'workspace evidence HTTP integration', userId, targetDomain: 'http.example.invalid' },
+  })
+  projectId = project.id
+  await prisma.evidence.createMany({
+    data: Array.from({ length: 3 }, (_, index) => ({
+      projectId,
+      kind: 'integration',
+      summary: `HTTP cursor record ${index + 1}`,
+      source: SUFFIX,
+      sourceReference: `http-record-${index + 1}`,
+      data: { index: index + 1 },
+      createdAt: new Date(Date.now() - (index + 1) * 1_000),
+    })),
+  })
+}, 60_000)
+
+afterAll(async () => {
+  if (!HAS_DB || !prisma) return
+  try { await prisma.project.delete({ where: { id: projectId } }) } catch { /* cascade */ }
+  try { await prisma.user.delete({ where: { id: userId } }) } catch { /* cleanup after cascade */ }
+  expect(await prisma.project.count({ where: { id: projectId } })).toBe(0)
+  expect(await prisma.user.count({ where: { id: userId } })).toBe(0)
+  expect(await prisma.evidence.count({ where: { projectId } })).toBe(0)
+  await prisma.$disconnect()
+  if (originalInternalKey === undefined) delete process.env.INTERNAL_API_KEY
+  else process.env.INTERNAL_API_KEY = originalInternalKey
+  if (originalPreviousKeys === undefined) delete process.env.WORKSPACE_CURSOR_PREVIOUS_KEYS
+  else process.env.WORKSPACE_CURSOR_PREVIOUS_KEYS = originalPreviousKeys
+})
+
+async function availablePort(): Promise<number> {
+  const server = createServer()
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', () => resolve())
+  })
+  const address = server.address()
+  if (!address || typeof address === 'string') throw new Error('Could not allocate a local test port.')
+  await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))
+  return address.port
+}
+
+async function stopServer(child: ChildProcess | null) {
+  if (!child || child.exitCode !== null || child.killed) return
+  const exited = once(child, 'exit')
+  child.kill('SIGTERM')
+  await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, 5_000))])
+  if (child.exitCode === null) {
+    const killed = once(child, 'exit')
+    child.kill('SIGKILL')
+    await killed
+  }
+}
+
+async function startNextServer(activeKey: string, previousKeys = ''): Promise<{ child: ChildProcess; baseUrl: string }> {
+  const port = await availablePort()
+  const child = spawn(process.execPath, [
+    './node_modules/next/dist/bin/next', 'dev', '--hostname', '127.0.0.1', '--port', String(port),
+  ], {
+    cwd: process.cwd(),
+    stdio: 'ignore',
+    env: {
+      ...process.env,
+      INTERNAL_API_KEY: activeKey,
+      SCANNER_API_KEY: 'integration-distinct-scanner-key',
+      WORKSPACE_CURSOR_PREVIOUS_KEYS: previousKeys,
+      INTERNAL_KEY_ALLOWLIST_ENFORCE: 'false',
+      AUTH_SECRET: 'integration-http-auth-secret',
+    },
+  })
+  const baseUrl = `http://127.0.0.1:${port}`
+  const deadline = Date.now() + 60_000
+  while (Date.now() < deadline) {
+    if (child.exitCode !== null) throw new Error(`Next.js test process exited before readiness (${child.exitCode}).`)
+    try {
+      const response = await fetch(`${baseUrl}/api/internal/reamon/workspace/evidence`, { method: 'POST', body: '{}' })
+      if (response.status === 401) return { child, baseUrl }
+    } catch { /* the server is still starting */ }
+    await new Promise((resolve) => setTimeout(resolve, 200))
+  }
+  await stopServer(child)
+  throw new Error('Next.js test process did not become ready within 60 seconds.')
+}
+
+function agentHeaders(key: string, tool = 'workspace_list_evidence') {
+  const tag = signTag({
+    source: 'agent', project_id: projectId, user_id: userId, tool,
+    exp: Math.floor(Date.now() / 1000) + 120,
+  }, key)
+  return { 'x-internal-key': key, 'x-redamon-ctx': tag, 'content-type': 'application/json' }
+}
+
+describe.skipIf(!HAS_DB)('agent Evidence HTTP paging across Next.js restart', () => {
+  test('continues a persisted cursor after restart and key rotation, then keeps paging with the new key', async () => {
+    let firstServer: ChildProcess | null = null
+    let secondServer: ChildProcess | null = null
+    try {
+      const first = await startNextServer(INITIAL_KEY)
+      firstServer = first.child
+      const firstResponse = await fetch(`${first.baseUrl}/api/internal/reamon/workspace/evidence`, {
+        method: 'POST',
+        headers: agentHeaders(INITIAL_KEY),
+        body: JSON.stringify({ tool: 'workspace_list_evidence', limit: 1 }),
+      })
+      expect(firstResponse.status).toBe(200)
+      const firstPage = await firstResponse.json() as { evidence: Array<{ summary: string }>; nextCursor: string; total: number }
+      expect(firstPage).toMatchObject({ evidence: [{ summary: 'HTTP cursor record 1' }], total: 3 })
+      expect(firstPage.nextCursor).toEqual(expect.any(String))
+
+      await stopServer(firstServer)
+      firstServer = null
+
+      const second = await startNextServer(ROTATED_KEY, INITIAL_KEY)
+      secondServer = second.child
+      const secondResponse = await fetch(`${second.baseUrl}/api/internal/reamon/workspace/evidence`, {
+        method: 'POST',
+        headers: agentHeaders(ROTATED_KEY),
+        body: JSON.stringify({ tool: 'workspace_list_evidence', limit: 1, cursor: firstPage.nextCursor }),
+      })
+      expect(secondResponse.status).toBe(200)
+      const secondPage = await secondResponse.json() as { evidence: Array<{ summary: string }>; nextCursor: string; total: number }
+      expect(secondPage).toMatchObject({ evidence: [{ summary: 'HTTP cursor record 2' }], total: 3 })
+      expect(secondPage.nextCursor).toEqual(expect.any(String))
+      const [payload, signature] = secondPage.nextCursor.split('.')
+      expect(signature).toBe(createHmac('sha256', ROTATED_KEY).update(payload).digest('base64url'))
+
+      const thirdResponse = await fetch(`${second.baseUrl}/api/internal/reamon/workspace/evidence`, {
+        method: 'POST',
+        headers: agentHeaders(ROTATED_KEY),
+        body: JSON.stringify({ tool: 'workspace_list_evidence', limit: 1, cursor: secondPage.nextCursor }),
+      })
+      expect(thirdResponse.status).toBe(200)
+      const thirdPage = await thirdResponse.json() as { evidence: Array<{ summary: string }>; nextCursor: string | null; total: number }
+      expect(thirdPage).toMatchObject({ evidence: [{ summary: 'HTTP cursor record 3' }], total: 3, nextCursor: null })
+    } finally {
+      await stopServer(secondServer)
+      await stopServer(firstServer)
+    }
+  }, 180_000)
+})
