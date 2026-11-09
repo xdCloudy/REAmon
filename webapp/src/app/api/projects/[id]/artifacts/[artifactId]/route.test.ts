@@ -3,17 +3,18 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
+import { NextResponse } from 'next/server'
 
 const mocks = vi.hoisted(() => ({
   artifactFindFirst: vi.fn(),
   requireEffectiveUser: vi.fn(),
-  requireProjectAccess: vi.fn(),
+  requireProjectAccessStrict: vi.fn(),
 }))
 
 vi.mock('@/lib/prisma', () => ({ default: { artifact: { findFirst: mocks.artifactFindFirst } } }))
 vi.mock('@/lib/access', () => ({
   requireEffectiveUser: mocks.requireEffectiveUser,
-  requireProjectAccess: mocks.requireProjectAccess,
+  requireProjectAccessStrict: mocks.requireProjectAccessStrict,
 }))
 
 import { GET } from './route'
@@ -39,7 +40,7 @@ beforeEach(async () => {
   storageRoot = await mkdtemp(path.join(os.tmpdir(), 'reamon-artifact-download-'))
   vi.stubEnv('REAMON_ARTIFACTS_PATH', storageRoot)
   mocks.requireEffectiveUser.mockResolvedValue({ userId: 'user-1' })
-  mocks.requireProjectAccess.mockResolvedValue({ project: { id: 'project-1', userId: 'user-1' } })
+  mocks.requireProjectAccessStrict.mockResolvedValue({ project: { id: 'project-1', userId: 'user-1' } })
   mocks.artifactFindFirst.mockResolvedValue(artifact())
 })
 
@@ -70,6 +71,15 @@ describe('GET /api/projects/[id]/artifacts/[artifactId]', () => {
 
     expect(response.status).toBe(404)
     expect(await response.json()).toEqual({ error: 'Artifact not found' })
+  })
+
+  test('requires strict project ownership before reading artifact metadata', async () => {
+    mocks.requireProjectAccessStrict.mockResolvedValue(NextResponse.json({ error: 'Not found' }, { status: 404 }))
+
+    const response = await GET(new Request('http://localhost/download'), params())
+
+    expect(response.status).toBe(404)
+    expect(mocks.artifactFindFirst).not.toHaveBeenCalled()
   })
 
   test('returns 503 when the database row points to missing bytes', async () => {
