@@ -4,13 +4,13 @@ import { NextResponse } from 'next/server'
 
 const mocks = vi.hoisted(() => ({
   requireEffectiveUser: vi.fn(),
-  requireProjectAccess: vi.fn(),
+  requireProjectAccessStrict: vi.fn(),
   cancelAnalysisTask: vi.fn(),
 }))
 
 vi.mock('@/lib/access', () => ({
   requireEffectiveUser: mocks.requireEffectiveUser,
-  requireProjectAccess: mocks.requireProjectAccess,
+  requireProjectAccessStrict: mocks.requireProjectAccessStrict,
 }))
 vi.mock('@/lib/reamon/task-control', () => ({ cancelAnalysisTask: mocks.cancelAnalysisTask }))
 
@@ -21,13 +21,13 @@ const params = { params: Promise.resolve({ id: 'project-1', taskId: 'task-1' }) 
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.requireEffectiveUser.mockResolvedValue({ userId: 'user-1' })
-  mocks.requireProjectAccess.mockResolvedValue({ project: { id: 'project-1' } })
+  mocks.requireProjectAccessStrict.mockResolvedValue({ project: { id: 'project-1' } })
   mocks.cancelAnalysisTask.mockResolvedValue({ outcome: 'CANCELLED', task: { id: 'task-1', status: 'CANCELLED' } })
 })
 
 describe('POST /api/projects/[id]/workspace/tasks/[taskId]/cancel', () => {
   test('enforces project access before cancelling', async () => {
-    mocks.requireProjectAccess.mockResolvedValue(NextResponse.json({ error: 'Not found' }, { status: 404 }))
+    mocks.requireProjectAccessStrict.mockResolvedValue(NextResponse.json({ error: 'Not found' }, { status: 404 }))
 
     const response = await POST(new Request('http://localhost', { method: 'POST' }), params)
 

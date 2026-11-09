@@ -221,6 +221,25 @@ describe.skipIf(!HAS_DB)('agent Evidence HTTP paging across Next.js restart', ()
         headers: { Cookie: `${AUTH_COOKIE_NAME}=${foreignSessionCookie}` },
       })
       expect(foreignInvestigationsResponse.status).toBe(404)
+      for (const path of [
+        `/api/projects/${projectId}/workspace/tasks/task-foreign/cancel`,
+        `/api/projects/${projectId}/workspace/tasks/task-foreign/execute`,
+        `/api/projects/${projectId}/workspace/tasks/task-foreign/retry`,
+        `/api/projects/${projectId}/workspace/tasks/recover`,
+      ]) {
+        const anonymousTaskControlResponse = await fetch(`${first.baseUrl}${path}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: '{}',
+        })
+        expect(anonymousTaskControlResponse.status, `anonymous POST ${path}`).toBe(401)
+        const foreignTaskControlResponse = await fetch(`${first.baseUrl}${path}`, {
+          method: 'POST',
+          headers: { Cookie: `${AUTH_COOKIE_NAME}=${foreignSessionCookie}`, 'Content-Type': 'application/json' },
+          body: '{}',
+        })
+        expect(foreignTaskControlResponse.status, `foreign POST ${path}`).toBe(404)
+      }
       const foreignFindingReviewResponse = await fetch(`${first.baseUrl}/api/projects/${projectId}/workspace/findings/${findingId}`, {
         method: 'PATCH',
         headers: { Cookie: `${AUTH_COOKIE_NAME}=${foreignSessionCookie}`, 'Content-Type': 'application/json' },
