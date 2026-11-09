@@ -52,6 +52,14 @@ directories represented in the same immutable workspace import. Repeated request
 reuse the existing index task. This slice imports existing ToCode output; it does not
 install or run ToCode itself.
 
+The PostgreSQL-backed success-path fixture now exercises a completed native export
+with two functions, a same-export call edge, source pseudocode, and assembly. The live
+indexer persists both code units and the relationship, copies the two referenced files
+byte-for-byte after import hash checks, records the completed task/evidence/activity
+and import receipt, and reuses the task on a repeated request. This validates one
+synthetic native export path; it does not validate ToCode's own analysis, original-source
+fidelity, APK/.NET export schemas, cross-binary links, or browser visualizer navigation.
+
 Folder exports now use ToCode's `project.json` binary-to-export mapping and
 `inventory.json` SHA-256 claims to connect a decompiled export to an original binary
 when that exact digest and size are also present in the REAmon workspace import. The
@@ -76,8 +84,9 @@ Remaining integration work:
    level.
 2. Expand mapping of APK and .NET specialized fields, types, imports, exports, and
    reachability without flattening provider evidence into canonical facts.
-3. Add representative fixtures and verify cross-binary endpoint resolution, visualizer
-   navigation, repeated imports, partial exports, and output limits.
+3. Verify cross-binary endpoint resolution, browser visualizer navigation, partial
+   exports, and output limits against representative fixtures; expand beyond the one
+   synthetic native export exercised by the success-path integration test.
 4. If REAmon later runs ToCode, build that as a separately isolated workspace task with
    explicit backend choice; do not silently discover or invoke local reverse-engineering
    tools.
