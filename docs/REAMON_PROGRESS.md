@@ -1,8 +1,10 @@
 # REAmon product progress
 
-Assessment date: 2026-11-09 · Source: pushed commit `d6af823` · Weighted estimate: **26.9%**
+Assessment date: 2026-11-09 · Source: pushed commit `e83336b` · Weighted estimate: **26.9%**
 
 This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.
+
+Source-mutation sensitivity note (2026-11-09): The paired v3 matcher control mutates each persisted recovered module source by changing its "below" return to "under". Both clean runs rejected all 70 mutations and recorded zero false acceptances; each pair uses the same product commit on baseline and candidate. This validates scorer sensitivity to this source-text mutation only, not provider behavior on a mutated executable. The 15% benchmark workstream score is unchanged; broader artifact-level and malformed/obfuscated controls remain.
 
 Source-correspondence v3 paired benchmark note (2026-11-09): The clean paired archive records 70/70 structured source matches for modules with a value, function, and branch on both sides, plus equal runtime (1/1), inventory (180/180), known values (70/70), and worker terminal page (1/1). Both receipts use product commit 87203c3f408d1d574c3d49f1d6af79274f57c569, so this validates repeatability and adds no product-source improvement claim. The 3%-weight benchmark workstream remains at 15%; broad AR-0/AR-8, additional formats, and negative controls remain open.
 
@@ -155,7 +157,7 @@ Implementation note (2026-11-08): Tree-sitter parsing became unavailable when a 
 
 ### End-to-end reconstruction acceptance benchmarks
 
-**Current evidence:** The v3 structured-source evaluator has clean paired receipts and live direct-provider plus queued-worker integrations on one pinned synthetic Python/PyInstaller fixture. Both sides measured runtime 1/1, inventory 180/180, known-source values 70/70, structured exact source matches 70/70 for modules containing a value, function, and branch, and worker terminal page 1/1; all deltas were zero and comparison status was `NO_REGRESSION_OBSERVED`. A second paired run from commit `d6af8238324880e469a824a50ab51faedb33da9e` changed each recovered module's `"below"` result to `"under"`; the matcher rejected 70/70 mutations with 0/70 false acceptances. This is a scorer-sensitivity control on recovered text, not recovery evidence from a mutated executable. Neither pair establishes broad AR-0/AR-8 completion or a product reconstruction improvement.
+**Current evidence:** The v3 structured-source evaluator has clean paired receipts and live direct-provider plus queued-worker integrations on one pinned synthetic Python/PyInstaller fixture. Both sides measured runtime 1/1, inventory 180/180, known-source values 70/70, structured exact source matches 70/70 for modules containing a value, function, and branch, and worker terminal page 1/1; all deltas were zero and comparison status was NO_REGRESSION_OBSERVED. A second pair changed each recovered module's below result to under; the matcher rejected 70/70 text mutations with 0/70 false acceptances. Both sides used the same product commit per pair, so the results validate repeatability and scorer sensitivity without claiming product improvement. The mutation control operates on recovered text, not separately mutated binaries. Neither pair establishes broad AR-0/AR-8 completion.
 
 **Remaining:** AR-0/AR-8: add a reproducible one-command evaluation across versioned held-out native, managed, bytecode, Android, Python, and multi-module fixtures plus malformed/obfuscated negative controls. Measure source correspondence, symbols/types, complete denominators, build and behavior oracles, resource use, restart/reimport, and preserve matched clean comparison for each eligible scope. Add artifact-level behavior-changing mutations and malformed/obfuscated controls with measured provider outcomes; the current control only mutates recovered text to verify matcher sensitivity. An unavailable oracle must not count as pass.
 
