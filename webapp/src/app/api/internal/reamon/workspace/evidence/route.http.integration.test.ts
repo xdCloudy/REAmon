@@ -11,6 +11,7 @@ import { createServer } from 'node:net'
 import { once } from 'node:events'
 
 import { signTag } from '@/lib/redamonCtx'
+import { AUTH_COOKIE_NAME, createToken } from '@/lib/auth'
 
 const HAS_DB = process.env.DATABASE_URL !== undefined
 const SUFFIX = `workspace-evidence-http-${Date.now()}`
@@ -20,13 +21,17 @@ const ROTATED_KEY = 'integration-http-rotated-cursor-key'
 let prisma: PrismaClient
 let userId = ''
 let projectId = ''
+let sessionCookie = ''
 let originalInternalKey: string | undefined
 let originalPreviousKeys: string | undefined
+let originalAuthSecret: string | undefined
 
 beforeAll(async () => {
   if (!HAS_DB) return
   originalInternalKey = process.env.INTERNAL_API_KEY
   originalPreviousKeys = process.env.WORKSPACE_CURSOR_PREVIOUS_KEYS
+  originalAuthSecret = process.env.AUTH_SECRET
+  process.env.AUTH_SECRET = 'integration-http-auth-secret'
   prisma = new PrismaClient()
   const user = await prisma.user.create({
     data: { email: `${SUFFIX}@example.invalid`, name: 'workspace evidence HTTP integration' },
@@ -36,6 +41,7 @@ beforeAll(async () => {
     data: { name: 'workspace evidence HTTP integration', userId, targetDomain: 'http.example.invalid' },
   })
   projectId = project.id
+  sessionCookie = await createToken(userId, 'standard')
   await prisma.evidence.createMany({
     data: Array.from({ length: 3 }, (_, index) => ({
       projectId,
@@ -61,6 +67,8 @@ afterAll(async () => {
   else process.env.INTERNAL_API_KEY = originalInternalKey
   if (originalPreviousKeys === undefined) delete process.env.WORKSPACE_CURSOR_PREVIOUS_KEYS
   else process.env.WORKSPACE_CURSOR_PREVIOUS_KEYS = originalPreviousKeys
+  if (originalAuthSecret === undefined) delete process.env.AUTH_SECRET
+  else process.env.AUTH_SECRET = originalAuthSecret
 })
 
 async function availablePort(): Promise<number> {
@@ -132,6 +140,22 @@ describe.skipIf(!HAS_DB)('agent Evidence HTTP paging across Next.js restart', ()
     try {
       const first = await startNextServer(INITIAL_KEY)
       firstServer = first.child
+
+      const browserUrl = `${first.baseUrl}/api/projects/${projectId}/workspace/evidence?limit=1`
+      const anonymousBrowserResponse = await fetch(browserUrl)
+      expect(anonymousBrowserResponse.status).toBe(401)
+
+      const browserFirstResponse = await fetch(browserUrl, {
+        headers: { Cookie: `${AUTH_COOKIE_NAME}=${sessionCookie}` },
+      })
+      expect(browserFirstResponse.status).toBe(200)
+      expect(browserFirstResponse.headers.get('Cache-Control')).toBe('private, no-store')
+      const browserFirstPage = await browserFirstResponse.json() as {
+        evidence: Array<{ summary: string }>; nextCursor: string | null; total: number
+      }
+      expect(browserFirstPage).toMatchObject({ evidence: [{ summary: 'HTTP cursor record 1' }], total: 3 })
+      expect(browserFirstPage.nextCursor).toEqual(expect.any(String))
+
       const firstResponse = await fetch(`${first.baseUrl}/api/internal/reamon/workspace/evidence`, {
         method: 'POST',
         headers: agentHeaders(INITIAL_KEY),
@@ -147,6 +171,30 @@ describe.skipIf(!HAS_DB)('agent Evidence HTTP paging across Next.js restart', ()
 
       const second = await startNextServer(ROTATED_KEY, INITIAL_KEY)
       secondServer = second.child
+
+      const browserNextUrl = `${second.baseUrl}/api/projects/${projectId}/workspace/evidence?limit=1&cursor=${encodeURIComponent(browserFirstPage.nextCursor as string)}`
+      const browserNextResponse = await fetch(browserNextUrl, {
+        headers: { Cookie: `${AUTH_COOKIE_NAME}=${sessionCookie}` },
+      })
+      expect(browserNextResponse.status).toBe(200)
+      const browserNextPage = await browserNextResponse.json() as {
+        evidence: Array<{ summary: string }>; nextCursor: string | null; total: number
+      }
+      expect(browserNextPage).toMatchObject({ evidence: [{ summary: 'HTTP cursor record 2' }], total: 3 })
+      expect(browserNextPage.nextCursor).toEqual(expect.any(String))
+      const [browserPayload, browserSignature] = (browserNextPage.nextCursor as string).split('.')
+      expect(browserSignature).toBe(createHmac('sha256', ROTATED_KEY).update(browserPayload).digest('base64url'))
+
+      const browserLastUrl = `${second.baseUrl}/api/projects/${projectId}/workspace/evidence?limit=1&cursor=${encodeURIComponent(browserNextPage.nextCursor as string)}`
+      const browserLastResponse = await fetch(browserLastUrl, {
+        headers: { Cookie: `${AUTH_COOKIE_NAME}=${sessionCookie}` },
+      })
+      expect(browserLastResponse.status).toBe(200)
+      const browserLastPage = await browserLastResponse.json() as {
+        evidence: Array<{ summary: string }>; nextCursor: string | null; total: number
+      }
+      expect(browserLastPage).toMatchObject({ evidence: [{ summary: 'HTTP cursor record 3' }], total: 3, nextCursor: null })
+
       const secondResponse = await fetch(`${second.baseUrl}/api/internal/reamon/workspace/evidence`, {
         method: 'POST',
         headers: agentHeaders(ROTATED_KEY),
