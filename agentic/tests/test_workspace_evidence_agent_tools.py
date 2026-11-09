@@ -118,6 +118,23 @@ class WorkspaceEvidenceAgentToolTests(unittest.IsolatedAsyncioTestCase):
             headers={"x-internal-key": "test-internal-key", "x-redamon-ctx": "signed-context"},
         )
 
+    async def test_code_relationship_dispatch_preserves_stable_cursor_arguments(self):
+        response = _Response(payload={"relationships": [{"stableKey": "edge-a"}], "nextCursor": "signed-cursor"})
+        client = _Client(response)
+        args = {
+            "codeUnitId": "unit-1", "relationshipKind": "calls", "direction": "incoming",
+            "limit": 25, "cursor": "signed-cursor",
+        }
+        with patch("tools.httpx.AsyncClient", return_value=client):
+            result = await self.executor._dispatch_workspace_code_unit_tool("workspace_list_code_relationships", args)
+        self.assertTrue(result["success"])
+        self.assertEqual(result["output"]["nextCursor"], "signed-cursor")
+        client.post.assert_awaited_once_with(
+            "http://webapp:3000/api/internal/reamon/workspace/code-units",
+            json={"tool": "workspace_list_code_relationships", **args},
+            headers={"x-internal-key": "test-internal-key", "x-redamon-ctx": "signed-context"},
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

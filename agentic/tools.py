@@ -2283,6 +2283,8 @@ class PhaseAwareToolExecutor:
                     "error": f"{tool_name}: no signed tenant context — cannot read project code units."}
         args = tool_args if isinstance(tool_args, dict) else {}
         allowed = ({"search", "taskId", "limit", "offset", "cursor"} if tool_name == "workspace_list_code_units"
+                   else {"codeUnitId", "relationshipKind", "direction", "limit", "offset", "cursor"}
+                   if tool_name == "workspace_list_code_relationships"
                    else {"codeUnitId", "sourceOffsetBytes", "sourceSnapshotHash"})
         if set(args) - allowed:
             return {"success": False, "output": None, "error": "Unsupported workspace code-unit argument."}
@@ -2435,7 +2437,7 @@ class PhaseAwareToolExecutor:
             return await self._dispatch_job_tool(tool_name, tool_args)
         if tool_name in {"workspace_list_evidence", "workspace_get_evidence"}:
             return await self._dispatch_workspace_evidence_tool(tool_name, tool_args)
-        if tool_name in {"workspace_list_code_units", "workspace_get_code_unit"}:
+        if tool_name in {"workspace_list_code_units", "workspace_get_code_unit", "workspace_list_code_relationships"}:
             return await self._dispatch_workspace_code_unit_tool(tool_name, tool_args)
 
         # Get the tool

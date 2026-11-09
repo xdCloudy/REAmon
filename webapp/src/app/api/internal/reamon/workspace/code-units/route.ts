@@ -2,13 +2,13 @@ import { NextRequest, NextResponse } from 'next/server'
 import { isInternalRequest } from '@/lib/session'
 import { verifyTag } from '@/lib/redamonCtx'
 import prisma from '@/lib/prisma'
-import { listWorkspaceCodeUnits, getWorkspaceCodeUnit } from '@/lib/mcp/workspaceCodeTools'
+import { listWorkspaceCodeUnits, getWorkspaceCodeUnit, listWorkspaceCodeRelationships } from '@/lib/mcp/workspaceCodeTools'
 import type { McpContext } from '@/lib/mcp/tools'
 import { McpToolError } from '@/lib/mcp/errors'
 
 export const runtime = 'nodejs'
 
-const ALLOWED_TOOLS = new Set(['workspace_list_code_units', 'workspace_get_code_unit'])
+const ALLOWED_TOOLS = new Set(['workspace_list_code_units', 'workspace_get_code_unit', 'workspace_list_code_relationships'])
 export async function POST(request: NextRequest) {
   if (!isInternalRequest(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const secret = process.env.INTERNAL_API_KEY
@@ -31,7 +31,12 @@ export async function POST(request: NextRequest) {
     const input = body as Record<string, unknown>
     if (input.tool !== scope.tool) return NextResponse.json({ error: 'Tool context mismatch' }, { status: 403 })
     const list = scope.tool === 'workspace_list_code_units'
-    const allowedKeys = list ? new Set(['tool', 'search', 'taskId', 'limit', 'offset', 'cursor']) : new Set(['tool', 'codeUnitId', 'sourceOffsetBytes', 'sourceSnapshotHash'])
+    const relationshipList = scope.tool === 'workspace_list_code_relationships'
+    const allowedKeys = list
+      ? new Set(['tool', 'search', 'taskId', 'limit', 'offset', 'cursor'])
+      : relationshipList
+        ? new Set(['tool', 'codeUnitId', 'relationshipKind', 'direction', 'limit', 'offset', 'cursor'])
+        : new Set(['tool', 'codeUnitId', 'sourceOffsetBytes', 'sourceSnapshotHash'])
     if (Object.keys(input).some(key => !allowedKeys.has(key))) return NextResponse.json({ error: 'Unsupported workspace code-unit argument' }, { status: 400 })
     if (list && ((input.search !== undefined && typeof input.search !== 'string')
         || (input.taskId !== undefined && typeof input.taskId !== 'string')
@@ -39,6 +44,14 @@ export async function POST(request: NextRequest) {
         || (input.offset !== undefined && typeof input.offset !== 'number')
         || (input.cursor !== undefined && typeof input.cursor !== 'string'))) {
       return NextResponse.json({ error: 'Invalid code-unit pagination arguments' }, { status: 400 })
+    }
+    if (relationshipList && (typeof input.codeUnitId !== 'string'
+        || (input.relationshipKind !== 'calls' && input.relationshipKind !== 'references')
+        || (input.direction !== undefined && input.direction !== 'both' && input.direction !== 'incoming' && input.direction !== 'outgoing')
+        || (input.limit !== undefined && typeof input.limit !== 'number')
+        || (input.offset !== undefined && typeof input.offset !== 'number')
+        || (input.cursor !== undefined && typeof input.cursor !== 'string'))) {
+      return NextResponse.json({ error: 'Invalid code-relationship pagination arguments' }, { status: 400 })
     }
     if (!list && (typeof input.codeUnitId !== 'string'
         || (input.sourceOffsetBytes !== undefined && typeof input.sourceOffsetBytes !== 'number')
@@ -50,6 +63,12 @@ export async function POST(request: NextRequest) {
         || (input.offset as number | undefined) !== undefined && (!Number.isInteger(input.offset) || (input.offset as number) < 0 || (input.offset as number) > 100000)
         || (input.cursor as string | undefined) !== undefined && ((input.cursor as string).length > 2048 || input.offset !== undefined))) {
       return NextResponse.json({ error: 'Code-unit pagination is outside supported bounds' }, { status: 400 })
+    }
+    if (relationshipList && ((input.codeUnitId as string).length > 64
+        || (input.limit as number | undefined) !== undefined && (!Number.isInteger(input.limit) || (input.limit as number) < 1 || (input.limit as number) > 100)
+        || (input.offset as number | undefined) !== undefined && (!Number.isInteger(input.offset) || (input.offset as number) < 0 || (input.offset as number) > 100000)
+        || (input.cursor as string | undefined) !== undefined && ((input.cursor as string).length > 2048 || input.offset !== undefined))) {
+      return NextResponse.json({ error: 'Code-relationship pagination is outside supported bounds' }, { status: 400 })
     }
     if (!list && ((input.codeUnitId as string).length > 64
         || (input.sourceOffsetBytes as number | undefined) !== undefined && (!Number.isSafeInteger(input.sourceOffsetBytes) || (input.sourceOffsetBytes as number) < 0 || (input.sourceOffsetBytes as number) > 128 * 1024 * 1024)
@@ -69,9 +88,34 @@ export async function POST(request: NextRequest) {
       scopes: ['recon:read'],
     } }
     const args = { projectId: project.id }
-    const result = list
-      ? await listWorkspaceCodeUnits(ctx, { ...args, ...(input.search !== undefined ? { search: input.search as string } : {}), ...(input.taskId !== undefined ? { taskId: input.taskId as string } : {}), ...(input.limit !== undefined ? { limit: input.limit as number } : {}), ...(input.offset !== undefined ? { offset: input.offset as number } : {}), ...(input.cursor !== undefined ? { cursor: input.cursor as string } : {}) })
-      : await getWorkspaceCodeUnit(ctx, { ...args, codeUnitId: input.codeUnitId as string, ...(input.sourceOffsetBytes !== undefined ? { sourceOffsetBytes: input.sourceOffsetBytes as number } : {}), ...(input.sourceSnapshotHash !== undefined ? { sourceSnapshotHash: input.sourceSnapshotHash as string } : {}) })
+    let result
+    if (list) {
+      result = await listWorkspaceCodeUnits(ctx, {
+        ...args,
+        ...(input.search !== undefined ? { search: input.search as string } : {}),
+        ...(input.taskId !== undefined ? { taskId: input.taskId as string } : {}),
+        ...(input.limit !== undefined ? { limit: input.limit as number } : {}),
+        ...(input.offset !== undefined ? { offset: input.offset as number } : {}),
+        ...(input.cursor !== undefined ? { cursor: input.cursor as string } : {}),
+      })
+    } else if (relationshipList) {
+      result = await listWorkspaceCodeRelationships(ctx, {
+        ...args,
+        codeUnitId: input.codeUnitId as string,
+        relationshipKind: input.relationshipKind as 'calls' | 'references',
+        ...(input.direction !== undefined ? { direction: input.direction as 'both' | 'incoming' | 'outgoing' } : {}),
+        ...(input.limit !== undefined ? { limit: input.limit as number } : {}),
+        ...(input.offset !== undefined ? { offset: input.offset as number } : {}),
+        ...(input.cursor !== undefined ? { cursor: input.cursor as string } : {}),
+      })
+    } else {
+      result = await getWorkspaceCodeUnit(ctx, {
+        ...args,
+        codeUnitId: input.codeUnitId as string,
+        ...(input.sourceOffsetBytes !== undefined ? { sourceOffsetBytes: input.sourceOffsetBytes as number } : {}),
+        ...(input.sourceSnapshotHash !== undefined ? { sourceSnapshotHash: input.sourceSnapshotHash as string } : {}),
+      })
+    }
     return NextResponse.json(result, { headers: { 'Cache-Control': 'no-store' } })
   } catch (error) {
     if (error instanceof McpToolError) {

@@ -323,6 +323,7 @@ DEFAULT_AGENT_SETTINGS: dict[str, Any] = {
         'workspace_get_evidence': ['informational', 'exploitation', 'post_exploitation'],
         'workspace_list_code_units': ['informational', 'exploitation', 'post_exploitation'],
         'workspace_get_code_unit': ['informational', 'exploitation', 'post_exploitation'],
+        'workspace_list_code_relationships': ['informational', 'exploitation', 'post_exploitation'],
     },
 
     # User-managed MCP servers (UI-driven, see /settings/mcp). Stored as raw
@@ -979,7 +980,7 @@ def is_tool_allowed_in_phase(tool_name: str, phase: str) -> bool:
 
     # Durable REAmon evidence reads default on for projects with older stored
     # phase maps. An explicit entry still lets the operator turn either tool off.
-    if tool_name in {"workspace_list_evidence", "workspace_get_evidence", "workspace_list_code_units", "workspace_get_code_unit"}:
+    if tool_name in {"workspace_list_evidence", "workspace_get_evidence", "workspace_list_code_units", "workspace_get_code_unit", "workspace_list_code_relationships"}:
         tool_phase_map = get_setting('TOOL_PHASE_MAP', {})
         return phase in tool_phase_map.get(tool_name, ["informational", "exploitation", "post_exploitation"])
 
@@ -1032,7 +1033,7 @@ def get_allowed_tools_for_phase(phase: str) -> list:
 
     # Older projects persist a whole-map override, so expose the new evidence
     # reads by default until an operator explicitly configures their keys.
-    for name in ("workspace_list_evidence", "workspace_get_evidence", "workspace_list_code_units", "workspace_get_code_unit"):
+    for name in ("workspace_list_evidence", "workspace_get_evidence", "workspace_list_code_units", "workspace_get_code_unit", "workspace_list_code_relationships"):
         if is_tool_allowed_in_phase(name, phase):
             allowed.add(name)
 

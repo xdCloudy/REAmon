@@ -306,6 +306,7 @@ export const ONBOARDING_PLAYBOOK: Record<string, PlaybookEntry> = {
       'incoming/outgoing call edges or persisted field/string references page by page.',
     gotchas: [
       'Results are limited to relationships persisted by the selected provider in the exact analysis task, artifact, and active workspace import.',
+      'Omit offset for signed stable pages. Continue with nextCursor and keep codeUnitId, relationshipKind, and direction fixed; restart after stale_snapshot or expiry. Explicit offset is a legacy mode without snapshot guarantees.',
       'A missing relationship is not evidence that no call or reference exists; providers may omit edges or stop at configured limits.',
       'Endpoint names and reference metadata remain provider evidence and do not prove behavior or original-source identity.',
       'Use limit and offset to page through large results; inspect hasMore and nextOffset before concluding the listing is complete.',

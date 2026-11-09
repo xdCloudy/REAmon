@@ -8,11 +8,16 @@ const mocks = vi.hoisted(() => ({
   projectFindFirst: vi.fn(),
   list: vi.fn(),
   get: vi.fn(),
+  listRelationships: vi.fn(),
 }))
 
 vi.mock('@/lib/session', () => ({ isInternalRequest: mocks.internal }))
 vi.mock('@/lib/prisma', () => ({ default: { project: { findFirst: mocks.projectFindFirst } } }))
-vi.mock('@/lib/mcp/workspaceCodeTools', () => ({ listWorkspaceCodeUnits: mocks.list, getWorkspaceCodeUnit: mocks.get }))
+vi.mock('@/lib/mcp/workspaceCodeTools', () => ({
+  listWorkspaceCodeUnits: mocks.list,
+  getWorkspaceCodeUnit: mocks.get,
+  listWorkspaceCodeRelationships: mocks.listRelationships,
+}))
 
 import { POST } from './route'
 
@@ -30,6 +35,7 @@ beforeEach(() => {
   mocks.projectFindFirst.mockResolvedValue({ id: 'project-1' })
   mocks.list.mockResolvedValue({ codeUnits: [{ id: 'unit-1' }], total: 1 })
   mocks.get.mockResolvedValue({ id: 'unit-1', code: { sourceHash: 'a'.repeat(64) } })
+  mocks.listRelationships.mockResolvedValue({ relationships: [], total: 0, nextCursor: null })
 })
 
 describe('POST /api/internal/reamon/workspace/code-units', () => {
@@ -91,5 +97,26 @@ describe('POST /api/internal/reamon/workspace/code-units', () => {
     const response = await POST(request({ tool: 'workspace_list_code_units' }) as never)
     expect(response.status).toBe(503)
     expect(await response.json()).toMatchObject({ code: 'cursor_unavailable' })
+  })
+
+  test('delegates bounded relationship cursor reads under the signed agent context', async () => {
+    const cursor = 'signed-relationship-cursor'
+    const response = await POST(request({
+      tool: 'workspace_list_code_relationships', codeUnitId: 'unit-1', relationshipKind: 'calls',
+      direction: 'incoming', limit: 20, cursor,
+    }, token('workspace_list_code_relationships')) as never)
+    expect(response.status).toBe(200)
+    expect(mocks.listRelationships).toHaveBeenCalledWith(
+      expect.objectContaining({ token: expect.objectContaining({ userId: 'owner-1', scopes: ['recon:read'] }) }),
+      { projectId: 'project-1', codeUnitId: 'unit-1', relationshipKind: 'calls', direction: 'incoming', limit: 20, cursor },
+    )
+    expect((await POST(request({
+      tool: 'workspace_list_code_relationships', codeUnitId: 'unit-1', relationshipKind: 'calls',
+      limit: 101,
+    }, token('workspace_list_code_relationships')) as never)).status).toBe(400)
+    expect((await POST(request({
+      tool: 'workspace_list_code_relationships', codeUnitId: 'unit-1', relationshipKind: 'calls',
+      offset: 1, cursor,
+    }, token('workspace_list_code_relationships')) as never)).status).toBe(400)
   })
 })

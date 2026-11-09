@@ -200,6 +200,18 @@ TOOL_REGISTRY = {
             'as unreviewed unless the returned review state confirms acceptance. Reads are project-scoped and do not trigger analysis.'
         ),
     },
+    "workspace_list_code_relationships": {
+        "purpose": "Page persisted call edges or field/string references for one code unit",
+        "when_to_use": "Use after workspace_get_code_unit or workspace_list_code_units when bounded relationship evidence for an exact provider/run is needed",
+        "args_format": '"codeUnitId": returned unit id, "relationshipKind": "calls"|"references", "direction": optional "both"|"incoming"|"outgoing", "limit": optional 1-100, "cursor": optional nextCursor from previous page',
+        "description": (
+            '**workspace_list_code_relationships** (persisted relationship evidence)\n'
+            '   - Reads only stored relationships for the selected code unit in its exact provider, artifact, task, and active import. '
+            'It does not infer missing edges or prove behavior. Omit offset to receive stable signed nextCursor pages; preserve '
+            'codeUnitId, relationshipKind, and direction when continuing. On stale_snapshot or expiry, restart without a cursor. '
+            'Legacy offset paging is available but does not provide snapshot guarantees.'
+        ),
+    },
     "web_search": {
         "purpose": "Knowledge base + web search",
         "when_to_use": "Research CVEs, exploits, tool flags, methodology, priv-esc",

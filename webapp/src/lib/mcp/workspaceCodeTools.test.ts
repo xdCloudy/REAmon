@@ -24,7 +24,7 @@ vi.mock('@/lib/prisma', () => ({
 vi.mock('@/lib/reamon/inventory-query', () => ({ getActiveWorkspaceImportSelection: h.selection }))
 
 import { __resetRateLimiter } from '@/lib/mcpAuth'
-import { listWorkspaceCodeUnits } from './workspaceCodeTools'
+import { listWorkspaceCodeRelationships, listWorkspaceCodeUnits } from './workspaceCodeTools'
 import type { McpContext } from './tools'
 
 const ctx: McpContext = { token: {
@@ -34,6 +34,15 @@ const cursorSigningKey = 'test-code-unit-cursor-key'
 const row = (id: string, stableKey: string, updatedAt = new Date('2026-11-09T10:00:00.000Z')) => ({
   id, stableKey, type: 'code_unit', label: stableKey, source: 'provider-a', taskId: 'task-1', artifactId: 'artifact-1',
   updatedAt, attributes: { name: stableKey }, artifact: { relativePath: 'sample.bin', originalName: 'sample.bin', sha256: 'a'.repeat(64) },
+})
+const relationshipUnit = {
+  id: 'unit-a', stableKey: 'function:a', type: 'code_unit', source: 'provider-a', taskId: 'task-1', artifactId: 'artifact-1',
+  artifact: { sha256: 'a'.repeat(64) },
+}
+const relationship = (id: string, stableKey: string, updatedAt = new Date('2026-11-09T10:00:00.000Z')) => ({
+  id, stableKey, type: 'calls', label: stableKey, fromKey: 'function:a', toKey: stableKey,
+  attributes: { fromCodeUnitKey: 'function:a', toCodeUnitKey: stableKey },
+  createdAt: new Date('2026-11-09T09:00:00.000Z'), updatedAt,
 })
 
 beforeEach(() => {
@@ -160,5 +169,108 @@ describe('workspace code-unit keyset paging', () => {
     h.count.mockResolvedValueOnce(2)
     await expect(listWorkspaceCodeUnits(ctx, { projectId: 'project-1', limit: 1 }))
       .rejects.toMatchObject({ code: 'cursor_unavailable' })
+  })
+})
+
+describe('workspace code-relationship keyset paging', () => {
+  const args = { projectId: 'project-1', codeUnitId: 'unit-a', relationshipKind: 'calls' as const, direction: 'incoming' as const, limit: 1 }
+
+  test('returns a unit-, filter-, import-, and snapshot-bound signed cursor', async () => {
+    const timestamp = new Date('2026-11-09T10:00:00.000Z')
+    h.findFirst.mockResolvedValueOnce(relationshipUnit)
+    h.findMany.mockResolvedValueOnce([relationship('edge-a', 'a'), relationship('edge-b', 'b')]).mockResolvedValueOnce([])
+    h.count.mockResolvedValueOnce(2)
+    const first = await listWorkspaceCodeRelationships(ctx, args)
+    expect(first).toMatchObject({ relationships: [{ stableKey: 'a' }], total: 2, hasMore: true, offset: null })
+    expect(first.nextCursor).toEqual(expect.any(String))
+    expect(h.findMany.mock.calls[0][0]).toMatchObject({
+      where: {
+        projectId: 'project-1', taskId: 'task-1', artifactId: 'artifact-1', source: 'provider-a',
+        createdAt: { lt: new Date(first.snapshotAt as string) }, updatedAt: { lt: new Date(first.snapshotAt as string) },
+        isPending: false,
+      },
+      orderBy: [{ stableKey: 'asc' }, { id: 'asc' }], take: 2,
+    })
+    expect(h.findMany.mock.calls[0][0]).not.toHaveProperty('skip')
+
+    h.findFirst.mockResolvedValueOnce(relationshipUnit).mockResolvedValueOnce(null).mockResolvedValueOnce({
+      id: 'edge-a', stableKey: 'a', updatedAt: timestamp,
+    })
+    h.findMany.mockResolvedValueOnce([relationship('edge-b', 'b')]).mockResolvedValueOnce([])
+    h.count.mockResolvedValueOnce(2)
+    const second = await listWorkspaceCodeRelationships(ctx, { ...args, cursor: first.nextCursor as string })
+    expect(second).toMatchObject({ relationships: [{ stableKey: 'b' }], total: 2, hasMore: false, nextCursor: null })
+    expect(h.findMany.mock.calls[2][0]).toMatchObject({
+      where: { AND: [{ OR: [
+        { stableKey: { gt: 'a' } },
+        { stableKey: 'a', id: { gt: 'edge-a' } },
+      ] }] },
+    })
+  })
+
+  test('keeps relationship pages bounded across the 100-row boundary', async () => {
+    const all = Array.from({ length: 101 }, (_, index) => relationship(
+      `edge-${index}`, `key-${String(index).padStart(3, '0')}`,
+    ))
+    h.findFirst.mockResolvedValueOnce(relationshipUnit)
+    h.findMany.mockResolvedValueOnce(all).mockResolvedValueOnce([])
+    h.count.mockResolvedValueOnce(101)
+    const first = await listWorkspaceCodeRelationships(ctx, { ...args, limit: 100 })
+    expect(first.relationships).toHaveLength(100)
+    expect(first).toMatchObject({ total: 101, hasMore: true })
+    expect(h.findMany.mock.calls[0][0].take).toBe(101)
+
+    const anchor = all[99]
+    h.findFirst.mockResolvedValueOnce(relationshipUnit).mockResolvedValueOnce(null).mockResolvedValueOnce({
+      id: anchor.id, stableKey: anchor.stableKey, updatedAt: anchor.updatedAt,
+    })
+    h.findMany.mockResolvedValueOnce([all[100]]).mockResolvedValueOnce([])
+    h.count.mockResolvedValueOnce(101)
+    const last = await listWorkspaceCodeRelationships(ctx, { ...args, limit: 100, cursor: first.nextCursor as string })
+    expect(last.relationships.map((item) => item.stableKey)).toEqual(['key-100'])
+    expect(last.hasMore).toBe(false)
+    expect(last.nextCursor).toBeNull()
+  })
+
+  test('rejects altered or differently scoped relationship cursors before reading a page', async () => {
+    h.findFirst.mockResolvedValue(relationshipUnit)
+    h.findFirst.mockResolvedValueOnce(relationshipUnit)
+    h.findMany.mockResolvedValueOnce([relationship('edge-a', 'a'), relationship('edge-b', 'b')]).mockResolvedValueOnce([])
+    h.count.mockResolvedValueOnce(2)
+    const first = await listWorkspaceCodeRelationships(ctx, args)
+    const cursor = first.nextCursor as string
+    const [payload, signature] = cursor.split('.')
+    const decoded = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as Record<string, unknown>
+    decoded.lastId = 'edge-b'
+    const altered = `${Buffer.from(JSON.stringify(decoded)).toString('base64url')}.${signature}`
+    await expect(listWorkspaceCodeRelationships(ctx, { ...args, cursor: altered })).rejects.toMatchObject({ code: 'stale_snapshot' })
+    await expect(listWorkspaceCodeRelationships(ctx, { ...args, direction: 'outgoing', cursor })).rejects.toMatchObject({ code: 'stale_snapshot' })
+    expect(h.findMany).toHaveBeenCalledTimes(2)
+  })
+
+  test('rejects stale relationship snapshots and refuses cursors without a signing key', async () => {
+    h.findFirst.mockResolvedValueOnce(relationshipUnit)
+    h.findMany.mockResolvedValueOnce([relationship('edge-a', 'a'), relationship('edge-b', 'b')]).mockResolvedValueOnce([])
+    h.count.mockResolvedValueOnce(2)
+    const first = await listWorkspaceCodeRelationships(ctx, args)
+    h.findFirst.mockResolvedValueOnce(relationshipUnit).mockResolvedValueOnce({ id: 'edge-new' })
+    await expect(listWorkspaceCodeRelationships(ctx, { ...args, cursor: first.nextCursor as string }))
+      .rejects.toMatchObject({ code: 'stale_snapshot' })
+
+    vi.stubEnv('INTERNAL_API_KEY', 'changeme')
+    h.findFirst.mockResolvedValueOnce(relationshipUnit)
+    h.findMany.mockResolvedValueOnce([relationship('edge-a', 'a'), relationship('edge-b', 'b')]).mockResolvedValueOnce([])
+    h.count.mockResolvedValueOnce(2)
+    await expect(listWorkspaceCodeRelationships(ctx, args)).rejects.toMatchObject({ code: 'cursor_unavailable' })
+  })
+
+  test('preserves explicit offset mode without snapshot guarantees', async () => {
+    h.findFirst.mockResolvedValueOnce(relationshipUnit)
+    h.findMany.mockResolvedValueOnce([relationship('edge-a', 'a'), relationship('edge-b', 'b')]).mockResolvedValueOnce([])
+    const result = await listWorkspaceCodeRelationships(ctx, { ...args, offset: 5 })
+    expect(result).toMatchObject({ relationships: [{ stableKey: 'a' }], offset: 5, hasMore: true, nextOffset: 6, nextCursor: null })
+    expect(result).not.toHaveProperty('total')
+    expect(h.findMany.mock.calls[0][0]).toHaveProperty('skip', 5)
+    expect(h.count).not.toHaveBeenCalled()
   })
 })

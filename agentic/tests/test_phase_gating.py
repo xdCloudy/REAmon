@@ -39,13 +39,16 @@ class TestFoundationalBypass(unittest.TestCase):
     def test_code_unit_tools_are_offered_for_old_maps_and_can_be_disabled(self):
         project_settings._settings = {"TOOL_PHASE_MAP": {"query_graph": ["informational"]}}
         project_settings._current_project_id = "old-project"
-        for tool in ("workspace_list_code_units", "workspace_get_code_unit"):
+        for tool in ("workspace_list_code_units", "workspace_get_code_unit", "workspace_list_code_relationships"):
             for phase in ("informational", "exploitation", "post_exploitation"):
                 self.assertTrue(project_settings.is_tool_allowed_in_phase(tool, phase))
                 self.assertIn(tool, project_settings.get_allowed_tools_for_phase(phase))
         project_settings._settings["TOOL_PHASE_MAP"]["workspace_get_code_unit"] = []
         self.assertFalse(project_settings.is_tool_allowed_in_phase("workspace_get_code_unit", "informational"))
         self.assertNotIn("workspace_get_code_unit", project_settings.get_allowed_tools_for_phase("informational"))
+        project_settings._settings["TOOL_PHASE_MAP"]["workspace_list_code_relationships"] = []
+        self.assertFalse(project_settings.is_tool_allowed_in_phase("workspace_list_code_relationships", "informational"))
+        self.assertNotIn("workspace_list_code_relationships", project_settings.get_allowed_tools_for_phase("informational"))
         project_settings._settings = None
         project_settings._current_project_id = None
 

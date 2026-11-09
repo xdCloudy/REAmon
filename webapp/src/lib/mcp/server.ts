@@ -520,7 +520,8 @@ export function buildMcpServer(ctx: McpContext, instructions?: string): McpServe
       description:
         'Page through call edges or field/string references recorded for one code unit by its exact analysis provider and run. ' +
         'The lookup is limited to the active workspace import and never infers missing edges. Use direction to inspect incoming, ' +
-        'outgoing, or both sides; use offset and limit to continue through large graphs. Returned endpoints and provider metadata ' +
+        'outgoing, or both sides. Omit offset to use stable, signed nextCursor pages; restart without a cursor after stale_snapshot ' +
+        'or expiry. Explicit offset remains available for older clients but does not provide snapshot paging. Returned endpoints and provider metadata ' +
         'are persisted evidence, not proof of behavior.',
       annotations: READ_ONLY,
       _meta: scopesMeta({ required: ['recon:read'] }),
@@ -530,7 +531,8 @@ export function buildMcpServer(ctx: McpContext, instructions?: string): McpServe
         relationshipKind: z.enum(['calls', 'references']).describe('Select call relationships or persisted field/string references.'),
         direction: z.enum(['both', 'incoming', 'outgoing']).default('both'),
         limit: z.number().int().min(1).max(100).optional().describe('Default 50, maximum 100 relationships.'),
-        offset: z.number().int().min(0).max(100000).optional().describe('Number of matching relationships to skip.'),
+        cursor: z.string().max(2048).optional().describe('Signed opaque nextCursor from the previous stable page. Keep codeUnitId, relationshipKind, and direction unchanged.'),
+        offset: z.number().int().min(0).max(100000).optional().describe('Legacy number of matching relationships to skip. Omit to use stable nextCursor paging.'),
       },
     },
     handler(ctx, 'workspace_list_code_relationships', a => listWorkspaceCodeRelationships(ctx, a), a => a.projectId)

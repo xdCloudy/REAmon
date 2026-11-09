@@ -16,8 +16,8 @@ import { hashWorkspaceCodeUnitSourceSnapshot } from '@/lib/mcp/workspaceCodeUnit
 
 const DEFAULT_LIMIT = 50
 const MAX_LIMIT = 100
-const MAX_CODE_UNIT_CURSOR_LENGTH = 2048
-const CODE_UNIT_CURSOR_TTL_MS = 7 * 24 * 60 * 60 * 1000
+const MAX_WORKSPACE_CURSOR_LENGTH = 2048
+const WORKSPACE_CURSOR_TTL_MS = 7 * 24 * 60 * 60 * 1000
 const MAX_CODE_BYTES = 128 * 1024
 const MAX_HASH_SOURCE_BYTES = 2 * 1024 * 1024
 const MAX_VERIFIED_DERIVED_ARTIFACT_BYTES = 128 * 1024 * 1024
@@ -56,9 +56,10 @@ export interface WorkspaceListCodeRelationshipsArgs {
   projectId: string
   codeUnitId: string
   relationshipKind: 'calls' | 'references'
-  direction: 'both' | 'incoming' | 'outgoing'
+  direction?: 'both' | 'incoming' | 'outgoing'
   limit?: number
   offset?: number
+  cursor?: string
 }
 
 export interface WorkspaceSearchGoTypesArgs {
@@ -92,26 +93,50 @@ interface CodeUnitCursor {
   lastUpdatedAt: string
 }
 
+interface CodeRelationshipCursor {
+  version: 1
+  projectId: string
+  codeUnitId: string
+  unitStableKeyHash: string
+  taskId: string | null
+  artifactId: string | null
+  provider: string
+  relationshipKind: 'calls' | 'references'
+  direction: 'both' | 'incoming' | 'outgoing'
+  importScopeHash: string
+  snapshotAt: string
+  snapshotTotal: number
+  expiresAt: number
+  lastId: string
+  lastUpdatedAt: string
+}
+
 function hashJson(value: unknown): string {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex')
 }
 
-function codeUnitCursorSigningKey(): string {
+function workspaceCursorSigningKey(): string {
   const key = process.env.INTERNAL_API_KEY
   if (!key || key === 'changeme') {
-    throw new McpToolError('Stable code-unit paging is unavailable because cursor signing is not configured.', 'cursor_unavailable')
+    throw new McpToolError('Stable workspace paging is unavailable because cursor signing is not configured.', 'cursor_unavailable')
   }
   return key
 }
 
 function encodeCodeUnitCursor(cursor: CodeUnitCursor): string {
   const payload = Buffer.from(JSON.stringify(cursor)).toString('base64url')
-  const signature = createHmac('sha256', codeUnitCursorSigningKey()).update(payload).digest('base64url')
+  const signature = createHmac('sha256', workspaceCursorSigningKey()).update(payload).digest('base64url')
+  return `${payload}.${signature}`
+}
+
+function encodeCodeRelationshipCursor(cursor: CodeRelationshipCursor): string {
+  const payload = Buffer.from(JSON.stringify(cursor)).toString('base64url')
+  const signature = createHmac('sha256', workspaceCursorSigningKey()).update(payload).digest('base64url')
   return `${payload}.${signature}`
 }
 
 function decodeCodeUnitCursor(value: string, expected: Pick<CodeUnitCursor, 'projectId' | 'taskId' | 'searchHash' | 'importScopeHash'>): CodeUnitCursor {
-  if (value.length > MAX_CODE_UNIT_CURSOR_LENGTH || !/^[A-Za-z0-9_.-]+$/.test(value)) {
+  if (value.length > MAX_WORKSPACE_CURSOR_LENGTH || !/^[A-Za-z0-9_.-]+$/.test(value)) {
     throw new McpToolError('Invalid code-unit cursor.', 'invalid_input')
   }
   try {
@@ -119,7 +144,7 @@ function decodeCodeUnitCursor(value: string, expected: Pick<CodeUnitCursor, 'pro
     if (extra.length || !payload || !suppliedSignature) {
       throw new McpToolError('This code-unit cursor predates signed paging. Restart the listing without a cursor.', 'stale_snapshot')
     }
-    const expectedSignature = createHmac('sha256', codeUnitCursorSigningKey()).update(payload).digest()
+    const expectedSignature = createHmac('sha256', workspaceCursorSigningKey()).update(payload).digest()
     const signature = Buffer.from(suppliedSignature, 'base64url')
     if (signature.length !== expectedSignature.length || !timingSafeEqual(signature, expectedSignature)) {
       throw new McpToolError('Code-unit cursor integrity check failed. Restart the listing without a cursor.', 'stale_snapshot')
@@ -141,6 +166,43 @@ function decodeCodeUnitCursor(value: string, expected: Pick<CodeUnitCursor, 'pro
   } catch (error) {
     if (error instanceof McpToolError) throw error
     throw new McpToolError('Invalid or mismatched code-unit cursor.', 'invalid_input')
+  }
+}
+
+function decodeCodeRelationshipCursor(
+  value: string,
+  expected: Pick<CodeRelationshipCursor, 'projectId' | 'codeUnitId' | 'unitStableKeyHash' | 'taskId' | 'artifactId' | 'provider' | 'relationshipKind' | 'direction' | 'importScopeHash'>,
+): CodeRelationshipCursor {
+  if (value.length > MAX_WORKSPACE_CURSOR_LENGTH || !/^[A-Za-z0-9_.-]+$/.test(value)) {
+    throw new McpToolError('Invalid code-relationship cursor.', 'invalid_input')
+  }
+  try {
+    const [payload, suppliedSignature, ...extra] = value.split('.')
+    if (extra.length || !payload || !suppliedSignature) {
+      throw new McpToolError('This code-relationship cursor predates signed paging. Restart without a cursor.', 'stale_snapshot')
+    }
+    const expectedSignature = createHmac('sha256', workspaceCursorSigningKey()).update(payload).digest()
+    const signature = Buffer.from(suppliedSignature, 'base64url')
+    if (signature.length !== expectedSignature.length || !timingSafeEqual(signature, expectedSignature)) {
+      throw new McpToolError('Code-relationship cursor integrity check failed. Restart without a cursor.', 'stale_snapshot')
+    }
+    const cursor = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as Partial<CodeRelationshipCursor>
+    if (cursor.version !== 1
+      || typeof cursor.snapshotAt !== 'string' || !Number.isFinite(Date.parse(cursor.snapshotAt))
+      || !Number.isSafeInteger(cursor.snapshotTotal) || (cursor.snapshotTotal as number) < 0
+      || !Number.isSafeInteger(cursor.expiresAt)
+      || typeof cursor.lastId !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(cursor.lastId)
+      || typeof cursor.lastUpdatedAt !== 'string' || !Number.isFinite(Date.parse(cursor.lastUpdatedAt))) {
+      throw new Error('cursor fields do not match')
+    }
+    if ((cursor.expiresAt as number) <= Date.now()) throw new McpToolError('Code-relationship cursor expired. Restart without a cursor.', 'stale_snapshot')
+    if (Object.entries(expected).some(([key, value]) => cursor[key as keyof CodeRelationshipCursor] !== value)) {
+      throw new McpToolError('Code-relationship cursor scope changed. Restart without a cursor.', 'stale_snapshot')
+    }
+    return cursor as CodeRelationshipCursor
+  } catch (error) {
+    if (error instanceof McpToolError) throw error
+    throw new McpToolError('Invalid or mismatched code-relationship cursor.', 'invalid_input')
   }
 }
 
@@ -666,6 +728,13 @@ async function prepareRead(ctx: McpContext, projectId: string) {
 
 export async function listWorkspaceCodeRelationships(ctx: McpContext, args: WorkspaceListCodeRelationshipsArgs) {
   const selection = await prepareRead(ctx, args.projectId)
+  if (args.limit != null && (!Number.isSafeInteger(args.limit) || args.limit < 1 || args.limit > MAX_LIMIT)) {
+    throw new McpToolError(`limit must be an integer between 1 and ${MAX_LIMIT}.`, 'invalid_input')
+  }
+  if (args.offset != null && (!Number.isSafeInteger(args.offset) || args.offset < 0 || args.offset > 100_000)) {
+    throw new McpToolError('offset must be an integer between 0 and 100000.', 'invalid_input')
+  }
+  if (args.cursor && args.offset !== undefined) throw new McpToolError('Pass either cursor or offset, not both.', 'invalid_input')
   const unit = await prisma.reamonObservation.findFirst({
     where: {
       id: args.codeUnitId,
@@ -686,8 +755,10 @@ export async function listWorkspaceCodeRelationships(ctx: McpContext, args: Work
   })
   if (!unit) throw new McpToolError('Code unit not found in the active workspace import.', 'not_found')
 
-  const limit = Math.max(1, Math.min(MAX_LIMIT, Math.floor(args.limit ?? DEFAULT_LIMIT)))
-  const offset = Math.max(0, Math.min(100_000, Math.floor(args.offset ?? 0)))
+  const limit = args.limit ?? DEFAULT_LIMIT
+  const offset = args.offset ?? 0
+  const cursorMode = args.offset === undefined
+  const direction = args.direction ?? 'both'
   const incomingFilters = [
     { toKey: unit.stableKey },
     { attributes: { path: ['toCodeUnitKey'], equals: unit.stableKey } },
@@ -696,27 +767,83 @@ export async function listWorkspaceCodeRelationships(ctx: McpContext, args: Work
     { fromKey: unit.stableKey },
     { attributes: { path: ['fromCodeUnitKey'], equals: unit.stableKey } },
   ]
-  const directionFilters = args.direction === 'incoming'
+  const directionFilters = direction === 'incoming'
     ? incomingFilters
-    : args.direction === 'outgoing'
+    : direction === 'outgoing'
       ? outgoingFilters
       : [...incomingFilters, ...outgoingFilters]
 
-  const rows = unit.taskId && unit.artifactId ? await prisma.reamonObservation.findMany({
-    where: {
-      projectId: args.projectId,
-      taskId: unit.taskId,
-      artifactId: unit.artifactId,
-      source: unit.source,
-      kind: 'relationship',
-      type: args.relationshipKind === 'calls' ? 'calls' : { in: REFERENCE_RELATIONSHIP_TYPES },
-      OR: directionFilters,
-    },
+  const baseWhere = unit.taskId && unit.artifactId ? {
+    projectId: args.projectId,
+    taskId: unit.taskId,
+    artifactId: unit.artifactId,
+    source: unit.source,
+    kind: 'relationship',
+    type: args.relationshipKind === 'calls' ? 'calls' : { in: REFERENCE_RELATIONSHIP_TYPES },
+    OR: directionFilters,
+    ...NOT_PENDING_ANALYSIS,
+  } : null
+  const importScopeHash = hashJson([...selection.activeImportIds].sort())
+  const expectedCursorScope: Omit<CodeRelationshipCursor, 'version' | 'snapshotAt' | 'snapshotTotal' | 'expiresAt' | 'lastId' | 'lastUpdatedAt'> = {
+    projectId: args.projectId,
+    codeUnitId: unit.id,
+    unitStableKeyHash: hashJson(unit.stableKey),
+    taskId: unit.taskId,
+    artifactId: unit.artifactId,
+    provider: unit.source,
+    relationshipKind: args.relationshipKind,
+    direction,
+    importScopeHash,
+  }
+  const cursor = args.cursor ? decodeCodeRelationshipCursor(args.cursor, expectedCursorScope) : null
+  const snapshotAt = cursor ? new Date(cursor.snapshotAt) : new Date()
+  const snapshotWhere = baseWhere ? {
+    ...baseWhere,
+    createdAt: { lt: snapshotAt },
+    updatedAt: { lt: snapshotAt },
+  } : null
+
+  let cursorAnchor: { stableKey: string; updatedAt: Date } | null = null
+  if (cursor && baseWhere && snapshotWhere) {
+    const [changed, currentTotal, anchor] = await Promise.all([
+      prisma.reamonObservation.findFirst({
+        where: { ...baseWhere, createdAt: { lt: snapshotAt }, updatedAt: { gte: snapshotAt } },
+        select: { id: true },
+      }),
+      prisma.reamonObservation.count({ where: snapshotWhere }),
+      prisma.reamonObservation.findFirst({
+        where: { ...snapshotWhere, id: cursor.lastId },
+        select: { id: true, stableKey: true, updatedAt: true },
+      }),
+    ])
+    if (changed || currentTotal !== cursor.snapshotTotal || !anchor
+      || anchor.updatedAt.toISOString() !== cursor.lastUpdatedAt) {
+      throw new McpToolError('Code relationships changed while paging. Restart with cursor omitted.', 'stale_snapshot')
+    }
+    cursorAnchor = anchor
+  }
+  if (cursor && (!baseWhere || !snapshotWhere || !cursorAnchor)) {
+    throw new McpToolError('The code-relationship cursor no longer has an active snapshot. Restart without a cursor.', 'stale_snapshot')
+  }
+
+  const pageWhere = cursor && snapshotWhere ? {
+    ...snapshotWhere,
+    AND: [{ OR: [
+      { stableKey: { gt: cursorAnchor!.stableKey } },
+      { stableKey: cursorAnchor!.stableKey, id: { gt: cursor.lastId } },
+    ] }],
+  } : cursorMode ? snapshotWhere : baseWhere
+  const rowsQuery = baseWhere && pageWhere ? prisma.reamonObservation.findMany({
+    where: pageWhere,
     orderBy: [{ stableKey: 'asc' }, { id: 'asc' }],
-    skip: offset,
+    ...(cursorMode ? {} : { skip: offset }),
     take: limit + 1,
-    select: { id: true, stableKey: true, type: true, label: true, fromKey: true, toKey: true, attributes: true },
-  }) : []
+    select: { id: true, stableKey: true, type: true, label: true, fromKey: true, toKey: true, attributes: true, updatedAt: true },
+  }) : Promise.resolve([])
+  const totalQuery = cursorMode && snapshotWhere
+    ? prisma.reamonObservation.count({ where: snapshotWhere })
+    : Promise.resolve(0)
+  const [rows, total] = await Promise.all([rowsQuery, totalQuery])
   const visibleRows = rows.slice(0, limit)
   const endpointKeys = [...new Set(visibleRows.flatMap((row) => {
     const attributes = record(row.attributes)
@@ -742,6 +869,17 @@ export async function listWorkspaceCodeRelationships(ctx: McpContext, args: Work
     return [endpoint.stableKey, text(attributes.qualifiedName) || text(attributes.name) || text(endpoint.label, 500) || endpoint.stableKey]
   }))
 
+  const hasMore = rows.length > limit
+  const last = visibleRows.at(-1)
+  const nextCursor = cursorMode && hasMore && last && baseWhere ? encodeCodeRelationshipCursor({
+    ...expectedCursorScope,
+    version: 1,
+    snapshotAt: snapshotAt.toISOString(),
+    snapshotTotal: cursor?.snapshotTotal ?? total,
+    expiresAt: cursor?.expiresAt ?? Date.now() + WORKSPACE_CURSOR_TTL_MS,
+    lastId: last.id,
+    lastUpdatedAt: last.updatedAt.toISOString(),
+  }) : null
   return {
     codeUnit: { id: unit.id, stableKey: unit.stableKey, type: unit.type },
     provenance: {
@@ -752,7 +890,7 @@ export async function listWorkspaceCodeRelationships(ctx: McpContext, args: Work
       provider: unit.source,
     },
     relationshipKind: args.relationshipKind,
-    direction: args.direction,
+    direction,
     relationships: visibleRows.map((row) => {
       const attributes = record(row.attributes)
       const fromKey = text(attributes.fromCodeUnitKey, 1000) || text(row.fromKey, 1000)
@@ -781,9 +919,12 @@ export async function listWorkspaceCodeRelationships(ctx: McpContext, args: Work
       }
     }),
     limit,
-    offset,
-    hasMore: rows.length > limit,
-    nextOffset: rows.length > limit ? offset + visibleRows.length : null,
+    ...(cursorMode ? { total: cursor?.snapshotTotal ?? total } : {}),
+    offset: cursorMode ? null : offset,
+    hasMore,
+    nextCursor,
+    nextOffset: !cursorMode && hasMore ? offset + visibleRows.length : null,
+    snapshotAt: cursorMode ? snapshotAt.toISOString() : null,
     semantics: 'Only relationships persisted by this provider for this exact artifact and analysis task are returned. Missing relationships do not prove that no call or reference exists; provider links are evidence, not behavioral proof.',
   }
 }
@@ -945,7 +1086,7 @@ export async function listWorkspaceCodeUnits(ctx: McpContext, args: WorkspaceLis
     version: 1,
     snapshotAt: snapshotAt.toISOString(),
     snapshotTotal: total,
-    expiresAt: Date.now() + CODE_UNIT_CURSOR_TTL_MS,
+    expiresAt: Date.now() + WORKSPACE_CURSOR_TTL_MS,
     lastId: last.id,
     lastUpdatedAt: last.updatedAt.toISOString(),
   })

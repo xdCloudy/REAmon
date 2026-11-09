@@ -47,6 +47,14 @@ class TestRegistryAlignment(unittest.TestCase):
                 self.assertIn(field, entry, f"{name}.{field} missing")
             self.assertGreaterEqual(len(entry["description"]), MIN_DESCRIPTION_CHARS)
 
+    def test_workspace_code_relationship_reader_is_documented(self):
+        name = "workspace_list_code_relationships"
+        entry = TOOL_REGISTRY[name]
+        for field in REQUIRED_FIELDS:
+            self.assertIn(field, entry, f"{name}.{field} missing")
+        self.assertGreaterEqual(len(entry["description"]), MIN_DESCRIPTION_CHARS)
+        self.assertIn("signed nextCursor pages", entry["description"])
+
     def test_no_dispatch_orphans(self):
         # Every DISPATCH key must equal an FS_TOOL_NAMES entry.
         self.assertEqual(set(workspace_fs.DISPATCH.keys()), set(workspace_fs.FS_TOOL_NAMES))
