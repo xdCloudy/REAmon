@@ -15,7 +15,18 @@ powershell -ExecutionPolicy Bypass -File tooling/benchmarks/jvm-multimodule-cfr/
 
 The archived provider response is `runs/2026-11-09-cfr/provider-receipt.json`. The run used CFR 0.152 via the live isolated `reamon-cfr` service. CFR discovered both expected source units, reported no truncation, and its artifact SHA-256 matched the manifest.
 
-The derived outputs were compiled with `javac --release 17` inside the pinned Docker image. The current-main and paired run receipts record output hashes and matching observed stdout. The paired run also compares `javap -p -s -c` output per expected class; both classes match the original compiled bytecode on each run, and the outputs repeat across runs. See `runs/2026-11-09-paired-jvm-repeatability/`. This measures one synthetic project and same-revision repeatability; it does not establish original-source recovery, a product-change comparison, or broad Java/JVM fidelity. The fixture and receipts are evidence for a future paired, multi-format matrix, not a complete AR-0/AR-8 corpus.
+The derived outputs were compiled with `javac --release 17` inside the pinned Docker image. The current-main and paired run receipts record output hashes and matching observed stdout. The paired run also compares `javap -p -s -c` output per expected class; both classes match the original compiled bytecode on each run, and the outputs repeat across runs. See `runs/2026-11-09-paired-jvm-repeatability/`. A behavior-changing edit to recovered `Main.java` still compiled but changed the program output; the runtime oracle rejected it with exit code 4. The mutation recipe, mutated-source hash, and receipt are archived in the same directory. These checks measure one synthetic project and same-revision repeatability; they do not establish original-source recovery, a product-change comparison, or broad Java/JVM fidelity. The fixture and receipts are evidence for a future paired, multi-format matrix, not a complete AR-0/AR-8 corpus.
+
+To reproduce the runtime-oracle negative control, build the fixture and make a fresh CFR run first, then pass the recovered `sources` directory and a new output path:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tooling/benchmarks/jvm-multimodule-cfr/run_negative_control.ps1 `
+  -BuildDirectory work/benchmarks/jvm-multimodule-cfr-build `
+  -SourceDirectory work/benchmarks/jvm-multimodule-cfr-run/sources `
+  -OutputDirectory work/benchmarks/jvm-multimodule-cfr-negative-control
+```
+
+The command refuses an existing output directory, checks the fixture JAR hash, copies and mutates only the recovered `Main.java`, and compiles/runs the mutation in the pinned network-disabled Docker image. Exit code 4 from the inner validator is the expected rejected-candidate outcome; any other exit is an error. The archived result records the product revision, artifact and mutated-source hashes, expected and observed output, and validator exit code.
 
 ## Reproduce the full fixture run
 

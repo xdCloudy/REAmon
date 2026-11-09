@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "control": "behavior-changing recovered-source mutation",
+  "productRevision": "9ae433fb7c8177e51b077d8a4963be985c4b66ed",
+  "fixtureId": "jvm-multimodule-cfr-linux-amd64",
+  "artifactSha256": "747346a392096bdac3613ac295ee4b8a743e22689a3738aeca1ad8ffc92fb7cf",
+  "runnerSha256": "10f780c8f94ff5c501e7cfb13af5683eaba2780e78cfd36a31416d9447837fef",
+  "validatorSha256": "f07d3a6ac482affbcace3560be47548232b2c1d149026f558a5ec4e6d53f4356",
+  "mutatedPath": "org/reamon/fixture/Main.java",
+  "mutation": "Changed classify(30) to classify(300) in recovered source",
+  "mutatedSourceSha256": "d7dc098baf972e9844020dc7577d96ba198aca01c00d1184697d2ef67fe976b6",
+  "expectedRuntimeStdout": "low:-15,high:42,high:22",
+  "observedRuntimeStdout": "low:-15,high:312,high:22",
+  "compile": "passed; validator proceeded to runtime check",
+  "validatorExitCode": 4,
+  "outcome": "REJECTED_BY_RUNTIME_ORACLE",
+  "scope": "One synthetic two-class Java fixture; verifies this oracle rejects this behavior-changing candidate only."
+}
