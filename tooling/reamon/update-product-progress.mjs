@@ -28,7 +28,7 @@ for (const workstream of manifest.workstreams) {
 if (totalWeight !== 100) throw new Error(`Progress weights must total 100; got ${totalWeight}`)
 
 const score = weightedCompletion / totalWeight
-const displayedScore = score.toFixed(1)
+const displayedScore = score.toFixed(2)
 const suppliedCommit = process.argv[2]
 const commit = suppliedCommit?.trim()
 if (commit && !/^[a-f0-9]{7,40}$/i.test(commit)) throw new Error('Progress source commit must be a Git SHA')
@@ -62,7 +62,7 @@ const details = manifest.workstreams.map((workstream) => [
 const ledger = [
   '# REAmon product progress',
   '',
-  `Assessment date: ${manifest.assessmentDate} · Source: ${sourceStamp} · Weighted estimate: **${score.toFixed(1)}%**`,
+  `Assessment date: ${manifest.assessmentDate} · Source: ${sourceStamp} · Weighted estimate: **${score.toFixed(2)}%**`,
   '',
   'This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.',
   '',
@@ -79,4 +79,4 @@ const ledger = [
 ].join('\n')
 const currentLedger = await readFile(ledgerPath, 'utf8').catch(() => '')
 if (ledger !== currentLedger) await writeFile(ledgerPath, ledger)
-console.log(`REAmon product progress: ${displayedScore}% (weighted ${score.toFixed(1)}%), source ${sourceStamp}`)
+console.log(`REAmon product progress: ${displayedScore}% (weighted ${score.toFixed(2)}%), source ${sourceStamp}`)
