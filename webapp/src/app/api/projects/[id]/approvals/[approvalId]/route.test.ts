@@ -4,13 +4,13 @@ import { NextResponse } from 'next/server'
 
 const mocks = vi.hoisted(() => ({
   requireEffectiveUser: vi.fn(),
-  requireProjectAccess: vi.fn(),
+  requireProjectAccessStrict: vi.fn(),
   decideTaskApproval: vi.fn(),
 }))
 
 vi.mock('@/lib/access', () => ({
   requireEffectiveUser: mocks.requireEffectiveUser,
-  requireProjectAccess: mocks.requireProjectAccess,
+  requireProjectAccessStrict: mocks.requireProjectAccessStrict,
 }))
 vi.mock('@/lib/reamon/task-approval', () => ({ decideTaskApproval: mocks.decideTaskApproval }))
 
@@ -21,7 +21,7 @@ const params = { params: Promise.resolve({ id: 'project-1', approvalId: 'approva
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.requireEffectiveUser.mockResolvedValue({ userId: 'operator-1' })
-  mocks.requireProjectAccess.mockResolvedValue({ project: { id: 'project-1' } })
+  mocks.requireProjectAccessStrict.mockResolvedValue({ project: { id: 'project-1' } })
   mocks.decideTaskApproval.mockResolvedValue({
     outcome: 'APPROVED',
     approval: { id: 'approval-1', status: 'APPROVED' },
@@ -30,12 +30,22 @@ beforeEach(() => {
 })
 
 describe('POST /api/projects/[id]/approvals/[approvalId]', () => {
-  test('enforces project access before deciding', async () => {
-    mocks.requireProjectAccess.mockResolvedValue(NextResponse.json({ error: 'Not found' }, { status: 404 }))
+  test('enforces strict ownership before deciding', async () => {
+    mocks.requireProjectAccessStrict.mockResolvedValue(NextResponse.json({ error: 'Not found' }, { status: 404 }))
 
     const response = await POST(new Request('http://localhost', { method: 'POST', body: JSON.stringify({ decision: 'approve' }) }), params)
 
     expect(response.status).toBe(404)
+    expect(mocks.decideTaskApproval).not.toHaveBeenCalled()
+  })
+
+  test('anonymous caller receives 401 before project access or decision', async () => {
+    mocks.requireEffectiveUser.mockResolvedValue(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }))
+
+    const response = await POST(new Request('http://localhost', { method: 'POST', body: JSON.stringify({ decision: 'approve' }) }), params)
+
+    expect(response.status).toBe(401)
+    expect(mocks.requireProjectAccessStrict).not.toHaveBeenCalled()
     expect(mocks.decideTaskApproval).not.toHaveBeenCalled()
   })
 

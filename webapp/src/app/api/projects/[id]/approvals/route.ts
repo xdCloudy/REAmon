@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
+import { requireEffectiveUser, requireProjectAccessStrict } from '@/lib/access'
 import { listTaskApprovals, type ApprovalStatus } from '@/lib/reamon/task-approval'
 
 interface RouteParams { params: Promise<{ id: string }> }
@@ -12,7 +12,7 @@ export async function GET(request: Request, { params }: RouteParams) {
     const { id: projectId } = await params
     const effectiveUser = await requireEffectiveUser()
     if (effectiveUser instanceof NextResponse) return effectiveUser
-    const access = await requireProjectAccess(effectiveUser, projectId)
+    const access = await requireProjectAccessStrict(effectiveUser, projectId)
     if (access instanceof NextResponse) return access
 
     const rawStatus = new URL(request.url).searchParams.get('status')

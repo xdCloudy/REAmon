@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
+import { requireEffectiveUser, requireProjectAccessStrict } from '@/lib/access'
 import { decideTaskApproval, type ApprovalDecision } from '@/lib/reamon/task-approval'
 
 interface RouteParams { params: Promise<{ id: string; approvalId: string }> }
@@ -11,7 +11,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     const { id: projectId, approvalId } = await params
     const effectiveUser = await requireEffectiveUser()
     if (effectiveUser instanceof NextResponse) return effectiveUser
-    const access = await requireProjectAccess(effectiveUser, projectId)
+    const access = await requireProjectAccessStrict(effectiveUser, projectId)
     if (access instanceof NextResponse) return access
 
     let body: { decision?: unknown; reason?: unknown } = {}
