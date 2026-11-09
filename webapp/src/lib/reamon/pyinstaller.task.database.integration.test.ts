@@ -11,6 +11,7 @@ import {
   createPyInstallerBenchmarkEvidence,
   matchesPyInstallerFixtureSource,
   matchesPyInstallerStructuredFixtureSource,
+  mutatePyInstallerStructuredFixtureSource,
   PYINSTALLER_STRUCTURED_SOURCE_FIXTURE_ID,
 } from './pyinstaller.benchmark-evidence'
 import type { TargetProfile, ToolExecutionInput } from './types'
@@ -54,6 +55,8 @@ describeDatabase('PyInstaller continuation with PostgreSQL observation persisten
     extractedModuleCount: number
     knownSourceMatchedCount: number
     reconstructionMatchedCount: number
+    structuredMutationRejectedCount?: number
+    structuredMutationFalseAcceptanceCount?: number
   } | undefined
   let workerReachedTerminalPage = false
   const benchmarkEvidencePath = process.env.REAMON_BENCHMARK_EVIDENCE_PATH?.trim()
@@ -207,6 +210,9 @@ describeDatabase('PyInstaller continuation with PostgreSQL observation persisten
 
     let knownSourceMatchedCount = 0
     let reconstructionMatchedCount = 0
+    let structuredMutationRejectedCount = 0
+    let structuredMutationFalseAcceptanceCount = 0
+    const isStructuredFixture = process.env.REAMON_BENCHMARK_FIXTURE_ID === PYINSTALLER_STRUCTURED_SOURCE_FIXTURE_ID
     for (let moduleValue = 1; moduleValue <= 70; moduleValue += 1) {
       const moduleName = `module_${String(moduleValue - 1).padStart(3, '0')}`
       const knownModule = moduleRows.find(({ attributes }) => attributes.pyinstallerArchivePath === `PYZ.pyz_extracted/paging_fixture/${moduleName}.pyc`)
@@ -218,11 +224,24 @@ describeDatabase('PyInstaller continuation with PostgreSQL observation persisten
       expect(knownSourcePath.startsWith(`${derivedRoot}${path.sep}`)).toBe(true)
       const knownSourceText = await readFile(knownSourcePath, 'utf8')
       expect(knownSourceText).toMatch(new RegExp(`\\bVALUE\\s*=\\s*${moduleValue}\\b`))
-      const sourceMatches = process.env.REAMON_BENCHMARK_FIXTURE_ID === PYINSTALLER_STRUCTURED_SOURCE_FIXTURE_ID
+      const sourceMatches = isStructuredFixture
         ? matchesPyInstallerStructuredFixtureSource(knownSourceText, moduleValue)
         : matchesPyInstallerFixtureSource(knownSourceText, moduleValue)
       if (sourceMatches) reconstructionMatchedCount += 1
+      if (isStructuredFixture) {
+        const mutatedSource = mutatePyInstallerStructuredFixtureSource(knownSourceText)
+        expect(mutatedSource, `${moduleName} must expose exactly one mutation target`).toBeDefined()
+        if (matchesPyInstallerStructuredFixtureSource(mutatedSource!, moduleValue)) {
+          structuredMutationFalseAcceptanceCount += 1
+        } else {
+          structuredMutationRejectedCount += 1
+        }
+      }
       knownSourceMatchedCount += 1
+    }
+    if (isStructuredFixture) {
+      expect(structuredMutationRejectedCount).toBe(70)
+      expect(structuredMutationFalseAcceptanceCount).toBe(0)
     }
 
     const recovered = moduleRows.find(({ attributes }) => attributes.decompiled === true && typeof attributes.codeArtifactId === 'string')
@@ -232,7 +251,12 @@ describeDatabase('PyInstaller continuation with PostgreSQL observation persisten
     expect(sourcePath.startsWith(`${derivedRoot}${path.sep}`)).toBe(true)
     const source = await readFile(sourcePath, 'utf8')
     expect(source.trim().length).toBeGreaterThan(0)
-    directEvidence = { extractedModuleCount: moduleRows.length, knownSourceMatchedCount, reconstructionMatchedCount }
+    directEvidence = {
+      extractedModuleCount: moduleRows.length,
+      knownSourceMatchedCount,
+      reconstructionMatchedCount,
+      ...(isStructuredFixture ? { structuredMutationRejectedCount, structuredMutationFalseAcceptanceCount } : {}),
+    }
   }, 30 * 60_000)
 
   test.skipIf(!runWorkerIntegration)('completes a queued PyInstaller task through the live worker', async ({ skip }) => {

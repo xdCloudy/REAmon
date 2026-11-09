@@ -40,7 +40,12 @@ def merge_evidence(*, fixture_manifest, evaluation_manifest, build_receipt,
         "worker_terminal_page",
         "reconstruction_match",
     }
-    if set(metric_definitions) != required_metrics:
+    mutation_control_metrics = {
+        "negative_control_mutation_rejection",
+        "negative_control_false_acceptance",
+    }
+    has_mutation_controls = set(metric_definitions) == required_metrics | mutation_control_metrics
+    if set(metric_definitions) != required_metrics and not has_mutation_controls:
         raise ReceiptError("evaluation manifest metric inventory differs from PyInstaller evidence merger")
     if len(fixture_hashes) != 1:
         raise ReceiptError("PyInstaller evidence merger accepts exactly one fixture")
@@ -110,6 +115,20 @@ def merge_evidence(*, fixture_manifest, evaluation_manifest, build_receipt,
     if (type(reconstruction_match["value"]) is not int
             or not 0 <= reconstruction_match["value"] <= known_source_count):
         raise ReceiptError("integration evidence source correspondence count is outside its denominator")
+
+    if has_mutation_controls:
+        mutation_rejections = observed_metrics["negative_control_mutation_rejection"]
+        mutation_false_acceptances = observed_metrics["negative_control_false_acceptance"]
+        for metric_id, metric in (
+            ("negative_control_mutation_rejection", mutation_rejections),
+            ("negative_control_false_acceptance", mutation_false_acceptances),
+        ):
+            if metric["state"] != "MEASURED" or metric["denominator"] != known_source_count:
+                raise ReceiptError(f"integration evidence lacks the declared {metric_id} denominator")
+            if type(metric["value"]) is not int or not 0 <= metric["value"] <= known_source_count:
+                raise ReceiptError(f"integration evidence {metric_id} count is outside its denominator")
+        if mutation_rejections["value"] + mutation_false_acceptances["value"] != known_source_count:
+            raise ReceiptError("mutation control outcomes do not account for the declared source denominator")
 
     merged_metrics = {metric_id: dict(metric) for metric_id, metric in observed_metrics.items()}
     merged_metrics["runtime_oracle"] = {

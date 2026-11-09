@@ -36,6 +36,8 @@ class StructuredSourceBenchmarkManifestTests(unittest.TestCase):
         self.assertEqual(evaluation["metrics"]["known_source_value_recall"]["denominator"], 70)
         self.assertEqual(evaluation["metrics"]["reconstruction_match"]["denominator"], 70)
         self.assertIn("function and branch", evaluation["metrics"]["reconstruction_match"]["description"])
+        self.assertEqual(evaluation["metrics"]["negative_control_mutation_rejection"]["denominator"], 70)
+        self.assertEqual(evaluation["metrics"]["negative_control_false_acceptance"]["denominator"], 70)
 
     def test_builder_contract_is_pinned_and_ground_truth_is_not_analyzer_input(self):
         manifest = load_json(ROOT / "manifest.json")

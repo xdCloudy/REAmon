@@ -8,6 +8,8 @@ type PyInstallerBenchmarkEvidenceInput = {
   extractedModuleCount: number
   knownSourceMatchedCount: number
   reconstructionMatchedCount: number
+  structuredMutationRejectedCount?: number
+  structuredMutationFalseAcceptanceCount?: number
   workerTerminalPage: boolean
 }
 
@@ -28,6 +30,16 @@ export function matchesPyInstallerStructuredFixtureSource(source: string, expect
     '    return "at-or-above"',
   ].join('\n')
   return matchesPyInstallerSource(source, expectedSource)
+}
+
+export function mutatePyInstallerStructuredFixtureSource(source: string): string | undefined {
+  let replacements = 0
+  const mutated = source.replace(/^([ \t]*return[ \t]+)(['"])below\2([ \t]*(?:#.*)?)(\r?)$/gm,
+    (_match, prefix: string, quote: string, suffix: string, carriageReturn: string) => {
+      replacements += 1
+      return `${prefix}${quote}under${quote}${suffix}${carriageReturn}`
+    })
+  return replacements === 1 ? mutated : undefined
 }
 
 export function matchesPyInstallerSource(source: string, expectedSource: string): boolean {
@@ -120,6 +132,19 @@ export function createPyInstallerBenchmarkEvidence(input: PyInstallerBenchmarkEv
     || input.reconstructionMatchedCount > 70) {
     throw new Error('PyInstaller source reconstruction match count must be between 0 and 70')
   }
+  const isStructuredFixture = input.fixtureId === PYINSTALLER_STRUCTURED_SOURCE_FIXTURE_ID
+  if (isStructuredFixture) {
+    const rejected = input.structuredMutationRejectedCount
+    const accepted = input.structuredMutationFalseAcceptanceCount
+    if (!Number.isSafeInteger(rejected) || rejected! < 0 || rejected! > 70
+      || !Number.isSafeInteger(accepted) || accepted! < 0 || accepted! > 70
+      || rejected! + accepted! !== 70) {
+      throw new Error('PyInstaller structured mutation controls must cover all 70 source modules')
+    }
+  } else if (input.structuredMutationRejectedCount !== undefined
+    || input.structuredMutationFalseAcceptanceCount !== undefined) {
+    throw new Error('PyInstaller structured mutation controls require the structured-source fixture')
+  }
 
   const workerMetric: MetricMeasurement = input.workerTerminalPage
     ? { state: 'MEASURED', value: 1, denominator: 1 }
@@ -130,36 +155,50 @@ export function createPyInstallerBenchmarkEvidence(input: PyInstallerBenchmarkEv
         reason: 'The queued worker integration was not enabled or did not reach its terminal page.',
       }
 
+  const metrics: Record<string, MetricMeasurement> = {
+    runtime_oracle: {
+      state: 'UNAVAILABLE',
+      value: null,
+      denominator: 1,
+      reason: 'This PostgreSQL integration test does not execute the fixture runtime oracle.',
+    },
+    extracted_module_count: {
+      state: 'MEASURED',
+      value: input.extractedModuleCount,
+      denominator: 1,
+    },
+    known_source_value_recall: {
+      state: 'MEASURED',
+      value: input.knownSourceMatchedCount,
+      denominator: 70,
+    },
+    reconstruction_match: {
+      state: 'MEASURED',
+      value: input.reconstructionMatchedCount,
+      denominator: 70,
+    },
+    worker_terminal_page: workerMetric,
+  }
+  if (isStructuredFixture) {
+    metrics.negative_control_mutation_rejection = {
+      state: 'MEASURED',
+      value: input.structuredMutationRejectedCount!,
+      denominator: 70,
+    }
+    metrics.negative_control_false_acceptance = {
+      state: 'MEASURED',
+      value: input.structuredMutationFalseAcceptanceCount!,
+      denominator: 70,
+    }
+  }
+
   return {
     schemaVersion: 1,
     producer: 'webapp/src/lib/reamon/pyinstaller.task.database.integration.test.ts',
     fixtures: {
       [input.fixtureId]: {
         artifactSha256: input.artifactSha256,
-        metrics: {
-          runtime_oracle: {
-            state: 'UNAVAILABLE',
-            value: null,
-            denominator: 1,
-            reason: 'This PostgreSQL integration test does not execute the fixture runtime oracle.',
-          } satisfies MetricMeasurement,
-          extracted_module_count: {
-            state: 'MEASURED',
-            value: input.extractedModuleCount,
-            denominator: 1,
-          } satisfies MetricMeasurement,
-          known_source_value_recall: {
-            state: 'MEASURED',
-            value: input.knownSourceMatchedCount,
-            denominator: 70,
-          } satisfies MetricMeasurement,
-          reconstruction_match: {
-            state: 'MEASURED',
-            value: input.reconstructionMatchedCount,
-            denominator: 70,
-          } satisfies MetricMeasurement,
-          worker_terminal_page: workerMetric,
-        },
+        metrics,
       },
     },
   }

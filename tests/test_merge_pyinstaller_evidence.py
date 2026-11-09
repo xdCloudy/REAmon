@@ -110,6 +110,38 @@ class MergePyInstallerEvidenceTests(unittest.TestCase):
         with self.assertRaisesRegex(ReceiptError, "lacks measured source correspondence"):
             self.merge()
 
+    def test_merges_complete_mutation_negative_controls(self):
+        metrics = self.evaluation_manifest["metrics"]
+        metrics["negative_control_mutation_rejection"] = {"direction": "higher", "denominator": 70}
+        metrics["negative_control_false_acceptance"] = {"direction": "lower", "denominator": 70}
+        measurements = self.integration_evidence["fixtures"][self.fixture_id]["metrics"]
+        measurements["negative_control_mutation_rejection"] = {
+            "state": "MEASURED", "value": 70, "denominator": 70,
+        }
+        measurements["negative_control_false_acceptance"] = {
+            "state": "MEASURED", "value": 0, "denominator": 70,
+        }
+
+        merged = self.merge()["fixtures"][self.fixture_id]["metrics"]
+
+        self.assertEqual(merged["negative_control_mutation_rejection"]["value"], 70)
+        self.assertEqual(merged["negative_control_false_acceptance"]["value"], 0)
+
+    def test_rejects_incomplete_mutation_negative_control_outcomes(self):
+        metrics = self.evaluation_manifest["metrics"]
+        metrics["negative_control_mutation_rejection"] = {"direction": "higher", "denominator": 70}
+        metrics["negative_control_false_acceptance"] = {"direction": "lower", "denominator": 70}
+        measurements = self.integration_evidence["fixtures"][self.fixture_id]["metrics"]
+        measurements["negative_control_mutation_rejection"] = {
+            "state": "MEASURED", "value": 69, "denominator": 70,
+        }
+        measurements["negative_control_false_acceptance"] = {
+            "state": "MEASURED", "value": 0, "denominator": 70,
+        }
+
+        with self.assertRaisesRegex(ReceiptError, "do not account for the declared source denominator"):
+            self.merge()
+
     def test_rejects_malformed_enrollment_page_sizes(self):
         self.enrollment_receipt["extractorInventory"]["pageSizes"] = ["180"]
 

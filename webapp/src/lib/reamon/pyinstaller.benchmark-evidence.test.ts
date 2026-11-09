@@ -5,6 +5,7 @@ import {
   matchesPyInstallerFixtureSource,
   matchesPyInstallerSource,
   matchesPyInstallerStructuredFixtureSource,
+  mutatePyInstallerStructuredFixtureSource,
   PYINSTALLER_STRUCTURED_SOURCE_FIXTURE_ID,
 } from './pyinstaller.benchmark-evidence'
 
@@ -130,5 +131,34 @@ describe('PyInstaller benchmark evidence', () => {
       'VALUE = 12\ndef classify(candidate):\n    if candidate <= VALUE:\n        return \'below\'\n    return \'at-or-above\'\n',
       12,
     )).toBe(false)
+  })
+
+  it('mutates exactly one structured return value as a behavior-changing negative control', () => {
+    const source = 'VALUE = 12\ndef classify(candidate):\n    if candidate < VALUE:\n        return "below"\n    return "at-or-above"\n'
+    const mutated = mutatePyInstallerStructuredFixtureSource(source)
+
+    expect(mutated).toContain('return "under"')
+    expect(matchesPyInstallerStructuredFixtureSource(mutated!, 12)).toBe(false)
+    expect(mutatePyInstallerStructuredFixtureSource(source.replace('"below"', '"already-mutated"'))).toBeUndefined()
+    expect(mutatePyInstallerStructuredFixtureSource(source.replace('"below"', '"below"\n        return "below"'))).toBeUndefined()
+  })
+
+  it('records complete structured mutation-control denominators without changing legacy fixtures', () => {
+    const evidence = createPyInstallerBenchmarkEvidence({
+      ...input,
+      fixtureId: PYINSTALLER_STRUCTURED_SOURCE_FIXTURE_ID,
+      structuredMutationRejectedCount: 70,
+      structuredMutationFalseAcceptanceCount: 0,
+    })
+    const metrics = evidence.fixtures[PYINSTALLER_STRUCTURED_SOURCE_FIXTURE_ID].metrics
+
+    expect(metrics.negative_control_mutation_rejection).toEqual({ state: 'MEASURED', value: 70, denominator: 70 })
+    expect(metrics.negative_control_false_acceptance).toEqual({ state: 'MEASURED', value: 0, denominator: 70 })
+    expect(() => createPyInstallerBenchmarkEvidence({
+      ...input,
+      fixtureId: PYINSTALLER_STRUCTURED_SOURCE_FIXTURE_ID,
+      structuredMutationRejectedCount: 69,
+      structuredMutationFalseAcceptanceCount: 0,
+    })).toThrow('cover all 70 source modules')
   })
 })
