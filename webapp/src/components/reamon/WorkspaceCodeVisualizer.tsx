@@ -583,7 +583,11 @@ async function fetchSavedFunctionMatches(projectId: string, taskId: string, func
 function artifactUrl(projectId: string, unit: CodeUnit, codeArtifactId: string | null): string | null {
   if (!unit.artifactId || !codeArtifactId) return null
   const sourcePath = codeArtifactId.split('/').map(encodeURIComponent).join('/')
-  return '/api/projects/' + encodeURIComponent(projectId) + '/artifacts/' + encodeURIComponent(unit.artifactId) + '/decompiled/' + sourcePath
+  const sourceHash = codeArtifactId === unit.disassemblyArtifactId
+    ? unit.disassemblyArtifactSha256
+    : unit.codeArtifactSha256
+  const snapshot = sourceHash ? `?expectedSha256=${encodeURIComponent(sourceHash)}` : ''
+  return '/api/projects/' + encodeURIComponent(projectId) + '/artifacts/' + encodeURIComponent(unit.artifactId) + '/decompiled/' + sourcePath + snapshot
 }
 
 function languageLabel(unit: CodeUnit): string {

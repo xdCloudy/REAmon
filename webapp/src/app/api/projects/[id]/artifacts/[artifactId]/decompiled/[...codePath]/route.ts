@@ -19,9 +19,13 @@ function staysInside(root: string, file: string): boolean {
   return Boolean(relative) && relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)
 }
 
-export async function GET(_request: Request, { params }: RouteParams) {
+export async function GET(request: Request, { params }: RouteParams) {
   try {
     const { id: projectId, artifactId, codePath } = await params
+    const expectedSelectionHash = new URL(request.url).searchParams.get('expectedSha256')?.toLowerCase() || null
+    if (expectedSelectionHash !== null && !/^[a-f0-9]{64}$/.test(expectedSelectionHash)) {
+      return NextResponse.json({ error: 'Invalid expected source SHA-256' }, { status: 400, headers: { 'Cache-Control': 'no-store' } })
+    }
     const user = await requireEffectiveUser()
     if (user instanceof NextResponse) return user
     const access = await requireProjectAccess(user, projectId)
@@ -70,6 +74,9 @@ export async function GET(_request: Request, { params }: RouteParams) {
     if ((isCodeSource || isDisassembly) && storedSourceHash !== undefined
       && (expectedSourceHash === null || !/^[a-f0-9]{64}$/.test(expectedSourceHash))) {
       return NextResponse.json({ error: 'Stored artifact integrity metadata is invalid' }, { status: 409, headers: { 'Cache-Control': 'no-store' } })
+    }
+    if (expectedSelectionHash && expectedSelectionHash !== expectedSourceHash) {
+      return NextResponse.json({ error: 'Selected source has changed; refresh the code unit before loading it' }, { status: 409, headers: { 'Cache-Control': 'no-store' } })
     }
 
     const configuredRoot = derivedArtifactRoot()

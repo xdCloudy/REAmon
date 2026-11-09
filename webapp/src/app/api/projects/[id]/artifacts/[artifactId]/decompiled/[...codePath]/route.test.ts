@@ -70,6 +70,17 @@ describe('GET decompiled code artifact', () => {
     expect(mocks.artifactFindFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { AND: [{ id: 'artifact-1', projectId: 'project-1' }, { projectId: 'project-1', importId: { in: ['active-import'] } }] } }))
   })
 
+  test('rejects a browser request pinned to a stale source hash', async () => {
+    const response = await GET(new Request(`http://localhost?expectedSha256=${'0'.repeat(64)}`), context)
+    expect(response.status).toBe(409)
+    expect(await response.json()).toMatchObject({ error: 'Selected source has changed; refresh the code unit before loading it' })
+  })
+
+  test('rejects malformed expected source hashes', async () => {
+    const response = await GET(new Request('http://localhost?expectedSha256=not-a-hash'), context)
+    expect(response.status).toBe(400)
+  })
+
   test('serves disassembly only when it is linked to a code-unit observation', async () => {
     const assemblyContext = { params: Promise.resolve({ id: 'project-1', artifactId: 'artifact-1', codePath: assemblyPath.split('/') }) }
     const assemblyFile = path.join(derivedRoot, assemblyPath)
