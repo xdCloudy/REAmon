@@ -23,10 +23,13 @@ export function ProjectGoBuild({ projectId, taskId, className }: {
   const [error, setError] = useState<string | null>(null)
   const [receipt, setReceipt] = useState<ProjectBuildReceipt | null>(null)
   const buildStarted = useRef(false)
+  const buildGeneration = useRef(0)
 
   useEffect(() => {
     let ignore = false
+    const generation = ++buildGeneration.current
     buildStarted.current = false
+    setBuilding(false)
     setReceipt(null)
     setError(null)
     void fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/maintained/go-project-build?taskId=${encodeURIComponent(taskId)}`)
@@ -38,10 +41,14 @@ export function ProjectGoBuild({ projectId, taskId, className }: {
       .catch((loadError) => {
         if (!ignore && !buildStarted.current) setError(loadError instanceof Error ? loadError.message : 'The saved Go project build receipt could not be loaded.')
       })
-    return () => { ignore = true }
+    return () => {
+      ignore = true
+      if (buildGeneration.current === generation) buildGeneration.current++
+    }
   }, [projectId, taskId])
 
   async function buildProject() {
+    const generation = buildGeneration.current
     buildStarted.current = true
     setBuilding(true)
     setError(null)
@@ -54,11 +61,13 @@ export function ProjectGoBuild({ projectId, taskId, className }: {
       })
       const payload = await response.json().catch(() => null) as { error?: unknown; receipt?: ProjectBuildReceipt } | null
       if (!response.ok || !payload?.receipt) throw new Error(typeof payload?.error === 'string' ? payload.error : 'The Go project build did not complete.')
-      setReceipt(payload.receipt)
+      if (buildGeneration.current === generation) setReceipt(payload.receipt)
     } catch (buildError) {
-      setError(buildError instanceof Error ? buildError.message : 'The Go project build did not complete.')
+      if (buildGeneration.current === generation) {
+        setError(buildError instanceof Error ? buildError.message : 'The Go project build did not complete.')
+      }
     } finally {
-      setBuilding(false)
+      if (buildGeneration.current === generation) setBuilding(false)
     }
   }
 

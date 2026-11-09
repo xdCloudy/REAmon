@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 import { afterEach, describe, expect, test, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { ProjectCSharpBuild } from './ProjectCSharpBuild'
 
 afterEach(() => {
@@ -71,5 +71,44 @@ describe('ProjectCSharpBuild', () => {
 
     expect(await screen.findByRole('status')).toHaveTextContent('Project build passed · 1 file · receipt eeeeeeeeeeee')
     expect(fetchMock).toHaveBeenCalledWith('/api/projects/project%201/visualizer/maintained/project-build?taskId=task%201')
+  })
+
+  test('does not show an older run receipt after the selected run changes', async () => {
+    const oldBuildReceipt = {
+      sourceSha256: 'a'.repeat(64),
+      validationStatus: 'PASSED' as const,
+      validationMethod: 'roslyn-csharp-project-4.11.0-compile',
+      validationMessage: 'Old run build completed.',
+      compiledSha256: 'b'.repeat(64),
+      files: [{ relativePath: 'Main.cs', sourceSha256: 'c'.repeat(64), acceptedReviewId: 'review-old' }],
+    }
+    const selectedRunReceipt = {
+      ...oldBuildReceipt,
+      sourceSha256: 'd'.repeat(64),
+      validationMessage: 'Selected run build completed.',
+      files: [{ relativePath: 'Main.cs', sourceSha256: 'e'.repeat(64), acceptedReviewId: 'review-new' }],
+    }
+    let resolveOldBuild!: (value: { ok: boolean; json: () => Promise<{ receipt: typeof oldBuildReceipt }> }) => void
+    const pendingOldBuild = new Promise<{ ok: boolean; json: () => Promise<{ receipt: typeof oldBuildReceipt }> }>((resolve) => {
+      resolveOldBuild = resolve
+    })
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ receipt: null }) })
+      .mockReturnValueOnce(pendingOldBuild)
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ receipt: selectedRunReceipt }) })
+    vi.stubGlobal('fetch', fetchMock)
+    const { rerender } = render(<ProjectCSharpBuild projectId="project-1" taskId="task-old" />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Build accepted C# files' }))
+    rerender(<ProjectCSharpBuild projectId="project-1" taskId="task-new" />)
+
+    expect(await screen.findByRole('status')).toHaveTextContent('receipt dddddddddddd')
+    await act(async () => {
+      resolveOldBuild({ ok: true, json: async () => ({ receipt: oldBuildReceipt }) })
+      await pendingOldBuild
+    })
+
+    expect(screen.getByRole('status')).toHaveTextContent('Selected run build completed.')
+    expect(screen.getByRole('status')).not.toHaveTextContent('Old run build completed.')
   })
 })
