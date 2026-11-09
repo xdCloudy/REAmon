@@ -46,6 +46,9 @@ def main() -> None:
     parser.add_argument("--artifact-id", default="toc-invalid-v1")
     parser.add_argument("--project-id", default="malformed-control")
     parser.add_argument("--run-id", default="malformed-control-v1")
+    parser.add_argument("--expected-http-status", type=int, default=400)
+    parser.add_argument("--expected-status", default="failed")
+    parser.add_argument("--expected-module-count", type=int)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
 
@@ -65,13 +68,21 @@ def main() -> None:
     }
     response_status, response = request_json(f"{args.base_url}/extract", payload)
     error = response.get("error")
+    if args.expected_status == "failed":
+        outcome_matches = (
+            isinstance(error, str)
+            and "malformed" in error.lower()
+            and "modules" not in response
+        )
+    elif args.expected_module_count is not None:
+        outcome_matches = response.get("moduleCount") == args.expected_module_count
+    else:
+        outcome_matches = True
     passed = (
         health_status == 200
-        and response_status == 400
-        and response.get("status") == "failed"
-        and isinstance(error, str)
-        and "malformed" in error.lower()
-        and "modules" not in response
+        and response_status == args.expected_http_status
+        and response.get("status") == args.expected_status
+        and outcome_matches
     )
     receipt: dict[str, object] = {
         "schemaVersion": 1,
@@ -90,9 +101,10 @@ def main() -> None:
         "request": payload,
         "response": {"httpStatus": response_status, "body": response},
         "expected": {
-            "httpStatus": 400,
-            "status": "failed",
-            "noRecoveredModules": True,
+            "httpStatus": args.expected_http_status,
+            "status": args.expected_status,
+            **({"noRecoveredModules": True} if args.expected_status == "failed" else {}),
+            **({"moduleCount": args.expected_module_count} if args.expected_module_count is not None else {}),
         },
         "controlResult": "PASS" if passed else "FAIL",
         "scope": "One malformed CArchive control at the isolated PyInstaller provider; no target execution.",

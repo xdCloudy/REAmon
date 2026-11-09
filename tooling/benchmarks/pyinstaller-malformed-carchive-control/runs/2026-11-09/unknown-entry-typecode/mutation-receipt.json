@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "fixtureId": "pyinstaller-malformed-carchive-typecode-linux-amd64",
+  "baseFixtureId": "pyinstaller-module-structured-source-linux-amd64",
+  "createdAtUtc": "2026-11-09T07:51:30+00:00",
+  "mutationId": "first-entry-invalid-typecode",
+  "mutation": "Replace the first CArchive TOC entry typecode with an unknown value.",
+  "offsets": {
+    "cookieOffset": 7268246,
+    "tocOffset": 7264646,
+    "tocSize": 3600,
+    "entrySizeOffset": 7264646,
+    "typecodeOffset": 7264663,
+    "originalTypecode": 109,
+    "mutatedTypecode": 63
+  },
+  "sourceArtifact": {
+    "path": "pyinstaller-module-structured-source",
+    "sizeBytes": 7270456,
+    "sha256": "3cc8501e4fb575089c808e8dda4a67d54ef5e949cac41ab03a52c11a71b2abc2"
+  },
+  "malformedArtifact": {
+    "path": "malformed-carchive",
+    "sizeBytes": 7270456,
+    "sha256": "6187e289c64edd4beac60e387bdbbd503b307bda266980c5f895fc1899e6a029"
+  },
+  "hostExecution": "not executed"
+}

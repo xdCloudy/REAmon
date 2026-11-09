@@ -71,6 +71,17 @@ def test_entry_extent_mutation_preserves_cookie_and_exceeds_toc_bounds():
     assert struct.unpack_from(">I", mutated, info["entrySizeOffset"])[0] == info["tocSize"] + 1
 
 
+def test_typecode_mutation_changes_only_the_typecode_to_an_unknown_value():
+    source = synthetic_archive()
+    mutated, info = mutate_carchive.mutate_first_entry_typecode(source)
+
+    differences = [index for index, (before, after) in enumerate(zip(source, mutated)) if before != after]
+    assert differences == [info["typecodeOffset"]]
+    assert mutated[info["cookieOffset"] :] == source[info["cookieOffset"] :]
+    assert info["typecodeOffset"] == info["tocOffset"] + mutate_carchive.CTOC_ENTRY_SIZE - 1
+    assert info["mutatedTypecode"] == ord("?")
+
+
 def test_mutator_refuses_input_without_a_bounded_carchive_toc():
     with pytest.raises(ValueError, match="No bounded PyInstaller"):
         mutate_carchive.mutate_first_entry(bytes(512))
@@ -120,6 +131,21 @@ def test_entry_extent_manifest_declares_a_distinct_malformed_control():
     assert manifest["mutation"]["field"] == "first CArchive TOC entry size"
     assert manifest["mutation"]["invalidValue"] == "one byte beyond TOC size"
     assert manifest["expectedProviderOutcome"]["httpStatus"] == 400
+
+
+def test_typecode_manifest_declares_a_distinct_malformed_control():
+    manifest = json.loads(
+        MANIFEST.with_name("manifest-typecode.json").read_text(encoding="utf-8")
+    )
+
+    assert manifest["fixtureId"] == mutate_carchive.TYPECODE_CONTROL_ID
+    assert manifest["mutation"]["field"] == "first CArchive TOC entry typecode"
+    assert manifest["mutation"]["invalidValue"] == "unknown ASCII question mark"
+    assert manifest["expectedProviderOutcome"] == {
+        "httpStatus": 200,
+        "status": "completed",
+        "moduleCount": 179,
+    }
 
 
 def test_stager_verifies_receipt_and_cleanup_removes_only_the_hash_matched_file(tmp_path):

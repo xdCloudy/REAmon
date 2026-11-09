@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "fixtureId": "pyinstaller-malformed-carchive-typecode-linux-amd64",
+  "baseFixtureId": "pyinstaller-module-structured-source-linux-amd64",
+  "platform": "linux/amd64",
+  "mutation": {
+    "field": "first CArchive TOC entry typecode",
+    "operation": "replace the one-byte typecode with ASCII question mark",
+    "invalidValue": "unknown ASCII question mark",
+    "preservesOuterCookie": true,
+    "preservesTocEntrySize": true
+  },
+  "expectedProviderOutcome": {
+    "httpStatus": 200,
+    "status": "completed",
+    "moduleCount": 179
+  },
+  "acceptanceScope": "One CArchive entry with an unknown typecode is silently omitted by the isolated PyInstaller analyzer after cookie screening; the response completes with one fewer module than the clean fixture.",
+  "limits": [
+    "One generated Linux x86-64 PyInstaller artifact.",
+    "Does not cover malformed fields other than this typecode or obfuscated archives.",
+    "Does not cover browser ingestion, PostgreSQL persistence, queued workers, or project-level recovery.",
+    "Does not establish broad malformed-input accuracy or reconstruction fidelity.",
+    "The response reports 179 modules versus 180 for the clean fixture; this control records incomplete inventory, not safe rejection."
+  ]
+}

@@ -103,3 +103,7 @@ overlay with HTTP 400 and no module payload.
 records a third malformed TOC control. Its cookie preflight passed, and the
 isolated analyzer rejected an entry extent one byte beyond the complete TOC
 with HTTP 400 and no module payload.
+
+[`../pyinstaller-malformed-carchive-control/runs/2026-11-09/unknown-entry-typecode/`](../pyinstaller-malformed-carchive-control/runs/2026-11-09/unknown-entry-typecode/README.md)
+records a malformed typecode that the analyzer accepts with HTTP 200 while
+silently dropping one module from the reported inventory (179/180).

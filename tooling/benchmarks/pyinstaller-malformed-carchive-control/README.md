@@ -1,9 +1,10 @@
 # PyInstaller malformed CArchive control
 
-This benchmark has three single-field CArchive controls derived from the pinned
-structured-source fixture. Each preserves the outer cookie and passes the
-provider's cookie check before the isolated extractor rejects the malformed
-TOC entry. The executable is never launched by the mutator or probe.
+This benchmark has four single-field CArchive controls derived from the pinned
+structured-source fixture. All preserve the outer cookie and pass the
+provider's cookie check. Three are rejected by the isolated extractor; the
+unknown-typecode control completes while silently omitting one module. The
+executable is never launched by the mutator or probe.
 
 ## Build the input and malformed variant
 
@@ -43,6 +44,12 @@ TOC region, use the `first-entry-extent-outside-toc` mutation and the
 hash-bound receipts are archived under
 `runs/2026-11-09/entry-extent-out-of-bounds/`.
 
+The fourth `first-entry-invalid-typecode` control changes the first entry's
+typecode to `?`. The provider returns HTTP 200 and `completed`, but inventories
+179 modules instead of the clean fixture's 180. This is archived as measured
+inventory loss, not safe rejection, at
+`runs/2026-11-09/unknown-entry-typecode/`.
+
 ## Live provider control
 
 Copy the malformed artifact into a new, disposable file under the existing
@@ -77,9 +84,8 @@ powershell -ExecutionPolicy Bypass -File tooling/benchmarks/pyinstaller-malforme
 ```
 
 The runners write staging, preflight, and provider receipts under the selected
-output directory. The three measured controls cover an undersized entry,
-out-of-bounds entry data position, and entry extent beyond the TOC. They do not
-measure obfuscated archives or general malformed-input accuracy.
+output directory. These selected controls do not measure obfuscated archives,
+project-level behavior, or general malformed-input accuracy.
 
 After saving the probe receipt, remove only the exact staged file after
 checking its SHA-256 against `mutation-receipt.json`. Leave the shared `qa`

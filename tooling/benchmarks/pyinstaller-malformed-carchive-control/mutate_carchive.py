@@ -14,6 +14,7 @@ FIXTURE_ID = "pyinstaller-module-structured-source-linux-amd64"
 CONTROL_ID = "pyinstaller-malformed-carchive-toc-linux-amd64"
 DATA_BOUNDS_CONTROL_ID = "pyinstaller-malformed-carchive-entry-bounds-linux-amd64"
 ENTRY_EXTENT_CONTROL_ID = "pyinstaller-malformed-carchive-entry-extent-linux-amd64"
+TYPECODE_CONTROL_ID = "pyinstaller-malformed-carchive-typecode-linux-amd64"
 COOKIE = b"MEI\x0c\x0b\x0a\x0b\x0e"
 COOKIE_SIZE = 88  # PyInstaller 2.1+ cookie used by the pinned PyInstaller 6 fixture.
 CTOC_ENTRY_SIZE = 18
@@ -95,6 +96,25 @@ def mutate_first_entry_extent(data: bytes) -> tuple[bytes, dict[str, int]]:
     }
 
 
+def mutate_first_entry_typecode(data: bytes) -> tuple[bytes, dict[str, int]]:
+    cookie_offset, toc_offset, toc_size, entry_size_offset = locate_carchive_toc(data)
+    typecode_offset = toc_offset + CTOC_ENTRY_SIZE - 1
+    original_typecode = data[typecode_offset]
+    if original_typecode == ord("?"):
+        raise ValueError("First CArchive TOC entry already has the invalid typecode")
+    mutated = bytearray(data)
+    mutated[typecode_offset] = ord("?")
+    return bytes(mutated), {
+        "cookieOffset": cookie_offset,
+        "tocOffset": toc_offset,
+        "tocSize": toc_size,
+        "entrySizeOffset": entry_size_offset,
+        "typecodeOffset": typecode_offset,
+        "originalTypecode": original_typecode,
+        "mutatedTypecode": ord("?"),
+    }
+
+
 def build(
     input_path: Path,
     output_path: Path,
@@ -116,6 +136,10 @@ def build(
         malformed, mutation_evidence = mutate_first_entry_extent(source)
         control_id = ENTRY_EXTENT_CONTROL_ID
         mutation_description = "Set the first CArchive TOC entry size beyond the complete TOC region."
+    elif mutation == "first-entry-invalid-typecode":
+        malformed, mutation_evidence = mutate_first_entry_typecode(source)
+        control_id = TYPECODE_CONTROL_ID
+        mutation_description = "Replace the first CArchive TOC entry typecode with an unknown value."
     else:
         raise ValueError(f"unsupported CArchive mutation: {mutation}")
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -152,7 +176,7 @@ def main() -> None:
     parser.add_argument("--receipt", type=Path, required=True)
     parser.add_argument(
         "--mutation",
-        choices=("first-entry-size-below-header", "first-entry-position-outside-overlay", "first-entry-extent-outside-toc"),
+        choices=("first-entry-size-below-header", "first-entry-position-outside-overlay", "first-entry-extent-outside-toc", "first-entry-invalid-typecode"),
         default="first-entry-size-below-header",
     )
     args = parser.parse_args()
