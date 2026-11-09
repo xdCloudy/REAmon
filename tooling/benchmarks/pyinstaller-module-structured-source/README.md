@@ -107,3 +107,7 @@ with HTTP 400 and no module payload.
 [`../pyinstaller-malformed-carchive-control/runs/2026-11-09/unknown-entry-typecode/`](../pyinstaller-malformed-carchive-control/runs/2026-11-09/unknown-entry-typecode/README.md)
 records a malformed typecode that the analyzer accepts with HTTP 200 while
 silently dropping one module from the reported inventory (179/180).
+
+[`../pyinstaller-malformed-carchive-control/runs/2026-11-09/unknown-entry-typecode-fixed/`](../pyinstaller-malformed-carchive-control/runs/2026-11-09/unknown-entry-typecode-fixed/README.md)
+records the same artifact rejected by the revised extractor with HTTP 400 and
+no module payload.

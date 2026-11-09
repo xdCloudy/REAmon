@@ -4,7 +4,9 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$MutationReceiptPath,
     [Parameter(Mandatory = $true)]
-    [string]$OutputDirectory
+    [string]$OutputDirectory,
+    [string]$ServiceName = 'reamon-pyinstaller',
+    [string]$BaseUrl = 'http://127.0.0.1:8029'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -20,9 +22,8 @@ if ($mutation.fixtureId -ne $manifest.fixtureId -or $mutation.mutationId -ne 'fi
 if ($mutation.malformedArtifact.sha256 -ne $artifactHash) { throw 'Artifact hash differs from mutation receipt' }
 
 $pythonImage = 'python:3.12.8-slim-bookworm@sha256:2199a62885a12290dc9c5be3ca0681d367576ab7bf037da120e564723292a2f0'
-$serviceName = 'reamon-pyinstaller'
-$serviceImage = docker inspect --format '{{.Config.Image}}' $serviceName
-$serviceImageId = docker inspect --format '{{.Image}}' $serviceName
+$serviceImage = docker inspect --format '{{.Config.Image}}' $ServiceName
+$serviceImageId = docker inspect --format '{{.Image}}' $ServiceName
 if ($LASTEXITCODE -ne 0 -or -not $serviceImage -or -not $serviceImageId) { throw 'Running PyInstaller service was not found' }
 
 New-Item -ItemType Directory -Force $OutputDirectory | Out-Null
@@ -67,12 +68,12 @@ try {
         --output "/evidence/preflight-receipt-$stageId.json" | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Service-image cookie preflight failed' }
 
-    docker run --rm --network container:reamon-pyinstaller `
+    docker run --rm --network "container:$ServiceName" `
         -v reamon_artifacts:/data/reamon-artifacts:ro `
         -v $toolMount `
         -v $evidenceMount `
         --entrypoint python $pythonImage /tools/probe_endpoint.py `
-        --base-url http://127.0.0.1:8029 `
+        --base-url $BaseUrl `
         --artifact-path $stagedArtifactPath `
         --artifact-sha256 $artifactHash `
         --fixture-id $manifest.fixtureId `
@@ -81,7 +82,6 @@ try {
         --run-id "typecode-$stageId" `
         --expected-http-status $manifest.expectedProviderOutcome.httpStatus `
         --expected-status $manifest.expectedProviderOutcome.status `
-        --expected-module-count $manifest.expectedProviderOutcome.moduleCount `
         --output "/evidence/provider-receipt-$stageId.json" | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Live provider did not meet the malformed-control rejection contract' }
 }

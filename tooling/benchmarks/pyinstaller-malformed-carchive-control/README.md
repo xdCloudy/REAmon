@@ -50,6 +50,11 @@ typecode to `?`. The provider returns HTTP 200 and `completed`, but inventories
 inventory loss, not safe rejection, at
 `runs/2026-11-09/unknown-entry-typecode/`.
 
+The extractor now validates typecodes against the supported CArchive set. The
+same unknown-typecode artifact returns HTTP 400 with no modules from the fixed
+image; the before/after receipts are under
+`runs/2026-11-09/unknown-entry-typecode-fixed/`.
+
 ## Live provider control
 
 Copy the malformed artifact into a new, disposable file under the existing

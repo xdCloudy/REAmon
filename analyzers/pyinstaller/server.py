@@ -17,7 +17,7 @@ from uuid import uuid4
 
 ARTIFACT_ROOT = Path(os.environ.get("REAMON_ARTIFACTS_PATH", "/data/reamon-artifacts")).resolve()
 PORT = int(os.environ.get("PORT", "8029"))
-EXTRACTOR_REVISION = "2aa0ec9e58317ac717fdeec84a02d5a67de7b96c2-reamon1"
+EXTRACTOR_REVISION = "2aa0ec9e58317ac717fdeec84a02d5a67de7b96c2-reamon2"
 MAX_INPUT_BYTES = 128 * 1024 * 1024
 MAX_MODULES = 64
 MAX_MODULE_BYTES = 4 * 1024 * 1024

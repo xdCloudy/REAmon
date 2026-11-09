@@ -142,9 +142,10 @@ def test_typecode_manifest_declares_a_distinct_malformed_control():
     assert manifest["mutation"]["field"] == "first CArchive TOC entry typecode"
     assert manifest["mutation"]["invalidValue"] == "unknown ASCII question mark"
     assert manifest["expectedProviderOutcome"] == {
-        "httpStatus": 200,
-        "status": "completed",
-        "moduleCount": 179,
+        "httpStatus": 400,
+        "status": "failed",
+        "noRecoveredModules": True,
+        "errorContains": "malformed",
     }
 
 

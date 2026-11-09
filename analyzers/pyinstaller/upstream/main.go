@@ -204,6 +204,15 @@ func (p *PyInstArchive) GetCArchiveInfo() bool {
 	return true
 }
 
+func supportedCArchiveTypecode(typecode byte) bool {
+	switch typecode {
+	case 'b', 'd', 'z', 'Z', 'M', 'm', 's', 'x', 'o', 'l', 'n':
+		return true
+	default:
+		return false
+	}
+}
+
 func (p *PyInstArchive) ParseTOC() bool {
 	const CTOCEntryStructSize = 18
 	if p.tableOfContentsSize <= 0 || p.tableOfContentsSize > 64<<20 || p.tableOfContentsPosition < 0 || p.tableOfContentsPosition > p.fileSize || p.tableOfContentsSize > p.fileSize-p.tableOfContentsPosition {
@@ -224,6 +233,9 @@ func (p *PyInstArchive) ParseTOC() bool {
 
 		data := make([]byte, CTOCEntryStructSize)
 		if _, err := io.ReadFull(p.fPtr, data); err != nil || restruct.Unpack(data, binary.LittleEndian, &ctocEntry) != nil {
+			return false
+		}
+		if !supportedCArchiveTypecode(ctocEntry.TypeCompressedData) {
 			return false
 		}
 		if ctocEntry.EntrySize < CTOCEntryStructSize || int64(ctocEntry.EntrySize) > p.tableOfContentsSize-parsedLen {

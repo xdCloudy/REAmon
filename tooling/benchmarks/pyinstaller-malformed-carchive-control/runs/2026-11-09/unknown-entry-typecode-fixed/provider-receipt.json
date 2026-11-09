@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "fixtureId": "pyinstaller-malformed-carchive-typecode-linux-amd64",
+  "recordedAtUtc": "2026-11-09T08:01:10+00:00",
+  "service": {
+    "baseUrl": "http://127.0.0.1:8029",
+    "extractorRevision": "2aa0ec9e58317ac717fdeec84a02d5a67de7b96c2-reamon2",
+    "healthStatus": 200
+  },
+  "artifact": {
+    "path": "/data/reamon-artifacts/qa/pyinstaller-malformed-20261109T080108/fixture",
+    "sha256": "6187e289c64edd4beac60e387bdbbd503b307bda266980c5f895fc1899e6a029",
+    "sizeBytes": 7270456
+  },
+  "request": {
+    "projectId": "malformed-typecode-control",
+    "artifactId": "typecode-v1",
+    "taskId": "single-request",
+    "runId": "typecode-20261109T080108",
+    "artifactPath": "/data/reamon-artifacts/qa/pyinstaller-malformed-20261109T080108/fixture",
+    "offset": 0
+  },
+  "response": {
+    "httpStatus": 400,
+    "body": {
+      "status": "failed",
+      "error": "The archive could not be extracted; it may be unsupported or malformed"
+    }
+  },
+  "expected": {
+    "httpStatus": 400,
+    "status": "failed",
+    "noRecoveredModules": true
+  },
+  "controlResult": "PASS",
+  "scope": "One malformed CArchive control at the isolated PyInstaller provider; no target execution."
+}
