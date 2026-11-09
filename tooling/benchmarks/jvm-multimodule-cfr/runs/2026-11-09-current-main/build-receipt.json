@@ -1,0 +1,24 @@
+﻿{
+    "schemaVersion":  1,
+    "fixtureId":  "jvm-multimodule-cfr-linux-amd64",
+    "builtAtUtc":  "2026-11-09T18:31:34Z",
+    "platform":  "linux/amd64",
+    "architecture":  "x86_64",
+    "javaReleaseTarget":  17,
+    "builderImage":  "eclipse-temurin:21-jdk-jammy@sha256:4b1a74fbffbe6b4e7b6f0171a472478282fb463790a51edf10e465d578f22b69",
+    "jdkVersion":  "openjdk version \"21.0.13\" 2026-10-20 LTS\r\nOpenJDK Runtime Environment Temurin-21.0.13+9 (build 21.0.13+9-LTS)\r\nOpenJDK 64-Bit Server VM Temurin-21.0.13+9 (build 21.0.13+9-LTS, mixed mode, sharing)",
+    "sourceLicense":  "MIT",
+    "sourceSha256ByPath":  {
+                               "org/reamon/fixture/Main.java":  "dddbd40d6e173d0bcf6032667ffd6dcbd1acd13cfa180b14148bba20ce856360",
+                               "org/reamon/fixture/RuleEngine.java":  "274061b5ff43133df6e1e1bd8f8d1618793f33b023b0e4cf606d6cc1793c9260"
+                           },
+    "dockerfileSha256":  "67a27774f5fec6579470fd488d7c7b9927afca46e29b2440dddcfc15551e5c3f",
+    "artifactPath":  "fixture.jar",
+    "artifactSha256":  "747346a392096bdac3613ac295ee4b8a743e22689a3738aeca1ad8ffc92fb7cf",
+    "artifactSizeBytes":  1971,
+    "sourceModuleCount":  2,
+    "runtimeOracle":  "PASSED in pinned Docker image",
+    "expectedRuntimeStdout":  "low:-15,high:42,high:22",
+    "observedRuntimeStdout":  "low:-15,high:42,high:22",
+    "targetExecution":  "Docker only; never executed on the host"
+}

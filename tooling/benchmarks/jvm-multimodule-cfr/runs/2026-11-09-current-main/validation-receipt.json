@@ -1,0 +1,23 @@
+{
+    "schemaVersion":  1,
+    "fixtureId":  "jvm-multimodule-cfr-linux-amd64",
+    "artifactSha256":  "747346a392096bdac3613ac295ee4b8a743e22689a3738aeca1ad8ffc92fb7cf",
+    "repositoryRevision":  "e817eca75ab4985744d1ece30a03261a401caf00",
+    "runnerSha256":  "c126b9f18e2cca61c63788d567f141af3eb7c20ab3d355f5219c79dc0c222498",
+    "provider":  "CFR 0.152",
+    "serviceImageId":  "sha256:75c9a073878f7788ad2a488e27714b13738a303640d60031e47bb2e7c9059c06",
+    "runId":  "cfr-20261109T183135-78db9a8c",
+    "discoveredSourceFiles":  2,
+    "expectedSourceFiles":  2,
+    "truncated":  false,
+    "recoveredSourceSha256ByPath":  {
+                                        "org/reamon/fixture/Main.java":  "173b38f76779e4e0f4bc21141f5b985bf9d191173b841aaf417465d995598043",
+                                        "org/reamon/fixture/RuleEngine.java":  "675d85b1dc835483012dbdfedefbae0983dcbf1920024437b9165deb7bb66c4d"
+                                    },
+    "compileCommand":  "javac --release 17",
+    "compileEnvironment":  "eclipse-temurin:21-jdk-jammy@sha256:4b1a74fbffbe6b4e7b6f0171a472478282fb463790a51edf10e465d578f22b69 in Docker with no network and bounded resources",
+    "observedRuntimeStdout":  "low:-15,high:42,high:22",
+    "expectedRuntimeStdout":  "low:-15,high:42,high:22",
+    "runtimeMatches":  true,
+    "claim":  "One synthetic two-class JVM fixture compiled and ran with matching observed stdout; this is not proof of original-source equivalence or broad JVM fidelity."
+}
