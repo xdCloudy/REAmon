@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
-import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
+import { requireEffectiveUser, requireProjectAccessStrict } from '@/lib/access'
 
 interface RouteParams { params: Promise<{ id: string; importId: string }> }
 
@@ -9,7 +9,7 @@ export async function GET(_request: Request, { params }: RouteParams) {
     const { id: projectId, importId } = await params
     const effectiveUser = await requireEffectiveUser()
     if (effectiveUser instanceof NextResponse) return effectiveUser
-    const access = await requireProjectAccess(effectiveUser, projectId)
+    const access = await requireProjectAccessStrict(effectiveUser, projectId)
     if (access instanceof NextResponse) return access
 
     const workspaceImport = await prisma.workspaceImport.findFirst({
