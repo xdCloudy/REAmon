@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
+import { requireEffectiveUser, requireProjectAccessStrict } from '@/lib/access'
 import { listPersistedWorkspaceEvidence, WorkspaceEvidenceError } from '@/lib/reamon/workspace-evidence'
 
 interface RouteParams { params: Promise<{ id: string }> }
@@ -25,7 +25,7 @@ export async function GET(request: Request, { params }: RouteParams) {
     const { id: projectId } = await params
     const effectiveUser = await requireEffectiveUser()
     if (effectiveUser instanceof NextResponse) return effectiveUser
-    const access = await requireProjectAccess(effectiveUser, projectId)
+    const access = await requireProjectAccessStrict(effectiveUser, projectId)
     if (access instanceof NextResponse) return access
 
     const url = new URL(request.url)

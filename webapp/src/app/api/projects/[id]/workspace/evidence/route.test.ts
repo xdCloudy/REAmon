@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, test, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   list: vi.fn(),
   requireEffectiveUser: vi.fn(),
-  requireProjectAccess: vi.fn(),
+  requireProjectAccessStrict: vi.fn(),
 }))
 
 vi.mock('@/lib/reamon/workspace-evidence', async () => {
@@ -13,7 +13,7 @@ vi.mock('@/lib/reamon/workspace-evidence', async () => {
 })
 vi.mock('@/lib/access', () => ({
   requireEffectiveUser: mocks.requireEffectiveUser,
-  requireProjectAccess: mocks.requireProjectAccess,
+  requireProjectAccessStrict: mocks.requireProjectAccessStrict,
 }))
 
 import { GET } from './route'
@@ -23,7 +23,7 @@ const params = { params: Promise.resolve({ id: 'project-1' }) }
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.requireEffectiveUser.mockResolvedValue({ userId: 'user-1' })
-  mocks.requireProjectAccess.mockResolvedValue({ project: { id: 'project-1', userId: 'user-1' } })
+  mocks.requireProjectAccessStrict.mockResolvedValue({ project: { id: 'project-1', userId: 'user-1' } })
   mocks.list.mockResolvedValue({ projectId: 'project-1', evidence: [], total: 0, limit: 25, hasMore: false, nextCursor: null })
 })
 
@@ -33,7 +33,7 @@ describe('GET /api/projects/[id]/workspace/evidence', () => {
 
     expect(response.status).toBe(200)
     expect(response.headers.get('Cache-Control')).toBe('private, no-store')
-    expect(mocks.requireProjectAccess).toHaveBeenCalledWith({ userId: 'user-1' }, 'project-1')
+    expect(mocks.requireProjectAccessStrict).toHaveBeenCalledWith({ userId: 'user-1' }, 'project-1')
     expect(mocks.list).toHaveBeenCalledWith({ projectId: 'project-1', artifactId: 'artifact-1', limit: 12, cursor: 'opaque' })
   })
 
@@ -47,7 +47,7 @@ describe('GET /api/projects/[id]/workspace/evidence', () => {
 
   test('does not query evidence for a project the user cannot access', async () => {
     const { NextResponse } = await import('next/server')
-    mocks.requireProjectAccess.mockResolvedValue(NextResponse.json({ error: 'Not found' }, { status: 404 }))
+    mocks.requireProjectAccessStrict.mockResolvedValue(NextResponse.json({ error: 'Not found' }, { status: 404 }))
 
     const response = await GET(new Request('http://localhost/api/projects/other/workspace/evidence'), params)
     expect(response.status).toBe(404)

@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, test, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   read: vi.fn(),
   requireEffectiveUser: vi.fn(),
-  requireProjectAccess: vi.fn(),
+  requireProjectAccessStrict: vi.fn(),
 }))
 
 vi.mock('@/lib/reamon/workspace-evidence', async () => {
@@ -13,7 +13,7 @@ vi.mock('@/lib/reamon/workspace-evidence', async () => {
 })
 vi.mock('@/lib/access', () => ({
   requireEffectiveUser: mocks.requireEffectiveUser,
-  requireProjectAccess: mocks.requireProjectAccess,
+  requireProjectAccessStrict: mocks.requireProjectAccessStrict,
 }))
 
 import { WorkspaceEvidenceError } from '@/lib/reamon/workspace-evidence'
@@ -24,7 +24,7 @@ const params = { params: Promise.resolve({ id: 'project-1', evidenceId: 'evidenc
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.requireEffectiveUser.mockResolvedValue({ userId: 'user-1' })
-  mocks.requireProjectAccess.mockResolvedValue({ project: { id: 'project-1', userId: 'user-1' } })
+  mocks.requireProjectAccessStrict.mockResolvedValue({ project: { id: 'project-1', userId: 'user-1' } })
   mocks.read.mockResolvedValue({ projectId: 'project-1', evidence: { id: 'evidence-1' }, evidenceHash: 'a'.repeat(64), totalBytes: 5, detailsJson: '{}', hasMore: false })
 })
 
@@ -35,7 +35,7 @@ describe('GET /api/projects/[id]/workspace/evidence/[evidenceId]', () => {
 
     expect(response.status).toBe(200)
     expect(response.headers.get('Cache-Control')).toBe('private, no-store')
-    expect(mocks.requireProjectAccess).toHaveBeenCalledWith({ userId: 'user-1' }, 'project-1')
+    expect(mocks.requireProjectAccessStrict).toHaveBeenCalledWith({ userId: 'user-1' }, 'project-1')
     expect(mocks.read).toHaveBeenCalledWith({ projectId: 'project-1', evidenceId: 'evidence-1', offsetBytes: 131072, evidenceHash: hash })
   })
 

@@ -22,6 +22,7 @@ let prisma: PrismaClient
 let userId = ''
 let foreignUserId = ''
 let projectId = ''
+let evidenceId = ''
 let sessionCookie = ''
 let foreignSessionCookie = ''
 let originalInternalKey: string | undefined
@@ -60,6 +61,12 @@ beforeAll(async () => {
       createdAt: new Date(Date.now() - (index + 1) * 1_000),
     })),
   })
+  const evidence = await prisma.evidence.findFirst({
+    where: { projectId, source: SUFFIX, summary: 'HTTP cursor record 1' },
+    select: { id: true },
+  })
+  if (!evidence) throw new Error('The synthetic Evidence record was not created.')
+  evidenceId = evidence.id
 }, 60_000)
 
 afterAll(async () => {
@@ -117,6 +124,7 @@ async function startNextServer(activeKey: string, previousKeys = ''): Promise<{ 
       SCANNER_API_KEY: 'integration-distinct-scanner-key',
       WORKSPACE_CURSOR_PREVIOUS_KEYS: previousKeys,
       INTERNAL_KEY_ALLOWLIST_ENFORCE: 'false',
+      ACCESS_ENFORCE: '0',
       AUTH_SECRET: 'integration-http-auth-secret',
       REAMON_NEXT_TEST_DIST_DIR: `.next-integration-${port}`,
     },
@@ -159,6 +167,10 @@ describe.skipIf(!HAS_DB)('agent Evidence HTTP paging across Next.js restart', ()
         headers: { Cookie: `${AUTH_COOKIE_NAME}=${foreignSessionCookie}` },
       })
       expect(foreignBrowserResponse.status).toBe(404)
+      const foreignBrowserDetailResponse = await fetch(`${first.baseUrl}/api/projects/${projectId}/workspace/evidence/${evidenceId}`, {
+        headers: { Cookie: `${AUTH_COOKIE_NAME}=${foreignSessionCookie}` },
+      })
+      expect(foreignBrowserDetailResponse.status).toBe(404)
 
       const foreignAgentResponse = await fetch(`${first.baseUrl}/api/internal/reamon/workspace/evidence`, {
         method: 'POST',
