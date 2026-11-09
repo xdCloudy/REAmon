@@ -17,6 +17,7 @@ const SUFFIX = `workspace-evidence-cursor-${Date.now()}`
 let prisma: PrismaClient
 let userId = ''
 let projectId = ''
+let artifactId = ''
 const originalSigningKey = process.env.INTERNAL_API_KEY
 const stableCreatedAt = new Date('2025-01-01T00:00:00.000Z')
 
@@ -42,6 +43,17 @@ beforeAll(async () => {
     data: { name: 'workspace evidence cursor integration', userId, targetDomain: 'example.invalid' },
   })
   projectId = project.id
+  const artifact = await prisma.artifact.create({
+    data: {
+      projectId,
+      name: 'synthetic-evidence.bin',
+      originalName: 'synthetic-evidence.bin',
+      storagePath: `integration/${SUFFIX}.bin`,
+      sha256: 'b'.repeat(64),
+      sizeBytes: 1,
+    },
+  })
+  artifactId = artifact.id
   await prisma.evidence.createMany({
     data: Array.from({ length: 51 }, (_, index) => ({
       projectId,
@@ -104,4 +116,50 @@ describe.skipIf(!HAS_DB)('workspace evidence pagination against PostgreSQL', () 
       cursor: first.nextCursor as string,
     })).rejects.toMatchObject({ code: 'stale_snapshot' })
   })
+
+  test('uses project and artifact keyset indexes for a 100,000-row evidence set', async () => {
+    await prisma.$executeRaw`
+      INSERT INTO reamon_evidence (id, project_id, artifact_id, kind, summary, source, source_reference, data, created_at)
+      SELECT 'bench-' || ${SUFFIX} || '-' || lpad(n::text, 6, '0'), ${projectId},
+        CASE WHEN n % 10 = 0 THEN ${artifactId} ELSE NULL END,
+        'integration', 'synthetic high-cardinality row', ${SUFFIX},
+        'benchmark-' || n::text, '{}'::jsonb,
+        ${stableCreatedAt}::timestamptz + n * interval '1 millisecond'
+      FROM generate_series(1, 100000) AS n
+    `
+    await prisma.$executeRaw`ANALYZE reamon_evidence`
+
+    const first = await listWorkspaceEvidence(ctx(), { projectId, artifactId, limit: 50 })
+    expect(first.evidence).toHaveLength(50)
+    expect(first.total).toBe(10000)
+    expect(first.hasMore).toBe(true)
+    const cursorPayload = JSON.parse(Buffer.from((first.nextCursor as string).split('.')[0], 'base64url').toString('utf8')) as Record<string, unknown>
+    expect(cursorPayload.id).toContain(SUFFIX)
+    const second = await listWorkspaceEvidence(ctx(), {
+      projectId, artifactId, limit: 50, cursor: first.nextCursor as string,
+    })
+    expect(second.evidence).toHaveLength(50)
+    expect(second.total).toBe(10000)
+
+    const noArtifactPlan = await prisma.$queryRaw<Array<{ 'QUERY PLAN': Array<{ Plan: { Plans?: unknown[]; [key: string]: unknown } }> }>>`
+      EXPLAIN (FORMAT JSON)
+      SELECT id FROM reamon_evidence
+      WHERE project_id = ${projectId} AND created_at <= now()
+      ORDER BY created_at DESC, id DESC LIMIT 26
+    `
+    const artifactPlan = await prisma.$queryRaw<Array<{ 'QUERY PLAN': Array<{ Plan: { Plans?: unknown[]; [key: string]: unknown } }> }>>`
+      EXPLAIN (FORMAT JSON)
+      SELECT id FROM reamon_evidence
+      WHERE project_id = ${projectId} AND artifact_id = ${artifactId} AND created_at <= now()
+      ORDER BY created_at DESC, id DESC LIMIT 26
+    `
+    const indexNames = (root: Record<string, unknown>): string[] => [
+      ...(typeof root['Index Name'] === 'string' ? [root['Index Name']] : []),
+      ...((root.Plans as Array<Record<string, unknown>> | undefined) ?? []).flatMap(indexNames),
+    ]
+    expect(indexNames(noArtifactPlan[0]['QUERY PLAN'][0].Plan as Record<string, unknown>))
+      .toContain('reamon_evidence_project_id_created_at_id_idx')
+    expect(indexNames(artifactPlan[0]['QUERY PLAN'][0].Plan as Record<string, unknown>))
+      .toContain('reamon_evidence_project_id_artifact_id_created_at_id_idx')
+  }, 60_000)
 })

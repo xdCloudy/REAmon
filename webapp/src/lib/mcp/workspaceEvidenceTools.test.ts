@@ -58,10 +58,11 @@ describe('persisted workspace evidence MCP tools', () => {
     expect(first).toMatchObject({ total: 3, hasMore: true, evidence: [{ id: 'evidence-c' }, { id: 'evidence-b' }] })
     expect(first.nextCursor).toEqual(expect.any(String))
     expect(h.findMany.mock.calls[0][0]).toMatchObject({
-      where: { projectId: 'project-1', artifactId: 'artifact-1' },
+      where: { projectId: 'project-1', artifactId: 'artifact-1', createdAt: { lte: expect.any(Date) } },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: 3,
     })
+    expect(h.count.mock.calls[0][0].where.createdAt.lte).toEqual(h.findMany.mock.calls[0][0].where.createdAt.lte)
 
     h.findMany.mockResolvedValueOnce([evidenceRow('evidence-a', timestamp)])
     h.findFirst.mockResolvedValueOnce(evidenceRow('evidence-b', timestamp))
@@ -76,6 +77,7 @@ describe('persisted workspace evidence MCP tools', () => {
         { createdAt: timestamp, id: { lt: 'evidence-b' } },
       ],
     })
+    expect(h.count).toHaveBeenCalledTimes(2)
   })
 
   test('rejects tampered cursors and deleted snapshot rows before returning another page', async () => {

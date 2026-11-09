@@ -144,7 +144,7 @@ export async function listPersistedWorkspaceEvidence(args: WorkspaceListEvidence
           { createdAt: new Date(cursor.createdAt), id: { lt: cursor.id } },
         ],
       }
-    : baseWhere
+    : snapshotWhere
   const [rows, total] = await Promise.all([
     prisma.evidence.findMany({
       where,
@@ -152,7 +152,7 @@ export async function listPersistedWorkspaceEvidence(args: WorkspaceListEvidence
       take: limit + 1,
       select: { id: true, targetId: true, artifactId: true, kind: true, summary: true, source: true, createdAt: true },
     }),
-    prisma.evidence.count({ where: snapshotWhere }),
+    cursor ? Promise.resolve(cursor.snapshotTotal) : prisma.evidence.count({ where: snapshotWhere }),
   ])
   const hasMore = rows.length > limit
   const visible = rows.slice(0, limit)

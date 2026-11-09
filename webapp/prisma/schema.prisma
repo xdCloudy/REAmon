@@ -2758,7 +2758,8 @@ model Evidence {
   data        Json     @default("{}")
   createdAt   DateTime @default(now()) @map("created_at")
 
-  @@index([projectId, createdAt])
+  @@index([projectId, createdAt, id])
+  @@index([projectId, artifactId, createdAt, id])
   @@index([targetId])
   @@index([artifactId])
   @@unique([projectId, source, sourceReference])
