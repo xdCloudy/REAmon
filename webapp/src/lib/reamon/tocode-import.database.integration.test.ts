@@ -16,6 +16,7 @@ describeDatabase('ToCode export indexing with PostgreSQL persistence', () => {
   const userId = `tocode-db-user-${suffix}`
   const projectId = `tocode-db-project-${suffix}`
   const importId = `tocode-db-import-${suffix}`
+  const folderImportId = `tocode-db-folder-import-${suffix}`
   const artifactsRoot = path.resolve(process.env.REAMON_ARTIFACTS_PATH || '/tmp/reamon-tocode-artifacts')
   const derivedRoot = path.resolve(process.env.REAMON_DERIVED_PATH || '/tmp/reamon-tocode-derived')
   const fixtureRoot = path.join(artifactsRoot, 'qa', 'tocode-import', suffix)
@@ -159,5 +160,153 @@ describeDatabase('ToCode export indexing with PostgreSQL persistence', () => {
     const repeated = await indexToCodeWorkspaceImport(projectId, importId)
     expect(repeated).toMatchObject({ taskId: result.taskId, indexedFunctions: 2, alreadyIndexed: true })
     expect(await prisma.task.count({ where: { projectId } })).toBe(1)
+  }, 60_000)
+
+  test('matches folder inputs by exact digest and resolves explicit cross-binary call sites', async () => {
+    await prisma.workspaceImport.create({
+      data: {
+        id: folderImportId,
+        projectId,
+        sourceType: 'BROWSER_DIRECTORY',
+        rootName: 'synthetic-tocode-folder-export',
+        status: 'COMPLETED',
+        completedFiles: 11,
+        totalFiles: 11,
+      },
+    })
+
+    const clientBinary = Buffer.from('synthetic-client-binary')
+    const libraryBinary = Buffer.from('synthetic-library-binary')
+    const clientSha256 = createHash('sha256').update(clientBinary).digest('hex')
+    const librarySha256 = createHash('sha256').update(libraryBinary).digest('hex')
+    const files: Record<string, Buffer> = {
+      'project.json': Buffer.from(JSON.stringify({
+        kind: 'folder',
+        tocode_version: 'fixture-folder-1',
+        inventory: 'inventory.json',
+        binaries: [
+          { path: 'bin/client.bin', export_dir: 'exports/client' },
+          { path: 'bin/library.bin', export_dir: 'exports/library' },
+        ],
+      })),
+      'inventory.json': Buffer.from(JSON.stringify({ files: [
+        { path: 'bin/client.bin', size: clientBinary.byteLength, sha256: clientSha256 },
+        { path: 'bin/library.bin', size: libraryBinary.byteLength, sha256: '0'.repeat(64) },
+      ] })),
+      'mappings.json': Buffer.from(JSON.stringify({
+        schema_version: 1,
+        summary: { imports: 1, bound_in_folder: 1, mapped_to_function: 1 },
+        links: [{
+          importer: 'bin/client.bin',
+          symbol: 'helper',
+          status: 'bound',
+          target: 'bin/library.bin',
+          target_export_dir: 'exports/library',
+          target_status: 'decompiled',
+          export: 'helper',
+          target_va: '0x2000',
+          resolution: 'two_level',
+          target_function: {
+            address: '0x2000',
+            name: 'helper',
+            source_file: 'src/helper.c',
+            line_start: 1,
+            line_end: 3,
+          },
+          call_sites: [{
+            address: '0x1000',
+            name: 'entry',
+            source_file: 'src/main.c',
+            line_start: 1,
+            line_end: 3,
+          }],
+        }],
+      })),
+      'bin/client.bin': clientBinary,
+      'bin/library.bin': libraryBinary,
+      'exports/client/export-manifest.json': Buffer.from(JSON.stringify({ kind: 'native', tocode_version: 'fixture-folder-1' })),
+      'exports/client/functions.json': Buffer.from(JSON.stringify({ functions: [
+        { address: '0x1000', name: 'entry', prototype: 'int entry(void)', size: 12, source_file: 'src/main.c', source_line_start: 1, source_line_end: 3 },
+      ] })),
+      'exports/client/src/main.c': Buffer.from('int entry(void) {\n  return helper();\n}\n'),
+      'exports/library/export-manifest.json': Buffer.from(JSON.stringify({ kind: 'native', tocode_version: 'fixture-folder-1' })),
+      'exports/library/functions.json': Buffer.from(JSON.stringify({ functions: [
+        { address: '0x2000', name: 'helper', prototype: 'int helper(void)', size: 8, source_file: 'src/helper.c', source_line_start: 1, source_line_end: 3 },
+      ] })),
+      'exports/library/src/helper.c': Buffer.from('int helper(void) {\n  return 7;\n}\n'),
+    }
+    const artifactIds = new Map<string, string>()
+    await Promise.all(Object.entries(files).map(async ([relativePath, bytes]) => {
+      const storagePath = path.posix.join('qa', 'tocode-import', suffix, 'folder', relativePath)
+      const absolutePath = path.join(artifactsRoot, ...storagePath.split('/'))
+      await mkdir(path.dirname(absolutePath), { recursive: true })
+      await writeFile(absolutePath, bytes)
+      const artifact = await prisma.artifact.create({
+        data: {
+          projectId,
+          importId: folderImportId,
+          name: path.posix.basename(relativePath),
+          originalName: path.posix.basename(relativePath),
+          relativePath,
+          parentPath: path.posix.dirname(relativePath) === '.' ? '' : path.posix.dirname(relativePath),
+          storagePath,
+          sha256: createHash('sha256').update(bytes).digest('hex'),
+          sizeBytes: BigInt(bytes.byteLength),
+          extension: path.posix.extname(relativePath).slice(1),
+          mimeType: 'application/octet-stream',
+        },
+      })
+      artifactIds.set(relativePath, artifact.id)
+    }))
+
+    const result = await indexToCodeWorkspaceImport(projectId, folderImportId)
+    expect(result).toMatchObject({
+      exportCount: 2,
+      discoveredFunctions: 2,
+      indexedFunctions: 2,
+      callEdges: 1,
+      crossBinaryCallEdges: 1,
+      toCodeExportsWithInputHash: 2,
+      toCodeInputHashesMatchedToImportedArtifacts: 1,
+      toCodeInputHashesNotFoundInImport: 1,
+      copiedSourceAndAssemblyFiles: 2,
+      alreadyIndexed: false,
+    })
+
+    const observations = await prisma.reamonObservation.findMany({
+      where: { projectId, taskId: result.taskId, source: 'reamon-tocode-import' },
+      select: { type: true, label: true, attributes: true },
+    })
+    const codeUnits = observations.filter((observation) => observation.type === 'code_unit')
+    const entry = codeUnits.find((unit) => unit.label === 'entry')
+    const helper = codeUnits.find((unit) => unit.label === 'helper')
+    expect((entry?.attributes as Record<string, unknown>)).toMatchObject({
+      toCodeInputProvenance: 'HASH_MATCHED_IMPORTED_ARTIFACT',
+      toCodeInputArtifactId: artifactIds.get('bin/client.bin'),
+      toCodeInputArtifactSha256: clientSha256,
+      toCodeInputRelativePath: 'bin/client.bin',
+    })
+    expect((helper?.attributes as Record<string, unknown>)).toMatchObject({
+      toCodeInputProvenance: 'HASH_NOT_IMPORTED',
+      toCodeClaimedInputSha256: '0'.repeat(64),
+    })
+    expect(observations.find((observation) => observation.type === 'calls')).toMatchObject({
+      label: 'entry calls helper · helper',
+      attributes: {
+        source: 'ToCode mappings.json',
+        importer: 'exports/client',
+        target: 'exports/library',
+        importSymbol: 'helper',
+        resolution: 'two_level',
+      },
+    })
+
+    const metadata = await prisma.workspaceImport.findUniqueOrThrow({
+      where: { id: folderImportId },
+      select: { metadata: true },
+    })
+    expect(metadata.metadata).toMatchObject({
+      toCodeIndex: { status: 'COMPLETED', taskId: result.taskId, indexedFunctions: 2 },
+    })
   }, 60_000)
 })

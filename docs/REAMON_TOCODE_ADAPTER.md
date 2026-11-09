@@ -60,6 +60,16 @@ and import receipt, and reuses the task on a repeated request. This validates on
 synthetic native export path; it does not validate ToCode's own analysis, original-source
 fidelity, APK/.NET export schemas, cross-binary links, or browser visualizer navigation.
 
+A second PostgreSQL-backed folder-export fixture covers ToCode's `project.json`,
+`inventory.json`, and `mappings.json` shape. It verifies that an importer binary path is
+resolved through `project.json` to its export directory, a bound cross-binary call is
+stored between the two function observations, and input provenance matches only when
+both digest and size match an imported artifact. A deliberately mismatched library hash
+remains `HASH_NOT_IMPORTED`; it is not associated by filename. The fixture exercises
+one client-to-library edge and two native exports. It does not validate ToCode's own
+binary-link analysis, broad loader/linker behavior, original-source fidelity, or
+visualizer navigation.
+
 Folder exports now use ToCode's `project.json` binary-to-export mapping and
 `inventory.json` SHA-256 claims to connect a decompiled export to an original binary
 when that exact digest and size are also present in the REAmon workspace import. The
@@ -84,9 +94,9 @@ Remaining integration work:
    level.
 2. Expand mapping of APK and .NET specialized fields, types, imports, exports, and
    reachability without flattening provider evidence into canonical facts.
-3. Verify cross-binary endpoint resolution, browser visualizer navigation, partial
-   exports, and output limits against representative fixtures; expand beyond the one
-   synthetic native export exercised by the success-path integration test.
+3. Verify browser visualizer navigation, partial exports, and output limits against
+   representative fixtures; expand folder-link coverage beyond the one synthetic
+   client-to-library edge exercised by the success-path integration test.
 4. If REAmon later runs ToCode, build that as a separately isolated workspace task with
    explicit backend choice; do not silently discover or invoke local reverse-engineering
    tools.
@@ -107,6 +117,7 @@ export formats, and accurate partial/truncation reporting.
 - [ToCode README and export layout](https://github.com/buzzer-re/ToCode)
 - [ToCode `functions.json` producer](https://github.com/buzzer-re/ToCode/blob/main/src/tocode/metadata.py)
 - [ToCode folder inventory and binary/export mapping](https://github.com/buzzer-re/ToCode/blob/main/src/tocode/folder_docs.py)
+- [ToCode folder link mapping and call-site producer](https://github.com/buzzer-re/ToCode/blob/main/src/tocode/folder_links.py)
 - [ToCode inventory SHA-256 producer](https://github.com/buzzer-re/ToCode/blob/main/src/tocode/links/inventory.py)
 - [ToCode package metadata and MIT license](https://github.com/buzzer-re/ToCode/blob/main/pyproject.toml)
 - [Glaurung analysis scope and maturity](https://github.com/mjbommar/glaurung)

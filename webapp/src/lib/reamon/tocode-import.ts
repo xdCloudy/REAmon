@@ -412,6 +412,7 @@ export async function indexToCodeWorkspaceImport(projectId: string, importId: st
   if (!candidates.length) throw new Error('This workspace import does not contain a ToCode export')
 
   const inputProvenanceByExport = new Map<string, ToCodeInputProvenance>()
+  const exportRootByBinaryPath = new Map<string, string>()
   const folderProjects = artifacts.filter((artifact) => {
     if (path.posix.basename(artifact.relativePath) !== 'project.json') return false
     const inventoryPath = joinedExportPath(exportRootOf(artifact.relativePath), 'inventory.json')
@@ -443,6 +444,7 @@ export async function indexToCodeWorkspaceImport(projectId: string, importId: st
       const inputPath = cleanExportPath(binary?.path)
       if (!exportDirectory || !inputPath) continue
       const exportRoot = joinedExportPath(projectRoot, exportDirectory)
+      if (exportRoot) exportRootByBinaryPath.set(`${projectRoot}\u0000${inputPath}`, exportRoot)
       const inventoryRow = duplicateInventoryPaths.has(inputPath) ? undefined : inventoryFiles.get(inputPath)
       const inputSha256 = typeof inventoryRow?.sha256 === 'string' && /^[a-f0-9]{64}$/i.test(inventoryRow.sha256)
         ? inventoryRow.sha256.toLowerCase()
@@ -766,6 +768,7 @@ export async function indexToCodeWorkspaceImport(projectId: string, importId: st
       try {
         const mappings = await readJsonArtifact(mappingsArtifact, MAX_MAPPING_BYTES)
         const links = Array.isArray(mappings?.links) ? mappings.links.slice(0, 100_000) : []
+        const mappingRoot = exportRootOf(mappingsArtifact.relativePath)
         for (const rawLink of links) {
           if (observations.length >= MAX_CODE_UNITS_PER_RESULT) {
             callEdgesTruncated = true
@@ -773,8 +776,16 @@ export async function indexToCodeWorkspaceImport(projectId: string, importId: st
           }
           const link = asRecord(rawLink)
           if (!link || link.status !== 'bound' || !safeText(link.target, 1000)) continue
-          const importerRoot = cleanExportPath(link.importer)
-          const targetRoot = cleanExportPath(link.target_export_dir ?? link.target)
+          const importerPath = cleanExportPath(link.importer)
+          const importerRoot = importerPath
+            ? exportRootByBinaryPath.get(`${mappingRoot}\u0000${importerPath}`) || importerPath
+            : null
+          const targetBinaryPath = cleanExportPath(link.target)
+          const targetExportDirectory = cleanExportPath(link.target_export_dir)
+          const targetRoot = (targetBinaryPath ? exportRootByBinaryPath.get(`${mappingRoot}\u0000${targetBinaryPath}`) : undefined)
+            || (targetExportDirectory ? joinedExportPath(mappingRoot, targetExportDirectory) : null)
+            || targetExportDirectory
+            || targetBinaryPath
           if (!importerRoot || !targetRoot) continue
           const targetFunction = asRecord(link.target_function)
           if (!targetFunction) continue
