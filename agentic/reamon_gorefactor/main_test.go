@@ -738,7 +738,7 @@ func TestProjectCatalogInventoriesFunctionLocalsAndCountsResolvedReferences(t *t
 func TestProjectCatalogInventoriesImplicitTypeSwitchBindings(t *testing.T) {
 	request := goProjectRequest([]projectFile{
 		{
-			Path: "pkg/switch.go",
+			Path:   "pkg/switch.go",
 			Source: "package sample\nfunc inspect(value any) int {\n\tswitch item := value.(type) {\n\tcase int:\n\t\treturn item\n\tcase string:\n\t\treturn len(item)\n\tdefault:\n\t\treturn len(item.(interface{ String() string }).String())\n\t}\n}\n",
 		},
 		{Path: "pkg/helper.go", Source: "package sample\nfunc helper() {}\n"},
@@ -771,7 +771,7 @@ func TestProjectCatalogInventoriesImplicitTypeSwitchBindings(t *testing.T) {
 func TestProjectCatalogInventoriesFileScopedGoImportBindings(t *testing.T) {
 	request := goProjectRequest([]projectFile{
 		{
-			Path: "pkg/imports.go",
+			Path:   "pkg/imports.go",
 			Source: "package sample\nimport (\n\tformatter \"fmt\"\n\t\"strings\"\n\t. \"unicode\"\n\t_ \"net/http/pprof\"\n)\nfunc render(value string) string { return formatter.Sprint(strings.TrimSpace(value), IsGraphic('a')) }\n",
 		},
 		{Path: "pkg/run.go", Source: "package sample\nfunc run() string { return render(\" value \") }\n"},
@@ -799,6 +799,37 @@ func TestProjectCatalogInventoriesFileScopedGoImportBindings(t *testing.T) {
 	if entry := imports["."]; entry.Kind != "dot import" || entry.Classification != "unsupported" ||
 		entry.ClassificationReason != "dot-import-out-of-scope" {
 		t.Errorf("dot import = %+v; want an explicit unsupported file-scope row", entry)
+	}
+}
+
+func TestProjectCatalogKeepsLocalInterfaceMethodsAndLabelsUnsupported(t *testing.T) {
+	request := goProjectRequest([]projectFile{
+		{Path: "pkg/locals.go", Source: "package sample\nfunc inspect(value int) int {\n\ttype Runner interface { Run() int }\n\tvar runner Runner\n\tgoto done\n done:\n\treturn runner.Run() + value\n}\n"},
+		{Path: "pkg/use.go", Source: "package sample\nfunc use() int { return inspect(1) }\n"},
+	}, "pkg/locals.go")
+	catalog, err := buildProjectCatalog(request)
+	if err != nil {
+		t.Fatalf("build interface and label inventory: %v", err)
+	}
+	if catalog.Inventory.LocalSymbolCount != 5 || catalog.Inventory.ReferencedLocalSymbols != 3 ||
+		catalog.Inventory.UnreferencedLocalSymbols != 0 || catalog.Inventory.UnsupportedLocalSymbolCount != 2 {
+		t.Fatalf("local scope counts = %+v; want three referenced supported bindings and two unsupported objects", catalog.Inventory)
+	}
+	entries := make(map[string]projectInventoryEntry, 5)
+	for _, entry := range catalog.Inventory.Entries {
+		if entry.Scope == "local" {
+			entries[entry.Name] = entry
+		}
+	}
+	for _, name := range []string{"value", "Runner", "runner"} {
+		if entry := entries[name]; entry.Classification != "eligible" {
+			t.Errorf("supported local %q = %+v; want eligible", name, entry)
+		}
+	}
+	for name, reason := range map[string]string{"Run": "local-interface-method-out-of-scope", "done": "local-label-out-of-scope"} {
+		if entry := entries[name]; entry.Classification != "unsupported" || entry.ClassificationReason != reason || entry.ReferenceCount != 1 {
+			t.Errorf("unsupported local %q = %+v; want reason %q and one resolved reference", name, entry, reason)
+		}
 	}
 }
 
