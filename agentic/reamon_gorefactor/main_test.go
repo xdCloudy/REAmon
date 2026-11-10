@@ -463,6 +463,80 @@ func TestProjectRenamePinnedUpstreamErrorsFixture(t *testing.T) {
 	assertProjectPackageRenameBehavior(t, outputs, behaviorTest, "upstream renamed")
 }
 
+func TestProjectRenamePinnedUpstreamUUIDFixture(t *testing.T) {
+	fixtureDirectory := filepath.Join("testdata", "upstream_uuid_v1_6_0")
+	wantHashes := map[string]string{
+		"uuid.go":     "707a63232670b23c8bb7e90fc4cbbfdaf0d2bff6a17734943fa0c476f182a741",
+		"version4.go": "700f88aa406818aac89411773bb6395b278b4930f99b113558657333ab6c332a",
+		"util.go":     "1734f5bb243b580604adb97e53782c18fc0a2060178fb040dd82c893922b94fc",
+		"hash.go":     "bca77e48eea81ae9b514b4aaee29bc5ed09318e0a82f059338405f4eabc23045",
+		"marshal.go":  "f0e4e3651bacae9a6509e6d3e4fbacfe24adab91d87ece24cd70f0247b4464e0",
+		"sql.go":      "19710834cfcb61d444b5ca41e2c20a4bcea8834530c2b1ff1f592d0b95807c5f",
+		"LICENSE":     "f9e95f8256a9c54f6cff58d662d493cc9b8b36c7117a35d2d9e5174c229755ca",
+	}
+	files := make([]projectFile, 0, len(wantHashes)-1)
+	sourceByPath := make(map[string][]byte, len(wantHashes))
+	for path, wantHash := range wantHashes {
+		source, err := os.ReadFile(filepath.Join(fixtureDirectory, path))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if actual := hashText(string(source)); actual != wantHash {
+			t.Fatalf("pinned upstream %s SHA-256 = %s; want %s", path, actual, wantHash)
+		}
+		sourceByPath[path] = source
+		if path != "LICENSE" {
+			files = append(files, projectFile{Path: "pkg/" + path, Source: string(source)})
+		}
+	}
+	request := goProjectRequest(files, "pkg/uuid.go")
+	catalog, err := buildProjectCatalog(request)
+	if err != nil {
+		t.Fatalf("catalog pinned upstream package subset: %v", err)
+	}
+	var selected binding
+	for _, item := range catalog.Bindings {
+		if item.FilePath == request.SelectedPath && item.Name == "rander" {
+			selected = item
+			break
+		}
+	}
+	if selected.ID == "" || selected.ReferenceCount != 5 {
+		t.Fatalf("upstream rander binding = %+v; want one declaration and five references", selected)
+	}
+	request.Operation = "project_rename"
+	request.ExpectedHash = catalog.SelectedHash
+	request.SourceSetHash = catalog.SourceSetHash
+	request.Renames = []renameSelection{{ID: selected.ID, NewName: "randomReader"}}
+	result, err := applyProjectRenames(request)
+	if err != nil {
+		t.Fatalf("rename upstream rander variable: %v", err)
+	}
+	outputs := outputsBeforeRename(files)
+	editCount := 0
+	editsByPath := make(map[string]int, len(files))
+	for _, output := range result["files"].([]map[string]any) {
+		path := output["relative_path"].(string)
+		outputs[path] = output["source_code"].(string)
+		original := string(sourceByPath[filepath.Base(path)])
+		for _, edit := range output["edits"].([]map[string]any) {
+			start, startOK := edit["start"].(int)
+			end, endOK := edit["end"].(int)
+			if edit["old_text"] != "rander" || edit["new_text"] != "randomReader" || !startOK || !endOK || start < 0 || end > len(original) || original[start:end] != "rander" {
+				t.Fatalf("upstream edit for %s = %#v; want a byte-exact rander -> randomReader span", path, edit)
+			}
+			editCount++
+			editsByPath[path]++
+		}
+	}
+	if editCount != 6 || editsByPath["pkg/uuid.go"] != 3 || editsByPath["pkg/version4.go"] != 2 || editsByPath["pkg/util.go"] != 1 {
+		t.Fatalf("upstream edit manifest has %d edits by path %v; want 3/2/1 across declaration and references", editCount, editsByPath)
+	}
+	behaviorTest := "package uuid\n\nimport (\n\t\"bytes\"\n\t\"testing\"\n)\n\nfunc TestCorpusBehavior(t *testing.T) {\n\tseed := []byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}\n\twant := \"00010203-0405-4607-8809-0a0b0c0d0e0f\"\n\tDisableRandPool()\n\tdefer DisableRandPool()\n\tdefer SetRand(nil)\n\tSetRand(bytes.NewReader(seed))\n\tgot, err := NewRandom()\n\tif err != nil || got.String() != want { t.Fatalf(\"direct generation = %s, %v\", got, err) }\n\tEnableRandPool()\n\tSetRand(bytes.NewReader(bytes.Repeat(seed, 16)))\n\tgot, err = NewRandom()\n\tif err != nil || got.String() != want { t.Fatalf(\"pooled generation = %s, %v\", got, err) }\n}\n"
+	assertProjectPackageRenameBehavior(t, outputsBeforeRename(files), behaviorTest, "upstream UUID original")
+	assertProjectPackageRenameBehavior(t, outputs, behaviorTest, "upstream UUID renamed")
+}
+
 func assertProjectRenameBehavior(t *testing.T, files map[string]string, testSource, variant string) {
 	t.Helper()
 	assertProjectPackageRenameBehavior(t, files, "package sample\n\nimport \"testing\"\n\n"+testSource, variant)
