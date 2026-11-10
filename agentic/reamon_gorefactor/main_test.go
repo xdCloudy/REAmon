@@ -111,7 +111,7 @@ func TestProjectRenameUpdatesResolvedReferencesAcrossFiles(t *testing.T) {
 func TestProjectTypeRenameUpdatesEmbeddedFieldReferences(t *testing.T) {
 	request := goProjectRequest([]projectFile{
 		{Path: "pkg/model.go", Source: "package sample\n\ntype entry struct { value int }\n"},
-		{Path: "pkg/view.go", Source: "package sample\n\ntype view struct { *entry }\nfunc create() view { return view{entry: &entry{value: 4}} }\nfunc read(item view) int { return item.entry.value }\n"},
+		{Path: "pkg/view.go", Source: "package sample\n\ntype view struct { *entry }\ntype outer struct { view }\nfunc create() outer { return outer{view: view{entry: &entry{value: 4}}} }\nfunc read(item outer) int { return item.entry.value }\n"},
 	}, "pkg/model.go")
 	catalog, err := buildProjectCatalog(request)
 	if err != nil {
@@ -143,7 +143,7 @@ func TestProjectTypeRenameUpdatesEmbeddedFieldReferences(t *testing.T) {
 	for _, file := range files {
 		outputs[file["relative_path"].(string)] = file["source_code"].(string)
 	}
-	want := "package sample\n\ntype view struct { *record }\nfunc create() view { return view{record: &record{value: 4}} }\nfunc read(item view) int { return item.record.value }\n"
+	want := "package sample\n\ntype view struct { *record }\ntype outer struct { view }\nfunc create() outer { return outer{view: view{record: &record{value: 4}}} }\nfunc read(item outer) int { return item.record.value }\n"
 	if outputs["pkg/view.go"] != want {
 		t.Fatalf("embedded field references were not updated with the type name:\\n got: %q\\nwant: %q", outputs["pkg/view.go"], want)
 	}
@@ -179,6 +179,82 @@ func TestProjectTypeRenameUpdatesEmbeddedFieldReferences(t *testing.T) {
 		"pkg/model.go": "package sample\n\ntype record struct { value int }\n",
 		"pkg/view.go":  want,
 	}, "func TestCorpusBehavior(t *testing.T) { if got := read(create()); got != 4 { t.Fatalf(\"read = %d\", got) } }\n", "renamed")
+}
+
+func TestProjectTypeAliasRenameUpdatesEmbeddedFieldReferences(t *testing.T) {
+	request := goProjectRequest([]projectFile{
+		{Path: "pkg/model.go", Source: "package sample\n\ntype entry struct { value int }\ntype alias = entry\n"},
+		{Path: "pkg/view.go", Source: "package sample\n\ntype view struct { alias }\nfunc create() view { return view{alias: alias{value: 5}} }\nfunc read(item view) int { return item.alias.value }\n"},
+	}, "pkg/model.go")
+	catalog, err := buildProjectCatalog(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var selected binding
+	for _, item := range catalog.Bindings {
+		if item.FilePath == request.SelectedPath && item.Name == "alias" {
+			selected = item
+			break
+		}
+	}
+	if selected.ID == "" || selected.ReferenceCount != 2 {
+		t.Fatalf("embedded alias binding = %+v; want an identified alias with two type references", selected)
+	}
+	request.Operation = "project_rename"
+	request.ExpectedHash = catalog.SelectedHash
+	request.SourceSetHash = catalog.SourceSetHash
+	request.Renames = []renameSelection{{ID: selected.ID, NewName: "record"}}
+	result, err := applyProjectRenames(request)
+	if err != nil {
+		t.Fatalf("rename embedded package type alias: %v", err)
+	}
+	files := result["files"].([]map[string]any)
+	outputs := make(map[string]string)
+	editCount := 0
+	for _, file := range files {
+		outputs[file["relative_path"].(string)] = file["source_code"].(string)
+		editCount += len(file["edits"].([]map[string]any))
+	}
+	want := "package sample\n\ntype view struct { record }\nfunc create() view { return view{record: record{value: 5}} }\nfunc read(item view) int { return item.record.value }\n"
+	if outputs["pkg/view.go"] != want || editCount != 5 {
+		t.Fatalf("alias rename output/manifest = %q / %d edits; want exact derived-field updates and five edits", outputs["pkg/view.go"], editCount)
+	}
+	assertProjectRenameBehavior(t, map[string]string{
+		"pkg/model.go": request.Files[0].Source,
+		"pkg/view.go":  request.Files[1].Source,
+	}, "func TestCorpusBehavior(t *testing.T) { if got := read(create()); got != 5 { t.Fatalf(\"read = %d\", got) } }\n", "original")
+	assertProjectRenameBehavior(t, map[string]string{
+		"pkg/model.go": "package sample\n\ntype entry struct { value int }\ntype record = entry\n",
+		"pkg/view.go":  want,
+	}, "func TestCorpusBehavior(t *testing.T) { if got := read(create()); got != 5 { t.Fatalf(\"read = %d\", got) } }\n", "renamed")
+}
+
+func TestProjectTypeRenameRejectsEmbeddedFieldCollision(t *testing.T) {
+	request := goProjectRequest([]projectFile{
+		{Path: "pkg/model.go", Source: "package sample\n\ntype entry struct{}\n"},
+		{Path: "pkg/view.go", Source: "package sample\n\ntype view struct { entry; record int }\n"},
+	}, "pkg/model.go")
+	catalog, err := buildProjectCatalog(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var selected binding
+	for _, item := range catalog.Bindings {
+		if item.FilePath == request.SelectedPath && item.Name == "entry" {
+			selected = item
+			break
+		}
+	}
+	if selected.ID == "" {
+		t.Fatal("embedded package type was not catalogued")
+	}
+	request.Operation = "project_rename"
+	request.ExpectedHash = catalog.SelectedHash
+	request.SourceSetHash = catalog.SourceSetHash
+	request.Renames = []renameSelection{{ID: selected.ID, NewName: "record"}}
+	if _, err := applyProjectRenames(request); err == nil || !strings.Contains(err.Error(), "Go package rejected the renamed output") {
+		t.Fatalf("embedded-field collision error = %v; want type-check rejection", err)
+	}
 }
 
 func TestProjectRenameVersionedBindingIntegrityCorpus(t *testing.T) {
