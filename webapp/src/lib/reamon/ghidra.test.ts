@@ -44,6 +44,40 @@ describe('Ghidra provider', () => {
     expect(vi.mocked(fetch)).toHaveBeenCalledWith('http://ghidra-analyzer:8011/analyze', expect.objectContaining({ method: 'POST' }))
   })
 
+  it('persists lineage for each validated alternate output', async () => {
+    vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({
+      status: 'completed', toolVersion: '12.1.4', functionCount: 1, returnedUnits: 1, truncated: false,
+      units: [{
+        name: 'main', address: 'ram:00401000', relativePath: 'functions/main.c', codeArtifactId: 'project-1/artifact-1/task-1/run-1/sources/functions/main.c', sizeBytes: 32,
+        reipaAlternateCodeArtifactId: 'project-1/artifact-1/task-1/run-1/alternates/reipa/main.c', reipaAlternateOutputSha256: 'a'.repeat(64), reipaAlternateSizeBytes: 128,
+        bcfCleanAlternateCodeArtifactId: 'project-1/artifact-1/task-1/run-1/alternates/bcf-clean/main.c', bcfCleanAlternateOutputSha256: 'b'.repeat(64), bcfCleanAlternateSizeBytes: 128,
+        bcfCleanAuditArtifactId: 'project-1/artifact-1/task-1/run-1/audit/bcf-clean-patch.json', bcfCleanAuditSha256: 'c'.repeat(64), bcfCleanCommit: 'f457afaa801b30f7bb98c28d419a36d5c9fd7115',
+        cffDeflattenAlternateCodeArtifactId: 'project-1/artifact-1/task-1/run-1/alternates/cff-deflatten/main.c', cffDeflattenAlternateOutputSha256: 'd'.repeat(64), cffDeflattenAlternateSizeBytes: 128,
+        cffDeflattenAuditArtifactId: 'project-1/artifact-1/task-1/run-1/audit/cff-deflatten-patch.json', cffDeflattenAuditSha256: 'e'.repeat(64), cffDeflattenCommit: 'f457afaa801b30f7bb98c28d419a36d5c9fd7115',
+      }],
+    }), { status: 200, headers: { 'content-type': 'application/json' } }))
+
+    const result = await executeGhidra(input)
+    const observations = result.data.observations as Array<Record<string, unknown>>
+    const main = observations.find((row) => row.type === 'code_unit' && row.label === 'main')
+
+    const attributes = main?.attributes as Record<string, unknown>
+    expect(JSON.parse(String(attributes.alternateProviderLineageJson))).toEqual({
+        'reamon-reipa': {
+          kind: 'co-run', upstreamProviderIds: [],
+          selectionPolicy: 'ReIPA pseudocode extracted during the Ghidra analysis task; provider independence is unmeasured',
+        },
+        'reamon-ghidra-bcf-clean': {
+          kind: 'derived-transform', upstreamProviderIds: ['reamon-ghidra'],
+          selectionPolicy: 'emulation-verified BcfClean transformation of the Ghidra output',
+        },
+        'reamon-ghidra-cff-deflatten': {
+          kind: 'derived-transform', upstreamProviderIds: ['reamon-ghidra'],
+          selectionPolicy: 'emulation-verified CffDeflatten transformation of the Ghidra output',
+        },
+    })
+  })
+
   it('connects calls between decompiled functions to their code-unit identities', async () => {
     vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({
       status: 'completed', toolVersion: '12.1.4', functionCount: 2, returnedUnits: 2, truncated: false,

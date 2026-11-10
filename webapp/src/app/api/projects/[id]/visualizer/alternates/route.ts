@@ -21,6 +21,24 @@ function record(value: unknown): Record<string, unknown> {
 }
 
 function providerLineage(providerId: string, attributes: Record<string, unknown>) {
+  let storedLineageByProvider: Record<string, unknown> = {}
+  if (typeof attributes.alternateProviderLineageJson === 'string' && attributes.alternateProviderLineageJson.length <= 4096) {
+    try {
+      storedLineageByProvider = record(JSON.parse(attributes.alternateProviderLineageJson))
+    } catch {
+      storedLineageByProvider = {}
+    }
+  }
+  const stored = record(storedLineageByProvider[providerId])
+  const storedUpstream = Array.isArray(stored.upstreamProviderIds) ? stored.upstreamProviderIds : []
+  const storedKind = stored.kind
+  const storedSelectionPolicy = stored.selectionPolicy
+  if (['derived-composite', 'derived-transform', 'co-run'].includes(String(storedKind))
+      && storedUpstream.length <= 8
+      && storedUpstream.every((value) => typeof value === 'string' && /^[a-z][a-z0-9-]{0,79}$/.test(value))
+      && typeof storedSelectionPolicy === 'string' && storedSelectionPolicy.length > 0 && storedSelectionPolicy.length <= 160) {
+    return { kind: storedKind as 'derived-composite' | 'derived-transform' | 'co-run', upstreamProviderIds: storedUpstream as string[], selectionPolicy: storedSelectionPolicy }
+  }
   const upstreamProviderIds = typeof attributes.providerUpstreamProviderIds === 'string'
     ? attributes.providerUpstreamProviderIds.split(',').filter((value) => value.length <= 80).slice(0, 8)
     : []
@@ -30,6 +48,22 @@ function providerLineage(providerId: string, attributes: Record<string, unknown>
   if (providerId === 'reamon-arlecchino' && attributes.providerLineageKind === 'derived-composite'
       && upstreamProviderIds.length > 0 && selectionPolicy) {
     return { kind: 'derived-composite' as const, upstreamProviderIds, selectionPolicy }
+  }
+  if (providerId === 'reamon-reipa') {
+    return {
+      kind: 'co-run' as const,
+      upstreamProviderIds: [],
+      selectionPolicy: 'ReIPA pseudocode extracted during the Ghidra analysis task; provider independence is unmeasured',
+    }
+  }
+  if (providerId === 'reamon-ghidra-bcf-clean' || providerId === 'reamon-ghidra-cff-deflatten') {
+    return {
+      kind: 'derived-transform' as const,
+      upstreamProviderIds: ['reamon-ghidra'],
+      selectionPolicy: providerId === 'reamon-ghidra-bcf-clean'
+        ? 'emulation-verified BcfClean transformation of the Ghidra output'
+        : 'emulation-verified CffDeflatten transformation of the Ghidra output',
+    }
   }
   return { kind: 'unknown' as const, upstreamProviderIds: [], selectionPolicy: null }
 }
@@ -181,11 +215,7 @@ export async function GET(request: Request, { params }: RouteParams) {
                   id: `${unit.id}:reipa`,
                   providerId: 'reamon-reipa',
                   providerName: 'ReIPA · experimental pseudocode',
-                  providerLineage: {
-                    kind: 'co-run',
-                    upstreamProviderIds: [],
-                    selectionPolicy: 'ReIPA pseudocode extracted during the Ghidra analysis task; provider independence is unmeasured',
-                  },
+                  providerLineage: providerLineage('reamon-reipa', attributes),
                   version: reipaVersion,
                   name: typeof attributes.recoveredNativeSymbolName === 'string'
                     ? attributes.recoveredNativeSymbolName.slice(0, 500)
@@ -253,11 +283,7 @@ export async function GET(request: Request, { params }: RouteParams) {
                   id: `${unit.id}:bcf-clean`,
                   providerId: 'reamon-ghidra-bcf-clean',
                   providerName: 'BcfClean · emulation-verified native cleanup',
-                  providerLineage: {
-                    kind: 'derived-transform',
-                    upstreamProviderIds: ['reamon-ghidra'],
-                    selectionPolicy: 'emulation-verified BcfClean transformation of the Ghidra output',
-                  },
+                  providerLineage: providerLineage('reamon-ghidra-bcf-clean', attributes),
                   version: bcfVersion,
                   name: typeof attributes.qualifiedName === 'string' ? attributes.qualifiedName.slice(0, 500) : unitId,
                   language: 'C',
@@ -323,11 +349,7 @@ export async function GET(request: Request, { params }: RouteParams) {
                   id: `${unit.id}:cff-deflatten`,
                   providerId: 'reamon-ghidra-cff-deflatten',
                   providerName: 'CffDeflatten · emulation-verified control-flow cleanup',
-                  providerLineage: {
-                    kind: 'derived-transform',
-                    upstreamProviderIds: ['reamon-ghidra'],
-                    selectionPolicy: 'emulation-verified CffDeflatten transformation of the Ghidra output',
-                  },
+                  providerLineage: providerLineage('reamon-ghidra-cff-deflatten', attributes),
                   version: cffVersion,
                   name: typeof attributes.qualifiedName === 'string' ? attributes.qualifiedName.slice(0, 500) : unitId,
                   language: 'C',

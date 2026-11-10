@@ -156,6 +156,12 @@ describe('GET /api/projects/[id]/visualizer/alternates', () => {
         reipaAlternateCodeArtifactId: codeArtifactId,
         reipaAlternateOutputSha256: outputHash,
         reipaAlternateProviderVersion: `ReIPA@${'a'.repeat(40)}`,
+        alternateProviderLineageJson: JSON.stringify({
+          'reamon-reipa': {
+            kind: 'co-run', upstreamProviderIds: [],
+            selectionPolicy: 'persisted ReIPA task lineage; provider independence is unmeasured',
+          },
+        }),
       },
       artifact: { sha256: artifactHash },
     })
@@ -172,7 +178,7 @@ describe('GET /api/projects/[id]/visualizer/alternates', () => {
       providerLineage: {
         kind: 'co-run',
         upstreamProviderIds: [],
-        selectionPolicy: 'ReIPA pseudocode extracted during the Ghidra analysis task; provider independence is unmeasured',
+        selectionPolicy: 'persisted ReIPA task lineage; provider independence is unmeasured',
       },
     }))
   })

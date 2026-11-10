@@ -395,6 +395,33 @@ export async function executeGhidra(input: ToolExecutionInput): Promise<ToolResu
           ? { instructionArchitecture: payload.instructionArchitecture.slice(0, 128) } : {}),
         decompiled: true,
         codeArtifactId: unit.codeArtifactId.slice(0, 2000),
+        ...((unit.reipaAlternateCodeArtifactId && unit.reipaAlternateOutputSha256 && unit.reipaAlternateSizeBytes)
+          || (unit.bcfCleanAlternateCodeArtifactId && unit.bcfCleanAlternateOutputSha256 && unit.bcfCleanAlternateSizeBytes
+            && unit.bcfCleanAuditArtifactId && unit.bcfCleanAuditSha256 && unit.bcfCleanCommit === BCF_CLEAN_COMMIT)
+          || (unit.cffDeflattenAlternateCodeArtifactId && unit.cffDeflattenAlternateOutputSha256 && unit.cffDeflattenAlternateSizeBytes
+            && unit.cffDeflattenAuditArtifactId && unit.cffDeflattenAuditSha256 && unit.cffDeflattenCommit === CFF_DEFLATTEN_COMMIT)
+          ? {
+            alternateProviderLineageJson: JSON.stringify({
+              ...(unit.reipaAlternateCodeArtifactId && unit.reipaAlternateOutputSha256 && unit.reipaAlternateSizeBytes
+                ? { 'reamon-reipa': {
+                  kind: 'co-run', upstreamProviderIds: [],
+                  selectionPolicy: 'ReIPA pseudocode extracted during the Ghidra analysis task; provider independence is unmeasured',
+                } } : {}),
+              ...(unit.bcfCleanAlternateCodeArtifactId && unit.bcfCleanAlternateOutputSha256 && unit.bcfCleanAlternateSizeBytes
+                && unit.bcfCleanAuditArtifactId && unit.bcfCleanAuditSha256 && unit.bcfCleanCommit === BCF_CLEAN_COMMIT
+                ? { 'reamon-ghidra-bcf-clean': {
+                  kind: 'derived-transform', upstreamProviderIds: ['reamon-ghidra'],
+                  selectionPolicy: 'emulation-verified BcfClean transformation of the Ghidra output',
+                } } : {}),
+              ...(unit.cffDeflattenAlternateCodeArtifactId && unit.cffDeflattenAlternateOutputSha256 && unit.cffDeflattenAlternateSizeBytes
+                && unit.cffDeflattenAuditArtifactId && unit.cffDeflattenAuditSha256 && unit.cffDeflattenCommit === CFF_DEFLATTEN_COMMIT
+                ? { 'reamon-ghidra-cff-deflatten': {
+                  kind: 'derived-transform', upstreamProviderIds: ['reamon-ghidra'],
+                  selectionPolicy: 'emulation-verified CffDeflatten transformation of the Ghidra output',
+                } } : {}),
+            }),
+          }
+          : {}),
         ...(unit.reipaAlternateCodeArtifactId && unit.reipaAlternateOutputSha256 && unit.reipaAlternateSizeBytes
           ? {
             reipaAlternateCodeArtifactId: unit.reipaAlternateCodeArtifactId.slice(0, 2000),
