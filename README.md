@@ -104,7 +104,7 @@ Latest evidence-based score change (2026-11-10): **+0.08 points** (33.71% → 33
 
 **Next measurable gate:** Extend held-out precision/recall from package-level declarations to file-scope and local symbols plus resolved references; add more Go repositories, external imports, build contexts, and additional languages, and report false-positive/false-negative and scale limits.
 
-Refreshed from pushed commit `fa43b35`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+Refreshed from pushed commit `cd932c7`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
