@@ -833,6 +833,81 @@ func TestProjectCatalogKeepsLocalInterfaceMethodsAndLabelsUnsupported(t *testing
 	}
 }
 
+func TestProjectInventoryAggregatesCompleteGoPackagesAcrossDirectories(t *testing.T) {
+	request := goProjectRequest([]projectFile{
+		{Path: "core/model.go", Source: "package core\nfunc normalize(value int) int { return value + 1 }\n"},
+		{Path: "core/use.go", Source: "package core\nfunc use() int { return normalize(4) }\n"},
+		{Path: "cmd/run.go", Source: "package cmd\nfunc run() int { return load() }\n"},
+		{Path: "cmd/data.go", Source: "package cmd\nfunc load() int { return 7 }\n"},
+	}, "core/model.go")
+	request.Operation = "project_inventory"
+
+	result, err := listProjectInventory(request)
+	if err != nil {
+		t.Fatalf("inventory Go project: %v", err)
+	}
+	inventory := result["inventory"].(map[string]any)
+	if inventory["scope"] != "verified-whole-project-go-source-snapshot" || inventory["complete"] != true ||
+		inventory["source_file_count"] != 4 || inventory["package_count"] != 2 ||
+		inventory["private_package_symbol_count"] != 4 || inventory["referenced_private_package_symbols"] != 2 ||
+		inventory["unreferenced_private_symbols"] != 2 || inventory["entry_count"] != 5 || inventory["entries_truncated"] != false {
+		t.Fatalf("whole-project inventory summary = %#v", inventory)
+	}
+	entries := inventory["entries"].([]projectInventoryEntry)
+	if len(entries) != 5 {
+		t.Fatalf("inventory entries = %d; want all four package functions and one local parameter", len(entries))
+	}
+	packagePaths := make(map[string]bool)
+	ids := make(map[string]bool)
+	for _, entry := range entries {
+		packagePaths[entry.RelativePath] = true
+		if ids[entry.ID] {
+			t.Fatalf("duplicate project inventory ID %q", entry.ID)
+		}
+		ids[entry.ID] = true
+	}
+	if !packagePaths["core/model.go"] || !packagePaths["core/use.go"] || !packagePaths["cmd/run.go"] || !packagePaths["cmd/data.go"] {
+		t.Fatalf("inventory paths = %#v; want rows from both package directories", packagePaths)
+	}
+	if len(result["packages"].([]map[string]any)) != 2 || result["source_set_sha256"] != hashProjectSources([]projectSourceFile{
+		{Path: "core/model.go", Text: request.Files[0].Source},
+		{Path: "core/use.go", Text: request.Files[1].Source},
+		{Path: "cmd/run.go", Text: request.Files[2].Source},
+		{Path: "cmd/data.go", Text: request.Files[3].Source},
+	}) {
+		t.Fatalf("project snapshot metadata = %#v", result)
+	}
+}
+
+func TestProjectInventoryRejectsIncompleteOrInvalidSourceSets(t *testing.T) {
+	base := goProjectRequest([]projectFile{
+		{Path: "pkg/a.go", Source: "package sample\nfunc a() int { return 1 }\n"},
+		{Path: "pkg/b.go", Source: "package sample\nfunc b() int { return a() }\n"},
+	}, "pkg/a.go")
+	base.Operation = "project_inventory"
+	base.Files = append(base.Files, projectFile{Path: "bad/c.go", Source: "package other\nfunc c() { missing() }\n", ExpectedHash: hashText("package other\nfunc c() { missing() }\n")})
+	if _, err := listProjectInventory(base); err == nil || !strings.Contains(err.Error(), "cannot inventory Go package bad") {
+		t.Fatalf("unresolved package inventory error = %v; want explicit incomplete package rejection", err)
+	}
+
+	base.Files = goProjectRequest([]projectFile{
+		{Path: "pkg/a.go", Source: "package sample\nfunc a() {}\n"},
+	}, "pkg/a.go").Files
+	base.SelectedPath = "../outside.go"
+	if _, err := listProjectInventory(base); err == nil || !strings.Contains(err.Error(), "path is invalid") {
+		t.Fatalf("unsafe selected path error = %v; want path rejection", err)
+	}
+
+	base = goProjectRequest([]projectFile{
+		{Path: "pkg/a.go", Source: "package sample\nfunc a() {}\n"},
+	}, "pkg/a.go")
+	base.Operation = "project_inventory"
+	base.Source = "package sample\nfunc different() {}\n"
+	if _, err := listProjectInventory(base); err == nil || !strings.Contains(err.Error(), "does not match the project inventory snapshot") {
+		t.Fatalf("stale selected source error = %v; want source snapshot rejection", err)
+	}
+}
+
 func TestProjectCatalogReportsMainEntrypointAsUnsupported(t *testing.T) {
 	request := goProjectRequest([]projectFile{
 		{Path: "cmd/tool/main.go", Source: "package main\nfunc main() {}\n"},

@@ -96,6 +96,7 @@ type projectCatalog struct {
 
 type projectInventory struct {
 	SourceFileCount                 int
+	PackageCount                    int
 	PrivatePackageSymbolCount       int
 	ReferencedPrivatePackageSymbols int
 	UnreferencedPrivateSymbols      int
@@ -164,6 +165,8 @@ func main() {
 		result, err = applyRenames(req)
 	case "project_bindings":
 		result, err = listProjectBindings(req)
+	case "project_inventory":
+		result, err = listProjectInventory(req)
 	case "project_rename":
 		result, err = applyProjectRenames(req)
 	default:
@@ -472,8 +475,8 @@ func projectPackageObjectKind(object types.Object) string {
 }
 
 func buildProjectCatalog(req request) (*projectCatalog, error) {
-	if len(req.Files) < 2 || len(req.Files) > maxProjectFiles {
-		return nil, fmt.Errorf("Go package rename requires between 2 and %d source files", maxProjectFiles)
+	if len(req.Files) < 1 || len(req.Files) > maxProjectFiles {
+		return nil, fmt.Errorf("Go package snapshot requires between 1 and %d source files", maxProjectFiles)
 	}
 	selectedPath, err := safeGoPath(req.SelectedPath)
 	if err != nil {
@@ -638,7 +641,7 @@ func buildProjectCatalog(req request) (*projectCatalog, error) {
 			}
 			offset := fileSet.PositionFor(position, false).Offset
 			entry := projectInventoryEntry{
-				ID: shortID(projectHash+"\x00"+file.Path, offset, object.Name()),
+				ID:   shortID(projectHash+"\x00"+file.Path, offset, object.Name()),
 				Name: object.Name(), Kind: "file import alias", Scope: "file", RelativePath: file.Path,
 				DeclarationStart: offset, ReferenceCount: useCounts[object], NameAssessment: "unassessed",
 			}
@@ -787,7 +790,7 @@ func buildProjectCatalog(req request) (*projectCatalog, error) {
 		filePath := localPathsByObject[object]
 		position := fileSet.PositionFor(declaration.Pos(), false)
 		entry := projectInventoryEntry{
-			ID: shortID(projectHash+"\x00"+filePath, position.Offset, declaration.Name),
+			ID:   shortID(projectHash+"\x00"+filePath, position.Offset, declaration.Name),
 			Name: declaration.Name, Kind: kind, Scope: "local", RelativePath: filePath,
 			DeclarationStart: position.Offset, ReferenceCount: useCounts[object], NameAssessment: "unassessed",
 		}
@@ -926,33 +929,192 @@ func listProjectBindings(req request) (map[string]any, error) {
 		"selected_path": cat.SelectedPath, "files": files,
 		"bindings": bindings, "truncated": cat.Truncated, "parser_version": runtime.Version(),
 		"inventory": map[string]any{
-			"scope":                              "reviewed-same-directory-go-package-source-snapshot",
-			"source_file_count":                  cat.Inventory.SourceFileCount,
-			"private_package_symbol_count":       cat.Inventory.PrivatePackageSymbolCount,
-			"referenced_private_package_symbols": cat.Inventory.ReferencedPrivatePackageSymbols,
-			"unreferenced_private_symbols":       cat.Inventory.UnreferencedPrivateSymbols,
-			"exported_package_symbol_count":      cat.Inventory.ExportedPackageSymbolCount,
-			"unsupported_package_symbol_count":   cat.Inventory.UnsupportedPackageSymbolCount,
-			"file_scope_symbol_count":            cat.Inventory.FileScopeSymbolCount,
-			"referenced_file_scope_symbols":      cat.Inventory.ReferencedFileScopeSymbols,
-			"unreferenced_file_scope_symbols":    cat.Inventory.UnreferencedFileScopeSymbols,
+			"scope":                               "reviewed-same-directory-go-package-source-snapshot",
+			"source_file_count":                   cat.Inventory.SourceFileCount,
+			"package_count":                       1,
+			"private_package_symbol_count":        cat.Inventory.PrivatePackageSymbolCount,
+			"referenced_private_package_symbols":  cat.Inventory.ReferencedPrivatePackageSymbols,
+			"unreferenced_private_symbols":        cat.Inventory.UnreferencedPrivateSymbols,
+			"exported_package_symbol_count":       cat.Inventory.ExportedPackageSymbolCount,
+			"unsupported_package_symbol_count":    cat.Inventory.UnsupportedPackageSymbolCount,
+			"file_scope_symbol_count":             cat.Inventory.FileScopeSymbolCount,
+			"referenced_file_scope_symbols":       cat.Inventory.ReferencedFileScopeSymbols,
+			"unreferenced_file_scope_symbols":     cat.Inventory.UnreferencedFileScopeSymbols,
 			"unsupported_file_scope_symbol_count": cat.Inventory.UnsupportedFileScopeSymbolCount,
-			"local_symbol_count":                cat.Inventory.LocalSymbolCount,
-			"referenced_local_symbols":           cat.Inventory.ReferencedLocalSymbols,
-			"unreferenced_local_symbols":         cat.Inventory.UnreferencedLocalSymbols,
-			"unsupported_local_symbol_count":     cat.Inventory.UnsupportedLocalSymbolCount,
-			"rename_binding_catalog_truncated":   cat.Truncated,
-			"entry_count":                        cat.Inventory.EntryCount,
-			"entries_truncated":                  cat.Inventory.EntriesTruncated,
-			"entries":                            cat.Inventory.Entries,
+			"local_symbol_count":                  cat.Inventory.LocalSymbolCount,
+			"referenced_local_symbols":            cat.Inventory.ReferencedLocalSymbols,
+			"unreferenced_local_symbols":          cat.Inventory.UnreferencedLocalSymbols,
+			"unsupported_local_symbol_count":      cat.Inventory.UnsupportedLocalSymbolCount,
+			"rename_binding_catalog_truncated":    cat.Truncated,
+			"entry_count":                         cat.Inventory.EntryCount,
+			"entries_truncated":                   cat.Inventory.EntriesTruncated,
+			"entries":                             cat.Inventory.Entries,
 		},
 	}, nil
+}
+
+func listProjectInventory(req request) (map[string]any, error) {
+	if len(req.Files) < 1 || len(req.Files) > maxProjectFiles {
+		return nil, fmt.Errorf("Go project inventory requires between 1 and %d source files", maxProjectFiles)
+	}
+	selectedPath, err := safeGoPath(req.SelectedPath)
+	if err != nil {
+		return nil, err
+	}
+	files := append([]projectFile(nil), req.Files...)
+	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
+	seenPaths := make(map[string]bool, len(files))
+	groups := make(map[string][]projectFile)
+	selectedHash := ""
+	totalBytes := 0
+	for _, file := range files {
+		filePath, pathErr := safeGoPath(file.Path)
+		if pathErr != nil || filePath != file.Path {
+			return nil, fmt.Errorf("Go project inventory requires normalized source paths")
+		}
+		pathKey := strings.ToLower(filePath)
+		if seenPaths[pathKey] {
+			return nil, fmt.Errorf("Go project source paths collide: %s", filePath)
+		}
+		seenPaths[pathKey] = true
+		totalBytes += len([]byte(file.Source))
+		if totalBytes > maxProjectBytes {
+			return nil, fmt.Errorf("Go project source exceeds the 8 MiB inventory limit")
+		}
+		fileHash := hashText(file.Source)
+		if file.ExpectedHash != "" && !strings.EqualFold(file.ExpectedHash, fileHash) {
+			return nil, fmt.Errorf("Go project source changed for %s", file.Path)
+		}
+		fileSet := token.NewFileSet()
+		astFile, parseErr := parser.ParseFile(fileSet, filePath, file.Source, parser.AllErrors|parser.ParseComments)
+		if parseErr != nil {
+			return nil, fmt.Errorf("Go parser rejected %s: %s", filePath, parseErr.Error())
+		}
+		for _, commentGroup := range astFile.Comments {
+			for _, comment := range commentGroup.List {
+				if strings.HasPrefix(comment.Text, "//go:build") || strings.HasPrefix(comment.Text, "// +build") {
+					return nil, fmt.Errorf("Go project inventory does not support build-constrained source files")
+				}
+			}
+		}
+		key := path.Dir(filePath) + "\x00" + astFile.Name.Name
+		groups[key] = append(groups[key], file)
+		if filePath == selectedPath {
+			if req.Source != file.Source {
+				return nil, fmt.Errorf("Selected Go source does not match the project inventory snapshot")
+			}
+			selectedHash = fileHash
+		}
+	}
+	if selectedHash == "" {
+		return nil, fmt.Errorf("Selected Go source is missing from the project inventory")
+	}
+	allSources := make([]projectSourceFile, 0, len(files))
+	resultFiles := make([]map[string]any, 0, len(files))
+	for _, file := range files {
+		allSources = append(allSources, projectSourceFile{Path: file.Path, Text: file.Source})
+		resultFiles = append(resultFiles, map[string]any{"relative_path": file.Path, "source_sha256": hashText(file.Source)})
+	}
+	projectHash := hashProjectSources(allSources)
+	groupKeys := make([]string, 0, len(groups))
+	for key := range groups {
+		groupKeys = append(groupKeys, key)
+	}
+	sort.Strings(groupKeys)
+	aggregate := projectInventory{SourceFileCount: len(files), PackageCount: len(groups)}
+	entries := make([]projectInventoryEntry, 0)
+	packages := make([]map[string]any, 0, len(groups))
+	for _, key := range groupKeys {
+		group := groups[key]
+		groupSelectedPath := group[0].Path
+		for _, file := range group {
+			if file.Path == selectedPath {
+				groupSelectedPath = selectedPath
+			}
+		}
+		groupSelectedSource := ""
+		for _, file := range group {
+			if file.Path == groupSelectedPath {
+				groupSelectedSource = file.Source
+			}
+		}
+		catalog, catalogErr := buildProjectCatalog(request{
+			SelectedPath: groupSelectedPath, Source: groupSelectedSource, Files: group,
+		})
+		if catalogErr != nil {
+			return nil, fmt.Errorf("cannot inventory Go package %s: %s", path.Dir(groupSelectedPath), catalogErr.Error())
+		}
+		addProjectInventoryCounts(&aggregate, catalog.Inventory)
+		packageName := catalog.Files[0].AST.Name.Name
+		packages = append(packages, map[string]any{
+			"directory": path.Dir(groupSelectedPath), "package_name": packageName,
+			"source_file_count": len(group), "source_set_sha256": catalog.SourceSetHash,
+		})
+		for _, entry := range catalog.Inventory.Entries {
+			entry.ID = shortID(projectHash+"\x00"+entry.RelativePath, entry.DeclarationStart, entry.Name)
+			entries = append(entries, entry)
+		}
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].RelativePath != entries[j].RelativePath {
+			return entries[i].RelativePath < entries[j].RelativePath
+		}
+		return entries[i].DeclarationStart < entries[j].DeclarationStart
+	})
+	aggregate.EntryCount = len(entries)
+	aggregate.EntriesTruncated = len(entries) > maxProjectInventoryEntries
+	if aggregate.EntriesTruncated {
+		entries = entries[:maxProjectInventoryEntries]
+	}
+	return map[string]any{
+		"source_sha256": selectedHash, "source_set_sha256": projectHash,
+		"selected_path": selectedPath, "files": resultFiles, "packages": packages,
+		"parser_version": runtime.Version(),
+		"inventory": map[string]any{
+			"scope": "verified-whole-project-go-source-snapshot", "complete": true,
+			"source_file_count": aggregate.SourceFileCount, "package_count": aggregate.PackageCount,
+			"private_package_symbol_count":        aggregate.PrivatePackageSymbolCount,
+			"referenced_private_package_symbols":  aggregate.ReferencedPrivatePackageSymbols,
+			"unreferenced_private_symbols":        aggregate.UnreferencedPrivateSymbols,
+			"exported_package_symbol_count":       aggregate.ExportedPackageSymbolCount,
+			"unsupported_package_symbol_count":    aggregate.UnsupportedPackageSymbolCount,
+			"file_scope_symbol_count":             aggregate.FileScopeSymbolCount,
+			"referenced_file_scope_symbols":       aggregate.ReferencedFileScopeSymbols,
+			"unreferenced_file_scope_symbols":     aggregate.UnreferencedFileScopeSymbols,
+			"unsupported_file_scope_symbol_count": aggregate.UnsupportedFileScopeSymbolCount,
+			"local_symbol_count":                  aggregate.LocalSymbolCount,
+			"referenced_local_symbols":            aggregate.ReferencedLocalSymbols,
+			"unreferenced_local_symbols":          aggregate.UnreferencedLocalSymbols,
+			"unsupported_local_symbol_count":      aggregate.UnsupportedLocalSymbolCount,
+			"entry_count":                         aggregate.EntryCount, "entries_truncated": aggregate.EntriesTruncated,
+			"entries": entries,
+		},
+	}, nil
+}
+
+func addProjectInventoryCounts(target *projectInventory, source projectInventory) {
+	target.PrivatePackageSymbolCount += source.PrivatePackageSymbolCount
+	target.ReferencedPrivatePackageSymbols += source.ReferencedPrivatePackageSymbols
+	target.UnreferencedPrivateSymbols += source.UnreferencedPrivateSymbols
+	target.ExportedPackageSymbolCount += source.ExportedPackageSymbolCount
+	target.UnsupportedPackageSymbolCount += source.UnsupportedPackageSymbolCount
+	target.FileScopeSymbolCount += source.FileScopeSymbolCount
+	target.ReferencedFileScopeSymbols += source.ReferencedFileScopeSymbols
+	target.UnreferencedFileScopeSymbols += source.UnreferencedFileScopeSymbols
+	target.UnsupportedFileScopeSymbolCount += source.UnsupportedFileScopeSymbolCount
+	target.LocalSymbolCount += source.LocalSymbolCount
+	target.ReferencedLocalSymbols += source.ReferencedLocalSymbols
+	target.UnreferencedLocalSymbols += source.UnreferencedLocalSymbols
+	target.UnsupportedLocalSymbolCount += source.UnsupportedLocalSymbolCount
 }
 
 func applyProjectRenames(req request) (map[string]any, error) {
 	cat, err := buildProjectCatalog(req)
 	if err != nil {
 		return nil, err
+	}
+	if len(cat.Files) < 2 {
+		return nil, fmt.Errorf("Cross-file Go rename requires at least two source files in the package")
 	}
 	if len(req.ExpectedHash) != 64 || strings.ToLower(req.ExpectedHash) != cat.SelectedHash || len(req.SourceSetHash) != 64 || strings.ToLower(req.SourceSetHash) != cat.SourceSetHash {
 		return nil, fmt.Errorf("Go package source changed after rename suggestions were generated")

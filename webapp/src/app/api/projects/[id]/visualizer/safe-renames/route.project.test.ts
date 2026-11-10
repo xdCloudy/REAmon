@@ -96,6 +96,8 @@ beforeEach(async () => {
       inputSha256: inputHash(selectedSource), projectSymbolContext: '', projectSymbolContextSha256: inputHash(''),
       goProjectScope: true, goSourceSetSha256: setHash([
         { relativePath: selectedPath, sourceCode: selectedSource }, { relativePath: siblingPath, sourceCode: siblingSource },
+      ]), goProjectInventorySourceSetSha256: setHash([
+        { relativePath: selectedPath, sourceCode: selectedSource }, { relativePath: siblingPath, sourceCode: siblingSource },
       ]), goSelectedPath: selectedPath,
       renames: [{ bindingId, oldName: 'normalize', newName: 'scale', kind: 'package function', rationale: 'clearer name' }],
     },
@@ -135,6 +137,16 @@ beforeEach(async () => {
         inventory: inventoryPayload,
       })
     }
+    if (body.operation === 'project_inventory') {
+      const files = [{ relativePath: selectedPath, sourceCode: selectedSource }, { relativePath: siblingPath, sourceCode: siblingSource }]
+      return jsonResponse({
+        source_sha256: inputHash(selectedSource), source_set_sha256: setHash(files), selected_path: selectedPath,
+        files: files.map((file) => ({ relative_path: file.relativePath, source_sha256: inputHash(file.sourceCode) })),
+        packages: [{ directory: 'pkg', package_name: 'sample', source_file_count: 2, source_set_sha256: setHash(files) }],
+        parser_version: 'go1.24.4',
+        inventory: { ...inventoryPayload, scope: 'verified-whole-project-go-source-snapshot', complete: true, package_count: 1, rename_binding_catalog_truncated: undefined },
+      })
+    }
     return jsonResponse({
       scope: 'project', source_sha256: inputHash(selectedSource),
       source_set_sha256: setHash([{ relativePath: selectedPath, sourceCode: selectedSource }, { relativePath: siblingPath, sourceCode: siblingSource }]),
@@ -170,7 +182,7 @@ describe('POST safe-renames Go package scope', () => {
     const body = await response.json()
     expect(response.status, JSON.stringify(body)).toBe(200)
     expect(body.projectInventory).toMatchObject({
-      scope: 'reviewed-same-directory-go-package-source-snapshot', sourceFileCount: 2,
+      scope: 'verified-whole-project-go-source-snapshot', complete: true, packageCount: 1, sourceFileCount: 2,
       privatePackageSymbolCount: 2, referencedPrivatePackageSymbols: 1, unreferencedPrivateSymbols: 1,
       fileScopeSymbolCount: 1, referencedFileScopeSymbols: 1, unreferencedFileScopeSymbols: 0, unsupportedFileScopeSymbolCount: 0,
       localSymbolCount: 2, referencedLocalSymbols: 2, unreferencedLocalSymbols: 0, unsupportedLocalSymbolCount: 0,
@@ -211,6 +223,100 @@ describe('POST safe-renames Go package scope', () => {
     expect(h.attemptCreate).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ requestPayload: expect.objectContaining({ projectSymbolScanTruncated: true }) }),
     }))
+  })
+
+  it('keeps package rename available when a wider project inventory cannot be verified', async () => {
+    const baseImplementation = h.agentFetch.getMockImplementation()
+    if (!baseImplementation) throw new Error('Expected the Go project helper fixture')
+    h.agentFetch.mockImplementation(async (url: string, init: RequestInit) => {
+      const request = JSON.parse(String(init.body)) as Record<string, unknown>
+      if (request.operation === 'project_inventory') {
+        return new Response(JSON.stringify({ error: 'cannot inventory Go package cmd: unresolved import' }), { status: 422 })
+      }
+      return baseImplementation(url, init)
+    })
+
+    const response = await POST(new Request('http://localhost/api/projects/project-1/visualizer/safe-renames', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ operation: 'suggest', unitId: 'unit-a', providerId: 'provider-1', sourceCode: selectedSource, crossFileGo: true }),
+    }), routeParams)
+
+    const body = await response.json()
+    expect(response.status, JSON.stringify(body)).toBe(200)
+    expect(body.projectInventory).toMatchObject({ scope: 'reviewed-same-directory-go-package-source-snapshot', sourceFileCount: 2 })
+    expect(body.projectInventoryError).toContain('unresolved import')
+    expect(h.attemptCreate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ requestPayload: expect.objectContaining({ goProjectInventoryError: expect.stringContaining('unresolved import') }) }),
+    }))
+  })
+
+  it('aggregates the verified project inventory across separate Go package directories', async () => {
+    const cmdSource = 'package cmd\nfunc runCmd() int { return 1 }\n'
+    const cmdPath = 'cmd/run.go'
+    const cmdCodeArtifactId = `project-1/artifact-1/task-1/run-1/sources/${cmdPath}`
+    await mkdir(path.dirname(path.join(root, cmdCodeArtifactId)), { recursive: true })
+    await writeFile(path.join(root, cmdCodeArtifactId), cmdSource)
+    h.observationFindMany.mockResolvedValue([
+      { id: 'unit-a', label: 'pkg.a', attributes: { language: 'Go', relativePath: selectedPath, qualifiedName: 'pkg.a', codeArtifactId: selectedCodeArtifactId } },
+      { id: 'unit-b', label: 'pkg.b', attributes: { language: 'Go', relativePath: siblingPath, qualifiedName: 'pkg.b', codeArtifactId: siblingCodeArtifactId } },
+      { id: 'unit-c', label: 'cmd.run', attributes: { language: 'Go', relativePath: cmdPath, qualifiedName: 'cmd.run', codeArtifactId: cmdCodeArtifactId } },
+    ])
+    h.maintainedFindMany.mockResolvedValue([
+      { codeUnitId: 'unit-b', sourceCode: siblingSource, sourceHash: inputHash(siblingSource), acceptedReviewId: 'review-b', relativePath: siblingPath },
+      { codeUnitId: 'unit-c', sourceCode: cmdSource, sourceHash: inputHash(cmdSource), acceptedReviewId: 'review-c', relativePath: cmdPath },
+    ])
+    h.reviewFindMany.mockResolvedValue([
+      { id: 'review-b', codeUnitId: 'unit-b', artifactId: 'artifact-1', maintainedSourceHash: inputHash(siblingSource), decision: 'ACCEPTED' },
+      { id: 'review-c', codeUnitId: 'unit-c', artifactId: 'artifact-1', maintainedSourceHash: inputHash(cmdSource), decision: 'ACCEPTED' },
+    ])
+    const baseImplementation = h.agentFetch.getMockImplementation()
+    if (!baseImplementation) throw new Error('Expected the Go project helper fixture')
+    h.agentFetch.mockImplementation(async (url: string, init: RequestInit) => {
+      const request = JSON.parse(String(init.body)) as Record<string, unknown>
+      if (request.operation !== 'project_inventory') return baseImplementation(url, init)
+      const files = request.files as Array<{ relative_path: string; source_code: string }>
+      const allFiles = files.map((file) => ({ relativePath: file.relative_path, sourceCode: file.source_code }))
+      const packageFiles = allFiles.filter((file) => file.relativePath.startsWith('pkg/'))
+      const cmdFiles = allFiles.filter((file) => file.relativePath.startsWith('cmd/'))
+      return jsonResponse({
+        source_sha256: inputHash(selectedSource), source_set_sha256: setHash(allFiles), selected_path: selectedPath,
+        files: allFiles.map((file) => ({ relative_path: file.relativePath, source_sha256: inputHash(file.sourceCode) })),
+        packages: [
+          { directory: 'cmd', package_name: 'cmd', source_file_count: 1, source_set_sha256: setHash(cmdFiles) },
+          { directory: 'pkg', package_name: 'sample', source_file_count: 2, source_set_sha256: setHash(packageFiles) },
+        ],
+        parser_version: 'go1.24.4',
+        inventory: {
+          ...inventoryPayload,
+          scope: 'verified-whole-project-go-source-snapshot', complete: true,
+          source_file_count: 3, package_count: 2, private_package_symbol_count: 3,
+          unreferenced_private_symbols: 2, entry_count: 6,
+          entries: [...inventoryPayload.entries, {
+            id: 'ffeeddccbbaa998877665544', name: 'runCmd', kind: 'package function', scope: 'package', relativePath: cmdPath,
+            declarationStart: 20, referenceCount: 0, exported: false, classification: 'excluded',
+            classificationReason: 'unreferenced-package-symbol', nameAssessment: 'unassessed',
+          }],
+        },
+      })
+    })
+
+    const response = await POST(new Request('http://localhost/api/projects/project-1/visualizer/safe-renames', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ operation: 'suggest', unitId: 'unit-a', providerId: 'provider-1', sourceCode: selectedSource, crossFileGo: true }),
+    }), routeParams)
+
+    const body = await response.json()
+    expect(response.status, JSON.stringify(body)).toBe(200)
+    expect(body.projectInventory).toMatchObject({
+      scope: 'verified-whole-project-go-source-snapshot', complete: true, sourceFileCount: 3, packageCount: 2,
+      privatePackageSymbolCount: 3, unreferencedPrivateSymbols: 2, entryCount: 6,
+      entries: expect.arrayContaining([expect.objectContaining({ name: 'runCmd', relativePath: cmdPath, classification: 'excluded' })]),
+    })
+    expect(body.projectInventorySourceSetSha256).toBe(setHash([
+      { relativePath: selectedPath, sourceCode: selectedSource },
+      { relativePath: siblingPath, sourceCode: siblingSource },
+      { relativePath: cmdPath, sourceCode: cmdSource },
+    ]))
   })
 
   it('type-checks and stores all cross-file changes as reviewable drafts atomically', async () => {

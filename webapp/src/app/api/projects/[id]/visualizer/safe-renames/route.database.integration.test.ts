@@ -81,7 +81,7 @@ describe.skipIf(!enabled)('Go package rename against PostgreSQL', () => {
       select: { id: true },
     })).id
     artifactsDirectory = await mkdtemp(path.join(os.tmpdir(), 'reamon-go-package-rename-db-'))
-    vi.stubEnv('REAMON_ARTIFACTS_PATH', artifactsDirectory)
+    vi.stubEnv('REAMON_DERIVED_PATH', artifactsDirectory)
 
     const artifact = await prisma.artifact.create({
       data: {
@@ -171,6 +171,28 @@ describe.skipIf(!enabled)('Go package rename against PostgreSQL', () => {
             scope: 'reviewed-same-directory-go-package-source-snapshot', source_file_count: 2,
             private_package_symbol_count: 2, referenced_private_package_symbols: 1, unreferenced_private_symbols: 1,
             exported_package_symbol_count: 0, unsupported_package_symbol_count: 0, rename_binding_catalog_truncated: false,
+            file_scope_symbol_count: 0, referenced_file_scope_symbols: 0, unreferenced_file_scope_symbols: 0, unsupported_file_scope_symbol_count: 0,
+            local_symbol_count: 0, referenced_local_symbols: 0, unreferenced_local_symbols: 0, unsupported_local_symbol_count: 0,
+            entry_count: 2, entries_truncated: false,
+            entries: [
+              { id: bindingId, name: 'fn', kind: 'package function', scope: 'package', relativePath: selectedPath, declarationStart: 20, referenceCount: 1, exported: false, classification: 'eligible', classificationReason: 'private-package-symbol-with-resolved-references', nameAssessment: 'unassessed' },
+              { id: 'abcdef0123456789abcdef01', name: 'run', kind: 'package function', scope: 'package', relativePath: siblingPath, declarationStart: 20, referenceCount: 0, exported: false, classification: 'excluded', classificationReason: 'unreferenced-package-symbol', nameAssessment: 'unassessed' },
+            ],
+          },
+        })
+      }
+      if (request.operation === 'project_inventory') {
+        const inventoryFiles = inputs.map((file) => ({ relative_path: file.relativePath, source_sha256: hash(file.sourceCode) }))
+        const projectSourceSet = sourceSetHash(inputs)
+        return jsonResponse({
+          source_sha256: hash(selectedSource), source_set_sha256: projectSourceSet, selected_path: selectedPath,
+          files: inventoryFiles,
+          packages: [{ directory: 'pkg', package_name: 'sample', source_file_count: 2, source_set_sha256: projectSourceSet }],
+          parser_version: 'go1.24.4',
+          inventory: {
+            scope: 'verified-whole-project-go-source-snapshot', complete: true, source_file_count: 2, package_count: 1,
+            private_package_symbol_count: 2, referenced_private_package_symbols: 1, unreferenced_private_symbols: 1,
+            exported_package_symbol_count: 0, unsupported_package_symbol_count: 0,
             file_scope_symbol_count: 0, referenced_file_scope_symbols: 0, unreferenced_file_scope_symbols: 0, unsupported_file_scope_symbol_count: 0,
             local_symbol_count: 0, referenced_local_symbols: 0, unreferenced_local_symbols: 0, unsupported_local_symbol_count: 0,
             entry_count: 2, entries_truncated: false,

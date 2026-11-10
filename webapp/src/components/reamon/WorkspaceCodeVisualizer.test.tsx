@@ -743,7 +743,7 @@ describe('WorkspaceCodeVisualizer', () => {
     const source = 'package sample\nfunc normalize(value int) int { return value }\n'
     const goUnit = unit({ language: 'Go', artifactPath: 'pkg/normalize.go', codeArtifactId: 'project-1/artifact-1/task-1/run-1/sources/pkg/normalize.go' })
     const inventory = {
-      scope: 'reviewed-same-directory-go-package-source-snapshot', sourceFileCount: 2,
+      scope: 'reviewed-same-directory-go-package-source-snapshot', complete: true, packageCount: 1, sourceFileCount: 2,
       privatePackageSymbolCount: 1, referencedPrivatePackageSymbols: 1, unreferencedPrivateSymbols: 0,
       exportedPackageSymbolCount: 0, unsupportedPackageSymbolCount: 0,
       fileScopeSymbolCount: 1, referencedFileScopeSymbols: 1, unreferencedFileScopeSymbols: 0, unsupportedFileScopeSymbolCount: 0,

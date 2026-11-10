@@ -100,6 +100,9 @@ function safeRenameCandidateCount(value: unknown): number | undefined {
 
 function safeGoProjectInventory(value: unknown) {
   const inventory = plainObject(value)
+  const scope = inventory.scope
+  const packageCount = inventory.packageCount ?? (scope === 'reviewed-same-directory-go-package-source-snapshot' ? 1 : undefined)
+  const complete = inventory.complete ?? (scope === 'reviewed-same-directory-go-package-source-snapshot' ? true : undefined)
   const rawEntries = Array.isArray(inventory.entries) ? inventory.entries : []
   const fileScopeSymbolCount = inventory.fileScopeSymbolCount ?? 0
   const referencedFileScopeSymbols = inventory.referencedFileScopeSymbols ?? 0
@@ -144,7 +147,8 @@ function safeGoProjectInventory(value: unknown) {
     : entryClassCounts.eligible === Number(inventory.referencedPrivatePackageSymbols) + Number(referencedFileScopeSymbols) + Number(inventory.referencedLocalSymbols)
       && entryClassCounts.excluded === Number(inventory.unreferencedPrivateSymbols) + Number(inventory.exportedPackageSymbolCount) + Number(unreferencedFileScopeSymbols) + Number(inventory.unreferencedLocalSymbols)
       && entryClassCounts.unsupported === Number(inventory.unsupportedPackageSymbolCount) + Number(unsupportedFileScopeSymbolCount) + Number(inventory.unsupportedLocalSymbolCount)
-  if (inventory.scope !== 'reviewed-same-directory-go-package-source-snapshot'
+  if (!['reviewed-same-directory-go-package-source-snapshot', 'verified-whole-project-go-source-snapshot'].includes(String(scope))
+      || complete !== true || !Number.isSafeInteger(packageCount) || Number(packageCount) < 1
       || !counts.every((count) => Number.isSafeInteger(count) && Number(count) >= 0)
       || inventory.privatePackageSymbolCount !== Number(inventory.referencedPrivatePackageSymbols) + Number(inventory.unreferencedPrivateSymbols)
       || Number(fileScopeSymbolCount) !== Number(referencedFileScopeSymbols) + Number(unreferencedFileScopeSymbols) + Number(unsupportedFileScopeSymbolCount)
@@ -156,8 +160,10 @@ function safeGoProjectInventory(value: unknown) {
       || entries.length !== rawEntries.length || inventory.entriesTruncated !== (entryCount > entries.length)
       || !entriesMatchCounts) return undefined
   return {
-    scope: inventory.scope,
+    scope,
+    complete,
     sourceFileCount: inventory.sourceFileCount,
+    packageCount,
     privatePackageSymbolCount: inventory.privatePackageSymbolCount,
     referencedPrivatePackageSymbols: inventory.referencedPrivatePackageSymbols,
     unreferencedPrivateSymbols: inventory.unreferencedPrivateSymbols,

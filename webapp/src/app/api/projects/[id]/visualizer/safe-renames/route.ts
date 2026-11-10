@@ -251,8 +251,10 @@ interface GoProjectRenameSelection {
 }
 
 interface GoProjectInventory {
-  scope: 'reviewed-same-directory-go-package-source-snapshot'
+  scope: 'reviewed-same-directory-go-package-source-snapshot' | 'verified-whole-project-go-source-snapshot'
+  complete: boolean
   sourceFileCount: number
+  packageCount: number
   privatePackageSymbolCount: number
   referencedPrivatePackageSymbols: number
   unreferencedPrivateSymbols: number
@@ -357,7 +359,9 @@ async function listGoProjectRenameBindings(files: GoPackageRenameFile[], selecte
   const rawEntries = Array.isArray(rawInventory.entries) ? rawInventory.entries.map(plainObject) : []
   const inventory = {
     scope: rawInventory.scope,
+    complete: rawInventory.complete ?? true,
     sourceFileCount: rawInventory.source_file_count,
+    packageCount: rawInventory.package_count ?? 1,
     privatePackageSymbolCount: rawInventory.private_package_symbol_count,
     referencedPrivatePackageSymbols: rawInventory.referenced_private_package_symbols,
     unreferencedPrivateSymbols: rawInventory.unreferenced_private_symbols,
@@ -396,6 +400,7 @@ async function listGoProjectRenameBindings(files: GoPackageRenameFile[], selecte
       || payload?.source_set_sha256 !== expectedSourceSetSha256
       || payload?.selected_path !== selectedPath || typeof payload?.truncated !== 'boolean'
       || inventory.scope !== 'reviewed-same-directory-go-package-source-snapshot'
+      || inventory.complete !== true || inventory.packageCount !== 1
       || ![inventory.sourceFileCount, inventory.privatePackageSymbolCount, inventory.referencedPrivatePackageSymbols,
         inventory.unreferencedPrivateSymbols, inventory.exportedPackageSymbolCount, inventory.unsupportedPackageSymbolCount,
         inventory.fileScopeSymbolCount, inventory.referencedFileScopeSymbols, inventory.unreferencedFileScopeSymbols, inventory.unsupportedFileScopeSymbolCount,
@@ -437,6 +442,91 @@ async function listGoProjectRenameBindings(files: GoPackageRenameFile[], selecte
     bindings: bindings as SafeRenameBinding[],
     truncated: payload.truncated,
     inventory: inventory as unknown as GoProjectInventory,
+  }
+}
+
+async function listGoProjectInventory(files: GoPackageRenameFile[], selectedPath: string): Promise<GoProjectInventory> {
+  const selected = files.find((file) => file.relativePath === selectedPath)
+  if (!selected || files.length < 1 || files.length > 256) throw new Error('The complete Go project source snapshot is unavailable or exceeds its file limit')
+  const response = await agentFetch('/reamon/code/go/refactor', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      operation: 'project_inventory', source_code: selected.sourceCode, selected_path: selectedPath,
+      files: files.map((file) => ({ relative_path: file.relativePath, source_code: file.sourceCode, expected_sha256: file.sourceHash })),
+    }),
+  }, { timeoutMs: 60_000 })
+  const payload = await response.json().catch(() => null) as Record<string, unknown> | null
+  const raw = plainObject(payload?.inventory)
+  const entries = Array.isArray(raw.entries) ? raw.entries.map(plainObject) : []
+  const listedFiles = Array.isArray(payload?.files) ? payload.files.map(plainObject) : []
+  const packages = Array.isArray(payload?.packages) ? payload.packages.map(plainObject) : []
+  const sourceByPath = new Map(files.map((file) => [file.relativePath, file.sourceCode]))
+  const expectedHash = hashGoPackageSourceSet(files)
+  const numericFields = [
+    raw.source_file_count, raw.package_count, raw.private_package_symbol_count,
+    raw.referenced_private_package_symbols, raw.unreferenced_private_symbols,
+    raw.exported_package_symbol_count, raw.unsupported_package_symbol_count,
+    raw.file_scope_symbol_count, raw.referenced_file_scope_symbols,
+    raw.unreferenced_file_scope_symbols, raw.unsupported_file_scope_symbol_count,
+    raw.local_symbol_count, raw.referenced_local_symbols, raw.unreferenced_local_symbols,
+    raw.unsupported_local_symbol_count, raw.entry_count,
+  ]
+  const classCounts = {
+    eligible: entries.filter((entry) => entry.classification === 'eligible').length,
+    excluded: entries.filter((entry) => entry.classification === 'excluded').length,
+    unsupported: entries.filter((entry) => entry.classification === 'unsupported').length,
+  }
+  const rowsMatchCounts = raw.entries_truncated === true
+    ? classCounts.eligible <= Number(raw.referenced_private_package_symbols) + Number(raw.referenced_file_scope_symbols) + Number(raw.referenced_local_symbols)
+      && classCounts.excluded <= Number(raw.unreferenced_private_symbols) + Number(raw.exported_package_symbol_count) + Number(raw.unreferenced_file_scope_symbols) + Number(raw.unreferenced_local_symbols)
+      && classCounts.unsupported <= Number(raw.unsupported_package_symbol_count) + Number(raw.unsupported_file_scope_symbol_count) + Number(raw.unsupported_local_symbol_count)
+    : classCounts.eligible === Number(raw.referenced_private_package_symbols) + Number(raw.referenced_file_scope_symbols) + Number(raw.referenced_local_symbols)
+      && classCounts.excluded === Number(raw.unreferenced_private_symbols) + Number(raw.exported_package_symbol_count) + Number(raw.unreferenced_file_scope_symbols) + Number(raw.unreferenced_local_symbols)
+      && classCounts.unsupported === Number(raw.unsupported_package_symbol_count) + Number(raw.unsupported_file_scope_symbol_count) + Number(raw.unsupported_local_symbol_count)
+  const packageCount = Number(raw.package_count)
+  const packageFilesCount = packages.reduce((sum, item) => sum + (Number.isSafeInteger(item.source_file_count) ? Number(item.source_file_count) : 0), 0)
+  const packageKeys = packages.map((item) => `${String(item.directory)}\0${String(item.package_name)}`)
+  if (!response.ok || payload?.source_sha256 !== selected.sourceHash || payload?.source_set_sha256 !== expectedHash
+      || payload?.selected_path !== selectedPath || raw.scope !== 'verified-whole-project-go-source-snapshot'
+      || raw.complete !== true || !numericFields.every((value) => Number.isSafeInteger(value) && Number(value) >= 0)
+      || Number(raw.source_file_count) !== files.length || packageCount !== packages.length || packageCount < 1
+      || packageFilesCount !== files.length || new Set(packageKeys).size !== packageKeys.length
+      || raw.private_package_symbol_count !== Number(raw.referenced_private_package_symbols) + Number(raw.unreferenced_private_symbols)
+      || raw.file_scope_symbol_count !== Number(raw.referenced_file_scope_symbols) + Number(raw.unreferenced_file_scope_symbols) + Number(raw.unsupported_file_scope_symbol_count)
+      || raw.local_symbol_count !== Number(raw.referenced_local_symbols) + Number(raw.unreferenced_local_symbols) + Number(raw.unsupported_local_symbol_count)
+      || raw.entry_count !== Number(raw.private_package_symbol_count) + Number(raw.exported_package_symbol_count) + Number(raw.unsupported_package_symbol_count) + Number(raw.file_scope_symbol_count) + Number(raw.local_symbol_count)
+      || typeof raw.entries_truncated !== 'boolean' || entries.length !== Math.min(Number(raw.entry_count), MAX_GO_PROJECT_INVENTORY_ENTRIES)
+      || raw.entries_truncated !== (Number(raw.entry_count) > entries.length)
+      || !entries.every((entry) => isValidGoProjectInventoryEntry(entry, sourceByPath))
+      || new Set(entries.map((entry) => entry.id)).size !== entries.length || !rowsMatchCounts
+      || listedFiles.length !== files.length || listedFiles.some((file, index) =>
+        file.relative_path !== files[index].relativePath || file.source_sha256 !== files[index].sourceHash)
+      || !packages.every((item) => typeof item.directory === 'string' && typeof item.package_name === 'string'
+        && /^[A-Za-z_][A-Za-z0-9_]*$/.test(item.package_name)
+        && Number.isSafeInteger(item.source_file_count) && Number(item.source_file_count) > 0
+        && /^[a-f0-9]{64}$/i.test(String(item.source_set_sha256)))
+      || typeof payload?.parser_version !== 'string' || !/^go\d+\.\d+\.\d+(?:[.-][0-9A-Za-z.-]+)?$/.test(payload.parser_version)) {
+    throw new Error(typeof payload?.error === 'string' ? payload.error : 'The Go refactoring service returned an invalid whole-project inventory')
+  }
+  return {
+    scope: 'verified-whole-project-go-source-snapshot', complete: true,
+    sourceFileCount: files.length, packageCount,
+    privatePackageSymbolCount: Number(raw.private_package_symbol_count),
+    referencedPrivatePackageSymbols: Number(raw.referenced_private_package_symbols),
+    unreferencedPrivateSymbols: Number(raw.unreferenced_private_symbols),
+    exportedPackageSymbolCount: Number(raw.exported_package_symbol_count),
+    unsupportedPackageSymbolCount: Number(raw.unsupported_package_symbol_count),
+    fileScopeSymbolCount: Number(raw.file_scope_symbol_count),
+    referencedFileScopeSymbols: Number(raw.referenced_file_scope_symbols),
+    unreferencedFileScopeSymbols: Number(raw.unreferenced_file_scope_symbols),
+    unsupportedFileScopeSymbolCount: Number(raw.unsupported_file_scope_symbol_count),
+    localSymbolCount: Number(raw.local_symbol_count),
+    referencedLocalSymbols: Number(raw.referenced_local_symbols),
+    unreferencedLocalSymbols: Number(raw.unreferenced_local_symbols),
+    unsupportedLocalSymbolCount: Number(raw.unsupported_local_symbol_count),
+    renameBindingCatalogTruncated: false,
+    entryCount: Number(raw.entry_count), entriesTruncated: Boolean(raw.entries_truncated),
+    entries: entries as unknown as GoProjectInventoryEntry[],
   }
 }
 
@@ -644,6 +734,121 @@ async function loadVerifiedGoPackageSnapshot(input: {
     })),
   })
   return snapshot.map((file) => ({ ...file, artifactSourceSha256: artifactHashes.get(file.codeUnitId) }))
+}
+
+async function loadVerifiedGoProjectSnapshot(input: {
+  projectId: string
+  artifactId: string
+  taskId: string
+  runKey: string
+  selectedUnitId: string
+  selectedPath: string
+  selectedSource: string
+  selectedArtifactSourceSha256: string
+}): Promise<GoPackageRenameFile[]> {
+  const unitRows = await prisma.reamonObservation.findMany({
+    where: { projectId: input.projectId, artifactId: input.artifactId, taskId: input.taskId, type: 'code_unit' },
+    orderBy: [{ stableKey: 'asc' }, { id: 'asc' }],
+    take: 5001,
+    select: { id: true, label: true, attributes: true },
+  })
+  if (unitRows.length > 5000) throw new GoPackageRenameSnapshotError('This Go run exceeds the bounded whole-project source inventory.', 413)
+  const units = unitRows.flatMap((unit) => {
+    const attributes = plainObject(unit.attributes)
+    const language = typeof attributes.language === 'string' ? attributes.language.trim().toLowerCase() : ''
+    if (!['go', 'golang'].includes(language)) return []
+    const relativePath = typeof attributes.relativePath === 'string' ? attributes.relativePath : ''
+    if (!isSafeGoPackagePath(relativePath)) {
+      throw new GoPackageRenameSnapshotError('A Go source in this analysis run has an invalid relative path.')
+    }
+    const codeArtifactId = typeof attributes.codeArtifactId === 'string' ? attributes.codeArtifactId : ''
+    if (codeArtifactId !== `${input.runKey}/sources/${relativePath}`) {
+      throw new GoPackageRenameSnapshotError(`Go source path for ${relativePath} does not match this analysis run.`)
+    }
+    return [{
+      unitId: unit.id,
+      unitName: (typeof attributes.qualifiedName === 'string' && attributes.qualifiedName)
+        || (typeof attributes.name === 'string' && attributes.name) || unit.label || relativePath,
+      relativePath,
+      codeArtifactId,
+    }]
+  })
+  if (!units.some((unit) => unit.unitId === input.selectedUnitId && unit.relativePath === input.selectedPath)) {
+    throw new GoPackageRenameSnapshotError('Selected Go source is not part of the complete analysis run.')
+  }
+  if (units.length > 256) throw new GoPackageRenameSnapshotError('Whole-project Go inventory is limited to 256 source files.', 413)
+  const pathCounts = new Set<string>()
+  for (const unit of units) {
+    const pathKey = unit.relativePath.toLowerCase()
+    if (pathCounts.has(pathKey)) throw new GoPackageRenameSnapshotError(`Go project contains duplicate source path ${unit.relativePath}.`)
+    pathCounts.add(pathKey)
+  }
+  const acceptedRows = units.length ? await prisma.reamonMaintainedSource.findMany({
+    where: { projectId: input.projectId, artifactId: input.artifactId, codeUnitId: { in: units.map((unit) => unit.unitId) }, acceptedReviewId: { not: null } },
+    orderBy: [{ relativePath: 'asc' }, { codeUnitId: 'asc' }],
+    take: 257,
+    select: { codeUnitId: true, sourceCode: true, sourceHash: true, acceptedReviewId: true, relativePath: true },
+  }) : []
+  if (acceptedRows.length > 256) throw new GoPackageRenameSnapshotError('Whole-project Go inventory is limited to 256 accepted source files.', 413)
+  const reviewIds = acceptedRows.flatMap((source) => source.acceptedReviewId ? [source.acceptedReviewId] : [])
+  const reviews = reviewIds.length ? await prisma.reamonCodeReview.findMany({
+    where: { projectId: input.projectId, artifactId: input.artifactId, id: { in: reviewIds }, decision: 'ACCEPTED' },
+    select: { id: true, codeUnitId: true, maintainedSourceHash: true, decision: true },
+  }) : []
+  const acceptedByUnit = new Map(acceptedRows.map((source) => [source.codeUnitId, source]))
+  const reviewsById = new Map(reviews.map((review) => [review.id, review]))
+  const rootRealPath = await realpath(derivedArtifactRoot())
+  const files: GoPackageRenameFile[] = []
+  let totalBytes = 0
+  for (const unit of units) {
+    const candidate = resolveDerivedArtifactPath(unit.codeArtifactId)
+    const safePath = await realpath(candidate).catch(() => null)
+    if (!safePath || !isInside(rootRealPath, safePath)) {
+      throw new GoPackageRenameSnapshotError(`Linked Go source ${unit.relativePath} is unavailable or outside derived storage.`)
+    }
+    const info = await stat(safePath)
+    if (!info.isFile() || info.size > MAX_SOURCE_BYTES) {
+      throw new GoPackageRenameSnapshotError(`${unit.relativePath} exceeds the 512 KiB whole-project source limit.`, 413)
+    }
+    const artifactBytes = await readFile(safePath)
+    try {
+      new TextDecoder('utf-8', { fatal: true }).decode(artifactBytes)
+    } catch {
+      throw new GoPackageRenameSnapshotError(`Linked Go source ${unit.relativePath} is not UTF-8 text.`)
+    }
+    const artifactHash = digest(artifactBytes)
+    if (unit.unitId === input.selectedUnitId && artifactHash !== input.selectedArtifactSourceSha256) {
+      throw new GoPackageRenameSnapshotError('The selected Go source changed while the project snapshot was loaded.')
+    }
+    const accepted = acceptedByUnit.get(unit.unitId)
+    let sourceCode: string
+    let acceptedReviewId: string | null = null
+    if (unit.unitId === input.selectedUnitId) {
+      sourceCode = input.selectedSource
+    } else {
+      const review = accepted?.acceptedReviewId ? reviewsById.get(accepted.acceptedReviewId) : undefined
+      const acceptedHash = accepted ? digest(Buffer.from(accepted.sourceCode, 'utf8')) : ''
+      if (!accepted || accepted.relativePath !== unit.relativePath || !accepted.sourceHash
+          || accepted.sourceHash.toLowerCase() !== acceptedHash || !review
+          || review.decision !== 'ACCEPTED' || review.codeUnitId !== unit.unitId
+          || review.maintainedSourceHash.toLowerCase() !== acceptedHash) {
+        throw new GoPackageRenameSnapshotError(`Go source ${unit.relativePath} is missing a current accepted review receipt.`)
+      }
+      sourceCode = accepted.sourceCode
+      acceptedReviewId = review.id
+    }
+    const sourceBytes = Buffer.byteLength(sourceCode, 'utf8')
+    totalBytes += sourceBytes
+    if (sourceBytes > 512 * 1024 || totalBytes > 8 * 1024 * 1024) {
+      throw new GoPackageRenameSnapshotError('Whole-project Go source exceeds the 8 MiB inventory limit.', 413)
+    }
+    files.push({
+      codeUnitId: unit.unitId, unitName: unit.unitName, relativePath: unit.relativePath,
+      sourceCode, sourceHash: digest(Buffer.from(sourceCode, 'utf8')), acceptedReviewId,
+      artifactSourceSha256: artifactHash,
+    })
+  }
+  return files.sort((left, right) => left.relativePath < right.relativePath ? -1 : left.relativePath > right.relativePath ? 1 : 0)
 }
 
 async function refactorRustBindings(
@@ -936,7 +1141,10 @@ export async function POST(request: Request, { params }: RouteParams) {
       || (typeof attributes.name === 'string' && attributes.name)
       || `Selected ${isJava ? 'Java' : isCSharp ? 'C#' : isGo ? 'Go' : isPython ? 'Python' : isPhp ? 'PHP' : isRuby ? 'Ruby' : isRust ? 'Rust' : isLua ? 'Lua' : 'JavaScript'} unit`
     let goPackageFiles: GoPackageRenameFile[] | null = null
+    let goProjectSourceFiles: GoPackageRenameFile[] | null = null
     let goProjectCatalog: Awaited<ReturnType<typeof listGoProjectRenameBindings>> | null = null
+    let goProjectInventoryError: string | null = null
+    let goProjectInventorySourceSetSha256: string | null = null
     if (crossFileGo) {
       if (!isGo) return NextResponse.json({ error: 'Cross-file package renaming is currently supported only for Go.' }, { status: 415 })
       const relativePath = typeof attributes.relativePath === 'string' ? attributes.relativePath : ''
@@ -946,6 +1154,15 @@ export async function POST(request: Request, { params }: RouteParams) {
           selectedUnitId: observation.id, selectedPath: relativePath, selectedSource: workingSource,
           selectedArtifactSourceSha256: artifactSourceSha256,
         })
+        try {
+          goProjectSourceFiles = await loadVerifiedGoProjectSnapshot({
+            projectId, artifactId: artifact.id, taskId: observation.taskId || '', runKey,
+            selectedUnitId: observation.id, selectedPath: relativePath, selectedSource: workingSource,
+            selectedArtifactSourceSha256: artifactSourceSha256,
+          })
+        } catch (inventoryError) {
+          goProjectInventoryError = inventoryError instanceof Error ? inventoryError.message : 'Whole-project Go inventory is unavailable.'
+        }
       } catch (error) {
         if (error instanceof GoPackageRenameSnapshotError) return NextResponse.json({ error: error.message }, { status: error.status })
         throw error
@@ -964,6 +1181,15 @@ export async function POST(request: Request, { params }: RouteParams) {
       goProjectCatalog = crossFileGo && goPackageFiles
         ? await listGoProjectRenameBindings(goPackageFiles, typeof attributes.relativePath === 'string' ? attributes.relativePath : '')
         : null
+      if (goProjectCatalog && goProjectSourceFiles) {
+        try {
+          goProjectCatalog.inventory = await listGoProjectInventory(goProjectSourceFiles, typeof attributes.relativePath === 'string' ? attributes.relativePath : '')
+          goProjectInventorySourceSetSha256 = hashGoPackageSourceSet(goProjectSourceFiles)
+          goProjectInventoryError = null
+        } catch (inventoryError) {
+          goProjectInventoryError = inventoryError instanceof Error ? inventoryError.message : 'Whole-project Go inventory is unavailable.'
+        }
+      }
       const catalog = goProjectCatalog ?? (isJava
         ? await refactorJavaBindings(workingSource, 'bindings') as SafeRenameCatalog
         : isCSharp
@@ -991,13 +1217,13 @@ export async function POST(request: Request, { params }: RouteParams) {
             providerName: 'REAmon scope-safe rename suggestions', modelIdentifier: provider.modelIdentifier.slice(0, 128),
             question: (typeof body.question === 'string' ? body.question : '').slice(0, 1000),
             scope: 'rename-suggestions', status: 'SUCCEEDED',
-            requestPayload: { operation: 'scope-safe-rename-suggestions', providerId: provider.id, modelIdentifier: provider.modelIdentifier, inputSha256: workingSourceSha256, artifactSourceSha256, inputSource: workingSource, bindings: [], projectSymbolContext: '', projectSymbolContextSha256, goProjectScope: crossFileGo, goSourceSetSha256: goProjectCatalog?.sourceSetSha256 ?? null, goSelectedPath: goProjectCatalog?.selectedPath ?? null, goProjectInventory: goProjectCatalog ? JSON.parse(JSON.stringify(goProjectCatalog.inventory)) : null, renames: [] },
+            requestPayload: { operation: 'scope-safe-rename-suggestions', providerId: provider.id, modelIdentifier: provider.modelIdentifier, inputSha256: workingSourceSha256, artifactSourceSha256, inputSource: workingSource, bindings: [], projectSymbolContext: '', projectSymbolContextSha256, goProjectScope: crossFileGo, goSourceSetSha256: goProjectCatalog?.sourceSetSha256 ?? null, goSelectedPath: goProjectCatalog?.selectedPath ?? null, goProjectInventorySourceSetSha256, goProjectInventoryError, goProjectInventory: goProjectCatalog ? JSON.parse(JSON.stringify(goProjectCatalog.inventory)) : null, renames: [] },
             syntaxValidated: false, validationStatus: 'UNAVAILABLE', validationMethod: 'proposal-only',
             validationMessage: 'No eligible obfuscated local bindings were found; no rename proposal was generated.', completedAt: new Date(),
           },
           select: { id: true },
         })
-        return NextResponse.json({ sourceSha256: workingSourceSha256, providerId: provider.id, providerName: 'REAmon scope-safe renames', model: provider.modelIdentifier, attemptId: savedAttempt.id, projectSymbolContextSha256, scope: crossFileGo ? 'project' : 'file', sourceSetSha256: goProjectCatalog?.sourceSetSha256 ?? null, projectInventory: goProjectCatalog?.inventory ?? null, candidates: 0, renames: [] }, { headers: { 'Cache-Control': 'private, no-store' } })
+        return NextResponse.json({ sourceSha256: workingSourceSha256, providerId: provider.id, providerName: 'REAmon scope-safe renames', model: provider.modelIdentifier, attemptId: savedAttempt.id, projectSymbolContextSha256, scope: crossFileGo ? 'project' : 'file', sourceSetSha256: goProjectCatalog?.sourceSetSha256 ?? null, projectInventorySourceSetSha256: goProjectInventorySourceSetSha256, projectInventoryError: goProjectInventoryError, projectInventory: goProjectCatalog?.inventory ?? null, candidates: 0, renames: [] }, { headers: { 'Cache-Control': 'private, no-store' } })
       }
 
       const priorAttempts = await prisma.reamonCodeAttempt.findMany({
@@ -1147,6 +1373,8 @@ export async function POST(request: Request, { params }: RouteParams) {
             goProjectScope: crossFileGo,
             goSourceSetSha256: goProjectCatalog?.sourceSetSha256 ?? null,
             goSelectedPath: goProjectCatalog?.selectedPath ?? null,
+            goProjectInventorySourceSetSha256,
+            goProjectInventoryError,
             goProjectInventory: goProjectCatalog ? JSON.parse(JSON.stringify(goProjectCatalog.inventory)) : null,
             bindings: candidates.map((candidate) => ({ id: candidate.id, name: candidate.name, kind: candidate.kind, scopeType: candidate.scopeType, referenceCount: candidate.referenceCount, exported: candidate.exported })),
             projectSymbolContext,
@@ -1173,6 +1401,8 @@ export async function POST(request: Request, { params }: RouteParams) {
         projectSymbolScanTruncated,
         scope: crossFileGo ? 'project' : 'file',
         sourceSetSha256: goProjectCatalog?.sourceSetSha256 ?? null,
+        projectInventorySourceSetSha256: goProjectInventorySourceSetSha256,
+        projectInventoryError: goProjectInventoryError,
         projectInventory: goProjectCatalog?.inventory ?? null,
         candidates: candidates.length,
         renames,
@@ -1208,11 +1438,21 @@ export async function POST(request: Request, { params }: RouteParams) {
     goProjectCatalog = crossFileGo && goPackageFiles
       ? await listGoProjectRenameBindings(goPackageFiles, typeof attributes.relativePath === 'string' ? attributes.relativePath : '')
       : null
+    if (goProjectCatalog && goProjectSourceFiles) {
+      try {
+        goProjectCatalog.inventory = await listGoProjectInventory(goProjectSourceFiles, typeof attributes.relativePath === 'string' ? attributes.relativePath : '')
+        goProjectInventorySourceSetSha256 = hashGoPackageSourceSet(goProjectSourceFiles)
+        goProjectInventoryError = null
+      } catch (inventoryError) {
+        goProjectInventoryError = inventoryError instanceof Error ? inventoryError.message : 'Whole-project Go inventory is unavailable.'
+      }
+    }
     if (!suggestionAttempt || proposalPayload.operation !== 'scope-safe-rename-suggestions' || proposalPayload.providerId !== provider.id
         || proposalPayload.modelIdentifier !== provider.modelIdentifier || proposalPayload.inputSha256 !== workingSourceSha256
         || proposalPayload.goProjectScope !== crossFileGo
         || (crossFileGo && (proposalPayload.goSourceSetSha256 !== goProjectCatalog?.sourceSetSha256
-          || proposalPayload.goSelectedPath !== goProjectCatalog?.selectedPath))
+          || proposalPayload.goSelectedPath !== goProjectCatalog?.selectedPath
+          || (proposalPayload.goProjectInventorySourceSetSha256 ?? null) !== goProjectInventorySourceSetSha256))
         || typeof proposalPayload.projectSymbolContext !== 'string' || typeof proposalPayload.projectSymbolContextSha256 !== 'string'
         || proposalPayload.projectSymbolContextSha256 !== digest(Buffer.from(proposalPayload.projectSymbolContext, 'utf8'))) {
       return NextResponse.json({ error: 'The saved rename proposal does not match this source and project context; generate suggestions again' }, { status: 409 })

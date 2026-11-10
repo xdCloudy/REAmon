@@ -83,6 +83,32 @@ class GoRefactorApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 400, response.text)
         self.assertIn("source-set SHA-256", response.json()["error"])
 
+    def test_whole_project_inventory_accepts_a_single_file_package(self):
+        forwarded = {}
+
+        class Process:
+            returncode = 0
+
+            async def communicate(self, payload):
+                forwarded.update(json.loads(payload))
+                return json.dumps({"inventory": {"complete": True}}).encode(), b""
+
+        async def create_process(*_args, **_kwargs):
+            return Process()
+
+        files = [{"relative_path": "cmd/main.go", "source_code": "package main\n"}]
+        with patch.object(self.api.asyncio, "create_subprocess_exec", create_process):
+            response = self.client.post("/reamon/code/go/refactor", json={
+                "operation": "project_inventory",
+                "source_code": files[0]["source_code"],
+                "selected_path": "cmd/main.go",
+                "files": files,
+            })
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(forwarded["operation"], "project_inventory")
+        self.assertEqual(forwarded["files"], [{**files[0], "expected_sha256": ""}])
+
     def test_project_snapshot_file_count_is_bounded(self):
         files = [
             {"relative_path": f"pkg/f{index}.go", "source_code": "package sample\n"}
