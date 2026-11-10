@@ -88,7 +88,7 @@ The [autonomous reconstruction and fidelity delivery plan](docs/REAMON_AUTONOMOU
 
 Latest evidence-based score change (2026-11-10): **+0.03 points** (31.86% → 31.89%). A clean same-revision matrix at 3b67737c measured all 12 metrics across one JVM/CFR and one PyInstaller fixture, with distinct hash-bound toolchains and zero deltas. This completed the named heterogeneous repeatability gate and raised benchmark completion from 21% to 22% (+0.03 overall); it is not a product-improvement result.
 
-Refreshed from pushed commit `ed4f213`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+Refreshed from pushed commit `e482dc7`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
