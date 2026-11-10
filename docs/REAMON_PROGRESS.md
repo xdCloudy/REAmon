@@ -1,18 +1,17 @@
 # REAmon product progress
 
-Assessment date: 2026-11-10 · Source: pushed commit `574f585` · Weighted estimate: **32.43%**
+Assessment date: 2026-11-10 · Source: pushed commit `c52bcf8` · Weighted estimate: **32.51%**
 
 This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.
 
 ## Recent activity (2026-11-10)
 
-- Rename-suggestion responses now disclose when the bounded 4,096-row accepted-project-symbol scan is truncated. The visualizer warns that older accepted project evidence may be missing; the saved proposal retains the same flag.
-- A Docker route regression supplies 4,097 synthetic rows and verifies both response disclosure and persisted proposal metadata. Focused safe-renames tests pass 4/4; Docker type-check and targeted ESLint pass.
-- The full Docker webapp suite passes 649 files / 9,912 tests, with 2 expected failures and 52 files / 192 skipped. The edited wiki checkout was excluded using an isolated copy.
+- The Go project_bindings operation now reports an inventory for the verified same-directory package snapshot: source-file count; referenced and unreferenced private package symbols; exported and unsupported package declarations; and rename-catalog truncation. The safe-renames route validates the source-set hash, file list, count invariants, and truncation agreement, then returns and saves the inventory with the proposal. Draft history validates and reloads it, and the visualizer labels counts as reviewed-snapshot-only.
+- Docker Go package tests pass, including exact counts for referenced/unreferenced declarations and unsupported init/main functions. Focused Docker safe-renames, draft-history, and visualizer tests pass 45/45; Docker type-check and targeted ESLint pass.
 
-**Score decision:** No weighted credit is added for this transparency improvement: the route still does not provide a complete project inventory, an eligible-symbol denominator, or benchmarked semantic naming quality. The overall weighted estimate remains 32.43% (0.00-point change).
+**Score decision:** This adds a measurable inventory slice for supported Go package declarations, so Agentic project-wide semantic renaming increases from 16% to 17%. With its 8% goal weight, the overall weighted estimate rises from 32.43% to 32.51% (+0.08 points). This is not a complete project inventory: locals, name-quality classes, whole-project completeness, and semantic naming benchmarks remain open.
 
-**Next measurable gate:** Build a reproducible project-wide symbol inventory for a declared supported scope, accounting for eligible, already meaningful, unnamed, ambiguous, excluded, and unsupported symbols with explicit denominator and truncation evidence.
+**Next measurable gate:** Extend reproducible inventory coverage beyond same-directory Go package declarations; account for eligible, already meaningful, unnamed, ambiguous, excluded, unsupported, and truncated symbols over declared complete project scopes, then measure naming quality and false-positive rates on held-out fixtures.
 
 | Workstream | Goal weight | Estimated complete | Weighted points |
 | --- | ---: | ---: | ---: |
@@ -22,7 +21,7 @@ This estimate covers the reverse-engineering product goal and secure production 
 | Maintainable editing, review, and export | 4% | 60% | 2.40 pts |
 | Fixture-backed validation and fidelity evidence | 2% | 16% | 0.32 pts |
 | Security, reliability, and production operations | 10% | 98% | 9.80 pts |
-| Agentic project-wide semantic renaming | 8% | 16% | 1.28 pts |
+| Agentic project-wide semantic renaming | 8% | 17% | 1.36 pts |
 | Cross-file semantic rename propagation | 7% | 13% | 0.91 pts |
 | Safe autonomous rename acceptance | 5% | 0% | 0.00 pts |
 | Agentic semantic type and data-structure recovery | 5% | 12% | 0.60 pts |
@@ -77,9 +76,9 @@ This estimate covers the reverse-engineering product goal and secure production 
 
 ### Agentic project-wide semantic renaming
 
-**Current evidence:** Partial foundations exist: project symbol scans, stable identities and accepted aliases, provider and cross-provider evidence, bounded project memory, AI rename proposals, and selected language-aware same-source binding adapters. There is no validated autonomous end-to-end workflow that discovers and iteratively names all eligible symbols project-wide. On 2026-11-10, rename-suggestion responses began returning the accepted-project-symbol scan truncation flag; the visualizer warns that older evidence may be missing. A Docker route regression supplies 4,097 mocked rows against the 4,096 scan cap and verifies both response disclosure and the saved proposal record. This prevents silent partial-context use but does not add a whole-project inventory, eligible-symbol denominator, or semantic naming benchmark.
+**Current evidence:** Partial foundations now include a verified inventory for same-directory Go package snapshots in the project rename workflow. The response and saved proposal report source-file count, referenced/unreferenced private package declarations, exported/unsupported package declarations, and whether the rename-binding list was truncated. Route validation binds counts to the exact source-set hash and reviewed file list; draft history validates and reloads saved counts; the visualizer labels the inventory scope. This does not cover locals, establish complete project-file discovery beyond the supplied reviewed snapshot, classify symbols as meaningful/unnamed/ambiguous, or measure semantic naming quality. Autonomous discovery and iterative naming remain incomplete.
 
-**Remaining:** Implement a complete project inventory, evidence-linked proposals for supported symbol kinds, iterative refinement without identity drift, explicit confidence/uncertainty/provenance, and benchmarked semantic usefulness, discovery coverage, cross-agent consistency, calibration, false-positive rate, and large-project performance. Do not require exact original names erased by compilation.
+**Remaining:** Extend inventories across declared complete project scopes and supported languages/symbol kinds; classify eligible, meaningful, unnamed, ambiguous, excluded, unsupported, and truncated populations; add evidence-linked proposals, iterative refinement without identity drift, confidence/provenance, and held-out measurements of semantic usefulness, coverage, consistency, calibration, false positives, and scale. Do not require exact original names erased by compilation.
 
 ### Cross-file semantic rename propagation
 
