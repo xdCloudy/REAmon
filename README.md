@@ -88,7 +88,7 @@ The [autonomous reconstruction and fidelity delivery plan](docs/REAMON_AUTONOMOU
 
 Latest evidence-based score change (2026-11-10): **+0.08 points** (32.51% → 32.59%). The verified same-directory Go package snapshot now returns, persists, and reloads per-declaration inventory rows with source-bound IDs, locations, reference counts, explicit eligibility/exclusion/unsupported reasons, and nameAssessment=unassessed. Exact aggregate counts survive the 5,000-row detail cap. Docker Go tests verify a 5,001-row truncation case; focused route/history/UI tests pass 45/45; Docker type-check and targeted ESLint pass. Full Docker webapp run: 648 files and 9,912 tests passed, 52 files skipped, and two onboarding image assertions failed because the isolated wiki copy omitted image assets; after copying all referenced images, the onboarding test passes 65/65. The full suite was not rerun. Database integration remains unverified. This earns one partial point in the 8%-weight semantic-renaming workstream (+0.08 overall); whole-project completeness and naming-quality benchmarks remain open.
 
-Refreshed from pushed commit `33c3453`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+Refreshed from pushed commit `449f49e`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
