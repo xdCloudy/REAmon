@@ -35,6 +35,9 @@ type request struct {
 	ExpectedHash  string            `json:"expected_sha256"`
 	SourceSetHash string            `json:"source_set_sha256"`
 	SelectedPath  string            `json:"selected_path"`
+	ModulePath    string            `json:"module_path"`
+	ModuleRoot    string            `json:"module_root"`
+	PackagePath   string            `json:"-"`
 	Files         []projectFile     `json:"files"`
 	Renames       []renameSelection `json:"renames"`
 }
@@ -475,6 +478,10 @@ func projectPackageObjectKind(object types.Object) string {
 }
 
 func buildProjectCatalog(req request) (*projectCatalog, error) {
+	return buildProjectCatalogWithImporter(req, importer.Default())
+}
+
+func buildProjectCatalogWithImporter(req request, packageImporter types.Importer) (*projectCatalog, error) {
 	if len(req.Files) < 1 || len(req.Files) > maxProjectFiles {
 		return nil, fmt.Errorf("Go package snapshot requires between 1 and %d source files", maxProjectFiles)
 	}
@@ -546,8 +553,12 @@ func buildProjectCatalog(req request) (*projectCatalog, error) {
 		Scopes: make(map[ast.Node]*types.Scope), Implicits: make(map[ast.Node]types.Object),
 	}
 	var typeErrors []error
-	conf := types.Config{Importer: importer.Default(), Error: func(err error) { typeErrors = append(typeErrors, err) }}
-	pkg, _ := conf.Check(packageName, fileSet, astFiles, info)
+	conf := types.Config{Importer: packageImporter, Error: func(err error) { typeErrors = append(typeErrors, err) }}
+	checkPath := req.PackagePath
+	if checkPath == "" {
+		checkPath = packageName
+	}
+	pkg, _ := conf.Check(checkPath, fileSet, astFiles, info)
 	if len(typeErrors) > 0 || pkg == nil {
 		return nil, fmt.Errorf("Go package has unresolved type or reference errors; cross-file rename requires a complete package type-check")
 	}
@@ -961,6 +972,15 @@ func listProjectInventory(req request) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
+	if req.ModulePath != "" && !safeGoModuleImportPath(req.ModulePath) {
+		return nil, fmt.Errorf("Go module path is invalid")
+	}
+	if req.ModuleRoot != "" {
+		moduleRoot, rootErr := safeGoModuleRoot(req.ModuleRoot)
+		if rootErr != nil || moduleRoot != req.ModuleRoot || req.ModulePath == "" {
+			return nil, fmt.Errorf("Go module root is invalid")
+		}
+	}
 	files := append([]projectFile(nil), req.Files...)
 	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
 	seenPaths := make(map[string]bool, len(files))
@@ -1021,6 +1041,30 @@ func listProjectInventory(req request) (map[string]any, error) {
 		groupKeys = append(groupKeys, key)
 	}
 	sort.Strings(groupKeys)
+	packageRequests := make(map[string]request, len(groups))
+	importPaths := make(map[string]string, len(groups))
+	for _, key := range groupKeys {
+		group := groups[key]
+		packageDir := path.Dir(group[0].Path)
+		importPath, pathErr := projectPackageImportPath(req.ModulePath, req.ModuleRoot, packageDir)
+		if pathErr != nil {
+			return nil, pathErr
+		}
+		if importPath == "" {
+			continue
+		}
+		if previous, exists := importPaths[importPath]; exists {
+			return nil, fmt.Errorf("Go module package path %s is ambiguous between %s and %s", importPath, previous, packageDir)
+		}
+		importPaths[importPath] = packageDir
+		packageRequests[importPath] = request{
+			SelectedPath: group[0].Path, Source: group[0].Source, Files: group, PackagePath: importPath,
+		}
+	}
+	projectImporter := &goProjectImporter{
+		packages: packageRequests, catalogs: make(map[string]*projectCatalog),
+		visiting: make(map[string]bool), fallback: importer.Default(),
+	}
 	aggregate := projectInventory{SourceFileCount: len(files), PackageCount: len(groups)}
 	entries := make([]projectInventoryEntry, 0)
 	packages := make([]map[string]any, 0, len(groups))
@@ -1038,11 +1082,21 @@ func listProjectInventory(req request) (map[string]any, error) {
 				groupSelectedSource = file.Source
 			}
 		}
-		catalog, catalogErr := buildProjectCatalog(request{
-			SelectedPath: groupSelectedPath, Source: groupSelectedSource, Files: group,
-		})
+		packageDir := path.Dir(groupSelectedPath)
+		importPath, pathErr := projectPackageImportPath(req.ModulePath, req.ModuleRoot, packageDir)
+		if pathErr != nil {
+			return nil, pathErr
+		}
+		packageRequest := request{SelectedPath: groupSelectedPath, Source: groupSelectedSource, Files: group}
+		var catalog *projectCatalog
+		var catalogErr error
+		if importPath != "" {
+			catalog, catalogErr = projectImporter.load(importPath)
+		} else {
+			catalog, catalogErr = buildProjectCatalog(packageRequest)
+		}
 		if catalogErr != nil {
-			return nil, fmt.Errorf("cannot inventory Go package %s: %s", path.Dir(groupSelectedPath), catalogErr.Error())
+			return nil, fmt.Errorf("cannot inventory Go package %s: %s", packageDir, catalogErr.Error())
 		}
 		addProjectInventoryCounts(&aggregate, catalog.Inventory)
 		packageName := catalog.Files[0].AST.Name.Name
@@ -1068,7 +1122,8 @@ func listProjectInventory(req request) (map[string]any, error) {
 	}
 	return map[string]any{
 		"source_sha256": selectedHash, "source_set_sha256": projectHash,
-		"selected_path": selectedPath, "files": resultFiles, "packages": packages,
+		"selected_path": selectedPath, "module_path": req.ModulePath, "module_root": req.ModuleRoot,
+		"files": resultFiles, "packages": packages,
 		"parser_version": runtime.Version(),
 		"inventory": map[string]any{
 			"scope": "verified-whole-project-go-source-snapshot", "complete": true,
@@ -1090,6 +1145,94 @@ func listProjectInventory(req request) (map[string]any, error) {
 			"entries": entries,
 		},
 	}, nil
+}
+
+func projectPackageImportPath(modulePath, moduleRoot, packageDir string) (string, error) {
+	if modulePath == "" {
+		return "", nil
+	}
+	moduleRelativeDir := packageDir
+	if moduleRoot != "" {
+		if packageDir == moduleRoot {
+			moduleRelativeDir = "."
+		} else if strings.HasPrefix(packageDir, moduleRoot+"/") {
+			moduleRelativeDir = strings.TrimPrefix(packageDir, moduleRoot+"/")
+		} else {
+			return "", fmt.Errorf("Go source directory %s is outside the declared module root", packageDir)
+		}
+	}
+	if moduleRelativeDir == "." {
+		return modulePath, nil
+	}
+	return modulePath + "/" + moduleRelativeDir, nil
+}
+
+type goProjectImporter struct {
+	packages map[string]request
+	catalogs map[string]*projectCatalog
+	visiting map[string]bool
+	fallback types.Importer
+}
+
+func (i *goProjectImporter) Import(importPath string) (*types.Package, error) {
+	if _, exists := i.packages[importPath]; exists {
+		catalog, err := i.load(importPath)
+		if err != nil {
+			return nil, err
+		}
+		return catalog.Package, nil
+	}
+	return i.fallback.Import(importPath)
+}
+
+func (i *goProjectImporter) load(importPath string) (*projectCatalog, error) {
+	if catalog := i.catalogs[importPath]; catalog != nil {
+		return catalog, nil
+	}
+	request, exists := i.packages[importPath]
+	if !exists {
+		return nil, fmt.Errorf("Go project package %s is not in the source snapshot", importPath)
+	}
+	if i.visiting[importPath] {
+		return nil, fmt.Errorf("Go project package import cycle at %s", importPath)
+	}
+	i.visiting[importPath] = true
+	catalog, err := buildProjectCatalogWithImporter(request, i)
+	delete(i.visiting, importPath)
+	if err != nil {
+		return nil, err
+	}
+	i.catalogs[importPath] = catalog
+	return catalog, nil
+}
+
+func safeGoModuleImportPath(value string) bool {
+	if len(value) == 0 || len(value) > 500 || strings.HasPrefix(value, ".") || strings.HasSuffix(value, ".") {
+		return false
+	}
+	for _, part := range strings.Split(value, "/") {
+		if part == "" || part == "." || part == ".." || strings.ContainsAny(part, "\\:@% ") {
+			return false
+		}
+	}
+	return true
+}
+
+func safeGoModuleRoot(value string) (string, error) {
+	if value == "" {
+		return "", nil
+	}
+	clean := path.Clean(value)
+	if clean != value || strings.HasPrefix(value, "/") || strings.Contains(value, "\\") ||
+		strings.HasPrefix(value, "../") || value == ".." {
+		return "", fmt.Errorf("Go module root is invalid")
+	}
+	for _, part := range strings.Split(value, "/") {
+		if part == "" || part == "." || part == ".." {
+			return "", fmt.Errorf("Go module root is invalid")
+		}
+	}
+	return value, nil
 }
 
 func addProjectInventoryCounts(target *projectInventory, source projectInventory) {

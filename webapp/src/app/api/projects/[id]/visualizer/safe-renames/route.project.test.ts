@@ -7,7 +7,7 @@ import path from 'node:path'
 
 const h = vi.hoisted(() => ({
   user: vi.fn(), access: vi.fn(), selection: vi.fn(), observationFindFirst: vi.fn(), observationFindMany: vi.fn(),
-  artifactFindFirst: vi.fn(), maintainedFindMany: vi.fn(), reviewFindMany: vi.fn(), attemptFindFirst: vi.fn(),
+  artifactFindFirst: vi.fn(), artifactFindMany: vi.fn(), maintainedFindMany: vi.fn(), reviewFindMany: vi.fn(), attemptFindFirst: vi.fn(),
   providerFindFirst: vi.fn(), agentFetch: vi.fn(), root: vi.fn(), resolvePath: vi.fn(), transaction: vi.fn(), attemptCreate: vi.fn(), attemptFindMany: vi.fn(),
   txAttemptCreate: vi.fn(), txDraftCreate: vi.fn(),
 }))
@@ -15,10 +15,11 @@ const h = vi.hoisted(() => ({
 vi.mock('@/lib/access', () => ({ requireEffectiveUser: h.user, requireProjectAccessStrict: h.access }))
 vi.mock('@/lib/reamon/inventory-query', () => ({ getActiveWorkspaceImportSelection: h.selection }))
 vi.mock('@/lib/reamon/derived-storage', () => ({ derivedArtifactRoot: h.root, resolveDerivedArtifactPath: h.resolvePath }))
+vi.mock('@/lib/reamon/artifact-storage', () => ({ resolveArtifactStoragePath: (value: string) => value }))
 vi.mock('@/lib/agentFetch', () => ({ agentFetch: h.agentFetch }))
 vi.mock('@/lib/prisma', () => ({ default: {
   reamonObservation: { findFirst: h.observationFindFirst, findMany: h.observationFindMany },
-  artifact: { findFirst: h.artifactFindFirst },
+  artifact: { findFirst: h.artifactFindFirst, findMany: h.artifactFindMany },
   reamonMaintainedSource: { findMany: h.maintainedFindMany },
   reamonCodeReview: { findMany: h.reviewFindMany },
   reamonCodeAttempt: { findFirst: h.attemptFindFirst, findMany: h.attemptFindMany, create: h.attemptCreate },
@@ -60,6 +61,9 @@ const setHash = (files: Array<{ relativePath: string; sourceCode: string }>) => 
   }
   return hash.digest('hex')
 }
+const inventoryScopeHash = (files: Array<{ relativePath: string; sourceCode: string }>, module = { moduleRoot: '', modulePath: '', manifestSha256: '' }) => createHash('sha256')
+  .update('reamon-go-project-inventory-v1\0').update(setHash(files)).update('\0')
+  .update(module.moduleRoot).update('\0').update(module.modulePath).update('\0').update(module.manifestSha256).digest('hex')
 const routeParams = { params: Promise.resolve({ id: 'project-1' }) }
 let root = ''
 
@@ -82,6 +86,7 @@ beforeEach(async () => {
     { id: 'unit-b', label: 'pkg.b', attributes: { language: 'Go', relativePath: siblingPath, qualifiedName: 'pkg.b', codeArtifactId: siblingCodeArtifactId } },
   ])
   h.artifactFindFirst.mockResolvedValue({ id: 'artifact-1', sha256: 'a'.repeat(64) })
+  h.artifactFindMany.mockResolvedValue([])
   h.maintainedFindMany.mockResolvedValue([{
     codeUnitId: 'unit-b', sourceCode: siblingSource, sourceHash: inputHash(siblingSource),
     acceptedReviewId: 'review-b', relativePath: siblingPath,
@@ -96,7 +101,7 @@ beforeEach(async () => {
       inputSha256: inputHash(selectedSource), projectSymbolContext: '', projectSymbolContextSha256: inputHash(''),
       goProjectScope: true, goSourceSetSha256: setHash([
         { relativePath: selectedPath, sourceCode: selectedSource }, { relativePath: siblingPath, sourceCode: siblingSource },
-      ]), goProjectInventorySourceSetSha256: setHash([
+      ]), goProjectInventorySourceSetSha256: inventoryScopeHash([
         { relativePath: selectedPath, sourceCode: selectedSource }, { relativePath: siblingPath, sourceCode: siblingSource },
       ]), goSelectedPath: selectedPath,
       renames: [{ bindingId, oldName: 'normalize', newName: 'scale', kind: 'package function', rationale: 'clearer name' }],
@@ -141,6 +146,7 @@ beforeEach(async () => {
       const files = [{ relativePath: selectedPath, sourceCode: selectedSource }, { relativePath: siblingPath, sourceCode: siblingSource }]
       return jsonResponse({
         source_sha256: inputHash(selectedSource), source_set_sha256: setHash(files), selected_path: selectedPath,
+        module_path: body.module_path, module_root: body.module_root,
         files: files.map((file) => ({ relative_path: file.relativePath, source_sha256: inputHash(file.sourceCode) })),
         packages: [{ directory: 'pkg', package_name: 'sample', source_file_count: 2, source_set_sha256: setHash(files) }],
         parser_version: 'go1.24.4',
@@ -250,6 +256,33 @@ describe('POST safe-renames Go package scope', () => {
     }))
   })
 
+  it('uses the hash-verified workspace go.mod to resolve the project module path', async () => {
+    const goMod = 'module example.test/project\n\ngo 1.24\n'
+    const manifestPath = path.join(root, 'pkg', 'go.mod')
+    await mkdir(path.dirname(manifestPath), { recursive: true })
+    await writeFile(manifestPath, goMod)
+    h.artifactFindMany.mockResolvedValue([{
+      relativePath: 'pkg/go.mod', storagePath: manifestPath, sizeBytes: BigInt(Buffer.byteLength(goMod)), sha256: inputHash(goMod),
+    }])
+
+    const response = await POST(new Request('http://localhost/api/projects/project-1/visualizer/safe-renames', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ operation: 'suggest', unitId: 'unit-a', providerId: 'provider-1', sourceCode: selectedSource, crossFileGo: true }),
+    }), routeParams)
+
+    const body = await response.json()
+    expect(response.status, JSON.stringify(body)).toBe(200)
+    const inventoryRequest = h.agentFetch.mock.calls
+      .map((call: Array<unknown>) => JSON.parse(String((call[1] as RequestInit).body)) as Record<string, unknown>)
+      .find((request) => request.operation === 'project_inventory')
+    expect(inventoryRequest).toMatchObject({ module_path: 'example.test/project', module_root: 'pkg' })
+    expect(h.attemptCreate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ requestPayload: expect.objectContaining({
+        goProjectModulePath: 'example.test/project', goProjectModuleRoot: 'pkg', goProjectModuleManifestSha256: inputHash(goMod),
+      }) }),
+    }))
+  })
+
   it('aggregates the verified project inventory across separate Go package directories', async () => {
     const cmdSource = 'package cmd\nfunc runCmd() int { return 1 }\n'
     const cmdPath = 'cmd/run.go'
@@ -280,6 +313,7 @@ describe('POST safe-renames Go package scope', () => {
       const cmdFiles = allFiles.filter((file) => file.relativePath.startsWith('cmd/'))
       return jsonResponse({
         source_sha256: inputHash(selectedSource), source_set_sha256: setHash(allFiles), selected_path: selectedPath,
+        module_path: request.module_path, module_root: request.module_root,
         files: allFiles.map((file) => ({ relative_path: file.relativePath, source_sha256: inputHash(file.sourceCode) })),
         packages: [
           { directory: 'cmd', package_name: 'cmd', source_file_count: 1, source_set_sha256: setHash(cmdFiles) },
@@ -312,7 +346,7 @@ describe('POST safe-renames Go package scope', () => {
       privatePackageSymbolCount: 3, unreferencedPrivateSymbols: 2, entryCount: 6,
       entries: expect.arrayContaining([expect.objectContaining({ name: 'runCmd', relativePath: cmdPath, classification: 'excluded' })]),
     })
-    expect(body.projectInventorySourceSetSha256).toBe(setHash([
+    expect(body.projectInventorySourceSetSha256).toBe(inventoryScopeHash([
       { relativePath: selectedPath, sourceCode: selectedSource },
       { relativePath: siblingPath, sourceCode: siblingSource },
       { relativePath: cmdPath, sourceCode: cmdSource },

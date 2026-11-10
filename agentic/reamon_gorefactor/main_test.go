@@ -879,6 +879,52 @@ func TestProjectInventoryAggregatesCompleteGoPackagesAcrossDirectories(t *testin
 	}
 }
 
+func TestProjectInventoryResolvesImportsBetweenModulePackages(t *testing.T) {
+	request := goProjectRequest([]projectFile{
+		{Path: "src/lib/lib.go", Source: "package lib\ntype Item struct { Value int }\nfunc Make() Item { return Item{Value: 7} }\n"},
+		{Path: "src/cmd/main.go", Source: "package main\nimport dep \"example.test/project/lib\"\nfunc main() { item := dep.Make(); _ = item.Value }\n"},
+	}, "src/cmd/main.go")
+	request.Operation = "project_inventory"
+	request.ModulePath = "example.test/project"
+	request.ModuleRoot = "src"
+
+	result, err := listProjectInventory(request)
+	if err != nil {
+		t.Fatalf("inventory module with local package import: %v", err)
+	}
+	inventory := result["inventory"].(map[string]any)
+	if inventory["complete"] != true || inventory["source_file_count"] != 2 || inventory["package_count"] != 2 {
+		t.Fatalf("module inventory summary = %#v", inventory)
+	}
+	entries := inventory["entries"].([]projectInventoryEntry)
+	var importAlias *projectInventoryEntry
+	for index := range entries {
+		if entries[index].Kind == "file import alias" && entries[index].Name == "dep" {
+			importAlias = &entries[index]
+		}
+	}
+	if importAlias == nil || importAlias.Classification != "eligible" || importAlias.ReferenceCount != 1 {
+		t.Fatalf("local module import alias = %+v; want one resolved reference", importAlias)
+	}
+}
+
+func TestProjectInventoryRejectsInvalidModuleContext(t *testing.T) {
+	request := goProjectRequest([]projectFile{
+		{Path: "pkg/a.go", Source: "package sample\nfunc a() {}\n"},
+	}, "pkg/a.go")
+	request.Operation = "project_inventory"
+	request.ModulePath = "example.test/project"
+	request.ModuleRoot = "../outside"
+	if _, err := listProjectInventory(request); err == nil || !strings.Contains(err.Error(), "module root is invalid") {
+		t.Fatalf("invalid module root error = %v", err)
+	}
+	request.ModuleRoot = ""
+	request.ModulePath = "example.test//project"
+	if _, err := listProjectInventory(request); err == nil || !strings.Contains(err.Error(), "module path is invalid") {
+		t.Fatalf("invalid module path error = %v", err)
+	}
+}
+
 func TestProjectInventoryRejectsIncompleteOrInvalidSourceSets(t *testing.T) {
 	base := goProjectRequest([]projectFile{
 		{Path: "pkg/a.go", Source: "package sample\nfunc a() int { return 1 }\n"},

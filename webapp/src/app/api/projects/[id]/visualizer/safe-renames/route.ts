@@ -2,11 +2,13 @@ import { createHash } from 'node:crypto'
 import { readFile, realpath, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { NextResponse } from 'next/server'
+import { Prisma } from '@prisma/client'
 import prisma from '@/lib/prisma'
 import { agentFetch } from '@/lib/agentFetch'
 import { requireEffectiveUser, requireProjectAccessStrict } from '@/lib/access'
 import { getActiveWorkspaceImportSelection } from '@/lib/reamon/inventory-query'
 import { derivedArtifactRoot, resolveDerivedArtifactPath } from '@/lib/reamon/derived-storage'
+import { resolveArtifactStoragePath } from '@/lib/reamon/artifact-storage'
 import { applySafeRenameBindings, listSafeRenameBindings, type SafeRenameBinding, type SafeRenameCatalog, type SafeRenameResult } from '@/lib/reamon/webcrack'
 import { buildProjectSymbolContext } from '@/lib/reamon/maintenance-memory'
 import {
@@ -24,9 +26,68 @@ const MAX_SUGGESTION_SOURCE_BYTES = 64 * 1024
 const MAX_CANDIDATES = 200
 const MAX_PROJECT_SYMBOL_SCAN = 4_096
 const MAX_GO_PROJECT_INVENTORY_ENTRIES = 5_000
+const MAX_GO_MODULE_MANIFEST_BYTES = 1024 * 1024
+
+interface GoModuleInventoryContext {
+  modulePath: string
+  moduleRoot: string
+  manifestSha256: string
+}
 
 function plainObject(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+}
+
+function hashGoProjectInventoryScope(files: GoPackageRenameFile[], module: GoModuleInventoryContext): string {
+  return createHash('sha256')
+    .update('reamon-go-project-inventory-v1\0')
+    .update(hashGoPackageSourceSet(files)).update('\0')
+    .update(module.moduleRoot).update('\0').update(module.modulePath).update('\0').update(module.manifestSha256)
+    .digest('hex')
+}
+
+function goModuleRoot(relativePath: string): string {
+  const normalized = relativePath.replace(/\\/g, '/')
+  if (normalized.toLowerCase() === 'go.mod') return ''
+  return normalized.toLowerCase().endsWith('/go.mod') ? normalized.slice(0, -'/go.mod'.length) : ''
+}
+
+async function loadGoModuleInventoryContext(
+  artifactWhere: Prisma.ArtifactWhereInput,
+  sourcePaths: string[],
+): Promise<GoModuleInventoryContext> {
+  const candidates = await prisma.artifact.findMany({
+    where: { ...artifactWhere, relativePath: { endsWith: 'go.mod', mode: 'insensitive' } },
+    orderBy: [{ relativePath: 'asc' }, { id: 'asc' }],
+    take: 128,
+    select: { relativePath: true, storagePath: true, sizeBytes: true, sha256: true },
+  })
+  const matching = candidates.filter((artifact) => {
+    const root = goModuleRoot(artifact.relativePath)
+    return sourcePaths.every((sourcePath) => !root || sourcePath.startsWith(`${root}/`))
+  }).sort((left, right) => goModuleRoot(right.relativePath).length - goModuleRoot(left.relativePath).length)
+  if (!matching.length) return { modulePath: '', moduleRoot: '', manifestSha256: '' }
+
+  const manifest = matching[0]
+  const moduleRoot = goModuleRoot(manifest.relativePath)
+  if (manifest.sizeBytes > BigInt(MAX_GO_MODULE_MANIFEST_BYTES)) throw new Error('Go module manifest exceeds the 1 MiB inventory limit.')
+  const bytes = await readFile(resolveArtifactStoragePath(manifest.storagePath))
+  const manifestSha256 = digest(bytes)
+  if (bytes.length !== Number(manifest.sizeBytes) || manifestSha256 !== manifest.sha256.toLowerCase()) {
+    throw new Error('The imported go.mod changed or no longer matches the workspace; reimport it before inventory.')
+  }
+  let text: string
+  try {
+    text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+  } catch {
+    throw new Error('The imported go.mod is not valid UTF-8 text.')
+  }
+  const moduleDirective = text.match(/^\s*module\s+(?:"([^"\r\n]+)"|([^\s\r\n]+))\s*(?:\/\/[^\r\n]*)?\s*$/m)
+  const modulePath = moduleDirective?.[1] || moduleDirective?.[2] || ''
+  if (!modulePath || modulePath.includes('\\') || modulePath.split('/').some((part) => !part || part === '.' || part === '..')) {
+    throw new Error('The imported go.mod has no valid module path for Go project inventory.')
+  }
+  return { modulePath, moduleRoot, manifestSha256 }
 }
 
 function isInside(root: string, file: string): boolean {
@@ -445,13 +506,18 @@ async function listGoProjectRenameBindings(files: GoPackageRenameFile[], selecte
   }
 }
 
-async function listGoProjectInventory(files: GoPackageRenameFile[], selectedPath: string): Promise<GoProjectInventory> {
+async function listGoProjectInventory(
+  files: GoPackageRenameFile[],
+  selectedPath: string,
+  module: GoModuleInventoryContext,
+): Promise<GoProjectInventory> {
   const selected = files.find((file) => file.relativePath === selectedPath)
   if (!selected || files.length < 1 || files.length > 256) throw new Error('The complete Go project source snapshot is unavailable or exceeds its file limit')
   const response = await agentFetch('/reamon/code/go/refactor', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       operation: 'project_inventory', source_code: selected.sourceCode, selected_path: selectedPath,
+      module_path: module.modulePath, module_root: module.moduleRoot,
       files: files.map((file) => ({ relative_path: file.relativePath, source_code: file.sourceCode, expected_sha256: file.sourceHash })),
     }),
   }, { timeoutMs: 60_000 })
@@ -487,6 +553,7 @@ async function listGoProjectInventory(files: GoPackageRenameFile[], selectedPath
   const packageFilesCount = packages.reduce((sum, item) => sum + (Number.isSafeInteger(item.source_file_count) ? Number(item.source_file_count) : 0), 0)
   const packageKeys = packages.map((item) => `${String(item.directory)}\0${String(item.package_name)}`)
   if (!response.ok || payload?.source_sha256 !== selected.sourceHash || payload?.source_set_sha256 !== expectedHash
+      || payload?.module_path !== module.modulePath || payload?.module_root !== module.moduleRoot
       || payload?.selected_path !== selectedPath || raw.scope !== 'verified-whole-project-go-source-snapshot'
       || raw.complete !== true || !numericFields.every((value) => Number.isSafeInteger(value) && Number(value) >= 0)
       || Number(raw.source_file_count) !== files.length || packageCount !== packages.length || packageCount < 1
@@ -1145,6 +1212,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     let goProjectCatalog: Awaited<ReturnType<typeof listGoProjectRenameBindings>> | null = null
     let goProjectInventoryError: string | null = null
     let goProjectInventorySourceSetSha256: string | null = null
+    let goProjectModuleContext: GoModuleInventoryContext = { modulePath: '', moduleRoot: '', manifestSha256: '' }
     if (crossFileGo) {
       if (!isGo) return NextResponse.json({ error: 'Cross-file package renaming is currently supported only for Go.' }, { status: 415 })
       const relativePath = typeof attributes.relativePath === 'string' ? attributes.relativePath : ''
@@ -1160,6 +1228,9 @@ export async function POST(request: Request, { params }: RouteParams) {
             selectedUnitId: observation.id, selectedPath: relativePath, selectedSource: workingSource,
             selectedArtifactSourceSha256: artifactSourceSha256,
           })
+          goProjectModuleContext = await loadGoModuleInventoryContext(
+            selection.artifactWhere, goProjectSourceFiles.map((file) => file.relativePath),
+          )
         } catch (inventoryError) {
           goProjectInventoryError = inventoryError instanceof Error ? inventoryError.message : 'Whole-project Go inventory is unavailable.'
         }
@@ -1183,8 +1254,10 @@ export async function POST(request: Request, { params }: RouteParams) {
         : null
       if (goProjectCatalog && goProjectSourceFiles) {
         try {
-          goProjectCatalog.inventory = await listGoProjectInventory(goProjectSourceFiles, typeof attributes.relativePath === 'string' ? attributes.relativePath : '')
-          goProjectInventorySourceSetSha256 = hashGoPackageSourceSet(goProjectSourceFiles)
+          goProjectCatalog.inventory = await listGoProjectInventory(
+            goProjectSourceFiles, typeof attributes.relativePath === 'string' ? attributes.relativePath : '', goProjectModuleContext,
+          )
+          goProjectInventorySourceSetSha256 = hashGoProjectInventoryScope(goProjectSourceFiles, goProjectModuleContext)
           goProjectInventoryError = null
         } catch (inventoryError) {
           goProjectInventoryError = inventoryError instanceof Error ? inventoryError.message : 'Whole-project Go inventory is unavailable.'
@@ -1217,7 +1290,7 @@ export async function POST(request: Request, { params }: RouteParams) {
             providerName: 'REAmon scope-safe rename suggestions', modelIdentifier: provider.modelIdentifier.slice(0, 128),
             question: (typeof body.question === 'string' ? body.question : '').slice(0, 1000),
             scope: 'rename-suggestions', status: 'SUCCEEDED',
-            requestPayload: { operation: 'scope-safe-rename-suggestions', providerId: provider.id, modelIdentifier: provider.modelIdentifier, inputSha256: workingSourceSha256, artifactSourceSha256, inputSource: workingSource, bindings: [], projectSymbolContext: '', projectSymbolContextSha256, goProjectScope: crossFileGo, goSourceSetSha256: goProjectCatalog?.sourceSetSha256 ?? null, goSelectedPath: goProjectCatalog?.selectedPath ?? null, goProjectInventorySourceSetSha256, goProjectInventoryError, goProjectInventory: goProjectCatalog ? JSON.parse(JSON.stringify(goProjectCatalog.inventory)) : null, renames: [] },
+            requestPayload: { operation: 'scope-safe-rename-suggestions', providerId: provider.id, modelIdentifier: provider.modelIdentifier, inputSha256: workingSourceSha256, artifactSourceSha256, inputSource: workingSource, bindings: [], projectSymbolContext: '', projectSymbolContextSha256, goProjectScope: crossFileGo, goSourceSetSha256: goProjectCatalog?.sourceSetSha256 ?? null, goSelectedPath: goProjectCatalog?.selectedPath ?? null, goProjectInventorySourceSetSha256, goProjectModulePath: goProjectModuleContext.modulePath, goProjectModuleRoot: goProjectModuleContext.moduleRoot, goProjectModuleManifestSha256: goProjectModuleContext.manifestSha256, goProjectInventoryError, goProjectInventory: goProjectCatalog ? JSON.parse(JSON.stringify(goProjectCatalog.inventory)) : null, renames: [] },
             syntaxValidated: false, validationStatus: 'UNAVAILABLE', validationMethod: 'proposal-only',
             validationMessage: 'No eligible obfuscated local bindings were found; no rename proposal was generated.', completedAt: new Date(),
           },
@@ -1374,6 +1447,9 @@ export async function POST(request: Request, { params }: RouteParams) {
             goSourceSetSha256: goProjectCatalog?.sourceSetSha256 ?? null,
             goSelectedPath: goProjectCatalog?.selectedPath ?? null,
             goProjectInventorySourceSetSha256,
+            goProjectModulePath: goProjectModuleContext.modulePath,
+            goProjectModuleRoot: goProjectModuleContext.moduleRoot,
+            goProjectModuleManifestSha256: goProjectModuleContext.manifestSha256,
             goProjectInventoryError,
             goProjectInventory: goProjectCatalog ? JSON.parse(JSON.stringify(goProjectCatalog.inventory)) : null,
             bindings: candidates.map((candidate) => ({ id: candidate.id, name: candidate.name, kind: candidate.kind, scopeType: candidate.scopeType, referenceCount: candidate.referenceCount, exported: candidate.exported })),
@@ -1440,8 +1516,10 @@ export async function POST(request: Request, { params }: RouteParams) {
       : null
     if (goProjectCatalog && goProjectSourceFiles) {
       try {
-        goProjectCatalog.inventory = await listGoProjectInventory(goProjectSourceFiles, typeof attributes.relativePath === 'string' ? attributes.relativePath : '')
-        goProjectInventorySourceSetSha256 = hashGoPackageSourceSet(goProjectSourceFiles)
+        goProjectCatalog.inventory = await listGoProjectInventory(
+          goProjectSourceFiles, typeof attributes.relativePath === 'string' ? attributes.relativePath : '', goProjectModuleContext,
+        )
+        goProjectInventorySourceSetSha256 = hashGoProjectInventoryScope(goProjectSourceFiles, goProjectModuleContext)
         goProjectInventoryError = null
       } catch (inventoryError) {
         goProjectInventoryError = inventoryError instanceof Error ? inventoryError.message : 'Whole-project Go inventory is unavailable.'

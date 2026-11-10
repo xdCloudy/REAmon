@@ -654,6 +654,8 @@ class ReamonGoRefactorRequest(BaseModel):
     expected_sha256: str = ""
     source_set_sha256: str = ""
     selected_path: str = ""
+    module_path: str = ""
+    module_root: str = ""
     files: list[ReamonGoProjectFile] = Field(default_factory=list)
     renames: list[dict[str, Any]] = Field(default_factory=list)
 
@@ -1968,7 +1970,10 @@ async def refactor_reamon_go_source(body: ReamonGoRefactorRequest):
     is_project = body.operation in {"project_bindings", "project_inventory", "project_rename"}
     minimum_files = 1 if body.operation == "project_inventory" else 2
     project_bytes = sum(len(item.source_code.encode("utf-8")) for item in body.files)
-    request_bytes = sum(len(item.relative_path.encode("utf-8")) + len(item.expected_sha256) + 256 for item in body.files)
+    request_bytes = (
+        len(body.module_path.encode("utf-8")) + len(body.module_root.encode("utf-8"))
+        + sum(len(item.relative_path.encode("utf-8")) + len(item.expected_sha256) + 256 for item in body.files)
+    )
     if is_project and (len(body.files) < minimum_files or len(body.files) > 256 or project_bytes > 8 * 1024 * 1024):
         return JSONResponse(content={"error": "The Go project snapshot exceeds its file-count or 8 MiB limit"}, status_code=413)
     if (not is_project and len(body.source_code.encode("utf-8")) > 512 * 1024) or len(body.renames) > 80 or request_bytes > 10 * 1024 * 1024:
@@ -1989,6 +1994,8 @@ async def refactor_reamon_go_source(body: ReamonGoRefactorRequest):
             "expected_sha256": body.expected_sha256,
             "source_set_sha256": body.source_set_sha256,
             "selected_path": body.selected_path,
+            "module_path": body.module_path,
+            "module_root": body.module_root,
             "files": [item.model_dump() for item in body.files],
             "renames": body.renames,
         }).encode("utf-8")), timeout=60 if is_project else 20)

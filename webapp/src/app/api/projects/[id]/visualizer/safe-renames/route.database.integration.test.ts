@@ -82,6 +82,7 @@ describe.skipIf(!enabled)('Go package rename against PostgreSQL', () => {
     })).id
     artifactsDirectory = await mkdtemp(path.join(os.tmpdir(), 'reamon-go-package-rename-db-'))
     vi.stubEnv('REAMON_DERIVED_PATH', artifactsDirectory)
+    vi.stubEnv('REAMON_ARTIFACTS_PATH', artifactsDirectory)
 
     const artifact = await prisma.artifact.create({
       data: {
@@ -92,6 +93,14 @@ describe.skipIf(!enabled)('Go package rename against PostgreSQL', () => {
       select: { id: true },
     })
     artifactId = artifact.id
+    const goMod = 'module example.test/fixture\n\ngo 1.24\n'
+    await writeFile(path.join(artifactsDirectory, 'go.mod'), goMod, 'utf8')
+    await prisma.artifact.create({
+      data: {
+        projectId, name: 'go.mod', originalName: 'go.mod', relativePath: 'go.mod', storagePath: 'go.mod',
+        sha256: hash(goMod), sizeBytes: BigInt(Buffer.byteLength(goMod)), extension: '.mod',
+      },
+    })
     taskId = (await prisma.task.create({
       data: { projectId, artifactId, capability: 'decompile', title: 'Go package rename acceptance', status: 'COMPLETED' },
       select: { id: true },
@@ -186,6 +195,7 @@ describe.skipIf(!enabled)('Go package rename against PostgreSQL', () => {
         const projectSourceSet = sourceSetHash(inputs)
         return jsonResponse({
           source_sha256: hash(selectedSource), source_set_sha256: projectSourceSet, selected_path: selectedPath,
+          module_path: request.module_path, module_root: request.module_root,
           files: inventoryFiles,
           packages: [{ directory: 'pkg', package_name: 'sample', source_file_count: 2, source_set_sha256: projectSourceSet }],
           parser_version: 'go1.24.4',
@@ -234,7 +244,13 @@ describe.skipIf(!enabled)('Go package rename against PostgreSQL', () => {
     expect(proposal).toMatchObject({ scope: 'project', candidates: 1, sourceSetSha256: expect.stringMatching(/^[a-f0-9]{64}$/), projectInventory: { sourceFileCount: 2, privatePackageSymbolCount: 2, referencedPrivatePackageSymbols: 1, unreferencedPrivateSymbols: 1, entryCount: 2, entries: expect.arrayContaining([expect.objectContaining({ name: 'fn', classification: 'eligible' }), expect.objectContaining({ name: 'run', classification: 'excluded' })]) } })
     const savedProposal = await prisma.reamonCodeAttempt.findUnique({ where: { id: proposal.attemptId } })
     expect(savedProposal?.scope).toBe('rename-suggestions')
-    expect(savedProposal?.requestPayload).toMatchObject({ goProjectScope: true, goSelectedPath: selectedPath, goProjectInventory: { sourceFileCount: 2, privatePackageSymbolCount: 2, unreferencedPrivateSymbols: 1, entryCount: 2 }, renames: [{ bindingId, oldName: 'fn', newName: 'calculate' }] })
+    expect(savedProposal?.requestPayload).toMatchObject({ goProjectScope: true, goSelectedPath: selectedPath, goProjectModulePath: 'example.test/fixture', goProjectModuleManifestSha256: hash('module example.test/fixture\n\ngo 1.24\n'), goProjectInventory: { sourceFileCount: 2, privatePackageSymbolCount: 2, unreferencedPrivateSymbols: 1, entryCount: 2 }, renames: [{ bindingId, oldName: 'fn', newName: 'calculate' }] })
+
+    await writeFile(path.join(artifactsDirectory, 'go.mod'), 'module example.test/changed\n\ngo 1.24\n', 'utf8')
+    const changedModuleResponse = await POST(renameRequest('apply', proposal.attemptId), params())
+    expect(changedModuleResponse.status).toBe(409)
+    expect(await prisma.reamonCodeDraft.count({ where: { projectId, artifactId } })).toBe(0)
+    await writeFile(path.join(artifactsDirectory, 'go.mod'), 'module example.test/fixture\n\ngo 1.24\n', 'utf8')
 
     await prisma.reamonCodeReview.update({ where: { id: siblingReviewId }, data: { maintainedSourceHash: 'f'.repeat(64) } })
     const staleResponse = await POST(renameRequest('apply', proposal.attemptId), params())
