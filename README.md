@@ -78,9 +78,9 @@ The [autonomous reconstruction and fidelity delivery plan](docs/REAMON_AUTONOMOU
 
 <!-- REAMON_PRODUCT_PROGRESS_START -->
 
-<progress value="33.71" max="100">33.71%</progress> <strong>33.71%</strong> — weighted estimate **33.71%**.
+<progress value="33.79" max="100">33.79%</progress> <strong>33.79%</strong> — weighted estimate **33.79%**.
 
-Latest evidence-based score change (2026-11-10): **+0.08 points** (33.63% → 33.71%). One additional partial point raises Agentic project-wide semantic renaming from 31% to 32% and weighted progress from 33.63% to 33.71% (+0.08). An isolated Chromium run passes 1/1 through real app routes, the real Go helper, disposable PostgreSQL 16, and an offline external-module cache; only LLM suggestion is deterministic. Both persisted drafts are fetched after page reload, with no browser or console errors. Held-out accuracy and general autonomy remain open.
+Latest evidence-based score change (2026-11-10): **+0.08 points** (33.71% → 33.79%). One partial point raises Agentic project-wide semantic renaming from 32% to 33%, moving the weighted estimate from 33.71% to 33.79% (+0.08 points). A hash-pinned held-out corpus reports 108 TP, 0 FP, and 0 FN for package-level declaration identity across two Go modules and three target contexts using an independent Go AST census. Broader declaration scopes and languages remain unmeasured.
 
 **Work completed (2026-11-10):**
 
@@ -98,10 +98,11 @@ Latest evidence-based score change (2026-11-10): **+0.08 points** (33.63% → 33
 - A Chromium browser test against a freshly built current-source webapp passes 1/1 with a disposable PostgreSQL container and synthetic project API responses. It exercises Go unit selection, same-package scope opt-in, whole-project inventory display, selected rename submission, renamed editor content, and draft receipts for both files; no page or console errors were observed. Because the safe-renames API is stubbed in this browser test, it adds UI regression evidence only and receives no weighted progress credit; the real-helper browser/API acceptance remains open.
 - Progress note: the weighted score previously rose from 33.55% to 33.63% (+0.08 points) after the real-helper PostgreSQL acceptance. The later Chromium UI test passes 1/1 but stubs project APIs, so it adds UI evidence without changing the weighted score.
 - Real-helper Go package rename now passes isolated Chromium acceptance 1/1 with disposable PostgreSQL 16 and an external module in a hash-verified offline cache. The browser calls real safe-renames and draft routes; the real helper performs project inventory and rename, and both persisted drafts reload after a page refresh. Only the LLM suggestion endpoint is deterministic; no page or console errors occurred.
+- A versioned held-out Go inventory evaluation covers gorilla/mux v1.8.1 on Linux/amd64 and Windows/amd64 plus go-isatty v0.0.20 on JS/wasm. Independent Go AST declaration census: 108 TP, 0 FP, 0 FN (100% precision/recall) for package-level declaration identity; local/file-scope accuracy remains unmeasured. The full Docker Go refactor package suite passes.
 
-**Score decision:** Award one additional partial point to the 8%-weight Agentic project-wide semantic-renaming workstream (31% to 32%), moving weighted progress from 33.63% to 33.71% (+0.08 points). The isolated Chromium acceptance uses the real safe-renames and draft routes, a fresh Go helper, disposable PostgreSQL 16, and a hash-verified offline external-module cache; only the LLM suggestion response is deterministic. Both drafts reload through the API after browser refresh. Held-out inventory accuracy, import renaming, and general autonomous naming remain open.
+**Score decision:** Award one partial point to the 8%-weight Agentic project-wide semantic-renaming workstream (32% to 33%). The held-out package-level declaration identity check records 108 true positives, 0 false positives, and 0 misses across two pinned modules and three build contexts, moving weighted progress from 33.71% to 33.79% (+0.08 points). Broader local/file-scope accuracy, reference resolution, import renaming, and general autonomy remain open.
 
-**Next measurable gate:** Measure held-out package and symbol inventory precision and recall across representative Go repositories, external modules, build configurations, and additional languages; report false positives and scale limits.
+**Next measurable gate:** Extend held-out precision/recall from package-level declarations to file-scope and local symbols plus resolved references; add more Go repositories, external imports, build contexts, and additional languages, and report false-positive/false-negative and scale limits.
 
 Refreshed from pushed commit `fa43b35`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 
