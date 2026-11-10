@@ -118,6 +118,8 @@ func TestProjectRenameVersionedBindingIntegrityCorpus(t *testing.T) {
 	if corpus.Version != 1 || len(corpus.Cases) == 0 || len(corpus.RejectCases) == 0 {
 		t.Fatalf("project rename corpus version/positive/negative case count = %d/%d/%d; want version 1 and both case classes", corpus.Version, len(corpus.Cases), len(corpus.RejectCases))
 	}
+	expectedOccurrences := 0
+	manifestEdits := 0
 	for _, test := range corpus.Cases {
 		t.Run(test.Name, func(t *testing.T) {
 			paths := make([]string, 0, len(test.Files))
@@ -163,6 +165,21 @@ func TestProjectRenameVersionedBindingIntegrityCorpus(t *testing.T) {
 			if !reflect.DeepEqual(actual, test.Expected) {
 				t.Fatalf("project rename output differs from corpus oracle:\n got: %#v\nwant: %#v", actual, test.Expected)
 			}
+			editCount := 0
+			for _, output := range result["files"].([]map[string]any) {
+				for _, edit := range output["edits"].([]map[string]any) {
+					if edit["old_text"] != test.OldName || edit["new_text"] != test.NewName {
+						t.Fatalf("edit manifest entry = %#v; want %s -> %s", edit, test.OldName, test.NewName)
+					}
+					editCount++
+				}
+			}
+			wantEditCount := test.ReferenceCount + 1 // one declaration plus every known reference
+			if editCount != wantEditCount {
+				t.Fatalf("edit manifest has %d edits; want %d ground-truth occurrences", editCount, wantEditCount)
+			}
+			expectedOccurrences += wantEditCount
+			manifestEdits += editCount
 		})
 	}
 	for _, test := range corpus.RejectCases {
@@ -201,6 +218,7 @@ func TestProjectRenameVersionedBindingIntegrityCorpus(t *testing.T) {
 			}
 		})
 	}
+	t.Logf("synthetic source-occurrence precision/recall: %d/%d expected occurrences edited, exact output required across %d positive and %d rejection cases", manifestEdits, expectedOccurrences, len(corpus.Cases), len(corpus.RejectCases))
 }
 
 func TestProjectRenameRejectsChangedSourceSet(t *testing.T) {
