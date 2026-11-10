@@ -11,6 +11,8 @@ const MAX_STREAMED_EDGES = 4_200_000
 const MAX_PACKED_METHOD_INDEX = 0xffff_ffff
 const MAX_CALL_EDGES = 4_000
 const MAX_REFERENCES = 4_000
+const MAX_CFG_BLOCKS = 12
+const MAX_CFG_EDGES = 16
 // A previous 30-minute run reached DEX 3 of 10 before aborting; give a
 // multi-DEX run room to finish while keeping each request strictly bounded.
 const MAX_TIMEOUT_MS = 150 * 60_000
@@ -78,6 +80,57 @@ function isSafeMethodEvidencePath(value: unknown): boolean {
   return !value.split('/').some((part) => part === '' || part === '.' || part === '..')
 }
 
+function isValidDexControlFlowGraph(value: unknown, truncated: unknown): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || typeof truncated !== 'boolean') return false
+  const graph = value as Record<string, unknown>
+  const { entryBlock, exitBlock, blockCount, edgeCount, blocks, edges } = graph
+  if (!Number.isSafeInteger(entryBlock) || (entryBlock as number) < 0
+    || !Number.isSafeInteger(exitBlock) || (exitBlock as number) < 0
+    || !Number.isSafeInteger(blockCount) || (blockCount as number) < 0
+    || !Number.isSafeInteger(edgeCount) || (edgeCount as number) < 0
+    || !Array.isArray(blocks) || blocks.length > MAX_CFG_BLOCKS
+    || !Array.isArray(edges) || edges.length > MAX_CFG_EDGES
+    || blocks.length !== Math.min(blockCount as number, MAX_CFG_BLOCKS)
+    || edges.length !== Math.min(edgeCount as number, MAX_CFG_EDGES)) return false
+
+  const omittedBlocks = (blockCount as number) > MAX_CFG_BLOCKS
+  const omittedEdges = (edgeCount as number) > MAX_CFG_EDGES
+  if (truncated !== (omittedBlocks || omittedEdges)) return false
+
+  const blockIds = new Set<number>()
+  for (const value of blocks) {
+    if (!Array.isArray(value) || value.length !== 6
+      || !Number.isSafeInteger(value[0]) || (value[0] as number) < 0 || (value[0] as number) >= (blockCount as number)
+      || blockIds.has(value[0] as number)
+      || typeof value[1] !== 'string' || value[1].length === 0 || value[1].length > 500
+      || !Number.isSafeInteger(value[2]) || (value[2] as number) < 0
+      || !Number.isSafeInteger(value[3]) || value[3] !== value[2]
+      || !Array.isArray(value[4]) || value[4].length > 1
+      || !value[4].every((sample) => typeof sample === 'string' && sample.length <= 100)
+      || !Array.isArray(value[5]) || value[5].length > 1
+      || !value[5].every((sample) => typeof sample === 'string' && sample.length <= 100)) return false
+    blockIds.add(value[0] as number)
+  }
+
+  if (blockCount === 0) {
+    if (entryBlock !== 0 || exitBlock !== 0 || blocks.length > 0 || edges.length > 0) return false
+  } else if ((entryBlock as number) >= (blockCount as number) || (exitBlock as number) >= (blockCount as number)) {
+    return false
+  }
+
+  for (const edge of edges) {
+    if (!Array.isArray(edge) || edge.length !== 3
+      || !Number.isSafeInteger(edge[0]) || (edge[0] as number) < 0 || (edge[0] as number) >= (blockCount as number)
+      || !Number.isSafeInteger(edge[1]) || (edge[1] as number) < 0 || (edge[1] as number) >= (blockCount as number)
+      || typeof edge[2] !== 'string' || edge[2].length === 0 || edge[2].length > 40) return false
+  }
+  if (!omittedBlocks) {
+    if ((blockCount as number) > 0 && (!blockIds.has(entryBlock as number) || !blockIds.has(exitBlock as number))) return false
+    if (edges.some((edge) => !blockIds.has(edge[0] as number) || !blockIds.has(edge[1] as number))) return false
+  }
+  return true
+}
+
 function isStreamedMethod(value: unknown): value is DexMethod {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const method = value as Record<string, unknown>
@@ -90,7 +143,7 @@ function isStreamedMethod(value: unknown): value is DexMethod {
     && Number.isSafeInteger(method.instructionCount) && (method.instructionCount as number) >= 0
     && Array.isArray(method.instructionMnemonics) && method.instructionMnemonics.length <= 128
     && method.instructionMnemonics.every((mnemonic) => typeof mnemonic === 'string' && /^[A-Za-z][A-Za-z0-9_./-]{0,31}$/.test(mnemonic))
-    && !!method.controlFlowGraph && typeof method.controlFlowGraph === 'object' && !Array.isArray(method.controlFlowGraph)
+    && isValidDexControlFlowGraph(method.controlFlowGraph, method.cfgTruncated)
     && ((method.bytecodeArtifactId === undefined && method.bytecodeArtifactSizeBytes === undefined)
       || (typeof method.bytecodeArtifactId === 'string' && method.bytecodeArtifactId.length > 0 && method.bytecodeArtifactId.length <= 2_000
         && Number.isSafeInteger(method.bytecodeArtifactSizeBytes) && (method.bytecodeArtifactSizeBytes as number) > 0))
@@ -382,7 +435,7 @@ function isResponse(value: unknown): value is DexDecompilerResponse {
       && Number.isSafeInteger(method.instructionCount) && method.instructionCount >= 0
       && Array.isArray(method.instructionMnemonics) && method.instructionMnemonics.length <= 128
       && method.instructionMnemonics.every((mnemonic) => typeof mnemonic === 'string' && /^[A-Za-z][A-Za-z0-9_./-]{0,31}$/.test(mnemonic))
-      && !!method.controlFlowGraph && typeof method.controlFlowGraph === 'object' && !Array.isArray(method.controlFlowGraph)
+      && isValidDexControlFlowGraph(method.controlFlowGraph, method.cfgTruncated)
       && ((method.bytecodeArtifactId === undefined && method.bytecodeArtifactSizeBytes === undefined)
         || (typeof method.bytecodeArtifactId === 'string' && method.bytecodeArtifactId.length > 0 && method.bytecodeArtifactId.length <= 2_000
           && Number.isSafeInteger(method.bytecodeArtifactSizeBytes) && (method.bytecodeArtifactSizeBytes as number) > 0))

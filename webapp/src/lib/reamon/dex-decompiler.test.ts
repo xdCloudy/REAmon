@@ -31,6 +31,32 @@ function responseBody(failedClassDetails: unknown) {
   }
 }
 
+function emptyControlFlowGraph() {
+  return { entryBlock: 0, exitBlock: 0, blockCount: 0, edgeCount: 0, blocks: [], edges: [] }
+}
+
+function responseWithMethod(controlFlowGraph: unknown, cfgTruncated = false) {
+  return {
+    ...responseBody([]),
+    discoveredMethodCount: 1,
+    returnedMethodCount: 1,
+    truncated: cfgTruncated,
+    methods: [{
+      signature: 'com.example.Main#start():void',
+      className: 'com.example.Main',
+      methodName: 'start',
+      relativePath: 'com/example/Main.java',
+      dexIndex: 0,
+      methodIndex: 3,
+      instructionCount: 2,
+      instructionMnemonics: ['invoke-virtual', 'return-void'],
+      controlFlowGraph,
+      bytecodeRowsTruncated: false,
+      cfgTruncated,
+    }],
+  }
+}
+
 describe('Rust DEX-to-Java provider', () => {
   beforeEach(() => {
     vi.stubEnv('REAMON_DEX_DECOMPILER_URL', 'http://dex-decompiler-analyzer:8019')
@@ -50,6 +76,59 @@ describe('Rust DEX-to-Java provider', () => {
     expect(index.retainedBytes).toBe(4_200_000 * 8)
   })
 
+  it.each([
+    ['duplicate basic-block IDs', { entryBlock: 0, exitBlock: 1, blockCount: 2, edgeCount: 0, blocks: [[0, 'basic', 1, 1, [], []], [0, 'basic', 1, 1, [], []]], edges: [] }],
+    ['edges outside the declared block range', { entryBlock: 0, exitBlock: 1, blockCount: 2, edgeCount: 1, blocks: [[0, 'basic', 1, 1, [], []], [1, 'basic', 1, 1, [], []]], edges: [[0, 2, 'flow']] }],
+    ['incomplete untruncated block inventories', { entryBlock: 0, exitBlock: 1, blockCount: 2, edgeCount: 0, blocks: [[0, 'basic', 1, 1, [], []]], edges: [] }],
+  ])('rejects DEX control-flow summaries with %s', async (_label, graph) => {
+    vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify(responseWithMethod(graph)), { status: 200 }))
+
+    const result = await executeDexDecompiler(input)
+
+    expect(result.status).toBe('failed')
+    expect(result.error).toBe('DEX decompiler returned an invalid result')
+  })
+
+  it('accepts valid CFG summaries truncated at the analyzer record caps', async () => {
+    const graph = {
+      entryBlock: 0, exitBlock: 12, blockCount: 13, edgeCount: 17,
+      blocks: Array.from({ length: 12 }, (_, id) => [id, 'basic', 1, 1, [], []]),
+      edges: Array.from({ length: 16 }, (_, id) => [id % 12, (id + 1) % 12, 'flow']),
+    }
+    vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify(responseWithMethod(graph, true)), { status: 200 }))
+
+    const result = await executeDexDecompiler(input)
+
+    expect(result.status).toBe('completed')
+    expect(result.data.observations).toEqual(expect.arrayContaining([expect.objectContaining({
+      type: 'function',
+      attributes: expect.objectContaining({ cfgTruncated: true }),
+    })]))
+  })
+
+  it('rejects truncated CFG summaries whose returned arrays fall below analyzer caps', async () => {
+    const graph = {
+      entryBlock: 0, exitBlock: 2, blockCount: 3, edgeCount: 2,
+      blocks: [[0, 'basic', 1, 1, [], []]],
+      edges: [[0, 2, 'flow']],
+    }
+    vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify(responseWithMethod(graph, true)), { status: 200 }))
+
+    const result = await executeDexDecompiler(input)
+
+    expect(result.status).toBe('failed')
+    expect(result.error).toBe('DEX decompiler returned an invalid result')
+  })
+
+  it('rejects a CFG truncation flag when all declared graph records were returned', async () => {
+    vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify(responseWithMethod(emptyControlFlowGraph(), true)), { status: 200 }))
+
+    const result = await executeDexDecompiler(input)
+
+    expect(result.status).toBe('failed')
+    expect(result.error).toBe('DEX decompiler returned an invalid result')
+  })
+
   it('preserves early decompiled methods and deduplicates external stubs after many streamed methods', async () => {
     const methodCount = 50_002
     const method = (methodIndex: number) => ({
@@ -61,7 +140,7 @@ describe('Rust DEX-to-Java provider', () => {
       methodIndex,
       instructionCount: 1,
       instructionMnemonics: ['return-void'],
-      controlFlowGraph: {},
+      controlFlowGraph: emptyControlFlowGraph(),
       bytecodeArtifactPath: `dex-0/method-${methodIndex}.json`,
       bytecodeRowsTruncated: false,
       cfgTruncated: false,
@@ -175,7 +254,7 @@ describe('Rust DEX-to-Java provider', () => {
         methodIndex: 3,
         instructionCount: 2,
         instructionMnemonics: ['invoke-virtual', 'return-void'],
-        controlFlowGraph: {},
+        controlFlowGraph: emptyControlFlowGraph(),
         bytecodeRowsTruncated: false,
         cfgTruncated: false,
       }],
@@ -203,7 +282,7 @@ describe('Rust DEX-to-Java provider', () => {
       methodIndex: 3,
       instructionCount: 2,
       instructionMnemonics: ['invoke-virtual', 'return-void'],
-      controlFlowGraph: {},
+      controlFlowGraph: emptyControlFlowGraph(),
       bytecodeArtifactPath: 'dex-0/method-3.json',
       bytecodeRowsTruncated: false,
       cfgTruncated: false,
@@ -248,7 +327,7 @@ describe('Rust DEX-to-Java provider', () => {
       methodIndex: 3,
       instructionCount: 2,
       instructionMnemonics: ['invoke-virtual', 'return-void'],
-      controlFlowGraph: {},
+      controlFlowGraph: emptyControlFlowGraph(),
       bytecodeRowsTruncated: false,
       cfgTruncated: false,
     }
