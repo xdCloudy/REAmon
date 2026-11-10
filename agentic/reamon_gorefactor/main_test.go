@@ -784,21 +784,33 @@ func outputsBeforeRename(files []projectFile) map[string]string {
 	return outputs
 }
 
-func TestProjectRenameRejectsChangedSourceSet(t *testing.T) {
+func TestProjectMethodRenameRejectsChangedSourceSet(t *testing.T) {
 	request := goProjectRequest([]projectFile{
-		{Path: "pkg/a.go", Source: "package sample\nfunc normalize(value int) int { return value + 1 }\n"},
-		{Path: "pkg/b.go", Source: "package sample\nfunc run() int { return normalize(4) }\n"},
+		{Path: "pkg/a.go", Source: "package sample\ntype worker struct{}\nfunc (worker) normalize() int { return 1 }\n"},
+		{Path: "pkg/b.go", Source: "package sample\nfunc run() int { return worker{}.normalize() }\n"},
 	}, "pkg/a.go")
 	cat, err := buildProjectCatalog(request)
 	if err != nil {
 		t.Fatal(err)
 	}
+	var selected binding
+	for _, item := range cat.Bindings {
+		if item.Name == "normalize" && item.Kind == "method" {
+			selected = item
+			break
+		}
+	}
+	if selected.ID == "" {
+		t.Fatal("receiver method was not offered as a binding")
+	}
 	request.Operation = "project_rename"
 	request.ExpectedHash = cat.SelectedHash
-	request.SourceSetHash = strings.Repeat("0", 64)
-	request.Renames = []renameSelection{{ID: cat.Bindings[0].ID, NewName: "scale"}}
+	request.SourceSetHash = cat.SourceSetHash
+	request.Renames = []renameSelection{{ID: selected.ID, NewName: "scale"}}
+	request.Files[1].Source = "package sample\n// edited after the rename catalog was created\nfunc run() int { return worker{}.normalize() }\n"
+	request.Files[1].ExpectedHash = hashText(request.Files[1].Source)
 	if _, err := applyProjectRenames(request); err == nil || !strings.Contains(err.Error(), "source changed") {
-		t.Fatalf("changed source-set error = %v; want stale-snapshot rejection", err)
+		t.Fatalf("stale receiver-method source-set error = %v; want stale-snapshot rejection", err)
 	}
 }
 
