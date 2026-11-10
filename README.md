@@ -88,7 +88,7 @@ The [autonomous reconstruction and fidelity delivery plan](docs/REAMON_AUTONOMOU
 
 Latest evidence-based score change (2026-11-10): **+0.08 points** (33.47% → 33.55%). A disposable PostgreSQL 16 Go package-rename acceptance now passes through the real helper image (1/1). It verifies compatible source and build-context scope hashes, go.mod/go.sum scope, stale-manifest and sibling-receipt rejection, transaction rollback, apply, and draft reload. No external module import or browser flow was exercised.
 
-Refreshed from pushed commit `dfba7da`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+Refreshed from pushed commit `98ebf84`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
