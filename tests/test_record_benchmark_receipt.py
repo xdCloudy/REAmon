@@ -104,6 +104,14 @@ class RecordBenchmarkReceiptTests(unittest.TestCase):
         with self.assertRaisesRegex(ReceiptError, "denominator differs"):
             self.record()
 
+    def test_product_source_commit_cannot_be_misclassified_as_a_toolchain_component(self):
+        toolchain = json.loads(self.toolchain.read_text(encoding="utf-8"))
+        toolchain["components"]["product_source_commit"] = self.git("rev-parse", "HEAD")
+        self.toolchain.write_text(json.dumps(toolchain), encoding="utf-8")
+
+        with self.assertRaisesRegex(ReceiptError, "product source commit belongs in the receipt commit field"):
+            self.record()
+
     def test_unavailable_metric_is_preserved_with_reason(self):
         metric = self.record()["fixtures"]["known-source-fixture"]["metrics"]["reconstruction_match"]
 

@@ -4,9 +4,9 @@
   "fixtures": {
     "pyinstaller-module-structured-source-linux-amd64-v2": {
       "fixtureManifest": "pyinstaller/fixture-manifest.json",
-      "candidateReceipt": "pyinstaller/pair-clean/candidate-receipt.json",
+      "candidateReceipt": "pyinstaller/candidate-receipt.json",
       "evaluationManifest": "pyinstaller/evaluation-manifest.json",
-      "baselineReceipt": "pyinstaller/pair-clean/baseline-receipt.json",
+      "baselineReceipt": "pyinstaller/baseline-receipt.json",
       "toolchainManifest": "pyinstaller/toolchain.json"
     },
     "jvm-multimodule-cfr-linux-amd64-v2": {

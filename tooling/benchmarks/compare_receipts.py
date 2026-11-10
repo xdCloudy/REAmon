@@ -108,6 +108,8 @@ def _validate_receipt(receipt, fixture_hashes, metric_definitions, fixture_manif
              f"{label} worktreeClean must be boolean")
     _require(isinstance(receipt.get("components"), dict) and receipt["components"],
              f"{label} components revision map is required")
+    _require("product_source_commit" not in receipt["components"],
+             f"{label} product source commit belongs in the receipt commit field, not toolchain components")
     _require(all(isinstance(k, str) and k and isinstance(v, str) and v for k, v in receipt["components"].items()),
              f"{label} components must map names to nonempty revisions")
     fixtures = receipt.get("fixtures")

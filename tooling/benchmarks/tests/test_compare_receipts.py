@@ -68,6 +68,13 @@ class ReceiptComparisonTests(unittest.TestCase):
         self.assertEqual(report["status"], "INCOMPLETE")
         self.assertEqual(report["fixtures"]["fixture-one"]["metrics"]["known_source_value_recall"]["state"], "INCOMPLETE")
 
+    def test_product_source_commit_is_not_a_toolchain_component(self):
+        baseline = sample_receipt("base", "1" * 40)
+        baseline["components"]["product_source_commit"] = baseline["commit"]
+
+        with self.assertRaisesRegex(ReceiptError, "product source commit belongs in the receipt commit field"):
+            compare_receipts(baseline, sample_receipt("candidate", "2" * 40))
+
     def test_mismatched_artifact_is_rejected(self):
         candidate = sample_receipt("candidate", "2" * 40)
         candidate["fixtures"]["fixture-one"]["artifactSha256"] = "e" * 64

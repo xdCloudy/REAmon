@@ -5,7 +5,6 @@
     "jvm-multimodule-cfr-linux-amd64-v2/cfr_service_image_id": "sha256:75c9a073878f7788ad2a488e27714b13738a303640d60031e47bb2e7c9059c06",
     "jvm-multimodule-cfr-linux-amd64-v2/evidence_adapter_sha256": "063746cf9f66b1d8e6c1f4a80e4026f128526b4c4f4a364bafd94a7464cd884f",
     "jvm-multimodule-cfr-linux-amd64-v2/fixture_dockerfile_sha256": "67f9cd2343994b87e375348e74824242751b7ae798067e8a8198fcf245311739",
-    "jvm-multimodule-cfr-linux-amd64-v2/product_source_commit": "3b67737c436e556a3cdd244d9a18588a24747604",
     "jvm-multimodule-cfr-linux-amd64-v2/runner_sha256": "f5d406ab57a5e25d0cec81a8031ff6a4e583b6a717da0df6a3fae5cfe0f8ba0a",
     "pyinstaller-module-structured-source-linux-amd64-v2/build_runner_sha256": "55a4cd4a21b39dbe00ffa569249c9a200ddaf6028c104f146a39f07a220c0f13",
     "pyinstaller-module-structured-source-linux-amd64-v2/builder_dockerfile_sha256": "2afbde22c1d2f551916705dca5aab979b8786fd503a210cc5034e1a99c7db471",
@@ -14,16 +13,15 @@
     "pyinstaller-module-structured-source-linux-amd64-v2/extractor_image_id": "sha256:a2031f7fe7352a318bde3724a9453ec4969abdc635d861d5e4aa43fa1a1a535c",
     "pyinstaller-module-structured-source-linux-amd64-v2/extractor_revision": "2aa0ec9e58317ac717fdeec84a02d5a67de7b96c2-reamon2",
     "pyinstaller-module-structured-source-linux-amd64-v2/integration_test_sha256": "170e534d08d11de629d6385aafc70b1d706a3eea9549be022bf0a442ea54db98",
-    "pyinstaller-module-structured-source-linux-amd64-v2/product_source_commit": "3b67737c436e556a3cdd244d9a18588a24747604",
     "pyinstaller-module-structured-source-linux-amd64-v2/pyinstaller_service_image_id": "sha256:dfd6e00b359c5144b39510685e15faa4dbc48645b3b0f9fe5a39669e9e5a40d3",
     "pyinstaller-module-structured-source-linux-amd64-v2/webapp_image_id": "sha256:d79912c8e1a3d48e6fa56a395024d011406f363cb343613573658c5a17580599",
     "pyinstaller-module-structured-source-linux-amd64-v2/worker_image_id": "sha256:b15bd821fc9c8f12c47ac360edbd9c87fc974e39a9fe4b7b0c981fa4e1fcf5f4"
   },
   "constituentReceiptSha256": {
-    "jvm-multimodule-cfr-linux-amd64-v2": "1acdcc858555923515870e2dc52f7c6492fa9d58318e542b70154f63590b6e86",
-    "pyinstaller-module-structured-source-linux-amd64-v2": "7373871889f1e1e790ccc96d49950800eef485030d323d88aad0e1d844694af0"
+    "jvm-multimodule-cfr-linux-amd64-v2": "e5676cba8b1eba3ac44e03d0709c7a9a0d94b27b9bddb54523c2ea2640bec34c",
+    "pyinstaller-module-structured-source-linux-amd64-v2": "ea918d4c680610ed23462805821aaed805de9039fe654216a2f1614f5349a36e"
   },
-  "createdAtUtc": "2026-11-10T10:21:14Z",
+  "createdAtUtc": "2026-11-10T10:32:16Z",
   "evaluationManifestSha256": "74ea8e7b6cc4958c657c04141a7396a2857b84136c843cf34e4e1e908b5d6af0",
   "fixtureManifestSha256": "355652681651d23db3eb8a93a512c36a232622e0f54acdd4bd96f8a5c7bbcc04",
   "fixtures": {
@@ -110,8 +108,8 @@
       }
     }
   },
-  "runId": "multiformat-3b67737c-candidate",
+  "runId": "multiformat-3b67737c-recert-candidate",
   "schemaVersion": 1,
-  "toolchainManifestSha256": "1df0c96adf579fc5e7e66561b1255de21e0e81947084be88527eea874c632df8",
+  "toolchainManifestSha256": "4d45804743a42af1b940d876e3a0c72ae47df0e04c4dda7617ba287cd1ce45d0",
   "worktreeClean": true
 }

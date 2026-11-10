@@ -1,7 +1,6 @@
 {
   "schemaVersion": 1,
   "components": {
-    "product_source_commit": "3b67737c436e556a3cdd244d9a18588a24747604",
     "builder_dockerfile_sha256": "2afbde22c1d2f551916705dca5aab979b8786fd503a210cc5034e1a99c7db471",
     "build_runner_sha256": "55a4cd4a21b39dbe00ffa569249c9a200ddaf6028c104f146a39f07a220c0f13",
     "extractor_image_id": "sha256:a2031f7fe7352a318bde3724a9453ec4969abdc635d861d5e4aa43fa1a1a535c",

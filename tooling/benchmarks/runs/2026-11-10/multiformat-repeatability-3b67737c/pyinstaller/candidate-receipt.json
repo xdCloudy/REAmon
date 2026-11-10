@@ -8,12 +8,11 @@
     "extractor_image_id": "sha256:a2031f7fe7352a318bde3724a9453ec4969abdc635d861d5e4aa43fa1a1a535c",
     "extractor_revision": "2aa0ec9e58317ac717fdeec84a02d5a67de7b96c2-reamon2",
     "integration_test_sha256": "170e534d08d11de629d6385aafc70b1d706a3eea9549be022bf0a442ea54db98",
-    "product_source_commit": "3b67737c436e556a3cdd244d9a18588a24747604",
     "pyinstaller_service_image_id": "sha256:dfd6e00b359c5144b39510685e15faa4dbc48645b3b0f9fe5a39669e9e5a40d3",
     "webapp_image_id": "sha256:d79912c8e1a3d48e6fa56a395024d011406f363cb343613573658c5a17580599",
     "worker_image_id": "sha256:b15bd821fc9c8f12c47ac360edbd9c87fc974e39a9fe4b7b0c981fa4e1fcf5f4"
   },
-  "createdAtUtc": "2026-11-10T10:20:20Z",
+  "createdAtUtc": "2026-11-10T10:31:40Z",
   "evaluationManifestSha256": "c881a70116db06fd574504ca9933a48670b34d5ebdd4124b8f4c95f5cb509712",
   "evidenceSha256": "27f2fb52d8828cad1a70fb909ad26caca3f77a5ac131588016413ae297cf8acf",
   "fixtureManifestSha256": "d0439c9a197aa6a23d2c0e71a60eb2bdd824ccefa00b4a6ff56361455eb8a032",
@@ -66,8 +65,8 @@
       }
     }
   },
-  "runId": "pyinstaller-3b67737c-clean-candidate",
+  "runId": "pyi-3b67737c-recert-candidate",
   "schemaVersion": 1,
-  "toolchainManifestSha256": "2f52c1a537512d08c283cc582ee3b7fbfe07ac927575f5c58b30a8fc9a9f8ed9",
+  "toolchainManifestSha256": "2b1cbb11fe24d1c598edfbd071e4344fbe2e8b56190094fb043d2d79d91a7f6e",
   "worktreeClean": true
 }

@@ -44,6 +44,9 @@ between revisions as an implementation result. Set top-level
 `evaluationManifest` and `toolchainManifest` values as shared defaults, or give
 each fixture its own manifests. Every receipt must match the selected manifest
 hashes, metric inventory, denominators, and component revisions.
+The product source revision is recorded in each receipt's `commit` field; do not
+duplicate it as a toolchain component, because it is expected to differ in a
+changed-revision comparison.
 Baseline/candidate denominator mismatches remain `INCOMPLETE`. Missing fixtures,
 duplicate coverage, commit drift, or within-fixture toolchain drift abort
 aggregation. Constituent receipt hashes are retained in the aggregate receipts.

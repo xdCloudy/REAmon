@@ -1,7 +1,6 @@
 {
   "schemaVersion": 1,
   "components": {
-    "product_source_commit": "3b67737c436e556a3cdd244d9a18588a24747604",
     "builder_image": "eclipse-temurin:21-jdk-jammy@sha256:4b1a74fbffbe6b4e7b6f0171a472478282fb463790a51edf10e465d578f22b69",
     "fixture_dockerfile_sha256": "67f9cd2343994b87e375348e74824242751b7ae798067e8a8198fcf245311739",
     "cfr_service_image_id": "sha256:75c9a073878f7788ad2a488e27714b13738a303640d60031e47bb2e7c9059c06",
