@@ -17,3 +17,7 @@ tooling/benchmarks/**/*.json text eol=lf
 tooling/benchmarks/**/requirements.txt text eol=lf
 # Fixture license texts are also pinned as builder inputs.
 tooling/benchmarks/**/LICENSE text eol=lf
+# Recovered JVM source and textual benchmark outputs carry exact hash provenance.
+tooling/benchmarks/**/runs/**/*.java text eol=lf
+tooling/benchmarks/**/runs/**/*.tsv text eol=lf
+tooling/benchmarks/**/runs/**/*.txt text eol=lf
