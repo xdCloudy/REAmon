@@ -88,7 +88,7 @@ The [autonomous reconstruction and fidelity delivery plan](docs/REAMON_AUTONOMOU
 
 Latest evidence-based score change (2026-11-10): **+0.08 points** (33.31% → 33.39%). Versioned Go inventory corpus v1 checks hash-pinned pkg/errors v0.9.1 and google/uuid v1.6.0 source subsets. Exact package, file, exported/private, file-scope, local, unsupported, and total-entry counts pass under Linux/amd64, Windows/amd64, and Linux/arm64. The full Go refactor suite passed; the full Docker agent unit gate passed 188 files / 3,806 tests, zero failures, one file with no tests. This adds only a bounded known-source inventory baseline.
 
-Refreshed from pushed commit `eb4fb98`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+Refreshed from pushed commit `be53ac7`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
