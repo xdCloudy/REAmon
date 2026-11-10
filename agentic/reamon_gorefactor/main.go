@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"go/ast"
+	"go/build"
 	"go/importer"
 	"go/parser"
 	"go/token"
@@ -16,6 +17,7 @@ import (
 	"io"
 	"os"
 	"path"
+	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
@@ -37,6 +39,9 @@ type request struct {
 	SelectedPath  string            `json:"selected_path"`
 	ModulePath    string            `json:"module_path"`
 	ModuleRoot    string            `json:"module_root"`
+	BuildGOOS     string            `json:"build_goos"`
+	BuildGOARCH   string            `json:"build_goarch"`
+	BuildTags     []string          `json:"build_tags"`
 	PackagePath   string            `json:"-"`
 	Files         []projectFile     `json:"files"`
 	Renames       []renameSelection `json:"renames"`
@@ -492,6 +497,14 @@ func buildProjectCatalogWithImporter(req request, packageImporter types.Importer
 	packageDir := path.Dir(selectedPath)
 	files := append([]projectFile(nil), req.Files...)
 	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
+	buildContext, err := normalizeGoBuildContext(req)
+	if err != nil {
+		return nil, err
+	}
+	files, err = selectGoBuildFiles(files, buildContext)
+	if err != nil {
+		return nil, err
+	}
 	fileSet := token.NewFileSet()
 	parsed := make([]projectSourceFile, 0, len(files))
 	seenPaths := make(map[string]bool, len(files))
@@ -524,13 +537,6 @@ func buildProjectCatalogWithImporter(req request, packageImporter types.Importer
 		if parseErr != nil {
 			return nil, fmt.Errorf("Go parser rejected %s: %s", filePath, parseErr.Error())
 		}
-		for _, commentGroup := range astFile.Comments {
-			for _, comment := range commentGroup.List {
-				if strings.HasPrefix(comment.Text, "//go:build") || strings.HasPrefix(comment.Text, "// +build") {
-					return nil, fmt.Errorf("Go package rename does not support build-constrained source files")
-				}
-			}
-		}
 		if packageName == "" {
 			packageName = astFile.Name.Name
 		} else if astFile.Name.Name != packageName {
@@ -562,7 +568,7 @@ func buildProjectCatalogWithImporter(req request, packageImporter types.Importer
 	if len(typeErrors) > 0 || pkg == nil {
 		return nil, fmt.Errorf("Go package has unresolved type or reference errors; cross-file rename requires a complete package type-check")
 	}
-	projectHash := hashProjectSources(parsed)
+	projectHash := hashProjectInventory(parsed, buildContext)
 	cat := &projectCatalog{
 		Hash: selectedHash, SourceSetHash: projectHash, SelectedPath: selectedPath,
 		SelectedHash: selectedHash, FileSet: fileSet, Files: parsed, Info: info, Package: pkg,
@@ -983,6 +989,15 @@ func listProjectInventory(req request) (map[string]any, error) {
 	}
 	files := append([]projectFile(nil), req.Files...)
 	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
+	buildContext, err := normalizeGoBuildContext(req)
+	if err != nil {
+		return nil, err
+	}
+	selectedFiles, err := selectGoBuildFiles(files, buildContext)
+	if err != nil {
+		return nil, err
+	}
+	files = selectedFiles
 	seenPaths := make(map[string]bool, len(files))
 	groups := make(map[string][]projectFile)
 	selectedHash := ""
@@ -1010,13 +1025,6 @@ func listProjectInventory(req request) (map[string]any, error) {
 		if parseErr != nil {
 			return nil, fmt.Errorf("Go parser rejected %s: %s", filePath, parseErr.Error())
 		}
-		for _, commentGroup := range astFile.Comments {
-			for _, comment := range commentGroup.List {
-				if strings.HasPrefix(comment.Text, "//go:build") || strings.HasPrefix(comment.Text, "// +build") {
-					return nil, fmt.Errorf("Go project inventory does not support build-constrained source files")
-				}
-			}
-		}
 		key := path.Dir(filePath) + "\x00" + astFile.Name.Name
 		groups[key] = append(groups[key], file)
 		if filePath == selectedPath {
@@ -1035,7 +1043,7 @@ func listProjectInventory(req request) (map[string]any, error) {
 		allSources = append(allSources, projectSourceFile{Path: file.Path, Text: file.Source})
 		resultFiles = append(resultFiles, map[string]any{"relative_path": file.Path, "source_sha256": hashText(file.Source)})
 	}
-	projectHash := hashProjectSources(allSources)
+	projectHash := hashProjectInventory(allSources, buildContext)
 	groupKeys := make([]string, 0, len(groups))
 	for key := range groups {
 		groupKeys = append(groupKeys, key)
@@ -1059,6 +1067,7 @@ func listProjectInventory(req request) (map[string]any, error) {
 		importPaths[importPath] = packageDir
 		packageRequests[importPath] = request{
 			SelectedPath: group[0].Path, Source: group[0].Source, Files: group, PackagePath: importPath,
+			BuildGOOS: buildContext.GOOS, BuildGOARCH: buildContext.GOARCH, BuildTags: buildContext.Tags,
 		}
 	}
 	projectImporter := &goProjectImporter{
@@ -1087,7 +1096,10 @@ func listProjectInventory(req request) (map[string]any, error) {
 		if pathErr != nil {
 			return nil, pathErr
 		}
-		packageRequest := request{SelectedPath: groupSelectedPath, Source: groupSelectedSource, Files: group}
+		packageRequest := request{
+			SelectedPath: groupSelectedPath, Source: groupSelectedSource, Files: group,
+			BuildGOOS: buildContext.GOOS, BuildGOARCH: buildContext.GOARCH, BuildTags: buildContext.Tags,
+		}
 		var catalog *projectCatalog
 		var catalogErr error
 		if importPath != "" {
@@ -1123,7 +1135,8 @@ func listProjectInventory(req request) (map[string]any, error) {
 	return map[string]any{
 		"source_sha256": selectedHash, "source_set_sha256": projectHash,
 		"selected_path": selectedPath, "module_path": req.ModulePath, "module_root": req.ModuleRoot,
-		"files": resultFiles, "packages": packages,
+		"build_context": buildContext,
+		"files":         resultFiles, "packages": packages,
 		"parser_version": runtime.Version(),
 		"inventory": map[string]any{
 			"scope": "verified-whole-project-go-source-snapshot", "complete": true,
@@ -1145,6 +1158,96 @@ func listProjectInventory(req request) (map[string]any, error) {
 			"entries": entries,
 		},
 	}, nil
+}
+
+type goBuildContext struct {
+	GOOS        string   `json:"goos"`
+	GOARCH      string   `json:"goarch"`
+	CgoEnabled  bool     `json:"cgo_enabled"`
+	Tags        []string `json:"tags"`
+	ToolTags    []string `json:"tool_tags"`
+	ReleaseTags []string `json:"release_tags"`
+	Toolchain   string   `json:"toolchain"`
+}
+
+func normalizeGoBuildContext(req request) (goBuildContext, error) {
+	goos, goarch := req.BuildGOOS, req.BuildGOARCH
+	if goos == "" {
+		goos = runtime.GOOS
+	}
+	if goarch == "" {
+		goarch = runtime.GOARCH
+	}
+	// The standard-library importer is built for this runtime target; accepting
+	// another target would silently type-check against the wrong stdlib exports.
+	if goos != runtime.GOOS || goarch != runtime.GOARCH {
+		return goBuildContext{}, fmt.Errorf("Go project inventory currently requires build target %s/%s", runtime.GOOS, runtime.GOARCH)
+	}
+	tags := append([]string(nil), req.BuildTags...)
+	seen := make(map[string]bool, len(tags))
+	for _, tag := range tags {
+		if !token.IsIdentifier(tag) || seen[tag] {
+			return goBuildContext{}, fmt.Errorf("Go build tags must be unique identifiers")
+		}
+		seen[tag] = true
+	}
+	sort.Strings(tags)
+	return goBuildContext{
+		GOOS: goos, GOARCH: goarch, CgoEnabled: build.Default.CgoEnabled,
+		Tags: tags, ToolTags: append([]string(nil), build.Default.ToolTags...),
+		ReleaseTags: append([]string(nil), build.Default.ReleaseTags...), Toolchain: runtime.Version(),
+	}, nil
+}
+
+func selectGoBuildFiles(files []projectFile, target goBuildContext) ([]projectFile, error) {
+	root, err := os.MkdirTemp("", "reamon-go-build-context-")
+	if err != nil {
+		return nil, fmt.Errorf("could not prepare Go build-context snapshot")
+	}
+	defer os.RemoveAll(root)
+	for _, file := range files {
+		filePath, pathErr := safeGoPath(file.Path)
+		if pathErr != nil || filePath != file.Path {
+			return nil, fmt.Errorf("Go project inventory requires normalized source paths")
+		}
+		fullPath := filepath.Join(root, filepath.FromSlash(filePath))
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0700); err != nil {
+			return nil, fmt.Errorf("could not prepare Go build-context snapshot")
+		}
+		if err := os.WriteFile(fullPath, []byte(file.Source), 0600); err != nil {
+			return nil, fmt.Errorf("could not prepare Go build-context snapshot")
+		}
+	}
+	context := build.Default
+	context.GOOS, context.GOARCH = target.GOOS, target.GOARCH
+	context.CgoEnabled = target.CgoEnabled
+	context.BuildTags = append([]string(nil), target.Tags...)
+	context.ToolTags = append([]string(nil), target.ToolTags...)
+	context.ReleaseTags = append([]string(nil), target.ReleaseTags...)
+	selected := make([]projectFile, 0, len(files))
+	for _, file := range files {
+		fullPath := filepath.Join(root, filepath.FromSlash(file.Path))
+		match, err := context.MatchFile(filepath.Dir(fullPath), filepath.Base(fullPath))
+		if err != nil {
+			return nil, fmt.Errorf("Go build constraints are invalid for %s: %s", file.Path, err.Error())
+		}
+		if match {
+			selected = append(selected, file)
+		}
+	}
+	return selected, nil
+}
+
+func hashProjectInventory(files []projectSourceFile, target goBuildContext) string {
+	h := newHash()
+	contextBytes, _ := json.Marshal(target)
+	_, _ = io.WriteString(h, "go-build-context\x00"+string(contextBytes)+"\n")
+	ordered := append([]projectSourceFile(nil), files...)
+	sort.Slice(ordered, func(i, j int) bool { return ordered[i].Path < ordered[j].Path })
+	for _, file := range ordered {
+		_, _ = io.WriteString(h, file.Path+"\x00"+hashText(file.Text)+"\n")
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 func projectPackageImportPath(modulePath, moduleRoot, packageDir string) (string, error) {

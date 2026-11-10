@@ -3,10 +3,12 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"go/build"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -628,7 +630,7 @@ func TestProjectCatalogRejectsIncompleteOrAmbiguousPackages(t *testing.T) {
 		{name: "different directories", files: []projectFile{{Path: "a/a.go", Source: "package sample"}, {Path: "b/b.go", Source: "package sample"}}},
 		{name: "different packages", files: []projectFile{{Path: "pkg/a.go", Source: "package sample"}, {Path: "pkg/b.go", Source: "package other"}}},
 		{name: "unresolved type references", files: []projectFile{{Path: "pkg/a.go", Source: "package sample\nfunc normalize(value int) int { return missing(value) }"}, {Path: "pkg/b.go", Source: "package sample\nfunc run() int { return normalize(4) }"}}},
-		{name: "build constraints", files: []projectFile{{Path: "pkg/a.go", Source: "//go:build linux\npackage sample"}, {Path: "pkg/b.go", Source: "package sample"}}},
+		{name: "invalid build constraints", files: []projectFile{{Path: "pkg/a.go", Source: "//go:build linux &&\npackage sample"}, {Path: "pkg/b.go", Source: "package sample"}}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -841,6 +843,10 @@ func TestProjectInventoryAggregatesCompleteGoPackagesAcrossDirectories(t *testin
 		{Path: "cmd/data.go", Source: "package cmd\nfunc load() int { return 7 }\n"},
 	}, "core/model.go")
 	request.Operation = "project_inventory"
+	buildContext, err := normalizeGoBuildContext(request)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	result, err := listProjectInventory(request)
 	if err != nil {
@@ -869,12 +875,12 @@ func TestProjectInventoryAggregatesCompleteGoPackagesAcrossDirectories(t *testin
 	if !packagePaths["core/model.go"] || !packagePaths["core/use.go"] || !packagePaths["cmd/run.go"] || !packagePaths["cmd/data.go"] {
 		t.Fatalf("inventory paths = %#v; want rows from both package directories", packagePaths)
 	}
-	if len(result["packages"].([]map[string]any)) != 2 || result["source_set_sha256"] != hashProjectSources([]projectSourceFile{
+	if len(result["packages"].([]map[string]any)) != 2 || result["source_set_sha256"] != hashProjectInventory([]projectSourceFile{
 		{Path: "core/model.go", Text: request.Files[0].Source},
 		{Path: "core/use.go", Text: request.Files[1].Source},
 		{Path: "cmd/run.go", Text: request.Files[2].Source},
 		{Path: "cmd/data.go", Text: request.Files[3].Source},
-	}) {
+	}, buildContext) {
 		t.Fatalf("project snapshot metadata = %#v", result)
 	}
 }
@@ -905,6 +911,71 @@ func TestProjectInventoryResolvesImportsBetweenModulePackages(t *testing.T) {
 	}
 	if importAlias == nil || importAlias.Classification != "eligible" || importAlias.ReferenceCount != 1 {
 		t.Fatalf("local module import alias = %+v; want one resolved reference", importAlias)
+	}
+}
+
+func TestProjectInventorySelectsFilesForProvenanceBoundBuildContext(t *testing.T) {
+	files := []projectFile{
+		{Path: "pkg/value_linux.go", Source: "//go:build linux && amd64\npackage sample\nfunc normalize(value int) int { return value + 1 }\n"},
+		{Path: "pkg/value_windows.go", Source: "//go:build windows\npackage sample\nfunc normalize(value int) int { return value + 2 }\n"},
+		{Path: "pkg/tagged.go", Source: "//go:build integration\npackage sample\nfunc integrationOnly() {}\n"},
+		{Path: "pkg/use.go", Source: "package sample\nfunc run() int { return normalize(1) }\n"},
+	}
+	request := goProjectRequest(files, "pkg/use.go")
+	request.Operation = "project_inventory"
+
+	base, err := listProjectInventory(request)
+	if err != nil {
+		t.Fatalf("inventory default Go build context: %v", err)
+	}
+	if base["build_context"].(goBuildContext).GOOS != runtime.GOOS || base["build_context"].(goBuildContext).GOARCH != runtime.GOARCH {
+		t.Fatalf("reported build context = %#v", base["build_context"])
+	}
+	if base["source_set_sha256"] == hashProjectSources([]projectSourceFile{
+		{Path: "pkg/use.go", Text: files[3].Source}, {Path: "pkg/value_linux.go", Text: files[0].Source},
+	}) {
+		t.Fatal("inventory source hash does not bind the selected build context")
+	}
+	baseInventory := base["inventory"].(map[string]any)
+	if baseInventory["source_file_count"] != 2 {
+		t.Fatalf("default context selected %v files, want linux implementation plus common file", baseInventory["source_file_count"])
+	}
+	baseFiles := base["files"].([]map[string]any)
+	if len(baseFiles) != 2 || baseFiles[0]["relative_path"] != "pkg/use.go" || baseFiles[1]["relative_path"] != "pkg/value_linux.go" {
+		t.Fatalf("default context source files = %#v", baseFiles)
+	}
+
+	request.BuildTags = []string{"integration"}
+	withTag, err := listProjectInventory(request)
+	if err != nil {
+		t.Fatalf("inventory explicit Go build tags: %v", err)
+	}
+	if withTag["source_set_sha256"] == base["source_set_sha256"] || withTag["inventory"].(map[string]any)["source_file_count"] != 3 {
+		t.Fatalf("tagged inventory failed to select and bind integration file: %#v", withTag)
+	}
+
+	request.BuildGOOS = "windows"
+	if _, err := listProjectInventory(request); err == nil || !strings.Contains(err.Error(), "currently requires build target") {
+		t.Fatalf("cross-target inventory error = %v; want explicit rejection until target stdlib export data is available", err)
+	}
+}
+
+func TestGoBuildFileSelectionRespectsGOARCHFilenameSuffix(t *testing.T) {
+	files := []projectFile{
+		{Path: "pkg/dispatch_amd64.go", Source: "package sample\nfunc dispatch() {}\n"},
+		{Path: "pkg/dispatch_arm64.go", Source: "package sample\nfunc dispatch() {}\n"},
+	}
+	target := goBuildContext{
+		GOOS: "linux", GOARCH: "arm64", CgoEnabled: build.Default.CgoEnabled,
+		ToolTags:    append([]string(nil), build.Default.ToolTags...),
+		ReleaseTags: append([]string(nil), build.Default.ReleaseTags...), Toolchain: runtime.Version(),
+	}
+	selected, err := selectGoBuildFiles(files, target)
+	if err != nil {
+		t.Fatalf("select arm64 Go sources: %v", err)
+	}
+	if len(selected) != 1 || selected[0].Path != "pkg/dispatch_arm64.go" {
+		t.Fatalf("arm64 source selection = %#v; want only dispatch_arm64.go", selected)
 	}
 }
 

@@ -104,6 +104,9 @@ class GoRefactorApiTests(unittest.TestCase):
                 "selected_path": "cmd/main.go",
                 "module_path": "example.test/project",
                 "module_root": "src",
+                "build_goos": "linux",
+                "build_goarch": "amd64",
+                "build_tags": ["integration"],
                 "files": files,
             })
 
@@ -111,6 +114,9 @@ class GoRefactorApiTests(unittest.TestCase):
         self.assertEqual(forwarded["operation"], "project_inventory")
         self.assertEqual(forwarded["module_path"], "example.test/project")
         self.assertEqual(forwarded["module_root"], "src")
+        self.assertEqual(forwarded["build_goos"], "linux")
+        self.assertEqual(forwarded["build_goarch"], "amd64")
+        self.assertEqual(forwarded["build_tags"], ["integration"])
         self.assertEqual(forwarded["files"], [{**files[0], "expected_sha256": ""}])
 
     def test_project_snapshot_file_count_is_bounded(self):

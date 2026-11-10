@@ -656,6 +656,9 @@ class ReamonGoRefactorRequest(BaseModel):
     selected_path: str = ""
     module_path: str = ""
     module_root: str = ""
+    build_goos: str = ""
+    build_goarch: str = ""
+    build_tags: list[str] = Field(default_factory=list)
     files: list[ReamonGoProjectFile] = Field(default_factory=list)
     renames: list[dict[str, Any]] = Field(default_factory=list)
 
@@ -1972,6 +1975,8 @@ async def refactor_reamon_go_source(body: ReamonGoRefactorRequest):
     project_bytes = sum(len(item.source_code.encode("utf-8")) for item in body.files)
     request_bytes = (
         len(body.module_path.encode("utf-8")) + len(body.module_root.encode("utf-8"))
+        + len(body.build_goos.encode("utf-8")) + len(body.build_goarch.encode("utf-8"))
+        + sum(len(tag.encode("utf-8")) + 1 for tag in body.build_tags)
         + sum(len(item.relative_path.encode("utf-8")) + len(item.expected_sha256) + 256 for item in body.files)
     )
     if is_project and (len(body.files) < minimum_files or len(body.files) > 256 or project_bytes > 8 * 1024 * 1024):
@@ -1996,6 +2001,9 @@ async def refactor_reamon_go_source(body: ReamonGoRefactorRequest):
             "selected_path": body.selected_path,
             "module_path": body.module_path,
             "module_root": body.module_root,
+            "build_goos": body.build_goos,
+            "build_goarch": body.build_goarch,
+            "build_tags": body.build_tags,
             "files": [item.model_dump() for item in body.files],
             "renames": body.renames,
         }).encode("utf-8")), timeout=60 if is_project else 20)
