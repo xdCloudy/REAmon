@@ -88,7 +88,7 @@ The [autonomous reconstruction and fidelity delivery plan](docs/REAMON_AUTONOMOU
 
 Latest evidence-based score change (2026-11-10): **+0.10 points** (32.18% → 32.28%). The DEX adapter now rejects malformed CFG inventories and references, underfilled truncation, and mismatched per-method truncation flags while accepting summaries truncated at the serializer's 12-block/16-edge caps. Six focused controls pass; Docker type-check, targeted ESLint, and the full suite pass (649 files / 9,907 tests; 2 expected failures; 50 files / 190 tests skipped). The pinned analyzer passed a synthetic fixture acceptance with 1 class, 1 method, and a complete 5-block/5-edge graph whose IDs, endpoints, and counts validate. This bounded adapter-level guarantee raises security/reliability 96% to 97%, adding 0.10 weighted points (32.18% to 32.28%); database-persistence acceptance remains unverified.
 
-Refreshed from pushed commit `feace1d`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+Refreshed from pushed commit `3f3ca81`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
