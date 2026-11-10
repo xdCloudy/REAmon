@@ -7,17 +7,38 @@ param(
     [string]$CfrContainer = 'reamon-cfr',
     [string]$ArtifactsVolume = 'reamon_artifacts',
     [string]$DerivedVolume = 'reamon_derived',
-    [string]$HelperImage = 'alpine:3.20'
+    [string]$HelperImage = 'alpine:3.20',
+    [string]$FixtureManifestPath,
+    [string]$EnvFile,
+    [string]$ExpectedStackProject = 'reamon',
+    [switch]$DatabaseIntegration
 )
 
 $ErrorActionPreference = 'Stop'
+$benchmarkEnvironmentNames = @(
+    'REAMON_BENCHMARK_HOST_OUTPUT_DIR',
+    'REAMON_JVM_CFR_FIXTURE_PATH',
+    'REAMON_BENCHMARK_FIXTURE_ID',
+    'REAMON_BENCHMARK_EVIDENCE_PATH'
+)
+$originalBenchmarkEnvironment = @{}
+foreach ($name in $benchmarkEnvironmentNames) {
+    $originalBenchmarkEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
+}
 $fixtureRoot = $PSScriptRoot
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path
 $BuildDirectory = [System.IO.Path]::GetFullPath($BuildDirectory)
 $OutputDirectory = [System.IO.Path]::GetFullPath($OutputDirectory)
 if (Test-Path -LiteralPath $OutputDirectory) { throw "Refusing existing output directory: $OutputDirectory" }
 if ($RunId -notmatch '^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$') { throw 'RunId must be a safe CFR identifier' }
 
-$manifest = Get-Content -LiteralPath (Join-Path $fixtureRoot 'manifest.json') -Raw | ConvertFrom-Json
+$manifestPath = if ($FixtureManifestPath) {
+    if ([System.IO.Path]::IsPathRooted($FixtureManifestPath)) { $FixtureManifestPath }
+    else { Join-Path $fixtureRoot $FixtureManifestPath }
+} else {
+    Join-Path $fixtureRoot 'manifest.json'
+}
+$manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
 $buildReceiptPath = Join-Path $BuildDirectory 'build-receipt.json'
 $buildReceipt = Get-Content -LiteralPath $buildReceiptPath -Raw | ConvertFrom-Json
 $jarPath = Join-Path $BuildDirectory 'fixture.jar'
@@ -55,6 +76,7 @@ $taskId = 'cfr-fixture'
 $runRoot = "$projectId/$artifactId/$taskId/$RunId"
 $artifactDirectoryName = 'jvm-cfr-' + $RunId
 $artifactPath = "/data/reamon-artifacts/$artifactDirectoryName/fixture.jar"
+$derivedPrepared = $false
 $stagingName = 'reamon-cfr-stage-' + [Guid]::NewGuid().ToString('N').Substring(0, 10)
 $copyName = 'reamon-cfr-copy-' + [Guid]::NewGuid().ToString('N').Substring(0, 10)
 $staged = $false
@@ -76,6 +98,7 @@ try {
     Invoke-DockerChecked -DockerArgs @('run', '--rm', '--volume', "${ArtifactsVolume}:/artifacts", '--entrypoint', 'sh', $HelperImage, '-c', $artifactCheck) | Out-Null
     $derivedCheck = 'test ! -e /derived/' + $runRoot
     Invoke-DockerChecked -DockerArgs @('run', '--rm', '--volume', "${DerivedVolume}:/derived:ro", '--entrypoint', 'sh', $HelperImage, '-c', $derivedCheck) | Out-Null
+    $derivedPrepared = $true
 
     Invoke-DockerChecked -DockerArgs @('run', '-d', '--name', $stagingName, '--volume', "${ArtifactsVolume}:/artifacts", '--entrypoint', 'sleep', $HelperImage, '300') | Out-Null
     Invoke-DockerChecked -DockerArgs @('cp', $jarPath, "${stagingName}:/tmp/fixture.jar") | Out-Null
@@ -196,16 +219,64 @@ try {
         claim = 'One synthetic two-class JVM fixture compiled, matched observed Main stdout and 8,197 sampled RuleEngine inputs, and records exact javap correspondence per class. This does not prove original-source equivalence or broad JVM fidelity.'
     }
     [System.IO.File]::WriteAllText((Join-Path $OutputDirectory 'validation-receipt.json'), ($validation | ConvertTo-Json -Depth 12), $utf8NoBom)
+
+    if ($DatabaseIntegration) {
+        if ($EnvFile) {
+            $EnvFile = [System.IO.Path]::GetFullPath($EnvFile)
+            if (-not (Test-Path -LiteralPath $EnvFile -PathType Leaf)) { throw 'The supplied Compose environment file does not exist' }
+        }
+        $containerLabels = Invoke-DockerChecked -DockerArgs @('inspect', 'redamon-webapp', '--format', '{{json .Config.Labels}}') | Out-String
+        $runningProject = ($containerLabels | ConvertFrom-Json).'com.docker.compose.project'
+        if ($runningProject -ne $ExpectedStackProject) {
+            throw "Expected stack project '$ExpectedStackProject' does not match the running webapp project '$runningProject'"
+        }
+        $integrationEvidencePath = Join-Path $OutputDirectory 'database-integration-evidence.json'
+        if (Test-Path -LiteralPath $integrationEvidencePath) { throw 'Refusing to overwrite database integration evidence' }
+        $env:REAMON_BENCHMARK_HOST_OUTPUT_DIR = $OutputDirectory.Replace('\', '/')
+        $env:REAMON_JVM_CFR_FIXTURE_PATH = $artifactPath
+        $env:REAMON_BENCHMARK_FIXTURE_ID = $manifest.fixtureId
+        $env:REAMON_BENCHMARK_EVIDENCE_PATH = '/benchmark-output/database-integration-evidence.json'
+        $composeArgs = @('compose', '-p', 'reamon-benchmark', '--project-directory', $repoRoot)
+        if ($EnvFile) { $composeArgs += @('--env-file', $EnvFile) }
+        $composeArgs += @('-f', (Join-Path $fixtureRoot 'docker-compose.integration.yml'), 'run', '--rm', 'benchmark-test')
+        docker @composeArgs
+        if ($LASTEXITCODE -ne 0) { throw 'CFR PostgreSQL integration failed' }
+        if (-not (Test-Path -LiteralPath $integrationEvidencePath -PathType Leaf)) {
+            throw 'CFR database integration passed without producing its evidence file'
+        }
+        $validation.databaseIntegrationEvidenceSha256 = (Get-FileHash -LiteralPath $integrationEvidencePath -Algorithm SHA256).Hash.ToLowerInvariant()
+        [System.IO.File]::WriteAllText((Join-Path $OutputDirectory 'validation-receipt.json'), ($validation | ConvertTo-Json -Depth 12), $utf8NoBom)
+    }
     Write-Output "CFR fixture passed: $RunId; sources=$($sourcePaths.Count); behavior=$($behavioralCorrespondence.inputCount) inputs; stdout=$observed"
 }
 finally {
     docker rm -f $stagingName 2>$null | Out-Null
     docker rm -f $copyName 2>$null | Out-Null
-    if ($staged) {
-        $stagedJar = "/artifacts/$artifactDirectoryName/fixture.jar"
-        $stagedHash = (Invoke-DockerChecked -DockerArgs @('run', '--rm', '--volume', "${ArtifactsVolume}:/artifacts", $HelperImage, 'sha256sum', $stagedJar) | Out-String).Trim().Split(' ')[0]
-        if ($stagedHash -ne $jarHash) { throw "Refusing to clean staged artifact with unexpected hash: $stagedHash" }
-        Invoke-DockerChecked -DockerArgs @('run', '--rm', '--volume', "${ArtifactsVolume}:/artifacts", $HelperImage, 'rm', '--', $stagedJar) | Out-Null
-        Invoke-DockerChecked -DockerArgs @('run', '--rm', '--volume', "${ArtifactsVolume}:/artifacts", $HelperImage, 'rmdir', '--', "/artifacts/$artifactDirectoryName") | Out-Null
+    try {
+        if ($derivedPrepared) {
+            if ($runRoot -notmatch '^bench-jvm-cfr/fixture-[a-f0-9]{12}/cfr-fixture/[A-Za-z0-9][A-Za-z0-9_-]{0,127}$') {
+                throw 'Refusing to clean a derived path outside this JVM fixture run'
+            }
+            $cleanupScript = 'set -eu; rm -rf -- "/derived/$1"; parent="${1%/*}"; rmdir -p -- "/derived/$parent" 2>/dev/null || true'
+            Invoke-DockerChecked -DockerArgs @('run', '--rm', '--volume', "${DerivedVolume}:/derived", '--entrypoint', 'sh', $HelperImage, '-c', $cleanupScript, 'reamon-jvm-cleanup', $runRoot) | Out-Null
+        }
+    }
+    finally {
+        try {
+            if ($staged) {
+                $stagedJar = "/artifacts/$artifactDirectoryName/fixture.jar"
+                $stagedHash = (Invoke-DockerChecked -DockerArgs @('run', '--rm', '--volume', "${ArtifactsVolume}:/artifacts", $HelperImage, 'sha256sum', $stagedJar) | Out-String).Trim().Split(' ')[0]
+                if ($stagedHash -ne $jarHash) { throw "Refusing to clean staged artifact with unexpected hash: $stagedHash" }
+                Invoke-DockerChecked -DockerArgs @('run', '--rm', '--volume', "${ArtifactsVolume}:/artifacts", $HelperImage, 'rm', '--', $stagedJar) | Out-Null
+                Invoke-DockerChecked -DockerArgs @('run', '--rm', '--volume', "${ArtifactsVolume}:/artifacts", $HelperImage, 'rmdir', '--', "/artifacts/$artifactDirectoryName") | Out-Null
+            }
+        }
+        finally {
+            foreach ($name in $benchmarkEnvironmentNames) {
+                $value = $originalBenchmarkEnvironment[$name]
+                if ($null -eq $value) { Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue }
+                else { Set-Item -LiteralPath "Env:$name" -Value $value }
+            }
+        }
     }
 }

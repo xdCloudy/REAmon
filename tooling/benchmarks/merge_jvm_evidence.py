@@ -1,209 +1,197 @@
 #!/usr/bin/env python3
-"""Convert one validated JVM provider run into common matrix evidence."""
+"""Bind CFR validation results to the exact code sources persisted by REAmon."""
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
-import os
 import re
 import sys
-import tempfile
 from pathlib import Path
 
-try:
-    from .compare_receipts import ReceiptError, load_json
-except ImportError:
-    from compare_receipts import ReceiptError, load_json
 
-EXPECTED_BEHAVIOR_INPUTS = 8_197
-SHA256_RE = re.compile(r"[0-9a-f]{64}\Z")
+class EvidenceError(ValueError):
+    """Raised when JVM provider, database, and validator evidence disagree."""
 
 
-def _is_sha256(value):
-    return isinstance(value, str) and SHA256_RE.fullmatch(value) is not None
+SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+SAMPLED_INPUT_COUNT = 8197
 
 
-def _safe_source_path(value):
-    if not isinstance(value, str) or not value or "\\" in value or value.startswith("/"):
-        return False
-    parts = value.split("/")
-    return all(part not in {"", ".", ".."} for part in parts)
+def load_json(path: Path) -> dict:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise EvidenceError(f"cannot read JSON evidence {path}: {exc}") from exc
+    if not isinstance(value, dict):
+        raise EvidenceError(f"evidence must contain a JSON object: {path}")
+    return value
 
 
-def merge_jvm_evidence(*, fixture_manifest, build_receipt, provider_receipt,
-                       validation_receipt):
-    if not isinstance(fixture_manifest, dict) or fixture_manifest.get("schemaVersion") != 1:
-        raise ReceiptError("JVM fixture manifest schemaVersion must be 1")
+def sha256_file(path: Path) -> str:
+    try:
+        digest = hashlib.sha256()
+        with path.open("rb") as stream:
+            for block in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(block)
+        return digest.hexdigest()
+    except OSError as exc:
+        raise EvidenceError(f"cannot hash evidence {path}: {exc}") from exc
+
+
+def _unavailable(denominator: int) -> dict:
+    return {"state": "UNAVAILABLE", "denominator": denominator}
+
+
+def merge_evidence(*, fixture_manifest: dict, validation: dict,
+                   database_evidence: dict, database_evidence_sha256: str) -> dict:
     fixture_id = fixture_manifest.get("fixtureId")
     artifact = fixture_manifest.get("artifact")
-    if not isinstance(fixture_id, str) or not fixture_id or not isinstance(artifact, dict):
-        raise ReceiptError("JVM fixture identity and artifact are required")
-    artifact_hash = artifact.get("sha256")
-    if not _is_sha256(artifact_hash):
-        raise ReceiptError("JVM fixture artifact SHA-256 is invalid")
+    expected_hash = artifact.get("sha256") if isinstance(artifact, dict) else None
     expected_count = fixture_manifest.get("sourceModuleCount")
+    if not isinstance(fixture_id, str) or not fixture_id:
+        raise EvidenceError("fixture manifest needs a fixtureId")
+    if not isinstance(expected_hash, str) or not SHA256_PATTERN.fullmatch(expected_hash):
+        raise EvidenceError("fixture manifest needs an artifact SHA-256")
     if type(expected_count) is not int or expected_count <= 0:
-        raise ReceiptError("JVM expected source-module count is invalid")
-    if not isinstance(build_receipt, dict) or build_receipt.get("fixtureId") != fixture_id:
-        raise ReceiptError("JVM build receipt fixture does not match the manifest")
-    if build_receipt.get("artifactSha256") != artifact_hash:
-        raise ReceiptError("JVM build receipt artifact does not match the manifest")
-    source_hashes = build_receipt.get("sourceSha256ByPath")
-    if (not isinstance(source_hashes, dict) or len(source_hashes) != expected_count
-            or not all(_safe_source_path(path) and _is_sha256(digest)
-                       for path, digest in source_hashes.items())):
-        raise ReceiptError("JVM build receipt source inventory is invalid")
+        raise EvidenceError("fixture manifest needs a positive sourceModuleCount")
+    if validation.get("fixtureId") != fixture_id or database_evidence.get("fixtureId") != fixture_id:
+        raise EvidenceError("fixture IDs differ across manifest and receipts")
+    if validation.get("artifactSha256") != expected_hash or database_evidence.get("artifactSha256") != expected_hash:
+        raise EvidenceError("artifact SHA-256 differs from the enrolled fixture")
+    if (not isinstance(database_evidence_sha256, str)
+            or not SHA256_PATTERN.fullmatch(database_evidence_sha256)
+            or validation.get("databaseIntegrationEvidenceSha256") != database_evidence_sha256):
+        raise EvidenceError("validation receipt does not bind the database integration evidence hash")
 
-    if not isinstance(provider_receipt, dict) or provider_receipt.get("status") != "completed":
-        raise ReceiptError("JVM provider receipt is not completed")
-    if provider_receipt.get("artifactSha256") != artifact_hash:
-        raise ReceiptError("JVM provider artifact does not match the manifest")
-    units = provider_receipt.get("units")
-    if not isinstance(units, list):
-        raise ReceiptError("JVM provider source inventory is missing")
-    provider_hashes = {}
-    for unit in units:
-        if not isinstance(unit, dict):
-            raise ReceiptError("JVM provider source unit is invalid")
-        relative_path, digest = unit.get("relativePath"), unit.get("outputSha256")
-        if (not isinstance(relative_path, str) or not relative_path
-                or not _safe_source_path(relative_path) or not _is_sha256(digest)
-                or relative_path in provider_hashes):
-            raise ReceiptError("JVM provider source path or hash is invalid")
-        provider_hashes[relative_path] = digest
+    source_hashes = validation.get("recoveredSourceSha256ByPath")
+    stored_hashes = database_evidence.get("storedSourceHashes")
+    if not isinstance(source_hashes, dict) or not isinstance(stored_hashes, dict):
+        raise EvidenceError("validation and database evidence must include source hash maps")
+    if not all(isinstance(path, str) and isinstance(digest, str) and SHA256_PATTERN.fullmatch(digest)
+               for path, digest in source_hashes.items()):
+        raise EvidenceError("validation source hash map contains an invalid path or digest")
+    if source_hashes != stored_hashes:
+        raise EvidenceError("persisted source paths or hashes differ from validated CFR outputs")
+    if database_evidence.get("allStoredSourcesHashVerified") is not True:
+        raise EvidenceError("database integration did not verify every stored source hash")
+    if database_evidence.get("sourceFileCount") != len(source_hashes):
+        raise EvidenceError("database source count differs from the validation source inventory")
+    if database_evidence.get("persistedCodeUnitCount") != len(stored_hashes):
+        raise EvidenceError("persisted code-unit count differs from the stored source inventory")
 
-    if not isinstance(validation_receipt, dict) or validation_receipt.get("schemaVersion") != 1:
-        raise ReceiptError("JVM validation receipt schemaVersion must be 1")
-    if (validation_receipt.get("fixtureId") != fixture_id
-            or validation_receipt.get("artifactSha256") != artifact_hash):
-        raise ReceiptError("JVM validation receipt does not match the enrolled fixture")
-    validation_hashes = validation_receipt.get("recoveredSourceSha256ByPath")
-    if not isinstance(validation_hashes, dict) or validation_hashes != provider_hashes:
-        raise ReceiptError("JVM validation source hashes differ from provider output")
-    expected_paths = set(source_hashes)
-    if any(not path.endswith(".java") for path in expected_paths):
-        raise ReceiptError("JVM fixture source inventory must contain Java source paths")
     inventory_complete = (
-        len(units) == expected_count
-        and provider_receipt.get("sourceFileCount") == expected_count
-        and validation_receipt.get("discoveredSourceFiles") == expected_count
-        and validation_receipt.get("expectedSourceFiles") == expected_count
-        and provider_receipt.get("truncated") is False
-        and validation_receipt.get("truncated") is False
-        and set(provider_hashes) == expected_paths
+        validation.get("truncated") is False
+        and validation.get("discoveredSourceFiles") == expected_count
+        and validation.get("expectedSourceFiles") == expected_count
+        and len(source_hashes) == expected_count
     )
-    class_count = expected_count
-    correspondence = validation_receipt.get("sourceCorrespondence")
-    if not isinstance(correspondence, dict):
-        raise ReceiptError("JVM bytecode-correspondence result is missing")
-    if correspondence.get("classesExpected") != class_count:
-        raise ReceiptError("JVM bytecode-correspondence denominator differs from the fixture")
-    matched_classes = correspondence.get("classesMatched")
-    if type(matched_classes) is not int or not 0 <= matched_classes <= class_count:
-        raise ReceiptError("JVM bytecode-correspondence count is invalid")
-    if correspondence.get("measurementComplete") is not True:
-        raise ReceiptError("JVM bytecode-correspondence measurement is incomplete")
-    expected_classes = {path[:-5].replace("/", ".") for path in expected_paths}
-    class_results = correspondence.get("classes")
-    if not isinstance(class_results, dict) or set(class_results) != expected_classes:
-        raise ReceiptError("JVM bytecode-correspondence classes differ from the fixture inventory")
-    counted_matches = 0
-    for class_name, result in class_results.items():
-        if not isinstance(result, dict) or not isinstance(result.get("bytecodeMatch"), bool):
-            raise ReceiptError(f"JVM bytecode-correspondence result is invalid for {class_name}")
-        if not _is_sha256(result.get("originalJavapSha256")) or not _is_sha256(result.get("recoveredJavapSha256")):
-            raise ReceiptError(f"JVM bytecode-correspondence hashes are invalid for {class_name}")
-        if result["bytecodeMatch"] != (result["originalJavapSha256"] == result["recoveredJavapSha256"]):
-            raise ReceiptError(f"JVM bytecode-correspondence hashes disagree for {class_name}")
-        counted_matches += int(result["bytecodeMatch"])
-    if correspondence.get("classesMatched") != counted_matches:
-        raise ReceiptError("JVM bytecode-correspondence matched count disagrees with class results")
-    if correspondence.get("allClassesMatched") is not (counted_matches == class_count):
-        raise ReceiptError("JVM bytecode-correspondence all-matched flag disagrees with class results")
-    runtime_matches = validation_receipt.get("runtimeMatches")
-    if not isinstance(runtime_matches, bool):
-        raise ReceiptError("JVM runtime-oracle result is missing")
-    if (validation_receipt.get("expectedRuntimeStdout")
-            != fixture_manifest.get("expectedRuntimeStdout")):
-        raise ReceiptError("JVM runtime oracle differs from the fixture manifest")
-    observed_stdout = validation_receipt.get("observedRuntimeStdout")
-    if not isinstance(observed_stdout, str) or runtime_matches != (
-            observed_stdout == fixture_manifest.get("expectedRuntimeStdout")):
-        raise ReceiptError("JVM runtime result disagrees with observed fixture output")
-    behavior = validation_receipt.get("behavioralCorrespondence")
-    behavior_metric = {"state": "UNAVAILABLE", "value": None,
-                       "denominator": 1,
-                       "reason": "The validation receipt did not include the full sampled behavior oracle."}
-    if isinstance(behavior, dict) and behavior.get("inputCount") == EXPECTED_BEHAVIOR_INPUTS:
-        if not isinstance(behavior.get("allOutputsMatch"), bool):
-            raise ReceiptError("JVM sampled behavior-oracle result is invalid")
-        if not _is_sha256(behavior.get("originalOutputSha256")) or not _is_sha256(behavior.get("recoveredOutputSha256")):
-            raise ReceiptError("JVM sampled behavior-oracle output hashes are invalid")
-        if behavior["allOutputsMatch"] != (
-                behavior["originalOutputSha256"] == behavior["recoveredOutputSha256"]):
-            raise ReceiptError("JVM sampled behavior-oracle hashes disagree with its result")
-        behavior_metric = {
+    metrics = {
+        "recovered_source_files": {
             "state": "MEASURED",
-            "value": int(behavior["allOutputsMatch"]),
+            "denominator": expected_count,
+            "value": min(expected_count, len(source_hashes)),
+        },
+        "source_inventory_complete": {
+            "state": "MEASURED",
             "denominator": 1,
+            "value": int(inventory_complete),
+        },
+    }
+
+    correspondence = validation.get("sourceCorrespondence")
+    classes = correspondence.get("classes") if isinstance(correspondence, dict) else None
+    classes_expected = correspondence.get("classesExpected") if isinstance(correspondence, dict) else None
+    classes_matched = correspondence.get("classesMatched") if isinstance(correspondence, dict) else None
+    bytecode_complete = (
+        isinstance(classes, dict)
+        and type(classes_expected) is int
+        and classes_expected == expected_count
+        and correspondence.get("measurementComplete") is True
+        and len(classes) == classes_expected
+    )
+    if bytecode_complete:
+        measured_matches = 0
+        for class_name, record in classes.items():
+            if not isinstance(class_name, str) or not isinstance(record, dict):
+                raise EvidenceError("bytecode correspondence contains an invalid class record")
+            original_hash = record.get("originalJavapSha256")
+            recovered_hash = record.get("recoveredJavapSha256")
+            matched = record.get("bytecodeMatch")
+            if (not isinstance(original_hash, str) or not SHA256_PATTERN.fullmatch(original_hash)
+                    or not isinstance(recovered_hash, str) or not SHA256_PATTERN.fullmatch(recovered_hash)
+                    or type(matched) is not bool or matched is not (original_hash == recovered_hash)):
+                raise EvidenceError(f"bytecode correspondence is inconsistent for {class_name}")
+            measured_matches += int(matched)
+        if type(classes_matched) is not int or classes_matched != measured_matches:
+            raise EvidenceError("bytecode correspondence summary contradicts class hashes")
+        metrics["exact_bytecode_classes"] = {
+            "state": "MEASURED", "denominator": expected_count, "value": measured_matches,
         }
+    else:
+        metrics["exact_bytecode_classes"] = _unavailable(expected_count)
+
+    observed_stdout = validation.get("observedRuntimeStdout")
+    expected_stdout = validation.get("expectedRuntimeStdout")
+    runtime_flag = validation.get("runtimeMatches")
+    if isinstance(observed_stdout, str) and isinstance(expected_stdout, str) and type(runtime_flag) is bool:
+        metrics["runtime_oracle"] = {
+            "state": "MEASURED", "denominator": 1,
+            "value": int(runtime_flag and observed_stdout == expected_stdout),
+        }
+    else:
+        metrics["runtime_oracle"] = _unavailable(1)
+
+    behavior = validation.get("behavioralCorrespondence")
+    if (isinstance(behavior, dict) and behavior.get("inputCount") == SAMPLED_INPUT_COUNT
+            and type(behavior.get("allOutputsMatch")) is bool):
+        hashes_match = (behavior.get("originalOutputSha256") == behavior.get("recoveredOutputSha256")
+                        and isinstance(behavior.get("originalOutputSha256"), str)
+                        and SHA256_PATTERN.fullmatch(behavior["originalOutputSha256"]) is not None)
+        metrics["sampled_behavior_oracle"] = {
+            "state": "MEASURED", "denominator": 1,
+            "value": int(behavior["allOutputsMatch"] and hashes_match),
+        }
+    else:
+        metrics["sampled_behavior_oracle"] = _unavailable(1)
 
     return {
         "schemaVersion": 1,
         "fixtures": {
             fixture_id: {
-                "artifactSha256": artifact_hash,
-                "metrics": {
-                    "recovered_source_files": {
-                        "state": "MEASURED", "value": len(expected_paths.intersection(provider_hashes)),
-                        "denominator": expected_count,
-                    },
-                    "source_inventory_complete": {
-                        "state": "MEASURED", "value": int(inventory_complete), "denominator": 1,
-                    },
-                    "exact_bytecode_classes": {
-                        "state": "MEASURED", "value": matched_classes, "denominator": class_count,
-                    },
-                    "runtime_oracle": {
-                        "state": "MEASURED", "value": int(runtime_matches), "denominator": 1,
-                    },
-                    "sampled_behavior_oracle": behavior_metric,
-                },
+                "artifactSha256": expected_hash,
+                "metrics": metrics,
             },
         },
     }
 
 
-def main(argv=None):
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    for option in ("fixture-manifest", "build-receipt", "provider-receipt", "validation-receipt", "output"):
-        parser.add_argument(f"--{option}", required=True)
+    parser.add_argument("--fixture-manifest", required=True, type=Path)
+    parser.add_argument("--validation", required=True, type=Path)
+    parser.add_argument("--database-evidence", required=True, type=Path)
+    parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args(argv)
     try:
-        evidence = merge_jvm_evidence(
+        evidence_path = args.database_evidence.resolve()
+        result = merge_evidence(
             fixture_manifest=load_json(args.fixture_manifest),
-            build_receipt=load_json(args.build_receipt),
-            provider_receipt=load_json(args.provider_receipt),
-            validation_receipt=load_json(args.validation_receipt),
+            validation=load_json(args.validation),
+            database_evidence=load_json(evidence_path),
+            database_evidence_sha256=sha256_file(evidence_path),
         )
-        output = Path(args.output)
-        if output.exists():
-            raise ReceiptError(f"refusing to overwrite existing evidence: {output}")
-        output.parent.mkdir(parents=True, exist_ok=True)
-        rendered = json.dumps(evidence, indent=2, sort_keys=True) + "\n"
-        descriptor, temporary_name = tempfile.mkstemp(prefix=f".{output.name}.", dir=output.parent)
-        try:
-            with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as destination:
-                destination.write(rendered)
-                destination.flush()
-                os.fsync(destination.fileno())
-            os.link(temporary_name, output)
-        finally:
-            Path(temporary_name).unlink(missing_ok=True)
-        print(f"recorded JVM matrix evidence at {output}")
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        with args.output.open("x", encoding="utf-8", newline="\n") as stream:
+            json.dump(result, stream, indent=2, sort_keys=True)
+            stream.write("\n")
+        print(f"Merged complete JVM evidence for {next(iter(result['fixtures']))} into {args.output}")
         return 0
-    except (ReceiptError, OSError, KeyError, TypeError, ValueError) as exc:
-        print(f"merge_jvm_evidence: {exc}", file=sys.stderr)
+    except EvidenceError as exc:
+        print(f"JVM evidence merge failed: {exc}", file=sys.stderr)
+        return 2
+    except FileExistsError:
+        print(f"refusing to overwrite evidence: {args.output}", file=sys.stderr)
         return 2
 
 

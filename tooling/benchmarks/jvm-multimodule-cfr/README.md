@@ -87,3 +87,31 @@ powershell -ExecutionPolicy Bypass -File tooling/benchmarks/jvm-multimodule-cfr/
   -SourceDirectory work/benchmarks/jvm-multimodule-cfr-run/sources `
   -OutputDirectory work/benchmarks/jvm-multimodule-cfr-behavior-negative-control
 ```
+
+## PostgreSQL persistence integration
+
+`run.ps1 -DatabaseIntegration` adds a live product-adapter check to the provider and
+runtime validation. It runs `executeCfr`, ingests the observations into PostgreSQL,
+reads the persisted Java code units, and verifies each derived source file against
+the input artifact and stored source hashes. The database test uses disposable
+project/task IDs and removes its rows and derived files. The runner removes only
+the exact staged fixture and CFR output directory it created.
+
+The optional check uses the running Compose stack, the `reamon-webapp-test:local`
+image, and PostgreSQL settings supplied through the normal Compose environment or
+`-EnvFile`. For example, run it with the enrolled version 1 fixture:
+
+```powershell
+tooling/benchmarks/jvm-multimodule-cfr/run.ps1 `
+  -BuildDirectory tooling/benchmarks/jvm-multimodule-cfr/runs/2026-11-10-vineflower `
+  -OutputDirectory work/benchmarks/jvm-cfr-database-integration `
+  -FixtureManifestPath manifest-v1.json `
+  -DatabaseIntegration
+```
+
+`database-integration-evidence.json` is separate from the provider/runtime receipt.
+`merge_jvm_evidence.py` joins them only when artifact identity and every persisted
+source hash match, then emits the existing five-metric fixture contract. Missing
+validator dimensions remain `UNAVAILABLE`. This checks CFR-to-database persistence
+on one JVM fixture; it does not exercise the queued worker or replace a
+changed-revision multi-format comparison.

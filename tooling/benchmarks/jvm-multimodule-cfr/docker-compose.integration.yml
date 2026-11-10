@@ -1,0 +1,39 @@
+services:
+  benchmark-test:
+    image: reamon-webapp-test:local
+    entrypoint: ["npm"]
+    working_dir: /repo/webapp
+    command: ["test", "--", "src/lib/reamon/cfr.task.database.integration.test.ts"]
+    environment:
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-redamon}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/${POSTGRES_DB:-redamon}"
+      REAMON_ARTIFACTS_PATH: /data/reamon-artifacts
+      REAMON_DERIVED_PATH: /data/reamon-derived
+      REAMON_CFR_URL: http://cfr-analyzer:8022
+      REAMON_RUN_DB_INTEGRATION: "1"
+      REAMON_JVM_CFR_FIXTURE_PATH: ${REAMON_JVM_CFR_FIXTURE_PATH:?REAMON_JVM_CFR_FIXTURE_PATH must be set}
+      REAMON_BENCHMARK_FIXTURE_ID: ${REAMON_BENCHMARK_FIXTURE_ID:-jvm-multimodule-cfr-linux-amd64}
+      REAMON_BENCHMARK_EVIDENCE_PATH: ${REAMON_BENCHMARK_EVIDENCE_PATH:?REAMON_BENCHMARK_EVIDENCE_PATH must be set}
+    volumes:
+      - reamon_artifacts:/data/reamon-artifacts
+      - reamon_derived:/data/reamon-derived
+      - ./webapp/src:/repo/webapp/src:ro
+      - ${REAMON_BENCHMARK_HOST_OUTPUT_DIR:-./work/benchmarks}:/benchmark-output
+    networks:
+      - app
+      - analysis
+
+networks:
+  app:
+    external: true
+    name: reamon-network
+  analysis:
+    external: true
+    name: reamon-analysis-net
+
+volumes:
+  reamon_artifacts:
+    external: true
+    name: reamon_artifacts
+  reamon_derived:
+    external: true
+    name: reamon_derived
