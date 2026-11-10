@@ -88,7 +88,7 @@ The [autonomous reconstruction and fidelity delivery plan](docs/REAMON_AUTONOMOU
 
 Latest evidence-based score change (2026-11-10): **+0.08 points** (33.63% → 33.71%). One additional partial point raises Agentic project-wide semantic renaming from 31% to 32% and weighted progress from 33.63% to 33.71% (+0.08). An isolated Chromium run passes 1/1 through real app routes, the real Go helper, disposable PostgreSQL 16, and an offline external-module cache; only LLM suggestion is deterministic. Both persisted drafts are fetched after page reload, with no browser or console errors. Held-out accuracy and general autonomy remain open.
 
-Refreshed from pushed commit `044faa6`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+Refreshed from pushed commit `dce08c5`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
