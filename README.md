@@ -88,7 +88,7 @@ The [autonomous reconstruction and fidelity delivery plan](docs/REAMON_AUTONOMOU
 
 Latest evidence-based score change (2026-11-10): **+0.08 points** (33.15% → 33.23%). Go inventory now resolves target-specific architecture defaults with go env, selects files through go list for each declared GOOS/GOARCH, and type-checks standard imports from go list -export. Network-backed module lookup is disabled, and unavailable external modules are rejected. The Linux/ARM64 fixture selects the ARM64 implementation and type-checks syscall.Gettid from ARM64 export data; the Windows-only syscall fixture also passes in the Linux container. Cgo source is rejected explicitly. The full Docker agent unit gate passed 188 files and 3,806 tests with zero failures (one file collected no tests), and the Go helper suite passed.
 
-Refreshed from pushed commit `a90f025`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+Refreshed from pushed commit `64c1f67`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
