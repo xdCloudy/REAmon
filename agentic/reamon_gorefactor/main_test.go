@@ -735,6 +735,39 @@ func TestProjectCatalogInventoriesFunctionLocalsAndCountsResolvedReferences(t *t
 	}
 }
 
+func TestProjectCatalogInventoriesImplicitTypeSwitchBindings(t *testing.T) {
+	request := goProjectRequest([]projectFile{
+		{
+			Path: "pkg/switch.go",
+			Source: "package sample\nfunc inspect(value any) int {\n\tswitch item := value.(type) {\n\tcase int:\n\t\treturn item\n\tcase string:\n\t\treturn len(item)\n\tdefault:\n\t\treturn len(item.(interface{ String() string }).String())\n\t}\n}\n",
+		},
+		{Path: "pkg/helper.go", Source: "package sample\nfunc helper() {}\n"},
+	}, "pkg/switch.go")
+	catalog, err := buildProjectCatalog(request)
+	if err != nil {
+		t.Fatalf("build type-switch local inventory: %v", err)
+	}
+	var switchBindings []projectInventoryEntry
+	for _, entry := range catalog.Inventory.Entries {
+		if entry.Scope == "local" && entry.Name == "item" {
+			switchBindings = append(switchBindings, entry)
+		}
+	}
+	if len(switchBindings) != 3 {
+		t.Fatalf("type-switch bindings = %+v; want one binding per case clause", switchBindings)
+	}
+	ids := make(map[string]struct{}, len(switchBindings))
+	for _, entry := range switchBindings {
+		if entry.Kind != "local type-switch variable" || entry.Classification != "eligible" || entry.ReferenceCount != 1 {
+			t.Errorf("type-switch binding = %+v; want a referenced, eligible case-scoped local", entry)
+		}
+		if _, exists := ids[entry.ID]; exists {
+			t.Errorf("type-switch binding ID %q is not unique across case scopes", entry.ID)
+		}
+		ids[entry.ID] = struct{}{}
+	}
+}
+
 func TestProjectCatalogReportsMainEntrypointAsUnsupported(t *testing.T) {
 	request := goProjectRequest([]projectFile{
 		{Path: "cmd/tool/main.go", Source: "package main\nfunc main() {}\n"},

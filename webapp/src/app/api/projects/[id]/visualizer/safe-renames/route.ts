@@ -308,7 +308,7 @@ function isValidGoProjectInventoryEntry(entry: Record<string, unknown>, sourceBy
     return ['program-entrypoint', 'unsupported-package-object-kind', 'special-initialization-function'].includes(entry.classificationReason)
   }
   if (entry.exported) return false
-  const supportedLocalKinds = ['local variable', 'local constant', 'local type', 'local type parameter', 'local function']
+  const supportedLocalKinds = ['local variable', 'local constant', 'local type', 'local type parameter', 'local function', 'local type-switch variable']
   if (entry.classification === 'eligible') {
     return supportedLocalKinds.includes(String(entry.kind)) && Number(entry.referenceCount) > 0
       && entry.classificationReason === 'local-symbol-with-resolved-references'

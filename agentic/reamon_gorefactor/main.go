@@ -536,7 +536,7 @@ func buildProjectCatalog(req request) (*projectCatalog, error) {
 	}
 	info := &types.Info{
 		Defs: make(map[*ast.Ident]types.Object), Uses: make(map[*ast.Ident]types.Object),
-		Scopes: make(map[ast.Node]*types.Scope),
+		Scopes: make(map[ast.Node]*types.Scope), Implicits: make(map[ast.Node]types.Object),
 	}
 	var typeErrors []error
 	conf := types.Config{Importer: importer.Default(), Error: func(err error) { typeErrors = append(typeErrors, err) }}
@@ -621,6 +621,7 @@ func buildProjectCatalog(req request) (*projectCatalog, error) {
 	}
 	localDeclarations := make(map[types.Object]*ast.Ident)
 	localPathsByObject := make(map[types.Object]string)
+	localTypeSwitchObjects := make(map[types.Object]bool)
 	collectLocalDefinitions := func(node ast.Node, filePath string) {
 		if node == nil {
 			return
@@ -682,6 +683,22 @@ func buildProjectCatalog(req request) (*projectCatalog, error) {
 			}
 			return true
 		})
+		ast.Inspect(file.AST, func(node ast.Node) bool {
+			clause, ok := node.(*ast.CaseClause)
+			if !ok {
+				return true
+			}
+			object := info.Implicits[clause]
+			if object == nil || object.Parent() == pkg.Scope() {
+				return true
+			}
+			if _, exists := localDeclarations[object]; !exists {
+				localDeclarations[object] = &ast.Ident{Name: object.Name(), NamePos: clause.Case}
+				localPathsByObject[object] = file.Path
+			}
+			localTypeSwitchObjects[object] = true
+			return true
+		})
 	}
 	for object, declaration := range localDeclarations {
 		kind := "unsupported local object"
@@ -689,7 +706,9 @@ func buildProjectCatalog(req request) (*projectCatalog, error) {
 		supported := true
 		switch local := object.(type) {
 		case *types.Var:
-			if local.IsField() {
+			if localTypeSwitchObjects[object] {
+				kind = "local type-switch variable"
+			} else if local.IsField() {
 				kind = "local struct field"
 				unsupportedReason = "local-struct-field-out-of-scope"
 				supported = false
