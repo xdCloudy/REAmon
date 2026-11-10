@@ -379,7 +379,96 @@ func TestProjectRenameVersionedBindingIntegrityCorpus(t *testing.T) {
 	}
 }
 
+func TestProjectRenamePinnedUpstreamErrorsFixture(t *testing.T) {
+	fixtureDirectory := filepath.Join("testdata", "upstream_errors_v0_9_1")
+	errorsSource, err := os.ReadFile(filepath.Join(fixtureDirectory, "errors.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	stackSource, err := os.ReadFile(filepath.Join(fixtureDirectory, "stack.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	licenseSource, err := os.ReadFile(filepath.Join(fixtureDirectory, "LICENSE"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for path, source := range map[string]struct {
+		bytes []byte
+		hash  string
+	}{
+		"errors.go": {bytes: errorsSource, hash: "71793fd94586f7261ab418566b3114f89bbbfda354ecf37c42f5b782315c4b4c"},
+		"stack.go":  {bytes: stackSource, hash: "8db3c35a432c18077f24f41b29e70adaea5ed9204ced729febf50dbac0e3d100"},
+		"LICENSE":   {bytes: licenseSource, hash: "b6ac2b8efa0412a02a909080be694d88ed6a8b25b8041a48dd4d0c50dac785ad"},
+	} {
+		if actual := hashText(string(source.bytes)); actual != source.hash {
+			t.Fatalf("pinned upstream %s SHA-256 = %s; want %s", path, actual, source.hash)
+		}
+	}
+	files := []projectFile{
+		{Path: "pkg/errors.go", Source: string(errorsSource)},
+		{Path: "pkg/stack.go", Source: string(stackSource)},
+	}
+	request := goProjectRequest(files, "pkg/stack.go")
+	catalog, err := buildProjectCatalog(request)
+	if err != nil {
+		t.Fatalf("catalog pinned upstream package: %v", err)
+	}
+	var selected binding
+	for _, item := range catalog.Bindings {
+		if item.FilePath == request.SelectedPath && item.Name == "callers" {
+			selected = item
+			break
+		}
+	}
+	if selected.ID == "" || selected.ReferenceCount != 5 {
+		t.Fatalf("upstream callers binding = %+v; want one declaration and five references across the pinned files", selected)
+	}
+	request.Operation = "project_rename"
+	request.ExpectedHash = catalog.SelectedHash
+	request.SourceSetHash = catalog.SourceSetHash
+	request.Renames = []renameSelection{{ID: selected.ID, NewName: "captureStack"}}
+	result, err := applyProjectRenames(request)
+	if err != nil {
+		t.Fatalf("rename upstream callers function: %v", err)
+	}
+	outputs := map[string]string{"pkg/errors.go": string(errorsSource), "pkg/stack.go": string(stackSource)}
+	editCount := 0
+	editsByPath := make(map[string]int, len(files))
+	for _, output := range result["files"].([]map[string]any) {
+		path := output["relative_path"].(string)
+		outputs[path] = output["source_code"].(string)
+		for _, edit := range output["edits"].([]map[string]any) {
+			start, startOK := edit["start"].(int)
+			end, endOK := edit["end"].(int)
+			original := string(errorsSource)
+			if path == "pkg/stack.go" {
+				original = string(stackSource)
+			}
+			if edit["old_text"] != "callers" || edit["new_text"] != "captureStack" || !startOK || !endOK || start < 0 || end > len(original) || original[start:end] != "callers" {
+				t.Fatalf("upstream edit for %s = %#v; want a byte-exact callers -> captureStack span", path, edit)
+			}
+			editCount++
+			editsByPath[path]++
+		}
+	}
+	if outputs["pkg/stack.go"] == string(stackSource) || outputs["pkg/errors.go"] == string(errorsSource) || editsByPath["pkg/errors.go"] == 0 {
+		t.Fatalf("rename did not propagate across both upstream files; edits by path: %v", editsByPath)
+	}
+	if editCount != 6 || editsByPath["pkg/stack.go"] != 1 || editsByPath["pkg/errors.go"] != 5 {
+		t.Fatalf("upstream edit manifest has %d edits by path %v; want 1 declaration and 5 cross-file references", editCount, editsByPath)
+	}
+	behaviorTest := "package errors\n\nimport (\n\tstderrors \"errors\"\n\t\"fmt\"\n\t\"strings\"\n\t\"testing\"\n)\n\nfunc TestCorpusBehavior(t *testing.T) {\n\tsentinel := stderrors.New(\"root\")\n\twrapped := Wrap(sentinel, \"outer\")\n\tif got := wrapped.Error(); got != \"outer: root\" { t.Fatalf(\"wrapped error = %q\", got) }\n\tif Cause(wrapped) != sentinel { t.Fatal(\"cause changed\") }\n\tif got := fmt.Sprintf(\"%+v\", wrapped); !strings.Contains(got, \"TestCorpusBehavior\") { t.Fatalf(\"stack trace omitted behavior frame: %q\", got) }\n}\n"
+	assertProjectPackageRenameBehavior(t, outputsBeforeRename(files), behaviorTest, "upstream original")
+	assertProjectPackageRenameBehavior(t, outputs, behaviorTest, "upstream renamed")
+}
+
 func assertProjectRenameBehavior(t *testing.T, files map[string]string, testSource, variant string) {
+	t.Helper()
+	assertProjectPackageRenameBehavior(t, files, "package sample\n\nimport \"testing\"\n\n"+testSource, variant)
+}
+
+func assertProjectPackageRenameBehavior(t *testing.T, files map[string]string, behaviorSource, variant string) {
 	t.Helper()
 	root, err := os.MkdirTemp("", "reamon-go-project-rename-")
 	if err != nil {
@@ -398,7 +487,7 @@ func assertProjectRenameBehavior(t *testing.T, files map[string]string, testSour
 		}
 	}
 	behaviorPath := filepath.Join(packageDirectory, "corpus_behavior_test.go")
-	if err := os.WriteFile(behaviorPath, []byte("package sample\n\nimport \"testing\"\n\n"+testSource), 0o600); err != nil {
+	if err := os.WriteFile(behaviorPath, []byte(behaviorSource), 0o600); err != nil {
 		t.Fatalf("write %s behavior oracle: %v", variant, err)
 	}
 	command := exec.Command("go", "test", "-run", "^TestCorpusBehavior$")
@@ -408,6 +497,14 @@ func assertProjectRenameBehavior(t *testing.T, files map[string]string, testSour
 	if err != nil {
 		t.Fatalf("%s runtime behavior oracle failed: %v\n%s", variant, err, output)
 	}
+}
+
+func outputsBeforeRename(files []projectFile) map[string]string {
+	outputs := make(map[string]string, len(files))
+	for _, file := range files {
+		outputs[file.Path] = file.Source
+	}
+	return outputs
 }
 
 func TestProjectRenameRejectsChangedSourceSet(t *testing.T) {
