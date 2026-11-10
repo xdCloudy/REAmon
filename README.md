@@ -107,7 +107,7 @@ Latest evidence-based score change (2026-11-10): **+0.08 points** (33.95% → 34
 
 **Next measurable gate:** Implement reviewer-selected receiver-method rename propagation using go/types object identity. Require collision/interface-contract checks, exact changed-reference assertions, package compilation, runtime oracles on pinned fixtures, and stale-source rejection before enabling it beyond the experimental Go path.
 
-Refreshed from pushed commit `21d6774`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+Refreshed from pushed commit `932a418`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
