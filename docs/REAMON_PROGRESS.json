@@ -184,7 +184,7 @@
   },
   "activeWork": {
     "date": "2026-11-10",
-    "basedOnCommit": "e482dc77",
+    "basedOnCommit": "09194466",
     "workstream": "End-to-end reconstruction acceptance benchmarks (AR-0/AR-8)",
     "status": "measurement and product source revisions are separated in receipts; changed-revision multi-format measurement remains open",
     "verified": [
