@@ -3,9 +3,10 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { NextRequest } from 'next/server'
+import { NextResponse } from 'next/server'
 
 const h = vi.hoisted(() => ({
-  user: vi.fn(), access: vi.fn(), selection: vi.fn(), provider: vi.fn(), observation: vi.fn(), observations: vi.fn(), observationCreateMany: vi.fn(), artifact: vi.fn(),
+  user: vi.fn(), access: vi.fn(), strictAccess: vi.fn(), selection: vi.fn(), provider: vi.fn(), observation: vi.fn(), observations: vi.fn(), observationCreateMany: vi.fn(), artifact: vi.fn(),
   artifacts: vi.fn(), maintainedSource: vi.fn(), drafts: vi.fn(), draft: vi.fn(), agentFetch: vi.fn(), root: vi.fn(), resolvePath: vi.fn(),
   evidenceFindMany: vi.fn(),
   functionMatches: vi.fn(),
@@ -25,7 +26,7 @@ vi.mock('@/lib/prisma', () => ({ default: {
   reamonCodeUnitLease: { create: h.leaseCreate, deleteMany: h.leaseDeleteMany },
   evidence: { findMany: h.evidenceFindMany },
 } }))
-vi.mock('@/lib/access', () => ({ requireEffectiveUser: h.user, requireProjectAccess: h.access }))
+vi.mock('@/lib/access', () => ({ requireEffectiveUser: h.user, requireProjectAccess: h.access, requireProjectAccessStrict: h.strictAccess }))
 vi.mock('@/lib/reamon/inventory-query', () => ({ getActiveWorkspaceImportSelection: h.selection }))
 vi.mock('@/lib/reamon/derived-storage', () => ({ derivedArtifactRoot: h.root, resolveDerivedArtifactPath: h.resolvePath }))
 vi.mock('@/lib/agentFetch', () => ({
@@ -52,6 +53,7 @@ beforeEach(async () => {
   vi.clearAllMocks()
   h.user.mockResolvedValue({ userId: 'user-1' })
   h.access.mockResolvedValue({ projectId: 'project-1' })
+  h.strictAccess.mockResolvedValue({ projectId: 'project-1' })
   h.selection.mockResolvedValue({ artifactWhere: { projectId: 'project-1', importId: { in: ['active-import'] } } })
   h.provider.mockResolvedValue({ id: 'provider-1', name: 'Local Qwen', modelIdentifier: 'Qwen3.5-0.8B', timeout: 90 })
   h.observation.mockResolvedValue({
@@ -223,6 +225,18 @@ describe('POST /api/projects/[id]/visualizer/explain', () => {
 })
 
 describe('POST /api/projects/[id]/visualizer/deobfuscate', () => {
+  it('denies foreign ownership before reading a code unit or creating a rewrite attempt', async () => {
+    h.strictAccess.mockResolvedValueOnce(NextResponse.json({ error: 'Not found' }, { status: 404 }))
+
+    const response = await deobfuscate(request({ unitId: 'unit-1', providerId: 'provider-1' }), routeParams)
+
+    expect(response.status).toBe(404)
+    expect(h.strictAccess).toHaveBeenCalledWith({ userId: 'user-1' }, 'project-1')
+    expect(h.observation).not.toHaveBeenCalled()
+    expect(h.attemptsCreate).not.toHaveBeenCalled()
+    expect(h.agentFetch).not.toHaveBeenCalled()
+  })
+
   it('builds a Java method outline without requiring a provider', async () => {
     const source = 'class Example { int value() { return 1; } }'
     await writeFile(path.join(testRoot, 'project-1/artifact-1/task-1/run-1/sources/MainActivity.java'), source)
