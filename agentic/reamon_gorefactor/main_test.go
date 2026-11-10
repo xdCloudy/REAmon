@@ -53,14 +53,17 @@ type projectInventoryCorpus struct {
 }
 
 type projectInventoryFixture struct {
-	Name          string                         `json:"name"`
-	ModulePath    string                         `json:"module_path"`
-	GoMod         string                         `json:"go_mod"`
-	PackageName   string                         `json:"package_name"`
-	BuildContexts []projectInventoryBuildContext `json:"build_contexts"`
-	SelectedPath  string                         `json:"selected_path"`
-	Files         []projectInventoryFixtureFile  `json:"files"`
-	Expected      map[string]int                 `json:"expected"`
+	Name               string                         `json:"name"`
+	ModulePath         string                         `json:"module_path"`
+	GoMod              string                         `json:"go_mod"`
+	PackageName        string                         `json:"package_name"`
+	BuildContexts      []projectInventoryBuildContext `json:"build_contexts"`
+	SelectedPath       string                         `json:"selected_path"`
+	Files              []projectInventoryFixtureFile  `json:"files"`
+	Expected           map[string]int                 `json:"expected"`
+	ExpectedAllScopeTP int                            `json:"expected_all_scope_tp"`
+	ExpectedAllScopeFP int                            `json:"expected_all_scope_fp"`
+	ExpectedAllScopeFN int                            `json:"expected_all_scope_fn"`
 }
 
 type projectInventoryBuildContext struct {
@@ -1013,6 +1016,10 @@ func TestProjectInventoryMatchesHashPinnedUpstreamCorpusV1(t *testing.T) {
 				t.Fatalf("inventory hash-pinned upstream sources: %v", err)
 			}
 			inventory := result["inventory"].(map[string]any)
+			selectedFiles := selectProjectFilesForBuildContext(t, files, fixture.BuildContexts[0].GOOS, fixture.BuildContexts[0].GOARCH)
+			gold := independentAllDeclarationKeys(t, selectedFiles, fixture.ModulePath)
+			allScopeTP, allScopeFP, allScopeFN := logProjectInventoryDeclarationAccuracy(t, inventory["entries"].([]projectInventoryEntry), gold)
+			assertProjectInventoryDeclarationAccuracy(t, allScopeTP, allScopeFP, allScopeFN, fixture)
 			counts := map[string]int{
 				"source_file_count":                   inventory["source_file_count"].(int),
 				"package_count":                       inventory["package_count"].(int),
@@ -1044,6 +1051,10 @@ func TestProjectInventoryMatchesHashPinnedUpstreamCorpusV1(t *testing.T) {
 					t.Fatalf("inventory pinned sources for %s/%s: %v", build.GOOS, build.GOARCH, err)
 				}
 				alternateInventory := alternateResult["inventory"].(map[string]any)
+				selectedFiles := selectProjectFilesForBuildContext(t, files, build.GOOS, build.GOARCH)
+				gold := independentAllDeclarationKeys(t, selectedFiles, fixture.ModulePath)
+				allScopeTP, allScopeFP, allScopeFN := logProjectInventoryDeclarationAccuracy(t, alternateInventory["entries"].([]projectInventoryEntry), gold)
+				assertProjectInventoryDeclarationAccuracy(t, allScopeTP, allScopeFP, allScopeFN, fixture)
 				for field, expected := range fixture.Expected {
 					if actual, ok := alternateInventory[field].(int); !ok || actual != expected {
 						t.Fatalf("%s/%s inventory %s = %v; want pinned count %d", build.GOOS, build.GOARCH, field, alternateInventory[field], expected)
@@ -1243,6 +1254,62 @@ func TestProjectInventoryHeldOutPackageSymbolPrecisionRecallV1(t *testing.T) {
 			}
 		})
 	}
+}
+
+func assertProjectInventoryDeclarationAccuracy(t *testing.T, truePositives, falsePositives, falseNegatives int, fixture projectInventoryFixture) {
+	t.Helper()
+	if truePositives != fixture.ExpectedAllScopeTP || falsePositives != fixture.ExpectedAllScopeFP || falseNegatives != fixture.ExpectedAllScopeFN {
+		t.Fatalf("all-scope declaration metrics = TP/FP/FN %d/%d/%d; want %d/%d/%d", truePositives, falsePositives, falseNegatives, fixture.ExpectedAllScopeTP, fixture.ExpectedAllScopeFP, fixture.ExpectedAllScopeFN)
+	}
+}
+
+func selectProjectFilesForBuildContext(t *testing.T, files []projectFile, goos, goarch string) []projectFile {
+	t.Helper()
+	sourceRoot := t.TempDir()
+	buildContext := gobuild.Default
+	buildContext.GOOS, buildContext.GOARCH, buildContext.CgoEnabled = goos, goarch, false
+	selected := make([]projectFile, 0, len(files))
+	for _, source := range files {
+		name := filepath.Base(source.Path)
+		if err := os.WriteFile(filepath.Join(sourceRoot, name), []byte(source.Source), 0o600); err != nil {
+			t.Fatalf("write source for independent Go build selection: %v", err)
+		}
+		matches, err := buildContext.MatchFile(sourceRoot, name)
+		if err != nil {
+			t.Fatalf("Go toolchain build selection for %s: %v", source.Path, err)
+		}
+		if matches {
+			selected = append(selected, source)
+		}
+	}
+	if len(selected) == 0 {
+		t.Fatalf("Go build selection produced no source files for %s/%s", goos, goarch)
+	}
+	return selected
+}
+
+func logProjectInventoryDeclarationAccuracy(t *testing.T, entries []projectInventoryEntry, gold map[string]bool) (truePositives, falsePositives, falseNegatives int) {
+	t.Helper()
+	actual := make(map[string]bool, len(entries))
+	duplicates := 0
+	for _, entry := range entries {
+		key := projectDeclarationKey(entry.RelativePath, entry.DeclarationStart, entry.Name)
+		if actual[key] {
+			duplicates++
+		}
+		actual[key] = true
+	}
+	for key := range gold {
+		if actual[key] {
+			truePositives++
+		}
+	}
+	falsePositives = len(actual) - truePositives + duplicates
+	falseNegatives = len(gold) - truePositives
+	precision := float64(truePositives) / float64(truePositives+falsePositives)
+	recall := float64(truePositives) / float64(truePositives+falseNegatives)
+	t.Logf("independent all-scope declaration census: precision %.4f, recall %.4f, TP=%d FP=%d FN=%d (duplicate=%d)", precision, recall, truePositives, falsePositives, falseNegatives, duplicates)
+	return truePositives, falsePositives, falseNegatives
 }
 
 func independentAllDeclarationKeys(t *testing.T, files []projectFile, importPath string) map[string]bool {
