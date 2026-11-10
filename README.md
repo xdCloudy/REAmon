@@ -88,7 +88,7 @@ The [autonomous reconstruction and fidelity delivery plan](docs/REAMON_AUTONOMOU
 
 Latest evidence-based score change (2026-11-10): **+0.03 points** (31.89% → 31.92%). The changed-revision JVM/PyInstaller matrix compares product source c4d1e957 to 71f480b1. All 12 fixture metrics are measured with zero deltas; clean worktrees and NO_REGRESSION_OBSERVED. The benchmark workstream rises 22% to 23% (+0.03 overall) for the completed multi-format acceptance gate; no fidelity improvement is claimed.
 
-Refreshed from pushed commit `50757d1`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+Refreshed from pushed commit `2c56612`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
