@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "fixtureId": "lua54-stripped-bytecode-linux-amd64",
+  "builtAtUtc": "2026-11-10T11:59:40Z",
+  "artifactSha256": "8ac4c0d9e5b3261c688f1dcf62394fbe3a1431355cf26dc71264b37844362ef0",
+  "artifactSizeBytes": 270,
+  "sourceSha256": "f88e2daee71520ec46df387e8f640e7e0fec840336a2a099dfe2202bcb9bbf08",
+  "builderImageId": "sha256:061a259e37d84754c2fe6015c977eb5e91fda5acf1c1dbc3e3cd62f5aa42aaaa",
+  "analyzerImageId": "sha256:0508050a51d01381a352f40ab89fec4b02f9d03036c855e7b02d8795c98096ac",
+  "dockerfileSha256": "f3518316e702413e648eae7d9a97f4c70f093facfb0cbc46c90b0ff2e7b0d6b2",
+  "luaVersion": "5.4.4",
+  "observedVersions": "Lua 5.4.4  Copyright (C) 1994-2022 Lua.org, PUC-Rio\r\nLua 5.4.4  Copyright (C) 1994-2022 Lua.org, PUC-Rio",
+  "compilerCommand": "luac5.4 -s",
+  "runtimeOracleState": "PASSED in bounded Docker image",
+  "artifactPath": "/data/qa/lua54-unluac-rs-v1/fixture.luac"
+}

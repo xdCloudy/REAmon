@@ -291,6 +291,20 @@ export async function executeUnluacRs(input: ToolExecutionInput): Promise<ToolRe
         })
       }
     }
+    const rootProto = payload.functions.find((proto) => proto.protoId === 0)
+    for (const childProtoId of rootProto?.children ?? []) {
+      const childKey = functionKeys.get(childProtoId)
+      if (!childKey) continue
+      observations.push({
+        kind: 'relationship',
+        type: 'contains',
+        key: `unluac-rs:contains:${createHash('sha256').update(identity).digest('hex').slice(0, 24)}:0:${childProtoId}`,
+        relation: 'contains',
+        fromKey: key,
+        toKey: childKey,
+        attributes: { engineVersion: payload.toolVersion, relationshipEvidence: 'Lua root prototype child table' },
+      })
+    }
     return {
       status: 'completed',
       ...base,
