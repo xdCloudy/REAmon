@@ -79,7 +79,7 @@ The [autonomous reconstruction and fidelity delivery plan](docs/REAMON_AUTONOMOU
 <!-- REAMON_PRODUCT_PROGRESS_START -->
 <progress value="31.86" max="100">31.86%</progress> <strong>31.86%</strong> — weighted estimate **31.86%**.
 Latest evidence-based score change (2026-11-10): **+0.00 points** (31.86% → 31.86%). Exported-API compatibility guard (2026-11-10, source commit 653077f0): Added a Go project-catalog regression proving exported Public is never offered for rename while unexported private remains selectable with its same-package reference. Focused regression, full Go package suite, and full agent Docker unit gate pass (188 files / 3,805 tests; one file collects no tests). This adds safety evidence but no new weighted acceptance point: ASSR-2 stays 13%, overall progress stays 31.86% (0.00-point change). Broad project/configuration precision-recall and live PostgreSQL/browser acceptance remain open.
-Refreshed from pushed commit `8159963`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+Refreshed from pushed commit `b090a24`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
 [Goals and roadmap](docs/REAMON_GOALS.md) · [Feature matrix](docs/REAMON_FEATURE_MATRIX.md)
