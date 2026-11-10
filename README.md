@@ -88,7 +88,7 @@ The [autonomous reconstruction and fidelity delivery plan](docs/REAMON_AUTONOMOU
 
 Latest evidence-based score change (2026-11-10): **+0.08 points** (32.75% → 32.83%). The same-directory Go inventory now includes explicit and inferred file-scope import aliases with exact resolved-reference counts. Docker regression evidence verifies both aliases, marks a dot import unsupported, and omits a blank import with no binding; the full Go helper package passes. The safe-renames route accepts and persists file-scope entries, draft history reloads them while normalizing older inventories without file counts, and the visualizer labels file scope. Focused safe-renames, draft-history, and visualizer tests pass 47/47; Docker type-check and targeted ESLint pass. Database integration and a fresh full webapp suite were not run. This adds one partial point to the 8%-weight semantic-renaming workstream (+0.08 overall); complete project discovery and naming-quality benchmarks remain open.
 
-Refreshed from pushed commit `9cc07d3`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+Refreshed from pushed commit `20b4db7`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
