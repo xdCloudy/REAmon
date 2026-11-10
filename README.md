@@ -77,8 +77,8 @@ The [autonomous reconstruction and fidelity delivery plan](docs/REAMON_AUTONOMOU
 ## Project status
 
 <!-- REAMON_PRODUCT_PROGRESS_START -->
-<progress value="31.37" max="100">31.37%</progress> <strong>31.37%</strong> — weighted estimate **31.37%**.
-Latest evidence-based score change (2026-11-10): **+0.07 points** (31.30% → 31.37%). Arlecchino ancestry is now persisted and displayed as a derived composite; unrecorded provider ancestry is labeled unknown.
+<progress value="31.44" max="100">31.44%</progress> <strong>31.44%</strong> — weighted estimate **31.44%**.
+Latest evidence-based score change (2026-11-10): **+0.07 points** (31.37% → 31.44%). Known alternate outputs now distinguish composite lineage, same-task co-run output with unmeasured independence, and transformations derived from Ghidra. Full Docker suite passed: 646 files; 9,871 tests passed, 2 expected failures, 196 skipped.
 Refreshed from pushed commit `7d3a245`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
