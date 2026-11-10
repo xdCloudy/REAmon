@@ -106,7 +106,7 @@ Latest evidence-based score change (2026-11-10): **+0.08 points** (33.87% → 33
 
 **Next measurable gate:** Measure member inventory precision and recall across more Go modules and build configurations, then implement safe receiver-method and field rename propagation with collision and behavior-preservation checks.
 
-Refreshed from pushed commit `e99d047`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+Refreshed from pushed commit `07518fb`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
