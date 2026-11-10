@@ -109,7 +109,7 @@ Latest evidence-based score change (2026-11-10): **+0.08 points** (34.03% → 34
 
 **Next measurable gate:** Expand Go semantic renames from a single-package private-method path to complete module snapshots. Build pinned multi-package fixtures that check cross-package selectors, exported interface/API compatibility, stale receipts, exact edits, compilation, and behavior; reject any rename whose required source packages are missing.
 
-Refreshed from pushed commit `404a0fa`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+Refreshed from pushed commit `aee9c47`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
