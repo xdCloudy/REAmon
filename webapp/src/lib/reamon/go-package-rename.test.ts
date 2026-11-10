@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { createHash } from 'node:crypto'
 import {
   buildGoPackageRenameSnapshot,
+  hashGoPackageSourceSet,
   GoPackageRenameSnapshotError,
   isSafeGoPackagePath,
   type GoPackageAcceptedSource,
@@ -12,6 +13,22 @@ import {
 const selectedSource = 'package sample\nfunc run() {}\n'
 const siblingSource = 'package sample\nfunc normalize(value int) int { return value }\n'
 const hash = (value: string) => createHash('sha256').update(value, 'utf8').digest('hex')
+
+describe('hashGoPackageSourceSet', () => {
+  it('matches the path and source-hash contract independent of input order', () => {
+    const files = [
+      { relativePath: 'pkg/b.go', sourceHash: hash(siblingSource) },
+      { relativePath: 'pkg/a.go', sourceHash: hash(selectedSource) },
+    ]
+    const expected = createHash('sha256')
+      .update(`pkg/a.go\0${hash(selectedSource)}\npkg/b.go\0${hash(siblingSource)}\n`)
+      .digest('hex')
+
+    expect(hashGoPackageSourceSet(files)).toBe(expected)
+    expect(hashGoPackageSourceSet([...files].reverse())).toBe(expected)
+    expect(hashGoPackageSourceSet([{ ...files[0], sourceHash: 'a'.repeat(64) }, files[1]])).not.toBe(expected)
+  })
+})
 
 const units: GoPackageRenameUnit[] = [
   { unitId: 'selected', unitName: 'pkg/a.go', relativePath: 'pkg/a.go' },

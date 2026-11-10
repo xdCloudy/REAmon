@@ -59,6 +59,14 @@ function sha256(value: string): string {
   return createHash('sha256').update(value, 'utf8').digest('hex')
 }
 
+export function hashGoPackageSourceSet(files: Array<{ relativePath: string; sourceHash: string }>): string {
+  const digest = createHash('sha256')
+  for (const file of [...files].sort((left, right) => left.relativePath < right.relativePath ? -1 : left.relativePath > right.relativePath ? 1 : 0)) {
+    digest.update(file.relativePath).update('\0').update(file.sourceHash).update('\n')
+  }
+  return digest.digest('hex')
+}
+
 /**
  * Build a complete, review-bound source set for one Go package. The selected
  * file is the operator's current editor contents; every sibling must match an

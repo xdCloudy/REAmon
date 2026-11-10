@@ -11,6 +11,7 @@ import { applySafeRenameBindings, listSafeRenameBindings, type SafeRenameBinding
 import { buildProjectSymbolContext } from '@/lib/reamon/maintenance-memory'
 import {
   buildGoPackageRenameSnapshot,
+  hashGoPackageSourceSet,
   GoPackageRenameSnapshotError,
   isSafeGoPackagePath,
   type GoPackageRenameFile,
@@ -239,6 +240,15 @@ interface GoProjectRenameResult extends SafeRenameResult {
   projectFiles: Array<{ relativePath: string; sourceCode: string; inputSha256: string; outputSha256: string; edits: Array<{ start: number; end: number; oldText: string; newText: string }> }>
 }
 
+interface GoProjectRenameSelection {
+  bindingId: string
+  oldName: string
+  newName: string
+  kind: string
+  referenceCount: number
+  scopeType: string
+}
+
 async function listGoProjectRenameBindings(files: GoPackageRenameFile[], selectedPath: string) {
   const selected = files.find((file) => file.relativePath === selectedPath)
   if (!selected) throw new Error('Selected Go source is missing from the verified package snapshot')
@@ -253,8 +263,9 @@ async function listGoProjectRenameBindings(files: GoPackageRenameFile[], selecte
   const bindings = Array.isArray(payload?.bindings) ? payload.bindings : []
   const listedFiles = Array.isArray(payload?.files) ? payload.files.map(plainObject) : []
   const expectedFiles = [...files].sort((left, right) => left.relativePath < right.relativePath ? -1 : left.relativePath > right.relativePath ? 1 : 0)
+  const expectedSourceSetSha256 = hashGoPackageSourceSet(files)
   if (!response.ok || payload?.source_sha256 !== selected.sourceHash
-      || !/^[a-f0-9]{64}$/i.test(String(payload?.source_set_sha256 || ''))
+      || payload?.source_set_sha256 !== expectedSourceSetSha256
       || payload?.selected_path !== selectedPath || typeof payload?.truncated !== 'boolean'
       || typeof payload?.parser_version !== 'string' || !/^go\d+\.\d+\.\d+(?:[.-][0-9A-Za-z.-]+)?$/.test(payload.parser_version)
       || listedFiles.length !== expectedFiles.length || listedFiles.some((file, index) =>
@@ -285,10 +296,13 @@ async function applyGoProjectRenameBindings(
   selectedPath: string,
   expectedSha256: string,
   expectedSourceSetSha256: string,
-  renames: Array<{ bindingId: string; newName: string }>,
+  renames: GoProjectRenameSelection[],
 ): Promise<GoProjectRenameResult> {
   const selected = files.find((file) => file.relativePath === selectedPath)
   if (!selected) throw new Error('Selected Go source is missing from the verified package snapshot')
+  if (hashGoPackageSourceSet(files) !== expectedSourceSetSha256) {
+    throw new Error('The Go package source-set hash does not match the verified snapshot')
+  }
   const response = await agentFetch('/reamon/code/go/refactor', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -305,6 +319,8 @@ async function applyGoProjectRenameBindings(
   const renamed = Array.isArray(payload?.renamed_bindings) ? payload.renamed_bindings : []
   const projectFiles = Array.isArray(payload?.files) ? payload.files : []
   const expectedByPath = new Map(files.map((file) => [file.relativePath, file]))
+  const seenPaths = new Set<string>()
+  const renamePairs = new Set(renames.map((rename) => `${rename.oldName}\0${rename.newName}`))
   const validatedFiles = projectFiles.flatMap((value) => {
     const file = plainObject(value)
     const relativePath = typeof file.relative_path === 'string' ? file.relative_path : ''
@@ -312,35 +328,65 @@ async function applyGoProjectRenameBindings(
     const inputSha256 = typeof file.input_sha256 === 'string' ? file.input_sha256 : ''
     const outputFileSha256 = typeof file.output_sha256 === 'string' ? file.output_sha256 : ''
     const original = expectedByPath.get(relativePath)
-    const edits = Array.isArray(file.edits) ? file.edits : []
-    if (!original || inputSha256 !== original.sourceHash || !/^[a-f0-9]{64}$/i.test(outputFileSha256)
+    const editValues = Array.isArray(file.edits) ? file.edits : []
+    const originalBytes = original ? Buffer.from(original.sourceCode, 'utf8') : Buffer.alloc(0)
+    if (!original || seenPaths.has(relativePath) || inputSha256 !== original.sourceHash || !/^[a-f0-9]{64}$/i.test(outputFileSha256)
         || digest(Buffer.from(sourceCode, 'utf8')) !== outputFileSha256
         || Buffer.byteLength(sourceCode, 'utf8') > MAX_SOURCE_BYTES
-        || !edits.length || !edits.every((editValue) => {
-          const edit = plainObject(editValue)
-          return Number.isSafeInteger(edit.start) && Number(edit.start) >= 0
-            && Number.isSafeInteger(edit.end) && Number(edit.end) > Number(edit.start)
-            && typeof edit.old_text === 'string' && typeof edit.new_text === 'string'
-        })) return []
+        || !editValues.length) return []
+    const edits = editValues.map(plainObject).map((edit) => ({
+      start: edit.start,
+      end: edit.end,
+      oldText: edit.old_text,
+      newText: edit.new_text,
+    }))
+    if (!edits.every((edit) => Number.isSafeInteger(edit.start) && Number(edit.start) >= 0
+        && Number.isSafeInteger(edit.end) && Number(edit.end) > Number(edit.start)
+        && typeof edit.oldText === 'string' && edit.oldText.length > 0
+        && typeof edit.newText === 'string' && edit.newText.length > 0
+        && renamePairs.has(`${edit.oldText}\0${edit.newText}`))) return []
+    const orderedEdits = edits.sort((left, right) => Number(left.start) - Number(right.start))
+    const outputChunks: Buffer[] = []
+    let previousEnd = 0
+    for (const edit of orderedEdits) {
+      const start = Number(edit.start)
+      const end = Number(edit.end)
+      const oldBytes = Buffer.from(String(edit.oldText), 'utf8')
+      if (start < previousEnd || end > originalBytes.length || end - start !== oldBytes.length
+          || !originalBytes.subarray(start, end).equals(oldBytes)) return []
+      outputChunks.push(originalBytes.subarray(previousEnd, start), Buffer.from(String(edit.newText), 'utf8'))
+      previousEnd = end
+    }
+    outputChunks.push(originalBytes.subarray(previousEnd))
+    const reconstructedBytes = Buffer.concat(outputChunks)
+    if (!reconstructedBytes.equals(Buffer.from(sourceCode, 'utf8'))) return []
+    seenPaths.add(relativePath)
     return [{
       relativePath, sourceCode, inputSha256, outputSha256: outputFileSha256,
-      edits: edits.map((editValue) => {
-        const edit = plainObject(editValue)
-        return { start: Number(edit.start), end: Number(edit.end), oldText: String(edit.old_text), newText: String(edit.new_text) }
-      }),
+      edits: orderedEdits.map((edit) => ({
+        start: Number(edit.start), end: Number(edit.end), oldText: String(edit.oldText), newText: String(edit.newText),
+      })),
     }]
   })
   const selectedOutput = validatedFiles.find((file) => file.relativePath === selectedPath)?.sourceCode
+  const renamedById = new Map(renamed.flatMap((value) => {
+    const item = plainObject(value)
+    return typeof item.bindingId === 'string' ? [[item.bindingId, item] as const] : []
+  }))
+  const outputHashesByPath = new Map(validatedFiles.map((file) => [file.relativePath, file.outputSha256]))
+  const computedOutputSourceSetSha256 = hashGoPackageSourceSet(files.map((file) => ({
+    relativePath: file.relativePath,
+    sourceHash: outputHashesByPath.get(file.relativePath) || file.sourceHash,
+  })))
   if (!response.ok || payload?.scope !== 'project' || payload?.source_sha256 !== expectedSha256
       || payload?.source_set_sha256 !== expectedSourceSetSha256
-      || !/^[a-f0-9]{64}$/i.test(String(payload?.output_source_set_sha256 || ''))
+      || payload?.output_source_set_sha256 !== computedOutputSourceSetSha256
       || !/^[a-f0-9]{64}$/i.test(outputSha256) || digest(Buffer.from(output, 'utf8')) !== outputSha256
       || output !== selectedOutput || !/^go\d+\.\d+\.\d+(?:[.-][0-9A-Za-z.-]+)?$/.test(parserVersion)
-      || renamed.length !== renames.length || !renamed.every((value) => {
-        const item = plainObject(value)
-        return typeof item.bindingId === 'string' && typeof item.oldName === 'string'
-          && typeof item.newName === 'string' && typeof item.kind === 'string'
-          && Number.isSafeInteger(item.referenceCount) && item.scopeType === 'package'
+      || renamed.length !== renames.length || renamedById.size !== renamed.length || !renames.every((rename) => {
+        const item = renamedById.get(rename.bindingId)
+        return item?.oldName === rename.oldName && item.newName === rename.newName
+          && item.kind === rename.kind && item.referenceCount === rename.referenceCount && item.scopeType === rename.scopeType
       }) || !validatedFiles.length || validatedFiles.length !== projectFiles.length) {
     throw new Error(typeof payload?.error === 'string' ? payload.error : 'The Go refactoring service returned an invalid project edit manifest')
   }
@@ -1050,8 +1096,17 @@ export async function POST(request: Request, { params }: RouteParams) {
       const item = plainObject(rename)
       return { bindingId: String(item.bindingId), newName: String(item.newName) }
     })
+    const selectedProjectRenames = requests.map((rename) => {
+      const item = plainObject(rename)
+      const binding = available.get(String(item.bindingId))
+      if (!binding) throw new Error('A selected Go package binding disappeared after validation')
+      return {
+        bindingId: binding.id, oldName: binding.name, newName: String(item.newName),
+        kind: binding.kind, referenceCount: binding.referenceCount, scopeType: binding.scopeType,
+      }
+    })
     const transformed = crossFileGo && goPackageFiles && goProjectCatalog
-      ? await applyGoProjectRenameBindings(goPackageFiles, goProjectCatalog.selectedPath, workingSourceSha256, goProjectCatalog.sourceSetSha256, selectedRenames)
+      ? await applyGoProjectRenameBindings(goPackageFiles, goProjectCatalog.selectedPath, workingSourceSha256, goProjectCatalog.sourceSetSha256, selectedProjectRenames)
       : isJava
       ? await refactorJavaBindings(workingSource, 'rename', workingSourceSha256, selectedRenames) as SafeRenameResult
       : isCSharp

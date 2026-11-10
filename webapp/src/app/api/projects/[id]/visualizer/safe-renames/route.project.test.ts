@@ -114,8 +114,8 @@ beforeEach(async () => {
       output_sha256: inputHash(selectedOutput), source_code: selectedOutput, parser_version: 'go1.24.4',
       renamed_bindings: [{ bindingId, oldName: 'normalize', newName: 'scale', kind: 'package function', referenceCount: 1, scopeType: 'package' }],
       files: [
-        { relative_path: selectedPath, input_sha256: inputHash(selectedSource), output_sha256: inputHash(selectedOutput), source_code: selectedOutput, edits: [{ start: 20, end: 29, old_text: 'normalize', new_text: 'scale' }] },
-        { relative_path: siblingPath, input_sha256: inputHash(siblingSource), output_sha256: inputHash(siblingOutput), source_code: siblingOutput, edits: [{ start: 35, end: 44, old_text: 'normalize', new_text: 'scale' }] },
+        { relative_path: selectedPath, input_sha256: inputHash(selectedSource), output_sha256: inputHash(selectedOutput), source_code: selectedOutput, edits: [{ start: selectedSource.indexOf('normalize'), end: selectedSource.indexOf('normalize') + 'normalize'.length, old_text: 'normalize', new_text: 'scale' }] },
+        { relative_path: siblingPath, input_sha256: inputHash(siblingSource), output_sha256: inputHash(siblingOutput), source_code: siblingOutput, edits: [{ start: siblingSource.indexOf('normalize'), end: siblingSource.indexOf('normalize') + 'normalize'.length, old_text: 'normalize', new_text: 'scale' }] },
       ],
     })
   })
@@ -151,5 +151,55 @@ describe('POST safe-renames Go package scope', () => {
     expect(h.txAttemptCreate).toHaveBeenCalledTimes(2)
     expect(h.txDraftCreate).toHaveBeenCalledTimes(2)
     expect(h.txDraftCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ codeUnitId: 'unit-b', sourceHash: inputHash(siblingSource), sourceCode: siblingOutput, syntaxValidated: true, validationStatus: 'PASSED' }) }))
+  })
+
+  it('rejects a helper catalog whose source-set hash differs from the reviewed snapshot', async () => {
+    h.agentFetch.mockResolvedValueOnce(jsonResponse({
+      source_sha256: inputHash(selectedSource), source_set_sha256: 'f'.repeat(64), selected_path: selectedPath,
+      files: [
+        { relative_path: selectedPath, source_sha256: inputHash(selectedSource) },
+        { relative_path: siblingPath, source_sha256: inputHash(siblingSource) },
+      ],
+      bindings: [{ id: bindingId, name: 'normalize', kind: 'package function', scopeType: 'package', declarationStart: 20, referenceCount: 1, relativePath: selectedPath, exported: false }],
+      truncated: false, parser_version: 'go1.24.4',
+    }))
+    const response = await POST(new Request('http://localhost/api/projects/project-1/visualizer/safe-renames', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        operation: 'apply', unitId: 'unit-a', providerId: 'provider-1', sourceCode: selectedSource,
+        expectedSha256: inputHash(selectedSource), suggestionAttemptId: 'proposal-1', crossFileGo: true,
+        renames: [{ bindingId, oldName: 'normalize', newName: 'scale', rationale: 'clearer name' }],
+      }),
+    }), routeParams)
+
+    expect(response.status).toBe(500)
+    expect(h.transaction).not.toHaveBeenCalled()
+    expect(h.txAttemptCreate).not.toHaveBeenCalled()
+  })
+
+  it('rejects edit manifests that do not reconstruct the helper output from exact input bytes', async () => {
+    const validAgentFetch = h.agentFetch.getMockImplementation()
+    if (!validAgentFetch) throw new Error('Expected the Go project helper fixture')
+    h.agentFetch.mockImplementation(async (url: string, init: RequestInit) => {
+      const response = await validAgentFetch(url, init)
+      const payload = await response.json() as Record<string, unknown>
+      if (url === '/reamon/code/go/refactor' && JSON.parse(String(init.body)).operation === 'project_rename') {
+        const files = payload.files as Array<{ edits: Array<{ start: number; end: number; old_text: string }> }>
+        files[0].edits[0] = { ...files[0].edits[0], start: 0 }
+      }
+      return jsonResponse(payload)
+    })
+    const response = await POST(new Request('http://localhost/api/projects/project-1/visualizer/safe-renames', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        operation: 'apply', unitId: 'unit-a', providerId: 'provider-1', sourceCode: selectedSource,
+        expectedSha256: inputHash(selectedSource), suggestionAttemptId: 'proposal-1', crossFileGo: true,
+        renames: [{ bindingId, oldName: 'normalize', newName: 'scale', rationale: 'clearer name' }],
+      }),
+    }), routeParams)
+
+    expect(response.status).toBe(500)
+    expect(h.transaction).not.toHaveBeenCalled()
+    expect(h.txAttemptCreate).not.toHaveBeenCalled()
   })
 })
