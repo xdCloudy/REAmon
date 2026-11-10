@@ -1,6 +1,6 @@
 # REAmon product progress
 
-Assessment date: 2026-11-10 · Source: pushed commit `b170af0` · Weighted estimate: **31.51%**
+Assessment date: 2026-11-10 · Source: pushed commit `c0b33e3` · Weighted estimate: **31.51%**
 
 This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.
 
@@ -132,10 +132,6 @@ Implementation note (2026-11-08): Tree-sitter parsing became unavailable when a 
 | Cross-surface tool contracts and scalable evidence delivery | 5% | 50% | 2.50 pts |
 | End-to-end reconstruction acceptance benchmarks | 3% | 21% | 0.63 pts |
 | External web/application behavioural evidence | 2% | 0% | 0.00 pts |
-
-## Active engineering slice
-
-**Cross-file semantic rename propagation (ASSR-2), 2026-11-10:** A Go package-snapshot helper now catalogs unexported package bindings across same-directory files by `go/types` object identity. Its project rename operation checks selected-file and source-set hashes, emits a versioned per-file edit manifest, and re-type-checks the edited package to ensure references still resolve to their original object. Focused Docker tests pass for cross-file declaration/reference edits, stale snapshots, package mismatch, unresolved references, and unsupported build constraints; `agentic/api.py` passes Python bytecode compilation after adding bounded project request fields. This is still engine/API groundwork: the safe-renames route does not construct a trusted package snapshot or call the project operation, and multi-file draft preview/persistence/rollback and live route acceptance are absent. **No ASSR-2 or weighted-progress credit is awarded for this in-progress slice.** Next gate: build the package snapshot from hash-verified accepted project sources, wire catalog/apply through the visualizer and draft review flow, then run focused API, route, database, and regression validation.
 
 ## Evidence and remaining work
 
