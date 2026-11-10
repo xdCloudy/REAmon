@@ -73,6 +73,16 @@ class StructuredSourceBenchmarkManifestTests(unittest.TestCase):
         self.assertEqual(manifest["builder"]["requirementsSha256"], sha256(ROOT / "requirements.txt"))
         self.assertEqual(manifest["groundTruth"]["sha256"], sha256(ROOT / "build_fixture.py"))
 
+    def test_current_builder_pins_reproducible_artifact_inputs(self):
+        manifest = load_json(ROOT / "manifest.json")
+        dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+
+        self.assertEqual(manifest["fixtureVersion"], 2)
+        self.assertIn("SOURCE_DATE_EPOCH=1767225600", dockerfile)
+        self.assertIn("PYTHONHASHSEED=0", dockerfile)
+        self.assertIn("--work-root /tmp/reamon-pyi-structured-build", dockerfile)
+        self.assertIn("Version 1 manifest", manifest["artifact"]["note"])
+
 
 if __name__ == "__main__":
     unittest.main()

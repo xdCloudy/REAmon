@@ -22,53 +22,68 @@ def module_source(value: int) -> str:
     )
 
 
-def build(output: Path) -> None:
-    with tempfile.TemporaryDirectory(prefix="reamon-pyi-structured-") as temporary:
-        root = Path(temporary)
-        package = root / "paging_fixture"
-        package.mkdir()
-        (package / "__init__.py").write_text("", encoding="utf-8")
-        for index in range(MODULE_COUNT):
-            (package / f"module_{index:03}.py").write_text(
-                module_source(index + 1), encoding="utf-8"
-            )
-
-        names = [f"paging_fixture.module_{index:03}" for index in range(MODULE_COUNT)]
-        imports = ", ".join(repr(name) for name in names)
-        main = root / "main.py"
-        main.write_text(
-            "import importlib\n"
-            f"MODULES = ({imports},)\n"
-            "assert importlib.import_module(MODULES[0]).classify(0) == 'below'\n"
-            "assert importlib.import_module(MODULES[0]).classify(1) == 'at-or-above'\n"
-            "print(sum(importlib.import_module(name).VALUE for name in MODULES))\n",
-            encoding="utf-8",
+def _build_in(root: Path, output: Path) -> None:
+    package = root / "paging_fixture"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    for index in range(MODULE_COUNT):
+        (package / f"module_{index:03}.py").write_text(
+            module_source(index + 1), encoding="utf-8"
         )
-        command = [
-            "pyinstaller", "--clean", "--noconfirm", "--onefile",
-            "--name", "pyinstaller-module-structured-source",
-            "--distpath", str(root / "dist"),
-            "--workpath", str(root / "work"),
-            "--specpath", str(root / "spec"),
-            "--paths", str(root),
-            *(argument for name in names for argument in ("--hidden-import", name)),
-            str(main),
-        ]
-        subprocess.run(command, check=True, cwd=root)
 
-        binary = root / "dist" / "pyinstaller-module-structured-source"
-        result = subprocess.run([str(binary)], check=True, capture_output=True, text=True)
-        if result.stdout.strip() != str(EXPECTED_VALUE):
-            raise RuntimeError(f"fixture oracle mismatch: expected {EXPECTED_VALUE}, got {result.stdout!r}")
-        output.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(binary, output)
+    names = [f"paging_fixture.module_{index:03}" for index in range(MODULE_COUNT)]
+    imports = ", ".join(repr(name) for name in names)
+    main = root / "main.py"
+    main.write_text(
+        "import importlib\n"
+        f"MODULES = ({imports},)\n"
+        "assert importlib.import_module(MODULES[0]).classify(0) == 'below'\n"
+        "assert importlib.import_module(MODULES[0]).classify(1) == 'at-or-above'\n"
+        "print(sum(importlib.import_module(name).VALUE for name in MODULES))\n",
+        encoding="utf-8",
+    )
+    command = [
+        "pyinstaller", "--clean", "--noconfirm", "--onefile",
+        "--name", "pyinstaller-module-structured-source",
+        "--distpath", str(root / "dist"),
+        "--workpath", str(root / "work"),
+        "--specpath", str(root / "spec"),
+        "--paths", str(root),
+        *(argument for name in names for argument in ("--hidden-import", name)),
+        str(main),
+    ]
+    subprocess.run(command, check=True, cwd=root)
+
+    binary = root / "dist" / "pyinstaller-module-structured-source"
+    result = subprocess.run([str(binary)], check=True, capture_output=True, text=True)
+    if result.stdout.strip() != str(EXPECTED_VALUE):
+        raise RuntimeError(f"fixture oracle mismatch: expected {EXPECTED_VALUE}, got {result.stdout!r}")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(binary, output)
+
+
+def build(output: Path, work_root: Path | None = None) -> None:
+    if work_root is None:
+        with tempfile.TemporaryDirectory(prefix="reamon-pyi-structured-") as temporary:
+            _build_in(Path(temporary), output)
+        return
+
+    root = Path(work_root)
+    if root.exists():
+        raise FileExistsError(f"Refusing existing deterministic build directory: {root}")
+    root.mkdir(parents=True)
+    try:
+        _build_in(root, output)
+    finally:
+        shutil.rmtree(root)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--work-root", type=Path)
     args = parser.parse_args()
-    build(args.output)
+    build(args.output, args.work_root)
 
 
 if __name__ == "__main__":

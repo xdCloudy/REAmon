@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "fixtureId": "pyinstaller-module-structured-source-linux-amd64",
+  "fixtureId": "pyinstaller-module-structured-source-linux-amd64-v2",
   "metrics": {
     "runtime_oracle": { "direction": "equal", "denominator": 1, "description": "Fixture checks both branches, then prints its declared aggregate value." },
     "extracted_module_count": { "direction": "equal", "denominator": 1, "description": "Extractor inventories the declared 180 bytecode modules." },

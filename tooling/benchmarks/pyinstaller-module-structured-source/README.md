@@ -1,7 +1,9 @@
 # PyInstaller structured-source fixture (v3)
 
 This separate synthetic fixture keeps the v1 and v2 paging artifact and their
-receipts immutable. It uses the same 70 known-source modules and 180-module
+receipts immutable. Its structured-source executable now has a reproducible v2
+artifact identity; the previous manifest and enrollment receipt remain archived
+as `manifest-v1.json` and `enrollment-receipt-v1.json`. It uses the same 70 known-source modules and 180-module
 extracted inventory, but each known module contains a value, a function, and a
 branch. The fixture's executable checks both branch outcomes and prints the
 same aggregate value (`2485`).
@@ -18,14 +20,15 @@ powershell -ExecutionPolicy Bypass -File tooling/benchmarks/pyinstaller-module-s
   -OutputDirectory work/benchmarks/pyinstaller-module-structured-source-v3-run1
 ```
 
-The enrolled build produced artifact SHA-256
-`746c550fc3324ebf285c0ee4a555ea2afb3d5b12c9c191eb2bf4f0978d263971`
-(7,270,096 bytes). Its runtime oracle passed and the isolated extractor
-enumerated 180 modules over pages of 64, 64, and 52. The checked-in
-`enrollment-receipt.json` binds those results to the pinned builder and the
-extractor used at enrollment. Later builds keep that enrollment immutable,
-build the current extractor, and record its image and source hashes in a
-separate build receipt.
+The v2 enrolled build produces artifact SHA-256
+`603094d27882948374f57aab29a89fc6c215410918f521a4e172165cf603fe8e`
+(7,272,176 bytes). Its runtime oracle passes and the isolated extractor
+enumerates 180 modules over pages of 64, 64, and 52. Two independent uncached
+Docker builds produced the same hash. The builder fixes `SOURCE_DATE_EPOCH`,
+`PYTHONHASHSEED`, and the temporary build path; the checked-in
+`enrollment-receipt.json` binds the v2 artifact to the pinned builder and
+extractor. Version 1 enrollment details remain preserved in the archived
+manifest and receipt.
 
 The evaluation contract measures runtime, inventory, known `VALUE` recall,
 worker continuation, and complete source matches across all 70 structured

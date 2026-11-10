@@ -1,6 +1,7 @@
 {
   "schemaVersion": 1,
-  "fixtureId": "pyinstaller-module-structured-source-linux-amd64",
+  "fixtureId": "pyinstaller-module-structured-source-linux-amd64-v2",
+  "fixtureVersion": 2,
   "status": "fixture-enrollment-verified",
   "sourceLicense": "MIT",
   "target": {
@@ -18,28 +19,29 @@
   "builder": {
     "dockerfile": "Dockerfile",
     "baseImage": "python:3.12.8-slim-bookworm@sha256:2199a62885a12290dc9c5be3ca0681d367576ab7bf037da120e564723292a2f0",
-    "dockerfileSha256": "1f7a9f5c94ab016c95f7c251b7969812302764104e14ea01893f6b8398861d07",
+    "dockerfileSha256": "2afbde22c1d2f551916705dca5aab979b8786fd503a210cc5034e1a99c7db471",
     "requirements": "requirements.txt",
     "binutilsVersion": "2.40-2",
     "requirementsSha256": "463bad8b281dcc8006562a46310738fb1184b41da3c0031515ec65a377a2a1be"
   },
   "groundTruth": {
     "location": "build_fixture.py",
-    "sha256": "dd6f4684764ad8bb15fdcca173d3e46184b4398eb0088f23bf8053bcd5489834",
+    "sha256": "23aaef7b4cc640ae1b604e327c0724a72c96bdcefb56ab378086b93a0d8d9185",
     "licenseFile": "../pyinstaller-module-paging/LICENSE",
     "licenseSha256": "6173399d3a79dff11064044cc994148e0bc7bc050f0d42a4e3418d36d7dc6127",
     "hiddenFromAnalyzerInput": true
   },
   "artifact": {
     "path": "pyinstaller-module-structured-source",
-    "sha256": "746c550fc3324ebf285c0ee4a555ea2afb3d5b12c9c191eb2bf4f0978d263971",
-    "sizeBytes": 7270096,
-    "note": "Set from the first pinned Docker enrollment build; later builds record their own artifact hash and do not rewrite this manifest."
+    "sha256": "603094d27882948374f57aab29a89fc6c215410918f521a4e172165cf603fe8e",
+    "sizeBytes": 7272176,
+    "note": "Version 2 fixes SOURCE_DATE_EPOCH, PYTHONHASHSEED, and the builder work path for byte-for-byte reproducible enrollment. Version 1 manifest and enrollment receipt are retained alongside this contract."
   },
   "extractor": {
     "dockerfile": "../../../analyzers/pyinstaller/Dockerfile",
     "dockerfileSha256": "db47713b717981021bc611de3b57c0fcc7bfdad76cec3197db7a0885b0686de3",
-    "serverSha256": "743f6fd876b4b722fcb54ac0409e095c77affaad4cd0a0dde4749fa691c3cd90",
+    "serverSha256": "37eefbee09dc358fed06210785b381ab441046b1cb2321ab59806fd256029600",
+    "revision": "2aa0ec9e58317ac717fdeec84a02d5a67de7b96c2-reamon2",
     "upstreamGoModSha256": "9a19b65469974a99ddec77fcab4b520140c00fcabf2e303fcba8f2af04b26434"
   },
   "acceptance": {
@@ -50,5 +52,8 @@
       "No broad language, whole-project, symbol, type, or behavioral fidelity claim.",
       "Ground truth remains unavailable to analyzer input; only its hashed artifact is enrolled."
     ]
+  },
+  "integration": {
+    "artifactVolumePath": "/data/qa/pyinstaller-structured-source-v3-v2/fixture"
   }
 }
