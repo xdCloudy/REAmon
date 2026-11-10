@@ -489,28 +489,31 @@ func TestProjectRenamePinnedUpstreamUUIDFixture(t *testing.T) {
 			files = append(files, projectFile{Path: "pkg/" + path, Source: string(source)})
 		}
 	}
-	request := goProjectRequest(files, "pkg/uuid.go")
-	catalog, err := buildProjectCatalog(request)
-	if err != nil {
-		t.Fatalf("catalog pinned upstream package subset: %v", err)
-	}
 	behaviorTest := "package uuid\n\nimport (\n\t\"bytes\"\n\t\"testing\"\n)\n\nfunc TestCorpusBehavior(t *testing.T) {\n\tseed := []byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}\n\twant := \"00010203-0405-4607-8809-0a0b0c0d0e0f\"\n\tDisableRandPool()\n\tdefer DisableRandPool()\n\tdefer SetRand(nil)\n\tSetRand(bytes.NewReader(seed))\n\tgot, err := NewRandom()\n\tif err != nil || got.String() != want { t.Fatalf(\"direct generation = %s, %v\", got, err) }\n\tEnableRandPool()\n\tSetRand(bytes.NewReader(bytes.Repeat(seed, 16)))\n\tgot, err = NewRandom()\n\tif err != nil || got.String() != want { t.Fatalf(\"pooled generation = %s, %v\", got, err) }\n}\n"
+	behaviorTest += "func TestCorpusParseBehavior(t *testing.T) {\n\twant := \"00010203-0405-4607-8809-0a0b0c0d0e0f\"\n\tparsed, err := Parse(want)\n\tif err != nil || parsed.String() != want { t.Fatalf(\"Parse = %s, %v\", parsed, err) }\n\tparsedBytes, err := ParseBytes([]byte(want))\n\tif err != nil || parsedBytes != parsed { t.Fatalf(\"ParseBytes = %s, %v\", parsedBytes, err) }\n\tif err := Validate(want); err != nil { t.Fatalf(\"Validate = %v\", err) }\n}\n"
 	renameCases := []struct {
 		name                string
+		selectedPath        string
 		newName             string
 		references          int
 		expectedEditsByFile map[string]int
 	}{
-		{name: "randPoolSize", newName: "randomBufferSize", references: 4, expectedEditsByFile: map[string]int{"pkg/uuid.go": 4, "pkg/version4.go": 1}},
-		{name: "poolEnabled", newName: "randomPoolEnabled", references: 3, expectedEditsByFile: map[string]int{"pkg/uuid.go": 3, "pkg/version4.go": 1}},
-		{name: "poolMu", newName: "randomPoolMutex", references: 5, expectedEditsByFile: map[string]int{"pkg/uuid.go": 3, "pkg/version4.go": 3}},
-		{name: "poolPos", newName: "randomPoolPosition", references: 6, expectedEditsByFile: map[string]int{"pkg/uuid.go": 2, "pkg/version4.go": 5}},
-		{name: "pool", newName: "randomPool", references: 2, expectedEditsByFile: map[string]int{"pkg/uuid.go": 1, "pkg/version4.go": 2}},
-		{name: "rander", newName: "randomReader", references: 5, expectedEditsByFile: map[string]int{"pkg/uuid.go": 3, "pkg/version4.go": 2, "pkg/util.go": 1}},
+		{name: "randPoolSize", selectedPath: "pkg/uuid.go", newName: "randomBufferSize", references: 4, expectedEditsByFile: map[string]int{"pkg/uuid.go": 4, "pkg/version4.go": 1}},
+		{name: "poolEnabled", selectedPath: "pkg/uuid.go", newName: "randomPoolEnabled", references: 3, expectedEditsByFile: map[string]int{"pkg/uuid.go": 3, "pkg/version4.go": 1}},
+		{name: "poolMu", selectedPath: "pkg/uuid.go", newName: "randomPoolMutex", references: 5, expectedEditsByFile: map[string]int{"pkg/uuid.go": 3, "pkg/version4.go": 3}},
+		{name: "poolPos", selectedPath: "pkg/uuid.go", newName: "randomPoolPosition", references: 6, expectedEditsByFile: map[string]int{"pkg/uuid.go": 2, "pkg/version4.go": 5}},
+		{name: "pool", selectedPath: "pkg/uuid.go", newName: "randomPool", references: 2, expectedEditsByFile: map[string]int{"pkg/uuid.go": 1, "pkg/version4.go": 2}},
+		{name: "rander", selectedPath: "pkg/uuid.go", newName: "randomReader", references: 5, expectedEditsByFile: map[string]int{"pkg/uuid.go": 3, "pkg/version4.go": 2, "pkg/util.go": 1}},
+		{name: "xtob", selectedPath: "pkg/util.go", newName: "hexPairToByte", references: 6, expectedEditsByFile: map[string]int{"pkg/util.go": 1, "pkg/uuid.go": 6}},
 	}
 	for _, testCase := range renameCases {
 		testCase := testCase
 		t.Run(testCase.name, func(t *testing.T) {
+			request := goProjectRequest(files, testCase.selectedPath)
+			catalog, err := buildProjectCatalog(request)
+			if err != nil {
+				t.Fatalf("catalog pinned upstream package subset: %v", err)
+			}
 			var selected binding
 			for _, item := range catalog.Bindings {
 				if item.FilePath == request.SelectedPath && item.Name == testCase.name {
@@ -521,7 +524,7 @@ func TestProjectRenamePinnedUpstreamUUIDFixture(t *testing.T) {
 			if selected.ID == "" || selected.ReferenceCount != testCase.references {
 				t.Fatalf("upstream %s binding = %+v; want %d resolved references", testCase.name, selected, testCase.references)
 			}
-			renameRequest := goProjectRequest(files, "pkg/uuid.go")
+			renameRequest := goProjectRequest(files, testCase.selectedPath)
 			renameRequest.Operation = "project_rename"
 			renameRequest.ExpectedHash = catalog.SelectedHash
 			renameRequest.SourceSetHash = catalog.SourceSetHash
@@ -581,7 +584,7 @@ func assertProjectPackageRenameBehavior(t *testing.T, files map[string]string, b
 	if err := os.WriteFile(behaviorPath, []byte(behaviorSource), 0o600); err != nil {
 		t.Fatalf("write %s behavior oracle: %v", variant, err)
 	}
-	command := exec.Command("go", "test", "-run", "^TestCorpusBehavior$")
+	command := exec.Command("go", "test", "-run", "^TestCorpus")
 	command.Dir = packageDirectory
 	command.Env = append(os.Environ(), "GO111MODULE=off", "GOTOOLCHAIN=local")
 	output, err := command.CombinedOutput()

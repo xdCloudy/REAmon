@@ -5,8 +5,8 @@
 - Source commit: `0f11ee6918f41a04c201eceeadf612a377bc7fbc` (tag `v1.6.0`)
 - License: BSD 3-Clause; the upstream `LICENSE` file is preserved here.
 - Source files: `uuid.go`, `version4.go`, `util.go`, `hash.go`, `marshal.go`, and `sql.go`, copied without modification from that commit.
-- Purpose: independently authored package subset for a cross-file package-variable rename. The unexported `rander` variable is declared in `uuid.go` and referenced in `version4.go` and `util.go`.
-- Scope: the selected files type-check together and exercise direct and pooled version-4 UUID generation. This excludes build-constrained/node and other UUID-version files, so it is not a complete package checkout or a representative accuracy corpus.
+- Purpose: independently authored package subset for cross-file package binding renames. The unexported `rander` variable is declared in `uuid.go` and referenced in `version4.go` and `util.go`; the private `xtob` parser helper is declared in `util.go` and referenced in `uuid.go`.
+- Scope: seven selected private package bindings are exercised, including six random-pool constants/variables and `xtob`. The selected files type-check together and test direct and pooled version-4 generation plus string/byte parsing and validation. This excludes build-constrained/node and other UUID-version files, so it is not a complete package checkout or a representative accuracy corpus.
 
 SHA-256:
 
