@@ -6,12 +6,12 @@ This estimate covers the reverse-engineering product goal and secure production 
 
 ## Recent activity (2026-11-10)
 
-- The Go project_bindings inventory now includes file-scope import aliases in addition to package declarations and function locals. Explicit and inferred aliases carry source-bound entries and exact resolved-reference counts; dot imports are explicitly unsupported and blank imports are omitted because they declare no binding. File and local entries remain inventory-only, while rename proposals remain package-scoped.
-- The Docker Go package suite passes. Its import regression verifies explicit and inferred aliases, unsupported dot imports, and omission of a blank import. Focused safe-renames, draft-history, and visualizer tests pass 47/47; Docker TypeScript type-check and targeted ESLint pass. Database integration and a fresh full webapp suite were not run for this slice.
+- Added a Go regression fixture proving local interface methods and labels remain explicitly unsupported, while referenced ordinary locals remain eligible. The full Docker Go refactoring package passes.
+- The progress ledger now points active-work evidence at source commit 9cc07d36 and separates this new test evidence from the last scored capability change.
 
-**Score decision:** Adding file-scope import bindings extends the Go inventory across another distinct lexical scope and adds one partial point to Agentic project-wide semantic renaming (20% to 21%). At 8% workstream weight, the weighted estimate increases from 32.75% to 32.83% (+0.08 points). Import aliases and locals are inventoried only; complete project discovery, local/file-scope rename proposals, meaningful/unnamed assessment, and naming-quality benchmarks remain open.
+**Score decision:** No percentage increase for this test-only slice: it confirms an existing classification boundary and does not add a product capability. The last verified capability change remains file-scope import inventory, moving the weighted estimate from 32.75% to 32.83% (21% completion for the 8%-weight semantic-renaming workstream).
 
-**Next measurable gate:** Extend the inventory to declared complete project scopes and additional supported languages/symbol kinds; define evidence-backed meaningful/unnamed and ambiguity assessments, then measure coverage and false-positive rates on held-out fixtures.
+**Next measurable gate:** Implement the next measurable semantic-renaming gate: inventory a declared whole-project Go scope with bounded progress and explicit counts for eligible, named, unnamed, ambiguous, excluded, and unsupported identities.
 
 | Workstream | Goal weight | Estimated complete | Weighted points |
 | --- | ---: | ---: | ---: |
