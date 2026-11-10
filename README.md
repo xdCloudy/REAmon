@@ -88,7 +88,7 @@ The [autonomous reconstruction and fidelity delivery plan](docs/REAMON_AUTONOMOU
 
 Latest evidence-based score change (2026-11-10): **+0.08 points** (32.91% → 32.99%). The Go helper maps package directories under a hash-verified module path and uses a cached go/types importer to resolve local package imports across the inventory. Tests cover imported named types, alias reference counts, and nested module roots. The route reads go.mod only from the active workspace import, validates its bytes/hash, persists path/root/hash, and rejects stale manifests before apply. Go package tests pass; API tests pass 4/4; focused route/history/visualizer tests pass 50/50; targeted ESLint passes. Disposable PostgreSQL integration passes 1/1. No external-module or build-tag coverage and no full webapp/repository suite are claimed. One partial point moves semantic-renaming completion from 22% to 23% (+0.08 weighted points); external dependencies, build variants, and naming quality remain open.
 
-Refreshed from pushed commit `d4e4fd3`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+Refreshed from pushed commit `6c0900a`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
