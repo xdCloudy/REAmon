@@ -347,4 +347,25 @@ describe.skipIf(!HAS_DB)('deobfuscation HTTP ownership with ACCESS_ENFORCE=0', (
     expect(ownerReview.status).toBe(201)
     expect(await prisma?.reamonFunctionMatchReview.count({ where: { matchId: functionMatchId, reviewerId: ownerId, decision: 'ACCEPTED' } })).toBe(1)
   }, 60_000)
+
+  test('maintained-source reads and review mutations deny foreign users before resolving source units', async () => {
+    const sourceUrl = `${baseUrl}/api/projects/${projectId}/visualizer/maintained/${SUFFIX}-missing-unit`
+    expect((await fetch(sourceUrl)).status).toBe(401)
+    const foreignRead = await fetch(sourceUrl, { headers: auth(foreignCookie) })
+    expect(foreignRead.status).toBe(404)
+    expect(await foreignRead.json()).toEqual({ error: 'Not found' })
+    const ownerRead = await fetch(sourceUrl, { headers: auth(ownerCookie) })
+    expect(ownerRead.status).toBe(404)
+    expect(await ownerRead.json()).toEqual({ error: 'Code unit not found' })
+
+    for (const method of ['POST', 'PATCH', 'PUT']) {
+      const foreignMutation = await fetch(sourceUrl, {
+        method,
+        headers: { ...auth(foreignCookie), 'content-type': 'application/json' },
+        body: 'not-json',
+      })
+      expect(foreignMutation.status).toBe(404)
+      expect(await foreignMutation.json()).toEqual({ error: 'Not found' })
+    }
+  }, 60_000)
 })

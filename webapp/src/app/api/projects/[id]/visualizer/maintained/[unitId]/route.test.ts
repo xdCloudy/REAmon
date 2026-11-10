@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { NextResponse } from 'next/server'
 import { createHash } from 'node:crypto'
 import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
@@ -18,12 +19,12 @@ vi.mock('@/lib/prisma', () => ({ default: {
   reamonCodeAttempt: { findMany: h.codeAttemptFindMany },
   artifact: { findFirst: h.artifact },
 } }))
-vi.mock('@/lib/access', () => ({ requireEffectiveUser: h.user, requireProjectAccess: h.access }))
+vi.mock('@/lib/access', () => ({ requireEffectiveUser: h.user, requireProjectAccessStrict: h.access }))
 vi.mock('@/lib/reamon/inventory-query', () => ({ getActiveWorkspaceImportSelection: h.selection }))
 vi.mock('@/lib/reamon/derived-storage', () => ({ derivedArtifactRoot: h.root, resolveDerivedArtifactPath: h.resolvePath }))
 vi.mock('@/lib/agentFetch', () => ({ agentFetch: h.agentFetch }))
 
-import { GET, PUT } from './route'
+import { GET, PATCH, POST, PUT } from './route'
 
 const transactionClient = {
   reamonMaintainedSource: {
@@ -69,6 +70,26 @@ afterEach(async () => {
 })
 
 describe('/api/projects/[id]/visualizer/maintained/[unitId]', () => {
+  it('denies foreign reads and mutations before resolving a code unit', async () => {
+    h.user.mockResolvedValue({ userId: 'foreign-user' })
+    h.access.mockResolvedValue(NextResponse.json({ error: 'Not found' }, { status: 404 }))
+    const requests = [
+      GET(new Request('http://localhost'), routeParams),
+      POST(new Request('http://localhost', { method: 'POST', body: 'not-json' }), routeParams),
+      PATCH(new Request('http://localhost', { method: 'PATCH', body: 'not-json' }), routeParams),
+      PUT(new Request('http://localhost', { method: 'PUT', body: 'not-json' }), routeParams),
+    ]
+
+    const responses = await Promise.all(requests)
+
+    expect(responses.map((response) => response.status)).toEqual([404, 404, 404, 404])
+    expect(h.access).toHaveBeenCalledTimes(4)
+    expect(h.access).toHaveBeenCalledWith({ userId: 'foreign-user' }, 'project-1')
+    expect(h.observation).not.toHaveBeenCalled()
+    expect(h.selection).not.toHaveBeenCalled()
+    expect(h.artifact).not.toHaveBeenCalled()
+  })
+
   it('rejects saving an unchanged decompilation as maintained source', async () => {
     const originalPath = path.join(testRoot, 'project-1/artifact-1/run/source/Main.java')
     await mkdir(path.dirname(originalPath), { recursive: true })

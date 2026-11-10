@@ -4,7 +4,7 @@ import path from 'node:path'
 import { NextResponse } from 'next/server'
 import { agentFetch } from '@/lib/agentFetch'
 import prisma from '@/lib/prisma'
-import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
+import { requireEffectiveUser, requireProjectAccessStrict } from '@/lib/access'
 import { getActiveWorkspaceImportSelection } from '@/lib/reamon/inventory-query'
 import { derivedArtifactRoot, resolveDerivedArtifactPath } from '@/lib/reamon/derived-storage'
 import { MAINTAINED_SOURCE_OBSERVATION_SOURCE, MAINTAINED_SOURCE_OBSERVATION_TYPE } from '@/lib/reamon/code-units'
@@ -158,7 +158,7 @@ function safeFileName(value: string): string {
 async function resolveUnit(projectId: string, unitId: string) {
   const user = await requireEffectiveUser()
   if (user instanceof NextResponse) return { response: user } as const
-  const access = await requireProjectAccess(user, projectId)
+  const access = await requireProjectAccessStrict(user, projectId)
   if (access instanceof NextResponse) return { response: access } as const
   const observation = await prisma.reamonObservation.findFirst({
     where: { id: unitId, projectId, type: 'code_unit' },
