@@ -1,18 +1,18 @@
 # REAmon product progress
 
-Assessment date: 2026-11-10 · Source: pushed commit `9192e2b` · Weighted estimate: **32.99%**
+Assessment date: 2026-11-10 · Source: pushed commit `9192e2b` · Weighted estimate: **33.07%**
 
 This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.
 
 ## Recent activity (2026-11-10)
 
-- Go project inventory now maps verified module-relative package paths and resolves imports between local packages through go/types. It falls back to the standard importer for standard-library packages; build tags and external module dependencies remain unsupported.
-- The active workspace go.mod is size-, UTF-8-, and SHA-256-verified. Its module root, path, and manifest hash are bound to saved inventory context and rechecked before apply, so manifest changes invalidate stale proposals.
-- Go helper tests pass; Python API contract tests pass 4/4; focused route/history/visualizer tests pass 50/50; targeted ESLint passes. Disposable PostgreSQL route integration passes 1/1, including stale-manifest rejection. No changed production route type errors were reported; full webapp tsc still has test-file errors.
+- Go package inventories now apply go/build file selection for the declared GOOS/GOARCH and explicit tags, including filename suffixes, cgo, tool, and release tags.
+- The source-set SHA-256 binds selected source to normalized build context and Go toolchain, so changing the context invalidates saved proposals. Cross-target type checks remain rejected until matching standard-library import data is available.
+- Docker agent unit gate passed 188 files and 3,806 tests with zero failures; one file collected no tests. The Go helper suite passed build-tag, mutually exclusive Linux/Windows, and amd64/arm64 suffix selection regressions.
 
-**Score decision:** Award one partial point to the 8%-weight semantic-renaming workstream (22% to 23%), moving the weighted estimate from 32.91% to 32.99% (+0.08). Resolving imports between hash-bound local module packages adds cross-package type evidence to the verified inventory. This does not credit external dependency resolution, build-tag coverage, cross-package rename edits, naming quality, or broad suite acceptance.
+**Score decision:** Award one partial point to the 8%-weight Agentic project-wide semantic-renaming workstream (23% to 24%), moving weighted progress from 32.99% to 33.07% (+0.08 points). Correctly selecting and provenance-binding build-constrained files improves inventory fidelity. This does not credit cross-target type checking or renames, external module dependencies, broad known-source accuracy, or complete reconstruction.
 
-**Next measurable gate:** Add a declared, provenance-bound Go build context and fixtures that select mutually exclusive build-tag/GOOS/GOARCH files correctly; then add offline external-module resolution using verified go.mod/go.sum receipts and measure inventory counts against known-source fixtures.
+**Next measurable gate:** Provide matching standard-library import data before enabling cross-target Go type checks; then resolve external imports from verified offline module caches bound to go.mod/go.sum and compare inventory counts against hash-pinned known-source fixtures.
 
 | Workstream | Goal weight | Estimated complete | Weighted points |
 | --- | ---: | ---: | ---: |
@@ -22,7 +22,7 @@ This estimate covers the reverse-engineering product goal and secure production 
 | Maintainable editing, review, and export | 4% | 60% | 2.40 pts |
 | Fixture-backed validation and fidelity evidence | 2% | 16% | 0.32 pts |
 | Security, reliability, and production operations | 10% | 98% | 9.80 pts |
-| Agentic project-wide semantic renaming | 8% | 23% | 1.84 pts |
+| Agentic project-wide semantic renaming | 8% | 24% | 1.92 pts |
 | Cross-file semantic rename propagation | 7% | 13% | 0.91 pts |
 | Safe autonomous rename acceptance | 5% | 0% | 0.00 pts |
 | Agentic semantic type and data-structure recovery | 5% | 12% | 0.60 pts |
@@ -77,9 +77,9 @@ This estimate covers the reverse-engineering product goal and secure production 
 
 ### Agentic project-wide semantic renaming
 
-**Current evidence:** Partial foundations include a verified whole-project inventory for discovered Go source units in one exact task/run. It groups packages, type-checks them, and resolves imports between local module packages when a hash-verified active-workspace go.mod is present. Source rows and local module identity are bound to the snapshot; external source discovery remains bounded, and project-wide rows remain inventory-only.
+**Current evidence:** Partial foundations include a verified whole-project inventory for discovered Go source units in one exact task/run. It groups packages, type-checks them, and resolves imports between local module packages when a hash-verified active-workspace go.mod is present. Source rows and local module identity are bound to the snapshot; external source discovery remains bounded, and project-wide rows remain inventory-only. A seventh partial inventory increment applies Go build-constraint and GOOS/GOARCH filename selection, and binds selected paths/source plus normalized build context and toolchain to the snapshot hash. Synthetic regressions select mutually exclusive Linux/Windows files, explicit build tags, and amd64/arm64 filename variants.
 
-**Remaining:** Add explicit, provenance-bound build configuration and fixtures for Go build tags/GOOS/GOARCH; resolve external imports only from verified offline module caches and exact go.mod/go.sum receipts; classify meaningful, unnamed, ambiguous, excluded, unsupported, and truncated populations; add evidence-linked proposals, identity-stable refinement, confidence/provenance, and held-out semantic quality, calibration, false-positive, and scale measurements. Do not require exact original names erased by compilation.
+**Remaining:** Enable cross-target type checking with matching standard-library import data; resolve external imports only from verified offline module caches and exact go.mod/go.sum receipts; classify meaningful, unnamed, ambiguous, excluded, unsupported, and truncated populations; add evidence-linked proposals, identity-stable refinement, confidence/provenance, and held-out semantic quality, calibration, false-positive, and scale measurements. Do not require exact original names erased by compilation.
 
 ### Cross-file semantic rename propagation
 
