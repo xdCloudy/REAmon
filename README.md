@@ -79,7 +79,7 @@ The [autonomous reconstruction and fidelity delivery plan](docs/REAMON_AUTONOMOU
 <!-- REAMON_PRODUCT_PROGRESS_START -->
 <progress value="31.11" max="100">31.11%</progress> <strong>31.11%</strong> — weighted estimate **31.11%**.
 Recent same-scope change since 2026-11-09: **+2.55 points** (28.56% → 31.11%).
-Refreshed from pushed commit `27e84c9`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+Refreshed from pushed commit `e31f5ce`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
 [Goals and roadmap](docs/REAMON_GOALS.md) · [Feature matrix](docs/REAMON_FEATURE_MATRIX.md)
