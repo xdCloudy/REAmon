@@ -14,7 +14,8 @@
       "expected": {
         "pkg/api.go": "package sample\n\n// normalize remains documentation.\nfunc scale(value int) int { return value + 1 }\n",
         "pkg/use.go": "package sample\n\nfunc call() int { return scale(2) }\nfunc shadow(normalize func(int) int) int { return normalize(3) }\nconst note = \"normalize\"\n"
-      }
+      },
+      "behavior_test": "func TestCorpusBehavior(t *testing.T) { if got := call(); got != 3 { t.Fatalf(\"call = %d\", got) }; if got := shadow(func(value int) int { return value * 2 }); got != 6 { t.Fatalf(\"shadow = %d\", got) }; if note != \"normalize\" { t.Fatalf(\"note = %s\", note) } }\n"
     },
     {
       "name": "type references include_signature_and_composite_literal",
@@ -29,7 +30,8 @@
       "expected": {
         "pkg/model.go": "package sample\n\ntype entity struct { value int }\n",
         "pkg/use.go": "package sample\n\nfunc create() entity { return entity{value: 4} }\n"
-      }
+      },
+      "behavior_test": "func TestCorpusBehavior(t *testing.T) { if got := create().value; got != 4 { t.Fatalf(\"value = %d\", got) } }\n"
     },
     {
       "name": "generic_type_rename_updates_cross_file_receiver_and_instantiation",
@@ -39,27 +41,29 @@
       "reference_count": 2,
       "files": {
         "pkg/types.go": "package sample\n\ntype store[T comparable] struct { key T }\n",
-        "pkg/use.go": "package sample\n\nfunc (item *store[T]) current() T { return item.key }\nfunc get() int { var item store[int]; return item.current() }\n"
+        "pkg/use.go": "package sample\n\nfunc (item *store[T]) current() T { return item.key }\nfunc get() int { item := store[int]{key: 7}; return item.current() }\n"
       },
       "expected": {
         "pkg/types.go": "package sample\n\ntype repository[T comparable] struct { key T }\n",
-        "pkg/use.go": "package sample\n\nfunc (item *repository[T]) current() T { return item.key }\nfunc get() int { var item repository[int]; return item.current() }\n"
-      }
+        "pkg/use.go": "package sample\n\nfunc (item *repository[T]) current() T { return item.key }\nfunc get() int { item := repository[int]{key: 7}; return item.current() }\n"
+      },
+      "behavior_test": "func TestCorpusBehavior(t *testing.T) { if got := get(); got != 7 { t.Fatalf(\"get = %d\", got) } }\n"
     },
     {
       "name": "interface_contract_remains_valid_after_receiver_type_rename",
       "selected_path": "pkg/types.go",
       "old_name": "store",
       "new_name": "record",
-      "reference_count": 2,
+      "reference_count": 3,
       "files": {
-        "pkg/types.go": "package sample\n\ntype store struct { value int }\nfunc (item store) get() int { return item.value }\ntype reader interface { get() int }\n",
+        "pkg/types.go": "package sample\n\ntype store struct { value int }\nfunc (item store) get() int { return item.value }\ntype reader interface { get() int }\nfunc makeReader() reader { return store{value: 6} }\n",
         "pkg/use.go": "package sample\n\nfunc read(item reader) int { return item.get() }\nfunc readStore(item store) int { return item.get() }\n"
       },
       "expected": {
-        "pkg/types.go": "package sample\n\ntype record struct { value int }\nfunc (item record) get() int { return item.value }\ntype reader interface { get() int }\n",
+        "pkg/types.go": "package sample\n\ntype record struct { value int }\nfunc (item record) get() int { return item.value }\ntype reader interface { get() int }\nfunc makeReader() reader { return record{value: 6} }\n",
         "pkg/use.go": "package sample\n\nfunc read(item reader) int { return item.get() }\nfunc readStore(item record) int { return item.get() }\n"
-      }
+      },
+      "behavior_test": "func TestCorpusBehavior(t *testing.T) { if got := read(makeReader()); got != 6 { t.Fatalf(\"interface read = %d\", got) } }\n"
     },
     {
       "name": "imported_packages_and_qualifiers_remain_unchanged",
@@ -74,7 +78,8 @@
       "expected": {
         "pkg/api.go": "package sample\n\nimport \"strings\"\n\nfunc clean(value string) string { return strings.TrimSpace(value) }\n",
         "pkg/use.go": "package sample\n\nimport \"fmt\"\n\nfunc call() string { return clean(fmt.Sprint(\" value \")) }\n"
-      }
+      },
+      "behavior_test": "func TestCorpusBehavior(t *testing.T) { if got := call(); got != \"value\" { t.Fatalf(\"call = %q\", got) } }\n"
     },
     {
       "name": "constant references exclude_shadowing_parameters",
@@ -84,12 +89,13 @@
       "reference_count": 2,
       "files": {
         "pkg/constants.go": "package sample\n\nconst threshold = 10\nvar current = threshold\n",
-        "pkg/use.go": "package sample\n\nfunc meets(value int) bool { return value >= threshold && value < current }\nfunc shadow(threshold int) bool { return threshold > 0 }\n"
+        "pkg/use.go": "package sample\n\nfunc meets(value int) bool { return value >= threshold && value <= current }\nfunc shadow(threshold int) bool { return threshold > 0 }\n"
       },
       "expected": {
         "pkg/constants.go": "package sample\n\nconst boundary = 10\nvar current = boundary\n",
-        "pkg/use.go": "package sample\n\nfunc meets(value int) bool { return value >= boundary && value < current }\nfunc shadow(threshold int) bool { return threshold > 0 }\n"
-      }
+        "pkg/use.go": "package sample\n\nfunc meets(value int) bool { return value >= boundary && value <= current }\nfunc shadow(threshold int) bool { return threshold > 0 }\n"
+      },
+      "behavior_test": "func TestCorpusBehavior(t *testing.T) { if !meets(10) || meets(11) || meets(9) { t.Fatal(\"meets returned an unexpected result\") }; if !shadow(2) { t.Fatal(\"shadow failed\") } }\n"
     },
     {
       "name": "package_variable_references_exclude_local_shadow",
@@ -104,7 +110,8 @@
       "expected": {
         "pkg/state.go": "package sample\n\nvar active = 1\n",
         "pkg/use.go": "package sample\n\nfunc read() int { return active }\nfunc shadow(current int) int { return current }\n"
-      }
+      },
+      "behavior_test": "func TestCorpusBehavior(t *testing.T) { if got := read(); got != 1 { t.Fatalf(\"read = %d\", got) }; if got := shadow(9); got != 9 { t.Fatalf(\"shadow = %d\", got) } }\n"
     }
   ],
   "reject_cases": [

@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"sort"
@@ -24,6 +25,7 @@ type projectRenameCorpusCase struct {
 	ReferenceCount int               `json:"reference_count"`
 	Files          map[string]string `json:"files"`
 	Expected       map[string]string `json:"expected"`
+	BehaviorTest   string            `json:"behavior_test"`
 }
 
 type projectRenameRejectCorpusCase struct {
@@ -122,6 +124,9 @@ func TestProjectRenameVersionedBindingIntegrityCorpus(t *testing.T) {
 	manifestEdits := 0
 	for _, test := range corpus.Cases {
 		t.Run(test.Name, func(t *testing.T) {
+			if strings.TrimSpace(test.BehaviorTest) == "" {
+				t.Fatal("positive corpus case has no runtime behavior oracle")
+			}
 			paths := make([]string, 0, len(test.Files))
 			for filePath := range test.Files {
 				paths = append(paths, filePath)
@@ -178,6 +183,8 @@ func TestProjectRenameVersionedBindingIntegrityCorpus(t *testing.T) {
 			if editCount != wantEditCount {
 				t.Fatalf("edit manifest has %d edits; want %d ground-truth occurrences", editCount, wantEditCount)
 			}
+			assertProjectRenameBehavior(t, test.Files, test.BehaviorTest, "original")
+			assertProjectRenameBehavior(t, test.Expected, test.BehaviorTest, "renamed")
 			expectedOccurrences += wantEditCount
 			manifestEdits += editCount
 		})
@@ -218,7 +225,40 @@ func TestProjectRenameVersionedBindingIntegrityCorpus(t *testing.T) {
 			}
 		})
 	}
-	t.Logf("synthetic source-occurrence precision/recall: %d/%d expected occurrences edited, exact output required across %d positive and %d rejection cases", manifestEdits, expectedOccurrences, len(corpus.Cases), len(corpus.RejectCases))
+	if !t.Failed() {
+		t.Logf("synthetic source-occurrence precision/recall: %d/%d expected occurrences edited, exact output required across %d positive and %d rejection cases", manifestEdits, expectedOccurrences, len(corpus.Cases), len(corpus.RejectCases))
+	}
+}
+
+func assertProjectRenameBehavior(t *testing.T, files map[string]string, testSource, variant string) {
+	t.Helper()
+	root, err := os.MkdirTemp("", "reamon-go-project-rename-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
+	packageDirectory := ""
+	for filePath, source := range files {
+		fullPath := filepath.Join(root, filepath.FromSlash(filePath))
+		packageDirectory = filepath.Dir(fullPath)
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0o700); err != nil {
+			t.Fatalf("create %s fixture directory: %v", variant, err)
+		}
+		if err := os.WriteFile(fullPath, []byte(source), 0o600); err != nil {
+			t.Fatalf("write %s fixture source: %v", variant, err)
+		}
+	}
+	behaviorPath := filepath.Join(packageDirectory, "corpus_behavior_test.go")
+	if err := os.WriteFile(behaviorPath, []byte("package sample\n\nimport \"testing\"\n\n"+testSource), 0o600); err != nil {
+		t.Fatalf("write %s behavior oracle: %v", variant, err)
+	}
+	command := exec.Command("go", "test", "-run", "^TestCorpusBehavior$")
+	command.Dir = packageDirectory
+	command.Env = append(os.Environ(), "GO111MODULE=off", "GOTOOLCHAIN=local")
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("%s runtime behavior oracle failed: %v\n%s", variant, err, output)
+	}
 }
 
 func TestProjectRenameRejectsChangedSourceSet(t *testing.T) {
