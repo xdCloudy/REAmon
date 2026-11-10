@@ -88,7 +88,7 @@ The [autonomous reconstruction and fidelity delivery plan](docs/REAMON_AUTONOMOU
 
 Latest evidence-based score change (2026-11-10): **+0.08 points** (33.23% → 33.31%). The verified Go external-import gate raises Agentic project-wide semantic inventory from 26% to 27%. A disposable module cache was seeded from a local file proxy, then the helper resolved the imported package with GOPROXY=off, GOSUMDB=off, GOVCS=*:off, go.mod/go.sum hash checks, and go mod verify. Tampered receipts and local replacements are rejected. The full Docker agent gate passed 188 files / 3,806 tests (one file collected none), the Go helper suite passed, safe-renames route tests passed 9/9, and webapp type-check plus targeted ESLint passed. Database-backed go.sum invalidation was added but skipped without DATABASE_URL.
 
-Refreshed from pushed commit `7509cf6`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+Refreshed from pushed commit `c26751e`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
