@@ -1,0 +1,80 @@
+{
+  "commit": "3d84a42b7cd340aec5a5ee049303a8995519028b",
+  "components": {
+    "compose_sha256": "f4f778025e4f478d1ab5da04f692718cfde1974ba411c3941aa3447a4ca5898d",
+    "evidence_merger_sha256": "2ff35942cd700b9cf4e7f620479fd62a6a11f729b6f32dceb139e5e65669f6e3",
+    "fixture_builder_dockerfile_sha256": "f3518316e702413e648eae7d9a97f4c70f093facfb0cbc46c90b0ff2e7b0d6b2",
+    "fixture_builder_image_id": "sha256:061a259e37d84754c2fe6015c977eb5e91fda5acf1c1dbc3e3cd62f5aa42aaaa",
+    "helper_image_id": "sha256:db7bd1aadd59a620756683c24f50bc8195681b160161429ce73446330e298829",
+    "integration_test_sha256": "b98a8521486f31be1bb0ecd51a30c785617281be93e71298f645d606277580ab",
+    "postgres_image_id": "sha256:cf78e76683b9ca8c5733cbbdce6c9262b45b6767934dd0a95e671f9a0fc20685",
+    "runner_sha256": "f42f57e1ad6b35cdb460e54b5f6b52261a78016537461f27966adb9c33b54752",
+    "unluac_rs_analyzer_image_id": "sha256:0508050a51d01381a352f40ab89fec4b02f9d03036c855e7b02d8795c98096ac",
+    "validator_sha256": "72f7dd6e1d4a73f07b8cf2c5123acbd1da46c87d907e830aafdff37e05e59dd9",
+    "webapp_test_image_id": "sha256:c9d7d3300dc8e050b79f7040ef506766515261453c88661cdd8d3f06de3ad316"
+  },
+  "createdAtUtc": "2026-11-10T12:19:58Z",
+  "evaluationManifestSha256": "16c1ba9ec324f54d8a2a609d841f54252eebbded9f2884f86cbe494e31d2d4ee",
+  "evidenceSha256": "f65128058476b00735e7a034143ca038222a3c037c126a29bf29328425a49b1f",
+  "fixtureManifestSha256": "8fb16b95a7744177b144cb563dfd78b2e4e0557c747c908edc02c77419af572e",
+  "fixtures": {
+    "lua54-stripped-bytecode-linux-amd64": {
+      "artifactSha256": "8ac4c0d9e5b3261c688f1dcf62394fbe3a1431355cf26dc71264b37844362ef0",
+      "metrics": {
+        "persisted_contains_relationships": {
+          "denominator": 1,
+          "direction": "higher",
+          "state": "MEASURED",
+          "value": 0
+        },
+        "persisted_function_prototypes": {
+          "denominator": 1,
+          "direction": "equal",
+          "state": "MEASURED",
+          "value": 1
+        },
+        "recovered_source_files": {
+          "denominator": 1,
+          "direction": "higher",
+          "state": "MEASURED",
+          "value": 1
+        },
+        "recovered_source_parse": {
+          "denominator": 1,
+          "direction": "equal",
+          "state": "MEASURED",
+          "value": 1
+        },
+        "runtime_oracle": {
+          "denominator": 1,
+          "direction": "equal",
+          "state": "MEASURED",
+          "value": 1
+        },
+        "sampled_behavior_oracle": {
+          "denominator": 10,
+          "direction": "higher",
+          "state": "MEASURED",
+          "value": 10
+        },
+        "source_inventory_complete": {
+          "denominator": 1,
+          "direction": "equal",
+          "state": "MEASURED",
+          "value": 1
+        },
+        "source_persistence_integrity": {
+          "denominator": 1,
+          "direction": "equal",
+          "state": "MEASURED",
+          "value": 1
+        }
+      }
+    }
+  },
+  "productSourceCommit": "c4d1e957b920e9f725db40266d81425852cd86fb",
+  "runId": "lua54-baseline-c4d1-3d84",
+  "schemaVersion": 1,
+  "toolchainManifestSha256": "2c5c08e451aab2d58c0e30090c3c8d9b6361f42ae5016eecdd090e138a20a145",
+  "worktreeClean": true
+}

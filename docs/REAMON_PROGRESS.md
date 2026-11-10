@@ -1,18 +1,19 @@
 # REAmon product progress
 
-Assessment date: 2026-11-10 · Source: pushed commit `2c56612` · Weighted estimate: **31.92%**
+Assessment date: 2026-11-10 · Source: pushed commit `2c56612` · Weighted estimate: **31.95%**
 
 This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.
 
 ## Recent activity (2026-11-10)
 
+- Paired a stripped Lua 5.4 changed-revision fixture from product source c4d1e957 to 2c566124. Live PostgreSQL/provider acceptance passed 1/1 on each side; module-to-top-level-prototype containment improved from 0/1 to 1/1, and both sides parsed and matched all 10 sampled runtime inputs. Receipts and evidence are archived at tooling/benchmarks/runs/2026-11-10/changed-revision-lua54-containment/.
 - Measured and archived a changed-revision two-format matrix from product source c4d1e957 to 71f480b1, using one clean measurement commit per side and fixture-specific hashed evaluation/toolchain manifests.
 - Both JVM/CFR database persistence runs passed 1/1 integration checks; both PyInstaller database/worker runs passed 2/2. The aggregate measured all 5 JVM and 7 PyInstaller metrics with zero deltas, clean worktrees, and NO_REGRESSION_OBSERVED.
 - Verified persisted JVM source hashes against the two recovered files; the PyInstaller runtime oracle remains inherited from its enrollment receipt. Archived receipts and evidence at tooling/benchmarks/runs/2026-11-10/changed-revision-c4d1-to-71f480b1/.
 
-**Score decision:** Raised End-to-end reconstruction acceptance benchmarks from 22% to 23% for completing the previously open changed-revision, multi-format comparison gate (+0.03 weighted points; overall 31.89% to 31.92%). All measured metrics were unchanged, so this is acceptance-evidence progress, not a reconstruction-fidelity improvement. No other workstream changed.
+**Score decision:** Raised End-to-end reconstruction acceptance benchmarks from 23% to 24% for a third-format paired Lua 5.4 acceptance slice (+0.03 weighted points; overall 31.92% to 31.95%). The module containment observation improved from 0/1 to 1/1; the other seven metrics were unchanged. This is one synthetic fixture, and the unified three-format matrix remains open.
 
-**Next measurable gate:** Expand changed-revision comparisons beyond these two synthetic JVM and PyInstaller fixtures, including more formats, provider/toolchain revisions, resource and restart/reimport measurements, and independent artifact-level behavior controls; retain unavailable outcomes.
+**Next measurable gate:** Rerun JVM/CFR and PyInstaller at the exact c4d1e957-to-2c566124 product-source pair, then aggregate them with the Lua 5.4 comparison. After that, expand format and toolchain coverage, resource and restart/reimport measurements, and independent artifact-level behavior controls; retain unavailable outcomes.
 
 | Workstream | Goal weight | Estimated complete | Weighted points |
 | --- | ---: | ---: | ---: |
@@ -34,7 +35,7 @@ This estimate covers the reverse-engineering product goal and secure production 
 | Encrypted-binary and executable-region recovery | 5% | 0% | 0.00 pts |
 | Virtualized-code reconstruction | 5% | 0% | 0.00 pts |
 | Cross-surface tool contracts and scalable evidence delivery | 5% | 50% | 2.50 pts |
-| End-to-end reconstruction acceptance benchmarks | 3% | 23% | 0.69 pts |
+| End-to-end reconstruction acceptance benchmarks | 3% | 24% | 0.72 pts |
 | External web/application behavioural evidence | 2% | 0% | 0.00 pts |
 
 ## Evidence and remaining work
@@ -149,9 +150,9 @@ This estimate covers the reverse-engineering product goal and secure production 
 
 ### End-to-end reconstruction acceptance benchmarks
 
-**Current evidence:** The v3 structured-source evaluator and JVM/CFR fixture have paired live integrations and hash-bound evidence. A changed-revision matrix now compares c4d1e957 to 71f480b1 across one synthetic PyInstaller executable and one two-class JVM artifact. Both measurement sides use a single clean commit each, and distinct evaluation/toolchain contracts are hash-bound per fixture. The aggregate reports NO_REGRESSION_OBSERVED with clean worktrees, complete evidence, and zero deltas across 5 JVM and 7 PyInstaller metrics. This closes the first changed-revision multi-format acceptance gate; it does not claim a fidelity improvement, broad corpus coverage, or exhaustive behavior equivalence.
+**Current evidence:** The v3 structured-source evaluator and JVM/CFR fixture have paired live integrations and hash-bound evidence. A changed-revision matrix compares c4d1e957 to 71f480b1 across one synthetic PyInstaller executable and one two-class JVM artifact. A separate paired stripped Lua 5.4 fixture compares c4d1e957 with 2c566124 through live PostgreSQL persistence and a bounded runtime oracle. Its module-to-top-level-prototype containment improves from 0/1 to 1/1; both sides persist the same SHA-verified recovered source, parse with the pinned compiler, and match all 10 sampled inputs. The Lua comparator reports NO_REGRESSION_OBSERVED with seven other zero deltas. This earns one partial third-format acceptance point, but it is not yet a unified three-format matrix because JVM and PyInstaller have not been rerun at the exact Lua product-source revisions.
 
-**Remaining:** Broaden AR-0/AR-8 beyond the two synthetic fixtures: add versioned native, managed, bytecode, Android, Python, and multi-module cases; compare provider/service revisions, source correspondence, symbols/types, resource use, restart/reimport, and failure outcomes. Expand malformed, obfuscated, and artifact-level behavior-changing controls. Keep unavailable or enrollment-inherited oracles distinct from newly executed checks.
+**Remaining:** Rerun JVM/CFR and PyInstaller at the exact c4d1e957-to-2c566124 product-source pair and aggregate the three fixtures with per-format hash-bound contracts. Then broaden AR-0/AR-8 with versioned native, managed, Android, Python, and multi-module cases; compare provider/service revisions, symbols/types, resource use, restart/reimport, and failure outcomes. Expand malformed, obfuscated, and artifact-level behavior-changing controls. Keep unavailable or enrollment-inherited oracles distinct from newly executed checks.
 
 ### External web/application behavioural evidence
 

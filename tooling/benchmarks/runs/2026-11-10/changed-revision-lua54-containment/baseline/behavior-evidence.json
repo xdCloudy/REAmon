@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "fixtureId": "lua54-stripped-bytecode-linux-amd64",
+  "originalSourceSha256": "f88e2daee71520ec46df387e8f640e7e0fec840336a2a099dfe2202bcb9bbf08",
+  "recoveredSourceSha256": "b692c2bafd99ac0d7c07199927e65bcf8f5e609528d8b7a3af75c534d2e89a21",
+  "inputs": [
+    "-2147483648",
+    "-4096",
+    "-19",
+    "-7",
+    "-1",
+    "0",
+    "1",
+    "3",
+    "19",
+    "2147483647"
+  ],
+  "recoveredSourceParsed": true,
+  "runtimeMatchedInputs": 10,
+  "metrics": {
+    "recovered_source_parse": {
+      "state": "MEASURED",
+      "denominator": 1,
+      "value": 1
+    },
+    "runtime_oracle": {
+      "state": "MEASURED",
+      "denominator": 1,
+      "value": 1
+    },
+    "sampled_behavior_oracle": {
+      "state": "MEASURED",
+      "denominator": 10,
+      "value": 10
+    }
+  }
+}

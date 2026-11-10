@@ -1,0 +1,50 @@
+{
+  "fixtures": {
+    "lua54-stripped-bytecode-linux-amd64": {
+      "artifactSha256": "8ac4c0d9e5b3261c688f1dcf62394fbe3a1431355cf26dc71264b37844362ef0",
+      "metrics": {
+        "persisted_contains_relationships": {
+          "denominator": 1,
+          "state": "MEASURED",
+          "value": 0
+        },
+        "persisted_function_prototypes": {
+          "denominator": 1,
+          "state": "MEASURED",
+          "value": 1
+        },
+        "recovered_source_files": {
+          "denominator": 1,
+          "state": "MEASURED",
+          "value": 1
+        },
+        "recovered_source_parse": {
+          "denominator": 1,
+          "state": "MEASURED",
+          "value": 1
+        },
+        "runtime_oracle": {
+          "denominator": 1,
+          "state": "MEASURED",
+          "value": 1
+        },
+        "sampled_behavior_oracle": {
+          "denominator": 10,
+          "state": "MEASURED",
+          "value": 10
+        },
+        "source_inventory_complete": {
+          "denominator": 1,
+          "state": "MEASURED",
+          "value": 1
+        },
+        "source_persistence_integrity": {
+          "denominator": 1,
+          "state": "MEASURED",
+          "value": 1
+        }
+      }
+    }
+  },
+  "schemaVersion": 1
+}

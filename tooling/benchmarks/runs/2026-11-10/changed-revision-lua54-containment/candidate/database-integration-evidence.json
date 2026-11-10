@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "fixtureId": "lua54-stripped-bytecode-linux-amd64",
+  "artifactSha256": "8ac4c0d9e5b3261c688f1dcf62394fbe3a1431355cf26dc71264b37844362ef0",
+  "provider": "unluac-rs@1.4.4",
+  "projectId": "lua-db-project-22da6564-ebe0-4bb3-95c1-8064f019ee0c",
+  "taskId": "lua-db-task-22da6564-ebe0-4bb3-95c1-8064f019ee0c",
+  "dialect": "lua5.4",
+  "recoveredSourceRelativePath": "lua-db-project-22da6564-ebe0-4bb3-95c1-8064f019ee0c/lua-db-artifact-22da6564-ebe0-4bb3-95c1-8064f019ee0c/lua-db-task-22da6564-ebe0-4bb3-95c1-8064f019ee0c/run-22da6564-ebe0-4bb3-95c1-8064f019ee0c/unluac-rs/d81b6e97be46c0ab/lua54_behavior.lua",
+  "recoveredSourceSha256": "b692c2bafd99ac0d7c07199927e65bcf8f5e609528d8b7a3af75c534d2e89a21",
+  "persistedSourceHashVerified": true,
+  "persistedCodeUnitCount": 1,
+  "persistedFunctionCount": 2,
+  "persistedContainsRelationshipCount": 2,
+  "metrics": {
+    "recovered_source_files": {
+      "state": "MEASURED",
+      "denominator": 1,
+      "value": 1
+    },
+    "persisted_function_prototypes": {
+      "state": "MEASURED",
+      "denominator": 1,
+      "value": 1
+    },
+    "persisted_contains_relationships": {
+      "state": "MEASURED",
+      "denominator": 1,
+      "value": 1
+    },
+    "source_inventory_complete": {
+      "state": "MEASURED",
+      "denominator": 1,
+      "value": 1
+    }
+  }
+}

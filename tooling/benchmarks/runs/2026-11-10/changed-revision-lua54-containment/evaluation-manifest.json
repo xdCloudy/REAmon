@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "fixtureId": "lua54-stripped-bytecode-linux-amd64",
+  "metrics": {
+    "recovered_source_files": { "direction": "higher", "denominator": 1, "description": "The single Lua module is recovered and addressable from PostgreSQL." },
+    "persisted_function_prototypes": { "direction": "equal", "denominator": 1, "description": "Lua function prototype observations persist with the code unit." },
+    "persisted_contains_relationships": { "direction": "higher", "denominator": 1, "description": "The module-to-function containment relationship is persisted for the fixture's top-level prototypes." },
+    "source_inventory_complete": { "direction": "equal", "denominator": 1, "description": "The one expected Lua module is returned without module truncation." },
+    "source_persistence_integrity": { "direction": "equal", "denominator": 1, "description": "The recovered source saved by the analyzer matches the source read back through the persisted code-unit observation." },
+    "recovered_source_parse": { "direction": "equal", "denominator": 1, "description": "The matching Lua 5.4 compiler parses the persisted reconstructed source." },
+    "runtime_oracle": { "direction": "equal", "denominator": 1, "description": "The original and recovered Lua programs produce equal output under the enrolled runtime oracle." },
+    "sampled_behavior_oracle": { "direction": "higher", "denominator": 10, "description": "Original and recovered output match for ten bounded integer inputs, including signed 32-bit endpoints." }
+  }
+}
