@@ -171,10 +171,11 @@ describe.skipIf(!enabled)('Go package rename against PostgreSQL', () => {
             scope: 'reviewed-same-directory-go-package-source-snapshot', source_file_count: 2,
             private_package_symbol_count: 2, referenced_private_package_symbols: 1, unreferenced_private_symbols: 1,
             exported_package_symbol_count: 0, unsupported_package_symbol_count: 0, rename_binding_catalog_truncated: false,
+            local_symbol_count: 0, referenced_local_symbols: 0, unreferenced_local_symbols: 0, unsupported_local_symbol_count: 0,
             entry_count: 2, entries_truncated: false,
             entries: [
-              { id: bindingId, name: 'fn', kind: 'package function', relativePath: selectedPath, declarationStart: 20, referenceCount: 1, exported: false, classification: 'eligible', classificationReason: 'private-package-symbol-with-resolved-references', nameAssessment: 'unassessed' },
-              { id: 'abcdef0123456789abcdef01', name: 'run', kind: 'package function', relativePath: siblingPath, declarationStart: 20, referenceCount: 0, exported: false, classification: 'excluded', classificationReason: 'unreferenced-package-symbol', nameAssessment: 'unassessed' },
+              { id: bindingId, name: 'fn', kind: 'package function', scope: 'package', relativePath: selectedPath, declarationStart: 20, referenceCount: 1, exported: false, classification: 'eligible', classificationReason: 'private-package-symbol-with-resolved-references', nameAssessment: 'unassessed' },
+              { id: 'abcdef0123456789abcdef01', name: 'run', kind: 'package function', scope: 'package', relativePath: siblingPath, declarationStart: 20, referenceCount: 0, exported: false, classification: 'excluded', classificationReason: 'unreferenced-package-symbol', nameAssessment: 'unassessed' },
             ],
           },
         })

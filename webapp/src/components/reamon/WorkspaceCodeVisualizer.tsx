@@ -208,8 +208,8 @@ interface CodeReviewRecord {
 interface AcceptedRenameAlias { bindingId: string; oldName: string; newName: string; kind: string }
 interface CodeMemberOutline { name: string; kind: 'function' | 'method' | 'constructor'; start_byte: number; end_byte: number; line: number; source_bytes: number }
 interface SafeRenameProposal { bindingId: string; oldName: string; newName: string; kind: string; referenceCount: number; rationale: string }
-interface GoProjectInventoryEntry { id: string; name: string; kind: string; relativePath: string; declarationStart: number; referenceCount: number; exported: boolean; classification: 'eligible' | 'excluded' | 'unsupported'; classificationReason: string; nameAssessment: 'unassessed' }
-interface GoProjectInventory { scope: 'reviewed-same-directory-go-package-source-snapshot'; sourceFileCount: number; privatePackageSymbolCount: number; referencedPrivatePackageSymbols: number; unreferencedPrivateSymbols: number; exportedPackageSymbolCount: number; unsupportedPackageSymbolCount: number; renameBindingCatalogTruncated: boolean; entryCount: number; entriesTruncated: boolean; entries: GoProjectInventoryEntry[] }
+interface GoProjectInventoryEntry { id: string; name: string; kind: string; scope: 'package' | 'local'; relativePath: string; declarationStart: number; referenceCount: number; exported: boolean; classification: 'eligible' | 'excluded' | 'unsupported'; classificationReason: string; nameAssessment: 'unassessed' }
+interface GoProjectInventory { scope: 'reviewed-same-directory-go-package-source-snapshot'; sourceFileCount: number; privatePackageSymbolCount: number; referencedPrivatePackageSymbols: number; unreferencedPrivateSymbols: number; exportedPackageSymbolCount: number; unsupportedPackageSymbolCount: number; localSymbolCount: number; referencedLocalSymbols: number; unreferencedLocalSymbols: number; unsupportedLocalSymbolCount: number; renameBindingCatalogTruncated: boolean; entryCount: number; entriesTruncated: boolean; entries: GoProjectInventoryEntry[] }
 interface SafeRenameSuggestions { sourceSha256: string; providerId: string; providerName: string; model: string; attemptId: string; projectSymbolContextSha256: string; projectSymbolScanTruncated?: boolean; scope: 'file' | 'project'; sourceSetSha256?: string | null; projectInventory?: GoProjectInventory | null; candidates: number; renames: SafeRenameProposal[] }
 
 function isGoProjectInventory(value: unknown): value is GoProjectInventory {
@@ -223,20 +223,22 @@ function isGoProjectInventory(value: unknown): value is GoProjectInventory {
     unsupported: entries.filter((entry) => entry.classification === 'unsupported').length,
   }
   const entriesMatchCounts = inventory.entriesTruncated === true
-    ? entryClassCounts.eligible <= Number(inventory.referencedPrivatePackageSymbols)
-      && entryClassCounts.excluded <= Number(inventory.unreferencedPrivateSymbols) + Number(inventory.exportedPackageSymbolCount)
-      && entryClassCounts.unsupported <= Number(inventory.unsupportedPackageSymbolCount)
-    : entryClassCounts.eligible === Number(inventory.referencedPrivatePackageSymbols)
-      && entryClassCounts.excluded === Number(inventory.unreferencedPrivateSymbols) + Number(inventory.exportedPackageSymbolCount)
-      && entryClassCounts.unsupported === Number(inventory.unsupportedPackageSymbolCount)
+    ? entryClassCounts.eligible <= Number(inventory.referencedPrivatePackageSymbols) + Number(inventory.referencedLocalSymbols)
+      && entryClassCounts.excluded <= Number(inventory.unreferencedPrivateSymbols) + Number(inventory.exportedPackageSymbolCount) + Number(inventory.unreferencedLocalSymbols)
+      && entryClassCounts.unsupported <= Number(inventory.unsupportedPackageSymbolCount) + Number(inventory.unsupportedLocalSymbolCount)
+    : entryClassCounts.eligible === Number(inventory.referencedPrivatePackageSymbols) + Number(inventory.referencedLocalSymbols)
+      && entryClassCounts.excluded === Number(inventory.unreferencedPrivateSymbols) + Number(inventory.exportedPackageSymbolCount) + Number(inventory.unreferencedLocalSymbols)
+      && entryClassCounts.unsupported === Number(inventory.unsupportedPackageSymbolCount) + Number(inventory.unsupportedLocalSymbolCount)
   return inventory.scope === 'reviewed-same-directory-go-package-source-snapshot'
     && [inventory.sourceFileCount, inventory.privatePackageSymbolCount, inventory.referencedPrivatePackageSymbols,
-      inventory.unreferencedPrivateSymbols, inventory.exportedPackageSymbolCount, inventory.unsupportedPackageSymbolCount]
+      inventory.unreferencedPrivateSymbols, inventory.exportedPackageSymbolCount, inventory.unsupportedPackageSymbolCount,
+      inventory.localSymbolCount, inventory.referencedLocalSymbols, inventory.unreferencedLocalSymbols, inventory.unsupportedLocalSymbolCount]
       .every((count) => Number.isSafeInteger(count) && Number(count) >= 0)
     && inventory.privatePackageSymbolCount === Number(inventory.referencedPrivatePackageSymbols) + Number(inventory.unreferencedPrivateSymbols)
+    && inventory.localSymbolCount === Number(inventory.referencedLocalSymbols) + Number(inventory.unreferencedLocalSymbols) + Number(inventory.unsupportedLocalSymbolCount)
     && typeof inventory.renameBindingCatalogTruncated === 'boolean'
     && Number.isSafeInteger(inventory.entryCount) && entryCount >= 0
-    && entryCount === Number(inventory.privatePackageSymbolCount) + Number(inventory.exportedPackageSymbolCount) + Number(inventory.unsupportedPackageSymbolCount)
+    && entryCount === Number(inventory.privatePackageSymbolCount) + Number(inventory.exportedPackageSymbolCount) + Number(inventory.unsupportedPackageSymbolCount) + Number(inventory.localSymbolCount)
     && typeof inventory.entriesTruncated === 'boolean' && entries.length === Math.min(entryCount, 5_000)
     && inventory.entriesTruncated === (entryCount > entries.length)
     && entries.every((entry) => Boolean(entry) && typeof entry.id === 'string' && /^[a-f0-9]{24}$/i.test(entry.id)
@@ -245,6 +247,7 @@ function isGoProjectInventory(value: unknown): value is GoProjectInventory {
       && typeof entry.relativePath === 'string' && entry.relativePath.length > 0
       && Number.isSafeInteger(entry.declarationStart) && Number(entry.declarationStart) >= 0
       && Number.isSafeInteger(entry.referenceCount) && Number(entry.referenceCount) >= 0
+      && typeof entry.scope === 'string' && ['package', 'local'].includes(entry.scope)
       && typeof entry.exported === 'boolean' && ['eligible', 'excluded', 'unsupported'].includes(entry.classification)
       && typeof entry.classificationReason === 'string' && entry.classificationReason.length > 0
       && entry.nameAssessment === 'unassessed')
@@ -3469,9 +3472,9 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
             </button>
             {safeRenameSuggestions?.projectSymbolScanTruncated && <p className={styles.message} role="status">Project symbol context is partial; older accepted units may be missing. Review these suggestions against the available project evidence.</p>}
             {safeRenameSuggestions?.scope === 'project' && safeRenameSuggestions.projectInventory && <>
-              <p className={styles.message} role="status">Go package snapshot: {safeRenameSuggestions.projectInventory.sourceFileCount} same-directory source files; {safeRenameSuggestions.projectInventory.entryCount} package declarations ({safeRenameSuggestions.projectInventory.referencedPrivatePackageSymbols} referenced private and eligible for this rename flow, {safeRenameSuggestions.projectInventory.unreferencedPrivateSymbols} unreferenced private, {safeRenameSuggestions.projectInventory.exportedPackageSymbolCount} exported, {safeRenameSuggestions.projectInventory.unsupportedPackageSymbolCount} unsupported). Name quality is unassessed. Counts cover this reviewed snapshot only.{safeRenameSuggestions.projectInventory.renameBindingCatalogTruncated ? ' The rename binding list is truncated.' : ''}</p>
-              <details><summary>Inspect up to {Math.min(safeRenameSuggestions.projectInventory.entries.length, 100)} of {safeRenameSuggestions.projectInventory.entryCount} package inventory entries</summary>
-                <ul>{safeRenameSuggestions.projectInventory.entries.slice(0, 100).map((entry) => <li key={entry.id}><code>{entry.name}</code> · {entry.kind} · {entry.classification} ({entry.classificationReason}) · {entry.referenceCount} references · {entry.relativePath}:{entry.declarationStart} · name quality unassessed</li>)}</ul>
+              <p className={styles.message} role="status">Go package snapshot: {safeRenameSuggestions.projectInventory.sourceFileCount} same-directory source files; {safeRenameSuggestions.projectInventory.entryCount} package and local declarations ({safeRenameSuggestions.projectInventory.referencedPrivatePackageSymbols} referenced private package symbols eligible for this rename flow, {safeRenameSuggestions.projectInventory.referencedLocalSymbols} referenced local symbols inventoried only, {safeRenameSuggestions.projectInventory.unreferencedPrivateSymbols + safeRenameSuggestions.projectInventory.unreferencedLocalSymbols} unreferenced private/local, {safeRenameSuggestions.projectInventory.exportedPackageSymbolCount} exported, {safeRenameSuggestions.projectInventory.unsupportedPackageSymbolCount + safeRenameSuggestions.projectInventory.unsupportedLocalSymbolCount} unsupported). Name quality is unassessed. Counts cover this reviewed snapshot only.{safeRenameSuggestions.projectInventory.renameBindingCatalogTruncated ? ' The rename binding list is truncated.' : ''}</p>
+              <details><summary>Inspect up to {Math.min(safeRenameSuggestions.projectInventory.entries.length, 100)} of {safeRenameSuggestions.projectInventory.entryCount} inventory entries</summary>
+                <ul>{safeRenameSuggestions.projectInventory.entries.slice(0, 100).map((entry) => <li key={entry.id}><code>{entry.name}</code> · {entry.scope} {entry.kind} · {entry.classification} ({entry.classificationReason}) · {entry.referenceCount} references · {entry.relativePath}:{entry.declarationStart} · name quality unassessed</li>)}</ul>
                 {(safeRenameSuggestions.projectInventory.entriesTruncated || safeRenameSuggestions.projectInventory.entries.length > 100) && <p className={styles.message}>Detailed inventory entries are bounded; aggregate counts cover the full reviewed snapshot.</p>}
               </details>
             </>}

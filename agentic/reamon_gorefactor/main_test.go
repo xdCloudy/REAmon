@@ -675,7 +675,8 @@ func TestProjectCatalogReportsPackageInventoryIncludingUnreferencedSymbols(t *te
 	want := projectInventory{
 		SourceFileCount: 2, PrivatePackageSymbolCount: 2,
 		ReferencedPrivatePackageSymbols: 1, UnreferencedPrivateSymbols: 1,
-		ExportedPackageSymbolCount: 1, UnsupportedPackageSymbolCount: 1, EntryCount: 4,
+		ExportedPackageSymbolCount: 1, UnsupportedPackageSymbolCount: 1, EntryCount: 6,
+		LocalSymbolCount: 2, ReferencedLocalSymbols: 2,
 	}
 	gotCounts := catalog.Inventory
 	gotCounts.Entries = nil
@@ -686,7 +687,7 @@ func TestProjectCatalogReportsPackageInventoryIncludingUnreferencedSymbols(t *te
 	for _, entry := range catalog.Inventory.Entries {
 		entries[entry.Name] = entry
 	}
-	if catalog.Inventory.EntryCount != 4 || catalog.Inventory.EntriesTruncated ||
+	if catalog.Inventory.EntryCount != 6 || catalog.Inventory.EntriesTruncated ||
 		entries["Public"].Classification != "excluded" ||
 		entries["private"].Classification != "eligible" ||
 		entries["call"].Classification != "excluded" ||
@@ -695,6 +696,42 @@ func TestProjectCatalogReportsPackageInventoryIncludingUnreferencedSymbols(t *te
 		entries["call"].ClassificationReason != "unreferenced-package-symbol" ||
 		entries["private"].NameAssessment != "unassessed" {
 		t.Fatalf("package inventory entries = %+v; want classified, exact per-symbol rows", catalog.Inventory.Entries)
+	}
+}
+
+func TestProjectCatalogInventoriesFunctionLocalsAndCountsResolvedReferences(t *testing.T) {
+	request := goProjectRequest([]projectFile{
+		{Path: "pkg/locals.go", Source: "package sample\nfunc call(input int) (result int) {\n\tvar declared int\n\tdeclared = input\n\tshort := declared\n\tconst used = 1\n\tconst unused = 2\n\ttype Used int\n\ttype Unused int\n\ttype Record struct { Field int }\n\tvalue := Used(short)\n\t_ = Record{Field: int(value)}\n\treturn int(value) + used\n}\n"},
+		{Path: "pkg/use.go", Source: "package sample\nfunc wrapper() int { return call(3) }\n"},
+	}, "pkg/locals.go")
+	catalog, err := buildProjectCatalog(request)
+	if err != nil {
+		t.Fatalf("build local symbol inventory: %v", err)
+	}
+	if catalog.Inventory.LocalSymbolCount != 11 || catalog.Inventory.ReferencedLocalSymbols != 7 ||
+		catalog.Inventory.UnreferencedLocalSymbols != 3 || catalog.Inventory.UnsupportedLocalSymbolCount != 1 ||
+		catalog.Inventory.EntryCount != 13 || catalog.Inventory.EntriesTruncated {
+		t.Fatalf("local inventory counts = %+v; want 11 locals (7 referenced, 3 unreferenced, 1 unsupported) and 13 total rows", catalog.Inventory)
+	}
+	entries := make(map[string]projectInventoryEntry, len(catalog.Inventory.Entries))
+	for _, entry := range catalog.Inventory.Entries {
+		if entry.Scope == "local" {
+			entries[entry.Name] = entry
+		}
+	}
+	for _, name := range []string{"input", "declared", "short", "used", "Used", "Record", "value"} {
+		if entries[name].Classification != "eligible" || entries[name].Scope != "local" {
+			t.Errorf("local %q = %+v; want referenced eligible local", name, entries[name])
+		}
+	}
+	for _, name := range []string{"result", "unused", "Unused"} {
+		if entries[name].Classification != "excluded" || entries[name].ReferenceCount != 0 {
+			t.Errorf("local %q = %+v; want unreferenced excluded local", name, entries[name])
+		}
+	}
+	if entries["Field"].Kind != "local struct field" || entries["Field"].Classification != "unsupported" ||
+		entries["Field"].ClassificationReason != "local-struct-field-out-of-scope" || entries["Field"].ReferenceCount != 1 {
+		t.Errorf("local struct field = %+v; want unsupported with its resolved keyed-literal use", entries["Field"])
 	}
 }
 
@@ -762,6 +799,42 @@ func TestProjectInventoryBoundsRowsWithoutTruncatingTotals(t *testing.T) {
 		t.Fatalf("large inventory = count %d, rows %d, truncated %t, private %d, unreferenced %d",
 			catalog.Inventory.EntryCount, len(catalog.Inventory.Entries), catalog.Inventory.EntriesTruncated,
 			catalog.Inventory.PrivatePackageSymbolCount, catalog.Inventory.UnreferencedPrivateSymbols)
+	}
+}
+
+func TestProjectInventoryBoundsLocalRowsWithoutTruncatingTotals(t *testing.T) {
+	var packageSource strings.Builder
+	packageSource.WriteString("package sample\n")
+	for index := 0; index < maxProjectInventoryEntries/2-1; index++ {
+		fmt.Fprintf(&packageSource, "func packageSymbol%d() {}\n", index)
+	}
+	var localSource strings.Builder
+	localSource.WriteString("package sample\nfunc locals() {\n")
+	for index := 0; index <= maxProjectInventoryEntries/2; index++ {
+		fmt.Fprintf(&localSource, "local%d := %d\n_ = local%d\n", index, index, index)
+	}
+	localSource.WriteString("}\n")
+	request := goProjectRequest([]projectFile{
+		{Path: "pkg/a.go", Source: packageSource.String()},
+		{Path: "pkg/b.go", Source: localSource.String()},
+	}, "pkg/a.go")
+	catalog, err := buildProjectCatalog(request)
+	if err != nil {
+		t.Fatalf("build mixed package/local inventory: %v", err)
+	}
+	if catalog.Inventory.EntryCount != maxProjectInventoryEntries+1 ||
+		len(catalog.Inventory.Entries) != maxProjectInventoryEntries || !catalog.Inventory.EntriesTruncated ||
+		catalog.Inventory.PrivatePackageSymbolCount != maxProjectInventoryEntries/2 ||
+		catalog.Inventory.UnreferencedPrivateSymbols != maxProjectInventoryEntries/2 ||
+		catalog.Inventory.LocalSymbolCount != maxProjectInventoryEntries/2+1 ||
+		catalog.Inventory.ReferencedLocalSymbols != maxProjectInventoryEntries/2+1 {
+		t.Fatalf("mixed inventory = count %d, rows %d, truncated %t, package %d/%d, local %d/%d",
+			catalog.Inventory.EntryCount, len(catalog.Inventory.Entries), catalog.Inventory.EntriesTruncated,
+			catalog.Inventory.PrivatePackageSymbolCount, catalog.Inventory.UnreferencedPrivateSymbols,
+			catalog.Inventory.LocalSymbolCount, catalog.Inventory.ReferencedLocalSymbols)
+	}
+	if got := catalog.Inventory.Entries[len(catalog.Inventory.Entries)-1]; got.Scope != "local" || got.Name != "local2499" {
+		t.Fatalf("last bounded row = %+v; want a stable in-scope local entry", got)
 	}
 }
 

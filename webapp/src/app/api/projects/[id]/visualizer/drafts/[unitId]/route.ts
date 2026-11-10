@@ -103,13 +103,16 @@ function safeGoProjectInventory(value: unknown) {
   const rawEntries = Array.isArray(inventory.entries) ? inventory.entries : []
   const counts = [inventory.sourceFileCount, inventory.privatePackageSymbolCount,
     inventory.referencedPrivatePackageSymbols, inventory.unreferencedPrivateSymbols,
-    inventory.exportedPackageSymbolCount, inventory.unsupportedPackageSymbolCount]
+    inventory.exportedPackageSymbolCount, inventory.unsupportedPackageSymbolCount,
+    inventory.localSymbolCount, inventory.referencedLocalSymbols,
+    inventory.unreferencedLocalSymbols, inventory.unsupportedLocalSymbolCount]
   const entryCount = Number(inventory.entryCount)
   const entries = rawEntries.flatMap((value) => {
     const entry = plainObject(value)
     if (typeof entry.id !== 'string' || !/^[a-f0-9]{24}$/i.test(entry.id)
         || typeof entry.name !== 'string' || !entry.name || entry.name.length > 256
         || typeof entry.kind !== 'string' || !entry.kind || entry.kind.length > 80
+        || !['package', 'local'].includes(String(entry.scope))
         || typeof entry.relativePath !== 'string' || !entry.relativePath
         || !Number.isSafeInteger(entry.declarationStart) || Number(entry.declarationStart) < 0
         || !Number.isSafeInteger(entry.referenceCount) || Number(entry.referenceCount) < 0
@@ -118,7 +121,7 @@ function safeGoProjectInventory(value: unknown) {
         || typeof entry.classificationReason !== 'string' || !entry.classificationReason || entry.classificationReason.length > 128
         || entry.nameAssessment !== 'unassessed') return []
     return [{
-      id: entry.id, name: entry.name, kind: entry.kind, relativePath: entry.relativePath,
+      id: entry.id, name: entry.name, kind: entry.kind, scope: entry.scope, relativePath: entry.relativePath,
       declarationStart: entry.declarationStart, referenceCount: entry.referenceCount,
       exported: entry.exported, classification: entry.classification,
       classificationReason: entry.classificationReason, nameAssessment: 'unassessed' as const,
@@ -130,18 +133,19 @@ function safeGoProjectInventory(value: unknown) {
     unsupported: entries.filter((entry) => entry.classification === 'unsupported').length,
   }
   const entriesMatchCounts = inventory.entriesTruncated === true
-    ? entryClassCounts.eligible <= Number(inventory.referencedPrivatePackageSymbols)
-      && entryClassCounts.excluded <= Number(inventory.unreferencedPrivateSymbols) + Number(inventory.exportedPackageSymbolCount)
-      && entryClassCounts.unsupported <= Number(inventory.unsupportedPackageSymbolCount)
-    : entryClassCounts.eligible === Number(inventory.referencedPrivatePackageSymbols)
-      && entryClassCounts.excluded === Number(inventory.unreferencedPrivateSymbols) + Number(inventory.exportedPackageSymbolCount)
-      && entryClassCounts.unsupported === Number(inventory.unsupportedPackageSymbolCount)
+    ? entryClassCounts.eligible <= Number(inventory.referencedPrivatePackageSymbols) + Number(inventory.referencedLocalSymbols)
+      && entryClassCounts.excluded <= Number(inventory.unreferencedPrivateSymbols) + Number(inventory.exportedPackageSymbolCount) + Number(inventory.unreferencedLocalSymbols)
+      && entryClassCounts.unsupported <= Number(inventory.unsupportedPackageSymbolCount) + Number(inventory.unsupportedLocalSymbolCount)
+    : entryClassCounts.eligible === Number(inventory.referencedPrivatePackageSymbols) + Number(inventory.referencedLocalSymbols)
+      && entryClassCounts.excluded === Number(inventory.unreferencedPrivateSymbols) + Number(inventory.exportedPackageSymbolCount) + Number(inventory.unreferencedLocalSymbols)
+      && entryClassCounts.unsupported === Number(inventory.unsupportedPackageSymbolCount) + Number(inventory.unsupportedLocalSymbolCount)
   if (inventory.scope !== 'reviewed-same-directory-go-package-source-snapshot'
       || !counts.every((count) => Number.isSafeInteger(count) && Number(count) >= 0)
       || inventory.privatePackageSymbolCount !== Number(inventory.referencedPrivatePackageSymbols) + Number(inventory.unreferencedPrivateSymbols)
+      || inventory.localSymbolCount !== Number(inventory.referencedLocalSymbols) + Number(inventory.unreferencedLocalSymbols) + Number(inventory.unsupportedLocalSymbolCount)
       || typeof inventory.renameBindingCatalogTruncated !== 'boolean'
       || !Number.isSafeInteger(inventory.entryCount) || entryCount < 0
-      || entryCount !== Number(inventory.privatePackageSymbolCount) + Number(inventory.exportedPackageSymbolCount) + Number(inventory.unsupportedPackageSymbolCount)
+      || entryCount !== Number(inventory.privatePackageSymbolCount) + Number(inventory.exportedPackageSymbolCount) + Number(inventory.unsupportedPackageSymbolCount) + Number(inventory.localSymbolCount)
       || typeof inventory.entriesTruncated !== 'boolean' || entries.length !== Math.min(entryCount, 5_000)
       || entries.length !== rawEntries.length || inventory.entriesTruncated !== (entryCount > entries.length)
       || !entriesMatchCounts) return undefined
@@ -153,6 +157,10 @@ function safeGoProjectInventory(value: unknown) {
     unreferencedPrivateSymbols: inventory.unreferencedPrivateSymbols,
     exportedPackageSymbolCount: inventory.exportedPackageSymbolCount,
     unsupportedPackageSymbolCount: inventory.unsupportedPackageSymbolCount,
+    localSymbolCount: inventory.localSymbolCount,
+    referencedLocalSymbols: inventory.referencedLocalSymbols,
+    unreferencedLocalSymbols: inventory.unreferencedLocalSymbols,
+    unsupportedLocalSymbolCount: inventory.unsupportedLocalSymbolCount,
     renameBindingCatalogTruncated: inventory.renameBindingCatalogTruncated,
     entryCount,
     entriesTruncated: inventory.entriesTruncated,

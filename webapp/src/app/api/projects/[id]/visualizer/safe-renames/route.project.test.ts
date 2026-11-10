@@ -41,10 +41,12 @@ const inventoryPayload = {
   scope: 'reviewed-same-directory-go-package-source-snapshot', source_file_count: 2,
   private_package_symbol_count: 2, referenced_private_package_symbols: 1, unreferenced_private_symbols: 1,
   exported_package_symbol_count: 0, unsupported_package_symbol_count: 0, rename_binding_catalog_truncated: false,
-  entry_count: 2, entries_truncated: false,
+  local_symbol_count: 1, referenced_local_symbols: 1, unreferenced_local_symbols: 0, unsupported_local_symbol_count: 0,
+  entry_count: 3, entries_truncated: false,
   entries: [
-    { id: bindingId, name: 'normalize', kind: 'package function', relativePath: selectedPath, declarationStart: 20, referenceCount: 1, exported: false, classification: 'eligible', classificationReason: 'private-package-symbol-with-resolved-references', nameAssessment: 'unassessed' },
-    { id: 'abcdef0123456789abcdef01', name: 'run', kind: 'package function', relativePath: siblingPath, declarationStart: 20, referenceCount: 0, exported: false, classification: 'excluded', classificationReason: 'unreferenced-package-symbol', nameAssessment: 'unassessed' },
+    { id: bindingId, name: 'normalize', kind: 'package function', scope: 'package', relativePath: selectedPath, declarationStart: 20, referenceCount: 1, exported: false, classification: 'eligible', classificationReason: 'private-package-symbol-with-resolved-references', nameAssessment: 'unassessed' },
+    { id: 'abcdef0123456789abcdef01', name: 'run', kind: 'package function', scope: 'package', relativePath: siblingPath, declarationStart: 20, referenceCount: 0, exported: false, classification: 'excluded', classificationReason: 'unreferenced-package-symbol', nameAssessment: 'unassessed' },
+    { id: '00112233445566778899aabb', name: 'value', kind: 'local variable', scope: 'local', relativePath: selectedPath, declarationStart: selectedSource.indexOf('value int'), referenceCount: 1, exported: false, classification: 'eligible', classificationReason: 'local-symbol-with-resolved-references', nameAssessment: 'unassessed' },
   ],
 }
 const inputHash = (source: string) => createHash('sha256').update(source, 'utf8').digest('hex')
@@ -167,11 +169,13 @@ describe('POST safe-renames Go package scope', () => {
     expect(body.projectInventory).toMatchObject({
       scope: 'reviewed-same-directory-go-package-source-snapshot', sourceFileCount: 2,
       privatePackageSymbolCount: 2, referencedPrivatePackageSymbols: 1, unreferencedPrivateSymbols: 1,
+      localSymbolCount: 1, referencedLocalSymbols: 1, unreferencedLocalSymbols: 0, unsupportedLocalSymbolCount: 0,
       exportedPackageSymbolCount: 0, unsupportedPackageSymbolCount: 0, renameBindingCatalogTruncated: false,
-      entryCount: 2, entriesTruncated: false,
+      entryCount: 3, entriesTruncated: false,
       entries: expect.arrayContaining([
-        expect.objectContaining({ name: 'normalize', classification: 'eligible', nameAssessment: 'unassessed' }),
-        expect.objectContaining({ name: 'run', classification: 'excluded', classificationReason: 'unreferenced-package-symbol' }),
+        expect.objectContaining({ name: 'normalize', scope: 'package', classification: 'eligible', nameAssessment: 'unassessed' }),
+        expect.objectContaining({ name: 'run', scope: 'package', classification: 'excluded', classificationReason: 'unreferenced-package-symbol' }),
+        expect.objectContaining({ name: 'value', scope: 'local', classification: 'eligible', classificationReason: 'local-symbol-with-resolved-references' }),
       ]),
     })
     expect(h.attemptCreate).toHaveBeenCalledWith(expect.objectContaining({
@@ -249,6 +253,28 @@ describe('POST safe-renames Go package scope', () => {
     expect(response.status).toBe(500)
     expect(h.transaction).not.toHaveBeenCalled()
     expect(h.txAttemptCreate).not.toHaveBeenCalled()
+  })
+
+  it('rejects a local inventory whose aggregate totals do not reconcile', async () => {
+    h.agentFetch.mockResolvedValueOnce(jsonResponse({
+      source_sha256: inputHash(selectedSource), source_set_sha256: setHash([
+        { relativePath: selectedPath, sourceCode: selectedSource }, { relativePath: siblingPath, sourceCode: siblingSource },
+      ]), selected_path: selectedPath,
+      files: [
+        { relative_path: selectedPath, source_sha256: inputHash(selectedSource) },
+        { relative_path: siblingPath, source_sha256: inputHash(siblingSource) },
+      ],
+      bindings: [{ id: bindingId, name: 'normalize', kind: 'package function', scopeType: 'package', declarationStart: 20, referenceCount: 1, relativePath: selectedPath, exported: false }],
+      truncated: false, parser_version: 'go1.24.4',
+      inventory: { ...inventoryPayload, local_symbol_count: 2 },
+    }))
+    const response = await POST(new Request('http://localhost/api/projects/project-1/visualizer/safe-renames', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ operation: 'suggest', unitId: 'unit-a', providerId: 'provider-1', sourceCode: selectedSource, crossFileGo: true }),
+    }), routeParams)
+
+    expect(response.status).toBe(500)
+    expect(h.attemptCreate).not.toHaveBeenCalled()
   })
 
   it('rejects edit manifests that do not reconstruct the helper output from exact input bytes', async () => {

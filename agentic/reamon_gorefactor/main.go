@@ -101,6 +101,10 @@ type projectInventory struct {
 	UnreferencedPrivateSymbols      int
 	ExportedPackageSymbolCount      int
 	UnsupportedPackageSymbolCount   int
+	LocalSymbolCount                int
+	ReferencedLocalSymbols          int
+	UnreferencedLocalSymbols        int
+	UnsupportedLocalSymbolCount     int
 	EntryCount                      int
 	EntriesTruncated                bool
 	Entries                         []projectInventoryEntry
@@ -110,6 +114,7 @@ type projectInventoryEntry struct {
 	ID                   string `json:"id"`
 	Name                 string `json:"name"`
 	Kind                 string `json:"kind"`
+	Scope                string `json:"scope"`
 	RelativePath         string `json:"relativePath"`
 	DeclarationStart     int    `json:"declarationStart"`
 	ReferenceCount       int    `json:"referenceCount"`
@@ -578,7 +583,7 @@ func buildProjectCatalog(req request) (*projectCatalog, error) {
 		position := fileSet.PositionFor(declaration.Pos(), false)
 		entry := projectInventoryEntry{
 			ID: shortID(projectHash+"\x00"+filePath, position.Offset, name), Name: name,
-			RelativePath: filePath, DeclarationStart: position.Offset, ReferenceCount: useCounts[object],
+			Scope: "package", RelativePath: filePath, DeclarationStart: position.Offset, ReferenceCount: useCounts[object],
 			Exported: token.IsExported(name), NameAssessment: "unassessed", Kind: projectPackageObjectKind(object),
 		}
 		if entry.Kind == "" {
@@ -614,6 +619,129 @@ func buildProjectCatalog(req request) (*projectCatalog, error) {
 		}
 		cat.Inventory.Entries = append(cat.Inventory.Entries, entry)
 	}
+	localDeclarations := make(map[types.Object]*ast.Ident)
+	localPathsByObject := make(map[types.Object]string)
+	collectLocalDefinitions := func(node ast.Node, filePath string) {
+		if node == nil {
+			return
+		}
+		ast.Inspect(node, func(node ast.Node) bool {
+			ident, ok := node.(*ast.Ident)
+			if !ok {
+				return true
+			}
+			object := info.Defs[ident]
+			if object == nil || object.Parent() == pkg.Scope() {
+				return true
+			}
+			if _, exists := localDeclarations[object]; !exists {
+				localDeclarations[object] = ident
+				localPathsByObject[object] = filePath
+			}
+			return true
+		})
+	}
+	for _, file := range parsed {
+		for _, declaration := range file.AST.Decls {
+			function, ok := declaration.(*ast.FuncDecl)
+			if !ok {
+				continue
+			}
+			if function.Recv != nil {
+				collectLocalDefinitions(function.Recv, file.Path)
+			}
+			if function.Type.TypeParams != nil {
+				collectLocalDefinitions(function.Type.TypeParams, file.Path)
+			}
+			if function.Type.Params != nil {
+				collectLocalDefinitions(function.Type.Params, file.Path)
+			}
+			if function.Type.Results != nil {
+				collectLocalDefinitions(function.Type.Results, file.Path)
+			}
+			if function.Body != nil {
+				collectLocalDefinitions(function.Body, file.Path)
+			}
+		}
+		ast.Inspect(file.AST, func(node ast.Node) bool {
+			function, ok := node.(*ast.FuncLit)
+			if !ok {
+				return true
+			}
+			if function.Type.TypeParams != nil {
+				collectLocalDefinitions(function.Type.TypeParams, file.Path)
+			}
+			if function.Type.Params != nil {
+				collectLocalDefinitions(function.Type.Params, file.Path)
+			}
+			if function.Type.Results != nil {
+				collectLocalDefinitions(function.Type.Results, file.Path)
+			}
+			if function.Body != nil {
+				collectLocalDefinitions(function.Body, file.Path)
+			}
+			return true
+		})
+	}
+	for object, declaration := range localDeclarations {
+		kind := "unsupported local object"
+		unsupportedReason := "unsupported-local-object-kind"
+		supported := true
+		switch local := object.(type) {
+		case *types.Var:
+			if local.IsField() {
+				kind = "local struct field"
+				unsupportedReason = "local-struct-field-out-of-scope"
+				supported = false
+			} else {
+				kind = "local variable"
+			}
+		case *types.Const:
+			kind = "local constant"
+		case *types.TypeName:
+			if _, ok := local.Type().(*types.TypeParam); ok {
+				kind = "local type parameter"
+			} else {
+				kind = "local type"
+			}
+		case *types.Func:
+			if local.Signature().Recv() != nil {
+				kind = "local interface method"
+				unsupportedReason = "local-interface-method-out-of-scope"
+				supported = false
+			} else {
+				kind = "local function"
+			}
+		case *types.Label:
+			kind = "local label"
+			unsupportedReason = "local-label-out-of-scope"
+			supported = false
+		default:
+			supported = false
+		}
+		filePath := localPathsByObject[object]
+		position := fileSet.PositionFor(declaration.Pos(), false)
+		entry := projectInventoryEntry{
+			ID: shortID(projectHash+"\x00"+filePath, position.Offset, declaration.Name),
+			Name: declaration.Name, Kind: kind, Scope: "local", RelativePath: filePath,
+			DeclarationStart: position.Offset, ReferenceCount: useCounts[object], NameAssessment: "unassessed",
+		}
+		cat.Inventory.LocalSymbolCount++
+		if !supported {
+			cat.Inventory.UnsupportedLocalSymbolCount++
+			entry.Classification = "unsupported"
+			entry.ClassificationReason = unsupportedReason
+		} else if useCounts[object] > 0 {
+			cat.Inventory.ReferencedLocalSymbols++
+			entry.Classification = "eligible"
+			entry.ClassificationReason = "local-symbol-with-resolved-references"
+		} else {
+			cat.Inventory.UnreferencedLocalSymbols++
+			entry.Classification = "excluded"
+			entry.ClassificationReason = "unreferenced-local-symbol"
+		}
+		cat.Inventory.Entries = append(cat.Inventory.Entries, entry)
+	}
 	for _, file := range parsed {
 		for _, declaration := range file.AST.Decls {
 			function, ok := declaration.(*ast.FuncDecl)
@@ -622,7 +750,7 @@ func buildProjectCatalog(req request) (*projectCatalog, error) {
 				position := fileSet.PositionFor(function.Name.Pos(), false)
 				cat.Inventory.Entries = append(cat.Inventory.Entries, projectInventoryEntry{
 					ID:   shortID(projectHash+"\x00"+file.Path, position.Offset, "init"),
-					Name: "init", Kind: "initialization function", RelativePath: file.Path,
+					Name: "init", Kind: "initialization function", Scope: "package", RelativePath: file.Path,
 					DeclarationStart: position.Offset, Classification: "unsupported",
 					ClassificationReason: "special-initialization-function", NameAssessment: "unassessed",
 				})
@@ -740,6 +868,10 @@ func listProjectBindings(req request) (map[string]any, error) {
 			"unreferenced_private_symbols":       cat.Inventory.UnreferencedPrivateSymbols,
 			"exported_package_symbol_count":      cat.Inventory.ExportedPackageSymbolCount,
 			"unsupported_package_symbol_count":   cat.Inventory.UnsupportedPackageSymbolCount,
+			"local_symbol_count":                cat.Inventory.LocalSymbolCount,
+			"referenced_local_symbols":           cat.Inventory.ReferencedLocalSymbols,
+			"unreferenced_local_symbols":         cat.Inventory.UnreferencedLocalSymbols,
+			"unsupported_local_symbol_count":     cat.Inventory.UnsupportedLocalSymbolCount,
 			"rename_binding_catalog_truncated":   cat.Truncated,
 			"entry_count":                        cat.Inventory.EntryCount,
 			"entries_truncated":                  cat.Inventory.EntriesTruncated,
