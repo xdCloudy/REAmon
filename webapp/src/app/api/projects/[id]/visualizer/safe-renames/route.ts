@@ -4,7 +4,7 @@ import path from 'node:path'
 import { NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
 import { agentFetch } from '@/lib/agentFetch'
-import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
+import { requireEffectiveUser, requireProjectAccessStrict } from '@/lib/access'
 import { getActiveWorkspaceImportSelection } from '@/lib/reamon/inventory-query'
 import { derivedArtifactRoot, resolveDerivedArtifactPath } from '@/lib/reamon/derived-storage'
 import { applySafeRenameBindings, listSafeRenameBindings, type SafeRenameBinding, type SafeRenameCatalog, type SafeRenameResult } from '@/lib/reamon/webcrack'
@@ -441,7 +441,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     const { id: projectId } = await params
     const user = await requireEffectiveUser()
     if (user instanceof NextResponse) return user
-    const access = await requireProjectAccess(user, projectId)
+    const access = await requireProjectAccessStrict(user, projectId)
     if (access instanceof NextResponse) return access
 
     let rawBody: unknown
