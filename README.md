@@ -88,7 +88,7 @@ The [autonomous reconstruction and fidelity delivery plan](docs/REAMON_AUTONOMOU
 
 Latest evidence-based score change (2026-11-10): **+0.10 points** (31.98% → 32.08%). The unluac-rs provider rejects malformed prototype trees before persisting containment: duplicate IDs/parents, cycles, out-of-range or missing children, and disconnected complete metadata. Six Docker provider tests pass, including the live pinned analyzer. A PostgreSQL-backed integration against a disposable database also passes 1/1, verifies the full expected/persisted edge set, reads recovered source, and cleans up. Security/reliability remains 95%; this adds acceptance evidence without double-counting the same capability.
 
-Refreshed from pushed commit `a24c74e`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+Refreshed from pushed commit `44345a7`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
