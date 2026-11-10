@@ -43,6 +43,24 @@ is reachable.
   the project actually contains. Sheets with no rows assert that the Filters
   button is correctly disabled and then skip, and the run prints a coverage
   table so an empty project cannot look like an all-pass.
+- `goSafeRenamesBrowser.spec.ts` - a synthetic Go project rename journey that
+  checks unit selection, whole-project scope opt-in, inventory and proposal
+  display, apply submission, renamed editor content, and draft receipts for
+  both files. All project APIs are stubbed; this verifies the browser UI, not
+  the API route or Go helper.
 - `filtersSynthetic.spec.ts` - the same journey with the analytics API stubbed,
   so all 19 pages are really rendered, filtered, reloaded and re-checked
   regardless of project data.
+
+Run the Go rename UI test against a fresh app build and disposable PostgreSQL
+database with:
+
+```powershell
+.\testing\e2e\run-go-safe-renames-isolated.ps1
+```
+
+The runner builds the current webapp source, creates uniquely named temporary
+containers and a network, runs the Chromium test on a free local port, and
+removes its containers, network, and image afterward. It does not use the
+configured project database. The test stubs project APIs and does not count as
+real-helper browser acceptance.
