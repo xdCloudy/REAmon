@@ -61,9 +61,9 @@ const setHash = (files: Array<{ relativePath: string; sourceCode: string }>) => 
   }
   return hash.digest('hex')
 }
-const inventoryScopeHash = (files: Array<{ relativePath: string; sourceCode: string }>, module = { moduleRoot: '', modulePath: '', manifestSha256: '' }) => createHash('sha256')
-  .update('reamon-go-project-inventory-v1\0').update(setHash(files)).update('\0')
-  .update(module.moduleRoot).update('\0').update(module.modulePath).update('\0').update(module.manifestSha256).digest('hex')
+const inventoryScopeHash = (files: Array<{ relativePath: string; sourceCode: string }>, module = { moduleRoot: '', modulePath: '', manifestSha256: '', sumSha256: '' }) => createHash('sha256')
+  .update('reamon-go-project-inventory-v2\0').update(setHash(files)).update('\0')
+  .update(module.moduleRoot).update('\0').update(module.modulePath).update('\0').update(module.manifestSha256).update('\0').update(module.sumSha256).digest('hex')
 const routeParams = { params: Promise.resolve({ id: 'project-1' }) }
 let root = ''
 
@@ -147,6 +147,7 @@ beforeEach(async () => {
       return jsonResponse({
         source_sha256: inputHash(selectedSource), source_set_sha256: setHash(files), selected_path: selectedPath,
         module_path: body.module_path, module_root: body.module_root,
+        go_mod_sha256: body.go_mod_sha256, go_sum_sha256: body.go_sum_sha256,
         files: files.map((file) => ({ relative_path: file.relativePath, source_sha256: inputHash(file.sourceCode) })),
         packages: [{ directory: 'pkg', package_name: 'sample', source_file_count: 2, source_set_sha256: setHash(files) }],
         parser_version: 'go1.24.4',
@@ -258,12 +259,18 @@ describe('POST safe-renames Go package scope', () => {
 
   it('uses the hash-verified workspace go.mod to resolve the project module path', async () => {
     const goMod = 'module example.test/project\n\ngo 1.24\n'
+    const goSum = 'example.test/dep v1.0.0 h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\n'
     const manifestPath = path.join(root, 'pkg', 'go.mod')
+    const sumPath = path.join(root, 'pkg', 'go.sum')
     await mkdir(path.dirname(manifestPath), { recursive: true })
     await writeFile(manifestPath, goMod)
+    await writeFile(sumPath, goSum)
     h.artifactFindMany.mockResolvedValue([{
       relativePath: 'pkg/go.mod', storagePath: manifestPath, sizeBytes: BigInt(Buffer.byteLength(goMod)), sha256: inputHash(goMod),
     }])
+    h.artifactFindFirst.mockResolvedValueOnce({ id: 'artifact-1', sha256: 'a'.repeat(64) }).mockResolvedValueOnce({
+      storagePath: sumPath, sizeBytes: BigInt(Buffer.byteLength(goSum)), sha256: inputHash(goSum),
+    })
 
     const response = await POST(new Request('http://localhost/api/projects/project-1/visualizer/safe-renames', {
       method: 'POST', headers: { 'content-type': 'application/json' },
@@ -275,10 +282,12 @@ describe('POST safe-renames Go package scope', () => {
     const inventoryRequest = h.agentFetch.mock.calls
       .map((call: Array<unknown>) => JSON.parse(String((call[1] as RequestInit).body)) as Record<string, unknown>)
       .find((request) => request.operation === 'project_inventory')
-    expect(inventoryRequest).toMatchObject({ module_path: 'example.test/project', module_root: 'pkg' })
+    expect(inventoryRequest).toMatchObject({
+      module_path: 'example.test/project', module_root: 'pkg', go_mod: goMod, go_mod_sha256: inputHash(goMod), go_sum: goSum, go_sum_sha256: inputHash(goSum),
+    })
     expect(h.attemptCreate).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ requestPayload: expect.objectContaining({
-        goProjectModulePath: 'example.test/project', goProjectModuleRoot: 'pkg', goProjectModuleManifestSha256: inputHash(goMod),
+        goProjectModulePath: 'example.test/project', goProjectModuleRoot: 'pkg', goProjectModuleManifestSha256: inputHash(goMod), goProjectModuleSumSha256: inputHash(goSum),
       }) }),
     }))
   })
@@ -314,6 +323,7 @@ describe('POST safe-renames Go package scope', () => {
       return jsonResponse({
         source_sha256: inputHash(selectedSource), source_set_sha256: setHash(allFiles), selected_path: selectedPath,
         module_path: request.module_path, module_root: request.module_root,
+        go_mod_sha256: request.go_mod_sha256, go_sum_sha256: request.go_sum_sha256,
         files: allFiles.map((file) => ({ relative_path: file.relativePath, source_sha256: inputHash(file.sourceCode) })),
         packages: [
           { directory: 'cmd', package_name: 'cmd', source_file_count: 1, source_set_sha256: setHash(cmdFiles) },

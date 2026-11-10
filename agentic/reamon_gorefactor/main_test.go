@@ -1,6 +1,7 @@
 package main
 
 import (
+	"archive/zip"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -892,6 +893,8 @@ func TestProjectInventoryResolvesImportsBetweenModulePackages(t *testing.T) {
 	request.Operation = "project_inventory"
 	request.ModulePath = "example.test/project"
 	request.ModuleRoot = "src"
+	request.GoMod = "module example.test/project\n\ngo 1.24\n"
+	request.GoModHash = hashText(request.GoMod)
 
 	result, err := listProjectInventory(request)
 	if err != nil {
@@ -1021,6 +1024,138 @@ func TestGoTargetImporterRejectsUnavailableExternalModulesOffline(t *testing.T) 
 	}
 	if _, err := newGoTargetImporter(target).Import("example.invalid/unverified"); err == nil {
 		t.Fatal("an unavailable external module was accepted without verified dependency receipts")
+	}
+}
+
+func TestGoModuleReceiptRequiresMatchingManifestAndChecksumHashes(t *testing.T) {
+	goMod := "module example.test/project\n\ngo 1.24\n"
+	goSum := "example.test/dep v1.0.0 h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\n"
+	req := request{
+		ModulePath: "example.test/project", GoMod: goMod, GoModHash: hashText(goMod),
+		GoSum: goSum, GoSumHash: hashText(goSum),
+	}
+	if err := validateGoModuleReceipt(req); err != nil {
+		t.Fatalf("valid module receipt rejected: %v", err)
+	}
+	req.GoSumHash = strings.Repeat("0", 64)
+	if err := validateGoModuleReceipt(req); err == nil || !strings.Contains(err.Error(), "checksum manifest hash") {
+		t.Fatalf("tampered go.sum receipt error = %v", err)
+	}
+	req.GoSumHash = hashText(goSum)
+	req.ModulePath = "example.test/other"
+	if err := validateGoModuleReceipt(req); err == nil || !strings.Contains(err.Error(), "does not match") {
+		t.Fatalf("mismatched module identity error = %v", err)
+	}
+	req.ModulePath = "example.test/project"
+	req.GoMod = "module \"example.test/project\" // fixture module\n\ngo 1.24\n"
+	req.GoModHash = hashText(req.GoMod)
+	if err := validateGoModuleReceipt(req); err != nil {
+		t.Fatalf("valid quoted module directive with comment rejected: %v", err)
+	}
+}
+
+func TestProjectInventoryResolvesHashVerifiedModuleFromOfflineCache(t *testing.T) {
+	root := t.TempDir()
+	proxyRoot := filepath.Join(root, "proxy")
+	moduleCache := filepath.Join(root, "module-cache")
+	projectRoot := filepath.Join(root, "project")
+	proxyModule := filepath.Join(proxyRoot, "example.test", "dep", "@v")
+	if err := os.MkdirAll(proxyModule, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(projectRoot, 0700); err != nil {
+		t.Fatal(err)
+	}
+	version := "v1.0.0"
+	moduleSource := "module example.test/dep\n\ngo 1.24\n"
+	packageSource := "package dep\nconst Value = 7\n"
+	if err := os.WriteFile(filepath.Join(proxyModule, version+".info"), []byte(`{"Version":"v1.0.0","Time":"2026-01-01T00:00:00Z"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(proxyModule, version+".mod"), []byte(moduleSource), 0600); err != nil {
+		t.Fatal(err)
+	}
+	zipFile, err := os.Create(filepath.Join(proxyModule, version+".zip"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	zipWriter := zip.NewWriter(zipFile)
+	for name, content := range map[string]string{
+		"go.mod": moduleSource,
+		"dep.go": packageSource,
+	} {
+		entry, createErr := zipWriter.Create("example.test/dep@v1.0.0/" + name)
+		if createErr != nil {
+			t.Fatal(createErr)
+		}
+		if _, writeErr := entry.Write([]byte(content)); writeErr != nil {
+			t.Fatal(writeErr)
+		}
+	}
+	if err := zipWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := zipFile.Close(); err != nil {
+		t.Fatal(err)
+	}
+	goMod := "module example.test/project\n\ngo 1.24\n\nrequire example.test/dep v1.0.0\n"
+	projectManifest := filepath.Join(projectRoot, "go.mod")
+	if err := os.WriteFile(projectManifest, []byte(goMod), 0600); err != nil {
+		t.Fatal(err)
+	}
+	target, err := normalizeGoBuildContext(request{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	moduleEnvironment := goBuildCommandEnvironment(target)
+	moduleEnvironment = setGoEnvironmentValue(moduleEnvironment, "GO111MODULE", "on")
+	moduleEnvironment = setGoEnvironmentValue(moduleEnvironment, "GOPROXY", "file://"+filepath.ToSlash(proxyRoot))
+	moduleEnvironment = setGoEnvironmentValue(moduleEnvironment, "GOMODCACHE", moduleCache)
+	moduleEnvironment = setGoEnvironmentValue(moduleEnvironment, "GOFLAGS", "")
+	download := exec.Command("go", "mod", "download", "example.test/dep@v1.0.0")
+	download.Dir, download.Env = projectRoot, moduleEnvironment
+	if output, err := download.CombinedOutput(); err != nil {
+		t.Fatalf("seed the isolated cache from the local file proxy: %v: %s", err, strings.TrimSpace(string(output)))
+	}
+	goSum, err := os.ReadFile(filepath.Join(projectRoot, "go.sum"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	previousCache := os.Getenv("REAMON_GO_MODULE_CACHE")
+	if err := os.Setenv("REAMON_GO_MODULE_CACHE", moduleCache); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if previousCache == "" {
+			_ = os.Unsetenv("REAMON_GO_MODULE_CACHE")
+		} else {
+			_ = os.Setenv("REAMON_GO_MODULE_CACHE", previousCache)
+		}
+	}()
+	request := goProjectRequest([]projectFile{{
+		Path: "pkg/use.go", Source: "package sample\nimport \"example.test/dep\"\nfunc use() int { return dep.Value }\n",
+	}}, "pkg/use.go")
+	request.Operation = "project_inventory"
+	request.ModulePath, request.GoMod, request.GoModHash = "example.test/project", goMod, hashText(goMod)
+	request.GoSum, request.GoSumHash = string(goSum), hashText(string(goSum))
+	result, err := listProjectInventory(request)
+	if err != nil {
+		t.Fatalf("inventory package using only the verified offline module cache: %v", err)
+	}
+	if result["go_mod_sha256"] != request.GoModHash || result["go_sum_sha256"] != request.GoSumHash {
+		t.Fatalf("module receipt hashes were not bound to the inventory: %#v", result)
+	}
+}
+
+func TestProjectInventoryRejectsLocalModuleReplacements(t *testing.T) {
+	goMod := "module example.test/project\n\ngo 1.24\n\nrequire example.test/dep v1.0.0\nreplace example.test/dep => ../dep\n"
+	request := goProjectRequest([]projectFile{{
+		Path: "pkg/use.go", Source: "package sample\nimport \"example.test/dep\"\nfunc use() int { return dep.Value }\n",
+	}}, "pkg/use.go")
+	request.Operation = "project_inventory"
+	request.ModulePath, request.GoMod, request.GoModHash = "example.test/project", goMod, hashText(goMod)
+	if _, err := listProjectInventory(request); err == nil || !strings.Contains(err.Error(), "local Go module replacements are unsupported") {
+		t.Fatalf("local module replacement error = %v", err)
 	}
 }
 

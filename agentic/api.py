@@ -656,6 +656,10 @@ class ReamonGoRefactorRequest(BaseModel):
     selected_path: str = ""
     module_path: str = ""
     module_root: str = ""
+    go_mod: str = ""
+    go_mod_sha256: str = ""
+    go_sum: str = ""
+    go_sum_sha256: str = ""
     build_goos: str = ""
     build_goarch: str = ""
     build_cgo_enabled: bool | None = None
@@ -1976,6 +1980,8 @@ async def refactor_reamon_go_source(body: ReamonGoRefactorRequest):
     project_bytes = sum(len(item.source_code.encode("utf-8")) for item in body.files)
     request_bytes = (
         len(body.module_path.encode("utf-8")) + len(body.module_root.encode("utf-8"))
+        + len(body.go_mod.encode("utf-8")) + len(body.go_sum.encode("utf-8"))
+        + len(body.go_mod_sha256) + len(body.go_sum_sha256)
         + len(body.build_goos.encode("utf-8")) + len(body.build_goarch.encode("utf-8"))
         + (1 if body.build_cgo_enabled is not None else 0)
         + sum(len(tag.encode("utf-8")) + 1 for tag in body.build_tags)
@@ -2003,6 +2009,10 @@ async def refactor_reamon_go_source(body: ReamonGoRefactorRequest):
             "selected_path": body.selected_path,
             "module_path": body.module_path,
             "module_root": body.module_root,
+            "go_mod": body.go_mod,
+            "go_mod_sha256": body.go_mod_sha256,
+            "go_sum": body.go_sum,
+            "go_sum_sha256": body.go_sum_sha256,
             "build_goos": body.build_goos,
             "build_goarch": body.build_goarch,
             "build_cgo_enabled": body.build_cgo_enabled,

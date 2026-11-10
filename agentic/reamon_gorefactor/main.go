@@ -41,6 +41,10 @@ type request struct {
 	SelectedPath  string            `json:"selected_path"`
 	ModulePath    string            `json:"module_path"`
 	ModuleRoot    string            `json:"module_root"`
+	GoMod         string            `json:"go_mod"`
+	GoModHash     string            `json:"go_mod_sha256"`
+	GoSum         string            `json:"go_sum"`
+	GoSumHash     string            `json:"go_sum_sha256"`
 	BuildGOOS     string            `json:"build_goos"`
 	BuildGOARCH   string            `json:"build_goarch"`
 	BuildCgo      *bool             `json:"build_cgo_enabled"`
@@ -490,7 +494,9 @@ func buildProjectCatalog(req request) (*projectCatalog, error) {
 	if err != nil {
 		return nil, err
 	}
-	return buildProjectCatalogWithImporter(req, newGoTargetImporter(buildContext))
+	packageImporter := newGoTargetImporter(buildContext)
+	defer packageImporter.Close()
+	return buildProjectCatalogWithImporter(req, packageImporter)
 }
 
 func buildProjectCatalogWithImporter(req request, packageImporter types.Importer) (*projectCatalog, error) {
@@ -1084,6 +1090,9 @@ func listProjectInventory(req request) (map[string]any, error) {
 		packages: packageRequests, catalogs: make(map[string]*projectCatalog),
 		visiting: make(map[string]bool), fallback: newGoTargetImporter(buildContext),
 	}
+	if closeable, ok := projectImporter.fallback.(interface{ Close() error }); ok {
+		defer closeable.Close()
+	}
 	aggregate := projectInventory{SourceFileCount: len(files), PackageCount: len(groups)}
 	entries := make([]projectInventoryEntry, 0)
 	packages := make([]map[string]any, 0, len(groups))
@@ -1145,6 +1154,7 @@ func listProjectInventory(req request) (map[string]any, error) {
 	return map[string]any{
 		"source_sha256": selectedHash, "source_set_sha256": projectHash,
 		"selected_path": selectedPath, "module_path": req.ModulePath, "module_root": req.ModuleRoot,
+		"go_mod_sha256": buildContext.GoModHash, "go_sum_sha256": buildContext.GoSumHash,
 		"build_context": buildContext,
 		"files":         resultFiles, "packages": packages,
 		"parser_version": runtime.Version(),
@@ -1177,9 +1187,18 @@ type goBuildContext struct {
 	Tags                []string          `json:"tags"`
 	ArchitectureOptions map[string]string `json:"architecture_options"`
 	Toolchain           string            `json:"toolchain"`
+	ModulePath          string            `json:"module_path"`
+	ModuleRoot          string            `json:"module_root"`
+	GoModHash           string            `json:"go_mod_sha256"`
+	GoSumHash           string            `json:"go_sum_sha256"`
+	GoMod               string            `json:"-"`
+	GoSum               string            `json:"-"`
 }
 
 func normalizeGoBuildContext(req request) (goBuildContext, error) {
+	if err := validateGoModuleReceipt(req); err != nil {
+		return goBuildContext{}, err
+	}
 	goos, goarch := req.BuildGOOS, req.BuildGOARCH
 	if goos == "" {
 		goos = runtime.GOOS
@@ -1213,7 +1232,58 @@ func normalizeGoBuildContext(req request) (goBuildContext, error) {
 	return goBuildContext{
 		GOOS: goos, GOARCH: goarch, CgoEnabled: cgoEnabled, Tags: tags,
 		ArchitectureOptions: architectureOptions, Toolchain: runtime.Version(),
+		ModulePath: req.ModulePath, ModuleRoot: req.ModuleRoot,
+		GoModHash: strings.ToLower(req.GoModHash), GoSumHash: strings.ToLower(req.GoSumHash),
+		GoMod: req.GoMod, GoSum: req.GoSum,
 	}, nil
+}
+
+func validateGoModuleReceipt(req request) error {
+	if len([]byte(req.GoMod)) > 1024*1024 || len([]byte(req.GoSum)) > 1024*1024 {
+		return fmt.Errorf("Go module manifests exceed the 1 MiB limit")
+	}
+	if req.GoMod == "" {
+		if req.GoModHash != "" || req.GoSum != "" || req.GoSumHash != "" || req.ModulePath != "" || req.ModuleRoot != "" {
+			return fmt.Errorf("Go module identity requires a complete hash-verified go.mod receipt")
+		}
+		return nil
+	}
+	if len(req.GoModHash) != 64 || !strings.EqualFold(req.GoModHash, hashText(req.GoMod)) {
+		return fmt.Errorf("Go module manifest hash does not match its receipt")
+	}
+	if req.GoSum != "" {
+		if len(req.GoSumHash) != 64 || !strings.EqualFold(req.GoSumHash, hashText(req.GoSum)) {
+			return fmt.Errorf("Go checksum manifest hash does not match its receipt")
+		}
+	} else if req.GoSumHash != "" {
+		return fmt.Errorf("Go checksum manifest hash was provided without go.sum")
+	}
+	if !safeGoModuleImportPath(req.ModulePath) {
+		return fmt.Errorf("Go module path is invalid")
+	}
+	if req.ModuleRoot != "" {
+		moduleRoot, err := safeGoModuleRoot(req.ModuleRoot)
+		if err != nil || moduleRoot != req.ModuleRoot {
+			return fmt.Errorf("Go module root is invalid")
+		}
+	}
+	modulePath := ""
+	for _, line := range strings.Split(req.GoMod, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "module ") {
+			continue
+		}
+		fields := strings.Fields(strings.TrimSpace(strings.TrimPrefix(line, "module ")))
+		if len(fields) > 0 {
+			modulePath = fields[0]
+		}
+		modulePath = strings.Trim(modulePath, "\"")
+		break
+	}
+	if modulePath == "" || modulePath != req.ModulePath {
+		return fmt.Errorf("Go module path does not match the verified go.mod")
+	}
+	return nil
 }
 
 var supportedGoTargets struct {
@@ -1277,21 +1347,43 @@ func cloneStringMap(input map[string]string) map[string]string {
 	return output
 }
 
-func newGoTargetImporter(target goBuildContext) types.Importer {
+type goTargetImporter struct {
+	target    goBuildContext
+	moduleDir string
+	tempDir   string
+	setupErr  error
+	importer  types.Importer
+}
+
+func newGoTargetImporter(target goBuildContext) *goTargetImporter {
+	result := &goTargetImporter{target: target}
+	if target.GoMod != "" {
+		result.setupErr = result.prepareModuleWorkspace()
+	}
 	lookup := func(importPath string) (io.ReadCloser, error) {
-		arguments := []string{"list", "-export", "-f", "{{.Standard}}\n{{.Export}}"}
+		if result.setupErr != nil {
+			return nil, result.setupErr
+		}
+		arguments := []string{"list"}
+		if target.GoMod != "" {
+			arguments = append(arguments, "-mod=readonly")
+		}
+		arguments = append(arguments, "-export", "-f", "{{.Standard}}\n{{.Export}}")
 		if len(target.Tags) > 0 {
 			arguments = append(arguments, "-tags="+strings.Join(target.Tags, ","))
 		}
 		arguments = append(arguments, importPath)
 		command := exec.Command("go", arguments...)
 		command.Env = goBuildCommandEnvironment(target)
+		if result.moduleDir != "" {
+			command.Dir = result.moduleDir
+		}
 		output, err := command.CombinedOutput()
 		if err != nil {
 			return nil, fmt.Errorf("could not resolve offline Go package %s for %s/%s: %s", importPath, target.GOOS, target.GOARCH, strings.TrimSpace(string(output)))
 		}
 		fields := strings.SplitN(strings.TrimSpace(string(output)), "\n", 2)
-		if len(fields) != 2 || fields[0] != "true" {
+		if len(fields) != 2 || (fields[0] != "true" && target.GoMod == "") {
 			return nil, fmt.Errorf("Go package %s is not in the standard library; external modules require verified offline dependency receipts", importPath)
 		}
 		exportPath := strings.TrimSpace(fields[1])
@@ -1304,15 +1396,103 @@ func newGoTargetImporter(target goBuildContext) types.Importer {
 		}
 		return file, nil
 	}
-	return importer.ForCompiler(token.NewFileSet(), "gc", lookup)
+	result.importer = importer.ForCompiler(token.NewFileSet(), "gc", lookup)
+	return result
+}
+
+func (i *goTargetImporter) Import(importPath string) (*types.Package, error) {
+	return i.importer.Import(importPath)
+}
+
+func (i *goTargetImporter) Close() error {
+	if i.tempDir == "" {
+		return nil
+	}
+	return os.RemoveAll(i.tempDir)
+}
+
+func (i *goTargetImporter) prepareModuleWorkspace() error {
+	i.tempDir = ""
+	tempDir, err := os.MkdirTemp("", "reamon-go-offline-module-")
+	if err != nil {
+		return fmt.Errorf("could not prepare isolated Go module workspace")
+	}
+	i.tempDir = tempDir
+	moduleDir := tempDir
+	if i.target.ModuleRoot != "" {
+		moduleDir = filepath.Join(tempDir, filepath.FromSlash(i.target.ModuleRoot))
+		if err := os.MkdirAll(moduleDir, 0700); err != nil {
+			return fmt.Errorf("could not prepare isolated Go module root")
+		}
+	}
+	if err := os.WriteFile(filepath.Join(moduleDir, "go.mod"), []byte(i.target.GoMod), 0600); err != nil {
+		return fmt.Errorf("could not stage verified go.mod")
+	}
+	if i.target.GoSum != "" {
+		if err := os.WriteFile(filepath.Join(moduleDir, "go.sum"), []byte(i.target.GoSum), 0600); err != nil {
+			return fmt.Errorf("could not stage verified go.sum")
+		}
+	}
+	i.moduleDir = moduleDir
+	environment := goBuildCommandEnvironment(i.target)
+	edit := exec.Command("go", "mod", "edit", "-json")
+	edit.Dir, edit.Env = moduleDir, setGoEnvironmentValue(environment, "GOFLAGS", "")
+	metadataBytes, err := edit.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("Go could not parse the verified module manifest: %s", strings.TrimSpace(string(metadataBytes)))
+	}
+	var metadata struct {
+		Module  struct{ Path string }
+		Replace []struct {
+			New struct {
+				Path    string
+				Version string
+			}
+		}
+	}
+	if err := json.Unmarshal(metadataBytes, &metadata); err != nil || metadata.Module.Path != i.target.ModulePath {
+		return fmt.Errorf("Go module manifest identity does not match the verified module path")
+	}
+	for _, replacement := range metadata.Replace {
+		if replacement.New.Version == "" {
+			return fmt.Errorf("local Go module replacements are unsupported in isolated inventory")
+		}
+	}
+	verify := exec.Command("go", "mod", "verify")
+	verify.Dir, verify.Env = moduleDir, environment
+	if output, err := verify.CombinedOutput(); err != nil {
+		return fmt.Errorf("offline Go module cache verification failed: %s", strings.TrimSpace(string(output)))
+	}
+	return nil
+}
+
+func setGoEnvironmentValue(environment []string, key, value string) []string {
+	result := make([]string, 0, len(environment)+1)
+	for _, entry := range environment {
+		entryKey, _, ok := strings.Cut(entry, "=")
+		if ok && entryKey == key {
+			continue
+		}
+		result = append(result, entry)
+	}
+	return append(result, key+"="+value)
 }
 
 func goBuildCommandEnvironment(target goBuildContext) []string {
+	go111module := "off"
+	goFlags := ""
+	if target.GoMod != "" {
+		go111module = "on"
+		goFlags = "-mod=readonly"
+	}
 	values := map[string]string{
 		"GOOS": target.GOOS, "GOARCH": target.GOARCH,
-		"GO111MODULE": "off",
-		"GOWORK":      "off", "GOFLAGS": "", "GOPROXY": "off", "GOSUMDB": "off",
+		"GO111MODULE": go111module,
+		"GOWORK":      "off", "GOFLAGS": goFlags, "GOPROXY": "off", "GOSUMDB": "off", "GOVCS": "*:off",
 		"GOTOOLCHAIN": "local", "GOENV": "off",
+	}
+	if moduleCache := strings.TrimSpace(os.Getenv("REAMON_GO_MODULE_CACHE")); moduleCache != "" {
+		values["GOMODCACHE"] = moduleCache
 	}
 	for key, value := range target.ArchitectureOptions {
 		values[key] = value
@@ -1337,6 +1517,13 @@ func goBuildCommandEnvironment(target goBuildContext) []string {
 }
 
 func selectGoBuildFiles(files []projectFile, target goBuildContext) ([]projectFile, error) {
+	fileSelectionContext := target
+	fileSelectionContext.ModulePath = ""
+	fileSelectionContext.ModuleRoot = ""
+	fileSelectionContext.GoModHash = ""
+	fileSelectionContext.GoSumHash = ""
+	fileSelectionContext.GoMod = ""
+	fileSelectionContext.GoSum = ""
 	root, err := os.MkdirTemp("", "reamon-go-build-context-")
 	if err != nil {
 		return nil, fmt.Errorf("could not prepare Go build-context snapshot")
@@ -1374,7 +1561,7 @@ func selectGoBuildFiles(files []projectFile, target goBuildContext) ([]projectFi
 		arguments = append(arguments, ".")
 		command := exec.Command("go", arguments...)
 		command.Dir = packageDirectory
-		command.Env = goBuildCommandEnvironment(target)
+		command.Env = goBuildCommandEnvironment(fileSelectionContext)
 		output, err := command.CombinedOutput()
 		if err != nil {
 			return nil, fmt.Errorf("Go could not select source files for %s/%s in %s: %s", target.GOOS, target.GOARCH, directory, strings.TrimSpace(string(output)))

@@ -32,6 +32,9 @@ interface GoModuleInventoryContext {
   modulePath: string
   moduleRoot: string
   manifestSha256: string
+  manifestText: string
+  sumSha256: string
+  sumText: string
 }
 
 function plainObject(value: unknown): Record<string, unknown> {
@@ -40,9 +43,10 @@ function plainObject(value: unknown): Record<string, unknown> {
 
 function hashGoProjectInventoryScope(files: GoPackageRenameFile[], module: GoModuleInventoryContext): string {
   return createHash('sha256')
-    .update('reamon-go-project-inventory-v1\0')
+    .update('reamon-go-project-inventory-v2\0')
     .update(hashGoPackageSourceSet(files)).update('\0')
-    .update(module.moduleRoot).update('\0').update(module.modulePath).update('\0').update(module.manifestSha256)
+    .update(module.moduleRoot).update('\0').update(module.modulePath).update('\0')
+    .update(module.manifestSha256).update('\0').update(module.sumSha256)
     .digest('hex')
 }
 
@@ -66,7 +70,7 @@ async function loadGoModuleInventoryContext(
     const root = goModuleRoot(artifact.relativePath)
     return sourcePaths.every((sourcePath) => !root || sourcePath.startsWith(`${root}/`))
   }).sort((left, right) => goModuleRoot(right.relativePath).length - goModuleRoot(left.relativePath).length)
-  if (!matching.length) return { modulePath: '', moduleRoot: '', manifestSha256: '' }
+  if (!matching.length) return { modulePath: '', moduleRoot: '', manifestSha256: '', manifestText: '', sumSha256: '', sumText: '' }
 
   const manifest = matching[0]
   const moduleRoot = goModuleRoot(manifest.relativePath)
@@ -87,7 +91,27 @@ async function loadGoModuleInventoryContext(
   if (!modulePath || modulePath.includes('\\') || modulePath.split('/').some((part) => !part || part === '.' || part === '..')) {
     throw new Error('The imported go.mod has no valid module path for Go project inventory.')
   }
-  return { modulePath, moduleRoot, manifestSha256 }
+  const sumPath = moduleRoot ? `${moduleRoot}/go.sum` : 'go.sum'
+  const sumArtifact = await prisma.artifact.findFirst({
+    where: { ...artifactWhere, relativePath: { equals: sumPath, mode: 'insensitive' } },
+    select: { storagePath: true, sizeBytes: true, sha256: true },
+  })
+  let sumText = ''
+  let sumSha256 = ''
+  if (sumArtifact) {
+    if (sumArtifact.sizeBytes > BigInt(MAX_GO_MODULE_MANIFEST_BYTES)) throw new Error('Go checksum manifest exceeds the 1 MiB inventory limit.')
+    const sumBytes = await readFile(resolveArtifactStoragePath(sumArtifact.storagePath))
+    sumSha256 = digest(sumBytes)
+    if (sumBytes.length !== Number(sumArtifact.sizeBytes) || sumSha256 !== sumArtifact.sha256.toLowerCase()) {
+      throw new Error('The imported go.sum changed or no longer matches the workspace; reimport it before inventory.')
+    }
+    try {
+      sumText = new TextDecoder('utf-8', { fatal: true }).decode(sumBytes)
+    } catch {
+      throw new Error('The imported go.sum is not valid UTF-8 text.')
+    }
+  }
+  return { modulePath, moduleRoot, manifestSha256, manifestText: text, sumSha256, sumText }
 }
 
 function isInside(root: string, file: string): boolean {
@@ -518,6 +542,8 @@ async function listGoProjectInventory(
     body: JSON.stringify({
       operation: 'project_inventory', source_code: selected.sourceCode, selected_path: selectedPath,
       module_path: module.modulePath, module_root: module.moduleRoot,
+      go_mod: module.manifestText, go_mod_sha256: module.manifestSha256,
+      go_sum: module.sumText, go_sum_sha256: module.sumSha256,
       files: files.map((file) => ({ relative_path: file.relativePath, source_code: file.sourceCode, expected_sha256: file.sourceHash })),
     }),
   }, { timeoutMs: 60_000 })
@@ -554,6 +580,7 @@ async function listGoProjectInventory(
   const packageKeys = packages.map((item) => `${String(item.directory)}\0${String(item.package_name)}`)
   if (!response.ok || payload?.source_sha256 !== selected.sourceHash || payload?.source_set_sha256 !== expectedHash
       || payload?.module_path !== module.modulePath || payload?.module_root !== module.moduleRoot
+      || payload?.go_mod_sha256 !== module.manifestSha256 || payload?.go_sum_sha256 !== module.sumSha256
       || payload?.selected_path !== selectedPath || raw.scope !== 'verified-whole-project-go-source-snapshot'
       || raw.complete !== true || !numericFields.every((value) => Number.isSafeInteger(value) && Number(value) >= 0)
       || Number(raw.source_file_count) !== files.length || packageCount !== packages.length || packageCount < 1
@@ -1212,7 +1239,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     let goProjectCatalog: Awaited<ReturnType<typeof listGoProjectRenameBindings>> | null = null
     let goProjectInventoryError: string | null = null
     let goProjectInventorySourceSetSha256: string | null = null
-    let goProjectModuleContext: GoModuleInventoryContext = { modulePath: '', moduleRoot: '', manifestSha256: '' }
+    let goProjectModuleContext: GoModuleInventoryContext = { modulePath: '', moduleRoot: '', manifestSha256: '', manifestText: '', sumSha256: '', sumText: '' }
     if (crossFileGo) {
       if (!isGo) return NextResponse.json({ error: 'Cross-file package renaming is currently supported only for Go.' }, { status: 415 })
       const relativePath = typeof attributes.relativePath === 'string' ? attributes.relativePath : ''
@@ -1290,7 +1317,7 @@ export async function POST(request: Request, { params }: RouteParams) {
             providerName: 'REAmon scope-safe rename suggestions', modelIdentifier: provider.modelIdentifier.slice(0, 128),
             question: (typeof body.question === 'string' ? body.question : '').slice(0, 1000),
             scope: 'rename-suggestions', status: 'SUCCEEDED',
-            requestPayload: { operation: 'scope-safe-rename-suggestions', providerId: provider.id, modelIdentifier: provider.modelIdentifier, inputSha256: workingSourceSha256, artifactSourceSha256, inputSource: workingSource, bindings: [], projectSymbolContext: '', projectSymbolContextSha256, goProjectScope: crossFileGo, goSourceSetSha256: goProjectCatalog?.sourceSetSha256 ?? null, goSelectedPath: goProjectCatalog?.selectedPath ?? null, goProjectInventorySourceSetSha256, goProjectModulePath: goProjectModuleContext.modulePath, goProjectModuleRoot: goProjectModuleContext.moduleRoot, goProjectModuleManifestSha256: goProjectModuleContext.manifestSha256, goProjectInventoryError, goProjectInventory: goProjectCatalog ? JSON.parse(JSON.stringify(goProjectCatalog.inventory)) : null, renames: [] },
+            requestPayload: { operation: 'scope-safe-rename-suggestions', providerId: provider.id, modelIdentifier: provider.modelIdentifier, inputSha256: workingSourceSha256, artifactSourceSha256, inputSource: workingSource, bindings: [], projectSymbolContext: '', projectSymbolContextSha256, goProjectScope: crossFileGo, goSourceSetSha256: goProjectCatalog?.sourceSetSha256 ?? null, goSelectedPath: goProjectCatalog?.selectedPath ?? null, goProjectInventorySourceSetSha256, goProjectModulePath: goProjectModuleContext.modulePath, goProjectModuleRoot: goProjectModuleContext.moduleRoot, goProjectModuleManifestSha256: goProjectModuleContext.manifestSha256, goProjectModuleSumSha256: goProjectModuleContext.sumSha256, goProjectInventoryError, goProjectInventory: goProjectCatalog ? JSON.parse(JSON.stringify(goProjectCatalog.inventory)) : null, renames: [] },
             syntaxValidated: false, validationStatus: 'UNAVAILABLE', validationMethod: 'proposal-only',
             validationMessage: 'No eligible obfuscated local bindings were found; no rename proposal was generated.', completedAt: new Date(),
           },
@@ -1450,6 +1477,7 @@ export async function POST(request: Request, { params }: RouteParams) {
             goProjectModulePath: goProjectModuleContext.modulePath,
             goProjectModuleRoot: goProjectModuleContext.moduleRoot,
             goProjectModuleManifestSha256: goProjectModuleContext.manifestSha256,
+            goProjectModuleSumSha256: goProjectModuleContext.sumSha256,
             goProjectInventoryError,
             goProjectInventory: goProjectCatalog ? JSON.parse(JSON.stringify(goProjectCatalog.inventory)) : null,
             bindings: candidates.map((candidate) => ({ id: candidate.id, name: candidate.name, kind: candidate.kind, scopeType: candidate.scopeType, referenceCount: candidate.referenceCount, exported: candidate.exported })),

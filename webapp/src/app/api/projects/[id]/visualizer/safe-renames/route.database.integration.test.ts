@@ -94,11 +94,19 @@ describe.skipIf(!enabled)('Go package rename against PostgreSQL', () => {
     })
     artifactId = artifact.id
     const goMod = 'module example.test/fixture\n\ngo 1.24\n'
+    const goSum = 'example.test/dep v1.0.0 h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\n'
     await writeFile(path.join(artifactsDirectory, 'go.mod'), goMod, 'utf8')
+    await writeFile(path.join(artifactsDirectory, 'go.sum'), goSum, 'utf8')
     await prisma.artifact.create({
       data: {
         projectId, name: 'go.mod', originalName: 'go.mod', relativePath: 'go.mod', storagePath: 'go.mod',
         sha256: hash(goMod), sizeBytes: BigInt(Buffer.byteLength(goMod)), extension: '.mod',
+      },
+    })
+    await prisma.artifact.create({
+      data: {
+        projectId, name: 'go.sum', originalName: 'go.sum', relativePath: 'go.sum', storagePath: 'go.sum',
+        sha256: hash(goSum), sizeBytes: BigInt(Buffer.byteLength(goSum)), extension: '.sum',
       },
     })
     taskId = (await prisma.task.create({
@@ -196,6 +204,7 @@ describe.skipIf(!enabled)('Go package rename against PostgreSQL', () => {
         return jsonResponse({
           source_sha256: hash(selectedSource), source_set_sha256: projectSourceSet, selected_path: selectedPath,
           module_path: request.module_path, module_root: request.module_root,
+          go_mod_sha256: request.go_mod_sha256, go_sum_sha256: request.go_sum_sha256,
           files: inventoryFiles,
           packages: [{ directory: 'pkg', package_name: 'sample', source_file_count: 2, source_set_sha256: projectSourceSet }],
           parser_version: 'go1.24.4',
@@ -244,13 +253,19 @@ describe.skipIf(!enabled)('Go package rename against PostgreSQL', () => {
     expect(proposal).toMatchObject({ scope: 'project', candidates: 1, sourceSetSha256: expect.stringMatching(/^[a-f0-9]{64}$/), projectInventory: { sourceFileCount: 2, privatePackageSymbolCount: 2, referencedPrivatePackageSymbols: 1, unreferencedPrivateSymbols: 1, entryCount: 2, entries: expect.arrayContaining([expect.objectContaining({ name: 'fn', classification: 'eligible' }), expect.objectContaining({ name: 'run', classification: 'excluded' })]) } })
     const savedProposal = await prisma.reamonCodeAttempt.findUnique({ where: { id: proposal.attemptId } })
     expect(savedProposal?.scope).toBe('rename-suggestions')
-    expect(savedProposal?.requestPayload).toMatchObject({ goProjectScope: true, goSelectedPath: selectedPath, goProjectModulePath: 'example.test/fixture', goProjectModuleManifestSha256: hash('module example.test/fixture\n\ngo 1.24\n'), goProjectInventory: { sourceFileCount: 2, privatePackageSymbolCount: 2, unreferencedPrivateSymbols: 1, entryCount: 2 }, renames: [{ bindingId, oldName: 'fn', newName: 'calculate' }] })
+    expect(savedProposal?.requestPayload).toMatchObject({ goProjectScope: true, goSelectedPath: selectedPath, goProjectModulePath: 'example.test/fixture', goProjectModuleManifestSha256: hash(goMod), goProjectModuleSumSha256: hash(goSum), goProjectInventory: { sourceFileCount: 2, privatePackageSymbolCount: 2, unreferencedPrivateSymbols: 1, entryCount: 2 }, renames: [{ bindingId, oldName: 'fn', newName: 'calculate' }] })
 
     await writeFile(path.join(artifactsDirectory, 'go.mod'), 'module example.test/changed\n\ngo 1.24\n', 'utf8')
     const changedModuleResponse = await POST(renameRequest('apply', proposal.attemptId), params())
     expect(changedModuleResponse.status).toBe(409)
     expect(await prisma.reamonCodeDraft.count({ where: { projectId, artifactId } })).toBe(0)
     await writeFile(path.join(artifactsDirectory, 'go.mod'), 'module example.test/fixture\n\ngo 1.24\n', 'utf8')
+
+    await writeFile(path.join(artifactsDirectory, 'go.sum'), `${goSum}example.test/other v1.0.0 h1:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=\n`, 'utf8')
+    const changedSumResponse = await POST(renameRequest('apply', proposal.attemptId), params())
+    expect(changedSumResponse.status).toBe(409)
+    expect(await prisma.reamonCodeDraft.count({ where: { projectId, artifactId } })).toBe(0)
+    await writeFile(path.join(artifactsDirectory, 'go.sum'), goSum, 'utf8')
 
     await prisma.reamonCodeReview.update({ where: { id: siblingReviewId }, data: { maintainedSourceHash: 'f'.repeat(64) } })
     const staleResponse = await POST(renameRequest('apply', proposal.attemptId), params())

@@ -1,5 +1,6 @@
 """HTTP contract tests for bounded Go source refactoring requests."""
 
+import hashlib
 import json
 import sys
 import unittest
@@ -97,6 +98,7 @@ class GoRefactorApiTests(unittest.TestCase):
             return Process()
 
         files = [{"relative_path": "cmd/main.go", "source_code": "package main\n"}]
+        go_mod = "module example.test/project\n\ngo 1.24\n"
         with patch.object(self.api.asyncio, "create_subprocess_exec", create_process):
             response = self.client.post("/reamon/code/go/refactor", json={
                 "operation": "project_inventory",
@@ -104,6 +106,10 @@ class GoRefactorApiTests(unittest.TestCase):
                 "selected_path": "cmd/main.go",
                 "module_path": "example.test/project",
                 "module_root": "src",
+                "go_mod": go_mod,
+                "go_mod_sha256": hashlib.sha256(go_mod.encode()).hexdigest(),
+                "go_sum": "",
+                "go_sum_sha256": "",
                 "build_goos": "linux",
                 "build_goarch": "amd64",
                 "build_cgo_enabled": False,
@@ -115,6 +121,10 @@ class GoRefactorApiTests(unittest.TestCase):
         self.assertEqual(forwarded["operation"], "project_inventory")
         self.assertEqual(forwarded["module_path"], "example.test/project")
         self.assertEqual(forwarded["module_root"], "src")
+        self.assertEqual(forwarded["go_mod"], go_mod)
+        self.assertEqual(forwarded["go_mod_sha256"], hashlib.sha256(go_mod.encode()).hexdigest())
+        self.assertEqual(forwarded["go_sum"], "")
+        self.assertEqual(forwarded["go_sum_sha256"], "")
         self.assertEqual(forwarded["build_goos"], "linux")
         self.assertEqual(forwarded["build_goarch"], "amd64")
         self.assertFalse(forwarded["build_cgo_enabled"])
