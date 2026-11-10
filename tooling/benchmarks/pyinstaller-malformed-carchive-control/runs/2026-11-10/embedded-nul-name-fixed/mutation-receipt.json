@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "fixtureId": "pyinstaller-malformed-carchive-name-nul-linux-amd64",
+  "baseFixtureId": "pyinstaller-module-structured-source-linux-amd64",
+  "createdAtUtc": "2026-11-10T08:35:02+00:00",
+  "mutationId": "first-entry-embedded-nul-name",
+  "mutation": "Replace the second byte of the first CArchive TOC entry name with an embedded NUL byte.",
+  "offsets": {
+    "cookieOffset": 7268795,
+    "tocOffset": 7265195,
+    "tocSize": 3600,
+    "entrySizeOffset": 7265195,
+    "nameOffset": 7265213,
+    "nulOffset": 7265214,
+    "originalByte": 116
+  },
+  "sourceArtifact": {
+    "path": "pyinstaller-module-structured-source",
+    "sizeBytes": 7271008,
+    "sha256": "d143e8ae346ecdffbee8f5685bc22e3cc980d13668dc4b57703d8a69af84728c"
+  },
+  "malformedArtifact": {
+    "path": "embedded-nul-name",
+    "sizeBytes": 7271008,
+    "sha256": "a00c5138f9d664d8f6d2d7e7693c24c051673a893a36a6bd7414527fb0c212e0"
+  },
+  "hostExecution": "not executed"
+}

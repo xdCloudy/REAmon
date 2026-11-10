@@ -15,6 +15,7 @@ CONTROL_ID = "pyinstaller-malformed-carchive-toc-linux-amd64"
 DATA_BOUNDS_CONTROL_ID = "pyinstaller-malformed-carchive-entry-bounds-linux-amd64"
 ENTRY_EXTENT_CONTROL_ID = "pyinstaller-malformed-carchive-entry-extent-linux-amd64"
 TYPECODE_CONTROL_ID = "pyinstaller-malformed-carchive-typecode-linux-amd64"
+NAME_NUL_CONTROL_ID = "pyinstaller-malformed-carchive-name-nul-linux-amd64"
 COOKIE = b"MEI\x0c\x0b\x0a\x0b\x0e"
 COOKIE_SIZE = 88  # PyInstaller 2.1+ cookie used by the pinned PyInstaller 6 fixture.
 CTOC_ENTRY_SIZE = 18
@@ -115,6 +116,29 @@ def mutate_first_entry_typecode(data: bytes) -> tuple[bytes, dict[str, int]]:
     }
 
 
+def mutate_first_entry_name_nul(data: bytes) -> tuple[bytes, dict[str, int]]:
+    cookie_offset, toc_offset, toc_size, entry_size_offset = locate_carchive_toc(data)
+    entry_size = struct.unpack_from(">I", data, entry_size_offset)[0]
+    name_offset = toc_offset + CTOC_ENTRY_SIZE
+    name_end = toc_offset + entry_size
+    name = data[name_offset:name_end].rstrip(b"\x00")
+    if len(name) < 2 or name[1] == 0:
+        raise ValueError("First CArchive TOC entry name cannot hold an embedded NUL")
+    mutated = bytearray(data)
+    nul_offset = name_offset + 1
+    original_byte = mutated[nul_offset]
+    mutated[nul_offset] = 0
+    return bytes(mutated), {
+        "cookieOffset": cookie_offset,
+        "tocOffset": toc_offset,
+        "tocSize": toc_size,
+        "entrySizeOffset": entry_size_offset,
+        "nameOffset": name_offset,
+        "nulOffset": nul_offset,
+        "originalByte": original_byte,
+    }
+
+
 def build(
     input_path: Path,
     output_path: Path,
@@ -140,6 +164,10 @@ def build(
         malformed, mutation_evidence = mutate_first_entry_typecode(source)
         control_id = TYPECODE_CONTROL_ID
         mutation_description = "Replace the first CArchive TOC entry typecode with an unknown value."
+    elif mutation == "first-entry-embedded-nul-name":
+        malformed, mutation_evidence = mutate_first_entry_name_nul(source)
+        control_id = NAME_NUL_CONTROL_ID
+        mutation_description = "Replace the second byte of the first CArchive TOC entry name with an embedded NUL byte."
     else:
         raise ValueError(f"unsupported CArchive mutation: {mutation}")
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -176,7 +204,7 @@ def main() -> None:
     parser.add_argument("--receipt", type=Path, required=True)
     parser.add_argument(
         "--mutation",
-        choices=("first-entry-size-below-header", "first-entry-position-outside-overlay", "first-entry-extent-outside-toc", "first-entry-invalid-typecode"),
+        choices=("first-entry-size-below-header", "first-entry-position-outside-overlay", "first-entry-extent-outside-toc", "first-entry-invalid-typecode", "first-entry-embedded-nul-name"),
         default="first-entry-size-below-header",
     )
     args = parser.parse_args()

@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "fixtureId": "pyinstaller-malformed-carchive-name-nul-linux-amd64",
+  "recordedAtUtc": "2026-11-10T08:35:06+00:00",
+  "serviceImageId": "sha256:0ba5d2ea94208599736fff050336202292577cdc39cfafc45a81b930375b7eeb",
+  "extractorRevision": "2aa0ec9e58317ac717fdeec84a02d5a67de7b96c2-reamon2",
+  "artifact": {
+    "path": "/data/reamon-artifacts/embedded-nul-name",
+    "sha256": "a00c5138f9d664d8f6d2d7e7693c24c051673a893a36a6bd7414527fb0c212e0",
+    "sizeBytes": 7271008
+  },
+  "check": "server.has_pyinstaller_cookie",
+  "cookieAccepted": true,
+  "purpose": "Confirms the malformed CArchive passed the outer cookie check before live endpoint extraction."
+}
