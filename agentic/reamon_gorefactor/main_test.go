@@ -92,15 +92,16 @@ type projectInventoryRecallFixture struct {
 }
 
 type projectInventoryRecallBuild struct {
-	GOOS               string `json:"goos"`
-	GOARCH             string `json:"goarch"`
-	SelectedPath       string `json:"selected_path"`
-	ExpectedPackageTP  int    `json:"expected_package_tp"`
-	ExpectedPackageFP  int    `json:"expected_package_fp"`
-	ExpectedPackageFN  int    `json:"expected_package_fn"`
-	ExpectedAllScopeTP int    `json:"expected_all_scope_tp"`
-	ExpectedAllScopeFP int    `json:"expected_all_scope_fp"`
-	ExpectedAllScopeFN int    `json:"expected_all_scope_fn"`
+	GOOS                string `json:"goos"`
+	GOARCH              string `json:"goarch"`
+	SelectedPath        string `json:"selected_path"`
+	ExpectedPackageTP   int    `json:"expected_package_tp"`
+	ExpectedPackageFP   int    `json:"expected_package_fp"`
+	ExpectedPackageFN   int    `json:"expected_package_fn"`
+	ExpectedAllScopeTP  int    `json:"expected_all_scope_tp"`
+	ExpectedAllScopeFP  int    `json:"expected_all_scope_fp"`
+	ExpectedAllScopeFN  int    `json:"expected_all_scope_fn"`
+	ExpectedMemberCount int    `json:"expected_member_count"`
 }
 
 func bindingNamed(t *testing.T, cat *catalog, name string, declarationStart int) binding {
@@ -1028,6 +1029,8 @@ func TestProjectInventoryMatchesHashPinnedUpstreamCorpusV1(t *testing.T) {
 				"referenced_local_symbols":            inventory["referenced_local_symbols"].(int),
 				"unreferenced_local_symbols":          inventory["unreferenced_local_symbols"].(int),
 				"unsupported_local_symbol_count":      inventory["unsupported_local_symbol_count"].(int),
+				"member_symbol_count":                 inventory["member_symbol_count"].(int),
+				"unsupported_member_symbol_count":     inventory["unsupported_member_symbol_count"].(int),
 				"entry_count":                         inventory["entry_count"].(int),
 			}
 			if !reflect.DeepEqual(counts, fixture.Expected) {
@@ -1154,11 +1157,17 @@ func TestProjectInventoryHeldOutPackageSymbolPrecisionRecallV1(t *testing.T) {
 					if inventory["complete"] != true || inventory["entries_truncated"] != false {
 						t.Fatalf("inventory completeness/truncation = %v/%v", inventory["complete"], inventory["entries_truncated"])
 					}
+					if inventory["member_symbol_count"] != target.ExpectedMemberCount || inventory["unsupported_member_symbol_count"] != target.ExpectedMemberCount {
+						t.Fatalf("member inventory counts = %v/%v; want %d unsupported rows", inventory["member_symbol_count"], inventory["unsupported_member_symbol_count"], target.ExpectedMemberCount)
+					}
 
 					actual := make(map[string]bool)
 					allActual := make(map[string]bool)
 					duplicateCount := 0
 					for _, entry := range inventory["entries"].([]projectInventoryEntry) {
+						if entry.Scope == "member" && (entry.Classification != "unsupported" || entry.ClassificationReason != "go-member-rename-not-supported") {
+							t.Fatalf("member entry %q is not marked as unsupported: %#v", entry.Name, entry)
+						}
 						key := projectDeclarationKey(entry.RelativePath, entry.DeclarationStart, entry.Name)
 						if allActual[key] {
 							duplicateCount++

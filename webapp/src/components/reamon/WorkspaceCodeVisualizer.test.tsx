@@ -739,7 +739,7 @@ describe('WorkspaceCodeVisualizer', () => {
     expect(JSON.parse(String(explainCall?.[1]?.body))).toMatchObject({ unitId: 'unit-1', providerId: 'provider-local', question: 'What state does it read?' })
   })
 
-  test('shows package, file-scope, and local symbol inventory rows with their distinct scope', async () => {
+  test('shows package, file-scope, local, and member symbol inventory rows with their distinct scope', async () => {
     const source = 'package sample\nfunc normalize(value int) int { return value }\n'
     const goUnit = unit({ language: 'Go', artifactPath: 'pkg/normalize.go', codeArtifactId: 'project-1/artifact-1/task-1/run-1/sources/pkg/normalize.go' })
     const inventory = {
@@ -748,11 +748,13 @@ describe('WorkspaceCodeVisualizer', () => {
       exportedPackageSymbolCount: 0, unsupportedPackageSymbolCount: 0,
       fileScopeSymbolCount: 1, referencedFileScopeSymbols: 1, unreferencedFileScopeSymbols: 0, unsupportedFileScopeSymbolCount: 0,
       localSymbolCount: 1, referencedLocalSymbols: 1, unreferencedLocalSymbols: 0, unsupportedLocalSymbolCount: 0,
-      renameBindingCatalogTruncated: false, entryCount: 3, entriesTruncated: false,
+      memberSymbolCount: 1, unsupportedMemberSymbolCount: 1,
+      renameBindingCatalogTruncated: false, entryCount: 4, entriesTruncated: false,
       entries: [
         { id: '0123456789abcdef01234567', name: 'normalize', kind: 'package function', scope: 'package', relativePath: 'pkg/normalize.go', declarationStart: 20, referenceCount: 1, exported: false, classification: 'eligible', classificationReason: 'private-package-symbol-with-resolved-references', nameAssessment: 'unassessed' },
         { id: '102132435465768798a9bacb', name: 'formatter', kind: 'file import alias', scope: 'file', relativePath: 'pkg/normalize.go', declarationStart: 0, referenceCount: 1, exported: false, classification: 'eligible', classificationReason: 'file-import-alias-with-resolved-references', nameAssessment: 'unassessed' },
         { id: 'abcdef0123456789abcdef01', name: 'value', kind: 'local variable', scope: 'local', relativePath: 'pkg/normalize.go', declarationStart: source.indexOf('value int'), referenceCount: 1, exported: false, classification: 'eligible', classificationReason: 'local-symbol-with-resolved-references', nameAssessment: 'unassessed' },
+        { id: 'fedcba9876543210fedcba98', name: 'field', kind: 'struct field', scope: 'member', relativePath: 'pkg/normalize.go', declarationStart: 45, referenceCount: 1, exported: false, classification: 'unsupported', classificationReason: 'go-member-rename-not-supported', nameAssessment: 'unassessed' },
       ],
     }
     const fetchMock = vi.fn((input: string, init?: RequestInit) => {
@@ -774,10 +776,11 @@ describe('WorkspaceCodeVisualizer', () => {
     fireEvent.click(suggestButton)
 
     expect(await screen.findByText(/1 referenced private package symbols eligible for this rename flow, 1 referenced file-scope imports inventoried only, 1 referenced local symbols inventoried only/)).toBeInTheDocument()
-    const details = await screen.findByText('Inspect up to 3 of 3 inventory entries')
+    const details = await screen.findByText('Inspect up to 4 of 4 inventory entries')
     fireEvent.click(details)
     expect(await screen.findByText(/file file import alias · eligible \(file-import-alias-with-resolved-references\)/)).toBeInTheDocument()
     expect(await screen.findByText(/local local variable · eligible \(local-symbol-with-resolved-references\)/)).toBeInTheDocument()
+    expect(await screen.findByText(/member struct field · unsupported \(go-member-rename-not-supported\)/)).toBeInTheDocument()
   })
 
   test('creates an editable AI reverse-engineered copy and saves it separately', async () => {

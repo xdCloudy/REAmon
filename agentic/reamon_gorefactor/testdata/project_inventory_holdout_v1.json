@@ -15,8 +15,8 @@
         {"fixture_path": "project_inventory_holdout_v1/gorilla_mux_v1_8_1_route_go", "inventory_path": "route.go", "sha256": "fe167aba63cd3dfe4d0a5792e5a1eae05dd53947545be4a6fb351a1d64f4bc58"}
       ],
       "build_contexts": [
-        {"goos": "linux", "goarch": "amd64", "selected_path": "mux.go", "expected_package_tp": 53, "expected_package_fp": 0, "expected_package_fn": 0, "expected_all_scope_tp": 419, "expected_all_scope_fp": 0, "expected_all_scope_fn": 112},
-        {"goos": "windows", "goarch": "amd64", "selected_path": "mux.go", "expected_package_tp": 53, "expected_package_fp": 0, "expected_package_fn": 0, "expected_all_scope_tp": 419, "expected_all_scope_fp": 0, "expected_all_scope_fn": 112}
+        {"goos": "linux", "goarch": "amd64", "selected_path": "mux.go", "expected_package_tp": 53, "expected_package_fp": 0, "expected_package_fn": 0, "expected_all_scope_tp": 531, "expected_all_scope_fp": 0, "expected_all_scope_fn": 0, "expected_member_count": 108},
+        {"goos": "windows", "goarch": "amd64", "selected_path": "mux.go", "expected_package_tp": 53, "expected_package_fp": 0, "expected_package_fn": 0, "expected_all_scope_tp": 531, "expected_all_scope_fp": 0, "expected_all_scope_fn": 0, "expected_member_count": 108}
       ]
     },
     {
@@ -33,7 +33,7 @@
         {"fixture_path": "project_inventory_holdout_v1/go_isatty_v0_0_20_isatty_others_go", "inventory_path": "isatty_others.go", "sha256": "ad3cec73607a7861f625c80e38734d14dd89fcd0f88159a6af746f0d235c6eb3"}
       ],
       "build_contexts": [
-        {"goos": "js", "goarch": "wasm", "selected_path": "isatty_others.go", "expected_package_tp": 2, "expected_package_fp": 0, "expected_package_fn": 0, "expected_all_scope_tp": 4, "expected_all_scope_fp": 0, "expected_all_scope_fn": 0}
+        {"goos": "js", "goarch": "wasm", "selected_path": "isatty_others.go", "expected_package_tp": 2, "expected_package_fp": 0, "expected_package_fn": 0, "expected_all_scope_tp": 4, "expected_all_scope_fp": 0, "expected_all_scope_fn": 0, "expected_member_count": 0}
       ]
     }
   ]

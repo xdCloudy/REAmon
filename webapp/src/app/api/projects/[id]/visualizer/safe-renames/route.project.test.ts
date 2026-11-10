@@ -44,13 +44,15 @@ const inventoryPayload = {
   exported_package_symbol_count: 0, unsupported_package_symbol_count: 0, rename_binding_catalog_truncated: false,
   file_scope_symbol_count: 1, referenced_file_scope_symbols: 1, unreferenced_file_scope_symbols: 0, unsupported_file_scope_symbol_count: 0,
   local_symbol_count: 2, referenced_local_symbols: 2, unreferenced_local_symbols: 0, unsupported_local_symbol_count: 0,
-  entry_count: 5, entries_truncated: false,
+  member_symbol_count: 1, unsupported_member_symbol_count: 1,
+  entry_count: 6, entries_truncated: false,
   entries: [
     { id: bindingId, name: 'normalize', kind: 'package function', scope: 'package', relativePath: selectedPath, declarationStart: 20, referenceCount: 1, exported: false, classification: 'eligible', classificationReason: 'private-package-symbol-with-resolved-references', nameAssessment: 'unassessed' },
     { id: 'abcdef0123456789abcdef01', name: 'run', kind: 'package function', scope: 'package', relativePath: siblingPath, declarationStart: 20, referenceCount: 0, exported: false, classification: 'excluded', classificationReason: 'unreferenced-package-symbol', nameAssessment: 'unassessed' },
     { id: '102132435465768798a9bacb', name: 'formatter', kind: 'file import alias', scope: 'file', relativePath: selectedPath, declarationStart: 0, referenceCount: 1, exported: false, classification: 'eligible', classificationReason: 'file-import-alias-with-resolved-references', nameAssessment: 'unassessed' },
     { id: '00112233445566778899aabb', name: 'value', kind: 'local variable', scope: 'local', relativePath: selectedPath, declarationStart: selectedSource.indexOf('value int'), referenceCount: 1, exported: false, classification: 'eligible', classificationReason: 'local-symbol-with-resolved-references', nameAssessment: 'unassessed' },
     { id: '8899aabbccddeeff00112233', name: 'item', kind: 'local type-switch variable', scope: 'local', relativePath: selectedPath, declarationStart: selectedSource.indexOf('func normalize'), referenceCount: 1, exported: false, classification: 'eligible', classificationReason: 'local-symbol-with-resolved-references', nameAssessment: 'unassessed' },
+    { id: 'fedcba9876543210fedcba98', name: 'field', kind: 'struct field', scope: 'member', relativePath: selectedPath, declarationStart: 20, referenceCount: 1, exported: false, classification: 'unsupported', classificationReason: 'go-member-rename-not-supported', nameAssessment: 'unassessed' },
   ],
 }
 const inputHash = (source: string) => createHash('sha256').update(source, 'utf8').digest('hex')
@@ -193,14 +195,16 @@ describe('POST safe-renames Go package scope', () => {
       privatePackageSymbolCount: 2, referencedPrivatePackageSymbols: 1, unreferencedPrivateSymbols: 1,
       fileScopeSymbolCount: 1, referencedFileScopeSymbols: 1, unreferencedFileScopeSymbols: 0, unsupportedFileScopeSymbolCount: 0,
       localSymbolCount: 2, referencedLocalSymbols: 2, unreferencedLocalSymbols: 0, unsupportedLocalSymbolCount: 0,
+      memberSymbolCount: 1, unsupportedMemberSymbolCount: 1,
       exportedPackageSymbolCount: 0, unsupportedPackageSymbolCount: 0, renameBindingCatalogTruncated: false,
-      entryCount: 5, entriesTruncated: false,
+      entryCount: 6, entriesTruncated: false,
       entries: expect.arrayContaining([
         expect.objectContaining({ name: 'normalize', scope: 'package', classification: 'eligible', nameAssessment: 'unassessed' }),
         expect.objectContaining({ name: 'run', scope: 'package', classification: 'excluded', classificationReason: 'unreferenced-package-symbol' }),
         expect.objectContaining({ name: 'formatter', scope: 'file', kind: 'file import alias', classification: 'eligible' }),
         expect.objectContaining({ name: 'value', scope: 'local', classification: 'eligible', classificationReason: 'local-symbol-with-resolved-references' }),
         expect.objectContaining({ name: 'item', kind: 'local type-switch variable', scope: 'local', classification: 'eligible' }),
+        expect.objectContaining({ name: 'field', kind: 'struct field', scope: 'member', classification: 'unsupported', classificationReason: 'go-member-rename-not-supported' }),
       ]),
     })
     expect(h.attemptCreate).toHaveBeenCalledWith(expect.objectContaining({
@@ -334,7 +338,7 @@ describe('POST safe-renames Go package scope', () => {
           ...inventoryPayload,
           scope: 'verified-whole-project-go-source-snapshot', complete: true,
           source_file_count: 3, package_count: 2, private_package_symbol_count: 3,
-          unreferenced_private_symbols: 2, entry_count: 6,
+          unreferenced_private_symbols: 2, entry_count: 7,
           entries: [...inventoryPayload.entries, {
             id: 'ffeeddccbbaa998877665544', name: 'runCmd', kind: 'package function', scope: 'package', relativePath: cmdPath,
             declarationStart: 20, referenceCount: 0, exported: false, classification: 'excluded',
@@ -353,7 +357,7 @@ describe('POST safe-renames Go package scope', () => {
     expect(response.status, JSON.stringify(body)).toBe(200)
     expect(body.projectInventory).toMatchObject({
       scope: 'verified-whole-project-go-source-snapshot', complete: true, sourceFileCount: 3, packageCount: 2,
-      privatePackageSymbolCount: 3, unreferencedPrivateSymbols: 2, entryCount: 6,
+      privatePackageSymbolCount: 3, unreferencedPrivateSymbols: 2, entryCount: 7,
       entries: expect.arrayContaining([expect.objectContaining({ name: 'runCmd', relativePath: cmdPath, classification: 'excluded' })]),
     })
     expect(body.projectInventorySourceSetSha256).toBe(inventoryScopeHash([

@@ -353,6 +353,8 @@ interface GoProjectInventory {
   referencedLocalSymbols: number
   unreferencedLocalSymbols: number
   unsupportedLocalSymbolCount: number
+  memberSymbolCount: number
+  unsupportedMemberSymbolCount: number
   renameBindingCatalogTruncated: boolean
   entryCount: number
   entriesTruncated: boolean
@@ -363,7 +365,7 @@ interface GoProjectInventoryEntry {
   id: string
   name: string
   kind: string
-  scope: 'package' | 'file' | 'local'
+  scope: 'package' | 'file' | 'local' | 'member'
   relativePath: string
   declarationStart: number
   referenceCount: number
@@ -381,7 +383,7 @@ function isValidGoProjectInventoryEntry(entry: Record<string, unknown>, sourceBy
       || source === undefined || !Number.isSafeInteger(entry.declarationStart) || Number(entry.declarationStart) < 0
       || Number(entry.declarationStart) > Buffer.byteLength(source, 'utf8')
       || !Number.isSafeInteger(entry.referenceCount) || Number(entry.referenceCount) < 0
-      || typeof entry.exported !== 'boolean' || !['package', 'file', 'local'].includes(String(entry.scope))
+      || typeof entry.exported !== 'boolean' || !['package', 'file', 'local', 'member'].includes(String(entry.scope))
       || !['eligible', 'excluded', 'unsupported'].includes(String(entry.classification))
       || typeof entry.classificationReason !== 'string' || entry.classificationReason.length === 0 || entry.classificationReason.length > 128
       || entry.nameAssessment !== 'unassessed') return false
@@ -411,6 +413,11 @@ function isValidGoProjectInventoryEntry(entry: Record<string, unknown>, sourceBy
       && entry.classificationReason === 'dot-import-out-of-scope')
       || (entry.kind === 'unsupported file-scope object' && entry.classification === 'unsupported'
         && entry.classificationReason === 'unsupported-file-scope-object-kind')
+  }
+  if (entry.scope === 'member') {
+    return entry.classification === 'unsupported'
+      && ['struct field', 'method', 'interface method', 'type parameter'].includes(String(entry.kind))
+      && entry.classificationReason === 'go-member-rename-not-supported'
   }
   if (entry.exported) return false
   const supportedLocalKinds = ['local variable', 'local constant', 'local type', 'local type parameter', 'local function', 'local type-switch variable']
@@ -463,6 +470,8 @@ async function listGoProjectRenameBindings(files: GoPackageRenameFile[], selecte
     referencedLocalSymbols: rawInventory.referenced_local_symbols,
     unreferencedLocalSymbols: rawInventory.unreferenced_local_symbols,
     unsupportedLocalSymbolCount: rawInventory.unsupported_local_symbol_count,
+    memberSymbolCount: rawInventory.member_symbol_count ?? 0,
+    unsupportedMemberSymbolCount: rawInventory.unsupported_member_symbol_count ?? 0,
     renameBindingCatalogTruncated: rawInventory.rename_binding_catalog_truncated,
     entryCount: rawInventory.entry_count,
     entriesTruncated: rawInventory.entries_truncated,
@@ -480,10 +489,10 @@ async function listGoProjectRenameBindings(files: GoPackageRenameFile[], selecte
   const inventoryRowsMatchCounts = inventory.entriesTruncated
     ? inventoryRowCounts.eligible <= Number(inventory.referencedPrivatePackageSymbols) + Number(inventory.referencedFileScopeSymbols) + Number(inventory.referencedLocalSymbols)
       && inventoryRowCounts.excluded <= Number(inventory.unreferencedPrivateSymbols) + Number(inventory.exportedPackageSymbolCount) + Number(inventory.unreferencedFileScopeSymbols) + Number(inventory.unreferencedLocalSymbols)
-      && inventoryRowCounts.unsupported <= Number(inventory.unsupportedPackageSymbolCount) + Number(inventory.unsupportedFileScopeSymbolCount) + Number(inventory.unsupportedLocalSymbolCount)
+      && inventoryRowCounts.unsupported <= Number(inventory.unsupportedPackageSymbolCount) + Number(inventory.unsupportedFileScopeSymbolCount) + Number(inventory.unsupportedLocalSymbolCount) + Number(inventory.unsupportedMemberSymbolCount)
     : inventoryRowCounts.eligible === Number(inventory.referencedPrivatePackageSymbols) + Number(inventory.referencedFileScopeSymbols) + Number(inventory.referencedLocalSymbols)
       && inventoryRowCounts.excluded === Number(inventory.unreferencedPrivateSymbols) + Number(inventory.exportedPackageSymbolCount) + Number(inventory.unreferencedFileScopeSymbols) + Number(inventory.unreferencedLocalSymbols)
-      && inventoryRowCounts.unsupported === Number(inventory.unsupportedPackageSymbolCount) + Number(inventory.unsupportedFileScopeSymbolCount) + Number(inventory.unsupportedLocalSymbolCount)
+      && inventoryRowCounts.unsupported === Number(inventory.unsupportedPackageSymbolCount) + Number(inventory.unsupportedFileScopeSymbolCount) + Number(inventory.unsupportedLocalSymbolCount) + Number(inventory.unsupportedMemberSymbolCount)
   if (!response.ok || payload?.source_sha256 !== selected.sourceHash
       || payload?.source_set_sha256 !== expectedSourceSetSha256
       || payload?.selected_path !== selectedPath || typeof payload?.truncated !== 'boolean'
@@ -492,16 +501,18 @@ async function listGoProjectRenameBindings(files: GoPackageRenameFile[], selecte
       || ![inventory.sourceFileCount, inventory.privatePackageSymbolCount, inventory.referencedPrivatePackageSymbols,
         inventory.unreferencedPrivateSymbols, inventory.exportedPackageSymbolCount, inventory.unsupportedPackageSymbolCount,
         inventory.fileScopeSymbolCount, inventory.referencedFileScopeSymbols, inventory.unreferencedFileScopeSymbols, inventory.unsupportedFileScopeSymbolCount,
-        inventory.localSymbolCount, inventory.referencedLocalSymbols, inventory.unreferencedLocalSymbols, inventory.unsupportedLocalSymbolCount]
+        inventory.localSymbolCount, inventory.referencedLocalSymbols, inventory.unreferencedLocalSymbols, inventory.unsupportedLocalSymbolCount,
+        inventory.memberSymbolCount, inventory.unsupportedMemberSymbolCount]
         .every((value) => Number.isSafeInteger(value) && Number(value) >= 0)
       || inventory.sourceFileCount !== expectedFiles.length
       || inventory.privatePackageSymbolCount !== Number(inventory.referencedPrivatePackageSymbols) + Number(inventory.unreferencedPrivateSymbols)
       || inventory.fileScopeSymbolCount !== Number(inventory.referencedFileScopeSymbols) + Number(inventory.unreferencedFileScopeSymbols) + Number(inventory.unsupportedFileScopeSymbolCount)
       || inventory.localSymbolCount !== Number(inventory.referencedLocalSymbols) + Number(inventory.unreferencedLocalSymbols) + Number(inventory.unsupportedLocalSymbolCount)
+      || inventory.memberSymbolCount !== Number(inventory.unsupportedMemberSymbolCount)
       || typeof inventory.renameBindingCatalogTruncated !== 'boolean'
       || inventory.renameBindingCatalogTruncated !== payload.truncated
       || !Number.isSafeInteger(inventory.entryCount) || Number(inventory.entryCount) < 0
-      || Number(inventory.entryCount) !== Number(inventory.privatePackageSymbolCount) + Number(inventory.exportedPackageSymbolCount) + Number(inventory.unsupportedPackageSymbolCount) + Number(inventory.fileScopeSymbolCount) + Number(inventory.localSymbolCount)
+      || Number(inventory.entryCount) !== Number(inventory.privatePackageSymbolCount) + Number(inventory.exportedPackageSymbolCount) + Number(inventory.unsupportedPackageSymbolCount) + Number(inventory.fileScopeSymbolCount) + Number(inventory.localSymbolCount) + Number(inventory.memberSymbolCount)
       || typeof inventory.entriesTruncated !== 'boolean'
       || inventory.entries.length !== Math.min(Number(inventory.entryCount), MAX_GO_PROJECT_INVENTORY_ENTRIES)
       || inventory.entriesTruncated !== (Number(inventory.entryCount) > inventory.entries.length)
@@ -565,6 +576,7 @@ async function listGoProjectInventory(
     raw.unreferenced_file_scope_symbols, raw.unsupported_file_scope_symbol_count,
     raw.local_symbol_count, raw.referenced_local_symbols, raw.unreferenced_local_symbols,
     raw.unsupported_local_symbol_count, raw.entry_count,
+    raw.member_symbol_count ?? 0, raw.unsupported_member_symbol_count ?? 0,
   ]
   const classCounts = {
     eligible: entries.filter((entry) => entry.classification === 'eligible').length,
@@ -574,10 +586,10 @@ async function listGoProjectInventory(
   const rowsMatchCounts = raw.entries_truncated === true
     ? classCounts.eligible <= Number(raw.referenced_private_package_symbols) + Number(raw.referenced_file_scope_symbols) + Number(raw.referenced_local_symbols)
       && classCounts.excluded <= Number(raw.unreferenced_private_symbols) + Number(raw.exported_package_symbol_count) + Number(raw.unreferenced_file_scope_symbols) + Number(raw.unreferenced_local_symbols)
-      && classCounts.unsupported <= Number(raw.unsupported_package_symbol_count) + Number(raw.unsupported_file_scope_symbol_count) + Number(raw.unsupported_local_symbol_count)
+      && classCounts.unsupported <= Number(raw.unsupported_package_symbol_count) + Number(raw.unsupported_file_scope_symbol_count) + Number(raw.unsupported_local_symbol_count) + Number(raw.unsupported_member_symbol_count ?? 0)
     : classCounts.eligible === Number(raw.referenced_private_package_symbols) + Number(raw.referenced_file_scope_symbols) + Number(raw.referenced_local_symbols)
       && classCounts.excluded === Number(raw.unreferenced_private_symbols) + Number(raw.exported_package_symbol_count) + Number(raw.unreferenced_file_scope_symbols) + Number(raw.unreferenced_local_symbols)
-      && classCounts.unsupported === Number(raw.unsupported_package_symbol_count) + Number(raw.unsupported_file_scope_symbol_count) + Number(raw.unsupported_local_symbol_count)
+      && classCounts.unsupported === Number(raw.unsupported_package_symbol_count) + Number(raw.unsupported_file_scope_symbol_count) + Number(raw.unsupported_local_symbol_count) + Number(raw.unsupported_member_symbol_count ?? 0)
   const packageCount = Number(raw.package_count)
   const packageFilesCount = packages.reduce((sum, item) => sum + (Number.isSafeInteger(item.source_file_count) ? Number(item.source_file_count) : 0), 0)
   const packageKeys = packages.map((item) => `${String(item.directory)}\0${String(item.package_name)}`)
@@ -591,7 +603,8 @@ async function listGoProjectInventory(
       || raw.private_package_symbol_count !== Number(raw.referenced_private_package_symbols) + Number(raw.unreferenced_private_symbols)
       || raw.file_scope_symbol_count !== Number(raw.referenced_file_scope_symbols) + Number(raw.unreferenced_file_scope_symbols) + Number(raw.unsupported_file_scope_symbol_count)
       || raw.local_symbol_count !== Number(raw.referenced_local_symbols) + Number(raw.unreferenced_local_symbols) + Number(raw.unsupported_local_symbol_count)
-      || raw.entry_count !== Number(raw.private_package_symbol_count) + Number(raw.exported_package_symbol_count) + Number(raw.unsupported_package_symbol_count) + Number(raw.file_scope_symbol_count) + Number(raw.local_symbol_count)
+      || Number(raw.member_symbol_count ?? 0) !== Number(raw.unsupported_member_symbol_count ?? 0)
+      || raw.entry_count !== Number(raw.private_package_symbol_count) + Number(raw.exported_package_symbol_count) + Number(raw.unsupported_package_symbol_count) + Number(raw.file_scope_symbol_count) + Number(raw.local_symbol_count) + Number(raw.member_symbol_count ?? 0)
       || typeof raw.entries_truncated !== 'boolean' || entries.length !== Math.min(Number(raw.entry_count), MAX_GO_PROJECT_INVENTORY_ENTRIES)
       || raw.entries_truncated !== (Number(raw.entry_count) > entries.length)
       || !entries.every((entry) => isValidGoProjectInventoryEntry(entry, sourceByPath))
@@ -621,6 +634,8 @@ async function listGoProjectInventory(
     referencedLocalSymbols: Number(raw.referenced_local_symbols),
     unreferencedLocalSymbols: Number(raw.unreferenced_local_symbols),
     unsupportedLocalSymbolCount: Number(raw.unsupported_local_symbol_count),
+    memberSymbolCount: Number(raw.member_symbol_count ?? 0),
+    unsupportedMemberSymbolCount: Number(raw.unsupported_member_symbol_count ?? 0),
     renameBindingCatalogTruncated: false,
     entryCount: Number(raw.entry_count), entriesTruncated: Boolean(raw.entries_truncated),
     entries: entries as unknown as GoProjectInventoryEntry[],

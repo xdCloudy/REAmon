@@ -12,7 +12,7 @@
         {"fixture_path": "upstream_errors_v0_9_1/errors.go", "inventory_path": "errors/errors.go", "sha256": "71793fd94586f7261ab418566b3114f89bbbfda354ecf37c42f5b782315c4b4c"},
         {"fixture_path": "upstream_errors_v0_9_1/stack.go", "inventory_path": "errors/stack.go", "sha256": "8db3c35a432c18077f24f41b29e70adaea5ed9204ced729febf50dbac0e3d100"}
       ],
-      "expected": {"source_file_count": 2, "package_count": 1, "private_package_symbol_count": 6, "referenced_private_package_symbols": 6, "unreferenced_private_symbols": 0, "exported_package_symbol_count": 10, "unsupported_package_symbol_count": 0, "file_scope_symbol_count": 8, "referenced_file_scope_symbols": 8, "unreferenced_file_scope_symbols": 0, "unsupported_file_scope_symbol_count": 0, "local_symbol_count": 71, "referenced_local_symbols": 70, "unreferenced_local_symbols": 0, "unsupported_local_symbol_count": 1, "entry_count": 95}
+      "expected": {"source_file_count": 2, "package_count": 1, "private_package_symbol_count": 6, "referenced_private_package_symbols": 6, "unreferenced_private_symbols": 0, "exported_package_symbol_count": 10, "unsupported_package_symbol_count": 0, "file_scope_symbol_count": 8, "referenced_file_scope_symbols": 8, "unreferenced_file_scope_symbols": 0, "unsupported_file_scope_symbol_count": 0, "local_symbol_count": 71, "referenced_local_symbols": 70, "unreferenced_local_symbols": 0, "unsupported_local_symbol_count": 1, "member_symbol_count": 25, "unsupported_member_symbol_count": 25, "entry_count": 120}
     },
     {
       "name": "google-uuid-v1.6.0-selected-source",
@@ -29,7 +29,7 @@
         {"fixture_path": "upstream_uuid_v1_6_0/marshal.go", "inventory_path": "uuid/marshal.go", "sha256": "f0e4e3651bacae9a6509e6d3e4fbacfe24adab91d87ece24cd70f0247b4464e0"},
         {"fixture_path": "upstream_uuid_v1_6_0/sql.go", "inventory_path": "uuid/sql.go", "sha256": "19710834cfcb61d444b5ca41e2c20a4bcea8834530c2b1ff1f592d0b95807c5f"}
       ],
-      "expected": {"source_file_count": 6, "package_count": 1, "private_package_symbol_count": 12, "referenced_private_package_symbols": 11, "unreferenced_private_symbols": 1, "exported_package_symbol_count": 32, "unsupported_package_symbol_count": 0, "file_scope_symbol_count": 16, "referenced_file_scope_symbols": 16, "unreferenced_file_scope_symbols": 0, "unsupported_file_scope_symbol_count": 0, "local_symbol_count": 86, "referenced_local_symbols": 85, "unreferenced_local_symbols": 1, "unsupported_local_symbol_count": 0, "entry_count": 146}
+      "expected": {"source_file_count": 6, "package_count": 1, "private_package_symbol_count": 12, "referenced_private_package_symbols": 11, "unreferenced_private_symbols": 1, "exported_package_symbol_count": 32, "unsupported_package_symbol_count": 0, "file_scope_symbol_count": 16, "referenced_file_scope_symbols": 16, "unreferenced_file_scope_symbols": 0, "unsupported_file_scope_symbol_count": 0, "local_symbol_count": 86, "referenced_local_symbols": 85, "unreferenced_local_symbols": 1, "unsupported_local_symbol_count": 0, "member_symbol_count": 15, "unsupported_member_symbol_count": 15, "entry_count": 161}
     }
   ]
 }

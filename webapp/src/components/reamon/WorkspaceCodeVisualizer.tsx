@@ -208,8 +208,8 @@ interface CodeReviewRecord {
 interface AcceptedRenameAlias { bindingId: string; oldName: string; newName: string; kind: string }
 interface CodeMemberOutline { name: string; kind: 'function' | 'method' | 'constructor'; start_byte: number; end_byte: number; line: number; source_bytes: number }
 interface SafeRenameProposal { bindingId: string; oldName: string; newName: string; kind: string; referenceCount: number; rationale: string }
-interface GoProjectInventoryEntry { id: string; name: string; kind: string; scope: 'package' | 'file' | 'local'; relativePath: string; declarationStart: number; referenceCount: number; exported: boolean; classification: 'eligible' | 'excluded' | 'unsupported'; classificationReason: string; nameAssessment: 'unassessed' }
-interface GoProjectInventory { scope: 'reviewed-same-directory-go-package-source-snapshot' | 'verified-whole-project-go-source-snapshot'; complete: boolean; sourceFileCount: number; packageCount: number; privatePackageSymbolCount: number; referencedPrivatePackageSymbols: number; unreferencedPrivateSymbols: number; exportedPackageSymbolCount: number; unsupportedPackageSymbolCount: number; fileScopeSymbolCount: number; referencedFileScopeSymbols: number; unreferencedFileScopeSymbols: number; unsupportedFileScopeSymbolCount: number; localSymbolCount: number; referencedLocalSymbols: number; unreferencedLocalSymbols: number; unsupportedLocalSymbolCount: number; renameBindingCatalogTruncated: boolean; entryCount: number; entriesTruncated: boolean; entries: GoProjectInventoryEntry[] }
+interface GoProjectInventoryEntry { id: string; name: string; kind: string; scope: 'package' | 'file' | 'local' | 'member'; relativePath: string; declarationStart: number; referenceCount: number; exported: boolean; classification: 'eligible' | 'excluded' | 'unsupported'; classificationReason: string; nameAssessment: 'unassessed' }
+interface GoProjectInventory { scope: 'reviewed-same-directory-go-package-source-snapshot' | 'verified-whole-project-go-source-snapshot'; complete: boolean; sourceFileCount: number; packageCount: number; privatePackageSymbolCount: number; referencedPrivatePackageSymbols: number; unreferencedPrivateSymbols: number; exportedPackageSymbolCount: number; unsupportedPackageSymbolCount: number; fileScopeSymbolCount: number; referencedFileScopeSymbols: number; unreferencedFileScopeSymbols: number; unsupportedFileScopeSymbolCount: number; localSymbolCount: number; referencedLocalSymbols: number; unreferencedLocalSymbols: number; unsupportedLocalSymbolCount: number; memberSymbolCount: number; unsupportedMemberSymbolCount: number; renameBindingCatalogTruncated: boolean; entryCount: number; entriesTruncated: boolean; entries: GoProjectInventoryEntry[] }
 interface SafeRenameSuggestions { sourceSha256: string; providerId: string; providerName: string; model: string; attemptId: string; projectSymbolContextSha256: string; projectSymbolScanTruncated?: boolean; scope: 'file' | 'project'; sourceSetSha256?: string | null; projectInventorySourceSetSha256?: string | null; projectInventoryError?: string | null; projectInventory?: GoProjectInventory | null; candidates: number; renames: SafeRenameProposal[] }
 
 function isGoProjectInventory(value: unknown): value is GoProjectInventory {
@@ -221,6 +221,8 @@ function isGoProjectInventory(value: unknown): value is GoProjectInventory {
   const referencedFileScopeSymbols = Number(inventory.referencedFileScopeSymbols ?? 0)
   const unreferencedFileScopeSymbols = Number(inventory.unreferencedFileScopeSymbols ?? 0)
   const unsupportedFileScopeSymbolCount = Number(inventory.unsupportedFileScopeSymbolCount ?? 0)
+  const memberSymbolCount = Number(inventory.memberSymbolCount ?? 0)
+  const unsupportedMemberSymbolCount = Number(inventory.unsupportedMemberSymbolCount ?? 0)
   const entryClassCounts = {
     eligible: entries.filter((entry) => entry.classification === 'eligible').length,
     excluded: entries.filter((entry) => entry.classification === 'excluded').length,
@@ -229,24 +231,26 @@ function isGoProjectInventory(value: unknown): value is GoProjectInventory {
   const entriesMatchCounts = inventory.entriesTruncated === true
     ? entryClassCounts.eligible <= Number(inventory.referencedPrivatePackageSymbols) + referencedFileScopeSymbols + Number(inventory.referencedLocalSymbols)
       && entryClassCounts.excluded <= Number(inventory.unreferencedPrivateSymbols) + Number(inventory.exportedPackageSymbolCount) + unreferencedFileScopeSymbols + Number(inventory.unreferencedLocalSymbols)
-      && entryClassCounts.unsupported <= Number(inventory.unsupportedPackageSymbolCount) + unsupportedFileScopeSymbolCount + Number(inventory.unsupportedLocalSymbolCount)
+      && entryClassCounts.unsupported <= Number(inventory.unsupportedPackageSymbolCount) + unsupportedFileScopeSymbolCount + Number(inventory.unsupportedLocalSymbolCount) + unsupportedMemberSymbolCount
     : entryClassCounts.eligible === Number(inventory.referencedPrivatePackageSymbols) + referencedFileScopeSymbols + Number(inventory.referencedLocalSymbols)
       && entryClassCounts.excluded === Number(inventory.unreferencedPrivateSymbols) + Number(inventory.exportedPackageSymbolCount) + unreferencedFileScopeSymbols + Number(inventory.unreferencedLocalSymbols)
-      && entryClassCounts.unsupported === Number(inventory.unsupportedPackageSymbolCount) + unsupportedFileScopeSymbolCount + Number(inventory.unsupportedLocalSymbolCount)
+      && entryClassCounts.unsupported === Number(inventory.unsupportedPackageSymbolCount) + unsupportedFileScopeSymbolCount + Number(inventory.unsupportedLocalSymbolCount) + unsupportedMemberSymbolCount
   return (inventory.scope === 'reviewed-same-directory-go-package-source-snapshot' || inventory.scope === 'verified-whole-project-go-source-snapshot')
     && typeof inventory.complete === 'boolean' && inventory.complete
     && Number.isSafeInteger(inventory.packageCount) && Number(inventory.packageCount) > 0
     && [inventory.sourceFileCount, inventory.privatePackageSymbolCount, inventory.referencedPrivatePackageSymbols,
       inventory.unreferencedPrivateSymbols, inventory.exportedPackageSymbolCount, inventory.unsupportedPackageSymbolCount,
       fileScopeSymbolCount, referencedFileScopeSymbols, unreferencedFileScopeSymbols, unsupportedFileScopeSymbolCount,
-      inventory.localSymbolCount, inventory.referencedLocalSymbols, inventory.unreferencedLocalSymbols, inventory.unsupportedLocalSymbolCount]
+      inventory.localSymbolCount, inventory.referencedLocalSymbols, inventory.unreferencedLocalSymbols, inventory.unsupportedLocalSymbolCount,
+      memberSymbolCount, unsupportedMemberSymbolCount]
       .every((count) => Number.isSafeInteger(count) && Number(count) >= 0)
     && inventory.privatePackageSymbolCount === Number(inventory.referencedPrivatePackageSymbols) + Number(inventory.unreferencedPrivateSymbols)
     && fileScopeSymbolCount === referencedFileScopeSymbols + unreferencedFileScopeSymbols + unsupportedFileScopeSymbolCount
     && inventory.localSymbolCount === Number(inventory.referencedLocalSymbols) + Number(inventory.unreferencedLocalSymbols) + Number(inventory.unsupportedLocalSymbolCount)
+    && memberSymbolCount === unsupportedMemberSymbolCount
     && typeof inventory.renameBindingCatalogTruncated === 'boolean'
     && Number.isSafeInteger(inventory.entryCount) && entryCount >= 0
-    && entryCount === Number(inventory.privatePackageSymbolCount) + Number(inventory.exportedPackageSymbolCount) + Number(inventory.unsupportedPackageSymbolCount) + fileScopeSymbolCount + Number(inventory.localSymbolCount)
+    && entryCount === Number(inventory.privatePackageSymbolCount) + Number(inventory.exportedPackageSymbolCount) + Number(inventory.unsupportedPackageSymbolCount) + fileScopeSymbolCount + Number(inventory.localSymbolCount) + memberSymbolCount
     && typeof inventory.entriesTruncated === 'boolean' && entries.length === Math.min(entryCount, 5_000)
     && inventory.entriesTruncated === (entryCount > entries.length)
     && entries.every((entry) => Boolean(entry) && typeof entry.id === 'string' && /^[a-f0-9]{24}$/i.test(entry.id)
@@ -255,8 +259,11 @@ function isGoProjectInventory(value: unknown): value is GoProjectInventory {
       && typeof entry.relativePath === 'string' && entry.relativePath.length > 0
       && Number.isSafeInteger(entry.declarationStart) && Number(entry.declarationStart) >= 0
       && Number.isSafeInteger(entry.referenceCount) && Number(entry.referenceCount) >= 0
-      && typeof entry.scope === 'string' && ['package', 'file', 'local'].includes(entry.scope)
+      && typeof entry.scope === 'string' && ['package', 'file', 'local', 'member'].includes(entry.scope)
       && typeof entry.exported === 'boolean' && ['eligible', 'excluded', 'unsupported'].includes(entry.classification)
+      && (entry.scope !== 'member' || (entry.classification === 'unsupported'
+        && ['struct field', 'method', 'interface method', 'type parameter'].includes(entry.kind)
+        && entry.classificationReason === 'go-member-rename-not-supported'))
       && typeof entry.classificationReason === 'string' && entry.classificationReason.length > 0
       && entry.nameAssessment === 'unassessed')
     && entriesMatchCounts
@@ -3480,7 +3487,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
             </button>
             {safeRenameSuggestions?.projectSymbolScanTruncated && <p className={styles.message} role="status">Project symbol context is partial; older accepted units may be missing. Review these suggestions against the available project evidence.</p>}
             {safeRenameSuggestions?.scope === 'project' && safeRenameSuggestions.projectInventory && <>
-              <p className={styles.message} role="status">Go {safeRenameSuggestions.projectInventory.scope === 'verified-whole-project-go-source-snapshot' ? 'whole-project' : 'package'} inventory: {safeRenameSuggestions.projectInventory.sourceFileCount} source files across {safeRenameSuggestions.projectInventory.packageCount} packages; {safeRenameSuggestions.projectInventory.entryCount} package, file-scope, and local declarations ({safeRenameSuggestions.projectInventory.referencedPrivatePackageSymbols} referenced private package symbols eligible for this rename flow, {safeRenameSuggestions.projectInventory.referencedFileScopeSymbols} referenced file-scope imports inventoried only, {safeRenameSuggestions.projectInventory.referencedLocalSymbols} referenced local symbols inventoried only, {safeRenameSuggestions.projectInventory.unreferencedPrivateSymbols + safeRenameSuggestions.projectInventory.unreferencedFileScopeSymbols + safeRenameSuggestions.projectInventory.unreferencedLocalSymbols} unreferenced private/file/local, {safeRenameSuggestions.projectInventory.exportedPackageSymbolCount} exported, {safeRenameSuggestions.projectInventory.unsupportedPackageSymbolCount + safeRenameSuggestions.projectInventory.unsupportedFileScopeSymbolCount + safeRenameSuggestions.projectInventory.unsupportedLocalSymbolCount} unsupported). Name quality is unassessed. The inventory covers the source snapshot bound to this proposal.{safeRenameSuggestions.projectInventory.renameBindingCatalogTruncated ? ' The rename binding list is truncated.' : ''}</p>
+              <p className={styles.message} role="status">Go {safeRenameSuggestions.projectInventory.scope === 'verified-whole-project-go-source-snapshot' ? 'whole-project' : 'package'} inventory: {safeRenameSuggestions.projectInventory.sourceFileCount} source files across {safeRenameSuggestions.projectInventory.packageCount} packages; {safeRenameSuggestions.projectInventory.entryCount} package, file-scope, local, and member declarations ({safeRenameSuggestions.projectInventory.referencedPrivatePackageSymbols} referenced private package symbols eligible for this rename flow, {safeRenameSuggestions.projectInventory.referencedFileScopeSymbols} referenced file-scope imports inventoried only, {safeRenameSuggestions.projectInventory.referencedLocalSymbols} referenced local symbols inventoried only, {safeRenameSuggestions.projectInventory.unreferencedPrivateSymbols + safeRenameSuggestions.projectInventory.unreferencedFileScopeSymbols + safeRenameSuggestions.projectInventory.unreferencedLocalSymbols} unreferenced private/file/local, {safeRenameSuggestions.projectInventory.exportedPackageSymbolCount} exported, {safeRenameSuggestions.projectInventory.unsupportedPackageSymbolCount + safeRenameSuggestions.projectInventory.unsupportedFileScopeSymbolCount + safeRenameSuggestions.projectInventory.unsupportedLocalSymbolCount + (safeRenameSuggestions.projectInventory.unsupportedMemberSymbolCount ?? 0)} unsupported including {safeRenameSuggestions.projectInventory.memberSymbolCount ?? 0} member declarations). Name quality is unassessed. The inventory covers the source snapshot bound to this proposal.{safeRenameSuggestions.projectInventory.renameBindingCatalogTruncated ? ' The rename binding list is truncated.' : ''}</p>
               {safeRenameSuggestions.projectInventoryError && <p className={styles.message} role="status">Whole-project inventory unavailable: {safeRenameSuggestions.projectInventoryError} The displayed inventory is limited to the verified package snapshot.</p>}
               <details><summary>Inspect up to {Math.min(safeRenameSuggestions.projectInventory.entries.length, 100)} of {safeRenameSuggestions.projectInventory.entryCount} inventory entries</summary>
                 <ul>{safeRenameSuggestions.projectInventory.entries.slice(0, 100).map((entry) => <li key={entry.id}><code>{entry.name}</code> · {entry.scope} {entry.kind} · {entry.classification} ({entry.classificationReason}) · {entry.referenceCount} references · {entry.relativePath}:{entry.declarationStart} · name quality unassessed</li>)}</ul>

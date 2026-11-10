@@ -126,6 +126,8 @@ type projectInventory struct {
 	ReferencedLocalSymbols          int
 	UnreferencedLocalSymbols        int
 	UnsupportedLocalSymbolCount     int
+	MemberSymbolCount               int
+	UnsupportedMemberSymbolCount    int
 	EntryCount                      int
 	EntriesTruncated                bool
 	Entries                         []projectInventoryEntry
@@ -772,6 +774,22 @@ func buildProjectCatalogWithImporter(req request, packageImporter types.Importer
 			return true
 		})
 		ast.Inspect(file.AST, func(node ast.Node) bool {
+			function, ok := node.(*ast.FuncType)
+			if !ok {
+				return true
+			}
+			if function.TypeParams != nil {
+				collectLocalDefinitions(function.TypeParams, file.Path)
+			}
+			if function.Params != nil {
+				collectLocalDefinitions(function.Params, file.Path)
+			}
+			if function.Results != nil {
+				collectLocalDefinitions(function.Results, file.Path)
+			}
+			return true
+		})
+		ast.Inspect(file.AST, func(node ast.Node) bool {
 			clause, ok := node.(*ast.CaseClause)
 			if !ok {
 				return true
@@ -847,6 +865,46 @@ func buildProjectCatalogWithImporter(req request, packageImporter types.Importer
 			entry.Classification = "excluded"
 			entry.ClassificationReason = "unreferenced-local-symbol"
 		}
+		cat.Inventory.Entries = append(cat.Inventory.Entries, entry)
+	}
+	memberObjects := make(map[types.Object]bool)
+	for identifier, object := range info.Defs {
+		if object == nil || identifier.Name == "_" || object.Name() == "_" || object.Pkg() != pkg {
+			continue
+		}
+		if _, alreadyInventoried := localDeclarations[object]; alreadyInventoried || memberObjects[object] {
+			continue
+		}
+		kind := ""
+		switch member := object.(type) {
+		case *types.Var:
+			if member.IsField() {
+				kind = "struct field"
+			}
+		case *types.Func:
+			if member.Signature().Recv() != nil {
+				kind = "method"
+			} else if object.Parent() != pkg.Scope() {
+				kind = "interface method"
+			}
+		case *types.TypeName:
+			if _, ok := member.Type().(*types.TypeParam); ok {
+				kind = "type parameter"
+			}
+		}
+		if kind == "" {
+			continue
+		}
+		memberObjects[object] = true
+		position := fileSet.PositionFor(identifier.Pos(), false)
+		entry := projectInventoryEntry{
+			ID:   shortID(projectHash+"\x00"+position.Filename, position.Offset, object.Name()),
+			Name: object.Name(), Kind: kind, Scope: "member", RelativePath: position.Filename,
+			DeclarationStart: position.Offset, ReferenceCount: useCounts[object], Exported: token.IsExported(object.Name()),
+			Classification: "unsupported", ClassificationReason: "go-member-rename-not-supported", NameAssessment: "unassessed",
+		}
+		cat.Inventory.MemberSymbolCount++
+		cat.Inventory.UnsupportedMemberSymbolCount++
 		cat.Inventory.Entries = append(cat.Inventory.Entries, entry)
 	}
 	for _, file := range parsed {
@@ -985,6 +1043,8 @@ func listProjectBindings(req request) (map[string]any, error) {
 			"referenced_local_symbols":            cat.Inventory.ReferencedLocalSymbols,
 			"unreferenced_local_symbols":          cat.Inventory.UnreferencedLocalSymbols,
 			"unsupported_local_symbol_count":      cat.Inventory.UnsupportedLocalSymbolCount,
+			"member_symbol_count":                 cat.Inventory.MemberSymbolCount,
+			"unsupported_member_symbol_count":     cat.Inventory.UnsupportedMemberSymbolCount,
 			"rename_binding_catalog_truncated":    cat.Truncated,
 			"entry_count":                         cat.Inventory.EntryCount,
 			"entries_truncated":                   cat.Inventory.EntriesTruncated,
@@ -1190,6 +1250,8 @@ func listProjectInventory(req request) (map[string]any, error) {
 			"referenced_local_symbols":            aggregate.ReferencedLocalSymbols,
 			"unreferenced_local_symbols":          aggregate.UnreferencedLocalSymbols,
 			"unsupported_local_symbol_count":      aggregate.UnsupportedLocalSymbolCount,
+			"member_symbol_count":                 aggregate.MemberSymbolCount,
+			"unsupported_member_symbol_count":     aggregate.UnsupportedMemberSymbolCount,
 			"entry_count":                         aggregate.EntryCount, "entries_truncated": aggregate.EntriesTruncated,
 			"entries": entries,
 		},
@@ -1720,6 +1782,8 @@ func addProjectInventoryCounts(target *projectInventory, source projectInventory
 	target.ReferencedLocalSymbols += source.ReferencedLocalSymbols
 	target.UnreferencedLocalSymbols += source.UnreferencedLocalSymbols
 	target.UnsupportedLocalSymbolCount += source.UnsupportedLocalSymbolCount
+	target.MemberSymbolCount += source.MemberSymbolCount
+	target.UnsupportedMemberSymbolCount += source.UnsupportedMemberSymbolCount
 }
 
 func applyProjectRenames(req request) (map[string]any, error) {
