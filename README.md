@@ -88,7 +88,7 @@ The [autonomous reconstruction and fidelity delivery plan](docs/REAMON_AUTONOMOU
 
 Latest evidence-based score change (2026-11-10): **+0.08 points** (32.99% → 33.07%). The Go helper uses go/build to select mutually exclusive GOOS/GOARCH and tagged files. The project source-set hash binds selected paths and bytes to normalized GOOS/GOARCH, build tags, cgo, tool/release tags, and Go toolchain. Regression fixtures cover Linux versus Windows constraints, explicit tags, and amd64 versus arm64 filename suffixes. The full Docker agent unit gate passed 188 files and 3,806 tests with zero failures (one file collected no tests), and the Go helper suite passed. Cross-target type-checking, external module imports, and broad known-source fidelity remain open.
 
-Refreshed from pushed commit `751b538`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+Refreshed from pushed commit `38a51d9`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
