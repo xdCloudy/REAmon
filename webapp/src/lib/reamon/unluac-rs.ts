@@ -98,6 +98,34 @@ function isFunctionMetadata(value: unknown): value is LuaBytecodeFunctionMetadat
       && typeof (edge as Record<string, unknown>).kind === 'string')
 }
 
+function hasValidControlFlowSummary(proto: LuaBytecodeFunctionMetadata, metadataTruncated: boolean): boolean {
+  const { entryBlock, exitBlock, blockCount, edgeCount, blockOrder, blocks, edges } = proto.cfg
+  if (blockCount < blocks.length || edgeCount < edges.length) return false
+  if (!metadataTruncated && (blockCount !== blocks.length || edgeCount !== edges.length)) return false
+
+  const blockIds = new Set<number>()
+  for (const block of blocks) {
+    if (block.id >= blockCount || blockIds.has(block.id)) return false
+    blockIds.add(block.id)
+  }
+  if (blockOrder.length !== new Set(blockOrder).size || blockOrder.some((id) => id >= blockCount)) return false
+  if (blockCount === 0) {
+    if (entryBlock !== 0 || exitBlock !== 0 || blocks.length > 0 || edges.length > 0) return false
+  } else if (entryBlock >= blockCount || exitBlock >= blockCount) {
+    return false
+  }
+
+  for (const edge of edges) {
+    if (edge.from >= blockCount || edge.to >= blockCount) return false
+  }
+  if (blockCount === blocks.length) {
+    if (blockCount > 0 && (!blockIds.has(entryBlock) || !blockIds.has(exitBlock))) return false
+    if (blockOrder.some((id) => !blockIds.has(id))) return false
+    if (edges.some((edge) => !blockIds.has(edge.from) || !blockIds.has(edge.to))) return false
+  }
+  return true
+}
+
 function hasValidPrototypeHierarchy(
   functions: LuaBytecodeFunctionMetadata[],
   protoCount: number,
@@ -106,6 +134,7 @@ function hasValidPrototypeHierarchy(
   const prototypes = new Map<number, LuaBytecodeFunctionMetadata>()
   for (const proto of functions) {
     if (proto.protoId >= protoCount || prototypes.has(proto.protoId)) return false
+    if (!hasValidControlFlowSummary(proto, metadataTruncated)) return false
     prototypes.set(proto.protoId, proto)
   }
   if (!prototypes.has(0)) return false

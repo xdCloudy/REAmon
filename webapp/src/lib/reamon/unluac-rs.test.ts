@@ -119,6 +119,46 @@ describe('unluac-rs provider', () => {
     expect(result.error).toBe('unluac-rs analyzer returned an invalid result')
   })
 
+  it.each([
+    ['duplicate CFG block IDs', (proto: ReturnType<typeof prototype>) => {
+      proto.cfg = {
+        entryBlock: 0, exitBlock: 1, blockCount: 2, edgeCount: 0, blockOrder: [0, 1],
+        blocks: [0, 1].map(() => ({ id: 0, kind: 'basic', instructionCount: 0, rawInstructionCount: 0, instructionSamples: [], rawInstructionSamples: [] })),
+        edges: [],
+      }
+    }],
+    ['CFG edges outside the declared block range', (proto: ReturnType<typeof prototype>) => {
+      proto.cfg = {
+        entryBlock: 0, exitBlock: 1, blockCount: 2, edgeCount: 1, blockOrder: [0, 1],
+        blocks: [0, 1].map((id) => ({ id, kind: 'basic', instructionCount: 0, rawInstructionCount: 0, instructionSamples: [], rawInstructionSamples: [] })),
+        edges: [{ from: 0, to: 2, kind: 'jump' }],
+      }
+    }],
+    ['incomplete untruncated CFG summaries', (proto: ReturnType<typeof prototype>) => {
+      proto.cfg = {
+        entryBlock: 0, exitBlock: 1, blockCount: 2, edgeCount: 0, blockOrder: [0],
+        blocks: [{ id: 0, kind: 'basic', instructionCount: 0, rawInstructionCount: 0, instructionSamples: [], rawInstructionSamples: [] }],
+        edges: [],
+      }
+    }],
+    ['duplicate CFG block-order entries', (proto: ReturnType<typeof prototype>) => {
+      proto.cfg = {
+        entryBlock: 0, exitBlock: 0, blockCount: 1, edgeCount: 0, blockOrder: [0, 0],
+        blocks: [{ id: 0, kind: 'basic', instructionCount: 0, rawInstructionCount: 0, instructionSamples: [], rawInstructionSamples: [] }],
+        edges: [],
+      }
+    }],
+  ])('rejects %s instead of persisting an invalid control-flow graph', async (_label, corruptCfg) => {
+    const root = prototype(0, [])
+    corruptCfg(root)
+    configureAnalyzerResponse(analyzerResponse([root], 1))
+
+    const result = await executeUnluacRs(input)
+
+    expect(result.status).toBe('failed')
+    expect(result.error).toBe('unluac-rs analyzer returned an invalid result')
+  })
+
   it('keeps explicitly truncated prototype metadata as incomplete evidence', async () => {
     configureAnalyzerResponse(analyzerResponse([
       prototype(0, [1, 2]),
@@ -129,6 +169,36 @@ describe('unluac-rs provider', () => {
 
     expect(result.status).toBe('completed')
     expect(result.data).toMatchObject({ functionMetadataTruncated: true, truncated: false })
+  })
+
+  it('accepts bounded CFG summaries with omitted nodes when metadata is explicitly truncated', async () => {
+    const root = prototype(0, [])
+    root.cfg = {
+      entryBlock: 0, exitBlock: 2, blockCount: 3, edgeCount: 2, blockOrder: [0, 2],
+      blocks: [{ id: 0, kind: 'basic', instructionCount: 0, rawInstructionCount: 0, instructionSamples: [], rawInstructionSamples: [] }],
+      edges: [{ from: 0, to: 2, kind: 'jump' }],
+    }
+    configureAnalyzerResponse(analyzerResponse([root], 1, true))
+
+    const result = await executeUnluacRs(input)
+
+    expect(result.status).toBe('completed')
+    expect(result.data).toMatchObject({ functionMetadataTruncated: true })
+  })
+
+  it('rejects dangling edges in a complete CFG even when another metadata family was truncated', async () => {
+    const root = prototype(0, [])
+    root.cfg = {
+      entryBlock: 0, exitBlock: 1, blockCount: 2, edgeCount: 1, blockOrder: [0, 1],
+      blocks: [0, 1].map((id) => ({ id, kind: 'basic', instructionCount: 0, rawInstructionCount: 0, instructionSamples: [], rawInstructionSamples: [] })),
+      edges: [{ from: 0, to: 2, kind: 'jump' }],
+    }
+    configureAnalyzerResponse(analyzerResponse([root], 1, true))
+
+    const result = await executeUnluacRs(input)
+
+    expect(result.status).toBe('failed')
+    expect(result.error).toBe('unluac-rs analyzer returned an invalid result')
   })
 })
 
