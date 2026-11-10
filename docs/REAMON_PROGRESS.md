@@ -1,6 +1,6 @@
 # REAmon product progress
 
-Assessment date: 2026-11-10 · Source: pushed commit `98ebf84` · Weighted estimate: **33.55%**
+Assessment date: 2026-11-10 · Source: pushed commit `98ebf848` · Weighted estimate: **33.63%**
 
 This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.
 
@@ -16,10 +16,11 @@ This estimate covers the reverse-engineering product goal and secure production 
 - A hash-pinned build-context corpus now checks end-to-end Go inventory selection and exact symbol totals for Linux/amd64, Windows/amd64, Linux/arm64, and an explicit custom tag. A cgo-enabled source fixture is explicitly rejected as unsupported. The Go refactor package suite and full Docker agent unit gate passed (188 files / 3,806 tests; zero failures; one file collected no tests).
 - The opt-in Go package-rename PostgreSQL acceptance now runs against a disposable PostgreSQL 16 database and passes 1/1: stale go.mod/go.sum and sibling-source receipts are rejected, injected draft-write failure rolls back, and successful apply persists two reloadable drafts. A fixture-scope bug in the integration test was fixed. Focused safe-renames route tests passed 9/9; Docker TypeScript type-check and targeted ESLint passed. The test uses a controlled helper response, so real helper/database/browser end-to-end acceptance remains open.
 - Real-helper Go package-rename PostgreSQL acceptance passes 1/1 using a freshly built current-source agent image and disposable PostgreSQL 16: project bindings and inventory are persisted against the real helper, stale manifests and sibling receipts are rejected, injected transaction failure rolls back, and successful apply reloads both drafts. The integration exposed and fixed a hash-contract mismatch: source_set_sha256 now represents the source snapshot expected by the web route, while inventory_scope_sha256 separately binds the selected Go build context. Docker Go helper tests pass; the fixture includes go.mod/go.sum but no external module import, and browser acceptance remains open.
+- Source commit `98ebf848` fixes output revalidation dropping the verified Go module/build context. PostgreSQL 16 acceptance passed 1/1 through the real helper with selected source importing `example.test/dep` from hash-verified go.mod/go.sum and an offline cache; stale-manifest rejection, transaction rollback, apply, and draft reload all pass. Go helper tests pass, route/access tests pass 10/10, and targeted ESLint passes. Full webapp `tsc --noEmit` still reports unrelated existing test-file errors. Browser interaction and broad inventory accuracy remain open.
 
-**Score decision:** Award one partial point to the 8%-weight Agentic project-wide semantic-renaming workstream (29% to 30%), moving weighted progress from 33.47% to 33.55% (+0.08 points). Disposable PostgreSQL 16 acceptance now passes through the real Go helper, verifying source hash compatibility, go.mod/go.sum proposal scope, stale-manifest and sibling-receipt rejection, atomic rollback, successful apply, and draft reload. This closes the real-helper/database acceptance gap only; the fixture has no external module import, browser acceptance and broad inventory accuracy remain open.
+**Score decision:** Award one partial point to the 8%-weight Agentic project-wide semantic-renaming workstream (30% to 31%), moving weighted progress from 33.55% to 33.63% (+0.08 points). PostgreSQL 16 acceptance passes 1/1 through the real Go helper with selected source importing `example.test/dep` from hash-verified go.mod/go.sum and an offline module cache. Inventory and rename apply pass; stale manifests return 409, injected transaction failure rolls back, and successful apply reloads both drafts. Browser interaction, import renaming, broad accuracy, and project-wide autonomy remain open.
 
-**Next measurable gate:** Run browser-level acceptance with an external Go module through the real helper, then expand held-out package and symbol precision/recall across representative projects.
+**Next measurable gate:** Run browser-level Go rename acceptance with the external module fixture, then measure held-out package and symbol inventory precision/recall across representative repositories and build configurations.
 
 | Workstream | Goal weight | Estimated complete | Weighted points |
 | --- | ---: | ---: | ---: |
@@ -29,7 +30,7 @@ This estimate covers the reverse-engineering product goal and secure production 
 | Maintainable editing, review, and export | 4% | 60% | 2.40 pts |
 | Fixture-backed validation and fidelity evidence | 2% | 16% | 0.32 pts |
 | Security, reliability, and production operations | 10% | 98% | 9.80 pts |
-| Agentic project-wide semantic renaming | 8% | 30% | 2.40 pts |
+| Agentic project-wide semantic renaming | 8% | 31% | 2.48 pts |
 | Cross-file semantic rename propagation | 7% | 13% | 0.91 pts |
 | Safe autonomous rename acceptance | 5% | 0% | 0.00 pts |
 | Agentic semantic type and data-structure recovery | 5% | 12% | 0.60 pts |
