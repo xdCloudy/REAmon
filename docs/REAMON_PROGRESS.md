@@ -8,8 +8,9 @@ This estimate covers the reverse-engineering product goal and secure production 
 
 - The unluac-rs provider now rejects duplicate or out-of-range prototype IDs, duplicate parents, cycles, and unreachable nodes in complete metadata before emitting observations; explicitly truncated metadata remains accepted only as incomplete evidence.
 - Six Docker provider tests pass, including malformed-graph controls and live acceptance against the pinned Lua 5.4 analyzer. A separate PostgreSQL-backed integration passes 1/1 against a disposable database, comparing every expected and persisted containment edge and reading back recovered source; test data is cleaned up. Docker type-check and targeted ESLint pass.
+- The full Docker webapp suite passes against a complete isolated copy of the wiki with generated reference pages: 649 test files and 9,895 tests passed, 2 expected failures, and 50 files / 190 tests skipped. The original user-edited wiki was preserved.
 
-**Score decision:** The 31.98% to 32.08% increase remains limited to raising Security, reliability, and production operations from 94% to 95% for the verified Lua analyzer input-contract improvement (+0.10 weighted points). The disposable-database persistence run strengthens acceptance evidence for that same capability and receives no additional score credit.
+**Score decision:** The verified Lua analyzer input-contract improvement raised Security, reliability, and production operations from 94% to 95%, moving the weighted estimate from 31.98% to 32.08% (+0.10 points). The disposable-database persistence run and full webapp suite add stronger verification for that same capability but no separate capability, so the current score remains 32.08% (+0.00 points this update).
 
 **Next measurable gate:** Extend strict completeness and truncation checks to other tree-shaped analyzer metadata and run the relevant persisted-evidence checks across more provider formats.
 

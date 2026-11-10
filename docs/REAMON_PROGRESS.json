@@ -6,9 +6,10 @@
     "date": "2026-11-10",
     "completed": [
       "The unluac-rs provider now rejects duplicate or out-of-range prototype IDs, duplicate parents, cycles, and unreachable nodes in complete metadata before emitting observations; explicitly truncated metadata remains accepted only as incomplete evidence.",
-      "Six Docker provider tests pass, including malformed-graph controls and live acceptance against the pinned Lua 5.4 analyzer. A separate PostgreSQL-backed integration passes 1/1 against a disposable database, comparing every expected and persisted containment edge and reading back recovered source; test data is cleaned up. Docker type-check and targeted ESLint pass."
+      "Six Docker provider tests pass, including malformed-graph controls and live acceptance against the pinned Lua 5.4 analyzer. A separate PostgreSQL-backed integration passes 1/1 against a disposable database, comparing every expected and persisted containment edge and reading back recovered source; test data is cleaned up. Docker type-check and targeted ESLint pass.",
+      "The full Docker webapp suite passes against a complete isolated copy of the wiki with generated reference pages: 649 test files and 9,895 tests passed, 2 expected failures, and 50 files / 190 tests skipped. The original user-edited wiki was preserved."
     ],
-    "scoreDecision": "The 31.98% to 32.08% increase remains limited to raising Security, reliability, and production operations from 94% to 95% for the verified Lua analyzer input-contract improvement (+0.10 weighted points). The disposable-database persistence run strengthens acceptance evidence for that same capability and receives no additional score credit.",
+    "scoreDecision": "The verified Lua analyzer input-contract improvement raised Security, reliability, and production operations from 94% to 95%, moving the weighted estimate from 31.98% to 32.08% (+0.10 points). The disposable-database persistence run and full webapp suite add stronger verification for that same capability but no separate capability, so the current score remains 32.08% (+0.00 points this update).",
     "nextGate": "Extend strict completeness and truncation checks to other tree-shaped analyzer metadata and run the relevant persisted-evidence checks across more provider formats."
   },
   "scopeNote": "2026-11-05 accepted additional independent integrated-benchmark (3%) and authorized external app-behavior (2%) acceptance gates; now 20 workstreams totaling 100 points, both new workstreams were zero-complete at that scope checkpoint. Five existing related weights decrease by 1 point each, with unchanged prior implementation ratings. The estimate was 26.41% at introduction; after the verified v1 paired benchmark slice, it was 26.71%; after the verified v2 source-match pair, it is 26.86%. The scope-expansion change from 28.99% to 26.41% was not a functional regression. The earlier CA-1/CA-2 expansion from 31.95% to 28.99% remains historical, not a functional regression. No upstream code or unverified benchmark receives completion credit. Historical CA-1/CA-2 baseline note (retained): Recalibrated on 2026-11-05 for the accepted Craft Anything-inspired cross-surface tool contract and evidence delivery scope (CA-1/CA-2). Eighteen workstreams total 100 weight points. This added a distinct 5%-weight zero-complete workstream while reducing five adjacent existing weights by one point each; it did not change any previous implementation completion estimate, and therefore measured scope growth rather than a regression in shipped functionality. CA-0 was a prerequisite; CA-3/CA-4, CA-5 and then-optional CA-6 were not double-counted as new completion. The model remains an evidence-based estimate, not a release certification.",
@@ -176,26 +177,27 @@
     }
   ],
   "recentComparison": {
-    "baselineEstimate": 31.98,
+    "baselineEstimate": 32.08,
     "candidateEstimate": 32.08,
     "date": "2026-11-10",
-    "evidence": "The unluac-rs provider rejects malformed prototype trees before persisting containment: duplicate IDs/parents, cycles, out-of-range or missing children, and disconnected complete metadata. Six Docker provider tests pass, including the live pinned analyzer. A PostgreSQL-backed integration against a disposable database also passes 1/1, verifies the full expected/persisted edge set, reads recovered source, and cleans up. Security/reliability remains 95%; this adds acceptance evidence without double-counting the same capability."
+    "evidence": "The full Docker webapp suite passes 649 files / 9,895 tests against a complete isolated wiki copy (2 expected failures; 50 files / 190 tests skipped). This strengthens verification of the already-counted Lua hierarchy capability; no new capability is counted, so this update changes the estimate by +0.00 points (32.08% remains current)."
   },
   "activeWork": {
     "date": "2026-11-10",
     "basedOnCommit": "0ea3ce02945fe23cdb67ace8dd7eed8629cb0c3e",
     "workstream": "Security, reliability, and production operations",
-    "status": "Lua prototype hierarchy validation and disposable-PostgreSQL persistence acceptance passed",
+    "status": "Lua hierarchy validation, disposable-PostgreSQL persistence acceptance, and full Docker webapp suite passed",
     "verified": [
       "The adapter rejects duplicate prototype IDs, duplicate/multiple parentage, cycles, out-of-range child IDs, and incomplete child references when metadata claims completeness.",
       "Declared metadata truncation remains accepted and marked incomplete, preserving bounded analyzer behavior.",
       "Six Docker tests pass, including live acceptance against the pinned unluac-rs analyzer; actual containment observations and recovered source from derived storage were verified.",
       "Docker TypeScript type-check and targeted ESLint pass.",
       "The strengthened PostgreSQL integration passed 1/1 on a disposable PostgreSQL 16 database; all expected and persisted containment endpoint pairs match, and recovered source was read back.",
-      "The disposable database container, test-owned database rows, and project-specific derived output were cleaned up; the production database was not used."
+      "The disposable database container, test-owned database rows, and project-specific derived output were cleaned up; the production database was not used.",
+      "The full Docker webapp suite passed: 649 files / 9,895 tests passed, 2 expected failures, and 50 files / 190 tests skipped. Wiki comparisons used a complete copied checkout with generated references; the user-edited wiki checkout was not modified."
     ],
     "notVerified": [
-      "The full webapp and repository suites were not run; this change is scoped to the unluac-rs provider contract.",
+      "The webapp suite ran without DATABASE_URL, so database-gated tests were skipped; repository-level suites outside the webapp were not run.",
       "Completeness and truncation contracts have not yet been applied to other provider formats."
     ],
     "next": "Extend strict completeness and truncation checks to other tree-shaped analyzer metadata, then validate their persisted observations on disposable databases."
