@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server'
 import { readFile, realpath, stat } from 'node:fs/promises'
 import path from 'node:path'
 import prisma from '@/lib/prisma'
-import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
+import { requireEffectiveUser, requireProjectAccessStrict } from '@/lib/access'
 import { getActiveWorkspaceImportSelection } from '@/lib/reamon/inventory-query'
 import { resolveDerivedArtifactPath, derivedArtifactRoot } from '@/lib/reamon/derived-storage'
 import { isValidationRegression } from '@/lib/reamon/validation-regression'
@@ -71,7 +71,7 @@ async function validateSmaliSource(sourceCode: string, expectedHash: string): Pr
 async function resolveSmali(projectId: string, unitId: string) {
   const user = await requireEffectiveUser()
   if (user instanceof NextResponse) return { response: user } as const
-  const access = await requireProjectAccess(user, projectId)
+  const access = await requireProjectAccessStrict(user, projectId)
   if (access instanceof NextResponse) return { response: access } as const
   const selection = await getActiveWorkspaceImportSelection(projectId)
   const unit = await prisma.reamonObservation.findFirst({

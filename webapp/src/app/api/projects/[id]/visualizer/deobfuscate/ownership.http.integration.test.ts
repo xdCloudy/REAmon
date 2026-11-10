@@ -404,4 +404,33 @@ describe.skipIf(!HAS_DB)('deobfuscation HTTP ownership with ACCESS_ENFORCE=0', (
     expect(foreignNoteWrite.status).toBe(404)
     expect(await foreignNoteWrite.json()).toEqual({ error: 'Not found' })
   }, 60_000)
+
+  test('remaining visualizer evidence, explanation, and rebuild routes require strict ownership', async () => {
+    const cases = [
+      { path: '/visualizer/providers', method: 'GET' },
+      { path: '/visualizer/alternates', method: 'GET' },
+      { path: '/visualizer/explain', method: 'POST', body: '{}' },
+      { path: '/visualizer/apk/rebuild', method: 'POST', body: '{}' },
+      { path: '/visualizer/jvm/rebuild', method: 'POST', body: '{}' },
+      { path: `/visualizer/maintained/${SUFFIX}-missing-smali/smali`, method: 'GET' },
+      { path: `/visualizer/maintained/${SUFFIX}-missing-smali/smali`, method: 'PATCH', body: 'not-json' },
+      { path: `/visualizer/maintained/${SUFFIX}-missing-smali/smali`, method: 'PUT', body: 'not-json' },
+    ]
+
+    for (const testCase of cases) {
+      const url = `${baseUrl}/api/projects/${projectId}${testCase.path}`
+      const headers = testCase.body === undefined ? {} : { 'content-type': 'application/json' }
+      const init = { method: testCase.method, headers, body: testCase.body }
+
+      expect((await fetch(url, init)).status, `anonymous ${testCase.method} ${testCase.path}`).toBe(401)
+      const foreign = await fetch(url, { ...init, headers: { ...headers, ...auth(foreignCookie) } })
+      expect(foreign.status, `foreign ${testCase.method} ${testCase.path}`).toBe(404)
+      expect(await foreign.json()).toEqual({ error: 'Not found' })
+
+      const owner = await fetch(url, { ...init, headers: { ...headers, ...auth(ownerCookie) } })
+      const ownerResult = await owner.json()
+      expect(owner.status, `owner ${testCase.method} ${testCase.path}`).not.toBe(401)
+      expect(ownerResult, `owner ${testCase.method} ${testCase.path}`).not.toEqual({ error: 'Not found' })
+    }
+  }, 60_000)
 })

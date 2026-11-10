@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
-import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
+import { requireEffectiveUser, requireProjectAccessStrict } from '@/lib/access'
 import { getActiveWorkspaceImportSelection } from '@/lib/reamon/inventory-query'
 
 interface RouteParams { params: Promise<{ id: string }> }
@@ -22,7 +22,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     const { id: projectId } = await params
     const user = await requireEffectiveUser()
     if (user instanceof NextResponse) return user
-    const access = await requireProjectAccess(user, projectId)
+    const access = await requireProjectAccessStrict(user, projectId)
     if (access instanceof NextResponse) return access
 
     let body: unknown

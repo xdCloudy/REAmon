@@ -1,12 +1,13 @@
 /** @vitest-environment node */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { NextResponse } from 'next/server'
 import { createHash } from 'node:crypto'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 
 const h = vi.hoisted(() => ({
-  user: vi.fn(), access: vi.fn(), selection: vi.fn(), unit: vi.fn(), tasks: vi.fn(),
+  user: vi.fn(), strictAccess: vi.fn(), selection: vi.fn(), unit: vi.fn(), tasks: vi.fn(),
   currentTask: vi.fn(), observations: vi.fn(),
 }))
 
@@ -14,7 +15,7 @@ vi.mock('@/lib/prisma', () => ({ default: {
   task: { findMany: h.tasks, findFirst: h.currentTask },
   reamonObservation: { findMany: h.observations, findFirst: h.unit },
 } }))
-vi.mock('@/lib/access', () => ({ requireEffectiveUser: h.user, requireProjectAccess: h.access }))
+vi.mock('@/lib/access', () => ({ requireEffectiveUser: h.user, requireProjectAccessStrict: h.strictAccess }))
 vi.mock('@/lib/reamon/inventory-query', () => ({ getActiveWorkspaceImportSelection: h.selection }))
 
 import { GET } from './route'
@@ -65,7 +66,7 @@ async function arrangeProviderOutputs(count: number) {
 beforeEach(async () => {
   vi.clearAllMocks()
   h.user.mockResolvedValue({ userId: 'user-1' })
-  h.access.mockResolvedValue({ projectId: 'project-1' })
+  h.strictAccess.mockResolvedValue({ projectId: 'project-1' })
   h.selection.mockResolvedValue({ artifactWhere: { projectId: 'project-1', importId: 'active-import' } })
   h.unit.mockResolvedValue({
     id: 'selected-unit', taskId: 'selected-task', artifactId: 'artifact-1', source: 'reamon-ghidra',
@@ -91,6 +92,17 @@ afterEach(async () => {
 })
 
 describe('GET /api/projects/[id]/visualizer/alternates', () => {
+  it('denies a foreign project before reading selected units or alternate evidence', async () => {
+    h.strictAccess.mockResolvedValueOnce(NextResponse.json({ error: 'Not found' }, { status: 404 }))
+
+    const response = await GET(new Request('http://localhost?unitId=selected-unit'), routeParams)
+
+    expect(response.status).toBe(404)
+    expect(h.selection).not.toHaveBeenCalled()
+    expect(h.unit).not.toHaveBeenCalled()
+    expect(h.observations).not.toHaveBeenCalled()
+  })
+
   it('returns more than four hash-verified provider outputs for the same source unit', async () => {
     await arrangeProviderOutputs(8)
 

@@ -90,6 +90,18 @@ afterEach(async () => {
 })
 
 describe('POST /api/projects/[id]/visualizer/explain', () => {
+  it('denies a foreign project before reading source or contacting the AI provider', async () => {
+    h.strictAccess.mockResolvedValueOnce(NextResponse.json({ error: 'Not found' }, { status: 404 }))
+
+    const response = await POST(request({ unitId: 'unit-1', providerId: 'provider-1' }), routeParams)
+
+    expect(response.status).toBe(404)
+    expect(h.selection).not.toHaveBeenCalled()
+    expect(h.observation).not.toHaveBeenCalled()
+    expect(h.provider).not.toHaveBeenCalled()
+    expect(h.agentFetch).not.toHaveBeenCalled()
+  })
+
   it('sends selected source to the caller-owned provider through the internal agent', async () => {
     const response = await POST(request({ unitId: 'unit-1', providerId: 'provider-1', question: 'What does it read?' }), routeParams)
 
