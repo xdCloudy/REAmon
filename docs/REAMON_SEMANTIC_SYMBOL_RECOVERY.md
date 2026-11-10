@@ -65,9 +65,15 @@ reasons, and both inventory and rename-catalog truncation, then returns and pers
 inventory with the proposal. Draft history validates and reloads it, and the visualizer
 shows a bounded row preview alongside the counts and snapshot-scope disclosure. Docker
 Go regressions check exact classifications and aggregate counts, including a 5,001-row
-fixture proving explicit detail truncation with exact totals. This does not inventory
-local symbols, establish whole-project file completeness, assess names as meaningful or
-unnamed, or measure naming quality.
+fixture proving explicit detail truncation with exact totals. The inventory now includes
+function and function-literal parameters, receivers, results, local variables,
+constants, types, type parameters, and local functions. Referenced local bindings are
+eligible inventory entries; unreferenced bindings are explicitly excluded. Local
+struct fields, interface methods, labels, and other unsupported object kinds retain
+explicit unsupported reasons. The visualizer labels local entries as inventory-only;
+the project rename flow still targets package declarations. This does not establish
+whole-project file completeness, assess names as meaningful or unnamed, or measure
+naming quality.
 
 ## P1 milestone and acceptance gates
 
