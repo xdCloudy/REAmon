@@ -494,47 +494,64 @@ func TestProjectRenamePinnedUpstreamUUIDFixture(t *testing.T) {
 	if err != nil {
 		t.Fatalf("catalog pinned upstream package subset: %v", err)
 	}
-	var selected binding
-	for _, item := range catalog.Bindings {
-		if item.FilePath == request.SelectedPath && item.Name == "rander" {
-			selected = item
-			break
-		}
-	}
-	if selected.ID == "" || selected.ReferenceCount != 5 {
-		t.Fatalf("upstream rander binding = %+v; want one declaration and five references", selected)
-	}
-	request.Operation = "project_rename"
-	request.ExpectedHash = catalog.SelectedHash
-	request.SourceSetHash = catalog.SourceSetHash
-	request.Renames = []renameSelection{{ID: selected.ID, NewName: "randomReader"}}
-	result, err := applyProjectRenames(request)
-	if err != nil {
-		t.Fatalf("rename upstream rander variable: %v", err)
-	}
-	outputs := outputsBeforeRename(files)
-	editCount := 0
-	editsByPath := make(map[string]int, len(files))
-	for _, output := range result["files"].([]map[string]any) {
-		path := output["relative_path"].(string)
-		outputs[path] = output["source_code"].(string)
-		original := string(sourceByPath[filepath.Base(path)])
-		for _, edit := range output["edits"].([]map[string]any) {
-			start, startOK := edit["start"].(int)
-			end, endOK := edit["end"].(int)
-			if edit["old_text"] != "rander" || edit["new_text"] != "randomReader" || !startOK || !endOK || start < 0 || end > len(original) || original[start:end] != "rander" {
-				t.Fatalf("upstream edit for %s = %#v; want a byte-exact rander -> randomReader span", path, edit)
-			}
-			editCount++
-			editsByPath[path]++
-		}
-	}
-	if editCount != 6 || editsByPath["pkg/uuid.go"] != 3 || editsByPath["pkg/version4.go"] != 2 || editsByPath["pkg/util.go"] != 1 {
-		t.Fatalf("upstream edit manifest has %d edits by path %v; want 3/2/1 across declaration and references", editCount, editsByPath)
-	}
 	behaviorTest := "package uuid\n\nimport (\n\t\"bytes\"\n\t\"testing\"\n)\n\nfunc TestCorpusBehavior(t *testing.T) {\n\tseed := []byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}\n\twant := \"00010203-0405-4607-8809-0a0b0c0d0e0f\"\n\tDisableRandPool()\n\tdefer DisableRandPool()\n\tdefer SetRand(nil)\n\tSetRand(bytes.NewReader(seed))\n\tgot, err := NewRandom()\n\tif err != nil || got.String() != want { t.Fatalf(\"direct generation = %s, %v\", got, err) }\n\tEnableRandPool()\n\tSetRand(bytes.NewReader(bytes.Repeat(seed, 16)))\n\tgot, err = NewRandom()\n\tif err != nil || got.String() != want { t.Fatalf(\"pooled generation = %s, %v\", got, err) }\n}\n"
-	assertProjectPackageRenameBehavior(t, outputsBeforeRename(files), behaviorTest, "upstream UUID original")
-	assertProjectPackageRenameBehavior(t, outputs, behaviorTest, "upstream UUID renamed")
+	renameCases := []struct {
+		name                string
+		newName             string
+		references          int
+		expectedEditsByFile map[string]int
+	}{
+		{name: "randPoolSize", newName: "randomBufferSize", references: 4, expectedEditsByFile: map[string]int{"pkg/uuid.go": 4, "pkg/version4.go": 1}},
+		{name: "poolEnabled", newName: "randomPoolEnabled", references: 3, expectedEditsByFile: map[string]int{"pkg/uuid.go": 3, "pkg/version4.go": 1}},
+		{name: "poolMu", newName: "randomPoolMutex", references: 5, expectedEditsByFile: map[string]int{"pkg/uuid.go": 3, "pkg/version4.go": 3}},
+		{name: "poolPos", newName: "randomPoolPosition", references: 6, expectedEditsByFile: map[string]int{"pkg/uuid.go": 2, "pkg/version4.go": 5}},
+		{name: "pool", newName: "randomPool", references: 2, expectedEditsByFile: map[string]int{"pkg/uuid.go": 1, "pkg/version4.go": 2}},
+		{name: "rander", newName: "randomReader", references: 5, expectedEditsByFile: map[string]int{"pkg/uuid.go": 3, "pkg/version4.go": 2, "pkg/util.go": 1}},
+	}
+	for _, testCase := range renameCases {
+		testCase := testCase
+		t.Run(testCase.name, func(t *testing.T) {
+			var selected binding
+			for _, item := range catalog.Bindings {
+				if item.FilePath == request.SelectedPath && item.Name == testCase.name {
+					selected = item
+					break
+				}
+			}
+			if selected.ID == "" || selected.ReferenceCount != testCase.references {
+				t.Fatalf("upstream %s binding = %+v; want %d resolved references", testCase.name, selected, testCase.references)
+			}
+			renameRequest := goProjectRequest(files, "pkg/uuid.go")
+			renameRequest.Operation = "project_rename"
+			renameRequest.ExpectedHash = catalog.SelectedHash
+			renameRequest.SourceSetHash = catalog.SourceSetHash
+			renameRequest.Renames = []renameSelection{{ID: selected.ID, NewName: testCase.newName}}
+			result, err := applyProjectRenames(renameRequest)
+			if err != nil {
+				t.Fatalf("rename upstream %s: %v", testCase.name, err)
+			}
+			outputs := outputsBeforeRename(files)
+			editsByPath := make(map[string]int, len(testCase.expectedEditsByFile))
+			for _, output := range result["files"].([]map[string]any) {
+				path := output["relative_path"].(string)
+				outputs[path] = output["source_code"].(string)
+				original := string(sourceByPath[filepath.Base(path)])
+				for _, edit := range output["edits"].([]map[string]any) {
+					start, startOK := edit["start"].(int)
+					end, endOK := edit["end"].(int)
+					if edit["old_text"] != testCase.name || edit["new_text"] != testCase.newName || !startOK || !endOK || start < 0 || end > len(original) || original[start:end] != testCase.name {
+						t.Fatalf("upstream edit for %s = %#v; want a byte-exact %s -> %s span", path, edit, testCase.name, testCase.newName)
+					}
+					editsByPath[path]++
+				}
+			}
+			if !reflect.DeepEqual(editsByPath, testCase.expectedEditsByFile) {
+				t.Fatalf("upstream edit manifest for %s = %v; want %v", testCase.name, editsByPath, testCase.expectedEditsByFile)
+			}
+			assertProjectPackageRenameBehavior(t, outputsBeforeRename(files), behaviorTest, "upstream UUID original")
+			assertProjectPackageRenameBehavior(t, outputs, behaviorTest, "upstream UUID renamed "+testCase.name)
+		})
+	}
 }
 
 func assertProjectRenameBehavior(t *testing.T, files map[string]string, testSource, variant string) {
