@@ -79,7 +79,7 @@ The [autonomous reconstruction and fidelity delivery plan](docs/REAMON_AUTONOMOU
 <!-- REAMON_PRODUCT_PROGRESS_START -->
 <progress value="31.37" max="100">31.37%</progress> <strong>31.37%</strong> — weighted estimate **31.37%**.
 Latest evidence-based score change (2026-11-10): **+0.07 points** (31.30% → 31.37%). Arlecchino ancestry is now persisted and displayed as a derived composite; unrecorded provider ancestry is labeled unknown.
-Refreshed from pushed commit `407a8b1`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+Refreshed from pushed commit `7d3a245`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
 [Goals and roadmap](docs/REAMON_GOALS.md) · [Feature matrix](docs/REAMON_FEATURE_MATRIX.md)
