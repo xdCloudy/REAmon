@@ -78,9 +78,9 @@ The [autonomous reconstruction and fidelity delivery plan](docs/REAMON_AUTONOMOU
 
 <!-- REAMON_PRODUCT_PROGRESS_START -->
 
-<progress value="33.87" max="100">33.87%</progress> <strong>33.87%</strong> — weighted estimate **33.87%**.
+<progress value="33.95" max="100">33.95%</progress> <strong>33.95%</strong> — weighted estimate **33.95%**.
 
-Latest evidence-based score change (2026-11-10): **+0.08 points** (33.79% → 33.87%). One partial point moves Agentic project-wide semantic renaming from 33% to 34%, raising weighted progress from 33.79% to 33.87% (+0.08). A false-positive fix removes 22 blank identifiers from held-out inventories. Measured all-scope precision is now 100%; gorilla/mux recall remains 78.9% (419 TP, 0 FP, 112 FN), while go-isatty is 4/4. Missing methods and type members remain open.
+Latest evidence-based score change (2026-11-10): **+0.08 points** (33.87% → 33.95%). One partial point moves Agentic project-wide semantic renaming from 34% to 35%, raising weighted progress from 33.87% to 33.95% (+0.08). Held-out inventory now matches all 531 gorilla/mux declarations with 100% precision/recall on Linux/amd64 and Windows/amd64; go-isatty is 4/4 on JS/wasm. Methods, fields, and type parameters are recorded as unsupported, pending safe rename propagation.
 
 **Work completed (2026-11-10):**
 
@@ -100,12 +100,13 @@ Latest evidence-based score change (2026-11-10): **+0.08 points** (33.79% → 33
 - Real-helper Go package rename now passes isolated Chromium acceptance 1/1 with disposable PostgreSQL 16 and an external module in a hash-verified offline cache. The browser calls real safe-renames and draft routes; the real helper performs project inventory and rename, and both persisted drafts reload after a page refresh. Only the LLM suggestion endpoint is deterministic; no page or console errors occurred.
 - A versioned held-out Go inventory evaluation covers gorilla/mux v1.8.1 on Linux/amd64 and Windows/amd64 plus go-isatty v0.0.20 on JS/wasm. Independent Go AST declaration census: 108 TP, 0 FP, 0 FN (100% precision/recall) for package-level declaration identity; local/file-scope accuracy remains unmeasured. The full Docker Go refactor package suite passes.
 - The held-out Go census found 22 false-positive blank range identifiers. The helper now omits `_`; a targeted regression and exact pinned-corpus counts confirm the correction. Re-measurement gives 100% all-scope precision, with gorilla/mux recall at 78.9% (419 TP, 0 FP, 112 FN) and go-isatty at 100% (4/4); missing receiver methods and type members remain open.
+- Go project inventory now includes receiver methods, interface methods, fields, and type parameters as explicit unsupported member rows. Independent go/types census matches all 531 declarations with zero false positives or misses for gorilla/mux v1.8.1 on Linux/amd64 and Windows/amd64; go-isatty remains 4/4 on JS/wasm. Pinned upstream corpora assert the new member totals, the API validates member scope and counts, and the visualizer renders unsupported member rows.
 
-**Score decision:** Award one partial point to the 8%-weight Agentic project-wide semantic-renaming workstream (33% to 34%). The held-out all-scope census drove a blank-identifier fix that removed 22 false positives, bringing measured precision to 100%; weighted progress moves from 33.79% to 33.87% (+0.08 points). gorilla/mux recall remains 78.9% because 112 method/member declarations are not inventoried, so this does not establish complete Go symbol coverage.
+**Score decision:** Award one partial point to the 8%-weight Agentic project-wide semantic-renaming workstream (34% to 35%). The held-out all-scope census now matches all 531 gorilla/mux declarations with 100% precision and recall on Linux/amd64 and Windows/amd64, after adding explicit unsupported inventory rows for methods, fields, and type parameters. Weighted progress moves from 33.87% to 33.95% (+0.08 points). Member rename propagation is still unsupported, and coverage is limited to this small held-out corpus.
 
-**Next measurable gate:** Inventory receiver methods and type members with explicit unsupported status until safe rename propagation supports them; add held-out identity checks for these forms, then expand across more Go modules, local/import symbols, build configurations, and languages.
+**Next measurable gate:** Measure member inventory precision and recall across more Go modules and build configurations, then implement safe receiver-method and field rename propagation with collision and behavior-preservation checks.
 
-Refreshed from pushed commit `95b1b61`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+Refreshed from pushed commit `e99d047`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
