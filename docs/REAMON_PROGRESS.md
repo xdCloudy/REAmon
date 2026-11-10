@@ -1,18 +1,18 @@
 # REAmon product progress
 
-Assessment date: 2026-11-10 · Source: pushed commit `a90f025` · Weighted estimate: **33.15%**
+Assessment date: 2026-11-10 · Source: pushed commit `a90f025` · Weighted estimate: **33.23%**
 
 This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.
 
 ## Recent activity (2026-11-10)
 
-- Go inventory and safe package checks now support declared GOOS changes on the agent host architecture, using Go-generated target standard-library exports with the matching build context.
-- Standard import data is produced with module mode disabled, GOTOOLCHAIN=local, and GOPROXY/GOSUMDB off; only packages Go identifies as standard library are accepted. Unavailable external modules remain rejected.
-- The Docker agent unit gate passed 188 files and 3,806 tests with zero failures; one file collected no tests. The Go helper suite passed a Windows-only syscall API check against Windows exports and offline external-module rejection.
+- Go inventory and semantic package checks now support target GOOS and GOARCH values from the installed Go toolchain, with target-specific architecture defaults and matching standard-library export data.
+- Go itself selects files for the target and declared tags. Cgo source is rejected explicitly; cross-target cgo defaults off unless requested, and non-standard imports remain blocked without verified module receipts.
+- The Docker agent unit gate passed 188 files and 3,806 tests with zero failures; one file collected no tests. Go regressions type-check a Windows-only syscall on Linux and a Linux/ARM64 syscall using ARM64 exports.
 
-**Score decision:** Award one partial point to the 8%-weight Agentic project-wide semantic-renaming workstream (24% to 25%), moving weighted progress from 33.07% to 33.15% (+0.08 points). The inventory can now type-check cross-OS source against matching standard-library exports while keeping downloads and unverified external imports out of scope. This does not credit cross-GOARCH type checking, external module resolution, broad known-source accuracy, or complete reconstruction.
+**Score decision:** Award one partial point to the 8%-weight Agentic project-wide semantic-renaming workstream (25% to 26%), moving weighted progress from 33.15% to 33.23% (+0.08 points). Target-aware source selection and matching standard-library exports now support cross-GOARCH inventory checks. This does not credit cgo source, verified external module resolution, broad known-source accuracy, or complete reconstruction.
 
-**Next measurable gate:** Resolve target architecture build tags and matching export data before enabling other GOARCH values; then support external imports from verified offline module caches bound to go.mod/go.sum and compare inventory counts against hash-pinned known-source fixtures.
+**Next measurable gate:** Resolve external imports only from verified offline module caches bound to go.mod/go.sum; compare package, file, and symbol counts against hash-pinned known-source fixtures; then add a target-aware cgo validation receipt or preserve explicit unsupported reporting.
 
 | Workstream | Goal weight | Estimated complete | Weighted points |
 | --- | ---: | ---: | ---: |
@@ -22,7 +22,7 @@ This estimate covers the reverse-engineering product goal and secure production 
 | Maintainable editing, review, and export | 4% | 60% | 2.40 pts |
 | Fixture-backed validation and fidelity evidence | 2% | 16% | 0.32 pts |
 | Security, reliability, and production operations | 10% | 98% | 9.80 pts |
-| Agentic project-wide semantic renaming | 8% | 25% | 2.00 pts |
+| Agentic project-wide semantic renaming | 8% | 26% | 2.08 pts |
 | Cross-file semantic rename propagation | 7% | 13% | 0.91 pts |
 | Safe autonomous rename acceptance | 5% | 0% | 0.00 pts |
 | Agentic semantic type and data-structure recovery | 5% | 12% | 0.60 pts |
@@ -77,9 +77,9 @@ This estimate covers the reverse-engineering product goal and secure production 
 
 ### Agentic project-wide semantic renaming
 
-**Current evidence:** Partial foundations include a verified whole-project inventory for discovered Go source units in one exact task/run. It groups packages, type-checks them, and resolves imports between local module packages when a hash-verified active-workspace go.mod is present. Source rows and local module identity are bound to the snapshot; external source discovery remains bounded, and project-wide rows remain inventory-only. A seventh partial inventory increment applies Go build-constraint and GOOS/GOARCH filename selection, and binds selected paths/source plus normalized build context and toolchain to the snapshot hash. Synthetic regressions select mutually exclusive Linux/Windows files, explicit build tags, and amd64/arm64 filename variants. An eighth partial inventory increment uses target-specific Go standard-library exports for declared cross-OS builds on the agent host architecture. Export lookup runs offline and refuses packages not identified by Go as standard library; a fixture type-checks a Windows-only syscall API from Windows exports in the Linux test container.
+**Current evidence:** Partial foundations include a verified whole-project inventory for discovered Go source units in one exact task/run. It groups packages, type-checks them, and resolves imports between local module packages when a hash-verified active-workspace go.mod is present. Source rows and local module identity are bound to the snapshot; external source discovery remains bounded, and project-wide rows remain inventory-only. A seventh partial inventory increment applies Go build-constraint and GOOS/GOARCH filename selection, and binds selected paths/source plus normalized build context and toolchain to the snapshot hash. Synthetic regressions select mutually exclusive Linux/Windows files, explicit build tags, and amd64/arm64 filename variants. An eighth partial inventory increment uses target-specific Go standard-library exports for declared cross-OS builds on the agent host architecture. Export lookup runs offline and refuses packages not identified by Go as standard library; a fixture type-checks a Windows-only syscall API from Windows exports in the Linux test container. A ninth partial inventory increment resolves target architecture defaults from the installed toolchain and uses Go to select build-constrained sources, then type-checks standard imports from exports for the requested GOOS/GOARCH. A Linux/ARM64 fixture in the Linux agent type-checks syscall.Gettid using ARM64 export data; unavailable external imports and cgo files remain explicitly unsupported.
 
-**Remaining:** Resolve target-specific architecture build tags and export data before enabling additional GOARCH values; resolve external imports only from verified offline module caches and exact go.mod/go.sum receipts; classify meaningful, unnamed, ambiguous, excluded, unsupported, and truncated populations; add evidence-linked proposals, identity-stable refinement, confidence/provenance, and held-out semantic quality, calibration, false-positive, and scale measurements. Do not require exact original names erased by compilation.
+**Remaining:** Resolve external imports only from verified offline module caches bound to go.mod/go.sum and measure inventory precision/recall against known-source fixtures; resolve external imports only from verified offline module caches and exact go.mod/go.sum receipts; classify meaningful, unnamed, ambiguous, excluded, unsupported, and truncated populations; add evidence-linked proposals, identity-stable refinement, confidence/provenance, and held-out semantic quality, calibration, false-positive, and scale measurements. Do not require exact original names erased by compilation.
 
 ### Cross-file semantic rename propagation
 
