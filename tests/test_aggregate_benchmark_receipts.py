@@ -157,6 +157,53 @@ class AggregateBenchmarkReceiptTests(unittest.TestCase):
         self.assertEqual(metric["state"], "INCOMPLETE")
         self.assertIsNone(metric["delta"])
 
+    def test_fixture_specific_metric_contracts_support_heterogeneous_formats(self):
+        managed_evaluation = self.root / "managed-evaluation.json"
+        self.write_json(managed_evaluation, {
+            "schemaVersion": 1,
+            "metrics": {
+                "class_match": {"direction": "higher", "denominator": 2},
+                "compile_oracle": {"direction": "equal", "denominator": 1},
+            },
+        })
+        config = json.loads(self.config.read_text(encoding="utf-8"))
+        config["fixtures"]["managed-fixture"]["evaluationManifest"] = managed_evaluation.name
+        self.write_json(self.config, config)
+
+        for label in ("baseline", "candidate"):
+            receipt = self.read_part(label, "managed-fixture")
+            receipt["evaluationManifestSha256"] = self.digest(managed_evaluation)
+            receipt["fixtures"]["managed-fixture"]["metrics"] = {
+                "class_match": {
+                    "direction": "higher", "state": "MEASURED", "value": 2, "denominator": 2,
+                },
+                "compile_oracle": {
+                    "direction": "equal", "state": "MEASURED", "value": 1, "denominator": 1,
+                },
+            }
+            self.save_part(label, "managed-fixture", receipt)
+
+        output = self.root / "heterogeneous-aggregate"
+        report = combine_matrix(config_path=self.config, output_dir=output, run_prefix="heterogeneous")
+
+        self.assertEqual(report["status"], "NO_REGRESSION_OBSERVED")
+        self.assertEqual(set(report["fixtures"]["native-fixture"]["metrics"]), {"inventory", "source_match"})
+        self.assertEqual(set(report["fixtures"]["managed-fixture"]["metrics"]), {"class_match", "compile_oracle"})
+        index = json.loads((output / "evaluation-manifest-index.json").read_text(encoding="utf-8"))
+        self.assertEqual(index["fixtures"]["managed-fixture"]["evaluationManifestSha256"], self.digest(managed_evaluation))
+        self.assertEqual(report["evaluationManifestSha256"], self.digest(output / "evaluation-manifest-index.json"))
+
+        candidate = self.read_part("candidate", "managed-fixture")
+        candidate["fixtures"]["managed-fixture"]["metrics"]["class_match"]["value"] = 1
+        self.save_part("candidate", "managed-fixture", candidate)
+        regression = combine_matrix(
+            config_path=self.config,
+            output_dir=self.root / "heterogeneous-regression",
+            run_prefix="heterogeneous-regression",
+        )
+        self.assertEqual(regression["status"], "REGRESSION_DETECTED")
+        self.assertEqual(regression["regressions"], ["managed-fixture:class_match"])
+
     def test_existing_output_is_never_overwritten(self):
         output = self.root / "existing-output"
         output.mkdir()

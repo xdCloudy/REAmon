@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -41,7 +42,7 @@ def _config_path(base: Path, value: object, label: str) -> Path:
 
 def _aggregate_side(*, label, parts, fixture_hashes, fixture_manifest_hash,
                     evaluation_manifest_hash, toolchain_manifest_hash,
-                    components, metric_definitions, run_id):
+                    components, run_id):
     fixtures = {}
     receipt_hashes = {}
     commits = set()
@@ -61,9 +62,9 @@ def _aggregate_side(*, label, parts, fixture_hashes, fixture_manifest_hash,
         _validate_receipt(
             receipt,
             part_hashes,
-            metric_definitions,
+            part["metricDefinitions"],
             fixture_manifest_hash_part,
-            evaluation_manifest_hash,
+            part["evaluationManifestSha256"],
             f"{label} {fixture_id}",
         )
         if receipt.get("toolchainManifestSha256") != toolchain_manifest_hash:
@@ -106,13 +107,10 @@ def combine_matrix(*, config_path, output_dir, run_prefix="matrix"):
         raise ReceiptError("matrix config schemaVersion must be 1")
     base = config_path.parent
     fixture_manifest_path = _config_path(base, config.get("fixtureManifest"), "fixtureManifest")
-    evaluation_manifest_path = _config_path(base, config.get("evaluationManifest"), "evaluationManifest")
     toolchain_manifest_path = _config_path(base, config.get("toolchainManifest"), "toolchainManifest")
     fixture_manifest = load_json(fixture_manifest_path)
-    evaluation_manifest = load_json(evaluation_manifest_path)
     toolchain_manifest = load_json(toolchain_manifest_path)
     fixture_hashes = _manifest_fixtures(fixture_manifest)
-    metric_definitions = _manifest_metrics(evaluation_manifest)
     if not isinstance(toolchain_manifest, dict) or toolchain_manifest.get("schemaVersion") != 1:
         raise ReceiptError("matrix toolchain manifest schemaVersion must be 1")
     components = toolchain_manifest.get("components")
@@ -126,40 +124,113 @@ def combine_matrix(*, config_path, output_dir, run_prefix="matrix"):
     if not isinstance(cases, dict) or set(cases) != set(fixture_hashes):
         raise ReceiptError("matrix config fixture set must exactly match the matrix manifest")
 
+    shared_evaluation_path = config.get("evaluationManifest")
+    if shared_evaluation_path is not None:
+        shared_evaluation_path = _config_path(base, shared_evaluation_path, "evaluationManifest")
+        shared_evaluation_manifest = load_json(shared_evaluation_path)
+        shared_metric_definitions = _manifest_metrics(shared_evaluation_manifest)
+    else:
+        shared_metric_definitions = None
+
     parts = {"baseline": {}, "candidate": {}}
+    fixture_evaluation_hashes = {}
+    fixture_evaluations = {}
+    uses_fixture_evaluations = False
     for fixture_id, item in cases.items():
         if not isinstance(item, dict):
             raise ReceiptError(f"matrix config fixture {fixture_id} must be an object")
         fixture_path = _config_path(base, item.get("fixtureManifest"), f"{fixture_id}.fixtureManifest")
+        fixture_evaluation_value = item.get("evaluationManifest")
+        if fixture_evaluation_value is None:
+            if shared_evaluation_path is None:
+                raise ReceiptError(f"matrix config {fixture_id}.evaluationManifest path is required")
+            evaluation_path = shared_evaluation_path
+            metric_definitions = shared_metric_definitions
+        else:
+            evaluation_path = _config_path(base, fixture_evaluation_value, f"{fixture_id}.evaluationManifest")
+            uses_fixture_evaluations = True
+            metric_definitions = _manifest_metrics(load_json(evaluation_path))
+        evaluation_hash = sha256_file(evaluation_path)
+        fixture_evaluation_hashes[fixture_id] = evaluation_hash
+        fixture_evaluations[fixture_id] = {
+            "path": evaluation_path,
+            "manifest": load_json(evaluation_path),
+            "metricDefinitions": metric_definitions,
+        }
         for label in ("baseline", "candidate"):
             receipt_path = _config_path(base, item.get(f"{label}Receipt"), f"{fixture_id}.{label}Receipt")
             parts[label][fixture_id] = {
                 "fixtureManifestPath": fixture_path,
                 "receiptPath": receipt_path,
                 "receipt": load_json(receipt_path),
+                "evaluationManifestPath": evaluation_path,
+                "evaluationManifestSha256": evaluation_hash,
+                "metricDefinitions": metric_definitions,
             }
 
     fixture_manifest_hash = sha256_file(fixture_manifest_path)
-    evaluation_manifest_hash = sha256_file(evaluation_manifest_path)
+    evaluation_manifest_index = None
+    if uses_fixture_evaluations:
+        evaluation_manifest_index = {
+            "schemaVersion": 1,
+            "fixtures": {
+                fixture_id: {"evaluationManifestSha256": fixture_evaluation_hashes[fixture_id]}
+                for fixture_id in sorted(fixture_evaluation_hashes)
+            },
+        }
+        index_bytes = (json.dumps(evaluation_manifest_index, indent=2, sort_keys=True) + "\n").encode("utf-8")
+        evaluation_manifest_hash = hashlib.sha256(index_bytes).hexdigest()
+    else:
+        evaluation_manifest_hash = sha256_file(shared_evaluation_path)
     toolchain_manifest_hash = sha256_file(toolchain_manifest_path)
     baseline = _aggregate_side(
         label="baseline", parts=parts["baseline"], fixture_hashes=fixture_hashes,
         fixture_manifest_hash=fixture_manifest_hash, evaluation_manifest_hash=evaluation_manifest_hash,
         toolchain_manifest_hash=toolchain_manifest_hash, components=components,
-        metric_definitions=metric_definitions, run_id=f"{run_prefix}-baseline",
+        run_id=f"{run_prefix}-baseline",
     )
     candidate = _aggregate_side(
         label="candidate", parts=parts["candidate"], fixture_hashes=fixture_hashes,
         fixture_manifest_hash=fixture_manifest_hash, evaluation_manifest_hash=evaluation_manifest_hash,
         toolchain_manifest_hash=toolchain_manifest_hash, components=components,
-        metric_definitions=metric_definitions, run_id=f"{run_prefix}-candidate",
+        run_id=f"{run_prefix}-candidate",
     )
-    report = compare_receipts(
-        baseline, candidate, fixture_manifest=fixture_manifest,
-        evaluation_manifest=evaluation_manifest,
-        fixture_manifest_hash=fixture_manifest_hash,
-        evaluation_manifest_hash=evaluation_manifest_hash,
+
+    per_fixture_reports = {}
+    regressions = []
+    statuses = set()
+    for fixture_id in sorted(fixture_hashes):
+        fixture_report = compare_receipts(
+            parts["baseline"][fixture_id]["receipt"],
+            parts["candidate"][fixture_id]["receipt"],
+            fixture_manifest=load_json(parts["baseline"][fixture_id]["fixtureManifestPath"]),
+            evaluation_manifest=fixture_evaluations[fixture_id]["manifest"],
+            fixture_manifest_hash=sha256_file(parts["baseline"][fixture_id]["fixtureManifestPath"]),
+            evaluation_manifest_hash=fixture_evaluation_hashes[fixture_id],
+        )
+        statuses.add(fixture_report["status"])
+        regressions.extend(fixture_report["regressions"])
+        per_fixture_reports[fixture_id] = fixture_report["fixtures"][fixture_id]
+
+    worktrees_clean = baseline["worktreeClean"] and candidate["worktreeClean"]
+    status = (
+        "REGRESSION_DETECTED" if "REGRESSION_DETECTED" in statuses
+        else "INCOMPLETE" if "INCOMPLETE" in statuses or not worktrees_clean
+        else "NO_REGRESSION_OBSERVED"
     )
+    report = {
+        "schemaVersion": 1,
+        "baselineRunId": baseline["runId"],
+        "candidateRunId": candidate["runId"],
+        "fixtureManifestSha256": fixture_manifest_hash,
+        "evaluationManifestSha256": evaluation_manifest_hash,
+        "status": status,
+        "regressions": regressions,
+        "worktreesClean": worktrees_clean,
+        "thresholdsApplied": False,
+        "certification": "This comparison is bounded evidence and is not a product certification.",
+        "fixtures": per_fixture_reports,
+    }
     result = {
         "baseline": baseline,
         "candidate": candidate,
@@ -168,14 +239,18 @@ def combine_matrix(*, config_path, output_dir, run_prefix="matrix"):
             "configSha256": sha256_file(config_path),
             "fixtureManifestSha256": fixture_manifest_hash,
             "evaluationManifestSha256": evaluation_manifest_hash,
+            "fixtureEvaluationManifestSha256": fixture_evaluation_hashes,
             "toolchainManifestSha256": toolchain_manifest_hash,
         },
     }
+    artifacts = {f"{name}.json": value for name, value in result.items()}
+    if evaluation_manifest_index is not None:
+        artifacts["evaluation-manifest-index.json"] = evaluation_manifest_index
     output.parent.mkdir(parents=True, exist_ok=True)
     stage = Path(tempfile.mkdtemp(prefix=f".{output.name}.", dir=output.parent))
     try:
-        for name, value in result.items():
-            path = stage / f"{name}.json"
+        for name, value in artifacts.items():
+            path = stage / name
             with path.open("x", encoding="utf-8", newline="\n") as destination:
                 json.dump(value, destination, indent=2, sort_keys=True)
                 destination.write("\n")
