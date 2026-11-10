@@ -77,9 +77,9 @@ The [autonomous reconstruction and fidelity delivery plan](docs/REAMON_AUTONOMOU
 ## Project status
 
 <!-- REAMON_PRODUCT_PROGRESS_START -->
-<progress value="31.30" max="100">31.30%</progress> <strong>31.30%</strong> — weighted estimate **31.30%**.
-Latest evidence-based score change (2026-11-10): **+0.03 points** (31.27% → 31.30%). Sampled JVM behavior differential: the end-to-end benchmark workstream moved from 20% to 21% after both CFR and Vineflower passed 8,197 inputs and rejected the compiled mutation control.
-Refreshed from pushed commit `11b75f1`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+<progress value="31.37" max="100">31.37%</progress> <strong>31.37%</strong> — weighted estimate **31.37%**.
+Latest evidence-based score change (2026-11-10): **+0.07 points** (31.30% → 31.37%). Arlecchino ancestry is now persisted and displayed as a derived composite; unrecorded provider ancestry is labeled unknown.
+Refreshed from pushed commit `36e017e`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
 [Goals and roadmap](docs/REAMON_GOALS.md) · [Feature matrix](docs/REAMON_FEATURE_MATRIX.md)
