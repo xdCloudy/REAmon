@@ -15,6 +15,43 @@ const enabled = process.env.REAMON_RUN_DB_INTEGRATION === '1'
   && Boolean(process.env.REAMON_ARTIFACTS_PATH && process.env.REAMON_DERIVED_PATH)
 const describeDatabase = describe.skipIf(!enabled)
 
+function expectedLuaContainmentPairs(observations: ToolObservation[]): string[] {
+  const codeUnit = observations.find((observation) => observation.kind === 'entity' && observation.type === 'code_unit')
+  const prototypes = observations.filter((observation) => observation.kind === 'entity' && observation.type === 'function')
+  if (!codeUnit) throw new Error('Lua provider did not return its module code unit')
+
+  const protoById = new Map<number, ToolObservation>()
+  for (const prototype of prototypes) {
+    const protoId = prototype.attributes.protoId
+    if (typeof protoId !== 'number' || !Number.isSafeInteger(protoId) || protoId <= 0 || protoById.has(protoId)) {
+      throw new Error('Lua provider returned an invalid or duplicate prototype identity')
+    }
+    protoById.set(protoId, prototype)
+  }
+
+  const expected = new Set<string>()
+  const nestedPrototypeIds = new Set<number>()
+  for (const [protoId, prototype] of protoById) {
+    const serializedChildren = prototype.attributes.childProtoIds
+    if (typeof serializedChildren !== 'string') throw new Error(`Lua prototype ${protoId} has no child table`)
+    const childProtoIds: unknown = JSON.parse(serializedChildren)
+    if (!Array.isArray(childProtoIds) || !childProtoIds.every((childId) => Number.isSafeInteger(childId) && childId > 0)) {
+      throw new Error(`Lua prototype ${protoId} has an invalid child table`)
+    }
+    for (const childProtoId of childProtoIds as number[]) {
+      const child = protoById.get(childProtoId)
+      if (!child) throw new Error(`Lua prototype ${protoId} references unreturned child ${childProtoId}`)
+      expected.add(JSON.stringify([prototype.key, child.key]))
+      nestedPrototypeIds.add(childProtoId)
+    }
+  }
+
+  for (const [protoId, prototype] of protoById) {
+    if (!nestedPrototypeIds.has(protoId)) expected.add(JSON.stringify([codeUnit.key, prototype.key]))
+  }
+  return [...expected].sort()
+}
+
 describeDatabase('unluac-rs Lua 5.4 fixture through PostgreSQL observation persistence', () => {
   const suffix = randomUUID()
   const userId = `lua-db-user-${suffix}`
@@ -150,7 +187,7 @@ describeDatabase('unluac-rs Lua 5.4 fixture through PostgreSQL observation persi
 
     const rows = await prisma.reamonObservation.findMany({
       where: { projectId, artifactId, taskId, source: 'reamon-unluac-rs' },
-      select: { kind: true, type: true, relation: true, stableKey: true, attributes: true },
+      select: { kind: true, type: true, relation: true, fromKey: true, toKey: true, stableKey: true, attributes: true },
       take: 1_001,
     })
     const codeUnits = rows.filter((row) => row.type === 'code_unit')
@@ -161,6 +198,13 @@ describeDatabase('unluac-rs Lua 5.4 fixture through PostgreSQL observation persi
     expect(functions).toHaveLength(data.returnedFunctionCount)
     expect(functions.length).toBeGreaterThan(0)
     expect(Number(contains.length > 0)).toBe(expectedContainsRelationships)
+
+    const expectedContainmentPairs = expectedLuaContainmentPairs(data.observations)
+    const persistedContainmentPairs = contains.map((row) => {
+      if (!row.fromKey || !row.toKey) throw new Error(`Persisted Lua containment ${row.stableKey} has a missing endpoint`)
+      return JSON.stringify([row.fromKey, row.toKey])
+    }).sort()
+    expect(persistedContainmentPairs).toEqual(expectedContainmentPairs)
 
     const attributes = codeUnits[0].attributes as Record<string, unknown>
     expect(attributes).toMatchObject({
@@ -209,6 +253,8 @@ describeDatabase('unluac-rs Lua 5.4 fixture through PostgreSQL observation persi
           persistedCodeUnitCount: 1,
           persistedFunctionCount: functionCount,
           persistedContainsRelationshipCount: containsRelationshipCount,
+          expectedContainsRelationshipCount: expectedLuaContainmentPairs(data.observations).length,
+          prototypeHierarchyComplete: true,
           metrics: {
             recovered_source_files: { state: 'MEASURED', denominator: 1, value: 1 },
             persisted_function_prototypes: { state: 'MEASURED', denominator: 1, value: Number(functionCount > 0) },

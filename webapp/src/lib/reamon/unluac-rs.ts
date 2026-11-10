@@ -98,6 +98,63 @@ function isFunctionMetadata(value: unknown): value is LuaBytecodeFunctionMetadat
       && typeof (edge as Record<string, unknown>).kind === 'string')
 }
 
+function hasValidPrototypeHierarchy(
+  functions: LuaBytecodeFunctionMetadata[],
+  protoCount: number,
+  metadataTruncated: boolean,
+): boolean {
+  const prototypes = new Map<number, LuaBytecodeFunctionMetadata>()
+  for (const proto of functions) {
+    if (proto.protoId >= protoCount || prototypes.has(proto.protoId)) return false
+    prototypes.set(proto.protoId, proto)
+  }
+  if (!prototypes.has(0)) return false
+  if (!metadataTruncated && (protoCount !== functions.length || prototypes.size !== protoCount)) return false
+
+  const parentById = new Map<number, number>()
+  for (const proto of functions) {
+    if (new Set(proto.children).size !== proto.children.length) return false
+    for (const childId of proto.children) {
+      if (childId === 0 || childId >= protoCount || (!metadataTruncated && !prototypes.has(childId))) return false
+      if (!prototypes.has(childId)) continue
+      if (parentById.has(childId)) return false
+      parentById.set(childId, proto.protoId)
+    }
+  }
+  if (parentById.has(0)) return false
+  if (!metadataTruncated && parentById.size !== functions.length - 1) return false
+
+  const state = new Map<number, 'visiting' | 'visited'>()
+  const visit = (protoId: number): boolean => {
+    const current = state.get(protoId)
+    if (current === 'visiting') return false
+    if (current === 'visited') return true
+    state.set(protoId, 'visiting')
+    const proto = prototypes.get(protoId)
+    if (!proto) return false
+    for (const childId of proto.children) {
+      if (prototypes.has(childId) && !visit(childId)) return false
+    }
+    state.set(protoId, 'visited')
+    return true
+  }
+  for (const protoId of prototypes.keys()) {
+    if (!visit(protoId)) return false
+  }
+
+  if (!metadataTruncated) {
+    const reachable = new Set<number>()
+    const visitFromRoot = (protoId: number) => {
+      if (reachable.has(protoId)) return
+      reachable.add(protoId)
+      for (const childId of prototypes.get(protoId)?.children ?? []) visitFromRoot(childId)
+    }
+    visitFromRoot(0)
+    if (reachable.size !== functions.length) return false
+  }
+  return true
+}
+
 export const unluacRsManifest: ToolPluginManifest = {
   id: 'reamon-unluac-rs',
   name: 'Multi-Dialect Lua Bytecode Decompiler (unluac-rs)',
@@ -130,6 +187,8 @@ function isResponse(value: unknown): value is LuaBytecodeResponse {
   if (!response.unit || typeof response.unit !== 'object' || Array.isArray(response.unit)) return false
   const unit = response.unit as Record<string, unknown>
   const functions = response.functions
+  const protoCount = response.protoCount
+  const metadataTruncated = response.metadataTruncated
   return response.status === 'completed'
     && typeof response.toolVersion === 'string' && response.toolVersion.length <= 80
     && ['lua5.1', 'lua5.2', 'lua5.3', 'lua5.4', 'lua5.5', 'luajit', 'luau'].includes(String(response.dialect))
@@ -148,8 +207,9 @@ function isResponse(value: unknown): value is LuaBytecodeResponse {
     && typeof unit.codeArtifactId === 'string' && unit.codeArtifactId.length > 0 && unit.codeArtifactId.length <= 2_000
     && typeof unit.sizeBytes === 'number' && Number.isSafeInteger(unit.sizeBytes) && unit.sizeBytes > 0
     && Array.isArray(functions) && functions.length <= 100 && functions.every(isFunctionMetadata)
-    && Number.isSafeInteger(response.protoCount) && (response.protoCount as number) >= functions.length
-    && typeof response.metadataTruncated === 'boolean'
+    && Number.isSafeInteger(protoCount) && (protoCount as number) >= functions.length
+    && typeof metadataTruncated === 'boolean'
+    && hasValidPrototypeHierarchy(functions as LuaBytecodeFunctionMetadata[], protoCount as number, metadataTruncated)
     && (response.warnings === undefined || typeof response.warnings === 'string')
 }
 
