@@ -257,6 +257,8 @@ export async function GET(_request: Request, { params }: RouteParams) {
         validationMessage: attempt.validationMessage,
         renameProposals: attempt.scope === 'rename-suggestions' ? safeRenameProposals(attempt.requestPayload) : undefined,
         proposalSourceSha256: attempt.scope === 'rename-suggestions' && typeof plainObject(attempt.requestPayload).inputSha256 === 'string' ? plainObject(attempt.requestPayload).inputSha256 : undefined,
+        proposalGoProjectScope: attempt.scope === 'rename-suggestions' && plainObject(attempt.requestPayload).goProjectScope === true,
+        proposalGoSourceSetSha256: attempt.scope === 'rename-suggestions' && typeof plainObject(attempt.requestPayload).goSourceSetSha256 === 'string' ? plainObject(attempt.requestPayload).goSourceSetSha256 : undefined,
         proposalProviderId: attempt.scope === 'rename-suggestions' && typeof plainObject(attempt.requestPayload).providerId === 'string' ? plainObject(attempt.requestPayload).providerId : undefined,
         projectSymbolContextSha256: attempt.scope === 'rename-suggestions' && typeof plainObject(attempt.requestPayload).projectSymbolContextSha256 === 'string' ? plainObject(attempt.requestPayload).projectSymbolContextSha256 : undefined,
         proposalCandidateCount: attempt.scope === 'rename-suggestions' ? safeRenameCandidateCount(attempt.requestPayload) : undefined,

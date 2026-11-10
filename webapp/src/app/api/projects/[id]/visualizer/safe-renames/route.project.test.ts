@@ -1,0 +1,155 @@
+/** @vitest-environment node */
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { createHash } from 'node:crypto'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
+
+const h = vi.hoisted(() => ({
+  user: vi.fn(), access: vi.fn(), selection: vi.fn(), observationFindFirst: vi.fn(), observationFindMany: vi.fn(),
+  artifactFindFirst: vi.fn(), maintainedFindMany: vi.fn(), reviewFindMany: vi.fn(), attemptFindFirst: vi.fn(),
+  providerFindFirst: vi.fn(), agentFetch: vi.fn(), root: vi.fn(), resolvePath: vi.fn(), transaction: vi.fn(),
+  txAttemptCreate: vi.fn(), txDraftCreate: vi.fn(),
+}))
+
+vi.mock('@/lib/access', () => ({ requireEffectiveUser: h.user, requireProjectAccessStrict: h.access }))
+vi.mock('@/lib/reamon/inventory-query', () => ({ getActiveWorkspaceImportSelection: h.selection }))
+vi.mock('@/lib/reamon/derived-storage', () => ({ derivedArtifactRoot: h.root, resolveDerivedArtifactPath: h.resolvePath }))
+vi.mock('@/lib/agentFetch', () => ({ agentFetch: h.agentFetch }))
+vi.mock('@/lib/prisma', () => ({ default: {
+  reamonObservation: { findFirst: h.observationFindFirst, findMany: h.observationFindMany },
+  artifact: { findFirst: h.artifactFindFirst },
+  reamonMaintainedSource: { findMany: h.maintainedFindMany },
+  reamonCodeReview: { findMany: h.reviewFindMany },
+  reamonCodeAttempt: { findFirst: h.attemptFindFirst },
+  userLlmProvider: { findFirst: h.providerFindFirst },
+  $transaction: h.transaction,
+} }))
+
+import { POST } from './route'
+
+const selectedPath = 'pkg/a.go'
+const siblingPath = 'pkg/b.go'
+const selectedCodeArtifactId = 'project-1/artifact-1/task-1/run-1/sources/pkg/a.go'
+const siblingCodeArtifactId = 'project-1/artifact-1/task-1/run-1/sources/pkg/b.go'
+const selectedSource = 'package sample\nfunc normalize(value int) int { return value }\n'
+const siblingSource = 'package sample\nfunc run() int { return normalize(1) }\n'
+const selectedOutput = 'package sample\nfunc scale(value int) int { return value }\n'
+const siblingOutput = 'package sample\nfunc run() int { return scale(1) }\n'
+const bindingId = '0123456789abcdef01234567'
+const inputHash = (source: string) => createHash('sha256').update(source, 'utf8').digest('hex')
+const setHash = (files: Array<{ relativePath: string; sourceCode: string }>) => {
+  const hash = createHash('sha256')
+  for (const file of [...files].sort((a, b) => a.relativePath.localeCompare(b.relativePath))) {
+    hash.update(file.relativePath).update('\0').update(inputHash(file.sourceCode)).update('\n')
+  }
+  return hash.digest('hex')
+}
+const routeParams = { params: Promise.resolve({ id: 'project-1' }) }
+let root = ''
+
+function jsonResponse(body: Record<string, unknown>) {
+  return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })
+}
+
+beforeEach(async () => {
+  vi.clearAllMocks()
+  root = await mkdtemp(path.join(os.tmpdir(), 'reamon-go-project-rename-'))
+  h.user.mockResolvedValue({ userId: 'owner-1' })
+  h.access.mockResolvedValue({ projectId: 'project-1' })
+  h.selection.mockResolvedValue({ artifactWhere: { projectId: 'project-1', importId: { in: ['active-import'] } } })
+  h.observationFindFirst.mockResolvedValue({
+    id: 'unit-a', artifactId: 'artifact-1', taskId: 'task-1', label: 'pkg.a',
+    attributes: { language: 'Go', relativePath: selectedPath, qualifiedName: 'pkg.a', codeArtifactId: selectedCodeArtifactId },
+  })
+  h.observationFindMany.mockResolvedValue([
+    { id: 'unit-a', label: 'pkg.a', attributes: { language: 'Go', relativePath: selectedPath, qualifiedName: 'pkg.a', codeArtifactId: selectedCodeArtifactId } },
+    { id: 'unit-b', label: 'pkg.b', attributes: { language: 'Go', relativePath: siblingPath, qualifiedName: 'pkg.b', codeArtifactId: siblingCodeArtifactId } },
+  ])
+  h.artifactFindFirst.mockResolvedValue({ id: 'artifact-1', sha256: 'a'.repeat(64) })
+  h.maintainedFindMany.mockResolvedValue([{
+    codeUnitId: 'unit-b', sourceCode: siblingSource, sourceHash: inputHash(siblingSource),
+    acceptedReviewId: 'review-b', relativePath: siblingPath,
+  }])
+  h.reviewFindMany.mockResolvedValue([{
+    id: 'review-b', codeUnitId: 'unit-b', artifactId: 'artifact-1',
+    maintainedSourceHash: inputHash(siblingSource), decision: 'ACCEPTED',
+  }])
+  h.attemptFindFirst.mockResolvedValue({
+    id: 'proposal-1', requestPayload: {
+      operation: 'scope-safe-rename-suggestions', providerId: 'provider-1', modelIdentifier: 'model-1',
+      inputSha256: inputHash(selectedSource), projectSymbolContext: '', projectSymbolContextSha256: inputHash(''),
+      goProjectScope: true, goSourceSetSha256: setHash([
+        { relativePath: selectedPath, sourceCode: selectedSource }, { relativePath: siblingPath, sourceCode: siblingSource },
+      ]), goSelectedPath: selectedPath,
+      renames: [{ bindingId, oldName: 'normalize', newName: 'scale', kind: 'package function', rationale: 'clearer name' }],
+    },
+  })
+  h.providerFindFirst.mockResolvedValue({ id: 'provider-1', name: 'Provider', modelIdentifier: 'model-1' })
+  h.root.mockReturnValue(root)
+  h.resolvePath.mockImplementation((relative: string) => path.join(root, relative))
+  await mkdir(path.dirname(path.join(root, selectedCodeArtifactId)), { recursive: true })
+  await mkdir(path.dirname(path.join(root, siblingCodeArtifactId)), { recursive: true })
+  await writeFile(path.join(root, selectedCodeArtifactId), selectedSource)
+  await writeFile(path.join(root, siblingCodeArtifactId), siblingSource)
+  h.agentFetch.mockImplementation(async (_url: string, init: RequestInit) => {
+    const body = JSON.parse(String(init.body)) as Record<string, unknown>
+    if (body.operation === 'project_bindings') {
+      return jsonResponse({
+        source_sha256: inputHash(selectedSource), source_set_sha256: setHash([
+          { relativePath: selectedPath, sourceCode: selectedSource }, { relativePath: siblingPath, sourceCode: siblingSource },
+        ]), selected_path: selectedPath,
+        files: [
+          { relative_path: selectedPath, source_sha256: inputHash(selectedSource) },
+          { relative_path: siblingPath, source_sha256: inputHash(siblingSource) },
+        ],
+        bindings: [{ id: bindingId, name: 'normalize', kind: 'package function', scopeType: 'package', declarationStart: 20, referenceCount: 1, relativePath: selectedPath, exported: false }],
+        truncated: false, parser_version: 'go1.24.4',
+      })
+    }
+    return jsonResponse({
+      scope: 'project', source_sha256: inputHash(selectedSource),
+      source_set_sha256: setHash([{ relativePath: selectedPath, sourceCode: selectedSource }, { relativePath: siblingPath, sourceCode: siblingSource }]),
+      output_source_set_sha256: setHash([{ relativePath: selectedPath, sourceCode: selectedOutput }, { relativePath: siblingPath, sourceCode: siblingOutput }]),
+      output_sha256: inputHash(selectedOutput), source_code: selectedOutput, parser_version: 'go1.24.4',
+      renamed_bindings: [{ bindingId, oldName: 'normalize', newName: 'scale', kind: 'package function', referenceCount: 1, scopeType: 'package' }],
+      files: [
+        { relative_path: selectedPath, input_sha256: inputHash(selectedSource), output_sha256: inputHash(selectedOutput), source_code: selectedOutput, edits: [{ start: 20, end: 29, old_text: 'normalize', new_text: 'scale' }] },
+        { relative_path: siblingPath, input_sha256: inputHash(siblingSource), output_sha256: inputHash(siblingOutput), source_code: siblingOutput, edits: [{ start: 35, end: 44, old_text: 'normalize', new_text: 'scale' }] },
+      ],
+    })
+  })
+  h.txAttemptCreate.mockImplementation(async ({ data }) => ({ id: `attempt-${data.codeUnitId}` }))
+  h.txDraftCreate.mockImplementation(async ({ data }) => ({ id: `draft-${data.codeUnitId}`, updatedAt: new Date('2026-11-10T12:00:00Z') }))
+  h.transaction.mockImplementation(async (callback) => callback({
+    reamonCodeAttempt: { create: h.txAttemptCreate },
+    reamonCodeDraft: { create: h.txDraftCreate },
+  }))
+})
+
+afterEach(async () => { if (root) await rm(root, { recursive: true, force: true }) })
+
+describe('POST safe-renames Go package scope', () => {
+  it('type-checks and stores all cross-file changes as reviewable drafts atomically', async () => {
+    const response = await POST(new Request('http://localhost/api/projects/project-1/visualizer/safe-renames', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        operation: 'apply', unitId: 'unit-a', providerId: 'provider-1', sourceCode: selectedSource,
+        expectedSha256: inputHash(selectedSource), suggestionAttemptId: 'proposal-1', crossFileGo: true,
+        renames: [{ bindingId, oldName: 'normalize', newName: 'scale', rationale: 'clearer name' }],
+      }),
+    }), routeParams)
+
+    expect(response.status).toBe(200)
+    const body = await response.json()
+    expect(body).toMatchObject({ sourceCode: selectedOutput, attemptId: 'attempt-unit-a', draftId: 'draft-unit-a', validationStatus: 'PASSED' })
+    expect(body.projectChanges).toEqual(expect.arrayContaining([
+      expect.objectContaining({ unitId: 'unit-a', relativePath: selectedPath, draftId: 'draft-unit-a' }),
+      expect.objectContaining({ unitId: 'unit-b', relativePath: siblingPath, draftId: 'draft-unit-b' }),
+    ]))
+    expect(h.transaction).toHaveBeenCalledTimes(1)
+    expect(h.txAttemptCreate).toHaveBeenCalledTimes(2)
+    expect(h.txDraftCreate).toHaveBeenCalledTimes(2)
+    expect(h.txDraftCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ codeUnitId: 'unit-b', sourceHash: inputHash(siblingSource), sourceCode: siblingOutput, syntaxValidated: true, validationStatus: 'PASSED' }) }))
+  })
+})

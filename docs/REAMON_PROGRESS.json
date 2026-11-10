@@ -64,10 +64,10 @@
     {
       "name": "Cross-file semantic rename propagation",
       "weight": 7,
-      "completion": 8,
-      "summary": "Selected language adapters resolve and rename bindings within one source document, with language-specific checks; this is useful partial groundwork. General cross-file/module/class propagation is not implemented and several adapters lack broad fixture validation.",
-      "remaining": "Resolve stable symbol identity across project files and preserve references, bindings, scopes, calls, imports, language semantics, and original identity. Prevent collisions and shadowing, report supported/experimental/unsupported language-provider cells, and retain versioned edit manifests with exact rollback. Demonstrate zero unresolved or misbound statically resolved references on the declared benchmark.",
-      "basis": "Credit narrow same-source refactoring and language-aware binding checks only. Project-wide propagation, import updates, comprehensive compatibility declarations, and whole-project integrity fixtures are absent."
+      "completion": 9,
+      "summary": "Selected language adapters resolve and rename bindings within one source document, with language-specific checks; this is useful partial groundwork. General cross-file/module/class propagation remains incomplete, and several adapters lack broad fixture validation. A narrowly scoped Go project rename path now resolves same-package bindings by go/types identity across same-directory files, requires immutable accepted-review receipts and current source hashes for sibling files, verifies hash-bound per-file manifests and the resulting package, and atomically saves changed files as separate review drafts. The visualizer exposes this path only through an explicit Go scope control. This is experimental same-package propagation, not general project/module rename support.",
+      "remaining": "Add live PostgreSQL/browser acceptance for proposal, apply, reload and review across multiple files; verify rollback and failure cleanup; extend tested compatibility to imports, module boundaries, build constraints and additional languages; measure false-reference and missed-reference rates on a held-out Go corpus; complete ASSR-2 integrity and compatibility gates.",
+      "basis": "Credit narrow same-source refactoring and language-aware binding checks only. General project propagation, import updates, comprehensive compatibility declarations, and whole-project integrity fixtures remain incomplete. One additional partial point records the verified Go same-package route and per-file draft workflow, covered by go/types helper tests, API bounds/forwarding tests, mocked route transaction tests, visualizer tests, type-check and lint. The full Docker webapp suite passes 648 files / 9,877 tests, with 2 expected failures and 47 files / 196 tests skipped; MCP_DOCS_WIKI_DIR=/tmp/reamon-isolated-wiki keeps comparisons away from the user-edited wiki. No live database or browser acceptance is claimed. No credit is assigned for other languages, modules/imports, or rollback."
     },
     {
       "name": "Safe autonomous rename acceptance",
@@ -167,27 +167,28 @@
     }
   ],
   "recentComparison": {
-    "baselineEstimate": 31.44,
+    "baselineEstimate": 31.51,
     "date": "2026-11-10",
-    "evidence": "Ghidra observations now persist provider lineage for ReIPA co-run output and BcfClean/CffDeflatten transforms; alternate retrieval reads the stored metadata. Full Docker suite passed: 646 files; 9,872 tests passed, 2 expected failures, 196 skipped."
+    "evidence": "The Go project rename workflow now connects go/types package identity, accepted-sibling source receipts, bounded per-file manifests, the visualizer, and atomic review-draft persistence. Cross-file semantic rename propagation rises from 8% to 9%, adding 0.07 weighted points (31.51% to 31.58%). Focused Docker tests pass 45/45, webapp type-check and targeted ESLint pass, and the full Docker webapp suite passes 648 files / 9,877 tests, with 2 expected failures and 47 files / 196 skipped (MCP_DOCS_WIKI_DIR=/tmp/reamon-isolated-wiki); no live database/browser acceptance is claimed."
   },
   "activeWork": {
     "date": "2026-11-10",
-    "basedOnCommit": "c0b33e32",
+    "basedOnCommit": "f124b2f3",
     "workstream": "Cross-file semantic rename propagation (ASSR-2)",
-    "status": "in progress; no completion credit awarded",
+    "status": "implemented narrow Go same-package slice; acceptance incomplete",
     "verified": [
-      "A Go package-snapshot helper catalogs unexported package bindings by go/types object identity across same-directory source files.",
-      "The helper emits hash-bound, versioned per-file edit manifests and re-type-checks edited package sources to verify renamed references resolve to their original object.",
-      "Focused Go Docker tests pass, including cross-file reference updates, stale source-set rejection, package mismatch, unresolved references, and build-constraint rejection.",
-      "The Go agent API module passes Python bytecode compilation.",
-      "Three focused Docker HTTP tests pass for project request forwarding, invalid source-set hash rejection before helper dispatch, and the 256-file request cap.",
-      "The complete agent unit gate passes: 188 files, 3,805 tests, zero failures; one collected file contains no tests. The Go refactor package tests also pass."
+      "A Go package snapshot resolves unexported same-package bindings across same-directory files by go/types object identity and emits hash-bound per-file edit manifests; edited package sources are re-type-checked.",
+      "The project API validates source-set hashes, payload bounds and per-file inputs before dispatching the Go helper.",
+      "The visualizer route builds sibling inputs only from immutable accepted review receipts and current source hashes, exposes an opt-in Go cross-file scope, and saves changed files as separate drafts in one database transaction.",
+      "Focused webapp tests pass: 5 files, 45 tests, including helper, route transaction, access, saved-draft metadata and visualizer coverage. Webapp type-check and targeted ESLint pass.",
+      "The Go package helper and API unit coverage pass; the complete agent unit gate passes 188 files and 3,805 tests (one collected file contains no tests).",
+      "The full Docker webapp suite passes: 648 files, 9,877 tests passed, 2 expected failures, and 196 skipped across 47 files. MCP_DOCS_WIKI_DIR=/tmp/reamon-isolated-wiki redirects wiki comparisons away from the user-edited checkout."
     ],
     "notVerified": [
-      "The safe-renames route does not yet construct a trusted accepted-source package snapshot or invoke the project operation.",
-      "Multi-file draft persistence, preview, rollback, and live database/browser acceptance are not implemented."
+      "Live PostgreSQL and browser acceptance across proposal, apply, reload and sibling draft review.",
+      "Rollback/failure cleanup and repository builds with modules, imports, generated files or build constraints.",
+      "Cross-file propagation for languages other than the narrow same-package Go path, or broad false-positive/false-negative measurements."
     ],
-    "next": "Build the accepted-source package snapshot from project records, wire catalog and apply through the safe-renames route and multi-file draft review flow, then run focused route/database tests before reconsidering ASSR-2 credit."
+    "next": "Add live PostgreSQL/browser acceptance for a two-file Go package covering proposal, apply, reload, sibling-draft review and rollback; expand the held-out Go binding-integrity corpus before awarding additional ASSR-2 credit."
   }
 }

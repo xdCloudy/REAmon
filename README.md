@@ -77,8 +77,8 @@ The [autonomous reconstruction and fidelity delivery plan](docs/REAMON_AUTONOMOU
 ## Project status
 
 <!-- REAMON_PRODUCT_PROGRESS_START -->
-<progress value="31.51" max="100">31.51%</progress> <strong>31.51%</strong> — weighted estimate **31.51%**.
-Latest evidence-based score change (2026-11-10): **+0.07 points** (31.44% → 31.51%). Ghidra observations now persist provider lineage for ReIPA co-run output and BcfClean/CffDeflatten transforms; alternate retrieval reads the stored metadata. Full Docker suite passed: 646 files; 9,872 tests passed, 2 expected failures, 196 skipped.
+<progress value="31.58" max="100">31.58%</progress> <strong>31.58%</strong> — weighted estimate **31.58%**.
+Latest evidence-based score change (2026-11-10): **+0.07 points** (31.51% → 31.58%). The experimental Go same-package rename path now connects go/types binding identity and accepted sibling-source receipts to the visualizer and atomic per-file review drafts. Focused tests pass 45/45; TypeScript and targeted ESLint pass. The full Docker suite passes: 648 files, 9,877 tests passed, 2 expected failures, 196 skipped. MCP_DOCS_WIKI_DIR=/tmp/reamon-isolated-wiki redirects wiki checks away from the user-edited checkout. Live database/browser acceptance remains open.
 Refreshed from pushed commit `42312c3`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 

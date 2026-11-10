@@ -183,12 +183,13 @@ interface CodeExplanationProvider { id: string; name: string; modelIdentifier: s
 interface CodeExplanationResponse { explanation: string; providerName: string; model: string; sourceTruncated: boolean }
 interface ApkBuildResponse { buildId: string; taskId: string; fileName: string; sizeBytes: number; sha256: string; signed: false; changedFileCount: number; warnings?: string; downloadUrl: string }
 interface JvmBuildResponse { buildId: string; taskId: string; codeUnitId: string; fileName: string; sizeBytes: number; sha256: string; sourceSha256: string; changedClassCount: number; removedClassCount: number; javaRelease: number; compilerVersion: string; diagnostics: string; warnings: string; downloadUrl: string }
-interface CodeMaintenanceResponse { sourceCode: string; providerName: string; model: string; attemptId?: string | null; syntaxValidated?: boolean | null; validationStatus?: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod?: string | null; validationMessage?: string | null }
+interface ProjectRenameDraftChange { unitId: string; relativePath: string; unitName: string; attemptId: string; draftId: string; updatedAt: string; outputSha256: string; editCount: number }
+interface CodeMaintenanceResponse { sourceCode: string; providerName: string; model: string; attemptId?: string | null; syntaxValidated?: boolean | null; validationStatus?: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod?: string | null; validationMessage?: string | null; draftId?: string; draftUpdatedAt?: string; projectChanges?: ProjectRenameDraftChange[] }
 interface CodeDraftRecord { id: string; sourceCode: string; sourceAttemptId: string | null; providerName: string; modelIdentifier: string; question: string; scope: 'file' | 'member'; syntaxValidated: boolean | null; validationStatus: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod: string | null; validationMessage: string | null; updatedAt: string }
 interface RewriteHistoryEntry { round: number; sourceCode: string; sourceSha256: string; validationStatus: string; validationMethod: string; validationMessage: string }
 interface RewriteContextSummary { fingerprint: string; evidence: string[]; relatedUnits: Array<{ name: string; language: string; unitId: string; sourceSha256: string; sourceBytes: number }>; relatedUnitsTruncated: boolean }
 interface CodeQualityReview { status: 'NO_ISSUE_FOUND' | 'NEEDS_REVIEW' | 'UNCERTAIN' | 'UNAVAILABLE'; candidateSha256: string; summary: string; findings: string[]; modelUsed: string }
-interface CodeAttemptRecord { id: string; providerName: string; modelIdentifier: string; question: string; scope: 'file' | 'member' | 'rename-suggestions'; status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'; cancelRequested: boolean; errorCode: string | null; errorMessage: string | null; resultSource: string | null; qualityReview?: CodeQualityReview | null; context?: RewriteContextSummary; rewriteHistoryRoundCount: number; renameProposals?: SafeRenameProposal[]; proposalSourceSha256?: string; proposalProviderId?: string; projectSymbolContextSha256?: string; proposalCandidateCount?: number; syntaxValidated: boolean | null; validationStatus: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod: string | null; validationMessage: string | null; createdAt: string; completedAt: string | null }
+interface CodeAttemptRecord { id: string; providerName: string; modelIdentifier: string; question: string; scope: 'file' | 'member' | 'rename-suggestions'; status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'; cancelRequested: boolean; errorCode: string | null; errorMessage: string | null; resultSource: string | null; qualityReview?: CodeQualityReview | null; context?: RewriteContextSummary; rewriteHistoryRoundCount: number; renameProposals?: SafeRenameProposal[]; proposalSourceSha256?: string; proposalProviderId?: string; proposalGoProjectScope?: boolean; proposalGoSourceSetSha256?: string; projectSymbolContextSha256?: string; proposalCandidateCount?: number; syntaxValidated: boolean | null; validationStatus: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod: string | null; validationMessage: string | null; createdAt: string; completedAt: string | null }
 interface CodeAgentBatchAttempt { id: string; providerName: string; modelIdentifier: string; memberName: string; memberStartByte: number | null; memberEndByte: number | null; status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'; cancelRequested: boolean; errorMessage: string | null; resultSource: string | null; inputSource: string | null; qualityReview?: CodeQualityReview | null; context?: RewriteContextSummary; createdAt: string; completedAt: string | null }
 interface CodeDraftResponse { exists: boolean; draft: CodeDraftRecord | null; agentBatch?: { id: string; attempts: CodeAgentBatchAttempt[] } | null; attempts?: CodeAttemptRecord[] }
 interface CodeUnitNoteResponse { unitId: string; note: string; stale: boolean; updatedAt: string | null }
@@ -207,7 +208,7 @@ interface CodeReviewRecord {
 interface AcceptedRenameAlias { bindingId: string; oldName: string; newName: string; kind: string }
 interface CodeMemberOutline { name: string; kind: 'function' | 'method' | 'constructor'; start_byte: number; end_byte: number; line: number; source_bytes: number }
 interface SafeRenameProposal { bindingId: string; oldName: string; newName: string; kind: string; referenceCount: number; rationale: string }
-interface SafeRenameSuggestions { sourceSha256: string; providerId: string; providerName: string; model: string; attemptId: string; projectSymbolContextSha256: string; candidates: number; renames: SafeRenameProposal[] }
+interface SafeRenameSuggestions { sourceSha256: string; providerId: string; providerName: string; model: string; attemptId: string; projectSymbolContextSha256: string; scope: 'file' | 'project'; sourceSetSha256?: string | null; candidates: number; renames: SafeRenameProposal[] }
 
 interface ReviewDiffRow { kind: 'added' | 'removed'; text: string; beforeLine: number | null; afterLine: number | null }
 interface ReviewDiff { rows: ReviewDiffRow[]; added: number; removed: number; truncated: boolean; unavailable: boolean }
@@ -1013,6 +1014,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
   const [maintenanceMeta, setMaintenanceMeta] = useState<CodeMaintenanceResponse | null>(null)
   const [maintenanceError, setMaintenanceError] = useState('')
   const [safeRenameSuggestions, setSafeRenameSuggestions] = useState<SafeRenameSuggestions | null>(null)
+  const [crossFileGoRename, setCrossFileGoRename] = useState(false)
   const [selectedSafeRenameIds, setSelectedSafeRenameIds] = useState<Set<string>>(new Set())
   const [suggestingSafeRenames, setSuggestingSafeRenames] = useState(false)
   const [applyingSafeRenames, setApplyingSafeRenames] = useState(false)
@@ -1896,10 +1898,10 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
     try {
       const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/safe-renames`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ operation: 'suggest', unitId: selectedUnit.id, providerId: selectedProviderId, sourceCode: workingSource, question: question.trim() }),
+        body: JSON.stringify({ operation: 'suggest', unitId: selectedUnit.id, providerId: selectedProviderId, sourceCode: workingSource, question: question.trim(), crossFileGo: safeRenameGo && crossFileGoRename }),
       })
       const result = await response.json().catch(() => ({})) as SafeRenameSuggestions & { error?: string }
-      if (!response.ok || typeof result.sourceSha256 !== 'string' || result.providerId !== selectedProviderId || typeof result.attemptId !== 'string' || typeof result.projectSymbolContextSha256 !== 'string' || !Array.isArray(result.renames)) {
+      if (!response.ok || typeof result.sourceSha256 !== 'string' || result.providerId !== selectedProviderId || typeof result.attemptId !== 'string' || typeof result.projectSymbolContextSha256 !== 'string' || !['file', 'project'].includes(result.scope) || !Array.isArray(result.renames)) {
         throw new Error(result.error || 'Could not suggest scope-safe rename candidates')
       }
       setSafeRenameSuggestions(result)
@@ -1924,7 +1926,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
     try {
       const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/visualizer/safe-renames`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ operation: 'apply', unitId: selectedUnit.id, providerId: selectedProviderId, sourceCode: workingSource, expectedSha256: safeRenameSuggestions.sourceSha256, suggestionAttemptId: safeRenameSuggestions.attemptId, renames }),
+        body: JSON.stringify({ operation: 'apply', unitId: selectedUnit.id, providerId: selectedProviderId, sourceCode: workingSource, expectedSha256: safeRenameSuggestions.sourceSha256, suggestionAttemptId: safeRenameSuggestions.attemptId, crossFileGo: safeRenameSuggestions.scope === 'project', renames }),
       })
       const result = await response.json().catch(() => ({})) as CodeMaintenanceResponse & { error?: string; outputSha256?: string; renamedBindings?: Array<{ oldName: string; newName: string }> }
       if (!response.ok || typeof result.sourceCode !== 'string' || !result.attemptId) {
@@ -1933,14 +1935,40 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
       setMaintainedDraft(result.sourceCode)
       setMaintenanceMeta(result)
       setMaintainedSaved(false)
-      setDraftId(null)
-      setDraftSource(null)
-      setDraftScope('file')
-      const draftId = await persistCodeDraft(result.sourceCode, result, 'file')
+      let draftId: string
+      if (result.projectChanges?.length) {
+        const selectedChange = result.projectChanges.find((change) => change.unitId === selectedUnit.id)
+        if (!selectedChange || selectedChange.draftId !== result.draftId || !result.draftUpdatedAt) {
+          throw new Error('The project rename response did not include the selected file draft receipt')
+        }
+        draftId = selectedChange.draftId
+        const record: CodeDraftRecord = {
+          id: draftId, sourceCode: result.sourceCode, sourceAttemptId: result.attemptId ?? null,
+          providerName: result.providerName, modelIdentifier: result.model, question: question.trim(),
+          scope: 'file', syntaxValidated: result.syntaxValidated ?? null, validationStatus: result.validationStatus ?? null,
+          validationMethod: result.validationMethod ?? null, validationMessage: result.validationMessage ?? null,
+          updatedAt: result.draftUpdatedAt,
+        }
+        setDraftId(record.id)
+        setDraftSource(result.sourceCode)
+        setDraftScope('file')
+        queryClient.setQueryData<CodeDraftResponse>(['reamon-code-draft', projectId, selectedUnit.id], (current) => ({ exists: true, draft: record, attempts: current?.attempts }))
+        for (const change of result.projectChanges) {
+          await queryClient.invalidateQueries({ queryKey: ['reamon-code-draft', projectId, change.unitId] })
+        }
+      } else {
+        setDraftId(null)
+        setDraftSource(null)
+        setDraftScope('file')
+        draftId = await persistCodeDraft(result.sourceCode, result, 'file')
+      }
       await queryClient.invalidateQueries({ queryKey: ['reamon-code-draft', projectId, selectedUnit.id] })
       setSafeRenameSuggestions(null)
       setSelectedSafeRenameIds(new Set())
-      setSafeRenameStatus(`Applied ${result.renamedBindings?.length || renames.length} scope-safe rename${(result.renamedBindings?.length || renames.length) === 1 ? '' : 's'}; draft ${draftId} is saved for review.`)
+      const projectFileMessage = result.projectChanges?.length
+        ? ` Saved review drafts for ${result.projectChanges.map((change) => change.relativePath).join(', ')}; select each Go code unit to inspect its draft.`
+        : ''
+      setSafeRenameStatus(`Applied ${result.renamedBindings?.length || renames.length} scope-safe rename${(result.renamedBindings?.length || renames.length) === 1 ? '' : 's'}; draft ${draftId} is saved for review.${projectFileMessage}`)
     } catch (error) {
       setMaintenanceError(error instanceof Error ? error.message : 'Could not apply the selected safe renames')
     } finally {
@@ -1971,9 +1999,12 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
         model: attempt.modelIdentifier,
         attemptId: attempt.id,
         projectSymbolContextSha256: attempt.projectSymbolContextSha256,
+        scope: attempt.proposalGoProjectScope ? 'project' : 'file',
+        sourceSetSha256: attempt.proposalGoSourceSetSha256 ?? null,
         candidates: attempt.proposalCandidateCount ?? attempt.renameProposals.length,
         renames: attempt.renameProposals,
       })
+      setCrossFileGoRename(attempt.proposalGoProjectScope === true)
       setSelectedSafeRenameIds(new Set(attempt.renameProposals.map((proposal) => proposal.bindingId)))
       setSafeRenameStatus('Loaded saved proposals. Review the selections before applying them.')
       setMaintenanceError('')
@@ -3382,7 +3413,15 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
             </label>
           </>}
           {safeRenameSupported && <section className={styles.classReferences} aria-label="Scope-safe identifier renaming">
-            <div><strong>Suggest names, apply them through lexical scopes</strong><span>The configured model uses source and reviewed project names to suggest bindings. {safeRenameGo ? 'Go AST and go/types rename selected local bindings by object identity, reject name capture, and reparse the output.' : safeRenamePython ? 'LibCST renames selected function-local variables and parameters; module-level names and imports are excluded.' : safeRenamePhp ? 'Phpactor resolves function-local variables and parameters; PHP lint checks the resulting syntax. Project-wide names and dynamic lookups are not renamed.' : safeRenameRuby ? 'Solargraph resolves same-file local variables and parameters; Ripper limits edits to local identifier tokens and ruby -c checks syntax. Keyword labels, project-wide references, and behavior are not checked.' : safeRenameRust ? 'rust-analyzer resolves selected local bindings and their same-file references; dependency builds and behavior are not checked.' : safeRenameCpp ? 'clangd resolves same-file C/C++ local variables and parameters. Macro, conditional-compilation, and template source is excluded; builds and behavior are not checked.' : safeRenameJava ? 'javac resolves selected Java local bindings and checks the renamed source; project dependencies and behavior are not checked.' : safeRenameCSharp ? 'Roslyn resolves selected C# local bindings and parses the renamed source; project references and behavior are not checked.' : safeRenameLuau ? 'Luau LSP resolves selected local bindings and applies same-file edits; the result receives a syntax check without executing it.' : safeRenameLua ? 'LuaLS resolves selected local bindings and applies same-file edits; behavior is not checked.' : 'Babel applies selected JavaScript or TypeScript renames and checks syntax and scope collisions.'} Structural validation does not verify behavior.</span></div>
+            <div><strong>Suggest names, apply them through lexical scopes</strong><span>The configured model uses source and reviewed project names to suggest bindings. {safeRenameGo ? crossFileGoRename ? 'Go go/types checks package bindings and all same-package references across files with accepted sibling-source receipts. Changed files are saved as separate review drafts; builds and runtime behavior are not checked.' : 'Go AST and go/types rename selected local bindings by object identity, reject name capture, and reparse the output.' : safeRenamePython ? 'LibCST renames selected function-local variables and parameters; module-level names and imports are excluded.' : safeRenamePhp ? 'Phpactor resolves function-local variables and parameters; PHP lint checks the resulting syntax. Project-wide names and dynamic lookups are not renamed.' : safeRenameRuby ? 'Solargraph resolves same-file local variables and parameters; Ripper limits edits to local identifier tokens and ruby -c checks syntax. Keyword labels, project-wide references, and behavior are not checked.' : safeRenameRust ? 'rust-analyzer resolves selected local bindings and their same-file references; dependency builds and behavior are not checked.' : safeRenameCpp ? 'clangd resolves same-file C/C++ local variables and parameters. Macro, conditional-compilation, and template source is excluded; builds and behavior are not checked.' : safeRenameJava ? 'javac resolves selected Java local bindings and checks the renamed source; project dependencies and behavior are not checked.' : safeRenameCSharp ? 'Roslyn resolves selected C# local bindings and parses the renamed source; project references and behavior are not checked.' : safeRenameLuau ? 'Luau LSP resolves selected local bindings and applies same-file edits; the result receives a syntax check without executing it.' : safeRenameLua ? 'LuaLS resolves selected local bindings and applies same-file edits; behavior is not checked.' : 'Babel applies selected JavaScript or TypeScript renames and checks syntax and scope collisions.'} Structural validation does not verify behavior.</span></div>
+            {safeRenameGo && <label className={styles.explainField}>
+              <input type="checkbox" checked={crossFileGoRename} onChange={(event) => {
+                setCrossFileGoRename(event.target.checked)
+                setSafeRenameSuggestions(null)
+                setSelectedSafeRenameIds(new Set())
+              }} />
+              Include same-package files and references from this analysis run (requires current accepted review receipts for sibling Go sources; changed files are saved as separate drafts).
+            </label>}
             <button type="button" className={styles.copyButton} onClick={() => void suggestSafeRenames()} disabled={!selectedProviderId || suggestingSafeRenames || applyingSafeRenames || transforming || sourceByteLength === null || safeRenameSourceByteLength > 64 * 1024 || sourceQuery.isError}>
               {suggestingSafeRenames ? 'Checking source and suggesting names…' : 'Suggest scope-safe renames'}
             </button>
