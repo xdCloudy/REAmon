@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -38,6 +39,33 @@ type projectRenameRejectCorpusCase struct {
 	NewName       string            `json:"new_name"`
 	ErrorContains string            `json:"error_contains"`
 	Files         map[string]string `json:"files"`
+}
+
+type projectInventoryCorpus struct {
+	Version  int                       `json:"version"`
+	Fixtures []projectInventoryFixture `json:"fixtures"`
+}
+
+type projectInventoryFixture struct {
+	Name          string                         `json:"name"`
+	ModulePath    string                         `json:"module_path"`
+	GoMod         string                         `json:"go_mod"`
+	PackageName   string                         `json:"package_name"`
+	BuildContexts []projectInventoryBuildContext `json:"build_contexts"`
+	SelectedPath  string                         `json:"selected_path"`
+	Files         []projectInventoryFixtureFile  `json:"files"`
+	Expected      map[string]int                 `json:"expected"`
+}
+
+type projectInventoryBuildContext struct {
+	GOOS   string `json:"goos"`
+	GOARCH string `json:"goarch"`
+}
+
+type projectInventoryFixtureFile struct {
+	FixturePath   string `json:"fixture_path"`
+	InventoryPath string `json:"inventory_path"`
+	SHA256        string `json:"sha256"`
 }
 
 func bindingNamed(t *testing.T, cat *catalog, name string, declarationStart int) binding {
@@ -882,6 +910,105 @@ func TestProjectInventoryAggregatesCompleteGoPackagesAcrossDirectories(t *testin
 		{Path: "cmd/data.go", Text: request.Files[3].Source},
 	}, buildContext) {
 		t.Fatalf("project snapshot metadata = %#v", result)
+	}
+}
+
+func TestProjectInventoryMatchesHashPinnedUpstreamCorpusV1(t *testing.T) {
+	manifestBytes, err := os.ReadFile(filepath.Join("testdata", "project_inventory_v1.json"))
+	if err != nil {
+		t.Fatalf("read project inventory corpus manifest: %v", err)
+	}
+	var corpus projectInventoryCorpus
+	if err := json.Unmarshal(manifestBytes, &corpus); err != nil {
+		t.Fatalf("parse project inventory corpus manifest: %v", err)
+	}
+	if corpus.Version != 1 || len(corpus.Fixtures) != 2 {
+		t.Fatalf("project inventory corpus version/fixture count = %d/%d; want 1/2", corpus.Version, len(corpus.Fixtures))
+	}
+	for _, fixture := range corpus.Fixtures {
+		t.Run(fixture.Name, func(t *testing.T) {
+			files := make([]projectFile, 0, len(fixture.Files))
+			for _, file := range fixture.Files {
+				contents, err := os.ReadFile(filepath.Join("testdata", filepath.FromSlash(file.FixturePath)))
+				if err != nil {
+					t.Fatalf("read pinned source %s: %v", file.FixturePath, err)
+				}
+				source := string(contents)
+				if actual := hashText(source); actual != file.SHA256 {
+					t.Fatalf("pinned source hash for %s = %s; want %s", file.FixturePath, actual, file.SHA256)
+				}
+				files = append(files, projectFile{Path: file.InventoryPath, Source: source, ExpectedHash: file.SHA256})
+			}
+			if len(fixture.BuildContexts) == 0 {
+				t.Fatal("fixture has no pinned build contexts")
+			}
+			request := goProjectRequest(files, fixture.SelectedPath)
+			request.Operation = "project_inventory"
+			request.ModulePath = fixture.ModulePath
+			request.GoMod = fixture.GoMod
+			request.GoModHash = hashText(fixture.GoMod)
+			request.BuildGOOS, request.BuildGOARCH = fixture.BuildContexts[0].GOOS, fixture.BuildContexts[0].GOARCH
+			result, err := listProjectInventory(request)
+			if err != nil {
+				t.Fatalf("inventory hash-pinned upstream sources: %v", err)
+			}
+			inventory := result["inventory"].(map[string]any)
+			counts := map[string]int{
+				"source_file_count":                   inventory["source_file_count"].(int),
+				"package_count":                       inventory["package_count"].(int),
+				"private_package_symbol_count":        inventory["private_package_symbol_count"].(int),
+				"referenced_private_package_symbols":  inventory["referenced_private_package_symbols"].(int),
+				"unreferenced_private_symbols":        inventory["unreferenced_private_symbols"].(int),
+				"exported_package_symbol_count":       inventory["exported_package_symbol_count"].(int),
+				"unsupported_package_symbol_count":    inventory["unsupported_package_symbol_count"].(int),
+				"file_scope_symbol_count":             inventory["file_scope_symbol_count"].(int),
+				"referenced_file_scope_symbols":       inventory["referenced_file_scope_symbols"].(int),
+				"unreferenced_file_scope_symbols":     inventory["unreferenced_file_scope_symbols"].(int),
+				"unsupported_file_scope_symbol_count": inventory["unsupported_file_scope_symbol_count"].(int),
+				"local_symbol_count":                  inventory["local_symbol_count"].(int),
+				"referenced_local_symbols":            inventory["referenced_local_symbols"].(int),
+				"unreferenced_local_symbols":          inventory["unreferenced_local_symbols"].(int),
+				"unsupported_local_symbol_count":      inventory["unsupported_local_symbol_count"].(int),
+				"entry_count":                         inventory["entry_count"].(int),
+			}
+			if !reflect.DeepEqual(counts, fixture.Expected) {
+				t.Fatalf("inventory counts = %#v; want pinned counts %#v", counts, fixture.Expected)
+			}
+			for _, build := range fixture.BuildContexts[1:] {
+				alternateRequest := request
+				alternateRequest.BuildGOOS, alternateRequest.BuildGOARCH = build.GOOS, build.GOARCH
+				alternateResult, err := listProjectInventory(alternateRequest)
+				if err != nil {
+					t.Fatalf("inventory pinned sources for %s/%s: %v", build.GOOS, build.GOARCH, err)
+				}
+				alternateInventory := alternateResult["inventory"].(map[string]any)
+				for field, expected := range fixture.Expected {
+					if actual, ok := alternateInventory[field].(int); !ok || actual != expected {
+						t.Fatalf("%s/%s inventory %s = %v; want pinned count %d", build.GOOS, build.GOARCH, field, alternateInventory[field], expected)
+					}
+				}
+			}
+			entries := inventory["entries"].([]projectInventoryEntry)
+			if inventory["complete"] != true || inventory["entries_truncated"] != false || len(entries) != counts["entry_count"] {
+				t.Fatalf("inventory completeness/truncation/entries = %v/%v/%d", inventory["complete"], inventory["entries_truncated"], len(entries))
+			}
+			packages := result["packages"].([]map[string]any)
+			if len(packages) != 1 || packages[0]["directory"] != path.Dir(fixture.SelectedPath) || packages[0]["package_name"] != fixture.PackageName {
+				t.Fatalf("inventory packages = %#v; want one %s package in %s", packages, fixture.PackageName, path.Dir(fixture.SelectedPath))
+			}
+			gotPaths := make([]string, 0, len(result["files"].([]map[string]any)))
+			for _, file := range result["files"].([]map[string]any) {
+				gotPaths = append(gotPaths, file["relative_path"].(string))
+			}
+			wantPaths := make([]string, 0, len(fixture.Files))
+			for _, file := range fixture.Files {
+				wantPaths = append(wantPaths, file.InventoryPath)
+			}
+			sort.Strings(wantPaths)
+			if !reflect.DeepEqual(gotPaths, wantPaths) {
+				t.Fatalf("inventory file paths = %#v; want %#v", gotPaths, wantPaths)
+			}
+		})
 	}
 }
 
