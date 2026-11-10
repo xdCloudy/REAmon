@@ -1,17 +1,17 @@
 # REAmon product progress
 
-Assessment date: 2026-11-10 · Source: pushed commit `703ea6f` · Weighted estimate: **32.51%**
+Assessment date: 2026-11-10 · Source: pushed commit `703ea6f` · Weighted estimate: **32.59%**
 
 This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.
 
 ## Recent activity (2026-11-10)
 
-- The Go project_bindings operation now reports an inventory for the verified same-directory package snapshot: source-file count; referenced and unreferenced private package symbols; exported and unsupported package declarations; and rename-catalog truncation. The safe-renames route validates the source-set hash, file list, count invariants, and truncation agreement, then returns and saves the inventory with the proposal. Draft history validates and reloads it, and the visualizer labels counts as reviewed-snapshot-only.
-- Docker Go package tests pass, including exact counts for referenced/unreferenced declarations and unsupported init/main functions. Focused Docker safe-renames, draft-history, and visualizer tests pass 45/45; Docker type-check and targeted ESLint pass.
+- The Go project_bindings operation now returns per-declaration inventory rows for the verified same-directory package snapshot: stable snapshot-bound IDs, kind, path/byte offset, resolved reference count, and eligible/excluded/unsupported reason. Name quality stays explicitly unassessed. Exact counts cover all declarations even when detailed rows hit the 5,000-entry cap, with truncation disclosed.
+- The safe-renames route validates and persists the detailed inventory, draft history validates and reloads it, and the visualizer displays a bounded row preview with snapshot-scope disclosure. Docker Go tests verify exact classifications and the 5,001-row cap; focused route/history/UI tests pass 45/45; Docker type-check and targeted ESLint pass. The full Docker webapp run passed 648 files and 9,912 tests, with 52 files skipped; one docs test file had two failures because the isolated wiki copy omitted screenshots, and the corrected isolated onboarding test passes 65/65. Database-backed tests remain skipped without a configured database.
 
-**Score decision:** This adds a measurable inventory slice for supported Go package declarations, so Agentic project-wide semantic renaming increases from 16% to 17%. With its 8% goal weight, the overall weighted estimate rises from 32.43% to 32.51% (+0.08 points). This is not a complete project inventory: locals, name-quality classes, whole-project completeness, and semantic naming benchmarks remain open.
+**Score decision:** The per-declaration, reason-coded inventory adds one measurable partial point to Agentic project-wide semantic renaming (17% to 18%). At 8% workstream weight, the weighted estimate increases from 32.51% to 32.59% (+0.08 points). The reviewed same-directory Go snapshot is still not a complete project inventory; locals, meaningful/unnamed name assessment, whole-project completeness, and naming-quality benchmarks remain open.
 
-**Next measurable gate:** Extend reproducible inventory coverage beyond same-directory Go package declarations; account for eligible, already meaningful, unnamed, ambiguous, excluded, unsupported, and truncated symbols over declared complete project scopes, then measure naming quality and false-positive rates on held-out fixtures.
+**Next measurable gate:** Extend reproducible inventory coverage to declared complete project scopes and additional supported languages/symbol kinds; classify name quality and ambiguity without overstating recovered names, then measure coverage and false-positive rates on held-out fixtures.
 
 | Workstream | Goal weight | Estimated complete | Weighted points |
 | --- | ---: | ---: | ---: |
@@ -21,7 +21,7 @@ This estimate covers the reverse-engineering product goal and secure production 
 | Maintainable editing, review, and export | 4% | 60% | 2.40 pts |
 | Fixture-backed validation and fidelity evidence | 2% | 16% | 0.32 pts |
 | Security, reliability, and production operations | 10% | 98% | 9.80 pts |
-| Agentic project-wide semantic renaming | 8% | 17% | 1.36 pts |
+| Agentic project-wide semantic renaming | 8% | 18% | 1.44 pts |
 | Cross-file semantic rename propagation | 7% | 13% | 0.91 pts |
 | Safe autonomous rename acceptance | 5% | 0% | 0.00 pts |
 | Agentic semantic type and data-structure recovery | 5% | 12% | 0.60 pts |
@@ -76,7 +76,7 @@ This estimate covers the reverse-engineering product goal and secure production 
 
 ### Agentic project-wide semantic renaming
 
-**Current evidence:** Partial foundations now include a verified inventory for same-directory Go package snapshots in the project rename workflow. The response and saved proposal report source-file count, referenced/unreferenced private package declarations, exported/unsupported package declarations, and whether the rename-binding list was truncated. Route validation binds counts to the exact source-set hash and reviewed file list; draft history validates and reloads saved counts; the visualizer labels the inventory scope. This does not cover locals, establish complete project-file discovery beyond the supplied reviewed snapshot, classify symbols as meaningful/unnamed/ambiguous, or measure semantic naming quality. Autonomous discovery and iterative naming remain incomplete.
+**Current evidence:** Partial foundations include a verified, source-hash-bound inventory for same-directory Go package snapshots. Each declaration has a stable snapshot ID, kind, source location, resolved reference count, and eligible/excluded/unsupported reason; name assessment is explicitly unassessed. Exact aggregate totals include all declarations while detailed rows are capped at 5,000 with a truncation flag. The route returns and persists the inventory, draft history validates and reloads it, and the visualizer shows a bounded snapshot-scoped preview. This does not cover locals, complete project discovery beyond the supplied reviewed snapshot, meaningful/unnamed assessment, or semantic naming quality. Autonomous discovery and iterative naming remain incomplete.
 
 **Remaining:** Extend inventories across declared complete project scopes and supported languages/symbol kinds; classify eligible, meaningful, unnamed, ambiguous, excluded, unsupported, and truncated populations; add evidence-linked proposals, iterative refinement without identity drift, confidence/provenance, and held-out measurements of semantic usefulness, coverage, consistency, calibration, false positives, and scale. Do not require exact original names erased by compilation.
 
