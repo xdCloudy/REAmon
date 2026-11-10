@@ -88,7 +88,7 @@ The [autonomous reconstruction and fidelity delivery plan](docs/REAMON_AUTONOMOU
 
 Latest evidence-based score change (2026-11-10): **+0.10 points** (32.28% → 32.38%). Ghidra rejects impossible CFG entry/exit metrics and duplicate graph exit IDs; four invalid controls reproduce acceptance before and rejection after the fix. Focused Ghidra tests pass 10/10; the pinned 12.1.4 analyzer produced 1,139 metrics and graphs from a synthetic Go ELF, with zero structural violations and 118 correctly truncated graphs. The full Docker suite passes 649 files / 9,911 tests (2 expected failures; 51 files / 191 tests skipped). Security/reliability rises 97% to 98%, adding 0.10 weighted points (32.28% to 32.38%). The synthetic DEX database integration also passed 1/1 and read back the persisted CFG unchanged; Ghidra database persistence remains unverified.
 
-Refreshed from pushed commit `f0f0fc4`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+Refreshed from pushed commit `11c9bfe`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
