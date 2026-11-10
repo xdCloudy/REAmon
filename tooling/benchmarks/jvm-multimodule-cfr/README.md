@@ -28,6 +28,29 @@ powershell -ExecutionPolicy Bypass -File tooling/benchmarks/jvm-multimodule-cfr/
 
 The command refuses an existing output directory, checks the fixture JAR hash, copies and mutates only the recovered `Main.java`, and compiles/runs the mutation in the pinned network-disabled Docker image. Exit code 4 from the inner validator is the expected rejected-candidate outcome; any other exit is an error. The archived result records the product revision, artifact and mutated-source hashes, expected and observed output, and validator exit code.
 
+## Common matrix evidence
+
+`evaluation-manifest.json` defines the JVM metrics used by the shared AR-8
+receipt format. After a fresh `run.ps1` invocation, convert the build, provider,
+and validation receipts into measured matrix evidence:
+
+```powershell
+python tooling/benchmarks/merge_jvm_evidence.py `
+  --fixture-manifest tooling/benchmarks/jvm-multimodule-cfr/manifest.json `
+  --build-receipt work/benchmarks/jvm-build/build-receipt.json `
+  --provider-receipt work/benchmarks/jvm-run/provider-receipt.json `
+  --validation-receipt work/benchmarks/jvm-run/validation-receipt.json `
+  --output work/benchmarks/jvm-run/evidence.json
+```
+
+The adapter preserves partial exact-bytecode counts, records the sampled
+8,197-input behavior oracle as a strict pass/fail result, and marks that metric
+unavailable when the full sample is absent. Source inventory, runtime, and
+bytecode results are accepted only when their receipt hashes and denominators
+agree with the enrolled fixture. Use `record_receipt.py` to bind this evidence
+to a clean source revision and a hash-pinned toolchain manifest before adding
+it to a matrix config.
+
 ## Reproduce the full fixture run
 
 With Docker running, the `reamon-cfr` service available, and a fresh build directory, run:
