@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"go/build"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -978,10 +977,9 @@ func TestGoBuildFileSelectionRespectsGOARCHFilenameSuffix(t *testing.T) {
 		{Path: "pkg/dispatch_amd64.go", Source: "package sample\nfunc dispatch() {}\n"},
 		{Path: "pkg/dispatch_arm64.go", Source: "package sample\nfunc dispatch() {}\n"},
 	}
-	target := goBuildContext{
-		GOOS: "linux", GOARCH: "arm64", CgoEnabled: build.Default.CgoEnabled,
-		ToolTags:    append([]string(nil), build.Default.ToolTags...),
-		ReleaseTags: append([]string(nil), build.Default.ReleaseTags...), Toolchain: runtime.Version(),
+	target, err := normalizeGoBuildContext(request{BuildGOOS: "linux", BuildGOARCH: "arm64"})
+	if err != nil {
+		t.Fatalf("resolve arm64 build context: %v", err)
 	}
 	selected, err := selectGoBuildFiles(files, target)
 	if err != nil {
@@ -989,6 +987,30 @@ func TestGoBuildFileSelectionRespectsGOARCHFilenameSuffix(t *testing.T) {
 	}
 	if len(selected) != 1 || selected[0].Path != "pkg/dispatch_arm64.go" {
 		t.Fatalf("arm64 source selection = %#v; want only dispatch_arm64.go", selected)
+	}
+}
+
+func TestProjectInventoryTypeChecksWithTargetGOARCHExports(t *testing.T) {
+	request := goProjectRequest([]projectFile{
+		{Path: "pkg/process_linux_amd64.go", Source: "//go:build linux && amd64\npackage sample\nimport \"syscall\"\nfunc processID() int { return syscall.Gettid() }\n"},
+		{Path: "pkg/process_linux_arm64.go", Source: "//go:build linux && arm64\npackage sample\nimport \"syscall\"\nfunc processID() int { return syscall.Gettid() }\n"},
+		{Path: "pkg/use.go", Source: "package sample\nfunc run() int { return processID() }\n"},
+	}, "pkg/use.go")
+	request.Operation = "project_inventory"
+	request.BuildGOOS = "linux"
+	request.BuildGOARCH = "arm64"
+
+	result, err := listProjectInventory(request)
+	if err != nil {
+		t.Fatalf("inventory linux/arm64 package with target standard-library exports: %v", err)
+	}
+	inventory := result["inventory"].(map[string]any)
+	if inventory["source_file_count"] != 2 || result["build_context"].(goBuildContext).ArchitectureOptions["GOARM64"] != "v8.0" {
+		t.Fatalf("linux/arm64 context or selected source files = %#v", result)
+	}
+	files := result["files"].([]map[string]any)
+	if len(files) != 2 || files[0]["relative_path"] != "pkg/process_linux_arm64.go" || files[1]["relative_path"] != "pkg/use.go" {
+		t.Fatalf("linux/arm64 source selection = %#v", files)
 	}
 }
 
@@ -1036,6 +1058,11 @@ func TestProjectInventoryRejectsIncompleteOrInvalidSourceSets(t *testing.T) {
 	base.SelectedPath = "../outside.go"
 	if _, err := listProjectInventory(base); err == nil || !strings.Contains(err.Error(), "path is invalid") {
 		t.Fatalf("unsafe selected path error = %v; want path rejection", err)
+	}
+	base = goProjectRequest([]projectFile{{Path: "pkg/a\n.go", Source: "package sample\n"}}, "pkg/a\n.go")
+	base.Operation = "project_inventory"
+	if _, err := listProjectInventory(base); err == nil || !strings.Contains(err.Error(), "path is invalid") {
+		t.Fatalf("newline source path error = %v; want path rejection", err)
 	}
 
 	base = goProjectRequest([]projectFile{

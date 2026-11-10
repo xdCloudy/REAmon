@@ -911,7 +911,7 @@ func buildProjectCatalogWithImporter(req request, packageImporter types.Importer
 }
 
 func safeGoPath(value string) (string, error) {
-	if value == "" || strings.Contains(value, "\\") || path.IsAbs(value) {
+	if value == "" || strings.ContainsAny(value, "\\\r\n\x00") || path.IsAbs(value) {
 		return "", fmt.Errorf("Go package source path is invalid")
 	}
 	clean := path.Clean(value)
@@ -1171,13 +1171,12 @@ func listProjectInventory(req request) (map[string]any, error) {
 }
 
 type goBuildContext struct {
-	GOOS        string   `json:"goos"`
-	GOARCH      string   `json:"goarch"`
-	CgoEnabled  bool     `json:"cgo_enabled"`
-	Tags        []string `json:"tags"`
-	ToolTags    []string `json:"tool_tags"`
-	ReleaseTags []string `json:"release_tags"`
-	Toolchain   string   `json:"toolchain"`
+	GOOS                string            `json:"goos"`
+	GOARCH              string            `json:"goarch"`
+	CgoEnabled          bool              `json:"cgo_enabled"`
+	Tags                []string          `json:"tags"`
+	ArchitectureOptions map[string]string `json:"architecture_options"`
+	Toolchain           string            `json:"toolchain"`
 }
 
 func normalizeGoBuildContext(req request) (goBuildContext, error) {
@@ -1191,9 +1190,6 @@ func normalizeGoBuildContext(req request) (goBuildContext, error) {
 	if err := validateGoTarget(goos, goarch); err != nil {
 		return goBuildContext{}, err
 	}
-	if goarch != runtime.GOARCH {
-		return goBuildContext{}, fmt.Errorf("Go project inventory currently requires GOARCH %s because target architecture build tags are unavailable", runtime.GOARCH)
-	}
 	tags := append([]string(nil), req.BuildTags...)
 	seen := make(map[string]bool, len(tags))
 	for _, tag := range tags {
@@ -1204,16 +1200,19 @@ func normalizeGoBuildContext(req request) (goBuildContext, error) {
 	}
 	sort.Strings(tags)
 	cgoEnabled := build.Default.CgoEnabled
-	if goos != runtime.GOOS {
+	if goos != runtime.GOOS || goarch != runtime.GOARCH {
 		cgoEnabled = false
 	}
 	if req.BuildCgo != nil {
 		cgoEnabled = *req.BuildCgo
 	}
+	architectureOptions, err := goArchitectureOptions(goos, goarch)
+	if err != nil {
+		return goBuildContext{}, err
+	}
 	return goBuildContext{
-		GOOS: goos, GOARCH: goarch, CgoEnabled: cgoEnabled,
-		Tags: tags, ToolTags: append([]string(nil), build.Default.ToolTags...),
-		ReleaseTags: append([]string(nil), build.Default.ReleaseTags...), Toolchain: runtime.Version(),
+		GOOS: goos, GOARCH: goarch, CgoEnabled: cgoEnabled, Tags: tags,
+		ArchitectureOptions: architectureOptions, Toolchain: runtime.Version(),
 	}, nil
 }
 
@@ -1242,6 +1241,40 @@ func validateGoTarget(goos, goarch string) error {
 		return fmt.Errorf("Go build target %s/%s is not supported by the local toolchain", goos, goarch)
 	}
 	return nil
+}
+
+var goArchitectureOptionCache sync.Map
+
+func goArchitectureOptions(goos, goarch string) (map[string]string, error) {
+	key := goos + "/" + goarch
+	if cached, ok := goArchitectureOptionCache.Load(key); ok {
+		return cloneStringMap(cached.(map[string]string)), nil
+	}
+	architectureKeys := []string{"GOARM", "GOARM64", "GO386", "GOAMD64", "GOMIPS", "GOMIPS64", "GOPPC64", "GORISCV64", "GOWASM"}
+	context := goBuildContext{GOOS: goos, GOARCH: goarch, ArchitectureOptions: make(map[string]string, len(architectureKeys))}
+	for _, key := range architectureKeys {
+		context.ArchitectureOptions[key] = ""
+	}
+	command := exec.Command("go", "env", "-json", "GOARM", "GOARM64", "GO386", "GOAMD64", "GOMIPS", "GOMIPS64", "GOPPC64", "GORISCV64", "GOWASM")
+	command.Env = goBuildCommandEnvironment(context)
+	output, err := command.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("could not read Go architecture defaults for %s: %s", key, strings.TrimSpace(string(output)))
+	}
+	options := make(map[string]string)
+	if err := json.Unmarshal(output, &options); err != nil {
+		return nil, fmt.Errorf("Go returned invalid architecture defaults for %s", key)
+	}
+	actual, _ := goArchitectureOptionCache.LoadOrStore(key, options)
+	return cloneStringMap(actual.(map[string]string)), nil
+}
+
+func cloneStringMap(input map[string]string) map[string]string {
+	output := make(map[string]string, len(input))
+	for key, value := range input {
+		output[key] = value
+	}
+	return output
 }
 
 func newGoTargetImporter(target goBuildContext) types.Importer {
@@ -1281,6 +1314,9 @@ func goBuildCommandEnvironment(target goBuildContext) []string {
 		"GOWORK":      "off", "GOFLAGS": "", "GOPROXY": "off", "GOSUMDB": "off",
 		"GOTOOLCHAIN": "local", "GOENV": "off",
 	}
+	for key, value := range target.ArchitectureOptions {
+		values[key] = value
+	}
 	if target.CgoEnabled {
 		values["CGO_ENABLED"] = "1"
 	} else {
@@ -1319,23 +1355,51 @@ func selectGoBuildFiles(files []projectFile, target goBuildContext) ([]projectFi
 			return nil, fmt.Errorf("could not prepare Go build-context snapshot")
 		}
 	}
-	context := build.Default
-	context.GOOS, context.GOARCH = target.GOOS, target.GOARCH
-	context.CgoEnabled = target.CgoEnabled
-	context.BuildTags = append([]string(nil), target.Tags...)
-	context.ToolTags = append([]string(nil), target.ToolTags...)
-	context.ReleaseTags = append([]string(nil), target.ReleaseTags...)
-	selected := make([]projectFile, 0, len(files))
+	filesByDirectory := make(map[string][]projectFile)
 	for _, file := range files {
-		fullPath := filepath.Join(root, filepath.FromSlash(file.Path))
-		match, err := context.MatchFile(filepath.Dir(fullPath), filepath.Base(fullPath))
-		if err != nil {
-			return nil, fmt.Errorf("Go build constraints are invalid for %s: %s", file.Path, err.Error())
+		filesByDirectory[path.Dir(file.Path)] = append(filesByDirectory[path.Dir(file.Path)], file)
+	}
+	directories := make([]string, 0, len(filesByDirectory))
+	for directory := range filesByDirectory {
+		directories = append(directories, directory)
+	}
+	sort.Strings(directories)
+	selected := make([]projectFile, 0, len(files))
+	for _, directory := range directories {
+		packageDirectory := filepath.Join(root, filepath.FromSlash(directory))
+		arguments := []string{"list", "-e", "-f", `{{range .GoFiles}}{{.}}{{"\n"}}{{end}}{{range .TestGoFiles}}{{.}}{{"\n"}}{{end}}{{if .CgoFiles}}REAMON_CGO_UNSUPPORTED{{end}}`}
+		if len(target.Tags) > 0 {
+			arguments = append(arguments, "-tags="+strings.Join(target.Tags, ","))
 		}
-		if match {
-			selected = append(selected, file)
+		arguments = append(arguments, ".")
+		command := exec.Command("go", arguments...)
+		command.Dir = packageDirectory
+		command.Env = goBuildCommandEnvironment(target)
+		output, err := command.CombinedOutput()
+		if err != nil {
+			return nil, fmt.Errorf("Go could not select source files for %s/%s in %s: %s", target.GOOS, target.GOARCH, directory, strings.TrimSpace(string(output)))
+		}
+		selectedNames := make(map[string]bool)
+		for _, name := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+			name = strings.TrimSpace(name)
+			if name == "" {
+				continue
+			}
+			if name == "REAMON_CGO_UNSUPPORTED" {
+				return nil, fmt.Errorf("Go source directory %s includes cgo files that the semantic inventory cannot type-check", directory)
+			}
+			selectedNames[name] = true
+		}
+		if len(selectedNames) == 0 {
+			return nil, fmt.Errorf("Go source directory %s has no files for build target %s/%s", directory, target.GOOS, target.GOARCH)
+		}
+		for _, file := range filesByDirectory[directory] {
+			if selectedNames[path.Base(file.Path)] {
+				selected = append(selected, file)
+			}
 		}
 	}
+	sort.Slice(selected, func(i, j int) bool { return selected[i].Path < selected[j].Path })
 	return selected, nil
 }
 
