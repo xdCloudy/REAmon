@@ -88,7 +88,7 @@ The [autonomous reconstruction and fidelity delivery plan](docs/REAMON_AUTONOMOU
 
 Latest evidence-based score change (2026-11-10): **+0.08 points** (33.55% → 33.63%). One additional partial point raises Agentic project-wide semantic renaming from 30% to 31% and weighted progress from 33.55% to 33.63% (+0.08). A disposable PostgreSQL 16 acceptance passes 1/1 through the real Go helper with source importing example.test/dep from hash-verified go.mod/go.sum and an offline module cache; proposal inventory, stale-manifest rejection, atomic rollback, apply, and draft reload are verified. Browser flow and broad inventory accuracy remain open. A current-source Chromium browser test now verifies the UI proposal/apply journey against synthetic project APIs (1/1), with no page/console errors. It does not call the real helper or persistence route, so it adds no weighted progress.
 
-Refreshed from pushed commit `98ebf84`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+Refreshed from pushed commit `f64eff7`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
