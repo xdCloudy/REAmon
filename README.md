@@ -88,7 +88,7 @@ The [autonomous reconstruction and fidelity delivery plan](docs/REAMON_AUTONOMOU
 
 Latest evidence-based score change (2026-11-10): **+0.08 points** (33.55% → 33.63%). The most recent score change was +0.08 points (33.55% to 33.63%) from the real-helper PostgreSQL acceptance: external-module proposal inventory, stale-manifest rejection, rollback, apply, and draft reload passed. The subsequent Chromium UI test passed 1/1 but stubs project APIs, so it adds UI evidence and no weighted score. The real-helper browser/API acceptance remains open.
 
-Refreshed from pushed commit `f64eff7`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+Refreshed from pushed commit `669a7b2`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
