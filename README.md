@@ -78,7 +78,7 @@ The [autonomous reconstruction and fidelity delivery plan](docs/REAMON_AUTONOMOU
 
 <!-- REAMON_PRODUCT_PROGRESS_START -->
 <progress value="31.30" max="100">31.30%</progress> <strong>31.30%</strong> — weighted estimate **31.30%**.
-Recent same-scope change since 2026-11-10: **+0.03 points** (31.27% → 31.30%).
+Latest evidence-based score change (2026-11-10): **+0.03 points** (31.27% → 31.30%). Sampled JVM behavior differential: the end-to-end benchmark workstream moved from 20% to 21% after both CFR and Vineflower passed 8,197 inputs and rejected the compiled mutation control.
 Refreshed from pushed commit `3967a43`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 

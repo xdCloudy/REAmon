@@ -32,11 +32,12 @@ const displayedScore = score.toFixed(2)
 const comparison = manifest.recentComparison
 if (comparison && (typeof comparison.baselineEstimate !== 'number'
     || !Number.isFinite(comparison.baselineEstimate) || comparison.baselineEstimate < 0 || comparison.baselineEstimate > 100
-    || typeof comparison.date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(comparison.date))) {
-  throw new Error('Progress recentComparison must include a valid baselineEstimate and date')
+    || typeof comparison.date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(comparison.date)
+    || typeof comparison.evidence !== 'string' || !comparison.evidence.trim())) {
+  throw new Error('Progress recentComparison must include a valid baselineEstimate, date, and evidence summary')
 }
 const comparisonLine = comparison
-  ? `Recent same-scope change since ${comparison.date}: **${score - comparison.baselineEstimate >= 0 ? '+' : ''}${(score - comparison.baselineEstimate).toFixed(2)} points** (${comparison.baselineEstimate.toFixed(2)}% → ${displayedScore}%).`
+  ? `Latest evidence-based score change (${comparison.date}): **${score - comparison.baselineEstimate >= 0 ? '+' : ''}${(score - comparison.baselineEstimate).toFixed(2)} points** (${comparison.baselineEstimate.toFixed(2)}% → ${displayedScore}%). ${comparison.evidence}`
   : ''
 const suppliedCommit = process.argv[2]
 const commit = suppliedCommit?.trim()

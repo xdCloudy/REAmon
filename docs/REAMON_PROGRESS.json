@@ -168,6 +168,7 @@
   ],
   "recentComparison": {
     "baselineEstimate": 31.27,
-    "date": "2026-11-10"
+    "date": "2026-11-10",
+    "evidence": "Sampled JVM behavior differential: the end-to-end benchmark workstream moved from 20% to 21% after both CFR and Vineflower passed 8,197 inputs and rejected the compiled mutation control."
   }
 }
