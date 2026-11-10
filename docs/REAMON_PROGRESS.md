@@ -1,15 +1,15 @@
 # REAmon product progress
 
-Assessment date: 2026-11-10 · Source: pushed commit `d30b6a9` · Weighted estimate: **32.67%**
+Assessment date: 2026-11-10 · Source: pushed commit `d30b6a9` · Weighted estimate: **32.75%**
 
 This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.
 
 ## Recent activity (2026-11-10)
 
-- The Go project_bindings operation now inventories package declarations and function-scoped locals for the verified same-directory package snapshot. Local rows include parameters, receivers, results, variables, constants, types, type parameters, and local functions; reference counts distinguish eligible referenced bindings from explicitly excluded unreferenced bindings, while unsupported local object kinds retain reasons. Name quality remains unassessed, and local rows are inventory-only rather than rename candidates.
-- The safe-renames route and draft history validate and preserve local counts and scopes, and the visualizer shows package/local scope. Go Docker package tests pass, including exact local classification and a mixed 5,001-row cap case. Focused route, draft-history, and visualizer tests pass 47/47; Docker TypeScript type-check and targeted ESLint pass. Database integration and a fresh full webapp suite were not run for this slice.
+- The Go project_bindings inventory now includes implicit, case-scoped variables from type-switch clauses in addition to explicit package and function locals. Each case binding uses its case-clause source anchor for a distinct snapshot-bound ID, and resolved per-case references determine eligible or excluded classification; name quality remains unassessed and local rows remain inventory-only.
+- Docker Go package tests pass, including a regression that first reproduced the missing bindings and now verifies all three case scopes, distinct IDs, and per-case references. Focused safe-renames, draft-history, and visualizer tests pass 47/47; Docker TypeScript type-check and targeted ESLint pass. Database integration and a fresh full webapp suite were not run for this slice.
 
-**Score decision:** Function-scope Go inventory adds one measured partial point to Agentic project-wide semantic renaming (18% to 19%). At 8% workstream weight, the weighted estimate increases from 32.59% to 32.67% (+0.08 points). The inventory remains limited to reviewed same-directory Go snapshots; local rename proposals, whole-project completeness, meaningful/unnamed assessment, and naming-quality benchmarks remain open.
+**Score decision:** Implicit Go type-switch bindings close one previously missing statically enumerable local-binding category and add one partial point to Agentic project-wide semantic renaming (19% to 20%). At 8% workstream weight, the weighted estimate increases from 32.67% to 32.75% (+0.08 points). This is narrow Go inventory coverage; complete project discovery, local rename proposals, meaningful/unnamed assessment, and naming-quality benchmarks remain open.
 
 **Next measurable gate:** Extend the inventory to declared complete project scopes and additional supported languages/symbol kinds; define evidence-backed meaningful/unnamed and ambiguity assessments, then measure coverage and false-positive rates on held-out fixtures.
 
@@ -21,7 +21,7 @@ This estimate covers the reverse-engineering product goal and secure production 
 | Maintainable editing, review, and export | 4% | 60% | 2.40 pts |
 | Fixture-backed validation and fidelity evidence | 2% | 16% | 0.32 pts |
 | Security, reliability, and production operations | 10% | 98% | 9.80 pts |
-| Agentic project-wide semantic renaming | 8% | 19% | 1.52 pts |
+| Agentic project-wide semantic renaming | 8% | 20% | 1.60 pts |
 | Cross-file semantic rename propagation | 7% | 13% | 0.91 pts |
 | Safe autonomous rename acceptance | 5% | 0% | 0.00 pts |
 | Agentic semantic type and data-structure recovery | 5% | 12% | 0.60 pts |
@@ -76,7 +76,7 @@ This estimate covers the reverse-engineering product goal and secure production 
 
 ### Agentic project-wide semantic renaming
 
-**Current evidence:** Partial foundations include a verified, source-hash-bound inventory for same-directory Go package snapshots. Package declarations and function-scoped local bindings have stable snapshot IDs, kinds, source locations, resolved reference counts, and eligible/excluded/unsupported reasons; name assessment is explicitly unassessed. Local entries are inventory-only and are not rename candidates. Exact aggregate totals include all declarations and locals while detailed rows are capped at 5,000 with a truncation flag. The route returns and persists the inventory, draft history validates and reloads it, and the visualizer shows a bounded scope-aware preview. Complete project discovery, meaningful/unnamed assessment, and semantic naming quality remain open.
+**Current evidence:** Partial foundations include a verified, source-hash-bound inventory for same-directory Go package snapshots. Package declarations and explicit function-scoped locals plus implicit type-switch case variables have stable snapshot IDs, kinds, source locations, resolved reference counts, and eligible/excluded/unsupported reasons; name assessment is explicitly unassessed. Local entries are inventory-only and are not rename candidates. Exact aggregate totals include all entries while detail is capped at 5,000. The route persists the inventory and the visualizer shows a bounded scope-aware preview. Complete project discovery, meaningful/unnamed assessment, and semantic naming quality remain open.
 
 **Remaining:** Extend inventories across declared complete project scopes and supported languages/symbol kinds; classify eligible, meaningful, unnamed, ambiguous, excluded, unsupported, and truncated populations; add evidence-linked proposals, iterative refinement without identity drift, confidence/provenance, and held-out measurements of semantic usefulness, coverage, consistency, calibration, false positives, and scale. Do not require exact original names erased by compilation.
 

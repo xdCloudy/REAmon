@@ -97,9 +97,10 @@ of another.
   exact original-name recovery where ground truth survives, confidence calibration,
   and false-positive rate.
 
-The scoped Go inventory is an initial denominator foundation for package-level
-declarations only. It does not satisfy the project-wide discovery or semantic quality
-acceptance gates above.
+The scoped Go inventory now provides a partial denominator foundation for package
+declarations and explicit and implicit function-scoped bindings, including the
+case-specific variables introduced by type-switch clauses. It does not satisfy the
+project-wide discovery or semantic quality acceptance gates above.
 
 ### ASSR-2: Cross-file and cross-function propagation
 A narrow Go slice is now wired through the project visualizer: same-directory package files are eligible only when each sibling has a current accepted review receipt; the helper preserves `go/types` object identity and emits separate hash-bound drafts. This advances partial implementation status, but does not meet the general ASSR-2 acceptance criteria below. Live database/browser review, rollback, module/import handling, other languages, and held-out integrity measurements remain unverified.
