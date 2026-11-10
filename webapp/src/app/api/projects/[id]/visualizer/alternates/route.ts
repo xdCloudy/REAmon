@@ -181,6 +181,11 @@ export async function GET(request: Request, { params }: RouteParams) {
                   id: `${unit.id}:reipa`,
                   providerId: 'reamon-reipa',
                   providerName: 'ReIPA · experimental pseudocode',
+                  providerLineage: {
+                    kind: 'co-run',
+                    upstreamProviderIds: [],
+                    selectionPolicy: 'ReIPA pseudocode extracted during the Ghidra analysis task; provider independence is unmeasured',
+                  },
                   version: reipaVersion,
                   name: typeof attributes.recoveredNativeSymbolName === 'string'
                     ? attributes.recoveredNativeSymbolName.slice(0, 500)
@@ -248,6 +253,11 @@ export async function GET(request: Request, { params }: RouteParams) {
                   id: `${unit.id}:bcf-clean`,
                   providerId: 'reamon-ghidra-bcf-clean',
                   providerName: 'BcfClean · emulation-verified native cleanup',
+                  providerLineage: {
+                    kind: 'derived-transform',
+                    upstreamProviderIds: ['reamon-ghidra'],
+                    selectionPolicy: 'emulation-verified BcfClean transformation of the Ghidra output',
+                  },
                   version: bcfVersion,
                   name: typeof attributes.qualifiedName === 'string' ? attributes.qualifiedName.slice(0, 500) : unitId,
                   language: 'C',
@@ -313,6 +323,11 @@ export async function GET(request: Request, { params }: RouteParams) {
                   id: `${unit.id}:cff-deflatten`,
                   providerId: 'reamon-ghidra-cff-deflatten',
                   providerName: 'CffDeflatten · emulation-verified control-flow cleanup',
+                  providerLineage: {
+                    kind: 'derived-transform',
+                    upstreamProviderIds: ['reamon-ghidra'],
+                    selectionPolicy: 'emulation-verified CffDeflatten transformation of the Ghidra output',
+                  },
                   version: cffVersion,
                   name: typeof attributes.qualifiedName === 'string' ? attributes.qualifiedName.slice(0, 500) : unitId,
                   language: 'C',

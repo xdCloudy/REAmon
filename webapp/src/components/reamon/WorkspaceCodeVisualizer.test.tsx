@@ -633,6 +633,40 @@ describe('WorkspaceCodeVisualizer', () => {
     expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('after=observation-2'), expect.any(Object))
   })
 
+  test('labels transformed and same-task outputs without claiming independence', async () => {
+    const native = unit({
+      id: 'native-main', name: 'main', address: '00401000', language: 'C', unitType: 'function', source: 'reamon-ghidra',
+      inputArtifactSha256: 'a'.repeat(64), codeArtifactSha256: 'b'.repeat(64),
+      codeArtifactId: 'project-1/artifact-1/task-1/run-1/sources/functions/main.c',
+    })
+    const outputs = [
+      { id: 'bcf', providerId: 'reamon-ghidra-bcf-clean', providerName: 'BcfClean', kind: 'derived-transform' as const, parents: ['reamon-ghidra'], policy: 'emulation-verified BcfClean transformation' },
+      { id: 'cff', providerId: 'reamon-ghidra-cff-deflatten', providerName: 'CffDeflatten', kind: 'derived-transform' as const, parents: ['reamon-ghidra'], policy: 'emulation-verified CffDeflatten transformation' },
+      { id: 'reipa', providerId: 'reamon-reipa', providerName: 'ReIPA', kind: 'co-run' as const, parents: [], policy: 'ReIPA pseudocode extracted during the Ghidra analysis task; provider independence is unmeasured' },
+    ].map((output) => ({
+      id: output.id, providerId: output.providerId, providerName: output.providerName, version: '1.0', name: 'main', language: 'C',
+      providerLineage: { kind: output.kind, upstreamProviderIds: output.parents, selectionPolicy: output.policy },
+      relativePath: `sources/functions/${output.id}.c`, inputSha256: 'a'.repeat(64), outputSha256: 'c'.repeat(64),
+      completedAt: null, source: 'int main(void) { return 0; }',
+    }))
+    const fetchMock = vi.fn((input: string) => {
+      if (input.includes('/visualizer/alternates?')) return Promise.resolve({ ok: true, json: async () => ({ alternates: outputs, truncated: false, nextCursor: null }) })
+      if (input.includes('/decompiled/')) return Promise.resolve({ ok: true, text: async () => 'int selected(void) { return 0; }' })
+      return Promise.resolve({ ok: true, json: async () => ({ units: [native], total: 1, hasMore: false }) })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderVisualizer()
+
+    fireEvent.click(await screen.findByRole('button', { name: /main/ }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Compare providers' }))
+
+    const outputGroup = await screen.findByRole('group', { name: 'All verified decompiler outputs' })
+    expect(within(outputGroup).getByRole('region', { name: 'BcfClean output' })).toHaveTextContent('Derived transform of ghidra')
+    expect(within(outputGroup).getByRole('region', { name: 'CffDeflatten output' })).toHaveTextContent('Derived transform of ghidra')
+    expect(within(outputGroup).getByRole('region', { name: 'ReIPA output' })).toHaveTextContent('provider independence is unmeasured')
+    expect(within(outputGroup).queryByText(/Independent reconstruction/)).not.toBeInTheDocument()
+  })
+
   test('labels the Android low-level pane as Smali', async () => {
     const android = unit({
       id: 'android-main', name: 'com.example.MainActivity', language: 'Java', unitType: 'class',

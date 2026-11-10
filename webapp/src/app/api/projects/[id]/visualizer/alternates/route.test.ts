@@ -144,6 +144,72 @@ describe('GET /api/projects/[id]/visualizer/alternates', () => {
     })
   })
 
+  it('retains ReIPA ancestry on the verified same-run alternate', async () => {
+    const sourceText = 'int reipa_function(void) { return 1; }\n'
+    const codeArtifactId = 'project-1/artifact-1/selected-task/selected-run/alternates/reipa/function.c'
+    const outputHash = createHash('sha256').update(sourceText).digest('hex')
+    h.unit.mockResolvedValueOnce({
+      id: 'selected-unit', taskId: 'selected-task', artifactId: 'artifact-1', source: 'reamon-ghidra',
+      attributes: {
+        relativePath: 'functions/main.c', language: 'C', address: '0x401000', identity: 'sub_401000',
+        inputArtifactSha256: artifactHash, codeArtifactSha256: 'd'.repeat(64),
+        reipaAlternateCodeArtifactId: codeArtifactId,
+        reipaAlternateOutputSha256: outputHash,
+        reipaAlternateProviderVersion: `ReIPA@${'a'.repeat(40)}`,
+      },
+      artifact: { sha256: artifactHash },
+    })
+    h.observations.mockResolvedValue([])
+    await mkdir(path.dirname(path.join(derivedRoot, codeArtifactId)), { recursive: true })
+    await writeFile(path.join(derivedRoot, codeArtifactId), sourceText)
+
+    const response = await GET(new Request('http://localhost?unitId=selected-unit'), routeParams)
+    const result = await response.json() as { alternates: Array<{ providerId: string; providerLineage: { kind: string; upstreamProviderIds: string[]; selectionPolicy: string | null } }> }
+
+    expect(response.status).toBe(200)
+    expect(result.alternates).toContainEqual(expect.objectContaining({
+      providerId: 'reamon-reipa',
+      providerLineage: {
+        kind: 'co-run',
+        upstreamProviderIds: [],
+        selectionPolicy: 'ReIPA pseudocode extracted during the Ghidra analysis task; provider independence is unmeasured',
+      },
+    }))
+  })
+
+  it('marks ReIPA as a same-task output with unmeasured provider independence', async () => {
+    const sourceText = 'int reipa_function(void) { return 1; }\n'
+    const codeArtifactId = 'project-1/artifact-1/selected-task/selected-run/alternates/reipa/function.c'
+    const outputHash = createHash('sha256').update(sourceText).digest('hex')
+    h.unit.mockResolvedValueOnce({
+      id: 'selected-unit', taskId: 'selected-task', artifactId: 'artifact-1', source: 'reamon-ghidra',
+      attributes: {
+        relativePath: 'functions/main.c', language: 'C', address: '0x401000', identity: 'sub_401000',
+        inputArtifactSha256: artifactHash, codeArtifactSha256: 'd'.repeat(64),
+        reipaAlternateCodeArtifactId: codeArtifactId,
+        reipaAlternateOutputSha256: outputHash,
+        reipaAlternateProviderVersion: `ReIPA@${'a'.repeat(40)}`,
+      },
+      artifact: { sha256: artifactHash },
+    })
+    h.observations.mockResolvedValue([])
+    await mkdir(path.dirname(path.join(derivedRoot, codeArtifactId)), { recursive: true })
+    await writeFile(path.join(derivedRoot, codeArtifactId), sourceText)
+
+    const response = await GET(new Request('http://localhost?unitId=selected-unit'), routeParams)
+    const result = await response.json() as { alternates: Array<{ providerId: string; providerLineage: { kind: string; upstreamProviderIds: string[]; selectionPolicy: string | null } }> }
+
+    expect(response.status).toBe(200)
+    expect(result.alternates).toContainEqual(expect.objectContaining({
+      providerId: 'reamon-reipa',
+      providerLineage: {
+        kind: 'co-run',
+        upstreamProviderIds: [],
+        selectionPolicy: 'ReIPA pseudocode extracted during the Ghidra analysis task; provider independence is unmeasured',
+      },
+    }))
+  })
+
   it('pages through provider outputs without hiding providers after the per-response bound', async () => {
     await arrangeProviderOutputs(34)
 
