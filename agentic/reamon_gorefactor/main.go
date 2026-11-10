@@ -96,17 +96,18 @@ type projectSourceFile struct {
 }
 
 type projectCatalog struct {
-	Hash          string
-	SourceSetHash string
-	SelectedPath  string
-	SelectedHash  string
-	Inventory     projectInventory
-	FileSet       *token.FileSet
-	Files         []projectSourceFile
-	Info          *types.Info
-	Package       *types.Package
-	Bindings      []binding
-	Truncated     bool
+	Hash               string
+	SourceSetHash      string
+	InventoryScopeHash string
+	SelectedPath       string
+	SelectedHash       string
+	Inventory          projectInventory
+	FileSet            *token.FileSet
+	Files              []projectSourceFile
+	Info               *types.Info
+	Package            *types.Package
+	Bindings           []binding
+	Truncated          bool
 }
 
 type projectInventory struct {
@@ -510,6 +511,10 @@ func buildProjectCatalogWithImporter(req request, packageImporter types.Importer
 	packageDir := path.Dir(selectedPath)
 	files := append([]projectFile(nil), req.Files...)
 	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
+	sourceSnapshot := make([]projectSourceFile, 0, len(files))
+	for _, file := range files {
+		sourceSnapshot = append(sourceSnapshot, projectSourceFile{Path: file.Path, Text: file.Source})
+	}
 	buildContext, err := normalizeGoBuildContext(req)
 	if err != nil {
 		return nil, err
@@ -585,8 +590,9 @@ func buildProjectCatalogWithImporter(req request, packageImporter types.Importer
 		return nil, fmt.Errorf("Go package has unresolved type or reference errors; cross-file rename requires a complete package type-check")
 	}
 	projectHash := hashProjectInventory(parsed, buildContext)
+	sourceSetHash := hashProjectSources(sourceSnapshot)
 	cat := &projectCatalog{
-		Hash: selectedHash, SourceSetHash: projectHash, SelectedPath: selectedPath,
+		Hash: selectedHash, SourceSetHash: sourceSetHash, InventoryScopeHash: projectHash, SelectedPath: selectedPath,
 		SelectedHash: selectedHash, FileSet: fileSet, Files: parsed, Info: info, Package: pkg,
 	}
 	cat.Inventory.SourceFileCount = len(parsed)
@@ -959,7 +965,8 @@ func listProjectBindings(req request) (map[string]any, error) {
 	}
 	return map[string]any{
 		"source_sha256": cat.SelectedHash, "source_set_sha256": cat.SourceSetHash,
-		"selected_path": cat.SelectedPath, "files": files,
+		"inventory_scope_sha256": cat.InventoryScopeHash,
+		"selected_path":          cat.SelectedPath, "files": files,
 		"bindings": bindings, "truncated": cat.Truncated, "parser_version": runtime.Version(),
 		"inventory": map[string]any{
 			"scope":                               "reviewed-same-directory-go-package-source-snapshot",
@@ -1005,6 +1012,14 @@ func listProjectInventory(req request) (map[string]any, error) {
 	}
 	files := append([]projectFile(nil), req.Files...)
 	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
+	sourceSnapshot := make([]projectSourceFile, 0, len(files))
+	for _, file := range files {
+		filePath, pathErr := safeGoPath(file.Path)
+		if pathErr != nil || filePath != file.Path {
+			return nil, fmt.Errorf("Go project inventory requires normalized source paths")
+		}
+		sourceSnapshot = append(sourceSnapshot, projectSourceFile{Path: file.Path, Text: file.Source})
+	}
 	buildContext, err := normalizeGoBuildContext(req)
 	if err != nil {
 		return nil, err
@@ -1152,8 +1167,9 @@ func listProjectInventory(req request) (map[string]any, error) {
 		entries = entries[:maxProjectInventoryEntries]
 	}
 	return map[string]any{
-		"source_sha256": selectedHash, "source_set_sha256": projectHash,
-		"selected_path": selectedPath, "module_path": req.ModulePath, "module_root": req.ModuleRoot,
+		"source_sha256": selectedHash, "source_set_sha256": hashProjectSources(sourceSnapshot),
+		"inventory_scope_sha256": projectHash,
+		"selected_path":          selectedPath, "module_path": req.ModulePath, "module_root": req.ModuleRoot,
 		"go_mod_sha256": buildContext.GoModHash, "go_sum_sha256": buildContext.GoSumHash,
 		"build_context": buildContext,
 		"files":         resultFiles, "packages": packages,

@@ -903,7 +903,12 @@ func TestProjectInventoryAggregatesCompleteGoPackagesAcrossDirectories(t *testin
 	if !packagePaths["core/model.go"] || !packagePaths["core/use.go"] || !packagePaths["cmd/run.go"] || !packagePaths["cmd/data.go"] {
 		t.Fatalf("inventory paths = %#v; want rows from both package directories", packagePaths)
 	}
-	if len(result["packages"].([]map[string]any)) != 2 || result["source_set_sha256"] != hashProjectInventory([]projectSourceFile{
+	if len(result["packages"].([]map[string]any)) != 2 || result["source_set_sha256"] != hashProjectSources([]projectSourceFile{
+		{Path: "core/model.go", Text: request.Files[0].Source},
+		{Path: "core/use.go", Text: request.Files[1].Source},
+		{Path: "cmd/run.go", Text: request.Files[2].Source},
+		{Path: "cmd/data.go", Text: request.Files[3].Source},
+	}) || result["inventory_scope_sha256"] != hashProjectInventory([]projectSourceFile{
 		{Path: "core/model.go", Text: request.Files[0].Source},
 		{Path: "core/use.go", Text: request.Files[1].Source},
 		{Path: "cmd/run.go", Text: request.Files[2].Source},
@@ -1060,10 +1065,19 @@ func TestProjectInventorySelectsFilesForProvenanceBoundBuildContext(t *testing.T
 	if base["build_context"].(goBuildContext).GOOS != runtime.GOOS || base["build_context"].(goBuildContext).GOARCH != runtime.GOARCH {
 		t.Fatalf("reported build context = %#v", base["build_context"])
 	}
-	if base["source_set_sha256"] == hashProjectSources([]projectSourceFile{
-		{Path: "pkg/use.go", Text: files[3].Source}, {Path: "pkg/value_linux.go", Text: files[0].Source},
-	}) {
-		t.Fatal("inventory source hash does not bind the selected build context")
+	if base["source_set_sha256"] != hashProjectSources([]projectSourceFile{
+		{Path: "pkg/value_linux.go", Text: files[0].Source}, {Path: "pkg/value_windows.go", Text: files[1].Source},
+		{Path: "pkg/tagged.go", Text: files[2].Source}, {Path: "pkg/use.go", Text: files[3].Source},
+	}) || base["inventory_scope_sha256"] != hashProjectInventory([]projectSourceFile{
+		{Path: "pkg/value_linux.go", Text: files[0].Source}, {Path: "pkg/use.go", Text: files[3].Source},
+	}, base["build_context"].(goBuildContext)) {
+		t.Fatalf("inventory source and build-context scope hashes do not match their separate inputs: source=%v want=%v scope=%v wantScope=%v", base["source_set_sha256"], hashProjectSources([]projectSourceFile{
+			{Path: "pkg/value_linux.go", Text: files[0].Source}, {Path: "pkg/value_windows.go", Text: files[1].Source},
+			{Path: "pkg/tagged.go", Text: files[2].Source}, {Path: "pkg/use.go", Text: files[3].Source},
+		}), base["inventory_scope_sha256"], hashProjectInventory([]projectSourceFile{
+			{Path: "pkg/value_linux.go", Text: files[0].Source}, {Path: "pkg/value_windows.go", Text: files[1].Source},
+			{Path: "pkg/tagged.go", Text: files[2].Source}, {Path: "pkg/use.go", Text: files[3].Source},
+		}, base["build_context"].(goBuildContext)))
 	}
 	baseInventory := base["inventory"].(map[string]any)
 	if baseInventory["source_file_count"] != 2 {
@@ -1079,7 +1093,7 @@ func TestProjectInventorySelectsFilesForProvenanceBoundBuildContext(t *testing.T
 	if err != nil {
 		t.Fatalf("inventory explicit Go build tags: %v", err)
 	}
-	if withTag["source_set_sha256"] == base["source_set_sha256"] || withTag["inventory"].(map[string]any)["source_file_count"] != 3 {
+	if withTag["source_set_sha256"] != base["source_set_sha256"] || withTag["inventory_scope_sha256"] == base["inventory_scope_sha256"] || withTag["inventory"].(map[string]any)["source_file_count"] != 3 {
 		t.Fatalf("tagged inventory failed to select and bind integration file: %#v", withTag)
 	}
 
@@ -1090,7 +1104,7 @@ func TestProjectInventorySelectsFilesForProvenanceBoundBuildContext(t *testing.T
 	if err != nil {
 		t.Fatalf("inventory Windows target with its standard-library exports: %v", err)
 	}
-	if windows["source_set_sha256"] == base["source_set_sha256"] || windows["inventory"].(map[string]any)["source_file_count"] != 2 {
+	if windows["source_set_sha256"] != base["source_set_sha256"] || windows["inventory_scope_sha256"] == base["inventory_scope_sha256"] || windows["inventory"].(map[string]any)["source_file_count"] != 2 {
 		t.Fatalf("Windows inventory failed to select and bind its platform files: %#v", windows)
 	}
 	windowsFiles := windows["files"].([]map[string]any)

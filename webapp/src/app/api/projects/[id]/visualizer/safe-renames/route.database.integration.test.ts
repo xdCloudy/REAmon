@@ -17,7 +17,18 @@ vi.mock('@/lib/access', async (importOriginal) => ({
   requireEffectiveUser: mocks.requireEffectiveUser,
 }))
 vi.mock('@/lib/reamon/inventory-query', () => ({ getActiveWorkspaceImportSelection: mocks.getActiveWorkspaceImportSelection }))
-vi.mock('@/lib/agentFetch', () => ({ agentFetch: mocks.agentFetch }))
+vi.mock('@/lib/agentFetch', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/agentFetch')>()
+  return {
+    ...actual,
+    agentFetch: (...args: Parameters<typeof actual.agentFetch>) => {
+      if (process.env.REAMON_GO_PACKAGE_RENAME_REAL_HELPER === '1' && args[0] === '/reamon/code/go/refactor') {
+        return actual.agentFetch(...args)
+      }
+      return mocks.agentFetch(...args)
+    },
+  }
+})
 
 import { POST } from './route'
 import { GET as getDraft } from '../drafts/[unitId]/route'
@@ -25,7 +36,8 @@ import { GET as getDraft } from '../drafts/[unitId]/route'
 const enabled = process.env.REAMON_GO_PACKAGE_RENAME_INTEGRATION === '1' && Boolean(process.env.DATABASE_URL)
 const selectedPath = 'pkg/a.go'
 const siblingPath = 'pkg/b.go'
-const bindingId = '0123456789abcdef01234567'
+const fixtureBindingId = '0123456789abcdef01234567'
+let bindingId = fixtureBindingId
 const selectedSource = 'package sample\nfunc fn(value int) int { return value }\n'
 const siblingSource = 'package sample\nfunc run() int { return fn(1) }\n'
 const selectedOutput = 'package sample\nfunc calculate(value int) int { return value }\n'
@@ -167,7 +179,10 @@ describe.skipIf(!enabled)('Go package rename against PostgreSQL', () => {
     mocks.agentFetch.mockImplementation(async (url: string, init: RequestInit) => {
       const request = JSON.parse(String(init.body)) as Record<string, unknown>
       if (url === '/reamon/code/suggest-renames') {
-        return jsonResponse({ renames: [{ bindingId, oldName: 'fn', newName: 'calculate', rationale: 'Use the operation name.' }] })
+        const candidates = Array.isArray(request.bindings) ? request.bindings as Array<Record<string, unknown>> : []
+        const candidate = candidates.find((item) => item.name === 'fn')
+        const selectedBindingId = typeof candidate?.id === 'string' ? candidate.id : fixtureBindingId
+        return jsonResponse({ renames: [{ bindingId: selectedBindingId, oldName: 'fn', newName: 'calculate', rationale: 'Use the operation name.' }] })
       }
       const files = Array.isArray(request.files) ? request.files as Array<Record<string, string>> : []
       const inputs = files.map((file) => ({ relativePath: file.relative_path, sourceCode: file.source_code }))
@@ -180,7 +195,7 @@ describe.skipIf(!enabled)('Go package rename against PostgreSQL', () => {
           source_sha256: hash(selectedSource), source_set_sha256: sourceSetHash(inputs), selected_path: selectedPath,
           files: inputs.map((file) => ({ relative_path: file.relativePath, source_sha256: hash(file.sourceCode) })),
           bindings: [{
-            id: bindingId, name: 'fn', kind: 'package function', scopeType: 'package',
+            id: fixtureBindingId, name: 'fn', kind: 'package function', scopeType: 'package',
             declarationStart: selectedSource.indexOf('fn'), referenceCount: 1, relativePath: selectedPath, exported: false,
           }],
           truncated: false, parser_version: 'go1.24.4',
@@ -192,7 +207,7 @@ describe.skipIf(!enabled)('Go package rename against PostgreSQL', () => {
             local_symbol_count: 0, referenced_local_symbols: 0, unreferenced_local_symbols: 0, unsupported_local_symbol_count: 0,
             entry_count: 2, entries_truncated: false,
             entries: [
-              { id: bindingId, name: 'fn', kind: 'package function', scope: 'package', relativePath: selectedPath, declarationStart: 20, referenceCount: 1, exported: false, classification: 'eligible', classificationReason: 'private-package-symbol-with-resolved-references', nameAssessment: 'unassessed' },
+              { id: fixtureBindingId, name: 'fn', kind: 'package function', scope: 'package', relativePath: selectedPath, declarationStart: 20, referenceCount: 1, exported: false, classification: 'eligible', classificationReason: 'private-package-symbol-with-resolved-references', nameAssessment: 'unassessed' },
               { id: 'abcdef0123456789abcdef01', name: 'run', kind: 'package function', scope: 'package', relativePath: siblingPath, declarationStart: 20, referenceCount: 0, exported: false, classification: 'excluded', classificationReason: 'unreferenced-package-symbol', nameAssessment: 'unassessed' },
             ],
           },
@@ -250,10 +265,11 @@ describe.skipIf(!enabled)('Go package rename against PostgreSQL', () => {
     const proposalResponse = await POST(renameRequest('suggest'), params())
     expect(proposalResponse.status).toBe(200)
     const proposal = await proposalResponse.json()
-    expect(proposal).toMatchObject({ scope: 'project', candidates: 1, sourceSetSha256: expect.stringMatching(/^[a-f0-9]{64}$/), projectInventory: { sourceFileCount: 2, privatePackageSymbolCount: 2, referencedPrivatePackageSymbols: 1, unreferencedPrivateSymbols: 1, entryCount: 2, entries: expect.arrayContaining([expect.objectContaining({ name: 'fn', classification: 'eligible' }), expect.objectContaining({ name: 'run', classification: 'excluded' })]) } })
+    expect(proposal).toMatchObject({ scope: 'project', candidates: 1, sourceSetSha256: expect.stringMatching(/^[a-f0-9]{64}$/), projectInventory: { sourceFileCount: 2, privatePackageSymbolCount: 2, referencedPrivatePackageSymbols: 1, unreferencedPrivateSymbols: 1, localSymbolCount: 1, referencedLocalSymbols: 1, entryCount: 3, entries: expect.arrayContaining([expect.objectContaining({ name: 'fn', classification: 'eligible' }), expect.objectContaining({ name: 'value', scope: 'local', classification: 'eligible' }), expect.objectContaining({ name: 'run', classification: 'excluded' })]) } })
+    bindingId = proposal.renames[0].bindingId
     const savedProposal = await prisma.reamonCodeAttempt.findUnique({ where: { id: proposal.attemptId } })
     expect(savedProposal?.scope).toBe('rename-suggestions')
-    expect(savedProposal?.requestPayload).toMatchObject({ goProjectScope: true, goSelectedPath: selectedPath, goProjectModulePath: 'example.test/fixture', goProjectModuleManifestSha256: hash(goMod), goProjectModuleSumSha256: hash(goSum), goProjectInventory: { sourceFileCount: 2, privatePackageSymbolCount: 2, unreferencedPrivateSymbols: 1, entryCount: 2 }, renames: [{ bindingId, oldName: 'fn', newName: 'calculate' }] })
+    expect(savedProposal?.requestPayload).toMatchObject({ goProjectScope: true, goSelectedPath: selectedPath, goProjectModulePath: 'example.test/fixture', goProjectModuleManifestSha256: hash(goMod), goProjectModuleSumSha256: hash(goSum), goProjectInventory: { sourceFileCount: 2, privatePackageSymbolCount: 2, unreferencedPrivateSymbols: 1, localSymbolCount: 1, referencedLocalSymbols: 1, entryCount: 3 }, renames: [{ bindingId, oldName: 'fn', newName: 'calculate' }] })
 
     await writeFile(path.join(artifactsDirectory, 'go.mod'), 'module example.test/changed\n\ngo 1.24\n', 'utf8')
     const changedModuleResponse = await POST(renameRequest('apply', proposal.attemptId), params())
