@@ -1,0 +1,20 @@
+{
+  "fixtureManifest": "fixture-manifest.json",
+  "schemaVersion": 1,
+  "fixtures": {
+    "pyinstaller-module-structured-source-linux-amd64-v2": {
+      "fixtureManifest": "pyinstaller/fixture-manifest.json",
+      "candidateReceipt": "pyinstaller/pair-clean/candidate-receipt.json",
+      "evaluationManifest": "pyinstaller/evaluation-manifest.json",
+      "baselineReceipt": "pyinstaller/pair-clean/baseline-receipt.json",
+      "toolchainManifest": "pyinstaller/toolchain.json"
+    },
+    "jvm-multimodule-cfr-linux-amd64-v2": {
+      "fixtureManifest": "jvm/fixture-manifest.json",
+      "candidateReceipt": "jvm/candidate-receipt.json",
+      "evaluationManifest": "jvm/evaluation-manifest.json",
+      "baselineReceipt": "jvm/baseline-receipt.json",
+      "toolchainManifest": "jvm/toolchain.json"
+    }
+  }
+}

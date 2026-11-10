@@ -78,17 +78,17 @@ The [autonomous reconstruction and fidelity delivery plan](docs/REAMON_AUTONOMOU
 
 <!-- REAMON_PRODUCT_PROGRESS_START -->
 
-<progress value="31.86" max="100">31.86%</progress> <strong>31.86%</strong> — weighted estimate **31.86%**.
+<progress value="31.89" max="100">31.89%</progress> <strong>31.89%</strong> — weighted estimate **31.89%**.
 
-**Work completed (2026-11-10):** The weighted score did rise from 31.79% to 31.86% after the pinned UUID rename corpus added six upstream binding scenarios and 31 exact declaration/reference edits. Since that score change, completed work includes per-fixture hash-bound toolchains for heterogeneous benchmark receipts, an isolated embedded-NUL CArchive rejection control, C/C++ shadowed-binding safety regressions, and an 8,197-input JVM behavior differential with a rejected behavior-changing mutation. These are recorded in the evidence notes below. Focused and broad test evidence is recorded alongside each change; the latest full unit run was not fully green because of the documented WSL worktree and stale user-wiki issues.
+**Work completed (2026-11-10):** Archived and aggregated clean, hash-bound same-revision benchmark receipts for one JVM/CFR fixture and one Python/PyInstaller fixture at commit 3b67737c436e556a3cdd244d9a18588a24747604. All five JVM and seven PyInstaller metrics were measured on both sides with zero deltas; the aggregate reports NO_REGRESSION_OBSERVED. PyInstaller records 70/70 structured matches and 0/70 false acceptances; its runtime oracle comes from enrollment. Corrected the stale progress source reference and recorded the evidence, score rationale, and remaining changed-revision limitation.
 
-**Score decision:** Held at 31.86% after the UUID corpus increase. The latest benchmark work makes heterogeneous aggregation possible, but no multi-format changed-revision matrix has been measured; safety controls and repeatability do not by themselves satisfy the benchmark scoring gate.
+**Score decision:** Raised end-to-end reconstruction acceptance benchmarks from 21% to 22% for completion of the explicitly planned same-revision heterogeneous matrix gate. Overall weighted estimate moves from 31.86% to 31.89% (+0.03). This records benchmark pipeline/repeatability acceptance, not product improvement.
 
-**Next measurable gate:** Run and archive a complete, same-toolchain multi-format baseline/candidate matrix on one source revision, then reassess the benchmark workstream against its acceptance criteria.
+**Next measurable gate:** Measure a hash-bound multi-format baseline/candidate comparison across different product revisions and additional held-out fixtures; preserve complete denominators, toolchains, behavior controls, and unavailable outcomes.
 
-Latest evidence-based score change (2026-11-10): **+0.07 points** (31.79% → 31.86%). The pinned UUID rename corpus added six upstream binding scenarios with 31 exact declaration/reference edits and passed package type-checks and runtime oracles. This met the next partial-credit gate for cross-file semantic rename propagation.
+Latest evidence-based score change (2026-11-10): **+0.03 points** (31.86% → 31.89%). A clean same-revision matrix at 3b67737c measured all 12 metrics across one JVM/CFR and one PyInstaller fixture, with distinct hash-bound toolchains and zero deltas. This completed the named heterogeneous repeatability gate and raised benchmark completion from 21% to 22% (+0.03 overall); it is not a product-improvement result.
 
-Refreshed from pushed commit `a4e8504`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+Refreshed from pushed commit `3b67737`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 

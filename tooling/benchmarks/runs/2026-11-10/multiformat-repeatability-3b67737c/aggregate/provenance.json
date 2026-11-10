@@ -1,0 +1,14 @@
+{
+  "configSha256": "202c521bdfc9d136427496d2c4c9f0d694058ec4f92b04e1cb92f0b96c20d7eb",
+  "evaluationManifestSha256": "74ea8e7b6cc4958c657c04141a7396a2857b84136c843cf34e4e1e908b5d6af0",
+  "fixtureEvaluationManifestSha256": {
+    "jvm-multimodule-cfr-linux-amd64-v2": "8f99bb2c7edc57c477bb13f1a5f5fbe636ff17349084ae20f561968b51e51e35",
+    "pyinstaller-module-structured-source-linux-amd64-v2": "c881a70116db06fd574504ca9933a48670b34d5ebdd4124b8f4c95f5cb509712"
+  },
+  "fixtureManifestSha256": "355652681651d23db3eb8a93a512c36a232622e0f54acdd4bd96f8a5c7bbcc04",
+  "fixtureToolchainManifestSha256": {
+    "jvm-multimodule-cfr-linux-amd64-v2": "d9e283a1710edf4aed03dbac576ec825419829e64eb8f2ef9f85e760d599afa9",
+    "pyinstaller-module-structured-source-linux-amd64-v2": "2f52c1a537512d08c283cc582ee3b7fbfe07ac927575f5c58b30a8fc9a9f8ed9"
+  },
+  "toolchainManifestSha256": "1df0c96adf579fc5e7e66561b1255de21e0e81947084be88527eea874c632df8"
+}

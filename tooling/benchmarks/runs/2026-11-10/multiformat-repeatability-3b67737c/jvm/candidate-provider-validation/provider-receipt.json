@@ -1,0 +1,37 @@
+{
+  "status": "completed",
+  "toolVersion": "0.152",
+  "inputName": "fixture.jar",
+  "artifactSha256": "e4e2445cac64168e15db33ba02006f5fee4c5c8dd1e7c7ddd439dfbac3f4c4c2",
+  "sourceFileCount": 2,
+  "codeBytes": 632,
+  "truncated": false,
+  "units": [
+    {
+      "name": "Main",
+      "relativePath": "org/reamon/fixture/Main.java",
+      "codeArtifactId": "bench-jvm-cfr/fixture-e4e2445cac64/cfr-fixture/cfr-candidate-3b67737c/sources/org/reamon/fixture/Main.java",
+      "language": "Java",
+      "sizeBytes": 387,
+      "outputSha256": "173b38f76779e4e0f4bc21141f5b985bf9d191173b841aaf417465d995598043"
+    },
+    {
+      "name": "RuleEngine",
+      "relativePath": "org/reamon/fixture/RuleEngine.java",
+      "codeArtifactId": "bench-jvm-cfr/fixture-e4e2445cac64/cfr-fixture/cfr-candidate-3b67737c/sources/org/reamon/fixture/RuleEngine.java",
+      "language": "Java",
+      "sizeBytes": 245,
+      "outputSha256": "675d85b1dc835483012dbdfedefbae0983dcbf1920024437b9165deb7bb66c4d"
+    }
+  ],
+  "warnings": "CFR output is an independent Java reconstruction, not proof of original source or behavior. Processing /data/reamon-artifacts/jvm-cfr-cfr-candidate-3b67737c/fixture.jar (use silent to silence)\nProcessing org.reamon.fixture.Main\nProcessing org.reamon.fixture.RuleEngine",
+  "request": {
+    "taskId": "cfr-fixture",
+    "runId": "cfr-candidate-3b67737c",
+    "artifactPath": "/data/reamon-artifacts/jvm-cfr-cfr-candidate-3b67737c/fixture.jar",
+    "artifactId": "fixture-e4e2445cac64",
+    "projectId": "bench-jvm-cfr"
+  },
+  "serviceContainer": "reamon-cfr",
+  "serviceImageId": "sha256:75c9a073878f7788ad2a488e27714b13738a303640d60031e47bb2e7c9059c06"
+}

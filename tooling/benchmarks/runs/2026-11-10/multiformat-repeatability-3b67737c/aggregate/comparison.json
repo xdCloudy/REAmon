@@ -1,0 +1,133 @@
+{
+  "baselineRunId": "multiformat-3b67737c-baseline",
+  "candidateRunId": "multiformat-3b67737c-candidate",
+  "certification": "This comparison is bounded evidence and is not a product certification.",
+  "evaluationManifestSha256": "74ea8e7b6cc4958c657c04141a7396a2857b84136c843cf34e4e1e908b5d6af0",
+  "fixtureManifestSha256": "355652681651d23db3eb8a93a512c36a232622e0f54acdd4bd96f8a5c7bbcc04",
+  "fixtures": {
+    "jvm-multimodule-cfr-linux-amd64-v2": {
+      "artifactSha256": "e4e2445cac64168e15db33ba02006f5fee4c5c8dd1e7c7ddd439dfbac3f4c4c2",
+      "metrics": {
+        "exact_bytecode_classes": {
+          "baseline": 2,
+          "candidate": 2,
+          "delta": 0,
+          "denominator": 2,
+          "direction": "higher",
+          "regressionObserved": false,
+          "state": "MEASURED"
+        },
+        "recovered_source_files": {
+          "baseline": 2,
+          "candidate": 2,
+          "delta": 0,
+          "denominator": 2,
+          "direction": "higher",
+          "regressionObserved": false,
+          "state": "MEASURED"
+        },
+        "runtime_oracle": {
+          "baseline": 1,
+          "candidate": 1,
+          "delta": 0,
+          "denominator": 1,
+          "direction": "equal",
+          "regressionObserved": false,
+          "state": "MEASURED"
+        },
+        "sampled_behavior_oracle": {
+          "baseline": 1,
+          "candidate": 1,
+          "delta": 0,
+          "denominator": 1,
+          "direction": "equal",
+          "regressionObserved": false,
+          "state": "MEASURED"
+        },
+        "source_inventory_complete": {
+          "baseline": 1,
+          "candidate": 1,
+          "delta": 0,
+          "denominator": 1,
+          "direction": "equal",
+          "regressionObserved": false,
+          "state": "MEASURED"
+        }
+      }
+    },
+    "pyinstaller-module-structured-source-linux-amd64-v2": {
+      "artifactSha256": "603094d27882948374f57aab29a89fc6c215410918f521a4e172165cf603fe8e",
+      "metrics": {
+        "extracted_module_count": {
+          "baseline": 180,
+          "candidate": 180,
+          "delta": 0,
+          "denominator": 1,
+          "direction": "equal",
+          "regressionObserved": false,
+          "state": "MEASURED"
+        },
+        "known_source_value_recall": {
+          "baseline": 70,
+          "candidate": 70,
+          "delta": 0,
+          "denominator": 70,
+          "direction": "higher",
+          "regressionObserved": false,
+          "state": "MEASURED"
+        },
+        "negative_control_false_acceptance": {
+          "baseline": 0,
+          "candidate": 0,
+          "delta": 0,
+          "denominator": 70,
+          "direction": "lower",
+          "regressionObserved": false,
+          "state": "MEASURED"
+        },
+        "negative_control_mutation_rejection": {
+          "baseline": 70,
+          "candidate": 70,
+          "delta": 0,
+          "denominator": 70,
+          "direction": "higher",
+          "regressionObserved": false,
+          "state": "MEASURED"
+        },
+        "reconstruction_match": {
+          "baseline": 70,
+          "candidate": 70,
+          "delta": 0,
+          "denominator": 70,
+          "direction": "higher",
+          "regressionObserved": false,
+          "state": "MEASURED"
+        },
+        "runtime_oracle": {
+          "baseline": 1,
+          "candidate": 1,
+          "delta": 0,
+          "denominator": 1,
+          "direction": "equal",
+          "regressionObserved": false,
+          "state": "MEASURED"
+        },
+        "worker_terminal_page": {
+          "baseline": 1,
+          "candidate": 1,
+          "delta": 0,
+          "denominator": 1,
+          "direction": "equal",
+          "regressionObserved": false,
+          "state": "MEASURED"
+        }
+      }
+    }
+  },
+  "regressions": [],
+  "schemaVersion": 1,
+  "status": "NO_REGRESSION_OBSERVED",
+  "thresholdsApplied": false,
+  "toolchainManifestSha256": "1df0c96adf579fc5e7e66561b1255de21e0e81947084be88527eea874c632df8",
+  "worktreesClean": true
+}

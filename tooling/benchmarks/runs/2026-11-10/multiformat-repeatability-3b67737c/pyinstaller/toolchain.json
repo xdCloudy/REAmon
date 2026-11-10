@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "components": {
+    "product_source_commit": "3b67737c436e556a3cdd244d9a18588a24747604",
+    "builder_dockerfile_sha256": "2afbde22c1d2f551916705dca5aab979b8786fd503a210cc5034e1a99c7db471",
+    "build_runner_sha256": "55a4cd4a21b39dbe00ffa569249c9a200ddaf6028c104f146a39f07a220c0f13",
+    "extractor_image_id": "sha256:a2031f7fe7352a318bde3724a9453ec4969abdc635d861d5e4aa43fa1a1a535c",
+    "extractor_revision": "2aa0ec9e58317ac717fdeec84a02d5a67de7b96c2-reamon2",
+    "pyinstaller_service_image_id": "sha256:dfd6e00b359c5144b39510685e15faa4dbc48645b3b0f9fe5a39669e9e5a40d3",
+    "worker_image_id": "sha256:b15bd821fc9c8f12c47ac360edbd9c87fc974e39a9fe4b7b0c981fa4e1fcf5f4",
+    "webapp_image_id": "sha256:d79912c8e1a3d48e6fa56a395024d011406f363cb343613573658c5a17580599",
+    "integration_test_sha256": "170e534d08d11de629d6385aafc70b1d706a3eea9549be022bf0a442ea54db98",
+    "compose_sha256": "dae591fe8d9a8bf6c64fd6179dcd41875db560ac1c4d508d3d5f242c12fdafac",
+    "evidence_adapter_sha256": "c76e5cbe6f7b068085672d7d34bfbd47ffccd49432703bc70a24c970cf5c6239"
+  }
+}

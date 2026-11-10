@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "fixtures": {
+    "pyinstaller-module-structured-source-linux-amd64-v2": {
+      "artifact": {
+        "sha256": "603094d27882948374f57aab29a89fc6c215410918f521a4e172165cf603fe8e"
+      }
+    },
+    "jvm-multimodule-cfr-linux-amd64-v2": {
+      "artifact": {
+        "sha256": "e4e2445cac64168e15db33ba02006f5fee4c5c8dd1e7c7ddd439dfbac3f4c4c2"
+      }
+    }
+  }
+}

@@ -1,0 +1,117 @@
+{
+  "commit": "3b67737c436e556a3cdd244d9a18588a24747604",
+  "components": {
+    "jvm-multimodule-cfr-linux-amd64-v2/builder_image": "eclipse-temurin:21-jdk-jammy@sha256:4b1a74fbffbe6b4e7b6f0171a472478282fb463790a51edf10e465d578f22b69",
+    "jvm-multimodule-cfr-linux-amd64-v2/cfr_service_image_id": "sha256:75c9a073878f7788ad2a488e27714b13738a303640d60031e47bb2e7c9059c06",
+    "jvm-multimodule-cfr-linux-amd64-v2/evidence_adapter_sha256": "063746cf9f66b1d8e6c1f4a80e4026f128526b4c4f4a364bafd94a7464cd884f",
+    "jvm-multimodule-cfr-linux-amd64-v2/fixture_dockerfile_sha256": "67f9cd2343994b87e375348e74824242751b7ae798067e8a8198fcf245311739",
+    "jvm-multimodule-cfr-linux-amd64-v2/product_source_commit": "3b67737c436e556a3cdd244d9a18588a24747604",
+    "jvm-multimodule-cfr-linux-amd64-v2/runner_sha256": "f5d406ab57a5e25d0cec81a8031ff6a4e583b6a717da0df6a3fae5cfe0f8ba0a",
+    "pyinstaller-module-structured-source-linux-amd64-v2/build_runner_sha256": "55a4cd4a21b39dbe00ffa569249c9a200ddaf6028c104f146a39f07a220c0f13",
+    "pyinstaller-module-structured-source-linux-amd64-v2/builder_dockerfile_sha256": "2afbde22c1d2f551916705dca5aab979b8786fd503a210cc5034e1a99c7db471",
+    "pyinstaller-module-structured-source-linux-amd64-v2/compose_sha256": "dae591fe8d9a8bf6c64fd6179dcd41875db560ac1c4d508d3d5f242c12fdafac",
+    "pyinstaller-module-structured-source-linux-amd64-v2/evidence_adapter_sha256": "c76e5cbe6f7b068085672d7d34bfbd47ffccd49432703bc70a24c970cf5c6239",
+    "pyinstaller-module-structured-source-linux-amd64-v2/extractor_image_id": "sha256:a2031f7fe7352a318bde3724a9453ec4969abdc635d861d5e4aa43fa1a1a535c",
+    "pyinstaller-module-structured-source-linux-amd64-v2/extractor_revision": "2aa0ec9e58317ac717fdeec84a02d5a67de7b96c2-reamon2",
+    "pyinstaller-module-structured-source-linux-amd64-v2/integration_test_sha256": "170e534d08d11de629d6385aafc70b1d706a3eea9549be022bf0a442ea54db98",
+    "pyinstaller-module-structured-source-linux-amd64-v2/product_source_commit": "3b67737c436e556a3cdd244d9a18588a24747604",
+    "pyinstaller-module-structured-source-linux-amd64-v2/pyinstaller_service_image_id": "sha256:dfd6e00b359c5144b39510685e15faa4dbc48645b3b0f9fe5a39669e9e5a40d3",
+    "pyinstaller-module-structured-source-linux-amd64-v2/webapp_image_id": "sha256:d79912c8e1a3d48e6fa56a395024d011406f363cb343613573658c5a17580599",
+    "pyinstaller-module-structured-source-linux-amd64-v2/worker_image_id": "sha256:b15bd821fc9c8f12c47ac360edbd9c87fc974e39a9fe4b7b0c981fa4e1fcf5f4"
+  },
+  "constituentReceiptSha256": {
+    "jvm-multimodule-cfr-linux-amd64-v2": "999c783999fb3acc742a05cac00f6a7daec4a2f38a43bd1961ef88b391ad4c25",
+    "pyinstaller-module-structured-source-linux-amd64-v2": "3942c0e7e83b19c1c2e63358fe07e68219d2af6d4dc40ba3d6246bbb5d871bc5"
+  },
+  "createdAtUtc": "2026-11-10T10:21:14Z",
+  "evaluationManifestSha256": "74ea8e7b6cc4958c657c04141a7396a2857b84136c843cf34e4e1e908b5d6af0",
+  "fixtureManifestSha256": "355652681651d23db3eb8a93a512c36a232622e0f54acdd4bd96f8a5c7bbcc04",
+  "fixtures": {
+    "jvm-multimodule-cfr-linux-amd64-v2": {
+      "artifactSha256": "e4e2445cac64168e15db33ba02006f5fee4c5c8dd1e7c7ddd439dfbac3f4c4c2",
+      "metrics": {
+        "exact_bytecode_classes": {
+          "denominator": 2,
+          "direction": "higher",
+          "state": "MEASURED",
+          "value": 2
+        },
+        "recovered_source_files": {
+          "denominator": 2,
+          "direction": "higher",
+          "state": "MEASURED",
+          "value": 2
+        },
+        "runtime_oracle": {
+          "denominator": 1,
+          "direction": "equal",
+          "state": "MEASURED",
+          "value": 1
+        },
+        "sampled_behavior_oracle": {
+          "denominator": 1,
+          "direction": "equal",
+          "state": "MEASURED",
+          "value": 1
+        },
+        "source_inventory_complete": {
+          "denominator": 1,
+          "direction": "equal",
+          "state": "MEASURED",
+          "value": 1
+        }
+      }
+    },
+    "pyinstaller-module-structured-source-linux-amd64-v2": {
+      "artifactSha256": "603094d27882948374f57aab29a89fc6c215410918f521a4e172165cf603fe8e",
+      "metrics": {
+        "extracted_module_count": {
+          "denominator": 1,
+          "direction": "equal",
+          "state": "MEASURED",
+          "value": 180
+        },
+        "known_source_value_recall": {
+          "denominator": 70,
+          "direction": "higher",
+          "state": "MEASURED",
+          "value": 70
+        },
+        "negative_control_false_acceptance": {
+          "denominator": 70,
+          "direction": "lower",
+          "state": "MEASURED",
+          "value": 0
+        },
+        "negative_control_mutation_rejection": {
+          "denominator": 70,
+          "direction": "higher",
+          "state": "MEASURED",
+          "value": 70
+        },
+        "reconstruction_match": {
+          "denominator": 70,
+          "direction": "higher",
+          "state": "MEASURED",
+          "value": 70
+        },
+        "runtime_oracle": {
+          "denominator": 1,
+          "direction": "equal",
+          "state": "MEASURED",
+          "value": 1
+        },
+        "worker_terminal_page": {
+          "denominator": 1,
+          "direction": "equal",
+          "state": "MEASURED",
+          "value": 1
+        }
+      }
+    }
+  },
+  "runId": "multiformat-3b67737c-baseline",
+  "schemaVersion": 1,
+  "toolchainManifestSha256": "1df0c96adf579fc5e7e66561b1255de21e0e81947084be88527eea874c632df8",
+  "worktreeClean": true
+}

@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "fixtureId": "pyinstaller-module-structured-source-linux-amd64-v2",
+  "build": {
+    "artifactSha256": "603094d27882948374f57aab29a89fc6c215410918f521a4e172165cf603fe8e",
+    "artifactSizeBytes": 7272176,
+    "runtimeOracle": "PASSED in Docker build container",
+    "pythonVersion": "3.12.8",
+    "pyinstallerVersion": "6.13.0",
+    "builderDockerfileSha256": "2afbde22c1d2f551916705dca5aab979b8786fd503a210cc5034e1a99c7db471",
+    "requirementsSha256": "463bad8b281dcc8006562a46310738fb1184b41da3c0031515ec65a377a2a1be",
+    "groundTruthBuilderSha256": "23aaef7b4cc640ae1b604e327c0724a72c96bdcefb56ab378086b93a0d8d9185"
+  },
+  "fixtureOracle": {
+    "state": "PASSED",
+    "expectedStdout": "2485",
+    "observedStdout": "2485",
+    "branchAssertions": 2
+  },
+  "extractorInventory": {
+    "state": "PASSED",
+    "moduleCount": 180,
+    "pageSizes": [64, 64, 52],
+    "extractorRevision": "2aa0ec9e58317ac717fdeec84a02d5a67de7b96c2-reamon2",
+    "extractorDockerfileSha256": "db47713b717981021bc611de3b57c0fcc7bfdad76cec3197db7a0885b0686de3",
+    "extractorServerSha256": "37eefbee09dc358fed06210785b381ab441046b1cb2321ab59806fd256029600",
+    "extractorUpstreamGoModSha256": "9a19b65469974a99ddec77fcab4b520140c00fcabf2e303fcba8f2af04b26434"
+  },
+  "sourceOracle": {
+    "knownSourceModuleCount": 70,
+    "shape": "VALUE plus classify(candidate) with a below/at-or-above branch",
+    "visibleToAnalyzer": false
+  }
+}

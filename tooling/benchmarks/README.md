@@ -71,3 +71,14 @@ It compares one enrolled PyInstaller artifact with a shared harness and reports
 seven unchanged metrics. The runtime oracle is inherited from enrollment, and
 the analyzer/worker service images are fixed across revisions; this result
 does not complete multi-format or full service-revision acceptance.
+
+A same-revision, two-format repeatability matrix is archived at
+[`runs/2026-11-10/multiformat-repeatability-3b67737c/`](runs/2026-11-10/multiformat-repeatability-3b67737c/README.md).
+It measures one JVM/CFR fixture and one PyInstaller fixture at clean product
+commit `3b67737c436e556a3cdd244d9a18588a24747604`, with fixture-specific,
+hash-bound evaluation and toolchain manifests. All five JVM and seven
+PyInstaller metrics are complete with zero baseline/candidate deltas; the
+aggregate reports `NO_REGRESSION_OBSERVED`. This validates heterogeneous
+receipt aggregation and repeatability on these two synthetic fixtures. It
+does not measure a product change or complete changed-revision, multi-format
+acceptance; that remains the next AR-0/AR-8 gate.

@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "fixtureId": "jvm-multimodule-cfr-linux-amd64-v2",
+  "metrics": {
+    "recovered_source_files": {
+      "direction": "higher",
+      "denominator": 2,
+      "description": "Expected held-out Java source paths returned by the provider."
+    },
+    "source_inventory_complete": {
+      "direction": "equal",
+      "denominator": 1,
+      "description": "Provider and validator both report exactly the enrolled, untruncated source inventory."
+    },
+    "exact_bytecode_classes": {
+      "direction": "higher",
+      "denominator": 2,
+      "description": "Expected classes whose pinned-JDK javap signature and bytecode output exactly match the original artifact."
+    },
+    "runtime_oracle": {
+      "direction": "equal",
+      "denominator": 1,
+      "description": "Recovered project compiles and produces the enrolled fixture stdout in the pinned Docker image."
+    },
+    "sampled_behavior_oracle": {
+      "direction": "equal",
+      "denominator": 1,
+      "description": "All 8,197 enrolled RuleEngine integer inputs match the original artifact; this finite sample is not exhaustive equivalence."
+    }
+  }
+}

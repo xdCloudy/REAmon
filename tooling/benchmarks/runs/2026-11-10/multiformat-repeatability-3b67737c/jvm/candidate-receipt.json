@@ -1,0 +1,56 @@
+{
+  "commit": "3b67737c436e556a3cdd244d9a18588a24747604",
+  "components": {
+    "builder_image": "eclipse-temurin:21-jdk-jammy@sha256:4b1a74fbffbe6b4e7b6f0171a472478282fb463790a51edf10e465d578f22b69",
+    "cfr_service_image_id": "sha256:75c9a073878f7788ad2a488e27714b13738a303640d60031e47bb2e7c9059c06",
+    "evidence_adapter_sha256": "063746cf9f66b1d8e6c1f4a80e4026f128526b4c4f4a364bafd94a7464cd884f",
+    "fixture_dockerfile_sha256": "67f9cd2343994b87e375348e74824242751b7ae798067e8a8198fcf245311739",
+    "product_source_commit": "3b67737c436e556a3cdd244d9a18588a24747604",
+    "runner_sha256": "f5d406ab57a5e25d0cec81a8031ff6a4e583b6a717da0df6a3fae5cfe0f8ba0a"
+  },
+  "createdAtUtc": "2026-11-10T10:20:21Z",
+  "evaluationManifestSha256": "8f99bb2c7edc57c477bb13f1a5f5fbe636ff17349084ae20f561968b51e51e35",
+  "evidenceSha256": "6bb2eaa51ca89b9d92899e2b03eab811eda37b44aacdd24d8984515700022c7a",
+  "fixtureManifestSha256": "789ddeca4a3bd3f2c17c82d091fd1749d084f63a6b409d58fc374452b37b6548",
+  "fixtures": {
+    "jvm-multimodule-cfr-linux-amd64-v2": {
+      "artifactSha256": "e4e2445cac64168e15db33ba02006f5fee4c5c8dd1e7c7ddd439dfbac3f4c4c2",
+      "metrics": {
+        "exact_bytecode_classes": {
+          "denominator": 2,
+          "direction": "higher",
+          "state": "MEASURED",
+          "value": 2
+        },
+        "recovered_source_files": {
+          "denominator": 2,
+          "direction": "higher",
+          "state": "MEASURED",
+          "value": 2
+        },
+        "runtime_oracle": {
+          "denominator": 1,
+          "direction": "equal",
+          "state": "MEASURED",
+          "value": 1
+        },
+        "sampled_behavior_oracle": {
+          "denominator": 1,
+          "direction": "equal",
+          "state": "MEASURED",
+          "value": 1
+        },
+        "source_inventory_complete": {
+          "denominator": 1,
+          "direction": "equal",
+          "state": "MEASURED",
+          "value": 1
+        }
+      }
+    }
+  },
+  "runId": "jvm-3b67737c-candidate",
+  "schemaVersion": 1,
+  "toolchainManifestSha256": "d9e283a1710edf4aed03dbac576ec825419829e64eb8f2ef9f85e760d599afa9",
+  "worktreeClean": true
+}
