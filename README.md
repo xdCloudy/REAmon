@@ -108,7 +108,7 @@ Latest evidence-based score change (2026-11-10): **+0.08 points** (34.03% → 34
 
 **Next measurable gate:** Extend method rename checks to external interfaces and cross-package method sets, add stale-source and broader pinned package fixtures, and separately scope struct-field/type-parameter support. Keep the Go method path experimental and reviewer-selected.
 
-Refreshed from pushed commit `618dc2c`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+Refreshed from pushed commit `404a0fa`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
