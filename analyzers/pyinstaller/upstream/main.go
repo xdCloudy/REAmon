@@ -254,6 +254,9 @@ func (p *PyInstArchive) ParseTOC() bool {
 		}
 
 		nameBuffer = bytes.TrimRight(nameBuffer, "\x00")
+		if bytes.IndexByte(nameBuffer, 0) >= 0 {
+			return false
+		}
 		if len(nameBuffer) == 0 {
 			ctocEntry.Name = randomString()
 			fmt.Printf("[!] Warning: Found an unamed file in CArchive. Using random name %s\n", ctocEntry.Name)
