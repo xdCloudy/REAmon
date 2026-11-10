@@ -18,7 +18,7 @@ vi.mock('@/lib/prisma', () => ({ default: {
   reamonCodeReview: { findMany: h.reviews },
   reamonCodeDraft: { findMany: h.drafts },
 } }))
-vi.mock('@/lib/access', () => ({ requireEffectiveUser: h.user, requireProjectAccess: h.access }))
+vi.mock('@/lib/access', () => ({ requireEffectiveUser: h.user, requireProjectAccessStrict: h.access }))
 vi.mock('@/lib/reamon/inventory-query', () => ({ getActiveWorkspaceImportSelection: h.selection }))
 vi.mock('@/lib/reamon/derived-storage', () => ({ derivedArtifactRoot: h.root, resolveDerivedArtifactPath: h.resolvePath }))
 
@@ -140,11 +140,12 @@ describe('GET /api/projects/[id]/visualizer/maintained/export', () => {
 
   it('requires access before reading run observations', async () => {
     const { NextResponse } = await import('next/server')
-    h.access.mockResolvedValueOnce(NextResponse.json({ error: 'Forbidden' }, { status: 403 }))
+    h.access.mockResolvedValueOnce(NextResponse.json({ error: 'Not found' }, { status: 404 }))
 
     const response = await GET(new Request(`http://localhost?taskId=${taskId}`), routeParams)
 
-    expect(response.status).toBe(403)
+    expect(response.status).toBe(404)
+    expect(h.selection).not.toHaveBeenCalled()
     expect(h.task).not.toHaveBeenCalled()
     expect(h.observations).not.toHaveBeenCalled()
   })

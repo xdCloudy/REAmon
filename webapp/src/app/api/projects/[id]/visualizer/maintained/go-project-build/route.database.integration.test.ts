@@ -14,14 +14,13 @@ import prisma from '@/lib/prisma'
 
 const mocks = vi.hoisted(() => ({
   requireEffectiveUser: vi.fn(),
-  requireProjectAccess: vi.fn(),
   getActiveWorkspaceImportSelection: vi.fn(),
   agentFetch: vi.fn(),
 }))
 
-vi.mock('@/lib/access', () => ({
+vi.mock('@/lib/access', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@/lib/access')>(),
   requireEffectiveUser: mocks.requireEffectiveUser,
-  requireProjectAccess: mocks.requireProjectAccess,
 }))
 vi.mock('@/lib/reamon/inventory-query', () => ({ getActiveWorkspaceImportSelection: mocks.getActiveWorkspaceImportSelection }))
 vi.mock('@/lib/agentFetch', () => ({ agentFetch: mocks.agentFetch }))
@@ -153,7 +152,6 @@ describe.skipIf(!enabled)('Go build receipt against PostgreSQL', () => {
     }
 
     mocks.requireEffectiveUser.mockResolvedValue({ userId: user.id })
-    mocks.requireProjectAccess.mockResolvedValue({ project: { id: projectId, userId: user.id } })
     mocks.getActiveWorkspaceImportSelection.mockResolvedValue({ artifactWhere: { projectId } })
     moduleHash = hash(goMod)
     if (process.env.REAMON_GO_PROJECT_BUILD_REAL_AGENT === '1') {
@@ -190,7 +188,22 @@ describe.skipIf(!enabled)('Go build receipt against PostgreSQL', () => {
     await prisma.$disconnect()
   })
 
+  it('denies foreign build and receipt reads before import lookup when enforcement is disabled', async () => {
+    vi.stubEnv('ACCESS_ENFORCE', '0')
+    mocks.requireEffectiveUser.mockResolvedValue({ userId: randomUUID() })
+
+    const read = await GET(receiptRequest(), params())
+    const build = await POST(buildRequest(), params())
+
+    expect(read.status).toBe(404)
+    expect(build.status).toBe(404)
+    expect(mocks.getActiveWorkspaceImportSelection).not.toHaveBeenCalled()
+    expect(mocks.agentFetch).not.toHaveBeenCalled()
+    expect(await prisma.reamonObservation.count({ where: { projectId, taskId, type: 'project_build_receipt' } })).toBe(0)
+  })
+
   it('persists, reloads, and invalidates the receipt against actual source and manifest rows', async () => {
+    mocks.requireEffectiveUser.mockResolvedValue({ userId: projectOwnerId })
     const buildResponse = await POST(buildRequest(), params())
     expect(buildResponse.status).toBe(200)
     const build = await buildResponse.json()

@@ -18,7 +18,7 @@ vi.mock('@/lib/prisma', () => ({ default: {
   reamonMaintainedSource: { findMany: h.sources },
   reamonCodeReview: { findMany: h.reviews },
 } }))
-vi.mock('@/lib/access', () => ({ requireEffectiveUser: h.user, requireProjectAccess: h.access }))
+vi.mock('@/lib/access', () => ({ requireEffectiveUser: h.user, requireProjectAccessStrict: h.access }))
 vi.mock('@/lib/reamon/inventory-query', () => ({ getActiveWorkspaceImportSelection: h.selection }))
 vi.mock('@/lib/agentFetch', () => ({ agentFetch: h.agentFetch }))
 
@@ -67,6 +67,22 @@ afterEach(async () => {
 })
 
 describe('POST Go project build', () => {
+  it('denies foreign project access before reading sources, loading receipts, or invoking the compiler', async () => {
+    h.access.mockResolvedValueOnce(NextResponse.json({ error: 'Not found' }, { status: 404 }))
+    const response = await POST(new Request('http://localhost', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ taskId: 'task-1' }),
+    }), params)
+    h.access.mockResolvedValueOnce(NextResponse.json({ error: 'Not found' }, { status: 404 }))
+    const readResponse = await GET(new Request('http://localhost?taskId=task-1'), params)
+
+    expect(response.status).toBe(404)
+    expect(readResponse.status).toBe(404)
+    expect(h.selection).not.toHaveBeenCalled()
+    expect(h.agentFetch).not.toHaveBeenCalled()
+    expect(h.receipt).not.toHaveBeenCalled()
+    expect(h.findReceipt).not.toHaveBeenCalled()
+  })
+
   it('compiles accepted Go sources and persists hash-bound evidence', async () => {
     const response = await POST(new Request('http://localhost', {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ taskId: 'task-1' }),

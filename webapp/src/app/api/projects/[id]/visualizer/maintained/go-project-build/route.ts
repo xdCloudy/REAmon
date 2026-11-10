@@ -4,7 +4,7 @@ import { NextResponse } from 'next/server'
 import { Prisma } from '@prisma/client'
 import prisma from '@/lib/prisma'
 import { agentFetch } from '@/lib/agentFetch'
-import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
+import { requireEffectiveUser, requireProjectAccessStrict } from '@/lib/access'
 import { getActiveWorkspaceImportSelection } from '@/lib/reamon/inventory-query'
 import { resolveArtifactStoragePath } from '@/lib/reamon/artifact-storage'
 import { getVerifiedGoProjectBuildReceipt } from '@/lib/reamon/go-project-build-receipt'
@@ -130,7 +130,7 @@ export async function GET(request: Request, { params }: RouteParams) {
     const { id: projectId } = await params
     const user = await requireEffectiveUser()
     if (user instanceof NextResponse) return user
-    const access = await requireProjectAccess(user, projectId)
+    const access = await requireProjectAccessStrict(user, projectId)
     if (access instanceof NextResponse) return access
     const taskId = new URL(request.url).searchParams.get('taskId')?.trim() || ''
     if (!taskId || taskId.length > 128) return NextResponse.json({ error: 'Choose a completed analysis run first.' }, { status: 400 })
@@ -153,7 +153,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     const { id: projectId } = await params
     const user = await requireEffectiveUser()
     if (user instanceof NextResponse) return user
-    const access = await requireProjectAccess(user, projectId)
+    const access = await requireProjectAccessStrict(user, projectId)
     if (access instanceof NextResponse) return access
     const body = await request.json().catch(() => null) as Record<string, unknown> | null
     const taskId = typeof body?.taskId === 'string' ? body.taskId.trim() : ''

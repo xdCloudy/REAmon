@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server'
 import { Prisma } from '@prisma/client'
 import prisma from '@/lib/prisma'
 import { agentFetch } from '@/lib/agentFetch'
-import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
+import { requireEffectiveUser, requireProjectAccessStrict } from '@/lib/access'
 import { getActiveWorkspaceImportSelection } from '@/lib/reamon/inventory-query'
 import { getVerifiedCSharpProjectBuildReceipt } from '@/lib/reamon/project-build-receipt'
 import { CODE_UNIT_OBSERVATION_TYPE } from '@/lib/reamon/code-units'
@@ -49,7 +49,7 @@ export async function GET(request: Request, { params }: RouteParams) {
     const { id: projectId } = await params
     const user = await requireEffectiveUser()
     if (user instanceof NextResponse) return user
-    const access = await requireProjectAccess(user, projectId)
+    const access = await requireProjectAccessStrict(user, projectId)
     if (access instanceof NextResponse) return access
 
     const taskId = new URL(request.url).searchParams.get('taskId')?.trim() || ''
@@ -80,7 +80,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     const { id: projectId } = await params
     const user = await requireEffectiveUser()
     if (user instanceof NextResponse) return user
-    const access = await requireProjectAccess(user, projectId)
+    const access = await requireProjectAccessStrict(user, projectId)
     if (access instanceof NextResponse) return access
 
     const body = await request.json().catch(() => null) as Record<string, unknown> | null
