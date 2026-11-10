@@ -1,0 +1,115 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "function references preserve comments_strings_and_shadowed_parameter",
+      "selected_path": "pkg/api.go",
+      "old_name": "normalize",
+      "new_name": "scale",
+      "reference_count": 1,
+      "files": {
+        "pkg/api.go": "package sample\n\n// normalize remains documentation.\nfunc normalize(value int) int { return value + 1 }\n",
+        "pkg/use.go": "package sample\n\nfunc call() int { return normalize(2) }\nfunc shadow(normalize func(int) int) int { return normalize(3) }\nconst note = \"normalize\"\n"
+      },
+      "expected": {
+        "pkg/api.go": "package sample\n\n// normalize remains documentation.\nfunc scale(value int) int { return value + 1 }\n",
+        "pkg/use.go": "package sample\n\nfunc call() int { return scale(2) }\nfunc shadow(normalize func(int) int) int { return normalize(3) }\nconst note = \"normalize\"\n"
+      }
+    },
+    {
+      "name": "type references include_signature_and_composite_literal",
+      "selected_path": "pkg/model.go",
+      "old_name": "record",
+      "new_name": "entity",
+      "reference_count": 2,
+      "files": {
+        "pkg/model.go": "package sample\n\ntype record struct { value int }\n",
+        "pkg/use.go": "package sample\n\nfunc create() record { return record{value: 4} }\n"
+      },
+      "expected": {
+        "pkg/model.go": "package sample\n\ntype entity struct { value int }\n",
+        "pkg/use.go": "package sample\n\nfunc create() entity { return entity{value: 4} }\n"
+      }
+    },
+    {
+      "name": "generic_type_rename_updates_cross_file_receiver_and_instantiation",
+      "selected_path": "pkg/types.go",
+      "old_name": "store",
+      "new_name": "repository",
+      "reference_count": 2,
+      "files": {
+        "pkg/types.go": "package sample\n\ntype store[T comparable] struct { key T }\n",
+        "pkg/use.go": "package sample\n\nfunc (item *store[T]) current() T { return item.key }\nfunc get() int { var item store[int]; return item.current() }\n"
+      },
+      "expected": {
+        "pkg/types.go": "package sample\n\ntype repository[T comparable] struct { key T }\n",
+        "pkg/use.go": "package sample\n\nfunc (item *repository[T]) current() T { return item.key }\nfunc get() int { var item repository[int]; return item.current() }\n"
+      }
+    },
+    {
+      "name": "constant references exclude_shadowing_parameters",
+      "selected_path": "pkg/constants.go",
+      "old_name": "threshold",
+      "new_name": "boundary",
+      "reference_count": 2,
+      "files": {
+        "pkg/constants.go": "package sample\n\nconst threshold = 10\nvar current = threshold\n",
+        "pkg/use.go": "package sample\n\nfunc meets(value int) bool { return value >= threshold && value < current }\nfunc shadow(threshold int) bool { return threshold > 0 }\n"
+      },
+      "expected": {
+        "pkg/constants.go": "package sample\n\nconst boundary = 10\nvar current = boundary\n",
+        "pkg/use.go": "package sample\n\nfunc meets(value int) bool { return value >= boundary && value < current }\nfunc shadow(threshold int) bool { return threshold > 0 }\n"
+      }
+    },
+    {
+      "name": "package_variable_references_exclude_local_shadow",
+      "selected_path": "pkg/state.go",
+      "old_name": "current",
+      "new_name": "active",
+      "reference_count": 1,
+      "files": {
+        "pkg/state.go": "package sample\n\nvar current = 1\n",
+        "pkg/use.go": "package sample\n\nfunc read() int { return current }\nfunc shadow(current int) int { return current }\n"
+      },
+      "expected": {
+        "pkg/state.go": "package sample\n\nvar active = 1\n",
+        "pkg/use.go": "package sample\n\nfunc read() int { return active }\nfunc shadow(current int) int { return current }\n"
+      }
+    }
+  ],
+  "reject_cases": [
+    {
+      "name": "rejects_existing_package_name_collision",
+      "selected_path": "pkg/api.go",
+      "old_name": "compute",
+      "new_name": "taken",
+      "error_contains": "collide with an existing package binding",
+      "files": {
+        "pkg/api.go": "package sample\n\nfunc compute() int { return 1 }\nfunc taken() int { return 2 }\n",
+        "pkg/use.go": "package sample\n\nfunc call() int { return compute() }\n"
+      }
+    },
+    {
+      "name": "rejects_project_reference_captured_by_local",
+      "selected_path": "pkg/api.go",
+      "old_name": "compute",
+      "new_name": "local",
+      "error_contains": "would change a package binding",
+      "files": {
+        "pkg/api.go": "package sample\n\nfunc compute() int { return 1 }\n",
+        "pkg/use.go": "package sample\n\nfunc call() int { local := func() int { return 2 }; _ = local; return compute() }\n"
+      }
+    },
+    {
+      "name": "rejects_predeclared_identifier",
+      "selected_path": "pkg/api.go",
+      "old_name": "compute",
+      "new_name": "len",
+      "error_contains": "predeclared Go name len is not allowed",
+      "files": {
+        "pkg/api.go": "package sample\n\nfunc compute() int { return 1 }\n",
+        "pkg/use.go": "package sample\n\nfunc call() int { return compute() }\n"
+      }
+    }
+  ]
+}

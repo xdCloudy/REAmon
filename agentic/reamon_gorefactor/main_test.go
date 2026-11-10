@@ -1,9 +1,39 @@
 package main
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"reflect"
+	"sort"
 	"strings"
 	"testing"
 )
+
+type projectRenameCorpus struct {
+	Version     int                             `json:"version"`
+	Cases       []projectRenameCorpusCase       `json:"cases"`
+	RejectCases []projectRenameRejectCorpusCase `json:"reject_cases"`
+}
+
+type projectRenameCorpusCase struct {
+	Name           string            `json:"name"`
+	SelectedPath   string            `json:"selected_path"`
+	OldName        string            `json:"old_name"`
+	NewName        string            `json:"new_name"`
+	ReferenceCount int               `json:"reference_count"`
+	Files          map[string]string `json:"files"`
+	Expected       map[string]string `json:"expected"`
+}
+
+type projectRenameRejectCorpusCase struct {
+	Name          string            `json:"name"`
+	SelectedPath  string            `json:"selected_path"`
+	OldName       string            `json:"old_name"`
+	NewName       string            `json:"new_name"`
+	ErrorContains string            `json:"error_contains"`
+	Files         map[string]string `json:"files"`
+}
 
 func bindingNamed(t *testing.T, cat *catalog, name string, declarationStart int) binding {
 	t.Helper()
@@ -73,6 +103,103 @@ func TestProjectRenameUpdatesResolvedReferencesAcrossFiles(t *testing.T) {
 	manifest := result["edit_manifest"].(map[string]any)
 	if manifest["version"] != 1 || len(manifest["files"].([]map[string]any)) != 2 {
 		t.Fatalf("edit manifest is incomplete: %#v", manifest)
+	}
+}
+
+func TestProjectRenameVersionedBindingIntegrityCorpus(t *testing.T) {
+	content, err := os.ReadFile(filepath.Join("testdata", "project_rename_v1.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var corpus projectRenameCorpus
+	if err := json.Unmarshal(content, &corpus); err != nil {
+		t.Fatal(err)
+	}
+	if corpus.Version != 1 || len(corpus.Cases) == 0 || len(corpus.RejectCases) == 0 {
+		t.Fatalf("project rename corpus version/positive/negative case count = %d/%d/%d; want version 1 and both case classes", corpus.Version, len(corpus.Cases), len(corpus.RejectCases))
+	}
+	for _, test := range corpus.Cases {
+		t.Run(test.Name, func(t *testing.T) {
+			paths := make([]string, 0, len(test.Files))
+			for filePath := range test.Files {
+				paths = append(paths, filePath)
+			}
+			sort.Strings(paths)
+			files := make([]projectFile, 0, len(paths))
+			for _, filePath := range paths {
+				files = append(files, projectFile{Path: filePath, Source: test.Files[filePath]})
+			}
+			request := goProjectRequest(files, test.SelectedPath)
+			catalog, err := buildProjectCatalog(request)
+			if err != nil {
+				t.Fatalf("build package catalog: %v", err)
+			}
+			var selected binding
+			for _, item := range catalog.Bindings {
+				if item.FilePath == test.SelectedPath && item.Name == test.OldName {
+					selected = item
+					break
+				}
+			}
+			if selected.ID == "" || selected.ReferenceCount != test.ReferenceCount {
+				t.Fatalf("binding %s references = %d; want an identified binding with %d references", test.OldName, selected.ReferenceCount, test.ReferenceCount)
+			}
+
+			request.Operation = "project_rename"
+			request.ExpectedHash = catalog.SelectedHash
+			request.SourceSetHash = catalog.SourceSetHash
+			request.Renames = []renameSelection{{ID: selected.ID, NewName: test.NewName}}
+			result, err := applyProjectRenames(request)
+			if err != nil {
+				t.Fatalf("apply project rename: %v", err)
+			}
+			actual := make(map[string]string, len(test.Files))
+			for filePath, source := range test.Files {
+				actual[filePath] = source
+			}
+			for _, output := range result["files"].([]map[string]any) {
+				actual[output["relative_path"].(string)] = output["source_code"].(string)
+			}
+			if !reflect.DeepEqual(actual, test.Expected) {
+				t.Fatalf("project rename output differs from corpus oracle:\n got: %#v\nwant: %#v", actual, test.Expected)
+			}
+		})
+	}
+	for _, test := range corpus.RejectCases {
+		t.Run(test.Name, func(t *testing.T) {
+			paths := make([]string, 0, len(test.Files))
+			for filePath := range test.Files {
+				paths = append(paths, filePath)
+			}
+			sort.Strings(paths)
+			files := make([]projectFile, 0, len(paths))
+			for _, filePath := range paths {
+				files = append(files, projectFile{Path: filePath, Source: test.Files[filePath]})
+			}
+			request := goProjectRequest(files, test.SelectedPath)
+			catalog, err := buildProjectCatalog(request)
+			if err != nil {
+				t.Fatalf("build package catalog: %v", err)
+			}
+			var selected binding
+			for _, item := range catalog.Bindings {
+				if item.FilePath == test.SelectedPath && item.Name == test.OldName {
+					selected = item
+					break
+				}
+			}
+			if selected.ID == "" {
+				t.Fatalf("binding %s was not catalogued", test.OldName)
+			}
+			request.Operation = "project_rename"
+			request.ExpectedHash = catalog.SelectedHash
+			request.SourceSetHash = catalog.SourceSetHash
+			request.Renames = []renameSelection{{ID: selected.ID, NewName: test.NewName}}
+			_, err = applyProjectRenames(request)
+			if err == nil || !strings.Contains(err.Error(), test.ErrorContains) {
+				t.Fatalf("rename error = %v; want error containing %q", err, test.ErrorContains)
+			}
+		})
 	}
 }
 
