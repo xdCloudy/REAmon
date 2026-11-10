@@ -88,7 +88,7 @@ The [autonomous reconstruction and fidelity delivery plan](docs/REAMON_AUTONOMOU
 
 Latest evidence-based score change (2026-11-10): **+0.00 points** (32.43% → 32.43%). Rename suggestions now disclose when the bounded 4,096-row accepted-project-symbol scan is truncated, and the visualizer warns the operator that older project evidence may be missing. A Docker regression with 4,097 mocked rows verifies the response and saved proposal flag. The route suite passes 4/4, Docker type-check and targeted ESLint pass, and the full webapp suite passes 649 files / 9,912 tests (2 expected failures; 52 files / 192 tests skipped). This is a transparency increment only: no whole-project inventory, eligibility denominator, or semantic naming-quality benchmark was added, so the weighted estimate remains 32.43% (0.00-point change).
 
-Refreshed from pushed commit `e7f467b`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+Refreshed from pushed commit `34ebb75`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
