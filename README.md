@@ -88,7 +88,7 @@ The [autonomous reconstruction and fidelity delivery plan](docs/REAMON_AUTONOMOU
 
 Latest evidence-based score change (2026-11-10): **+0.08 points** (33.07% → 33.15%). A declared cross-OS Go context now selects matching build files and type-checks imports using go list -export for the same GOOS, GOARCH, and cgo setting. Export resolution disables module mode and network-backed proxy/checksum lookup, and accepts only packages marked standard library; unavailable external imports are rejected. A Windows-only syscall API fixture type-checks from the Windows export data while running in the Linux agent image. The full Docker agent unit gate passed 188 files and 3,806 tests with zero failures (one file collected no tests), and the Go helper suite passed.
 
-Refreshed from pushed commit `51f9f1a`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+Refreshed from pushed commit `a90f025`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
