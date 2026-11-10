@@ -273,12 +273,16 @@ export async function executeGhidra(input: ToolExecutionInput): Promise<ToolResu
             || !['blockCount', 'edgeCount', 'entryBlockCount', 'exitBlockCount'].every((key) => {
               const value = unit.cfgMetrics?.[key as keyof GhidraControlFlowMetrics]
               return Number.isSafeInteger(value) && typeof value === 'number' && value >= 0 && value <= 1_000_000
-            }) || typeof unit.cfgMetrics.truncated !== 'boolean'))
+            }) || typeof unit.cfgMetrics.truncated !== 'boolean'
+            || unit.cfgMetrics.entryBlockCount > 1
+            || unit.cfgMetrics.entryBlockCount > unit.cfgMetrics.blockCount
+            || unit.cfgMetrics.exitBlockCount > unit.cfgMetrics.blockCount))
           || (unit.cfgGraph !== undefined && (!unit.cfgGraph || unit.cfgGraph.version !== 'ghidra-basic-block-graph-v1'
             || !Number.isInteger(unit.cfgGraph.entryBlock) || unit.cfgGraph.entryBlock < 0
             || !Number.isInteger(unit.cfgGraph.exitBlock) || unit.cfgGraph.exitBlock < 0
             || !Array.isArray(unit.cfgGraph.exitBlocks) || unit.cfgGraph.exitBlocks.length > 32
             || !unit.cfgGraph.exitBlocks.every((block) => Number.isInteger(block) && block >= 0 && block < unit.cfgGraph!.blocks.length)
+            || new Set(unit.cfgGraph.exitBlocks).size !== unit.cfgGraph.exitBlocks.length
             || (unit.cfgGraph.exitBlocks.length > 0 && unit.cfgGraph.exitBlock !== unit.cfgGraph.exitBlocks[0])
             || !Number.isSafeInteger(unit.cfgGraph.blockCount) || !Number.isSafeInteger(unit.cfgGraph.edgeCount)
             || !Array.isArray(unit.cfgGraph.blocks) || unit.cfgGraph.blocks.length > 32
