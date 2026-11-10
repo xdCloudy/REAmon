@@ -79,7 +79,7 @@ The [autonomous reconstruction and fidelity delivery plan](docs/REAMON_AUTONOMOU
 <!-- REAMON_PRODUCT_PROGRESS_START -->
 <progress value="31.86" max="100">31.86%</progress> <strong>31.86%</strong> — weighted estimate **31.86%**.
 Latest evidence-based score change (2026-11-10): **+0.00 points** (31.86% → 31.86%). Fixture-scoped benchmark toolchains (source commit 3f103e10): The AR-8 aggregator now creates a hash-bound toolchain index for heterogeneous fixtures while requiring each fixture’s baseline and candidate to match exact component revisions. Regression evidence accepts separate Ghidra/CFR manifests and rejects within-fixture drift; aggregate, receipt, and JVM comparator suites pass 8/8, 11/11, and 4/4 in Docker. This enables but does not measure a multi-format product comparison, so weighted progress remains 31.86% (0.00-point change).
-Refreshed from pushed commit `9593139`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+Refreshed from pushed commit `fe7d0a0`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
 [Goals and roadmap](docs/REAMON_GOALS.md) · [Feature matrix](docs/REAMON_FEATURE_MATRIX.md)
