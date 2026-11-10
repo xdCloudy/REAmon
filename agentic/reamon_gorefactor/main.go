@@ -16,11 +16,13 @@ import (
 	"hash"
 	"io"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
 )
 
 const maxSourceBytes = 512 * 1024
@@ -41,6 +43,7 @@ type request struct {
 	ModuleRoot    string            `json:"module_root"`
 	BuildGOOS     string            `json:"build_goos"`
 	BuildGOARCH   string            `json:"build_goarch"`
+	BuildCgo      *bool             `json:"build_cgo_enabled"`
 	BuildTags     []string          `json:"build_tags"`
 	PackagePath   string            `json:"-"`
 	Files         []projectFile     `json:"files"`
@@ -483,7 +486,11 @@ func projectPackageObjectKind(object types.Object) string {
 }
 
 func buildProjectCatalog(req request) (*projectCatalog, error) {
-	return buildProjectCatalogWithImporter(req, importer.Default())
+	buildContext, err := normalizeGoBuildContext(req)
+	if err != nil {
+		return nil, err
+	}
+	return buildProjectCatalogWithImporter(req, newGoTargetImporter(buildContext))
 }
 
 func buildProjectCatalogWithImporter(req request, packageImporter types.Importer) (*projectCatalog, error) {
@@ -566,6 +573,9 @@ func buildProjectCatalogWithImporter(req request, packageImporter types.Importer
 	}
 	pkg, _ := conf.Check(checkPath, fileSet, astFiles, info)
 	if len(typeErrors) > 0 || pkg == nil {
+		if len(typeErrors) > 0 {
+			return nil, fmt.Errorf("Go package has unresolved type or reference errors (%s); cross-file rename requires a complete package type-check", typeErrors[0].Error())
+		}
 		return nil, fmt.Errorf("Go package has unresolved type or reference errors; cross-file rename requires a complete package type-check")
 	}
 	projectHash := hashProjectInventory(parsed, buildContext)
@@ -1067,12 +1077,12 @@ func listProjectInventory(req request) (map[string]any, error) {
 		importPaths[importPath] = packageDir
 		packageRequests[importPath] = request{
 			SelectedPath: group[0].Path, Source: group[0].Source, Files: group, PackagePath: importPath,
-			BuildGOOS: buildContext.GOOS, BuildGOARCH: buildContext.GOARCH, BuildTags: buildContext.Tags,
+			BuildGOOS: buildContext.GOOS, BuildGOARCH: buildContext.GOARCH, BuildCgo: &buildContext.CgoEnabled, BuildTags: buildContext.Tags,
 		}
 	}
 	projectImporter := &goProjectImporter{
 		packages: packageRequests, catalogs: make(map[string]*projectCatalog),
-		visiting: make(map[string]bool), fallback: importer.Default(),
+		visiting: make(map[string]bool), fallback: newGoTargetImporter(buildContext),
 	}
 	aggregate := projectInventory{SourceFileCount: len(files), PackageCount: len(groups)}
 	entries := make([]projectInventoryEntry, 0)
@@ -1098,7 +1108,7 @@ func listProjectInventory(req request) (map[string]any, error) {
 		}
 		packageRequest := request{
 			SelectedPath: groupSelectedPath, Source: groupSelectedSource, Files: group,
-			BuildGOOS: buildContext.GOOS, BuildGOARCH: buildContext.GOARCH, BuildTags: buildContext.Tags,
+			BuildGOOS: buildContext.GOOS, BuildGOARCH: buildContext.GOARCH, BuildCgo: &buildContext.CgoEnabled, BuildTags: buildContext.Tags,
 		}
 		var catalog *projectCatalog
 		var catalogErr error
@@ -1178,10 +1188,11 @@ func normalizeGoBuildContext(req request) (goBuildContext, error) {
 	if goarch == "" {
 		goarch = runtime.GOARCH
 	}
-	// The standard-library importer is built for this runtime target; accepting
-	// another target would silently type-check against the wrong stdlib exports.
-	if goos != runtime.GOOS || goarch != runtime.GOARCH {
-		return goBuildContext{}, fmt.Errorf("Go project inventory currently requires build target %s/%s", runtime.GOOS, runtime.GOARCH)
+	if err := validateGoTarget(goos, goarch); err != nil {
+		return goBuildContext{}, err
+	}
+	if goarch != runtime.GOARCH {
+		return goBuildContext{}, fmt.Errorf("Go project inventory currently requires GOARCH %s because target architecture build tags are unavailable", runtime.GOARCH)
 	}
 	tags := append([]string(nil), req.BuildTags...)
 	seen := make(map[string]bool, len(tags))
@@ -1192,11 +1203,101 @@ func normalizeGoBuildContext(req request) (goBuildContext, error) {
 		seen[tag] = true
 	}
 	sort.Strings(tags)
+	cgoEnabled := build.Default.CgoEnabled
+	if goos != runtime.GOOS {
+		cgoEnabled = false
+	}
+	if req.BuildCgo != nil {
+		cgoEnabled = *req.BuildCgo
+	}
 	return goBuildContext{
-		GOOS: goos, GOARCH: goarch, CgoEnabled: build.Default.CgoEnabled,
+		GOOS: goos, GOARCH: goarch, CgoEnabled: cgoEnabled,
 		Tags: tags, ToolTags: append([]string(nil), build.Default.ToolTags...),
 		ReleaseTags: append([]string(nil), build.Default.ReleaseTags...), Toolchain: runtime.Version(),
 	}, nil
+}
+
+var supportedGoTargets struct {
+	once sync.Once
+	set  map[string]bool
+	err  error
+}
+
+func validateGoTarget(goos, goarch string) error {
+	supportedGoTargets.once.Do(func() {
+		output, err := exec.Command("go", "tool", "dist", "list").Output()
+		if err != nil {
+			supportedGoTargets.err = fmt.Errorf("could not read supported targets from the local Go toolchain")
+			return
+		}
+		supportedGoTargets.set = make(map[string]bool)
+		for _, target := range strings.Fields(string(output)) {
+			supportedGoTargets.set[target] = true
+		}
+	})
+	if supportedGoTargets.err != nil {
+		return supportedGoTargets.err
+	}
+	if !supportedGoTargets.set[goos+"/"+goarch] {
+		return fmt.Errorf("Go build target %s/%s is not supported by the local toolchain", goos, goarch)
+	}
+	return nil
+}
+
+func newGoTargetImporter(target goBuildContext) types.Importer {
+	lookup := func(importPath string) (io.ReadCloser, error) {
+		arguments := []string{"list", "-export", "-f", "{{.Standard}}\n{{.Export}}"}
+		if len(target.Tags) > 0 {
+			arguments = append(arguments, "-tags="+strings.Join(target.Tags, ","))
+		}
+		arguments = append(arguments, importPath)
+		command := exec.Command("go", arguments...)
+		command.Env = goBuildCommandEnvironment(target)
+		output, err := command.CombinedOutput()
+		if err != nil {
+			return nil, fmt.Errorf("could not resolve offline Go package %s for %s/%s: %s", importPath, target.GOOS, target.GOARCH, strings.TrimSpace(string(output)))
+		}
+		fields := strings.SplitN(strings.TrimSpace(string(output)), "\n", 2)
+		if len(fields) != 2 || fields[0] != "true" {
+			return nil, fmt.Errorf("Go package %s is not in the standard library; external modules require verified offline dependency receipts", importPath)
+		}
+		exportPath := strings.TrimSpace(fields[1])
+		if exportPath == "" {
+			return nil, fmt.Errorf("Go toolchain returned no export data for %s", importPath)
+		}
+		file, err := os.Open(exportPath)
+		if err != nil {
+			return nil, fmt.Errorf("Go export data for %s is unavailable", importPath)
+		}
+		return file, nil
+	}
+	return importer.ForCompiler(token.NewFileSet(), "gc", lookup)
+}
+
+func goBuildCommandEnvironment(target goBuildContext) []string {
+	values := map[string]string{
+		"GOOS": target.GOOS, "GOARCH": target.GOARCH,
+		"GO111MODULE": "off",
+		"GOWORK":      "off", "GOFLAGS": "", "GOPROXY": "off", "GOSUMDB": "off",
+		"GOTOOLCHAIN": "local", "GOENV": "off",
+	}
+	if target.CgoEnabled {
+		values["CGO_ENABLED"] = "1"
+	} else {
+		values["CGO_ENABLED"] = "0"
+	}
+	environment := make([]string, 0, len(os.Environ())+len(values))
+	for _, value := range os.Environ() {
+		key, _, ok := strings.Cut(value, "=")
+		if _, overridden := values[key]; ok && overridden {
+			continue
+		}
+		environment = append(environment, value)
+	}
+	for key, value := range values {
+		environment = append(environment, key+"="+value)
+	}
+	return environment
 }
 
 func selectGoBuildFiles(files []projectFile, target goBuildContext) ([]projectFile, error) {

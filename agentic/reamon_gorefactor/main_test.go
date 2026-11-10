@@ -916,8 +916,8 @@ func TestProjectInventoryResolvesImportsBetweenModulePackages(t *testing.T) {
 
 func TestProjectInventorySelectsFilesForProvenanceBoundBuildContext(t *testing.T) {
 	files := []projectFile{
-		{Path: "pkg/value_linux.go", Source: "//go:build linux && amd64\npackage sample\nfunc normalize(value int) int { return value + 1 }\n"},
-		{Path: "pkg/value_windows.go", Source: "//go:build windows\npackage sample\nfunc normalize(value int) int { return value + 2 }\n"},
+		{Path: "pkg/value_linux.go", Source: "//go:build linux && amd64\npackage sample\nimport \"syscall\"\nfunc normalize(value int) int { return syscall.Getpid() + value }\n"},
+		{Path: "pkg/value_windows.go", Source: "//go:build windows\npackage sample\nimport \"syscall\"\nfunc normalize(value int) int { version, _ := syscall.GetVersion(); return int(version) + value }\n"},
 		{Path: "pkg/tagged.go", Source: "//go:build integration\npackage sample\nfunc integrationOnly() {}\n"},
 		{Path: "pkg/use.go", Source: "package sample\nfunc run() int { return normalize(1) }\n"},
 	}
@@ -955,8 +955,21 @@ func TestProjectInventorySelectsFilesForProvenanceBoundBuildContext(t *testing.T
 	}
 
 	request.BuildGOOS = "windows"
-	if _, err := listProjectInventory(request); err == nil || !strings.Contains(err.Error(), "currently requires build target") {
-		t.Fatalf("cross-target inventory error = %v; want explicit rejection until target stdlib export data is available", err)
+	request.BuildGOARCH = runtime.GOARCH
+	request.BuildTags = nil
+	windows, err := listProjectInventory(request)
+	if err != nil {
+		t.Fatalf("inventory Windows target with its standard-library exports: %v", err)
+	}
+	if windows["source_set_sha256"] == base["source_set_sha256"] || windows["inventory"].(map[string]any)["source_file_count"] != 2 {
+		t.Fatalf("Windows inventory failed to select and bind its platform files: %#v", windows)
+	}
+	windowsFiles := windows["files"].([]map[string]any)
+	if len(windowsFiles) != 2 || windowsFiles[1]["relative_path"] != "pkg/value_windows.go" {
+		t.Fatalf("Windows target file selection = %#v", windowsFiles)
+	}
+	if windows["build_context"].(goBuildContext).CgoEnabled {
+		t.Fatal("cross-OS default must disable cgo when no cross C toolchain is declared")
 	}
 }
 
@@ -976,6 +989,16 @@ func TestGoBuildFileSelectionRespectsGOARCHFilenameSuffix(t *testing.T) {
 	}
 	if len(selected) != 1 || selected[0].Path != "pkg/dispatch_arm64.go" {
 		t.Fatalf("arm64 source selection = %#v; want only dispatch_arm64.go", selected)
+	}
+}
+
+func TestGoTargetImporterRejectsUnavailableExternalModulesOffline(t *testing.T) {
+	target, err := normalizeGoBuildContext(request{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := newGoTargetImporter(target).Import("example.invalid/unverified"); err == nil {
+		t.Fatal("an unavailable external module was accepted without verified dependency receipts")
 	}
 }
 

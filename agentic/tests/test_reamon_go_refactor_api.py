@@ -106,6 +106,7 @@ class GoRefactorApiTests(unittest.TestCase):
                 "module_root": "src",
                 "build_goos": "linux",
                 "build_goarch": "amd64",
+                "build_cgo_enabled": False,
                 "build_tags": ["integration"],
                 "files": files,
             })
@@ -116,6 +117,7 @@ class GoRefactorApiTests(unittest.TestCase):
         self.assertEqual(forwarded["module_root"], "src")
         self.assertEqual(forwarded["build_goos"], "linux")
         self.assertEqual(forwarded["build_goarch"], "amd64")
+        self.assertFalse(forwarded["build_cgo_enabled"])
         self.assertEqual(forwarded["build_tags"], ["integration"])
         self.assertEqual(forwarded["files"], [{**files[0], "expected_sha256": ""}])
 

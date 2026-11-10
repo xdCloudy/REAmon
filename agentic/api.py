@@ -658,6 +658,7 @@ class ReamonGoRefactorRequest(BaseModel):
     module_root: str = ""
     build_goos: str = ""
     build_goarch: str = ""
+    build_cgo_enabled: bool | None = None
     build_tags: list[str] = Field(default_factory=list)
     files: list[ReamonGoProjectFile] = Field(default_factory=list)
     renames: list[dict[str, Any]] = Field(default_factory=list)
@@ -1976,6 +1977,7 @@ async def refactor_reamon_go_source(body: ReamonGoRefactorRequest):
     request_bytes = (
         len(body.module_path.encode("utf-8")) + len(body.module_root.encode("utf-8"))
         + len(body.build_goos.encode("utf-8")) + len(body.build_goarch.encode("utf-8"))
+        + (1 if body.build_cgo_enabled is not None else 0)
         + sum(len(tag.encode("utf-8")) + 1 for tag in body.build_tags)
         + sum(len(item.relative_path.encode("utf-8")) + len(item.expected_sha256) + 256 for item in body.files)
     )
@@ -2003,6 +2005,7 @@ async def refactor_reamon_go_source(body: ReamonGoRefactorRequest):
             "module_root": body.module_root,
             "build_goos": body.build_goos,
             "build_goarch": body.build_goarch,
+            "build_cgo_enabled": body.build_cgo_enabled,
             "build_tags": body.build_tags,
             "files": [item.model_dump() for item in body.files],
             "renames": body.renames,
