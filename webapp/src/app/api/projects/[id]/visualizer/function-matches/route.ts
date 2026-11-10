@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { Prisma } from '@prisma/client'
 import prisma from '@/lib/prisma'
-import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
+import { requireEffectiveUser, requireProjectAccessStrict } from '@/lib/access'
 import { instructionSequenceFamily, instructionSequencesAreCompatible, parseControlFlowGraph, parseControlFlowMetrics, parseReferencedStrings, scoreInstructionFunctionPair, type SimilarInstructionFunction } from '@/lib/reamon/instruction-similarity'
 import { nativeArchitectureGroup } from '@/lib/reamon/native-function-identity'
 
@@ -74,7 +74,7 @@ export async function GET(request: Request, { params }: RouteParams) {
     const { id: projectId } = await params
     const user = await requireEffectiveUser()
     if (user instanceof NextResponse) return user
-    const access = await requireProjectAccess(user, projectId)
+    const access = await requireProjectAccessStrict(user, projectId)
     if (access instanceof NextResponse) return access
     const search = new URL(request.url).searchParams
     const taskId = search.get('taskId')?.trim()
@@ -103,7 +103,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     const { id: projectId } = await params
     const user = await requireEffectiveUser()
     if (user instanceof NextResponse) return user
-    const access = await requireProjectAccess(user, projectId)
+    const access = await requireProjectAccessStrict(user, projectId)
     if (access instanceof NextResponse) return access
     const body = await request.json() as Record<string, unknown>
     const taskAId = typeof body.taskAId === 'string' ? body.taskAId.trim() : ''

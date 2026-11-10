@@ -20,6 +20,7 @@ let foreignId = ''
 let projectId = ''
 let artifactId = ''
 let taskId = ''
+let functionMatchId = ''
 let batchAttemptId = ''
 let singleAttemptId = ''
 let ownerCookie = ''
@@ -76,6 +77,20 @@ beforeAll(async () => {
     select: { id: true },
   })
   taskId = task.id
+  const functionMatch = await prisma.reamonFunctionMatch.create({
+    data: {
+      projectId,
+      artifactAId: artifactId, artifactASha256: SOURCE_HASH, artifactAName: 'fixture-a.bin',
+      taskAId: taskId, providerAId: 'synthetic-provider-a', providerAVersion: '1.0.0',
+      functionAStableKey: `${SUFFIX}-function-a`, functionAName: 'fixtureA', functionAFeatures: { sha256: SOURCE_HASH },
+      artifactBId: `${SUFFIX}-artifact-b`, artifactBSha256: SOURCE_HASH, artifactBName: 'fixture-b.bin',
+      taskBId: `${SUFFIX}-task-b`, providerBId: 'synthetic-provider-b', providerBVersion: '1.0.0',
+      functionBStableKey: `${SUFFIX}-function-b`, functionBName: 'fixtureB', functionBFeatures: { sha256: SOURCE_HASH },
+      architecture: 'native:x86_64:endianness-unknown', similarity: 90, instructionSimilarity: 90,
+    },
+    select: { id: true },
+  })
+  functionMatchId = functionMatch.id
   const runKey = `${projectId}/${artifactId}/${taskId}/run-1`
   const batchAttempt = await prisma.reamonCodeAttempt.create({
     data: {
@@ -162,6 +177,8 @@ afterAll(async () => {
         await prisma.artifact.deleteMany({ where: { projectId } })
         await prisma.project.deleteMany({ where: { id: projectId, userId: ownerId } })
         expect(await prisma.project.count({ where: { id: projectId } })).toBe(0)
+        expect(await prisma.reamonFunctionMatch.count({ where: { id: functionMatchId } })).toBe(0)
+        expect(await prisma.reamonFunctionMatchReview.count({ where: { projectId } })).toBe(0)
       }
       if (ownerId) {
         await prisma.user.deleteMany({ where: { id: ownerId } })
@@ -295,5 +312,30 @@ describe.skipIf(!HAS_DB)('deobfuscation HTTP ownership with ACCESS_ENFORCE=0', (
     const ownerSimilar = await fetch(similarUrl, { headers: auth(ownerCookie) })
     expect(ownerSimilar.status).toBe(404)
     expect(await ownerSimilar.json()).toEqual({ error: 'Similar-function matches are unavailable for this analysis run' })
+  }, 60_000)
+
+  test('saved function matches and review writes deny foreign users without hiding owner access', async () => {
+    const matchesUrl = `${baseUrl}/api/projects/${projectId}/visualizer/function-matches`
+    expect((await fetch(matchesUrl)).status).toBe(401)
+    const foreignMatches = await fetch(matchesUrl, { headers: auth(foreignCookie) })
+    expect(foreignMatches.status).toBe(404)
+    expect(await foreignMatches.json()).toEqual({ error: 'Not found' })
+    expect(await prisma?.reamonFunctionMatchReview.count({ where: { matchId: functionMatchId } })).toBe(0)
+
+    const ownerMatches = await fetch(matchesUrl, { headers: auth(ownerCookie) })
+    expect(ownerMatches.status).toBe(200)
+    expect(await ownerMatches.json()).toMatchObject({ matches: [{ id: functionMatchId, functionAName: 'fixtureA' }] })
+
+    const reviewUrl = `${matchesUrl}/${functionMatchId}/review`
+    const body = JSON.stringify({ decision: 'ACCEPTED', rationale: 'synthetic owner acceptance' })
+    expect((await fetch(reviewUrl, { method: 'POST', headers: { 'content-type': 'application/json' }, body })).status).toBe(401)
+    const foreignReview = await fetch(reviewUrl, { method: 'POST', headers: { ...auth(foreignCookie), 'content-type': 'application/json' }, body })
+    expect(foreignReview.status).toBe(404)
+    expect(await foreignReview.json()).toEqual({ error: 'Not found' })
+    expect(await prisma?.reamonFunctionMatchReview.count({ where: { matchId: functionMatchId } })).toBe(0)
+
+    const ownerReview = await fetch(reviewUrl, { method: 'POST', headers: { ...auth(ownerCookie), 'content-type': 'application/json' }, body })
+    expect(ownerReview.status).toBe(201)
+    expect(await prisma?.reamonFunctionMatchReview.count({ where: { matchId: functionMatchId, reviewerId: ownerId, decision: 'ACCEPTED' } })).toBe(1)
   }, 60_000)
 })
