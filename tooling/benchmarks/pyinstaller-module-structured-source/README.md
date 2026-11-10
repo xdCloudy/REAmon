@@ -67,6 +67,13 @@ worker terminal page. These measures cover one synthetic PyInstaller 6.13.0
 Python 3.12.8 Linux fixture. They do not establish broad source fidelity,
 project reconstruction, or behavioural equivalence for other artifacts.
 
+[`runs/2026-11-10-changed-revision-872-to-c4d1/`](runs/2026-11-10-changed-revision-872-to-c4d1/README.md)
+adds the first baseline-versus-candidate revision comparison on this fixture.
+Both sides passed 2/2 live integration tests, with zero deltas across seven
+metrics. The runtime oracle is reused from the enrolled build receipt, and the
+analyzer/worker images were held constant; this is bounded evidence, not a
+product-improvement or broad-format claim.
+
 [`runs/2026-11-09/paired-v3-mutation-controls/`](runs/2026-11-09/paired-v3-mutation-controls/README.md)
 adds a paired scorer-sensitivity control from commit
 `d6af8238324880e469a824a50ab51faedb33da9e`: changing each recovered module's

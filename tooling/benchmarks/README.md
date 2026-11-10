@@ -56,3 +56,10 @@ The command refuses an existing output directory and publishes `baseline.json`,
 evaluation-manifest index for fixture-specific contracts. A measured
 multi-format baseline/candidate corpus is still needed for AR-0/AR-8; utility
 tests do not count as that evidence.
+
+The first changed-revision integrated slice is archived at
+[`pyinstaller-module-structured-source/runs/2026-11-10-changed-revision-872-to-c4d1/`](pyinstaller-module-structured-source/runs/2026-11-10-changed-revision-872-to-c4d1/README.md).
+It compares one enrolled PyInstaller artifact with a shared harness and reports
+seven unchanged metrics. The runtime oracle is inherited from enrollment, and
+the analyzer/worker service images are fixed across revisions; this result
+does not complete multi-format or full service-revision acceptance.
