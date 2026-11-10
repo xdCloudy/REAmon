@@ -5,7 +5,6 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parent
-REPO_ROOT = ROOT.parents[2]
 
 
 def reject_duplicate_keys(pairs):
@@ -59,8 +58,16 @@ class StructuredSourceBenchmarkManifestTests(unittest.TestCase):
             sha256(ROOT / manifest["groundTruth"]["licenseFile"]),
         )
         self.assertEqual(
+            manifest["extractor"]["dockerfileSha256"],
+            enrollment["extractorInventory"]["extractorDockerfileSha256"],
+        )
+        self.assertEqual(
             manifest["extractor"]["serverSha256"],
-            sha256(REPO_ROOT / "analyzers" / "pyinstaller" / "server.py"),
+            enrollment["extractorInventory"]["extractorServerSha256"],
+        )
+        self.assertEqual(
+            manifest["extractor"]["upstreamGoModSha256"],
+            enrollment["extractorInventory"]["extractorUpstreamGoModSha256"],
         )
         self.assertEqual(manifest["builder"]["dockerfileSha256"], sha256(ROOT / "Dockerfile"))
         self.assertEqual(manifest["builder"]["requirementsSha256"], sha256(ROOT / "requirements.txt"))

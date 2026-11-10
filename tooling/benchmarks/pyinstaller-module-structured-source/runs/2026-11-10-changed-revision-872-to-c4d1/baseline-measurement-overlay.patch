@@ -1,0 +1,375 @@
+diff --git a/tooling/benchmarks/merge_pyinstaller_evidence.py b/tooling/benchmarks/merge_pyinstaller_evidence.py
+index a825b0ba..07facbf2 100644
+--- a/tooling/benchmarks/merge_pyinstaller_evidence.py
++++ b/tooling/benchmarks/merge_pyinstaller_evidence.py
+@@ -40,7 +40,18 @@ def merge_evidence(*, fixture_manifest, evaluation_manifest, build_receipt,
+         "worker_terminal_page",
+         "reconstruction_match",
+     }
+-    if set(metric_definitions) != required_metrics:
++    mutation_control_metrics = {
++        "negative_control_mutation_rejection",
++        "negative_control_false_acceptance",
++    }
++    artifact_mutation_metrics = {
++        "negative_control_original_source_false_acceptance",
++    }
++    has_mutation_controls = set(metric_definitions) == required_metrics | mutation_control_metrics
++    has_artifact_mutation_control = set(metric_definitions) == required_metrics | artifact_mutation_metrics
++    if (set(metric_definitions) != required_metrics
++            and not has_mutation_controls
++            and not has_artifact_mutation_control):
+         raise ReceiptError("evaluation manifest metric inventory differs from PyInstaller evidence merger")
+     if len(fixture_hashes) != 1:
+         raise ReceiptError("PyInstaller evidence merger accepts exactly one fixture")
+@@ -111,6 +122,27 @@ def merge_evidence(*, fixture_manifest, evaluation_manifest, build_receipt,
+             or not 0 <= reconstruction_match["value"] <= known_source_count):
+         raise ReceiptError("integration evidence source correspondence count is outside its denominator")
+ 
++    if has_mutation_controls:
++        mutation_rejections = observed_metrics["negative_control_mutation_rejection"]
++        mutation_false_acceptances = observed_metrics["negative_control_false_acceptance"]
++        for metric_id, metric in (
++            ("negative_control_mutation_rejection", mutation_rejections),
++            ("negative_control_false_acceptance", mutation_false_acceptances),
++        ):
++            if metric["state"] != "MEASURED" or metric["denominator"] != known_source_count:
++                raise ReceiptError(f"integration evidence lacks the declared {metric_id} denominator")
++            if type(metric["value"]) is not int or not 0 <= metric["value"] <= known_source_count:
++                raise ReceiptError(f"integration evidence {metric_id} count is outside its denominator")
++        if mutation_rejections["value"] + mutation_false_acceptances["value"] != known_source_count:
++            raise ReceiptError("mutation control outcomes do not account for the declared source denominator")
++
++    if has_artifact_mutation_control:
++        false_acceptances = observed_metrics["negative_control_original_source_false_acceptance"]
++        if false_acceptances["state"] != "MEASURED" or false_acceptances["denominator"] != known_source_count:
++            raise ReceiptError("integration evidence lacks the declared original-source false-acceptance denominator")
++        if type(false_acceptances["value"]) is not int or not 0 <= false_acceptances["value"] <= known_source_count:
++            raise ReceiptError("integration evidence original-source false-acceptance count is outside its denominator")
++
+     merged_metrics = {metric_id: dict(metric) for metric_id, metric in observed_metrics.items()}
+     merged_metrics["runtime_oracle"] = {
+         "direction": metric_definitions["runtime_oracle"]["direction"],
+diff --git a/tooling/benchmarks/pyinstaller-module-structured-source/docker-compose.integration.yml b/tooling/benchmarks/pyinstaller-module-structured-source/docker-compose.integration.yml
+index a5c0add7..6e488b49 100644
+--- a/tooling/benchmarks/pyinstaller-module-structured-source/docker-compose.integration.yml
++++ b/tooling/benchmarks/pyinstaller-module-structured-source/docker-compose.integration.yml
+@@ -12,8 +12,8 @@ services:
+       REAMON_PYCDC_URL: http://pycdc-analyzer:8014
+       REAMON_RUN_DB_INTEGRATION: "1"
+       REAMON_TASK_WORKER_INTEGRATION: "1"
+-      REAMON_BENCHMARK_FIXTURE_ID: pyinstaller-module-structured-source-linux-amd64
+-      REAMON_PYINSTALLER_FIXTURE_PATH: /data/reamon-artifacts/qa/pyinstaller-structured-source-v3/fixture
++      REAMON_BENCHMARK_FIXTURE_ID: ${REAMON_BENCHMARK_FIXTURE_ID:-pyinstaller-module-structured-source-linux-amd64}
++      REAMON_PYINSTALLER_FIXTURE_PATH: ${REAMON_BENCHMARK_FIXTURE_PATH:-/data/reamon-artifacts/qa/pyinstaller-structured-source-v3/fixture}
+       REAMON_BENCHMARK_EVIDENCE_PATH: ${REAMON_BENCHMARK_EVIDENCE_PATH:-/benchmark-output/pyinstaller-module-structured-source-v3-live/integration-evidence.json}
+     volumes:
+       - reamon_artifacts:/data/reamon-artifacts
+diff --git a/tooling/benchmarks/pyinstaller-module-structured-source/run_integration.ps1 b/tooling/benchmarks/pyinstaller-module-structured-source/run_integration.ps1
+index e6554bec..5ce864e0 100644
+--- a/tooling/benchmarks/pyinstaller-module-structured-source/run_integration.ps1
++++ b/tooling/benchmarks/pyinstaller-module-structured-source/run_integration.ps1
+@@ -3,17 +3,24 @@ param(
+     [string]$RunId = [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssZ'),
+     [string]$EnvFile = (Join-Path (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path '.env'),
+     [string]$ExpectedStackProject = 'reamon',
++    [string]$FixtureManifestPath,
++    [string]$TargetArtifactVolumePath,
+     [string]$EvidenceOutputDirectory = (Join-Path (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path 'work\benchmarks\pyinstaller-module-structured-source-v3-live')
+ )
+ 
+ $ErrorActionPreference = 'Stop'
+ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path
+-$manifest = Get-Content (Join-Path $PSScriptRoot 'manifest.json') -Raw | ConvertFrom-Json
++$manifestPath = if ($FixtureManifestPath) { [IO.Path]::GetFullPath($FixtureManifestPath) } else { Join-Path $PSScriptRoot 'manifest.json' }
++$manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json
+ $outputRoot = (Resolve-Path $BuildOutputDirectory).Path
+ $evidenceOutputRoot = [IO.Path]::GetFullPath($EvidenceOutputDirectory)
+ New-Item -ItemType Directory -Force -Path $evidenceOutputRoot | Out-Null
+ $artifactPath = Join-Path $outputRoot $manifest.artifact.path
+-$targetArtifact = '/data/qa/pyinstaller-structured-source-v3/fixture'
++$targetArtifact = $TargetArtifactVolumePath
++if (-not $targetArtifact) { $targetArtifact = $manifest.integration.artifactVolumePath }
++if (-not $targetArtifact) { $targetArtifact = '/data/qa/pyinstaller-structured-source-v3/fixture' }
++if ($targetArtifact -notmatch '^/data/qa/[A-Za-z0-9_-]+/fixture$') { throw 'Fixture volume path must stay under /data/qa/<fixture-id>/fixture' }
++if ($manifest.artifact.path -notmatch '^[A-Za-z0-9._-]+$') { throw 'Fixture artifact path must be a single safe filename' }
+ if ($RunId -notmatch '^[A-Za-z0-9_-]{1,64}$') { throw 'RunId must contain only letters, digits, underscores, or dashes' }
+ $evidencePath = Join-Path (Join-Path $evidenceOutputRoot $RunId) 'integration-evidence.json'
+ 
+@@ -32,12 +39,15 @@ if ($LASTEXITCODE -ne 0) { throw 'Could not inspect the shared artifact volume'
+ if ($volumeHash) {
+     if ($volumeHash -notmatch $manifest.artifact.sha256) { throw "Existing artifact differs from the enrolled fixture: $targetArtifact" }
+ } else {
+-    $copy = docker run --rm -v reamon_artifacts:/data -v "${outputRoot}:/fixture:ro" --entrypoint sh reamon-agent -c "set -eu; mkdir -p /data/qa/pyinstaller-structured-source-v3; cp /fixture/$($manifest.artifact.path) $targetArtifact; sha256sum $targetArtifact"
++    $targetDirectory = $targetArtifact.Substring(0, $targetArtifact.LastIndexOf('/'))
++    $copy = docker run --rm -v reamon_artifacts:/data -v "${outputRoot}:/fixture:ro" --entrypoint sh reamon-agent -c "set -eu; mkdir -p $targetDirectory; cp /fixture/$($manifest.artifact.path) $targetArtifact; sha256sum $targetArtifact"
+     if ($LASTEXITCODE -ne 0 -or $copy -notmatch $manifest.artifact.sha256) { throw 'Could not install the enrolled fixture into the shared artifact volume' }
+ }
+ 
+ if (Test-Path -LiteralPath $evidencePath) { throw "Refusing to overwrite evidence: $evidencePath" }
+ $env:REAMON_BENCHMARK_HOST_OUTPUT_DIR = $evidenceOutputRoot.Replace('\', '/')
++$env:REAMON_BENCHMARK_FIXTURE_ID = $manifest.fixtureId
++$env:REAMON_BENCHMARK_FIXTURE_PATH = '/data/reamon-artifacts' + $targetArtifact.Substring('/data'.Length)
+ docker compose -p reamon-benchmark --project-directory $repoRoot --env-file $EnvFile -f (Join-Path $PSScriptRoot 'docker-compose.integration.yml') run --rm -e "REAMON_BENCHMARK_EVIDENCE_PATH=/benchmark-output/$RunId/integration-evidence.json" benchmark-test
+ $integrationExitCode = $LASTEXITCODE
+ if ($integrationExitCode -ne 0) { throw 'Structured-source PostgreSQL/worker integration failed' }
+diff --git a/webapp/src/lib/reamon/pyinstaller.benchmark-evidence.ts b/webapp/src/lib/reamon/pyinstaller.benchmark-evidence.ts
+index dc37d8e8..94835104 100644
+--- a/webapp/src/lib/reamon/pyinstaller.benchmark-evidence.ts
++++ b/webapp/src/lib/reamon/pyinstaller.benchmark-evidence.ts
+@@ -8,28 +8,47 @@ type PyInstallerBenchmarkEvidenceInput = {
+   extractedModuleCount: number
+   knownSourceMatchedCount: number
+   reconstructionMatchedCount: number
++  structuredMutationRejectedCount?: number
++  structuredMutationFalseAcceptanceCount?: number
++  originalSourceFalseAcceptanceCount?: number
+   workerTerminalPage: boolean
+ }
+ 
+ export const PYINSTALLER_STRUCTURED_SOURCE_FIXTURE_ID = 'pyinstaller-module-structured-source-linux-amd64'
++export const PYINSTALLER_MUTATED_SOURCE_CONTROL_FIXTURE_ID = 'pyinstaller-module-mutated-source-control-linux-amd64'
+ 
+ export function matchesPyInstallerFixtureSource(source: string, expectedValue: number): boolean {
+   if (!Number.isSafeInteger(expectedValue) || expectedValue < 1 || expectedValue > 70) return false
+   return matchesPyInstallerSource(source, `VALUE = ${expectedValue}`)
+ }
+ 
+-export function matchesPyInstallerStructuredFixtureSource(source: string, expectedValue: number): boolean {
++export function matchesPyInstallerStructuredFixtureSource(
++  source: string,
++  expectedValue: number,
++  belowResult: 'below' | 'under' = 'below',
++): boolean {
+   if (!Number.isSafeInteger(expectedValue) || expectedValue < 1 || expectedValue > 70) return false
++  if (belowResult !== 'below' && belowResult !== 'under') return false
+   const expectedSource = [
+     `VALUE = ${expectedValue}`,
+     'def classify(candidate):',
+     '    if candidate < VALUE:',
+-    '        return "below"',
++    `        return "${belowResult}"`,
+     '    return "at-or-above"',
+   ].join('\n')
+   return matchesPyInstallerSource(source, expectedSource)
+ }
+ 
++export function mutatePyInstallerStructuredFixtureSource(source: string): string | undefined {
++  let replacements = 0
++  const mutated = source.replace(/^([ \t]*return[ \t]+)(['"])below\2([ \t]*(?:#.*)?)(\r?)$/gm,
++    (_match, prefix: string, quote: string, suffix: string, carriageReturn: string) => {
++      replacements += 1
++      return `${prefix}${quote}under${quote}${suffix}${carriageReturn}`
++    })
++  return replacements === 1 ? mutated : undefined
++}
++
+ export function matchesPyInstallerSource(source: string, expectedSource: string): boolean {
+   return normalizePyInstallerSource(source) === normalizePyInstallerSource(expectedSource)
+ }
+@@ -120,6 +139,28 @@ export function createPyInstallerBenchmarkEvidence(input: PyInstallerBenchmarkEv
+     || input.reconstructionMatchedCount > 70) {
+     throw new Error('PyInstaller source reconstruction match count must be between 0 and 70')
+   }
++  const isStructuredFixture = input.fixtureId === PYINSTALLER_STRUCTURED_SOURCE_FIXTURE_ID
++  const isMutatedArtifactFixture = input.fixtureId === PYINSTALLER_MUTATED_SOURCE_CONTROL_FIXTURE_ID
++  if (isStructuredFixture) {
++    const rejected = input.structuredMutationRejectedCount
++    const accepted = input.structuredMutationFalseAcceptanceCount
++    if (!Number.isSafeInteger(rejected) || rejected! < 0 || rejected! > 70
++      || !Number.isSafeInteger(accepted) || accepted! < 0 || accepted! > 70
++      || rejected! + accepted! !== 70) {
++      throw new Error('PyInstaller structured mutation controls must cover all 70 source modules')
++    }
++  } else if (input.structuredMutationRejectedCount !== undefined
++    || input.structuredMutationFalseAcceptanceCount !== undefined) {
++    throw new Error('PyInstaller structured mutation controls require the structured-source fixture')
++  }
++  if (isMutatedArtifactFixture) {
++    const falseAcceptances = input.originalSourceFalseAcceptanceCount
++    if (!Number.isSafeInteger(falseAcceptances) || falseAcceptances! < 0 || falseAcceptances! > 70) {
++      throw new Error('PyInstaller mutated-artifact false-acceptance count must be between 0 and 70')
++    }
++  } else if (input.originalSourceFalseAcceptanceCount !== undefined) {
++    throw new Error('Original-source false-acceptance controls require the mutated-source fixture')
++  }
+ 
+   const workerMetric: MetricMeasurement = input.workerTerminalPage
+     ? { state: 'MEASURED', value: 1, denominator: 1 }
+@@ -130,36 +171,57 @@ export function createPyInstallerBenchmarkEvidence(input: PyInstallerBenchmarkEv
+         reason: 'The queued worker integration was not enabled or did not reach its terminal page.',
+       }
+ 
++  const metrics: Record<string, MetricMeasurement> = {
++    runtime_oracle: {
++      state: 'UNAVAILABLE',
++      value: null,
++      denominator: 1,
++      reason: 'This PostgreSQL integration test does not execute the fixture runtime oracle.',
++    },
++    extracted_module_count: {
++      state: 'MEASURED',
++      value: input.extractedModuleCount,
++      denominator: 1,
++    },
++    known_source_value_recall: {
++      state: 'MEASURED',
++      value: input.knownSourceMatchedCount,
++      denominator: 70,
++    },
++    reconstruction_match: {
++      state: 'MEASURED',
++      value: input.reconstructionMatchedCount,
++      denominator: 70,
++    },
++    worker_terminal_page: workerMetric,
++  }
++  if (isStructuredFixture) {
++    metrics.negative_control_mutation_rejection = {
++      state: 'MEASURED',
++      value: input.structuredMutationRejectedCount!,
++      denominator: 70,
++    }
++    metrics.negative_control_false_acceptance = {
++      state: 'MEASURED',
++      value: input.structuredMutationFalseAcceptanceCount!,
++      denominator: 70,
++    }
++  }
++  if (isMutatedArtifactFixture) {
++    metrics.negative_control_original_source_false_acceptance = {
++      state: 'MEASURED',
++      value: input.originalSourceFalseAcceptanceCount!,
++      denominator: 70,
++    }
++  }
++
+   return {
+     schemaVersion: 1,
+     producer: 'webapp/src/lib/reamon/pyinstaller.task.database.integration.test.ts',
+     fixtures: {
+       [input.fixtureId]: {
+         artifactSha256: input.artifactSha256,
+-        metrics: {
+-          runtime_oracle: {
+-            state: 'UNAVAILABLE',
+-            value: null,
+-            denominator: 1,
+-            reason: 'This PostgreSQL integration test does not execute the fixture runtime oracle.',
+-          } satisfies MetricMeasurement,
+-          extracted_module_count: {
+-            state: 'MEASURED',
+-            value: input.extractedModuleCount,
+-            denominator: 1,
+-          } satisfies MetricMeasurement,
+-          known_source_value_recall: {
+-            state: 'MEASURED',
+-            value: input.knownSourceMatchedCount,
+-            denominator: 70,
+-          } satisfies MetricMeasurement,
+-          reconstruction_match: {
+-            state: 'MEASURED',
+-            value: input.reconstructionMatchedCount,
+-            denominator: 70,
+-          } satisfies MetricMeasurement,
+-          worker_terminal_page: workerMetric,
+-        },
++        metrics,
+       },
+     },
+   }
+diff --git a/webapp/src/lib/reamon/pyinstaller.task.database.integration.test.ts b/webapp/src/lib/reamon/pyinstaller.task.database.integration.test.ts
+index eb327875..f82433a4 100644
+--- a/webapp/src/lib/reamon/pyinstaller.task.database.integration.test.ts
++++ b/webapp/src/lib/reamon/pyinstaller.task.database.integration.test.ts
+@@ -11,6 +11,8 @@ import {
+   createPyInstallerBenchmarkEvidence,
+   matchesPyInstallerFixtureSource,
+   matchesPyInstallerStructuredFixtureSource,
++  mutatePyInstallerStructuredFixtureSource,
++  PYINSTALLER_MUTATED_SOURCE_CONTROL_FIXTURE_ID,
+   PYINSTALLER_STRUCTURED_SOURCE_FIXTURE_ID,
+ } from './pyinstaller.benchmark-evidence'
+ import type { TargetProfile, ToolExecutionInput } from './types'
+@@ -54,6 +56,9 @@ describeDatabase('PyInstaller continuation with PostgreSQL observation persisten
+     extractedModuleCount: number
+     knownSourceMatchedCount: number
+     reconstructionMatchedCount: number
++    structuredMutationRejectedCount?: number
++    structuredMutationFalseAcceptanceCount?: number
++    originalSourceFalseAcceptanceCount?: number
+   } | undefined
+   let workerReachedTerminalPage = false
+   const benchmarkEvidencePath = process.env.REAMON_BENCHMARK_EVIDENCE_PATH?.trim()
+@@ -207,6 +212,13 @@ describeDatabase('PyInstaller continuation with PostgreSQL observation persisten
+ 
+     let knownSourceMatchedCount = 0
+     let reconstructionMatchedCount = 0
++    let structuredMutationRejectedCount = 0
++    let structuredMutationFalseAcceptanceCount = 0
++    let originalSourceFalseAcceptanceCount = 0
++    const fixtureId = process.env.REAMON_BENCHMARK_FIXTURE_ID
++    const isStructuredFixture = fixtureId === PYINSTALLER_STRUCTURED_SOURCE_FIXTURE_ID
++      || fixtureId === PYINSTALLER_MUTATED_SOURCE_CONTROL_FIXTURE_ID
++    const isMutatedArtifactFixture = fixtureId === PYINSTALLER_MUTATED_SOURCE_CONTROL_FIXTURE_ID
+     for (let moduleValue = 1; moduleValue <= 70; moduleValue += 1) {
+       const moduleName = `module_${String(moduleValue - 1).padStart(3, '0')}`
+       const knownModule = moduleRows.find(({ attributes }) => attributes.pyinstallerArchivePath === `PYZ.pyz_extracted/paging_fixture/${moduleName}.pyc`)
+@@ -217,22 +229,47 @@ describeDatabase('PyInstaller continuation with PostgreSQL observation persisten
+       const knownSourcePath = path.resolve(derivedRoot, ...(knownModule!.attributes.codeArtifactId as string).replaceAll('\\', '/').split('/'))
+       expect(knownSourcePath.startsWith(`${derivedRoot}${path.sep}`)).toBe(true)
+       const knownSourceText = await readFile(knownSourcePath, 'utf8')
++      expect(knownModule!.attributes.codeArtifactSha256).toBe(createHash('sha256').update(knownSourceText).digest('hex'))
+       expect(knownSourceText).toMatch(new RegExp(`\\bVALUE\\s*=\\s*${moduleValue}\\b`))
+-      const sourceMatches = process.env.REAMON_BENCHMARK_FIXTURE_ID === PYINSTALLER_STRUCTURED_SOURCE_FIXTURE_ID
+-        ? matchesPyInstallerStructuredFixtureSource(knownSourceText, moduleValue)
++      const sourceMatches = isStructuredFixture
++        ? matchesPyInstallerStructuredFixtureSource(knownSourceText, moduleValue, isMutatedArtifactFixture ? 'under' : 'below')
+         : matchesPyInstallerFixtureSource(knownSourceText, moduleValue)
+       if (sourceMatches) reconstructionMatchedCount += 1
++      if (isMutatedArtifactFixture
++        && matchesPyInstallerStructuredFixtureSource(knownSourceText, moduleValue, 'below')) {
++        originalSourceFalseAcceptanceCount += 1
++      }
++      if (isStructuredFixture && !isMutatedArtifactFixture) {
++        const mutatedSource = mutatePyInstallerStructuredFixtureSource(knownSourceText)
++        expect(mutatedSource, `${moduleName} must expose exactly one mutation target`).toBeDefined()
++        if (matchesPyInstallerStructuredFixtureSource(mutatedSource!, moduleValue)) {
++          structuredMutationFalseAcceptanceCount += 1
++        } else {
++          structuredMutationRejectedCount += 1
++        }
++      }
+       knownSourceMatchedCount += 1
+     }
++    expect(knownSourceMatchedCount).toBe(70)
++    if (isStructuredFixture) {
++      if (isMutatedArtifactFixture) {
++        expect(reconstructionMatchedCount).toBe(70)
++        expect(originalSourceFalseAcceptanceCount).toBe(0)
++      } else {
++        expect(structuredMutationRejectedCount).toBe(70)
++        expect(structuredMutationFalseAcceptanceCount).toBe(0)
++      }
++    }
+ 
+-    const recovered = moduleRows.find(({ attributes }) => attributes.decompiled === true && typeof attributes.codeArtifactId === 'string')
+-    expect(recovered, 'at least one pycdc source unit should be committed to PostgreSQL').toBeDefined()
+-    const relativeSourcePath = (recovered!.attributes.codeArtifactId as string).replaceAll('\\', '/')
+-    const sourcePath = path.resolve(derivedRoot, ...relativeSourcePath.split('/'))
+-    expect(sourcePath.startsWith(`${derivedRoot}${path.sep}`)).toBe(true)
+-    const source = await readFile(sourcePath, 'utf8')
+-    expect(source.trim().length).toBeGreaterThan(0)
+-    directEvidence = { extractedModuleCount: moduleRows.length, knownSourceMatchedCount, reconstructionMatchedCount }
++    directEvidence = {
++      extractedModuleCount: moduleRows.length,
++      knownSourceMatchedCount,
++      reconstructionMatchedCount,
++      ...(isStructuredFixture && !isMutatedArtifactFixture
++        ? { structuredMutationRejectedCount, structuredMutationFalseAcceptanceCount }
++        : {}),
++      ...(isMutatedArtifactFixture ? { originalSourceFalseAcceptanceCount } : {}),
++    }
+   }, 30 * 60_000)
+ 
+   test.skipIf(!runWorkerIntegration)('completes a queued PyInstaller task through the live worker', async ({ skip }) => {

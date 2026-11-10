@@ -1,0 +1,82 @@
+{
+  "baselineRunId": "pyinstaller-872-to-c4d1-20261110-baseline",
+  "candidateRunId": "pyinstaller-872-to-c4d1-20261110-candidate",
+  "certification": "This comparison is bounded evidence and is not a product certification.",
+  "evaluationManifestSha256": "5fb6f388bcea32452ea979eda598a9006e1973cd3aaa690667cc95de1dc9e704",
+  "fixtureManifestSha256": "ca8465e4e20c04181336a23dc9ff075bccf07e53192f47c8f7f9450f6bc63d07",
+  "fixtures": {
+    "pyinstaller-module-structured-source-linux-amd64": {
+      "artifactSha256": "746c550fc3324ebf285c0ee4a555ea2afb3d5b12c9c191eb2bf4f0978d263971",
+      "metrics": {
+        "extracted_module_count": {
+          "baseline": 180,
+          "candidate": 180,
+          "delta": 0,
+          "denominator": 1,
+          "direction": "equal",
+          "regressionObserved": false,
+          "state": "MEASURED"
+        },
+        "known_source_value_recall": {
+          "baseline": 70,
+          "candidate": 70,
+          "delta": 0,
+          "denominator": 70,
+          "direction": "higher",
+          "regressionObserved": false,
+          "state": "MEASURED"
+        },
+        "negative_control_false_acceptance": {
+          "baseline": 0,
+          "candidate": 0,
+          "delta": 0,
+          "denominator": 70,
+          "direction": "lower",
+          "regressionObserved": false,
+          "state": "MEASURED"
+        },
+        "negative_control_mutation_rejection": {
+          "baseline": 70,
+          "candidate": 70,
+          "delta": 0,
+          "denominator": 70,
+          "direction": "higher",
+          "regressionObserved": false,
+          "state": "MEASURED"
+        },
+        "reconstruction_match": {
+          "baseline": 70,
+          "candidate": 70,
+          "delta": 0,
+          "denominator": 70,
+          "direction": "higher",
+          "regressionObserved": false,
+          "state": "MEASURED"
+        },
+        "runtime_oracle": {
+          "baseline": 1,
+          "candidate": 1,
+          "delta": 0,
+          "denominator": 1,
+          "direction": "equal",
+          "regressionObserved": false,
+          "state": "MEASURED"
+        },
+        "worker_terminal_page": {
+          "baseline": 1,
+          "candidate": 1,
+          "delta": 0,
+          "denominator": 1,
+          "direction": "equal",
+          "regressionObserved": false,
+          "state": "MEASURED"
+        }
+      }
+    }
+  },
+  "regressions": [],
+  "schemaVersion": 1,
+  "status": "NO_REGRESSION_OBSERVED",
+  "thresholdsApplied": false,
+  "worktreesClean": true
+}

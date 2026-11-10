@@ -22,9 +22,10 @@ The enrolled build produced artifact SHA-256
 `746c550fc3324ebf285c0ee4a555ea2afb3d5b12c9c191eb2bf4f0978d263971`
 (7,270,096 bytes). Its runtime oracle passed and the isolated extractor
 enumerated 180 modules over pages of 64, 64, and 52. The checked-in
-`enrollment-receipt.json` binds those results to the pinned builder and
-extractor inputs. Later builds write separate receipts and do not rewrite the
-enrollment manifest.
+`enrollment-receipt.json` binds those results to the pinned builder and the
+extractor used at enrollment. Later builds keep that enrollment immutable,
+build the current extractor, and record its image and source hashes in a
+separate build receipt.
 
 The evaluation contract measures runtime, inventory, known `VALUE` recall,
 worker continuation, and complete source matches across all 70 structured
