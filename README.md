@@ -88,7 +88,7 @@ The [autonomous reconstruction and fidelity delivery plan](docs/REAMON_AUTONOMOU
 
 Latest evidence-based score change (2026-11-10): **+0.10 points** (32.08% → 32.18%). Commit 68c5fd93 rejects malformed Lua CFG summaries before emitting observations: duplicate block IDs, inconsistent complete counts, repeated/out-of-range block ordering, dangling or out-of-range edges, and missing CFG endpoints. It preserves explicitly partial summaries based on each CFG's returned block count, even when other metadata families caused the global truncation flag. Five negative controls and one truncated-summary control pass; the real pinned analyzer passes against the stripped Lua fixture. Type-check, targeted ESLint, and the full Docker webapp suite pass (649 files / 9,901 tests; 2 expected failures; 50 files / 190 tests skipped). Security/reliability rises 95% to 96%, adding 0.10 weighted points (32.08% to 32.18%). No new database-backed CFG persistence run was performed.
 
-Refreshed from pushed commit `68c5fd9`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+Refreshed from pushed commit `af7f7f9`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
