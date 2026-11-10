@@ -25,11 +25,11 @@ const routeParams = { params: Promise.resolve({ id: 'project-1' }) }
 let derivedRoot = ''
 const priorDerivedRoot = process.env.REAMON_DERIVED_PATH
 
-async function arrangeProviderOutputs(count: number) {
+async function arrangeProviderOutputs(count: number, providerForIndex = (index: number) => `reamon-provider-${String(index).padStart(2, '0')}`) {
   const outputs = Array.from({ length: count }, (_, index) => {
     const taskId = `provider-task-${index}`
     const runToken = `run-${index}`
-    const source = `reamon-provider-${String(index).padStart(2, '0')}`
+    const source = providerForIndex(index)
     const sourceText = `int function_${index}(void) { return ${index}; }\n`
     const codeArtifactId = `project-1/artifact-1/${taskId}/${runToken}/sources/module.c`
     const task = { id: taskId, runToken, completedAt: new Date(`2026-10-28T00:${String(index).padStart(2, '0')}:00Z`), provider: { pluginId: source } }
@@ -44,6 +44,11 @@ async function arrangeProviderOutputs(count: number) {
           inputArtifactSha256: artifactHash,
           relativePath: 'sources/module.c', language: 'C', address: '0x401000',
           qualifiedName: `function_${index}`,
+          ...(source === 'reamon-arlecchino' ? {
+            providerLineageKind: 'derived-composite',
+            providerUpstreamProviderIds: 'reamon-vineflower,reamon-cfr,reamon-jadx',
+            providerSelectionPolicy: 'per-class compiler-error ranking and source merge',
+          } : {}),
         },
       },
       sourceText,
@@ -122,6 +127,21 @@ describe('GET /api/projects/[id]/visualizer/alternates', () => {
       is: { projectId: 'project-1', artifactId: 'artifact-1', capability: 'decompile', status: 'COMPLETED' },
     })
     expect(h.observations.mock.calls[0][0].select.task).toBeDefined()
+  })
+
+  it('reports Arlecchino as a derived composite rather than an independent provider', async () => {
+    await arrangeProviderOutputs(1, () => 'reamon-arlecchino')
+
+    const response = await GET(new Request('http://localhost?unitId=selected-unit'), routeParams)
+    const result = await response.json() as { alternates: Array<{ providerId: string; providerLineage: { kind: string; upstreamProviderIds: string[]; selectionPolicy: string | null } }> }
+
+    expect(response.status).toBe(200)
+    expect(result.alternates[0].providerId).toBe('reamon-arlecchino')
+    expect(result.alternates[0].providerLineage).toEqual({
+      kind: 'derived-composite',
+      upstreamProviderIds: ['reamon-vineflower', 'reamon-cfr', 'reamon-jadx'],
+      selectionPolicy: 'per-class compiler-error ranking and source merge',
+    })
   })
 
   it('pages through provider outputs without hiding providers after the per-response bound', async () => {

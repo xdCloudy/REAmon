@@ -595,8 +595,11 @@ describe('WorkspaceCodeVisualizer', () => {
       inputArtifactSha256: 'a'.repeat(64), codeArtifactSha256: 'b'.repeat(64),
       codeArtifactId: 'project-1/artifact-1/task-1/run-1/sources/functions/main.c',
     })
-    const outputs = ['Provider A', 'Provider B'].map((providerName, index) => ({
-      id: `alternate-${index}`, providerId: `provider-${index}`, providerName, version: '1.0', name: 'main', language: 'C',
+    const outputs = ['Arlecchino', 'Provider B'].map((providerName, index) => ({
+      id: `alternate-${index}`, providerId: index === 0 ? 'reamon-arlecchino' : `provider-${index}`, providerName, version: '1.0', name: 'main', language: 'C',
+      providerLineage: index === 0
+        ? { kind: 'derived-composite' as const, upstreamProviderIds: ['reamon-vineflower', 'reamon-cfr', 'reamon-jadx'], selectionPolicy: 'per-class compiler-error ranking and source merge' }
+        : { kind: 'unknown' as const, upstreamProviderIds: [], selectionPolicy: null },
       relativePath: `sources/functions/main-${index}.c`, inputSha256: 'a'.repeat(64), outputSha256: String(index + 3).repeat(64),
       completedAt: null, source: `int independent_${index}(void) { return ${index}; }`,
     }))
@@ -619,7 +622,9 @@ describe('WorkspaceCodeVisualizer', () => {
     const outputGroup = await screen.findByRole('group', { name: 'All verified decompiler outputs' })
     expect(within(outputGroup).getAllByRole('region')).toHaveLength(3)
     expect(within(outputGroup).getByRole('region', { name: 'Selected provider output' })).toHaveTextContent('selected')
-    expect(within(outputGroup).getByRole('region', { name: 'Provider A output' })).toHaveTextContent('independent_0')
+    expect(within(outputGroup).getByRole('region', { name: 'Arlecchino output' })).toHaveTextContent('independent_0')
+    expect(within(outputGroup).getByRole('region', { name: 'Arlecchino output' })).toHaveTextContent('Derived composite of vineflower, cfr, jadx')
+    expect(within(outputGroup).getByRole('region', { name: 'Provider B output' })).toHaveTextContent('Provider ancestry is unknown')
     expect(within(outputGroup).getByRole('region', { name: 'Provider B output' })).toHaveTextContent('independent_1')
     expect(within(outputGroup).getAllByText(/neither output is ground truth/)).toHaveLength(2)
     fireEvent.click(screen.getByRole('button', { name: 'Load more provider outputs' }))

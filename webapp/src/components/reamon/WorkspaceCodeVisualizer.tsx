@@ -166,6 +166,7 @@ interface AlternateDecompilerOutput {
   id: string
   providerId: string
   providerName: string
+  providerLineage: { kind: 'derived-composite' | 'unknown'; upstreamProviderIds: string[]; selectionPolicy: string | null }
   version: string | null
   name: string | null
   language: string
@@ -3092,13 +3093,18 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
               <div className={styles.comparison} role="group" aria-label="All verified decompiler outputs">
                 <section className={styles.listingPane} aria-label="Selected provider output">
                   <div className={styles.sourceHeader}><div><strong>{selectedUnit.source.replace(/^reamon-/, '')} · selected output</strong><span>{selectedUnit.decompilerVersion || selectedUnit.language} · {selectedUnit.codeArtifactId?.split('/').pop()}</span></div></div>
+                  <p className={styles.sourcePreviewNote} role="status">{selectedUnit.source === 'reamon-arlecchino'
+                    ? 'Derived composite of vineflower, cfr, and jadx; provider agreement with these engines is correlated.'
+                    : 'Provider ancestry is not established here; do not count agreement as independent evidence.'} Input sha256:{selectedUnit.inputArtifactSha256?.slice(0, 16) || 'not recorded'}. Review differences as evidence; this output is not ground truth.</p>
                   {sourceQuery.data !== undefined
                     ? <SourceListing source={sourceQuery.data} language={selectedUnit.language} fileName={selectedUnit.codeArtifactId?.split('/').pop()} fullSourceUrl={selectedSourceUrl} lineIdPrefix={`decompiler-primary-${selectedUnit.id}`} />
                     : <p className={styles.message}>Loading selected output…</p>}
                 </section>
                 {alternateOutputs.map((output) => <section key={output.id} className={styles.listingPane} aria-label={`${output.providerName} output`}>
                   <div className={styles.sourceHeader}><div><strong>{output.providerName} · alternate output</strong><span>{output.version || output.language} · sha256:{output.outputSha256.slice(0, 16)}</span></div></div>
-                  <p className={styles.sourcePreviewNote} role="status">Independent reconstruction · input sha256:{output.inputSha256.slice(0, 16)}. Review differences as evidence; neither output is ground truth.</p>
+                  <p className={styles.sourcePreviewNote} role="status">{output.providerLineage.kind === 'derived-composite'
+                    ? `Derived composite of ${output.providerLineage.upstreamProviderIds.map((provider) => provider.replace(/^reamon-/, '')).join(', ')} · ${output.providerLineage.selectionPolicy || 'selection policy not recorded'}.`
+                    : 'Provider ancestry is unknown; do not count agreement as independent evidence.'} Input sha256:{output.inputSha256.slice(0, 16)}. Review differences as evidence; neither output is ground truth.</p>
                   <SourceListing source={output.source} language={output.language} fileName={output.relativePath.split('/').pop()} lineIdPrefix={`decompiler-alternate-${output.id}`} />
                 </section>)}
               </div>

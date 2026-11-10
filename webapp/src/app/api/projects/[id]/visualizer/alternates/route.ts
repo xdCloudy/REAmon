@@ -20,6 +20,20 @@ function record(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
 }
 
+function providerLineage(providerId: string, attributes: Record<string, unknown>) {
+  const upstreamProviderIds = typeof attributes.providerUpstreamProviderIds === 'string'
+    ? attributes.providerUpstreamProviderIds.split(',').filter((value) => value.length <= 80).slice(0, 8)
+    : []
+  const selectionPolicy = typeof attributes.providerSelectionPolicy === 'string'
+    ? attributes.providerSelectionPolicy.slice(0, 160)
+    : null
+  if (providerId === 'reamon-arlecchino' && attributes.providerLineageKind === 'derived-composite'
+      && upstreamProviderIds.length > 0 && selectionPolicy) {
+    return { kind: 'derived-composite' as const, upstreamProviderIds, selectionPolicy }
+  }
+  return { kind: 'unknown' as const, upstreamProviderIds: [], selectionPolicy: null }
+}
+
 function inside(root: string, file: string): boolean {
   const relative = path.relative(root, file)
   return Boolean(relative) && relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)
@@ -356,6 +370,7 @@ export async function GET(request: Request, { params }: RouteParams) {
           id: row.id,
           providerId: row.source,
           providerName: row.source.replace(/^reamon-/, ''),
+          providerLineage: providerLineage(row.source, candidate),
           version: typeof candidate.decompilerVersion === 'string' ? candidate.decompilerVersion.slice(0, 120)
             : typeof candidate.decompilationEngineVersion === 'string' ? candidate.decompilationEngineVersion.slice(0, 120) : null,
           name: typeof candidate.qualifiedName === 'string' ? candidate.qualifiedName.slice(0, 500) : row.label,
