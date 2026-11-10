@@ -184,7 +184,7 @@
   },
   "activeWork": {
     "date": "2026-11-10",
-    "basedOnCommit": "0ea3ce02945fe23cdb67ace8dd7eed8629cb0c3e",
+    "basedOnCommit": "a24c74ed50986525cf1c16890b6e7b34db4e65bc",
     "workstream": "Security, reliability, and production operations",
     "status": "Lua hierarchy validation, disposable-PostgreSQL persistence acceptance, and full Docker webapp suite passed",
     "verified": [

@@ -88,7 +88,7 @@ The [autonomous reconstruction and fidelity delivery plan](docs/REAMON_AUTONOMOU
 
 Latest evidence-based score change (2026-11-10): **+0.00 points** (32.08% → 32.08%). The full Docker webapp suite passes 649 files / 9,895 tests against a complete isolated wiki copy (2 expected failures; 50 files / 190 tests skipped). This strengthens verification of the already-counted Lua hierarchy capability; no new capability is counted, so this update changes the estimate by +0.00 points (32.08% remains current).
 
-Refreshed from pushed commit `d717d61`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+Refreshed from pushed commit `a24c74e`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
