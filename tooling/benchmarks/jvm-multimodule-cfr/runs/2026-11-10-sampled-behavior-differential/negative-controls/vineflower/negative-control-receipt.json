@@ -1,0 +1,19 @@
+{
+    "schemaVersion":  1,
+    "control":  "behavior-changing recovered-source mutation outside Main runtime examples",
+    "productRevision":  "6f08cfc7b4553d958213470fe9acc3f1b996e416",
+    "fixtureId":  "jvm-multimodule-cfr-linux-amd64",
+    "artifactSha256":  "747346a392096bdac3613ac295ee4b8a743e22689a3738aeca1ad8ffc92fb7cf",
+    "runnerSha256":  "b6f0baa34cced4d72709bf78f4f3933db11acf204ab8818091d83c87da356a25",
+    "validatorSha256":  "b0a6dbadbfa5ba4fb0acba4ad435e32126ffc3a287010818a622abf223c797c7",
+    "mutatedPath":  "org/reamon/fixture/RuleEngine.java",
+    "mutation":  "Inserted a return for classify(4095) in recovered source; Main still emits the enrolled stdout.",
+    "mutatedSourceSha256":  "0f9d26b56eb5f57f263e071ef069d5a9c1e1604205691b19087fbb9b82104767",
+    "oracle":  "8197 sampled RuleEngine.classify integer inputs, including overflow boundaries",
+    "originalOutputAtMutation":  "high:4107",
+    "mutatedOutputAtMutation":  "mutated",
+    "compile":  "passed; validator proceeded to sampled behavior differential",
+    "validatorExitCode":  5,
+    "outcome":  "REJECTED_BY_BEHAVIORAL_DIFFERENTIAL",
+    "scope":  "One synthetic two-class Java fixture; verifies detection at the mutated input only and is not exhaustive behavioral equivalence."
+}

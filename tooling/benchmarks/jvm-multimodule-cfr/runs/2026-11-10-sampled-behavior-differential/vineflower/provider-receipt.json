@@ -1,0 +1,54 @@
+{
+    "status":  "completed",
+    "toolVersion":  "1.12.0",
+    "inputName":  "fixture.jar",
+    "artifactSha256":  "747346a392096bdac3613ac295ee4b8a743e22689a3738aeca1ad8ffc92fb7cf",
+    "sourceFileCount":  2,
+    "codeBytes":  445,
+    "truncated":  false,
+    "units":  [
+                  {
+                      "name":  "Main",
+                      "relativePath":  "org/reamon/fixture/Main.java",
+                      "sourceRoot":  "sources",
+                      "sourceVariant":  "baseline",
+                      "codeArtifactId":  "bench-jvm-vineflower/fixture-747346a39209/vineflower-fixture/vineflower-sampled-locked-44972139/sources/org/reamon/fixture/Main.java",
+                      "language":  "Java",
+                      "sizeBytes":  271,
+                      "outputSha256":  "3dbe2b59c69f58079f9304b5225db20dfb2b1e06dec0400cb5cbb7ad463a1957"
+                  },
+                  {
+                      "name":  "RuleEngine",
+                      "relativePath":  "org/reamon/fixture/RuleEngine.java",
+                      "sourceRoot":  "sources",
+                      "sourceVariant":  "baseline",
+                      "codeArtifactId":  "bench-jvm-vineflower/fixture-747346a39209/vineflower-fixture/vineflower-sampled-locked-44972139/sources/org/reamon/fixture/RuleEngine.java",
+                      "language":  "Java",
+                      "sizeBytes":  174,
+                      "outputSha256":  "a54e3cb5ebccbd50f96ea4d4f9e9a972c3914611bca7105ab01c51d6c87a2391"
+                  }
+              ],
+    "warnings":  "Vineflower output is reconstructed evidence, not proof of original source or behavior. Allatori flow cleanup found no supported instruction patterns.",
+    "staticFlowCleanup":  {
+                              "status":  "not_applied",
+                              "transformer":  "allatori.FlowObfuscationTransformer",
+                              "upstream":  "opastorello/deobfuscator",
+                              "upstreamRevision":  "bdde461b5aaf762f3b35d410ac76d850da5dd7a1",
+                              "upstreamSha256":  "23ba5d13ee632bc941c68f4dff24d7313881ae8754a10270a3d0c1dfde2be283",
+                              "artifactId":  null,
+                              "outputSha256":  null,
+                              "outputBytes":  null,
+                              "fixedInstructionCount":  0,
+                              "warning":  "Allatori flow cleanup found no supported instruction patterns.",
+                              "targetCodeExecuted":  false
+                          },
+    "request":  {
+                    "runId":  "vineflower-sampled-locked-44972139",
+                    "artifactPath":  "/data/reamon-artifacts/jvm-vineflower-vineflower-sampled-locked-44972139/fixture.jar",
+                    "artifactId":  "fixture-747346a39209",
+                    "taskId":  "vineflower-fixture",
+                    "projectId":  "bench-jvm-vineflower"
+                },
+    "serviceContainer":  "reamon-vineflower",
+    "serviceImageId":  "sha256:5e70d71a8d75881960f64b5fa643ece2b7d986f439a5f4ff8704c7935285aab3"
+}

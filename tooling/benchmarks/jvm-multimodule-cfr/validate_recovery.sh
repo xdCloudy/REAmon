@@ -36,6 +36,51 @@ if [[ "$observed_stdout" != "$expected_stdout" ]]; then
     exit 4
 fi
 
+probe_source=/tmp/BehaviorProbe.java
+original_probe_classes=/tmp/reamon-original-probe
+recovered_probe_classes=/tmp/reamon-recovered-probe
+original_probe_output=/tmp/reamon-original-behavior.txt
+recovered_probe_output=/tmp/reamon-recovered-behavior.txt
+cat > "$probe_source" <<'JAVA'
+import java.util.TreeSet;
+import org.reamon.fixture.RuleEngine;
+
+public final class BehaviorProbe {
+    public static void main(String[] args) {
+        TreeSet<Integer> inputs = new TreeSet<>();
+        for (int value = -4096; value <= 4096; value++) {
+            inputs.add(value);
+        }
+        inputs.add(Integer.MIN_VALUE);
+        inputs.add(Integer.MIN_VALUE + 1);
+        inputs.add(Integer.MAX_VALUE - 1);
+        inputs.add(Integer.MAX_VALUE);
+
+        RuleEngine engine = new RuleEngine();
+        for (int value : inputs) {
+            System.out.println(value + "\t" + engine.classify(value));
+        }
+    }
+}
+JAVA
+mkdir -p "$original_probe_classes" "$recovered_probe_classes"
+javac --release 17 -classpath "$original_classes" -d "$original_probe_classes" "$probe_source"
+javac --release 17 -classpath "$recovered_classes" -d "$recovered_probe_classes" "$probe_source"
+java -classpath "$original_probe_classes:$original_classes" BehaviorProbe > "$original_probe_output"
+java -classpath "$recovered_probe_classes:$recovered_classes" BehaviorProbe > "$recovered_probe_output"
+behavior_input_count=$(wc -l < "$original_probe_output" | tr -d ' ')
+original_behavior_sha256=$(sha256sum "$original_probe_output" | awk '{print $1}')
+recovered_behavior_sha256=$(sha256sum "$recovered_probe_output" | awk '{print $1}')
+if ! cmp -s "$original_probe_output" "$recovered_probe_output"; then
+    diff -u "$original_probe_output" "$recovered_probe_output" > "$output_root/behavior-diff.txt" || true
+    printf 'behavior mismatch across %s RuleEngine inputs\n' "$behavior_input_count" >&2
+    head -n 40 "$output_root/behavior-diff.txt" >&2
+    exit 5
+fi
+printf '{"method":"RuleEngine.classify sampled integer differential","inputCount":%s,"inputRange":"-4096..4096 plus integer overflow boundaries","originalOutputSha256":"%s","recoveredOutputSha256":"%s","allOutputsMatch":true}\n' \
+    "$behavior_input_count" "$original_behavior_sha256" "$recovered_behavior_sha256" \
+    > "$output_root/behavioral-correspondence.json"
+
 : > "$output_root/bytecode-correspondence.tsv"
 for relative_path in "${source_paths[@]}"; do
     class_name=${relative_path%.java}

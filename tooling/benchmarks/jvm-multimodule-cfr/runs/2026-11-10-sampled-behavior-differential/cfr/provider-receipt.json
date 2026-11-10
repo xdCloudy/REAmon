@@ -1,0 +1,37 @@
+{
+    "status":  "completed",
+    "toolVersion":  "0.152",
+    "inputName":  "fixture.jar",
+    "artifactSha256":  "747346a392096bdac3613ac295ee4b8a743e22689a3738aeca1ad8ffc92fb7cf",
+    "sourceFileCount":  2,
+    "codeBytes":  632,
+    "truncated":  false,
+    "units":  [
+                  {
+                      "name":  "Main",
+                      "relativePath":  "org/reamon/fixture/Main.java",
+                      "codeArtifactId":  "bench-jvm-cfr/fixture-747346a39209/cfr-fixture/cfr-sampled-locked-3271829d/sources/org/reamon/fixture/Main.java",
+                      "language":  "Java",
+                      "sizeBytes":  387,
+                      "outputSha256":  "173b38f76779e4e0f4bc21141f5b985bf9d191173b841aaf417465d995598043"
+                  },
+                  {
+                      "name":  "RuleEngine",
+                      "relativePath":  "org/reamon/fixture/RuleEngine.java",
+                      "codeArtifactId":  "bench-jvm-cfr/fixture-747346a39209/cfr-fixture/cfr-sampled-locked-3271829d/sources/org/reamon/fixture/RuleEngine.java",
+                      "language":  "Java",
+                      "sizeBytes":  245,
+                      "outputSha256":  "675d85b1dc835483012dbdfedefbae0983dcbf1920024437b9165deb7bb66c4d"
+                  }
+              ],
+    "warnings":  "CFR output is an independent Java reconstruction, not proof of original source or behavior. Processing /data/reamon-artifacts/jvm-cfr-cfr-sampled-locked-3271829d/fixture.jar (use silent to silence)\nProcessing org.reamon.fixture.Main\nProcessing org.reamon.fixture.RuleEngine",
+    "request":  {
+                    "runId":  "cfr-sampled-locked-3271829d",
+                    "artifactPath":  "/data/reamon-artifacts/jvm-cfr-cfr-sampled-locked-3271829d/fixture.jar",
+                    "artifactId":  "fixture-747346a39209",
+                    "taskId":  "cfr-fixture",
+                    "projectId":  "bench-jvm-cfr"
+                },
+    "serviceContainer":  "reamon-cfr",
+    "serviceImageId":  "sha256:75c9a073878f7788ad2a488e27714b13738a303640d60031e47bb2e7c9059c06"
+}

@@ -115,6 +115,10 @@ try {
     $observed = Invoke-DockerChecked -DockerArgs @('run', '--rm', '--platform', 'linux/amd64', '--network', 'none', '--memory', '2g', '--cpus', '2', '--pids-limit', '256', '--read-only', '--tmpfs', '/tmp:rw,nosuid,nodev,size=256m', '--volume', "${BuildDirectory}:/fixture:ro", '--volume', "${localSources}:/recovered-src:ro", '--volume', "${OutputDirectory}:/validation-output", '--volume', "${fixtureRoot}:/validator:ro", '--entrypoint', 'bash', $manifest.builderImage, '/validator/validate_recovery.sh', '/fixture/fixture.jar', '/recovered-src', '/validation-output', $manifest.expectedRuntimeStdout) | Out-String
     $observed = $observed.Trim()
     if ($observed -ne $manifest.expectedRuntimeStdout) { throw "Recovered runtime output mismatch: $observed" }
+    $behavioralCorrespondence = Get-Content -LiteralPath (Join-Path $OutputDirectory 'behavioral-correspondence.json') -Raw | ConvertFrom-Json
+    if ((-not $behavioralCorrespondence.allOutputsMatch) -or ($behavioralCorrespondence.inputCount -ne 8197) -or ($behavioralCorrespondence.originalOutputSha256 -notmatch '^[a-f0-9]{64}$') -or ($behavioralCorrespondence.originalOutputSha256 -ne $behavioralCorrespondence.recoveredOutputSha256)) {
+        throw 'Container behavior probe did not verify the expected dense input set'
+    }
 
     $classResults = [ordered]@{}
     foreach ($line in (Get-Content -LiteralPath (Join-Path $OutputDirectory 'bytecode-correspondence.tsv'))) {
@@ -167,11 +171,12 @@ try {
         observedRuntimeStdout = $observed
         expectedRuntimeStdout = $manifest.expectedRuntimeStdout
         runtimeMatches = $true
+        behavioralCorrespondence = $behavioralCorrespondence
         staticFlowCleanup = $provider.staticFlowCleanup
-        claim = 'One synthetic two-class JVM fixture compiled and ran with matching observed stdout; javap signatures and bytecode were compared per class. This does not prove original-source equivalence or broad JVM fidelity.'
+        claim = 'One synthetic two-class JVM fixture compiled and matched sampled RuleEngine outputs plus the observed Main stdout; javap signatures and bytecode were compared per class. This does not prove original-source equivalence or broad JVM fidelity.'
     }
     [System.IO.File]::WriteAllText((Join-Path $OutputDirectory 'validation-receipt.json'), ($validation | ConvertTo-Json -Depth 14), $utf8NoBom)
-    Write-Output "Vineflower fixture passed: $RunId; sources=$($actualPaths.Count); bytecode=$matchedClasses/$($classNames.Count); stdout=$observed"
+    Write-Output "Vineflower fixture passed: $RunId; sources=$($actualPaths.Count); behavior=$($behavioralCorrespondence.inputCount) inputs; bytecode=$matchedClasses/$($classNames.Count); stdout=$observed"
 }
 finally {
     docker rm -f $stagingName 2>$null | Out-Null

@@ -52,8 +52,12 @@ $dockerArgs = @(
     '/validator/validate_recovery.sh', '/fixture/fixture.jar', '/recovered-src',
     '/validation-output', $manifest.expectedRuntimeStdout
 )
-$containerOutput = & docker @dockerArgs 2>&1 | Out-String
+$savedErrorActionPreference = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+$containerLines = & docker @dockerArgs 2>&1
 $validatorExitCode = $LASTEXITCODE
+$ErrorActionPreference = $savedErrorActionPreference
+$containerOutput = $containerLines | Out-String
 if ($validatorExitCode -ne 4 -or $containerOutput -notmatch 'runtime output mismatch:') {
     throw "Expected the runtime oracle to reject the changed candidate with exit 4; got exit $validatorExitCode. $containerOutput"
 }

@@ -45,3 +45,18 @@ The runner verifies the JAR against its manifest, stages it under a unique path 
 A second live JVM provider measurement is archived in `runs/2026-11-10-vineflower/`. Rebuild the held-out JAR with `build.ps1`, then run `run_vineflower.ps1` with a fresh output directory. The runner submits the SHA-256-bound JAR to the isolated Vineflower service, verifies the complete expected source inventory and output hashes, then compiles and validates the recovered sources in the pinned Docker JDK.
 
 On the recorded run, Vineflower 1.12.0 returned both expected files without truncation and matched the runtime oracle. Exact `javap -p -s -c` output matched 1/2 classes; `RuleEngine` differed. This is bounded same-revision provider evidence, not source-equivalence proof or a changed-revision comparison.
+
+## Sampled behavior differential
+
+The pinned validator now compares each recovered `RuleEngine.classify` implementation directly against the original JAR on 8,197 inputs: every integer from -4096 through 4096 plus the four `Integer.MIN_VALUE`/`MAX_VALUE` boundary values. This supplements the fixture `Main` stdout and exact per-class `javap -p -s -c` comparison; finite sampling still does not prove exhaustive behavior equivalence.
+
+The paired CFR/Vineflower run is archived in `runs/2026-11-10-sampled-behavior-differential/`. Both recovered providers matched all 8,197 outputs. CFR bytecode correspondence was 2/2 classes; Vineflower was 1/2. The reproducible `run_behavior_negative_control.ps1` mutation inserts a changed result for input 4095 without changing the three `Main` examples, and the sampled oracle rejects it for both providers.
+
+Run the negative control against fresh recovered sources:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tooling/benchmarks/jvm-multimodule-cfr/run_behavior_negative_control.ps1 `
+  -BuildDirectory work/benchmarks/jvm-multimodule-cfr-build `
+  -SourceDirectory work/benchmarks/jvm-multimodule-cfr-run/sources `
+  -OutputDirectory work/benchmarks/jvm-multimodule-cfr-behavior-negative-control
+```
