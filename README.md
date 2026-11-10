@@ -77,9 +77,19 @@ The [autonomous reconstruction and fidelity delivery plan](docs/REAMON_AUTONOMOU
 ## Project status
 
 <!-- REAMON_PRODUCT_PROGRESS_START -->
+
 <progress value="31.86" max="100">31.86%</progress> <strong>31.86%</strong> — weighted estimate **31.86%**.
-Latest evidence-based score change (2026-11-10): **+0.00 points** (31.86% → 31.86%). Fixture-scoped benchmark toolchains (source commit 3f103e10): The AR-8 aggregator now creates a hash-bound toolchain index for heterogeneous fixtures while requiring each fixture’s baseline and candidate to match exact component revisions. Regression evidence accepts separate Ghidra/CFR manifests and rejects within-fixture drift; aggregate, receipt, and JVM comparator suites pass 8/8, 11/11, and 4/4 in Docker. This enables but does not measure a multi-format product comparison, so weighted progress remains 31.86% (0.00-point change).
-Refreshed from pushed commit `fe7d0a0`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+
+**Work completed (2026-11-10):** The weighted score did rise from 31.79% to 31.86% after the pinned UUID rename corpus added six upstream binding scenarios and 31 exact declaration/reference edits. Since that score change, completed work includes per-fixture hash-bound toolchains for heterogeneous benchmark receipts, an isolated embedded-NUL CArchive rejection control, C/C++ shadowed-binding safety regressions, and an 8,197-input JVM behavior differential with a rejected behavior-changing mutation. These are recorded in the evidence notes below. Focused and broad test evidence is recorded alongside each change; the latest full unit run was not fully green because of the documented WSL worktree and stale user-wiki issues.
+
+**Score decision:** Held at 31.86% after the UUID corpus increase. The latest benchmark work makes heterogeneous aggregation possible, but no multi-format changed-revision matrix has been measured; safety controls and repeatability do not by themselves satisfy the benchmark scoring gate.
+
+**Next measurable gate:** Run and archive a complete, same-toolchain multi-format baseline/candidate matrix on one source revision, then reassess the benchmark workstream against its acceptance criteria.
+
+Latest evidence-based score change (2026-11-10): **+0.07 points** (31.79% → 31.86%). The pinned UUID rename corpus added six upstream binding scenarios with 31 exact declaration/reference edits and passed package type-checks and runtime oracles. This met the next partial-credit gate for cross-file semantic rename propagation.
+
+Refreshed from pushed commit `d312dcb`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
 [Goals and roadmap](docs/REAMON_GOALS.md) · [Feature matrix](docs/REAMON_FEATURE_MATRIX.md)

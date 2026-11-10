@@ -39,6 +39,14 @@ if (comparison && (typeof comparison.baselineEstimate !== 'number'
 const comparisonLine = comparison
   ? `Latest evidence-based score change (${comparison.date}): **${score - comparison.baselineEstimate >= 0 ? '+' : ''}${(score - comparison.baselineEstimate).toFixed(2)} points** (${comparison.baselineEstimate.toFixed(2)}% → ${displayedScore}%). ${comparison.evidence}`
   : ''
+const activity = manifest.activitySummary
+if (activity && (typeof activity.date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(activity.date)
+    || !Array.isArray(activity.completed) || activity.completed.length === 0
+    || !activity.completed.every((item) => typeof item === 'string' && item.trim())
+    || typeof activity.scoreDecision !== 'string' || !activity.scoreDecision.trim()
+    || typeof activity.nextGate !== 'string' || !activity.nextGate.trim())) {
+  throw new Error('Progress activitySummary must include a date, completed items, score decision, and next gate')
+}
 const suppliedCommit = process.argv[2]
 const commit = suppliedCommit?.trim()
 if (commit && !/^[a-f0-9]{7,40}$/i.test(commit)) throw new Error('Progress source commit must be a Git SHA')
@@ -47,10 +55,15 @@ const sourceStamp = commit ? `pushed commit \`${commit.slice(0, 7)}\`` : 'the cu
 const generated = [
   startMarker,
   `<progress value="${displayedScore}" max="100">${displayedScore}%</progress> <strong>${displayedScore}%</strong> — weighted estimate **${score.toFixed(2)}%**.`,
+  ...(activity ? [
+    `**Work completed (${activity.date}):** ${activity.completed.join(' ')}`,
+    `**Score decision:** ${activity.scoreDecision}`,
+    `**Next measurable gate:** ${activity.nextGate}`,
+  ] : []),
   ...(comparisonLine ? [comparisonLine] : []),
   `Refreshed from ${sourceStamp}. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.`,
   endMarker,
-].join('\n')
+].join('\n\n')
 
 const readme = await readFile(readmePath, 'utf8')
 const start = readme.indexOf(startMarker)
@@ -77,7 +90,16 @@ const ledger = [
   '',
   'This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.',
   '',
-  ...(manifest.assessmentNote ? [manifest.assessmentNote, ''] : []),
+  ...(activity ? [
+    `## Recent activity (${activity.date})`,
+    '',
+    ...activity.completed.map((item) => `- ${item}`),
+    '',
+    `**Score decision:** ${activity.scoreDecision}`,
+    '',
+    `**Next measurable gate:** ${activity.nextGate}`,
+    '',
+  ] : []),
   '| Workstream | Goal weight | Estimated complete | Weighted points |',
   '| --- | ---: | ---: | ---: |',
   ...rows,
@@ -85,6 +107,7 @@ const ledger = [
   '## Evidence and remaining work',
   '',
   details,
+  ...(manifest.assessmentNote ? ['## Historical assessment notes', '', manifest.assessmentNote, ''] : []),
   'The machine-readable [`REAMON_PROGRESS.json`](REAMON_PROGRESS.json) feeds the README progress bar. The scope now includes the production hardening goal, so the total is not directly comparable with the previous product-only estimate. Update it with evidence when estimates change, then run `node tooling/reamon/update-product-progress.mjs <commit-sha>` to refresh this matrix and the README.',
   '',
 ].join('\n')
