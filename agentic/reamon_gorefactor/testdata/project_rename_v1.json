@@ -47,6 +47,36 @@
       }
     },
     {
+      "name": "interface_contract_remains_valid_after_receiver_type_rename",
+      "selected_path": "pkg/types.go",
+      "old_name": "store",
+      "new_name": "record",
+      "reference_count": 2,
+      "files": {
+        "pkg/types.go": "package sample\n\ntype store struct { value int }\nfunc (item store) get() int { return item.value }\ntype reader interface { get() int }\n",
+        "pkg/use.go": "package sample\n\nfunc read(item reader) int { return item.get() }\nfunc readStore(item store) int { return item.get() }\n"
+      },
+      "expected": {
+        "pkg/types.go": "package sample\n\ntype record struct { value int }\nfunc (item record) get() int { return item.value }\ntype reader interface { get() int }\n",
+        "pkg/use.go": "package sample\n\nfunc read(item reader) int { return item.get() }\nfunc readStore(item record) int { return item.get() }\n"
+      }
+    },
+    {
+      "name": "imported_packages_and_qualifiers_remain_unchanged",
+      "selected_path": "pkg/api.go",
+      "old_name": "normalize",
+      "new_name": "clean",
+      "reference_count": 1,
+      "files": {
+        "pkg/api.go": "package sample\n\nimport \"strings\"\n\nfunc normalize(value string) string { return strings.TrimSpace(value) }\n",
+        "pkg/use.go": "package sample\n\nimport \"fmt\"\n\nfunc call() string { return normalize(fmt.Sprint(\" value \")) }\n"
+      },
+      "expected": {
+        "pkg/api.go": "package sample\n\nimport \"strings\"\n\nfunc clean(value string) string { return strings.TrimSpace(value) }\n",
+        "pkg/use.go": "package sample\n\nimport \"fmt\"\n\nfunc call() string { return clean(fmt.Sprint(\" value \")) }\n"
+      }
+    },
+    {
       "name": "constant references exclude_shadowing_parameters",
       "selected_path": "pkg/constants.go",
       "old_name": "threshold",
