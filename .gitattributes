@@ -15,3 +15,5 @@ webapp/src/lib/reconSettings/registry.json text eol=lf
 tooling/benchmarks/**/*.json text eol=lf
 # Fixture dependency manifests are SHA-256-pinned by benchmark builders.
 tooling/benchmarks/**/requirements.txt text eol=lf
+# Fixture license texts are also pinned as builder inputs.
+tooling/benchmarks/**/LICENSE text eol=lf
