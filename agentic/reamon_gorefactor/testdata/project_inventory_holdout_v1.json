@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "fixtures": [
+    {
+      "name": "gorilla-mux-v1.8.1",
+      "module_path": "github.com/gorilla/mux",
+      "go_mod_fixture_path": "project_inventory_holdout_v1/gorilla_mux_v1_8_1_go_mod",
+      "go_mod_sha256": "f291c6cca97f4c0e46c8fc4dc1005380d225800a42f28774928bec80f2c553bd",
+      "selected_path": "mux.go",
+      "files": [
+        {"fixture_path": "project_inventory_holdout_v1/gorilla_mux_v1_8_1_doc_go", "inventory_path": "doc.go", "sha256": "ce31609fc8771d867b51319781dac696d2b97c4ca5b322f3b91b93999b3ce35b"},
+        {"fixture_path": "project_inventory_holdout_v1/gorilla_mux_v1_8_1_middleware_go", "inventory_path": "middleware.go", "sha256": "028f45ec94f1716f7eb614a7713db9555334076a061b29022e17b7cd1c82d177"},
+        {"fixture_path": "project_inventory_holdout_v1/gorilla_mux_v1_8_1_mux_go", "inventory_path": "mux.go", "sha256": "9fe967437d9bc37d9dfa8e3e7f742bd9a74561c8bdc2f63b73387ca90dfa3e16"},
+        {"fixture_path": "project_inventory_holdout_v1/gorilla_mux_v1_8_1_regexp_go", "inventory_path": "regexp.go", "sha256": "6e628d7499e92ba7f0092e9936e2854609f912e6b86d44af94fabaf38ebd4fcb"},
+        {"fixture_path": "project_inventory_holdout_v1/gorilla_mux_v1_8_1_route_go", "inventory_path": "route.go", "sha256": "fe167aba63cd3dfe4d0a5792e5a1eae05dd53947545be4a6fb351a1d64f4bc58"}
+      ],
+      "build_contexts": [
+        {"goos": "linux", "goarch": "amd64", "selected_path": "mux.go"},
+        {"goos": "windows", "goarch": "amd64", "selected_path": "mux.go"}
+      ]
+    },
+    {
+      "name": "go-isatty-v0.0.20",
+      "module_path": "github.com/mattn/go-isatty",
+      "go_mod_fixture_path": "project_inventory_holdout_v1/go_isatty_v0_0_20_go_mod",
+      "go_mod_sha256": "1eeabef1b4d98db73c6c2073289163649bc9a044552aca86b9d592fe84eaa1c8",
+      "go_sum_fixture_path": "project_inventory_holdout_v1/go_isatty_v0_0_20_go_sum",
+      "go_sum_sha256": "dbd4595531ce86f3bcaafc38a4afb6f249ec9c3e7907ec4ea3bf2be1c6a99238",
+      "selected_path": "isatty_windows.go",
+      "files": [
+        {"fixture_path": "project_inventory_holdout_v1/go_isatty_v0_0_20_doc_go", "inventory_path": "doc.go", "sha256": "06182cb1a7113cae6fdef9be492893298610bfc63cf565a23f86203c3074a861"},
+        {"fixture_path": "project_inventory_holdout_v1/go_isatty_v0_0_20_isatty_windows_go", "inventory_path": "isatty_windows.go", "sha256": "a8d1abddcc587bb02b34288fb5b70e5bfc36f826e3a11acd206883ed900832aa"},
+        {"fixture_path": "project_inventory_holdout_v1/go_isatty_v0_0_20_isatty_others_go", "inventory_path": "isatty_others.go", "sha256": "ad3cec73607a7861f625c80e38734d14dd89fcd0f88159a6af746f0d235c6eb3"}
+      ],
+      "build_contexts": [
+        {"goos": "js", "goarch": "wasm", "selected_path": "isatty_others.go"}
+      ]
+    }
+  ]
+}

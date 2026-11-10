@@ -4,6 +4,10 @@ import (
 	"archive/zip"
 	"encoding/json"
 	"fmt"
+	"go/ast"
+	gobuild "go/build"
+	"go/parser"
+	"go/token"
 	"os"
 	"os/exec"
 	"path"
@@ -66,6 +70,29 @@ type projectInventoryFixtureFile struct {
 	FixturePath   string `json:"fixture_path"`
 	InventoryPath string `json:"inventory_path"`
 	SHA256        string `json:"sha256"`
+}
+
+type projectInventoryRecallCorpus struct {
+	Version  int                             `json:"version"`
+	Fixtures []projectInventoryRecallFixture `json:"fixtures"`
+}
+
+type projectInventoryRecallFixture struct {
+	Name          string                        `json:"name"`
+	ModulePath    string                        `json:"module_path"`
+	GoModFixture  string                        `json:"go_mod_fixture_path"`
+	GoModSHA256   string                        `json:"go_mod_sha256"`
+	GoSumFixture  string                        `json:"go_sum_fixture_path"`
+	GoSumSHA256   string                        `json:"go_sum_sha256"`
+	SelectedPath  string                        `json:"selected_path"`
+	Files         []projectInventoryFixtureFile `json:"files"`
+	BuildContexts []projectInventoryRecallBuild `json:"build_contexts"`
+}
+
+type projectInventoryRecallBuild struct {
+	GOOS         string `json:"goos"`
+	GOARCH       string `json:"goarch"`
+	SelectedPath string `json:"selected_path"`
 }
 
 func bindingNamed(t *testing.T, cat *catalog, name string, declarationStart int) binding {
@@ -1015,6 +1042,189 @@ func TestProjectInventoryMatchesHashPinnedUpstreamCorpusV1(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestProjectInventoryHeldOutPackageSymbolPrecisionRecallV1(t *testing.T) {
+	manifestBytes, err := os.ReadFile(filepath.Join("testdata", "project_inventory_holdout_v1.json"))
+	if err != nil {
+		t.Fatalf("read held-out project inventory manifest: %v", err)
+	}
+	var corpus projectInventoryRecallCorpus
+	if err := json.Unmarshal(manifestBytes, &corpus); err != nil {
+		t.Fatalf("parse held-out project inventory manifest: %v", err)
+	}
+	if corpus.Version != 1 || len(corpus.Fixtures) != 2 {
+		t.Fatalf("held-out corpus version/fixture count = %d/%d; want 1/2", corpus.Version, len(corpus.Fixtures))
+	}
+
+	for _, fixture := range corpus.Fixtures {
+		t.Run(fixture.Name, func(t *testing.T) {
+			goModBytes, err := os.ReadFile(filepath.Join("testdata", filepath.FromSlash(fixture.GoModFixture)))
+			if err != nil {
+				t.Fatalf("read pinned go.mod: %v", err)
+			}
+			if actual := hashText(string(goModBytes)); actual != fixture.GoModSHA256 {
+				t.Fatalf("go.mod SHA-256 = %s; want %s", actual, fixture.GoModSHA256)
+			}
+			var goSum string
+			if fixture.GoSumFixture != "" {
+				goSumBytes, err := os.ReadFile(filepath.Join("testdata", filepath.FromSlash(fixture.GoSumFixture)))
+				if err != nil {
+					t.Fatalf("read pinned go.sum: %v", err)
+				}
+				if actual := hashText(string(goSumBytes)); actual != fixture.GoSumSHA256 {
+					t.Fatalf("go.sum SHA-256 = %s; want %s", actual, fixture.GoSumSHA256)
+				}
+				goSum = string(goSumBytes)
+			}
+
+			files := make([]projectFile, 0, len(fixture.Files))
+			for _, source := range fixture.Files {
+				contents, err := os.ReadFile(filepath.Join("testdata", filepath.FromSlash(source.FixturePath)))
+				if err != nil {
+					t.Fatalf("read pinned held-out source %s: %v", source.FixturePath, err)
+				}
+				if actual := hashText(string(contents)); actual != source.SHA256 {
+					t.Fatalf("source SHA-256 for %s = %s; want %s", source.FixturePath, actual, source.SHA256)
+				}
+				files = append(files, projectFile{Path: source.InventoryPath, Source: string(contents), ExpectedHash: source.SHA256})
+			}
+
+			for _, target := range fixture.BuildContexts {
+				t.Run(target.GOOS+"_"+target.GOARCH, func(t *testing.T) {
+					sourceRoot := t.TempDir()
+					buildContext := gobuild.Default
+					buildContext.GOOS, buildContext.GOARCH, buildContext.CgoEnabled = target.GOOS, target.GOARCH, false
+					selectedFiles := make([]projectFile, 0, len(files))
+					for _, source := range files {
+						if err := os.WriteFile(filepath.Join(sourceRoot, filepath.Base(source.Path)), []byte(source.Source), 0o600); err != nil {
+							t.Fatalf("write source for independent Go build selection: %v", err)
+						}
+						matches, err := buildContext.MatchFile(sourceRoot, filepath.Base(source.Path))
+						if err != nil {
+							t.Fatalf("Go toolchain build selection for %s: %v", source.Path, err)
+						}
+						if matches {
+							selectedFiles = append(selectedFiles, source)
+						}
+					}
+					if !containsProjectPath(selectedFiles, target.SelectedPath) {
+						t.Fatalf("selected path %s is absent from the independent Go build selection", target.SelectedPath)
+					}
+
+					gold := independentPackageDeclarationKeys(t, selectedFiles)
+					request := goProjectRequest(files, target.SelectedPath)
+					request.Operation, request.ModulePath = "project_inventory", fixture.ModulePath
+					request.GoMod, request.GoModHash = string(goModBytes), fixture.GoModSHA256
+					request.GoSum, request.GoSumHash = goSum, fixture.GoSumSHA256
+					request.BuildGOOS, request.BuildGOARCH = target.GOOS, target.GOARCH
+					result, err := listProjectInventory(request)
+					if err != nil {
+						t.Fatalf("inventory held-out project: %v", err)
+					}
+					inventory := result["inventory"].(map[string]any)
+					if inventory["complete"] != true || inventory["entries_truncated"] != false {
+						t.Fatalf("inventory completeness/truncation = %v/%v", inventory["complete"], inventory["entries_truncated"])
+					}
+
+					actual := make(map[string]bool)
+					duplicateCount := 0
+					for _, entry := range inventory["entries"].([]projectInventoryEntry) {
+						if entry.Scope != "package" {
+							continue
+						}
+						key := projectDeclarationKey(entry.RelativePath, entry.DeclarationStart, entry.Name)
+						if actual[key] {
+							duplicateCount++
+						}
+						actual[key] = true
+					}
+					truePositives := 0
+					for key := range gold {
+						if actual[key] {
+							truePositives++
+						}
+					}
+					falsePositives := len(actual) - truePositives + duplicateCount
+					falseNegatives := len(gold) - truePositives
+					precision := float64(truePositives) / float64(truePositives+falsePositives)
+					recall := float64(truePositives) / float64(truePositives+falseNegatives)
+					t.Logf("held-out package declaration identity: precision %.4f, recall %.4f, TP=%d FP=%d FN=%d (duplicate=%d)", precision, recall, truePositives, falsePositives, falseNegatives, duplicateCount)
+					if falsePositives != 0 || falseNegatives != 0 {
+						var missing, unexpected []string
+						for key := range gold {
+							if !actual[key] {
+								missing = append(missing, key)
+							}
+						}
+						for key := range actual {
+							if !gold[key] {
+								unexpected = append(unexpected, key)
+							}
+						}
+						sort.Strings(missing)
+						sort.Strings(unexpected)
+						t.Fatalf("package declaration identity mismatch: missing=%v unexpected=%v duplicates=%d", missing, unexpected, duplicateCount)
+					}
+				})
+			}
+		})
+	}
+}
+
+func containsProjectPath(files []projectFile, wanted string) bool {
+	for _, file := range files {
+		if file.Path == wanted {
+			return true
+		}
+	}
+	return false
+}
+
+func projectDeclarationKey(filePath string, offset int, name string) string {
+	return fmt.Sprintf("%s:%d:%s", filePath, offset, name)
+}
+
+func independentPackageDeclarationKeys(t *testing.T, files []projectFile) map[string]bool {
+	t.Helper()
+	keys := make(map[string]bool)
+	for _, file := range files {
+		fileSet := token.NewFileSet()
+		parsed, err := parser.ParseFile(fileSet, file.Path, file.Source, parser.AllErrors)
+		if err != nil {
+			t.Fatalf("independent Go AST parse for %s: %v", file.Path, err)
+		}
+		add := func(identifier *ast.Ident) {
+			if identifier == nil || identifier.Name == "_" {
+				return
+			}
+			position := fileSet.PositionFor(identifier.Pos(), false)
+			keys[projectDeclarationKey(file.Path, position.Offset, identifier.Name)] = true
+		}
+		for _, declaration := range parsed.Decls {
+			switch declaration := declaration.(type) {
+			case *ast.FuncDecl:
+				if declaration.Recv == nil {
+					add(declaration.Name)
+				}
+			case *ast.GenDecl:
+				if declaration.Tok != token.CONST && declaration.Tok != token.TYPE && declaration.Tok != token.VAR {
+					continue
+				}
+				for _, spec := range declaration.Specs {
+					switch spec := spec.(type) {
+					case *ast.TypeSpec:
+						add(spec.Name)
+					case *ast.ValueSpec:
+						for _, name := range spec.Names {
+							add(name)
+						}
+					}
+				}
+			}
+		}
+	}
+	return keys
 }
 
 func TestProjectInventoryResolvesImportsBetweenModulePackages(t *testing.T) {
