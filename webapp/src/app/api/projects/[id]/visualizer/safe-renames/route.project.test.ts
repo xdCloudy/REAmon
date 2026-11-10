@@ -37,6 +37,16 @@ const siblingSource = 'package sample\nfunc run() int { return normalize(1) }\n'
 const selectedOutput = 'package sample\nfunc scale(value int) int { return value }\n'
 const siblingOutput = 'package sample\nfunc run() int { return scale(1) }\n'
 const bindingId = '0123456789abcdef01234567'
+const inventoryPayload = {
+  scope: 'reviewed-same-directory-go-package-source-snapshot', source_file_count: 2,
+  private_package_symbol_count: 2, referenced_private_package_symbols: 1, unreferenced_private_symbols: 1,
+  exported_package_symbol_count: 0, unsupported_package_symbol_count: 0, rename_binding_catalog_truncated: false,
+  entry_count: 2, entries_truncated: false,
+  entries: [
+    { id: bindingId, name: 'normalize', kind: 'package function', relativePath: selectedPath, declarationStart: 20, referenceCount: 1, exported: false, classification: 'eligible', classificationReason: 'private-package-symbol-with-resolved-references', nameAssessment: 'unassessed' },
+    { id: 'abcdef0123456789abcdef01', name: 'run', kind: 'package function', relativePath: siblingPath, declarationStart: 20, referenceCount: 0, exported: false, classification: 'excluded', classificationReason: 'unreferenced-package-symbol', nameAssessment: 'unassessed' },
+  ],
+}
 const inputHash = (source: string) => createHash('sha256').update(source, 'utf8').digest('hex')
 const setHash = (files: Array<{ relativePath: string; sourceCode: string }>) => {
   const hash = createHash('sha256')
@@ -117,7 +127,7 @@ beforeEach(async () => {
         ],
         bindings: [{ id: bindingId, name: 'normalize', kind: 'package function', scopeType: 'package', declarationStart: 20, referenceCount: 1, relativePath: selectedPath, exported: false }],
         truncated: false, parser_version: 'go1.24.4',
-        inventory: { scope: 'reviewed-same-directory-go-package-source-snapshot', source_file_count: 2, private_package_symbol_count: 2, referenced_private_package_symbols: 1, unreferenced_private_symbols: 1, exported_package_symbol_count: 0, unsupported_package_symbol_count: 0, rename_binding_catalog_truncated: false },
+        inventory: inventoryPayload,
       })
     }
     return jsonResponse({
@@ -154,10 +164,15 @@ describe('POST safe-renames Go package scope', () => {
 
     const body = await response.json()
     expect(response.status, JSON.stringify(body)).toBe(200)
-    expect(body.projectInventory).toEqual({
+    expect(body.projectInventory).toMatchObject({
       scope: 'reviewed-same-directory-go-package-source-snapshot', sourceFileCount: 2,
       privatePackageSymbolCount: 2, referencedPrivatePackageSymbols: 1, unreferencedPrivateSymbols: 1,
       exportedPackageSymbolCount: 0, unsupportedPackageSymbolCount: 0, renameBindingCatalogTruncated: false,
+      entryCount: 2, entriesTruncated: false,
+      entries: expect.arrayContaining([
+        expect.objectContaining({ name: 'normalize', classification: 'eligible', nameAssessment: 'unassessed' }),
+        expect.objectContaining({ name: 'run', classification: 'excluded', classificationReason: 'unreferenced-package-symbol' }),
+      ]),
     })
     expect(h.attemptCreate).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ requestPayload: expect.objectContaining({ goProjectInventory: body.projectInventory }) }),
@@ -220,7 +235,7 @@ describe('POST safe-renames Go package scope', () => {
       ],
       bindings: [{ id: bindingId, name: 'normalize', kind: 'package function', scopeType: 'package', declarationStart: 20, referenceCount: 1, relativePath: selectedPath, exported: false }],
       truncated: false, parser_version: 'go1.24.4',
-      inventory: { scope: 'reviewed-same-directory-go-package-source-snapshot', source_file_count: 2, private_package_symbol_count: 2, referenced_private_package_symbols: 1, unreferenced_private_symbols: 1, exported_package_symbol_count: 0, unsupported_package_symbol_count: 0, rename_binding_catalog_truncated: false },
+      inventory: inventoryPayload,
     }))
     const response = await POST(new Request('http://localhost/api/projects/project-1/visualizer/safe-renames', {
       method: 'POST', headers: { 'content-type': 'application/json' },

@@ -26,6 +26,7 @@ const maxProjectBytes = 8 * 1024 * 1024
 const maxProjectFiles = 256
 const maxRequestBytes = maxProjectBytes + maxProjectFiles*8192 + 2*1024*1024
 const maxBindings = 5000
+const maxProjectInventoryEntries = 5000
 const maxRenames = 80
 
 type request struct {
@@ -100,6 +101,22 @@ type projectInventory struct {
 	UnreferencedPrivateSymbols      int
 	ExportedPackageSymbolCount      int
 	UnsupportedPackageSymbolCount   int
+	EntryCount                      int
+	EntriesTruncated                bool
+	Entries                         []projectInventoryEntry
+}
+
+type projectInventoryEntry struct {
+	ID                   string `json:"id"`
+	Name                 string `json:"name"`
+	Kind                 string `json:"kind"`
+	RelativePath         string `json:"relativePath"`
+	DeclarationStart     int    `json:"declarationStart"`
+	ReferenceCount       int    `json:"referenceCount"`
+	Exported             bool   `json:"exported"`
+	Classification       string `json:"classification"`
+	ClassificationReason string `json:"classificationReason"`
+	NameAssessment       string `json:"nameAssessment"`
 }
 
 type derivedFieldReference struct {
@@ -430,6 +447,21 @@ func applyRenames(req request) (map[string]any, error) {
 	}, nil
 }
 
+func projectPackageObjectKind(object types.Object) string {
+	switch object.(type) {
+	case *types.Func:
+		return "package function"
+	case *types.TypeName:
+		return "package type"
+	case *types.Var:
+		return "package variable"
+	case *types.Const:
+		return "package constant"
+	default:
+		return ""
+	}
+}
+
 func buildProjectCatalog(req request) (*projectCatalog, error) {
 	if len(req.Files) < 2 || len(req.Files) > maxProjectFiles {
 		return nil, fmt.Errorf("Go package rename requires between 2 and %d source files", maxProjectFiles)
@@ -517,36 +549,6 @@ func buildProjectCatalog(req request) (*projectCatalog, error) {
 	for _, object := range info.Uses {
 		useCounts[object]++
 	}
-	for _, name := range pkg.Scope().Names() {
-		object := pkg.Scope().Lookup(name)
-		if token.IsExported(name) {
-			cat.Inventory.ExportedPackageSymbolCount++
-			continue
-		}
-		if packageName == "main" && name == "main" {
-			cat.Inventory.UnsupportedPackageSymbolCount++
-			continue
-		}
-		switch object.(type) {
-		case *types.Func, *types.TypeName, *types.Var, *types.Const:
-			cat.Inventory.PrivatePackageSymbolCount++
-			if useCounts[object] > 0 {
-				cat.Inventory.ReferencedPrivatePackageSymbols++
-			} else {
-				cat.Inventory.UnreferencedPrivateSymbols++
-			}
-		default:
-			cat.Inventory.UnsupportedPackageSymbolCount++
-		}
-	}
-	for _, file := range parsed {
-		for _, declaration := range file.AST.Decls {
-			function, ok := declaration.(*ast.FuncDecl)
-			if ok && function.Name.Name == "init" {
-				cat.Inventory.UnsupportedPackageSymbolCount++
-			}
-		}
-	}
 	declarations := make(map[types.Object]*ast.Ident)
 	pathsByObject := make(map[types.Object]string)
 	for _, file := range parsed {
@@ -556,7 +558,7 @@ func buildProjectCatalog(req request) (*projectCatalog, error) {
 				return true
 			}
 			object := info.Defs[ident]
-			if object == nil || object.Parent() != pkg.Scope() || ident.Name == "_" || token.IsExported(ident.Name) {
+			if object == nil || object.Parent() != pkg.Scope() || ident.Name == "_" {
 				return true
 			}
 			if _, exists := declarations[object]; !exists {
@@ -566,7 +568,82 @@ func buildProjectCatalog(req request) (*projectCatalog, error) {
 			return true
 		})
 	}
+	for _, name := range pkg.Scope().Names() {
+		object := pkg.Scope().Lookup(name)
+		declaration := declarations[object]
+		if declaration == nil {
+			continue
+		}
+		filePath := pathsByObject[object]
+		position := fileSet.PositionFor(declaration.Pos(), false)
+		entry := projectInventoryEntry{
+			ID: shortID(projectHash+"\x00"+filePath, position.Offset, name), Name: name,
+			RelativePath: filePath, DeclarationStart: position.Offset, ReferenceCount: useCounts[object],
+			Exported: token.IsExported(name), NameAssessment: "unassessed", Kind: projectPackageObjectKind(object),
+		}
+		if entry.Kind == "" {
+			entry.Kind = "unsupported package object"
+		}
+		if token.IsExported(name) {
+			cat.Inventory.ExportedPackageSymbolCount++
+			entry.Classification = "excluded"
+			entry.ClassificationReason = "exported-package-api"
+		} else if packageName == "main" && name == "main" {
+			cat.Inventory.UnsupportedPackageSymbolCount++
+			entry.Classification = "unsupported"
+			entry.ClassificationReason = "program-entrypoint"
+		} else {
+			if projectPackageObjectKind(object) == "" {
+				entry.Classification = "unsupported"
+				entry.ClassificationReason = "unsupported-package-object-kind"
+			}
+			if entry.Classification != "unsupported" {
+				cat.Inventory.PrivatePackageSymbolCount++
+				if useCounts[object] > 0 {
+					cat.Inventory.ReferencedPrivatePackageSymbols++
+					entry.Classification = "eligible"
+					entry.ClassificationReason = "private-package-symbol-with-resolved-references"
+				} else {
+					cat.Inventory.UnreferencedPrivateSymbols++
+					entry.Classification = "excluded"
+					entry.ClassificationReason = "unreferenced-package-symbol"
+				}
+			} else {
+				cat.Inventory.UnsupportedPackageSymbolCount++
+			}
+		}
+		cat.Inventory.Entries = append(cat.Inventory.Entries, entry)
+	}
+	for _, file := range parsed {
+		for _, declaration := range file.AST.Decls {
+			function, ok := declaration.(*ast.FuncDecl)
+			if ok && function.Name.Name == "init" {
+				cat.Inventory.UnsupportedPackageSymbolCount++
+				position := fileSet.PositionFor(function.Name.Pos(), false)
+				cat.Inventory.Entries = append(cat.Inventory.Entries, projectInventoryEntry{
+					ID:   shortID(projectHash+"\x00"+file.Path, position.Offset, "init"),
+					Name: "init", Kind: "initialization function", RelativePath: file.Path,
+					DeclarationStart: position.Offset, Classification: "unsupported",
+					ClassificationReason: "special-initialization-function", NameAssessment: "unassessed",
+				})
+			}
+		}
+	}
+	sort.Slice(cat.Inventory.Entries, func(i, j int) bool {
+		if cat.Inventory.Entries[i].RelativePath != cat.Inventory.Entries[j].RelativePath {
+			return cat.Inventory.Entries[i].RelativePath < cat.Inventory.Entries[j].RelativePath
+		}
+		return cat.Inventory.Entries[i].DeclarationStart < cat.Inventory.Entries[j].DeclarationStart
+	})
+	cat.Inventory.EntryCount = len(cat.Inventory.Entries)
+	cat.Inventory.EntriesTruncated = cat.Inventory.EntryCount > maxProjectInventoryEntries
+	if cat.Inventory.EntriesTruncated {
+		cat.Inventory.Entries = cat.Inventory.Entries[:maxProjectInventoryEntries]
+	}
 	for object, declaration := range declarations {
+		if token.IsExported(declaration.Name) {
+			continue
+		}
 		var kind string
 		switch object.(type) {
 		case *types.Func:
@@ -664,6 +741,9 @@ func listProjectBindings(req request) (map[string]any, error) {
 			"exported_package_symbol_count":      cat.Inventory.ExportedPackageSymbolCount,
 			"unsupported_package_symbol_count":   cat.Inventory.UnsupportedPackageSymbolCount,
 			"rename_binding_catalog_truncated":   cat.Truncated,
+			"entry_count":                        cat.Inventory.EntryCount,
+			"entries_truncated":                  cat.Inventory.EntriesTruncated,
+			"entries":                            cat.Inventory.Entries,
 		},
 	}, nil
 }

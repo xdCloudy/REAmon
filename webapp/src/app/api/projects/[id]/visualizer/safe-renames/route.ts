@@ -23,6 +23,7 @@ const MAX_SOURCE_BYTES = 512 * 1024
 const MAX_SUGGESTION_SOURCE_BYTES = 64 * 1024
 const MAX_CANDIDATES = 200
 const MAX_PROJECT_SYMBOL_SCAN = 4_096
+const MAX_GO_PROJECT_INVENTORY_ENTRIES = 5_000
 
 function plainObject(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
@@ -258,6 +259,46 @@ interface GoProjectInventory {
   exportedPackageSymbolCount: number
   unsupportedPackageSymbolCount: number
   renameBindingCatalogTruncated: boolean
+  entryCount: number
+  entriesTruncated: boolean
+  entries: GoProjectInventoryEntry[]
+}
+
+interface GoProjectInventoryEntry {
+  id: string
+  name: string
+  kind: string
+  relativePath: string
+  declarationStart: number
+  referenceCount: number
+  exported: boolean
+  classification: 'eligible' | 'excluded' | 'unsupported'
+  classificationReason: string
+  nameAssessment: 'unassessed'
+}
+
+function isValidGoProjectInventoryEntry(entry: Record<string, unknown>, sourceByPath: Map<string, string>): boolean {
+  const source = typeof entry.relativePath === 'string' ? sourceByPath.get(entry.relativePath) : undefined
+  if (!/^[a-f0-9]{24}$/i.test(String(entry.id || ''))
+      || typeof entry.name !== 'string' || entry.name.length === 0 || entry.name.length > 256
+      || typeof entry.kind !== 'string' || entry.kind.length === 0 || entry.kind.length > 80
+      || source === undefined || !Number.isSafeInteger(entry.declarationStart) || Number(entry.declarationStart) < 0
+      || Number(entry.declarationStart) > Buffer.byteLength(source, 'utf8')
+      || !Number.isSafeInteger(entry.referenceCount) || Number(entry.referenceCount) < 0
+      || typeof entry.exported !== 'boolean' || !['eligible', 'excluded', 'unsupported'].includes(String(entry.classification))
+      || typeof entry.classificationReason !== 'string' || entry.classificationReason.length === 0 || entry.classificationReason.length > 128
+      || entry.nameAssessment !== 'unassessed') return false
+  if (entry.classification === 'eligible') {
+    return !entry.exported && Number(entry.referenceCount) > 0
+      && ['package function', 'package type', 'package variable', 'package constant'].includes(entry.kind)
+      && entry.classificationReason === 'private-package-symbol-with-resolved-references'
+  }
+  if (entry.classification === 'excluded') {
+    return entry.exported
+      ? entry.classificationReason === 'exported-package-api'
+      : Number(entry.referenceCount) === 0 && entry.classificationReason === 'unreferenced-package-symbol'
+  }
+  return ['program-entrypoint', 'unsupported-package-object-kind', 'special-initialization-function'].includes(entry.classificationReason)
 }
 
 async function listGoProjectRenameBindings(files: GoPackageRenameFile[], selectedPath: string) {
@@ -273,6 +314,7 @@ async function listGoProjectRenameBindings(files: GoPackageRenameFile[], selecte
   const payload = await response.json().catch(() => null) as Record<string, unknown> | null
   const bindings = Array.isArray(payload?.bindings) ? payload.bindings : []
   const rawInventory = plainObject(payload?.inventory)
+  const rawEntries = Array.isArray(rawInventory.entries) ? rawInventory.entries.map(plainObject) : []
   const inventory = {
     scope: rawInventory.scope,
     sourceFileCount: rawInventory.source_file_count,
@@ -282,10 +324,26 @@ async function listGoProjectRenameBindings(files: GoPackageRenameFile[], selecte
     exportedPackageSymbolCount: rawInventory.exported_package_symbol_count,
     unsupportedPackageSymbolCount: rawInventory.unsupported_package_symbol_count,
     renameBindingCatalogTruncated: rawInventory.rename_binding_catalog_truncated,
+    entryCount: rawInventory.entry_count,
+    entriesTruncated: rawInventory.entries_truncated,
+    entries: rawEntries,
   }
   const listedFiles = Array.isArray(payload?.files) ? payload.files.map(plainObject) : []
   const expectedFiles = [...files].sort((left, right) => left.relativePath < right.relativePath ? -1 : left.relativePath > right.relativePath ? 1 : 0)
+  const sourceByPath = new Map(files.map((file) => [file.relativePath, file.sourceCode]))
   const expectedSourceSetSha256 = hashGoPackageSourceSet(files)
+  const inventoryRowCounts = {
+    eligible: inventory.entries.filter((entry) => entry.classification === 'eligible').length,
+    excluded: inventory.entries.filter((entry) => entry.classification === 'excluded').length,
+    unsupported: inventory.entries.filter((entry) => entry.classification === 'unsupported').length,
+  }
+  const inventoryRowsMatchCounts = inventory.entriesTruncated
+    ? inventoryRowCounts.eligible <= Number(inventory.referencedPrivatePackageSymbols)
+      && inventoryRowCounts.excluded <= Number(inventory.unreferencedPrivateSymbols) + Number(inventory.exportedPackageSymbolCount)
+      && inventoryRowCounts.unsupported <= Number(inventory.unsupportedPackageSymbolCount)
+    : inventoryRowCounts.eligible === Number(inventory.referencedPrivatePackageSymbols)
+      && inventoryRowCounts.excluded === Number(inventory.unreferencedPrivateSymbols) + Number(inventory.exportedPackageSymbolCount)
+      && inventoryRowCounts.unsupported === Number(inventory.unsupportedPackageSymbolCount)
   if (!response.ok || payload?.source_sha256 !== selected.sourceHash
       || payload?.source_set_sha256 !== expectedSourceSetSha256
       || payload?.selected_path !== selectedPath || typeof payload?.truncated !== 'boolean'
@@ -297,6 +355,14 @@ async function listGoProjectRenameBindings(files: GoPackageRenameFile[], selecte
       || inventory.privatePackageSymbolCount !== Number(inventory.referencedPrivatePackageSymbols) + Number(inventory.unreferencedPrivateSymbols)
       || typeof inventory.renameBindingCatalogTruncated !== 'boolean'
       || inventory.renameBindingCatalogTruncated !== payload.truncated
+      || !Number.isSafeInteger(inventory.entryCount) || Number(inventory.entryCount) < 0
+      || Number(inventory.entryCount) !== Number(inventory.privatePackageSymbolCount) + Number(inventory.exportedPackageSymbolCount) + Number(inventory.unsupportedPackageSymbolCount)
+      || typeof inventory.entriesTruncated !== 'boolean'
+      || inventory.entries.length !== Math.min(Number(inventory.entryCount), MAX_GO_PROJECT_INVENTORY_ENTRIES)
+      || inventory.entriesTruncated !== (Number(inventory.entryCount) > inventory.entries.length)
+      || !inventory.entries.every((entry) => isValidGoProjectInventoryEntry(entry, sourceByPath))
+      || new Set(inventory.entries.map((entry) => entry.id)).size !== inventory.entries.length
+      || !inventoryRowsMatchCounts
       || typeof payload?.parser_version !== 'string' || !/^go\d+\.\d+\.\d+(?:[.-][0-9A-Za-z.-]+)?$/.test(payload.parser_version)
       || listedFiles.length !== expectedFiles.length || listedFiles.some((file, index) =>
         file.relative_path !== expectedFiles[index].relativePath || file.source_sha256 !== expectedFiles[index].sourceHash)
@@ -318,7 +384,7 @@ async function listGoProjectRenameBindings(files: GoPackageRenameFile[], selecte
     selectedPath,
     bindings: bindings as SafeRenameBinding[],
     truncated: payload.truncated,
-    inventory: inventory as GoProjectInventory,
+    inventory: inventory as unknown as GoProjectInventory,
   }
 }
 
@@ -873,7 +939,7 @@ export async function POST(request: Request, { params }: RouteParams) {
             providerName: 'REAmon scope-safe rename suggestions', modelIdentifier: provider.modelIdentifier.slice(0, 128),
             question: (typeof body.question === 'string' ? body.question : '').slice(0, 1000),
             scope: 'rename-suggestions', status: 'SUCCEEDED',
-            requestPayload: { operation: 'scope-safe-rename-suggestions', providerId: provider.id, modelIdentifier: provider.modelIdentifier, inputSha256: workingSourceSha256, artifactSourceSha256, inputSource: workingSource, bindings: [], projectSymbolContext: '', projectSymbolContextSha256, goProjectScope: crossFileGo, goSourceSetSha256: goProjectCatalog?.sourceSetSha256 ?? null, goSelectedPath: goProjectCatalog?.selectedPath ?? null, goProjectInventory: goProjectCatalog ? { ...goProjectCatalog.inventory } : null, renames: [] },
+            requestPayload: { operation: 'scope-safe-rename-suggestions', providerId: provider.id, modelIdentifier: provider.modelIdentifier, inputSha256: workingSourceSha256, artifactSourceSha256, inputSource: workingSource, bindings: [], projectSymbolContext: '', projectSymbolContextSha256, goProjectScope: crossFileGo, goSourceSetSha256: goProjectCatalog?.sourceSetSha256 ?? null, goSelectedPath: goProjectCatalog?.selectedPath ?? null, goProjectInventory: goProjectCatalog ? JSON.parse(JSON.stringify(goProjectCatalog.inventory)) : null, renames: [] },
             syntaxValidated: false, validationStatus: 'UNAVAILABLE', validationMethod: 'proposal-only',
             validationMessage: 'No eligible obfuscated local bindings were found; no rename proposal was generated.', completedAt: new Date(),
           },
@@ -1029,7 +1095,7 @@ export async function POST(request: Request, { params }: RouteParams) {
             goProjectScope: crossFileGo,
             goSourceSetSha256: goProjectCatalog?.sourceSetSha256 ?? null,
             goSelectedPath: goProjectCatalog?.selectedPath ?? null,
-            goProjectInventory: goProjectCatalog ? { ...goProjectCatalog.inventory } : null,
+            goProjectInventory: goProjectCatalog ? JSON.parse(JSON.stringify(goProjectCatalog.inventory)) : null,
             bindings: candidates.map((candidate) => ({ id: candidate.id, name: candidate.name, kind: candidate.kind, scopeType: candidate.scopeType, referenceCount: candidate.referenceCount, exported: candidate.exported })),
             projectSymbolContext,
             projectSymbolContextSha256,

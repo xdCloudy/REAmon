@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -674,10 +675,26 @@ func TestProjectCatalogReportsPackageInventoryIncludingUnreferencedSymbols(t *te
 	want := projectInventory{
 		SourceFileCount: 2, PrivatePackageSymbolCount: 2,
 		ReferencedPrivatePackageSymbols: 1, UnreferencedPrivateSymbols: 1,
-		ExportedPackageSymbolCount: 1, UnsupportedPackageSymbolCount: 1,
+		ExportedPackageSymbolCount: 1, UnsupportedPackageSymbolCount: 1, EntryCount: 4,
 	}
-	if catalog.Inventory != want {
+	gotCounts := catalog.Inventory
+	gotCounts.Entries = nil
+	if !reflect.DeepEqual(gotCounts, want) {
 		t.Fatalf("package inventory = %+v; want %+v", catalog.Inventory, want)
+	}
+	entries := make(map[string]projectInventoryEntry, len(catalog.Inventory.Entries))
+	for _, entry := range catalog.Inventory.Entries {
+		entries[entry.Name] = entry
+	}
+	if catalog.Inventory.EntryCount != 4 || catalog.Inventory.EntriesTruncated ||
+		entries["Public"].Classification != "excluded" ||
+		entries["private"].Classification != "eligible" ||
+		entries["call"].Classification != "excluded" ||
+		entries["init"].Classification != "unsupported" ||
+		entries["private"].ReferenceCount != 1 ||
+		entries["call"].ClassificationReason != "unreferenced-package-symbol" ||
+		entries["private"].NameAssessment != "unassessed" {
+		t.Fatalf("package inventory entries = %+v; want classified, exact per-symbol rows", catalog.Inventory.Entries)
 	}
 }
 
@@ -690,9 +707,61 @@ func TestProjectCatalogReportsMainEntrypointAsUnsupported(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build main package inventory: %v", err)
 	}
-	want := projectInventory{SourceFileCount: 2, PrivatePackageSymbolCount: 1, UnreferencedPrivateSymbols: 1, UnsupportedPackageSymbolCount: 1}
-	if catalog.Inventory != want {
+	want := projectInventory{SourceFileCount: 2, PrivatePackageSymbolCount: 1, UnreferencedPrivateSymbols: 1, UnsupportedPackageSymbolCount: 1, EntryCount: 2}
+	gotCounts := catalog.Inventory
+	gotCounts.Entries = nil
+	if !reflect.DeepEqual(gotCounts, want) {
 		t.Fatalf("main package inventory = %+v; want %+v", catalog.Inventory, want)
+	}
+}
+
+func TestListProjectBindingsReturnsBoundedInventoryEntries(t *testing.T) {
+	request := goProjectRequest([]projectFile{
+		{Path: "pkg/a.go", Source: "package sample\nfunc normalize() int { return helper() }\n"},
+		{Path: "pkg/b.go", Source: "package sample\nfunc helper() int { return normalize() }\n"},
+	}, "pkg/a.go")
+	response, err := listProjectBindings(request)
+	if err != nil {
+		t.Fatalf("list project bindings: %v", err)
+	}
+	inventory, ok := response["inventory"].(map[string]any)
+	if !ok {
+		t.Fatalf("inventory response has type %T", response["inventory"])
+	}
+	if inventory["entry_count"] != 2 || inventory["entries_truncated"] != false {
+		t.Fatalf("inventory entry metadata = %+v", inventory)
+	}
+	entries, ok := inventory["entries"].([]projectInventoryEntry)
+	if !ok || len(entries) != 2 {
+		t.Fatalf("inventory entries = %#v; want two typed rows", inventory["entries"])
+	}
+	if entries[0].Name != "normalize" || entries[0].Classification != "eligible" || entries[1].Name != "helper" || entries[1].Classification != "eligible" {
+		t.Fatalf("inventory entries = %+v; want both cross-file referenced functions", entries)
+	}
+}
+
+func TestProjectInventoryBoundsRowsWithoutTruncatingTotals(t *testing.T) {
+	var source strings.Builder
+	source.WriteString("package sample\n")
+	for index := 0; index < maxProjectInventoryEntries; index++ {
+		fmt.Fprintf(&source, "func symbol%d() {}\n", index)
+	}
+	request := goProjectRequest([]projectFile{
+		{Path: "pkg/a.go", Source: source.String()},
+		{Path: "pkg/b.go", Source: "package sample\nfunc helper() {}\n"},
+	}, "pkg/a.go")
+	catalog, err := buildProjectCatalog(request)
+	if err != nil {
+		t.Fatalf("build large package inventory: %v", err)
+	}
+	if catalog.Inventory.EntryCount != maxProjectInventoryEntries+1 ||
+		len(catalog.Inventory.Entries) != maxProjectInventoryEntries ||
+		!catalog.Inventory.EntriesTruncated ||
+		catalog.Inventory.PrivatePackageSymbolCount != maxProjectInventoryEntries+1 ||
+		catalog.Inventory.UnreferencedPrivateSymbols != maxProjectInventoryEntries+1 {
+		t.Fatalf("large inventory = count %d, rows %d, truncated %t, private %d, unreferenced %d",
+			catalog.Inventory.EntryCount, len(catalog.Inventory.Entries), catalog.Inventory.EntriesTruncated,
+			catalog.Inventory.PrivatePackageSymbolCount, catalog.Inventory.UnreferencedPrivateSymbols)
 	}
 }
 

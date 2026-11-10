@@ -52,18 +52,22 @@ This list describes adapter existence only. It does not imply exact name recover
 semantic naming accuracy, cross-provider symbol equivalence, or safe autonomous use.
 
 The safe-renames route now builds a verified, same-directory Go package snapshot from
-accepted sibling-source receipts and asks the `go/types` helper for both rename
-bindings and an inventory. The inventory reports source-file count; supported private
-package symbols split into referenced and unreferenced; exported and unsupported
-package symbols; and whether the rename-binding catalog is truncated. The API validates
-the source-set hash, file list, count invariants, and truncation agreement, then returns
-and persists the inventory with the proposal. The draft-history API validates and
-returns the saved counts when reloading an attempt; the visualizer displays them and
-states that they cover only the reviewed snapshot. Docker Go regressions check exact
-counts including unreferenced symbols and unsupported `init` and `main` functions. Focused
-route tests check returned/persisted counts and attempt reload. This does not inventory
-local symbols, classify names as meaningful or unnamed, establish whole-project file
-completeness, or measure naming quality.
+accepted sibling-source receipts and asks the `go/types` helper for rename bindings and
+an inventory. Each package declaration is listed with a stable snapshot-bound ID, name,
+kind, source path and byte offset, resolved reference count, and an explicit
+eligible/excluded/unsupported classification with its reason. Name quality remains
+`unassessed`. Exact aggregate counts cover every inventory row; detailed rows are capped
+at 5,000 and report truncation. The inventory includes private referenced and
+unreferenced declarations, exported package APIs, unsupported objects, the `main`
+entrypoint, and special `init` functions. The API validates the source-set hash, reviewed
+file list, entry IDs and paths, declaration offsets, aggregate counts, classification
+reasons, and both inventory and rename-catalog truncation, then returns and persists the
+inventory with the proposal. Draft history validates and reloads it, and the visualizer
+shows a bounded row preview alongside the counts and snapshot-scope disclosure. Docker
+Go regressions check exact classifications and aggregate counts, including a 5,001-row
+fixture proving explicit detail truncation with exact totals. This does not inventory
+local symbols, establish whole-project file completeness, assess names as meaningful or
+unnamed, or measure naming quality.
 
 ## P1 milestone and acceptance gates
 

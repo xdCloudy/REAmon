@@ -100,13 +100,51 @@ function safeRenameCandidateCount(value: unknown): number | undefined {
 
 function safeGoProjectInventory(value: unknown) {
   const inventory = plainObject(value)
+  const rawEntries = Array.isArray(inventory.entries) ? inventory.entries : []
   const counts = [inventory.sourceFileCount, inventory.privatePackageSymbolCount,
     inventory.referencedPrivatePackageSymbols, inventory.unreferencedPrivateSymbols,
     inventory.exportedPackageSymbolCount, inventory.unsupportedPackageSymbolCount]
+  const entryCount = Number(inventory.entryCount)
+  const entries = rawEntries.flatMap((value) => {
+    const entry = plainObject(value)
+    if (typeof entry.id !== 'string' || !/^[a-f0-9]{24}$/i.test(entry.id)
+        || typeof entry.name !== 'string' || !entry.name || entry.name.length > 256
+        || typeof entry.kind !== 'string' || !entry.kind || entry.kind.length > 80
+        || typeof entry.relativePath !== 'string' || !entry.relativePath
+        || !Number.isSafeInteger(entry.declarationStart) || Number(entry.declarationStart) < 0
+        || !Number.isSafeInteger(entry.referenceCount) || Number(entry.referenceCount) < 0
+        || typeof entry.exported !== 'boolean'
+        || !['eligible', 'excluded', 'unsupported'].includes(String(entry.classification))
+        || typeof entry.classificationReason !== 'string' || !entry.classificationReason || entry.classificationReason.length > 128
+        || entry.nameAssessment !== 'unassessed') return []
+    return [{
+      id: entry.id, name: entry.name, kind: entry.kind, relativePath: entry.relativePath,
+      declarationStart: entry.declarationStart, referenceCount: entry.referenceCount,
+      exported: entry.exported, classification: entry.classification,
+      classificationReason: entry.classificationReason, nameAssessment: 'unassessed' as const,
+    }]
+  })
+  const entryClassCounts = {
+    eligible: entries.filter((entry) => entry.classification === 'eligible').length,
+    excluded: entries.filter((entry) => entry.classification === 'excluded').length,
+    unsupported: entries.filter((entry) => entry.classification === 'unsupported').length,
+  }
+  const entriesMatchCounts = inventory.entriesTruncated === true
+    ? entryClassCounts.eligible <= Number(inventory.referencedPrivatePackageSymbols)
+      && entryClassCounts.excluded <= Number(inventory.unreferencedPrivateSymbols) + Number(inventory.exportedPackageSymbolCount)
+      && entryClassCounts.unsupported <= Number(inventory.unsupportedPackageSymbolCount)
+    : entryClassCounts.eligible === Number(inventory.referencedPrivatePackageSymbols)
+      && entryClassCounts.excluded === Number(inventory.unreferencedPrivateSymbols) + Number(inventory.exportedPackageSymbolCount)
+      && entryClassCounts.unsupported === Number(inventory.unsupportedPackageSymbolCount)
   if (inventory.scope !== 'reviewed-same-directory-go-package-source-snapshot'
       || !counts.every((count) => Number.isSafeInteger(count) && Number(count) >= 0)
       || inventory.privatePackageSymbolCount !== Number(inventory.referencedPrivatePackageSymbols) + Number(inventory.unreferencedPrivateSymbols)
-      || typeof inventory.renameBindingCatalogTruncated !== 'boolean') return undefined
+      || typeof inventory.renameBindingCatalogTruncated !== 'boolean'
+      || !Number.isSafeInteger(inventory.entryCount) || entryCount < 0
+      || entryCount !== Number(inventory.privatePackageSymbolCount) + Number(inventory.exportedPackageSymbolCount) + Number(inventory.unsupportedPackageSymbolCount)
+      || typeof inventory.entriesTruncated !== 'boolean' || entries.length !== Math.min(entryCount, 5_000)
+      || entries.length !== rawEntries.length || inventory.entriesTruncated !== (entryCount > entries.length)
+      || !entriesMatchCounts) return undefined
   return {
     scope: inventory.scope,
     sourceFileCount: inventory.sourceFileCount,
@@ -116,6 +154,9 @@ function safeGoProjectInventory(value: unknown) {
     exportedPackageSymbolCount: inventory.exportedPackageSymbolCount,
     unsupportedPackageSymbolCount: inventory.unsupportedPackageSymbolCount,
     renameBindingCatalogTruncated: inventory.renameBindingCatalogTruncated,
+    entryCount,
+    entriesTruncated: inventory.entriesTruncated,
+    entries,
   }
 }
 

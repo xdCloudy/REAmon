@@ -110,6 +110,11 @@ describe('/api/projects/[id]/visualizer/drafts/[unitId]', () => {
       scope: 'reviewed-same-directory-go-package-source-snapshot', sourceFileCount: 2,
       privatePackageSymbolCount: 2, referencedPrivatePackageSymbols: 1, unreferencedPrivateSymbols: 1,
       exportedPackageSymbolCount: 0, unsupportedPackageSymbolCount: 0, renameBindingCatalogTruncated: false,
+      entryCount: 2, entriesTruncated: false,
+      entries: [
+        { id: '0123456789abcdef01234567', name: 'normalize', kind: 'package function', relativePath: 'pkg/a.go', declarationStart: 20, referenceCount: 1, exported: false, classification: 'eligible', classificationReason: 'private-package-symbol-with-resolved-references', nameAssessment: 'unassessed' },
+        { id: 'abcdef0123456789abcdef01', name: 'run', kind: 'package function', relativePath: 'pkg/b.go', declarationStart: 20, referenceCount: 0, exported: false, classification: 'excluded', classificationReason: 'unreferenced-package-symbol', nameAssessment: 'unassessed' },
+      ],
     }
     h.attemptFindMany.mockResolvedValueOnce([{
       id: 'attempt-1', providerName: 'Provider', modelIdentifier: 'model', question: '', scope: 'rename-suggestions',
