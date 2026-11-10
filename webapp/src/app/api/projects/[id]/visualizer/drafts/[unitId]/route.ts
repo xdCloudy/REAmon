@@ -101,9 +101,14 @@ function safeRenameCandidateCount(value: unknown): number | undefined {
 function safeGoProjectInventory(value: unknown) {
   const inventory = plainObject(value)
   const rawEntries = Array.isArray(inventory.entries) ? inventory.entries : []
+  const fileScopeSymbolCount = inventory.fileScopeSymbolCount ?? 0
+  const referencedFileScopeSymbols = inventory.referencedFileScopeSymbols ?? 0
+  const unreferencedFileScopeSymbols = inventory.unreferencedFileScopeSymbols ?? 0
+  const unsupportedFileScopeSymbolCount = inventory.unsupportedFileScopeSymbolCount ?? 0
   const counts = [inventory.sourceFileCount, inventory.privatePackageSymbolCount,
     inventory.referencedPrivatePackageSymbols, inventory.unreferencedPrivateSymbols,
     inventory.exportedPackageSymbolCount, inventory.unsupportedPackageSymbolCount,
+    fileScopeSymbolCount, referencedFileScopeSymbols, unreferencedFileScopeSymbols, unsupportedFileScopeSymbolCount,
     inventory.localSymbolCount, inventory.referencedLocalSymbols,
     inventory.unreferencedLocalSymbols, inventory.unsupportedLocalSymbolCount]
   const entryCount = Number(inventory.entryCount)
@@ -112,7 +117,7 @@ function safeGoProjectInventory(value: unknown) {
     if (typeof entry.id !== 'string' || !/^[a-f0-9]{24}$/i.test(entry.id)
         || typeof entry.name !== 'string' || !entry.name || entry.name.length > 256
         || typeof entry.kind !== 'string' || !entry.kind || entry.kind.length > 80
-        || !['package', 'local'].includes(String(entry.scope))
+        || !['package', 'file', 'local'].includes(String(entry.scope))
         || typeof entry.relativePath !== 'string' || !entry.relativePath
         || !Number.isSafeInteger(entry.declarationStart) || Number(entry.declarationStart) < 0
         || !Number.isSafeInteger(entry.referenceCount) || Number(entry.referenceCount) < 0
@@ -133,19 +138,20 @@ function safeGoProjectInventory(value: unknown) {
     unsupported: entries.filter((entry) => entry.classification === 'unsupported').length,
   }
   const entriesMatchCounts = inventory.entriesTruncated === true
-    ? entryClassCounts.eligible <= Number(inventory.referencedPrivatePackageSymbols) + Number(inventory.referencedLocalSymbols)
-      && entryClassCounts.excluded <= Number(inventory.unreferencedPrivateSymbols) + Number(inventory.exportedPackageSymbolCount) + Number(inventory.unreferencedLocalSymbols)
-      && entryClassCounts.unsupported <= Number(inventory.unsupportedPackageSymbolCount) + Number(inventory.unsupportedLocalSymbolCount)
-    : entryClassCounts.eligible === Number(inventory.referencedPrivatePackageSymbols) + Number(inventory.referencedLocalSymbols)
-      && entryClassCounts.excluded === Number(inventory.unreferencedPrivateSymbols) + Number(inventory.exportedPackageSymbolCount) + Number(inventory.unreferencedLocalSymbols)
-      && entryClassCounts.unsupported === Number(inventory.unsupportedPackageSymbolCount) + Number(inventory.unsupportedLocalSymbolCount)
+    ? entryClassCounts.eligible <= Number(inventory.referencedPrivatePackageSymbols) + Number(referencedFileScopeSymbols) + Number(inventory.referencedLocalSymbols)
+      && entryClassCounts.excluded <= Number(inventory.unreferencedPrivateSymbols) + Number(inventory.exportedPackageSymbolCount) + Number(unreferencedFileScopeSymbols) + Number(inventory.unreferencedLocalSymbols)
+      && entryClassCounts.unsupported <= Number(inventory.unsupportedPackageSymbolCount) + Number(unsupportedFileScopeSymbolCount) + Number(inventory.unsupportedLocalSymbolCount)
+    : entryClassCounts.eligible === Number(inventory.referencedPrivatePackageSymbols) + Number(referencedFileScopeSymbols) + Number(inventory.referencedLocalSymbols)
+      && entryClassCounts.excluded === Number(inventory.unreferencedPrivateSymbols) + Number(inventory.exportedPackageSymbolCount) + Number(unreferencedFileScopeSymbols) + Number(inventory.unreferencedLocalSymbols)
+      && entryClassCounts.unsupported === Number(inventory.unsupportedPackageSymbolCount) + Number(unsupportedFileScopeSymbolCount) + Number(inventory.unsupportedLocalSymbolCount)
   if (inventory.scope !== 'reviewed-same-directory-go-package-source-snapshot'
       || !counts.every((count) => Number.isSafeInteger(count) && Number(count) >= 0)
       || inventory.privatePackageSymbolCount !== Number(inventory.referencedPrivatePackageSymbols) + Number(inventory.unreferencedPrivateSymbols)
+      || Number(fileScopeSymbolCount) !== Number(referencedFileScopeSymbols) + Number(unreferencedFileScopeSymbols) + Number(unsupportedFileScopeSymbolCount)
       || inventory.localSymbolCount !== Number(inventory.referencedLocalSymbols) + Number(inventory.unreferencedLocalSymbols) + Number(inventory.unsupportedLocalSymbolCount)
       || typeof inventory.renameBindingCatalogTruncated !== 'boolean'
       || !Number.isSafeInteger(inventory.entryCount) || entryCount < 0
-      || entryCount !== Number(inventory.privatePackageSymbolCount) + Number(inventory.exportedPackageSymbolCount) + Number(inventory.unsupportedPackageSymbolCount) + Number(inventory.localSymbolCount)
+      || entryCount !== Number(inventory.privatePackageSymbolCount) + Number(inventory.exportedPackageSymbolCount) + Number(inventory.unsupportedPackageSymbolCount) + Number(fileScopeSymbolCount) + Number(inventory.localSymbolCount)
       || typeof inventory.entriesTruncated !== 'boolean' || entries.length !== Math.min(entryCount, 5_000)
       || entries.length !== rawEntries.length || inventory.entriesTruncated !== (entryCount > entries.length)
       || !entriesMatchCounts) return undefined
@@ -157,6 +163,10 @@ function safeGoProjectInventory(value: unknown) {
     unreferencedPrivateSymbols: inventory.unreferencedPrivateSymbols,
     exportedPackageSymbolCount: inventory.exportedPackageSymbolCount,
     unsupportedPackageSymbolCount: inventory.unsupportedPackageSymbolCount,
+    fileScopeSymbolCount,
+    referencedFileScopeSymbols,
+    unreferencedFileScopeSymbols,
+    unsupportedFileScopeSymbolCount,
     localSymbolCount: inventory.localSymbolCount,
     referencedLocalSymbols: inventory.referencedLocalSymbols,
     unreferencedLocalSymbols: inventory.unreferencedLocalSymbols,

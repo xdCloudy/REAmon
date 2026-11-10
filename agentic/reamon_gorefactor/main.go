@@ -101,6 +101,10 @@ type projectInventory struct {
 	UnreferencedPrivateSymbols      int
 	ExportedPackageSymbolCount      int
 	UnsupportedPackageSymbolCount   int
+	FileScopeSymbolCount            int
+	ReferencedFileScopeSymbols      int
+	UnreferencedFileScopeSymbols    int
+	UnsupportedFileScopeSymbolCount int
 	LocalSymbolCount                int
 	ReferencedLocalSymbols          int
 	UnreferencedLocalSymbols        int
@@ -619,6 +623,48 @@ func buildProjectCatalog(req request) (*projectCatalog, error) {
 		}
 		cat.Inventory.Entries = append(cat.Inventory.Entries, entry)
 	}
+	for _, file := range parsed {
+		for _, spec := range file.AST.Imports {
+			var object types.Object
+			position := spec.Path.Pos()
+			if spec.Name != nil {
+				object = info.Defs[spec.Name]
+				position = spec.Name.Pos()
+			} else {
+				object = info.Implicits[spec]
+			}
+			if object == nil || object.Name() == "_" {
+				continue
+			}
+			offset := fileSet.PositionFor(position, false).Offset
+			entry := projectInventoryEntry{
+				ID: shortID(projectHash+"\x00"+file.Path, offset, object.Name()),
+				Name: object.Name(), Kind: "file import alias", Scope: "file", RelativePath: file.Path,
+				DeclarationStart: offset, ReferenceCount: useCounts[object], NameAssessment: "unassessed",
+			}
+			cat.Inventory.FileScopeSymbolCount++
+			if object.Name() == "." {
+				entry.Kind = "dot import"
+				entry.Classification = "unsupported"
+				entry.ClassificationReason = "dot-import-out-of-scope"
+				cat.Inventory.UnsupportedFileScopeSymbolCount++
+			} else if _, ok := object.(*types.PkgName); !ok {
+				entry.Kind = "unsupported file-scope object"
+				entry.Classification = "unsupported"
+				entry.ClassificationReason = "unsupported-file-scope-object-kind"
+				cat.Inventory.UnsupportedFileScopeSymbolCount++
+			} else if useCounts[object] > 0 {
+				entry.Classification = "eligible"
+				entry.ClassificationReason = "file-import-alias-with-resolved-references"
+				cat.Inventory.ReferencedFileScopeSymbols++
+			} else {
+				entry.Classification = "excluded"
+				entry.ClassificationReason = "unreferenced-file-import-alias"
+				cat.Inventory.UnreferencedFileScopeSymbols++
+			}
+			cat.Inventory.Entries = append(cat.Inventory.Entries, entry)
+		}
+	}
 	localDeclarations := make(map[types.Object]*ast.Ident)
 	localPathsByObject := make(map[types.Object]string)
 	localTypeSwitchObjects := make(map[types.Object]bool)
@@ -887,6 +933,10 @@ func listProjectBindings(req request) (map[string]any, error) {
 			"unreferenced_private_symbols":       cat.Inventory.UnreferencedPrivateSymbols,
 			"exported_package_symbol_count":      cat.Inventory.ExportedPackageSymbolCount,
 			"unsupported_package_symbol_count":   cat.Inventory.UnsupportedPackageSymbolCount,
+			"file_scope_symbol_count":            cat.Inventory.FileScopeSymbolCount,
+			"referenced_file_scope_symbols":      cat.Inventory.ReferencedFileScopeSymbols,
+			"unreferenced_file_scope_symbols":    cat.Inventory.UnreferencedFileScopeSymbols,
+			"unsupported_file_scope_symbol_count": cat.Inventory.UnsupportedFileScopeSymbolCount,
 			"local_symbol_count":                cat.Inventory.LocalSymbolCount,
 			"referenced_local_symbols":           cat.Inventory.ReferencedLocalSymbols,
 			"unreferenced_local_symbols":         cat.Inventory.UnreferencedLocalSymbols,

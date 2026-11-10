@@ -171,6 +171,7 @@ describe.skipIf(!enabled)('Go package rename against PostgreSQL', () => {
             scope: 'reviewed-same-directory-go-package-source-snapshot', source_file_count: 2,
             private_package_symbol_count: 2, referenced_private_package_symbols: 1, unreferenced_private_symbols: 1,
             exported_package_symbol_count: 0, unsupported_package_symbol_count: 0, rename_binding_catalog_truncated: false,
+            file_scope_symbol_count: 0, referenced_file_scope_symbols: 0, unreferenced_file_scope_symbols: 0, unsupported_file_scope_symbol_count: 0,
             local_symbol_count: 0, referenced_local_symbols: 0, unreferenced_local_symbols: 0, unsupported_local_symbol_count: 0,
             entry_count: 2, entries_truncated: false,
             entries: [

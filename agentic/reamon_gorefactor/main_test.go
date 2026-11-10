@@ -768,6 +768,40 @@ func TestProjectCatalogInventoriesImplicitTypeSwitchBindings(t *testing.T) {
 	}
 }
 
+func TestProjectCatalogInventoriesFileScopedGoImportBindings(t *testing.T) {
+	request := goProjectRequest([]projectFile{
+		{
+			Path: "pkg/imports.go",
+			Source: "package sample\nimport (\n\tformatter \"fmt\"\n\t\"strings\"\n\t. \"unicode\"\n\t_ \"net/http/pprof\"\n)\nfunc render(value string) string { return formatter.Sprint(strings.TrimSpace(value), IsGraphic('a')) }\n",
+		},
+		{Path: "pkg/run.go", Source: "package sample\nfunc run() string { return render(\" value \") }\n"},
+	}, "pkg/imports.go")
+	catalog, err := buildProjectCatalog(request)
+	if err != nil {
+		t.Fatalf("build file-scope import inventory: %v", err)
+	}
+	if catalog.Inventory.FileScopeSymbolCount != 3 || catalog.Inventory.ReferencedFileScopeSymbols != 2 ||
+		catalog.Inventory.UnreferencedFileScopeSymbols != 0 || catalog.Inventory.UnsupportedFileScopeSymbolCount != 1 {
+		t.Fatalf("file-scope counts = %+v; want two referenced aliases and one unsupported dot import (blank imports omitted)", catalog.Inventory)
+	}
+	imports := make(map[string]projectInventoryEntry, 3)
+	for _, entry := range catalog.Inventory.Entries {
+		if entry.Scope == "file" {
+			imports[entry.Name] = entry
+		}
+	}
+	for _, name := range []string{"formatter", "strings"} {
+		entry := imports[name]
+		if entry.ID == "" || entry.Kind != "file import alias" || entry.Classification != "eligible" || entry.ReferenceCount != 1 {
+			t.Errorf("file import %q = %+v; want one referenced file-scope alias", name, entry)
+		}
+	}
+	if entry := imports["."]; entry.Kind != "dot import" || entry.Classification != "unsupported" ||
+		entry.ClassificationReason != "dot-import-out-of-scope" {
+		t.Errorf("dot import = %+v; want an explicit unsupported file-scope row", entry)
+	}
+}
+
 func TestProjectCatalogReportsMainEntrypointAsUnsupported(t *testing.T) {
 	request := goProjectRequest([]projectFile{
 		{Path: "cmd/tool/main.go", Source: "package main\nfunc main() {}\n"},

@@ -105,16 +105,18 @@ describe('/api/projects/[id]/visualizer/drafts/[unitId]', () => {
     expect(response.headers.get('Cache-Control')).toContain('no-store')
   })
 
-  it('reloads validated Go package inventory metadata with saved rename proposals', async () => {
+  it('reloads validated Go package, file-scope, and local inventory metadata with saved rename proposals', async () => {
     const inventory = {
       scope: 'reviewed-same-directory-go-package-source-snapshot', sourceFileCount: 2,
       privatePackageSymbolCount: 2, referencedPrivatePackageSymbols: 1, unreferencedPrivateSymbols: 1,
       exportedPackageSymbolCount: 0, unsupportedPackageSymbolCount: 0, renameBindingCatalogTruncated: false,
+      fileScopeSymbolCount: 1, referencedFileScopeSymbols: 1, unreferencedFileScopeSymbols: 0, unsupportedFileScopeSymbolCount: 0,
       localSymbolCount: 1, referencedLocalSymbols: 1, unreferencedLocalSymbols: 0, unsupportedLocalSymbolCount: 0,
-      entryCount: 3, entriesTruncated: false,
+      entryCount: 4, entriesTruncated: false,
       entries: [
         { id: '0123456789abcdef01234567', name: 'normalize', kind: 'package function', scope: 'package', relativePath: 'pkg/a.go', declarationStart: 20, referenceCount: 1, exported: false, classification: 'eligible', classificationReason: 'private-package-symbol-with-resolved-references', nameAssessment: 'unassessed' },
         { id: 'abcdef0123456789abcdef01', name: 'run', kind: 'package function', scope: 'package', relativePath: 'pkg/b.go', declarationStart: 20, referenceCount: 0, exported: false, classification: 'excluded', classificationReason: 'unreferenced-package-symbol', nameAssessment: 'unassessed' },
+        { id: '102132435465768798a9bacb', name: 'formatter', kind: 'file import alias', scope: 'file', relativePath: 'pkg/a.go', declarationStart: 0, referenceCount: 1, exported: false, classification: 'eligible', classificationReason: 'file-import-alias-with-resolved-references', nameAssessment: 'unassessed' },
         { id: '00112233445566778899aabb', name: 'arg', kind: 'local variable', scope: 'local', relativePath: 'pkg/a.go', declarationStart: 28, referenceCount: 1, exported: false, classification: 'eligible', classificationReason: 'local-symbol-with-resolved-references', nameAssessment: 'unassessed' },
       ],
     }
