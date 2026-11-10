@@ -55,6 +55,42 @@ async def test_catalog_and_rename_local_bindings(language: str, source: str) -> 
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("language", ["c", "cpp"])
+async def test_rename_keeps_shadowed_bindings_separate(language: str) -> None:
+    if not shutil.which(CLANGD):
+        pytest.skip("clangd is unavailable")
+    source = (
+        "int measure(int value) {\n"
+        "    int total = value;\n"
+        "    { int value = 2; total += value; }\n"
+        "    return total + value;\n"
+        "}\n"
+    )
+    catalog = await refactor_cpp_source(source, language=language, operation="bindings")
+    values = [binding for binding in catalog["bindings"] if binding["name"] == "value"]
+    parameter = next(binding for binding in values if binding["kind"] == "parameter")
+    local = next(binding for binding in values if binding["kind"] == "local variable")
+    assert parameter["id"] != local["id"]
+    assert parameter["referenceCount"] == 3
+    assert local["referenceCount"] == 2
+
+    result = await refactor_cpp_source(
+        source,
+        language=language,
+        operation="rename",
+        expected_sha256=catalog["source_sha256"],
+        renames=[{"binding_id": local["id"], "new_name": "inner_value"}],
+    )
+    assert result["source_code"] == (
+        "int measure(int value) {\n"
+        "    int total = value;\n"
+        "    { int inner_value = 2; total += inner_value; }\n"
+        "    return total + value;\n"
+        "}\n"
+    )
+
+
+@pytest.mark.asyncio
 async def test_rename_rejects_stale_source_and_name_capture() -> None:
     if not shutil.which(CLANGD):
         pytest.skip("clangd is unavailable")
