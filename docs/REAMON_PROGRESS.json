@@ -167,9 +167,9 @@
     }
   ],
   "recentComparison": {
-    "baselineEstimate": 31.51,
+    "baselineEstimate": 31.58,
     "date": "2026-11-10",
-    "evidence": "The Go project rename workflow now connects go/types package identity, accepted-sibling source receipts, bounded per-file manifests, the visualizer, and atomic review-draft persistence. Cross-file semantic rename propagation rises from 8% to 9%, adding 0.07 weighted points (31.51% to 31.58%). Focused Docker tests pass 45/45, webapp type-check and targeted ESLint pass, and the full Docker webapp suite passes 648 files / 9,877 tests, with 2 expected failures and 47 files / 196 skipped (MCP_DOCS_WIKI_DIR=/tmp/reamon-isolated-wiki); no live database/browser acceptance is claimed."
+    "evidence": "Progress review after Go rename corpus/runtime validation at source commit 5dc0ccbf: the versioned synthetic corpus covers seven positive and three negative mappings; all 19 expected declaration/reference edits match exact manifests, and original plus renamed fixture packages pass the same finite runtime oracles. The full agent Docker unit gate passes 188 files / 3,805 tests (one file collects no tests), plus Go package tests. These are stronger regression checks for the existing experimental slice, not held-out project coverage or live PostgreSQL/browser acceptance, so no workstream crossed a weighted acceptance gate: ASSR-2 remains 9% and overall progress remains 31.58% (0.00-point change in this review)."
   },
   "activeWork": {
     "date": "2026-11-10",
