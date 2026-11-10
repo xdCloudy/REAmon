@@ -80,15 +80,15 @@ The [autonomous reconstruction and fidelity delivery plan](docs/REAMON_AUTONOMOU
 
 <progress value="31.89" max="100">31.89%</progress> <strong>31.89%</strong> — weighted estimate **31.89%**.
 
-**Work completed (2026-11-10):** Corrected AR-8 receipt provenance: product source revision belongs in the receipt commit field and is rejected as a toolchain component. Re-receipted the archived JVM/PyInstaller repeatability matrix with fixed toolchain manifests; the checked-in config aggregates cleanly with NO_REGRESSION_OBSERVED. Docker regression suites pass: record-receipt 6/6, receipt comparator 12/12. No product behavior change or new fidelity evidence was measured. Docker aggregate-receipt tests pass 8/8; the checked-in archive configuration re-aggregates to NO_REGRESSION_OBSERVED.
+**Work completed (2026-11-10):** Extended benchmark receipts to distinguish the clean measurement checkout from the product source revision when a harness overlay is used; direct runs keep the same commit in both fields. Re-receipted the archived JVM/PyInstaller matrix with explicit productSourceCommit fields and toolchain-only component manifests; the archived config aggregates cleanly. Docker regression suites pass: record 7/7, comparator 14/14, aggregate 10/10, and PyInstaller pair runner 3/3. The product source revision is now checked consistently across all fixtures on each aggregate side; no reconstruction result or score changed.
 
-**Score decision:** Held at 31.89%. The provenance guard prevents false toolchain drift in changed-revision comparisons, but it adds no new reconstruction outcome and receives no weighted completion credit.
+**Score decision:** Held at 31.89%. The explicit productSourceCommit field fixes attribution for clean harness overlays and prevents source changes from appearing as toolchain drift; this adds no reconstruction fidelity credit.
 
 **Next measurable gate:** Measure a hash-bound multi-format baseline/candidate comparison across different product revisions and additional held-out fixtures; preserve complete denominators, toolchains, behavior controls, and unavailable outcomes.
 
 Latest evidence-based score change (2026-11-10): **+0.03 points** (31.86% → 31.89%). A clean same-revision matrix at 3b67737c measured all 12 metrics across one JVM/CFR and one PyInstaller fixture, with distinct hash-bound toolchains and zero deltas. This completed the named heterogeneous repeatability gate and raised benchmark completion from 21% to 22% (+0.03 overall); it is not a product-improvement result.
 
-Refreshed from pushed commit `e482dc7`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+Refreshed from pushed commit `ab39424`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
