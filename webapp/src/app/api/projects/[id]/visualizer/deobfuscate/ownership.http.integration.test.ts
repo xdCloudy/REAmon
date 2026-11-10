@@ -294,7 +294,7 @@ describe.skipIf(!HAS_DB)('deobfuscation HTTP ownership with ACCESS_ENFORCE=0', (
     expect(await prisma?.reamonCodeAttempt.findUnique({ where: { id: singleAttemptId }, select: { status: true, cancelRequested: true } })).toMatchObject({ status: 'RUNNING', cancelRequested: true })
   }, 60_000)
 
-  test('coverage and similar-function reads deny foreign users while owners reach run validation', async () => {
+  test('coverage, similar-function, and function-CFG reads deny foreign users while owners reach route validation', async () => {
     const coverageUrl = `${baseUrl}/api/projects/${projectId}/visualizer/coverage?taskId=${SUFFIX}-missing-task`
     expect((await fetch(coverageUrl)).status).toBe(401)
     const foreignCoverage = await fetch(coverageUrl, { headers: auth(foreignCookie) })
@@ -312,6 +312,15 @@ describe.skipIf(!HAS_DB)('deobfuscation HTTP ownership with ACCESS_ENFORCE=0', (
     const ownerSimilar = await fetch(similarUrl, { headers: auth(ownerCookie) })
     expect(ownerSimilar.status).toBe(404)
     expect(await ownerSimilar.json()).toEqual({ error: 'Similar-function matches are unavailable for this analysis run' })
+
+    const cfgUrl = `${baseUrl}/api/projects/${projectId}/visualizer/function-cfg`
+    expect((await fetch(cfgUrl)).status).toBe(401)
+    const foreignCfg = await fetch(cfgUrl, { headers: auth(foreignCookie) })
+    expect(foreignCfg.status).toBe(404)
+    expect(await foreignCfg.json()).toEqual({ error: 'Not found' })
+    const ownerCfg = await fetch(cfgUrl, { headers: auth(ownerCookie) })
+    expect(ownerCfg.status).toBe(400)
+    expect(await ownerCfg.json()).toEqual({ error: 'A valid function and analysis run are required' })
   }, 60_000)
 
   test('saved function matches and review writes deny foreign users without hiding owner access', async () => {
