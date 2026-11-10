@@ -417,7 +417,7 @@ function isValidGoProjectInventoryEntry(entry: Record<string, unknown>, sourceBy
   if (entry.scope === 'member') {
     return entry.classification === 'unsupported'
       && ['struct field', 'method', 'interface method', 'type parameter'].includes(String(entry.kind))
-      && entry.classificationReason === 'go-member-rename-not-supported'
+      && entry.classificationReason === 'go-member-not-offered-by-project-inventory'
   }
   if (entry.exported) return false
   const supportedLocalKinds = ['local variable', 'local constant', 'local type', 'local type parameter', 'local function', 'local type-switch variable']
@@ -527,7 +527,8 @@ async function listGoProjectRenameBindings(files: GoPackageRenameFile[], selecte
         return /^[a-f0-9]{24}$/i.test(String(binding.id || ''))
           && typeof binding.name === 'string' && binding.name.length > 0 && binding.name.length <= 256
           && typeof binding.kind === 'string' && binding.kind.length <= 80
-          && binding.scopeType === 'package' && binding.relativePath === selectedPath
+          && (binding.scopeType === 'package' || (binding.scopeType === 'member' && binding.kind === 'method'))
+          && binding.relativePath === selectedPath
           && Number.isSafeInteger(binding.declarationStart) && Number(binding.declarationStart) >= 0
           && Number.isSafeInteger(binding.referenceCount) && Number(binding.referenceCount) > 0
           && binding.exported === false

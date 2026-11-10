@@ -263,7 +263,7 @@ function isGoProjectInventory(value: unknown): value is GoProjectInventory {
       && typeof entry.exported === 'boolean' && ['eligible', 'excluded', 'unsupported'].includes(entry.classification)
       && (entry.scope !== 'member' || (entry.classification === 'unsupported'
         && ['struct field', 'method', 'interface method', 'type parameter'].includes(entry.kind)
-        && entry.classificationReason === 'go-member-rename-not-supported'))
+        && entry.classificationReason === 'go-member-not-offered-by-project-inventory'))
       && typeof entry.classificationReason === 'string' && entry.classificationReason.length > 0
       && entry.nameAssessment === 'unassessed')
     && entriesMatchCounts

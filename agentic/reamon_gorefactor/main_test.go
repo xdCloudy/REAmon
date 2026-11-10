@@ -178,6 +178,119 @@ func TestProjectRenameUpdatesResolvedReferencesAcrossFiles(t *testing.T) {
 	}
 }
 
+func TestProjectMethodRenameUpdatesSelectorsAcrossFilesAndPreservesBehavior(t *testing.T) {
+	files := []projectFile{
+		{Path: "pkg/model.go", Source: "package sample\ntype worker struct{}\nfunc (worker) normalize(value int) int { return value + 1 }\nfunc (worker) Normalize(value int) int { return value }\n"},
+		{Path: "pkg/use.go", Source: "package sample\nfunc run() int { return worker{}.normalize(3) + worker.normalize(worker{}, 4) }\n"},
+	}
+	request := goProjectRequest(files, "pkg/model.go")
+	catalog, err := buildProjectCatalog(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var selected binding
+	for _, item := range catalog.Bindings {
+		if item.Name == "normalize" && item.Kind == "method" {
+			selected = item
+		}
+		if item.Name == "Normalize" {
+			t.Fatalf("exported method entered private rename catalog: %+v", item)
+		}
+	}
+	if selected.ID == "" || selected.ScopeType != "member" || selected.ReferenceCount != 2 || len(selected.Uses) != 3 {
+		t.Fatalf("receiver method binding = %+v; want a member binding with declaration and two selector uses", selected)
+	}
+	request.Operation = "project_rename"
+	request.ExpectedHash, request.SourceSetHash = catalog.SelectedHash, catalog.SourceSetHash
+	request.Renames = []renameSelection{{ID: selected.ID, NewName: "scale"}}
+	assertProjectRenameBehavior(t, map[string]string{
+		"pkg/model.go": files[0].Source,
+		"pkg/use.go":   files[1].Source,
+	}, "func TestCorpusBehavior(t *testing.T) { if got := run(); got != 9 { t.Fatalf(\"run = %d\", got) } }\n", "original")
+	result, err := applyProjectRenames(request)
+	if err != nil {
+		t.Fatalf("rename receiver method: %v", err)
+	}
+	outputs := make(map[string]string)
+	editCount := 0
+	for _, file := range result["files"].([]map[string]any) {
+		relativePath := file["relative_path"].(string)
+		outputs[relativePath] = file["source_code"].(string)
+		original := files[0].Source
+		if relativePath == "pkg/use.go" {
+			original = files[1].Source
+		}
+		for _, edit := range file["edits"].([]map[string]any) {
+			if edit["old_text"] != "normalize" || edit["new_text"] != "scale" {
+				t.Fatalf("method rename edit = %#v; want normalize -> scale", edit)
+			}
+			start, end := edit["start"].(int), edit["end"].(int)
+			if start < 0 || end <= start || end > len(original) || original[start:end] != "normalize" {
+				t.Fatalf("method rename edit has invalid byte span: %#v", edit)
+			}
+			editCount++
+		}
+	}
+	if !strings.Contains(outputs["pkg/model.go"], "func (worker) scale(") || !strings.Contains(outputs["pkg/use.go"], "worker{}.scale(3) + worker.scale(worker{}, 4)") || editCount != 3 {
+		t.Fatalf("method rename output/edits = %#v / %d; want declaration and two selector edits", outputs, editCount)
+	}
+	assertProjectRenameBehavior(t, outputs, "func TestCorpusBehavior(t *testing.T) { if got := run(); got != 9 { t.Fatalf(\"run = %d\", got) } }\n", "renamed")
+}
+
+func TestProjectMethodRenameRejectsReceiverMethodCollision(t *testing.T) {
+	files := []projectFile{
+		{Path: "pkg/model.go", Source: "package sample\ntype worker struct{}\nfunc (worker) normalize() int { return 1 }\nfunc (worker) scale() int { return 2 }\n"},
+		{Path: "pkg/use.go", Source: "package sample\nfunc run() int { return worker{}.normalize() }\n"},
+	}
+	request := goProjectRequest(files, "pkg/model.go")
+	catalog, err := buildProjectCatalog(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var selected binding
+	for _, item := range catalog.Bindings {
+		if item.Name == "normalize" && item.Kind == "method" {
+			selected = item
+		}
+	}
+	if selected.ID == "" {
+		t.Fatal("receiver method was not offered as a binding")
+	}
+	request.Operation = "project_rename"
+	request.ExpectedHash, request.SourceSetHash = catalog.SelectedHash, catalog.SourceSetHash
+	request.Renames = []renameSelection{{ID: selected.ID, NewName: "scale"}}
+	if _, err := applyProjectRenames(request); err == nil || !strings.Contains(err.Error(), "method") {
+		t.Fatalf("receiver method collision error = %v; want method collision rejection", err)
+	}
+}
+
+func TestProjectMethodRenamePreservesLocalInterfaceContracts(t *testing.T) {
+	files := []projectFile{
+		{Path: "pkg/model.go", Source: "package sample\ntype runner interface { normalize(int) int }\ntype worker struct{}\nfunc (worker) normalize(value int) int { return value + 1 }\n"},
+		{Path: "pkg/use.go", Source: "package sample\nfunc viaInterface(value runner) int { return value.normalize(2) }\nfunc run() int { return viaInterface(worker{}) + worker{}.normalize(3) }\n"},
+	}
+	request := goProjectRequest(files, "pkg/model.go")
+	catalog, err := buildProjectCatalog(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var selected binding
+	for _, item := range catalog.Bindings {
+		if item.Name == "normalize" && item.Kind == "method" {
+			selected = item
+		}
+	}
+	if selected.ID == "" {
+		t.Fatal("receiver method was not offered as a binding")
+	}
+	request.Operation = "project_rename"
+	request.ExpectedHash, request.SourceSetHash = catalog.SelectedHash, catalog.SourceSetHash
+	request.Renames = []renameSelection{{ID: selected.ID, NewName: "scale"}}
+	if _, err := applyProjectRenames(request); err == nil {
+		t.Fatal("renaming a concrete method broke the existing local interface contract")
+	}
+}
+
 func TestProjectTypeRenameUpdatesEmbeddedFieldReferences(t *testing.T) {
 	request := goProjectRequest([]projectFile{
 		{Path: "pkg/model.go", Source: "package sample\n\ntype entry struct { value int }\n"},
@@ -1176,7 +1289,7 @@ func TestProjectInventoryHeldOutPackageSymbolPrecisionRecallV1(t *testing.T) {
 					allActual := make(map[string]bool)
 					duplicateCount := 0
 					for _, entry := range inventory["entries"].([]projectInventoryEntry) {
-						if entry.Scope == "member" && (entry.Classification != "unsupported" || entry.ClassificationReason != "go-member-rename-not-supported") {
+						if entry.Scope == "member" && (entry.Classification != "unsupported" || entry.ClassificationReason != "go-member-not-offered-by-project-inventory") {
 							t.Fatalf("member entry %q is not marked as unsupported: %#v", entry.Name, entry)
 						}
 						key := projectDeclarationKey(entry.RelativePath, entry.DeclarationStart, entry.Name)

@@ -38,6 +38,7 @@ const siblingSource = 'package sample\nfunc run() int { return normalize(1) }\n'
 const selectedOutput = 'package sample\nfunc scale(value int) int { return value }\n'
 const siblingOutput = 'package sample\nfunc run() int { return scale(1) }\n'
 const bindingId = '0123456789abcdef01234567'
+const methodBindingId = 'fedcba9876543210fedcba98'
 const inventoryPayload = {
   scope: 'reviewed-same-directory-go-package-source-snapshot', source_file_count: 2,
   private_package_symbol_count: 2, referenced_private_package_symbols: 1, unreferenced_private_symbols: 1,
@@ -52,7 +53,7 @@ const inventoryPayload = {
     { id: '102132435465768798a9bacb', name: 'formatter', kind: 'file import alias', scope: 'file', relativePath: selectedPath, declarationStart: 0, referenceCount: 1, exported: false, classification: 'eligible', classificationReason: 'file-import-alias-with-resolved-references', nameAssessment: 'unassessed' },
     { id: '00112233445566778899aabb', name: 'value', kind: 'local variable', scope: 'local', relativePath: selectedPath, declarationStart: selectedSource.indexOf('value int'), referenceCount: 1, exported: false, classification: 'eligible', classificationReason: 'local-symbol-with-resolved-references', nameAssessment: 'unassessed' },
     { id: '8899aabbccddeeff00112233', name: 'item', kind: 'local type-switch variable', scope: 'local', relativePath: selectedPath, declarationStart: selectedSource.indexOf('func normalize'), referenceCount: 1, exported: false, classification: 'eligible', classificationReason: 'local-symbol-with-resolved-references', nameAssessment: 'unassessed' },
-    { id: 'fedcba9876543210fedcba98', name: 'field', kind: 'struct field', scope: 'member', relativePath: selectedPath, declarationStart: 20, referenceCount: 1, exported: false, classification: 'unsupported', classificationReason: 'go-member-rename-not-supported', nameAssessment: 'unassessed' },
+    { id: 'fedcba9876543210fedcba98', name: 'field', kind: 'struct field', scope: 'member', relativePath: selectedPath, declarationStart: 20, referenceCount: 1, exported: false, classification: 'unsupported', classificationReason: 'go-member-not-offered-by-project-inventory', nameAssessment: 'unassessed' },
   ],
 }
 const inputHash = (source: string) => createHash('sha256').update(source, 'utf8').digest('hex')
@@ -139,7 +140,10 @@ beforeEach(async () => {
           { relative_path: selectedPath, source_sha256: inputHash(selectedSource) },
           { relative_path: siblingPath, source_sha256: inputHash(siblingSource) },
         ],
-        bindings: [{ id: bindingId, name: 'normalize', kind: 'package function', scopeType: 'package', declarationStart: 20, referenceCount: 1, relativePath: selectedPath, exported: false }],
+        bindings: [
+          { id: bindingId, name: 'normalize', kind: 'package function', scopeType: 'package', declarationStart: 20, referenceCount: 1, relativePath: selectedPath, exported: false },
+          { id: methodBindingId, name: 'execute', kind: 'method', scopeType: 'member', declarationStart: 30, referenceCount: 1, relativePath: selectedPath, exported: false },
+        ],
         truncated: false, parser_version: 'go1.24.4',
         inventory: inventoryPayload,
       })
@@ -204,11 +208,13 @@ describe('POST safe-renames Go package scope', () => {
         expect.objectContaining({ name: 'formatter', scope: 'file', kind: 'file import alias', classification: 'eligible' }),
         expect.objectContaining({ name: 'value', scope: 'local', classification: 'eligible', classificationReason: 'local-symbol-with-resolved-references' }),
         expect.objectContaining({ name: 'item', kind: 'local type-switch variable', scope: 'local', classification: 'eligible' }),
-        expect.objectContaining({ name: 'field', kind: 'struct field', scope: 'member', classification: 'unsupported', classificationReason: 'go-member-rename-not-supported' }),
+        expect.objectContaining({ name: 'field', kind: 'struct field', scope: 'member', classification: 'unsupported', classificationReason: 'go-member-not-offered-by-project-inventory' }),
       ]),
     })
     expect(h.attemptCreate).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ requestPayload: expect.objectContaining({ goProjectInventory: body.projectInventory }) }),
+      data: expect.objectContaining({ requestPayload: expect.objectContaining({
+        goProjectInventory: body.projectInventory,
+      }) }),
     }))
   })
 

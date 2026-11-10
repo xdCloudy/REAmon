@@ -754,7 +754,7 @@ describe('WorkspaceCodeVisualizer', () => {
         { id: '0123456789abcdef01234567', name: 'normalize', kind: 'package function', scope: 'package', relativePath: 'pkg/normalize.go', declarationStart: 20, referenceCount: 1, exported: false, classification: 'eligible', classificationReason: 'private-package-symbol-with-resolved-references', nameAssessment: 'unassessed' },
         { id: '102132435465768798a9bacb', name: 'formatter', kind: 'file import alias', scope: 'file', relativePath: 'pkg/normalize.go', declarationStart: 0, referenceCount: 1, exported: false, classification: 'eligible', classificationReason: 'file-import-alias-with-resolved-references', nameAssessment: 'unassessed' },
         { id: 'abcdef0123456789abcdef01', name: 'value', kind: 'local variable', scope: 'local', relativePath: 'pkg/normalize.go', declarationStart: source.indexOf('value int'), referenceCount: 1, exported: false, classification: 'eligible', classificationReason: 'local-symbol-with-resolved-references', nameAssessment: 'unassessed' },
-        { id: 'fedcba9876543210fedcba98', name: 'field', kind: 'struct field', scope: 'member', relativePath: 'pkg/normalize.go', declarationStart: 45, referenceCount: 1, exported: false, classification: 'unsupported', classificationReason: 'go-member-rename-not-supported', nameAssessment: 'unassessed' },
+        { id: 'fedcba9876543210fedcba98', name: 'field', kind: 'struct field', scope: 'member', relativePath: 'pkg/normalize.go', declarationStart: 45, referenceCount: 1, exported: false, classification: 'unsupported', classificationReason: 'go-member-not-offered-by-project-inventory', nameAssessment: 'unassessed' },
       ],
     }
     const fetchMock = vi.fn((input: string, init?: RequestInit) => {
@@ -780,7 +780,7 @@ describe('WorkspaceCodeVisualizer', () => {
     fireEvent.click(details)
     expect(await screen.findByText(/file file import alias · eligible \(file-import-alias-with-resolved-references\)/)).toBeInTheDocument()
     expect(await screen.findByText(/local local variable · eligible \(local-symbol-with-resolved-references\)/)).toBeInTheDocument()
-    expect(await screen.findByText(/member struct field · unsupported \(go-member-rename-not-supported\)/)).toBeInTheDocument()
+    expect(await screen.findByText(/member struct field · unsupported \(go-member-not-offered-by-project-inventory\)/)).toBeInTheDocument()
   })
 
   test('creates an editable AI reverse-engineered copy and saves it separately', async () => {

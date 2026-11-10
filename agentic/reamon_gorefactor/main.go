@@ -151,6 +151,12 @@ type derivedFieldReference struct {
 	ident *ast.Ident
 }
 
+type projectRenameChoice struct {
+	item    binding
+	newName string
+	derived []derivedFieldReference
+}
+
 type sourceEdit struct {
 	start, end int
 	text       string
@@ -901,7 +907,7 @@ func buildProjectCatalogWithImporter(req request, packageImporter types.Importer
 			ID:   shortID(projectHash+"\x00"+position.Filename, position.Offset, object.Name()),
 			Name: object.Name(), Kind: kind, Scope: "member", RelativePath: position.Filename,
 			DeclarationStart: position.Offset, ReferenceCount: useCounts[object], Exported: token.IsExported(object.Name()),
-			Classification: "unsupported", ClassificationReason: "go-member-rename-not-supported", NameAssessment: "unassessed",
+			Classification: "unsupported", ClassificationReason: "go-member-not-offered-by-project-inventory", NameAssessment: "unassessed",
 		}
 		cat.Inventory.MemberSymbolCount++
 		cat.Inventory.UnsupportedMemberSymbolCount++
@@ -965,6 +971,37 @@ func buildProjectCatalogWithImporter(req request, packageImporter types.Importer
 			ID: id, FilePath: pathsByObject[object], Name: declaration.Name, Kind: kind,
 			ScopeType: "package", DeclarationStart: position.Offset, ReferenceCount: len(uses) - 1,
 			Object: object, Scope: pkg.Scope(), Declaration: declaration, Uses: uses,
+		})
+	}
+	methodObjects := make(map[types.Object]bool)
+	for identifier, object := range info.Defs {
+		method, ok := object.(*types.Func)
+		if !ok || method.Signature().Recv() == nil || method.Pkg() != pkg || token.IsExported(method.Name()) || methodObjects[method] {
+			continue
+		}
+		methodObjects[method] = true
+		position := fileSet.PositionFor(identifier.Pos(), false)
+		uses := []*ast.Ident{identifier}
+		for ident, used := range info.Uses {
+			if used == method {
+				uses = append(uses, ident)
+			}
+		}
+		if len(uses) <= 1 {
+			continue
+		}
+		sort.Slice(uses[1:], func(i, j int) bool {
+			left, right := fileSet.PositionFor(uses[i+1].Pos(), false), fileSet.PositionFor(uses[j+1].Pos(), false)
+			if left.Filename != right.Filename {
+				return left.Filename < right.Filename
+			}
+			return left.Offset < right.Offset
+		})
+		cat.Bindings = append(cat.Bindings, binding{
+			ID:       shortID(projectHash+"\x00"+position.Filename, position.Offset, identifier.Name),
+			FilePath: position.Filename, Name: identifier.Name, Kind: "method", ScopeType: "member",
+			DeclarationStart: position.Offset, ReferenceCount: len(uses) - 1,
+			Object: method, Declaration: identifier, Uses: uses,
 		})
 	}
 	sort.Slice(cat.Bindings, func(i, j int) bool {
@@ -1813,46 +1850,58 @@ func applyProjectRenames(req request) (map[string]any, error) {
 	for _, item := range cat.Bindings {
 		byID[item.ID] = item
 	}
-	selected := make([]struct {
-		item    binding
-		newName string
-		derived []derivedFieldReference
-	}, 0, len(req.Renames))
+	selected := make([]projectRenameChoice, 0, len(req.Renames))
 	selectedObjects := make(map[types.Object]bool, len(req.Renames))
 	seen := make(map[string]bool)
 	for _, choice := range req.Renames {
 		item, ok := byID[choice.ID]
-		if !ok || item.FilePath != cat.SelectedPath || seen[choice.ID] || len(choice.NewName) > 128 || !token.IsIdentifier(choice.NewName) || token.Lookup(choice.NewName).IsKeyword() || choice.NewName == item.Name {
-			return nil, fmt.Errorf("A selected Go rename no longer matches a package binding in the selected source")
+		validScope := item.ScopeType == "package" || (item.ScopeType == "member" && item.Kind == "method")
+		if !ok || !validScope || item.FilePath != cat.SelectedPath || seen[choice.ID] || len(choice.NewName) > 128 || !token.IsIdentifier(choice.NewName) || token.Lookup(choice.NewName).IsKeyword() || choice.NewName == item.Name {
+			return nil, fmt.Errorf("A selected Go rename no longer matches a binding in the selected package")
 		}
 		if types.Universe.Lookup(choice.NewName) != nil {
 			return nil, fmt.Errorf("Renaming %s to predeclared Go name %s is not allowed", item.Name, choice.NewName)
 		}
 		seen[choice.ID] = true
 		selectedObjects[item.Object] = true
-		selected = append(selected, struct {
-			item    binding
-			newName string
-			derived []derivedFieldReference
-		}{item, choice.NewName, embeddedFieldReferences(cat, item.Object)})
+		selected = append(selected, projectRenameChoice{item: item, newName: choice.NewName, derived: embeddedFieldReferences(cat, item.Object)})
 	}
 	targets := make(map[string]bool)
+	methodTargets := make(map[types.Object]map[string]bool)
 	for _, choice := range selected {
-		if targets[choice.newName] {
-			return nil, fmt.Errorf("Two selected Go bindings cannot share a new package name")
-		}
-		targets[choice.newName] = true
-		if existing := cat.Package.Scope().Lookup(choice.newName); existing != nil && existing != choice.item.Object && !selectedObjects[existing] {
-			return nil, fmt.Errorf("Renaming %s to %s would collide with an existing package binding", choice.item.Name, choice.newName)
-		}
-		for _, ident := range choice.item.Uses {
-			if scope := scopeAt(cat.Info.Scopes, ident.Pos()); scope != nil {
-				if _, existing := scope.LookupParent(choice.newName, ident.Pos()); existing != nil && existing != choice.item.Object && !selectedObjects[existing] {
-					return nil, fmt.Errorf("Renaming %s to %s would capture a Go binding", choice.item.Name, choice.newName)
+		if choice.item.ScopeType == "package" {
+			if targets[choice.newName] {
+				return nil, fmt.Errorf("Two selected Go bindings cannot share a new package name")
+			}
+			targets[choice.newName] = true
+			if existing := cat.Package.Scope().Lookup(choice.newName); existing != nil && existing != choice.item.Object && !selectedObjects[existing] {
+				return nil, fmt.Errorf("Renaming %s to %s would collide with an existing package binding", choice.item.Name, choice.newName)
+			}
+			for _, ident := range choice.item.Uses {
+				if scope := scopeAt(cat.Info.Scopes, ident.Pos()); scope != nil {
+					if _, existing := scope.LookupParent(choice.newName, ident.Pos()); existing != nil && existing != choice.item.Object && !selectedObjects[existing] {
+						return nil, fmt.Errorf("Renaming %s to %s would capture a Go binding", choice.item.Name, choice.newName)
+					}
 				}
+			}
+		} else {
+			receiver, ok := receiverNamedObject(choice.item.Object)
+			if !ok {
+				return nil, fmt.Errorf("The receiver type for method %s could not be resolved", choice.item.Name)
+			}
+			if methodTargets[receiver] == nil {
+				methodTargets[receiver] = make(map[string]bool)
+			}
+			if methodTargets[receiver][choice.newName] {
+				return nil, fmt.Errorf("Two methods on the same receiver cannot share a new name")
+			}
+			methodTargets[receiver][choice.newName] = true
+			if existing := receiverMethodNamed(choice.item.Object, cat.Package, choice.newName); existing != nil && existing != choice.item.Object && !selectedObjects[existing] {
+				return nil, fmt.Errorf("Renaming %s to %s would collide with a method on the receiver type", choice.item.Name, choice.newName)
 			}
 		}
 	}
+	interfaceContracts := localInterfaceContracts(cat)
 	filesByPath := make(map[string]projectSourceFile, len(cat.Files))
 	for _, file := range cat.Files {
 		filesByPath[file.Path] = file
@@ -1923,6 +1972,9 @@ func applyProjectRenames(req request) (map[string]any, error) {
 	if err != nil {
 		return nil, fmt.Errorf("Go package rejected the renamed output: %s", err.Error())
 	}
+	if !sameLocalInterfaceContracts(interfaceContracts, localInterfaceContracts(outputCatalog), selected) {
+		return nil, fmt.Errorf("Go rename would change a local interface implementation contract")
+	}
 	identifiers := projectIdentifiersByOffset(outputCatalog)
 	for _, choice := range selected {
 		declarationPosition := cat.FileSet.PositionFor(choice.item.Declaration.Pos(), false)
@@ -1968,6 +2020,104 @@ func applyProjectRenames(req request) (map[string]any, error) {
 		"files": manifestFiles, "edit_manifest": outputManifest,
 		"renamed_bindings": renamed, "parser_version": runtime.Version(), "scope": "project",
 	}, nil
+}
+
+func receiverNamedObject(object types.Object) (*types.TypeName, bool) {
+	method, ok := object.(*types.Func)
+	if !ok || method.Signature().Recv() == nil {
+		return nil, false
+	}
+	receiver := types.Unalias(method.Signature().Recv().Type())
+	if pointer, ok := receiver.(*types.Pointer); ok {
+		receiver = types.Unalias(pointer.Elem())
+	}
+	named, ok := receiver.(*types.Named)
+	if !ok {
+		return nil, false
+	}
+	return named.Obj(), true
+}
+
+func receiverMethodNamed(object types.Object, pkg *types.Package, name string) types.Object {
+	method, ok := object.(*types.Func)
+	if !ok || method.Signature().Recv() == nil {
+		return nil
+	}
+	receiver := types.Unalias(method.Signature().Recv().Type())
+	if pointer, ok := receiver.(*types.Pointer); ok {
+		receiver = types.Unalias(pointer.Elem())
+	}
+	if _, ok := receiver.(*types.Named); !ok {
+		return nil
+	}
+	selection := types.NewMethodSet(types.NewPointer(receiver)).Lookup(pkg, name)
+	if selection == nil {
+		return nil
+	}
+	return selection.Obj()
+}
+
+func localInterfaceContracts(cat *projectCatalog) map[string]bool {
+	typesByName := make(map[string]*types.Named)
+	interfacesByName := make(map[string]*types.Interface)
+	for _, name := range cat.Package.Scope().Names() {
+		object, ok := cat.Package.Scope().Lookup(name).(*types.TypeName)
+		if !ok || object.IsAlias() {
+			continue
+		}
+		named, ok := types.Unalias(object.Type()).(*types.Named)
+		if !ok {
+			continue
+		}
+		if iface, ok := named.Underlying().(*types.Interface); ok {
+			interfacesByName[name] = iface.Complete()
+		} else {
+			typesByName[name] = named
+		}
+	}
+	contracts := make(map[string]bool)
+	for typeName, named := range typesByName {
+		for interfaceName, iface := range interfacesByName {
+			if types.Implements(named, iface) {
+				contracts[fmt.Sprintf("value\x00%s\x00%s", typeName, interfaceName)] = true
+			}
+			if types.Implements(types.NewPointer(named), iface) {
+				contracts[fmt.Sprintf("pointer\x00%s\x00%s", typeName, interfaceName)] = true
+			}
+		}
+	}
+	return contracts
+}
+
+func sameLocalInterfaceContracts(before, after map[string]bool, selected []projectRenameChoice) bool {
+	expected := make(map[string]bool, len(before))
+	for contract := range before {
+		parts := strings.Split(contract, "\x00")
+		if len(parts) != 3 {
+			return false
+		}
+		for _, choice := range selected {
+			if choice.item.ScopeType != "package" || choice.item.Kind != "package type" {
+				continue
+			}
+			if parts[1] == choice.item.Name {
+				parts[1] = choice.newName
+			}
+			if parts[2] == choice.item.Name {
+				parts[2] = choice.newName
+			}
+		}
+		expected[strings.Join(parts, "\x00")] = true
+	}
+	if len(expected) != len(after) {
+		return false
+	}
+	for contract := range after {
+		if !expected[contract] {
+			return false
+		}
+	}
+	return true
 }
 
 func embeddedFieldReferences(cat *projectCatalog, target types.Object) []derivedFieldReference {
