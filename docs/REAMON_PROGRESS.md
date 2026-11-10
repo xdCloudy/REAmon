@@ -1,6 +1,6 @@
 # REAmon product progress
 
-Assessment date: 2026-11-10 · Source: pushed commit `932a418` · Weighted estimate: **34.03%**
+Assessment date: 2026-11-10 · Source: pushed commit `79938f1` · Weighted estimate: **34.11%**
 
 This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.
 
@@ -24,10 +24,11 @@ This estimate covers the reverse-engineering product goal and secure production 
 - The held-out Go census found 22 false-positive blank range identifiers. The helper now omits `_`; a targeted regression and exact pinned-corpus counts confirm the correction. Re-measurement gives 100% all-scope precision, with gorilla/mux recall at 78.9% (419 TP, 0 FP, 112 FN) and go-isatty at 100% (4/4); missing receiver methods and type members remain open.
 - Go project inventory now includes receiver methods, interface methods, fields, and type parameters as explicit unsupported member rows. Independent go/types census matches all 531 declarations with zero false positives or misses for gorilla/mux v1.8.1 on Linux/amd64 and Windows/amd64; go-isatty remains 4/4 on JS/wasm. Pinned upstream corpora assert the new member totals, the API validates member scope and counts, and the visualizer renders unsupported member rows.
 - Expanded the independent all-scope declaration census to hash-pinned selected source from pkg/errors v0.9.1 and google/uuid v1.6.0. It matches 120/120 and 161/161 declarations respectively, with zero false positives or misses for Linux/amd64, Windows/amd64, and Linux/arm64. The complete Go helper package suite passes.
+- Private same-package Go receiver methods can now be selected for semantic rename through go/types object identity. The implementation updates declarations, selectors, and method expressions across package files; rejects receiver method collisions and local interface contract changes; re-type-checks output; and tests behavior before and after on a pinned fixture. Full Go helper tests pass, focused safe-renames/UI tests pass 44/44, and targeted ESLint passes.
 
-**Score decision:** Award one partial point to the 8%-weight Agentic project-wide semantic-renaming workstream (35% to 36%). Independent go/types censuses now match 120 pkg/errors declarations and 161 google/uuid declarations across Linux/amd64, Windows/amd64, and Linux/arm64 with zero false positives or misses; the separate gorilla/mux holdout matches 531/531 on Linux/amd64 and Windows/amd64, and go-isatty matches 4/4 on JS/wasm. Weighted progress moves from 33.95% to 34.03% (+0.08 points). These are selected source subsets, not full-module discovery or application-scale recall, and member rename propagation remains unsupported.
+**Score decision:** Award one partial point to the 8%-weight Agentic project-wide semantic-renaming workstream (36% to 37%). Independently tested Go receiver-method renaming now edits resolved references and preserves behavior while rejecting receiver collisions and local interface-contract changes. The selected-source inventory censuses remain 120/120 pkg/errors and 161/161 google/uuid declarations across Linux/amd64, Windows/amd64, and Linux/arm64, plus gorilla/mux 531/531 and go-isatty 4/4 in their tested contexts. Weighted progress moves from 34.03% to 34.11% (+0.08 points). These selected source subsets do not establish full-module discovery, application-scale accuracy, exported API rename safety, or general member rename support.
 
-**Next measurable gate:** Implement reviewer-selected receiver-method rename propagation using go/types object identity. Require collision/interface-contract checks, exact changed-reference assertions, package compilation, runtime oracles on pinned fixtures, and stale-source rejection before enabling it beyond the experimental Go path.
+**Next measurable gate:** Extend method rename checks to external interfaces and cross-package method sets, add stale-source and broader pinned package fixtures, and separately scope struct-field/type-parameter support. Keep the Go method path experimental and reviewer-selected.
 
 | Workstream | Goal weight | Estimated complete | Weighted points |
 | --- | ---: | ---: | ---: |
@@ -37,7 +38,7 @@ This estimate covers the reverse-engineering product goal and secure production 
 | Maintainable editing, review, and export | 4% | 60% | 2.40 pts |
 | Fixture-backed validation and fidelity evidence | 2% | 16% | 0.32 pts |
 | Security, reliability, and production operations | 10% | 98% | 9.80 pts |
-| Agentic project-wide semantic renaming | 8% | 36% | 2.88 pts |
+| Agentic project-wide semantic renaming | 8% | 37% | 2.96 pts |
 | Cross-file semantic rename propagation | 7% | 13% | 0.91 pts |
 | Safe autonomous rename acceptance | 5% | 0% | 0.00 pts |
 | Agentic semantic type and data-structure recovery | 5% | 12% | 0.60 pts |
