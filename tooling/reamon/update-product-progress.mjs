@@ -1,4 +1,5 @@
 import { readFile, writeFile } from 'node:fs/promises'
+import { EOL } from 'node:os'
 
 const manifestPath = new URL('../../docs/REAMON_PROGRESS.json', import.meta.url)
 const ledgerPath = new URL('../../docs/REAMON_PROGRESS.md', import.meta.url)
@@ -69,7 +70,7 @@ const readme = await readFile(readmePath, 'utf8')
 const start = readme.indexOf(startMarker)
 const end = readme.indexOf(endMarker)
 if (start < 0 || end < start) throw new Error('README progress markers are missing or out of order')
-const updated = readme.slice(0, start) + generated + readme.slice(end + endMarker.length)
+const updated = (readme.slice(0, start) + generated + readme.slice(end + endMarker.length)).replace(/\r?\n/g, EOL)
 if (updated !== readme) await writeFile(readmePath, updated)
 
 const rows = manifest.workstreams.map((workstream) =>
@@ -112,5 +113,6 @@ const ledger = [
   '',
 ].join('\n')
 const currentLedger = await readFile(ledgerPath, 'utf8').catch(() => '')
-if (ledger !== currentLedger) await writeFile(ledgerPath, ledger)
+const formattedLedger = ledger.replace(/\r?\n/g, EOL)
+if (formattedLedger !== currentLedger) await writeFile(ledgerPath, formattedLedger)
 console.log(`REAmon product progress: ${displayedScore}% (weighted ${score.toFixed(2)}%), source ${sourceStamp}`)
