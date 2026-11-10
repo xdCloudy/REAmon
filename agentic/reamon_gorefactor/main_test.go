@@ -1120,6 +1120,96 @@ func TestGoBuildFileSelectionRespectsGOARCHFilenameSuffix(t *testing.T) {
 	}
 }
 
+func TestProjectInventoryExplicitlyRejectsCgoFiles(t *testing.T) {
+	cgoEnabled := true
+	request := goProjectRequest([]projectFile{
+		{Path: "pkg/native.go", Source: "package sample\n/* int answer(void) { return 42; } */\nimport \"C\"\nfunc answer() int { return int(C.answer()) }\n"},
+		{Path: "pkg/use.go", Source: "package sample\nfunc run() int { return answer() }\n"},
+	}, "pkg/use.go")
+	request.Operation = "project_inventory"
+	request.BuildGOOS = runtime.GOOS
+	request.BuildGOARCH = runtime.GOARCH
+	request.BuildCgo = &cgoEnabled
+	if _, err := listProjectInventory(request); err == nil || !strings.Contains(err.Error(), "includes cgo files that the semantic inventory cannot type-check") {
+		t.Fatalf("cgo inventory result error = %v; want explicit unsupported status", err)
+	}
+}
+
+func TestProjectInventoryBuildContextCorpusV1(t *testing.T) {
+	type sourceFixture struct {
+		FixturePath   string `json:"fixture_path"`
+		InventoryPath string `json:"inventory_path"`
+		SHA256        string `json:"sha256"`
+	}
+	type contextFixture struct {
+		Name                 string   `json:"name"`
+		GOOS                 string   `json:"goos"`
+		GOARCH               string   `json:"goarch"`
+		BuildTags            []string `json:"build_tags"`
+		ExpectedFiles        []string `json:"expected_files"`
+		ExpectedEntryCount   int      `json:"expected_entry_count"`
+		ExpectedPrivateCount int      `json:"expected_private_symbols"`
+		ExpectedExportCount  int      `json:"expected_exported_symbols"`
+	}
+	var corpus struct {
+		Version         int              `json:"version"`
+		SourceDirectory string           `json:"source_directory"`
+		SelectedPath    string           `json:"selected_path"`
+		Files           []sourceFixture  `json:"files"`
+		Contexts        []contextFixture `json:"contexts"`
+	}
+	manifestBytes, err := os.ReadFile(filepath.Join("testdata", "project_inventory_build_v1.json"))
+	if err != nil {
+		t.Fatalf("read build-context corpus manifest: %v", err)
+	}
+	if err := json.Unmarshal(manifestBytes, &corpus); err != nil {
+		t.Fatalf("parse build-context corpus manifest: %v", err)
+	}
+	if corpus.Version != 1 || len(corpus.Files) != 5 || len(corpus.Contexts) != 4 {
+		t.Fatalf("build-context corpus version/file/context count = %d/%d/%d; want 1/5/4", corpus.Version, len(corpus.Files), len(corpus.Contexts))
+	}
+	files := make([]projectFile, 0, len(corpus.Files))
+	for _, file := range corpus.Files {
+		contents, err := os.ReadFile(filepath.Join("testdata", filepath.FromSlash(corpus.SourceDirectory), filepath.FromSlash(file.FixturePath)))
+		if err != nil {
+			t.Fatalf("read pinned build source %s: %v", file.FixturePath, err)
+		}
+		source := string(contents)
+		if actual := hashText(source); actual != file.SHA256 {
+			t.Fatalf("pinned build source hash for %s = %s; want %s", file.FixturePath, actual, file.SHA256)
+		}
+		files = append(files, projectFile{Path: file.InventoryPath, Source: source, ExpectedHash: file.SHA256})
+	}
+	for _, build := range corpus.Contexts {
+		t.Run(build.Name, func(t *testing.T) {
+			request := goProjectRequest(files, corpus.SelectedPath)
+			request.Operation = "project_inventory"
+			request.BuildGOOS, request.BuildGOARCH = build.GOOS, build.GOARCH
+			request.BuildTags = build.BuildTags
+			result, err := listProjectInventory(request)
+			if err != nil {
+				t.Fatalf("inventory pinned build context: %v", err)
+			}
+			inventory := result["inventory"].(map[string]any)
+			if inventory["complete"] != true || inventory["source_file_count"] != len(build.ExpectedFiles) ||
+				inventory["package_count"] != 1 || inventory["entry_count"] != build.ExpectedEntryCount ||
+				inventory["private_package_symbol_count"] != build.ExpectedPrivateCount || inventory["exported_package_symbol_count"] != build.ExpectedExportCount {
+				t.Fatalf("inventory summary for %s/%s = %#v", build.GOOS, build.GOARCH, inventory)
+			}
+			gotFiles := make([]string, 0, len(result["files"].([]map[string]any)))
+			for _, file := range result["files"].([]map[string]any) {
+				gotFiles = append(gotFiles, file["relative_path"].(string))
+			}
+			sort.Strings(gotFiles)
+			wantFiles := append([]string(nil), build.ExpectedFiles...)
+			sort.Strings(wantFiles)
+			if !reflect.DeepEqual(gotFiles, wantFiles) {
+				t.Fatalf("selected files = %#v; want %#v", gotFiles, wantFiles)
+			}
+		})
+	}
+}
+
 func TestProjectInventoryTypeChecksWithTargetGOARCHExports(t *testing.T) {
 	request := goProjectRequest([]projectFile{
 		{Path: "pkg/process_linux_amd64.go", Source: "//go:build linux && amd64\npackage sample\nimport \"syscall\"\nfunc processID() int { return syscall.Gettid() }\n"},

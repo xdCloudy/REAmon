@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "source_directory": "project_inventory_build_v1",
+  "selected_path": "pkg/common.go",
+  "files": [
+    {"fixture_path": "arch_arm64.go", "inventory_path": "pkg/arch_arm64.go", "sha256": "9b9f5769237803d3b3012af717aebf2498d599971cab9d6bbc9a4f85fe311b8a"},
+    {"fixture_path": "common.go", "inventory_path": "pkg/common.go", "sha256": "8937ffaacd997f2d1919833f44119afdddae88bc0343b04e946e0754fe21b11c"},
+    {"fixture_path": "tagged.go", "inventory_path": "pkg/tagged.go", "sha256": "8aff0498b22b5791165bf6409fbecc1f7f9018d6746f1bd19bc4c14959419460"},
+    {"fixture_path": "value_linux.go", "inventory_path": "pkg/value_linux.go", "sha256": "708f5193d2d99246a64748dfeb7648f0caef831f0b854f65bdeabd2c59d96afa"},
+    {"fixture_path": "value_windows.go", "inventory_path": "pkg/value_windows.go", "sha256": "880bee135abeac0f9073f5ae0200d730d773134aaaa1f19f791daa9d4b04eef1"}
+  ],
+  "contexts": [
+    {"name": "linux-amd64", "goos": "linux", "goarch": "amd64", "expected_files": ["pkg/common.go", "pkg/value_linux.go"], "expected_entry_count": 3, "expected_private_symbols": 2, "expected_exported_symbols": 1},
+    {"name": "windows-amd64", "goos": "windows", "goarch": "amd64", "expected_files": ["pkg/common.go", "pkg/value_windows.go"], "expected_entry_count": 3, "expected_private_symbols": 2, "expected_exported_symbols": 1},
+    {"name": "linux-arm64", "goos": "linux", "goarch": "arm64", "expected_files": ["pkg/arch_arm64.go", "pkg/common.go", "pkg/value_linux.go"], "expected_entry_count": 4, "expected_private_symbols": 3, "expected_exported_symbols": 1},
+    {"name": "linux-amd64-inventory-extra", "goos": "linux", "goarch": "amd64", "build_tags": ["inventory_extra"], "expected_files": ["pkg/common.go", "pkg/tagged.go", "pkg/value_linux.go"], "expected_entry_count": 4, "expected_private_symbols": 3, "expected_exported_symbols": 1}
+  ]
+}
