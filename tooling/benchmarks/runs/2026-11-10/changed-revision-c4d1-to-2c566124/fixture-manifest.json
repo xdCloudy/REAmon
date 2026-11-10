@@ -1,0 +1,20 @@
+{
+  "fixtures": {
+    "jvm-multimodule-cfr-linux-amd64": {
+      "artifact": {
+        "sha256": "747346a392096bdac3613ac295ee4b8a743e22689a3738aeca1ad8ffc92fb7cf"
+      }
+    },
+    "lua54-stripped-bytecode-linux-amd64": {
+      "artifact": {
+        "sha256": "8ac4c0d9e5b3261c688f1dcf62394fbe3a1431355cf26dc71264b37844362ef0"
+      }
+    },
+    "pyinstaller-module-structured-source-linux-amd64": {
+      "artifact": {
+        "sha256": "746c550fc3324ebf285c0ee4a555ea2afb3d5b12c9c191eb2bf4f0978d263971"
+      }
+    }
+  },
+  "schemaVersion": 1
+}

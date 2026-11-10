@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "fixtureId": "jvm-multimodule-cfr-linux-amd64",
+  "artifactSha256": "747346a392096bdac3613ac295ee4b8a743e22689a3738aeca1ad8ffc92fb7cf",
+  "provider": "CFR 0.152",
+  "projectId": "cfr-db-project-93844078-01cf-4a52-85fe-f537d22e1c6e",
+  "taskId": "cfr-db-task-93844078-01cf-4a52-85fe-f537d22e1c6e",
+  "sourceFileCount": 2,
+  "persistedCodeUnitCount": 2,
+  "storedSourceHashes": {
+    "org/reamon/fixture/Main.java": "173b38f76779e4e0f4bc21141f5b985bf9d191173b841aaf417465d995598043",
+    "org/reamon/fixture/RuleEngine.java": "675d85b1dc835483012dbdfedefbae0983dcbf1920024437b9165deb7bb66c4d"
+  },
+  "allStoredSourcesHashVerified": true,
+  "metrics": {
+    "recovered_source_files": {
+      "state": "MEASURED",
+      "denominator": 2,
+      "value": 2
+    },
+    "source_inventory_complete": {
+      "state": "MEASURED",
+      "denominator": 1,
+      "value": 1
+    },
+    "exact_bytecode_classes": {
+      "state": "UNAVAILABLE",
+      "denominator": 2
+    },
+    "runtime_oracle": {
+      "state": "UNAVAILABLE",
+      "denominator": 1
+    },
+    "sampled_behavior_oracle": {
+      "state": "UNAVAILABLE",
+      "denominator": 1
+    }
+  }
+}

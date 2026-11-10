@@ -1,0 +1,35 @@
+{
+  "fixtures": {
+    "jvm-multimodule-cfr-linux-amd64": {
+      "artifactSha256": "747346a392096bdac3613ac295ee4b8a743e22689a3738aeca1ad8ffc92fb7cf",
+      "metrics": {
+        "exact_bytecode_classes": {
+          "denominator": 2,
+          "state": "MEASURED",
+          "value": 2
+        },
+        "recovered_source_files": {
+          "denominator": 2,
+          "state": "MEASURED",
+          "value": 2
+        },
+        "runtime_oracle": {
+          "denominator": 1,
+          "state": "MEASURED",
+          "value": 1
+        },
+        "sampled_behavior_oracle": {
+          "denominator": 1,
+          "state": "MEASURED",
+          "value": 1
+        },
+        "source_inventory_complete": {
+          "denominator": 1,
+          "state": "MEASURED",
+          "value": 1
+        }
+      }
+    }
+  },
+  "schemaVersion": 1
+}

@@ -1,0 +1,51 @@
+{
+  "artifactSha256": "8ac4c0d9e5b3261c688f1dcf62394fbe3a1431355cf26dc71264b37844362ef0",
+  "dialect": "lua5.4",
+  "fixtureId": "lua54-stripped-bytecode-linux-amd64",
+  "metrics": {
+    "persisted_contains_relationships": {
+      "denominator": 1,
+      "state": "MEASURED",
+      "value": 0
+    },
+    "persisted_function_prototypes": {
+      "denominator": 1,
+      "state": "MEASURED",
+      "value": 1
+    },
+    "recovered_source_files": {
+      "denominator": 1,
+      "state": "MEASURED",
+      "value": 1
+    },
+    "recovered_source_parse": {
+      "denominator": 1,
+      "state": "MEASURED",
+      "value": 1
+    },
+    "runtime_oracle": {
+      "denominator": 1,
+      "state": "MEASURED",
+      "value": 1
+    },
+    "sampled_behavior_oracle": {
+      "denominator": 10,
+      "state": "MEASURED",
+      "value": 10
+    },
+    "source_inventory_complete": {
+      "denominator": 1,
+      "state": "MEASURED",
+      "value": 1
+    },
+    "source_persistence_integrity": {
+      "denominator": 1,
+      "state": "MEASURED",
+      "value": 1
+    }
+  },
+  "persistedSourceHashVerified": true,
+  "provider": "unluac-rs@1.4.4",
+  "recoveredSourceSha256": "b692c2bafd99ac0d7c07199927e65bcf8f5e609528d8b7a3af75c534d2e89a21",
+  "schemaVersion": 1
+}

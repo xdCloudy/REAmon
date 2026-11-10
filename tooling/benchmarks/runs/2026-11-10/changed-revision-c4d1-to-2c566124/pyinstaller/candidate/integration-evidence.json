@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "producer": "webapp/src/lib/reamon/pyinstaller.task.database.integration.test.ts",
+  "fixtures": {
+    "pyinstaller-module-structured-source-linux-amd64": {
+      "artifactSha256": "746c550fc3324ebf285c0ee4a555ea2afb3d5b12c9c191eb2bf4f0978d263971",
+      "metrics": {
+        "runtime_oracle": {
+          "state": "UNAVAILABLE",
+          "value": null,
+          "denominator": 1,
+          "reason": "This PostgreSQL integration test does not execute the fixture runtime oracle."
+        },
+        "extracted_module_count": {
+          "state": "MEASURED",
+          "value": 180,
+          "denominator": 1
+        },
+        "known_source_value_recall": {
+          "state": "MEASURED",
+          "value": 70,
+          "denominator": 70
+        },
+        "reconstruction_match": {
+          "state": "MEASURED",
+          "value": 70,
+          "denominator": 70
+        },
+        "worker_terminal_page": {
+          "state": "MEASURED",
+          "value": 1,
+          "denominator": 1
+        },
+        "negative_control_mutation_rejection": {
+          "state": "MEASURED",
+          "value": 70,
+          "denominator": 70
+        },
+        "negative_control_false_acceptance": {
+          "state": "MEASURED",
+          "value": 0,
+          "denominator": 70
+        }
+      }
+    }
+  }
+}

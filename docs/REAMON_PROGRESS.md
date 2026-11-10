@@ -1,11 +1,12 @@
 # REAmon product progress
 
-Assessment date: 2026-11-10 · Source: pushed commit `b78fb16` · Weighted estimate: **31.95%**
+Assessment date: 2026-11-10 · Source: pushed commit `b78fb16` · Weighted estimate: **31.98%**
 
 This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.
 
 ## Recent activity (2026-11-10)
 
+- Reran JVM/CFR and PyInstaller at the same c4d1e957-to-2c566124 source pair and combined them with Lua 5.4 in a unified three-format changed-revision matrix. All 20 metrics are complete with clean shared measurement commits; Lua containment improves 0/1 to 1/1, 19 metrics have zero deltas, and the aggregate reports NO_REGRESSION_OBSERVED. Archived at tooling/benchmarks/runs/2026-11-10/changed-revision-c4d1-to-2c566124/.
 - Measured and archived a changed-revision two-format matrix from product source c4d1e957 to 71f480b1, using one clean measurement commit per side and fixture-specific hashed evaluation/toolchain manifests.
 - Both JVM/CFR database persistence runs passed 1/1 integration checks; both PyInstaller database/worker runs passed 2/2. The aggregate measured all 5 JVM and 7 PyInstaller metrics with zero deltas, clean worktrees, and NO_REGRESSION_OBSERVED.
 - Verified persisted JVM source hashes against the two recovered files; the PyInstaller runtime oracle remains inherited from its enrollment receipt. Archived receipts and evidence at tooling/benchmarks/runs/2026-11-10/changed-revision-c4d1-to-71f480b1/.
@@ -35,7 +36,7 @@ This estimate covers the reverse-engineering product goal and secure production 
 | Encrypted-binary and executable-region recovery | 5% | 0% | 0.00 pts |
 | Virtualized-code reconstruction | 5% | 0% | 0.00 pts |
 | Cross-surface tool contracts and scalable evidence delivery | 5% | 50% | 2.50 pts |
-| End-to-end reconstruction acceptance benchmarks | 3% | 24% | 0.72 pts |
+| End-to-end reconstruction acceptance benchmarks | 3% | 25% | 0.75 pts |
 | External web/application behavioural evidence | 2% | 0% | 0.00 pts |
 
 ## Evidence and remaining work

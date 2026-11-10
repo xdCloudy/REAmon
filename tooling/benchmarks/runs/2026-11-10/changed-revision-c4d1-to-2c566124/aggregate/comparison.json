@@ -1,0 +1,212 @@
+{
+  "baselineProductSourceCommit": "c4d1e957b920e9f725db40266d81425852cd86fb",
+  "baselineRunId": "changed-c4d1-to-2c566-baseline",
+  "candidateProductSourceCommit": "2c5661240352fdbe3810433d1f1e3e40ef51bc51",
+  "candidateRunId": "changed-c4d1-to-2c566-candidate",
+  "certification": "This comparison is bounded evidence and is not a product certification.",
+  "evaluationManifestSha256": "a0f1ce446caaf1d208f2c26f97df2d59b611e36a425619a5db2c51a654c60985",
+  "fixtureManifestSha256": "c046ff886384ffe6920af9ba1ed7f9ba9f37e3511a34f08a44f5f67bfb22f30e",
+  "fixtures": {
+    "jvm-multimodule-cfr-linux-amd64": {
+      "artifactSha256": "747346a392096bdac3613ac295ee4b8a743e22689a3738aeca1ad8ffc92fb7cf",
+      "metrics": {
+        "exact_bytecode_classes": {
+          "baseline": 2,
+          "candidate": 2,
+          "delta": 0,
+          "denominator": 2,
+          "direction": "higher",
+          "regressionObserved": false,
+          "state": "MEASURED"
+        },
+        "recovered_source_files": {
+          "baseline": 2,
+          "candidate": 2,
+          "delta": 0,
+          "denominator": 2,
+          "direction": "higher",
+          "regressionObserved": false,
+          "state": "MEASURED"
+        },
+        "runtime_oracle": {
+          "baseline": 1,
+          "candidate": 1,
+          "delta": 0,
+          "denominator": 1,
+          "direction": "equal",
+          "regressionObserved": false,
+          "state": "MEASURED"
+        },
+        "sampled_behavior_oracle": {
+          "baseline": 1,
+          "candidate": 1,
+          "delta": 0,
+          "denominator": 1,
+          "direction": "equal",
+          "regressionObserved": false,
+          "state": "MEASURED"
+        },
+        "source_inventory_complete": {
+          "baseline": 1,
+          "candidate": 1,
+          "delta": 0,
+          "denominator": 1,
+          "direction": "equal",
+          "regressionObserved": false,
+          "state": "MEASURED"
+        }
+      }
+    },
+    "lua54-stripped-bytecode-linux-amd64": {
+      "artifactSha256": "8ac4c0d9e5b3261c688f1dcf62394fbe3a1431355cf26dc71264b37844362ef0",
+      "metrics": {
+        "persisted_contains_relationships": {
+          "baseline": 0,
+          "candidate": 1,
+          "delta": 1,
+          "denominator": 1,
+          "direction": "higher",
+          "regressionObserved": false,
+          "state": "MEASURED"
+        },
+        "persisted_function_prototypes": {
+          "baseline": 1,
+          "candidate": 1,
+          "delta": 0,
+          "denominator": 1,
+          "direction": "equal",
+          "regressionObserved": false,
+          "state": "MEASURED"
+        },
+        "recovered_source_files": {
+          "baseline": 1,
+          "candidate": 1,
+          "delta": 0,
+          "denominator": 1,
+          "direction": "higher",
+          "regressionObserved": false,
+          "state": "MEASURED"
+        },
+        "recovered_source_parse": {
+          "baseline": 1,
+          "candidate": 1,
+          "delta": 0,
+          "denominator": 1,
+          "direction": "equal",
+          "regressionObserved": false,
+          "state": "MEASURED"
+        },
+        "runtime_oracle": {
+          "baseline": 1,
+          "candidate": 1,
+          "delta": 0,
+          "denominator": 1,
+          "direction": "equal",
+          "regressionObserved": false,
+          "state": "MEASURED"
+        },
+        "sampled_behavior_oracle": {
+          "baseline": 10,
+          "candidate": 10,
+          "delta": 0,
+          "denominator": 10,
+          "direction": "higher",
+          "regressionObserved": false,
+          "state": "MEASURED"
+        },
+        "source_inventory_complete": {
+          "baseline": 1,
+          "candidate": 1,
+          "delta": 0,
+          "denominator": 1,
+          "direction": "equal",
+          "regressionObserved": false,
+          "state": "MEASURED"
+        },
+        "source_persistence_integrity": {
+          "baseline": 1,
+          "candidate": 1,
+          "delta": 0,
+          "denominator": 1,
+          "direction": "equal",
+          "regressionObserved": false,
+          "state": "MEASURED"
+        }
+      }
+    },
+    "pyinstaller-module-structured-source-linux-amd64": {
+      "artifactSha256": "746c550fc3324ebf285c0ee4a555ea2afb3d5b12c9c191eb2bf4f0978d263971",
+      "metrics": {
+        "extracted_module_count": {
+          "baseline": 180,
+          "candidate": 180,
+          "delta": 0,
+          "denominator": 1,
+          "direction": "equal",
+          "regressionObserved": false,
+          "state": "MEASURED"
+        },
+        "known_source_value_recall": {
+          "baseline": 70,
+          "candidate": 70,
+          "delta": 0,
+          "denominator": 70,
+          "direction": "higher",
+          "regressionObserved": false,
+          "state": "MEASURED"
+        },
+        "negative_control_false_acceptance": {
+          "baseline": 0,
+          "candidate": 0,
+          "delta": 0,
+          "denominator": 70,
+          "direction": "lower",
+          "regressionObserved": false,
+          "state": "MEASURED"
+        },
+        "negative_control_mutation_rejection": {
+          "baseline": 70,
+          "candidate": 70,
+          "delta": 0,
+          "denominator": 70,
+          "direction": "higher",
+          "regressionObserved": false,
+          "state": "MEASURED"
+        },
+        "reconstruction_match": {
+          "baseline": 70,
+          "candidate": 70,
+          "delta": 0,
+          "denominator": 70,
+          "direction": "higher",
+          "regressionObserved": false,
+          "state": "MEASURED"
+        },
+        "runtime_oracle": {
+          "baseline": 1,
+          "candidate": 1,
+          "delta": 0,
+          "denominator": 1,
+          "direction": "equal",
+          "regressionObserved": false,
+          "state": "MEASURED"
+        },
+        "worker_terminal_page": {
+          "baseline": 1,
+          "candidate": 1,
+          "delta": 0,
+          "denominator": 1,
+          "direction": "equal",
+          "regressionObserved": false,
+          "state": "MEASURED"
+        }
+      }
+    }
+  },
+  "regressions": [],
+  "schemaVersion": 1,
+  "status": "NO_REGRESSION_OBSERVED",
+  "thresholdsApplied": false,
+  "toolchainManifestSha256": "316e54dc3502133ab9a1e5fac30c8f8308eb2bd04655181ab3dc02c7baf4078d",
+  "worktreesClean": true
+}

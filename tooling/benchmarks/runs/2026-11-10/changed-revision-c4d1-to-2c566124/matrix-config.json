@@ -1,0 +1,27 @@
+{
+  "fixtureManifest": "fixture-manifest.json",
+  "fixtures": {
+    "jvm-multimodule-cfr-linux-amd64": {
+      "baselineReceipt": "jvm/baseline-receipt.json",
+      "candidateReceipt": "jvm/candidate-receipt.json",
+      "evaluationManifest": "jvm/evaluation-manifest.json",
+      "fixtureManifest": "jvm/fixture-manifest.json",
+      "toolchainManifest": "jvm/toolchain.json"
+    },
+    "lua54-stripped-bytecode-linux-amd64": {
+      "baselineReceipt": "lua54/baseline-receipt.json",
+      "candidateReceipt": "lua54/candidate-receipt.json",
+      "evaluationManifest": "lua54/evaluation-manifest.json",
+      "fixtureManifest": "lua54/fixture-manifest.json",
+      "toolchainManifest": "lua54/toolchain.json"
+    },
+    "pyinstaller-module-structured-source-linux-amd64": {
+      "baselineReceipt": "pyinstaller/baseline-receipt.json",
+      "candidateReceipt": "pyinstaller/candidate-receipt.json",
+      "evaluationManifest": "pyinstaller/evaluation-manifest.json",
+      "fixtureManifest": "pyinstaller/fixture-manifest.json",
+      "toolchainManifest": "pyinstaller/toolchain.json"
+    }
+  },
+  "schemaVersion": 1
+}
