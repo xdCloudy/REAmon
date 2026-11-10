@@ -1,17 +1,18 @@
 # REAmon product progress
 
-Assessment date: 2026-11-10 · Source: pushed commit `13c440d` · Weighted estimate: **32.83%**
+Assessment date: 2026-11-10 · Source: pushed commit `13c440d` · Weighted estimate: **32.91%**
 
 This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.
 
 ## Recent activity (2026-11-10)
 
-- Added a Go regression fixture proving local interface methods and labels remain explicitly unsupported, while referenced ordinary locals remain eligible. The full Docker Go refactoring package passes.
-- The progress ledger now points active-work evidence at source commit 9cc07d36 and separates this new test evidence from the last scored capability change.
+- Implemented a bounded whole-project Go inventory across package directories for all discovered Go source units in an exact task/run. Package results are combined under one source-set hash; unresolved packages are disclosed and preserve package-scoped suggestions.
+- Persisted the aggregate through proposal and draft history and exposed its whole-project scope and package/file counts in the visualizer. Cross-package rows remain inventory-only; rename proposals remain package-scoped.
+- Verified Go package tests, Python API contract tests, focused route/history/UI tests, and targeted ESLint. A full webapp TypeScript check reports existing errors in test files, including draft-history and database-integration tests; production files changed in this slice have no reported type errors.
 
-**Score decision:** No percentage increase for this test-only slice: it confirms an existing classification boundary and does not add a product capability. The last verified capability change remains file-scope import inventory, moving the weighted estimate from 32.75% to 32.83% (21% completion for the 8%-weight semantic-renaming workstream).
+**Score decision:** Award one partial point to the 8%-weight semantic-renaming workstream (21% to 22%), moving the weighted estimate from 32.83% to 32.91% (+0.08). The bounded complete inventory across discovered Go package directories is a measurable project-scope capability. This does not credit exhaustive external source discovery, name quality, cross-package renaming, or broad suite acceptance. Focused tests pass; full TypeScript validation remains red on test-file typing errors.
 
-**Next measurable gate:** Implement the next measurable semantic-renaming gate: inventory a declared whole-project Go scope with bounded progress and explicit counts for eligible, named, unnamed, ambiguous, excluded, and unsupported identities.
+**Next measurable gate:** Add reproducible Go project fixtures for build tags and module/import resolution, then measure eligible, meaningful, unnamed, ambiguous, excluded, and unsupported symbol counts against known source; keep cross-package edits disabled until binding-preserving rename tests pass.
 
 | Workstream | Goal weight | Estimated complete | Weighted points |
 | --- | ---: | ---: | ---: |
@@ -21,7 +22,7 @@ This estimate covers the reverse-engineering product goal and secure production 
 | Maintainable editing, review, and export | 4% | 60% | 2.40 pts |
 | Fixture-backed validation and fidelity evidence | 2% | 16% | 0.32 pts |
 | Security, reliability, and production operations | 10% | 98% | 9.80 pts |
-| Agentic project-wide semantic renaming | 8% | 21% | 1.68 pts |
+| Agentic project-wide semantic renaming | 8% | 22% | 1.76 pts |
 | Cross-file semantic rename propagation | 7% | 13% | 0.91 pts |
 | Safe autonomous rename acceptance | 5% | 0% | 0.00 pts |
 | Agentic semantic type and data-structure recovery | 5% | 12% | 0.60 pts |
@@ -76,9 +77,9 @@ This estimate covers the reverse-engineering product goal and secure production 
 
 ### Agentic project-wide semantic renaming
 
-**Current evidence:** Partial foundations include a verified, source-hash-bound inventory for same-directory Go package snapshots. It covers package declarations, file-scope import aliases, and explicit and implicit function-scoped bindings with stable snapshot IDs, source locations, resolved reference counts, and eligible/excluded/unsupported reasons; name assessment is explicitly unassessed. Dot imports are unsupported and blank imports are omitted. File/local entries are inventory-only and are not rename candidates. Exact aggregate totals include all entries while detail is capped at 5,000. The route persists the inventory, draft history reloads it compatibly, and the visualizer shows scope-aware rows. Complete project discovery and semantic naming quality remain open.
+**Current evidence:** Partial foundations now include a verified whole-project inventory for the discovered Go source units in one exact task/run. The route groups files by package directory, type-checks each package, and combines package declarations, imports, and explicit/implicit function-scoped bindings under one source-set hash with aggregate eligible/excluded/unsupported counts. Complete means this bounded discovered source set passed checks; it does not prove exhaustive external source discovery. Cross-package rows remain inventory-only, and naming quality remains unassessed.
 
-**Remaining:** Extend inventories across declared complete project scopes and supported languages/symbol kinds; classify eligible, meaningful, unnamed, ambiguous, excluded, unsupported, and truncated populations; add evidence-linked proposals, iterative refinement without identity drift, confidence/provenance, and held-out measurements of semantic usefulness, coverage, consistency, calibration, false positives, and scale. Do not require exact original names erased by compilation.
+**Remaining:** Extend inventories to build-tag and module-aware scopes and additional languages/symbol kinds; classify meaningful, unnamed, ambiguous, excluded, unsupported, and truncated populations; add evidence-linked proposals, iterative refinement without identity drift, confidence/provenance, and held-out measurements of semantic usefulness, coverage, consistency, calibration, false positives, and scale. Do not require exact original names erased by compilation.
 
 ### Cross-file semantic rename propagation
 

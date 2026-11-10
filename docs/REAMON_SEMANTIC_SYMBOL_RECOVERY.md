@@ -51,9 +51,11 @@ autonomous project-wide naming, cross-file propagation, and autonomous acceptanc
 This list describes adapter existence only. It does not imply exact name recovery,
 semantic naming accuracy, cross-provider symbol equivalence, or safe autonomous use.
 
-The safe-renames route now builds a verified, same-directory Go package snapshot from
-accepted sibling-source receipts and asks the `go/types` helper for rename bindings and
-an inventory. Each package declaration and file-scope import alias is listed with a
+The safe-renames route builds a verified Go package snapshot from accepted sibling-source
+receipts and asks the `go/types` helper for rename bindings and an inventory. For the
+inventory view, it also gathers every discovered Go source unit from the exact analysis
+task/run, groups files by package directory, type-checks each package, and combines the
+results under one whole-project source-set hash. Each package declaration and file-scope import alias is listed with a
 stable snapshot-bound ID, name,
 kind, source path and byte offset, resolved reference count, and an explicit
 eligible/excluded/unsupported classification with its reason. Name quality remains
@@ -74,9 +76,14 @@ dot imports are marked unsupported, and blank imports are omitted because they d
 no binding. Referenced locals and imports are eligible inventory entries but remain
 inventory-only; unreferenced locals and imports are explicitly excluded. Local struct
 fields, interface methods, labels, and other unsupported object kinds retain explicit
-unsupported reasons. The project rename flow still targets package declarations. This
-does not establish whole-project file completeness, assess names as meaningful or
-unnamed, or measure naming quality.
+unsupported reasons. The project inventory is complete only for the bounded set of Go
+source units discovered in that task/run and only when every package type-checks. It is
+capped at 256 files and 8 MiB, with details capped at 5,000 rows. Build-tag and
+module-aware dependency resolution are not established, so unsupported checks fall back
+to the selected package inventory and disclose the project-inventory error. Project-wide
+rows remain inventory-only; the rename flow still targets package declarations. This
+does not establish that the analysis run discovered every Go file in an external project,
+assess names as meaningful or unnamed, or measure naming quality.
 
 ## P1 milestone and acceptance gates
 
