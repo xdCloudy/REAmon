@@ -1,0 +1,55 @@
+{
+    "schemaVersion":  1,
+    "fixtureId":  "jvm-multimodule-cfr-linux-amd64",
+    "artifactSha256":  "747346a392096bdac3613ac295ee4b8a743e22689a3738aeca1ad8ffc92fb7cf",
+    "repositoryRevision":  "b0633aaf8bf3eccdb6d73dd5b32ddf0fe1526c6f",
+    "runnerSha256":  "39fde0bc4bccb2ce48a1f5e00a91e18f02dcec974f5884fe1d3611f0ef9b2c70",
+    "provider":  "Vineflower 1.12.0",
+    "serviceImageId":  "sha256:5e70d71a8d75881960f64b5fa643ece2b7d986f439a5f4ff8704c7935285aab3",
+    "runId":  "vineflower-fcdafe04",
+    "discoveredSourceFiles":  2,
+    "expectedSourceFiles":  2,
+    "truncated":  false,
+    "recoveredSourceSha256ByPath":  {
+                                        "org/reamon/fixture/Main.java":  "3dbe2b59c69f58079f9304b5225db20dfb2b1e06dec0400cb5cbb7ad463a1957",
+                                        "org/reamon/fixture/RuleEngine.java":  "a54e3cb5ebccbd50f96ea4d4f9e9a972c3914611bca7105ab01c51d6c87a2391"
+                                    },
+    "sourceCorrespondence":  {
+                                 "method":  "javap -p -s -c exact output per class, compiled with the same pinned JDK",
+                                 "classesMatched":  1,
+                                 "classesExpected":  2,
+                                 "measurementComplete":  true,
+                                 "allClassesMatched":  false,
+                                 "classes":  {
+                                                 "org.reamon.fixture.Main":  {
+                                                                                 "bytecodeMatch":  true,
+                                                                                 "originalJavapSha256":  "10b0bc971e7b2461a457748cbf9dc919693960bfe360a19e69ae90f67d4eb46c",
+                                                                                 "recoveredJavapSha256":  "10b0bc971e7b2461a457748cbf9dc919693960bfe360a19e69ae90f67d4eb46c"
+                                                                             },
+                                                 "org.reamon.fixture.RuleEngine":  {
+                                                                                       "bytecodeMatch":  false,
+                                                                                       "originalJavapSha256":  "257c3acee517dabf29a703141287a7ddf5b549ecc86a642237c4ad1422a320f1",
+                                                                                       "recoveredJavapSha256":  "68c9b9fe379d1070f84e870693bb0fad629926fef12bb85f3ae49839f203a7d0"
+                                                                                   }
+                                             }
+                             },
+    "compileCommand":  "javac --release 17",
+    "compileEnvironment":  "eclipse-temurin:21-jdk-jammy@sha256:4b1a74fbffbe6b4e7b6f0171a472478282fb463790a51edf10e465d578f22b69 in Docker with no network and bounded resources",
+    "observedRuntimeStdout":  "low:-15,high:42,high:22",
+    "expectedRuntimeStdout":  "low:-15,high:42,high:22",
+    "runtimeMatches":  true,
+    "staticFlowCleanup":  {
+                              "status":  "not_applied",
+                              "transformer":  "allatori.FlowObfuscationTransformer",
+                              "upstream":  "opastorello/deobfuscator",
+                              "upstreamRevision":  "bdde461b5aaf762f3b35d410ac76d850da5dd7a1",
+                              "upstreamSha256":  "23ba5d13ee632bc941c68f4dff24d7313881ae8754a10270a3d0c1dfde2be283",
+                              "artifactId":  null,
+                              "outputSha256":  null,
+                              "outputBytes":  null,
+                              "fixedInstructionCount":  0,
+                              "warning":  "Allatori flow cleanup found no supported instruction patterns.",
+                              "targetCodeExecuted":  false
+                          },
+    "claim":  "One synthetic two-class JVM fixture compiled and ran with matching observed stdout; javap signatures and bytecode were compared per class. This does not prove original-source equivalence or broad JVM fidelity."
+}

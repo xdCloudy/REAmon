@@ -39,3 +39,9 @@ powershell -ExecutionPolicy Bypass -File tooling/benchmarks/jvm-multimodule-cfr/
 ```
 
 The runner verifies the JAR against its manifest, stages it under a unique path in `reamon_artifacts`, calls the live CFR service, checks the returned inventory and hashes, copies the derived sources into the requested output folder, then compiles and runs them in the pinned Docker image with networking disabled and resource limits set. It removes the staged input only after verifying its SHA-256. The output folder must not already exist; provider and validation receipts plus recovered sources are written there. The recorded run receipts in `runs/2026-11-09-cfr-runner/` show the script completing this flow. This one fixture does not complete the broader benchmark-corpus requirement.
+
+## Vineflower provider measurement
+
+A second live JVM provider measurement is archived in `runs/2026-11-10-vineflower/`. Rebuild the held-out JAR with `build.ps1`, then run `run_vineflower.ps1` with a fresh output directory. The runner submits the SHA-256-bound JAR to the isolated Vineflower service, verifies the complete expected source inventory and output hashes, then compiles and validates the recovered sources in the pinned Docker JDK.
+
+On the recorded run, Vineflower 1.12.0 returned both expected files without truncation and matched the runtime oracle. Exact `javap -p -s -c` output matched 1/2 classes; `RuleEngine` differed. This is bounded same-revision provider evidence, not source-equivalence proof or a changed-revision comparison.
