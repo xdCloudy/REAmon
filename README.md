@@ -88,7 +88,7 @@ The [autonomous reconstruction and fidelity delivery plan](docs/REAMON_AUTONOMOU
 
 Latest evidence-based score change (2026-11-10): **+0.08 points** (32.67% → 32.75%). The same-directory Go snapshot now inventories implicit type-switch case variables through go/types implicit-object metadata. The regression reproduced their omission before the change and now verifies all three case-specific rows, unique IDs, and per-case reference counts. The safe-renames validator accepts the new local kind. Docker Go package tests pass; focused safe-renames, draft-history, and visualizer tests pass 47/47; Docker type-check and targeted ESLint pass. Database integration and a fresh full webapp suite were not run. This adds one partial point to the 8%-weight semantic-renaming workstream (+0.08 overall); complete project discovery and naming-quality benchmarks remain open.
 
-Refreshed from pushed commit `46a8188`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+Refreshed from pushed commit `8756c61`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
