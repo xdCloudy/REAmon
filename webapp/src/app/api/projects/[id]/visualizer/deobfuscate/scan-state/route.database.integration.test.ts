@@ -6,13 +6,12 @@ import prisma from '@/lib/prisma'
 
 const mocks = vi.hoisted(() => ({
   requireEffectiveUser: vi.fn(),
-  requireProjectAccess: vi.fn(),
   getActiveWorkspaceImportSelection: vi.fn(),
 }))
 
-vi.mock('@/lib/access', () => ({
+vi.mock('@/lib/access', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@/lib/access')>(),
   requireEffectiveUser: mocks.requireEffectiveUser,
-  requireProjectAccess: mocks.requireProjectAccess,
 }))
 vi.mock('@/lib/reamon/inventory-query', () => ({ getActiveWorkspaceImportSelection: mocks.getActiveWorkspaceImportSelection }))
 
@@ -31,6 +30,7 @@ const initialState = {
 }
 let projectId = ''
 let projectOwnerId = ''
+let foreignUserId = ''
 let taskId = ''
 let artifactId = ''
 
@@ -49,6 +49,11 @@ describe.skipIf(!enabled)('Function queue scan state against PostgreSQL', () => 
     const user = await prisma.user.findFirst({ select: { id: true } })
     if (!user) throw new Error('Function queue integration requires an existing database user')
     projectOwnerId = user.id
+    const foreign = await prisma.user.create({
+      data: { email: `function-queue-foreign-${randomUUID()}@example.invalid`, name: 'Function queue foreign user' },
+      select: { id: true },
+    })
+    foreignUserId = foreign.id
     const project = await prisma.project.create({
       data: { userId: user.id, name: `FunctionQueueState-${randomUUID()}`, projectKind: 'REVERSE_ENGINEERING' },
       select: { id: true },
@@ -69,13 +74,26 @@ describe.skipIf(!enabled)('Function queue scan state against PostgreSQL', () => 
     taskId = task.id
 
     mocks.requireEffectiveUser.mockResolvedValue({ userId: user.id })
-    mocks.requireProjectAccess.mockResolvedValue({ project: { id: projectId, userId: user.id } })
     mocks.getActiveWorkspaceImportSelection.mockResolvedValue({ artifactWhere: { id: artifactId } })
   })
 
   afterAll(async () => {
-    if (projectId) await prisma.project.deleteMany({ where: { id: projectId, userId: projectOwnerId } })
-    await prisma.$disconnect()
+    try {
+      vi.unstubAllEnvs()
+      if (projectId) {
+        await prisma.reamonFunctionQueueState.deleteMany({ where: { projectId } })
+        await prisma.task.deleteMany({ where: { projectId } })
+        await prisma.artifact.deleteMany({ where: { projectId } })
+        await prisma.project.deleteMany({ where: { id: projectId, userId: projectOwnerId } })
+        expect(await prisma.project.count({ where: { id: projectId } })).toBe(0)
+      }
+      if (foreignUserId) {
+        await prisma.user.deleteMany({ where: { id: foreignUserId } })
+        expect(await prisma.user.count({ where: { id: foreignUserId } })).toBe(0)
+      }
+    } finally {
+      await prisma.$disconnect()
+    }
   })
 
   it('round-trips checkpoints and atomically rejects stale browser writes', async () => {
@@ -119,5 +137,23 @@ describe.skipIf(!enabled)('Function queue scan state against PostgreSQL', () => 
     expect(malformed.status).toBe(400)
     const row = await prisma.reamonFunctionQueueState.findUnique({ where: { taskId }, select: { revision: true } })
     expect(row?.revision).toBe(3)
+  })
+
+  it('denies foreign checkpoint reads and writes with ACCESS_ENFORCE=0', async () => {
+    vi.stubEnv('ACCESS_ENFORCE', '0')
+    mocks.requireEffectiveUser.mockResolvedValue({ userId: foreignUserId })
+
+    const foreignRead = await GET(readRequest(), params())
+    expect(foreignRead.status).toBe(404)
+    expect(await foreignRead.json()).toEqual({ error: 'Not found' })
+
+    const foreignWrite = await PUT(stateRequest({ ...initialState, cursor: 'foreign-write' }, 3), params())
+    expect(foreignWrite.status).toBe(404)
+    expect(await foreignWrite.json()).toEqual({ error: 'Not found' })
+
+    const saved = await prisma.reamonFunctionQueueState.findUnique({ where: { taskId }, select: { projectId: true, revision: true, state: true } })
+    expect(saved).toMatchObject({ projectId, revision: 3 })
+    expect(['browser-a', 'browser-b']).toContain((saved?.state as typeof initialState).cursor)
+    vi.unstubAllEnvs()
   })
 })
