@@ -6,13 +6,13 @@ This estimate covers the reverse-engineering product goal and secure production 
 
 ## Recent activity (2026-11-10)
 
-- The pinned Ghidra 12.1.4 CFG now has opt-in PostgreSQL acceptance through the real webapp provider and ingestion path. On a synthetic Go ELF, all emitted CFG metrics and graphs read back exactly; the disposable integration passed 1/1 and cleaned its rows and derived output.
-- The full Docker webapp suite passes 649 files / 9,911 tests, with 2 expected failures and 52 files / 192 skipped. Docker type-check, targeted ESLint, and focused Ghidra tests (10/10) pass.
-- The generated settings reference was refreshed and verified 13/13 against an isolated wiki copy; the user-edited wiki checkout was left untouched.
+- Rename-suggestion responses now disclose when the bounded 4,096-row accepted-project-symbol scan is truncated. The visualizer warns that older accepted project evidence may be missing; the saved proposal retains the same flag.
+- A Docker route regression supplies 4,097 synthetic rows and verifies both response disclosure and persisted proposal metadata. Focused safe-renames tests pass 4/4; Docker type-check and targeted ESLint pass.
+- The full Docker webapp suite passes 649 files / 9,912 tests, with 2 expected failures and 52 files / 192 skipped. The edited wiki checkout was excluded using an isolated copy.
 
-**Score decision:** This closes one bounded native CFG persistence gate. Database-grounded project memory and provenance rises from 81% to 82%, adding 0.05 weighted points and moving the overall estimate from 32.38% to 32.43%. The evidence is one synthetic native fixture; broad format coverage, production-scale persistence, and semantic reconstruction quality are not claimed.
+**Score decision:** No weighted credit is added for this transparency improvement: the route still does not provide a complete project inventory, an eligible-symbol denominator, or benchmarked semantic naming quality. The overall weighted estimate remains 32.43% (0.00-point change).
 
-**Next measurable gate:** Audit the highest weighted open reconstruction gap, agentic project-wide semantic renaming, against its ASSR acceptance requirements; establish a baseline and select a bounded end-to-end proposal and inventory gate.
+**Next measurable gate:** Build a reproducible project-wide symbol inventory for a declared supported scope, accounting for eligible, already meaningful, unnamed, ambiguous, excluded, and unsupported symbols with explicit denominator and truncation evidence.
 
 | Workstream | Goal weight | Estimated complete | Weighted points |
 | --- | ---: | ---: | ---: |
@@ -77,7 +77,7 @@ This estimate covers the reverse-engineering product goal and secure production 
 
 ### Agentic project-wide semantic renaming
 
-**Current evidence:** Partial foundations exist: project symbol scans, stable identities and accepted aliases, provider and cross-provider evidence, bounded project memory, AI rename proposals, and selected language-aware same-source binding adapters. There is no validated autonomous end-to-end workflow that discovers and iteratively names all eligible symbols project-wide.
+**Current evidence:** Partial foundations exist: project symbol scans, stable identities and accepted aliases, provider and cross-provider evidence, bounded project memory, AI rename proposals, and selected language-aware same-source binding adapters. There is no validated autonomous end-to-end workflow that discovers and iteratively names all eligible symbols project-wide. On 2026-11-10, rename-suggestion responses began returning the accepted-project-symbol scan truncation flag; the visualizer warns that older evidence may be missing. A Docker route regression supplies 4,097 mocked rows against the 4,096 scan cap and verifies both response disclosure and the saved proposal record. This prevents silent partial-context use but does not add a whole-project inventory, eligible-symbol denominator, or semantic naming benchmark.
 
 **Remaining:** Implement a complete project inventory, evidence-linked proposals for supported symbol kinds, iterative refinement without identity drift, explicit confidence/uncertainty/provenance, and benchmarked semantic usefulness, discovery coverage, cross-agent consistency, calibration, false-positive rate, and large-project performance. Do not require exact original names erased by compilation.
 
