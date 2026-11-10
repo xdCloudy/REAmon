@@ -249,6 +249,17 @@ interface GoProjectRenameSelection {
   scopeType: string
 }
 
+interface GoProjectInventory {
+  scope: 'reviewed-same-directory-go-package-source-snapshot'
+  sourceFileCount: number
+  privatePackageSymbolCount: number
+  referencedPrivatePackageSymbols: number
+  unreferencedPrivateSymbols: number
+  exportedPackageSymbolCount: number
+  unsupportedPackageSymbolCount: number
+  renameBindingCatalogTruncated: boolean
+}
+
 async function listGoProjectRenameBindings(files: GoPackageRenameFile[], selectedPath: string) {
   const selected = files.find((file) => file.relativePath === selectedPath)
   if (!selected) throw new Error('Selected Go source is missing from the verified package snapshot')
@@ -261,12 +272,31 @@ async function listGoProjectRenameBindings(files: GoPackageRenameFile[], selecte
   }, { timeoutMs: 60_000 })
   const payload = await response.json().catch(() => null) as Record<string, unknown> | null
   const bindings = Array.isArray(payload?.bindings) ? payload.bindings : []
+  const rawInventory = plainObject(payload?.inventory)
+  const inventory = {
+    scope: rawInventory.scope,
+    sourceFileCount: rawInventory.source_file_count,
+    privatePackageSymbolCount: rawInventory.private_package_symbol_count,
+    referencedPrivatePackageSymbols: rawInventory.referenced_private_package_symbols,
+    unreferencedPrivateSymbols: rawInventory.unreferenced_private_symbols,
+    exportedPackageSymbolCount: rawInventory.exported_package_symbol_count,
+    unsupportedPackageSymbolCount: rawInventory.unsupported_package_symbol_count,
+    renameBindingCatalogTruncated: rawInventory.rename_binding_catalog_truncated,
+  }
   const listedFiles = Array.isArray(payload?.files) ? payload.files.map(plainObject) : []
   const expectedFiles = [...files].sort((left, right) => left.relativePath < right.relativePath ? -1 : left.relativePath > right.relativePath ? 1 : 0)
   const expectedSourceSetSha256 = hashGoPackageSourceSet(files)
   if (!response.ok || payload?.source_sha256 !== selected.sourceHash
       || payload?.source_set_sha256 !== expectedSourceSetSha256
       || payload?.selected_path !== selectedPath || typeof payload?.truncated !== 'boolean'
+      || inventory.scope !== 'reviewed-same-directory-go-package-source-snapshot'
+      || ![inventory.sourceFileCount, inventory.privatePackageSymbolCount, inventory.referencedPrivatePackageSymbols,
+        inventory.unreferencedPrivateSymbols, inventory.exportedPackageSymbolCount, inventory.unsupportedPackageSymbolCount]
+        .every((value) => Number.isSafeInteger(value) && Number(value) >= 0)
+      || inventory.sourceFileCount !== expectedFiles.length
+      || inventory.privatePackageSymbolCount !== Number(inventory.referencedPrivatePackageSymbols) + Number(inventory.unreferencedPrivateSymbols)
+      || typeof inventory.renameBindingCatalogTruncated !== 'boolean'
+      || inventory.renameBindingCatalogTruncated !== payload.truncated
       || typeof payload?.parser_version !== 'string' || !/^go\d+\.\d+\.\d+(?:[.-][0-9A-Za-z.-]+)?$/.test(payload.parser_version)
       || listedFiles.length !== expectedFiles.length || listedFiles.some((file, index) =>
         file.relative_path !== expectedFiles[index].relativePath || file.source_sha256 !== expectedFiles[index].sourceHash)
@@ -288,6 +318,7 @@ async function listGoProjectRenameBindings(files: GoPackageRenameFile[], selecte
     selectedPath,
     bindings: bindings as SafeRenameBinding[],
     truncated: payload.truncated,
+    inventory: inventory as GoProjectInventory,
   }
 }
 
@@ -842,13 +873,13 @@ export async function POST(request: Request, { params }: RouteParams) {
             providerName: 'REAmon scope-safe rename suggestions', modelIdentifier: provider.modelIdentifier.slice(0, 128),
             question: (typeof body.question === 'string' ? body.question : '').slice(0, 1000),
             scope: 'rename-suggestions', status: 'SUCCEEDED',
-            requestPayload: { operation: 'scope-safe-rename-suggestions', providerId: provider.id, modelIdentifier: provider.modelIdentifier, inputSha256: workingSourceSha256, artifactSourceSha256, inputSource: workingSource, bindings: [], projectSymbolContext: '', projectSymbolContextSha256, goProjectScope: crossFileGo, goSourceSetSha256: goProjectCatalog?.sourceSetSha256 ?? null, goSelectedPath: goProjectCatalog?.selectedPath ?? null, renames: [] },
+            requestPayload: { operation: 'scope-safe-rename-suggestions', providerId: provider.id, modelIdentifier: provider.modelIdentifier, inputSha256: workingSourceSha256, artifactSourceSha256, inputSource: workingSource, bindings: [], projectSymbolContext: '', projectSymbolContextSha256, goProjectScope: crossFileGo, goSourceSetSha256: goProjectCatalog?.sourceSetSha256 ?? null, goSelectedPath: goProjectCatalog?.selectedPath ?? null, goProjectInventory: goProjectCatalog ? { ...goProjectCatalog.inventory } : null, renames: [] },
             syntaxValidated: false, validationStatus: 'UNAVAILABLE', validationMethod: 'proposal-only',
             validationMessage: 'No eligible obfuscated local bindings were found; no rename proposal was generated.', completedAt: new Date(),
           },
           select: { id: true },
         })
-        return NextResponse.json({ sourceSha256: workingSourceSha256, providerId: provider.id, providerName: 'REAmon scope-safe renames', model: provider.modelIdentifier, attemptId: savedAttempt.id, projectSymbolContextSha256, scope: crossFileGo ? 'project' : 'file', sourceSetSha256: goProjectCatalog?.sourceSetSha256 ?? null, candidates: 0, renames: [] }, { headers: { 'Cache-Control': 'private, no-store' } })
+        return NextResponse.json({ sourceSha256: workingSourceSha256, providerId: provider.id, providerName: 'REAmon scope-safe renames', model: provider.modelIdentifier, attemptId: savedAttempt.id, projectSymbolContextSha256, scope: crossFileGo ? 'project' : 'file', sourceSetSha256: goProjectCatalog?.sourceSetSha256 ?? null, projectInventory: goProjectCatalog?.inventory ?? null, candidates: 0, renames: [] }, { headers: { 'Cache-Control': 'private, no-store' } })
       }
 
       const priorAttempts = await prisma.reamonCodeAttempt.findMany({
@@ -998,6 +1029,7 @@ export async function POST(request: Request, { params }: RouteParams) {
             goProjectScope: crossFileGo,
             goSourceSetSha256: goProjectCatalog?.sourceSetSha256 ?? null,
             goSelectedPath: goProjectCatalog?.selectedPath ?? null,
+            goProjectInventory: goProjectCatalog ? { ...goProjectCatalog.inventory } : null,
             bindings: candidates.map((candidate) => ({ id: candidate.id, name: candidate.name, kind: candidate.kind, scopeType: candidate.scopeType, referenceCount: candidate.referenceCount, exported: candidate.exported })),
             projectSymbolContext,
             projectSymbolContextSha256,
@@ -1023,6 +1055,7 @@ export async function POST(request: Request, { params }: RouteParams) {
         projectSymbolScanTruncated,
         scope: crossFileGo ? 'project' : 'file',
         sourceSetSha256: goProjectCatalog?.sourceSetSha256 ?? null,
+        projectInventory: goProjectCatalog?.inventory ?? null,
         candidates: candidates.length,
         renames,
       }, { headers: { 'Cache-Control': 'private, no-store' } })

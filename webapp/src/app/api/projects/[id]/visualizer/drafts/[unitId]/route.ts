@@ -98,6 +98,27 @@ function safeRenameCandidateCount(value: unknown): number | undefined {
   return Array.isArray(bindings) ? bindings.length : undefined
 }
 
+function safeGoProjectInventory(value: unknown) {
+  const inventory = plainObject(value)
+  const counts = [inventory.sourceFileCount, inventory.privatePackageSymbolCount,
+    inventory.referencedPrivatePackageSymbols, inventory.unreferencedPrivateSymbols,
+    inventory.exportedPackageSymbolCount, inventory.unsupportedPackageSymbolCount]
+  if (inventory.scope !== 'reviewed-same-directory-go-package-source-snapshot'
+      || !counts.every((count) => Number.isSafeInteger(count) && Number(count) >= 0)
+      || inventory.privatePackageSymbolCount !== Number(inventory.referencedPrivatePackageSymbols) + Number(inventory.unreferencedPrivateSymbols)
+      || typeof inventory.renameBindingCatalogTruncated !== 'boolean') return undefined
+  return {
+    scope: inventory.scope,
+    sourceFileCount: inventory.sourceFileCount,
+    privatePackageSymbolCount: inventory.privatePackageSymbolCount,
+    referencedPrivatePackageSymbols: inventory.referencedPrivatePackageSymbols,
+    unreferencedPrivateSymbols: inventory.unreferencedPrivateSymbols,
+    exportedPackageSymbolCount: inventory.exportedPackageSymbolCount,
+    unsupportedPackageSymbolCount: inventory.unsupportedPackageSymbolCount,
+    renameBindingCatalogTruncated: inventory.renameBindingCatalogTruncated,
+  }
+}
+
 function isInside(root: string, file: string): boolean {
   const relative = path.relative(root, file)
   return Boolean(relative) && relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)
@@ -259,6 +280,7 @@ export async function GET(_request: Request, { params }: RouteParams) {
         proposalSourceSha256: attempt.scope === 'rename-suggestions' && typeof plainObject(attempt.requestPayload).inputSha256 === 'string' ? plainObject(attempt.requestPayload).inputSha256 : undefined,
         proposalGoProjectScope: attempt.scope === 'rename-suggestions' && plainObject(attempt.requestPayload).goProjectScope === true,
         proposalGoSourceSetSha256: attempt.scope === 'rename-suggestions' && typeof plainObject(attempt.requestPayload).goSourceSetSha256 === 'string' ? plainObject(attempt.requestPayload).goSourceSetSha256 : undefined,
+        proposalGoProjectInventory: attempt.scope === 'rename-suggestions' ? safeGoProjectInventory(plainObject(attempt.requestPayload).goProjectInventory) : undefined,
         proposalProviderId: attempt.scope === 'rename-suggestions' && typeof plainObject(attempt.requestPayload).providerId === 'string' ? plainObject(attempt.requestPayload).providerId : undefined,
         projectSymbolContextSha256: attempt.scope === 'rename-suggestions' && typeof plainObject(attempt.requestPayload).projectSymbolContextSha256 === 'string' ? plainObject(attempt.requestPayload).projectSymbolContextSha256 : undefined,
         proposalCandidateCount: attempt.scope === 'rename-suggestions' ? safeRenameCandidateCount(attempt.requestPayload) : undefined,

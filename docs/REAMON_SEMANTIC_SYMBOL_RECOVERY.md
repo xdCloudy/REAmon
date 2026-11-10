@@ -51,12 +51,19 @@ autonomous project-wide naming, cross-file propagation, and autonomous acceptanc
 This list describes adapter existence only. It does not imply exact name recovery,
 semantic naming accuracy, cross-provider symbol equivalence, or safe autonomous use.
 
-An experimental Go package-snapshot helper is being developed for same-directory
-cross-file package bindings. Its focused engine tests cover object-identity-preserving
-edits and stale-source rejection, but the safe-renames route does not yet construct
-trusted package inputs or invoke it, and multi-file draft review/persistence is absent.
-Until that integration and its route/database acceptance pass, Go remains source-scoped
-in the product and receives no ASSR-2 completion credit.
+The safe-renames route now builds a verified, same-directory Go package snapshot from
+accepted sibling-source receipts and asks the `go/types` helper for both rename
+bindings and an inventory. The inventory reports source-file count; supported private
+package symbols split into referenced and unreferenced; exported and unsupported
+package symbols; and whether the rename-binding catalog is truncated. The API validates
+the source-set hash, file list, count invariants, and truncation agreement, then returns
+and persists the inventory with the proposal. The draft-history API validates and
+returns the saved counts when reloading an attempt; the visualizer displays them and
+states that they cover only the reviewed snapshot. Docker Go regressions check exact
+counts including unreferenced symbols and unsupported `init` and `main` functions. Focused
+route tests check returned/persisted counts and attempt reload. This does not inventory
+local symbols, classify names as meaningful or unnamed, establish whole-project file
+completeness, or measure naming quality.
 
 ## P1 milestone and acceptance gates
 
@@ -79,6 +86,10 @@ of another.
 - Measure eligible-symbol discovery coverage, name coverage, semantic naming quality,
   exact original-name recovery where ground truth survives, confidence calibration,
   and false-positive rate.
+
+The scoped Go inventory is an initial denominator foundation for package-level
+declarations only. It does not satisfy the project-wide discovery or semantic quality
+acceptance gates above.
 
 ### ASSR-2: Cross-file and cross-function propagation
 A narrow Go slice is now wired through the project visualizer: same-directory package files are eligible only when each sibling has a current accepted review receipt; the helper preserves `go/types` object identity and emits separate hash-bound drafts. This advances partial implementation status, but does not meet the general ASSR-2 acceptance criteria below. Live database/browser review, rollback, module/import handling, other languages, and held-out integrity measurements remain unverified.

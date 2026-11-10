@@ -662,6 +662,40 @@ func TestProjectCatalogExcludesExportedPackageAPIs(t *testing.T) {
 	}
 }
 
+func TestProjectCatalogReportsPackageInventoryIncludingUnreferencedSymbols(t *testing.T) {
+	request := goProjectRequest([]projectFile{
+		{Path: "pkg/api.go", Source: "package sample\nfunc Public(value int) int { return private(value) }\nfunc private(value int) int { return value + 1 }\n"},
+		{Path: "pkg/use.go", Source: "package sample\nfunc init() {}\nfunc call() int { return Public(4) }\n"},
+	}, "pkg/api.go")
+	catalog, err := buildProjectCatalog(request)
+	if err != nil {
+		t.Fatalf("build package inventory: %v", err)
+	}
+	want := projectInventory{
+		SourceFileCount: 2, PrivatePackageSymbolCount: 2,
+		ReferencedPrivatePackageSymbols: 1, UnreferencedPrivateSymbols: 1,
+		ExportedPackageSymbolCount: 1, UnsupportedPackageSymbolCount: 1,
+	}
+	if catalog.Inventory != want {
+		t.Fatalf("package inventory = %+v; want %+v", catalog.Inventory, want)
+	}
+}
+
+func TestProjectCatalogReportsMainEntrypointAsUnsupported(t *testing.T) {
+	request := goProjectRequest([]projectFile{
+		{Path: "cmd/tool/main.go", Source: "package main\nfunc main() {}\n"},
+		{Path: "cmd/tool/helper.go", Source: "package main\nfunc helper() {}\n"},
+	}, "cmd/tool/main.go")
+	catalog, err := buildProjectCatalog(request)
+	if err != nil {
+		t.Fatalf("build main package inventory: %v", err)
+	}
+	want := projectInventory{SourceFileCount: 2, PrivatePackageSymbolCount: 1, UnreferencedPrivateSymbols: 1, UnsupportedPackageSymbolCount: 1}
+	if catalog.Inventory != want {
+		t.Fatalf("main package inventory = %+v; want %+v", catalog.Inventory, want)
+	}
+}
+
 func TestCapturedLocalRenameFollowsObjectIntoNestedClosure(t *testing.T) {
 	source := "package sample\nfunc build(seed int) func() int {\n\ttotal := seed\n\treturn func() int { return total + 1 }\n}\n"
 	cat, err := buildCatalog(source)

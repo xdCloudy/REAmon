@@ -189,7 +189,7 @@ interface CodeDraftRecord { id: string; sourceCode: string; sourceAttemptId: str
 interface RewriteHistoryEntry { round: number; sourceCode: string; sourceSha256: string; validationStatus: string; validationMethod: string; validationMessage: string }
 interface RewriteContextSummary { fingerprint: string; evidence: string[]; relatedUnits: Array<{ name: string; language: string; unitId: string; sourceSha256: string; sourceBytes: number }>; relatedUnitsTruncated: boolean }
 interface CodeQualityReview { status: 'NO_ISSUE_FOUND' | 'NEEDS_REVIEW' | 'UNCERTAIN' | 'UNAVAILABLE'; candidateSha256: string; summary: string; findings: string[]; modelUsed: string }
-interface CodeAttemptRecord { id: string; providerName: string; modelIdentifier: string; question: string; scope: 'file' | 'member' | 'rename-suggestions'; status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'; cancelRequested: boolean; errorCode: string | null; errorMessage: string | null; resultSource: string | null; qualityReview?: CodeQualityReview | null; context?: RewriteContextSummary; rewriteHistoryRoundCount: number; renameProposals?: SafeRenameProposal[]; proposalSourceSha256?: string; proposalProviderId?: string; proposalGoProjectScope?: boolean; proposalGoSourceSetSha256?: string; projectSymbolContextSha256?: string; proposalCandidateCount?: number; syntaxValidated: boolean | null; validationStatus: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod: string | null; validationMessage: string | null; createdAt: string; completedAt: string | null }
+interface CodeAttemptRecord { id: string; providerName: string; modelIdentifier: string; question: string; scope: 'file' | 'member' | 'rename-suggestions'; status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'; cancelRequested: boolean; errorCode: string | null; errorMessage: string | null; resultSource: string | null; qualityReview?: CodeQualityReview | null; context?: RewriteContextSummary; rewriteHistoryRoundCount: number; renameProposals?: SafeRenameProposal[]; proposalSourceSha256?: string; proposalProviderId?: string; proposalGoProjectScope?: boolean; proposalGoSourceSetSha256?: string; proposalGoProjectInventory?: GoProjectInventory; projectSymbolContextSha256?: string; proposalCandidateCount?: number; syntaxValidated: boolean | null; validationStatus: 'PASSED' | 'FAILED' | 'UNAVAILABLE' | null; validationMethod: string | null; validationMessage: string | null; createdAt: string; completedAt: string | null }
 interface CodeAgentBatchAttempt { id: string; providerName: string; modelIdentifier: string; memberName: string; memberStartByte: number | null; memberEndByte: number | null; status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'; cancelRequested: boolean; errorMessage: string | null; resultSource: string | null; inputSource: string | null; qualityReview?: CodeQualityReview | null; context?: RewriteContextSummary; createdAt: string; completedAt: string | null }
 interface CodeDraftResponse { exists: boolean; draft: CodeDraftRecord | null; agentBatch?: { id: string; attempts: CodeAgentBatchAttempt[] } | null; attempts?: CodeAttemptRecord[] }
 interface CodeUnitNoteResponse { unitId: string; note: string; stale: boolean; updatedAt: string | null }
@@ -208,7 +208,19 @@ interface CodeReviewRecord {
 interface AcceptedRenameAlias { bindingId: string; oldName: string; newName: string; kind: string }
 interface CodeMemberOutline { name: string; kind: 'function' | 'method' | 'constructor'; start_byte: number; end_byte: number; line: number; source_bytes: number }
 interface SafeRenameProposal { bindingId: string; oldName: string; newName: string; kind: string; referenceCount: number; rationale: string }
-interface SafeRenameSuggestions { sourceSha256: string; providerId: string; providerName: string; model: string; attemptId: string; projectSymbolContextSha256: string; projectSymbolScanTruncated?: boolean; scope: 'file' | 'project'; sourceSetSha256?: string | null; candidates: number; renames: SafeRenameProposal[] }
+interface GoProjectInventory { scope: 'reviewed-same-directory-go-package-source-snapshot'; sourceFileCount: number; privatePackageSymbolCount: number; referencedPrivatePackageSymbols: number; unreferencedPrivateSymbols: number; exportedPackageSymbolCount: number; unsupportedPackageSymbolCount: number; renameBindingCatalogTruncated: boolean }
+interface SafeRenameSuggestions { sourceSha256: string; providerId: string; providerName: string; model: string; attemptId: string; projectSymbolContextSha256: string; projectSymbolScanTruncated?: boolean; scope: 'file' | 'project'; sourceSetSha256?: string | null; projectInventory?: GoProjectInventory | null; candidates: number; renames: SafeRenameProposal[] }
+
+function isGoProjectInventory(value: unknown): value is GoProjectInventory {
+  if (!value || typeof value !== 'object') return false
+  const inventory = value as Partial<GoProjectInventory>
+  return inventory.scope === 'reviewed-same-directory-go-package-source-snapshot'
+    && [inventory.sourceFileCount, inventory.privatePackageSymbolCount, inventory.referencedPrivatePackageSymbols,
+      inventory.unreferencedPrivateSymbols, inventory.exportedPackageSymbolCount, inventory.unsupportedPackageSymbolCount]
+      .every((count) => Number.isSafeInteger(count) && Number(count) >= 0)
+    && inventory.privatePackageSymbolCount === Number(inventory.referencedPrivatePackageSymbols) + Number(inventory.unreferencedPrivateSymbols)
+    && typeof inventory.renameBindingCatalogTruncated === 'boolean'
+}
 
 interface ReviewDiffRow { kind: 'added' | 'removed'; text: string; beforeLine: number | null; afterLine: number | null }
 interface ReviewDiff { rows: ReviewDiffRow[]; added: number; removed: number; truncated: boolean; unavailable: boolean }
@@ -1901,7 +1913,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
         body: JSON.stringify({ operation: 'suggest', unitId: selectedUnit.id, providerId: selectedProviderId, sourceCode: workingSource, question: question.trim(), crossFileGo: safeRenameGo && crossFileGoRename }),
       })
       const result = await response.json().catch(() => ({})) as SafeRenameSuggestions & { error?: string }
-      if (!response.ok || typeof result.sourceSha256 !== 'string' || result.providerId !== selectedProviderId || typeof result.attemptId !== 'string' || typeof result.projectSymbolContextSha256 !== 'string' || (result.projectSymbolScanTruncated !== undefined && typeof result.projectSymbolScanTruncated !== 'boolean') || !['file', 'project'].includes(result.scope) || !Array.isArray(result.renames)) {
+      if (!response.ok || typeof result.sourceSha256 !== 'string' || result.providerId !== selectedProviderId || typeof result.attemptId !== 'string' || typeof result.projectSymbolContextSha256 !== 'string' || (result.projectSymbolScanTruncated !== undefined && typeof result.projectSymbolScanTruncated !== 'boolean') || !['file', 'project'].includes(result.scope) || (result.scope === 'project' && !isGoProjectInventory(result.projectInventory)) || !Array.isArray(result.renames)) {
         throw new Error(result.error || 'Could not suggest scope-safe rename candidates')
       }
       setSafeRenameSuggestions(result)
@@ -2001,6 +2013,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
         projectSymbolContextSha256: attempt.projectSymbolContextSha256,
         scope: attempt.proposalGoProjectScope ? 'project' : 'file',
         sourceSetSha256: attempt.proposalGoSourceSetSha256 ?? null,
+        projectInventory: attempt.proposalGoProjectInventory ?? null,
         candidates: attempt.proposalCandidateCount ?? attempt.renameProposals.length,
         renames: attempt.renameProposals,
       })
@@ -3426,6 +3439,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
               {suggestingSafeRenames ? 'Checking source and suggesting names…' : 'Suggest scope-safe renames'}
             </button>
             {safeRenameSuggestions?.projectSymbolScanTruncated && <p className={styles.message} role="status">Project symbol context is partial; older accepted units may be missing. Review these suggestions against the available project evidence.</p>}
+            {safeRenameSuggestions?.scope === 'project' && safeRenameSuggestions.projectInventory && <p className={styles.message} role="status">Go package snapshot: {safeRenameSuggestions.projectInventory.sourceFileCount} same-directory source files; {safeRenameSuggestions.projectInventory.privatePackageSymbolCount} private package symbols ({safeRenameSuggestions.projectInventory.referencedPrivatePackageSymbols} referenced, {safeRenameSuggestions.projectInventory.unreferencedPrivateSymbols} unreferenced); {safeRenameSuggestions.projectInventory.exportedPackageSymbolCount} exported and {safeRenameSuggestions.projectInventory.unsupportedPackageSymbolCount} unsupported symbols. Counts cover this reviewed snapshot only.{safeRenameSuggestions.projectInventory.renameBindingCatalogTruncated ? ' The rename binding list is truncated.' : ''}</p>}
             {safeRenameSourceByteLength > 64 * 1024 && <p className={styles.message}>AI rename suggestions are limited to editable source of 64 KiB or less.</p>}
             {safeRenameSuggestions && safeRenameSuggestions.renames.length > 0 && <div className={styles.attemptHistory}>
               <p>{safeRenameSuggestions.renames.length} saved, unreviewed proposals from {safeRenameSuggestions.providerName} · {safeRenameSuggestions.model}. They are recorded in project attempt history and are not applied until selected. Source SHA-256: {safeRenameSuggestions.sourceSha256.slice(0, 16)}…</p>

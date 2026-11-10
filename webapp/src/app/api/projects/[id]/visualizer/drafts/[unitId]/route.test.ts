@@ -105,6 +105,26 @@ describe('/api/projects/[id]/visualizer/drafts/[unitId]', () => {
     expect(response.headers.get('Cache-Control')).toContain('no-store')
   })
 
+  it('reloads validated Go package inventory metadata with saved rename proposals', async () => {
+    const inventory = {
+      scope: 'reviewed-same-directory-go-package-source-snapshot', sourceFileCount: 2,
+      privatePackageSymbolCount: 2, referencedPrivatePackageSymbols: 1, unreferencedPrivateSymbols: 1,
+      exportedPackageSymbolCount: 0, unsupportedPackageSymbolCount: 0, renameBindingCatalogTruncated: false,
+    }
+    h.attemptFindMany.mockResolvedValueOnce([{
+      id: 'attempt-1', providerName: 'Provider', modelIdentifier: 'model', question: '', scope: 'rename-suggestions',
+      status: 'SUCCEEDED', cancelRequested: false, errorCode: null, errorMessage: null, resultSource: null,
+      qualityReview: null, requestPayload: { goProjectInventory: inventory }, rewriteHistory: [],
+      syntaxValidated: null, validationStatus: null, validationMethod: null, validationMessage: null,
+      createdAt: new Date('2026-11-10T12:00:00Z'), completedAt: null,
+    }])
+
+    const response = await GET(await request('GET'), routeParams)
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ attempts: [{ id: 'attempt-1', proposalGoProjectInventory: inventory }] })
+  })
+
   it('stores AI output as an unreviewed draft without trusting client-supplied validation', async () => {
     const response = await POST(await request('POST', {
       sourceCode: 'class Main { void execute() {} }', providerName: 'Local model', model: 'qwen-coder', question: 'Recover intent', scope: 'member', syntaxValidated: true,

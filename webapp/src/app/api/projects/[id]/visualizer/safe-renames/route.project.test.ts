@@ -117,6 +117,7 @@ beforeEach(async () => {
         ],
         bindings: [{ id: bindingId, name: 'normalize', kind: 'package function', scopeType: 'package', declarationStart: 20, referenceCount: 1, relativePath: selectedPath, exported: false }],
         truncated: false, parser_version: 'go1.24.4',
+        inventory: { scope: 'reviewed-same-directory-go-package-source-snapshot', source_file_count: 2, private_package_symbol_count: 2, referenced_private_package_symbols: 1, unreferenced_private_symbols: 1, exported_package_symbol_count: 0, unsupported_package_symbol_count: 0, rename_binding_catalog_truncated: false },
       })
     }
     return jsonResponse({
@@ -142,6 +143,27 @@ beforeEach(async () => {
 afterEach(async () => { if (root) await rm(root, { recursive: true, force: true }) })
 
 describe('POST safe-renames Go package scope', () => {
+  it('returns and persists inventory counts for the verified same-directory Go snapshot', async () => {
+    const response = await POST(new Request('http://localhost/api/projects/project-1/visualizer/safe-renames', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        operation: 'suggest', unitId: 'unit-a', providerId: 'provider-1', sourceCode: selectedSource,
+        crossFileGo: true,
+      }),
+    }), routeParams)
+
+    const body = await response.json()
+    expect(response.status, JSON.stringify(body)).toBe(200)
+    expect(body.projectInventory).toEqual({
+      scope: 'reviewed-same-directory-go-package-source-snapshot', sourceFileCount: 2,
+      privatePackageSymbolCount: 2, referencedPrivatePackageSymbols: 1, unreferencedPrivateSymbols: 1,
+      exportedPackageSymbolCount: 0, unsupportedPackageSymbolCount: 0, renameBindingCatalogTruncated: false,
+    })
+    expect(h.attemptCreate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ requestPayload: expect.objectContaining({ goProjectInventory: body.projectInventory }) }),
+    }))
+  })
+
   it('returns and persists when bounded accepted-symbol context was truncated', async () => {
     const truncatedSource = 'package sample\nfunc normalize(a int) int { return a }\n'
     await writeFile(path.join(root, selectedCodeArtifactId), truncatedSource)
@@ -198,6 +220,7 @@ describe('POST safe-renames Go package scope', () => {
       ],
       bindings: [{ id: bindingId, name: 'normalize', kind: 'package function', scopeType: 'package', declarationStart: 20, referenceCount: 1, relativePath: selectedPath, exported: false }],
       truncated: false, parser_version: 'go1.24.4',
+      inventory: { scope: 'reviewed-same-directory-go-package-source-snapshot', source_file_count: 2, private_package_symbol_count: 2, referenced_private_package_symbols: 1, unreferenced_private_symbols: 1, exported_package_symbol_count: 0, unsupported_package_symbol_count: 0, rename_binding_catalog_truncated: false },
     }))
     const response = await POST(new Request('http://localhost/api/projects/project-1/visualizer/safe-renames', {
       method: 'POST', headers: { 'content-type': 'application/json' },

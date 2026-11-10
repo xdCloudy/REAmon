@@ -167,6 +167,7 @@ describe.skipIf(!enabled)('Go package rename against PostgreSQL', () => {
             declarationStart: selectedSource.indexOf('fn'), referenceCount: 1, relativePath: selectedPath, exported: false,
           }],
           truncated: false, parser_version: 'go1.24.4',
+          inventory: { scope: 'reviewed-same-directory-go-package-source-snapshot', source_file_count: 2, private_package_symbol_count: 2, referenced_private_package_symbols: 1, unreferenced_private_symbols: 1, exported_package_symbol_count: 0, unsupported_package_symbol_count: 0, rename_binding_catalog_truncated: false },
         })
       }
       if (request.operation === 'project_rename') {
@@ -197,10 +198,10 @@ describe.skipIf(!enabled)('Go package rename against PostgreSQL', () => {
     const proposalResponse = await POST(renameRequest('suggest'), params())
     expect(proposalResponse.status).toBe(200)
     const proposal = await proposalResponse.json()
-    expect(proposal).toMatchObject({ scope: 'project', candidates: 1, sourceSetSha256: expect.stringMatching(/^[a-f0-9]{64}$/) })
+    expect(proposal).toMatchObject({ scope: 'project', candidates: 1, sourceSetSha256: expect.stringMatching(/^[a-f0-9]{64}$/), projectInventory: { sourceFileCount: 2, privatePackageSymbolCount: 2, referencedPrivatePackageSymbols: 1, unreferencedPrivateSymbols: 1 } })
     const savedProposal = await prisma.reamonCodeAttempt.findUnique({ where: { id: proposal.attemptId } })
     expect(savedProposal?.scope).toBe('rename-suggestions')
-    expect(savedProposal?.requestPayload).toMatchObject({ goProjectScope: true, goSelectedPath: selectedPath, renames: [{ bindingId, oldName: 'fn', newName: 'calculate' }] })
+    expect(savedProposal?.requestPayload).toMatchObject({ goProjectScope: true, goSelectedPath: selectedPath, goProjectInventory: { sourceFileCount: 2, privatePackageSymbolCount: 2, unreferencedPrivateSymbols: 1 }, renames: [{ bindingId, oldName: 'fn', newName: 'calculate' }] })
 
     await prisma.reamonCodeReview.update({ where: { id: siblingReviewId }, data: { maintainedSourceHash: 'f'.repeat(64) } })
     const staleResponse = await POST(renameRequest('apply', proposal.attemptId), params())

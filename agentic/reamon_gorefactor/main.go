@@ -84,12 +84,22 @@ type projectCatalog struct {
 	SourceSetHash string
 	SelectedPath  string
 	SelectedHash  string
+	Inventory     projectInventory
 	FileSet       *token.FileSet
 	Files         []projectSourceFile
 	Info          *types.Info
 	Package       *types.Package
 	Bindings      []binding
 	Truncated     bool
+}
+
+type projectInventory struct {
+	SourceFileCount                 int
+	PrivatePackageSymbolCount       int
+	ReferencedPrivatePackageSymbols int
+	UnreferencedPrivateSymbols      int
+	ExportedPackageSymbolCount      int
+	UnsupportedPackageSymbolCount   int
 }
 
 type derivedFieldReference struct {
@@ -502,6 +512,41 @@ func buildProjectCatalog(req request) (*projectCatalog, error) {
 		Hash: selectedHash, SourceSetHash: projectHash, SelectedPath: selectedPath,
 		SelectedHash: selectedHash, FileSet: fileSet, Files: parsed, Info: info, Package: pkg,
 	}
+	cat.Inventory.SourceFileCount = len(parsed)
+	useCounts := make(map[types.Object]int, len(info.Uses))
+	for _, object := range info.Uses {
+		useCounts[object]++
+	}
+	for _, name := range pkg.Scope().Names() {
+		object := pkg.Scope().Lookup(name)
+		if token.IsExported(name) {
+			cat.Inventory.ExportedPackageSymbolCount++
+			continue
+		}
+		if packageName == "main" && name == "main" {
+			cat.Inventory.UnsupportedPackageSymbolCount++
+			continue
+		}
+		switch object.(type) {
+		case *types.Func, *types.TypeName, *types.Var, *types.Const:
+			cat.Inventory.PrivatePackageSymbolCount++
+			if useCounts[object] > 0 {
+				cat.Inventory.ReferencedPrivatePackageSymbols++
+			} else {
+				cat.Inventory.UnreferencedPrivateSymbols++
+			}
+		default:
+			cat.Inventory.UnsupportedPackageSymbolCount++
+		}
+	}
+	for _, file := range parsed {
+		for _, declaration := range file.AST.Decls {
+			function, ok := declaration.(*ast.FuncDecl)
+			if ok && function.Name.Name == "init" {
+				cat.Inventory.UnsupportedPackageSymbolCount++
+			}
+		}
+	}
 	declarations := make(map[types.Object]*ast.Ident)
 	pathsByObject := make(map[types.Object]string)
 	for _, file := range parsed {
@@ -610,6 +655,16 @@ func listProjectBindings(req request) (map[string]any, error) {
 		"source_sha256": cat.SelectedHash, "source_set_sha256": cat.SourceSetHash,
 		"selected_path": cat.SelectedPath, "files": files,
 		"bindings": bindings, "truncated": cat.Truncated, "parser_version": runtime.Version(),
+		"inventory": map[string]any{
+			"scope":                              "reviewed-same-directory-go-package-source-snapshot",
+			"source_file_count":                  cat.Inventory.SourceFileCount,
+			"private_package_symbol_count":       cat.Inventory.PrivatePackageSymbolCount,
+			"referenced_private_package_symbols": cat.Inventory.ReferencedPrivatePackageSymbols,
+			"unreferenced_private_symbols":       cat.Inventory.UnreferencedPrivateSymbols,
+			"exported_package_symbol_count":      cat.Inventory.ExportedPackageSymbolCount,
+			"unsupported_package_symbol_count":   cat.Inventory.UnsupportedPackageSymbolCount,
+			"rename_binding_catalog_truncated":   cat.Truncated,
+		},
 	}, nil
 }
 
