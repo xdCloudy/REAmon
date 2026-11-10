@@ -51,6 +51,13 @@ autonomous project-wide naming, cross-file propagation, and autonomous acceptanc
 This list describes adapter existence only. It does not imply exact name recovery,
 semantic naming accuracy, cross-provider symbol equivalence, or safe autonomous use.
 
+An experimental Go package-snapshot helper is being developed for same-directory
+cross-file package bindings. Its focused engine tests cover object-identity-preserving
+edits and stale-source rejection, but the safe-renames route does not yet construct
+trusted package inputs or invoke it, and multi-file draft review/persistence is absent.
+Until that integration and its route/database acceptance pass, Go remains source-scoped
+in the product and receives no ASSR-2 completion credit.
+
 ## P1 milestone and acceptance gates
 
 The milestone is complete only when all three capabilities pass, individually and in

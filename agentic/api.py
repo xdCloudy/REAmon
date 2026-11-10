@@ -642,10 +642,19 @@ class ReamonPythonRenameRequest(BaseModel):
     renames: list[dict[str, Any]]
 
 
-class ReamonGoRefactorRequest(BaseModel):
-    operation: Literal["bindings", "rename"]
+class ReamonGoProjectFile(BaseModel):
+    relative_path: str
     source_code: str
     expected_sha256: str = ""
+
+
+class ReamonGoRefactorRequest(BaseModel):
+    operation: Literal["bindings", "rename", "project_bindings", "project_rename"]
+    source_code: str
+    expected_sha256: str = ""
+    source_set_sha256: str = ""
+    selected_path: str = ""
+    files: list[ReamonGoProjectFile] = Field(default_factory=list)
     renames: list[dict[str, Any]] = Field(default_factory=list)
 
 
@@ -1956,10 +1965,17 @@ async def apply_reamon_python_renames(body: ReamonPythonRenameRequest):
 
 @app.post("/reamon/code/go/refactor", tags=["REAmon"], dependencies=[Depends(require_internal_auth)])
 async def refactor_reamon_go_source(body: ReamonGoRefactorRequest):
-    if len(body.source_code.encode("utf-8")) > 512 * 1024 or len(body.renames) > 80:
+    is_project = body.operation in {"project_bindings", "project_rename"}
+    project_bytes = sum(len(item.source_code.encode("utf-8")) for item in body.files)
+    request_bytes = sum(len(item.relative_path.encode("utf-8")) + len(item.expected_sha256) + 256 for item in body.files)
+    if is_project and (len(body.files) < 2 or len(body.files) > 256 or project_bytes > 8 * 1024 * 1024):
+        return JSONResponse(content={"error": "The Go package snapshot exceeds its file-count or 8 MiB limit"}, status_code=413)
+    if (not is_project and len(body.source_code.encode("utf-8")) > 512 * 1024) or len(body.renames) > 80 or request_bytes > 10 * 1024 * 1024:
         return JSONResponse(content={"error": "The Go refactor request exceeds its size or candidate limit"}, status_code=413)
-    if body.operation == "rename" and not re.fullmatch(r"[a-f0-9]{64}", body.expected_sha256, re.IGNORECASE):
+    if body.operation in {"rename", "project_rename"} and not re.fullmatch(r"[a-f0-9]{64}", body.expected_sha256, re.IGNORECASE):
         return JSONResponse(content={"error": "A valid source SHA-256 is required"}, status_code=400)
+    if body.operation == "project_rename" and not re.fullmatch(r"[a-f0-9]{64}", body.source_set_sha256, re.IGNORECASE):
+        return JSONResponse(content={"error": "A valid Go package source-set SHA-256 is required"}, status_code=400)
     executable = os.environ.get("REAMON_GO_REFACTOR", "/usr/local/bin/reamon-gorefactor")
     try:
         process = await asyncio.create_subprocess_exec(
@@ -1970,6 +1986,9 @@ async def refactor_reamon_go_source(body: ReamonGoRefactorRequest):
             "operation": body.operation,
             "source_code": body.source_code,
             "expected_sha256": body.expected_sha256,
+            "source_set_sha256": body.source_set_sha256,
+            "selected_path": body.selected_path,
+            "files": [item.model_dump() for item in body.files],
             "renames": body.renames,
         }).encode("utf-8")), timeout=20)
     except FileNotFoundError:

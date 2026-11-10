@@ -170,5 +170,23 @@
     "baselineEstimate": 31.44,
     "date": "2026-11-10",
     "evidence": "Ghidra observations now persist provider lineage for ReIPA co-run output and BcfClean/CffDeflatten transforms; alternate retrieval reads the stored metadata. Full Docker suite passed: 646 files; 9,872 tests passed, 2 expected failures, 196 skipped."
+  },
+  "activeWork": {
+    "date": "2026-11-10",
+    "basedOnCommit": "b170af0b",
+    "workstream": "Cross-file semantic rename propagation (ASSR-2)",
+    "status": "in progress; no completion credit awarded",
+    "verified": [
+      "A Go package-snapshot helper catalogs unexported package bindings by go/types object identity across same-directory source files.",
+      "The helper emits hash-bound, versioned per-file edit manifests and re-type-checks edited package sources to verify renamed references resolve to their original object.",
+      "Focused Go Docker tests pass, including cross-file reference updates, stale source-set rejection, package mismatch, unresolved references, and build-constraint rejection.",
+      "The Go agent API module passes Python bytecode compilation after adding bounded project request fields."
+    ],
+    "notVerified": [
+      "No user-facing safe-rename request constructs a trusted package snapshot or invokes the project operation yet.",
+      "No multi-file draft persistence, preview, rollback, or live database/browser acceptance exists for this work.",
+      "The agent API contract has syntax validation only; request/response integration tests are pending."
+    ],
+    "next": "Build the accepted-source package snapshot from project records, wire catalog and apply through the safe-renames route and multi-file draft review flow, then run focused API/route/database tests before reconsidering ASSR-2 credit."
   }
 }

@@ -15,20 +15,33 @@ import (
 	"hash"
 	"io"
 	"os"
+	"path"
 	"runtime"
 	"sort"
 	"strings"
 )
 
 const maxSourceBytes = 512 * 1024
+const maxProjectBytes = 8 * 1024 * 1024
+const maxProjectFiles = 256
+const maxRequestBytes = maxProjectBytes + maxProjectFiles*8192 + 2*1024*1024
 const maxBindings = 5000
 const maxRenames = 80
 
 type request struct {
-	Operation    string            `json:"operation"`
-	Source       string            `json:"source_code"`
-	ExpectedHash string            `json:"expected_sha256"`
-	Renames      []renameSelection `json:"renames"`
+	Operation     string            `json:"operation"`
+	Source        string            `json:"source_code"`
+	ExpectedHash  string            `json:"expected_sha256"`
+	SourceSetHash string            `json:"source_set_sha256"`
+	SelectedPath  string            `json:"selected_path"`
+	Files         []projectFile     `json:"files"`
+	Renames       []renameSelection `json:"renames"`
+}
+
+type projectFile struct {
+	Path         string `json:"relative_path"`
+	Source       string `json:"source_code"`
+	ExpectedHash string `json:"expected_sha256"`
 }
 
 type renameSelection struct {
@@ -38,6 +51,7 @@ type renameSelection struct {
 
 type binding struct {
 	ID               string       `json:"id"`
+	FilePath         string       `json:"relativePath,omitempty"`
 	Name             string       `json:"name"`
 	Kind             string       `json:"kind"`
 	ScopeType        string       `json:"scopeType"`
@@ -59,15 +73,38 @@ type catalog struct {
 	Truncated bool
 }
 
+type projectSourceFile struct {
+	Path string
+	Text string
+	AST  *ast.File
+}
+
+type projectCatalog struct {
+	Hash          string
+	SourceSetHash string
+	SelectedPath  string
+	SelectedHash  string
+	FileSet       *token.FileSet
+	Files         []projectSourceFile
+	Info          *types.Info
+	Package       *types.Package
+	Bindings      []binding
+	Truncated     bool
+}
+
 type sourceEdit struct {
 	start, end int
 	text       string
 }
 
 func main() {
-	input, err := io.ReadAll(io.LimitReader(os.Stdin, maxSourceBytes*3+2*1024*1024))
+	input, err := io.ReadAll(io.LimitReader(os.Stdin, maxRequestBytes+1))
 	if err != nil {
 		writeError("Could not read request", 400)
+		return
+	}
+	if len(input) > maxRequestBytes {
+		writeError("Go refactor request exceeds the project size limit", 413)
 		return
 	}
 	var req request
@@ -75,7 +112,7 @@ func main() {
 		writeError("Invalid Go refactor request", 400)
 		return
 	}
-	if len([]byte(req.Source)) > maxSourceBytes {
+	if len([]byte(req.Source)) > maxSourceBytes && req.Operation != "project_bindings" && req.Operation != "project_rename" {
 		writeError("Go source exceeds the 512 KiB safe-rename limit", 413)
 		return
 	}
@@ -85,6 +122,10 @@ func main() {
 		result, err = listBindings(req.Source)
 	case "rename":
 		result, err = applyRenames(req)
+	case "project_bindings":
+		result, err = listProjectBindings(req)
+	case "project_rename":
+		result, err = applyProjectRenames(req)
 	default:
 		writeError("Unsupported Go refactor operation", 400)
 		return
@@ -373,6 +414,372 @@ func applyRenames(req request) (map[string]any, error) {
 		"source_sha256": cat.Hash, "output_sha256": hashText(outputSource), "source_code": outputSource,
 		"renamed_bindings": renamed, "parser_version": runtime.Version(),
 	}, nil
+}
+
+func buildProjectCatalog(req request) (*projectCatalog, error) {
+	if len(req.Files) < 2 || len(req.Files) > maxProjectFiles {
+		return nil, fmt.Errorf("Go package rename requires between 2 and %d source files", maxProjectFiles)
+	}
+	selectedPath, err := safeGoPath(req.SelectedPath)
+	if err != nil {
+		return nil, err
+	}
+	packageDir := path.Dir(selectedPath)
+	files := append([]projectFile(nil), req.Files...)
+	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
+	fileSet := token.NewFileSet()
+	parsed := make([]projectSourceFile, 0, len(files))
+	seenPaths := make(map[string]bool, len(files))
+	selectedHash := ""
+	packageName := ""
+	totalBytes := 0
+	for _, input := range files {
+		filePath, pathErr := safeGoPath(input.Path)
+		if pathErr != nil || filePath != input.Path || path.Dir(filePath) != packageDir {
+			return nil, fmt.Errorf("Go package files must have unique, normalized paths in the selected source directory")
+		}
+		pathKey := strings.ToLower(filePath)
+		if seenPaths[pathKey] {
+			return nil, fmt.Errorf("Go package source paths collide: %s", filePath)
+		}
+		seenPaths[pathKey] = true
+		sourceBytes := len([]byte(input.Source))
+		if sourceBytes > maxSourceBytes {
+			return nil, fmt.Errorf("%s exceeds the 512 KiB safe-rename limit", filePath)
+		}
+		totalBytes += sourceBytes
+		if totalBytes > maxProjectBytes {
+			return nil, fmt.Errorf("Go package source exceeds the 8 MiB safe-rename limit")
+		}
+		fileHash := hashText(input.Source)
+		if input.ExpectedHash != "" && strings.ToLower(input.ExpectedHash) != fileHash {
+			return nil, fmt.Errorf("Go package source changed for %s", filePath)
+		}
+		astFile, parseErr := parser.ParseFile(fileSet, filePath, input.Source, parser.AllErrors|parser.ParseComments)
+		if parseErr != nil {
+			return nil, fmt.Errorf("Go parser rejected %s: %s", filePath, parseErr.Error())
+		}
+		for _, commentGroup := range astFile.Comments {
+			for _, comment := range commentGroup.List {
+				if strings.HasPrefix(comment.Text, "//go:build") || strings.HasPrefix(comment.Text, "// +build") {
+					return nil, fmt.Errorf("Go package rename does not support build-constrained source files")
+				}
+			}
+		}
+		if packageName == "" {
+			packageName = astFile.Name.Name
+		} else if astFile.Name.Name != packageName {
+			return nil, fmt.Errorf("Go package source files declare different package names")
+		}
+		parsed = append(parsed, projectSourceFile{Path: filePath, Text: input.Source, AST: astFile})
+		if filePath == selectedPath {
+			selectedHash = fileHash
+		}
+	}
+	if selectedHash == "" {
+		return nil, fmt.Errorf("Selected Go source is missing from the package snapshot")
+	}
+	astFiles := make([]*ast.File, 0, len(parsed))
+	for _, file := range parsed {
+		astFiles = append(astFiles, file.AST)
+	}
+	info := &types.Info{
+		Defs: make(map[*ast.Ident]types.Object), Uses: make(map[*ast.Ident]types.Object),
+		Scopes: make(map[ast.Node]*types.Scope),
+	}
+	var typeErrors []error
+	conf := types.Config{Importer: importer.Default(), Error: func(err error) { typeErrors = append(typeErrors, err) }}
+	pkg, _ := conf.Check(packageName, fileSet, astFiles, info)
+	if len(typeErrors) > 0 || pkg == nil {
+		return nil, fmt.Errorf("Go package has unresolved type or reference errors; cross-file rename requires a complete package type-check")
+	}
+	projectHash := hashProjectSources(parsed)
+	cat := &projectCatalog{
+		Hash: selectedHash, SourceSetHash: projectHash, SelectedPath: selectedPath,
+		SelectedHash: selectedHash, FileSet: fileSet, Files: parsed, Info: info, Package: pkg,
+	}
+	declarations := make(map[types.Object]*ast.Ident)
+	pathsByObject := make(map[types.Object]string)
+	for _, file := range parsed {
+		ast.Inspect(file.AST, func(node ast.Node) bool {
+			ident, ok := node.(*ast.Ident)
+			if !ok {
+				return true
+			}
+			object := info.Defs[ident]
+			if object == nil || object.Parent() != pkg.Scope() || ident.Name == "_" || token.IsExported(ident.Name) {
+				return true
+			}
+			if _, exists := declarations[object]; !exists {
+				declarations[object] = ident
+				pathsByObject[object] = file.Path
+			}
+			return true
+		})
+	}
+	for object, declaration := range declarations {
+		var kind string
+		switch object.(type) {
+		case *types.Func:
+			kind = "package function"
+		case *types.TypeName:
+			kind = "package type"
+		case *types.Var:
+			kind = "package variable"
+		case *types.Const:
+			kind = "package constant"
+		default:
+			continue
+		}
+		uses := []*ast.Ident{declaration}
+		for ident, used := range info.Uses {
+			if used == object {
+				uses = append(uses, ident)
+			}
+		}
+		if len(uses) <= 1 {
+			continue
+		}
+		position := fileSet.PositionFor(declaration.Pos(), false)
+		id := shortID(projectHash+"\x00"+pathsByObject[object], position.Offset, declaration.Name)
+		cat.Bindings = append(cat.Bindings, binding{
+			ID: id, FilePath: pathsByObject[object], Name: declaration.Name, Kind: kind,
+			ScopeType: "package", DeclarationStart: position.Offset, ReferenceCount: len(uses) - 1,
+			Object: object, Scope: pkg.Scope(), Declaration: declaration, Uses: uses,
+		})
+	}
+	sort.Slice(cat.Bindings, func(i, j int) bool {
+		if cat.Bindings[i].FilePath != cat.Bindings[j].FilePath {
+			return cat.Bindings[i].FilePath < cat.Bindings[j].FilePath
+		}
+		return cat.Bindings[i].DeclarationStart < cat.Bindings[j].DeclarationStart
+	})
+	cat.Truncated = len(cat.Bindings) > maxBindings
+	if cat.Truncated {
+		cat.Bindings = cat.Bindings[:maxBindings]
+	}
+	return cat, nil
+}
+
+func safeGoPath(value string) (string, error) {
+	if value == "" || strings.Contains(value, "\\") || path.IsAbs(value) {
+		return "", fmt.Errorf("Go package source path is invalid")
+	}
+	clean := path.Clean(value)
+	if clean == "." || clean == ".." || strings.HasPrefix(clean, "../") || clean != value {
+		return "", fmt.Errorf("Go package source path is invalid")
+	}
+	return clean, nil
+}
+
+func hashProjectSources(files []projectSourceFile) string {
+	ordered := append([]projectSourceFile(nil), files...)
+	sort.Slice(ordered, func(i, j int) bool { return ordered[i].Path < ordered[j].Path })
+	h := newHash()
+	for _, file := range ordered {
+		_, _ = io.WriteString(h, file.Path+"\x00"+hashText(file.Text)+"\n")
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+func listProjectBindings(req request) (map[string]any, error) {
+	cat, err := buildProjectCatalog(req)
+	if err != nil {
+		return nil, err
+	}
+	bindings := make([]map[string]any, 0, len(cat.Bindings))
+	for _, item := range cat.Bindings {
+		if item.FilePath != cat.SelectedPath {
+			continue
+		}
+		bindings = append(bindings, map[string]any{
+			"id": item.ID, "name": item.Name, "kind": item.Kind, "scopeType": item.ScopeType,
+			"declarationStart": item.DeclarationStart, "referenceCount": item.ReferenceCount,
+			"relativePath": item.FilePath, "exported": false,
+		})
+	}
+	files := make([]map[string]any, 0, len(cat.Files))
+	for _, file := range cat.Files {
+		files = append(files, map[string]any{"relative_path": file.Path, "source_sha256": hashText(file.Text)})
+	}
+	return map[string]any{
+		"source_sha256": cat.SelectedHash, "source_set_sha256": cat.SourceSetHash,
+		"selected_path": cat.SelectedPath, "files": files,
+		"bindings": bindings, "truncated": cat.Truncated, "parser_version": runtime.Version(),
+	}, nil
+}
+
+func applyProjectRenames(req request) (map[string]any, error) {
+	cat, err := buildProjectCatalog(req)
+	if err != nil {
+		return nil, err
+	}
+	if len(req.ExpectedHash) != 64 || strings.ToLower(req.ExpectedHash) != cat.SelectedHash || len(req.SourceSetHash) != 64 || strings.ToLower(req.SourceSetHash) != cat.SourceSetHash {
+		return nil, fmt.Errorf("Go package source changed after rename suggestions were generated")
+	}
+	selectedText := ""
+	for _, file := range cat.Files {
+		if file.Path == cat.SelectedPath {
+			selectedText = file.Text
+		}
+	}
+	if req.Source != selectedText {
+		return nil, fmt.Errorf("Selected Go source does not match the package snapshot")
+	}
+	if len(req.Renames) < 1 || len(req.Renames) > maxRenames {
+		return nil, fmt.Errorf("Select between 1 and 80 Go bindings to rename")
+	}
+	byID := make(map[string]binding, len(cat.Bindings))
+	for _, item := range cat.Bindings {
+		byID[item.ID] = item
+	}
+	selected := make([]struct {
+		item    binding
+		newName string
+	}, 0, len(req.Renames))
+	selectedObjects := make(map[types.Object]bool, len(req.Renames))
+	seen := make(map[string]bool)
+	for _, choice := range req.Renames {
+		item, ok := byID[choice.ID]
+		if !ok || item.FilePath != cat.SelectedPath || seen[choice.ID] || len(choice.NewName) > 128 || !token.IsIdentifier(choice.NewName) || token.Lookup(choice.NewName).IsKeyword() || choice.NewName == item.Name {
+			return nil, fmt.Errorf("A selected Go rename no longer matches a package binding in the selected source")
+		}
+		if types.Universe.Lookup(choice.NewName) != nil {
+			return nil, fmt.Errorf("Renaming %s to predeclared Go name %s is not allowed", item.Name, choice.NewName)
+		}
+		seen[choice.ID] = true
+		selectedObjects[item.Object] = true
+		selected = append(selected, struct {
+			item    binding
+			newName string
+		}{item, choice.NewName})
+	}
+	targets := make(map[string]bool)
+	for _, choice := range selected {
+		if targets[choice.newName] {
+			return nil, fmt.Errorf("Two selected Go bindings cannot share a new package name")
+		}
+		targets[choice.newName] = true
+		if existing := cat.Package.Scope().Lookup(choice.newName); existing != nil && existing != choice.item.Object && !selectedObjects[existing] {
+			return nil, fmt.Errorf("Renaming %s to %s would collide with an existing package binding", choice.item.Name, choice.newName)
+		}
+		for _, ident := range choice.item.Uses {
+			if scope := scopeAt(cat.Info.Scopes, ident.Pos()); scope != nil {
+				if _, existing := scope.LookupParent(choice.newName, ident.Pos()); existing != nil && existing != choice.item.Object && !selectedObjects[existing] {
+					return nil, fmt.Errorf("Renaming %s to %s would capture a Go binding", choice.item.Name, choice.newName)
+				}
+			}
+		}
+	}
+	filesByPath := make(map[string]projectSourceFile, len(cat.Files))
+	for _, file := range cat.Files {
+		filesByPath[file.Path] = file
+	}
+	editsByPath := make(map[string][]sourceEdit)
+	editDetailsByPath := make(map[string][]map[string]any)
+	renamed := make([]map[string]any, 0, len(selected))
+	for _, choice := range selected {
+		for _, ident := range choice.item.Uses {
+			position := cat.FileSet.PositionFor(ident.Pos(), false)
+			start := position.Offset
+			end := cat.FileSet.PositionFor(ident.End(), false).Offset
+			editsByPath[position.Filename] = append(editsByPath[position.Filename], sourceEdit{start: start, end: end, text: choice.newName})
+			editDetailsByPath[position.Filename] = append(editDetailsByPath[position.Filename], map[string]any{
+				"start": start, "end": end, "old_text": ident.Name, "new_text": choice.newName,
+			})
+		}
+		renamed = append(renamed, map[string]any{
+			"bindingId": choice.item.ID, "oldName": choice.item.Name, "newName": choice.newName,
+			"kind": choice.item.Kind, "referenceCount": choice.item.ReferenceCount,
+			"scopeType": choice.item.ScopeType, "relativePath": choice.item.FilePath,
+		})
+	}
+	outputFiles := make([]projectSourceFile, 0, len(cat.Files))
+	manifestFiles := make([]map[string]any, 0, len(editsByPath))
+	outputsByPath := make(map[string]string, len(editsByPath))
+	for _, file := range cat.Files {
+		fileEdits := editsByPath[file.Path]
+		if len(fileEdits) == 0 {
+			outputFiles = append(outputFiles, file)
+			continue
+		}
+		sort.Slice(fileEdits, func(i, j int) bool { return fileEdits[i].start > fileEdits[j].start })
+		output := []byte(file.Text)
+		for _, change := range fileEdits {
+			output = append(output[:change.start], append([]byte(change.text), output[change.end:]...)...)
+		}
+		outputText := string(output)
+		outputsByPath[file.Path] = outputText
+		outputFiles = append(outputFiles, projectSourceFile{Path: file.Path, Text: outputText})
+		details := editDetailsByPath[file.Path]
+		sort.Slice(details, func(i, j int) bool { return details[i]["start"].(int) < details[j]["start"].(int) })
+		manifestFiles = append(manifestFiles, map[string]any{
+			"relative_path": file.Path, "input_sha256": hashText(file.Text),
+			"output_sha256": hashText(outputText), "source_code": outputText, "edits": details,
+		})
+	}
+	outputReq := request{Files: make([]projectFile, 0, len(outputFiles)), SelectedPath: cat.SelectedPath}
+	for _, file := range outputFiles {
+		outputReq.Files = append(outputReq.Files, projectFile{Path: file.Path, Source: file.Text, ExpectedHash: hashText(file.Text)})
+	}
+	outputCatalog, err := buildProjectCatalog(outputReq)
+	if err != nil {
+		return nil, fmt.Errorf("Go package rejected the renamed output: %s", err.Error())
+	}
+	identifiers := projectIdentifiersByOffset(outputCatalog)
+	for _, choice := range selected {
+		declarationPosition := cat.FileSet.PositionFor(choice.item.Declaration.Pos(), false)
+		declarationOffset := offsetAfterEdits(declarationPosition.Offset, editsByPath[declarationPosition.Filename])
+		declaration := identifiers[declarationPosition.Filename][declarationOffset]
+		renamedObject := outputCatalog.Info.Defs[declaration]
+		if declaration == nil || renamedObject == nil || declaration.Name != choice.newName {
+			return nil, fmt.Errorf("Go could not resolve the renamed package declaration for %s", choice.item.Name)
+		}
+		for _, original := range choice.item.Uses {
+			position := cat.FileSet.PositionFor(original.Pos(), false)
+			outputOffset := offsetAfterEdits(position.Offset, editsByPath[position.Filename])
+			transformed := identifiers[position.Filename][outputOffset]
+			var resolved types.Object
+			if original == choice.item.Declaration {
+				resolved = outputCatalog.Info.Defs[transformed]
+			} else {
+				resolved = outputCatalog.Info.Uses[transformed]
+			}
+			if transformed == nil || transformed.Name != choice.newName || resolved != renamedObject {
+				return nil, fmt.Errorf("Renaming %s would change a package binding in %s", choice.item.Name, position.Filename)
+			}
+		}
+	}
+	selectedOutput := outputsByPath[cat.SelectedPath]
+	outputManifest := map[string]any{
+		"version": 1, "source_set_sha256": cat.SourceSetHash,
+		"output_source_set_sha256": outputCatalog.SourceSetHash, "files": manifestFiles,
+	}
+	return map[string]any{
+		"source_sha256": cat.SelectedHash, "source_set_sha256": cat.SourceSetHash,
+		"output_source_set_sha256": outputCatalog.SourceSetHash,
+		"output_sha256":            hashText(selectedOutput), "source_code": selectedOutput,
+		"files": manifestFiles, "edit_manifest": outputManifest,
+		"renamed_bindings": renamed, "parser_version": runtime.Version(), "scope": "project",
+	}, nil
+}
+
+func projectIdentifiersByOffset(cat *projectCatalog) map[string]map[int]*ast.Ident {
+	identifiers := make(map[string]map[int]*ast.Ident, len(cat.Files))
+	for _, file := range cat.Files {
+		byOffset := make(map[int]*ast.Ident)
+		ast.Inspect(file.AST, func(node ast.Node) bool {
+			ident, ok := node.(*ast.Ident)
+			if !ok {
+				return true
+			}
+			position := cat.FileSet.PositionFor(ident.Pos(), false)
+			byOffset[position.Offset] = ident
+			return true
+		})
+		identifiers[file.Path] = byOffset
+	}
+	return identifiers
 }
 
 func offsetAfterEdits(offset int, edits []sourceEdit) int {
