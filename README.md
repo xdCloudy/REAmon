@@ -79,7 +79,7 @@ The [autonomous reconstruction and fidelity delivery plan](docs/REAMON_AUTONOMOU
 <!-- REAMON_PRODUCT_PROGRESS_START -->
 <progress value="31.51" max="100">31.51%</progress> <strong>31.51%</strong> — weighted estimate **31.51%**.
 Latest evidence-based score change (2026-11-10): **+0.07 points** (31.44% → 31.51%). Ghidra observations now persist provider lineage for ReIPA co-run output and BcfClean/CffDeflatten transforms; alternate retrieval reads the stored metadata. Full Docker suite passed: 646 files; 9,872 tests passed, 2 expected failures, 196 skipped.
-Refreshed from pushed commit `c0b33e3`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+Refreshed from pushed commit `42312c3`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
 [Goals and roadmap](docs/REAMON_GOALS.md) · [Feature matrix](docs/REAMON_FEATURE_MATRIX.md)
