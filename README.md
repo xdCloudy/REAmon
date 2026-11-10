@@ -88,7 +88,7 @@ The [autonomous reconstruction and fidelity delivery plan](docs/REAMON_AUTONOMOU
 
 Latest evidence-based score change (2026-11-10): **+0.05 points** (32.38% → 32.43%). A disposable PostgreSQL 16 acceptance ran pinned Ghidra 12.1.4 through the webapp provider on a synthetic Go ELF, ingested observations with ingestToolResult, and read back every CFG-bearing code unit with exact CFG metrics and graph JSON; 1/1 passed and test data was cleaned. The Docker webapp suite passes 649 files / 9,911 tests (2 expected failures; 52 files / 192 skipped); Docker type-check, targeted ESLint, and the Ghidra provider suite (10/10) pass. Database-grounded project memory and provenance rises from 81% to 82%, adding 0.05 weighted points (32.38% to 32.43%).
 
-Refreshed from pushed commit `11c9bfe`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+Refreshed from pushed commit `fe4b625`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 

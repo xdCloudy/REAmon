@@ -1,6 +1,6 @@
 # REAmon product progress
 
-Assessment date: 2026-11-10 · Source: pushed commit `11c9bfe` · Weighted estimate: **32.43%**
+Assessment date: 2026-11-10 · Source: pushed commit `fe4b625` · Weighted estimate: **32.43%**
 
 This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.
 
