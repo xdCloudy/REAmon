@@ -105,7 +105,7 @@ Latest evidence-based score change (2026-11-10): **+0.08 points** (33.79% → 33
 
 **Next measurable gate:** Inventory receiver methods and type members with explicit unsupported status until safe rename propagation supports them; add held-out identity checks for these forms, then expand across more Go modules, local/import symbols, build configurations, and languages.
 
-Refreshed from pushed commit `c44cfd7`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+Refreshed from pushed commit `95b1b61`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
