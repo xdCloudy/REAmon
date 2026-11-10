@@ -208,7 +208,7 @@ interface CodeReviewRecord {
 interface AcceptedRenameAlias { bindingId: string; oldName: string; newName: string; kind: string }
 interface CodeMemberOutline { name: string; kind: 'function' | 'method' | 'constructor'; start_byte: number; end_byte: number; line: number; source_bytes: number }
 interface SafeRenameProposal { bindingId: string; oldName: string; newName: string; kind: string; referenceCount: number; rationale: string }
-interface SafeRenameSuggestions { sourceSha256: string; providerId: string; providerName: string; model: string; attemptId: string; projectSymbolContextSha256: string; scope: 'file' | 'project'; sourceSetSha256?: string | null; candidates: number; renames: SafeRenameProposal[] }
+interface SafeRenameSuggestions { sourceSha256: string; providerId: string; providerName: string; model: string; attemptId: string; projectSymbolContextSha256: string; projectSymbolScanTruncated?: boolean; scope: 'file' | 'project'; sourceSetSha256?: string | null; candidates: number; renames: SafeRenameProposal[] }
 
 interface ReviewDiffRow { kind: 'added' | 'removed'; text: string; beforeLine: number | null; afterLine: number | null }
 interface ReviewDiff { rows: ReviewDiffRow[]; added: number; removed: number; truncated: boolean; unavailable: boolean }
@@ -1901,7 +1901,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
         body: JSON.stringify({ operation: 'suggest', unitId: selectedUnit.id, providerId: selectedProviderId, sourceCode: workingSource, question: question.trim(), crossFileGo: safeRenameGo && crossFileGoRename }),
       })
       const result = await response.json().catch(() => ({})) as SafeRenameSuggestions & { error?: string }
-      if (!response.ok || typeof result.sourceSha256 !== 'string' || result.providerId !== selectedProviderId || typeof result.attemptId !== 'string' || typeof result.projectSymbolContextSha256 !== 'string' || !['file', 'project'].includes(result.scope) || !Array.isArray(result.renames)) {
+      if (!response.ok || typeof result.sourceSha256 !== 'string' || result.providerId !== selectedProviderId || typeof result.attemptId !== 'string' || typeof result.projectSymbolContextSha256 !== 'string' || (result.projectSymbolScanTruncated !== undefined && typeof result.projectSymbolScanTruncated !== 'boolean') || !['file', 'project'].includes(result.scope) || !Array.isArray(result.renames)) {
         throw new Error(result.error || 'Could not suggest scope-safe rename candidates')
       }
       setSafeRenameSuggestions(result)
@@ -3425,6 +3425,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
             <button type="button" className={styles.copyButton} onClick={() => void suggestSafeRenames()} disabled={!selectedProviderId || suggestingSafeRenames || applyingSafeRenames || transforming || sourceByteLength === null || safeRenameSourceByteLength > 64 * 1024 || sourceQuery.isError}>
               {suggestingSafeRenames ? 'Checking source and suggesting names…' : 'Suggest scope-safe renames'}
             </button>
+            {safeRenameSuggestions?.projectSymbolScanTruncated && <p className={styles.message} role="status">Project symbol context is partial; older accepted units may be missing. Review these suggestions against the available project evidence.</p>}
             {safeRenameSourceByteLength > 64 * 1024 && <p className={styles.message}>AI rename suggestions are limited to editable source of 64 KiB or less.</p>}
             {safeRenameSuggestions && safeRenameSuggestions.renames.length > 0 && <div className={styles.attemptHistory}>
               <p>{safeRenameSuggestions.renames.length} saved, unreviewed proposals from {safeRenameSuggestions.providerName} · {safeRenameSuggestions.model}. They are recorded in project attempt history and are not applied until selected. Source SHA-256: {safeRenameSuggestions.sourceSha256.slice(0, 16)}…</p>

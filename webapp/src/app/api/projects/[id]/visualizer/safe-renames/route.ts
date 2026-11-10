@@ -1020,6 +1020,7 @@ export async function POST(request: Request, { params }: RouteParams) {
         model: provider.modelIdentifier,
         attemptId: savedAttempt.id,
         projectSymbolContextSha256,
+        projectSymbolScanTruncated,
         scope: crossFileGo ? 'project' : 'file',
         sourceSetSha256: goProjectCatalog?.sourceSetSha256 ?? null,
         candidates: candidates.length,

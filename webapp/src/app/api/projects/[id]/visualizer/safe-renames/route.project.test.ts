@@ -8,7 +8,7 @@ import path from 'node:path'
 const h = vi.hoisted(() => ({
   user: vi.fn(), access: vi.fn(), selection: vi.fn(), observationFindFirst: vi.fn(), observationFindMany: vi.fn(),
   artifactFindFirst: vi.fn(), maintainedFindMany: vi.fn(), reviewFindMany: vi.fn(), attemptFindFirst: vi.fn(),
-  providerFindFirst: vi.fn(), agentFetch: vi.fn(), root: vi.fn(), resolvePath: vi.fn(), transaction: vi.fn(),
+  providerFindFirst: vi.fn(), agentFetch: vi.fn(), root: vi.fn(), resolvePath: vi.fn(), transaction: vi.fn(), attemptCreate: vi.fn(), attemptFindMany: vi.fn(),
   txAttemptCreate: vi.fn(), txDraftCreate: vi.fn(),
 }))
 
@@ -21,7 +21,7 @@ vi.mock('@/lib/prisma', () => ({ default: {
   artifact: { findFirst: h.artifactFindFirst },
   reamonMaintainedSource: { findMany: h.maintainedFindMany },
   reamonCodeReview: { findMany: h.reviewFindMany },
-  reamonCodeAttempt: { findFirst: h.attemptFindFirst },
+  reamonCodeAttempt: { findFirst: h.attemptFindFirst, findMany: h.attemptFindMany, create: h.attemptCreate },
   userLlmProvider: { findFirst: h.providerFindFirst },
   $transaction: h.transaction,
 } }))
@@ -86,14 +86,26 @@ beforeEach(async () => {
     },
   })
   h.providerFindFirst.mockResolvedValue({ id: 'provider-1', name: 'Provider', modelIdentifier: 'model-1' })
+  h.attemptCreate.mockResolvedValue({ id: 'suggestion-attempt-1' })
+  h.attemptFindMany.mockResolvedValue([])
   h.root.mockReturnValue(root)
   h.resolvePath.mockImplementation((relative: string) => path.join(root, relative))
   await mkdir(path.dirname(path.join(root, selectedCodeArtifactId)), { recursive: true })
   await mkdir(path.dirname(path.join(root, siblingCodeArtifactId)), { recursive: true })
   await writeFile(path.join(root, selectedCodeArtifactId), selectedSource)
   await writeFile(path.join(root, siblingCodeArtifactId), siblingSource)
-  h.agentFetch.mockImplementation(async (_url: string, init: RequestInit) => {
+  h.agentFetch.mockImplementation(async (url: string, init: RequestInit) => {
     const body = JSON.parse(String(init.body)) as Record<string, unknown>
+    if (url === '/reamon/code/go/refactor' && body.operation === 'bindings') {
+      const sourceCode = String(body.source_code)
+      return jsonResponse({
+        source_sha256: inputHash(sourceCode), parser_version: 'go1.24.4', truncated: false,
+        bindings: [{ id: bindingId, name: 'a', kind: 'parameter', scopeType: 'local', declarationStart: sourceCode.indexOf('a int'), referenceCount: 1, exported: false }],
+      })
+    }
+    if (url === '/reamon/code/suggest-renames') {
+      return jsonResponse({ renames: [{ bindingId, oldName: 'a', newName: 'value', rationale: 'clearer name' }] })
+    }
     if (body.operation === 'project_bindings') {
       return jsonResponse({
         source_sha256: inputHash(selectedSource), source_set_sha256: setHash([
@@ -130,6 +142,30 @@ beforeEach(async () => {
 afterEach(async () => { if (root) await rm(root, { recursive: true, force: true }) })
 
 describe('POST safe-renames Go package scope', () => {
+  it('returns and persists when bounded accepted-symbol context was truncated', async () => {
+    const truncatedSource = 'package sample\nfunc normalize(a int) int { return a }\n'
+    await writeFile(path.join(root, selectedCodeArtifactId), truncatedSource)
+    h.maintainedFindMany.mockResolvedValueOnce(Array.from({ length: 4_097 }, (_, index) => ({
+      codeUnitId: `truncated-unit-${index}`, sourceCode: siblingSource, sourceHash: inputHash(siblingSource),
+      acceptedReviewId: null, relativePath: siblingPath,
+    })))
+
+    const response = await POST(new Request('http://localhost/api/projects/project-1/visualizer/safe-renames', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        operation: 'suggest', unitId: 'unit-a', providerId: 'provider-1', sourceCode: truncatedSource,
+        crossFileGo: false,
+      }),
+    }), routeParams)
+
+    const responseBody = await response.json()
+    expect(response.status, JSON.stringify(responseBody)).toBe(200)
+    expect(responseBody).toMatchObject({ scope: 'file', projectSymbolScanTruncated: true, candidates: 1 })
+    expect(h.attemptCreate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ requestPayload: expect.objectContaining({ projectSymbolScanTruncated: true }) }),
+    }))
+  })
+
   it('type-checks and stores all cross-file changes as reviewable drafts atomically', async () => {
     const response = await POST(new Request('http://localhost/api/projects/project-1/visualizer/safe-renames', {
       method: 'POST', headers: { 'content-type': 'application/json' },
