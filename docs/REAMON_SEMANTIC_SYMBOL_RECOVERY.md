@@ -76,14 +76,19 @@ dot imports are marked unsupported, and blank imports are omitted because they d
 no binding. Referenced locals and imports are eligible inventory entries but remain
 inventory-only; unreferenced locals and imports are explicitly excluded. Local struct
 fields, interface methods, labels, and other unsupported object kinds retain explicit
-unsupported reasons. The project inventory is complete only for the bounded set of Go
-source units discovered in that task/run and only when every package type-checks. It is
-capped at 256 files and 8 MiB, with details capped at 5,000 rows. Build-tag and
-module-aware dependency resolution are not established, so unsupported checks fall back
-to the selected package inventory and disclose the project-inventory error. Project-wide
-rows remain inventory-only; the rename flow still targets package declarations. This
-does not establish that the analysis run discovered every Go file in an external project,
-assess names as meaningful or unnamed, or measure naming quality.
+unsupported reasons. When the active workspace import contains one hash-verified
+`go.mod` covering the snapshot, the route passes its module path and root to the helper;
+the helper maps source directories to module import paths and resolves imports between
+those inventoried packages with `go/types`. The module path, root, and manifest hash are
+bound to the saved inventory and checked again before apply. Standard-library imports
+retain the Go importer fallback. External modules unavailable to that importer and
+build-tag variants remain unsupported, so failures preserve package-scoped suggestions
+and disclose the project-inventory error. Complete status still applies only to the
+bounded set of Go source units discovered in that task/run after every package
+type-checks; scope is capped at 256 files and 8 MiB, with details capped at 5,000 rows.
+Project-wide rows remain inventory-only; rename proposals still target one package.
+This does not establish exhaustive external source discovery, assess names as meaningful
+or unnamed, or measure naming quality.
 
 ## P1 milestone and acceptance gates
 
