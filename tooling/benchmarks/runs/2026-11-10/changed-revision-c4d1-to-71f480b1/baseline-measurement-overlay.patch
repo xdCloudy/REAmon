@@ -1,0 +1,534 @@
+diff --git a/tooling/benchmarks/jvm-multimodule-cfr/docker-compose.integration.yml b/tooling/benchmarks/jvm-multimodule-cfr/docker-compose.integration.yml
+new file mode 100644
+index 00000000..e924f2f0
+--- /dev/null
++++ b/tooling/benchmarks/jvm-multimodule-cfr/docker-compose.integration.yml
+@@ -0,0 +1,39 @@
++services:
++  benchmark-test:
++    image: reamon-webapp-test:local
++    entrypoint: ["npm"]
++    working_dir: /repo/webapp
++    command: ["test", "--", "src/lib/reamon/cfr.task.database.integration.test.ts"]
++    environment:
++      DATABASE_URL: "postgresql://${POSTGRES_USER:-redamon}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/${POSTGRES_DB:-redamon}"
++      REAMON_ARTIFACTS_PATH: /data/reamon-artifacts
++      REAMON_DERIVED_PATH: /data/reamon-derived
++      REAMON_CFR_URL: http://cfr-analyzer:8022
++      REAMON_RUN_DB_INTEGRATION: "1"
++      REAMON_JVM_CFR_FIXTURE_PATH: ${REAMON_JVM_CFR_FIXTURE_PATH:?REAMON_JVM_CFR_FIXTURE_PATH must be set}
++      REAMON_BENCHMARK_FIXTURE_ID: ${REAMON_BENCHMARK_FIXTURE_ID:-jvm-multimodule-cfr-linux-amd64}
++      REAMON_BENCHMARK_EVIDENCE_PATH: ${REAMON_BENCHMARK_EVIDENCE_PATH:?REAMON_BENCHMARK_EVIDENCE_PATH must be set}
++    volumes:
++      - reamon_artifacts:/data/reamon-artifacts
++      - reamon_derived:/data/reamon-derived
++      - ./webapp/src:/repo/webapp/src:ro
++      - ${REAMON_BENCHMARK_HOST_OUTPUT_DIR:-./work/benchmarks}:/benchmark-output
++    networks:
++      - app
++      - analysis
++
++networks:
++  app:
++    external: true
++    name: reamon-network
++  analysis:
++    external: true
++    name: reamon-analysis-net
++
++volumes:
++  reamon_artifacts:
++    external: true
++    name: reamon_artifacts
++  reamon_derived:
++    external: true
++    name: reamon_derived
+diff --git a/tooling/benchmarks/jvm-multimodule-cfr/run.ps1 b/tooling/benchmarks/jvm-multimodule-cfr/run.ps1
+index 26bd1c93..277a0f17 100644
+--- a/tooling/benchmarks/jvm-multimodule-cfr/run.ps1
++++ b/tooling/benchmarks/jvm-multimodule-cfr/run.ps1
+@@ -7,17 +7,38 @@ param(
+     [string]$CfrContainer = 'reamon-cfr',
+     [string]$ArtifactsVolume = 'reamon_artifacts',
+     [string]$DerivedVolume = 'reamon_derived',
+-    [string]$HelperImage = 'alpine:3.20'
++    [string]$HelperImage = 'alpine:3.20',
++    [string]$FixtureManifestPath,
++    [string]$EnvFile,
++    [string]$ExpectedStackProject = 'reamon',
++    [switch]$DatabaseIntegration
+ )
+
+ $ErrorActionPreference = 'Stop'
++$benchmarkEnvironmentNames = @(
++    'REAMON_BENCHMARK_HOST_OUTPUT_DIR',
++    'REAMON_JVM_CFR_FIXTURE_PATH',
++    'REAMON_BENCHMARK_FIXTURE_ID',
++    'REAMON_BENCHMARK_EVIDENCE_PATH'
++)
++$originalBenchmarkEnvironment = @{}
++foreach ($name in $benchmarkEnvironmentNames) {
++    $originalBenchmarkEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
++}
+ $fixtureRoot = $PSScriptRoot
++$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path
+ $BuildDirectory = [System.IO.Path]::GetFullPath($BuildDirectory)
+ $OutputDirectory = [System.IO.Path]::GetFullPath($OutputDirectory)
+ if (Test-Path -LiteralPath $OutputDirectory) { throw "Refusing existing output directory: $OutputDirectory" }
+ if ($RunId -notmatch '^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$') { throw 'RunId must be a safe CFR identifier' }
+
+-$manifest = Get-Content -LiteralPath (Join-Path $fixtureRoot 'manifest.json') -Raw | ConvertFrom-Json
++$manifestPath = if ($FixtureManifestPath) {
++    if ([System.IO.Path]::IsPathRooted($FixtureManifestPath)) { $FixtureManifestPath }
++    else { Join-Path $fixtureRoot $FixtureManifestPath }
++} else {
++    Join-Path $fixtureRoot 'manifest.json'
++}
++$manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+ $buildReceiptPath = Join-Path $BuildDirectory 'build-receipt.json'
+ $buildReceipt = Get-Content -LiteralPath $buildReceiptPath -Raw | ConvertFrom-Json
+ $jarPath = Join-Path $BuildDirectory 'fixture.jar'
+@@ -33,7 +54,9 @@ if ($sourceFiles.Count -ne $manifest.sourceModuleCount -or $sourceFiles.Count -e
+ $sourceHashes = [ordered]@{}
+ foreach ($source in $sourceFiles) {
+     $relative = $source.FullName.Substring((Join-Path $fixtureRoot 'src').Length).TrimStart('\','/') -replace '\\','/'
+-    $sourceHashes[$relative] = (Get-FileHash -LiteralPath $source.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
++    $text = [System.IO.File]::ReadAllText($source.FullName).Replace("`r`n", "`n").Replace("`r", "`n")
++    $sourceBytes = [System.Text.UTF8Encoding]::new($false).GetBytes($text)
++    $sourceHashes[$relative] = [Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($sourceBytes)).ToLowerInvariant()
+ }
+ $sourcePaths = @($sourceHashes.Keys | Sort-Object)
+ $receiptSourcePaths = @($buildReceipt.sourceSha256ByPath.PSObject.Properties.Name | Sort-Object)
+@@ -53,6 +76,7 @@ $taskId = 'cfr-fixture'
+ $runRoot = "$projectId/$artifactId/$taskId/$RunId"
+ $artifactDirectoryName = 'jvm-cfr-' + $RunId
+ $artifactPath = "/data/reamon-artifacts/$artifactDirectoryName/fixture.jar"
++$derivedPrepared = $false
+ $stagingName = 'reamon-cfr-stage-' + [Guid]::NewGuid().ToString('N').Substring(0, 10)
+ $copyName = 'reamon-cfr-copy-' + [Guid]::NewGuid().ToString('N').Substring(0, 10)
+ $staged = $false
+@@ -74,6 +98,7 @@ try {
+     Invoke-DockerChecked -DockerArgs @('run', '--rm', '--volume', "${ArtifactsVolume}:/artifacts", '--entrypoint', 'sh', $HelperImage, '-c', $artifactCheck) | Out-Null
+     $derivedCheck = 'test ! -e /derived/' + $runRoot
+     Invoke-DockerChecked -DockerArgs @('run', '--rm', '--volume', "${DerivedVolume}:/derived:ro", '--entrypoint', 'sh', $HelperImage, '-c', $derivedCheck) | Out-Null
++    $derivedPrepared = $true
+
+     Invoke-DockerChecked -DockerArgs @('run', '-d', '--name', $stagingName, '--volume', "${ArtifactsVolume}:/artifacts", '--entrypoint', 'sleep', $HelperImage, '300') | Out-Null
+     Invoke-DockerChecked -DockerArgs @('cp', $jarPath, "${stagingName}:/tmp/fixture.jar") | Out-Null
+@@ -123,6 +148,10 @@ try {
+     $observed = Invoke-DockerChecked -DockerArgs @('run', '--rm', '--platform', 'linux/amd64', '--network', 'none', '--memory', '2g', '--cpus', '2', '--pids-limit', '256', '--read-only', '--tmpfs', '/tmp:rw,nosuid,nodev,size=256m', '--volume', "${BuildDirectory}:/fixture:ro", '--volume', "${localSources}:/recovered-src:ro", '--volume', "${OutputDirectory}:/validation-output", '--volume', "${fixtureRoot}:/validator:ro", '--entrypoint', 'bash', $manifest.builderImage, '/validator/validate_recovery.sh', '/fixture/fixture.jar', '/recovered-src', '/validation-output', $manifest.expectedRuntimeStdout) | Out-String
+     $observed = $observed.Trim()
+     if ($observed -ne $manifest.expectedRuntimeStdout) { throw "Recovered runtime output mismatch: $observed" }
++    $behavioralCorrespondence = Get-Content -LiteralPath (Join-Path $OutputDirectory 'behavioral-correspondence.json') -Raw | ConvertFrom-Json
++    if ((-not $behavioralCorrespondence.allOutputsMatch) -or ($behavioralCorrespondence.inputCount -ne 8197) -or ($behavioralCorrespondence.originalOutputSha256 -notmatch '^[a-f0-9]{64}$') -or ($behavioralCorrespondence.originalOutputSha256 -ne $behavioralCorrespondence.recoveredOutputSha256)) {
++        throw 'Container behavior probe did not verify the expected dense input set'
++    }
+     $classResults = [ordered]@{}
+     foreach ($line in (Get-Content -LiteralPath (Join-Path $OutputDirectory 'bytecode-correspondence.tsv'))) {
+         $fields = $line -split "`t"
+@@ -186,19 +215,68 @@ try {
+         observedRuntimeStdout = $observed
+         expectedRuntimeStdout = $manifest.expectedRuntimeStdout
+         runtimeMatches = $true
+-        claim = 'One synthetic two-class JVM fixture compiled and ran with matching observed stdout; javap class signatures and bytecode matched per expected class. This does not prove original-source equivalence or broad JVM fidelity.'
++        behavioralCorrespondence = $behavioralCorrespondence
++        claim = 'One synthetic two-class JVM fixture compiled, matched observed Main stdout and 8,197 sampled RuleEngine inputs, and records exact javap correspondence per class. This does not prove original-source equivalence or broad JVM fidelity.'
+     }
+     [System.IO.File]::WriteAllText((Join-Path $OutputDirectory 'validation-receipt.json'), ($validation | ConvertTo-Json -Depth 12), $utf8NoBom)
+-    Write-Output "CFR fixture passed: $RunId; sources=$($sourcePaths.Count); stdout=$observed"
++
++    if ($DatabaseIntegration) {
++        if ($EnvFile) {
++            $EnvFile = [System.IO.Path]::GetFullPath($EnvFile)
++            if (-not (Test-Path -LiteralPath $EnvFile -PathType Leaf)) { throw 'The supplied Compose environment file does not exist' }
++        }
++        $containerLabels = Invoke-DockerChecked -DockerArgs @('inspect', 'redamon-webapp', '--format', '{{json .Config.Labels}}') | Out-String
++        $runningProject = ($containerLabels | ConvertFrom-Json).'com.docker.compose.project'
++        if ($runningProject -ne $ExpectedStackProject) {
++            throw "Expected stack project '$ExpectedStackProject' does not match the running webapp project '$runningProject'"
++        }
++        $integrationEvidencePath = Join-Path $OutputDirectory 'database-integration-evidence.json'
++        if (Test-Path -LiteralPath $integrationEvidencePath) { throw 'Refusing to overwrite database integration evidence' }
++        $env:REAMON_BENCHMARK_HOST_OUTPUT_DIR = $OutputDirectory.Replace('\', '/')
++        $env:REAMON_JVM_CFR_FIXTURE_PATH = $artifactPath
++        $env:REAMON_BENCHMARK_FIXTURE_ID = $manifest.fixtureId
++        $env:REAMON_BENCHMARK_EVIDENCE_PATH = '/benchmark-output/database-integration-evidence.json'
++        $composeArgs = @('compose', '-p', 'reamon-benchmark', '--project-directory', $repoRoot)
++        if ($EnvFile) { $composeArgs += @('--env-file', $EnvFile) }
++        $composeArgs += @('-f', (Join-Path $fixtureRoot 'docker-compose.integration.yml'), 'run', '--rm', 'benchmark-test')
++        docker @composeArgs
++        if ($LASTEXITCODE -ne 0) { throw 'CFR PostgreSQL integration failed' }
++        if (-not (Test-Path -LiteralPath $integrationEvidencePath -PathType Leaf)) {
++            throw 'CFR database integration passed without producing its evidence file'
++        }
++        $validation.databaseIntegrationEvidenceSha256 = (Get-FileHash -LiteralPath $integrationEvidencePath -Algorithm SHA256).Hash.ToLowerInvariant()
++        [System.IO.File]::WriteAllText((Join-Path $OutputDirectory 'validation-receipt.json'), ($validation | ConvertTo-Json -Depth 12), $utf8NoBom)
++    }
++    Write-Output "CFR fixture passed: $RunId; sources=$($sourcePaths.Count); behavior=$($behavioralCorrespondence.inputCount) inputs; stdout=$observed"
+ }
+ finally {
+     docker rm -f $stagingName 2>$null | Out-Null
+     docker rm -f $copyName 2>$null | Out-Null
+-    if ($staged) {
+-        $stagedJar = "/artifacts/$artifactDirectoryName/fixture.jar"
+-        $stagedHash = (Invoke-DockerChecked -DockerArgs @('run', '--rm', '--volume', "${ArtifactsVolume}:/artifacts", $HelperImage, 'sha256sum', $stagedJar) | Out-String).Trim().Split(' ')[0]
+-        if ($stagedHash -ne $jarHash) { throw "Refusing to clean staged artifact with unexpected hash: $stagedHash" }
+-        Invoke-DockerChecked -DockerArgs @('run', '--rm', '--volume', "${ArtifactsVolume}:/artifacts", $HelperImage, 'rm', '--', $stagedJar) | Out-Null
+-        Invoke-DockerChecked -DockerArgs @('run', '--rm', '--volume', "${ArtifactsVolume}:/artifacts", $HelperImage, 'rmdir', '--', "/artifacts/$artifactDirectoryName") | Out-Null
++    try {
++        if ($derivedPrepared) {
++            if ($runRoot -notmatch '^bench-jvm-cfr/fixture-[a-f0-9]{12}/cfr-fixture/[A-Za-z0-9][A-Za-z0-9_-]{0,127}$') {
++                throw 'Refusing to clean a derived path outside this JVM fixture run'
++            }
++            $cleanupScript = 'set -eu; rm -rf -- "/derived/$1"; parent="${1%/*}"; rmdir -p -- "/derived/$parent" 2>/dev/null || true'
++            Invoke-DockerChecked -DockerArgs @('run', '--rm', '--volume', "${DerivedVolume}:/derived", '--entrypoint', 'sh', $HelperImage, '-c', $cleanupScript, 'reamon-jvm-cleanup', $runRoot) | Out-Null
++        }
++    }
++    finally {
++        try {
++            if ($staged) {
++                $stagedJar = "/artifacts/$artifactDirectoryName/fixture.jar"
++                $stagedHash = (Invoke-DockerChecked -DockerArgs @('run', '--rm', '--volume', "${ArtifactsVolume}:/artifacts", $HelperImage, 'sha256sum', $stagedJar) | Out-String).Trim().Split(' ')[0]
++                if ($stagedHash -ne $jarHash) { throw "Refusing to clean staged artifact with unexpected hash: $stagedHash" }
++                Invoke-DockerChecked -DockerArgs @('run', '--rm', '--volume', "${ArtifactsVolume}:/artifacts", $HelperImage, 'rm', '--', $stagedJar) | Out-Null
++                Invoke-DockerChecked -DockerArgs @('run', '--rm', '--volume', "${ArtifactsVolume}:/artifacts", $HelperImage, 'rmdir', '--', "/artifacts/$artifactDirectoryName") | Out-Null
++            }
++        }
++        finally {
++            foreach ($name in $benchmarkEnvironmentNames) {
++                $value = $originalBenchmarkEnvironment[$name]
++                if ($null -eq $value) { Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue }
++                else { Set-Item -LiteralPath "Env:$name" -Value $value }
++            }
++        }
+     }
+ }
+diff --git a/tooling/benchmarks/jvm-multimodule-cfr/validate_recovery.sh b/tooling/benchmarks/jvm-multimodule-cfr/validate_recovery.sh
+index 9049c28b..293531c0 100644
+--- a/tooling/benchmarks/jvm-multimodule-cfr/validate_recovery.sh
++++ b/tooling/benchmarks/jvm-multimodule-cfr/validate_recovery.sh
+@@ -36,6 +36,51 @@ if [[ "$observed_stdout" != "$expected_stdout" ]]; then
+     exit 4
+ fi
+
++probe_source=/tmp/BehaviorProbe.java
++original_probe_classes=/tmp/reamon-original-probe
++recovered_probe_classes=/tmp/reamon-recovered-probe
++original_probe_output=/tmp/reamon-original-behavior.txt
++recovered_probe_output=/tmp/reamon-recovered-behavior.txt
++cat > "$probe_source" <<'JAVA'
++import java.util.TreeSet;
++import org.reamon.fixture.RuleEngine;
++
++public final class BehaviorProbe {
++    public static void main(String[] args) {
++        TreeSet<Integer> inputs = new TreeSet<>();
++        for (int value = -4096; value <= 4096; value++) {
++            inputs.add(value);
++        }
++        inputs.add(Integer.MIN_VALUE);
++        inputs.add(Integer.MIN_VALUE + 1);
++        inputs.add(Integer.MAX_VALUE - 1);
++        inputs.add(Integer.MAX_VALUE);
++
++        RuleEngine engine = new RuleEngine();
++        for (int value : inputs) {
++            System.out.println(value + "\t" + engine.classify(value));
++        }
++    }
++}
++JAVA
++mkdir -p "$original_probe_classes" "$recovered_probe_classes"
++javac --release 17 -classpath "$original_classes" -d "$original_probe_classes" "$probe_source"
++javac --release 17 -classpath "$recovered_classes" -d "$recovered_probe_classes" "$probe_source"
++java -classpath "$original_probe_classes:$original_classes" BehaviorProbe > "$original_probe_output"
++java -classpath "$recovered_probe_classes:$recovered_classes" BehaviorProbe > "$recovered_probe_output"
++behavior_input_count=$(wc -l < "$original_probe_output" | tr -d ' ')
++original_behavior_sha256=$(sha256sum "$original_probe_output" | awk '{print $1}')
++recovered_behavior_sha256=$(sha256sum "$recovered_probe_output" | awk '{print $1}')
++if ! cmp -s "$original_probe_output" "$recovered_probe_output"; then
++    diff -u "$original_probe_output" "$recovered_probe_output" > "$output_root/behavior-diff.txt" || true
++    printf 'behavior mismatch across %s RuleEngine inputs\n' "$behavior_input_count" >&2
++    head -n 40 "$output_root/behavior-diff.txt" >&2
++    exit 5
++fi
++printf '{"method":"RuleEngine.classify sampled integer differential","inputCount":%s,"inputRange":"-4096..4096 plus integer overflow boundaries","originalOutputSha256":"%s","recoveredOutputSha256":"%s","allOutputsMatch":true}\n' \
++    "$behavior_input_count" "$original_behavior_sha256" "$recovered_behavior_sha256" \
++    > "$output_root/behavioral-correspondence.json"
++
+ : > "$output_root/bytecode-correspondence.tsv"
+ for relative_path in "${source_paths[@]}"; do
+     class_name=${relative_path%.java}
+diff --git a/webapp/src/lib/reamon/cfr.task.database.integration.test.ts b/webapp/src/lib/reamon/cfr.task.database.integration.test.ts
+new file mode 100644
+index 00000000..b9636134
+--- /dev/null
++++ b/webapp/src/lib/reamon/cfr.task.database.integration.test.ts
+@@ -0,0 +1,206 @@
++/** @vitest-environment node */
++import { createHash, randomUUID } from 'node:crypto'
++import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
++import path from 'node:path'
++import { afterAll, beforeAll, describe, expect, test } from 'vitest'
++
++import prisma from '@/lib/prisma'
++import { ingestToolResult } from './result-ingestion'
++import { executeCfr } from './cfr'
++import type { TargetProfile, ToolExecutionInput, ToolObservation } from './types'
++
++const enabled = process.env.REAMON_RUN_DB_INTEGRATION === '1'
++  && Boolean(process.env.REAMON_CFR_URL)
++  && Boolean(process.env.REAMON_JVM_CFR_FIXTURE_PATH)
++  && Boolean(process.env.REAMON_ARTIFACTS_PATH && process.env.REAMON_DERIVED_PATH)
++const describeDatabase = describe.skipIf(!enabled)
++
++describeDatabase('CFR JVM fixture through PostgreSQL observation persistence', () => {
++  const suffix = randomUUID()
++  const userId = `cfr-db-user-${suffix}`
++  const projectId = `cfr-db-project-${suffix}`
++  const providerId = `cfr-db-provider-${suffix}`
++  const artifactId = `cfr-db-artifact-${suffix}`
++  const taskId = `cfr-db-task-${suffix}`
++  const artifactsRoot = path.resolve(process.env.REAMON_ARTIFACTS_PATH || '/tmp/reamon-artifacts')
++  const derivedRoot = path.resolve(process.env.REAMON_DERIVED_PATH || '/tmp/reamon-derived')
++  const fixturePath = path.resolve(process.env.REAMON_JVM_CFR_FIXTURE_PATH || '')
++  const storagePath = path.relative(artifactsRoot, fixturePath).split(path.sep).join('/')
++  const profile: TargetProfile = {
++    targetType: 'FILE',
++    format: 'jar',
++    mimeType: 'application/java-archive',
++    extension: 'jar',
++    architecture: null,
++    platform: 'jvm',
++    runtimes: ['java'],
++    embeddedArtifacts: [],
++    entropy: null,
++    metadata: {},
++  }
++  let artifactCreated = false
++  let projectCreated = false
++  let providerCreated = false
++  let userCreated = false
++  let fixtureSha256 = ''
++  let sourceFileCount = 0
++  let observationCount = 0
++  let allStoredSourcesHashVerified = false
++  let storedSourceHashes: Record<string, string> = {}
++  const evidencePath = process.env.REAMON_BENCHMARK_EVIDENCE_PATH?.trim()
++
++  beforeAll(async () => {
++    if (!fixturePath.startsWith(`${artifactsRoot}${path.sep}`)) {
++      throw new Error('JVM CFR fixture must live inside REAMON_ARTIFACTS_PATH')
++    }
++    const fixture = await readFile(fixturePath)
++    const fixtureStat = await stat(fixturePath)
++    fixtureSha256 = createHash('sha256').update(fixture).digest('hex')
++
++    await prisma.user.create({ data: { id: userId, name: 'CFR JVM DB test', email: `${suffix}@example.invalid` } })
++    userCreated = true
++    await prisma.project.create({ data: { id: projectId, userId, name: 'CFR JVM PostgreSQL persistence' } })
++    projectCreated = true
++    await prisma.reamonProvider.create({
++      data: {
++        id: providerId,
++        pluginId: 'reamon-cfr',
++        name: 'CFR Java Decompiler',
++        category: 'static_analysis',
++        integration: 'process',
++        acceptsTargetTypes: ['FILE'],
++        acceptsFormats: ['jar', 'class'],
++        capabilities: ['decompile'],
++        produces: ['CodeUnit', 'DecompiledSource'],
++        requirements: [],
++      },
++    })
++    providerCreated = true
++    await prisma.artifact.create({
++      data: {
++        id: artifactId,
++        projectId,
++        name: 'jvm-cfr-fixture',
++        originalName: 'fixture.jar',
++        relativePath: 'fixture.jar',
++        storagePath,
++        sha256: fixtureSha256,
++        sizeBytes: BigInt(fixtureStat.size),
++        extension: 'jar',
++        mimeType: 'application/java-archive',
++        profile,
++      },
++    })
++    artifactCreated = true
++    await prisma.task.create({
++      data: {
++        id: taskId,
++        projectId,
++        artifactId,
++        providerId,
++        capability: 'decompile',
++        title: 'Persist CFR JVM fixture output',
++        status: 'COMPLETED',
++        options: { requiresApproval: false },
++      },
++    })
++  }, 30_000)
++
++  test('runs the CFR adapter, persists returned code units, and verifies stored source hashes', async () => {
++    const input: ToolExecutionInput = {
++      targetProfile: profile,
++      projectId,
++      artifactId,
++      taskId,
++      runToken: `run-${suffix}`,
++      artifactPath: fixturePath,
++      artifactRelativePath: 'fixture.jar',
++    }
++    const result = await executeCfr(input)
++    if (result.status !== 'completed') throw new Error(result.error || 'CFR execution failed')
++    const data = result.data as {
++      observations: ToolObservation[]
++      decompiledCodeUnitCount: number
++      truncated: boolean
++      cfrVersion: string
++    }
++    expect(data).toMatchObject({ truncated: false, cfrVersion: '0.152' })
++    expect(data.observations).toHaveLength(data.decompiledCodeUnitCount)
++    expect(data.decompiledCodeUnitCount).toBe(2)
++    sourceFileCount = data.decompiledCodeUnitCount
++
++    await prisma.$transaction((tx) => ingestToolResult(tx, {
++      projectId,
++      taskId,
++      targetId: null,
++      artifactId,
++      source: result.toolId,
++      data,
++      maxObservations: 20_000,
++    }))
++
++    const rows = await prisma.reamonObservation.findMany({
++      where: { projectId, artifactId, taskId, source: 'reamon-cfr', type: 'code_unit' },
++      select: { stableKey: true, attributes: true },
++      take: 20_001,
++    })
++    expect(rows).toHaveLength(sourceFileCount)
++    observationCount = rows.length
++    const expectedPaths = new Set([
++      'org/reamon/fixture/Main.java',
++      'org/reamon/fixture/RuleEngine.java',
++    ])
++    expect(new Set(rows.map((row) => (row.attributes as Record<string, unknown>).relativePath))).toEqual(expectedPaths)
++
++    storedSourceHashes = {}
++    for (const row of rows) {
++      const attributes = row.attributes as Record<string, unknown>
++      expect(attributes.inputArtifactSha256).toBe(fixtureSha256)
++      expect(attributes.language).toBe('Java')
++      expect(attributes.decompilationEngineVersion).toBe('0.152')
++      expect(typeof attributes.codeArtifactId).toBe('string')
++      expect(attributes.decompiledSourceSha256).toMatch(/^[a-f0-9]{64}$/)
++      const artifactIdValue = attributes.codeArtifactId as string
++      const sourcePath = path.resolve(derivedRoot, ...artifactIdValue.replaceAll('\\', '/').split('/'))
++      expect(sourcePath.startsWith(`${derivedRoot}${path.sep}`)).toBe(true)
++      const source = await readFile(sourcePath)
++      expect(createHash('sha256').update(source).digest('hex')).toBe(attributes.decompiledSourceSha256)
++      storedSourceHashes[attributes.relativePath as string] = attributes.decompiledSourceSha256 as string
++    }
++    allStoredSourcesHashVerified = true
++  }, 25 * 60_000)
++
++  afterAll(async () => {
++    try {
++      if (evidencePath && allStoredSourcesHashVerified) {
++        await mkdir(path.dirname(path.resolve(evidencePath)), { recursive: true })
++        await writeFile(path.resolve(evidencePath), `${JSON.stringify({
++          schemaVersion: 1,
++          fixtureId: process.env.REAMON_BENCHMARK_FIXTURE_ID || 'jvm-multimodule-cfr-linux-amd64',
++          artifactSha256: fixtureSha256,
++          provider: 'CFR 0.152',
++          projectId,
++          taskId,
++          sourceFileCount,
++          persistedCodeUnitCount: observationCount,
++          storedSourceHashes,
++          allStoredSourcesHashVerified,
++          metrics: {
++            recovered_source_files: { state: 'MEASURED', denominator: 2, value: sourceFileCount },
++            source_inventory_complete: { state: 'MEASURED', denominator: 1, value: Number(sourceFileCount === 2) },
++            exact_bytecode_classes: { state: 'UNAVAILABLE', denominator: 2 },
++            runtime_oracle: { state: 'UNAVAILABLE', denominator: 1 },
++            sampled_behavior_oracle: { state: 'UNAVAILABLE', denominator: 1 },
++          },
++        }, null, 2)}\n`, { encoding: 'utf8', flag: 'wx' })
++      }
++    } finally {
++      if (projectCreated) await prisma.project.deleteMany({ where: { id: projectId } })
++      if (artifactCreated) await prisma.artifact.deleteMany({ where: { id: artifactId } })
++      if (providerCreated) await prisma.reamonProvider.deleteMany({ where: { id: providerId } })
++      if (userCreated) await prisma.user.deleteMany({ where: { id: userId } })
++      await rm(path.join(derivedRoot, projectId), { recursive: true, force: true })
++      await prisma.$disconnect()
++    }
++  }, 30_000)
++})
+diff --git a/webapp/src/lib/reamon/pyinstaller.benchmark-evidence.ts b/webapp/src/lib/reamon/pyinstaller.benchmark-evidence.ts
+index 94835104..67f148b3 100644
+--- a/webapp/src/lib/reamon/pyinstaller.benchmark-evidence.ts
++++ b/webapp/src/lib/reamon/pyinstaller.benchmark-evidence.ts
+@@ -14,9 +14,15 @@ type PyInstallerBenchmarkEvidenceInput = {
+   workerTerminalPage: boolean
+ }
+
+-export const PYINSTALLER_STRUCTURED_SOURCE_FIXTURE_ID = 'pyinstaller-module-structured-source-linux-amd64'
++export const PYINSTALLER_STRUCTURED_SOURCE_FIXTURE_ID = 'pyinstaller-module-structured-source-linux-amd64-v2'
++export const PYINSTALLER_STRUCTURED_SOURCE_LEGACY_FIXTURE_ID = 'pyinstaller-module-structured-source-linux-amd64'
+ export const PYINSTALLER_MUTATED_SOURCE_CONTROL_FIXTURE_ID = 'pyinstaller-module-mutated-source-control-linux-amd64'
+
++export function isPyInstallerStructuredSourceFixture(fixtureId: string): boolean {
++  return fixtureId === PYINSTALLER_STRUCTURED_SOURCE_FIXTURE_ID
++    || fixtureId === PYINSTALLER_STRUCTURED_SOURCE_LEGACY_FIXTURE_ID
++}
++
+ export function matchesPyInstallerFixtureSource(source: string, expectedValue: number): boolean {
+   if (!Number.isSafeInteger(expectedValue) || expectedValue < 1 || expectedValue > 70) return false
+   return matchesPyInstallerSource(source, `VALUE = ${expectedValue}`)
+@@ -139,7 +145,7 @@ export function createPyInstallerBenchmarkEvidence(input: PyInstallerBenchmarkEv
+     || input.reconstructionMatchedCount > 70) {
+     throw new Error('PyInstaller source reconstruction match count must be between 0 and 70')
+   }
+-  const isStructuredFixture = input.fixtureId === PYINSTALLER_STRUCTURED_SOURCE_FIXTURE_ID
++  const isStructuredFixture = isPyInstallerStructuredSourceFixture(input.fixtureId)
+   const isMutatedArtifactFixture = input.fixtureId === PYINSTALLER_MUTATED_SOURCE_CONTROL_FIXTURE_ID
+   if (isStructuredFixture) {
+     const rejected = input.structuredMutationRejectedCount
+diff --git a/webapp/src/lib/reamon/pyinstaller.task.database.integration.test.ts b/webapp/src/lib/reamon/pyinstaller.task.database.integration.test.ts
+index f82433a4..a16da4d4 100644
+--- a/webapp/src/lib/reamon/pyinstaller.task.database.integration.test.ts
++++ b/webapp/src/lib/reamon/pyinstaller.task.database.integration.test.ts
+@@ -9,6 +9,7 @@ import { ingestToolResult } from './result-ingestion'
+ import { executePyInstaller } from './pyinstaller'
+ import {
+   createPyInstallerBenchmarkEvidence,
++  isPyInstallerStructuredSourceFixture,
+   matchesPyInstallerFixtureSource,
+   matchesPyInstallerStructuredFixtureSource,
+   mutatePyInstallerStructuredFixtureSource,
+@@ -216,7 +217,7 @@ describeDatabase('PyInstaller continuation with PostgreSQL observation persisten
+     let structuredMutationFalseAcceptanceCount = 0
+     let originalSourceFalseAcceptanceCount = 0
+     const fixtureId = process.env.REAMON_BENCHMARK_FIXTURE_ID
+-    const isStructuredFixture = fixtureId === PYINSTALLER_STRUCTURED_SOURCE_FIXTURE_ID
++    const isStructuredFixture = isPyInstallerStructuredSourceFixture(fixtureId ?? '')
+       || fixtureId === PYINSTALLER_MUTATED_SOURCE_CONTROL_FIXTURE_ID
+     const isMutatedArtifactFixture = fixtureId === PYINSTALLER_MUTATED_SOURCE_CONTROL_FIXTURE_ID
+     for (let moduleValue = 1; moduleValue <= 70; moduleValue += 1) {
+@@ -252,8 +253,8 @@ describeDatabase('PyInstaller continuation with PostgreSQL observation persisten
+     }
+     expect(knownSourceMatchedCount).toBe(70)
+     if (isStructuredFixture) {
++      expect(reconstructionMatchedCount).toBe(70)
+       if (isMutatedArtifactFixture) {
+-        expect(reconstructionMatchedCount).toBe(70)
+         expect(originalSourceFalseAcceptanceCount).toBe(0)
+       } else {
+         expect(structuredMutationRejectedCount).toBe(70)

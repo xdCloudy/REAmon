@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "components": {
+    "builder_image": "eclipse-temurin:21-jdk-jammy@sha256:4b1a74fbffbe6b4e7b6f0171a472478282fb463790a51edf10e465d578f22b69",
+    "cfr_service_image_id": "sha256:75c9a073878f7788ad2a488e27714b13738a303640d60031e47bb2e7c9059c06",
+    "webapp_test_image_id": "sha256:c9d7d3300dc8e050b79f7040ef506766515261453c88661cdd8d3f06de3ad316",
+    "helper_image_id": "sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc",
+    "runner_sha256": "0b76aa8881475ba87ed587542068e6733f8005f08356c0103ee8aa9ed788ac9c",
+    "validator_sha256": "b0a6dbadbfa5ba4fb0acba4ad435e32126ffc3a287010818a622abf223c797c7",
+    "integration_test_sha256": "87ae80bcf66cf15572323f9a6da6f425b59b7caa34d2c1faea81d424444681a7",
+    "compose_sha256": "128a73f3bdc49e8389bcf4fe4631d67c4950eb1a63a4c151165838649c6188e9",
+    "evidence_merger_sha256": "76adcb51ffb697c18748b663833d503c1a389c37a78bc67282dd9c9e8287c7ce"
+  }
+}

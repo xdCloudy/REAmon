@@ -1,0 +1,60 @@
+{
+  "commit": "5f63d5e4d8fe5e7cbd910b8a4aa5a5bcaf1c7e14",
+  "components": {
+    "builder_image": "eclipse-temurin:21-jdk-jammy@sha256:4b1a74fbffbe6b4e7b6f0171a472478282fb463790a51edf10e465d578f22b69",
+    "cfr_service_image_id": "sha256:75c9a073878f7788ad2a488e27714b13738a303640d60031e47bb2e7c9059c06",
+    "compose_sha256": "128a73f3bdc49e8389bcf4fe4631d67c4950eb1a63a4c151165838649c6188e9",
+    "evidence_merger_sha256": "76adcb51ffb697c18748b663833d503c1a389c37a78bc67282dd9c9e8287c7ce",
+    "helper_image_id": "sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc",
+    "integration_test_sha256": "87ae80bcf66cf15572323f9a6da6f425b59b7caa34d2c1faea81d424444681a7",
+    "runner_sha256": "0b76aa8881475ba87ed587542068e6733f8005f08356c0103ee8aa9ed788ac9c",
+    "validator_sha256": "b0a6dbadbfa5ba4fb0acba4ad435e32126ffc3a287010818a622abf223c797c7",
+    "webapp_test_image_id": "sha256:c9d7d3300dc8e050b79f7040ef506766515261453c88661cdd8d3f06de3ad316"
+  },
+  "createdAtUtc": "2026-11-10T11:41:07Z",
+  "evaluationManifestSha256": "359796dc099ccf579cf749f849b96490ebea8a5c10cd2b09da4c16be8275c149",
+  "evidenceSha256": "4328f55b1ffeb36a9694d7092ead89e9d8ed16f2bd1b572eedc071978f0b7eab",
+  "fixtureManifestSha256": "2c4f6c5a60ce1e3bbe9e0662406b88798d96757d3d0f0f150a9fcb572ab71ab5",
+  "fixtures": {
+    "jvm-multimodule-cfr-linux-amd64": {
+      "artifactSha256": "747346a392096bdac3613ac295ee4b8a743e22689a3738aeca1ad8ffc92fb7cf",
+      "metrics": {
+        "exact_bytecode_classes": {
+          "denominator": 2,
+          "direction": "higher",
+          "state": "MEASURED",
+          "value": 2
+        },
+        "recovered_source_files": {
+          "denominator": 2,
+          "direction": "higher",
+          "state": "MEASURED",
+          "value": 2
+        },
+        "runtime_oracle": {
+          "denominator": 1,
+          "direction": "equal",
+          "state": "MEASURED",
+          "value": 1
+        },
+        "sampled_behavior_oracle": {
+          "denominator": 1,
+          "direction": "equal",
+          "state": "MEASURED",
+          "value": 1
+        },
+        "source_inventory_complete": {
+          "denominator": 1,
+          "direction": "equal",
+          "state": "MEASURED",
+          "value": 1
+        }
+      }
+    }
+  },
+  "productSourceCommit": "c4d1e957b920e9f725db40266d81425852cd86fb",
+  "runId": "jvm-c4d1-baseline-measurement-5f63",
+  "schemaVersion": 1,
+  "toolchainManifestSha256": "6202ea53975446a94a9204f9fe1a8f21cbf28cc6004611bdd95939c86884521b",
+  "worktreeClean": true
+}

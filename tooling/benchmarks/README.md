@@ -88,5 +88,5 @@ hash-bound evaluation and toolchain manifests. All five JVM and seven
 PyInstaller metrics are complete with zero baseline/candidate deltas; the
 aggregate reports `NO_REGRESSION_OBSERVED`. This validates heterogeneous
 receipt aggregation and repeatability on these two synthetic fixtures. It
-does not measure a product change or complete changed-revision, multi-format
-acceptance; that remains the next AR-0/AR-8 gate.
+does not measure a product change. The first changed-revision two-format comparison is now archived at
+[`runs/2026-11-10/changed-revision-c4d1-to-71f480b1/`](runs/2026-11-10/changed-revision-c4d1-to-71f480b1/README.md). It compares product source c4d1e957 with 71f480b1 across one JVM/CFR fixture and one PyInstaller fixture. All 5 JVM and 7 PyInstaller metrics are measured with zero deltas; live database persistence passes on both sides and the PyInstaller queued worker reaches its terminal page. The aggregate reports `NO_REGRESSION_OBSERVED` with clean worktrees. This closes the first changed-revision multi-format gate, not broad AR-0/AR-8 coverage or a product-fidelity improvement.

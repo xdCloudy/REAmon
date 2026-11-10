@@ -1,0 +1,11 @@
+{
+  "fixtures": {
+    "jvm-multimodule-cfr-linux-amd64": {
+      "toolchainManifestSha256": "6202ea53975446a94a9204f9fe1a8f21cbf28cc6004611bdd95939c86884521b"
+    },
+    "pyinstaller-module-structured-source-linux-amd64": {
+      "toolchainManifestSha256": "6cf9989808c3ccc1380dcc5893c3ad42a5e51e7b262f37293941b342f87a238b"
+    }
+  },
+  "schemaVersion": 1
+}

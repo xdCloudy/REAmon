@@ -1,0 +1,78 @@
+{
+  "commit": "5f63d5e4d8fe5e7cbd910b8a4aa5a5bcaf1c7e14",
+  "components": {
+    "baselineIntegrationTestImage": "sha256:c9d7d3300dc8e050b79f7040ef506766515261453c88661cdd8d3f06de3ad316",
+    "benchmarkEvidenceHelperSha256": "092c55772ee52999eb9711bb69730c2b1974b7e453e810ec79639ba6ac6d1e4e",
+    "buildReceiptSha256": "570c715af235ecc7b8c7c37478aa2158a3623e448c7b1d7d33560713ecf9a8de",
+    "candidateIntegrationTestImage": "sha256:c9d7d3300dc8e050b79f7040ef506766515261453c88661cdd8d3f06de3ad316",
+    "composeSha256": "dae591fe8d9a8bf6c64fd6179dcd41875db560ac1c4d508d3d5f242c12fdafac",
+    "enrollmentReceiptSha256": "3adda48c0fee5681c2a327ac61491421940ed13bfdd32d97799355ba36966e8a",
+    "evaluationManifestSha256": "5fb6f388bcea32452ea979eda598a9006e1973cd3aaa690667cc95de1dc9e704",
+    "fixtureBuilderImage": "sha256:b52c328dc93a8ba67053c9ab6af7a8be9030bea63b13509403894e2b7351e5f0",
+    "fixtureExtractorImage": "sha256:a297f48ccf003e120beec499615a39f144a34866ba79f78251f37c2a7d859a61",
+    "fixtureManifestSha256": "ca8465e4e20c04181336a23dc9ff075bccf07e53192f47c8f7f9450f6bc63d07",
+    "integrationRunnerSha256": "879f123fc2f05d27e5a202c77473c6bc13b1ac8a728d2316ff6721929847bf14",
+    "integrationTestSourceSha256": "170e534d08d11de629d6385aafc70b1d706a3eea9549be022bf0a442ea54db98",
+    "livePyInstallerServiceImage": "sha256:dfd6e00b359c5144b39510685e15faa4dbc48645b3b0f9fe5a39669e9e5a40d3",
+    "pycdcImage": "sha256:e5a9b638e836dede2bfdccac46f2649938be1219dd910e9388db2f383474b82d",
+    "taskWorkerImage": "sha256:b15bd821fc9c8f12c47ac360edbd9c87fc974e39a9fe4b7b0c981fa4e1fcf5f4"
+  },
+  "createdAtUtc": "2026-11-10T11:39:07Z",
+  "evaluationManifestSha256": "5fb6f388bcea32452ea979eda598a9006e1973cd3aaa690667cc95de1dc9e704",
+  "evidenceSha256": "656b0ad0c236b015a4d4dac58b77604316d086bbc4b0e6e07e545828087af249",
+  "fixtureManifestSha256": "ca8465e4e20c04181336a23dc9ff075bccf07e53192f47c8f7f9450f6bc63d07",
+  "fixtures": {
+    "pyinstaller-module-structured-source-linux-amd64": {
+      "artifactSha256": "746c550fc3324ebf285c0ee4a555ea2afb3d5b12c9c191eb2bf4f0978d263971",
+      "metrics": {
+        "extracted_module_count": {
+          "denominator": 1,
+          "direction": "equal",
+          "state": "MEASURED",
+          "value": 180
+        },
+        "known_source_value_recall": {
+          "denominator": 70,
+          "direction": "higher",
+          "state": "MEASURED",
+          "value": 70
+        },
+        "negative_control_false_acceptance": {
+          "denominator": 70,
+          "direction": "lower",
+          "state": "MEASURED",
+          "value": 0
+        },
+        "negative_control_mutation_rejection": {
+          "denominator": 70,
+          "direction": "higher",
+          "state": "MEASURED",
+          "value": 70
+        },
+        "reconstruction_match": {
+          "denominator": 70,
+          "direction": "higher",
+          "state": "MEASURED",
+          "value": 70
+        },
+        "runtime_oracle": {
+          "denominator": 1,
+          "direction": "equal",
+          "state": "MEASURED",
+          "value": 1
+        },
+        "worker_terminal_page": {
+          "denominator": 1,
+          "direction": "equal",
+          "state": "MEASURED",
+          "value": 1
+        }
+      }
+    }
+  },
+  "productSourceCommit": "c4d1e957b920e9f725db40266d81425852cd86fb",
+  "runId": "pyinstaller-20261110-baseline",
+  "schemaVersion": 1,
+  "toolchainManifestSha256": "6cf9989808c3ccc1380dcc5893c3ad42a5e51e7b262f37293941b342f87a238b",
+  "worktreeClean": true
+}

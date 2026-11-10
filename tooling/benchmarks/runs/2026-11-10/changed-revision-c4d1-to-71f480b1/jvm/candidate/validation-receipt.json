@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "fixtureId": "jvm-multimodule-cfr-linux-amd64",
+  "artifactSha256": "747346a392096bdac3613ac295ee4b8a743e22689a3738aeca1ad8ffc92fb7cf",
+  "repositoryRevision": "71f480b131d4bacc9955b0933a56cb5542591421",
+  "runnerSha256": "0b76aa8881475ba87ed587542068e6733f8005f08356c0103ee8aa9ed788ac9c",
+  "provider": "CFR 0.152",
+  "serviceImageId": "sha256:75c9a073878f7788ad2a488e27714b13738a303640d60031e47bb2e7c9059c06",
+  "runId": "jvm-cand-71f480b1-20261110",
+  "discoveredSourceFiles": 2,
+  "expectedSourceFiles": 2,
+  "truncated": false,
+  "recoveredSourceSha256ByPath": {
+    "org/reamon/fixture/Main.java": "173b38f76779e4e0f4bc21141f5b985bf9d191173b841aaf417465d995598043",
+    "org/reamon/fixture/RuleEngine.java": "675d85b1dc835483012dbdfedefbae0983dcbf1920024437b9165deb7bb66c4d"
+  },
+  "sourceCorrespondence": {
+    "method": "javap -p -s -c exact output per expected class, compiled with the same pinned JDK",
+    "classesMatched": 2,
+    "classesExpected": 2,
+    "measurementComplete": true,
+    "allClassesMatched": true,
+    "classes": {
+      "org.reamon.fixture.Main": {
+        "bytecodeMatch": true,
+        "originalJavapSha256": "10b0bc971e7b2461a457748cbf9dc919693960bfe360a19e69ae90f67d4eb46c",
+        "recoveredJavapSha256": "10b0bc971e7b2461a457748cbf9dc919693960bfe360a19e69ae90f67d4eb46c"
+      },
+      "org.reamon.fixture.RuleEngine": {
+        "bytecodeMatch": true,
+        "originalJavapSha256": "257c3acee517dabf29a703141287a7ddf5b549ecc86a642237c4ad1422a320f1",
+        "recoveredJavapSha256": "257c3acee517dabf29a703141287a7ddf5b549ecc86a642237c4ad1422a320f1"
+      }
+    }
+  },
+  "compileCommand": "javac --release 17",
+  "compileEnvironment": "eclipse-temurin:21-jdk-jammy@sha256:4b1a74fbffbe6b4e7b6f0171a472478282fb463790a51edf10e465d578f22b69 in Docker with no network and bounded resources",
+  "observedRuntimeStdout": "low:-15,high:42,high:22",
+  "expectedRuntimeStdout": "low:-15,high:42,high:22",
+  "runtimeMatches": true,
+  "behavioralCorrespondence": {
+    "method": "RuleEngine.classify sampled integer differential",
+    "inputCount": 8197,
+    "inputRange": "-4096..4096 plus integer overflow boundaries",
+    "originalOutputSha256": "74f8114ae5963fd3bf1cc2974b6783c36c9d6aec9608874183edfc919ad3a7d7",
+    "recoveredOutputSha256": "74f8114ae5963fd3bf1cc2974b6783c36c9d6aec9608874183edfc919ad3a7d7",
+    "allOutputsMatch": true
+  },
+  "claim": "One synthetic two-class JVM fixture compiled, matched observed Main stdout and 8,197 sampled RuleEngine inputs, and records exact javap correspondence per class. This does not prove original-source equivalence or broad JVM fidelity.",
+  "databaseIntegrationEvidenceSha256": "19ce3cc2cad9201ba46b109758935c08e82d2203ec6389b42b8079e1205a159f"
+}

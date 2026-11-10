@@ -1,0 +1,66 @@
+{
+  "baselineProductSourceCommit": "c4d1e957b920e9f725db40266d81425852cd86fb",
+  "baselineRunId": "jvm-c4d1-baseline-measurement-5f63",
+  "candidateProductSourceCommit": "71f480b131d4bacc9955b0933a56cb5542591421",
+  "candidateRunId": "jvm-71f480b1-candidate",
+  "certification": "This comparison is bounded evidence and is not a product certification.",
+  "evaluationManifestSha256": "359796dc099ccf579cf749f849b96490ebea8a5c10cd2b09da4c16be8275c149",
+  "fixtureManifestSha256": "2c4f6c5a60ce1e3bbe9e0662406b88798d96757d3d0f0f150a9fcb572ab71ab5",
+  "fixtures": {
+    "jvm-multimodule-cfr-linux-amd64": {
+      "artifactSha256": "747346a392096bdac3613ac295ee4b8a743e22689a3738aeca1ad8ffc92fb7cf",
+      "metrics": {
+        "exact_bytecode_classes": {
+          "baseline": 2,
+          "candidate": 2,
+          "delta": 0,
+          "denominator": 2,
+          "direction": "higher",
+          "regressionObserved": false,
+          "state": "MEASURED"
+        },
+        "recovered_source_files": {
+          "baseline": 2,
+          "candidate": 2,
+          "delta": 0,
+          "denominator": 2,
+          "direction": "higher",
+          "regressionObserved": false,
+          "state": "MEASURED"
+        },
+        "runtime_oracle": {
+          "baseline": 1,
+          "candidate": 1,
+          "delta": 0,
+          "denominator": 1,
+          "direction": "equal",
+          "regressionObserved": false,
+          "state": "MEASURED"
+        },
+        "sampled_behavior_oracle": {
+          "baseline": 1,
+          "candidate": 1,
+          "delta": 0,
+          "denominator": 1,
+          "direction": "equal",
+          "regressionObserved": false,
+          "state": "MEASURED"
+        },
+        "source_inventory_complete": {
+          "baseline": 1,
+          "candidate": 1,
+          "delta": 0,
+          "denominator": 1,
+          "direction": "equal",
+          "regressionObserved": false,
+          "state": "MEASURED"
+        }
+      }
+    }
+  },
+  "regressions": [],
+  "schemaVersion": 1,
+  "status": "NO_REGRESSION_OBSERVED",
+  "thresholdsApplied": false,
+  "worktreesClean": true
+}

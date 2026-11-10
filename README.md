@@ -78,15 +78,15 @@ The [autonomous reconstruction and fidelity delivery plan](docs/REAMON_AUTONOMOU
 
 <!-- REAMON_PRODUCT_PROGRESS_START -->
 
-<progress value="31.89" max="100">31.89%</progress> <strong>31.89%</strong> — weighted estimate **31.89%**.
+<progress value="31.92" max="100">31.92%</progress> <strong>31.92%</strong> — weighted estimate **31.92%**.
 
-**Work completed (2026-11-10):** Extended benchmark receipts to distinguish the clean measurement checkout from the product source revision when a harness overlay is used; direct runs keep the same commit in both fields. Re-receipted the archived JVM/PyInstaller matrix with explicit productSourceCommit fields and toolchain-only component manifests; the archived config aggregates cleanly. Docker regression suites pass: record 7/7, comparator 14/14, aggregate 10/10, and PyInstaller pair runner 3/3. The product source revision is now checked consistently across all fixtures on each aggregate side; no reconstruction result or score changed.
+**Work completed (2026-11-10):** Measured and archived a changed-revision two-format matrix from product source c4d1e957 to 71f480b1, using one clean measurement commit per side and fixture-specific hashed evaluation/toolchain manifests. Both JVM/CFR database persistence runs passed 1/1 integration checks; both PyInstaller database/worker runs passed 2/2. The aggregate measured all 5 JVM and 7 PyInstaller metrics with zero deltas, clean worktrees, and NO_REGRESSION_OBSERVED. Verified persisted JVM source hashes against the two recovered files; the PyInstaller runtime oracle remains inherited from its enrollment receipt. Archived receipts and evidence at tooling/benchmarks/runs/2026-11-10/changed-revision-c4d1-to-71f480b1/.
 
-**Score decision:** Held at 31.89%. The explicit productSourceCommit field fixes attribution for clean harness overlays and prevents source changes from appearing as toolchain drift; this adds no reconstruction fidelity credit.
+**Score decision:** Raised End-to-end reconstruction acceptance benchmarks from 22% to 23% for completing the previously open changed-revision, multi-format comparison gate (+0.03 weighted points; overall 31.89% to 31.92%). All measured metrics were unchanged, so this is acceptance-evidence progress, not a reconstruction-fidelity improvement. No other workstream changed.
 
-**Next measurable gate:** Measure a hash-bound multi-format baseline/candidate comparison across different product revisions and additional held-out fixtures; preserve complete denominators, toolchains, behavior controls, and unavailable outcomes.
+**Next measurable gate:** Expand changed-revision comparisons beyond these two synthetic JVM and PyInstaller fixtures, including more formats, provider/toolchain revisions, resource and restart/reimport measurements, and independent artifact-level behavior controls; retain unavailable outcomes.
 
-Latest evidence-based score change (2026-11-10): **+0.03 points** (31.86% → 31.89%). A clean same-revision matrix at 3b67737c measured all 12 metrics across one JVM/CFR and one PyInstaller fixture, with distinct hash-bound toolchains and zero deltas. This completed the named heterogeneous repeatability gate and raised benchmark completion from 21% to 22% (+0.03 overall); it is not a product-improvement result.
+Latest evidence-based score change (2026-11-10): **+0.03 points** (31.89% → 31.92%). The changed-revision JVM/PyInstaller matrix compares product source c4d1e957 to 71f480b1. All 12 fixture metrics are measured with zero deltas; clean worktrees and NO_REGRESSION_OBSERVED. The benchmark workstream rises 22% to 23% (+0.03 overall) for the completed multi-format acceptance gate; no fidelity improvement is claimed.
 
 Refreshed from pushed commit `71f480b`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 
