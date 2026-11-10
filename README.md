@@ -88,7 +88,7 @@ The [autonomous reconstruction and fidelity delivery plan](docs/REAMON_AUTONOMOU
 
 Latest evidence-based score change (2026-11-10): **+0.08 points** (32.83% → 32.91%). The route gathers bounded Go source units from one exact task/run, type-checks package directories independently, and aggregates counts and rows under one project source-set hash. Go Docker tests cover cross-directory aggregation, unresolved package rejection, unsafe paths, and stale source bytes; the Python API contract test passes. Focused route, draft-history, and visualizer tests pass; targeted ESLint passes. Full webapp tsc still fails on existing test typing errors, with no reported errors in the production files changed here. A disposable PostgreSQL integration passes 1/1. The webapp full suite and broader repository suites were not run. One partial point moves semantic-renaming completion from 21% to 22% (+0.08 weighted points); exhaustive discovery, module/build-tag resolution, and naming quality remain open.
 
-Refreshed from pushed commit `e7c5a62`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+Refreshed from pushed commit `d4e4fd3`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
