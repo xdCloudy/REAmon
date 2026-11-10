@@ -187,7 +187,7 @@
   },
   "activeWork": {
     "date": "2026-11-10",
-    "basedOnCommit": "pending-push",
+    "basedOnCommit": "87abb7d7",
     "workstream": "Agentic project-wide semantic renaming",
     "status": "The Go project inventory has a versioned hash-pinned regression corpus covering two selected upstream module source subsets and three OS/architecture configurations. Exact source, package, file, symbol-classification, and entry counts are asserted; full project scale, broad accuracy, cgo, and database-backed proposal/apply acceptance remain open. Overall weighted progress is 33.39%.",
     "verified": [
