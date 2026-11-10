@@ -1845,7 +1845,13 @@ func applyProjectRenames(req request) (map[string]any, error) {
 			"output_sha256": hashText(outputText), "source_code": outputText, "edits": details,
 		})
 	}
-	outputReq := request{Files: make([]projectFile, 0, len(outputFiles)), SelectedPath: cat.SelectedPath}
+	outputReq := request{
+		Files: make([]projectFile, 0, len(outputFiles)), SelectedPath: cat.SelectedPath,
+		ModulePath: req.ModulePath, ModuleRoot: req.ModuleRoot,
+		GoMod: req.GoMod, GoModHash: req.GoModHash, GoSum: req.GoSum, GoSumHash: req.GoSumHash,
+		BuildGOOS: req.BuildGOOS, BuildGOARCH: req.BuildGOARCH, BuildCgo: req.BuildCgo,
+		BuildTags: append([]string(nil), req.BuildTags...),
+	}
 	for _, file := range outputFiles {
 		outputReq.Files = append(outputReq.Files, projectFile{Path: file.Path, Source: file.Text, ExpectedHash: hashText(file.Text)})
 	}

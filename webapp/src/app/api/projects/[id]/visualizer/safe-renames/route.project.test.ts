@@ -103,7 +103,7 @@ beforeEach(async () => {
         { relativePath: selectedPath, sourceCode: selectedSource }, { relativePath: siblingPath, sourceCode: siblingSource },
       ]), goProjectInventorySourceSetSha256: inventoryScopeHash([
         { relativePath: selectedPath, sourceCode: selectedSource }, { relativePath: siblingPath, sourceCode: siblingSource },
-      ]), goSelectedPath: selectedPath,
+      ]), goProjectModulePath: '', goProjectModuleRoot: '', goProjectModuleManifestSha256: '', goProjectModuleSumSha256: '', goSelectedPath: selectedPath,
       renames: [{ bindingId, oldName: 'normalize', newName: 'scale', kind: 'package function', rationale: 'clearer name' }],
     },
   })

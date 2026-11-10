@@ -1,7 +1,8 @@
 /** @vitest-environment node */
 /**
  * Opt-in PostgreSQL acceptance for Go package rename persistence. This uses
- * synthetic project rows and a controlled analyzer/provider response.
+ * synthetic project rows and a controlled suggestion response; opt-in real
+ * helper runs resolve a hash-verified offline external module.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createHash, randomUUID } from 'node:crypto'
@@ -37,13 +38,15 @@ const enabled = process.env.REAMON_GO_PACKAGE_RENAME_INTEGRATION === '1' && Bool
 const selectedPath = 'pkg/a.go'
 const siblingPath = 'pkg/b.go'
 const fixtureBindingId = '0123456789abcdef01234567'
+const importAliasBindingId = 'abcdef0123456789abcdef02'
+const localValueBindingId = 'abcdef0123456789abcdef03'
 let bindingId = fixtureBindingId
-const selectedSource = 'package sample\nfunc fn(value int) int { return value }\n'
+const selectedSource = 'package sample\nimport "example.test/dep"\nfunc fn(value int) int { return dep.Value + value }\n'
 const siblingSource = 'package sample\nfunc run() int { return fn(1) }\n'
-const selectedOutput = 'package sample\nfunc calculate(value int) int { return value }\n'
+const selectedOutput = 'package sample\nimport "example.test/dep"\nfunc calculate(value int) int { return dep.Value + value }\n'
 const siblingOutput = 'package sample\nfunc run() int { return calculate(1) }\n'
-const goMod = 'module example.test/fixture\n\ngo 1.24\n'
-const goSum = 'example.test/dep v1.0.0 h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\n'
+const goMod = 'module example.test/fixture\n\ngo 1.24\n\nrequire example.test/dep v1.0.0\n'
+const goSum = 'example.test/dep v1.0.0 h1:aqAPJ79IhFh4gnRvXspeYBDRHGfQu8TL1+Fs8R2fybo=\nexample.test/dep v1.0.0/go.mod h1:yQJCP305QJqh3IcmpZtiFA1MO/Qi1d6SIprKBambzQA=\n'
 const hash = (value: string) => createHash('sha256').update(value, 'utf8').digest('hex')
 const sourceSetHash = (files: Array<{ relativePath: string; sourceCode: string }>) => {
   const digest = createHash('sha256')
@@ -203,11 +206,13 @@ describe.skipIf(!enabled)('Go package rename against PostgreSQL', () => {
             scope: 'reviewed-same-directory-go-package-source-snapshot', source_file_count: 2,
             private_package_symbol_count: 2, referenced_private_package_symbols: 1, unreferenced_private_symbols: 1,
             exported_package_symbol_count: 0, unsupported_package_symbol_count: 0, rename_binding_catalog_truncated: false,
-            file_scope_symbol_count: 0, referenced_file_scope_symbols: 0, unreferenced_file_scope_symbols: 0, unsupported_file_scope_symbol_count: 0,
-            local_symbol_count: 0, referenced_local_symbols: 0, unreferenced_local_symbols: 0, unsupported_local_symbol_count: 0,
-            entry_count: 2, entries_truncated: false,
+            file_scope_symbol_count: 1, referenced_file_scope_symbols: 1, unreferenced_file_scope_symbols: 0, unsupported_file_scope_symbol_count: 0,
+            local_symbol_count: 1, referenced_local_symbols: 1, unreferenced_local_symbols: 0, unsupported_local_symbol_count: 0,
+            entry_count: 4, entries_truncated: false,
             entries: [
-              { id: fixtureBindingId, name: 'fn', kind: 'package function', scope: 'package', relativePath: selectedPath, declarationStart: 20, referenceCount: 1, exported: false, classification: 'eligible', classificationReason: 'private-package-symbol-with-resolved-references', nameAssessment: 'unassessed' },
+              { id: importAliasBindingId, name: 'dep', kind: 'file import alias', scope: 'file', relativePath: selectedPath, declarationStart: selectedSource.indexOf('"example.test/dep"'), referenceCount: 1, exported: false, classification: 'eligible', classificationReason: 'file-import-alias-with-resolved-references', nameAssessment: 'unassessed' },
+              { id: fixtureBindingId, name: 'fn', kind: 'package function', scope: 'package', relativePath: selectedPath, declarationStart: selectedSource.indexOf('func fn') + 5, referenceCount: 1, exported: false, classification: 'eligible', classificationReason: 'private-package-symbol-with-resolved-references', nameAssessment: 'unassessed' },
+              { id: localValueBindingId, name: 'value', kind: 'local variable', scope: 'local', relativePath: selectedPath, declarationStart: selectedSource.indexOf('value'), referenceCount: 1, exported: false, classification: 'eligible', classificationReason: 'local-symbol-with-resolved-references', nameAssessment: 'unassessed' },
               { id: 'abcdef0123456789abcdef01', name: 'run', kind: 'package function', scope: 'package', relativePath: siblingPath, declarationStart: 20, referenceCount: 0, exported: false, classification: 'excluded', classificationReason: 'unreferenced-package-symbol', nameAssessment: 'unassessed' },
             ],
           },
@@ -227,11 +232,13 @@ describe.skipIf(!enabled)('Go package rename against PostgreSQL', () => {
             scope: 'verified-whole-project-go-source-snapshot', complete: true, source_file_count: 2, package_count: 1,
             private_package_symbol_count: 2, referenced_private_package_symbols: 1, unreferenced_private_symbols: 1,
             exported_package_symbol_count: 0, unsupported_package_symbol_count: 0,
-            file_scope_symbol_count: 0, referenced_file_scope_symbols: 0, unreferenced_file_scope_symbols: 0, unsupported_file_scope_symbol_count: 0,
-            local_symbol_count: 0, referenced_local_symbols: 0, unreferenced_local_symbols: 0, unsupported_local_symbol_count: 0,
-            entry_count: 2, entries_truncated: false,
+            file_scope_symbol_count: 1, referenced_file_scope_symbols: 1, unreferenced_file_scope_symbols: 0, unsupported_file_scope_symbol_count: 0,
+            local_symbol_count: 1, referenced_local_symbols: 1, unreferenced_local_symbols: 0, unsupported_local_symbol_count: 0,
+            entry_count: 4, entries_truncated: false,
             entries: [
-              { id: bindingId, name: 'fn', kind: 'package function', scope: 'package', relativePath: selectedPath, declarationStart: 20, referenceCount: 1, exported: false, classification: 'eligible', classificationReason: 'private-package-symbol-with-resolved-references', nameAssessment: 'unassessed' },
+              { id: importAliasBindingId, name: 'dep', kind: 'file import alias', scope: 'file', relativePath: selectedPath, declarationStart: selectedSource.indexOf('"example.test/dep"'), referenceCount: 1, exported: false, classification: 'eligible', classificationReason: 'file-import-alias-with-resolved-references', nameAssessment: 'unassessed' },
+              { id: fixtureBindingId, name: 'fn', kind: 'package function', scope: 'package', relativePath: selectedPath, declarationStart: selectedSource.indexOf('func fn') + 5, referenceCount: 1, exported: false, classification: 'eligible', classificationReason: 'private-package-symbol-with-resolved-references', nameAssessment: 'unassessed' },
+              { id: localValueBindingId, name: 'value', kind: 'local variable', scope: 'local', relativePath: selectedPath, declarationStart: selectedSource.indexOf('value'), referenceCount: 1, exported: false, classification: 'eligible', classificationReason: 'local-symbol-with-resolved-references', nameAssessment: 'unassessed' },
               { id: 'abcdef0123456789abcdef01', name: 'run', kind: 'package function', scope: 'package', relativePath: siblingPath, declarationStart: 20, referenceCount: 0, exported: false, classification: 'excluded', classificationReason: 'unreferenced-package-symbol', nameAssessment: 'unassessed' },
             ],
           },
@@ -265,17 +272,17 @@ describe.skipIf(!enabled)('Go package rename against PostgreSQL', () => {
     const proposalResponse = await POST(renameRequest('suggest'), params())
     expect(proposalResponse.status).toBe(200)
     const proposal = await proposalResponse.json()
-    expect(proposal).toMatchObject({ scope: 'project', candidates: 1, sourceSetSha256: expect.stringMatching(/^[a-f0-9]{64}$/), projectInventory: { sourceFileCount: 2, privatePackageSymbolCount: 2, referencedPrivatePackageSymbols: 1, unreferencedPrivateSymbols: 1, localSymbolCount: 1, referencedLocalSymbols: 1, entryCount: 3, entries: expect.arrayContaining([expect.objectContaining({ name: 'fn', classification: 'eligible' }), expect.objectContaining({ name: 'value', scope: 'local', classification: 'eligible' }), expect.objectContaining({ name: 'run', classification: 'excluded' })]) } })
+    expect(proposal).toMatchObject({ scope: 'project', candidates: 1, sourceSetSha256: expect.stringMatching(/^[a-f0-9]{64}$/), projectInventory: { sourceFileCount: 2, privatePackageSymbolCount: 2, referencedPrivatePackageSymbols: 1, unreferencedPrivateSymbols: 1, fileScopeSymbolCount: 1, referencedFileScopeSymbols: 1, localSymbolCount: 1, referencedLocalSymbols: 1, entryCount: 4, entries: expect.arrayContaining([expect.objectContaining({ name: 'dep', scope: 'file', classification: 'eligible' }), expect.objectContaining({ name: 'fn', classification: 'eligible' }), expect.objectContaining({ name: 'value', scope: 'local', classification: 'eligible' }), expect.objectContaining({ name: 'run', classification: 'excluded' })]) } })
     bindingId = proposal.renames[0].bindingId
     const savedProposal = await prisma.reamonCodeAttempt.findUnique({ where: { id: proposal.attemptId } })
     expect(savedProposal?.scope).toBe('rename-suggestions')
-    expect(savedProposal?.requestPayload).toMatchObject({ goProjectScope: true, goSelectedPath: selectedPath, goProjectModulePath: 'example.test/fixture', goProjectModuleManifestSha256: hash(goMod), goProjectModuleSumSha256: hash(goSum), goProjectInventory: { sourceFileCount: 2, privatePackageSymbolCount: 2, unreferencedPrivateSymbols: 1, localSymbolCount: 1, referencedLocalSymbols: 1, entryCount: 3 }, renames: [{ bindingId, oldName: 'fn', newName: 'calculate' }] })
+    expect(savedProposal?.requestPayload).toMatchObject({ goProjectScope: true, goSelectedPath: selectedPath, goProjectModulePath: 'example.test/fixture', goProjectModuleManifestSha256: hash(goMod), goProjectModuleSumSha256: hash(goSum), goProjectInventory: { sourceFileCount: 2, privatePackageSymbolCount: 2, unreferencedPrivateSymbols: 1, fileScopeSymbolCount: 1, referencedFileScopeSymbols: 1, localSymbolCount: 1, referencedLocalSymbols: 1, entryCount: 4 }, renames: [{ bindingId, oldName: 'fn', newName: 'calculate' }] })
 
     await writeFile(path.join(artifactsDirectory, 'go.mod'), 'module example.test/changed\n\ngo 1.24\n', 'utf8')
     const changedModuleResponse = await POST(renameRequest('apply', proposal.attemptId), params())
     expect(changedModuleResponse.status).toBe(409)
     expect(await prisma.reamonCodeDraft.count({ where: { projectId, artifactId } })).toBe(0)
-    await writeFile(path.join(artifactsDirectory, 'go.mod'), 'module example.test/fixture\n\ngo 1.24\n', 'utf8')
+    await writeFile(path.join(artifactsDirectory, 'go.mod'), goMod, 'utf8')
 
     await writeFile(path.join(artifactsDirectory, 'go.sum'), `${goSum}example.test/other v1.0.0 h1:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=\n`, 'utf8')
     const changedSumResponse = await POST(renameRequest('apply', proposal.attemptId), params())
@@ -301,7 +308,7 @@ describe.skipIf(!enabled)('Go package rename against PostgreSQL', () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     try {
       const rollbackResponse = await POST(renameRequest('apply', proposal.attemptId), params())
-      expect(rollbackResponse.status).toBe(500)
+      expect(rollbackResponse.status, await rollbackResponse.clone().text()).toBe(500)
       expect(await prisma.reamonCodeDraft.count({ where: { projectId, artifactId } })).toBe(0)
       expect(await prisma.reamonCodeAttempt.count({ where: { projectId, artifactId, scope: 'file' } })).toBe(0)
     } finally {

@@ -428,13 +428,16 @@ function isValidGoProjectInventoryEntry(entry: Record<string, unknown>, sourceBy
     || (entry.kind === 'unsupported local object' && entry.classificationReason === 'unsupported-local-object-kind')
 }
 
-async function listGoProjectRenameBindings(files: GoPackageRenameFile[], selectedPath: string) {
+async function listGoProjectRenameBindings(files: GoPackageRenameFile[], selectedPath: string, module: GoModuleInventoryContext) {
   const selected = files.find((file) => file.relativePath === selectedPath)
   if (!selected) throw new Error('Selected Go source is missing from the verified package snapshot')
   const response = await agentFetch('/reamon/code/go/refactor', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       operation: 'project_bindings', source_code: selected.sourceCode, selected_path: selectedPath,
+      module_path: module.modulePath, module_root: module.moduleRoot,
+      go_mod: module.manifestText, go_mod_sha256: module.manifestSha256,
+      go_sum: module.sumText, go_sum_sha256: module.sumSha256,
       files: files.map((file) => ({ relative_path: file.relativePath, source_code: file.sourceCode, expected_sha256: file.sourceHash })),
     }),
   }, { timeoutMs: 60_000 })
@@ -629,6 +632,7 @@ async function applyGoProjectRenameBindings(
   selectedPath: string,
   expectedSha256: string,
   expectedSourceSetSha256: string,
+  module: GoModuleInventoryContext,
   renames: GoProjectRenameSelection[],
 ): Promise<GoProjectRenameResult> {
   const selected = files.find((file) => file.relativePath === selectedPath)
@@ -641,6 +645,9 @@ async function applyGoProjectRenameBindings(
     body: JSON.stringify({
       operation: 'project_rename', source_code: selected.sourceCode, expected_sha256: expectedSha256,
       source_set_sha256: expectedSourceSetSha256, selected_path: selectedPath,
+      module_path: module.modulePath, module_root: module.moduleRoot,
+      go_mod: module.manifestText, go_mod_sha256: module.manifestSha256,
+      go_sum: module.sumText, go_sum_sha256: module.sumSha256,
       files: files.map((file) => ({ relative_path: file.relativePath, source_code: file.sourceCode, expected_sha256: file.sourceHash })),
       renames: renames.map((rename) => ({ binding_id: rename.bindingId, new_name: rename.newName })),
     }),
@@ -1277,7 +1284,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       if (!provider) return NextResponse.json({ error: 'Saved OpenAI-compatible provider not found' }, { status: 404 })
 
       goProjectCatalog = crossFileGo && goPackageFiles
-        ? await listGoProjectRenameBindings(goPackageFiles, typeof attributes.relativePath === 'string' ? attributes.relativePath : '')
+        ? await listGoProjectRenameBindings(goPackageFiles, typeof attributes.relativePath === 'string' ? attributes.relativePath : '', goProjectModuleContext)
         : null
       if (goProjectCatalog && goProjectSourceFiles) {
         try {
@@ -1539,8 +1546,14 @@ export async function POST(request: Request, { params }: RouteParams) {
     })
     const proposalPayload = plainObject(suggestionAttempt?.requestPayload)
     const savedRenames = Array.isArray(proposalPayload.renames) ? proposalPayload.renames : []
+    if (crossFileGo && (proposalPayload.goProjectModulePath !== goProjectModuleContext.modulePath
+        || proposalPayload.goProjectModuleRoot !== goProjectModuleContext.moduleRoot
+        || proposalPayload.goProjectModuleManifestSha256 !== goProjectModuleContext.manifestSha256
+        || proposalPayload.goProjectModuleSumSha256 !== goProjectModuleContext.sumSha256)) {
+      return NextResponse.json({ error: 'The Go module manifest changed after rename suggestions were generated; generate suggestions again' }, { status: 409 })
+    }
     goProjectCatalog = crossFileGo && goPackageFiles
-      ? await listGoProjectRenameBindings(goPackageFiles, typeof attributes.relativePath === 'string' ? attributes.relativePath : '')
+      ? await listGoProjectRenameBindings(goPackageFiles, typeof attributes.relativePath === 'string' ? attributes.relativePath : '', goProjectModuleContext)
       : null
     if (goProjectCatalog && goProjectSourceFiles) {
       try {
@@ -1604,7 +1617,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       }
     })
     const transformed = crossFileGo && goPackageFiles && goProjectCatalog
-      ? await applyGoProjectRenameBindings(goPackageFiles, goProjectCatalog.selectedPath, workingSourceSha256, goProjectCatalog.sourceSetSha256, selectedProjectRenames)
+      ? await applyGoProjectRenameBindings(goPackageFiles, goProjectCatalog.selectedPath, workingSourceSha256, goProjectCatalog.sourceSetSha256, goProjectModuleContext, selectedProjectRenames)
       : isJava
       ? await refactorJavaBindings(workingSource, 'rename', workingSourceSha256, selectedRenames) as SafeRenameResult
       : isCSharp
