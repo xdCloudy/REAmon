@@ -90,7 +90,10 @@ beforeAll(async () => {
       modelIdentifier: 'synthetic-fixture',
       scope: 'member',
       agentBatchId: AGENT_BATCH_ID,
-      status: 'QUEUED',
+      status: 'RUNNING',
+      runToken: `${SUFFIX}-batch-token`,
+      leaseOwner: `${SUFFIX}-no-worker`,
+      leaseHeartbeatAt: new Date(),
       requestPayload: { member_name: 'batchUnit' },
     },
     select: { id: true },
@@ -108,7 +111,10 @@ beforeAll(async () => {
       providerName: 'synthetic-fixture',
       modelIdentifier: 'synthetic-fixture',
       scope: 'member',
-      status: 'QUEUED',
+      status: 'RUNNING',
+      runToken: `${SUFFIX}-single-token`,
+      leaseOwner: `${SUFFIX}-no-worker`,
+      leaseHeartbeatAt: new Date(),
       requestPayload: { source_code: 'int singleUnit(void) { return 1; }' },
     },
     select: { id: true },
@@ -231,19 +237,19 @@ describe.skipIf(!HAS_DB)('deobfuscation HTTP ownership with ACCESS_ENFORCE=0', (
 
     const ownerHistory = await fetch(historyUrl, { headers: auth(ownerCookie) })
     expect(ownerHistory.status).toBe(200)
-    expect(await ownerHistory.json()).toMatchObject({ batch: { id: AGENT_BATCH_ID, attempts: [{ id: batchAttemptId, status: 'QUEUED' }] } })
+    expect(await ownerHistory.json()).toMatchObject({ batch: { id: AGENT_BATCH_ID, attempts: [{ id: batchAttemptId, status: 'RUNNING' }] } })
 
     const cancelUrl = api(projectPath(`/batches/${AGENT_BATCH_ID}/cancel`))
     expect((await fetch(cancelUrl, { method: 'POST' })).status).toBe(401)
     const foreignCancel = await fetch(cancelUrl, { method: 'POST', headers: auth(foreignCookie) })
     expect(foreignCancel.status).toBe(404)
     expect(await foreignCancel.json()).toEqual({ error: 'Not found' })
-    expect((await prisma?.reamonCodeAttempt.findUnique({ where: { id: batchAttemptId }, select: { status: true } }))?.status).toBe('QUEUED')
+    expect(await prisma?.reamonCodeAttempt.findUnique({ where: { id: batchAttemptId }, select: { status: true, cancelRequested: true } })).toMatchObject({ status: 'RUNNING', cancelRequested: false })
 
     const ownerCancel = await fetch(cancelUrl, { method: 'POST', headers: auth(ownerCookie) })
     expect(ownerCancel.status).toBe(200)
-    expect(await ownerCancel.json()).toMatchObject({ batchId: AGENT_BATCH_ID, cancelledQueued: 1, remaining: 0 })
-    expect((await prisma?.reamonCodeAttempt.findUnique({ where: { id: batchAttemptId }, select: { status: true } }))?.status).toBe('CANCELLED')
+    expect(await ownerCancel.json()).toMatchObject({ batchId: AGENT_BATCH_ID, cancelledQueued: 0, cancelRequestedRunning: 1, remaining: 1 })
+    expect(await prisma?.reamonCodeAttempt.findUnique({ where: { id: batchAttemptId }, select: { status: true, cancelRequested: true } })).toMatchObject({ status: 'RUNNING', cancelRequested: true })
   }, 60_000)
 
   test('attempt status and cancellation deny foreign users without exposing or mutating attempts', async () => {
@@ -252,22 +258,42 @@ describe.skipIf(!HAS_DB)('deobfuscation HTTP ownership with ACCESS_ENFORCE=0', (
     const foreignStatus = await fetch(statusUrl, { headers: auth(foreignCookie) })
     expect(foreignStatus.status).toBe(404)
     expect(await foreignStatus.json()).toEqual({ error: 'Not found' })
-    expect((await prisma?.reamonCodeAttempt.findUnique({ where: { id: singleAttemptId }, select: { status: true } }))?.status).toBe('QUEUED')
+    expect(await prisma?.reamonCodeAttempt.findUnique({ where: { id: singleAttemptId }, select: { status: true, cancelRequested: true } })).toMatchObject({ status: 'RUNNING', cancelRequested: false })
 
     const ownerStatus = await fetch(statusUrl, { headers: auth(ownerCookie) })
     expect(ownerStatus.status).toBe(200)
-    expect(await ownerStatus.json()).toMatchObject({ attemptId: singleAttemptId, status: 'QUEUED', cancelRequested: false })
+    expect(await ownerStatus.json()).toMatchObject({ attemptId: singleAttemptId, status: 'RUNNING', cancelRequested: false })
 
     const cancelUrl = api(projectPath(`/attempts/${singleAttemptId}/cancel`))
     expect((await fetch(cancelUrl, { method: 'POST' })).status).toBe(401)
     const foreignCancel = await fetch(cancelUrl, { method: 'POST', headers: auth(foreignCookie) })
     expect(foreignCancel.status).toBe(404)
     expect(await foreignCancel.json()).toEqual({ error: 'Not found' })
-    expect((await prisma?.reamonCodeAttempt.findUnique({ where: { id: singleAttemptId }, select: { status: true, cancelRequested: true } }))).toMatchObject({ status: 'QUEUED', cancelRequested: false })
+    expect(await prisma?.reamonCodeAttempt.findUnique({ where: { id: singleAttemptId }, select: { status: true, cancelRequested: true } })).toMatchObject({ status: 'RUNNING', cancelRequested: false })
 
     const ownerCancel = await fetch(cancelUrl, { method: 'POST', headers: auth(ownerCookie) })
     expect(ownerCancel.status).toBe(200)
-    expect(await ownerCancel.json()).toMatchObject({ attemptId: singleAttemptId, status: 'CANCELLED' })
-    expect((await prisma?.reamonCodeAttempt.findUnique({ where: { id: singleAttemptId }, select: { status: true } }))?.status).toBe('CANCELLED')
+    expect(await ownerCancel.json()).toMatchObject({ attemptId: singleAttemptId, status: 'RUNNING', cancelRequested: true })
+    expect(await prisma?.reamonCodeAttempt.findUnique({ where: { id: singleAttemptId }, select: { status: true, cancelRequested: true } })).toMatchObject({ status: 'RUNNING', cancelRequested: true })
+  }, 60_000)
+
+  test('coverage and similar-function reads deny foreign users while owners reach run validation', async () => {
+    const coverageUrl = `${baseUrl}/api/projects/${projectId}/visualizer/coverage?taskId=${SUFFIX}-missing-task`
+    expect((await fetch(coverageUrl)).status).toBe(401)
+    const foreignCoverage = await fetch(coverageUrl, { headers: auth(foreignCookie) })
+    expect(foreignCoverage.status).toBe(404)
+    expect(await foreignCoverage.json()).toEqual({ error: 'Not found' })
+    const ownerCoverage = await fetch(coverageUrl, { headers: auth(ownerCookie) })
+    expect(ownerCoverage.status).toBe(404)
+    expect(await ownerCoverage.json()).toEqual({ error: 'Analysis run not found' })
+
+    const similarUrl = `${baseUrl}/api/projects/${projectId}/visualizer/similar-functions?taskId=${SUFFIX}-missing-task&unitId=${SUFFIX}-missing-unit`
+    expect((await fetch(similarUrl)).status).toBe(401)
+    const foreignSimilar = await fetch(similarUrl, { headers: auth(foreignCookie) })
+    expect(foreignSimilar.status).toBe(404)
+    expect(await foreignSimilar.json()).toEqual({ error: 'Not found' })
+    const ownerSimilar = await fetch(similarUrl, { headers: auth(ownerCookie) })
+    expect(ownerSimilar.status).toBe(404)
+    expect(await ownerSimilar.json()).toEqual({ error: 'Similar-function matches are unavailable for this analysis run' })
   }, 60_000)
 })

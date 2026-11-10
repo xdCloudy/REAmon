@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   getActiveWorkspaceImportSelection: vi.fn(),
   requireEffectiveUser: vi.fn(),
   requireProjectAccess: vi.fn(),
+  requireProjectAccessStrict: vi.fn(),
 }))
 
 vi.mock('@/lib/prisma', () => ({ default: {
@@ -25,6 +26,7 @@ vi.mock('@/lib/reamon/inventory-query', () => ({ getActiveWorkspaceImportSelecti
 vi.mock('@/lib/access', () => ({
   requireEffectiveUser: mocks.requireEffectiveUser,
   requireProjectAccess: mocks.requireProjectAccess,
+  requireProjectAccessStrict: mocks.requireProjectAccessStrict,
 }))
 
 import { GET } from './route'
@@ -35,6 +37,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   mocks.requireEffectiveUser.mockResolvedValue({ userId: 'user-1' })
   mocks.requireProjectAccess.mockResolvedValue({ project: { id: 'project-1', userId: 'user-1' } })
+  mocks.requireProjectAccessStrict.mockResolvedValue({ project: { id: 'project-1', userId: 'user-1' } })
   mocks.getActiveWorkspaceImportSelection.mockResolvedValue({ artifactWhere: { projectId: 'project-1', importId: { in: ['active-import'] } } })
   mocks.taskFindFirst.mockResolvedValue({ id: 'run-1' })
   mocks.findMany.mockResolvedValue([])
@@ -44,6 +47,20 @@ beforeEach(() => {
 })
 
 describe('GET /api/projects/[id]/visualizer/coverage', () => {
+  test('denies foreign ownership before reading the selected run or coverage data', async () => {
+    mocks.requireProjectAccessStrict.mockResolvedValueOnce(NextResponse.json({ error: 'Not found' }, { status: 404 }))
+
+    const response = await GET(new Request('http://localhost/api/projects/project-1/visualizer/coverage?taskId=run-1'), params)
+
+    expect(response.status).toBe(404)
+    expect(mocks.requireProjectAccessStrict).toHaveBeenCalledWith({ userId: 'user-1' }, 'project-1')
+    expect(mocks.requireProjectAccess).not.toHaveBeenCalled()
+    expect(mocks.getActiveWorkspaceImportSelection).not.toHaveBeenCalled()
+    expect(mocks.taskFindFirst).not.toHaveBeenCalled()
+    expect(mocks.findMany).not.toHaveBeenCalled()
+    expect(mocks.maintainedSourceFindMany).not.toHaveBeenCalled()
+  })
+
   test('requires authentication before querying a run', async () => {
     mocks.requireEffectiveUser.mockResolvedValue(NextResponse.json({ error: 'unauthorized' }, { status: 401 }))
 
