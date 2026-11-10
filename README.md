@@ -79,7 +79,7 @@ The [autonomous reconstruction and fidelity delivery plan](docs/REAMON_AUTONOMOU
 <!-- REAMON_PRODUCT_PROGRESS_START -->
 <progress value="31.58" max="100">31.58%</progress> <strong>31.58%</strong> — weighted estimate **31.58%**.
 Latest evidence-based score change (2026-11-10): **+0.07 points** (31.51% → 31.58%). The Go project rename workflow now connects go/types package identity, accepted-sibling source receipts, bounded per-file manifests, the visualizer, and atomic review-draft persistence. Cross-file semantic rename propagation rises from 8% to 9%, adding 0.07 weighted points (31.51% to 31.58%). Focused Docker tests pass 45/45, webapp type-check and targeted ESLint pass, and the full Docker webapp suite passes 648 files / 9,877 tests, with 2 expected failures and 47 files / 196 skipped (MCP_DOCS_WIKI_DIR=/tmp/reamon-isolated-wiki); no live database/browser acceptance is claimed.
-Refreshed from pushed commit `40da8a1`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+Refreshed from pushed commit `6194894`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
 [Goals and roadmap](docs/REAMON_GOALS.md) · [Feature matrix](docs/REAMON_FEATURE_MATRIX.md)
