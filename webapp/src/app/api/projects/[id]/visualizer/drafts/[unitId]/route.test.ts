@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { NextResponse } from 'next/server'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import os from 'node:os'
@@ -17,7 +18,7 @@ vi.mock('@/lib/prisma', () => ({ default: {
   reamonCodeDraft: { findFirst: h.findFirst, create: h.create, update: h.update },
   reamonCodeAttempt: { findFirst: h.attemptFindFirst, findMany: h.attemptFindMany },
 } }))
-vi.mock('@/lib/access', () => ({ requireEffectiveUser: h.user, requireProjectAccess: h.access }))
+vi.mock('@/lib/access', () => ({ requireEffectiveUser: h.user, requireProjectAccessStrict: h.access }))
 vi.mock('@/lib/reamon/inventory-query', () => ({ getActiveWorkspaceImportSelection: h.selection }))
 vi.mock('@/lib/reamon/derived-storage', () => ({ derivedArtifactRoot: h.root, resolveDerivedArtifactPath: h.resolvePath }))
 vi.mock('@/lib/reamon/code-attempts', () => ({ failExpiredCodeAttemptsForHistory: vi.fn() }))
@@ -66,6 +67,27 @@ afterEach(async () => {
 })
 
 describe('/api/projects/[id]/visualizer/drafts/[unitId]', () => {
+  it('denies foreign draft reads and writes before resolving source or attempts', async () => {
+    h.user.mockResolvedValue({ userId: 'foreign-user' })
+    h.access.mockResolvedValue(NextResponse.json({ error: 'Not found' }, { status: 404 }))
+    const responses = await Promise.all([
+      GET(await request('GET'), routeParams),
+      POST(await request('POST', { sourceCode: 'private draft' }), routeParams),
+      PATCH(await request('PATCH', { rationale: 'private review' }), routeParams),
+    ])
+
+    expect(responses.map((response) => response.status)).toEqual([404, 404, 404])
+    expect(h.access).toHaveBeenCalledTimes(3)
+    expect(h.access).toHaveBeenCalledWith({ userId: 'foreign-user' }, 'project-1')
+    expect(h.observation).not.toHaveBeenCalled()
+    expect(h.selection).not.toHaveBeenCalled()
+    expect(h.findFirst).not.toHaveBeenCalled()
+    expect(h.create).not.toHaveBeenCalled()
+    expect(h.update).not.toHaveBeenCalled()
+    expect(h.attemptFindFirst).not.toHaveBeenCalled()
+    expect(h.attemptFindMany).not.toHaveBeenCalled()
+  })
+
   it('loads only the latest draft matching the active source, artifact, and import run', async () => {
     const updatedAt = new Date('2026-10-05T09:00:00Z')
     h.findFirst.mockResolvedValueOnce({

@@ -368,4 +368,40 @@ describe.skipIf(!HAS_DB)('deobfuscation HTTP ownership with ACCESS_ENFORCE=0', (
       expect(await foreignMutation.json()).toEqual({ error: 'Not found' })
     }
   }, 60_000)
+
+  test('draft and code-note reads and writes deny foreign users before resolving source units', async () => {
+    const draftUrl = `${baseUrl}/api/projects/${projectId}/visualizer/drafts/${SUFFIX}-missing-unit`
+    expect((await fetch(draftUrl)).status).toBe(401)
+    const foreignDraft = await fetch(draftUrl, { headers: auth(foreignCookie) })
+    expect(foreignDraft.status).toBe(404)
+    expect(await foreignDraft.json()).toEqual({ error: 'Not found' })
+    const ownerDraft = await fetch(draftUrl, { headers: auth(ownerCookie) })
+    expect(ownerDraft.status).toBe(404)
+    expect(await ownerDraft.json()).toEqual({ error: 'Code unit not found' })
+    for (const method of ['POST', 'PATCH']) {
+      const foreignMutation = await fetch(draftUrl, {
+        method,
+        headers: { ...auth(foreignCookie), 'content-type': 'application/json' },
+        body: JSON.stringify({ sourceCode: 'private draft', rationale: 'private review' }),
+      })
+      expect(foreignMutation.status).toBe(404)
+      expect(await foreignMutation.json()).toEqual({ error: 'Not found' })
+    }
+
+    const noteUrl = `${baseUrl}/api/projects/${projectId}/visualizer/notes/${SUFFIX}-missing-unit`
+    expect((await fetch(noteUrl)).status).toBe(401)
+    const foreignNote = await fetch(noteUrl, { headers: auth(foreignCookie) })
+    expect(foreignNote.status).toBe(404)
+    expect(await foreignNote.json()).toEqual({ error: 'Not found' })
+    const ownerNote = await fetch(noteUrl, { headers: auth(ownerCookie) })
+    expect(ownerNote.status).toBe(404)
+    expect(await ownerNote.json()).toEqual({ error: 'Code unit not found' })
+    const foreignNoteWrite = await fetch(noteUrl, {
+      method: 'PUT',
+      headers: { ...auth(foreignCookie), 'content-type': 'application/json' },
+      body: JSON.stringify({ note: 'private note' }),
+    })
+    expect(foreignNoteWrite.status).toBe(404)
+    expect(await foreignNoteWrite.json()).toEqual({ error: 'Not found' })
+  }, 60_000)
 })

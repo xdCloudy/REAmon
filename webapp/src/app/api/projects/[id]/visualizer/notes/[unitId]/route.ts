@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
-import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
+import { requireEffectiveUser, requireProjectAccessStrict } from '@/lib/access'
 import { getActiveWorkspaceImportSelection } from '@/lib/reamon/inventory-query'
 import { CODE_UNIT_OBSERVATION_TYPE } from '@/lib/reamon/code-units'
 import { codeNoteText, MAX_REAMON_CODE_NOTE_CHARS, REAMON_CODE_NOTE_SOURCE, REAMON_CODE_NOTE_TYPE } from '@/lib/reamon/code-notes'
@@ -10,7 +10,7 @@ interface RouteParams { params: Promise<{ id: string; unitId: string }> }
 async function resolveCodeUnit(projectId: string, unitId: string) {
   const user = await requireEffectiveUser()
   if (user instanceof NextResponse) return { response: user } as const
-  const access = await requireProjectAccess(user, projectId)
+  const access = await requireProjectAccessStrict(user, projectId)
   if (access instanceof NextResponse) return { response: access } as const
   const unit = await prisma.reamonObservation.findFirst({
     where: { id: unitId, projectId, type: { in: [CODE_UNIT_OBSERVATION_TYPE, 'function'] } },

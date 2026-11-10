@@ -3,7 +3,7 @@ import { readFile, realpath, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
-import { requireEffectiveUser, requireProjectAccess } from '@/lib/access'
+import { requireEffectiveUser, requireProjectAccessStrict } from '@/lib/access'
 import { getActiveWorkspaceImportSelection } from '@/lib/reamon/inventory-query'
 import { derivedArtifactRoot, resolveDerivedArtifactPath } from '@/lib/reamon/derived-storage'
 import { failExpiredCodeAttemptsForHistory } from '@/lib/reamon/code-attempts'
@@ -106,7 +106,7 @@ function isInside(root: string, file: string): boolean {
 async function resolveUnit(projectId: string, unitId: string) {
   const user = await requireEffectiveUser()
   if (user instanceof NextResponse) return { response: user } as const
-  const access = await requireProjectAccess(user, projectId)
+  const access = await requireProjectAccessStrict(user, projectId)
   if (access instanceof NextResponse) return { response: access } as const
   const observation = await prisma.reamonObservation.findFirst({
     where: { id: unitId, projectId, type: 'code_unit' },
