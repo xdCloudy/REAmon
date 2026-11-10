@@ -97,6 +97,11 @@ def _validate_receipt(receipt, fixture_hashes, metric_definitions, fixture_manif
     _require(isinstance(receipt.get("runId"), str) and receipt["runId"], f"{label} receipt runId is required")
     _require(isinstance(receipt.get("commit"), str) and re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", receipt["commit"]),
              f"{label} receipt commit must be a full lowercase git hash")
+    if "productSourceCommit" in receipt:
+        product_source_commit = receipt["productSourceCommit"]
+        _require(isinstance(product_source_commit, str)
+                 and re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", product_source_commit),
+                 f"{label} productSourceCommit must be a full lowercase git hash")
     _require(receipt.get("fixtureManifestSha256") == fixture_manifest_hash,
              f"{label} fixture manifest hash does not match supplied manifest")
     _require(receipt.get("evaluationManifestSha256") == evaluation_manifest_hash,
@@ -109,7 +114,7 @@ def _validate_receipt(receipt, fixture_hashes, metric_definitions, fixture_manif
     _require(isinstance(receipt.get("components"), dict) and receipt["components"],
              f"{label} components revision map is required")
     _require("product_source_commit" not in receipt["components"],
-             f"{label} product source commit belongs in the receipt commit field, not toolchain components")
+             f"{label} product source commit belongs in productSourceCommit, not toolchain components")
     _require(all(isinstance(k, str) and k and isinstance(v, str) and v for k, v in receipt["components"].items()),
              f"{label} components must map names to nonempty revisions")
     fixtures = receipt.get("fixtures")
@@ -204,6 +209,8 @@ def compare_receipts(baseline, candidate, *, fixture_manifest=None, evaluation_m
         "schemaVersion": 1,
         "baselineRunId": baseline["runId"],
         "candidateRunId": candidate["runId"],
+        "baselineProductSourceCommit": baseline.get("productSourceCommit", baseline["commit"]),
+        "candidateProductSourceCommit": candidate.get("productSourceCommit", candidate["commit"]),
         "fixtureManifestSha256": fixture_manifest_hash,
         "evaluationManifestSha256": evaluation_manifest_hash,
         "status": status,

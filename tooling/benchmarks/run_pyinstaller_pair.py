@@ -40,7 +40,8 @@ def run_pair(*, baseline_repo_root, candidate_repo_root, fixture_manifest_path,
              evaluation_manifest_path, build_receipt_path, enrollment_receipt_path,
              baseline_integration_path, candidate_integration_path,
              baseline_toolchain_path, candidate_toolchain_path, output_dir,
-             run_prefix=None):
+             run_prefix=None, baseline_product_source_commit=None,
+             candidate_product_source_commit=None):
     roots = [Path(baseline_repo_root).resolve(), Path(candidate_repo_root).resolve()]
     output = Path(output_dir).resolve()
     if output.exists():
@@ -75,6 +76,10 @@ def run_pair(*, baseline_repo_root, candidate_repo_root, fixture_manifest_path,
             ("baseline", "baseline_integration", roots[0]),
             ("candidate", "candidate_integration", roots[1]),
         ):
+            product_source_commit = (
+                baseline_product_source_commit if label == "baseline"
+                else candidate_product_source_commit
+            )
             evidence_path = stage / f"{label}-evidence.json"
             evidence = merge_evidence(
                 fixture_manifest=fixture_manifest,
@@ -98,6 +103,7 @@ def run_pair(*, baseline_repo_root, candidate_repo_root, fixture_manifest_path,
                 evidence_path=evidence_path,
                 toolchain_manifest_path=toolchain_path,
                 run_id=f"{run_prefix}-{label}",
+                product_source_commit=product_source_commit,
             )
             _write_json(stage / f"{label}-receipt.json", receipt)
             receipts[label] = receipt
@@ -131,6 +137,8 @@ def main(argv=None):
     ):
         parser.add_argument(f"--{option}", required=True)
     parser.add_argument("--run-prefix", help="Optional stable prefix for both generated run IDs")
+    parser.add_argument("--baseline-product-source-commit")
+    parser.add_argument("--candidate-product-source-commit")
     args = parser.parse_args(argv)
     try:
         report = run_pair(
@@ -146,6 +154,8 @@ def main(argv=None):
             candidate_toolchain_path=args.candidate_toolchain_manifest,
             output_dir=args.output_dir,
             run_prefix=args.run_prefix,
+            baseline_product_source_commit=args.baseline_product_source_commit,
+            candidate_product_source_commit=args.candidate_product_source_commit,
         )
         print(f"{report['status']}: paired evidence written to {Path(args.output_dir).resolve()}")
         return {"NO_REGRESSION_OBSERVED": 0, "REGRESSION_DETECTED": 1, "INCOMPLETE": 2}[report["status"]]

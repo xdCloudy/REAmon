@@ -38,7 +38,7 @@ class PyInstallerPairRunnerTests(unittest.TestCase):
             with patch("tooling.benchmarks.run_pyinstaller_pair.merge_evidence", return_value={"evidence": True}), \
                     patch("tooling.benchmarks.run_pyinstaller_pair.create_receipt", side_effect=[
                         {"runId": "pair-baseline"}, {"runId": "pair-candidate"},
-                    ]), \
+                    ]) as create_receipt, \
                     patch("tooling.benchmarks.run_pyinstaller_pair.compare_receipts", return_value={
                         "status": "INCOMPLETE",
                     }) as compare:
@@ -55,10 +55,14 @@ class PyInstallerPairRunnerTests(unittest.TestCase):
                     candidate_toolchain_path=inputs["candidate-toolchain"],
                     output_dir=output,
                     run_prefix="pair",
+                    baseline_product_source_commit="3" * 40,
+                    candidate_product_source_commit="4" * 40,
                 )
 
             self.assertEqual(report["status"], "INCOMPLETE")
             self.assertEqual(compare.call_count, 1)
+            self.assertEqual(create_receipt.call_args_list[0].kwargs["product_source_commit"], "3" * 40)
+            self.assertEqual(create_receipt.call_args_list[1].kwargs["product_source_commit"], "4" * 40)
             self.assertEqual(
                 {path.name for path in output.iterdir()},
                 {"baseline-evidence.json", "baseline-receipt.json", "candidate-evidence.json",

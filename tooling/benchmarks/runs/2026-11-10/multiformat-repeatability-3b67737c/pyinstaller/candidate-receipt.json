@@ -12,7 +12,7 @@
     "webapp_image_id": "sha256:d79912c8e1a3d48e6fa56a395024d011406f363cb343613573658c5a17580599",
     "worker_image_id": "sha256:b15bd821fc9c8f12c47ac360edbd9c87fc974e39a9fe4b7b0c981fa4e1fcf5f4"
   },
-  "createdAtUtc": "2026-11-10T10:31:40Z",
+  "createdAtUtc": "2026-11-10T10:44:32Z",
   "evaluationManifestSha256": "c881a70116db06fd574504ca9933a48670b34d5ebdd4124b8f4c95f5cb509712",
   "evidenceSha256": "27f2fb52d8828cad1a70fb909ad26caca3f77a5ac131588016413ae297cf8acf",
   "fixtureManifestSha256": "d0439c9a197aa6a23d2c0e71a60eb2bdd824ccefa00b4a6ff56361455eb8a032",
@@ -65,7 +65,8 @@
       }
     }
   },
-  "runId": "pyi-3b67737c-recert-candidate",
+  "productSourceCommit": "3b67737c436e556a3cdd244d9a18588a24747604",
+  "runId": "pyi-3b67737c-source-v2-candidate",
   "schemaVersion": 1,
   "toolchainManifestSha256": "2b1cbb11fe24d1c598edfbd071e4344fbe2e8b56190094fb043d2d79d91a7f6e",
   "worktreeClean": true

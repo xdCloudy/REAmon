@@ -72,7 +72,25 @@ class ReceiptComparisonTests(unittest.TestCase):
         baseline = sample_receipt("base", "1" * 40)
         baseline["components"]["product_source_commit"] = baseline["commit"]
 
-        with self.assertRaisesRegex(ReceiptError, "product source commit belongs in the receipt commit field"):
+        with self.assertRaisesRegex(ReceiptError, "product source commit belongs in productSourceCommit"):
+            compare_receipts(baseline, sample_receipt("candidate", "2" * 40))
+
+    def test_comparison_reports_product_source_revisions_separately_from_harness_commits(self):
+        baseline = sample_receipt("base", "1" * 40)
+        candidate = sample_receipt("candidate", "2" * 40)
+        baseline["productSourceCommit"] = "3" * 40
+        candidate["productSourceCommit"] = "4" * 40
+
+        report = compare_receipts(baseline, candidate)
+
+        self.assertEqual(report["baselineProductSourceCommit"], "3" * 40)
+        self.assertEqual(report["candidateProductSourceCommit"], "4" * 40)
+
+    def test_present_product_source_commit_cannot_be_null(self):
+        baseline = sample_receipt("base", "1" * 40)
+        baseline["productSourceCommit"] = None
+
+        with self.assertRaisesRegex(ReceiptError, "productSourceCommit must be a full lowercase git hash"):
             compare_receipts(baseline, sample_receipt("candidate", "2" * 40))
 
     def test_mismatched_artifact_is_rejected(self):

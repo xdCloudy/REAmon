@@ -72,7 +72,7 @@ class RecordBenchmarkReceiptTests(unittest.TestCase):
             },
         }), encoding="utf-8")
 
-    def record(self):
+    def record(self, **kwargs):
         return create_receipt(
             repo_root=self.repo,
             fixture_manifest_path=self.fixture_manifest,
@@ -80,6 +80,7 @@ class RecordBenchmarkReceiptTests(unittest.TestCase):
             evidence_path=self.evidence,
             toolchain_manifest_path=self.toolchain,
             run_id="known-run",
+            **kwargs,
         )
 
     def test_binds_measured_evidence_to_manifests_commit_and_component_revisions(self):
@@ -87,6 +88,7 @@ class RecordBenchmarkReceiptTests(unittest.TestCase):
 
         self.assertTrue(receipt["worktreeClean"])
         self.assertEqual(receipt["commit"], self.git("rev-parse", "HEAD"))
+        self.assertEqual(receipt["productSourceCommit"], receipt["commit"])
         self.assertEqual(receipt["runId"], "known-run")
         self.assertEqual(receipt["fixtures"]["known-source-fixture"]["artifactSha256"], self.fixture_hash)
         self.assertEqual(receipt["fixtures"]["known-source-fixture"]["metrics"]["known_source_recall"]["value"], 1.0)
@@ -97,6 +99,14 @@ class RecordBenchmarkReceiptTests(unittest.TestCase):
         (self.repo / "local-change.txt").write_text("untracked\n", encoding="utf-8")
 
         self.assertFalse(self.record()["worktreeClean"])
+
+    def test_harness_overlay_can_record_its_product_source_revision_separately(self):
+        product_commit = "a" * 40
+
+        receipt = self.record(product_source_commit=product_commit)
+
+        self.assertEqual(receipt["commit"], self.git("rev-parse", "HEAD"))
+        self.assertEqual(receipt["productSourceCommit"], product_commit)
 
     def test_denominator_mismatch_is_rejected(self):
         self.write_evidence(denominator=69)
@@ -109,7 +119,7 @@ class RecordBenchmarkReceiptTests(unittest.TestCase):
         toolchain["components"]["product_source_commit"] = self.git("rev-parse", "HEAD")
         self.toolchain.write_text(json.dumps(toolchain), encoding="utf-8")
 
-        with self.assertRaisesRegex(ReceiptError, "product source commit belongs in the receipt commit field"):
+        with self.assertRaisesRegex(ReceiptError, "product source commit belongs in productSourceCommit"):
             self.record()
 
     def test_unavailable_metric_is_preserved_with_reason(self):
@@ -129,12 +139,14 @@ class RecordBenchmarkReceiptTests(unittest.TestCase):
             "--toolchain-manifest", str(self.toolchain),
             "--output", str(output),
             "--run-id", "candidate-run",
+            "--product-source-commit", "a" * 40,
         ]
 
         with redirect_stdout(StringIO()):
             self.assertEqual(main(args), 0)
         stored = json.loads(output.read_text(encoding="utf-8"))
         self.assertEqual(stored["runId"], "candidate-run")
+        self.assertEqual(stored["productSourceCommit"], "a" * 40)
         with redirect_stdout(StringIO()):
             self.assertEqual(main(args), 2)
         self.assertEqual(json.loads(output.read_text(encoding="utf-8"))["runId"], "candidate-run")

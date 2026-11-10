@@ -1,6 +1,8 @@
 {
-  "baselineRunId": "multiformat-3b67737c-recert-baseline",
-  "candidateRunId": "multiformat-3b67737c-recert-candidate",
+  "baselineProductSourceCommit": "3b67737c436e556a3cdd244d9a18588a24747604",
+  "baselineRunId": "multiformat-3b67737c-provenance-v3-baseline",
+  "candidateProductSourceCommit": "3b67737c436e556a3cdd244d9a18588a24747604",
+  "candidateRunId": "multiformat-3b67737c-provenance-v3-candidate",
   "certification": "This comparison is bounded evidence and is not a product certification.",
   "evaluationManifestSha256": "74ea8e7b6cc4958c657c04141a7396a2857b84136c843cf34e4e1e908b5d6af0",
   "fixtureManifestSha256": "355652681651d23db3eb8a93a512c36a232622e0f54acdd4bd96f8a5c7bbcc04",

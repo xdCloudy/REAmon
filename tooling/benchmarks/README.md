@@ -36,7 +36,8 @@ fixtures retain their own metrics, denominators, and provider versions:
 ```
 
 The matrix's fixture IDs and artifact hashes must exactly match its per-fixture
-manifests. All receipts on one side must name the same full source commit. Each
+manifests. All receipts on one side must name the same measurement commit and
+product source commit. Each
 baseline/candidate pair must use the fixture's exact same toolchain manifest and
 component revisions; different fixtures may use different pinned toolchains.
 This allows heterogeneous formats without treating a provider-version change
@@ -44,9 +45,13 @@ between revisions as an implementation result. Set top-level
 `evaluationManifest` and `toolchainManifest` values as shared defaults, or give
 each fixture its own manifests. Every receipt must match the selected manifest
 hashes, metric inventory, denominators, and component revisions.
-The product source revision is recorded in each receipt's `commit` field; do not
-duplicate it as a toolchain component, because it is expected to differ in a
-changed-revision comparison.
+`commit` identifies the clean measurement checkout. `productSourceCommit`
+identifies the product revision under test; it defaults to `commit` for direct
+checkouts and can be set explicitly when a clean harness overlay is used. All
+fixture receipts on one side must agree on both identities. Legacy receipts
+without `productSourceCommit` are interpreted as direct-checkout runs. Keep
+product source revisions out of toolchain components so they can differ across
+a changed-revision pair without appearing as toolchain drift.
 Baseline/candidate denominator mismatches remain `INCOMPLETE`. Missing fixtures,
 duplicate coverage, commit drift, or within-fixture toolchain drift abort
 aggregation. Constituent receipt hashes are retained in the aggregate receipts.

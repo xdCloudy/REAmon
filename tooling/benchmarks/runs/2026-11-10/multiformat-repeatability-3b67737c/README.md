@@ -1,6 +1,6 @@
 # Same revision, multi-format repeatability matrix
 
-This archived AR-8 matrix runs two independently enrolled fixtures twice at the same clean product revision, `3b67737c436e556a3cdd244d9a18588a24747604`. The baseline and candidate labels identify repeat measurements, not different product revisions. Product source revisions live in receipt `commit` fields; the toolchain manifests contain only fixed tool and service revisions so they remain reusable for changed-revision comparisons. The result validates that the heterogeneous receipt pipeline can bind distinct fixture contracts and toolchains and compare complete evidence without regression; it does not claim a product improvement.
+This archived AR-8 matrix runs two independently enrolled fixtures twice at the same clean product revision, `3b67737c436e556a3cdd244d9a18588a24747604`. The baseline and candidate labels identify repeat measurements, not different product revisions. Both receipts record that product revision in `productSourceCommit`; the measurement checkout `commit` is the same direct source checkout. Toolchain manifests contain only fixed tool and service revisions, so they remain reusable for changed-revision comparisons. The result validates that the heterogeneous receipt pipeline can bind distinct fixture contracts and toolchains and compare complete evidence without regression; it does not claim a product improvement.
 
 ## Result
 

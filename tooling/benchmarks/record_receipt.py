@@ -96,7 +96,8 @@ def _validate_evidence(evidence, fixture_hashes, metric_definitions):
 
 
 def create_receipt(*, repo_root, fixture_manifest_path, evaluation_manifest_path,
-                   evidence_path, toolchain_manifest_path, run_id=None):
+                   evidence_path, toolchain_manifest_path, run_id=None,
+                   product_source_commit=None):
     repo_root = Path(repo_root).resolve()
     fixture_manifest_path = Path(fixture_manifest_path).resolve()
     evaluation_manifest_path = Path(evaluation_manifest_path).resolve()
@@ -122,12 +123,19 @@ def create_receipt(*, repo_root, fixture_manifest_path, evaluation_manifest_path
     commit = _git(repo_root, "rev-parse", "HEAD")
     if len(commit) not in {40, 64} or any(char not in "0123456789abcdef" for char in commit):
         raise ReceiptError("git returned an invalid full commit hash")
+    if product_source_commit is None:
+        product_source_commit = commit
+    if (not isinstance(product_source_commit, str)
+            or len(product_source_commit) not in {40, 64}
+            or any(char not in "0123456789abcdef" for char in product_source_commit)):
+        raise ReceiptError("product source commit must be a full lowercase git hash")
     dirty = bool(_git(repo_root, "status", "--porcelain=v1", "--untracked-files=all"))
     receipt = {
         "schemaVersion": 1,
         "runId": run_id or str(uuid.uuid4()),
         "createdAtUtc": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
         "commit": commit,
+        "productSourceCommit": product_source_commit,
         "worktreeClean": not dirty,
         "fixtureManifestSha256": sha256_file(fixture_manifest_path),
         "evaluationManifestSha256": sha256_file(evaluation_manifest_path),
@@ -156,6 +164,7 @@ def main(argv=None):
     parser.add_argument("--toolchain-manifest", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--run-id")
+    parser.add_argument("--product-source-commit", help="Product revision when repo-root is a clean measurement-harness overlay")
     args = parser.parse_args(argv)
     try:
         receipt = create_receipt(
@@ -165,6 +174,7 @@ def main(argv=None):
             evidence_path=args.evidence,
             toolchain_manifest_path=args.toolchain_manifest,
             run_id=args.run_id,
+            product_source_commit=args.product_source_commit,
         )
         output = Path(args.output)
         if output.exists():

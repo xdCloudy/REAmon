@@ -7,7 +7,7 @@
     "fixture_dockerfile_sha256": "67f9cd2343994b87e375348e74824242751b7ae798067e8a8198fcf245311739",
     "runner_sha256": "f5d406ab57a5e25d0cec81a8031ff6a4e583b6a717da0df6a3fae5cfe0f8ba0a"
   },
-  "createdAtUtc": "2026-11-10T10:31:56Z",
+  "createdAtUtc": "2026-11-10T10:44:46Z",
   "evaluationManifestSha256": "8f99bb2c7edc57c477bb13f1a5f5fbe636ff17349084ae20f561968b51e51e35",
   "evidenceSha256": "6bb2eaa51ca89b9d92899e2b03eab811eda37b44aacdd24d8984515700022c7a",
   "fixtureManifestSha256": "789ddeca4a3bd3f2c17c82d091fd1749d084f63a6b409d58fc374452b37b6548",
@@ -48,7 +48,8 @@
       }
     }
   },
-  "runId": "jvm-3b67737c-candidate-recert",
+  "productSourceCommit": "3b67737c436e556a3cdd244d9a18588a24747604",
+  "runId": "jvm-3b67737c-candidate-source-v2",
   "schemaVersion": 1,
   "toolchainManifestSha256": "a97ce0bec91ae7c943a9bc20878a89d9880c0d668053b685d0f03acae6cfd4d3",
   "worktreeClean": true

@@ -115,6 +115,7 @@ class AggregateBenchmarkReceiptTests(unittest.TestCase):
         self.assertEqual(report["status"], "NO_REGRESSION_OBSERVED")
         baseline = json.loads((output / "baseline.json").read_text(encoding="utf-8"))
         self.assertEqual(baseline["commit"], "1" * 40)
+        self.assertEqual(baseline["productSourceCommit"], "1" * 40)
         self.assertEqual(set(baseline["fixtures"]), set(self.fixtures))
         self.assertEqual(set(baseline["constituentReceiptSha256"]), set(self.fixtures))
         self.assertEqual(baseline["fixtures"]["managed-fixture"]["metrics"]["source_match"]["denominator"], 3)
@@ -134,8 +135,39 @@ class AggregateBenchmarkReceiptTests(unittest.TestCase):
         part["commit"] = "3" * 40
         self.save_part("baseline", "managed-fixture", part)
 
-        with self.assertRaisesRegex(ReceiptError, "do not share one source commit"):
+        with self.assertRaisesRegex(ReceiptError, "do not share one measurement commit"):
             combine_matrix(config_path=self.config, output_dir=self.root / "mixed-commit-output")
+
+    def test_harness_overlay_product_source_commit_is_aggregated_separately(self):
+        for fixture_id in self.fixtures:
+            baseline = self.read_part("baseline", fixture_id)
+            candidate = self.read_part("candidate", fixture_id)
+            baseline["productSourceCommit"] = "3" * 40
+            candidate["productSourceCommit"] = "4" * 40
+            self.save_part("baseline", fixture_id, baseline)
+            self.save_part("candidate", fixture_id, candidate)
+
+        output = self.root / "overlay-aggregate"
+        report = combine_matrix(config_path=self.config, output_dir=output, run_prefix="overlay")
+
+        self.assertEqual(report["status"], "NO_REGRESSION_OBSERVED")
+        baseline = json.loads((output / "baseline.json").read_text(encoding="utf-8"))
+        candidate = json.loads((output / "candidate.json").read_text(encoding="utf-8"))
+        self.assertEqual(baseline["commit"], "1" * 40)
+        self.assertEqual(baseline["productSourceCommit"], "3" * 40)
+        self.assertEqual(candidate["commit"], "2" * 40)
+        self.assertEqual(candidate["productSourceCommit"], "4" * 40)
+        comparison = json.loads((output / "comparison.json").read_text(encoding="utf-8"))
+        self.assertEqual(comparison["baselineProductSourceCommit"], "3" * 40)
+        self.assertEqual(comparison["candidateProductSourceCommit"], "4" * 40)
+
+    def test_fixture_product_source_commits_must_match_per_side(self):
+        part = self.read_part("baseline", "managed-fixture")
+        part["productSourceCommit"] = "9" * 40
+        self.save_part("baseline", "managed-fixture", part)
+
+        with self.assertRaisesRegex(ReceiptError, "do not share one product source commit"):
+            combine_matrix(config_path=self.config, output_dir=self.root / "mixed-product-source-output")
 
     def test_fixture_parts_with_different_toolchains_are_rejected(self):
         part = self.read_part("candidate", "managed-fixture")

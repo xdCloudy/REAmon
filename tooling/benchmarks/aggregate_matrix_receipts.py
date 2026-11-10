@@ -47,6 +47,7 @@ def _aggregate_side(*, label, parts, fixture_hashes, fixture_manifest_hash,
     fixtures = {}
     receipt_hashes = {}
     commits = set()
+    product_source_commits = set()
     clean_states = set()
 
     for fixture_id, part in parts.items():
@@ -73,18 +74,22 @@ def _aggregate_side(*, label, parts, fixture_hashes, fixture_manifest_hash,
         if receipt.get("components") != parts[fixture_id]["components"]:
             raise ReceiptError(f"{label} {fixture_id} component revisions differ from matrix toolchain")
         commits.add(receipt["commit"])
+        product_source_commits.add(receipt.get("productSourceCommit", receipt["commit"]))
         clean_states.add(receipt["worktreeClean"])
         fixtures[fixture_id] = receipt["fixtures"][fixture_id]
         receipt_hashes[fixture_id] = sha256_file(receipt_path)
 
     if len(commits) != 1:
-        raise ReceiptError(f"{label} fixture receipts do not share one source commit")
+        raise ReceiptError(f"{label} fixture receipts do not share one measurement commit")
+    if len(product_source_commits) != 1:
+        raise ReceiptError(f"{label} fixture receipts do not share one product source commit")
 
     return {
         "schemaVersion": 1,
         "runId": run_id,
         "createdAtUtc": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
         "commit": next(iter(commits)),
+        "productSourceCommit": next(iter(product_source_commits)),
         "worktreeClean": clean_states == {True},
         "fixtureManifestSha256": fixture_manifest_hash,
         "evaluationManifestSha256": evaluation_manifest_hash,
@@ -275,6 +280,8 @@ def combine_matrix(*, config_path, output_dir, run_prefix="matrix"):
         "schemaVersion": 1,
         "baselineRunId": baseline["runId"],
         "candidateRunId": candidate["runId"],
+        "baselineProductSourceCommit": baseline["productSourceCommit"],
+        "candidateProductSourceCommit": candidate["productSourceCommit"],
         "fixtureManifestSha256": fixture_manifest_hash,
         "evaluationManifestSha256": evaluation_manifest_hash,
         "toolchainManifestSha256": toolchain_manifest_hash,
