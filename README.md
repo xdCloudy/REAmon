@@ -88,7 +88,7 @@ The [autonomous reconstruction and fidelity delivery plan](docs/REAMON_AUTONOMOU
 
 Latest evidence-based score change (2026-11-10): **+0.03 points** (31.95% → 31.98%). A unified changed-revision matrix compares c4d1e957 with 2c566124 across JVM/CFR, PyInstaller, and stripped Lua 5.4. All 20 fixture metrics are complete with clean shared measurement commits and NO_REGRESSION_OBSERVED. Lua module containment improves from 0/1 to 1/1; the other 19 metrics have zero deltas. The benchmark workstream rises 24% to 25% (+0.03 overall); coverage remains limited to three synthetic fixtures.
 
-Refreshed from pushed commit `f2f0d31`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+Refreshed from pushed commit `315bc78`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
