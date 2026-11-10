@@ -720,7 +720,7 @@ func buildProjectCatalogWithImporter(req request, packageImporter types.Importer
 				return true
 			}
 			object := info.Defs[ident]
-			if object == nil || object.Parent() == pkg.Scope() {
+			if object == nil || ident.Name == "_" || object.Name() == "_" || object.Parent() == pkg.Scope() {
 				return true
 			}
 			if _, exists := localDeclarations[object]; !exists {
@@ -777,7 +777,7 @@ func buildProjectCatalogWithImporter(req request, packageImporter types.Importer
 				return true
 			}
 			object := info.Implicits[clause]
-			if object == nil || object.Parent() == pkg.Scope() {
+			if object == nil || object.Name() == "_" || object.Parent() == pkg.Scope() {
 				return true
 			}
 			if _, exists := localDeclarations[object]; !exists {

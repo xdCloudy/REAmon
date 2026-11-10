@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"go/ast"
 	gobuild "go/build"
+	"go/importer"
 	"go/parser"
 	"go/token"
+	"go/types"
 	"os"
 	"os/exec"
 	"path"
@@ -90,9 +92,15 @@ type projectInventoryRecallFixture struct {
 }
 
 type projectInventoryRecallBuild struct {
-	GOOS         string `json:"goos"`
-	GOARCH       string `json:"goarch"`
-	SelectedPath string `json:"selected_path"`
+	GOOS               string `json:"goos"`
+	GOARCH             string `json:"goarch"`
+	SelectedPath       string `json:"selected_path"`
+	ExpectedPackageTP  int    `json:"expected_package_tp"`
+	ExpectedPackageFP  int    `json:"expected_package_fp"`
+	ExpectedPackageFN  int    `json:"expected_package_fn"`
+	ExpectedAllScopeTP int    `json:"expected_all_scope_tp"`
+	ExpectedAllScopeFP int    `json:"expected_all_scope_fp"`
+	ExpectedAllScopeFN int    `json:"expected_all_scope_fn"`
 }
 
 func bindingNamed(t *testing.T, cat *catalog, name string, declarationStart int) binding {
@@ -756,6 +764,25 @@ func TestProjectCatalogReportsPackageInventoryIncludingUnreferencedSymbols(t *te
 	}
 }
 
+func TestProjectCatalogOmitsBlankIdentifiersFromInventory(t *testing.T) {
+	request := goProjectRequest([]projectFile{{
+		Path:   "pkg/blank.go",
+		Source: "package sample\nfunc sum(values []int) int {\n\ttotal := 0\n\tfor _, value := range values { total += value }\n\treturn total\n}\n",
+	}}, "pkg/blank.go")
+	catalog, err := buildProjectCatalog(request)
+	if err != nil {
+		t.Fatalf("build inventory with blank range identifier: %v", err)
+	}
+	for _, entry := range catalog.Inventory.Entries {
+		if entry.Name == "_" {
+			t.Fatalf("blank identifier was inventoried as a symbol: %+v", entry)
+		}
+	}
+	if catalog.Inventory.LocalSymbolCount != 3 {
+		t.Fatalf("local symbol count = %d; want only values, total, and the range value", catalog.Inventory.LocalSymbolCount)
+	}
+}
+
 func TestProjectCatalogInventoriesFunctionLocalsAndCountsResolvedReferences(t *testing.T) {
 	request := goProjectRequest([]projectFile{
 		{Path: "pkg/locals.go", Source: "package sample\nfunc call(input int) (result int) {\n\tvar declared int\n\tdeclared = input\n\tshort := declared\n\tconst used = 1\n\tconst unused = 2\n\ttype Used int\n\ttype Unused int\n\ttype Record struct { Field int }\n\tvalue := Used(short)\n\t_ = Record{Field: int(value)}\n\treturn int(value) + used\n}\n"},
@@ -1113,6 +1140,7 @@ func TestProjectInventoryHeldOutPackageSymbolPrecisionRecallV1(t *testing.T) {
 					}
 
 					gold := independentPackageDeclarationKeys(t, selectedFiles)
+					allGold := independentAllDeclarationKeys(t, selectedFiles, fixture.ModulePath)
 					request := goProjectRequest(files, target.SelectedPath)
 					request.Operation, request.ModulePath = "project_inventory", fixture.ModulePath
 					request.GoMod, request.GoModHash = string(goModBytes), fixture.GoModSHA256
@@ -1128,14 +1156,19 @@ func TestProjectInventoryHeldOutPackageSymbolPrecisionRecallV1(t *testing.T) {
 					}
 
 					actual := make(map[string]bool)
+					allActual := make(map[string]bool)
 					duplicateCount := 0
 					for _, entry := range inventory["entries"].([]projectInventoryEntry) {
+						key := projectDeclarationKey(entry.RelativePath, entry.DeclarationStart, entry.Name)
+						if allActual[key] {
+							duplicateCount++
+						}
+						allActual[key] = true
 						if entry.Scope != "package" {
 							continue
 						}
-						key := projectDeclarationKey(entry.RelativePath, entry.DeclarationStart, entry.Name)
 						if actual[key] {
-							duplicateCount++
+							continue
 						}
 						actual[key] = true
 					}
@@ -1150,6 +1183,37 @@ func TestProjectInventoryHeldOutPackageSymbolPrecisionRecallV1(t *testing.T) {
 					precision := float64(truePositives) / float64(truePositives+falsePositives)
 					recall := float64(truePositives) / float64(truePositives+falseNegatives)
 					t.Logf("held-out package declaration identity: precision %.4f, recall %.4f, TP=%d FP=%d FN=%d (duplicate=%d)", precision, recall, truePositives, falsePositives, falseNegatives, duplicateCount)
+					allTP := 0
+					for key := range allGold {
+						if allActual[key] {
+							allTP++
+						}
+					}
+					allFP, allFN := len(allActual)-allTP+duplicateCount, len(allGold)-allTP
+					allPrecision := float64(allTP) / float64(allTP+allFP)
+					allRecall := float64(allTP) / float64(allTP+allFN)
+					t.Logf("held-out all-scope declaration identity: precision %.4f, recall %.4f, TP=%d FP=%d FN=%d", allPrecision, allRecall, allTP, allFP, allFN)
+					if allTP != target.ExpectedAllScopeTP || allFP != target.ExpectedAllScopeFP || allFN != target.ExpectedAllScopeFN {
+						var allMissing, allUnexpected []string
+						for key := range allGold {
+							if !allActual[key] {
+								allMissing = append(allMissing, key)
+							}
+						}
+						for key := range allActual {
+							if !allGold[key] {
+								allUnexpected = append(allUnexpected, key)
+							}
+						}
+						sort.Strings(allMissing)
+						sort.Strings(allUnexpected)
+						t.Logf("all-scope false positives: %v", allUnexpected)
+						t.Logf("all-scope false negatives: %v", allMissing)
+						t.Fatalf("all-scope declaration metrics = TP/FP/FN %d/%d/%d; want %d/%d/%d", allTP, allFP, allFN, target.ExpectedAllScopeTP, target.ExpectedAllScopeFP, target.ExpectedAllScopeFN)
+					}
+					if truePositives != target.ExpectedPackageTP || falsePositives != target.ExpectedPackageFP || falseNegatives != target.ExpectedPackageFN {
+						t.Fatalf("package declaration metrics = TP/FP/FN %d/%d/%d; want %d/%d/%d", truePositives, falsePositives, falseNegatives, target.ExpectedPackageTP, target.ExpectedPackageFP, target.ExpectedPackageFN)
+					}
 					if falsePositives != 0 || falseNegatives != 0 {
 						var missing, unexpected []string
 						for key := range gold {
@@ -1170,6 +1234,64 @@ func TestProjectInventoryHeldOutPackageSymbolPrecisionRecallV1(t *testing.T) {
 			}
 		})
 	}
+}
+
+func independentAllDeclarationKeys(t *testing.T, files []projectFile, importPath string) map[string]bool {
+	t.Helper()
+	fileSet := token.NewFileSet()
+	astFiles := make([]*ast.File, 0, len(files))
+	for _, file := range files {
+		parsed, err := parser.ParseFile(fileSet, file.Path, file.Source, parser.AllErrors)
+		if err != nil {
+			t.Fatalf("independent Go AST parse for %s: %v", file.Path, err)
+		}
+		astFiles = append(astFiles, parsed)
+	}
+	info := &types.Info{
+		Defs: make(map[*ast.Ident]types.Object), Implicits: make(map[ast.Node]types.Object),
+		Uses: make(map[*ast.Ident]types.Object), Scopes: make(map[ast.Node]*types.Scope),
+	}
+	packageInfo, err := (&types.Config{Importer: importer.Default()}).Check(importPath, fileSet, astFiles, info)
+	if err != nil {
+		t.Fatalf("independent Go type-check for declaration census: %v", err)
+	}
+	keys := make(map[string]bool)
+	add := func(filePath string, pos token.Pos, name string) {
+		if name == "" || name == "_" {
+			return
+		}
+		position := fileSet.PositionFor(pos, false)
+		keys[projectDeclarationKey(filePath, position.Offset, name)] = true
+	}
+	for _, file := range astFiles {
+		for identifier, object := range info.Defs {
+			if object == nil || object.Name() == "_" || fileSet.PositionFor(identifier.Pos(), false).Filename != fileSet.PositionFor(file.Pos(), false).Filename {
+				continue
+			}
+			add(fileSet.PositionFor(identifier.Pos(), false).Filename, identifier.Pos(), identifier.Name)
+		}
+		ast.Inspect(file, func(node ast.Node) bool {
+			clause, ok := node.(*ast.FuncDecl)
+			if ok && clause.Name.Name == "init" {
+				add(fileSet.PositionFor(clause.Name.Pos(), false).Filename, clause.Name.Pos(), clause.Name.Name)
+			}
+			return true
+		})
+	}
+	for node, object := range info.Implicits {
+		if object == nil || object.Name() == "_" {
+			continue
+		}
+		position := node.Pos()
+		if spec, ok := node.(*ast.ImportSpec); ok {
+			position = spec.Path.Pos()
+		}
+		add(fileSet.PositionFor(position, false).Filename, position, object.Name())
+	}
+	if packageInfo == nil {
+		t.Fatal("independent Go type-check returned no package")
+	}
+	return keys
 }
 
 func containsProjectPath(files []projectFile, wanted string) bool {
