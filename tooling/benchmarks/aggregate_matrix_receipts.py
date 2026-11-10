@@ -42,6 +42,7 @@ def _config_path(base: Path, value: object, label: str) -> Path:
 
 def _aggregate_side(*, label, parts, fixture_hashes, fixture_manifest_hash,
                     evaluation_manifest_hash, toolchain_manifest_hash,
+                    toolchain_manifest_hashes,
                     components, run_id):
     fixtures = {}
     receipt_hashes = {}
@@ -67,9 +68,9 @@ def _aggregate_side(*, label, parts, fixture_hashes, fixture_manifest_hash,
             part["evaluationManifestSha256"],
             f"{label} {fixture_id}",
         )
-        if receipt.get("toolchainManifestSha256") != toolchain_manifest_hash:
+        if receipt.get("toolchainManifestSha256") != toolchain_manifest_hashes[fixture_id]:
             raise ReceiptError(f"{label} {fixture_id} toolchain manifest hash differs from matrix toolchain")
-        if receipt.get("components") != components:
+        if receipt.get("components") != parts[fixture_id]["components"]:
             raise ReceiptError(f"{label} {fixture_id} component revisions differ from matrix toolchain")
         commits.add(receipt["commit"])
         clean_states.add(receipt["worktreeClean"])
@@ -107,22 +108,28 @@ def combine_matrix(*, config_path, output_dir, run_prefix="matrix"):
         raise ReceiptError("matrix config schemaVersion must be 1")
     base = config_path.parent
     fixture_manifest_path = _config_path(base, config.get("fixtureManifest"), "fixtureManifest")
-    toolchain_manifest_path = _config_path(base, config.get("toolchainManifest"), "toolchainManifest")
     fixture_manifest = load_json(fixture_manifest_path)
-    toolchain_manifest = load_json(toolchain_manifest_path)
     fixture_hashes = _manifest_fixtures(fixture_manifest)
-    if not isinstance(toolchain_manifest, dict) or toolchain_manifest.get("schemaVersion") != 1:
-        raise ReceiptError("matrix toolchain manifest schemaVersion must be 1")
-    components = toolchain_manifest.get("components")
-    if not isinstance(components, dict) or not components:
-        raise ReceiptError("matrix toolchain manifest components are required")
-    if not all(isinstance(key, str) and key and isinstance(value, str) and value
-               for key, value in components.items()):
-        raise ReceiptError("matrix toolchain components must map names to nonempty revisions")
-
     cases = config.get("fixtures")
     if not isinstance(cases, dict) or set(cases) != set(fixture_hashes):
         raise ReceiptError("matrix config fixture set must exactly match the matrix manifest")
+
+    shared_toolchain_value = config.get("toolchainManifest")
+    shared_toolchain_path = (
+        _config_path(base, shared_toolchain_value, "toolchainManifest")
+        if shared_toolchain_value is not None else None
+    )
+    shared_toolchain_manifest = load_json(shared_toolchain_path) if shared_toolchain_path else None
+    if shared_toolchain_manifest is not None and (
+            not isinstance(shared_toolchain_manifest, dict)
+            or shared_toolchain_manifest.get("schemaVersion") != 1):
+        raise ReceiptError("matrix toolchain manifest schemaVersion must be 1")
+    shared_components = shared_toolchain_manifest.get("components") if shared_toolchain_manifest else None
+    if shared_components is not None and (
+            not isinstance(shared_components, dict) or not shared_components
+            or not all(isinstance(key, str) and key and isinstance(value, str) and value
+                       for key, value in shared_components.items())):
+        raise ReceiptError("matrix toolchain components must map names to nonempty revisions")
 
     shared_evaluation_path = config.get("evaluationManifest")
     if shared_evaluation_path is not None:
@@ -136,6 +143,9 @@ def combine_matrix(*, config_path, output_dir, run_prefix="matrix"):
     fixture_evaluation_hashes = {}
     fixture_evaluations = {}
     uses_fixture_evaluations = False
+    fixture_toolchain_hashes = {}
+    fixture_toolchains = {}
+    uses_fixture_toolchains = False
     for fixture_id, item in cases.items():
         if not isinstance(item, dict):
             raise ReceiptError(f"matrix config fixture {fixture_id} must be an object")
@@ -157,6 +167,25 @@ def combine_matrix(*, config_path, output_dir, run_prefix="matrix"):
             "manifest": load_json(evaluation_path),
             "metricDefinitions": metric_definitions,
         }
+        toolchain_value = item.get("toolchainManifest")
+        if toolchain_value is None:
+            if shared_toolchain_path is None:
+                raise ReceiptError(f"matrix config {fixture_id}.toolchainManifest path is required")
+            toolchain_path = shared_toolchain_path
+            toolchain_manifest = shared_toolchain_manifest
+        else:
+            toolchain_path = _config_path(base, toolchain_value, f"{fixture_id}.toolchainManifest")
+            toolchain_manifest = load_json(toolchain_path)
+            uses_fixture_toolchains = True
+        if not isinstance(toolchain_manifest, dict) or toolchain_manifest.get("schemaVersion") != 1:
+            raise ReceiptError(f"matrix {fixture_id} toolchain manifest schemaVersion must be 1")
+        components = toolchain_manifest.get("components")
+        if (not isinstance(components, dict) or not components
+                or not all(isinstance(key, str) and key and isinstance(value, str) and value
+                           for key, value in components.items())):
+            raise ReceiptError(f"matrix {fixture_id} toolchain components must map names to nonempty revisions")
+        fixture_toolchain_hashes[fixture_id] = sha256_file(toolchain_path)
+        fixture_toolchains[fixture_id] = components
         for label in ("baseline", "candidate"):
             receipt_path = _config_path(base, item.get(f"{label}Receipt"), f"{fixture_id}.{label}Receipt")
             parts[label][fixture_id] = {
@@ -166,6 +195,8 @@ def combine_matrix(*, config_path, output_dir, run_prefix="matrix"):
                 "evaluationManifestPath": evaluation_path,
                 "evaluationManifestSha256": evaluation_hash,
                 "metricDefinitions": metric_definitions,
+                "toolchainManifestSha256": fixture_toolchain_hashes[fixture_id],
+                "components": components,
             }
 
     fixture_manifest_hash = sha256_file(fixture_manifest_path)
@@ -182,17 +213,39 @@ def combine_matrix(*, config_path, output_dir, run_prefix="matrix"):
         evaluation_manifest_hash = hashlib.sha256(index_bytes).hexdigest()
     else:
         evaluation_manifest_hash = sha256_file(shared_evaluation_path)
-    toolchain_manifest_hash = sha256_file(toolchain_manifest_path)
+    toolchain_manifest_index = None
+    if uses_fixture_toolchains:
+        toolchain_manifest_index = {
+            "schemaVersion": 1,
+            "fixtures": {
+                fixture_id: {"toolchainManifestSha256": fixture_toolchain_hashes[fixture_id]}
+                for fixture_id in sorted(fixture_toolchain_hashes)
+            },
+        }
+        toolchain_index_bytes = (
+            json.dumps(toolchain_manifest_index, indent=2, sort_keys=True) + "\n"
+        ).encode("utf-8")
+        toolchain_manifest_hash = hashlib.sha256(toolchain_index_bytes).hexdigest()
+        components = {
+            f"{fixture_id}/{name}": revision
+            for fixture_id, fixture_components in fixture_toolchains.items()
+            for name, revision in fixture_components.items()
+        }
+    else:
+        toolchain_manifest_hash = sha256_file(shared_toolchain_path)
+        components = shared_components
     baseline = _aggregate_side(
         label="baseline", parts=parts["baseline"], fixture_hashes=fixture_hashes,
         fixture_manifest_hash=fixture_manifest_hash, evaluation_manifest_hash=evaluation_manifest_hash,
-        toolchain_manifest_hash=toolchain_manifest_hash, components=components,
+        toolchain_manifest_hash=toolchain_manifest_hash,
+        toolchain_manifest_hashes=fixture_toolchain_hashes, components=components,
         run_id=f"{run_prefix}-baseline",
     )
     candidate = _aggregate_side(
         label="candidate", parts=parts["candidate"], fixture_hashes=fixture_hashes,
         fixture_manifest_hash=fixture_manifest_hash, evaluation_manifest_hash=evaluation_manifest_hash,
-        toolchain_manifest_hash=toolchain_manifest_hash, components=components,
+        toolchain_manifest_hash=toolchain_manifest_hash,
+        toolchain_manifest_hashes=fixture_toolchain_hashes, components=components,
         run_id=f"{run_prefix}-candidate",
     )
 
@@ -224,6 +277,7 @@ def combine_matrix(*, config_path, output_dir, run_prefix="matrix"):
         "candidateRunId": candidate["runId"],
         "fixtureManifestSha256": fixture_manifest_hash,
         "evaluationManifestSha256": evaluation_manifest_hash,
+        "toolchainManifestSha256": toolchain_manifest_hash,
         "status": status,
         "regressions": regressions,
         "worktreesClean": worktrees_clean,
@@ -241,11 +295,14 @@ def combine_matrix(*, config_path, output_dir, run_prefix="matrix"):
             "evaluationManifestSha256": evaluation_manifest_hash,
             "fixtureEvaluationManifestSha256": fixture_evaluation_hashes,
             "toolchainManifestSha256": toolchain_manifest_hash,
+            "fixtureToolchainManifestSha256": fixture_toolchain_hashes,
         },
     }
     artifacts = {f"{name}.json": value for name, value in result.items()}
     if evaluation_manifest_index is not None:
         artifacts["evaluation-manifest-index.json"] = evaluation_manifest_index
+    if toolchain_manifest_index is not None:
+        artifacts["toolchain-manifest-index.json"] = toolchain_manifest_index
     output.parent.mkdir(parents=True, exist_ok=True)
     stage = Path(tempfile.mkdtemp(prefix=f".{output.name}.", dir=output.parent))
     try:

@@ -204,6 +204,53 @@ class AggregateBenchmarkReceiptTests(unittest.TestCase):
         self.assertEqual(regression["status"], "REGRESSION_DETECTED")
         self.assertEqual(regression["regressions"], ["managed-fixture:class_match"])
 
+    def test_fixture_specific_toolchains_support_heterogeneous_formats(self):
+        toolchains = {
+            "native-fixture": {"native-decompiler": "ghidra-11.4"},
+            "managed-fixture": {"managed-decompiler": "CFR-0.152"},
+        }
+        config = json.loads(self.config.read_text(encoding="utf-8"))
+        manifest_hashes = {}
+        for fixture_id, components in toolchains.items():
+            manifest_path = self.root / f"{fixture_id}-toolchain.json"
+            self.write_json(manifest_path, {"schemaVersion": 1, "components": components})
+            config["fixtures"][fixture_id]["toolchainManifest"] = manifest_path.name
+            manifest_hashes[fixture_id] = self.digest(manifest_path)
+            for label in ("baseline", "candidate"):
+                receipt = self.read_part(label, fixture_id)
+                receipt["toolchainManifestSha256"] = manifest_hashes[fixture_id]
+                receipt["components"] = components
+                self.save_part(label, fixture_id, receipt)
+        self.write_json(self.config, config)
+
+        output = self.root / "heterogeneous-toolchains"
+        report = combine_matrix(config_path=self.config, output_dir=output, run_prefix="heterogeneous-tools")
+
+        self.assertEqual(report["status"], "NO_REGRESSION_OBSERVED")
+        index = json.loads((output / "toolchain-manifest-index.json").read_text(encoding="utf-8"))
+        self.assertEqual(
+            {fixture_id: item["toolchainManifestSha256"] for fixture_id, item in index["fixtures"].items()},
+            manifest_hashes,
+        )
+        expected_index_hash = self.digest(output / "toolchain-manifest-index.json")
+        self.assertEqual(report["toolchainManifestSha256"], expected_index_hash)
+        for label in ("baseline", "candidate"):
+            aggregate = json.loads((output / f"{label}.json").read_text(encoding="utf-8"))
+            self.assertEqual(aggregate["toolchainManifestSha256"], expected_index_hash)
+            self.assertEqual(aggregate["components"], {
+                "native-fixture/native-decompiler": "ghidra-11.4",
+                "managed-fixture/managed-decompiler": "CFR-0.152",
+            })
+
+        candidate = self.read_part("candidate", "managed-fixture")
+        candidate["toolchainManifestSha256"] = "f" * 64
+        self.save_part("candidate", "managed-fixture", candidate)
+        with self.assertRaisesRegex(ReceiptError, "toolchain manifest hash differs"):
+            combine_matrix(
+                config_path=self.config,
+                output_dir=self.root / "heterogeneous-toolchain-drift",
+            )
+
     def test_existing_output_is_never_overwritten(self):
         output = self.root / "existing-output"
         output.mkdir()

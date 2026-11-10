@@ -5,10 +5,11 @@ baseline/candidate receipts into one comparison. It is the aggregation step of
 AR-8; it does not build fixtures, run providers, or execute targets. Fixture
 execution adapters must produce receipts first.
 
-The matrix config points at a combined fixture manifest and toolchain manifest,
-then binds each fixture ID to its one-fixture manifest, evaluation contract,
-and paired receipts. Fixture-specific evaluation contracts let native,
-managed, and bytecode fixtures retain different metrics and denominators:
+The matrix config points at a combined fixture manifest, then binds each
+fixture ID to its one-fixture manifest, evaluation contract, toolchain manifest,
+and paired receipts. A top-level evaluation or toolchain manifest can serve as
+the shared default; fixture-specific manifests let native, managed, and bytecode
+fixtures retain their own metrics, denominators, and provider versions:
 
 ```json
 {
@@ -19,12 +20,14 @@ managed, and bytecode fixtures retain different metrics and denominators:
     "native-linux-debug": {
       "fixtureManifest": "native-linux-debug.json",
       "evaluationManifest": "evaluations/native.json",
+      "toolchainManifest": "toolchains/native.json",
       "baselineReceipt": "runs/baseline/native-linux-debug.json",
       "candidateReceipt": "runs/candidate/native-linux-debug.json"
     },
     "managed-jar": {
       "fixtureManifest": "managed-jar.json",
       "evaluationManifest": "evaluations/managed.json",
+      "toolchainManifest": "toolchains/managed.json",
       "baselineReceipt": "runs/baseline/managed-jar.json",
       "candidateReceipt": "runs/candidate/managed-jar.json"
     }
@@ -33,16 +36,21 @@ managed, and bytecode fixtures retain different metrics and denominators:
 ```
 
 The matrix's fixture IDs and artifact hashes must exactly match its per-fixture
-manifests. All per-fixture receipts on one side must name the same full source
-commit and shared toolchain hash. Set a top-level `evaluationManifest` as a
-shared default, or give each fixture its own `evaluationManifest`; each receipt
-must match the selected contract's hash, metric inventory, and denominators.
-Baseline/candidate denominator mismatches remain `INCOMPLETE`. Missing
-fixtures, duplicate coverage, commit drift, or toolchain drift abort
+manifests. All receipts on one side must name the same full source commit. Each
+baseline/candidate pair must use the fixture's exact same toolchain manifest and
+component revisions; different fixtures may use different pinned toolchains.
+This allows heterogeneous formats without treating a provider-version change
+between revisions as an implementation result. Set top-level
+`evaluationManifest` and `toolchainManifest` values as shared defaults, or give
+each fixture its own manifests. Every receipt must match the selected manifest
+hashes, metric inventory, denominators, and component revisions.
+Baseline/candidate denominator mismatches remain `INCOMPLETE`. Missing fixtures,
+duplicate coverage, commit drift, or within-fixture toolchain drift abort
 aggregation. Constituent receipt hashes are retained in the aggregate receipts.
 When fixture-specific contracts are used, `evaluation-manifest-index.json`
-binds every fixture ID to its evaluation-manifest SHA-256, and the comparison
-uses the index hash.
+binds each fixture to its evaluation-manifest SHA-256; fixture-specific
+toolchains are similarly bound by `toolchain-manifest-index.json`. Aggregate
+receipts and the comparison use the corresponding index hashes.
 
 ```powershell
 python tooling/benchmarks/aggregate_matrix_receipts.py `
