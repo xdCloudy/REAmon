@@ -92,6 +92,10 @@ type projectCatalog struct {
 	Truncated     bool
 }
 
+type derivedFieldReference struct {
+	ident *ast.Ident
+}
+
 type sourceEdit struct {
 	start, end int
 	text       string
@@ -636,6 +640,7 @@ func applyProjectRenames(req request) (map[string]any, error) {
 	selected := make([]struct {
 		item    binding
 		newName string
+		derived []derivedFieldReference
 	}, 0, len(req.Renames))
 	selectedObjects := make(map[types.Object]bool, len(req.Renames))
 	seen := make(map[string]bool)
@@ -652,7 +657,8 @@ func applyProjectRenames(req request) (map[string]any, error) {
 		selected = append(selected, struct {
 			item    binding
 			newName string
-		}{item, choice.NewName})
+			derived []derivedFieldReference
+		}{item, choice.NewName, embeddedFieldReferences(cat, item.Object)})
 	}
 	targets := make(map[string]bool)
 	for _, choice := range selected {
@@ -686,6 +692,15 @@ func applyProjectRenames(req request) (map[string]any, error) {
 			editsByPath[position.Filename] = append(editsByPath[position.Filename], sourceEdit{start: start, end: end, text: choice.newName})
 			editDetailsByPath[position.Filename] = append(editDetailsByPath[position.Filename], map[string]any{
 				"start": start, "end": end, "old_text": ident.Name, "new_text": choice.newName,
+			})
+		}
+		for _, reference := range choice.derived {
+			position := cat.FileSet.PositionFor(reference.ident.Pos(), false)
+			start := position.Offset
+			end := cat.FileSet.PositionFor(reference.ident.End(), false).Offset
+			editsByPath[position.Filename] = append(editsByPath[position.Filename], sourceEdit{start: start, end: end, text: choice.newName})
+			editDetailsByPath[position.Filename] = append(editDetailsByPath[position.Filename], map[string]any{
+				"start": start, "end": end, "old_text": reference.ident.Name, "new_text": choice.newName,
 			})
 		}
 		renamed = append(renamed, map[string]any{
@@ -749,6 +764,15 @@ func applyProjectRenames(req request) (map[string]any, error) {
 				return nil, fmt.Errorf("Renaming %s would change a package binding in %s", choice.item.Name, position.Filename)
 			}
 		}
+		for _, original := range choice.derived {
+			position := cat.FileSet.PositionFor(original.ident.Pos(), false)
+			outputOffset := offsetAfterEdits(position.Offset, editsByPath[position.Filename])
+			transformed := identifiers[position.Filename][outputOffset]
+			field, ok := outputCatalog.Info.Uses[transformed].(*types.Var)
+			if transformed == nil || transformed.Name != choice.newName || !ok || !field.Embedded() || field.Name() != choice.newName || !embeddedFieldTypeMatches(field.Type(), renamedObject.Type()) {
+				return nil, fmt.Errorf("Renaming %s would change an embedded field binding in %s", choice.item.Name, position.Filename)
+			}
+		}
 	}
 	selectedOutput := outputsByPath[cat.SelectedPath]
 	outputManifest := map[string]any{
@@ -762,6 +786,83 @@ func applyProjectRenames(req request) (map[string]any, error) {
 		"files": manifestFiles, "edit_manifest": outputManifest,
 		"renamed_bindings": renamed, "parser_version": runtime.Version(), "scope": "project",
 	}, nil
+}
+
+func embeddedFieldReferences(cat *projectCatalog, target types.Object) []derivedFieldReference {
+	var references []derivedFieldReference
+	seen := make(map[*ast.Ident]bool)
+	for _, file := range cat.Files {
+		ast.Inspect(file.AST, func(node ast.Node) bool {
+			typeSpec, ok := node.(*ast.TypeSpec)
+			if !ok {
+				return true
+			}
+			structure, ok := typeSpec.Type.(*ast.StructType)
+			if !ok {
+				return true
+			}
+			typeObject, ok := cat.Info.Defs[typeSpec.Name].(*types.TypeName)
+			if !ok {
+				return true
+			}
+			structType, ok := types.Unalias(typeObject.Type()).Underlying().(*types.Struct)
+			if !ok {
+				return true
+			}
+			fieldIndex := 0
+			for _, astField := range structure.Fields.List {
+				fieldCount := len(astField.Names)
+				if fieldCount == 0 {
+					fieldCount = 1
+					ident := embeddedTypeIdentifier(astField.Type)
+					if ident != nil && cat.Info.Uses[ident] == target && fieldIndex < structType.NumFields() {
+						field := structType.Field(fieldIndex)
+						if field.Embedded() && field.Name() == ident.Name {
+							for use, object := range cat.Info.Uses {
+								if object == field && !seen[use] {
+									seen[use] = true
+									references = append(references, derivedFieldReference{ident: use})
+								}
+							}
+						}
+					}
+				}
+				fieldIndex += fieldCount
+			}
+			return true
+		})
+	}
+	return references
+}
+
+func embeddedTypeIdentifier(expr ast.Expr) *ast.Ident {
+	switch value := expr.(type) {
+	case *ast.Ident:
+		return value
+	case *ast.StarExpr:
+		return embeddedTypeIdentifier(value.X)
+	case *ast.IndexExpr:
+		return embeddedTypeIdentifier(value.X)
+	case *ast.IndexListExpr:
+		return embeddedTypeIdentifier(value.X)
+	case *ast.ParenExpr:
+		return embeddedTypeIdentifier(value.X)
+	default:
+		return nil
+	}
+}
+
+func embeddedFieldTypeMatches(fieldType, renamedType types.Type) bool {
+	fieldType = types.Unalias(fieldType)
+	if pointer, ok := fieldType.(*types.Pointer); ok {
+		fieldType = types.Unalias(pointer.Elem())
+	}
+	if field, ok := fieldType.(*types.Named); ok {
+		if renamed, ok := types.Unalias(renamedType).(*types.Named); ok && field.Obj() == renamed.Obj() {
+			return true
+		}
+	}
+	return types.Identical(fieldType, types.Unalias(renamedType))
 }
 
 func projectIdentifiersByOffset(cat *projectCatalog) map[string]map[int]*ast.Ident {

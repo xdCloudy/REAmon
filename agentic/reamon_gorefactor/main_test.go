@@ -108,6 +108,79 @@ func TestProjectRenameUpdatesResolvedReferencesAcrossFiles(t *testing.T) {
 	}
 }
 
+func TestProjectTypeRenameUpdatesEmbeddedFieldReferences(t *testing.T) {
+	request := goProjectRequest([]projectFile{
+		{Path: "pkg/model.go", Source: "package sample\n\ntype entry struct { value int }\n"},
+		{Path: "pkg/view.go", Source: "package sample\n\ntype view struct { *entry }\nfunc create() view { return view{entry: &entry{value: 4}} }\nfunc read(item view) int { return item.entry.value }\n"},
+	}, "pkg/model.go")
+	catalog, err := buildProjectCatalog(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var selected binding
+	for _, item := range catalog.Bindings {
+		if item.FilePath == request.SelectedPath && item.Name == "entry" {
+			selected = item
+			break
+		}
+	}
+	if selected.ID == "" || selected.ReferenceCount != 2 {
+		t.Fatalf("embedded type binding = %+v; want declaration and two type references", selected)
+	}
+	request.Operation = "project_rename"
+	request.ExpectedHash = catalog.SelectedHash
+	request.SourceSetHash = catalog.SourceSetHash
+	request.Renames = []renameSelection{{ID: selected.ID, NewName: "record"}}
+	result, err := applyProjectRenames(request)
+	if err != nil {
+		t.Fatalf("rename embedded package type: %v", err)
+	}
+	files := result["files"].([]map[string]any)
+	if len(files) != 2 {
+		t.Fatalf("edit manifest files = %d; want model and embedded-field reference files", len(files))
+	}
+	outputs := make(map[string]string)
+	for _, file := range files {
+		outputs[file["relative_path"].(string)] = file["source_code"].(string)
+	}
+	want := "package sample\n\ntype view struct { *record }\nfunc create() view { return view{record: &record{value: 4}} }\nfunc read(item view) int { return item.record.value }\n"
+	if outputs["pkg/view.go"] != want {
+		t.Fatalf("embedded field references were not updated with the type name:\\n got: %q\\nwant: %q", outputs["pkg/view.go"], want)
+	}
+	editCount := 0
+	editCountsByPath := make(map[string]int, len(files))
+	for _, file := range files {
+		relativePath := file["relative_path"].(string)
+		editCountsByPath[relativePath] = len(file["edits"].([]map[string]any))
+		original := request.Files[0].Source
+		if relativePath == "pkg/view.go" {
+			original = request.Files[1].Source
+		}
+		for _, edit := range file["edits"].([]map[string]any) {
+			if edit["old_text"] != "entry" || edit["new_text"] != "record" {
+				t.Fatalf("embedded type edit = %#v; want entry -> record", edit)
+			}
+			start, startOK := edit["start"].(int)
+			end, endOK := edit["end"].(int)
+			if !startOK || !endOK || start < 0 || end <= start || end > len(original) || original[start:end] != "entry" {
+				t.Fatalf("embedded type edit offsets = %#v; want byte-exact entry span in %s", edit, relativePath)
+			}
+			editCount++
+		}
+	}
+	if editCount != 5 || editCountsByPath["pkg/model.go"] != 1 || editCountsByPath["pkg/view.go"] != 4 {
+		t.Fatalf("embedded type rename manifest has %d edits by path; want model/view counts 1/4, got %v", editCount, editCountsByPath)
+	}
+	assertProjectRenameBehavior(t, map[string]string{
+		"pkg/model.go": request.Files[0].Source,
+		"pkg/view.go":  request.Files[1].Source,
+	}, "func TestCorpusBehavior(t *testing.T) { if got := read(create()); got != 4 { t.Fatalf(\"read = %d\", got) } }\n", "original")
+	assertProjectRenameBehavior(t, map[string]string{
+		"pkg/model.go": "package sample\n\ntype record struct { value int }\n",
+		"pkg/view.go":  want,
+	}, "func TestCorpusBehavior(t *testing.T) { if got := read(create()); got != 4 { t.Fatalf(\"read = %d\", got) } }\n", "renamed")
+}
+
 func TestProjectRenameVersionedBindingIntegrityCorpus(t *testing.T) {
 	content, err := os.ReadFile(filepath.Join("testdata", "project_rename_v1.json"))
 	if err != nil {
