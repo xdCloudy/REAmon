@@ -88,7 +88,7 @@ The [autonomous reconstruction and fidelity delivery plan](docs/REAMON_AUTONOMOU
 
 Latest evidence-based score change (2026-11-10): **+0.08 points** (32.59% → 32.67%). The same-directory Go snapshot now inventories function and function-literal parameters, receivers, results, variables, constants, types, type parameters, and local functions, preserving explicit eligibility, exclusion, and unsupported reasons. Local inventory rows are persisted and reloaded through the API and displayed with scope in the visualizer; they are not rename candidates. Docker Go package tests pass, including mixed 5,001-row truncation. Focused safe-renames, draft-history, and visualizer tests pass 47/47; Docker type-check and targeted ESLint pass. Database integration and a fresh full webapp suite were not run for this slice. This adds one partial point to the 8%-weight semantic-renaming workstream (+0.08 overall); complete project discovery and naming-quality benchmarks remain open.
 
-Refreshed from pushed commit `449f49e`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+Refreshed from pushed commit `8705e78`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
