@@ -7,7 +7,9 @@ import {
   matchesPyInstallerStructuredFixtureSource,
   mutatePyInstallerStructuredFixtureSource,
   PYINSTALLER_MUTATED_SOURCE_CONTROL_FIXTURE_ID,
+  PYINSTALLER_STRUCTURED_SOURCE_LEGACY_FIXTURE_ID,
   PYINSTALLER_STRUCTURED_SOURCE_FIXTURE_ID,
+  isPyInstallerStructuredSourceFixture,
 } from './pyinstaller.benchmark-evidence'
 
 describe('PyInstaller benchmark evidence', () => {
@@ -123,7 +125,11 @@ describe('PyInstaller benchmark evidence', () => {
   })
 
   it('matches the versioned structured fixture source and keeps its identity stable', () => {
-    expect(PYINSTALLER_STRUCTURED_SOURCE_FIXTURE_ID).toBe('pyinstaller-module-structured-source-linux-amd64')
+    expect(PYINSTALLER_STRUCTURED_SOURCE_FIXTURE_ID).toBe('pyinstaller-module-structured-source-linux-amd64-v2')
+    expect(PYINSTALLER_STRUCTURED_SOURCE_LEGACY_FIXTURE_ID).toBe('pyinstaller-module-structured-source-linux-amd64')
+    expect(isPyInstallerStructuredSourceFixture(PYINSTALLER_STRUCTURED_SOURCE_FIXTURE_ID)).toBe(true)
+    expect(isPyInstallerStructuredSourceFixture(PYINSTALLER_STRUCTURED_SOURCE_LEGACY_FIXTURE_ID)).toBe(true)
+    expect(isPyInstallerStructuredSourceFixture('unknown-fixture')).toBe(false)
     expect(matchesPyInstallerStructuredFixtureSource(
       'VALUE = 12\ndef classify(candidate):\n    if candidate < VALUE:\n        return \'below\'\n    return \'at-or-above\'\n',
       12,

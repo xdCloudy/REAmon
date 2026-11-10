@@ -9,6 +9,7 @@ import { ingestToolResult } from './result-ingestion'
 import { executePyInstaller } from './pyinstaller'
 import {
   createPyInstallerBenchmarkEvidence,
+  isPyInstallerStructuredSourceFixture,
   matchesPyInstallerFixtureSource,
   matchesPyInstallerStructuredFixtureSource,
   mutatePyInstallerStructuredFixtureSource,
@@ -216,7 +217,7 @@ describeDatabase('PyInstaller continuation with PostgreSQL observation persisten
     let structuredMutationFalseAcceptanceCount = 0
     let originalSourceFalseAcceptanceCount = 0
     const fixtureId = process.env.REAMON_BENCHMARK_FIXTURE_ID
-    const isStructuredFixture = fixtureId === PYINSTALLER_STRUCTURED_SOURCE_FIXTURE_ID
+    const isStructuredFixture = isPyInstallerStructuredSourceFixture(fixtureId ?? '')
       || fixtureId === PYINSTALLER_MUTATED_SOURCE_CONTROL_FIXTURE_ID
     const isMutatedArtifactFixture = fixtureId === PYINSTALLER_MUTATED_SOURCE_CONTROL_FIXTURE_ID
     for (let moduleValue = 1; moduleValue <= 70; moduleValue += 1) {
@@ -252,8 +253,8 @@ describeDatabase('PyInstaller continuation with PostgreSQL observation persisten
     }
     expect(knownSourceMatchedCount).toBe(70)
     if (isStructuredFixture) {
+      expect(reconstructionMatchedCount).toBe(70)
       if (isMutatedArtifactFixture) {
-        expect(reconstructionMatchedCount).toBe(70)
         expect(originalSourceFalseAcceptanceCount).toBe(0)
       } else {
         expect(structuredMutationRejectedCount).toBe(70)

@@ -14,8 +14,14 @@ type PyInstallerBenchmarkEvidenceInput = {
   workerTerminalPage: boolean
 }
 
-export const PYINSTALLER_STRUCTURED_SOURCE_FIXTURE_ID = 'pyinstaller-module-structured-source-linux-amd64'
+export const PYINSTALLER_STRUCTURED_SOURCE_FIXTURE_ID = 'pyinstaller-module-structured-source-linux-amd64-v2'
+export const PYINSTALLER_STRUCTURED_SOURCE_LEGACY_FIXTURE_ID = 'pyinstaller-module-structured-source-linux-amd64'
 export const PYINSTALLER_MUTATED_SOURCE_CONTROL_FIXTURE_ID = 'pyinstaller-module-mutated-source-control-linux-amd64'
+
+export function isPyInstallerStructuredSourceFixture(fixtureId: string): boolean {
+  return fixtureId === PYINSTALLER_STRUCTURED_SOURCE_FIXTURE_ID
+    || fixtureId === PYINSTALLER_STRUCTURED_SOURCE_LEGACY_FIXTURE_ID
+}
 
 export function matchesPyInstallerFixtureSource(source: string, expectedValue: number): boolean {
   if (!Number.isSafeInteger(expectedValue) || expectedValue < 1 || expectedValue > 70) return false
@@ -139,7 +145,7 @@ export function createPyInstallerBenchmarkEvidence(input: PyInstallerBenchmarkEv
     || input.reconstructionMatchedCount > 70) {
     throw new Error('PyInstaller source reconstruction match count must be between 0 and 70')
   }
-  const isStructuredFixture = input.fixtureId === PYINSTALLER_STRUCTURED_SOURCE_FIXTURE_ID
+  const isStructuredFixture = isPyInstallerStructuredSourceFixture(input.fixtureId)
   const isMutatedArtifactFixture = input.fixtureId === PYINSTALLER_MUTATED_SOURCE_CONTROL_FIXTURE_ID
   if (isStructuredFixture) {
     const rejected = input.structuredMutationRejectedCount
