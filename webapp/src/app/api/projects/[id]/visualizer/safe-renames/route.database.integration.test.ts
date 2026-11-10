@@ -30,6 +30,8 @@ const selectedSource = 'package sample\nfunc fn(value int) int { return value }\
 const siblingSource = 'package sample\nfunc run() int { return fn(1) }\n'
 const selectedOutput = 'package sample\nfunc calculate(value int) int { return value }\n'
 const siblingOutput = 'package sample\nfunc run() int { return calculate(1) }\n'
+const goMod = 'module example.test/fixture\n\ngo 1.24\n'
+const goSum = 'example.test/dep v1.0.0 h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\n'
 const hash = (value: string) => createHash('sha256').update(value, 'utf8').digest('hex')
 const sourceSetHash = (files: Array<{ relativePath: string; sourceCode: string }>) => {
   const digest = createHash('sha256')
@@ -93,8 +95,6 @@ describe.skipIf(!enabled)('Go package rename against PostgreSQL', () => {
       select: { id: true },
     })
     artifactId = artifact.id
-    const goMod = 'module example.test/fixture\n\ngo 1.24\n'
-    const goSum = 'example.test/dep v1.0.0 h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\n'
     await writeFile(path.join(artifactsDirectory, 'go.mod'), goMod, 'utf8')
     await writeFile(path.join(artifactsDirectory, 'go.sum'), goSum, 'utf8')
     await prisma.artifact.create({
