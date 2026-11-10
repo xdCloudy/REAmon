@@ -79,7 +79,7 @@ The [autonomous reconstruction and fidelity delivery plan](docs/REAMON_AUTONOMOU
 <!-- REAMON_PRODUCT_PROGRESS_START -->
 <progress value="31.58" max="100">31.58%</progress> <strong>31.58%</strong> — weighted estimate **31.58%**.
 Latest evidence-based score change (2026-11-10): **+0.00 points** (31.58% → 31.58%). Progress review after Go rename corpus/runtime validation at source commit 5dc0ccbf: the versioned synthetic corpus covers seven positive and three negative mappings; all 19 expected declaration/reference edits match exact manifests, and original plus renamed fixture packages pass the same finite runtime oracles. The full agent Docker unit gate passes 188 files / 3,805 tests (one file collects no tests), plus Go package tests. These are stronger regression checks for the existing experimental slice, not held-out project coverage or live PostgreSQL/browser acceptance, so no workstream crossed a weighted acceptance gate: ASSR-2 remains 9% and overall progress remains 31.58% (0.00-point change in this review).
-Refreshed from pushed commit `5dc0ccb`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+Refreshed from pushed commit `2d367f4`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
 [Goals and roadmap](docs/REAMON_GOALS.md) · [Feature matrix](docs/REAMON_FEATURE_MATRIX.md)
