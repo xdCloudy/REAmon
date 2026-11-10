@@ -639,6 +639,29 @@ func TestProjectCatalogRejectsIncompleteOrAmbiguousPackages(t *testing.T) {
 	}
 }
 
+func TestProjectCatalogExcludesExportedPackageAPIs(t *testing.T) {
+	request := goProjectRequest([]projectFile{
+		{Path: "pkg/api.go", Source: "package sample\n\nfunc Public(value int) int { return private(value) }\nfunc private(value int) int { return value + 1 }\n"},
+		{Path: "pkg/use.go", Source: "package sample\n\nfunc call() int { return Public(4) }\n"},
+	}, "pkg/api.go")
+	catalog, err := buildProjectCatalog(request)
+	if err != nil {
+		t.Fatalf("build exported API package catalog: %v", err)
+	}
+	var privateBinding binding
+	for _, item := range catalog.Bindings {
+		if item.Name == "Public" || item.Exported {
+			t.Fatalf("exported package API was offered for rename: %+v", item)
+		}
+		if item.Name == "private" {
+			privateBinding = item
+		}
+	}
+	if privateBinding.ID == "" || privateBinding.ReferenceCount != 1 {
+		t.Fatalf("private package binding = %+v; want a selectable same-package binding with one reference", privateBinding)
+	}
+}
+
 func TestCapturedLocalRenameFollowsObjectIntoNestedClosure(t *testing.T) {
 	source := "package sample\nfunc build(seed int) func() int {\n\ttotal := seed\n\treturn func() int { return total + 1 }\n}\n"
 	cat, err := buildCatalog(source)
