@@ -173,20 +173,21 @@
   },
   "activeWork": {
     "date": "2026-11-10",
-    "basedOnCommit": "b170af0b",
+    "basedOnCommit": "c0b33e32",
     "workstream": "Cross-file semantic rename propagation (ASSR-2)",
     "status": "in progress; no completion credit awarded",
     "verified": [
       "A Go package-snapshot helper catalogs unexported package bindings by go/types object identity across same-directory source files.",
       "The helper emits hash-bound, versioned per-file edit manifests and re-type-checks edited package sources to verify renamed references resolve to their original object.",
       "Focused Go Docker tests pass, including cross-file reference updates, stale source-set rejection, package mismatch, unresolved references, and build-constraint rejection.",
-      "The Go agent API module passes Python bytecode compilation after adding bounded project request fields."
+      "The Go agent API module passes Python bytecode compilation.",
+      "Three focused Docker HTTP tests pass for project request forwarding, invalid source-set hash rejection before helper dispatch, and the 256-file request cap.",
+      "The complete agent unit gate passes: 188 files, 3,805 tests, zero failures; one collected file contains no tests. The Go refactor package tests also pass."
     ],
     "notVerified": [
-      "No user-facing safe-rename request constructs a trusted package snapshot or invokes the project operation yet.",
-      "No multi-file draft persistence, preview, rollback, or live database/browser acceptance exists for this work.",
-      "The agent API contract has syntax validation only; request/response integration tests are pending."
+      "The safe-renames route does not yet construct a trusted accepted-source package snapshot or invoke the project operation.",
+      "Multi-file draft persistence, preview, rollback, and live database/browser acceptance are not implemented."
     ],
-    "next": "Build the accepted-source package snapshot from project records, wire catalog and apply through the safe-renames route and multi-file draft review flow, then run focused API/route/database tests before reconsidering ASSR-2 credit."
+    "next": "Build the accepted-source package snapshot from project records, wire catalog and apply through the safe-renames route and multi-file draft review flow, then run focused route/database tests before reconsidering ASSR-2 credit."
   }
 }

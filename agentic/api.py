@@ -1990,7 +1990,7 @@ async def refactor_reamon_go_source(body: ReamonGoRefactorRequest):
             "selected_path": body.selected_path,
             "files": [item.model_dump() for item in body.files],
             "renames": body.renames,
-        }).encode("utf-8")), timeout=20)
+        }).encode("utf-8")), timeout=60 if is_project else 20)
     except FileNotFoundError:
         return JSONResponse(content={"error": "The versioned Go scope-refactor service is unavailable"}, status_code=503)
     except asyncio.TimeoutError:
