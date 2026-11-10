@@ -6,7 +6,7 @@ from tooling.benchmarks.merge_jvm_evidence import merge_jvm_evidence
 
 class MergeJvmEvidenceTests(unittest.TestCase):
     def setUp(self):
-        self.fixture_id = "jvm-multimodule-cfr-linux-amd64"
+        self.fixture_id = "jvm-multimodule-cfr-linux-amd64-v2"
         self.artifact_hash = "a" * 64
         self.source_paths = [
             "org/reamon/fixture/Main.java",

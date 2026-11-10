@@ -3,4 +3,4 @@ WORKDIR /build
 COPY src/ ./src/
 RUN mkdir -p /classes \
  && javac --release 17 -d /classes $(find src -name '*.java' -type f | sort) \
- && jar --create --file /fixture.jar --main-class org.reamon.fixture.Main -C /classes .
+ && jar --create --file /fixture.jar --date=2026-01-01T00:00:00Z --main-class org.reamon.fixture.Main -C /classes .

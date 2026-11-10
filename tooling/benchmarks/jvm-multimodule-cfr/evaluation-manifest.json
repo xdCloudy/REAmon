@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "fixtureId": "jvm-multimodule-cfr-linux-amd64",
+  "fixtureId": "jvm-multimodule-cfr-linux-amd64-v2",
   "metrics": {
     "recovered_source_files": {
       "direction": "higher",

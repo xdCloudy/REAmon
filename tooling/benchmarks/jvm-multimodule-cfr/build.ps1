@@ -10,9 +10,10 @@ if (Test-Path -LiteralPath $OutputDirectory) {
 }
 
 $image = 'reamon-jvm-multimodule-fixture:local'
-$expectedOutput = 'low:-15,high:42,high:22'
+$manifest = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'manifest.json') -Raw | ConvertFrom-Json
+$expectedOutput = $manifest.expectedRuntimeStdout
 $sourceFiles = @(Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot 'src') -Filter '*.java' -File -Recurse | Sort-Object FullName)
-if ($sourceFiles.Count -ne 2) { throw "Expected two independently authored Java source modules, found $($sourceFiles.Count)" }
+if ($sourceFiles.Count -ne $manifest.sourceModuleCount) { throw "Expected $($manifest.sourceModuleCount) Java source modules, found $($sourceFiles.Count)" }
 
 docker build --platform linux/amd64 -t $image $PSScriptRoot
 if ($LASTEXITCODE -ne 0) { throw 'Pinned JVM fixture image build failed' }
@@ -26,12 +27,16 @@ if ($LASTEXITCODE -ne 0 -or -not $jdkVersion) { throw 'Could not record the pinn
 $sourceHashes = [ordered]@{}
 foreach ($source in $sourceFiles) {
     $relative = $source.FullName.Substring((Join-Path $PSScriptRoot 'src').Length).TrimStart('\','/') -replace '\\','/'
-    $sourceHashes[$relative] = (Get-FileHash -LiteralPath $source.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+    $text = [System.IO.File]::ReadAllText($source.FullName).Replace("`r`n", "`n").Replace("`r", "`n")
+    $sourceBytes = [System.Text.UTF8Encoding]::new($false).GetBytes($text)
+    $sourceHashes[$relative] = [Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($sourceBytes)).ToLowerInvariant()
 }
 $artifactPath = Join-Path $OutputDirectory 'fixture.jar'
+$artifactHash = (Get-FileHash -LiteralPath $artifactPath -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($artifactHash -ne $manifest.artifact.sha256) { throw "Rebuilt JAR hash differs from the enrolled manifest: $artifactHash" }
 $receipt = [ordered]@{
     schemaVersion = 1
-    fixtureId = 'jvm-multimodule-cfr-linux-amd64'
+    fixtureId = $manifest.fixtureId
     builtAtUtc = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')
     platform = 'linux/amd64'
     architecture = 'x86_64'
@@ -42,7 +47,7 @@ $receipt = [ordered]@{
     sourceSha256ByPath = $sourceHashes
     dockerfileSha256 = (Get-FileHash -LiteralPath (Join-Path $PSScriptRoot 'Dockerfile') -Algorithm SHA256).Hash.ToLowerInvariant()
     artifactPath = 'fixture.jar'
-    artifactSha256 = (Get-FileHash -LiteralPath $artifactPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    artifactSha256 = $artifactHash
     artifactSizeBytes = (Get-Item -LiteralPath $artifactPath).Length
     sourceModuleCount = $sourceFiles.Count
     runtimeOracle = 'PASSED in pinned Docker image'

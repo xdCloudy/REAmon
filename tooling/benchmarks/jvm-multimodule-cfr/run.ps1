@@ -33,7 +33,9 @@ if ($sourceFiles.Count -ne $manifest.sourceModuleCount -or $sourceFiles.Count -e
 $sourceHashes = [ordered]@{}
 foreach ($source in $sourceFiles) {
     $relative = $source.FullName.Substring((Join-Path $fixtureRoot 'src').Length).TrimStart('\','/') -replace '\\','/'
-    $sourceHashes[$relative] = (Get-FileHash -LiteralPath $source.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+    $text = [System.IO.File]::ReadAllText($source.FullName).Replace("`r`n", "`n").Replace("`r", "`n")
+    $sourceBytes = [System.Text.UTF8Encoding]::new($false).GetBytes($text)
+    $sourceHashes[$relative] = [Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($sourceBytes)).ToLowerInvariant()
 }
 $sourcePaths = @($sourceHashes.Keys | Sort-Object)
 $receiptSourcePaths = @($buildReceipt.sourceSha256ByPath.PSObject.Properties.Name | Sort-Object)

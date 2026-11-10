@@ -1,13 +1,14 @@
 {
   "schemaVersion": 1,
-  "fixtureId": "jvm-multimodule-cfr-linux-amd64",
+  "fixtureId": "jvm-multimodule-cfr-linux-amd64-v2",
+  "fixtureVersion": 2,
   "sourceLanguage": "Java",
   "sourceModuleCount": 2,
   "sourceLicense": "MIT",
   "sourceRoot": "src",
   "artifact": {
     "path": "fixture.jar",
-    "sha256": "747346a392096bdac3613ac295ee4b8a743e22689a3738aeca1ad8ffc92fb7cf",
+    "sha256": "e4e2445cac64168e15db33ba02006f5fee4c5c8dd1e7c7ddd439dfbac3f4c4c2",
     "platform": "linux/amd64",
     "javaReleaseTarget": 17
   },

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "fixtureId": "jvm-multimodule-cfr-linux-amd64",
-  "builtAtUtc": "2026-11-09T08:17:50Z",
+  "fixtureId": "jvm-multimodule-cfr-linux-amd64-v2",
+  "builtAtUtc": "2026-11-10T09:48:39Z",
   "platform": "linux/amd64",
   "architecture": "x86_64",
   "javaReleaseTarget": 17,
@@ -12,9 +12,9 @@
     "org/reamon/fixture/Main.java": "dddbd40d6e173d0bcf6032667ffd6dcbd1acd13cfa180b14148bba20ce856360",
     "org/reamon/fixture/RuleEngine.java": "274061b5ff43133df6e1e1bd8f8d1618793f33b023b0e4cf606d6cc1793c9260"
   },
-  "dockerfileSha256": "67a27774f5fec6579470fd488d7c7b9927afca46e29b2440dddcfc15551e5c3f",
+  "dockerfileSha256": "67f9cd2343994b87e375348e74824242751b7ae798067e8a8198fcf245311739",
   "artifactPath": "fixture.jar",
-  "artifactSha256": "747346a392096bdac3613ac295ee4b8a743e22689a3738aeca1ad8ffc92fb7cf",
+  "artifactSha256": "e4e2445cac64168e15db33ba02006f5fee4c5c8dd1e7c7ddd439dfbac3f4c4c2",
   "artifactSizeBytes": 1971,
   "sourceModuleCount": 2,
   "runtimeOracle": "PASSED in pinned Docker image",
