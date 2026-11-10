@@ -88,7 +88,7 @@ The [autonomous reconstruction and fidelity delivery plan](docs/REAMON_AUTONOMOU
 
 Latest evidence-based score change (2026-11-10): **+0.08 points** (32.43% → 32.51%). The verified same-directory Go package snapshot now has returned, persisted, and reloadable inventory counts for supported private declarations, references, exported/unsupported items, file count, and rename-catalog truncation. Docker Go tests pass; focused safe-renames, draft-history, and visualizer tests pass 45/45; Docker type-check and targeted ESLint pass. This earns one partial point in the 8%-weight semantic-renaming workstream (+0.08 overall). Whole-project completeness, meaningful/unnamed classification, and naming benchmarks remain open.
 
-Refreshed from pushed commit `e9bed51`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+Refreshed from pushed commit `703ea6f`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
