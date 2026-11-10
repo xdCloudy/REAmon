@@ -78,9 +78,9 @@ The [autonomous reconstruction and fidelity delivery plan](docs/REAMON_AUTONOMOU
 
 <!-- REAMON_PRODUCT_PROGRESS_START -->
 
-<progress value="33.79" max="100">33.79%</progress> <strong>33.79%</strong> — weighted estimate **33.79%**.
+<progress value="33.87" max="100">33.87%</progress> <strong>33.87%</strong> — weighted estimate **33.87%**.
 
-Latest evidence-based score change (2026-11-10): **+0.08 points** (33.71% → 33.79%). One partial point raises Agentic project-wide semantic renaming from 32% to 33%, moving the weighted estimate from 33.71% to 33.79% (+0.08 points). A hash-pinned held-out corpus reports 108 TP, 0 FP, and 0 FN for package-level declaration identity across two Go modules and three target contexts using an independent Go AST census. Broader declaration scopes and languages remain unmeasured.
+Latest evidence-based score change (2026-11-10): **+0.08 points** (33.79% → 33.87%). One partial point moves Agentic project-wide semantic renaming from 33% to 34%, raising weighted progress from 33.79% to 33.87% (+0.08). A false-positive fix removes 22 blank identifiers from held-out inventories. Measured all-scope precision is now 100%; gorilla/mux recall remains 78.9% (419 TP, 0 FP, 112 FN), while go-isatty is 4/4. Missing methods and type members remain open.
 
 **Work completed (2026-11-10):**
 
@@ -99,10 +99,11 @@ Latest evidence-based score change (2026-11-10): **+0.08 points** (33.71% → 33
 - Progress note: the weighted score previously rose from 33.55% to 33.63% (+0.08 points) after the real-helper PostgreSQL acceptance. The later Chromium UI test passes 1/1 but stubs project APIs, so it adds UI evidence without changing the weighted score.
 - Real-helper Go package rename now passes isolated Chromium acceptance 1/1 with disposable PostgreSQL 16 and an external module in a hash-verified offline cache. The browser calls real safe-renames and draft routes; the real helper performs project inventory and rename, and both persisted drafts reload after a page refresh. Only the LLM suggestion endpoint is deterministic; no page or console errors occurred.
 - A versioned held-out Go inventory evaluation covers gorilla/mux v1.8.1 on Linux/amd64 and Windows/amd64 plus go-isatty v0.0.20 on JS/wasm. Independent Go AST declaration census: 108 TP, 0 FP, 0 FN (100% precision/recall) for package-level declaration identity; local/file-scope accuracy remains unmeasured. The full Docker Go refactor package suite passes.
+- The held-out Go census found 22 false-positive blank range identifiers. The helper now omits `_`; a targeted regression and exact pinned-corpus counts confirm the correction. Re-measurement gives 100% all-scope precision, with gorilla/mux recall at 78.9% (419 TP, 0 FP, 112 FN) and go-isatty at 100% (4/4); missing receiver methods and type members remain open.
 
-**Score decision:** Award one partial point to the 8%-weight Agentic project-wide semantic-renaming workstream (32% to 33%). The held-out package-level declaration identity check records 108 true positives, 0 false positives, and 0 misses across two pinned modules and three build contexts, moving weighted progress from 33.71% to 33.79% (+0.08 points). Broader local/file-scope accuracy, reference resolution, import renaming, and general autonomy remain open.
+**Score decision:** Award one partial point to the 8%-weight Agentic project-wide semantic-renaming workstream (33% to 34%). The held-out all-scope census drove a blank-identifier fix that removed 22 false positives, bringing measured precision to 100%; weighted progress moves from 33.79% to 33.87% (+0.08 points). gorilla/mux recall remains 78.9% because 112 method/member declarations are not inventoried, so this does not establish complete Go symbol coverage.
 
-**Next measurable gate:** Extend held-out precision/recall from package-level declarations to file-scope and local symbols plus resolved references; add more Go repositories, external imports, build contexts, and additional languages, and report false-positive/false-negative and scale limits.
+**Next measurable gate:** Inventory receiver methods and type members with explicit unsupported status until safe rename propagation supports them; add held-out identity checks for these forms, then expand across more Go modules, local/import symbols, build configurations, and languages.
 
 Refreshed from pushed commit `c44cfd7`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 
